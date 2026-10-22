@@ -204,8 +204,11 @@ runtime value (the card/desk badge, its expiry countdown and the send warnings r
   slow-changing content (who the agent is, its charter, org.md, tool guidance); fast-changing org
   state (team status, mail) goes into the turn's message instead. A change to a prefix input while
   a CLI is parked closes that CLI at its next turn (the desk's "relaunch needed" mark shows why).
-- Automatic cheap compaction before a turn that is known cold (org setting, off by default) is
-  kept, driven by the same forecast and the compaction threshold.
+- Automatic cheap compaction before a turn that is known cold is kept, driven by the same
+  forecast and compaction threshold. New organizations default On at 25%; explicit app,
+  template and org choices retain precedence, and migration 0045 preserves existing orgs'
+  effective policy ([signed decision, user 2026-10-20 12:24Z](DECISIONS.md)). This supersedes
+  the earlier Off-by-default rule.
 
 Usage limits: a turn that ends on a provider usage limit freezes the agent until the stated reset
 (plus a 60 s grace), marks the account limited until then, and — with the org's auto-resume on —

@@ -1,7 +1,9 @@
 // Proof: the default threshold of "reset a session before a known-cold turn"
 //   (auto_cheap_compact.occ) is 25% (user 2026-10-08 22:05Z; 3.x used 50%).
 //   The rig org has no setting of its own (none is stored at creation): its
-//   settings report {enabled: false, occ: 0.25}, and so do the app defaults.
+//   settings report {enabled: true, occ: 0.25}, and so do the app defaults
+//   (signed new-org default, user 2026-10-20 12:24Z; migration 0045 preserves
+//   existing org choices, covered separately by cheap-defaults.mjs).
 //   ivy and jon (haiku) switch the reset on with an override that names only
 //   `enabled`, and inherit the occupancy, 0.25. Each has a session and a cache
 //   receipt two hours old (cold), with 30% (ivy) and 20% (jon) of the context
@@ -10,8 +12,8 @@
 //   An org occupancy of 40% then reaches ivy's override (3.x merged an
 //   override key by key over the org's setting).
 //   With --ui, a second org with no setting: its Org settings panel saved
-//   untouched stores the reset explicitly ({enabled: false, occ: 0.25}), and
-//   switched on it shows 25%.
+//   untouched stores the reset explicitly ({enabled: true, occ: 0.25}). The
+//   driver checks initial ON/25%, OFF with the occupancy hidden, then ON/25%.
 // Run: node tools/rig/rig.mjs run tools/rig/proofs/cold-reset-default.mjs [--ui <bundle>]
 
 import path from 'node:path'
@@ -40,9 +42,9 @@ export default async function (rig) {
   const s0 = stored(rig.org)
   p.check('the rig org stores no reset setting of its own (creation writes only its folders)', s0 && s0.has === false, s0)
   const h0 = await header(rig.org)
-  p.check('its settings report the default: {enabled: false, occ: 0.25}', same(h0, { enabled: false, occ: 0.25 }), h0)
+  p.check('its settings report the signed new-org default: {enabled: true, occ: 0.25}', same(h0, { enabled: true, occ: 0.25 }), h0)
   const d0 = (await rig.api('GET', '/api/defaults'))?.auto_cheap_compact
-  p.check('the app defaults report occ 0.25 too', d0?.occ === 0.25, d0)
+  p.check('the fresh app defaults report ON at occ 0.25 too', same(d0, { enabled: true, occ: 0.25 }), d0)
 
   // ---- two agents switch it on, naming only `enabled`
   await rig.op({ op: 'hire', name: 'ivy', parent: 'boss', tier: 'haiku', title: 'Cold subject' })
@@ -102,7 +104,9 @@ export default async function (rig) {
     p.check('the desk script ran', r.ok, r.ok ? undefined : r)
     const f1 = stored(fresh)
     p.check('a fresh org\'s Org settings panel saved untouched stores the reset explicitly, at the default',
-      f0?.has === false && f1?.has === true && same(f1.acc, { enabled: false, occ: 0.25 }), { before: f0, after: f1 })
+      f0?.has === false && f1?.has === true && same(f1.acc, { enabled: true, occ: 0.25 }), { before: f0, after: f1 })
+    p.check('the reopened panel starts ON at 25%', r.value?.before?.on === true && r.value?.before?.occ === '25', r.value?.before)
+    p.check('explicit OFF hides the occupancy field', r.value?.off?.on === false && r.value?.off?.occ === null, r.value?.off)
     p.check('switched on, the panel shows 25%', r.value?.shown === '25', r.value)
   } else {
     p.note('no --ui bundle: the Org settings panel checks were skipped')

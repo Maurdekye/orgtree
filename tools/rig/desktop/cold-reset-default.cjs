@@ -1,7 +1,8 @@
 // cold-reset-default.mjs's desk stage, on an org with no reset setting of its
 // own. The Org settings panel is opened from the eye's context menu and saved
-// untouched. Then it is opened again, the reset switched on, and the
-// occupancy it shows is read before cancelling. Reports what it saw; the
+// untouched. Then it is opened again at the signed ON/25% default, switched
+// OFF (occupancy hidden), then ON; its occupancy is read before cancelling.
+// Reports what it saw; the
 // proof decides what passes.
 module.exports = async (page) => {
   await page.waitFor('.sq.user')
@@ -23,10 +24,19 @@ module.exports = async (page) => {
     on: document.querySelector('input[role="switch"][aria-label="reset a session before a known-cold turn"]')?.checked ?? null,
     occ: document.querySelector('input[aria-label="cheap compaction context occupancy percent"]')?.value ?? null,
   }))
+  // Exercise both explicit choices: a blind initial toggle now turns the
+  // signed ON default OFF and would wait forever for its hidden field.
+  await page.click('input[role="switch"][aria-label="reset a session before a known-cold turn"]')
+  await page.waitFor(() => !document.querySelector('input[aria-label="cheap compaction context occupancy percent"]'))
+  const off = await page.eval(() => ({
+    on: document.querySelector('input[role="switch"][aria-label="reset a session before a known-cold turn"]')?.checked ?? null,
+    occ: document.querySelector('input[aria-label="cheap compaction context occupancy percent"]')?.value ?? null,
+  }))
+  await page.screenshot('reset-off')
   await page.click('input[role="switch"][aria-label="reset a session before a known-cold turn"]')
   await page.waitFor('input[aria-label="cheap compaction context occupancy percent"]')
   const shown = await page.eval(() => document.querySelector('input[aria-label="cheap compaction context occupancy percent"]')?.value ?? null)
   await page.screenshot('reset-on')
   await page.click({ selector: 'button', text: 'cancel', scroll: true })
-  return { before, shown }
+  return { before, off, shown }
 }
