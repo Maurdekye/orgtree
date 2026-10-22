@@ -18,6 +18,9 @@ The user, every agent **above** the project and every agent **below** it reach i
 
 ## Reporting and credits
 
+The above/below reach check follows all nested project levels, without a fixed
+depth cutoff. Unrelated branches and the project itself do not gain reach.
+
 The agents under a project **report to the nearest agent above it**: that is "your superior" in their instructions, where their status notices and command-chain mail go. Ordinary peer mail uses the physical parent and the audience rules below. Agents under a top-level project are top-level agents. Credits are transparent too: the agent above the project pays for every agent under it, so only an agent above a project can hire under it. See [orgtree-credits](../credits/SKILL.md).
 
 ## Peer mail among direct members

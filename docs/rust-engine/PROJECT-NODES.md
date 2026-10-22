@@ -14,6 +14,12 @@ Source: `engine/rs/orgtree-engine/src/domain/projects.rs:43`, `:64`, `:90`,
 
 ## Placement and runtime capabilities
 
+Project operational reach follows the complete same-org ancestor paths in either
+direction. Stable-row UNION terminates corrupt cycles without a depth cutoff;
+self, unrelated branches and cross-org edges still grant no reach. This shared
+check covers broadcast, events, listeners, queues and slots at deeply nested
+projects. [verified: `domain/projects.rs::reaches`, 2026-10-22]
+
 Movement, sibling reorder, rename, superior insertion and retirement operate on
 node identities. `self_subjugate` can promote a live descendant project into the
 caller's structural position: the project keeps its policy and resources, its

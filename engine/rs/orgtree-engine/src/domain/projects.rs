@@ -157,13 +157,13 @@ pub async fn reaches(client: &impl GenericClient, agent: i64, project: i64) -> R
     Ok(client
         .query_one(
             "WITH RECURSIVE
-               a(id, parent_id, depth) AS (
-                 SELECT id, parent_id, 0 FROM ot.agents WHERE id = $1
-                 UNION ALL SELECT x.id, x.parent_id, a.depth + 1 FROM ot.agents x JOIN a ON x.id = a.parent_id WHERE a.depth < 1024),
-               p(id, parent_id, depth) AS (
-                 SELECT id, parent_id, 0 FROM ot.agents WHERE id = $2
-                 UNION ALL SELECT x.id, x.parent_id, p.depth + 1 FROM ot.agents x JOIN p ON x.id = p.parent_id WHERE p.depth < 1024)
-             SELECT EXISTS (SELECT 1 FROM a WHERE id = $2 AND depth > 0) OR EXISTS (SELECT 1 FROM p WHERE id = $1 AND depth > 0)",
+               a(id, parent_id, org_id) AS (
+                 SELECT id, parent_id, org_id FROM ot.agents WHERE id = $1
+                 UNION SELECT x.id, x.parent_id, x.org_id FROM ot.agents x JOIN a ON x.id = a.parent_id AND x.org_id = a.org_id),
+               p(id, parent_id, org_id) AS (
+                 SELECT id, parent_id, org_id FROM ot.agents WHERE id = $2
+                 UNION SELECT x.id, x.parent_id, x.org_id FROM ot.agents x JOIN p ON x.id = p.parent_id AND x.org_id = p.org_id)
+             SELECT EXISTS (SELECT 1 FROM a WHERE id = $2 AND id <> $1) OR EXISTS (SELECT 1 FROM p WHERE id = $1 AND id <> $2)",
             &[&agent, &project],
         )
         .await?
