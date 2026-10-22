@@ -16,6 +16,9 @@
 // live data is touched.
 //   A  signed out: the boot host runs the engine itself (Session 0).
 //   B  signing in alone moves nothing (Run as admin off: decision 84).
+//   C0 the attempt record cannot be written (held open without delete
+//      sharing): the launcher ends without asking the Session 0 engine for
+//      admission or stopping it.
 //   C  a restart while signed in (the desktop's ask, then the task): the
 //      launcher takes the handover lock and native admission, the Session 0
 //      engine stops gracefully (its agent's CLI ended by the engine), the new
@@ -35,7 +38,7 @@
 //      user-session engine with it.
 // A `recover` run: a safe-start engine otherwise holds back its restart path.
 // Run: node tools/rig/rig.mjs run tools/rig/proofs/session0-handover.mjs
-// SESSION0_PROOF_PART=1 runs A B C D F G, =2 runs A B E H (each fits a
+// SESSION0_PROOF_PART=1 runs A B C0 C D F G, =2 runs A B E H (each fits a
 // 10-minute command limit; E waits out the real 120 s backstop); unset, all.
 
 import { spawn, spawnSync } from 'node:child_process'
@@ -165,6 +168,32 @@ export default async function (rig) {
 
     let e = null
     if (ONE) {
+    // ------------------------------------------------------------ C0: no record, no handover
+    // core-handover.json held open without delete sharing, as a reader may
+    // hold it: the launcher cannot record its attempt, so it must neither ask
+    // the Session 0 engine for admission nor stop it
+    const recordFile = path.join(data, 'core-handover.json')
+    fs.writeFileSync(recordFile, '{}')
+    const quoted = recordFile.replace(/'/g, "''")
+    const holder = track(spawn('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command',
+      `$f = [System.IO.File]::Open('${quoted}', 'Open', 'Read', 'Read'); [Console]::Out.WriteLine('held'); [Console]::In.ReadLine() | Out-Null; $f.Close()`],
+      { stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true }), 'record-holder')
+    const held = await within(new Promise(resolve => holder.child.stdout.on('data', chunk => { if (String(chunk).includes('held')) resolve(true) })), 30000)
+    logFrom = size(bootLogFile)
+    const engineFrom = rig.engineLog().length
+    ask(true)
+    const l0 = startLauncher('launcher-C0')
+    const exitL0 = await within(l0.exited, 60000)
+    const still = await serving()
+    holder.child.stdin.end()
+    await within(holder.exited, 10000)
+    fs.rmSync(recordFile, { force: true })
+    const logC0 = after(bootLogFile, logFrom)
+    p.check('C0: the record held open (no delete sharing)', held === true)
+    p.check('C0: unable to record its attempt, the launcher ends without a handover', !!exitL0 && exitL0.code !== 0 && /could not record the attempt/.test(logC0), { exit: exitL0, log: logC0.slice(-400) })
+    p.check('C0: the Session 0 engine still serves: no admission, no stop', still?.enginePid === a.enginePid && alive(a.enginePid)
+      && !/handing over the engine/.test(logC0) && !/shutdown requested by the desktop/.test(rig.engineLog().slice(engineFrom)), { enginePid: still?.enginePid })
+
     // ------------------------------------------------------------ C: restart while signed in
     const s0 = at(a)
     const turnsBefore = rig.turns(AGENT).length
