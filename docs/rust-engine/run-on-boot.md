@@ -328,7 +328,15 @@ Recorded with them:
   "Orgtree User Session Engine" task, `orgtree-engine session-launch`, the
   helper's `session-engine` and the boot supervisor. An update stops that
   task with the boot tree and deletes it, only when it is the installer's
-  own; uninstall deletes a leftover too.
+  own; uninstall deletes a leftover too. An installed build that cannot
+  read its tasks (a Task Scheduler, COM or PowerShell failure, or output it
+  cannot parse) starts no engine of its own. A first start, a restart or a
+  recovery then refuses, before anything is stopped: "Orgtree could not read
+  its background engine task, so it started no engine. Use Start engine in
+  the tray to try again." The engine shows as unavailable with that reason,
+  and the tray offers Start engine (`sessionlaunch.ts` `route`, `'unknown'`;
+  rig-sol-b's finding on a1f6c43). Only a task read as absent (a per-user
+  installation) or a development build keeps the desktop's own engine.
 - **2.** The "Orgtree Credential Helper" task (interactive token) starts the
   helper at sign-in while Run on boot is on; it stays enabled for runs on
   demand. The helper outlives an engine restart: every 5 s it attaches to
@@ -340,7 +348,11 @@ Recorded with them:
   starts at once when the user is signed out or the agent chose Session 0
   itself. Running out of the grace is logged once per stretch without a
   helper: `the sign-in helper did not connect in time while the user is
-  signed in; turns start in Session 0 until it does`. A turn that waited and
+  signed in; turns start in Session 0 until it does`. That holds also when
+  the grace ran out before the stretch's first turn arrived: that turn
+  starts at once in Session 0 and logs it
+  (`session_host::falls_back_for_want_of_helper`, one decision for both
+  paths; rig-sol-b's finding on a1f6c43). A turn that waited and
   got the helper logs `the turn waited for the sign-in helper, which
   connected` with the wait.
 - **4.** Unchanged (decision 85): the hosted CLIs end with the session and
@@ -397,7 +409,11 @@ change refreshes the agent's tree record. An engine that is not in Session 0
 
 **Kept from decision 93:** each engine the boot host starts gets its own
 readiness window (`host.rs` `Handshake`); the database never runs as
-administrator; and the engine's pipes stay its user's, both below. Gone with
+administrator; and the engine's pipes stay its user's, both below. The core
+monitor still restores its state after a refused or unwritten command
+(`core_monitor.rs` `keep_or_restore`): the revert had dropped that, so a
+failed write left a refused Member or Transition for a later tick to
+persist (rig-sol-b's finding on a1f6c43). Gone with
 the handover: its journal (`core-handover.json`, `core-handover.lock`,
 `session-launch-request.json`), the boot supervisor's loss memory and its
 `boot-host.lock`. An update leaves such files from an earlier alpha in the

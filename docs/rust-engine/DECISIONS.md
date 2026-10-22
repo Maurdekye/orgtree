@@ -1813,10 +1813,12 @@ All entries are dated 2026-10-06 unless stated otherwise.
       sentence has nothing to apply to.
     - **Restarts, updates, recovery:** always the S4U boot task, also with Run on boot off (Q4);
       the boot host runs one engine again, as before decision 93. An update deletes the
-      installer's own leftover "Orgtree User Session Engine" task and never registers it.
+      installer's own leftover "Orgtree User Session Engine" task and never registers it. An
+      installed build that cannot read its tasks refuses, with Start engine in the tray, rather
+      than start an engine of its own in the user's session.
     - **Turn start (3, 5):** every turn waits for the helper while the user is signed in (or that
       is unread) and none hosts, up to 60 s after the engine's start or a helper's last hosting;
-      running out is logged once per stretch.
+      running out is logged once per stretch, also when it ran out before the first turn came.
     - **Notices (6):** a helper that comes or goes within the engine's 60 s startup grace is part
       of its restart, with no notice; a helper that stops while the user is still signed in is
       told as such, not as a sign-out.
