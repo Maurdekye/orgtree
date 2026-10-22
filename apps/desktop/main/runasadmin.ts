@@ -34,7 +34,12 @@ export const POWERSHELL = `${process.env.SystemRoot || 'C:\\Windows'}\\System32\
 
 /** Where an elevated script leaves its failure message for the launcher: the
  *  hidden elevated PowerShell's own output never reaches the launcher, which
- *  gets only its exit code. `key` is in `hive`, and `nonce` is this change's. */
+ *  gets only its exit code. `key` is in `hive`, and `nonce` is this change's.
+ *  For the installation that is the protected Runtime key (SYSTEM and
+ *  Administrators write it, users only read it), never a file: an elevated
+ *  write to a path the user can write could be redirected by a link an agent
+ *  planted there. The nonce keeps an earlier change's message from being
+ *  shown as this one's. */
 export interface FailureReport { hive: 'LocalMachine' | 'CurrentUser'; key: string; nonce: string }
 export const FAILURE_VALUE = 'LastChangeFailure'
 /** The launcher's output line that carries the message, base64 UTF-8. */
@@ -43,6 +48,31 @@ export const FAILURE_MARKER = 'ORGTREE-ELEVATED-FAILURE '
 /** The report place for one change, with a nonce of its own. */
 export function failureReport(hive: FailureReport['hive'] = 'LocalMachine', key: string = RUN_AS_ADMIN_KEY): FailureReport {
   return { hive, key, nonce: randomBytes(16).toString('hex') }
+}
+
+const psQuote = (s: string) => `'${s.replace(/'/g, "''")}'`
+
+/** PowerShell for an elevated script's catch block, after its rollback, with
+ *  the script's own `$hive`: leave "<nonce> <message>" for the launcher,
+ *  followed by what the rollback could not restore (`$notes`). It never
+ *  throws, so the script still ends with the change's own failure. */
+export function reportFailureLines(report: FailureReport): string[] {
+  return [
+    '  try {',
+    '    $reportAcl = [Security.AccessControl.RegistrySecurity]::new()',
+    `    $reportAcl.SetSecurityDescriptorSddlForm('${PROTECTED_KEY_SDDL}')`,
+    `    $reportKey = $hive.CreateSubKey(${psQuote(report.key)}, [Microsoft.Win32.RegistryKeyPermissionCheck]::ReadWriteSubTree, $reportAcl)`,
+    `    try { $reportKey.SetValue('${FAILURE_VALUE}', ('${report.nonce} ' + ((@([string]$failure.Exception.Message) + $notes) -join '; ')), [Microsoft.Win32.RegistryValueKind]::String) } finally { $reportKey.Dispose() }`,
+    '  } catch {}',
+  ]
+}
+
+/** PowerShell for the end of a change that succeeded: an earlier change's
+ *  failure message no longer stands. It never throws. */
+export function clearFailureLines(report: FailureReport): string[] {
+  return [
+    `    try { $reportKey = $hive.OpenSubKey(${psQuote(report.key)}, $true); if ($reportKey) { try { $reportKey.DeleteValue('${FAILURE_VALUE}', $false) } finally { $reportKey.Dispose() } } } catch {}`,
+  ]
 }
 
 export interface RunResult { code: number; stdout: string; stderr: string }
@@ -104,7 +134,7 @@ export function elevatedWriteScript(enabled: boolean, report?: FailureReport): s
     "$ErrorActionPreference = 'Stop'",
     ...OPERATOR_FUNCTIONS,
     "$hive = [Microsoft.Win32.RegistryKey]::OpenBaseKey('LocalMachine', 'Registry64')",
-    '$updated = @(); $originalXml = @{}; $logons = @{}',
+    '$updated = @(); $originalXml = @{}; $logons = @{}; $notes = @()',
     'try {',
     "  $record = $hive.OpenSubKey('SOFTWARE\\Orgtree\\BootEngine')",
     '  if ($null -ne $record) {',
@@ -149,10 +179,12 @@ export function elevatedWriteScript(enabled: boolean, report?: FailureReport): s
     // An existing key keeps whatever ACL it had unless it is set again.
     '    $key.SetAccessControl($acl)',
     `    $key.SetValue('${RUN_AS_ADMIN_VALUE}', ${enabled ? 1 : 0}, [Microsoft.Win32.RegistryValueKind]::DWord)`,
+    ...(report ? clearFailureLines(report) : []),
     '  } finally { $key.Dispose() }',
     '} catch {',
     '  $failure = $_',
-    '  foreach ($name in $updated) { try { $null = $folder.RegisterTask($name, $originalXml[$name], 20, $sid, $null, $logons[$name], "O:BAG:BAD:P(A;;GA;;;SY)(A;;GA;;;BA)(A;;GRGX;;;$sid)") } catch { Write-Warning "Could not restore task $name after failed change: $_" } }',
+    '  foreach ($name in $updated) { try { $null = $folder.RegisterTask($name, $originalXml[$name], 20, $sid, $null, $logons[$name], "O:BAG:BAD:P(A;;GA;;;SY)(A;;GA;;;BA)(A;;GRGX;;;$sid)") } catch { $notes += "the task $name could not be restored: $($_.Exception.Message)"; Write-Warning "Could not restore task $name after failed change: $_" } }',
+    ...(report ? reportFailureLines(report) : []),
     '  throw $failure',
     '} finally { $hive.Dispose() }',
   ].join('\n')
@@ -167,19 +199,30 @@ export function elevationArgs(enabled: boolean, report?: FailureReport): string[
 
 /** The NON-elevated command that asks Windows (UAC) to run `script` in an
  *  elevated, hidden PowerShell, waits for it and returns its exit code; a
- *  declined prompt exits UAC_CANCELLED. */
+ *  declined prompt exits UAC_CANCELLED. With a `report`, a failed script's
+ *  own message for this change follows on a FAILURE_MARKER line. */
 export function elevatedArgs(script: string, report?: FailureReport): string[] {
   const encoded = Buffer.from(script, 'utf16le').toString('base64')
   const launcher = [
     'try {',
     `  $p = Start-Process -FilePath '${POWERSHELL}' -Verb RunAs -WindowStyle Hidden -Wait -PassThru -ArgumentList '-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-EncodedCommand','${encoded}'`,
-    '  exit $p.ExitCode',
+    '  $code = $p.ExitCode',
     '} catch {',
     '  $e = $_.Exception',
     '  while ($e -and -not ($e -is [ComponentModel.Win32Exception])) { $e = $e.InnerException }',
     `  if ($e -and $e.NativeErrorCode -eq ${UAC_CANCELLED}) { exit ${UAC_CANCELLED} }`,
     '  exit 2',
     '}',
+    ...(report ? [
+      'if ($code -ne 0) {',
+      '  try {',
+      `    $failureHive = [Microsoft.Win32.RegistryKey]::OpenBaseKey('${report.hive}', 'Registry64')`,
+      `    try { $failureKey = $failureHive.OpenSubKey(${psQuote(report.key)}); if ($failureKey) { try { $said = [string]$failureKey.GetValue('${FAILURE_VALUE}') } finally { $failureKey.Dispose() } } } finally { $failureHive.Dispose() }`,
+      `    if ($said -and $said.StartsWith('${report.nonce} ', [StringComparison]::Ordinal)) { [Console]::Out.WriteLine('${FAILURE_MARKER}' + [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($said.Substring(${report.nonce.length + 1})))) }`,
+      '  } catch {}',
+      '}',
+    ] : []),
+    'exit $code',
   ].join('\n')
   return ['-NoProfile', '-NonInteractive', '-Command', launcher]
 }
@@ -187,13 +230,19 @@ export function elevatedArgs(script: string, report?: FailureReport): string[] {
 /** The elevated script's own failure message, from the launcher's output, or
  *  null when it left none for this change. */
 export function elevatedFailure(stdout: string): string | null {
-  return null
+  const line = stdout.split(/\r?\n/).find(l => l.startsWith(FAILURE_MARKER))
+  if (!line) return null
+  const said = Buffer.from(line.slice(FAILURE_MARKER.length).trim(), 'base64').toString('utf8').replace(/\s+/g, ' ').trim()
+  if (!said) return null
+  return said.length > 400 ? `${said.slice(0, 399)}…` : said
 }
 
 /** "<what> failed: <the elevated script's own message>.", or the exit code
  *  when it left none. */
 export function elevatedFailureMessage(what: string, result: RunResult): string {
-  return `${what} (exit code ${result.code}).`
+  const said = elevatedFailure(result.stdout)
+  if (!said) return `${what} (exit code ${result.code}).`
+  return `${what}: ${said}${/[.!?…]$/.test(said) ? '' : '.'}`
 }
 
 export async function writeRunAsAdministrator(enabled: boolean, runner: Runner = run): Promise<void> {

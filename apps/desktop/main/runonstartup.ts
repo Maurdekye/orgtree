@@ -1,5 +1,5 @@
-import { HELPER_TASK, OPERATOR_FUNCTIONS, POWERSHELL, RUN_AS_ADMIN_KEY, UAC_CANCELLED, elevatedArgs, elevatedFailureMessage, failureReport, run,
-  startTask, type FailureReport, type Runner } from './runasadmin'
+import { HELPER_TASK, OPERATOR_FUNCTIONS, POWERSHELL, RUN_AS_ADMIN_KEY, UAC_CANCELLED, clearFailureLines, elevatedArgs, elevatedFailureMessage,
+  failureReport, reportFailureLines, run, startTask, type FailureReport, type Runner } from './runasadmin'
 
 /** "Run on boot" on an all-users Windows installation (docket
  *  option-to-run-the-background-engine-in-the-user-s; the user, 2026-10-16
@@ -98,7 +98,7 @@ export function elevatedStartupScript(enabled: boolean, target: StartupTarget = 
     "$ErrorActionPreference = 'Stop'",
     ...OPERATOR_FUNCTIONS,
     `$hive = [Microsoft.Win32.RegistryKey]::OpenBaseKey('${target.hive}', 'Registry64')`,
-    '$updated = @(); $originalXml = @{}; $logons = @{}',
+    '$updated = @(); $originalXml = @{}; $logons = @{}; $notes = @()',
     'try {',
     `  $key = $hive.OpenSubKey(${psQuote(target.key)}, $true)`,
     "  if ($null -eq $key) { throw 'This installation has no startup tasks of its own.' }",
@@ -131,10 +131,12 @@ export function elevatedStartupScript(enabled: boolean, target: StartupTarget = 
     '      $updated += $name',
     '    }',
     `    $key.SetValue('RunOnStartup', ${enabled ? 1 : 0}, [Microsoft.Win32.RegistryValueKind]::DWord)`,
+    ...(report ? clearFailureLines(report) : []),
     '  } finally { $key.Dispose() }',
     '} catch {',
     '  $failure = $_',
-    '  foreach ($name in $updated) { try { $null = $folder.RegisterTask($name, $originalXml[$name], 20, $sid, $null, $logons[$name], "O:BAG:BAD:P(A;;GA;;;SY)(A;;GA;;;BA)(A;;GRGX;;;$sid)") } catch { Write-Warning "Could not restore task $name after failed change: $_" } }',
+    '  foreach ($name in $updated) { try { $null = $folder.RegisterTask($name, $originalXml[$name], 20, $sid, $null, $logons[$name], "O:BAG:BAD:P(A;;GA;;;SY)(A;;GA;;;BA)(A;;GRGX;;;$sid)") } catch { $notes += "the task $name could not be restored: $($_.Exception.Message)"; Write-Warning "Could not restore task $name after failed change: $_" } }',
+    ...(report ? reportFailureLines(report) : []),
     '  throw $failure',
     '} finally { $hive.Dispose() }',
   ].join('\n')
