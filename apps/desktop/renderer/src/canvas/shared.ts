@@ -3351,6 +3351,10 @@ export function revealFileFromEvent(e: {
   const a = (e.target as Element | null)?.closest?.('a[data-local-path]')
   if (!a) return false
   e.preventDefault?.()
+  // Tool rows retain unresolved identities for copying, but never treat a
+  // failed/pending status (or a relative path without cwd) as an openable file.
+  const state = a.getAttribute('data-local-file-state')
+  if (a.getAttribute('data-local-relative') === 'true' || (state && state !== 'present')) return true
   const path = a.getAttribute('data-local-path')
   // no bridge (browser, or a portal that never received one) → nothing
   // happens, rather than a thrown error taking the click handler down

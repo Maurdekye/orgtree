@@ -41,7 +41,7 @@ import { ReplyPreview, ReplySourceProvider } from './replypreview'
 import { indexReplySources, ReplySourceContent } from './replysource'
 import { CopyFeedback, copyToClipboard, openFallbackObjectMenu, useContextMenu, useCopyFeedback } from './contextmenu'
 import { desktop } from '../desktop'
-import { localFileTitle } from './localfile'
+import { ToolFilePath } from './toolfilepath'
 import { EFFORT_CHANGE_HELP, effortChangeToast, EffortLevelBadge, QueuedEffortBadge, useOrgDefaultEffort } from './effort'
 import { EffortBar } from './effortbar'
 import { tierEffortLevels } from './staffingoptions'
@@ -5211,13 +5211,10 @@ export function ToolChip({ t, slug, nid, onMailLink, onWorkLink, onOpenDoc }: To
             : <DotIcon fontSize="inherit" className="tooldot" />}
         {' '}{shortTool(t.name)}
         {toolArg ? <span className="targ"> {toolArg}</span> : null}
-        {t.file_paths?.map((file, i) => file.link
-          ? <Fragment key={`${file.path}-${i}`}>{' '}<a className="local-file tool-file-link" href="#"
-              data-local-path={file.path} title={`Show in folder — ${file.path}`}
-              onClick={e => e.stopPropagation()}
-              onContextMenu={e => { fileMenu.open(e, [], e.currentTarget) }}
-              >{file.path.split(/[\\/]/).filter(Boolean).at(-1) || file.path}</a></Fragment>
-          : <span key={`${file.path}-${i}`} className="tool-file-path"> {file.path}</span>)}
+        {t.file_paths?.map((file, i) => <Fragment key={`${file.path}-${i}`}>{' '}
+          <ToolFilePath path={file.path} link={file.link} completed={t.ended_at}
+            onContextMenu={e => { fileMenu.open(e, [], e.currentTarget) }} />
+        </Fragment>)}
         {t.diff && <span className="tdiffn"> +{t.diff.plus} −{t.diff.minus}</span>}
         {t.task && (
           <span className="dim"> · {t.task.tools ?? '?'} tools

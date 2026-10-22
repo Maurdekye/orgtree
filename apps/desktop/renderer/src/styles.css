@@ -6397,6 +6397,9 @@ svg.MuiSvgIcon-root {
 .tchip .tline.click { cursor: pointer; }
 .tchip .tline.click:hover { color: var(--ink-strong); }
 .tchip .targ { color: var(--ink); }
+.tchip .tool-file-link { overflow-wrap: anywhere; }
+.tchip .tool-file-link .tool-file-directory { color: var(--dim); }
+.tchip .tool-file-link[aria-disabled="true"] { cursor: default; }
 .tchip .tdiffn { color: var(--ok); font-family: var(--mono); }
 .tchip.terr .tooldot { color: var(--bad); }
 .terrtxt { color: var(--bad); }
