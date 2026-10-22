@@ -525,6 +525,17 @@ mod watchdog_configure_tests {
     use super::*;
 
     #[test]
+    fn connection_messages_configure_accepts_all_three_modes() {
+        for mode in ["notice", "wake", "off"] {
+            assert!(watchdog_configure_args(&json!({"id":"owner/dog","connection_messages":mode})).is_ok());
+        }
+        for value in [Value::Null, json!(true), json!(0), json!("silent"), json!([])] {
+            assert!(watchdog_configure_args(&json!({"id":"dog","connection_messages":value})).is_err());
+        }
+        assert!(watchdog_configure_args(&json!({"id":"dog","connection_messages":"notice","notify_on_connect":false})).is_err());
+    }
+
+    #[test]
     fn watchdog_configure_accepts_true_false_and_qualified_handles() {
         for enabled in [true, false] {
             let args = json!({"id":" owner/dog ", "notify_on_connect":enabled});

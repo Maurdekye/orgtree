@@ -5,6 +5,31 @@ use serde_json::{json, Map, Value};
 
 use crate::domain::tree::ts;
 
+#[cfg(test)]
+mod connection_messages_tests {
+    use super::*;
+
+    #[test]
+    fn legacy_network_dogs_default_to_passive_connection_messages() {
+        for kind in ["mqtt", "websocket"] {
+            for legacy in [Value::Null, json!(false), json!(true)] {
+                let raw = json!({"kind":kind,"memo":{"websocket":{"notify_on_connect":legacy}}});
+                assert_eq!(view(&raw,"boss")["connection_messages"], "notice");
+            }
+        }
+        assert!(view(&json!({"kind":"file"}),"boss").get("connection_messages").is_none());
+    }
+
+    #[test]
+    fn explicit_network_connection_modes_survive_inventory_rendering() {
+        for kind in ["mqtt", "websocket"] {
+            for mode in ["notice", "wake", "off"] {
+                assert_eq!(view(&json!({"kind":kind,"memo":{"connection_messages":mode}}),"boss")["connection_messages"], mode);
+            }
+        }
+    }
+}
+
 /// The desktop's handle for a dog: `owner/id`. A dog's id is unique only
 /// among its owner's dogs (D67), so the canvas, sparks and the user's
 /// pause/resume/remove need the owner too; `act` takes this form back.
