@@ -23,7 +23,7 @@ if (process.argv.includes('--capture')) {
 }
 export async function setup() {
   return { recover: true, maxParked: 1, fixture: { org: { name: `Synthetic depth ${depth}` },
-    agents: [{ name: 'boss', tier: 'sol', grant: 200 }] } }
+    agents: [{ name: 'boss', tier: 'sol', grant: 200, team_charter: 'DEPTH_ROOT_TEAM_CHARTER_MUST_SURVIVE' }] } }
 }
 
 export default async function (rig) {
@@ -109,6 +109,19 @@ export default async function (rig) {
       { count: chainRows.length, expected: depth + 2, first: chainRows[0], root: boss, source: 'domain/ops.rs::chain query only; per-row locks not replayed' })
     const superior = rig.one(`SELECT ot.superior_of(${row('leaf').id}) AS ordinary,ot.live_superior_of(${row('leaf').id}) AS live`)
     record('transparent projects resolve the actual agent superior', superior.ordinary === boss && superior.live === boss, superior)
+    const launchSource=fs.readFileSync(path.join(import.meta.dirname,'../../../engine/rs/orgtree-engine/src/runtime/actor.rs'),'utf8')
+    const launchSql=launchSource.match(/"(WITH RECURSIVE chain\(id, parent_id, scope,[\s\S]*?)"/)
+    if(!launchSql)throw Error('Launch ancestry measurement seam changed')
+    const launch=rig.sql(launchSql[1].replaceAll('$1',String(row('leaf').id)))
+    p.file('source-launch-chain.json',launch)
+    record('runtime launch scope and charter query includes every ancestor',launch.length===depth+2&&launch[0]?.name==='boss',
+      {got:launch.length,expected:depth+2,first:launch[0]?.name,source:'runtime/actor.rs query executed without a provider'})
+    const teamSource=fs.readFileSync(path.join(import.meta.dirname,'../../../engine/rs/orgtree-engine/src/domain/teams.rs'),'utf8')
+    const teamSql=teamSource.match(/"(WITH RECURSIVE chain\(id, parent_id,[\s\S]*?)"/)
+    if(!teamSql)throw Error('Held workspace measurement seam changed')
+    const heldRows=rig.sql(teamSql[1].replaceAll('$1',String(row('leaf').id)))
+    record('held workspace query includes the outer superior folder',heldRows.length===depth+2&&heldRows.at(-1)?.id===boss,
+      {got:heldRows.length,expected:depth+2,last:heldRows.at(-1)?.id,source:'domain/teams.rs query only'})
     const toolsSource = fs.readFileSync(path.join(import.meta.dirname, '../../../engine/rs/orgtree-engine/src/tools/mod.rs'), 'utf8')
     const descendantSql = toolsSource.slice(toolsSource.indexOf('pub async fn is_descendant(')).match(/"(WITH RECURSIVE[\s\S]*?)"/)
     if (!descendantSql) throw Error('Descendant query seam changed; recheck instrument')
@@ -193,6 +206,7 @@ export default async function (rig) {
     }
     record('real fake-CLI prompt names boss as superior', (generated + prompt).includes('direct superior (boss)')
       && prompt.includes('FROM boss (your superior)'), { bytes: prompt.length })
+    record('real fake-CLI prompt retains the outer team charter',(generated+prompt).includes('DEPTH_ROOT_TEAM_CHARTER_MUST_SURVIVE'))
     phase = 'descendant halt/unhalt and interruption'
     const denied = await tool('outsider', 'orgtree_halt', { node: 'leaf' })
     record('unrelated agent cannot halt deepest node', !denied.ok && !row('leaf').halt, denied.text)
@@ -218,6 +232,10 @@ export default async function (rig) {
     const broadcast = await tool('boss', 'orgtree_project', { action: 'broadcast', name: last, body: `DEPTH-${depth}-BROADCAST`, notice: true })
     const recipients = rig.sql(`SELECT recipient_name FROM ot.mail WHERE org_id=${org} AND body='DEPTH-${depth}-BROADCAST' ORDER BY recipient_name`).map(r => r.recipient_name)
     record('deep broadcast reaches exact direct members', broadcast.ok && recipients.join(',') === 'leaf,victim,waiter,worker', { result: broadcast.text, recipients })
+    const rootBroadcast=await tool('boss','orgtree_project',{action:'broadcast',name:'p-0',body:`DEPTH-${depth}-ROOT-BROADCAST`,notice:true})
+    const rootRecipients=rig.sql(`SELECT recipient_name FROM ot.mail WHERE org_id=${org} AND body='DEPTH-${depth}-ROOT-BROADCAST' ORDER BY recipient_name`).map(r=>r.recipient_name)
+    record('outer project broadcast crosses every nested project',rootBroadcast.ok&&rootRecipients.join(',')==='leaf,mid,victim,waiter,worker',
+      {result:rootBroadcast.text,recipients:rootRecipients})
     const listener = await tool('leaf', 'orgtree_watchdog', { action: 'create', name: 'depth-listener', kind: 'project_listener', target: last, once: true, notice: true })
     const fire = await tool('boss', 'orgtree_project', { action: 'fire_event', name: last, body: `DEPTH-${depth}-EVENT` })
     const eventMail = rig.sql(`SELECT body FROM ot.mail WHERE org_id=${org} AND recipient_agent_id=${row('leaf').id} AND body LIKE '%DEPTH-${depth}-EVENT%'`)
@@ -231,6 +249,13 @@ export default async function (rig) {
     const copies = rig.sql(`SELECT uid,extra FROM ot.mail WHERE org_id=${org} AND recipient_agent_id=${row('worker').id}
       AND extra->'via_project'->>'name'='${last}' AND body LIKE '%DEPTH-${depth}-QUEUE%'`)
     record('deep project queue delivers one original-derived copy', queue.ok && copies.length === 1, { queue: queue.text, copies })
+    const outerQueue=await tool('boss','orgtree_watchdog',{action:'create',name:'depth-outer-queue',kind:'fair_queue',target:last,once:true,notice:true})
+    await rig.userMail(last,`DEPTH-${depth}-OUTER-QUEUE`,{notice:true})
+    const outerCopies=()=>rig.sql(`SELECT uid FROM ot.mail WHERE org_id=${org} AND recipient_agent_id=${boss}
+      AND extra->'via_project'->>'name'='${last}' AND body LIKE '%DEPTH-${depth}-OUTER-QUEUE%'`)
+    await rig.waitFor(()=>outerCopies().length===1,{what:'outer ancestor queue delivery',timeout:3000}).catch(()=>null)
+    record('outer ancestor queue listener stays eligible at full depth',outerQueue.ok&&outerCopies().length===1,
+      {queue:outerQueue.text,copies:outerCopies()})
     phase = 'retirement with full multi-slot release and FIFO'
     await op({ op: 'set_slots', node: last, capacity: 2 })
     const held = await tool('victim', 'orgtree_watchdog', { action: 'create', name: 'depth-hold', kind: 'slot', target: last, slots: 2 })
