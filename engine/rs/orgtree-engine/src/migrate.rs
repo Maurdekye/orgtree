@@ -59,6 +59,7 @@ const MIGRATIONS: &[(&str, &str)] = &[
     ("0051_dead_letter_readers", include_str!("../migrations/0051_dead_letter_readers.sql")),
     ("0052_dnd_next_turn", include_str!("../migrations/0052_dnd_next_turn.sql")),
     ("0053_mention_navigation", include_str!("../migrations/0053_mention_navigation.sql")),
+    ("0054_full_depth_superiors", include_str!("../migrations/0054_full_depth_superiors.sql")),
 ];
 
 #[cfg(test)]

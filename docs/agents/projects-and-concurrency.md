@@ -14,6 +14,17 @@ reclaim path and user-owned leases are unchanged.
 2026-10-22, dissolve/delete scope; verified: `domain/{ops,slots}.rs`, focused
 `tools/rig/proofs/project-retirement-slots.mjs`]
 
+## Full-depth project reporting (2026-10-22)
+
+Migration 0052 replaces the fixed-depth `superior_of` and `live_superior_of`
+lookups. Stable-row recursive unions terminate cycles without treating depth
+1024 as the end of an organization. Structural reporting stops at the nearest
+agent; runtime delivery skips inactive agents. Both stay within the original
+organization and never return the subject as its own superior. Project wrappers
+remain transparent, including when an agent is separated from its superior by
+thousands of projects. Migration numbers may be reconciled at integration.
+[verified: `0054_full_depth_superiors.sql`; 2026-10-22]
+
 ## Uncapped registrations and durable delivery (2026-10-21)
 
 Queue allocation filters live/reachable canonical listeners and ACK capacity
