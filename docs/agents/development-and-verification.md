@@ -8,6 +8,17 @@ These attributed records were moved from the root guide at `22daffd`; they retai
 
 ## Renderer, capture and rig traps
 
+- Work-status and next-turn-query share `tools/rig/native-tool-result.mjs`:
+  correlate the original process/server/tool/request/RPC identity, and for
+  repeated work calls also the tool-use id and exact scripted arguments. Accept
+  one primary text block plus only the exact optional three-decimal timing block;
+  parse JSON from the primary alone. Work-status saves the raw native log before
+  decoding and retains all 33 named transition, persisted/refetched, refusal,
+  no-op, archive and concurrent-chain guards. Required status JSON or setup/
+  framing failures persist named FAILs; expected plain non-status/refusal text
+  remains plain. Never strip arbitrary suffixes or accept missing status fields.
+  [verified: `tools/rig/proofs/work-status-transition.mjs`; 2026-10-22]
+
 - The 21-check watchdog-slug proof distinguishes ready rowless one-shots from
   registered dogs that later fire. Verify complete inline results, unchanged
   row/mail/turn ledgers and immediate id reuse. Then arm a real command against

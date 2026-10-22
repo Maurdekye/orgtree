@@ -1,9 +1,12 @@
 // Actual orgtree_work MCP mutations, persisted chips and a fresh /chat read.
 // Fake Claude + disposable synthetic DB only; no real providers or live data.
 import { Proof } from '../proof.mjs'
+import { nativeToolText } from '../native-tool-result.mjs'
 
 export default async function (rig) {
   const p = new Proof('work-status-transition')
+  let phase = 'fixture setup'
+  try {
   await rig.waitFor(() => rig.sql('SELECT 1 FROM ot.turns WHERE ended_at IS NULL').length === 0,
     { what: 'seed turns idle', timeout: 60000 })
   const slug = 'rig-status-transition', by = 'rig-status-replacement'
@@ -40,13 +43,22 @@ export default async function (rig) {
     (SELECT a.id FROM ot.agents a JOIN ot.orgs o ON o.id=a.org_id WHERE o.slug='${rig.org}' AND a.name='boss')`)
     .flatMap(r => r.body.tools ?? [])
   const reloaded = (await chat()).messages.flatMap(m => m.tools ?? [])
-  const results = rig.fakeLog('boss').slice(logStart).filter(row => row.kind === 'tool_result' && row.tool === 'orgtree_work')
+  const nativeLog = rig.fakeLog('boss')
+  const results = nativeLog.slice(logStart).filter(row => row.kind === 'tool_result' && row.tool === 'orgtree_work')
+  p.file('native-tool-log.json', nativeLog)
+  p.file('raw-scripted-results.json', results)
   p.check('fixture executed each scripted tool exactly once', results.length === cases.length, { actual: results.length, expected: cases.length })
   for (const [index, c] of cases.entries()) {
     const id = c.step.id, result = results[index]
     const chip = stored.find(t => t.id === id), reload = reloaded.find(t => t.id === id)
     let body
-    try { body = JSON.parse(result?.text ?? '') } catch { body = null }
+    phase = `${id} result framing`
+    const primary = nativeToolText(nativeLog, result, 'orgtree_work', {
+      toolUseId: id, args: JSON.parse(JSON.stringify(c.step.args)),
+    })
+    // Status mutations require JSON; expected plain refusals/non-status text
+    // remain plain. A malformed JSON-looking primary is never ignored.
+    body = c.from || /^[\s]*[\[{]/.test(primary) ? JSON.parse(primary) : null
     const changes = chip?.refs?.filter(r => r.status_change) ?? []
     if (c.from) {
       p.check(`${id}: result carries the real transaction before/after`, result && !result.is_error
@@ -64,6 +76,7 @@ export default async function (rig) {
         && !body?.previous_status && changes.length === 0 && !reload.refs?.some(r => r.status_change), { body, refs: chip?.refs, error: chip?.error })
     }
   }
+  phase = 'final state and concurrent mutations'
   const final = rig.one(`SELECT status, archived_at FROM ot.work_items WHERE slug='${slug}'
     AND org_id IN (SELECT id FROM ot.orgs WHERE slug='${rig.org}')`)
   p.check('archival preserves superseded status rather than inventing an archived status', final?.status === 'superseded' && !!final.archived_at, final)
@@ -83,4 +96,8 @@ export default async function (rig) {
   p.keep(rig, { agents: ['boss'] })
   p.note('Actual synthetic MCP/transaction/transcript/chat capture; no installed app or real provider/device claim.')
   return p.summary()
+  } catch (error) {
+    p.check(`${phase}: setup or result parsing failed`, false, { error: String(error?.stack ?? error) })
+    return p.summary()
+  }
 }

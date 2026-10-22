@@ -46,6 +46,16 @@ presentation. No guessed single new-state label is added.
 
 ## Round 435 measured verification and limits
 
+The current 33-check proof decodes the correlated original MCP primary block
+using the shared `tools/rig/native-tool-result.mjs` helper. Separate exact
+`execution time: N.NNNms` metadata is allowed; arbitrary suffixes, malformed
+primary JSON and mismatched process/request/RPC/tool-use/argument identities
+are refused. Raw native logs and scripted results are saved before decoding.
+Unexpected parsing/setup errors persist a named FAIL instead of becoming null
+or a partial pass. The seven exact transaction pairs and all other semantic
+guards remain unchanged; expected plain refusal/non-status results stay plain.
+[verified: 2026-10-22, `tools/rig/proofs/work-status-transition.mjs`]
+
 Source/diff and syntax checks passed. Rig-opus's source-exact batch
 `f2707c6` on `c8f4577` passed the focused gates; actual logs and durable
 result were inspected after delivery:
