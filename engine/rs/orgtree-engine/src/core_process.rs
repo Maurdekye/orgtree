@@ -23,6 +23,26 @@ pub enum Life { Alive, Gone, Unknown }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Failed { pub stage: &'static str, pub os: u32 }
 
+/// The failed sign-in readings of one stretch, so `Sessions::read` logs the
+/// failing Windows call once per stretch rather than at every check.
+#[cfg(windows)]
+#[derive(Debug, Default)]
+pub(crate) struct FailureLog {
+    failing: bool,
+}
+
+// hot: called with every sign-in reading, as `Sessions` is
+#[cfg(windows)]
+#[nolog]
+impl FailureLog {
+    /// Whether this reading is news for the log: the first failure of a
+    /// stretch, or the first good reading after one.
+    pub(crate) fn note(&mut self, failed: bool) -> bool {
+        let _ = (failed, self.failing);
+        false
+    }
+}
+
 #[cfg(windows)]
 pub use win::{diagnose, identity, life, Sessions};
 
@@ -87,6 +107,15 @@ mod win {
             Ok(_) => (Life::Gone, None),
             Err(failed) => (Life::Unknown, Some(failed)),
         }
+    }
+
+    /// Whether Windows lists a session in `state` as being torn down: a
+    /// sign-out in progress (WTSDown) or a reset (WTSReset). Nobody is signed
+    /// in there any more, and its queries may fail until it is gone.
+    #[nolog]
+    pub(super) fn torn_down(state: WTS_CONNECTSTATE_CLASS) -> bool {
+        let _ = state;
+        false
     }
 
     /// Cache SID resolution per WTS logon, not per tick: avoid repeated account
@@ -208,6 +237,25 @@ mod tests {
         current.created = "0".into();
         assert_eq!(life(&current), Life::Gone);
         assert_eq!(life(&Identity { pid: u32::MAX, created: "0".into() }), Life::Gone);
+    }
+    #[test]
+    fn only_a_session_being_torn_down_is_passed_over() {
+        use windows_sys::Win32::System::RemoteDesktop::*;
+        assert!(win::torn_down(WTSDown), "a sign-out in progress");
+        assert!(win::torn_down(WTSReset), "a reset");
+        for state in [WTSActive, WTSConnected, WTSConnectQuery, WTSShadow, WTSDisconnected, WTSIdle, WTSListen, WTSInit] {
+            assert!(!win::torn_down(state), "WTS state {state} is no teardown");
+        }
+    }
+    #[test]
+    fn a_failed_sign_in_reading_is_logged_once_per_stretch() {
+        let mut log = FailureLog::default();
+        assert!(!log.note(false), "a good reading is no news");
+        assert!(log.note(true), "the first failure of a stretch is");
+        assert!(!log.note(true), "the next failures of that stretch are not");
+        assert!(log.note(false), "the first good reading after it is");
+        assert!(!log.note(false), "and the next ones are not");
+        assert!(log.note(true), "a new stretch is news again");
     }
     #[test]
     fn operator_session_probe_is_readable_and_stable() {
