@@ -16,7 +16,8 @@
 // data is touched. It never writes <data>\rig-helper-task.txt, so the engine's
 // helper keepalive never runs a task.
 //   A  at boot, signed out: the boot host runs the engine in Session 0 (1);
-//      the retired handover command starts nothing (1).
+//      the retired handover command starts nothing (1); the restart notice
+//      gives the engine's measured rights and says no helper runs (7).
 //   B  sign-in within the engine's first 60 s: the helper hosts, with no
 //      sign-in notice (part of the engine's start, 6); a turn runs signed in (2, 3).
 //   C  the helper alone stops and comes back while the engine runs: one
@@ -25,7 +26,8 @@
 //   D  a restart (graceful stop, then the boot task): the engine is back in
 //      Session 0, the helper attaches again by itself (gap measured), a turn
 //      sent at once runs signed in, no sign-in/out notice, and the restart
-//      notice names Session 0 and the shared rights (1, 5, 6, 7).
+//      notice names Session 0 and the rights measured for the engine and the
+//      helper (1, 5, 6, 7).
 //   E  an update (the installer's stop, the helper restarted, the boot task
 //      last): as D (1, 5, 6).
 //   F  a crash recovery (the engine killed, the boot task again): as D (1, 5, 6).
@@ -37,7 +39,8 @@
 //      the sign-out notice says the user signed out; session_placement
 //      `signed-out` (4, 6, 10).
 //   J  signed in with no helper, the first turn after the 60 s grace: it
-//      starts at once in Session 0, and the fallback is logged once (3).
+//      starts at once in Session 0, and the fallback is logged once (3); the
+//      restart notice says no helper had connected (7).
 // Credentials (9) are credential_bridge's unit tests: the rig has no
 // synthetic signed-in broker. A `recover` run: a safe-start engine otherwise
 // holds back its restart path. It needs a rig home the helper's descriptor
@@ -66,7 +69,9 @@ const AGENT = 'ada'
 const PREFERS = 'zed'
 const SIGN_IN = '[ORGTREE SIGN-IN NOTICE]'
 const SIGN_OUT = '[ORGTREE SIGN-OUT NOTICE]'
-const RIGHTS = /Administrator rights: (on|off), for the engine in Session 0 and the sign-in helper alike\./
+/** The restart notice's administrator-rights line: the setting, then what was measured. */
+const rightsLine = body => body.split(/\r?\n/).find(l => l.startsWith('Administrator rights (Run as admin: ')) ?? ''
+const engineIs = elevated => `measured: the engine in Session 0 ${elevated ? 'is elevated' : 'is not elevated'}`
 
 export default async function (rig) {
   const p = new Proof('session0-handover')
@@ -153,6 +158,9 @@ export default async function (rig) {
   const notices = (from, name, prefix) => rig.sql(`SELECT m.body FROM ot.mail m JOIN ot.agents a ON a.id = m.recipient_agent_id
     WHERE m.id > ${from} AND a.name = '${name}' AND m.body LIKE '${prefix}%' ORDER BY m.id`).map(m => m.body)
   const restartNotices = from => rig.sql(`SELECT body FROM ot.mail WHERE id > ${from} AND body LIKE '[ORGTREE RESTART NOTICE]%' ORDER BY id`).map(m => m.body)
+  /** The restart notices engine `pid` sent (its PID is in each). */
+  const noticesOf = pid => rig.sql(`SELECT body FROM ot.mail WHERE body LIKE '[ORGTREE RESTART NOTICE]%' AND body LIKE '%PID: ${pid}.%' ORDER BY id`).map(m => m.body)
+  const waitNoticesOf = (pid, what) => rig.waitFor(() => { const r = noticesOf(pid); return r.length ? r : null }, { what, timeout: 90000 }).catch(() => [])
   const logFrom = () => rig.engineLog().length
   const logSince = from => rig.engineLog().slice(from)
   /** The engine admitted this helper as a host (logged once per engine and helper). */
@@ -196,6 +204,10 @@ export default async function (rig) {
     p.check('A (1): the retired handover command starts nothing', retired.status !== 0 && /unknown command/.test(retired.stderr)
       && (await serving())?.enginePid === a.enginePid, { status: retired.status, stderr: retired.stderr.trim().slice(0, 160) })
     const elevated = a.identity.elevated === true
+    const atBoot = await waitNoticesOf(a.enginePid, 'A: the restart notices')
+    p.check('A (7): signed out, the restart notice gives the engine\'s measured rights and says no helper runs',
+      atBoot.length > 0 && atBoot.every(b => rightsLine(b).includes(`${engineIs(elevated)}; no sign-in helper runs while the user is signed out.`)),
+      atBoot.map(rightsLine).slice(0, 2))
 
     // ------------------------------------------------------------ B: sign-in during the engine's start
     let mark = lastMail()
@@ -257,8 +269,10 @@ export default async function (rig) {
         notices(mailMark, AGENT, '[ORGTREE SIGN-').length === 0 && notices(mailMark, AGENT, '[ORGTREE SESSION NOTICE]').length === 0,
         notices(mailMark, AGENT, '[ORGTREE SIGN-'))
       const restarts = await rig.waitFor(() => { const r = restartNotices(mailMark); return r.length ? r : null }, { what: `${step}: restart notices`, timeout: 60000 }).catch(() => [])
-      p.check(`${step} (1, 7): the restart notice names Session 0 and the rights the engine and the helper share`,
-        restarts.length > 0 && restarts.every(b => b.includes('Engine session at start: Session 0.') && (b.match(RIGHTS)?.[1] === (elevated ? 'on' : 'off'))),
+      const both = elevated ? 'measured: the engine in Session 0 and the sign-in helper are both elevated.'
+        : 'measured: neither the engine in Session 0 nor the sign-in helper is elevated.'
+      p.check(`${step} (1, 7): the restart notice names Session 0 and the rights measured for the engine and the helper`,
+        restarts.length > 0 && restarts.every(b => b.includes('Engine session at start: Session 0.') && rightsLine(b).includes(both)),
         restarts.map(b => b.split('\n').slice(2, 4)))
     }
     // D: the desktop's restart: a graceful stop, then the boot task
@@ -381,6 +395,10 @@ export default async function (rig) {
     p.check('J (3): once per stretch: the next turn logs no second fallback', fallbacks() === 1 && placed(AGENT).session === 'session0', { fallbacks: fallbacks() })
     p.check('J (6): the engine cycled alone, with no helper: no sign-in or sign-out notice', notices(mark, AGENT, '[ORGTREE SIGN-').length === 0,
       notices(mark, AGENT, '[ORGTREE SIGN-'))
+    const late = await waitNoticesOf(s.enginePid, 'J: the restart notices')
+    p.check('J (7): with no helper 60 s after the start, the restart notice says none had connected',
+      late.length > 0 && late.every(b => rightsLine(b).includes(`${engineIs(elevated)}; no sign-in helper had connected 60 s after the engine started.`)),
+      late.map(rightsLine).slice(0, 2))
   } catch (error) {
     p.check(`no step stopped the proof early (${error.message})`, false)
   } finally {
