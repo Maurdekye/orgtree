@@ -5,6 +5,7 @@ import { DeskChat } from '../src/canvas/desk'
 import type { CanvasNode } from '../src/canvas/shared'
 import { dismissUserMention, resetSeenMentions } from '../src/canvas/agentmentions'
 import { refreshConvo, resetConvos } from '../src/convo'
+import { notificationMentionTarget } from '../src/notifications'
 
 const makeNode = (): CanvasNode => ({
   id: 'taskbar-orgs-sol',
@@ -66,6 +67,62 @@ function installTranscriptGeometry(list: HTMLElement, oldRect: () => DOMRect) {
     }
     return oldRect.call(this)
   }
+}
+
+for (const source of [undefined, 'unavailable-old-event', 'e2']) {
+  test(`loaded desk keeps the clicked notification target when source is ${source ?? 'missing'}`, async () => {
+    localStorage.clear()
+    resetConvos()
+    resetSeenMentions()
+    const server = new FakeServer()
+    server.messages = Array.from({ length: 8 }, (_, i) => ({
+      role: 'assistant', seq: i + 1, event_id: `e${i + 1}`,
+      text: i === 1 ? 'Old @user mention.' : i === 5 ? 'Newer @user mention.' : `Progress ${i + 1}`,
+    }))
+    installFetch(server)
+    const node = makeNode()
+    node.user_mention = { ...node.user_mention!, id: 'um-42-6', event_id: 'e6' }
+    const proto = window.HTMLElement.prototype
+    const oldRect = proto.getBoundingClientRect
+    const view = await mountView(
+      <DeskChat node={node} map={new Map([[node.id, node]])} slug="synthetic" op={async () => ({})} toast={() => {}} bare />,
+      el => el,
+    )
+    try {
+      const list = view.el.querySelector<HTMLElement>('.msgs')!
+      installTranscriptGeometry(list, oldRect)
+      await inAct(async () => { await refreshConvo('synthetic', node.id); await flush(8) })
+      assert.equal(list.querySelectorAll('[data-reply-event="e2"], [data-reply-event="e6"]').length, 2,
+        'both the old and newer mention rows are loaded')
+      await inAct(async () => {
+        list.dispatchEvent(new window.WheelEvent('wheel', { deltaY: -80, bubbles: true }))
+        list.scrollTop = 75
+        list.dispatchEvent(new window.Event('scroll'))
+        await flush(2)
+      })
+      assert.equal(list.scrollTop, 75, 'reader starts away from either mention')
+      const target = notificationMentionTarget({
+        id: `mention:${node.id}:1:um-41-2`, source_id: source,
+        org: 'synthetic', agent: node.id, kind: 'mention', title: 'Old mention', body: 'Old mention',
+      }, node.user_mention)
+      await inAct(async () => {
+        await dismissUserMention('synthetic', node.id, target.mentionId, target.eventId, { highlight: true })
+        await flush(6)
+        fireResize(list)
+        await flush(2)
+      })
+      assert.equal(list.scrollTop, source === 'e2' ? 140 : 75,
+        'final scroll centers only the clicked event; no target preserves the reader position')
+      const newer = list.querySelector<HTMLElement>('[data-reply-event="e6"]')!
+      const rect = newer.getBoundingClientRect()
+      assert.notEqual(rect.top + rect.height / 2, 150, 'newer mention was not substituted as the destination')
+    } finally {
+      proto.getBoundingClientRect = oldRect
+      await view.unmount()
+      resetConvos()
+      resetSeenMentions()
+    }
+  })
 }
 
 test('clicking a mention on initial desk mount scrolls to and stays centered on the mentioning message instead of snapping back to bottom', async () => {
