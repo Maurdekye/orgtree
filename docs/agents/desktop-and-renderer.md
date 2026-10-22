@@ -1,5 +1,20 @@
 # Desktop and renderer
 
+## First-use guide hire completion (2026-10-22)
+
+The pending-hire layout effect advances the first-use guide before removing a
+draft replaced by its recognized hired node. This covers a change feed that
+arrives ahead of the hire response; clearing the draft first let the no-draft
+recovery effect treat success as Cancel and reset the guide to its first step.
+The response still advances normally when it arrives first. Repeating completion
+is harmless, including after the first message finishes the guide. Pending hires
+carry their originating org, so replacement cannot advance another org's guide.
+Genuine cancellation, refused/editable drafts, unrelated feed nodes and the
+existing lost-form recovery retain their previous rules. No guide copy, layout
+or new action changes; agent parity remains the existing hire/message actions.
+[verified: `canvas/OrgCanvas.tsx`, `tests/{firstuse-hire,firstuse,pendinghire}.test.tsx`;
+decided: coordinator 2026-10-22, 4.4.2 defect assignment]
+
 ## Canvas superior insertion target (2026-10-22)
 
 Superior draft permissions identify the insertion target and keep its scope

@@ -1391,7 +1391,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
     const id = hireId, { pos } = pendingHire
     arrivedHires.current.add(pendingHire)
     // A feed-first hire is already successful. Advance before clearing its
-    // draft, or the no-draft effect below mistakes replacement for Cancel.
+    // draft, or the no-draft effect mistakes replacement for Cancel.
     // An org change cannot complete another org's guide with an old request.
     if (pendingHire.slug === slug) firstUseHired(slug, id)
     springs.current.set(id, { ...pos, vx: 0, vy: 0 })
