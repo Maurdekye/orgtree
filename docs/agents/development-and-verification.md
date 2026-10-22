@@ -15,6 +15,15 @@ These attributed records were moved from the root guide at `22daffd`; they retai
   colour expectations. See [Muse verification](../rust-engine/muse-code.md#verification).
   [verified: `tools/rig/proofs/muse-visual.mjs`; 2026-10-22]
 
+- The next-turn-cards proof matches `next turn: <value>` (USER 2026-10-19
+  13:46Z), never the retired arrow label. Its driver persists every semantic
+  and layout guard before throwing; the proof counts those named checks and
+  records setup/driver errors as FAIL. Keep current serving values, exact
+  tooltips, default/cancel/retool, wrapping bounds and pinned single-copy
+  controls. See [next-turn cards](../rust-engine/next-turn-cards.md#rig-proof).
+  [verified: `tools/rig/proofs/next-turn-cards.mjs`,
+  `tools/rig/desktop/next-turn-cards.cjs`; 2026-10-22]
+
 - The mailbox proof checks explicit reads, not the historical blanket-pending
   expectation: list/conversation previews and invalid/deferred/foreign reads
   leave mail alone; returned own fetch/chunk content records read/delivery.
