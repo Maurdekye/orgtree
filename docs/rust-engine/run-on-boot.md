@@ -533,6 +533,21 @@ The proof is `tools/rig/proofs/session0-handover.mjs`.
     no helper after a restart, the fallback came after 60.4 s.
   - `session-blip-admission.mjs`: 20/20 in 197 s.
   - `run-on-startup.mjs`: 7/7.
+- **After rig-sol-b's three findings on `a1f6c43`**, a second slot batch (logs
+  `f*` in the same folder):
+  - Engine red: 12 pass, 2 fail, exactly the two new tests (the late
+    fallback's decision, the monitor's rollback). Green: 111/111 focused.
+    Check, clippy (none on a changed line) and the Android check as above.
+  - Desktop red: `session-launch` 3 pass, 2 fail and `run-on-boot` 8 pass,
+    1 fail (the unreadable-task refusal and its wiring); green 5/5 and 9/9.
+    The node set: 529 pass, 24 fail, the same failures as before. Root
+    typecheck 0 errors.
+  - `session0-handover.mjs` step J against `a1f6c43`'s engine: a first turn
+    after the grace started in 0.9 s in Session 0 with no fallback logged
+    (36 pass, 2 fail: the finding at runtime). With the fix: 38/38 in
+    164 s, exactly one fallback logged, none for the next turn. Restart →
+    helper-connected took 6.8, 5.0 and 6.0 s.
+  - `session-startup-grace.mjs` 12/12, `session-blip-admission.mjs` 20/20.
 - **Not run here** (they need real Task Scheduler tasks):
   `session-choice.mjs`, `session-upgrade.mjs` and `session-query.mjs`.
   No e2e proof of the credential cache either: the rig has no synthetic
