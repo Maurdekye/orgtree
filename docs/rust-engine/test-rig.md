@@ -138,8 +138,10 @@ the run.
 
 The `credential-broker.mjs` proof prepares compiled offline `git.exe` and
 `gh.exe` fixtures before the engine starts. Both the engine and its interactive
-broker receive an allowlisted environment with scratch HOME/USERPROFILE, empty
-Git configuration, and a scratch gh config directory. The temporary task clears
+broker receive an allowlisted environment with scratch HOME/USERPROFILE and empty
+Git configuration. The hosted checker restores the scratch `GH_HOST` and
+`GH_CONFIG_DIR` before subprocesses, since the rig's `cleanEnv` removes all
+`GH_*` variables. The temporary task clears
 its inherited environment too. The hosted child verifies that its gh adapter is
 the rig engine and that its native gh target is the fixture before executing
 lookups. Only reserved synthetic hosts are accepted; no GitHub network or real
