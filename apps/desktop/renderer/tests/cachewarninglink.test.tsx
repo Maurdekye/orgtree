@@ -91,9 +91,9 @@ const base = {
   cache_forecast: forecast('will_compact'), cheap_compact_on: true, cheap_compact_occ: 0.25,
 } as unknown as CanvasNode
 
-async function desk(node: CanvasNode) {
+async function desk(node: CanvasNode, server = new FakeServer()) {
   localStorage.clear(); resetConvos()
-  installFetch(new FakeServer())
+  installFetch(server)
   const asked: unknown[] = []
   const hear = (e: Event) => { asked.push((e as CustomEvent).detail) }
   window.addEventListener(EVENT, hear)
@@ -136,4 +136,53 @@ test('§2 an agent with its own ON override gets its gear, because the org switc
     assert.deepEqual(asked, [{ scope: 'agent', org: 'org', agentId: 'writer',
       target: { tab: 'model', field: 'cheap-compact' } }])
   } finally { await done() }
+})
+
+const runningDesk = () => {
+  const server = new FakeServer()
+  server.busy = true; server.responding = true; server.occupancy = 600
+  return desk({ ...base, busy: true, occupancy: 600, context_window: 1000,
+    cache_forecast: forecast('not_applicable') }, server)
+}
+
+test('mid-turn pointer press keeps the settings link mounted until its click opens the setting', async () => {
+  const { view, asked, done } = await runningDesk()
+  try {
+    const textarea = view.el.querySelector<HTMLTextAreaElement>('.cc-composer textarea')!
+    await inAct(() => textarea.focus())
+    const link = view.el.querySelector<HTMLElement>(LINK)!
+    assert.ok(link)
+    const press = new window.MouseEvent('pointerdown', { bubbles: true, cancelable: true, button: 0 })
+    await inAct(() => {
+      link.dispatchEvent(press)
+      // jsdom has no pointer default focus. Apply the browser's blur/focus
+      // default ourselves unless the product explicitly cancels it.
+      if (!press.defaultPrevented) link.focus()
+    })
+    assert.equal(link.isConnected, true, 'pointer focus must not unmount the click target')
+    await inAct(() => link.click())
+    assert.deepEqual(asked, [{ scope: 'org', org: 'org', target: { tab: 'policies', field: 'cheap-compact' } }])
+    assert.equal(document.activeElement, textarea, 'pointer activation leaves the composer focused')
+  } finally { await done() }
+})
+
+test('keyboard focus can move from the composer to its warning link, activate it and leave without trapping focus', async () => {
+  const { view, asked, done } = await runningDesk()
+  const outside = document.createElement('button'); document.body.append(outside)
+  try {
+    const textarea = view.el.querySelector<HTMLTextAreaElement>('.cc-composer textarea')!
+    await inAct(() => textarea.focus())
+    const link = view.el.querySelector<HTMLElement>(LINK)!
+    assert.ok(link)
+    await inAct(() => link.focus())
+    assert.equal(link.isConnected, true, 'focus entering the warning must retain it')
+    assert.equal(document.activeElement, link)
+    assert.ok(textarea.compareDocumentPosition(link) & window.Node.DOCUMENT_POSITION_FOLLOWING,
+      'the link follows the composer controls in native forward Tab order')
+    await inAct(() => link.click()) // native keyboard button activation dispatches click
+    assert.equal(asked.length, 1)
+    await inAct(() => outside.focus())
+    assert.equal(view.el.querySelector(LINK), null, 'leaving the whole composer area hides the mid-turn warning')
+    assert.equal(document.activeElement, outside)
+  } finally { outside.remove(); await done() }
 })
