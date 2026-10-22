@@ -32,6 +32,8 @@ use crate::domain::user_regs::USER;
 #[cfg(test)]
 mod claim_boundary_tests;
 mod credit_settlement;
+#[cfg(test)]
+mod credit_scale_tests;
 
 /// `ot.agents.kind` of a project node.
 pub const KIND: &str = "project";
