@@ -208,16 +208,23 @@ who="<agent>" reason="the user's Windows session ended" status="..."` line.
 - **Warm CLIs** (docket `after-an-engine-restart-codex-clis-and-their-mcp`;
   invariants 3 and 5): warming (App settings' "keep agent processes warm")
   starts a CLI where the agent's next turn would run, and waits for the
-  helper exactly as a turn start does (`Actor::warm`, `session_settle`).
+  helper exactly as a turn start does (`Actor::start_ahead`,
+  `session_settle`); so does a start by hand from the desk's process mark
+  (`process_control`), whose answer can then take a few seconds (the
+  endpoint waits at most 60 s, as long as the grace).
   Before that, the warming that follows every engine start went straight to
   Session 0: on alpha.35 (2026-10-22 14:03:56Z) it started 7 Codex and 5
   Claude CLIs there in the 7.6 s before the helper came back. It keeps the
   next turn's `use` pick for that turn. When a helper starts hosting, the
   engine's own start included, every idle CLI parked in Session 0 closes
   (Codex by its graceful exit) and is warmed again in the signed-in session,
-  3 at a time and only while warming is on and commit memory allows
-  (`runtime::rehost_all`; the user, 2026-10-22 14:21Z: "Move them at
-  sign-in"). Left alone: a CLI in a turn (it moves at its next turn), one
+  only while warming is on and commit memory allows (`runtime::rehost_all`;
+  the user, 2026-10-22 14:21Z: "Move them at sign-in"). At most 3 moves run
+  at once, engine-wide: each takes a place (`runtime::REHOSTING`) that its
+  actor holds until the move is done, past the sweep's wait for its answer
+  and whichever sweep sent it (rig-sol-b's R1 on 24227f3: chunks of three
+  alone did not bound a move that outlasted its 90 s wait, or a second
+  sweep). Left alone: a CLI in a turn (it moves at its next turn), one
   holding background work, and one whose agent's own choice is Session 0
   (its preference, the next turn's `use` 0, or a preference no hosted
   session matches). With warming off, a parked CLI closes on its own.

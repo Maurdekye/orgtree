@@ -328,7 +328,9 @@ Proof: `tools/rig/proofs/codex-host.mjs` (real Codex, fake model, `--session0
 hosted write seat's Codex is the helper's child in session 1, told
 workspace-write, its sandboxed shell write and apply_patch land; a hosted
 read-only seat's write is denied by the sandbox; a bypass seat is the engine's
-child; halting a hosted seat ends its Codex; killing the helper ends the
+child (since the user's 2026-10-16 09:43Z ruling, `HOST_BYPASS_SEATS`, the
+proof expects it hosted too; changed from source, not run since); halting a
+hosted seat ends its Codex; killing the helper ends the
 hosted Codex and the seat's next turn runs in Session 0 mode. Not measured in
 the rig: an engine really in Session 0 (that rig engine ran in session 1 with
 Session 0 forced), the helper's sweep after an engine exit, and whether the

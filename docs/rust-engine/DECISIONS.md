@@ -1821,9 +1821,10 @@ All entries are dated 2026-10-06 unless stated otherwise.
       running out is logged once per stretch, also when it ran out before the first turn came.
     - **Warm CLIs (3, 5; the user 2026-10-22 14:21Z m1928e6b64efc, "Move them at sign-in"; docket
       `after-an-engine-restart-codex-clis-and-their-mcp`):** warming waits for the helper as a turn
-      start does. When a helper starts hosting, the idle CLIs parked in Session 0 (no turn, no
-      background work, no Session 0 choice of the agent's own) close and are warmed again in the
-      signed-in session, 3 at a time within warming's memory floor. A CLI is reused for a turn
+      start does, and so does a start by hand. When a helper starts hosting, the idle CLIs parked
+      in Session 0 (no turn, no background work, no Session 0 choice of the agent's own) close and
+      are warmed again in the signed-in session, at most 3 at once engine-wide (each holds its
+      place until done), within warming's memory floor. A CLI is reused for a turn
       only where that turn runs it, Codex's too. For the sign-in reading, a session Windows lists
       as being torn down (WTSDown, WTSReset) is nobody's.
     - **Notices (6):** a helper that comes or goes within the engine's 60 s startup grace is part
