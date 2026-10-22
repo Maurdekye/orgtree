@@ -1756,6 +1756,11 @@ All entries are dated 2026-10-06 unless stated otherwise.
       the engine this button started died because PostgreSQL refuses administrator rights). On
       Windows the postmaster always starts with a restricted copy of the engine's token, as
       pg_ctl starts it; the engine and its agents keep the engine's rights.
+    - **The engine's pipes stay its user's** (coordinator 2026-10-22 00:24Z: "Grant the engine's
+      own user SID and give it a Medium label, nothing broader"): the hosted CLIs' stdio, the tool
+      bridge and OpenCode's mail hook are created with the default pipe security, the engine's
+      user in the owner's entry and a Medium label, so an elevated engine's helper-hosted CLIs can
+      still write to them.
     - **Failures:** one before the stop leaves the old engine untouched, including an attempt
       record that cannot be written (Lane B finding 2026-10-21: nothing is asked or stopped
       until it lands). After a graceful stop,

@@ -403,6 +403,27 @@ The test process was not elevated (Medium, Administrators deny-only). So
 PostgreSQL's refusal and an elevated parent's token are unmeasured here;
 only the user's elevated run can show them.
 
+**The engine's pipes stay its user's** (`winproc::create_user_pipe`; the
+coordinator 2026-10-22 00:24Z: "Grant the engine's own user SID and give it
+a Medium label, nothing broader"). The engine serves three kinds of pipe:
+the stdio of a CLI the sign-in helper hosts, the agents' tool bridge
+(`bridge.rs`) and OpenCode's mail hook (`opencode_mail.rs`). In the user's
+session, Medium processes open them: the helper and the CLIs it starts.
+Measured on this user's elevated linked token and on pipes made without
+elevation (2026-10-22):
+
+- An elevated token's default owner is Administrators, and its default DACL
+  does not name the user.
+- A pipe made with default security grants SYSTEM, Administrators and its
+  owner full access, and Everyone and Anonymous read.
+- A pipe takes its creator's integrity level as its label.
+
+So an elevated engine's pipes would let those processes only read (inferred;
+not run elevated). Every such pipe is now created with that same default,
+with the engine's own user in the owner's entry and a Medium label. Without
+elevation that is the default itself, apart from the label now being
+written out.
+
 **The boot host** (`boot_supervisor.rs`, the boot task's `orgtree-engine
 host`) now supervises instead of always starting an engine. Every 2 s a pure
 `decide` step chooses from what it sees:
