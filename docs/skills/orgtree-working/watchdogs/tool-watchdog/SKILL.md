@@ -252,7 +252,7 @@ What the dog says on its connection:
 - `protocols`: subprotocols to offer (`Sec-WebSocket-Protocol`, such as `graphql-transport-ws` or `vite-hmr`). A server that picks none of them, or one it was not offered, is a refusal.
 - `heartbeat: {"message": …, "every_s": N}` (5 s to 1 day): a fixed message sent every N seconds while connected, for servers that drop clients without an application heartbeat (Discord's `{"op":1,"d":null}`). Protocol pings are automatic: the dog pings a server that has sent nothing for 30 seconds, and reconnects after 75 seconds of silence.
 
-Credentials work as for mqtt: `credentials: "ws/feed.json"` (a file in your folders, read again on every connect) or an inline object, stored encrypted, blanked in transcripts, lists and logs, and seen by the model that wrote it. The fields are:
+Credentials work as for mqtt: `credentials: "ws/feed.json"` (a file in your folders, read again on every connect) or an inline object, stored encrypted, blanked in transcripts, lists and logs, and seen by the model that wrote it. Actor mailbox diagnostics record message kinds without copying provider tool-call bodies. The fields are:
 
 - `headers` (`{"Name": "value"}`, any header except the ones the client sets itself, such as `Host` or `Sec-WebSocket-*`);
 - `bearer` (sent as `Authorization: Bearer …`);

@@ -67,7 +67,6 @@ pub struct Caller {
     pub name: String,
 }
 
-#[derive(Debug)]
 pub enum AgentMsg {
     /// waking mail (or anything else that may need a turn)
     Wake,
@@ -140,6 +139,49 @@ pub enum AgentMsg {
     /// warming: start the CLI ahead of the next turn (quietly; replies
     /// whether a CLI is running afterwards)
     Warm(oneshot::Sender<bool>),
+}
+
+// Like prompt::Mail, the mailbox is opaque to Debug fallback in #[logged].
+// Nested provider/tool JSON must never bypass the JSON credential redactor.
+impl std::fmt::Debug for AgentMsg {
+    #[nolog]
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let kind = match self {
+            Self::Wake => "Wake",
+            Self::WakeIdle(..) => "WakeIdle",
+            Self::CacheKeepalive => "CacheKeepalive",
+            Self::Slot(..) => "Slot",
+            Self::Loading(..) => "Loading",
+            Self::WarmFailed(..) => "WarmFailed",
+            Self::Interrupt(..) => "Interrupt",
+            Self::Session { .. } => "Session",
+            Self::InterruptFromAgent { .. } => "InterruptFromAgent",
+            Self::InterruptBoundary { .. } => "InterruptBoundary",
+            Self::Halt(..) => "Halt",
+            Self::Unhalt(..) => "Unhalt",
+            Self::Command(..) => "Command",
+            Self::CompactFromAgent { .. } => "CompactFromAgent",
+            Self::Effort(..) => "Effort",
+            Self::Process { .. } => "Process",
+            Self::Reconfigured => "Reconfigured",
+            Self::ApplyQueued => "ApplyQueued",
+            Self::Claude(..) => "Claude",
+            Self::Codex(..) => "Codex",
+            Self::Agy(..) => "Agy",
+            Self::Muse(..) => "Muse",
+            Self::Acp(..) => "Acp",
+            Self::Hook { .. } => "Hook",
+            Self::OpenCodeMail { .. } => "OpenCodeMail",
+            Self::ProcExited { .. } => "ProcExited",
+            Self::Live(..) => "Live",
+            Self::NextTurn(..) => "NextTurn",
+            Self::Stop(..) => "Stop",
+            Self::CloseIdle => "CloseIdle",
+            Self::ToolCard(..) => "ToolCard",
+            Self::Warm(..) => "Warm",
+        };
+        f.debug_tuple(kind).finish_non_exhaustive()
+    }
 }
 
 /// A message to an agent's actor and the request that sent it (the actor

@@ -76,6 +76,14 @@ Original section: Orgtree 4.0.0 (Rust engine): read this first. Source lines 397
   `#[nolog]`. Verbose logging is off by default in packaged builds and on in development builds.
 <!-- /preserved:e-8192a6f3da6dff13 -->
 
+Secret-bearing arguments must use `#[nolog]` or an opaque formatter, as for
+`runtime::prompt::Mail` and `runtime::AgentMsg`. `AgentMsg`'s exhaustive Debug
+formatter emits its static variant only: actor handler/send logging must never
+serialize the nested provider/tool body before JSON redaction. Direct JSON
+arguments continue through `trace::Shown::json`; useful call/return diagnostics
+remain enabled. See [WebSocket log verification](../rust-engine/websocket-watchdogs.md#tests).
+[verified: `runtime/mod.rs`, `runtime/actor.rs`, `trace.rs`; 2026-10-22]
+
 <a id="e-50cc1d4e5597f3d3"></a>
 
 ## App registry locks and restore boundary: app migration 0005_app_feed.sql

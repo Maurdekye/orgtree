@@ -275,7 +275,7 @@ async function flow(rig, p, ws) {
   p.check('an agent that cannot manage the dog cannot send on it', !carolSend.ok, said(carolSend))
   await rig.tool('boss', 'orgtree_watchdog', { action: 'create', name: 'plainfile', kind: 'file', target: 'some.log' })
   const wrongKind = await rig.tool('boss', 'orgtree_watchdog', { action: 'send', id: 'plainfile', message: 'x' })
-  p.check('send refuses on another kind', !wrongKind.ok && /websocket watchdog/.test(wrongKind.text), said(wrongKind))
+  p.check('send refuses on another kind', !wrongKind.ok && /websocket or MQTT watchdog/.test(wrongKind.text), said(wrongKind))
   const ll = await listed('locked')
   p.check('list shows the refusal', ll?.connection?.state === 'refused' && /HTTP 401/.test(ll?.health ?? ''), ll)
 

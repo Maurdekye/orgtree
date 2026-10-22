@@ -108,6 +108,12 @@ from Orgtree; matching server data keeps the EXTERNAL tag.
 - **The memo:** it keeps `{credentials: {kind: "file", path} | {kind: "inline"}}`
   only.
 - **The engine log:**
+  - Actor mailbox arguments use the opaque `AgentMsg` Debug formatter: only its
+    static variant name is emitted, never its provider/tool-call payload. This
+    covers both `Actor::handle_msg` and `AgentHandle::send`, whose generic
+    `#[logged]` entries otherwise fall back to Debug instead of JSON masking.
+    The same existing opaque formatter pattern protects `prompt::Mail`; no
+    message is rewritten, and entry/return, connection and sent diagnostics stay.
   - The URL a connection dials (with its credential query) and its upgrade request
     live only in `#[nolog]` code in `src/ws/conn.rs`. The connection logs the URL
     without its query (`Endpoint::base`).
@@ -266,6 +272,14 @@ from Orgtree; matching server data keeps the EXTERNAL tag.
   and no package.
 
 ## Tests
+
+`runtime::message_log_tests` captures the real verbose mailbox send with a Codex
+tool-call canary, requires useful kind/return diagnostics and verifies that the
+receiver still gets the exact original payload. A separate formatter control
+covers all five provider variants, hooks and body-bearing control messages.
+The 29-check rig proof retains every name and credential positive/exclusion;
+its wrong-kind send refusal matches the current “websocket or MQTT watchdog”
+contract. [verified: `runtime/mod.rs`, `runtime/message_log_tests.rs`; 2026-10-22]
 
 - **Rust, against `src/ws/testserver.rs`,** an in-process server on 127.0.0.1 that can
   refuse with a status, require headers, pick or mis-pick a subprotocol, echo, close
