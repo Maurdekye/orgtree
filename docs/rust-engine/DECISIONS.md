@@ -9,6 +9,16 @@ policy remain physical, per the user's explicit exceptions.
 
 **Native replacement-tool category (user 2026-10-22 22:07Z, one switch 22:09Z; coordinator 22:14Z):** tools.orgtree_disabled is optional and default-off per agent, parent-clamped, with per-harness UI coverage and hire/retool/rehire/staff parity. Grants never change defaults/future hires. Claude's nine replacement denies and Codex/Muse native questions are covered; ExitPlanMode requires explicit approval through the same bounded authority-aware adapter. Muse observers/workflows/contributor mode and OpenCode build/plan/security policies are excluded; AGY restores nothing. See the [source contract](../agents/org-tree-and-tools.md#native-replacement-tools-2026-10-22).
 
+**Subordinate DnD (user 2026-10-22 22:14Z–22:16Z; 4.4.2):** agents can enable
+or disable DnD for themselves and descendants; a target can clear its own hold
+whoever set it, immediately releasing all held mail. Coordinator design: status
+node+dnd with runtime+descendant checks, no work-status impersonation; a user's
+desk-header toggle; current turn or an idle armed next turn whose opening mail
+is admitted normally. The armed state is visible and clearing disarms it.
+Coordinator 22:18Z: release triggers native delivery at each harness's supported
+boundary now, with no interrupt/restart or count cap; size/chunking budgets and
+durable ordered follow-up remain. See [DnD](../skills/orgtree-working/runtime/do-not-disturb/SKILL.md).
+
 Tool paths (user 2026-10-22 18:39:30Z, staffed 19:35:49Z): an unresolved
 file in a tool row must retain its full attempted path. Show the directory
 dimmed inline, preserve the path in its tooltip, and keep Copy path available

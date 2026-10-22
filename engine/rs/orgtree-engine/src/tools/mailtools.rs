@@ -485,6 +485,20 @@ async fn send_one(engine: &Arc<Engine>, letter: &Letter, to: &str, single: bool,
 
 #[logged]
 pub async fn status(engine: &Arc<Engine>, caller: &Caller, args: &Value) -> Result<Done> {
+    if let Some((node,on))=status_dnd_target(args)? {
+        let client=engine.db.get().await?;
+        let me=me(&client,caller).await?;
+        let target=super::target(&client,me.org_id,node).await?;
+        let is_self=target.id==me.id;
+        let runtime=is_self || crate::domain::tool_groups::enabled(&super::caller_tools_in(&**client,caller).await?,"runtime");
+        crate::domain::dnd::runtime_rule(is_self,runtime)?;
+        if !is_self { super::downward(&client,&me,&target,"change Do Not Disturb for").await?; }
+        crate::domain::node_kind::require_turn_runtime(&target.kind,&target.name)?;
+        drop(client);
+        let mut result=crate::domain::dnd::set(engine,me.org_id,target.id,on,!is_self).await?;
+        result["node"]=json!(target.name);
+        return Done::json(&result);
+    }
     let status = need_str(args, "status")?;
     if !["working", "done", "blocked", "idle"].contains(&status) {
         crate::refuse!(BadRequest, "status must be working, done, blocked or idle");
@@ -495,7 +509,9 @@ pub async fn status(engine: &Arc<Engine>, caller: &Caller, args: &Value) -> Resu
     let state = if status == "done" { "idle" } else { status };
     let client = engine.db.get().await?;
     let me = me(&client, caller).await?;
-    if let Some(on)=dnd { crate::domain::dnd::set(engine,&client,me.org_id,me.id,on).await?; }
+    drop(client);
+    if let Some(on)=dnd { crate::domain::dnd::set(engine,me.org_id,me.id,on,false).await?; }
+    let client = engine.db.get().await?;
     let rec = json!({ "status": state, "summary": summary, "at": iso(chrono::Utc::now()) });
     client
         .execute(
@@ -539,8 +555,36 @@ pub async fn status(engine: &Arc<Engine>, caller: &Caller, args: &Value) -> Resu
         }
     }
     let shown = if status == "done" { "done (you are idle now)" } else { status };
-    let mode=dnd.map(|on| if on {" Do Not Disturb ON for this turn; only urgent mail bypasses it."}else{" Do Not Disturb OFF."}).unwrap_or("");
+    let mode=dnd.map(|on| if on {" Do Not Disturb ON for this turn; only urgent mail bypasses it."}else{" Do Not Disturb OFF; held mail released for native delivery now."}).unwrap_or("");
     Done::text(format!("Status recorded: {shown}.{told}{mode}"))
+}
+
+/// A named target changes DnD only; never report another agent's work status.
+#[logged]
+fn status_dnd_target(args: &Value) -> Result<Option<(&str,bool)>> {
+    let Some(node)=args.get("node") else { return Ok(None); };
+    let node=node.as_str().filter(|s|!s.trim().is_empty()).ok_or_else(||anyhow::anyhow!("node must name an agent"))?;
+    let on=args["dnd"].as_bool().ok_or_else(||anyhow::anyhow!("node requires dnd=true or dnd=false"))?;
+    if args.get("status").is_some() || args.get("summary").is_some() {
+        crate::refuse!(BadRequest,"node changes Do Not Disturb only; omit status and summary (work reports are self only)");
+    }
+    Ok(Some((node,on)))
+}
+
+#[cfg(test)]
+mod status_dnd_tests {
+    use super::*;
+    #[test] fn dnd_target_calls_cannot_impersonate_status_or_silently_ignore_node() {
+        assert_eq!(status_dnd_target(&json!({"node":"worker","dnd":false})).unwrap(),Some(("worker",false)));
+        assert_eq!(status_dnd_target(&json!({"node":"worker","dnd":true})).unwrap(),Some(("worker",true)));
+        assert!(status_dnd_target(&json!({"node":"worker"})).is_err());
+        assert!(status_dnd_target(&json!({"node":"worker","dnd":"false"})).is_err());
+        assert!(status_dnd_target(&json!({"node":42,"dnd":false})).is_err());
+        assert!(status_dnd_target(&json!({"node":" ","dnd":true})).is_err());
+        assert!(status_dnd_target(&json!({"node":"worker","dnd":false,"status":"done"})).is_err());
+        assert!(status_dnd_target(&json!({"node":"worker","dnd":true,"summary":"not theirs"})).is_err());
+        assert_eq!(status_dnd_target(&json!({"status":"working","summary":"Focused","dnd":true})).unwrap(),None);
+    }
 }
 
 

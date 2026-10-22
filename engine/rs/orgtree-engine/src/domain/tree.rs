@@ -251,6 +251,7 @@ pub fn agent_body(raw: &Value, effective: &Value, parent_key: Option<i64>, ctx: 
     };
     o.insert("continue_accounts".into(), json!(continue_accounts));
     o.insert("dnd".into(),json!(raw["x_dnd"].as_bool().unwrap_or(false)));
+    o.insert("dnd_next_turn".into(),json!(raw["dnd_next_turn"].as_bool().unwrap_or(false)));
     o.insert("last_status".into(), raw.get("last_status").cloned().unwrap_or(Value::Null));
     o.insert("prev_status".into(), raw.get("prev_status").cloned().unwrap_or(Value::Null));
     o.insert("inflight_at".into(), ts(&raw["inflight_at"]));

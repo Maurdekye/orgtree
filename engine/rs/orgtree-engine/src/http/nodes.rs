@@ -575,6 +575,17 @@ pub async fn interrupt(State(e): State<Arc<Engine>>, Path((slug, nid)): Path<(St
     Ok(Json(ask(&e, org.id, a.id, AgentMsg::Interrupt).await?))
 }
 
+#[derive(Deserialize, Debug)]
+pub struct DndBody { dnd: bool }
+
+#[logged]
+pub async fn dnd(State(e): State<Arc<Engine>>, Path((slug,nid)): Path<(String,String)>, Json(body): Json<DndBody>) -> ApiResult<Json<Value>> {
+    let org=org(&e,&slug)?;
+    let a=agent(&e,&org,&nid).await?;
+    require_turn_runtime(&a.kind,&a.name)?;
+    Ok(Json(crate::domain::dnd::set(&e,org.id,a.id,body.dnd,true).await?))
+}
+
 #[logged]
 pub async fn halt(State(e): State<Arc<Engine>>, Path((slug, nid)): Path<(String, String)>) -> ApiResult<Json<Value>> {
     let org = org(&e, &slug)?;

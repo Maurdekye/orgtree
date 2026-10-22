@@ -20,15 +20,39 @@ pub fn validate_urgent(urgent: bool, reason: Option<&str>, user_sender: bool, ac
     Ok(())
 }
 
+/// Self control remains available with every group disabled. Controlling a
+/// different agent also needs the caller's current descendant authority.
 #[logged]
-pub async fn set(engine: &Arc<Engine>, client: &Client, org: i64, agent: i64, on: bool) -> Result<Value> {
-    let row=client.query_opt("UPDATE ot.turns SET do_not_disturb=$2 WHERE id=(SELECT id FROM ot.turns WHERE agent_id=$1 ORDER BY id DESC LIMIT 1) AND ended_at IS NULL RETURNING id",&[&agent,&on]).await?;
-    if on && row.is_none() { crate::refuse!(Conflict,"Do Not Disturb needs your own running turn"); }
-    notify(engine,client,org,agent).await?;
+pub fn runtime_rule(is_self: bool, runtime_group: bool) -> Result<()> {
+    if !is_self && !runtime_group {
+        crate::refuse!(Forbidden,"controlling another agent's Do Not Disturb needs the runtime tool group");
+    }
+    Ok(())
+}
+
+#[logged]
+pub async fn set(engine: &Arc<Engine>, org: i64, agent: i64, on: bool, allow_arm: bool) -> Result<Value> {
+    let mut client=engine.db.get().await?;
+    let tx=client.transaction().await?;
+    // Same row lock as start_turn: setting/clearing cannot race the atomic
+    // transfer of an idle flag into the newly admitted turn.
+    let target=tx.query_one("SELECT kind,state,dnd_next_turn FROM ot.agents WHERE id=$1 AND org_id=$2 FOR UPDATE",&[&agent,&org]).await?;
+    crate::domain::node_kind::require_turn_runtime(target.get(0),"target")?;
+    if target.get::<_,&str>(1)!="live" { crate::refuse!(Conflict,"Do Not Disturb needs a live agent"); }
+    let was_armed:bool=target.get(2);
+    let row=tx.query_opt("UPDATE ot.turns SET do_not_disturb=$2 WHERE id=(SELECT id FROM ot.turns WHERE agent_id=$1 ORDER BY id DESC LIMIT 1) AND ended_at IS NULL RETURNING id",&[&agent,&on]).await?;
+    if on && row.is_none() && !allow_arm { crate::refuse!(Conflict,"Do Not Disturb needs your own running turn"); }
+    let armed=on && row.is_none();
+    tx.execute("UPDATE ot.agents SET dnd_next_turn=$2,row_version=row_version+1 WHERE id=$1",&[&agent,&armed]).await?;
+    if !on && was_armed {
+        tx.execute("UPDATE ot.mail SET extra=extra || '{\"dnd_released\":true}'::jsonb WHERE recipient_agent_id=$1 AND state='pending' AND NOT urgent",&[&agent]).await?;
+    }
+    tx.commit().await?;
     // OFF may release pending mail into this turn; it never adds a special
     // interrupt or wake path. The actor applies its normal delivery rules.
-    if !on { if let Some(h)=engine.agents.get(agent) {h.send(crate::runtime::AgentMsg::Wake);} }
-    Ok(json!({"dnd":on && row.is_some(),"turn":row.map(|r|r.get::<_,i64>(0))}))
+    if !on { crate::runtime::actor(engine,org,agent).send(crate::runtime::AgentMsg::Wake); }
+    notify(engine,&client,org,agent).await?;
+    Ok(json!({"dnd":on && row.is_some(),"dnd_next_turn":armed,"turn":row.map(|r|r.get::<_,i64>(0))}))
 }
 
 /// Sender status and the recipient badge are live facts, not send-time labels.
@@ -45,6 +69,12 @@ pub async fn notify(engine: &Engine, client: &Client, org: i64, agent: i64) -> R
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test] fn dnd_self_remains_unrestricted_and_descendants_need_runtime() {
+        assert!(runtime_rule(true,false).is_ok());
+        assert!(runtime_rule(true,true).is_ok());
+        assert!(runtime_rule(false,true).is_ok());
+        assert!(runtime_rule(false,false).is_err());
+    }
     #[test] fn held_mail_never_reaches_an_interrupt_style_harness() {
         for harness in ["antigravity","codex","claude","muse","acp"] {
             let mut interrupts=0;

@@ -221,6 +221,7 @@ pub fn router(engine: Arc<Engine>) -> Router {
         .route("/api/orgs/{slug}/nodes/{nid}/mail/{mid}", delete(nodes::retract))
         .route("/api/orgs/{slug}/nodes/{nid}/inbox", get(nodes::inbox))
         .route("/api/orgs/{slug}/nodes/{nid}/interrupt", post(nodes::interrupt))
+        .route("/api/orgs/{slug}/nodes/{nid}/dnd", post(nodes::dnd))
         .route("/api/orgs/{slug}/nodes/{nid}/halt", post(nodes::halt))
         .route("/api/orgs/{slug}/nodes/{nid}/unhalt", post(nodes::unhalt))
         .route("/api/orgs/{slug}/nodes/{nid}/compact", get(nodes::compact_capability).post(nodes::compact))

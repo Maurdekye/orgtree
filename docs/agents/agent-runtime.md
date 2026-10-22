@@ -204,12 +204,16 @@ Original section: AGENTS.md — working on Orgtree. Source lines 1081–1090.
 
 <a id="e-8c72fbf922e19b8e"></a>
 
-## Do Not Disturb is a durable per-turn flag controlled by self status.dnd.
+## Do Not Disturb is a durable turn hold with optional next-turn arming.
 
 Original section: AGENTS.md — working on Orgtree. Source lines 1092–1101.
 
 <!-- preserved:e-8c72fbf922e19b8e -->
-- Do Not Disturb is a durable per-turn flag controlled by self status.dnd.
+- Do Not Disturb is a durable per-turn flag controlled by self status.dnd,
+  runtime-authorized descendant node+dnd calls and the user's desk toggle.
+  Idle targets arm dnd_next_turn; admission takes opening mail normally then
+  atomically consumes that flag. Self-clear releases any setter's hold and
+  wakes native delivery immediately; no count cap, size budgets preserved.
   Every harness gates ordinary mail before steering or interrupt; only urgent
   bypasses. User-origin urgent mail may omit a reason; agent-origin urgency
   requires current DND plus a nonblank reason. The armed user composer marks

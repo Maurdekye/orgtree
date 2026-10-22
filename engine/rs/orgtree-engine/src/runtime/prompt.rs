@@ -309,6 +309,23 @@ mod mail_size_tests {
     }
 
     #[test]
+    fn dnd_release_has_no_count_cap_and_budget_tails_preserve_every_id() {
+        let input:Vec<Mail>=(0..137).map(|i|{
+            let mut m=mail(format!("held mail {i}"));m.uid=format!("held-{i}");m
+        }).collect();
+        let all=batch(&input,"",&HashMap::new(),None,CODEX_INPUT_BYTES,true).unwrap();
+        assert_eq!(all.mail.len(),137,"release cannot retain the old 64-message cap");
+        let mut seen=Vec::new();
+        while seen.len()<input.len() {
+            let chunk=batch(&input[seen.len()..],"",&HashMap::new(),None,4096,true).unwrap();
+            assert!(!chunk.mail.is_empty() && chunk.text.len()<=4096);
+            seen.extend(chunk.mail.into_iter().map(|m|m.uid));
+        }
+        assert_eq!(seen,input.iter().map(|m|m.uid.clone()).collect::<Vec<_>>());
+        assert!(input.iter().enumerate().all(|(i,m)|m.body==format!("held mail {i}")));
+    }
+
+    #[test]
     fn exact_final_budget_and_single_reference_fallback_are_checked() {
         let m = mail("tiny".into());
         let rels = HashMap::new();

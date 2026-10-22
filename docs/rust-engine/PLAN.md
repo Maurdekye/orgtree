@@ -287,6 +287,13 @@ still resume, so the agents themselves remember).
 
 Native replacement tools (user 2026-10-22, target 4.4.2): one per-agent Disabled by Orgtree switch, optional tools.orgtree_disabled, off by default and parent-clamped. Restores Claude question/plan/scheduling replacement tools and Codex/Muse native questions with normal authority routing and bounded private answers. Org defaults, Muse automation/contributor mode and OpenCode identity/security policy stay unchanged. See [native tool contract](../agents/org-tree-and-tools.md#native-replacement-tools-2026-10-22).
 
+Subordinate DnD (user/coordinator 2026-10-22, 4.4.2): status node+dnd controls
+descendants with runtime permission; the user gets a desk-header toggle.
+Idle targets show DND next turn and admit opening mail normally. The target
+can clear any hold itself; clearing triggers native delivery now without a
+count cap, preserving size budgets and supported harness boundaries. See
+[DnD](../skills/orgtree-working/runtime/do-not-disturb/SKILL.md).
+
 Network watchdog connection mail (user 2026-10-22 13:01Z/13:02:30Z):
 connection_messages=notice (default for new/legacy dogs), wake or off, editable
 at create/configure and desktop detail without reconnect. Administrative mail

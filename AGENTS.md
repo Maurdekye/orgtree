@@ -21,6 +21,13 @@ Rig live-root guards retain import-time `APPDATA`/home/data-override paths after
 
 ## Engine and desktop invariants
 
+- DnD targeted status calls change only DnD, require runtime+descendant authority,
+  and allow the target to clear any hold itself. Idle targets arm the next turn;
+  admission consumes the flag under its agent-row lock after claiming opening mail.
+  Clearing triggers native delivery now without a count cap; harness boundaries and
+  size budgets remain. See [DnD](docs/skills/orgtree-working/runtime/do-not-disturb/SKILL.md).
+  [verified: `domain/dnd.rs`, `tools/mailtools.rs`, `runtime/actor.rs`; 2026-10-22]
+
 - The native window-controls edge fixture bundles the full renderer stylesheet with embedded font assets; preserve its styles and hit-test/mutation assertions. See [native edge probe assets](docs/agents/development-and-verification.md#native-window-controls-edge-probe-assets). [verified: `tools/test-window-controls-edge-native.mjs`; 2026-10-22]
 - The seven scratch-note/taskbar/tray/native-tab root tests allocate fresh temporary output leaves without author-specific environment variables. Optional output overrides require the current `ORGTREE_AGENT` scope, canonical containment and no linked ancestors; cleanup rechecks directory identity. See [test output setup](docs/agents/development-and-verification.md#portable-root-test-output). [verified: `tests/helpers/test-output.mjs`; 2026-10-22]
 

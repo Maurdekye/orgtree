@@ -4097,6 +4097,7 @@ impl Actor {
         committed["event_id"] = json!(format!("e{seq}"));
         self.changed(vec![Change::Mailbox(self.id)]);
         self.stream("steered", json!({ "committed_row": committed }));
+        self.continue_released_mail().await?;
         Ok(())
     }
 
@@ -4178,7 +4179,18 @@ impl Actor {
         committed["event_id"] = json!(format!("e{seq}"));
         self.changed(vec![Change::Mailbox(self.id)]);
         self.stream("steered", json!({ "committed_row": committed }));
+        self.continue_released_mail().await?;
         Ok(true)
+    }
+
+    /// A successful native handoff can leave a size-budget tail. Continue a
+    /// released DnD batch at the next native handoff rather than turn end.
+    /// Failed handoffs never loop here; all mail retains ordinary custody.
+    async fn continue_released_mail(&self) -> Result<()> {
+        let client=self.engine.db.get().await?;
+        let waiting:bool=client.query_one("SELECT EXISTS (SELECT 1 FROM ot.mail WHERE recipient_agent_id=$1 AND state='pending' AND extra->>'dnd_released'='true' AND extra->>'input_budget_deferred'='true')",&[&self.id]).await?.get(0);
+        if waiting { let _=self.tx.post(AgentMsg::Wake); }
+        Ok(())
     }
 
     /// The turn is ending: a handoff the hook emitted is delivered; one it
@@ -4510,7 +4522,11 @@ impl Actor {
             if rows.is_empty() || !waking { tx.rollback().await?; return Ok(false); }
         }
         tx.execute(
-            "UPDATE ot.agents SET inflight_at = now(), last_error = NULL, row_version = row_version + 1 WHERE id = $1",
+            "UPDATE ot.turns SET do_not_disturb=(SELECT dnd_next_turn FROM ot.agents WHERE id=$1) WHERE id=$2",
+            &[&self.id,&turn_id],
+        ).await?;
+        tx.execute(
+            "UPDATE ot.agents SET inflight_at = now(), last_error = NULL, dnd_next_turn=false, row_version = row_version + 1 WHERE id = $1",
             &[&self.id],
         )
         .await?;
