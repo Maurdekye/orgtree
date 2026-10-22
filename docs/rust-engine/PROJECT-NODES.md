@@ -35,6 +35,13 @@ project's team, address its actual agents. `swap` deliberately remains an
 agent-only seat operation (user 2026-10-20 07:23Z); reorder bunched projects
 with move/reorder, not swap. Proof: `tools/rig/proofs/node-placement.mjs`.
 
+The placement proof snapshots promotion policy after listener, slot and queued-mail
+setup. Arming its retained listener deliberately enables event listeners (user
+2026-10-20 10:50Z); separate direct/nested checks require that activation and
+exact equality of every other policy field. Promotion still compares the full
+scope, Summary, identity and queued mail, with no excluded policy fields.
+[verified: `tools/rig/proofs/node-placement.mjs`, 2026-10-22]
+
 Slot claims accept `slots=N` (1–9,999,999, default 1, at most capacity minus the holder's held/pending units).
 Migration 0039 adds `slot_leases.slot_count`, defaulting old leases to one.
 Admission holds the project row lock, subtracts the sum of active lease

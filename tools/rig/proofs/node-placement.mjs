@@ -32,14 +32,18 @@ export default async function(rig){
     let at=caller
     if(nested){at=`middle-${suffix}`;await hire(at,caller,10)}
     await project(target,at);await hire(`member-${suffix}`,target);await hire(`kept-${suffix}`,caller)
-    const before=node(target),callerFree=free(caller),middleFree=nested?free(at):null,bossFree=free('boss')
+    const setup=node(target),callerFree=free(caller),middleFree=nested?free(at):null,bossFree=free('boss')
     const listener=await rig.tool('boss','orgtree_watchdog',{action:'create',name:`keep-${suffix}`,kind:'project_listener',target,notice:true})
+    const listening=node(target)
+    p.check(`${suffix}: listener registration enables events without changing other policy`,listener.ok&&setup.scope.event_listeners!==true&&listening.scope.event_listeners===true&&same(listening.scope,{...setup.scope,event_listeners:true}),listening.scope)
     const claim=await rig.tool(`member-${suffix}`,'orgtree_watchdog',{action:'create',name:`hold-${suffix}`,kind:'slot',target,once:true,notice:true})
-    const resources=()=>({listeners:rig.sql(`SELECT uid,owner_agent_id,kind,memo->>'target_id' AS target FROM ot.watchdogs WHERE name='keep-${suffix}' AND org_id=${org}`),leases:rig.sql(`SELECT uid,project_id,holder_agent_id FROM ot.slot_leases WHERE project_id=${before.id} AND ended_at IS NULL`)})
+    const resources=()=>({listeners:rig.sql(`SELECT uid,owner_agent_id,kind,memo->>'target_id' AS target FROM ot.watchdogs WHERE name='keep-${suffix}' AND org_id=${org}`),leases:rig.sql(`SELECT uid,project_id,holder_agent_id FROM ot.slot_leases WHERE project_id=${setup.id} AND ended_at IS NULL`)})
     const owned=resources()
     await rig.userMail(target,'Project queue survives promotion',{notice:true})
-    const queue=()=>rig.sql(`SELECT uid,state,recipient_agent_id FROM ot.mail WHERE recipient_agent_id=${before.id} AND body='Project queue survives promotion'`)
-    const queued=queue(),r=await rig.tool(caller,'orgtree_self_subjugate',{target})
+    const queue=()=>rig.sql(`SELECT uid,state,recipient_agent_id FROM ot.mail WHERE recipient_agent_id=${setup.id} AND body='Project queue survives promotion'`)
+    // Listener registration deliberately enables events. Compare promotion only
+    // after all listener, slot and queued-mail fixture setup has completed.
+    const before=node(target),queued=queue(),r=await rig.tool(caller,'orgtree_self_subjugate',{target})
     p.check(`${suffix}: a descendant container can take the caller's structural position`,r.ok&&parent(target)==='boss'&&parent(caller)===target,r.text)
     const after=node(target)
     p.check(`${suffix}: promotion retains project identity, policy, Summary and queued mail`,r.ok&&before.id===after.id&&same(before.scope,after.scope)&&before.charter===after.charter&&same(queued,queue()),after)
