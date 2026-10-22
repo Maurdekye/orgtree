@@ -5,7 +5,8 @@ import type { CacheForecast } from '../src/types'
 
 const forecast: CacheForecast = { generation:'synthetic', state:'known_incompatible', readiness:'not_ready',
   readiness_cause:'prefix_changed', reason:'Synthetic changed prefix', source:'synthetic fixture', lane:'subscription',
-  changed_inputs:['system prompt'], precompact_action:'not_applicable' }
+  changed_inputs:['system prompt'], precompact_action:'not_applicable',
+  last_receipt_at:null, ttl_seconds:null, expires_at:null }
 function Fixture() {
   const [focused,setFocused]=useState(false),[opened,setOpened]=useState(0)
   return <main style={{padding:32,maxWidth:940}}>
