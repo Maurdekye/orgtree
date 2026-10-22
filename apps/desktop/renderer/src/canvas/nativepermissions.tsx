@@ -5,7 +5,7 @@ export function nativeToolCoverage(harness?: string | null): string {
     case 'claude': case 'claude-code':
       return 'Restores AskUserQuestion, EnterPlanMode, ExitPlanMode, CronCreate, CronDelete, CronList, ScheduleWakeup, Monitor and RemoteTrigger. Questions and plan approval keep normal audience routing. SendMessage and other helper tools still follow Use helper agents.'
     case 'openai': case 'codex-cli':
-      return 'Restores native request_user_input when offered by Codex. Questions keep normal audience routing. Shell, web, file editing and helper permissions are not affected.'
+      return 'Restores native request_user_input, including Codex's normal mode where supported. Questions keep normal audience routing. Shell, web, file editing and helper permissions are not affected.'
     case 'muse':
       return 'Restores native user-input questions with normal audience routing. Not affected: reminder observers, proactive workflows and contributor mode; these stay off.'
     case 'google': case 'antigravity':

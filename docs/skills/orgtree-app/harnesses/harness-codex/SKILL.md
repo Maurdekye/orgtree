@@ -91,4 +91,4 @@ does not save a provider/browser permission rule or send the answer as agent mai
 
 ## Disabled by Orgtree opt-in
 
-An explicit tools.orgtree_disabled grant accepts native requestUserInput through the bounded native-question adapter when Codex offers the tool in its current mode. Native mode/tool availability remains a CLI limitation. Other scope/catalog restrictions remain. See orgtree-app > agent-settings > agent-tools-tab and orgtree-app > desk > ask-cards for defaults, coverage and routing.
+An explicit tools.orgtree_disabled grant sets the locally advertised features.default_mode_request_user_input flag and accepts native requestUserInput through the bounded native-question adapter, including normal mode on compatible CLIs. Native mode/tool availability remains a CLI limitation. Other scope/catalog restrictions remain. See orgtree-app > agent-settings > agent-tools-tab and orgtree-app > desk > ask-cards for defaults, coverage and routing.

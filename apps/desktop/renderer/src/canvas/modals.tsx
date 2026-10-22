@@ -1022,7 +1022,7 @@ export function cascadePreview(
     }
     if (want.tools) {
       for (const k of ['bash', 'web', 'edit', 'subagents', 'orgtree_disabled'] as const) {
-        if (want.tools[k] && !(n.scope.tools as Record<string, unknown>)?.[k]) gains.push(k)
+        if (want.tools[k] && !(n.scope.tools as Record<string, unknown>)?.[k]) gains.push(k === 'orgtree_disabled' ? 'Disabled by Orgtree' : k)
       }
       for (const [group, label] of ORGTREE_GROUPS) {
         if (want.tools.orgtree?.[group] !== false && n.scope.tools?.orgtree?.[group] === false) gains.push(label)
