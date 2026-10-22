@@ -427,10 +427,9 @@ pub fn serve(
 fn listen(endpoint: Arc<Endpoint>) -> Result<String> {
     use tokio::net::windows::named_pipe::ServerOptions;
     let name = format!(r"\\.\pipe\orgtree-mail-{}", crate::util::random_hex(16));
-    let first = ServerOptions::new()
-        .first_pipe_instance(true)
-        .reject_remote_clients(true)
-        .create(&name)?;
+    // a CLI the sign-in helper hosts in the user's session connects too,
+    // whatever this engine's rights (`create_user_pipe`)
+    let first = crate::winproc::create_user_pipe(ServerOptions::new().first_pipe_instance(true).reject_remote_clients(true), &name)?;
     let pipe = name.clone();
     tokio::spawn(async move {
         let mut server = first;
@@ -441,10 +440,7 @@ fn listen(endpoint: Arc<Endpoint>) -> Result<String> {
                 r=server.connect()=>if r.is_err(){break},
             }
             let conn = server;
-            server = match ServerOptions::new()
-                .reject_remote_clients(true)
-                .create(&pipe)
-            {
+            server = match crate::winproc::create_user_pipe(ServerOptions::new().reject_remote_clients(true), &pipe) {
                 Ok(s) => s,
                 Err(_) => break,
             };

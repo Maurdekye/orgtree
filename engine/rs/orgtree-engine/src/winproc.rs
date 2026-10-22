@@ -17,8 +17,8 @@ mod imp {
     };
     use windows_sys::Win32::Security::{
         CreateRestrictedToken, GetSecurityDescriptorDacl, GetTokenInformation, SetTokenInformation, TokenDefaultDacl,
-        TokenIntegrityLevel, TokenUser, DISABLE_MAX_PRIVILEGE, PSID, SID_AND_ATTRIBUTES, TOKEN_ALL_ACCESS, TOKEN_DEFAULT_DACL,
-        TOKEN_MANDATORY_LABEL,
+        TokenIntegrityLevel, TokenUser, DISABLE_MAX_PRIVILEGE, PSID, SECURITY_ATTRIBUTES, SID_AND_ATTRIBUTES, TOKEN_ALL_ACCESS,
+        TOKEN_DEFAULT_DACL, TOKEN_MANDATORY_LABEL, TOKEN_QUERY,
     };
     use windows_sys::Win32::System::JobObjects::{
         AssignProcessToJobObject, CreateJobObjectW, JobObjectExtendedLimitInformation,
@@ -284,6 +284,56 @@ mod imp {
             }
             Ok(new)
         }
+    }
+
+    /// This process's user (`S-1-5-21-…`), read once.
+    #[nolog]
+    fn own_user() -> Option<&'static str> {
+        static USER: OnceLock<Option<String>> = OnceLock::new();
+        USER.get_or_init(|| unsafe {
+            let mut own: HANDLE = std::ptr::null_mut();
+            if OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &mut own) == 0 {
+                return None;
+            }
+            let own = OwnedHandle::from_raw_handle(own as RawHandle);
+            let buf = token_info(own.as_raw_handle() as HANDLE, TokenUser)?;
+            sid_string((*(buf.as_ptr() as *const SID_AND_ATTRIBUTES)).Sid)
+        })
+        .as_deref()
+    }
+
+    /// The security of a pipe this engine serves to its own user's processes:
+    /// what Windows gives a pipe by default (SYSTEM, Administrators and the
+    /// owner full, Everyone and Anonymous read; measured 2026-10-22), with the
+    /// engine's own user in the owner's entry, and a Medium label. An elevated
+    /// engine's default owner is Administrators and its pipes take its High
+    /// integrity, so the sign-in helper and the CLIs it hosts (Medium,
+    /// Administrators deny-only) could only read them. Unelevated, this is the
+    /// default itself. The owner stays the token's default.
+    #[nolog]
+    pub fn user_pipe_sddl(user: &str) -> String {
+        format!("D:(A;;FA;;;SY)(A;;FA;;;BA)(A;;FA;;;{user})(A;;FR;;;WD)(A;;FR;;;AN)S:(ML;;NW;;;ME)")
+    }
+
+    /// Create the server end of the pipe `name` with `options` and
+    /// `user_pipe_sddl`'s security.
+    #[logged]
+    pub fn create_user_pipe(
+        options: &tokio::net::windows::named_pipe::ServerOptions,
+        name: &str,
+    ) -> std::io::Result<tokio::net::windows::named_pipe::NamedPipeServer> {
+        let user = own_user().ok_or_else(|| std::io::Error::other("could not read this process's user"))?;
+        let sddl = wide(&user_pipe_sddl(user));
+        let mut sd: *mut c_void = std::ptr::null_mut();
+        if unsafe { ConvertStringSecurityDescriptorToSecurityDescriptorW(sddl.as_ptr(), SDDL_REVISION_1, &mut sd, std::ptr::null_mut()) } == 0 {
+            return Err(std::io::Error::last_os_error());
+        }
+        let mut sa = SECURITY_ATTRIBUTES { nLength: std::mem::size_of::<SECURITY_ATTRIBUTES>() as u32, lpSecurityDescriptor: sd, bInheritHandle: 0 };
+        // Safety: `sa` is an initialized SECURITY_ATTRIBUTES whose descriptor
+        // lives until the pipe is created; the pipe keeps its own copy.
+        let created = unsafe { options.create_with_security_attributes_raw(name, &mut sa as *mut SECURITY_ATTRIBUTES as *mut c_void) };
+        unsafe { LocalFree(sd) };
+        created
     }
 
     /// A child `spawn_restricted` started: the calls the engine makes on a
@@ -594,6 +644,30 @@ mod restricted_tests {
         assert!(!jobs.0 || jobs.1, "the child left this process's job");
         assert_eq!(status.code(), Some(1));
         assert!(!crate::winproc::process_alive(pid));
+    }
+
+    /// A pipe served with `create_user_pipe` is the default with the
+    /// engine's user and a Medium label, and that user still opens it both
+    /// ways: what the unelevated default allowed stays allowed.
+    #[tokio::test]
+    async fn the_engines_user_opens_a_user_pipe_both_ways() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        use tokio::net::windows::named_pipe::{ClientOptions, ServerOptions};
+        assert_eq!(
+            super::user_pipe_sddl("S-1-5-21-1-2-3-1001"),
+            "D:(A;;FA;;;SY)(A;;FA;;;BA)(A;;FA;;;S-1-5-21-1-2-3-1001)(A;;FR;;;WD)(A;;FR;;;AN)S:(ML;;NW;;;ME)"
+        );
+        let name = format!(r"\\.\pipe\orgtree-user-pipe-test-{}", crate::util::random_hex(8));
+        let mut server = super::create_user_pipe(ServerOptions::new().first_pipe_instance(true).reject_remote_clients(true), &name).expect("served");
+        let mut client = ClientOptions::new().open(&name).expect("the engine's user opens it to read and write");
+        server.connect().await.unwrap();
+        let mut buf = [0u8; 4];
+        client.write_all(b"ping").await.unwrap();
+        server.read_exact(&mut buf).await.unwrap();
+        assert_eq!(&buf, b"ping");
+        server.write_all(b"pong").await.unwrap();
+        client.read_exact(&mut buf).await.unwrap();
+        assert_eq!(&buf, b"pong");
     }
 
     #[test]

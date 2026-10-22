@@ -487,16 +487,13 @@ mod win {
         }
     }
 
+    /// The engine's own user may use it whatever the engine's rights: the
+    /// helper that opens it runs in the user's session (`create_user_pipe`).
     #[nolog]
     fn serve(name: &str, inbound: bool) -> std::result::Result<NamedPipeServer, String> {
-        ServerOptions::new()
-            .first_pipe_instance(true)
-            .max_instances(1)
-            .reject_remote_clients(true)
-            .access_inbound(inbound)
-            .access_outbound(!inbound)
-            .create(name)
-            .map_err(|_| "host-pipe".to_string())
+        let mut options = ServerOptions::new();
+        options.first_pipe_instance(true).max_instances(1).reject_remote_clients(true).access_inbound(inbound).access_outbound(!inbound);
+        crate::winproc::create_user_pipe(&options, name).map_err(|_| "host-pipe".to_string())
     }
 
     /// The helper must be the pipe's client (it opens all three before it
@@ -703,7 +700,8 @@ mod win {
                 let pipe = serve(&name, inbound).expect("the pipe is served");
                 let sddl = security_text(&pipe);
                 assert!(sddl.contains(&format!("(A;;FA;;;{user})")), "the engine's user lacks full access: {sddl}");
-                assert!(sddl.contains("S:(ML;;NW;;;ME)"), "no Medium label: {sddl}");
+                // Windows marks the label's SACL auto-inherited: S:AI(ML;;NW;;;ME)
+                assert!(sddl.contains("(ML;;NW;;;ME)"), "no Medium label: {sddl}");
                 assert!(!sddl.contains("(A;;FA;;;WD)") && !sddl.contains("(A;;FA;;;AN)"), "broader than the default: {sddl}");
             }
         }
