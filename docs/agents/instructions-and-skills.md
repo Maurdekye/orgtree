@@ -518,3 +518,12 @@ asserting the engine log contains no old private-mail canary.
 [verified: domain/notices.rs::mail_kind/for_org, appfeed.rs::read_org,
 feed/mod.rs::Actor::replace_window, http/orgs.rs::app_records;
 real-engine synthetic regression private-read-wire-privacy.mjs]
+
+## Node inbox diagnostic boundary (2026-10-22)
+
+Node mailbox live/history bodies use the outer quiet-body family guard before
+authentication and extraction; numeric ids and names have the same boundary.
+The agent_mailbox projection is nolog because it returns private rows.
+Client content and path/status metadata remain unchanged.
+[verified: http/mod.rs, feed/compute.rs::agent_mailbox;
+real-engine synthetic regression remaining-inbox-wire-privacy.mjs]

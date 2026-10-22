@@ -405,7 +405,8 @@ pub async fn events_window(client: &Client, org_id: i64) -> Result<(Vec<(i64, Va
 }
 
 /// One agent's mailbox window: `MailRecord {folder, order, mail}` keyed by mail id.
-#[logged]
+// Private mailbox rows must not bypass the quiet node-inbox wire route.
+#[nolog]
 pub async fn agent_mailbox(client: &Client, agent_id: i64) -> Result<Vec<(String, Value)>> {
     let pending = client
         .query(

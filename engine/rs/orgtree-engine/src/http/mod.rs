@@ -331,6 +331,12 @@ fn quiet_body(path: &str, headers: &axum::http::HeaderMap) -> bool {
         // Private inbox reader bodies, including rejected child routes.
         || path.strip_prefix("/api/orgs/").and_then(|p| p.split_once('/'))
             .map(|(_, rest)| rest == "inbox" || rest.starts_with("inbox/")).unwrap_or(false)
+        // Node mailboxes include private live and retained history bodies.
+        || path.strip_prefix("/api/orgs/").and_then(|p| p.split_once('/'))
+            .and_then(|(_, rest)| rest.strip_prefix("nodes/"))
+            .and_then(|rest| rest.split_once('/'))
+            .map(|(_, rest)| rest == "inbox" || rest.starts_with("inbox/"))
+            .unwrap_or(false)
         // Private mail reader bodies, including rejected child routes.
         || path.strip_prefix("/api/orgs/").and_then(|p| p.split_once('/'))
             .map(|(_, rest)| rest.starts_with("mail/")).unwrap_or(false)
@@ -662,5 +668,16 @@ mod document_reader_wire_tests {
         let headers = axum::http::HeaderMap::new();
         for path in ["/api/orgs/fixture/documents/d1","/api/orgs/fixture/documents/d1/download","/api/orgs/fixture/documents/d1/unknown-child"] { assert!(quiet_body(path, &headers), "{path}"); }
         for path in ["/api/orgs/fixture/documents","/api/orgs/fixture/documents-extra/d1"] { assert!(!quiet_body(path, &headers), "{path}"); }
+    }
+}
+
+#[cfg(test)]
+mod node_inbox_wire_tests {
+    use super::*;
+    #[test]
+    fn node_inbox_wire_bodies_are_quiet_with_exact_route_boundaries() {
+        let headers = axum::http::HeaderMap::new();
+        for path in ["/api/orgs/fixture/nodes/worker/inbox", "/api/orgs/fixture/nodes/12/inbox", "/api/orgs/fixture/nodes/worker/inbox/unknown-child"] { assert!(quiet_body(path, &headers), "{path}"); }
+        for path in ["/api/orgs/fixture/nodes/worker/inbox-extra", "/api/orgs/fixture/nodes/inbox/detail", "/api/orgs/fixture/nodes/worker/message"] { assert!(!quiet_body(path, &headers), "{path}"); }
     }
 }
