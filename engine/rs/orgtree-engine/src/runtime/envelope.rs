@@ -100,12 +100,15 @@ pub struct Live {
 #[nolog]
 fn live_of(engine: &Engine, id: i64) -> Live {
     match engine.agents.get(id) {
-        Some(h) => {
-            let v = h.view.load();
-            Live { busy: v["busy"].as_bool() == Some(true), waiting: v["waiting"].as_bool() == Some(true) }
-        }
+        Some(h) => live_from_view(&h.view.load()),
         None => Live::default(),
     }
+}
+
+/// The chart's reading of an actor's published runtime view.
+#[nolog]
+fn live_from_view(v: &Value) -> Live {
+    Live { busy: v["busy"].as_bool() == Some(true), waiting: v["waiting"].as_bool() == Some(true) }
 }
 
 /// 3.x `_age_phrase`: coarse on purpose, so the chart (and its digest) stays

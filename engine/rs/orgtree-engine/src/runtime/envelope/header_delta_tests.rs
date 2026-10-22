@@ -157,3 +157,25 @@ fn header_org_runtime_timestamp_without_state_transition_is_not_material() {
     f.rows[1].inflight_at = None;
     assert!(render(&f,&live,now).text.contains("DELTA"),"busy-to-finished remains material");
 }
+
+#[test]
+fn a_turn_still_starting_is_mid_turn_never_a_dead_one() {
+    // The actor's view while start_turn runs: its turn slot held and its mail
+    // claimed (inflight_at set), the turn not begun yet: the CLI starting, the
+    // helper awaited, this very ORG STATE being built. That read as a turn the
+    // engine dropped (the coordinator's flag after the retire hang, 2026-10-22).
+    let (mut f, now) = fixture(2, false);
+    f.rows[1].inflight_at = Some(now - chrono::Duration::seconds(12));
+    // worker-02's own chart row: the legend names "▶ mid-turn" too, and the
+    // reports line names worker-02
+    let row = |text: &str| text.lines().find(|l| l.trim_start().starts_with("- worker-02 ")).unwrap_or_default().to_string();
+    let mut live = HashMap::new();
+    live.insert(2, live_from_view(&json!({"busy": false, "waiting": false, "starting": true})));
+    let text = render(&f, &live, now).text;
+    assert!(row(&text).contains("▶ mid-turn"), "a starting turn is mid-turn: {text}");
+    assert!(!row(&text).contains("never finished"), "a starting turn is not a dead one: {text}");
+    // a claimed turn with none running or starting still reads as cut off
+    live.insert(2, live_from_view(&json!({"busy": false, "waiting": false})));
+    let text = render(&f, &live, now).text;
+    assert!(row(&text).contains("never finished — the engine stopped mid-turn"), "{text}");
+}
