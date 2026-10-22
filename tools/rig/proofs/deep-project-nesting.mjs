@@ -207,6 +207,13 @@ export default async function (rig) {
     const grant = Number(row('leaf').grant_credits)
     const realloc = await tool('boss', 'orgtree_reallocate', { node: 'leaf', delta: 1 })
     record('ancestor can reallocate deepest agent credits', realloc.ok && Number(row('leaf').grant_credits) === grant + 1, realloc.text)
+    const ledger = rig.sql(`SELECT name,seat::text,grant_credits::text FROM ot.agents
+      WHERE org_id=${org} AND kind='project' AND state='live' ORDER BY id`)
+    const ledgerWrong = ledger.filter(r => Number(r.seat) !== 0 || Number(r.grant_credits) !==
+      (Number(r.name.slice(2)) <= Math.floor(depth / 2) ? 19 : 17))
+    p.file('reallocated-project-ledger.json', ledger)
+    record('every project mirror preserves the exact reallocated frontier', ledger.length === depth && ledgerWrong.length === 0,
+      { count: ledger.length, expected: depth, wrong: ledgerWrong.slice(0, 10), wrongCount: ledgerWrong.length })
     phase = 'deep project broadcast/listeners/queue'
     const broadcast = await tool('boss', 'orgtree_project', { action: 'broadcast', name: last, body: `DEPTH-${depth}-BROADCAST`, notice: true })
     const recipients = rig.sql(`SELECT recipient_name FROM ot.mail WHERE org_id=${org} AND body='DEPTH-${depth}-BROADCAST' ORDER BY recipient_name`).map(r => r.recipient_name)
