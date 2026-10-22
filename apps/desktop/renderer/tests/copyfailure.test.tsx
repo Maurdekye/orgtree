@@ -13,6 +13,7 @@ import { ObjectNavHost } from '../src/canvas/objectnavhost'
 import { RefChip, resolveRef } from '../src/canvas/reflinks'
 import { refreshConvo, resetConvos } from '../src/convo'
 import type { CanvasNode } from '../src/canvas/shared'
+import type { ToastFn } from '../src/types'
 
 const preview = '[MAIL BY REFERENCE id=copy-mail] abbreviated...'
 const full = '  Full message\n\nwith exact trailing whitespace  \n'
@@ -94,12 +95,12 @@ for (const surface of ['transcript', 'mail list', 'mail reply', 'transcript repl
       }
       return baseFetch(input, init)
     }) as typeof fetch
-    const toasts: string[][] = [], toast = (lines: string[]) => { toasts.push(lines) }
+    const toasts: string[][] = [], toast: ToastFn = lines => { toasts.push(lines ?? []) }
     const world = { org: 'org', agents: new Map([['writer', 'writer']]) }
     const ref = { kind: 'mail' as const, org: 'org', box: 'node' as const, node: 'writer', id: row.id }
     const content = surface === 'transcript' ? <DeskChat node={writer} map={new Map([[writer.id, writer]])}
       slug="org" op={async () => ({})} toast={toast} bare />
-      : surface === 'mail list' ? <MailList org="org" delivered={[{ ...row, from: 'sender', at: '2026-10-21T00:00:00Z' }]} toast={toast} />
+      : surface === 'mail list' ? <MailList org="org" delivered={[{ ...row, from: 'sender', kind: 'message', at: '2026-10-21T00:00:00Z' }]} toast={toast} />
       : surface === 'mail reply' ? <MailReplyPreview org="org" world={world} row={{ reply_to: { ...ref, from: 'sender', gist: preview } }} />
       : surface === 'transcript reply' ? <ReplyPreview reply={{ org: 'org', agent: 'writer', generation: 2,
         eventId: 'mail:' + row.id, mailId: row.id, quote: preview }} available={false} onLocate={() => {}} />
