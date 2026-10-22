@@ -38,8 +38,9 @@ impl FailureLog {
     /// Whether this reading is news for the log: the first failure of a
     /// stretch, or the first good reading after one.
     pub(crate) fn note(&mut self, failed: bool) -> bool {
-        let _ = (failed, self.failing);
-        false
+        let news = failed != self.failing;
+        self.failing = failed;
+        news
     }
 }
 
@@ -114,8 +115,18 @@ mod win {
     /// in there any more, and its queries may fail until it is gone.
     #[nolog]
     pub(super) fn torn_down(state: WTS_CONNECTSTATE_CLASS) -> bool {
-        let _ = state;
-        false
+        state == WTSDown || state == WTSReset
+    }
+
+    /// The Windows call a sign-in reading failed on, for its log line: which
+    /// call, the session it asked about (0: the enumeration), that session's
+    /// state and the error the call left.
+    #[derive(Clone, Copy, Debug)]
+    struct Failure {
+        call: &'static str,
+        session: u32,
+        state: WTS_CONNECTSTATE_CLASS,
+        os: u32,
     }
 
     /// Cache SID resolution per WTS logon, not per tick: avoid repeated account
@@ -123,6 +134,7 @@ mod win {
     pub struct Sessions {
         own_sid: Vec<u8>,
         owners: HashMap<(u32, i64), bool>,
+        failures: super::FailureLog,
     }
 
     #[nolog]
@@ -139,39 +151,74 @@ mod win {
                 if ok == 0 { return None; }
                 let sid = (*(data.as_ptr() as *const TOKEN_USER)).User.Sid;
                 let own_sid = std::slice::from_raw_parts(sid.cast::<u8>(), GetLengthSid(sid) as usize).to_vec();
-                Some(Self { own_sid, owners: HashMap::new() })
+                Some(Self { own_sid, owners: HashMap::new(), failures: super::FailureLog::default() })
             }
         }
 
         /// None = inspection failed. Some(empty) = operator has actually signed
         /// out. Never use the active-console session alone: it excludes RDP and
-        /// disconnected but still signed-in sessions.
+        /// disconnected but still signed-in sessions. A session being torn down
+        /// (`torn_down`) is nobody's, and its queries may fail until it is gone:
+        /// on alpha.34 every reading failed for the 77 s a sign-out took
+        /// (2026-10-22), most likely so. Any other failed call still fails the
+        /// reading, and the first one of a stretch of failed readings is
+        /// logged, as is the reading that ends it.
         pub fn read(&mut self) -> Option<Vec<Session>> {
+            let (found, failure) = self.scan();
+            if self.failures.note(failure.is_some()) {
+                match failure {
+                    Some(f) => tracing::warn!(call = f.call, session = f.session, state = f.state, os = f.os,
+                        "Windows could not say whether the user is signed in; the sign-in state stays unknown until it can"),
+                    None => tracing::info!("Windows can say again whether the user is signed in"),
+                }
+            }
+            if failure.is_some() { None } else { Some(found) }
+        }
+
+        /// The operator's sessions, and the first call that failed (a failed
+        /// call skips its session; the others are still read).
+        fn scan(&mut self) -> (Vec<Session>, Option<Failure>) {
+            // the error is read at once, before another call can replace it
+            let fail = |first: &mut Option<Failure>, call: &'static str, session: u32, state: WTS_CONNECTSTATE_CLASS| {
+                let os = unsafe { GetLastError() };
+                if first.is_none() {
+                    *first = Some(Failure { call, session, state, os });
+                }
+            };
+            let mut first = None;
             unsafe {
                 let mut rows = ptr::null_mut(); let mut count = 0;
-                if WTSEnumerateSessionsW(ptr::null_mut(), 0, 1, &mut rows, &mut count) == 0 { return None; }
-                let mut found = Vec::new(); let mut seen = Vec::new(); let mut failed = false;
-                let rows_slice = if count == 0 { &[][..] } else if rows.is_null() { return None } else { std::slice::from_raw_parts(rows, count as usize) };
+                if WTSEnumerateSessionsW(ptr::null_mut(), 0, 1, &mut rows, &mut count) == 0 {
+                    fail(&mut first, "enumerate", 0, 0);
+                    return (Vec::new(), first);
+                }
+                let mut found = Vec::new(); let mut seen = Vec::new();
+                let rows_slice = if count == 0 { &[][..] } else if rows.is_null() {
+                    fail(&mut first, "enumerate", 0, 0);
+                    return (Vec::new(), first);
+                } else { std::slice::from_raw_parts(rows, count as usize) };
                 for row in rows_slice {
-                    if row.SessionId == 0 { continue; }
+                    if row.SessionId == 0 || torn_down(row.State) { continue; }
+                    let (id, state) = (row.SessionId, row.State);
                     let mut bytes = ptr::null_mut(); let mut n = 0;
-                    if WTSQuerySessionInformationW(ptr::null_mut(), row.SessionId, WTSSessionInfo, &mut bytes, &mut n) == 0 {
-                        failed = true; continue;
+                    if WTSQuerySessionInformationW(ptr::null_mut(), id, WTSSessionInfo, &mut bytes, &mut n) == 0 {
+                        fail(&mut first, "session info", id, state); continue;
                     }
                     if n < std::mem::size_of::<WTSINFOW>() as u32 || bytes.is_null() {
+                        fail(&mut first, "session info size", id, state);
                         if !bytes.is_null() { WTSFreeMemory(bytes.cast()); }
-                        failed = true; continue;
+                        continue;
                     }
                     let info = *(bytes as *const WTSINFOW);
                     WTSFreeMemory(bytes.cast());
-                    let Some(user) = session_text(row.SessionId, WTSUserName) else { failed = true; continue };
+                    let Some(user) = session_text(id, WTSUserName) else { fail(&mut first, "user name", id, state); continue };
                     if user.is_empty() || info.LogonTime <= 0 { continue; }
-                    let key = (row.SessionId, info.LogonTime);
+                    let key = (id, info.LogonTime);
                     seen.push(key);
                     let owns = match self.owners.get(&key) {
                         Some(owns) => Some(*owns),
                         None => {
-                            let Some(domain) = session_text(row.SessionId, WTSDomainName) else { failed = true; continue };
+                            let Some(domain) = session_text(id, WTSDomainName) else { fail(&mut first, "domain name", id, state); continue };
                             let account = if domain.is_empty() { user } else { format!("{domain}\\{user}") };
                             let answer = account_sid(&account).map(|sid| sid == self.own_sid);
                             if let Some(answer) = answer { self.owners.insert(key, answer); }
@@ -179,15 +226,15 @@ mod win {
                         }
                     };
                     match owns {
-                        Some(true) => found.push(Session { id: row.SessionId, logon: info.LogonTime.to_string() }),
+                        Some(true) => found.push(Session { id, logon: info.LogonTime.to_string() }),
                         Some(false) => {},
-                        None => failed = true,
+                        None => fail(&mut first, "account", id, state),
                     }
                 }
                 if !rows.is_null() { WTSFreeMemory(rows.cast()); }
                 self.owners.retain(|key, _| seen.contains(key));
                 found.sort_by_key(|s| s.id);
-                if failed { None } else { Some(found) }
+                (found, first)
             }
         }
     }
