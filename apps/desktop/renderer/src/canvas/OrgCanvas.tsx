@@ -3952,7 +3952,8 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
     const steps: Record<string, unknown>[] = [{ ...hireBody }]
     if (draft?.above) {
       steps[0]!.hire_type = 'superior'; steps[0]!.target = draft.above.anchor
-      delete steps[0]!.above
+      // The operation endpoint consumes `above`; target is the agent-tool
+      // shape, and a gesture forwards its steps without that translation.
     }
     if (draft?.beside) steps.push({ op: 'reorder', node: '$0.node',
       ...(draft.beside.side === 'left' ? { before: draft.beside.anchor } : { after: draft.beside.anchor }) })
@@ -5087,7 +5088,9 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
               // judged on the ring as it is NOW, before the hire changes it
               const pin = placement === 'left' || placement === 'right' ? ringSide(a, placement) : null
               const museAccount = museHireAccount(slug, tier, tree.default_account)
-              const body: Parameters<OpFn>[0] = { op: 'hire', parent, tier, grant, name, ...(museAccount ? { account: museAccount } : {}) }
+              const body: Parameters<OpFn>[0] = { op: 'hire', parent, tier, grant, name,
+                ...(placement === 'above' ? { above: a.id } : {}),
+                ...(museAccount ? { account: museAccount } : {}) }
               const steps: Record<string, unknown>[] = [{ ...body, ...(placement === 'above' ? { hire_type: 'superior', target: a.id } : {}) }]
               if (pin) steps.push({ op: 'reorder', node: '$0.node', ...(pin === 'left' ? { before: a.id } : { after: a.id }) })
               const hired = tree.undo_history ? userGesture(slug, steps, `Hire ${tierLabel(tier)}`)
@@ -5098,17 +5101,11 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
                   if (typeof born === 'string' && born)
                     rememberHire(slug, { tier, superior: parent })
                   if (typeof born === 'string' && born) {
-                    // same follow-ups as the desktop chips: side = pin the
-                    // promised ordering (best-effort, cosmetic); above = the
-                    // FR-25 splice (loud on failure — it IS the point)
+                    // The superior splice belongs to the hire transaction.
+                    // Side placement alone has a cosmetic ordering follow-up.
                     if (pin && !tree.undo_history) {
                       void reorderNode(slug, born, pin === 'left'
                         ? { before: a.id } : { after: a.id }).catch(() => {})
-                    }
-                    if (placement === 'above' && !tree.undo_history) {
-                      op({ op: 'move', node: a.id, new_parent: born })
-                        .catch((e: Error) => toast([
-                          `hired ${born}, but the splice failed: ${e.message}`]))
                     }
                     toast([`hired ${born}`], historyUndo(slug, r))
                   }
