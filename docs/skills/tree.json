@@ -3921,10 +3921,6 @@
      "label": "Run as admin"
     },
     {
-     "file": "apps/desktop/renderer/src/canvas/desktopsettings.tsx",
-     "label": "apply the change"
-    },
-    {
      "file": "apps/desktop/renderer/src/canvas/onboarding.tsx",
      "label": "exit when the last window closes"
     }
