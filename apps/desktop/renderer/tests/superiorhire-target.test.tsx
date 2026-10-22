@@ -107,6 +107,38 @@ for (const target of ['boss', 'worker']) for (const history of [true, false]) {
   }
 }
 
+for (const target of ['boss', 'worker']) test(`superior ${target} gear identifies its target's inherited scope`, async t => {
+  const c = await setup(t, true)
+  await click(c.card(target).querySelector('.hsof.side-t button.t-sol'))
+  await advance(1200)
+  await click(c.v.el.querySelector('.sq.draft .df-gear'))
+  const note = document.body.querySelector('.draft-scope-inherited')
+  assert.ok(note)
+  assert.match(note.textContent ?? '', new RegExp(`inherited from ${target} when hired`))
+  assert.equal(document.body.querySelector('input[placeholder="Add a folder path"]'), null)
+  assert.equal(document.body.querySelector('select[aria-label="Visible agents"]'), null)
+  assert.equal(document.body.querySelector('[aria-label="Refresh MCP servers, skills and instructions"]'), null)
+  assert.ok(document.body.querySelector('select[aria-label="Account"]'))
+  assert.ok(document.body.querySelector('[role="slider"]'))
+})
+
+test('subordinate gear keeps editable scope and submits its staged grants', async t => {
+  const c = await setup(t, false)
+  await click(c.card('boss').querySelector('.hsof:not(.side) button.t-sol'))
+  await advance(1200)
+  await click(c.v.el.querySelector('.sq.draft .df-gear'))
+  assert.equal(document.body.querySelector('.draft-scope-inherited'), null)
+  const visibility = document.body.querySelector<HTMLSelectElement>('select[aria-label="Visible agents"]')!
+  assert.ok(visibility)
+  await inAct(() => { visibility.value = 'subtree'; visibility.dispatchEvent(new Event('change', { bubbles: true })) })
+  await click([...document.body.querySelectorAll('button')].find(el => el.textContent === 'apply'))
+  await c.submit()
+  assert.equal(c.accepted.length, 1)
+  assert.deepEqual(c.accepted[0].add_dirs, [{ path: 'D:/synthetic/boss', mode: 'ro' }])
+  assert.equal(c.accepted[0].org_visibility, 'subtree')
+  assert.equal((c.accepted[0].tools as Record<string, unknown>).bash, true)
+})
+
 for (const target of ['boss', 'worker']) {
   test(`superior draft above ${target === 'boss' ? 'a root agent' : 'a nested agent'} preserves the operation anchor through undo history`, async t => {
     const c = await setup(t, true)

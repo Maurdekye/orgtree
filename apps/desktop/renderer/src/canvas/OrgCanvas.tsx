@@ -3941,8 +3941,11 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
          // pre-hire permissions (user spec): staged in the draft's modal,
          // applied atomically WITH the hire — effort included (review: the
          // old post-hire /scope call's failure was swallowed silently)
-         ...(scope ? { add_dirs: scope.add_dirs, tools: scope.tools,
-                       org_visibility: scope.org_visibility,
+         ...(scope ? { // Superior insertion inherits scope from its anchor at
+                       // admission. Never submit overrides, even from a retained
+                       // draft snapshot; effort/account remain independent.
+                       ...(!draft!.above ? { add_dirs: scope.add_dirs, tools: scope.tools,
+                         org_visibility: scope.org_visibility } : {}),
                        effort: scope.effort || undefined,
                        // item 12: the draft's "Prefer reserve" box (luna
                        // only; omitted = the default, reserve first)

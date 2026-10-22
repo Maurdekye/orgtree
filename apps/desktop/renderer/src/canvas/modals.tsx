@@ -687,12 +687,14 @@ interface DraftScopeModalProps {
 
 export function DraftScopeModal({ draft, map, tree, scope, onSave, close, accounts: propAccounts }: DraftScopeModalProps) {
   const parent = agentSuperior(draft, map)
+  const superior = draft.above?.anchor
+  const scopeSource = superior ? map.get(superior) : parent
   const inherited = (): DraftScope => ({
-    add_dirs: (parent ? parent.scope?.add_dirs : tree.dirs) ?? [],
-    tools: parent?.scope?.tools
+    add_dirs: (scopeSource ? scopeSource.scope?.add_dirs : tree.dirs) ?? [],
+    tools: scopeSource?.scope?.tools
       ?? tree.default_tools
       ?? { bash: true, web: true, edit: true, subagents: true, mcp: ['*'] },
-    org_visibility: parent?.scope?.org_visibility
+    org_visibility: scopeSource?.scope?.org_visibility
       ?? tree.default_visibility ?? 'full',
   })
   const base = scope ?? inherited()
@@ -792,6 +794,11 @@ export function DraftScopeModal({ draft, map, tree, scope, onSave, close, accoun
     <ModalOverPins><PinFrame kind="draft-scope" title="Draft permissions" panel="settings" close={close} pinnable={false}>
         <h3><SettingsIcon fontSize="inherit" /> Permissions <span className="dim">
           · applied with the hire</span></h3>
+        {superior ? <div className="draft-scope-inherited" role="note">
+          <div className="field-label">Inherited permissions</div>
+          <p className="set-hint">Folders, tools, visible agents and file access are inherited from{' '}
+            <span className="mono">{superior}</span> when hired. These permissions cannot be changed here.</p>
+        </div> : <>
         <div className="field-label">Folders</div>
         <p className="set-hint">{FOLDERS_HINT}</p>
         <div className="dirlist">
@@ -829,6 +836,7 @@ export function DraftScopeModal({ draft, map, tree, scope, onSave, close, accoun
         <select aria-label="Visible agents" value={vis} onChange={(e) => setVis(e.target.value)}>
           {VIS_OPTIONS.map(([v, label]) => <option key={v} value={v}>{label}</option>)}
         </select>
+        </>}
         <div className="field-label">Thinking effort</div>
         <p className="set-hint">Choose how much effort the model spends reasoning.</p>
         <EffortBar value={effort} level={tree.default_effort || tree.effort_default || 'high'}
@@ -853,6 +861,7 @@ export function DraftScopeModal({ draft, map, tree, scope, onSave, close, accoun
           setAcct(''); setAcctTouched(true)
         }}>Use machine default</button>}
         {museWhy && <p className="set-hint muse-unoffered" role="note">{museWhy}; choose a Muse login that offers it.</p>}
+        {!superior && <>
         <div className="field-label">Native Tools</div>
         <p className="set-hint">{NATIVE_TOOLS_HINT}</p>
         {TOOL_LABELS.map(([k, label, hint]) => (
@@ -877,6 +886,7 @@ export function DraftScopeModal({ draft, map, tree, scope, onSave, close, accoun
           Grants clamp to what the parent holds (№30) — anything beyond its
           capability is trimmed at hire with a warning.
         </div>
+        </>}
         <div className="row">
           <button className="primary" onClick={() =>
             onSave({ add_dirs: dirs, tools, org_visibility: vis,
