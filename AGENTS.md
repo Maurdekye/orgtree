@@ -19,6 +19,8 @@ Rig live-root guards retain import-time `APPDATA`/home/data-override paths after
 
 ## Engine and desktop invariants
 
+- The native window-controls edge fixture bundles the full renderer stylesheet with embedded font assets; preserve its styles and hit-test/mutation assertions. See [native edge probe assets](docs/agents/development-and-verification.md#native-window-controls-edge-probe-assets). [verified: `tools/test-window-controls-edge-native.mjs`; 2026-10-22]
+
 - Desk model eligibility uses the staffing tier's eligible managed accounts as well as its native-login flags. A spent native login cannot hide a tier with another eligible account; the picker prefers native when usable, otherwise submits and discloses an eligible managed ID. Current-model queue cancellation leaves the account alone. [verified: `canvas/deskmodel.tsx`, `desk-model-instant.test.tsx`; 2026-10-22]
 - Antigravity conditional models retain their last confirmed in-memory catalog
   on inconclusive refresh failures only for the same silently checked principal.

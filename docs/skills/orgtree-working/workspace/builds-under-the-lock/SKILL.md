@@ -37,6 +37,8 @@ Use [waiting for events](../../watchdogs/waiting-for-events/SKILL.md) instead of
 
 For the generic build-machine application, open `orgtree-build-slots` (orgtree-workflows > collaboration-patterns). For the full mutex/semaphore, lease-recovery and other coordination recipes, open `orgtree-concurrency-primitives` in that same section. Those recipes supply mechanics; the live project Summary supplies this machine's policy.
 
+For an assigned native window-controls edge recheck, run `node --test tests/window-controls-edge.test.mjs` in a signed-in session under the current permit and containment, with `TEMP`/`TMP` in your output scope. Its fixture embeds the full stylesheet's fonts as data URLs; keep the native geometry and mutation assertions intact. A bundle setup failure is not a hit-test verdict. See the repository's `docs/agents/development-and-verification.md` for asset details.
+
 ## See also
 
 - [orgtree-tool-watchdog](../../watchdogs/tool-watchdog/SKILL.md)

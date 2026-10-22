@@ -42,6 +42,8 @@ createRoot(document.getElementById('root')).render(
   platform: 'browser',
   format: 'iife',
   jsx: 'automatic',
+  // The probe serves JS/CSS only; keep stylesheet fonts in the fixture itself.
+  loader: { '.ttf': 'dataurl', '.woff': 'dataurl', '.woff2': 'dataurl' },
 })
 
 await build({

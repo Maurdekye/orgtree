@@ -26,6 +26,21 @@ in this fixture and is never executed. [verified: `tests/test-baseline.test.mjs`
   This uses the existing cfg(test)-only home seam; product lookup is unchanged.
   [verified: `domain/templates.rs` tests; 2026-10-22]
 
+## Native window-controls edge probe assets
+
+`tools/test-window-controls-edge-native.mjs` imports the complete renderer
+`styles.css`, including KaTeX font references. Its browser esbuild call embeds
+`.ttf`, `.woff` and `.woff2` assets as data URLs because the disposable loopback
+server serves only fixture JS and CSS. Keep the full stylesheet, native header
+structure and every restored/maximized edge hit-test and inset-header mutation
+assertion. Run `node --test tests/window-controls-edge.test.mjs` in a signed-in
+session under the current build permit/containment, with `TEMP`/`TMP` inside the
+assigned output scope. A font-loader setup failure means native hit-testing did
+not execute; never count it as a product result.
+[verified: `tools/test-window-controls-edge-native.mjs`,
+`tests/window-controls-edge.test.mjs`, `tests/window-controls-edge-native.probe.ts`;
+2026-10-22]
+
 ## Renderer, capture and rig traps
 
 - Work-status and next-turn-query share `tools/rig/native-tool-result.mjs`:
