@@ -6,6 +6,15 @@ Worktrees, build/resource rules, tests, evidence, platform traps and maintenance
 
 These attributed records were moved from the root guide at `22daffd`; they retain the original substance, dates, verification limits and replacements. They are source evidence, not a declaration that every historical state is current. Read the signed decisions/current source before changing behavior. Inline source paths remain relative to the repository root; Markdown links were rebased. Add current detailed guidance here; preserve replaced records in history and update the coverage destination when moving one.
 
+## Baseline-tool metadata fixtures
+
+The baseline tool's `show` filtering and concurrency-description tests use an
+explicit synthetic baseline containing all three registered suite names. The
+measured release baseline may omit retired suites; its contents must not decide
+which metadata branches these tests exercise. The Python suite is metadata only
+in this fixture and is never executed. [verified: `tests/test-baseline.test.mjs`;
+2026-10-22]
+
 ## Native test homes
 
 - Built-in preset byte assertions run in a subprocess with an empty owned
