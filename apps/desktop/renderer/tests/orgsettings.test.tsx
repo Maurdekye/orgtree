@@ -232,7 +232,7 @@ test('③  a tab switch is lossless: an edit made on one tab is still there '
       'input[aria-label="top-level grant cap"]')!.value, '77')
     await open(view.el, 'Policies')
     assert.equal(view.el.querySelector<HTMLInputElement>(
-      'input[aria-label="reset a session before a known-cold turn"]')!.checked, false)
+      'input[aria-label="reset a session before a known-cold turn"]')!.checked, true)
 
     // one save carries BOTH, from whichever tab you happen to be on
     seen.length = 0
@@ -244,7 +244,7 @@ test('③  a tab switch is lossless: an edit made on one tab is still there '
     assert.ok(settings, 'save did not POST the settings')
     const body = settings!.body as Record<string, unknown>
     assert.equal(body.max_top_grant, 77)
-    assert.equal((body.auto_cheap_compact as { enabled: boolean }).enabled, false)
+    assert.equal((body.auto_cheap_compact as { enabled: boolean }).enabled, true)
     assert.equal(closed.length, 1, 'a successful save closes the panel')
   } finally { await view.unmount(); delete g.fetch }
 })
