@@ -225,7 +225,7 @@ export function ProjectSquare({ node, pos, lod, focused, pinnedFocus, pinned, on
               <span className="project-mark" {...agentTooltipProps(node.id, true)}>
                 <FolderIcon fontSize="inherit" />
               </span>
-              <CardName text={node.id} hovered={nameHover} {...agentTooltipProps(node.id)} />
+              <CardName text={node.id} hovered={nameHover && !deskOpen && !pinnedFocus} {...agentTooltipProps(node.id)} />
             </div>
             <div className="sq-meta project-meta">
               <ProjectActivity node={node} />

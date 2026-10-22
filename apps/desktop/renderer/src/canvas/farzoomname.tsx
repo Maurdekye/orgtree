@@ -3,11 +3,15 @@ import type { ReactNode, RefObject } from 'react'
 import { createPortal } from 'react-dom'
 import { NODE_H, NODE_W } from './shared'
 import type { Pt } from './shared'
+import { useCardNamesAllowed } from './cardnamereveal'
 
 /** The mini-card name sits above neighbouring cards, outside their stacking
  * contexts. Only pointer/focus leave animates out; zoom/desk changes remove it
  * immediately. Agents and projects use the same presentation (user 2026-10-19). */
 export function useFarZoomReveal(eligible: boolean, wanted: boolean) {
+  const allowed = useCardNamesAllowed()
+  eligible = eligible && allowed
+  wanted = wanted && eligible
   const [mounted, setMounted] = useState(false)
   const [on, setOn] = useState(false)
   const ref = useRef<HTMLSpanElement>(null)

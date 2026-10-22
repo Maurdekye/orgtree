@@ -1,5 +1,13 @@
 # Agent identity hover tooltip
 
+While an agent or project desk is open, canvas hover/focus name plates are
+suppressed for every node, including nodes behind docked or in-canvas windows.
+This covers both the floating far-zoom name and the clipped normal-card name
+backdrop; ordinary identity tooltips inside the desk remain available. Closing
+the last desk restores the usual canvas name reveal. [verified: 2026-10-22,
+canvas/cardnamereveal.tsx, cardname.tsx, farzoomname.tsx, deskshell.tsx]
+
+
 Renderer agent links use the operating system's native title tooltip so a
 reader can see which model and effort an agent uses without opening its desk or
 settings.

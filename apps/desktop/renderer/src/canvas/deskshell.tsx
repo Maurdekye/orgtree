@@ -6,6 +6,7 @@
 // callbacks — nothing here owns state, so DeskChatInner's ownership
 // invariants inside OwnedDeskChat are untouched.
 import type { ReactNode } from 'react'
+import { useDeskNamePlateGuard } from './cardnamereveal'
 import PushPinIcon from '@mui/icons-material/PushPinOutlined'
 import PushPinFilledIcon from '@mui/icons-material/PushPin'
 import type { ToastFn } from '../types'
@@ -88,6 +89,7 @@ export function DeskHead({ nodeId, left, actions, tabs, rightExtras, pin, settin
   settings?: { label: string; onConfig?: () => void } | null
   meta?: ReactNode
 }) {
+  useDeskNamePlateGuard()
   return (
     <div className="cc-head">
       <div className="cc-head-top">

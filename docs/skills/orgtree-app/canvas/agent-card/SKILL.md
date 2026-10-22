@@ -43,6 +43,14 @@ At far zoom the card becomes a tier/state locator; shortcut hit targets are remo
 
 ## Identity tooltips
 
+While an agent or project desk is open, canvas hover/focus name plates are
+suppressed for every node, including nodes behind docked or in-canvas windows.
+This covers both the floating far-zoom name and the clipped normal-card name
+backdrop; ordinary identity tooltips inside the desk remain available. Closing
+the last desk restores the usual canvas name reveal. [verified: 2026-10-22,
+canvas/cardnamereveal.tsx, cardname.tsx, farzoomname.tsx, deskshell.tsx]
+
+
 Agent identity hovers use the native tooltip: catalog model/version, effort and, when that provider has multiple configured accounts, the bound account or default. Missing values and queued model changes are omitted. Draft effort reads (not started); retired identities retain the last model with a retired marker. A visible name is not repeated in the tooltip; an icon-only link or identity-less Owner/Presenter menu label puts the name first. Far-zoom cards instead reveal the name in a floating label and omit it from the native tooltip, for projects as well as agents.
 
 Project identities use the same hover everywhere, including the whole closed card: Project/retired state, configured slots held/total and waiting line, event listeners and watch thresholds/counts, mail queue listeners/waiting/in-flight counts, then a short Summary gist when present. These are the live facts used by its header badges, not a separate snapshot. Projects use a folder mark and have no model/account tooltip. The same three name rules apply.
