@@ -11,6 +11,7 @@ Your turns and sessions: status, wakes, checkups, context, compaction, halts and
 
 ## Workflows and rules
 
+- [orgtree-standalone-engine](standalone-engine/SKILL.md): Headless engine configuration, mandatory authentication, persistence and the separate user MCP endpoint.
 - [orgtree-session-0-ui-testing](session-0-ui-testing/SKILL.md): Session 0 has no desktop; session checks, posted-message controls, Electron captures and interactive scheduled tasks.
 - [orgtree-turns-and-wakes](turns-and-wakes/SKILL.md): What a turn is, what wakes you, and the rule never to end a turn with background work running.
 - [orgtree-turn-envelope](turn-envelope/SKILL.md): Reading the blocks at the top of each turn: ORG STATE, PROVIDER USAGE, MAIL, notices.

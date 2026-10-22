@@ -18,14 +18,17 @@ These are per-agent settings. Agents explain and recommend choices; they do not 
 ## Model and version
 
 Click a live agent desk's model letter to open the same provider-grouped hire
-tokens without opening settings. Clicking a tier immediately switches with its
-default account and latest version; change the account or version in agent
-settings afterward. Only a cross-provider conversation reset asks for confirmation.
+tokens without opening settings. Clicking a tier immediately switches with the
+eligible default/native account when available, otherwise the first eligible
+compatible managed account returned by staffing, and the latest version. The
+tooltip and cross-provider confirmation name a secondary account; change an
+explicit account or version in agent settings afterward. Only a cross-provider
+conversation reset asks for confirmation.
 Same-provider changes during a busy turn queue directly, and the toast says they
 apply next turn. History-enabled changes keep their Undo toast. Escape or clicking
 away before choosing a tier saves nothing. Refusals remain visible, and queued
-changes appear on the next-turn model badge. Only models available with their
-default account are offered for a new switch; choosing the running tier to cancel
+changes appear on the next-turn model badge. A spent or unavailable default
+does not hide a model with another eligible compatible account. Choosing the running tier to cancel
 its pending model change does not rebind its account or clear its version pin.
 Pinned and popped-out desks share this control; retired identities stay passive.
 The same actions are available to authorized agents through `orgtree_switch_model`

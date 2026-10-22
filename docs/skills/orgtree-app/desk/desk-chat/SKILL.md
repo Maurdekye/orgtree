@@ -44,6 +44,22 @@ does not mean that older rows were merely released from the screen's cache.
 
 Chat Markdown can display inline images. Relative image paths resolve within the author's files; absolute Windows paths and HTTP(S) URLs use the checked image endpoint. PNG, JPEG, GIF and WebP are supported there; an image that cannot be loaded falls back to a link (local files can be revealed in their folder).
 
+## Markdown image limits
+
+The checked image endpoint accepts PNG, JPEG, GIF or WebP up to **10 MiB**
+(10,485,760 bytes), **16,000,000 pixels** and **8192 pixels per dimension**.
+A supported format can still exceed these limits and fall back to a link.
+The checked absolute local-file route refuses links/reparse points, device
+paths and alternate data streams; an unavailable or non-regular file cannot
+be embedded. Relative images continue through the author's file-access route.
+
+Remote embedding requires a public HTTP(S) destination without URL
+credentials. Private/LAN, loopback and other non-public destinations are
+refused, so a reachable LAN image can still remain a link. Each redirect is
+validated again, with at most five redirects. Use a supported smaller image
+or an authorized local file when an embed is rejected; a link fallback is not
+evidence that the file or remote host is missing.
+
 ## Markdown math formatting
 
 Every Markdown reading surface supports offline LaTeX mathematics: `$x^2$` or
@@ -121,7 +137,45 @@ At the first/last line, plain Up/Down can browse local composer history; otherwi
 
 A transcript-mention notification, the header @ button or an Attention mention row opens the agent's Chat tab and centers the mentioning passage in that desk's scroll area. It reveals folded pending/system rows and can load older transcript pages to reach the target. New content and pending layout/resize work do not immediately pull a deliberate mention jump back to the bottom; scrolling is still under your control. Simply observing a mention in an already-visible chat clears its attention marker without forcing a new scroll jump.
 
-Tool and supplied-thought durations use seconds for short runs and minutes/seconds for longer ones; hover preserves the exact duration where supplied. A live shell preview appears only inside the expanded, currently executing tool row. It is a preview of output, not evidence the command has completed.
+Tool and supplied-thought durations use seconds for short runs and minutes/seconds for longer ones; hover preserves the exact duration where supplied.
+
+## Tool-output token counts
+
+The I-beam text-cursor mark beside a tool's timing labels is its observed
+text-output token count. Counts use `t` below 1,000 and `kt` from 1,000, rounded
+to one decimal where needed; hover and the accessible label give the full
+number. `~` means estimated, including in the full-number tooltip.
+
+Current tool-output counts are estimates, even after completion: no current
+harness supplies a proven exact per-result encoding/receipt. Large observed
+outputs can use bounded text samples. Images, request-wide usage, helper-agent
+totals and numbers printed inside tool text are not one tool's token receipt.
+An absent/unattributed observation stays absent rather than becoming zero.
+Completed thinking can show a reported count only when one completed thought
+unambiguously owns the response's reasoning receipt.
+
+These counts are separate from billed usage, provider allowance and the live
+header's input/context occupancy. See the [desk indicators](../agent-desk/SKILL.md)
+for measured/estimated occupancy; an output estimate does not increase that
+header by the same number.
+
+## Live shell preview
+
+An expanded executing shell tool can show a live output tail when its harness
+emits supported updates. Each tail retains at most **32 KiB of UTF-8 text**;
+up to **eight tools / 256 KiB per actor** are retained. **Earlier output omitted**
+marks truncation. An additional simultaneous tool can have no live preview
+while still retaining its ordinary final result.
+
+Codex command-output deltas and Muse output deltas/in-progress snapshots feed
+this preview. OpenCode content snapshots are supported if emitted, but the
+checked 2.0.28 emitter does not emit shell progress output. Claude and
+Antigravity have no live-tail mapping in this integration. A missing preview
+does not mean the command is stalled or silent.
+
+The final result replaces the live display. Interrupt, process exit and turn
+replacement discard transient preview bytes; they are not stored as a complete
+terminal recording. A live preview is not a completion receipt.
 
 ## See also
 

@@ -23,6 +23,7 @@ While running, organizations are grouped into their own taskbar identities using
 | Run as admin | Same protected administrator setting as App settings: ON shows the full-admin warning then one Windows permission prompt; OFF asks permission once. Disabled while unavailable or changing; cancellation restores the saved checkmark. Applies at once: the engine restarts, and the sign-in helper follows with the same rights. |
 | Exit on close | Changes the native last-window-close preference |
 | Notifications | Master checkbox and per-event notification switches; subordinate switches are disabled when the master is off |
+| Mute EPIC sounds | Visible only while EPIC is enabled. Saves `epicMuted` across restarts and broadcasts it to all windows/popouts. Mutes audio while visuals, heat and activity continue; unmuting follows current activity rather than replaying missed sounds. |
 | Harness setup | Detected harness status and the corresponding installation destinations |
 | Crash reports | Opens the local crash-report location |
 | Restart engine / Start engine | Explicit engine restart, always in Session 0 through the boot task on an all-users install; the sign-in helper attaches to the new engine within seconds. Reads Start engine while the engine is stopped or unavailable. Visible even when unavailable, disabled during conflicting shutdown/restart activity |

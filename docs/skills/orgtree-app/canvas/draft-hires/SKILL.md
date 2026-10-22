@@ -8,6 +8,13 @@ Up: [orgtree-canvas](../SKILL.md)
 
 Hire chips open a draft at the chosen relationship: subordinate, coworker or inserted superior; the user root opens a top-level draft. The chip's cost is a seat reservation, not dollars or tokens. Provider rows retain their own groups; within each group hire tokens run from cheaper to more expensive seats with stable ties. Disabled choices explain an availability reason; expanding the strip only exposes choices, it does not hire anyone.
 
+Each round hire token shows the tier's letter. Its seat cost appears in the
+tooltip as `(-N)`, or `(free)` for a zero-cost seat, rather than as a visible
+price number. These tokens form hire strips on the card edges and beside an
+open desk; the desk keeps the strip on the edge nearest the pointer. They are
+separate from the icon row controlled by **Show agent card shortcuts**, which
+does not draw over an opened desk.
+
 An agent's top hire strip opens a superior draft above that exact agent,
 including a top-level agent directly under the user. Hire preserves this
 insertion target when undo history is enabled or disabled; the new superior

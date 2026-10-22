@@ -112,6 +112,11 @@ are unchanged.
 
 ## Tabs and next destination
 
+Tool-row output estimates use an I-beam token mark, `t`/`kt` and `~`; these
+are separate from this header's input/context occupancy and provider usage.
+See [tool-output counts](../desk-chat/SKILL.md#tool-output-token-counts) for
+hover precision, thinking receipts and missing observations.
+
 - [Chat](../desk-chat/SKILL.md): conversation and composing.
 - [Mail](../inbox-screens/SKILL.md): the agent's mailbox, with its inbox and sent folders.
 - [Docket](../docket-screens/SKILL.md): its work items.

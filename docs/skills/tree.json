@@ -1,14 +1,14 @@
 {
  "schema": 1,
- "source_commit": "ccc9c27c0c4321f0f85fb98b06ad3635851b9cec",
+ "source_commit": "ab27dbad85fe421b8f6444517f9746e0b216c60f",
  "registered_description_bytes": 548,
  "counts": {
   "categories": 3,
   "sections": 19,
-  "leaves": 181,
+  "leaves": 182,
   "tools": 47,
-  "concepts": 55,
-  "total": 203
+  "concepts": 56,
+  "total": 204
  },
  "leaves_per_writer": {
   "org-sol": 33,
@@ -26,7 +26,8 @@
   "agentsettings-sol": 9,
   "skilltree-opus": 6,
   "compaction-cmds-sol": 1,
-  "epic-combo-sol": 1
+  "epic-combo-sol": 1,
+  "helper-transcript-sol": 1
  },
  "nodes": [
   {
@@ -1638,6 +1639,7 @@
     "tool-unstick",
     "tool-cheap-compact",
     "tool-compact",
+    "standalone-engine",
     "turns-and-wakes",
     "turn-envelope",
     "checkups-and-reminders",
@@ -1971,6 +1973,37 @@
     "context-and-compaction",
     "halts-and-restarts"
    ]
+  },
+  {
+   "path": "orgtree-working/runtime/standalone-engine",
+   "name": "orgtree-standalone-engine",
+   "level": 3,
+   "kind": "concept",
+   "registered": false,
+   "covers": [
+    "concept:standalone-engine",
+    "concept:user-mcp"
+   ],
+   "purpose": "Standalone engine operation and its authenticated user MCP interface.",
+   "must_cover": [
+    "configuration, token precedence, authentication and persistence",
+    "shutdown and desktop/provider/deployment boundaries",
+    "org-less and org-scoped user MCP tool subsets",
+    "user authority, fields, refusals and unsupported operations"
+   ],
+   "sources": [
+    "engine/rs/orgtree-engine/src/config.rs",
+    "engine/rs/orgtree-engine/src/http/usermcp.rs",
+    "engine/rs/orgtree-engine/src/tools/usermcp.rs",
+    "docs/rust-engine/STANDALONE-ENGINE.md"
+   ],
+   "see_also": [
+    "user",
+    "turns-and-wakes",
+    "app-runtime-desktop"
+   ],
+   "writer": "helper-transcript-sol",
+   "status": "fixed"
   },
   {
    "path": "orgtree-working/runtime/turns-and-wakes",

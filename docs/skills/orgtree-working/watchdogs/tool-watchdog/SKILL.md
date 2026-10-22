@@ -1,6 +1,6 @@
 ---
 name: orgtree-tool-watchdog
-description: Create and manage persistent watchers, configure WebSocket connection notices, and send on an MQTT or WebSocket watcher's existing connection.
+description: Create and manage persistent watchers, configure MQTT or WebSocket connection notices, and send on a watcher's existing network connection.
 ---
 
 Up: [orgtree-watchdogs](../SKILL.md)
@@ -66,7 +66,7 @@ requirements, including user-held assignments. Leaving the queue alone does not.
 
 | Parameter | Applies to | Default / meaning |
 |---|---|---|
-| `action` | All calls; required | `create`, `list`, `pause`, `resume`, `remove`, `send` (MQTT/WebSocket), or `configure` (WebSocket connection notices). |
+| `action` | All calls; required | `create`, `list`, `pause`, `resume`, `remove`, `send` (MQTT/WebSocket), or `configure` (MQTT/WebSocket connection notices). |
 | `cursor`, `limit` | List | Resume with the returned `next_cursor`; limit defaults to 50, maximum 100. Each page rechecks your current team reach. |
 | `kind` | Create; required | `file`, `command`, `process`, `stream`, `activity`, `event`, `usage`, `fair_queue`, `slot`, `project_listener`, `listener_watch`, `mqtt` or `websocket`. |
 | `count` | Create, `listener_watch` (required there) | Armed project listeners that fire it, 1–1024. Refused for every other kind. |
@@ -102,6 +102,16 @@ requirements, including user-held assignments. Leaving the queue alone does not.
 Supply parameters for the chosen action. `configure` updates an existing MQTT or WebSocket watcher: `{"action":"configure","id":"socket-watch","connection_messages":"notice"}`. Normal watchdog permission and ownership/authorized-superior reach apply; use `owner/id` for a descendant. Supply a valid enum or boolean compatibility alias; missing, null, unknown values and conflicts are refused. Armed and paused dogs are supported; spent dogs and other kinds refuse. Identity, lifecycle state and live connection stay intact: no reconnect or hello replay. Lists and the desktop Connection messages selector show the effective enum. Target/pattern and data-delivery changes still require a new watcher. There are no custom owner, recipient, cwd or environment arguments.
 
 Names become lowercase letters/digits/hyphens, with a 24-character base. Without a name, the base comes from kind and target. A clash gets the first free `-2`, `-3`, … suffix. Use the returned ID rather than guessing it. There is no per-agent or per-org number cap. The per-owner/project/kind uniqueness rules for project watchers still apply. Watchdogs consume no agent seat. `list` is paged; follow `next_cursor` until it is null to read all current dogs. The canvas and desk collapse more than eight into an **X watchdogs** card; opening it lists their individual links in pages.
+
+## Fire text in your turn
+
+An ordinary watchdog fire rendered into the owner's turn contains at most
+**20 matching event lines**, each cut to **500 Unicode characters**. This is
+the turn-event projection, separate from the stored inbox body and the bounded
+`last_output` shown by list. Read the retained fire mail or its authorized
+original source when more context is needed; list does not promise to recover
+the whole omitted fire. MQTT/WebSocket payloads use their separate network
+message/fire limits below. Fire-action results have their own truncation.
 
 ## Restart and resume schedules
 

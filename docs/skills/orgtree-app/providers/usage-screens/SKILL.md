@@ -26,6 +26,13 @@ The compact header and its period controls stay sticky above the charts while yo
 
 Actual retained readings form the line. Missing observations are omitted and neighboring valid points can be connected; they are not zero consumption. Recorded resets break the line and have solid markers. The shaded right-hand future pane contains a dashed, labeled trend projection and dotted reported reset marker. A projection is a fit to recorded points, not a promised exhaustion time.
 
+Within a segment, observations separated by **30 minutes or more** connect
+as a step: horizontally at the earlier value until the later observation's
+time, then vertically to its value. Hover inside that gap shows the earlier
+reading in effect, not an interpolated measurement; elsewhere it selects the
+nearest reading. The horizontal line does not mean new samples were recorded
+throughout the gap. Reset boundaries still separate segments.
+
 The header's “Projected ahead” slider sets how much of each chart's width is the future pane, from 0 % to 100 % (default 20 %). The time scale is fixed: every chart's plot spans exactly the chosen period, and the “now” line sits that share in from the right edge. Raising the share slides the now line left and pushes the oldest history off the left edge, cropped and not squeezed; at 0 % the whole period of history fills the chart with no future pane or projection, and at 100 % only the projection shows. The slider's thumb mirrors the now line, so dragging it left moves the line left (more projection) and the rightmost position is 0 %; assistive text and the readout state the ahead percentage. The projection reaches as far as the pane does, dragging re-lays out the charts without refetching, and the choice is remembered in the renderer's local storage on that machine (not per org). Source: `apps/desktop/renderer/src/usagehistory.tsx` (`aheadAxis`, `useAheadShare`).
 
 Changing the period keeps the previous charts in place and dimmed until the new data arrives, preserving the current scroll position. No-history, no-series-in-period, unavailable-account and no-filter-match states are explicit. The view states retained date bounds/retention and truncation when returned. Changing display filters does not change stored observations.

@@ -39,6 +39,12 @@ The credit bar beside the card distinguishes seat, allocated grant, held segment
 
 Hover shortcuts can open docket, mail, pinned desk, settings, presented documents and, while the agent has a live report, its Team. The retirement shortcut becomes a whole-team dissolution confirmation for a manager. Use [context menus](../context-menus/SKILL.md) for the complete state-gated action list. Unread mail count is mail state, not a request to acknowledge every notice.
 
+The round tier-letter tokens at the card's edges are **hire strips**, separate
+from that shortcut-icon row. An open desk keeps its hire strips, showing the
+edge nearest the pointer. **Show agent card shortcuts** controls the icon row
+under the name, which does not draw over an opened desk. Token appearance and
+seat-cost tooltips are explained in [draft hires](../draft-hires/SKILL.md).
+
 At far zoom the card becomes a tier/state locator; shortcut hit targets are removed. Selecting it navigates to the agent. At desk zoom the desk's own header replaces the overview chrome, and a desk already hosted elsewhere can show a placeholder. See [pinned windows](../pinned-windows/SKILL.md) and [agent desk](../../desk/agent-desk/SKILL.md) for those surfaces.
 
 ## Identity tooltips
@@ -53,7 +59,14 @@ canvas/cardnamereveal.tsx, cardname.tsx, farzoomname.tsx, deskshell.tsx]
 
 Agent identity hovers use the native tooltip: catalog model/version, effort and, when that provider has multiple configured accounts, the bound account or default. Missing values and queued model changes are omitted. Draft effort reads (not started); retired identities retain the last model with a retired marker. A visible name is not repeated in the tooltip; an icon-only link or identity-less Owner/Presenter menu label puts the name first. Far-zoom cards instead reveal the name in a floating label and omit it from the native tooltip, for projects as well as agents.
 
-Project identities use the same hover everywhere, including the whole closed card: Project/retired state, configured slots held/total and waiting line, event listeners and watch thresholds/counts, mail queue listeners/waiting/in-flight counts, then a short Summary gist when present. These are the live facts used by its header badges, not a separate snapshot. Projects use a folder mark and have no model/account tooltip. The same three name rules apply.
+Project identity hovers use the exact text of the colored header fact chips,
+grouped into at most three sections: slots, event listeners/watches and mail
+queue. Multiple cyan facts share one section. Summary text and a grey retired
+marker do not add colored facts. With no colored chips, the hover is the project
+name alone, even for a name-visible link or far-zoom card. With facts present,
+the three name rules above apply. The source facts update with current state,
+but native tooltip text is held stable for one hover/focus session. Projects
+use a folder mark and have no model/account tooltip.
 
 ## Card fit and retired entries
 

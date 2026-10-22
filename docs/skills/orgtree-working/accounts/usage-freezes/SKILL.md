@@ -10,7 +10,21 @@ A freeze is a durable hold with a reason, not an ordinary idle agent or a lack o
 
 ## Reset recovery
 
-A valid quota deadline schedules reset recovery with a 60-second grace. A timer belongs to the exact freeze it was scheduled for; it cannot erase a replacement freeze. Pure connection retry uses no quota grace and can bypass auto-resume when it is not also a limit freeze. Authentication/balance causes do not gain automatic quota recovery simply because a timestamp exists. An invalid/missing deadline needs manual intervention.
+A valid quota deadline schedules reset recovery with a 60-second grace. A timer belongs to the exact freeze it was scheduled for; it cannot erase a replacement freeze. Pure connection retry uses no quota grace and can bypass auto-resume when it is not also a limit freeze. Authentication/balance causes do not gain automatic quota recovery simply because a timestamp exists.
+
+For a qualifying quota refusal on the shared non-Muse path, no parseable future
+reset produces a one-hour fallback deadline; it does not invariably require
+manual release. Muse keeps its typed quota reset authoritative and leaves
+untyped generic errors on their own recovery path. A fallback is a retry
+schedule, not evidence of newly available allowance.
+
+Reset evidence can be a reported relative duration, an ISO timestamp with
+offset/UTC, or a clock in the CLI host's local zone. A clock already passed
+rolls to the next day; an unknown named zone is not guessed. A new refusal's
+relative duration reanchors then. Applicable future deadlines are not shortened
+to a retry floor. A successful same-account usage observation at or after that
+refusal, in the matching/applicable full window, may extend the hold; stale,
+failed or unrelated-window cache data cannot shorten or manufacture recovery.
 
 Quota auto-resume follows the org's effective policy. If it is off when a deadline is due, the engine retains the hold and rechecks the setting every 30 seconds; changing the setting does not require restarting the engine. A passed deadline is not a guarantee the provider will accept the next request. A separate halt still prevents work.
 

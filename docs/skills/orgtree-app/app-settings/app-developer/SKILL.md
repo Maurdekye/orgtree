@@ -17,6 +17,18 @@ Agents explain and suggest these controls; the user operates them. They are diag
 
 The quiet space below the last row rewards a hover; click there to enable EPIC Mode, and untick it to make it disappear again.
 
+While enabled, activity adds machinery sounds and heat: thinking, response
+writing, tool writing/execution, waiting and compaction have distinct layers.
+Actions add impacts; heat spreads and cools as work changes. Idle status reports,
+projects, retired, frozen and halted agents do not add activity layers. This is
+an audiovisual display of observed activity, not a measure of useful progress.
+
+The tray's **Mute EPIC sounds** checkbox is visible only while enabled. It saves
+`epicMuted` (default false/audible) and follows preference changes in every
+window/popout. Muting leaves visuals, heat and event detection running; unmute
+returns to current activity without replaying missed sounds. Disabling the main
+effect stops its audio/visual machinery. See [tray controls](../../app-shell/tray-and-windows/SKILL.md).
+
 ## See also
 
 - [orgtree-crash-and-restart](../../app-shell/crash-and-restart/SKILL.md).

@@ -26,6 +26,12 @@ The prompt result's input/output/cached-read/cached-write counts are per prompt.
 
 There are bounded transcript previews and at most 512 distinct tool items per turn; these are Orgtree display/admission bounds, not the provider's context or native instruction limit. Text-only prompt blocks include attachment path references; native ACP image blocks are not sent by this integration.
 
+Live shell previews can consume in-progress content snapshots when the CLI
+emits them. The checked OpenCode 2.0.28 emitter does not emit shell progress
+output, so protocol support alone does not promise a live tail. See
+[live shell preview](../../desk/desk-chat/SKILL.md#live-shell-preview) for its
+32 KiB tail, eight-tool retention, omission marker and transient lifetime.
+
 ## Caching
 
 Custom-provider cache lifetime is unknown and the forecast marks the capability unsupported. Reported cached tokens do not create a verified TTL. The configured identity/tools/scope/model/account startup fingerprint can still detect incompatibility. Provider/account/model/session changes and prefix rewrites can cost continuity; dynamic envelope facts and appended turns do not themselves rewrite old prefix content. Effort-only saved controls are not proof this custom route negotiated reasoning settings.

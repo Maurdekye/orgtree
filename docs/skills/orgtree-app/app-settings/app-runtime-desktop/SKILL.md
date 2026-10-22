@@ -7,6 +7,10 @@ Up: [orgtree-app-settings](../SKILL.md)
 
 # Desktop behavior
 
+For operation without the desktop, see `orgtree-standalone-engine`
+(orgtree-working › runtime): configuration, persistence, authentication and
+the separate user MCP endpoint. These installation controls do not configure it.
+
 These Runtime-tab controls apply to the desktop installation on this machine. They save immediately through the desktop bridge, independently of an organization's Save button. Agents explain and suggest changes; the user operates them. A missing bridge hides these controls; loading, an active save, or an unavailable platform capability disables the relevant control. Errors appear in the group.
 
 | Control | Storage | Built-in default | Effect and when to suggest it |

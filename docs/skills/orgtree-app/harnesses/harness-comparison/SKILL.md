@@ -40,7 +40,7 @@ the upstream CLI cannot do it. “Delivered” means accepted input, not obedien
 | Tool-call writing time | Partial JSON deltas and observed writing interval. [WRITING] | Unknown; item execution timing is different. [X-TOOLS] | Unknown; step/parameter updates are different. [A-EVENT] | Unknown; item lifecycle is different. [M-TOOLS] | Unknown; tool updates are different. [O-EVENT] |
 | Thinking in transcript | Exposed deltas/blocks; redacted material stays redacted. [C-STREAM] | Reasoning/summary deltas and items. [X-EVENT] | After DONE: exact session/step native history recovery before response; can safely skip. [A-THOUGHT] | MSP reasoning events/items. [M-EVENT] | Thought chunks if emitted. [O-EVENT] |
 | Inline images | Validated image blocks. [IMAGES] | Local-image blocks. [IMAGES] | Text/path envelope only in this adapter. [SEND] | MSP image content. [M-IMAGES] | Text/path envelope only in this adapter. [SEND] |
-| Live shell tail | No live-tail delta mapping here. [C-STREAM] [SHELL] | Native command-output deltas. [SHELL] | Settled step output; no live-tail mapping here. [A-EVENT] | Output deltas/in-progress snapshots. [SHELL] | In-progress content snapshots. [O-EVENT] |
+| Live shell tail | No live-tail delta mapping here. [C-STREAM] [SHELL] | Native command-output deltas. [SHELL] | Settled step output; no live-tail mapping here. [A-EVENT] | Output deltas/in-progress snapshots. [SHELL] | Snapshots if emitted; the checked 2.0.28 emitter does not emit shell progress output. [O-EVENT] [SHELL] |
 | Interrupt | Control interrupt. [C-CONTROL] | Exact-turn interrupt. [X-CONTROL] | Stops process tree. [A-STOP] | Turn interrupt; separate background-task controls. [M-CONTROL] | Session cancel. [O-RUN] |
 
 No automatic interrupt-on-mail feature is implied by the hook workaround.
@@ -57,6 +57,11 @@ on older page reads, and use shared object/file links (`runtime/convo.rs` at
 CLI, using the bounded read-only snapshot in `runtime/agy_thinking.rs`.
 
 ## Usage, accounts, cache and compaction
+
+Transcript tool-output token estimates and attributed thought counts are
+explained in [Desk Chat](../../desk/desk-chat/SKILL.md#tool-output-token-counts).
+They are separate from the turn/provider receipts in this table; absent
+per-result evidence is not zero and a request total is not a tool receipt.
 
 | Feature | Claude Code / Claude | Codex CLI / OpenAI | Antigravity / Google | Muse Code / Muse | OpenCode / custom provider |
 | --- | --- | --- | --- | --- | --- |

@@ -400,6 +400,14 @@ and separate NODE_PATH setup are no longer required on repaired checkouts.
 Batch size, timeouts, kernel Job containment, output ownership and cleanup
 behavior remain unchanged.
 
+Temporary and explicit `--output` modes own their initially empty output
+directory and remove it on exit, including a failed run. Set
+`KEEP_ORGTREE_TEST_OUTPUT=1` when the bundles are needed for diagnosis or
+receipts; naming `--output` alone does not retain them. `--prebuilt` does not
+own or delete its input. Keep logs/receipts outside an output directory the
+runner will remove, and clean retained generated leaves only within authorized
+scope after resolved-path/activity checks.
+
 The repaired team
 renderer-tests-from-worktree/bundle-tests.mjs adapter takes REPO, OUT, DEPS and
 one or more filename filters. DEPS is an existing node_modules directory:

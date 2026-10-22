@@ -9,6 +9,10 @@ Up: [orgtree-working](../SKILL.md)
 
 Reaching the user: questions, documents, files and requests for credits or scope.
 
+For an external client operating as the user, read the separate
+[standalone engine and user MCP endpoint](../runtime/standalone-engine/SKILL.md).
+Its supported subset and user authority differ from the agent tools below.
+
 Choose the child page for the task; tool pages hold call mechanics, workflow pages explain decisions, and app pages explain controls.
 
 ## Workflows and rules

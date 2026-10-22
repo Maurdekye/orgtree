@@ -12,7 +12,8 @@ This is `screen:agent-settings`; the Name action is `node:rename`. Agents explai
 The window starts on Charter and has Model, Scope and Tools tabs. An agent with retained event records also has a History tab; agents without records do not. A project's settings window is shorter: Open project folder, Name, Project actions (retire or dissolve, restore, delete permanently), a Project tab with its Summary (`description` in tool/API settings; the standing charter of every agent under it), peer mail, Mail queue, Concurrency slots, Project Events and conditional Acknowledgement settings, and History when it has records. It has no model, effort, account, agent scope/tools or turn-limit items, because a project takes no turns and holds no credits. Switching tabs preserves draft edits. Unedited fields follow updated node data; a field already edited keeps its local draft. The agent form reads configured scope when available, which can differ from effective scope.
 
 Project **Save** applies only changed fields. Mail queue defaults to Round-robin;
-Ack mode admits one unacknowledged job per listener. **Never hand an agent its
+Ack mode admits up to each listener's configured batch of unacknowledged jobs
+(default one). **Never hand an agent its
 own mail** defaults Off. **Concurrency slots** is a count (0 disables them);
 **Project Events** defaults Off and controls the desk's **events** tab and event
 firing. Turning listeners Off pauses the project's marked listener/watch dogs;

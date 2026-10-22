@@ -31,6 +31,12 @@ docs/agents/development-and-verification.md, Renderer tests from a worktree
 without node_modules. Older unrepaired runners still need the safe prebuilt
 recipe there; this is no permission to execute their junction-creating modes.
 
+Normal temporary output and a named `--output` directory are removed on runner
+exit, even after failure, unless `KEEP_ORGTREE_TEST_OUTPUT=1` retains them.
+The named directory must start empty; its name alone is not a retention request.
+`--prebuilt` never removes its input. Keep diagnostic logs outside disposable
+bundle output; retained cleanup still needs ordinary output/path authority.
+
 When Codex reports a `.git` write denied by its OS sandbox, follow the delivered sandbox retry instructions for an operation already within your grant. The worktree helper runs Git internally and cannot bypass that sandbox. An ungranted path still requires a scope decision; changing command spelling does not create authority.
 
 ## Remove only a finished owned worktree

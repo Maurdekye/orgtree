@@ -197,7 +197,14 @@ For a signal on @phase-gate, each participant first subscribes; an authorized co
 ]
 ```
 
-The fire records mail for every currently armed live listener that still reaches the project in one delivery transaction, then schedules wakes. This is fan-out to subscribers; agents do not begin executing simultaneously. `notice:true` on a listener makes its delivery passive. A listener receives every fire on that project: it has no pattern/silence filter. A fire before subscription is lost to that future subscriber; durable application state belongs in a file or docket item, not solely in the signal body.
+The fire records a durable event and its captured subscriptions, then delivers
+mail in bounded committed pages to eligible listeners. Unfinished dispatch
+resumes; delivery is not one atomic transaction across every subscriber.
+This is fan-out, and agents do not begin executing simultaneously. `notice:true`
+on a listener makes its delivery passive. A listener receives each eligible fire
+on that project: it has no pattern/silence filter. A fire before subscription
+is lost to that future subscriber; durable application state belongs in a file
+or docket item, not solely in the signal body.
 
 For a **one-shot latch-like wait**, change the participant's creation call to `{"action":"create","kind":"project_listener","target":"phase-gate","name":"wait-for-release","once":true}`. Arm it, end the turn and await the release event. It fires once and removes itself. This is **not a sticky latch**: a late arrival will not learn that release already happened. Either finish registration before firing (the barrier below), or agree that the producer publishes a durable released/version record before firing, and that participants check it after arming, so a fire racing that check is also observable. This extra protocol needs its own recovery if the producer stops before firing; the event alone supplies no sticky state. If the record already says released, remove any still-waiting dog with `orgtree_watchdog` args `{"action":"remove","id":"<returned-wait-dog-id>"}` and continue under that agreed protocol. A dog already spent by the same fire needs no removal; process that version once. Repeated rounds need a fresh protocol/version or a dedicated new project; an old signal is not a new-round acknowledgement.
 

@@ -27,6 +27,25 @@ The total-turn and silence limits are independent. Silence measures absence of r
 
 Finish at natural milestones so mail that cannot be injected mid-turn gets a delivery boundary. Before stopping, save durable progress and report the appropriate [status](../tool-status/SKILL.md). A final response does not automatically mark a docket item done. If waiting is necessary, arrange a wake and leave the item accurate rather than holding a sleeping model turn open.
 
+## Agent tool result format
+
+Every agent-facing Orgtree `tools/call` reply ends with a separate text content
+block such as `execution time: 0.432ms`. It measures monotonic engine dispatch
+time, including argument validation and refusals, with three decimal places.
+It excludes transport/model latency and is not the execution time of a
+harness-native shell/read tool. Handshake/list responses and the separate
+[standalone user MCP endpoint](../standalone-engine/SKILL.md) use their own
+response paths.
+
+The primary JSON or text block stays byte-for-byte unchanged. Parse JSON only
+from that original block when the particular tool returns JSON; do not parse
+display text made by joining it with the timing line. Inspect a caller bridge's
+actual return type/content blocks before treating it as a JavaScript object.
+Claude control replies and the Antigravity/Muse/OpenCode MCP bridge retain the
+blocks; Codex receives each text block as a separate input-text item. The
+synthetic rig's legacy primary-text endpoint intentionally returns only the
+original block. Timing varies as result content, without changing tool schemas.
+
 ## Focused turns
 
 [Do Not Disturb](../do-not-disturb/SKILL.md) holds non-urgent incoming mail durably until turn end without steering or interrupting any harness. Only urgent mail bypasses it; user/superior mail is otherwise held. The unread release is one ordered admission within the hard prompt size budget. Preview reads do not consume held mail; explicit inbox fetch/chunk does.

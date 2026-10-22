@@ -10,6 +10,10 @@ Document-reader HTTP bodies and private handler returns are omitted from diagnos
 
 Presented documents are reading surfaces. File-delivery cards provide downloadable files. The distinction is the delivery purpose, not whether the underlying content happens to be Markdown.
 
+Markdown images using the checked endpoint follow the shared
+[image limits and refusal rules](../desk-chat/SKILL.md#markdown-image-limits).
+Supported format alone does not guarantee an inline embed.
+
 ## Collections and reader
 
 The org gallery groups documents from currently hired agents first, with Show retired to include retained retired/deleted-agent presentations. The agent gallery and desk Presented tab narrow to that agent. The agent menu's Open → Presentations → Team presentations widens the same view to the agent and everyone below it, passing through projects; for a project, Open → Presentations (and its desk's presented tab) lists the documents attributed to the project, and Open → Presentations → Team presentations adds those of every agent under it (both menu options are offered whenever their openers exist, even when empty). Every row and the reader name the presenter as a link that focuses it: the agent for its own document, and for one presented under a project the project (with its folder mark), with a "presented by <agent>" line beneath (in the reader, "this presentation was presented by <agent>"). A team window stays a team window when pinned, popped out or restored. Renaming an agent or a project keeps its presentations in its gallery, listed under its current name. Selection uses document identity, not a row index; exact document references can locate older entries beyond the first loaded window.
