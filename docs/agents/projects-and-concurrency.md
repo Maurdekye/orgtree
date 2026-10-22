@@ -2187,3 +2187,10 @@ mail never consumes once or runs actions, including WebSocket connects which
 previously fired. Configuration reads/writes only this dog and does not redial;
 data delivery is independent. See [WebSocket contract](../rust-engine/websocket-watchdogs.md#connection-notifications).
 [decided: user 2026-10-22 13:01Z/13:02:30Z; coordinator 13:03:54Z; verified: runtime/watchdogs.rs]
+
+Project setting **Project Events** and desk tab **events** replace the former
+Event listeners / Listeners labels (user 2026-10-22 15:10:20Z). Menus, shortcut
+tooltips and standalone window controls use events too. The `event_listeners`
+field, `listeners` tab id, `project-listeners` panel kind, watchdog kinds and
+tool parameters remain unchanged; the Mail tab’s listeners folder is separate.
+[verified: `canvas/modals.tsx`, `deskshell.tsx`, `agentmenu.tsx`, `panelcorner.tsx`; 2026-10-22]

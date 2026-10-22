@@ -853,7 +853,7 @@
     },
     {
      "file": "apps/desktop/renderer/src/canvas/modals.tsx",
-     "label": "Event listeners"
+     "label": "Project Events"
     }
    ]
   },
