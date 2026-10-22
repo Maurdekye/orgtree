@@ -8,6 +8,13 @@ These attributed records were moved from the root guide at `22daffd`; they retai
 
 ## Renderer, capture and rig traps
 
+- The Muse visual proof uses the signed light-slice-2 partner `#005680`
+  (user 2026-10-18 15:34Z/15:35Z) for light card and app-theme expectations;
+  `#afe5ff` remains the dark accent. Retain all 24 controls and report the
+  two v4.3.3 far-rail baseline failures as failures, separately from stale
+  colour expectations. See [Muse verification](../rust-engine/muse-code.md#verification).
+  [verified: `tools/rig/proofs/muse-visual.mjs`; 2026-10-22]
+
 - The mailbox proof checks explicit reads, not the historical blanket-pending
   expectation: list/conversation previews and invalid/deferred/foreign reads
   leave mail alone; returned own fetch/chunk content records read/delivery.

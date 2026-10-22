@@ -6,7 +6,7 @@
 //   hilde spark: a Muse quota wall, so frozen.
 //   fred flash: an Antigravity Flash card beside them.
 // In charcoal and light: every Muse card wears the Muse accent (#afe5ff dark,
-// #0077b0 light) and its own tier letter; the Flash card the Antigravity
+// #005680 light, signed light slice 2, 2026-10-18) and its own tier letter; the Flash card the Antigravity
 // blue and its F; the frozen card says Frozen with the snowflake up close and
 // the frozen icon far out; the Providers row and the Usage card are Muse's.
 // Run: node tools/rig/rig.mjs run tools/rig/proofs/muse-visual.mjs --ui <bundle>
@@ -53,7 +53,7 @@ export default async function (rig) {
     p.check(`${theme}: the desktop stage ran (screenshots in ${path.join(p.dir, 'desktop-' + theme)})`, r.ok, r.error)
     if (!r.ok) continue
     const { near, far, providers, usage } = r.value
-    const accent = theme === 'light' ? '#0077b0' : '#afe5ff'
+    const accent = theme === 'light' ? '#005680' : '#afe5ff'
     p.check(`${theme}: every Muse card wears the Muse accent ${accent}`, MUSE.every((n) =>
       near[n]?.cls.includes('prov-muse') && near[n].providerAccent.toLowerCase() === accent),
     Object.fromEntries(MUSE.map((n) => [n, near[n]?.providerAccent])))
@@ -88,9 +88,9 @@ export default async function (rig) {
     p.check('theme: on the dark surfaces the accent paints #afe5ff, with the dark ink on an accent fill',
       ['charcoal', 'obsidian-black'].every((k) => c[k].painted === rgbOf('#afe5ff') && c[k].fill === rgbOf('#afe5ff')
         && c[k].ink === rgbOf('#17191d')), c)
-    p.check('theme: on the light surfaces the cascade paints #0077b0 over the inline cyan, with white ink, organization copy too',
-      ['light', 'solarized-light'].every((k) => c[k].painted === rgbOf('#0077b0') && c[k].fill === rgbOf('#0077b0')
-        && c[k].ink === rgbOf('#ffffff') && c[k].orgAccent === '#0077b0'), c)
+    p.check('theme: on the light surfaces the cascade paints #005680 over the inline cyan, with white ink, organization copy too',
+      ['light', 'solarized-light'].every((k) => c[k].painted === rgbOf('#005680') && c[k].fill === rgbOf('#005680')
+        && c[k].ink === rgbOf('#ffffff') && c[k].orgAccent === '#005680'), c)
   }
 
   // the desk's effort control offers each tier's own level names

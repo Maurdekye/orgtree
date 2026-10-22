@@ -552,6 +552,16 @@ provider's partner; see the repository AGENTS.md.
 
 ## Verification
 
+The `muse-visual.mjs` light expectations now use the signed light-slice-2
+partner `#005680` (user 2026-10-18 15:34Z/15:35Z), replacing `#0077b0` in
+the card and app-theme contracts. The table below records the original Muse
+verification, not a current all-green verdict. The 2026-10-22 hardening round
+measured 20/24 passing on the unchanged proof versus 22/24 on v4.3.3: two stale
+light-colour failures plus two far-rail failures also present on v4.3.3.
+The correction retains all 24 checks, including both far-rail assertions;
+dark accents, tier/frozen distinctions, Providers, Usage, four contrast themes
+and effort controls remain unchanged. This is a test-oracle correction only.
+
 All on the candidate branch, output under the agent's own build root, every
 build, test and proof (cargo included) inside the machine build lock and a
 kernel Job's memory ceiling and deadline; each log ends with the step's exit
