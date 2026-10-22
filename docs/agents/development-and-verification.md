@@ -8,6 +8,14 @@ These attributed records were moved from the root guide at `22daffd`; they retai
 
 ## Renderer, capture and rig traps
 
+- The project-folder-raise proof's exact policy includes `event_listeners`
+  (USER 2026-10-20 10:50Z, off by default). Configure outer=false and inner=true
+  before capturing the rows; require exact equality afterward, including the
+  enabled value, Summary, row versions and every slot/queue setting. Preserve
+  all 10 check names/order and the other eight check calls; never filter away
+  unexpected policy keys. [verified: `tools/rig/proofs/project-folder-raise.mjs`;
+  2026-10-22]
+
 - The org-shared-notes proof expects a new shared `AGENTS.md` to contain
   exactly `# Shared standing notes for this organization\n` (USER 2026-10-17
   17:26Z), and checks that initialization preserves existing empty/custom

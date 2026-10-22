@@ -12,10 +12,13 @@ export default async function(rig) {
   const folder=path.join(rig.data,'new-ro-folder');fs.mkdirSync(folder,{recursive:true})
   const summary='PTB Summary must survive an upward member folder grant.'
   const policy={peer_mail:false,slots:3,mail_queue:'ack',exclude_sender:true,ack_timeout:false,
-    max_attempts:7,ack_reminders:5,turn_end_reminder:false}
+    max_attempts:7,ack_reminders:5,turn_end_reminder:false,event_listeners:false}
+  // Include the signed listener switch in the exact oracle, covering both
+  // its OFF default and enabled preservation before taking any row snapshot.
+  const policies={outer:policy,inner:{...policy,event_listeners:true}}
   for(const [name,parent] of [['outer','boss'],['inner','outer']]) {
     await rig.op({op:'create_project',name,parent,description:summary})
-    await rig.op({op:'configure_project',node:name,settings:policy})
+    await rig.op({op:'configure_project',node:name,settings:policies[name]})
   }
   await rig.op({op:'hire',name:'member',parent:'inner',tier:'sol',grant:0})
   const rows=()=>rig.sql(`SELECT id,name,scope,charter,row_version FROM ot.agents WHERE org_id=(SELECT id FROM ot.orgs WHERE slug='${rig.org}') AND kind='project' ORDER BY id`)
@@ -35,7 +38,7 @@ export default async function(rig) {
     const description=await rig.tool('boss','orgtree_project',{action:'describe',name})
     const settings=await rig.tool('boss','orgtree_project',{action:'settings',name})
     p.check(`${name}: describe retains the exact Summary after folder raise`,description.ok&&description.json?.description===summary,description.json??description.text)
-    p.check(`${name}: project settings retain every slot and queue control`,settings.ok&&same(settings.json?.settings,{name,description:summary,...policy}),settings.json??settings.text)
+    p.check(`${name}: project settings retain every slot and queue control`,settings.ok&&same(settings.json?.settings,{name,description:summary,...policies[name]}),settings.json??settings.text)
   }
   p.check('reading descriptions/settings changes no project row',same(rows(),saved),rows())
   const cleared=await rig.tool('boss','orgtree_project',{action:'describe',name:'inner',description:''})
