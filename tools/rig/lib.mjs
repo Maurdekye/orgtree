@@ -52,13 +52,20 @@ export function rigHome() {
   return home
 }
 
-/** The live Orgtree data folders: a rig root may never sit inside one. */
-export function liveRoots() {
+// Capture before a fixture replaces process.env; later guards must still protect
+// the original live folders. No filesystem access is needed to collect paths.
+const LIVE_ROOTS = Object.freeze((() => {
   const roots = []
   if (process.env.APPDATA) roots.push(path.join(process.env.APPDATA, 'Orgtree v2'), path.join(process.env.APPDATA, 'Orgtree'))
-  roots.push(path.join(os.homedir(), 'AppData', 'Roaming', 'Orgtree v2'), path.join(os.homedir(), 'AppData', 'Roaming', 'Orgtree'))
+  const home = os.homedir()
+  roots.push(path.join(home, 'AppData', 'Roaming', 'Orgtree v2'), path.join(home, 'AppData', 'Roaming', 'Orgtree'))
   if (process.env.ORGTREE_V2_DATA) roots.push(process.env.ORGTREE_V2_DATA)
   return roots
+})())
+
+/** Original live Orgtree paths; callers cannot mutate the guard's snapshot. */
+export function liveRoots() {
+  return [...LIVE_ROOTS]
 }
 
 export function assertSafeRoot(dir) {

@@ -210,6 +210,13 @@ never weaken shared ancestor ACLs to run it.
   writes. The engine gets a clean environment: none of the host agent's `ORGTREE_*`, `CLAUDE*`,
   credential or Codex variables.
 
+Live-root paths from `APPDATA`, the home folder and any `ORGTREE_V2_DATA` override
+are captured when `tools/rig/lib.mjs` is imported; fixture environment replacement
+cannot redirect the guard. Configure original overrides before importing the rig.
+The focused Windows check `node --test tools/rig/tests/live-roots.test.mjs` runs
+actual `prepareFixture` with file/compiler seams mocked: no live-folder access,
+engine or database is needed.
+
 ## Fixtures
 
 `up --fixture <name|file|none>` (default `tools/rig/fixtures/basic.json`): boss (opus) → alice
