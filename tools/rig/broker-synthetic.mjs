@@ -8,6 +8,14 @@ import crypto from 'node:crypto'
 export const fixtureSource = fileURLToPath(new URL('./synthetic-credential-tool.cs', import.meta.url))
 export const quotePS = s => "'" + String(s).replace(/'/g, "''") + "'"
 
+// The rig keeper deliberately drops all GH_* variables. Restore only these
+// scratch settings in the hosted checker; retain its bridge adapter PATH/grant.
+export function hostedEnvironment(base = process.env) {
+  const root = base.RIG_BROKER_FIXTURE
+  if (!root || !path.isAbsolute(root)) throw Error('missing synthetic fixture root')
+  return { ...base, GH_HOST: 'rig-proof.example', GH_CONFIG_DIR: path.join(root, 'gh') }
+}
+
 // fakecli passes the spawn step through cmd /C. Put quoted executable paths in
 // a batch file rather than transporting embedded quotes through CreateProcess.
 export function agentCommand(dir, args, phase) {

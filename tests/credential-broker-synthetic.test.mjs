@@ -6,6 +6,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { spawnSync } from 'node:child_process'
 import { fixtureEnvironment, assertFixture, agentCommand } from '../tools/rig/broker-synthetic.mjs'
+import * as brokerFixture from '../tools/rig/broker-synthetic.mjs'
 
 test('credential-broker prepares synthetic tools before the rig engine starts', async () => {
   const config = await setup()
@@ -58,4 +59,16 @@ test('the Windows fake-CLI command preserves quoted Node paths and spaced argume
     assert.deepEqual(JSON.parse(r.stdout), [engine, out, 'helper'])
     assert.throws(() => agentCommand(dir, [process.execPath], 'helper & bad'), /unsafe/)
   } finally { fs.rmSync(dir, { recursive: true, force: true }) }
+})
+
+test('the hosted checker restores scratch gh settings after the rig filters GH variables', () => {
+  assert.equal(typeof brokerFixture.hostedEnvironment, 'function')
+  const root = path.resolve('scratch-fixture')
+  const base = { RIG_BROKER_FIXTURE: root, PATH: 'same-synthetic-adapter-path', ORGTREE_CREDENTIAL_AUTH: 'synthetic-capability' }
+  const env = brokerFixture.hostedEnvironment(base)
+  assert.equal(env.GH_HOST, 'rig-proof.example')
+  assert.equal(env.GH_CONFIG_DIR, path.join(root, 'gh'))
+  assert.equal(env.PATH, base.PATH)
+  assert.equal(env.ORGTREE_CREDENTIAL_AUTH, base.ORGTREE_CREDENTIAL_AUTH)
+  assert.equal(base.GH_HOST, undefined)
 })
