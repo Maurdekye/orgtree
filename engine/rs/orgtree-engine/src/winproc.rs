@@ -17,8 +17,8 @@ mod imp {
     };
     use windows_sys::Win32::Security::{
         CreateRestrictedToken, GetSecurityDescriptorDacl, GetTokenInformation, SetTokenInformation, TokenDefaultDacl,
-        TokenIntegrityLevel, TokenUser, DISABLE_MAX_PRIVILEGE, PSID, SECURITY_ATTRIBUTES, SID_AND_ATTRIBUTES, TOKEN_ALL_ACCESS,
-        TOKEN_DEFAULT_DACL, TOKEN_MANDATORY_LABEL, TOKEN_QUERY,
+        TokenIntegrityLevel, TokenUser, DISABLE_MAX_PRIVILEGE, LUA_TOKEN, PSID, SECURITY_ATTRIBUTES, SID_AND_ATTRIBUTES,
+        TOKEN_ALL_ACCESS, TOKEN_DEFAULT_DACL, TOKEN_MANDATORY_LABEL, TOKEN_QUERY,
     };
     use windows_sys::Win32::System::JobObjects::{
         AssignProcessToJobObject, CreateJobObjectW, JobObjectExtendedLimitInformation,
@@ -211,11 +211,17 @@ mod imp {
 
     /// A restricted copy of this process's token for a child that must not
     /// have administrator rights: Administrators and Power Users deny-only,
-    /// every privilege but SeChangeNotify removed, a Medium label, and a
-    /// default DACL for the user, SYSTEM and Administrators (an elevated
-    /// token's names only Administrators and SYSTEM, which such a child could
-    /// not use for its own objects). The boot host's engine without "Run as
-    /// admin" and every postmaster start with it.
+    /// and, as a LUA token (UAC's own filtering), every other group Windows
+    /// counts as elevated too; every privilege but SeChangeNotify removed; a
+    /// Medium label (a LUA token alone keeps the label); and a default DACL
+    /// for the user, SYSTEM and Administrators (an elevated token's names only
+    /// Administrators and SYSTEM, which such a child could not use for its own
+    /// objects). Windows itself reads it as not elevated (TokenElevation, Task
+    /// Manager's "Elevated" column): without LUA_TOKEN, "Local account and
+    /// member of Administrators group" (S-1-5-114) stayed enabled and Windows
+    /// read alpha.33's engine as elevated (the user's PC, 2026-10-22). The
+    /// boot host's engine without "Run as admin" and every postmaster start
+    /// with it.
     #[logged]
     pub fn restricted_medium_token() -> Result<OwnedHandle, String> {
         unsafe {
@@ -244,7 +250,7 @@ mod imp {
             let mut new: HANDLE = std::ptr::null_mut();
             let ok = CreateRestrictedToken(
                 source,
-                DISABLE_MAX_PRIVILEGE,
+                DISABLE_MAX_PRIVILEGE | LUA_TOKEN,
                 2,
                 deny.as_ptr(),
                 0,
