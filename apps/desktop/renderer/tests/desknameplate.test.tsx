@@ -32,7 +32,11 @@ for (const kind of ['agent', 'project'] as const) test(`${kind} desk window supp
   }
   await hover(document.querySelector('.pinwin .cc-head')!)
   assert.equal(view.el.querySelectorAll('.sq-far-ghost').length, 0, 'hover inside desk stays silent')
+  await inAct(() => { assert.equal(addPin(tree.slug, 'neighbour-agent', { x: 620, y: 10, w: 360, h: 480 }).ok, true) })
   await inAct(() => removePin(tree.slug, owner.id))
+  await hover(card('neighbour-project'))
+  assert.equal(view.el.querySelectorAll('.sq-far-ghost').length, 0, 'closing one of two desks keeps the remaining desk protected')
+  await inAct(() => removePin(tree.slug, 'neighbour-agent'))
   await hover(card('neighbour-project'))
   assert.ok(view.el.querySelector('.sq-far-ghost.on'), 'normal far hover returns after the last desk closes')
 })
