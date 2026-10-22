@@ -127,6 +127,16 @@ What Orgtree does (the same delivery as for Muse):
 
 ## Known limits
 
+Muse's protocol reader cancels automatic `turn/started` notifications before
+they enter the actor mailbox (2026-10-22 hardening). Preparing an admitted
+turn can wait on database/prompt work; that must not let a second automatic
+delivery turn run first. A single per-host admission records the command ID
+before `turn/start`, binds the returned native turn ID in the reader before
+the acknowledgement wakes the actor, and clears on matching completion or
+failed admission. The actor still owns wake accounting and the background
+result's chip. The unchanged `bg-keep-open.mjs` assertions require delivery
+into the admitted turn on the held host, with one wake.
+
 - **Mail at the same moment.** Mail that starts the agent's turn in the
   40-110 ms between a notification and the CLI's own turn can let that own
   turn's result end the agent's turn early, and its own query then be

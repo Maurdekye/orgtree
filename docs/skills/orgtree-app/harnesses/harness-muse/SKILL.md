@@ -12,7 +12,7 @@ Muse runs one `muse serve` MSP v1 host per agent, with contributor mode off on e
 
 JSON-RPC over stdio initializes the host, then starts or resumes a session. Resume reapplies the seat's model/approval/profile; failure starts a fresh session rather than running a wider stored posture. `turn/start` includes text/images, effort and current writable roots; the matching `turn/completed` ends it. Roots are replaced on every turn because resume does not update them.
 
-Native `turn/steer` names the exact running turn; an error leaves mail for the next turn. `turn/interrupt` stops an admitted turn; Orgtree cancels host-created turns it did not admit. Both ordinary close and the explicit stop first close stdin, with five/three-second grace respectively, before recorded forced termination if needed.
+Native `turn/steer` names the exact running turn; an error leaves mail for the next turn. `turn/interrupt` stops an admitted turn; Orgtree cancels host-created turns it did not admit. The protocol reader sends those cancels even while the actor prepares an admitted wake turn, so automatic delivery cannot run ahead of admission. The admitted command and acknowledged turn IDs stay protected. Both ordinary close and the explicit stop first close stdin, with five/three-second grace respectively, before recorded forced termination if needed.
 
 Shell commands can move into the background. Orgtree follows their items beyond the turn, preserves held hosts while they owe results and admits a wake when appropriate. A new process/session cannot restore a command killed with its predecessor. Native receipt of a background result and permission for a new agent turn are different.
 

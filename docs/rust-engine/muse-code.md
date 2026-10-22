@@ -275,6 +275,10 @@ folder, `bg-probe2.mjs`):
 
 What Orgtree does:
 - Every turn Muse starts by itself is still cancelled (Orgtree admits turns).
+  The protocol reader sends that cancel before actor mailbox work, including
+  while the actor prepares a wake turn. It protects the admitted command ID
+  before the acknowledgement and binds the native turn ID before forwarding
+  the acknowledgement, so neither is mistaken for an automatic turn.
   The cancels are warned about at most once a minute, with their count, not
   one line each.
 - A call Muse moves to the background is followed past its turn. When its
