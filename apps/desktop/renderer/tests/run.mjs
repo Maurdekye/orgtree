@@ -16,12 +16,11 @@
 // any app module is reached — see the import-order note there.
 
 import { spawnSync } from 'node:child_process'
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import os from 'node:os'
 import { createRequire } from 'node:module'
 import path from 'node:path'
-import { fileURLToPath } from 'node:url'
-import * as esbuild from 'esbuild'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 
 const HERE = path.dirname(fileURLToPath(import.meta.url))
 const argv = process.argv.slice(2)
@@ -60,6 +59,13 @@ for (let i = 0; i < argv.length; i++) {
 }
 if (outputArg && prebuiltArg) throw new Error('--output and --prebuilt cannot be combined')
 
+// Resolve existing dependencies in place. Worktrees without node_modules can
+// name the dependency checkout's package.json; no install, copy or link.
+const dependencyRequire = createRequire(process.env.ORGTREE_TEST_DEPS || import.meta.url)
+const esbuild = dependencyRequire('esbuild')
+const dependencyRoot = path.dirname(path.dirname(dependencyRequire.resolve('esbuild/package.json')))
+const jsdomUrl = pathToFileURL(dependencyRequire.resolve('jsdom')).href
+
 const entries = readdirSync(HERE)
   .filter((f) => /\.test\.tsx?$/.test(f))
   .filter((f) => !filters.length || filters.some((filter) => f.includes(filter)))
@@ -68,10 +74,8 @@ const entries = readdirSync(HERE)
 
 if (!prebuiltArg && !entries.length) throw new Error(`no test files match ${filters.join(', ') || '*'}`)
 
-// ⚠ the bundle lands INSIDE node_modules on purpose: it imports jsdom (kept
-// external), and node resolves a bare specifier by walking up from the
-// importing file — from a temp dir that walk never reaches frontend's
-// node_modules. It is also already ignored by every VCS rule in the tree.
+// Detached outputs resolve external jsdom by file URL; bundled imports use
+// the explicit dependencyRoot. No output mode creates dependency links.
 const prebuilt = prebuiltArg ? path.resolve(prebuiltArg) : null
 const requestedOutput = outputArg ? path.resolve(outputArg) : null
 let out
@@ -85,17 +89,11 @@ if (prebuilt) {
   mkdirSync(requestedOutput, { recursive: true })
   if (readdirSync(requestedOutput).length) throw new Error(`refusing non-empty output directory: ${requestedOutput}`)
   out = requestedOutput
-  const dependencyRoot = path.dirname(path.dirname(createRequire(import.meta.url).resolve('esbuild/package.json')))
-  symlinkSync(dependencyRoot, path.join(out, 'node_modules'), 'junction')
   ownsOutput = true
 } else {
   outputRoot = mkdtempSync(path.join(os.tmpdir(), 'orgtree-renderer-tests-'))
   out = path.join(outputRoot, 'bundles')
   mkdirSync(out)
-  // ESM ignores NODE_PATH. A junction beside the bundles keeps external
-  // jsdom/react resolution valid without putting output in a shared checkout.
-  const dependencyRoot = path.dirname(path.dirname(createRequire(import.meta.url).resolve('esbuild/package.json')))
-  symlinkSync(dependencyRoot, path.join(outputRoot, 'node_modules'), 'junction')
   ownsOutput = true
 }
 const cleanup = () => {
@@ -137,7 +135,7 @@ const BUILD_BATCH = 8
 if (!process.env.GOMEMLIMIT) process.env.GOMEMLIMIT = '1GiB'
 if (!prebuilt) {
   for (let i = 0; i < entries.length; i += BUILD_BATCH) {
-    await esbuild.build({
+    try { await esbuild.build({
       entryPoints: entries.slice(i, i + BUILD_BATCH),
       outdir: out,
       bundle: true,
@@ -148,18 +146,18 @@ if (!prebuilt) {
       sourcemap: 'inline',
       outExtension: { '.js': '.mjs' },
       logLevel: 'warning',
-      // jsdom is a real node package with native-ish internals — never bundle it
-      // The temp run has a private junction to dependencies beside its bundles.
-      // Keep jsdom external because its native-ish internals do not bundle safely.
-      external: ['jsdom', 'node:*'],
+      // Keep jsdom's native-ish internals external, with an explicit file URL.
+      external: ['node:*'],
+      nodePaths: [dependencyRoot],
+      plugins: [{ name: 'external-jsdom', setup(build) {
+        build.onResolve({ filter: /^jsdom$/ }, () => ({ path: jsdomUrl, external: true }))
+      } }],
       define: {
         'process.env.NODE_ENV': '"development"',
-        // the bundle runs from node_modules/.orgtree-tests, so a suite that reads
-        // the sources cannot find them from import.meta.url — hand it the path
+        // Detached bundles cannot find sources from import.meta.url alone.
         __SRC_DIR__: JSON.stringify(path.join(HERE, '..', 'src')),
       },
-    })
-    await esbuild.stop()
+    }) } finally { await esbuild.stop() }
   }
 }
 
@@ -297,7 +295,6 @@ const env = {
   ...process.env,
   ORGTREE_TEST_REPS: repsValue ?? process.env.ORGTREE_TEST_REPS,
 }
-const dependencyRoot = path.dirname(path.dirname(createRequire(import.meta.url).resolve('esbuild/package.json')))
 env.NODE_PATH = [dependencyRoot, process.env.NODE_PATH].filter(Boolean).join(path.delimiter)
 
 // PowerShell's ProcessStartInfo has a finite command-line string even when an
