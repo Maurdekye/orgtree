@@ -38,6 +38,8 @@ mod core_state;
 #[cfg(windows)]
 #[allow(dead_code)] // names() is the engine's; this helper takes PREFIX, its tests both
 mod hosted_pipes;
+#[cfg(windows)]
+mod token_rights;
 
 #[cfg(not(windows))]
 #[nolog]
@@ -69,9 +71,8 @@ mod win {
     use windows_sys::Win32::Foundation::{CloseHandle, GetLastError, LocalFree, ERROR_ALREADY_EXISTS, HANDLE};
     use windows_sys::Win32::Security::Authorization::{ConvertStringSidToSidW, GetNamedSecurityInfoW, SE_FILE_OBJECT};
     use windows_sys::Win32::Security::{
-        CheckTokenMembership, EqualSid, GetAce, GetSidSubAuthority, GetSidSubAuthorityCount, GetTokenInformation, TokenIntegrityLevel,
-        TokenUser, ACCESS_ALLOWED_ACE, ACE_HEADER, ACL, DACL_SECURITY_INFORMATION, OWNER_SECURITY_INFORMATION, PSECURITY_DESCRIPTOR, PSID,
-        SID_AND_ATTRIBUTES, TOKEN_MANDATORY_LABEL, TOKEN_QUERY,
+        EqualSid, GetAce, GetTokenInformation, TokenUser, ACCESS_ALLOWED_ACE, ACE_HEADER, ACL, DACL_SECURITY_INFORMATION,
+        OWNER_SECURITY_INFORMATION, PSECURITY_DESCRIPTOR, PSID, SID_AND_ATTRIBUTES, TOKEN_QUERY,
     };
     use windows_sys::Win32::System::Threading::{CreateMutexW, GetCurrentProcess, OpenProcessToken, CREATE_NO_WINDOW};
 
@@ -133,9 +134,9 @@ mod win {
     }
 
     /// Whether this helper runs with administrator rights, by the engine's own
-    /// test (host.rs `is_elevated`): Administrators enabled, or a High
-    /// integrity label. A debug rig proof may say otherwise
-    /// (`ORGTREE_RIG_HELPER_ELEVATED` 1 or 0); never in a release build.
+    /// measurement (`token_rights`, which host.rs `is_elevated` uses too). A
+    /// debug rig proof may say otherwise (`ORGTREE_RIG_HELPER_ELEVATED` 1 or
+    /// 0); never in a release build.
     #[nolog]
     fn elevated() -> bool {
         #[cfg(debug_assertions)]
@@ -144,33 +145,7 @@ mod win {
             Ok("0") => return false,
             _ => {}
         }
-        unsafe {
-            let mut admins: PSID = std::ptr::null_mut();
-            let sid = wide("S-1-5-32-544");
-            if ConvertStringSidToSidW(sid.as_ptr(), &mut admins) != 0 {
-                let mut member = 0i32;
-                let ok = CheckTokenMembership(std::ptr::null_mut(), admins, &mut member);
-                LocalFree(admins as _);
-                if ok != 0 && member != 0 {
-                    return true;
-                }
-            }
-            let mut t: HANDLE = std::ptr::null_mut();
-            if OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &mut t) == 0 {
-                return false;
-            }
-            let mut size = 0u32;
-            GetTokenInformation(t, TokenIntegrityLevel, std::ptr::null_mut(), 0, &mut size);
-            let mut buf = vec![0u8; size.max(1) as usize];
-            let ok = size != 0 && GetTokenInformation(t, TokenIntegrityLevel, buf.as_mut_ptr() as *mut c_void, size, &mut size) != 0;
-            CloseHandle(t);
-            if !ok {
-                return false;
-            }
-            let label = &*(buf.as_ptr() as *const TOKEN_MANDATORY_LABEL);
-            let count = *GetSidSubAuthorityCount(label.Label.Sid) as u32;
-            count != 0 && *GetSidSubAuthority(label.Label.Sid, count - 1) >= 0x3000
-        }
+        crate::token_rights::own_elevated()
     }
 
     /// The desktop's and the boot host's data root: ORGTREE_V2_DATA, else

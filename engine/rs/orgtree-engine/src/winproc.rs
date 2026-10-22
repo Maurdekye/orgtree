@@ -224,8 +224,18 @@ mod imp {
                 return Err("could not open this process's token".into());
             }
             let own = OwnedHandle::from_raw_handle(own as RawHandle);
+            restricted_medium_copy(own.as_raw_handle() as HANDLE)
+        }
+    }
+
+    /// `restricted_medium_token` of any token with TOKEN_DUPLICATE and
+    /// TOKEN_QUERY access. Tests copy an elevated token they could never
+    /// start anything with: the linked token of a UAC-filtered session.
+    #[nolog]
+    pub fn restricted_medium_copy(source: HANDLE) -> Result<OwnedHandle, String> {
+        unsafe {
             let user = {
-                let buf = token_info(own.as_raw_handle() as HANDLE, TokenUser).ok_or("could not read the token's user")?;
+                let buf = token_info(source, TokenUser).ok_or("could not read the token's user")?;
                 sid_string((*(buf.as_ptr() as *const SID_AND_ATTRIBUTES)).Sid).ok_or("could not read the token's user")?
             };
             let admins = string_sid("S-1-5-32-544").ok_or("could not build a SID")?;
@@ -233,7 +243,7 @@ mod imp {
             let deny = [SID_AND_ATTRIBUTES { Sid: admins, Attributes: 0 }, SID_AND_ATTRIBUTES { Sid: power, Attributes: 0 }];
             let mut new: HANDLE = std::ptr::null_mut();
             let ok = CreateRestrictedToken(
-                own.as_raw_handle() as HANDLE,
+                source,
                 DISABLE_MAX_PRIVILEGE,
                 2,
                 deny.as_ptr(),
@@ -668,6 +678,52 @@ mod restricted_tests {
         server.write_all(b"pong").await.unwrap();
         client.read_exact(&mut buf).await.unwrap();
         assert_eq!(&buf, b"pong");
+    }
+
+    /// The restricted copy of an ELEVATED token is elevated by neither
+    /// Windows' own reading (TokenElevation: Task Manager's "Elevated"
+    /// column) nor the engine's (`token_rights`): Administrators and every
+    /// other group Windows counts as elevated deny-only, no privilege but
+    /// SeChangeNotify, a Medium label. On alpha.33 "Local account and member
+    /// of Administrators group" (S-1-5-114) stayed enabled, so Task Manager
+    /// showed the engine and its mail hub elevated with Run as admin off (the
+    /// user's PC, 2026-10-22 11:19Z). The source is an elevated token the test
+    /// can only query (`token_probe::elevated_source`).
+    #[test]
+    fn a_restricted_copy_of_an_elevated_token_is_not_elevated() {
+        use crate::winproc::token_probe as probe;
+        let Some(source) = probe::elevated_source() else {
+            eprintln!("skipped: this account has no elevated token to copy");
+            return;
+        };
+        let copy = probe::Handle::owned(super::restricted_medium_copy(source.raw()).expect("a restricted copy"));
+        let groups = probe::groups(&copy);
+        let enabled = |sid: &str| groups.iter().any(|(s, a)| s == sid && a & probe::SE_GROUP_ENABLED != 0);
+        assert!(!probe::windows_elevated(&copy), "Windows reads the copy as elevated: {groups:?}");
+        assert!(!crate::token_rights::read(copy.raw()).elevated(), "the engine reads the copy as elevated");
+        assert!(!enabled("S-1-5-32-544") && !enabled("S-1-5-114"), "{groups:?}");
+        assert_eq!(probe::integrity(&copy), probe::MEDIUM_RID);
+        assert_eq!(probe::privileges(&copy), ["SeChangeNotifyPrivilege"]);
+    }
+
+    /// The engine's measurement is never short of Windows' own: whatever
+    /// Windows (and Task Manager) calls elevated, the engine does too, so the
+    /// engine and its sign-in helper compare what the user sees (decision 94,
+    /// invariant 7). alpha.33's engine token is the case: Windows called it
+    /// elevated, the engine did not, and the helper passed the check.
+    #[test]
+    fn the_engine_calls_elevated_whatever_windows_does() {
+        use crate::winproc::token_probe as probe;
+        let Some(source) = probe::elevated_source() else {
+            eprintln!("skipped: this account has no elevated token to copy");
+            return;
+        };
+        let alpha33 = probe::alpha33_copy(&source);
+        let restricted = probe::Handle::owned(super::restricted_medium_copy(source.raw()).expect("a restricted copy"));
+        for (name, token) in [("the elevated source", &source), ("alpha.33's engine token", &alpha33), ("the restricted copy", &restricted)] {
+            let reading = crate::token_rights::read(token.raw());
+            assert!(!probe::windows_elevated(token) || reading.elevated(), "{name}: Windows says elevated, the engine does not ({reading:?})");
+        }
     }
 
     #[test]

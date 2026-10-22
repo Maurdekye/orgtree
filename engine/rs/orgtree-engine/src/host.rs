@@ -321,9 +321,15 @@ fn record_liveness(root: &Path, event: Value) {
     say(Some(root), &line.to_string());
 }
 
-/// Whether this process has administrator rights (the restricted-token test).
+/// Whether this process has administrator rights, measured: on Windows
+/// `token_rights` (also what the sign-in helper says of itself).
 pub(crate) fn elevated() -> bool {
     win::is_elevated()
+}
+
+/// "Run Orgtree as administrator", the setting (never on outside Windows).
+pub(crate) fn run_as_administrator() -> bool {
+    win::run_as_administrator()
 }
 
 /// Run ONE engine until it exits, is stopped, or hangs.
@@ -700,13 +706,12 @@ mod win {
         WAIT_OBJECT_0,
     };
     use windows_sys::Win32::Security::Authorization::{
-        ConvertSidToStringSidW, ConvertStringSecurityDescriptorToSecurityDescriptorW, ConvertStringSidToSidW, GetNamedSecurityInfoW,
+        ConvertSidToStringSidW, ConvertStringSecurityDescriptorToSecurityDescriptorW, GetNamedSecurityInfoW,
         SDDL_REVISION_1, SE_FILE_OBJECT,
     };
     use windows_sys::Win32::Security::{
-        CheckTokenMembership, GetAce, GetSidSubAuthority, GetSidSubAuthorityCount, GetTokenInformation, TokenIntegrityLevel, TokenUser,
-        ACCESS_ALLOWED_ACE, ACE_HEADER, ACL, DACL_SECURITY_INFORMATION, OWNER_SECURITY_INFORMATION, PSECURITY_DESCRIPTOR, PSID,
-        SECURITY_ATTRIBUTES, SID_AND_ATTRIBUTES, TOKEN_MANDATORY_LABEL, TOKEN_QUERY,
+        GetAce, GetTokenInformation, TokenUser, ACCESS_ALLOWED_ACE, ACE_HEADER, ACL, DACL_SECURITY_INFORMATION,
+        OWNER_SECURITY_INFORMATION, PSECURITY_DESCRIPTOR, PSID, SECURITY_ATTRIBUTES, SID_AND_ATTRIBUTES, TOKEN_QUERY,
     };
     use windows_sys::Win32::Storage::FileSystem::{CreateFileW, CREATE_NEW, FILE_ATTRIBUTE_NORMAL, FILE_SHARE_READ, FILE_SHARE_WRITE, OPEN_EXISTING};
     use windows_sys::Win32::System::Pipes::CreatePipe;
@@ -716,8 +721,6 @@ mod win {
         WaitForSingleObject, CREATE_NO_WINDOW, CREATE_UNICODE_ENVIRONMENT, PROCESS_INFORMATION,
         STARTF_USESTDHANDLES, STARTUPINFOW,
     };
-
-    const HIGH_RID: u32 = 0x3000;
 
     fn wide(s: &str) -> Vec<u16> {
         std::ffi::OsStr::new(s).encode_wide().chain(std::iter::once(0)).collect()
@@ -771,15 +774,6 @@ mod win {
         Some(s)
     }
 
-    unsafe fn string_sid(text: &str) -> Option<PSID> {
-        let w = wide(text);
-        let mut sid: PSID = std::ptr::null_mut();
-        if ConvertStringSidToSidW(w.as_ptr(), &mut sid) == 0 {
-            return None;
-        }
-        Some(sid)
-    }
-
     /// This account's SID (`S-1-5-21-…`).
     pub fn user_sid() -> Option<String> {
         unsafe {
@@ -790,29 +784,10 @@ mod win {
         }
     }
 
-    fn integrity_rid(token: HANDLE) -> u32 {
-        unsafe {
-            let Some(buf) = token_info(token, TokenIntegrityLevel) else { return 0 };
-            let label = &*(buf.as_ptr() as *const TOKEN_MANDATORY_LABEL);
-            let count = *GetSidSubAuthorityCount(label.Label.Sid) as u32;
-            if count == 0 {
-                return 0;
-            }
-            *GetSidSubAuthority(label.Label.Sid, count - 1)
-        }
-    }
-
-    /// Administrators enabled, or a High label (TokenElevation alone is not
-    /// the test: it still answers yes for the restricted child token).
+    /// This process's administrator rights, measured (`token_rights`, shared
+    /// with the sign-in helper).
     pub fn is_elevated() -> bool {
-        unsafe {
-            let Some(admins) = string_sid("S-1-5-32-544") else { return false };
-            let mut member = 0i32;
-            let ok = CheckTokenMembership(std::ptr::null_mut(), admins, &mut member);
-            LocalFree(admins as *mut c_void);
-            let high = own_token(TOKEN_QUERY).map(|t| integrity_rid(t.0) >= HIGH_RID).unwrap_or(false);
-            (ok != 0 && member != 0) || high
-        }
+        crate::token_rights::own_elevated()
     }
 
     /// "Run Orgtree as administrator": HKLM (admin-writable only), exactly DWORD 1.

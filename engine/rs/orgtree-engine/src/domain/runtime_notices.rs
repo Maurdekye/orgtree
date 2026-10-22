@@ -79,10 +79,11 @@ pub fn build_ref(engine: &Engine) -> Value {
 #[logged]
 pub async fn restarted(engine: &Arc<Engine>, org_id:i64, agent_id:i64, interrupted:bool) -> Result<()> {
     let text="The engine restarted while you were working. Continue where you left off.";
+    let rights=if interrupted { None } else { engine_rights(engine).map(|r| admin_line(&r)) };
     let (variant,fields,body)=if interrupted {
         ("context.drive_restart_interrupted",json!({"text":text,"summary":"The engine stopped during the preceding turn."}),text.to_string())
     } else {
-        ("runtime.restart_notice",json!({"prev_pid":null,"started_at":crate::util::iso(engine.boot.started_at),"branch":option_env!("ORGTREE_BUILD_BRANCH"),"version":env!("CARGO_PKG_VERSION")}),restart_body(env!("CARGO_PKG_VERSION"), option_env!("ORGTREE_BUILD_COMMIT").unwrap_or("unknown"), engine.boot.pid, &crate::util::iso(engine.boot.started_at), engine_session(engine), admin_line(engine_rights(engine))))
+        ("runtime.restart_notice",json!({"prev_pid":null,"started_at":crate::util::iso(engine.boot.started_at),"branch":option_env!("ORGTREE_BUILD_BRANCH"),"version":env!("CARGO_PKG_VERSION")}),restart_body(env!("CARGO_PKG_VERSION"), option_env!("ORGTREE_BUILD_COMMIT").unwrap_or("unknown"), engine.boot.pid, &crate::util::iso(engine.boot.started_at), engine_session(engine), rights.as_deref()))
     };
     let ev=crate::events::typed(variant,"@system",build_ref(engine),fields);
     mail::system_event(engine,org_id,agent_id,&body,!interrupted,Some(ev)).await
@@ -379,24 +380,48 @@ pub(crate) fn engine_session(engine: &Engine) -> Option<u32> {
     engine.credentials.state.load().process_session
 }
 
-/// The restart notice's line about administrator rights, which the Session 0
-/// engine and the sign-in helper always share (invariant 7).
-#[nolog]
-pub(crate) fn admin_line(elevated: Option<bool>) -> Option<&'static str> {
-    elevated.map(|on| {
-        if on {
-            "Administrator rights: on, for the engine in Session 0 and the sign-in helper alike."
-        } else {
-            "Administrator rights: off, for the engine in Session 0 and the sign-in helper alike."
-        }
-    })
+/// What the restart notice says about administrator rights (decision 94,
+/// invariant 7): the setting, and the rights the engine and its sign-in
+/// helper were measured with.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct Rights {
+    /// "Run as admin" (HKLM `RunAsAdministrator`)
+    pub setting: bool,
+    /// the engine's own token (`host::elevated`)
+    pub engine: bool,
+    pub helper: HelperRights,
 }
 
-/// The engine's administrator rights, for `admin_line`: said by an engine in
-/// Session 0 on Windows only, where its sign-in helper shares them.
+/// The sign-in helper when the restart notice is written.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum HelperRights {
+    /// a helper hosts, with the rights it measured at its registration
+    Hosting(bool),
+    /// none hosts, and the last one refused (`412 [rights]`) measured these
+    Refused(bool),
+    /// the user is signed out, so no helper runs
+    SignedOut,
+    /// signed in (or not read yet), and no helper hosted within the startup grace
+    Missing,
+}
+
+/// The restart notice's line about administrator rights.
 #[nolog]
-fn engine_rights(engine: &Engine) -> Option<bool> {
-    (cfg!(windows) && engine_session(engine) == Some(0)).then(crate::host::elevated)
+pub(crate) fn admin_line(r: &Rights) -> String {
+    if r.engine {
+        "Administrator rights: on, for the engine in Session 0 and the sign-in helper alike."
+    } else {
+        "Administrator rights: off, for the engine in Session 0 and the sign-in helper alike."
+    }
+    .to_string()
+}
+
+/// The rights for `admin_line`: said by an engine in Session 0 on Windows
+/// only, where its sign-in helper shares them.
+#[nolog]
+fn engine_rights(engine: &Engine) -> Option<Rights> {
+    (cfg!(windows) && engine_session(engine) == Some(0))
+        .then(|| Rights { setting: crate::host::run_as_administrator(), engine: crate::host::elevated(), helper: HelperRights::Missing })
 }
 
 // Extracted unchanged rendering; the regression below requires engine session
@@ -414,11 +439,29 @@ fn restart_body(version: &str, commit: &str, pid: u32, started: &str, session: O
 #[cfg(test)]
 mod restart_session_tests {
     use super::*;
+    /// The measured rights of the engine and of its sign-in helper, and the
+    /// setting, never the setting alone (the user 2026-10-22 11:22Z): alpha.33
+    /// said "off ... alike" while Task Manager showed its engine elevated.
     #[test]
-    fn the_restart_notice_says_which_rights_the_engine_and_its_helper_share() {
-        assert_eq!(admin_line(Some(true)), Some("Administrator rights: on, for the engine in Session 0 and the sign-in helper alike."));
-        assert_eq!(admin_line(Some(false)), Some("Administrator rights: off, for the engine in Session 0 and the sign-in helper alike."));
-        assert_eq!(admin_line(None), None, "outside Windows nothing is said");
+    fn the_restart_notice_reports_the_measured_rights_of_the_engine_and_its_helper() {
+        let off = |engine, helper| admin_line(&Rights { setting: false, engine, helper });
+        let on = |engine, helper| admin_line(&Rights { setting: true, engine, helper });
+        assert_eq!(off(false, HelperRights::Hosting(false)),
+            "Administrator rights (Run as admin: off), measured: neither the engine in Session 0 nor the sign-in helper is elevated.");
+        assert_eq!(on(true, HelperRights::Hosting(true)),
+            "Administrator rights (Run as admin: on), measured: the engine in Session 0 and the sign-in helper are both elevated.");
+        assert_eq!(off(false, HelperRights::SignedOut),
+            "Administrator rights (Run as admin: off), measured: the engine in Session 0 is not elevated; no sign-in helper runs while the user is signed out.");
+        assert_eq!(on(true, HelperRights::Missing),
+            "Administrator rights (Run as admin: on), measured: the engine in Session 0 is elevated; no sign-in helper had connected 60 s after the engine started.");
+        assert_eq!(off(false, HelperRights::Refused(true)),
+            "Administrator rights (Run as admin: off), measured: the engine in Session 0 is not elevated; a sign-in helper that is elevated was refused, so none hosts.");
+        assert_eq!(on(true, HelperRights::Hosting(false)),
+            "Administrator rights (Run as admin: on), measured: the engine in Session 0 is elevated, but the sign-in helper is not elevated.");
+        // alpha.33 as Windows measures it: the setting off, its engine elevated
+        assert_eq!(off(true, HelperRights::Refused(false)),
+            "Administrator rights (Run as admin: off), measured: the engine in Session 0 is elevated; a sign-in helper that is not elevated was refused, so none hosts. \
+             The engine's rights do not match the setting.");
     }
     #[test]
     fn engine_zero_is_reported_even_when_agents_can_be_hosted() {
@@ -442,8 +485,8 @@ mod restart_session_tests {
     }
     #[test]
     fn the_rights_line_comes_before_the_informational_line() {
-        let note = admin_line(Some(true)).unwrap();
-        let body = restart_body("4.4", "abc123", 42, "now", Some(0), Some(note));
+        let note = admin_line(&Rights { setting: true, engine: true, helper: HelperRights::Hosting(true) });
+        let body = restart_body("4.4", "abc123", 42, "now", Some(0), Some(&note));
         let lines: Vec<&str> = body.lines().collect();
         assert_eq!(lines.len(), 5, "{body}");
         assert_eq!(lines[2], "Engine session at start: Session 0.");

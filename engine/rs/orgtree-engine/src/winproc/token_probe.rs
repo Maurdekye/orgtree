@@ -7,10 +7,11 @@ use std::ffi::c_void;
 use windows_sys::Win32::Foundation::{CloseHandle, LocalFree, HANDLE};
 use windows_sys::Win32::Security::Authorization::{ConvertSidToStringSidW, ConvertStringSidToSidW};
 use windows_sys::Win32::Security::{
-    CheckTokenMembership, DuplicateTokenEx, GetAce, GetSidSubAuthority, GetSidSubAuthorityCount, GetTokenInformation,
-    LookupPrivilegeNameW, SecurityIdentification, TokenDefaultDacl, TokenGroups, TokenImpersonation, TokenIntegrityLevel,
-    TokenPrivileges, TokenSessionId, TokenUser, ACCESS_ALLOWED_ACE, ACE_HEADER, PSID, TOKEN_DEFAULT_DACL, TOKEN_DUPLICATE,
-    TOKEN_GROUPS, TOKEN_MANDATORY_LABEL, TOKEN_PRIVILEGES, TOKEN_QUERY, TOKEN_USER,
+    CheckTokenMembership, CreateRestrictedToken, DuplicateTokenEx, GetAce, GetSidSubAuthority, GetSidSubAuthorityCount,
+    GetTokenInformation, LookupPrivilegeNameW, SecurityIdentification, SetTokenInformation, TokenDefaultDacl, TokenElevation,
+    TokenGroups, TokenImpersonation, TokenIntegrityLevel, TokenLinkedToken, TokenPrivileges, TokenSessionId, TokenUser,
+    ACCESS_ALLOWED_ACE, ACE_HEADER, DISABLE_MAX_PRIVILEGE, PSID, SID_AND_ATTRIBUTES, TOKEN_DEFAULT_DACL, TOKEN_DUPLICATE,
+    TOKEN_GROUPS, TOKEN_LINKED_TOKEN, TOKEN_MANDATORY_LABEL, TOKEN_PRIVILEGES, TOKEN_QUERY, TOKEN_USER,
 };
 use windows_sys::Win32::System::JobObjects::IsProcessInJob;
 use windows_sys::Win32::System::Threading::{OpenProcess, OpenProcessToken, PROCESS_QUERY_LIMITED_INFORMATION};
@@ -28,6 +29,17 @@ impl Drop for Handle {
         if !self.0.is_null() {
             unsafe { CloseHandle(self.0) };
         }
+    }
+}
+
+impl Handle {
+    /// A handle the test now owns (closed on drop).
+    pub fn owned(handle: std::os::windows::io::OwnedHandle) -> Handle {
+        use std::os::windows::io::IntoRawHandle;
+        Handle(handle.into_raw_handle() as HANDLE)
+    }
+    pub fn raw(&self) -> HANDLE {
+        self.0
     }
 }
 
@@ -148,6 +160,64 @@ pub fn member(token: &Handle, sid: &str) -> bool {
     unsafe { LocalFree(psid) };
     assert!(ok != 0, "CheckTokenMembership failed: {}", std::io::Error::last_os_error());
     is != 0
+}
+
+/// Windows' own reading: `TokenElevation`, what Task Manager's "Elevated"
+/// column shows.
+pub fn windows_elevated(token: &Handle) -> bool {
+    info(token, TokenElevation)[0] as u32 != 0
+}
+
+/// An elevated token this test may query but never start anything with: its
+/// own when it runs elevated (an administrator's CI runner), else the linked
+/// full token of its UAC-filtered session (an administrator at a normal
+/// prompt); None for a standard user.
+pub fn elevated_source() -> Option<Handle> {
+    let own = token(&process(std::process::id()));
+    if windows_elevated(&own) {
+        return Some(own);
+    }
+    let mut linked = TOKEN_LINKED_TOKEN { LinkedToken: std::ptr::null_mut() };
+    let mut size = 0u32;
+    let ok = unsafe {
+        GetTokenInformation(own.0, TokenLinkedToken, &mut linked as *mut _ as *mut c_void, std::mem::size_of::<TOKEN_LINKED_TOKEN>() as u32, &mut size)
+    };
+    if ok == 0 || linked.LinkedToken.is_null() {
+        return None;
+    }
+    let linked = Handle(linked.LinkedToken);
+    windows_elevated(&linked).then_some(linked)
+}
+
+/// alpha.33's engine token made from `source`: Administrators and Power Users
+/// deny-only, every privilege but SeChangeNotify removed, a Medium label, and
+/// no other filtering.
+pub fn alpha33_copy(source: &Handle) -> Handle {
+    let sid = |text: &str| {
+        let wide: Vec<u16> = text.encode_utf16().chain(std::iter::once(0)).collect();
+        let mut psid: PSID = std::ptr::null_mut();
+        assert!(unsafe { ConvertStringSidToSidW(wide.as_ptr(), &mut psid) } != 0, "a malformed SID");
+        psid
+    };
+    let deny = [SID_AND_ATTRIBUTES { Sid: sid("S-1-5-32-544"), Attributes: 0 }, SID_AND_ATTRIBUTES { Sid: sid("S-1-5-32-547"), Attributes: 0 }];
+    let mut copy: HANDLE = std::ptr::null_mut();
+    let ok = unsafe {
+        CreateRestrictedToken(source.0, DISABLE_MAX_PRIVILEGE, 2, deny.as_ptr(), 0, std::ptr::null(), 0, std::ptr::null(), &mut copy)
+    };
+    for d in deny {
+        unsafe { LocalFree(d.Sid) };
+    }
+    assert!(ok != 0, "could not restrict the token: {}", std::io::Error::last_os_error());
+    let copy = Handle(copy);
+    let medium = sid("S-1-16-8192");
+    // SE_GROUP_INTEGRITY
+    let label = TOKEN_MANDATORY_LABEL { Label: SID_AND_ATTRIBUTES { Sid: medium, Attributes: 0x20 } };
+    let ok = unsafe {
+        SetTokenInformation(copy.0, TokenIntegrityLevel, &label as *const _ as *const c_void, std::mem::size_of::<TOKEN_MANDATORY_LABEL>() as u32)
+    };
+    unsafe { LocalFree(medium) };
+    assert!(ok != 0, "could not set a Medium label: {}", std::io::Error::last_os_error());
+    copy
 }
 
 pub fn in_job(process: &Handle) -> bool {

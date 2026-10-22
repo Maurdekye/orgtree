@@ -62,6 +62,8 @@ mod rig;
 mod runtime;
 mod settings;
 mod shared_notes;
+#[cfg(windows)]
+mod token_rights;
 mod tools;
 mod trace;
 mod usage;
