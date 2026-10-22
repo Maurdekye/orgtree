@@ -399,7 +399,8 @@ createRequire resolves esbuild there, nodePaths resolves bundled dependencies,
 and an onResolve plugin rewrites external jsdom to its absolute file URL. It
 creates no dependency links or copies and stops esbuild after each batch of
 eight, including build failures. OUT must be empty and outside worktrees.
-Use run.mjs --prebuilt OUT (with the existing ESM esbuild loader), or execute
+Use run.mjs --prebuilt OUT (with the existing ESM esbuild loader and NODE_PATH
+set to DEPS for its CommonJS package lookup), or execute
 the bundles directly with Node's test runner. Prebuilt mode never removes OUT;
 retain receipts and clean only authorized generated leaves after path/activity
 checks. Normal run.mjs bundling modes still create dependency junctions and are
