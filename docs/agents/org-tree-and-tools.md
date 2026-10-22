@@ -172,3 +172,11 @@ Original section: Where the detail lives. Source lines 5140–5140.
 <!-- preserved:e-ffe209ade318d2f8 -->
 - 2026-10-07 (verified-from-source): top-level rescind is supported by Rust `domain/ops.rs` and 3.x `ledger.py`: archive the subtree, with no superior grant to reduce. Agent settings shows it for every live agent and explains that case in its confirmation. See `docs/rust-engine/agent-settings-refresh.md`.
 <!-- /preserved:e-ffe209ade318d2f8 -->
+
+## Native replacement tools (2026-10-22)
+
+The user's one-switch ruling adds tools.orgtree_disabled: optional, false for absent/legacy scopes and fresh ordinary hires, AND-clamped under agent ancestors, org ceiling true. Retool/rehire omission preserves; superior insertion still inherits. Explicit grants must never enter org defaults or future hires. Tools parity uses the shared hire/rehire/staff/retool scope schema. The Native Tools UI shows current-harness coverage after Use helper agents.
+
+Claude's nine fixed replacement denies lift; Codex/Muse native questions use bounded correlated private cards with the same audience destination as asks::ask. No user reach sends question mail to the superior and returns without native approval. Direct cards share elicitation's 128-request bound and five-minute timeout, private responses, once-only resolution and process/shutdown cleanup. Accepted answers recheck scope/audience; Claude ExitPlanMode requires explicit approval and drops allowedPrompts so it grants no persistent extra permissions. Muse command shapes are from its offline embedded MSP schema, not inference probes. No Muse observers/workflows/contributor mode or OpenCode identity/security restrictions change; AGY restores nothing.
+
+[decided: user 2026-10-22 22:07Z/22:09Z; coordinator boundary approval 22:14Z; source: domain/scope.rs, runtime/{tool_policy,native_questions,elicitation,claude,codex,muse}.rs, canvas/nativepermissions.tsx]

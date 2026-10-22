@@ -6160,6 +6160,10 @@
    "status": "fixed",
    "ui_labels": [
     {
+     "file": "apps/desktop/renderer/src/canvas/nativepermissions.tsx",
+     "label": "Disabled by Orgtree"
+    },
+    {
      "file": "apps/desktop/renderer/src/canvas/modals.tsx",
      "label": "all registered MCP servers"
     },

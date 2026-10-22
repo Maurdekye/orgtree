@@ -85,3 +85,7 @@ For a saved change that applies next turn, use `orgtree_interrupt` with
 `queued:true,restart:true` on yourself or a runtime-authorized running descendant agent.
 It waits for a completion boundary; asynchronous harnesses may cut the next
 step off early. See the orgtree-tool-interrupt page for boundary and refusal rules.
+
+## Native replacement-tool opt-in
+
+`tools.orgtree_disabled` is an optional boolean: fresh ordinary hire omission is false; rehire/retool omission keeps the saved value. It restores only the harness-specific Orgtree replacement tools. The caller must already hold it to grant it; parent scope still clamps it. Explicit grants never change org defaults or future hires. Superior insertion inherits its target's scope and still omits scope fields. See orgtree-app > agent-settings > agent-tools-tab for the exact per-harness list and native-question routing. This optional field does not add a sixth mandatory key to the existing five-key hire contract.

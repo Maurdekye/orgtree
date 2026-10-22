@@ -38,3 +38,9 @@ For a genuinely needed missing capability, use [request scope](../../user/tool-r
 - [orgtree-tool-request-scope](../../user/tool-request-scope/SKILL.md)
 - [orgtree-tool-retool](../tool-retool/SKILL.md)
 - [orgtree-visibility](../../inspection/visibility/SKILL.md)
+
+## Restoring replacement tools
+
+The optional `tools.orgtree_disabled` boolean is a fifth native-tool switch. Unlike bash/web/edit/subagents it defaults false, including absent/legacy fields and fresh ordinary hires. It is AND-clamped through agent ancestors; transparent projects pass it through and the org ceiling permits an explicit grant. Retool/rehire omission preserves the stored value. Grants never enable it in org defaults or future hires. Superior insertion inherits scope as before.
+
+It restores Claude's native question/plan/scheduling replacement tools and Codex/Muse native questions, only when offered by that harness. It does not override another tool switch or an audience. Native questions route to the same destination as orgtree_ask; a superior-routed request returns without native approval and the answer comes by mail. The agent Tools glossary page lists every covered tool and the unaffected Muse/OpenCode policies.

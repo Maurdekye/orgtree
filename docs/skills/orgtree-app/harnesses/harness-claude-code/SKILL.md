@@ -93,3 +93,7 @@ Source paths below use `engine/rs/orgtree-engine/src` at `72ea305`, unless a dif
 - [orgtree-harness-comparison](../harness-comparison/SKILL.md)
 - [orgtree-skills-and-instructions](../../providers/skills-and-instructions/SKILL.md)
 - [orgtree-mcp-servers](../../providers/mcp-servers/SKILL.md)
+
+## Disabled by Orgtree opt-in
+
+An explicit tools.orgtree_disabled grant restores AskUserQuestion, EnterPlanMode, ExitPlanMode, CronCreate/Delete/List, ScheduleWakeup, Monitor and RemoteTrigger. Native questions and ExitPlanMode approval use correlated private cards or the ordinary superior-mail route; plan approval is never automatic, even in bypass mode. Helper messaging/teams tools keep their subagents gate. See orgtree-app > agent-settings > agent-tools-tab and orgtree-app > desk > ask-cards for defaults, coverage and routing.

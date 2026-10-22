@@ -73,3 +73,7 @@ eligible by default. For registry/sharing details, see the provider section.
 
 - `orgtree-scope-and-permissions` (orgtree-working › team).
 - [orgtree-org-basic](../org-basic/SKILL.md).
+
+## Per-agent replacement tools
+
+Disabled by Orgtree is deliberately absent from hire defaults. tools.orgtree_disabled starts false for every ordinary hire unless that hire explicitly opts in. Granting it to an existing agent or its ancestors never enables a default. Use the agent's Tools tab or the optional tools.orgtree_disabled field on the staffing tools.

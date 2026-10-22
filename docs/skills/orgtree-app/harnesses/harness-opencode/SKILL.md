@@ -82,3 +82,7 @@ Source paths below use `engine/rs/orgtree-engine/src` at `72ea305`, unless a dif
 
 [O-MAIL]: https://github.com/Maurdekye/orgtree/blob/181cb4914c5a2373fafc4ca1defe80c0919fbdfa/engine/rs/orgtree-engine/src/runtime/opencode_mail.rs#L1
 [O-MAIL-DOC]: https://github.com/Maurdekye/orgtree/blob/rust-engine/docs/rust-engine/opencode-mail.md
+
+## Disabled by Orgtree opt-in
+
+tools.orgtree_disabled currently restores no OpenCode/ACP tools. Built-in build/plan agents, unknown-tool refusals and Code Mode security policy remain unaffected. See orgtree-app > agent-settings > agent-tools-tab and orgtree-app > desk > ask-cards for defaults, coverage and routing.

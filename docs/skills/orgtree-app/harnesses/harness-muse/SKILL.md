@@ -82,3 +82,7 @@ Source paths below use `engine/rs/orgtree-engine/src` at `72ea305`, unless a dif
 - [orgtree-harness-comparison](../harness-comparison/SKILL.md)
 - [orgtree-skills-and-instructions](../../providers/skills-and-instructions/SKILL.md)
 - [orgtree-mcp-servers](../../providers/mcp-servers/SKILL.md)
+
+## Disabled by Orgtree opt-in
+
+An explicit tools.orgtree_disabled grant advertises native user-input dialogs and answers them through the bounded native-question adapter. Reminder observers, proactive workflows and contributor mode remain off. This does not change autonomous turn admission. See orgtree-app > agent-settings > agent-tools-tab and orgtree-app > desk > ask-cards for defaults, coverage and routing.

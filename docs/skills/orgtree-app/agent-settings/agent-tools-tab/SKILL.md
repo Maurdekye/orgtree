@@ -9,7 +9,7 @@ Up: [orgtree-agent-settings](../SKILL.md)
 
 These are per-agent scope settings: `node:tools`, `node:tools.orgtree` and `node:tools.mcp`. The tab has Native Tools, Orgtree Tools and MCP Servers, in that order. Agents explain or suggest grants; they do not change settings themselves.
 
-The field starts from the agent's configured tools. Missing native switches normalize on, missing Orgtree groups normalize on, and a missing MCP list normalizes to empty. Those normalization defaults are bounded by the superior's effective scope; they do not authorize an unavailable capability. Tool changes wait for Save; see [orgtree-agent-config](../agent-config/SKILL.md) for process and cache effects.
+The field starts from the agent's configured tools. Missing bash/web/edit/subagents switches normalize on; missing `orgtree_disabled` normalizes off, missing Orgtree groups normalize on, and a missing MCP list normalizes to empty. Those normalization defaults are bounded by the superior's effective scope; they do not authorize an unavailable capability. Tool changes wait for Save; see [orgtree-agent-config](../agent-config/SKILL.md) for process and cache effects.
 
 ## Native Tools
 
@@ -19,6 +19,7 @@ The field starts from the agent's configured tools. Missing native switches norm
 | Browse the web | `tools.web` | Native web search and opening web pages. |
 | Edit files | `tools.edit` | Create/change files, including notebooks, within granted folders. |
 | Use helper agents | `tools.subagents` | Temporary helper agents within the native harness. |
+| Disabled by Orgtree | `tools.orgtree_disabled` | Explicit opt-in to the replacement tools listed below; off by default. |
 
 These control tools built into the harness, such as Claude Code or Codex. Helper agents are distinct from persistent Orgtree hires. A native switch is disabled if the superior lacks it, and the hint says why. A checkmark is not a promise the chosen harness implements every possible tool; enforcement and availability depend on that harness. Folder grants and file/command permission mode also apply.
 
@@ -71,3 +72,21 @@ Suggest a tool grant for an actual missing capability needed by the task, and ch
 - `orgtree-tool-request-scope` (orgtree-working › user).
 - [orgtree-agent-visibility-access](../agent-visibility-access/SKILL.md).
 - [orgtree-agent-folders-tab](../agent-folders-tab/SKILL.md).
+
+## Disabled by Orgtree
+
+The one **Disabled by Orgtree** switch appears after Use helper agents. Its key is `tools.orgtree_disabled`. It defaults **off**, including saved scopes without the field and every fresh ordinary hire. An explicit true restores only the following replacement tools when the native harness offers them. The desk shows the current harness's coverage; changing the switch waits for Save and the next launch boundary.
+
+| Harness | Restored | Not affected |
+| --- | --- | --- |
+| Claude Code | AskUserQuestion, EnterPlanMode, ExitPlanMode, CronCreate, CronDelete, CronList, ScheduleWakeup, Monitor, RemoteTrigger | Other tool/folder scope; SendMessage and helper/teams tools still follow subagents. |
+| Codex | Native request_user_input / requestUserInput requests | Native CLI/mode availability and shell, editing, web and helper scope. |
+| Muse | Native user-input questions | Reminder observers, proactive workflows and contributor mode remain off. |
+| Antigravity | Nothing: no universal replacement-tool restriction currently applies. | Existing scope hooks. |
+| OpenCode/ACP | Nothing. | Build/plan agents, unknown-tool refusals and Code Mode security policy. |
+
+This is an AND-clamped per-agent grant: an agent cannot pass it above its own effective rights, and a superior without it disables the child's control. Projects are transparent. It never turns on org defaults or future hires. Retool/rehire omission preserves the stored value; an ordinary hire must explicitly opt in. Superior insertion retains its existing inherited-scope contract.
+
+Native questions and Claude plan approval use the same audience destination as orgtree_ask. A user-audience holder or top-level agent gets a private question card; otherwise the superior receives ordinary question mail and the native call returns without approval, explaining that the answer comes by mail. Direct cards expire after five minutes and allow Decline/Cancel. They grant no extra scope or persistent approval. See orgtree-app > desk > ask-cards.
+
+Agent parity: orgtree_hire, orgtree_retool, orgtree_rehire and orgtree_staff all accept the optional tools.orgtree_disabled boolean within their ordinary scope/management authority.

@@ -145,3 +145,7 @@ Source paths below use `engine/rs/orgtree-engine/src` at `72ea305`, unless a dif
 - [orgtree-harness-comparison](../harness-comparison/SKILL.md)
 - [orgtree-skills-and-instructions](../../providers/skills-and-instructions/SKILL.md)
 - [orgtree-mcp-servers](../../providers/mcp-servers/SKILL.md)
+
+## Disabled by Orgtree opt-in
+
+tools.orgtree_disabled currently restores no Antigravity tools: its existing native restrictions are scope-based rather than universal replacement-tool denies. See orgtree-app > agent-settings > agent-tools-tab and orgtree-app > desk > ask-cards for defaults, coverage and routing.

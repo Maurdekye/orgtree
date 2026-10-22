@@ -84,3 +84,7 @@ Explicit false overrides the default, unsupported true and non-booleans refuse.
 The choice is node-local and recorded with the hire/retool history.
 See [fast defaults](../../team/tool-fast-defaults/SKILL.md) for reading defaults
 and the top-level-only authority to change them.
+
+## Native replacement-tool opt-in
+
+`tools.orgtree_disabled` is an optional boolean: fresh ordinary hire omission is false; rehire/retool omission keeps the saved value. It restores only the harness-specific Orgtree replacement tools. The caller must already hold it to grant it; parent scope still clamps it. Explicit grants never change org defaults or future hires. Superior insertion inherits its target's scope and still omits scope fields. See orgtree-app > agent-settings > agent-tools-tab for the exact per-harness list and native-question routing. This optional field does not add a sixth mandatory key to the existing five-key hire contract.

@@ -7,6 +7,8 @@ policy remain physical, per the user's explicit exceptions.
 
 # Orgtree 4 rewrite — the user's standing decisions
 
+**Native replacement-tool category (user 2026-10-22 22:07Z, one switch 22:09Z; coordinator 22:14Z):** tools.orgtree_disabled is optional and default-off per agent, parent-clamped, with per-harness UI coverage and hire/retool/rehire/staff parity. Grants never change defaults/future hires. Claude's nine replacement denies and Codex/Muse native questions are covered; ExitPlanMode requires explicit approval through the same bounded authority-aware adapter. Muse observers/workflows/contributor mode and OpenCode build/plan/security policies are excluded; AGY restores nothing. See the [source contract](../agents/org-tree-and-tools.md#native-replacement-tools-2026-10-22).
+
 Tool paths (user 2026-10-22 18:39:30Z, staffed 19:35:49Z): an unresolved
 file in a tool row must retain its full attempted path. Show the directory
 dimmed inline, preserve the path in its tooltip, and keep Copy path available
