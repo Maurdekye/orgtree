@@ -88,7 +88,7 @@ export function shortcutGroups(enter: EnterKeyBehavior = 'send'): ShortcutGroup[
         sources: [R('canvas/desk.tsx'), R('canvas/projectdesk.tsx')] },
     ] },
     { title: 'Project desk', items: [
-      { keys: ['Enter'], action: "Fire the project's event", note: 'in the listeners tab message box',
+      { keys: ['Enter'], action: "Fire the project's event", note: 'in the events tab message box',
         sources: [R('canvas/listenersdesk.tsx')] },
     ] },
     { title: 'Inbox', items: [

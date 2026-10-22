@@ -43,7 +43,7 @@ The Summary is the project's standing team charter; policy and tool authority ar
 
 ## Mail > listeners: workers taking queue jobs
 
-This folder lists `fair_queue` watchdogs that receive the project's mail. It is separate from the **listeners** tab, whose watchdogs wait for fired project events.
+This folder lists `fair_queue` watchdogs that receive the project's mail. It is separate from the **events** tab, whose watchdogs wait for fired project events.
 
 | Section | What it shows |
 | --- | --- |
