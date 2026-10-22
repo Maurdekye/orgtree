@@ -1,5 +1,13 @@
 # Organization tree and tools
 
+## Full-depth descendant checks (2026-10-22)
+
+`tools::is_descendant` follows the complete parent chain in the target's
+organization with a stable-row union. It remains strict (the subject is not
+its own descendant), and malformed cycles terminate. A project wrapper does
+not consume an authorization depth allowance.
+[verified: `tools/mod.rs::is_descendant`; 2026-10-22]
+
 [Repository startup guide](../../AGENTS.md) · [All topics and entries](README.md)
 
 Scope, authority, topology, credits, hiring, lifecycle and typed tool contracts.

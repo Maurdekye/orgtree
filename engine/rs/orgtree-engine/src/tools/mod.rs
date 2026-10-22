@@ -377,11 +377,11 @@ pub async fn target(client: &Client, org_id: i64, name: &str) -> Result<Target> 
 pub async fn is_descendant(client: &Client, ancestor: i64, node: i64) -> Result<bool> {
     let r = client
         .query_one(
-            "WITH RECURSIVE up(id, parent_id, depth) AS (
-               SELECT id, parent_id, 0 FROM ot.agents WHERE id = $2
-               UNION ALL SELECT a.id, a.parent_id, up.depth + 1 FROM ot.agents a JOIN up ON a.id = up.parent_id
-                WHERE up.depth < 1024)
-             SELECT EXISTS (SELECT 1 FROM up WHERE id = $1 AND depth > 0)",
+            "WITH RECURSIVE up(id, parent_id, org_id) AS (
+               SELECT id, parent_id, org_id FROM ot.agents WHERE id = $2
+               UNION SELECT a.id, a.parent_id, a.org_id FROM ot.agents a JOIN up ON a.id = up.parent_id
+                WHERE a.org_id = up.org_id AND a.id <> $2)
+             SELECT EXISTS (SELECT 1 FROM up WHERE id = $1 AND id <> $2)",
             &[&ancestor, &node],
         )
         .await?;
