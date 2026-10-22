@@ -16,11 +16,19 @@
 //    held while the broker lives, taken at once when it dies, the broker
 //    stands by, and the desktop's release hands it back within one poll.
 // 3. The broker's idle memory and CPU.
-// 4. With no broker, the same commands report [no-desktop].
+// 4. With no broker, what a broker served is answered from the engine's
+//    memory (the user, 2026-10-22 07:38Z: a memory-only cache of the
+//    credentials served while signed in, for Session 0 agents after sign-out),
+//    logged once and never the credential; a request no broker served (the
+//    failing host's) reports [no-desktop].
 //
 // The descriptor's folder must pass the trust check, and E:\ is writable by
-// Authenticated Users, so run it with a rig home under your profile:
+// Authenticated Users, so run it with a rig home under your profile, and its
+// synthetic home and evidence (RIG_BROKER_OUTPUT) outside that rig home: inside
+// it, the rig's live-data guard refuses the run once the fixture has pointed
+// APPDATA and the home folder there:
 //   set ORGTREE_RIG_HOME=%LOCALAPPDATA%\orgtree-rig-broker
+//   set RIG_BROKER_OUTPUT=<a folder outside it>
 //   node tools/rig/rig.mjs run tools/rig/proofs/credential-broker.mjs
 // The broker comes from your cargo target's debug build
 // (ORGTREE_RIG_BROKER names another).
@@ -212,13 +220,19 @@ export default async function (rig) {
       fileMB: +(fs.statSync(bin).size / 1048576).toFixed(1), build: 'debug' }
     p.check('idle broker: under 20 MB working set and under 1 s CPU a minute', idle.workingSetMB < 20 && idle.cpuMsPer60s < 1000, idle)
 
-    // ---- 4. no broker: no-desktop, as today
+    // ---- 4. no broker: what one served comes from the engine's memory; nothing else does
     kill(broker); broker = 0
     await rig.waitFor(() => brokerPid(bin) === 0, { timeout: 10000, what: 'broker exit' })
+    const memoryFrom = rig.engineLog().length
     const none = await agentRun('none')
-    p.check('without a broker gh reports no-desktop and uses only the empty synthetic fallback', /\[no-desktop\]/.test(none.gh.stderr) && none.gh.status === 1 && none.gh.label === 'synthetic native fallback without credentials', none.gh)
-    p.check('without a broker Git returns no-desktop and no credential', /\[no-desktop\]/.test(none.synthetic.stderr) && !none.synthetic.present, none.synthetic)
+    p.check('without a broker gh gets the token a broker served earlier, from memory', none.gh.status === 0 && none.gh.label === 'synthetic token received through bridge', none.gh)
+    p.check('without a broker Git gets the credential a broker served earlier, from memory', none.synthetic.present, none.synthetic)
+    p.check('without a broker a request no broker served (its lookup failed) returns no-desktop and no credential', /\[no-desktop\]/.test(none.failure.stderr) && !none.failure.present, none.failure)
+    p.check('without a broker an invalid child capability is still refused', !none.denied.present && /\[denied\]/.test(none.denied.stderr), none.denied)
     p.check('the bridge is reported down', (await context()).bridge_ready === false)
+    const memory = rig.engineLog().slice(memoryFrom).split(/\r?\n/).filter(l => l.includes('answered from the credentials a signed-in broker served earlier'))
+    p.check('the engine logs answering from memory once, and no log holds the credential', memory.length === 1
+      && !rig.engineLog().includes('rig-proof-synthetic-token') && !brokerLog().includes('rig-proof-synthetic-token'), memory.map(l => l.slice(0, 220)))
     p.file('credential-broker.log', brokerLog())
     p.file('synthetic-calls.tsv', fs.readFileSync(path.join(isolated.HOME, 'calls.tsv'), 'utf8'))
     p.keep(rig, { agents: [LEAD], grep: /[Cc]redential (broker|bridge)/ })
