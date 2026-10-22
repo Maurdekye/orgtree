@@ -469,6 +469,61 @@ The proof is `tools/rig/proofs/session0-handover.mjs`.
   desktop's own engine runs in the user's session, as before decision 93,
   and nothing runs in Session 0.
 
+**Verification**, measured on `rig-opus/session0-revert` over `rust-engine`
+`ef7f3d2`, in one build-slot batch (logs in
+`C:\orgtree-buildig-opus\session0-revertatch\logs`):
+
+- **Engine:**
+  - Red at the engine test commit: 53 pass, 11 fail, exactly the new tests;
+    the helper's red: 10 pass, 1 fail.
+  - Green: 109/109 focused (`session_host`, `session_watch`,
+    `credential_bridge`, `runtime_notices`, `domain::tree`, `runtime::actor`,
+    `tools::session`, `host::` and the `core_*`, `install_stop` and
+    `http::desktop` modules); the helper's 11/11.
+  - `cargo check --all-targets`: only the base's `domain/tree.rs` warning.
+  - Clippy: 173 warning locations, none on a changed line.
+  - The `x86_64-linux-android` check: only the 4 known
+    `core_monitor`/`core_startup` warnings and the base's.
+  - The whole-engine test binary ran out of the 6144 MB Job with
+    incremental compilation and fit without it (`CARGO_INCREMENTAL=0`).
+- **Installer** (fake task folder, no real task): task definitions 45/45 and
+  `tests/boot-installer.test.ps1` 251 assertions; at the red commit the
+  retired functions and the leftover task's deletion fail.
+- **Desktop:**
+  - Node tests (the 44 files that read main's changed modules, and
+    `disruptive-policy`): 527 pass, 24 fail at the tip. 23 of the failures
+    also fail at the base. The 24th, `org-reopen-routes`, runs only from a
+    `C:/orgtree-build` copy, where it passes 19/19. The base's 15 further
+    failures come from its exported copy, which has no engine source or
+    assets.
+  - Red control, the red commit's tests against its old source: 14 more
+    failures than the base, all in the changed tests.
+  - `run-on-boot.test.mjs`, updated for decision 94: 9/9; against the base
+    source, 4 pass and 5 fail, exactly the updated tests.
+  - Renderer suites (`runasadmin`, `runonboot`, `desktopstate`,
+    `notificationsettings`, `taskbarquestion`): red 28 pass, 2 fail; tip
+    30/30.
+  - Typechecks: root 0 errors at the base and the tip; renderer tests 42
+    at both, the same 42.
+  - Glossary coverage 9/9 (base 9/9).
+- **Rig proofs:**
+  - `session0-handover.mjs`, unsplit: 35/35 in 93 s. From the boot task's
+    run to the helper connected took 7.0 s for a restart, 5.1 s for an
+    update and 5.9 s for a recovery; the engine served after about 1 s of
+    each. A turn sent the moment the engine served ran signed in every
+    time. A turn sent in a helper-only gap waited 11.6 s and ran signed in.
+  - `session-startup-grace.mjs`: 12/12 in 178 s. A turn after a real helper
+    loss waited 59.8 s, then ran in Session 0 (`helper-unreachable`). With
+    no helper after a restart, the fallback came after 60.4 s.
+  - `session-blip-admission.mjs`: 20/20 in 197 s.
+  - `run-on-startup.mjs`: 7/7.
+- **Not run here** (they need real Task Scheduler tasks):
+  `session-choice.mjs`, `session-upgrade.mjs` and `session-query.mjs`.
+  No e2e proof of the credential cache either: the rig has no synthetic
+  signed-in broker, so its unit tests stand alone. Helper-attached proofs
+  need a rig home whose ancestors no other user can replace (here
+  `%LOCALAPPDATA%\orgtree-rig-rig-opus`).
+
 **Only the user can confirm** a real task run, the real permission prompt,
 a real sign-in, sign-out and update, and real credentials: the rig's
 Session 0 is a stand-in, every proof process runs in the proof's own
