@@ -371,6 +371,15 @@ const SESSION0: &str = "session0";
 /// (startup-transient fix, user 2026-10-20; replaces ruling D's 15 seconds).
 pub(crate) const SESSION_SETTLE: Duration = Duration::from_millis(crate::runtime::session_host::SETTLE_MS as u64);
 
+/// What waits for the sign-in helper (`Actor::session_settle`), for its log line.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Settling {
+    /// a turn's start
+    Turn,
+    /// warming, ahead of the next turn
+    Warm,
+}
+
 mod interrupt_control;
 
 struct Turn {
@@ -1628,7 +1637,10 @@ impl Actor {
 
     /// Warming: start the CLI before the agent's next turn and park it. Quiet
     /// when the agent cannot run now (halted, frozen, its provider or account
-    /// off): its next turn says why, as before.
+    /// off): its next turn says why, as before. It waits for the sign-in
+    /// helper as a turn start does (`session_settle`, invariants 3 and 5), so
+    /// the warming that follows an engine's restart starts no CLI in Session
+    /// 0 while the helper is on its way back.
     async fn warm(&mut self) -> bool {
         if self.proc.is_some() || self.turn.is_some() || self.stopping {
             return self.proc.is_some();
@@ -1640,7 +1652,16 @@ impl Actor {
         if ctx.state != "live" || ctx.halted || ctx.frozen || ctx.killswitch {
             return false;
         }
-        match self.ensure_proc(&ctx).await {
+        self.session_settle(&ctx.session_pref, Settling::Warm).await;
+        if self.engine.shutdown.is_cancelled() {
+            return false;
+        }
+        // the next turn's on-demand pick (`use`) is that turn's to take: the
+        // CLI is warmed where the pick puts it, and the pick stays
+        let pick = self.use_session;
+        let started = self.ensure_proc(&ctx).await;
+        self.use_session = pick;
+        match started {
             Ok(()) => {
                 self.park();
                 self.publish();
@@ -3087,7 +3108,8 @@ impl Actor {
     /// of the signed-in session and back. Signed out, or by the agent's own
     /// Session 0 choice, the turn starts at once. A turn that waited the grace
     /// out starts in Session 0, logged once per stretch without a helper.
-    async fn session_settle(&mut self, pref: &crate::runtime::session_host::Pref) {
+    /// Warming waits the same way (`warm`).
+    async fn session_settle(&mut self, pref: &crate::runtime::session_host::Pref, what: Settling) {
         use crate::runtime::session_host::{falls_back_for_want_of_helper, turn_waits_for_helper, Pref, Settle};
         if !codexrt::session0() {
             return;
@@ -3117,8 +3139,11 @@ impl Actor {
                 }
             }
             if last.hosting {
-                tracing::info!(agent = %self.name, waited_ms = waited.elapsed().as_millis() as u64,
-                    "the turn waited for the sign-in helper, which connected");
+                let waited_ms = waited.elapsed().as_millis() as u64;
+                match what {
+                    Settling::Turn => tracing::info!(agent = %self.name, waited_ms, "the turn waited for the sign-in helper, which connected"),
+                    Settling::Warm => tracing::info!(agent = %self.name, waited_ms, "warming waited for the sign-in helper, which connected"),
+                }
                 return;
             }
         }
@@ -4460,7 +4485,7 @@ impl Actor {
                 None
             }
         };
-        self.session_settle(&ctx.session_pref).await;
+        self.session_settle(&ctx.session_pref, Settling::Turn).await;
         // Placement selection consumes an on-demand session choice. An
         // admission hold must retain that choice for the original unsent turn.
         let use_session = self.use_session;
