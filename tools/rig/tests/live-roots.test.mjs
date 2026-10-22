@@ -5,6 +5,7 @@ import os from 'node:os'
 import path from 'node:path'
 import childProcess from 'node:child_process'
 import { syncBuiltinESMExports } from 'node:module'
+import { fileURLToPath } from 'node:url'
 import { assertSafeRoot, liveRoots } from '../lib.mjs'
 import { prepareFixture, fixtureSource } from '../broker-synthetic.mjs'
 
@@ -83,4 +84,36 @@ test('a caller cannot mutate the live-root snapshot through the returned array',
   roots.length = 0
   assert.deepEqual(liveRoots(), originalRoots)
   assert.throws(() => assertSafeRoot(path.join(originalRoots[0], 'data', 'rig-home')), overlap)
+})
+
+const childFixture = fileURLToPath(new URL('./fixtures/live-roots-child.mjs', import.meta.url))
+function fictionalEnvironment() {
+  const env = { ...process.env, APPDATA: 'C:\\Rig-Live-Roots-Unit\\original-appdata',
+    USERPROFILE: 'C:\\Rig-Live-Roots-Unit\\original-home', HOME: 'C:\\Rig-Live-Roots-Unit\\original-home',
+    ORGTREE_V2_DATA: 'C:\\Rig-Live-Roots-Unit\\original-data' }
+  delete env.RIG_PROTECTED_ROOTS
+  return env
+}
+
+test('fresh keeper imports after actual fixture replacement retain original roots across generations', windows, () => {
+  const result = childProcess.spawnSync(process.execPath, [childFixture, 'parent'], {
+    env: fictionalEnvironment(), windowsHide: true, encoding: 'utf8', timeout: 15000,
+  })
+  assert.equal(result.error, undefined)
+  assert.equal(result.signal, null)
+  assert.equal(result.status, 0, result.stderr || result.stdout)
+  assert.match(result.stdout, /fresh keeper and grandchild protected/)
+})
+
+test('fresh imports refuse malformed or empty protected-root transport', windows, () => {
+  for (const value of ['broken', '[]', '{}', '["relative"]', '[null]']) {
+    const result = childProcess.spawnSync(process.execPath, [childFixture, 'import-only'], {
+      env: { ...fictionalEnvironment(), RIG_PROTECTED_ROOTS: value },
+      windowsHide: true, encoding: 'utf8', timeout: 5000,
+    })
+    assert.equal(result.error, undefined)
+    assert.equal(result.signal, null)
+    assert.notEqual(result.status, 0, 'invalid root metadata must fail closed')
+    assert.match(result.stderr, /invalid RIG_PROTECTED_ROOTS/)
+  }
 })
