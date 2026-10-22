@@ -669,6 +669,8 @@ impl Actor {
         upserts.push((key.0, key.1, body));
     }
 
+    // Feed windows carry private mail bodies; never serialize their rows.
+    #[nolog]
     fn replace_window(
         &mut self,
         entity: &str,

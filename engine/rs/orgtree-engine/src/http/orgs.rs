@@ -116,7 +116,8 @@ pub async fn compatibility() -> ApiError {
     ApiError::compatibility()
 }
 
-#[logged]
+// App snapshots include private notification previews.
+#[nolog]
 pub async fn app_records(State(e): State<Arc<Engine>>) -> ApiResult<Json<Value>> {
     Ok(Json(e.app.snapshot().await.ok_or_else(|| ApiError::unavailable("app feed unavailable"))?))
 }

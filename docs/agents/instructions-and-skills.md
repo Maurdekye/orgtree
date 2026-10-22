@@ -510,9 +510,11 @@ real-engine proof private-read-wire-privacy.mjs in both logging modes]
 
 Quiet HTTP bodies do not protect a background producer. Notification event
 classification accepts private event prose; per-org notice and app-feed
-projections return private previews. Those three pure helpers are nolog.
+projections return private previews. Those three pure helpers, the feed-window
+replacement and the app snapshot handler are nolog.
 Retain metadata-only frame counts and normal client data. The reader proof
 forces a fresh notification projection and observes its client value before
 asserting the engine log contains no old private-mail canary.
-[verified: domain/notices.rs::mail_kind/for_org, appfeed.rs::read_org;
+[verified: domain/notices.rs::mail_kind/for_org, appfeed.rs::read_org,
+feed/mod.rs::Actor::replace_window, http/orgs.rs::app_records;
 real-engine synthetic regression private-read-wire-privacy.mjs]
