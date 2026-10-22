@@ -6,15 +6,15 @@ use tokio_postgres::NoTls;
 #[ignore = "requires explicitly isolated listener-bounds rig cluster"]
 #[nolog]
 async fn claim_boundary_reminder_does_not_increment_a_later_claim() {
-    let root=std::env::var("ORGTREE_CLAIM_TEST_ROOT").unwrap().replace('\\',"/");assert!(root.starts_with("D:/orgtree-work/rig/taskbar-orgs-sol-listener-bounds/runs/"));
-    let cfg:tokio_postgres::Config=std::env::var("ORGTREE_CLAIM_TEST_URL").unwrap().parse().unwrap();
-    let org:i64=std::env::var("ORGTREE_CLAIM_TEST_ORG").unwrap().parse().unwrap();
+    let fixture=crate::domain::native_fixture::Fixture::from_env().await;
+    let cfg=fixture.cfg.clone();
+    let org=fixture.org;
     let (mut b,conn)=cfg.connect(NoTls).await.unwrap();tokio::spawn(async move{let _=conn.await;});
     let project:i64=b.query_one("INSERT INTO ot.agents(org_id,name,kind,tier,state,scope,born) VALUES($1,$2,'project','project','live','{\"mail_queue\":\"ack\"}','synthetic') RETURNING id",&[&org,&uid("reminder-project")]).await.unwrap().get(0);
     let holder:i64=b.query_one("INSERT INTO ot.agents(org_id,name,parent_id,tier,state,born) VALUES($1,$2,$3,'sol','live','synthetic') RETURNING id",&[&org,&uid("reminder-owner"),&project]).await.unwrap().get(0);
     let copy=uid("reminder-old-copy");let new_copy=uid("reminder-new-copy");
     let row:i64=b.query_one("INSERT INTO ot.mail(uid,org_id,sender,recipient_kind,recipient_agent_id,recipient_name,body,state,extra) VALUES($1,$2,'@user','agent',$3,'fixture','job','read',$4) RETURNING id",&[&uid("reminder-job"),&org,&project,&json!({"attempts":1,"claimed":{"by_id":holder,"by":"fixture","copy":copy,"ack":true,"wakes":0}})]).await.unwrap().get(0);
-    let mut engine=Engine::for_tests(std::path::PathBuf::from("C:/orgtree-build/taskbar-orgs-sol/reminder-boundary-engine"));
+    let mut engine=Engine::for_tests(fixture.engine_root("reminder-boundary-engine"));
     let mgr=deadpool_postgres::Manager::from_config(cfg,NoTls,deadpool_postgres::ManagerConfig{recycling_method:deadpool_postgres::RecyclingMethod::Fast});
     Arc::get_mut(&mut engine).unwrap().db=deadpool_postgres::Pool::builder(mgr).max_size(4).runtime(deadpool_postgres::Runtime::Tokio1).build().unwrap();
     let tx=b.transaction().await.unwrap();tx.query_one("SELECT id FROM ot.agents WHERE id=$1 FOR NO KEY UPDATE",&[&project]).await.unwrap();tx.query_one("SELECT id FROM ot.mail WHERE id=$1 FOR UPDATE",&[&row]).await.unwrap();
@@ -33,12 +33,11 @@ async fn claim_boundary_reminder_does_not_increment_a_later_claim() {
 #[ignore = "requires the explicitly isolated listener-bounds rig cluster"]
 #[nolog]
 async fn claim_boundary_stale_reclaim() {
-    let root=std::env::var("ORGTREE_CLAIM_TEST_ROOT").expect("synthetic root").replace('\\',"/");
-    assert!(root.starts_with("D:/orgtree-work/rig/taskbar-orgs-sol-listener-bounds/runs/"));
-    let cfg:tokio_postgres::Config=std::env::var("ORGTREE_CLAIM_TEST_URL").expect("scratch connection").parse().unwrap();
+    let fixture=crate::domain::native_fixture::Fixture::from_env().await;
+    let cfg=fixture.cfg.clone();
     assert_eq!(cfg.get_dbname(),Some("orgtree_engine"));
     assert_eq!(cfg.get_user(),Some("orgtree_admin"));
-    let org:i64=std::env::var("ORGTREE_CLAIM_TEST_ORG").unwrap().parse().unwrap();
+    let org=fixture.org;
     let mut failures=Vec::new();
     for mode in ["other-holder","user-holder","same-holder-new-copy","acked","holder-recovered"] {
         let (mut b,conn)=cfg.connect(NoTls).await.unwrap();tokio::spawn(async move{let _=conn.await;});

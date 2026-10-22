@@ -29,6 +29,19 @@ These attributed records were moved from the root guide at `22daffd`; they retai
   unexpected policy keys. [verified: `tools/rig/proofs/project-folder-raise.mjs`;
   2026-10-22]
 
+- Native project-boundary proofs require explicit `ORGTREE_AGENT`,
+  `ORGTREE_RIG_HOME` below `D:/orgtree-work/rig/<owner>`,
+  `ORGTREE_BOUNDARY_NATIVE_EXE` and `ORGTREE_CLAIM_TEST_OUTPUT` below the
+  owner's `C:/orgtree-build/<owner>` scope. The runner supplies its run root,
+  database URL/org and exports v4.3.3 migrations into that output. Test-only
+  admission rejects absent/foreign/live paths, traversal and reparse points;
+  it checks run ownership/marker, disposable DB/user, loopback port/credentials
+  and the server's actual data directory before any functional writes.
+  One guard control precedes the unchanged seven named boundary cases. Engine
+  fixture outputs and migration reads use the supplied owned output; never
+  select another author's executable or bypass admission to reuse a rig.
+  [verified: `domain/native_fixture.rs`, `tools/rig/proofs/project-claim-boundary.mjs`; 2026-10-22]
+
 - The org-shared-notes proof expects a new shared `AGENTS.md` to contain
   exactly `# Shared standing notes for this organization\n` (USER 2026-10-17
   17:26Z), and checks that initialization preserves existing empty/custom

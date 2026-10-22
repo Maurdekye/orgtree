@@ -35,6 +35,8 @@ pub mod staffing;
 pub mod staging;
 pub mod teams;
 pub mod templates;
+#[cfg(test)]
+pub(crate) mod native_fixture;
 pub mod template_notes;
 pub mod tree;
 pub mod undo;

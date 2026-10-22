@@ -5,12 +5,11 @@ use tokio_postgres::NoTls;
 #[ignore = "requires isolated listener-bounds rig cluster"]
 #[nolog]
 async fn recovery_boundary_inactive_org_does_not_deliver_or_claim() {
-    let root=std::env::var("ORGTREE_CLAIM_TEST_ROOT").unwrap().replace('\\',"/");
-    assert!(root.starts_with("D:/orgtree-work/rig/taskbar-orgs-sol-listener-bounds/runs/"));
-    let cfg:tokio_postgres::Config=std::env::var("ORGTREE_CLAIM_TEST_URL").unwrap().parse().unwrap();
+    let fixture=crate::domain::native_fixture::Fixture::from_env().await;
+    let cfg=fixture.cfg.clone();
     let (mut c,conn)=cfg.connect(NoTls).await.unwrap();tokio::spawn(async move{let _=conn.await;});
     crate::migrate::run(&mut c,&|_|{}).await.unwrap();
-    let mut engine=Engine::for_tests(std::path::PathBuf::from("C:/orgtree-build/taskbar-orgs-sol/recovery-boundary-engine"));
+    let mut engine=Engine::for_tests(fixture.engine_root("recovery-boundary-engine"));
     let mgr=deadpool_postgres::Manager::from_config(cfg,NoTls,deadpool_postgres::ManagerConfig{recycling_method:deadpool_postgres::RecyclingMethod::Fast});
     Arc::get_mut(&mut engine).unwrap().db=deadpool_postgres::Pool::builder(mgr).max_size(4).runtime(deadpool_postgres::Runtime::Tokio1).build().unwrap();
     for trashed in [true,false] {
@@ -51,10 +50,10 @@ async fn recovery_boundary_inactive_org_does_not_deliver_or_claim() {
 #[ignore = "requires isolated listener-bounds rig cluster"]
 #[nolog]
 async fn recovery_boundary_high_water_cost_ignores_inactive_tail() {
-    let root=std::env::var("ORGTREE_CLAIM_TEST_ROOT").unwrap().replace('\\',"/");assert!(root.starts_with("D:/orgtree-work/rig/taskbar-orgs-sol-listener-bounds/runs/"));
-    let cfg:tokio_postgres::Config=std::env::var("ORGTREE_CLAIM_TEST_URL").unwrap().parse().unwrap();
+    let fixture=crate::domain::native_fixture::Fixture::from_env().await;
+    let cfg=fixture.cfg.clone();
     let (mut c,conn)=cfg.connect(NoTls).await.unwrap();tokio::spawn(async move{let _=conn.await;});crate::migrate::run(&mut c,&|_|{}).await.unwrap();
-    let org:i64=std::env::var("ORGTREE_CLAIM_TEST_ORG").unwrap().parse().unwrap();
+    let org=fixture.org;
     let project:i64=c.query_one("INSERT INTO ot.agents(org_id,name,kind,tier,state,born) VALUES($1,$2,'project','project','live','synthetic') RETURNING id",&[&org,&uid("cost-project")]).await.unwrap().get(0);
     let dog:i64=c.query_one("INSERT INTO ot.watchdogs(uid,org_id,owner_kind,name,kind,target,interval_s,state,memo) VALUES($1,$2,'user','cost','project_listener','synthetic',600,'paused',jsonb_build_object('target_id',$3::bigint)) RETURNING id",&[&uid("cost-dog"),&org,&project]).await.unwrap().get(0);
     fn examined(v:&Value)->f64 {v["Actual Rows"].as_f64().unwrap_or(0.)+v["Rows Removed by Filter"].as_f64().unwrap_or(0.)+v["Plans"].as_array().map(|p|p.iter().map(examined).sum::<f64>()).unwrap_or(0.)}
