@@ -24,7 +24,7 @@ import {
   setIdleDocketRemindersEnabled, setBlockedDocketRemindersEnabled,
   setMaxConcurrentTurns,
   setProviderEnabled,
-  setSuggestAgentFeedback, setProjectListenerWake, setVerboseLogging, setWaitForMcpToolsEnabled, setWarmingEnabled, setWorkingCheckupsEnabled,
+  setSuggestAgentFeedback, setProjectListenerWake, setCreditBubbleHire, setCreditBubbleAlloc, setVerboseLogging, setWaitForMcpToolsEnabled, setWarmingEnabled, setWorkingCheckupsEnabled,
   setApikeyFallbackEnabled, setSubscriptionInferenceEnabled,
 } from '../api'
 import { desktop } from '../desktop'
@@ -920,6 +920,18 @@ export function AccountsPanel({ toast, close, initialTab, target }: {
           hint={'When you write to a project and no agent watches it with a fair_queue watchdog, one agent '
             + 'directly under it (an idle one first) is woken and asked to arm one. Off: the mail waits in '
             + 'the project’s mailbox until someone arms one.'} />
+      </SetGroup>
+      <SetGroup title="Credit cost bubbling">
+        <SetToggle label="your hires bubble their cost up the chain" checked={runtime?.credit_bubble_hire_enabled !== false}
+          disabled={!runtime || busy} onChange={v => changeRuntime(setCreditBubbleHire, v)}
+          hint={'Applies to hires and re-hires you make, in every organization. On: ancestor grants are raised when a '
+            + 'hire needs more credits. Off: the hire’s superior must hold the free credits itself. '
+            + 'Agents always bubble their cost, up to their own allocation.'} />
+        <SetToggle label="your allocations & model upgrades bubble their cost up the chain" checked={runtime?.credit_bubble_alloc_enabled !== false}
+          disabled={!runtime || busy} onChange={v => changeRuntime(setCreditBubbleAlloc, v)}
+          hint={'Applies to allocations and model upgrades you make, in every organization. On: ancestor grants are raised '
+            + 'when one needs more credits. Off: limited to the superior’s own free credits. '
+            + 'Agents always bubble their cost, up to their own allocation.'} />
       </SetGroup>
       <ShowLegacyModelsToggle />
       <SetGroup title="Orgtree feedback">

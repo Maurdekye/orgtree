@@ -1178,6 +1178,22 @@ export const setProjectListenerWake = (
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ project_listener_wake_enabled: enabled }),
   })
+export const setCreditBubbleHire = (
+  enabled: boolean,
+): Promise<RuntimeSettingsPayload> =>
+  req('/api/app-settings/runtime', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ credit_bubble_hire_enabled: enabled }),
+  })
+export const setCreditBubbleAlloc = (
+  enabled: boolean,
+): Promise<RuntimeSettingsPayload> =>
+  req('/api/app-settings/runtime', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ credit_bubble_alloc_enabled: enabled }),
+  })
 export const setVerboseLogging = (
   enabled: boolean,
 ): Promise<RuntimeSettingsPayload> =>

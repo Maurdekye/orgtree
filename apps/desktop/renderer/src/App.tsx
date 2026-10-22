@@ -3199,10 +3199,6 @@ export function SettingsPanel({ tree, toast, close, initialTab, target }: {
   const setCompactAt = set('compactAt', compactAt)
   const defEffort = val('defEffort', tree.default_effort ?? '')
   const setDefEffort = set('defEffort', defEffort)
-  const cascadeHire = val('cascadeHire', tree.cascade_hire !== false)
-  const setCascadeHire = set('cascadeHire', cascadeHire)
-  const cascadeAlloc = val('cascadeAlloc', tree.cascade_alloc !== false)
-  const setCascadeAlloc = set('cascadeAlloc', cascadeAlloc)
   const orgInboxEnabled = val('orgInboxEnabled', tree.org_inbox?.enabled !== false)
   const setOrgInboxEnabled = set('orgInboxEnabled', orgInboxEnabled)
   const multiHolder = val('multiHolder',
@@ -3432,17 +3428,6 @@ export function SettingsPanel({ tree, toast, close, initialTab, target }: {
                 </SetRow>
               )}
             </SetGroup>
-            {/* §4.6 cost-bubbling toggles (user spec, both ON by default) */}
-            <SetGroup title="Credit cost bubbling">
-              <SetToggle label="hires bubble their cost up the chain"
-                checked={cascadeHire} onChange={setCascadeHire}
-                hint={"off: the hiring agent's superior must hold the free "
-                  + 'credits itself'} />
-              <SetToggle
-                label="allocations & model upgrades bubble their cost up the chain"
-                checked={cascadeAlloc} onChange={setCascadeAlloc}
-                hint="off: limited to the superior's own free credits" />
-            </SetGroup>
             <SetGroup title="External org inbox">
               <SetToggle label="allow outside communication through the org inbox"
                 checked={orgInboxEnabled} onChange={setOrgInboxEnabled}
@@ -3500,8 +3485,6 @@ export function SettingsPanel({ tree, toast, close, initialTab, target }: {
                   default_top_grant: Number.isFinite(+defTop) ? +defTop : undefined,
                   compact_at: Number.isFinite(+compactAt) ? +compactAt : undefined,
                   default_effort: defEffort,
-                  cascade_hire: cascadeHire,
-                  cascade_alloc: cascadeAlloc,
                   org_inbox_enabled: orgInboxEnabled,
                   org_inbox_multi_holder: multiHolder,
                   auto_cheap_compact: { enabled: accOn,

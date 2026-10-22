@@ -66,14 +66,6 @@ export function DefaultsForm({ toast, onDone }: {
               onSet={(v) => set('default_effort', v)} />
           </SetRow>
         </SetGroup>
-        <SetGroup title="Credit cost bubbling">
-          <SetToggle label="hires bubble their cost up the chain" checked={d.cascade_hire !== false}
-            hint="Raise ancestor grants when a hire needs more credits."
-            onChange={next => set('cascade_hire', next)} />
-          <SetToggle label="allocations & model upgrades bubble their cost up the chain" checked={d.cascade_alloc !== false}
-            hint="Raise ancestor grants when an allocation or model upgrade needs more credits."
-            onChange={next => set('cascade_alloc', next)} />
-        </SetGroup>
         <SetGroup title="Usage limits">
           <SetToggle label="auto-resume usage-limit-frozen agents after the reset time" checked={!!d.auto_resume}
             hint="Resume agents automatically after their usage limit resets."
@@ -90,8 +82,6 @@ export function DefaultsForm({ toast, onDone }: {
               default_top_grant: d.default_top_grant,
               compact_at: Math.round((d.compact_at ?? 0.8) * 100),
               default_effort: d.default_effort ?? '',
-              cascade_hire: d.cascade_hire !== false,
-              cascade_alloc: d.cascade_alloc !== false,
               auto_resume: !!d.auto_resume,
             }).then(() => {
               toast(['default org settings saved'])

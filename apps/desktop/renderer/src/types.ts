@@ -2050,6 +2050,12 @@ export interface RuntimeSettingsPayload {
    *  listener, wake one agent under it to arm one. Absent from an older
    *  engine, which reads as on. */
   project_listener_wake_enabled?: boolean
+  /** Default on (app-wide, the USER's own actions only; agents always
+   *  bubble): a hire / re-hire of yours raises ancestor grants when it needs
+   *  more credits. Absent from an older engine, which reads as on. */
+  credit_bubble_hire_enabled?: boolean
+  /** The same for your allocations and model upgrades. */
+  credit_bubble_alloc_enabled?: boolean
   /** Default on: suggest redacted, user-approved GitHub feedback. */
   suggest_agent_feedback_enabled?: boolean
   /** Default off: nudge an idle agent about the unfinished items it owns. */
@@ -2380,8 +2386,6 @@ export interface DefaultsPayload {
   fable_limit_policy: string
   fable_filter_policy: string
   fable_filter_model?: string | null
-  cascade_hire: boolean
-  cascade_alloc: boolean
   auto_resume: boolean
   auto_resume_compact?: boolean
   default_tools?: ToolGrant
@@ -2538,8 +2542,6 @@ export interface SettingsRequest {
   auto_resume_compact?: boolean | null
   /** known-cold pre-turn compaction (org level; disabled by default) */
   auto_cheap_compact?: { enabled?: boolean; occ?: number } | null
-  cascade_hire?: boolean | null
-  cascade_alloc?: boolean | null
   /** organization-level external inbox holder policy */
   org_inbox_enabled?: boolean | null
   org_inbox_multi_holder?: boolean | null
