@@ -1,6 +1,6 @@
 const {app,BrowserWindow}=require('electron'),fs=require('node:fs'),path=require('node:path'),assert=require('node:assert/strict')
 const out=process.env.WS_CONNECT_CAPTURE_ROOT,modules=process.env.ORGTREE_NODE_MODULES||'E:/Libraries/Desktop/orgtree/node_modules'
-if(!/^C:[\\/]orgtree-build[\\/]taskbar-orgs-sol[\\/]/i.test(out||''))throw Error('owned output required')
+if(!/^C:[\\/]orgtree-build[\\/]ordering-sol[\\/]/i.test(out||''))throw Error('owned output required')
 try{
 fs.mkdirSync(out,{recursive:true})
 require(path.join(modules,'esbuild')).buildSync({entryPoints:[path.join(process.cwd(),'apps/desktop/renderer/tests/ws-connect-visual.tsx')],bundle:true,platform:'browser',format:'esm',outfile:path.join(out,'fixture.js'),nodePaths:[modules],loader:{'.css':'empty'},define:{'process.env.NODE_ENV':'"production"'}})
@@ -15,19 +15,19 @@ app.whenReady().then(async()=>{
   win.webContents.session.webRequest.onBeforeRequest((d,done)=>done({cancel:!/^(file:|data:)/.test(d.url)}))
   for(const theme of ['dark','light']){
    await win.loadFile(path.join(out,'fixture.html'));win.webContents.setZoomFactor(.8)
-   await win.webContents.executeJavaScript(`(async()=>{document.documentElement.classList.toggle('contrast-light',${theme==='light'});const end=performance.now()+5000;while(!document.querySelector('input[aria-label="Notify on (re)connect"]')){if(performance.now()>end)throw Error('switch missing');await new Promise(r=>setTimeout(r,20))}})()`)
-   for(const enabled of [false,true]){
+   await win.webContents.executeJavaScript(`(async()=>{document.documentElement.classList.toggle('contrast-light',${theme==='light'});const end=performance.now()+5000;while(!document.querySelector('select[aria-label="Connection messages"]')){if(performance.now()>end)throw Error('switch missing');await new Promise(r=>setTimeout(r,20))}})()`)
+   for(const enabled of ['notice','wake','off']){
     const seen=await win.webContents.executeJavaScript(`(async()=>{
-     const toggle=document.querySelector('input[aria-label="Notify on (re)connect"]');if(toggle.checked!==${enabled})toggle.click()
-     const end=performance.now()+5000;while(toggle.disabled||toggle.checked!==${enabled}){if(performance.now()>end)throw Error('save never settled');await new Promise(r=>setTimeout(r,20))}
+     const toggle=document.querySelector('select[aria-label="Connection messages"]');if(toggle.value!==${JSON.stringify(enabled)}){toggle.value=${JSON.stringify(enabled)};toggle.dispatchEvent(new Event('change',{bubbles:true}))}
+     const end=performance.now()+5000;while(toggle.disabled||toggle.value!==${JSON.stringify(enabled)}){if(performance.now()>end)throw Error('save never settled');await new Promise(r=>setTimeout(r,20))}
      toggle.scrollIntoView({block:'center'});await ${settle};const r=toggle.getBoundingClientRect()
-     return {checked:toggle.checked,request:window.lastConnectRequest??null,visible:r.top>=0&&r.bottom<=innerHeight,text:document.body.innerText}
+     return {checked:toggle.value,request:window.lastConnectRequest??null,visible:r.top>=0&&r.bottom<=innerHeight,text:document.body.innerText}
     })()`)
-    assert.equal(seen.checked,enabled);assert.equal(seen.visible,true);assert.match(seen.text,/server messages still follow the pattern/)
-    assert.match(seen.text,new RegExp(`Orgtree connection events: ${enabled?'on':'off'}`))
-    if(enabled)assert.equal(seen.request.notify_on_connect,true)
+    assert.equal(seen.checked,enabled);assert.equal(seen.visible,true);assert.match(seen.text,/data messages are unchanged/)
+    assert.match(seen.text,new RegExp(`Connection messages: ${enabled}`))
+    if(enabled!=='notice')assert.equal(seen.request.connection_messages,enabled)
     await win.webContents.executeJavaScript(settle)
-    const file=`notify-${enabled?'on':'off'}-${theme}.png`,frame=await win.webContents.capturePage();assert.equal(frame.isEmpty(),false)
+    const file=`notify-${enabled}-${theme}.png`,frame=await win.webContents.capturePage();assert.equal(frame.isEmpty(),false)
     fs.writeFileSync(path.join(out,file),frame.toPNG());receipts.push({theme,enabled,file,...seen})
    }
   }

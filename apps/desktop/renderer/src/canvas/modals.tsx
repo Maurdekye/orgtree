@@ -2,7 +2,7 @@ import { agentSuperior, effectiveReports, isTopLevel } from './shared'
 import { watchdogActions } from './objectactions'
 import { WatchdogCountdown } from './watchdogcountdown'
 import { watchdogDescription } from './watchdogdescription'
-import { setWatchdogConnectNotifications } from '../api'
+import { setWatchdogConnectionMessages } from '../api'
 import { WatchdogLink } from './watchdoglink'
 import {useDogRoute} from './watchdogroute'
 import {slotClaimLeaseState} from './slotclaim'
@@ -215,12 +215,12 @@ export function WatchdogPanel({ slug, dog, dogs, op, toast, close }: {
   // in view; the click survives as a collapse for a screen-filling one.
   const [expTarget, setExpTarget] = useState(true)
   const [expPattern, setExpPattern] = useState(true)
-  const [connectNotify, setConnectNotify] = useState(!!dog.notify_on_connect)
+  const [connectNotify, setConnectNotify] = useState(dog.connection_messages ?? 'notice')
   const [connectSaving, setConnectSaving] = useState(false)
-  useEffect(() => { setConnectNotify(!!dog.notify_on_connect) }, [dog.id, dog.notify_on_connect])
-  const changeConnectNotify = async (enabled: boolean) => {
+  useEffect(() => { setConnectNotify(dog.connection_messages ?? 'notice') }, [dog.id, dog.connection_messages])
+  const changeConnectNotify = async (mode: 'notice' | 'wake' | 'off') => {
     setConnectSaving(true)
-    try { const saved = await setWatchdogConnectNotifications(slug,dog.id,enabled); setConnectNotify(saved.notify_on_connect) }
+    try { const saved = await setWatchdogConnectionMessages(slug,dog.id,mode); setConnectNotify(saved.connection_messages) }
     catch(e) { toast([`error: ${(e as Error).message}`]) }
     finally { setConnectSaving(false) }
   }
@@ -238,7 +238,7 @@ export function WatchdogPanel({ slug, dog, dogs, op, toast, close }: {
     }).catch(()=>{})
     return ()=>{live=false}
   },[slug,dog.kind,leaseKey,op,route?.slotLeases])
-  const description = watchdogDescription(dog.kind === 'websocket' ? {...dog,notify_on_connect:connectNotify} : dog, dogs, slotLease?.key===leaseKey?slotLease.value:undefined)
+  const description = watchdogDescription(dog.kind === 'websocket' || dog.kind === 'mqtt' ? {...dog,connection_messages:connectNotify} : dog, dogs, slotLease?.key===leaseKey?slotLease.value:undefined)
   const act = (a: 'pause' | 'resume' | 'remove') =>
     watchdogAction(slug, dog.id, a)
       .then((r) => { toast([`${dog.name}: ${r.state}`]); if (a === 'remove') close() })
@@ -298,6 +298,16 @@ export function WatchdogPanel({ slug, dog, dogs, op, toast, close }: {
             title={expPattern ? 'click to collapse' : 'click to see the full text'}
             onClick={() => setExpPattern((v) => !v)}>{dog.pattern}</div>
         </>}
+        {(dog.kind === 'mqtt' || dog.kind === 'websocket') && <>
+          <label className="row">Connection messages
+            <select aria-label="Connection messages" value={connectNotify}
+              disabled={connectSaving || dog.spent || dog.state === 'spent'}
+              onChange={e => { void changeConnectNotify(e.target.value as 'notice' | 'wake' | 'off') }}>
+              <option value="notice">Notice (no wake)</option><option value="wake">Wake</option><option value="off">Off</option>
+            </select>
+          </label>
+          <div className="dim">Connection, outage and recovery messages only; data messages are unchanged. These messages never spend a one-shot or run fire actions.</div>
+        </>}
         {dog.kind === 'mqtt' && <>
           <div className="field-label">credentials</div>
           <div className="chip mono">{dog.credentials ?? 'none'}</div>
@@ -308,10 +318,6 @@ export function WatchdogPanel({ slug, dog, dogs, op, toast, close }: {
             {feedConnection(dog)}</div>
         </>}
         {dog.kind === 'websocket' && <>
-          <label className="row"><input type="checkbox" aria-label="Notify on (re)connect"
-            checked={connectNotify} disabled={connectSaving || dog.spent || dog.state === 'spent'}
-            onChange={e => { void changeConnectNotify(e.target.checked) }} />Notify on (re)connect</label>
-          <div className="dim">Orgtree connection events; server messages still follow the pattern. Outage and recovery health alerts stay on.</div>
           <div className="field-label">credentials</div>
           <div className="chip mono">{dog.credentials ?? 'none'}</div>
           {!!dog.hello?.length && <><div className="field-label">hello (sent after every connect)</div>

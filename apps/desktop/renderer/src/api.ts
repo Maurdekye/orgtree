@@ -693,9 +693,9 @@ export const getWatchdogPage = (slug:string, owner:string, cursor='0', kept=fals
   req(`/api/orgs/${slug}/watchdogs?${new URLSearchParams({owner,cursor,limit:'50',kept:String(kept)})}`)
 export const getWatchdog = (slug:string,id:string): Promise<{watchdogs:import('./types').Watchdog[]}> =>
   req(`/api/orgs/${slug}/watchdogs?${new URLSearchParams({id})}`)
-export const setWatchdogConnectNotifications = (slug: string, id: string, notify_on_connect: boolean): Promise<{notify_on_connect: boolean}> =>
+export const setWatchdogConnectionMessages = (slug: string, id: string, connection_messages: 'notice' | 'wake' | 'off'): Promise<{connection_messages: 'notice' | 'wake' | 'off'}> =>
   req(`/api/orgs/${slug}/watchdogs`, {
-    method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id,action:'configure',notify_on_connect}),
+    method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id,action:'configure',connection_messages}),
   })
 export const watchdogAction = (
   slug: string, id: string, action: 'pause' | 'resume' | 'remove',

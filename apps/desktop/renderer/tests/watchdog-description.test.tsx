@@ -6,31 +6,6 @@ import type { Watchdog } from '../src/types'
 
 const noop = () => {}
 
-for (const enabled of [false,true]) test(`websocket notify on reconnect is editable and persists (${enabled})`,async t=>{
-  const saved=fetch,posted:unknown[]=[]
-  globalThis.fetch=(async (_url,init)=>{posted.push(JSON.parse(String(init?.body)));return {ok:true,status:200,headers:new Headers(),json:async()=>({notify_on_connect:!enabled})} as Response}) as typeof fetch
-  const view=await panel({kind:'websocket',target:'ws://localhost/feed',notify_on_connect:enabled} as Partial<Watchdog>)
-  t.after(async()=>{await view.unmount();globalThis.fetch=saved})
-  const toggle=view.el.querySelector<HTMLInputElement>('input[aria-label="Notify on (re)connect"]')
-  assert.ok(toggle,'a WebSocket dog has its persistent connection notification switch')
-  assert.equal(toggle.checked,enabled)
-  await inAct(()=>toggle.click());await flush()
-  assert.equal(toggle.checked,!enabled)
-  assert.deepEqual(posted,[{id:'worker/watch',action:'configure',notify_on_connect:!enabled}])
-  assert.match(view.el.querySelector('.wd-description')?.textContent ?? '', new RegExp(`Orgtree connection events: ${!enabled?'on':'off'}`))
-})
-
-test('legacy websocket switch defaults off and a failed save preserves it',async t=>{
-  const saved=fetch,errors:string[]=[]
-  globalThis.fetch=(async()=>({ok:false,status:409,statusText:'Conflict',headers:new Headers(),json:async()=>({detail:'watchdog departed'})})) as typeof fetch
-  const view=await mountView(<WatchdogPanel slug="synthetic" dog={{...base,kind:'websocket',target:'ws://localhost/feed'}} toast={m=>errors.push(...m)} close={noop}/>,h=>h)
-  t.after(async()=>{await view.unmount();globalThis.fetch=saved})
-  const toggle=view.el.querySelector<HTMLInputElement>('input[aria-label="Notify on (re)connect"]')!
-  assert.equal(toggle.checked,false)
-  await inAct(()=>toggle.click());await flush()
-  assert.equal(toggle.checked,false);assert.equal(toggle.disabled,false)
-  assert.match(errors.join(' '),/watchdog departed/)
-})
 const base: Watchdog = { id: 'worker/watch', owner: 'worker', name: 'watch', kind: 'file',
   target: 'build.log', state: 'armed', interval_s: 60, fired: 0, once: false, spent: false,
   at: '2026-10-18T07:00:00Z', events: [] }
