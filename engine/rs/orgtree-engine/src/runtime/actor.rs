@@ -378,6 +378,8 @@ enum Settling {
     Turn,
     /// warming, ahead of the next turn
     Warm,
+    /// a start by hand, from the desk's process mark
+    ByHand,
 }
 
 mod interrupt_control;
@@ -1641,10 +1643,9 @@ impl Actor {
 
     /// Warming: start the CLI before the agent's next turn and park it. Quiet
     /// when the agent cannot run now (halted, frozen, its provider or account
-    /// off): its next turn says why, as before. It waits for the sign-in
-    /// helper as a turn start does (`session_settle`, invariants 3 and 5), so
-    /// the warming that follows an engine's restart starts no CLI in Session
-    /// 0 while the helper is on its way back.
+    /// off): its next turn says why, as before. It starts where that turn
+    /// would run it (`start_ahead`), so the warming that follows an engine's
+    /// restart starts no CLI in Session 0 while the helper is on its way back.
     async fn warm(&mut self) -> bool {
         if self.proc.is_some() || self.turn.is_some() || self.stopping {
             return self.proc.is_some();
@@ -1656,16 +1657,7 @@ impl Actor {
         if ctx.state != "live" || ctx.halted || ctx.frozen || ctx.killswitch {
             return false;
         }
-        self.session_settle(&ctx.session_pref, Settling::Warm).await;
-        if self.engine.shutdown.is_cancelled() {
-            return false;
-        }
-        // the next turn's on-demand pick (`use`) is that turn's to take: the
-        // CLI is warmed where the pick puts it, and the pick stays
-        let pick = self.use_session;
-        let started = self.ensure_proc(&ctx).await;
-        self.use_session = pick;
-        match started {
+        match self.start_ahead(&ctx, Settling::Warm).await {
             Ok(()) => {
                 self.park();
                 self.publish();
@@ -1676,6 +1668,22 @@ impl Actor {
                 false
             }
         }
+    }
+
+    /// Start the CLI ahead of the agent's next turn, where that turn would run
+    /// it (warming, and a start by hand from the desk's process mark): it
+    /// waits for the sign-in helper as a turn start does (`session_settle`,
+    /// invariants 3 and 5), and the next turn's on-demand pick (`use`) stays
+    /// that turn's to take. The CLI starts where the pick puts it.
+    async fn start_ahead(&mut self, ctx: &Ctx, what: Settling) -> Result<()> {
+        self.session_settle(&ctx.session_pref, what).await;
+        if self.engine.shutdown.is_cancelled() {
+            return Err(anyhow!("the engine is stopping"));
+        }
+        let pick = self.use_session;
+        let started = self.ensure_proc(ctx).await;
+        self.use_session = pick;
+        started
     }
 
     /// A sign-in helper started hosting (the user, 2026-10-22 14:21Z: "Move
@@ -1803,7 +1811,7 @@ impl Actor {
         }
         if !had {
             let started = match self.load_ctx().await {
-                Ok(ctx) => self.ensure_proc(&ctx).await,
+                Ok(ctx) => self.start_ahead(&ctx, Settling::ByHand).await,
                 Err(e) => Err(e),
             };
             if let Err(e) = started {
@@ -3180,6 +3188,7 @@ impl Actor {
                 match what {
                     Settling::Turn => tracing::info!(agent = %self.name, waited_ms, "the turn waited for the sign-in helper, which connected"),
                     Settling::Warm => tracing::info!(agent = %self.name, waited_ms, "warming waited for the sign-in helper, which connected"),
+                    Settling::ByHand => tracing::info!(agent = %self.name, waited_ms, "the CLI started by hand waited for the sign-in helper, which connected"),
                 }
                 return;
             }
