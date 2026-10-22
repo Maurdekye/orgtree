@@ -61,7 +61,7 @@ module.exports=async(page,{args,out})=>{
  if(args.stage==='queued'){
   await page.rightClick(card);
   await page.hover({selector:'button.ctxmenu-item',text:'^Open',regex:true});
-  await page.click({selector:'button.ctxmenu-item',text:'Pin desk as a window'});
+  await page.click({selector:'button.ctxmenu-item',text:'Desk as a pinned window'});
   await page.waitFor('.pinwin [data-next-turn]');
   pinned=await page.eval(()=>[...document.querySelectorAll('.pinwin [data-next-turn]')].filter(e=>e.getBoundingClientRect().width>0).map(e=>({kind:e.dataset.nextTurn,text:e.textContent,title:e.title})));
   assert('pinned header: exactly one account, model and effort card',pinned.length===3&&

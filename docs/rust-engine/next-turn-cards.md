@@ -47,7 +47,8 @@ A long Antigravity target label also exercises wrapping; every zoom-card badge
 and the agent name must remain inside the card bounds.
 
 The driver matches the signed colon label exactly, including default-account
-targets and current-to-target tooltips. Each semantic and layout guard is saved
+targets and current-to-target tooltips, and opens the shared Open → Desk as a
+pinned window action for its pinned-header control. Each semantic and layout guard is saved
 in the stage's `checks.json` and recorded as a named `Proof.check` in the proof's
 `result.json`. A setup or desktop-driver error records a durable FAIL; a driver
 completion without counted guards cannot pass. This proof uses synthetic
