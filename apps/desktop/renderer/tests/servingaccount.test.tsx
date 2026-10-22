@@ -378,7 +378,7 @@ test('§2i the detail is a plain title carrying the id and the email, and nothin
       <ServingAccountBadge account={serving()} />, (el) => el)
     t.after(() => view.unmount())
     await flush()
-    const badge = view.el.querySelector<HTMLButtonElement>('.badge.serving-account')!
+    const badge = view.el.querySelector<HTMLElement>('.badge.serving-account')!
     assert.equal(view.el.querySelector('.serving-account-tip'), null,
       'the custom detail panel is back')
     assert.equal(view.el.querySelector('.serving-account-wrap'), null,
@@ -396,10 +396,11 @@ test('§2i the detail is a plain title carrying the id and the email, and nothin
 
     // FOCUS STILL LANDS ON IT. A native tooltip is mouse-only, so the tab stop
     // is what keeps the `aria-label` reachable at all for a keyboard reader.
-    assert.equal(badge.tagName, 'BUTTON')
-    assert.equal(badge.type, 'button', 'a bare button submits enclosing forms')
+    assert.equal(badge.tagName, 'SPAN')
+    assert.equal(badge.getAttribute('role'), null)
+    assert.equal(badge.tabIndex, 0)
     badge.focus()
-    assert.equal(view.el.ownerDocument.activeElement, badge,
+    assert.equal(view.el.ownerDocument.activeElement === badge, true,
       'the card cannot take keyboard focus at all')
 
     // ⚠ AND THE STYLESHEET NO LONGER REVEALS ANYTHING. jsdom computes neither
@@ -512,11 +513,8 @@ test('§2m the existing badges are all still there beside it', async (t: TestCon
 
 test('§2n the card does not swallow the press that focuses the agent',
   async (t: TestContext) => {
-    // ⚠ THE LESSON `ActionBadge` IS BUILT ON. A control in the badge row has
-    // to stop its own pointerdown to survive the viewport's pointer capture —
-    // and doing so ALSO starves the drag-start→focus path the user relies on
-    // to click anywhere on a card and open it. So this card stops the event
-    // at itself and the card body must still receive its own presses.
+    // USER 2026-10-22: the serving-account badge must pass the same press
+    // through to the card as its body; it is information, not a control.
     const downs: string[] = []
     const n = agent({ busy: true, serving_account: serving() })
     const view = await mountView(
@@ -537,12 +535,12 @@ test('§2n the card does not swallow the press that focuses the agent',
       badge.dispatchEvent(new window.PointerEvent('pointerdown', { bubbles: true }))
       await flush(2)
     })
-    assert.deepEqual(downs, [], 'the press on the card reached the drag handler')
+    assert.deepEqual(downs, ['worker'], 'the badge swallowed the card focus press')
     // …and the card itself still does
     const body = view.el.querySelector('.sq')!
     await inAct(async () => {
       body.dispatchEvent(new window.PointerEvent('pointerdown', { bubbles: true }))
       await flush(2)
     })
-    assert.deepEqual(downs, ['worker'], 'the card stopped receiving its own presses')
+    assert.deepEqual(downs, ['worker', 'worker'], 'the card stopped receiving its own presses')
   })
