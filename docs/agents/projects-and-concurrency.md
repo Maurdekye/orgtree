@@ -2178,3 +2178,12 @@ Original section: Shared skills and installed plugin imports (2026-10-15). Sourc
   points there; supervisors reach project folders below without inheriting their
   notes. [verified: `runtime/identity.rs`, `runtime/actor.rs`, `domain/teams.rs`; 2026-10-20]
 <!-- /preserved:e-74697db6067c093d -->
+
+## Network watchdog connection mail
+
+MQTT/WebSocket connection_messages defaults to notice for new and legacy
+watchers; wake and off are explicit alternatives. Administrative connection
+mail never consumes once or runs actions, including WebSocket connects which
+previously fired. Configuration reads/writes only this dog and does not redial;
+data delivery is independent. See [WebSocket contract](../rust-engine/websocket-watchdogs.md#connection-notifications).
+[decided: user 2026-10-22 13:01Z/13:02:30Z; coordinator 13:03:54Z; verified: runtime/watchdogs.rs]

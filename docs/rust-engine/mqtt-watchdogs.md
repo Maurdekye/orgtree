@@ -245,3 +245,15 @@ integration points (convo, toolwriting, event_text, domain view, health, fire ma
 trace, tool card) were written red first (commit 6e120a6). Not covered by unit
 tests: `runtime/watchdogs/mqtt.rs`'s database paths (create, sealing, runner,
 alerts), which need a rig proof against a scratch database (not run in phase 1).
+
+## Connection-message delivery (2026-10-22)
+
+`connection_messages` at create/configure selects notice (default, passive),
+wake or off, independently of data-fire notice delivery. Existing rows without
+a canonical value resolve to notice, including old WebSocket boolean flags.
+The desktop detail selector edits the same mode without reconnecting. Health
+mail never increments fired, spends once or runs fire_actions. Off dogs do not
+claim a shared connection alert; notice/wake dogs deduplicate independently per
+owner and transition, so one preference cannot suppress another. Server
+payload matching, retained rules and data-fire semantics stay unchanged.
+[decided: user 2026-10-22 13:01Z/13:02:30Z; coordinator 13:03:54Z]

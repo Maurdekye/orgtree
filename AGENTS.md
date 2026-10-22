@@ -84,7 +84,7 @@ Before renderer or desktop-main tests, visual captures or rig proofs, read the [
   MQTT requires a publish topic and shares the 64 KiB encoded-payload cap.
   Disconnected sends do not queue for reconnect. See [MQTT watchdogs](docs/rust-engine/mqtt-watchdogs.md).
   [decided: user 2026-10-21 13:44:58Z; verified: `runtime/watchdogs/mqtt.rs`, `mqtt/conn.rs`]
-  WebSocket `configure` changes only `notify_on_connect`, with a required boolean
+  Network watchdog `configure` changes `connection_messages` (notice by default, wake or off), with a required valid choice
   and owner/authorized-superior reach, without reconnecting or replaying hellos.
   See [WebSocket connection notices](docs/rust-engine/websocket-watchdogs.md#connection-notifications).
   [verified: `tools/mod.rs`, `runtime/watchdogs.rs::configure_connect`, 2026-10-21]

@@ -1859,3 +1859,10 @@ All entries are dated 2026-10-06 unless stated otherwise.
 - 2026-10-21 20:58:40Z, USER: use a transmitted thinking duration when supplied;
   otherwise use the computed block duration. A whole-turn runtime is not a
   thinking duration. See [Claude thought timing](claude-thinking-time.md).
+
+- 2026-10-22 13:01Z/13:02:30Z, USER: network watchdog connection_messages
+  notice (default), wake or off is a 4.4.0 freeze exception. Coordinator filled
+  the definition gap 13:03:54Z: all connection mail is administrative, replacing
+  the WebSocket connect fire; no once/fired/actions, data untouched. Legacy
+  stored flags resolve notice; notify_on_connect create/configure true=>notice,
+  false=>off, conflicting arguments refused. See websocket-watchdogs.md.
