@@ -22,6 +22,7 @@ import { AnsweredAsk, AnsweredCard, ResolvedSections, batchAskQuestions, resolve
 import { StructuredJson } from '../canvas/structuredjson'
 import { EXTERNAL_NOTE, EXTERNAL_TAG, fireActionParts, fireLineParts } from './firelines'
 import type { FirePart } from './firelines'
+import { IdleDocketCards } from './idledocket'
 
 const FAMILY_MARK: Record<Family, string> = {
   ordinary: 'Message', linked_reply: 'Reply', assignment: 'Assignment', review: 'Review',
@@ -182,7 +183,9 @@ export function EventCard({ row, profile, org, preview = false, actor, part, hea
   // a watchdog fire draws its whole body itself (FireBody)
   const dogFire = event.variant === 'monitor.watchdog_fired' ? event : null
   const fireFields = dogFire ? view.fields.filter(f => f.placement === 'body') : []
-  const body = view.fields.filter(f => f.placement === 'body' && !dogFire
+  // the idle-docket reminder draws its items as ticket cards (IdleDocketCards)
+  const idleDocket = event.variant === 'reminder.idle_docket' ? event : null
+  const body = view.fields.filter(f => f.placement === 'body' && !dogFire && !(idleDocket && f.key === 'items')
     && !(answeredAsk && ['questions', 'text'].includes(f.key)))
     .map(f => f.key === 'sections' && Array.isArray(f.value)
       ? { ...f, value: f.value.filter(sec => !(record(sec) && typeof sec.kind === 'string' && resolvedSectionKinds.includes(sec.kind))) } : f)
@@ -199,6 +202,7 @@ export function EventCard({ row, profile, org, preview = false, actor, part, hea
     {askQuestions.length > 0 && <AnsweredCard questions={askQuestions} dismissed={false} />}
     {event.variant === 'answer.batch' && <ResolvedSections event={event} />}
     {dogFire && <FireBody event={dogFire} fields={fireFields} {...content} profile={profile} org={org} actor={actor} />}
+    {idleDocket && <IdleDocketCards event={idleDocket} org={org} world={content.world} onOpen={content.onOpen} />}
     <Fields fields={body} {...content} profile={profile} org={org} actor={actor} /></div>
   const heading = <>
       {!hideKind && <><span className="event-family" aria-label={FAMILY_MARK[view.family]} title={FAMILY_MARK[view.family]}>{FAMILY_ICON[view.family]}</span>
@@ -219,7 +223,7 @@ export function EventCard({ row, profile, org, preview = false, actor, part, hea
     </>
   if (part === 'header') return heading
   const contents = <>
-    {(body.length > 0 || fireFields.length > 0 || answeredAsk || resolvedBatch) && (preview && !answeredAsk && !resolvedBatch
+    {(body.length > 0 || fireFields.length > 0 || idleDocket || answeredAsk || resolvedBatch) && (preview && !answeredAsk && !resolvedBatch
       ? <ReceivedMailBody foldKey={keys}>{bodyContent}</ReceivedMailBody> : bodyContent)}
     {(context.length > 0 || Boolean(objectDetails?.fields.length)) && <details className="event-context">
       <summary>Context</summary>

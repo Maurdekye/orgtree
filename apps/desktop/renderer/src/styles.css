@@ -4927,18 +4927,18 @@ main.solo { width: 100%; }
 }
 /* Docket status styling */
 .docket-status { font-weight: 600; color: var(--docket-status-color, inherit); }
-:is(.docket-status, .tool-ticket).status-open { --docket-status-color: var(--ink); }
-:is(.docket-status, .tool-ticket).status-in_progress { --docket-status-color: var(--work); }
-:is(.docket-status, .tool-ticket).status-blocked { --docket-status-color: var(--bad); }
-:is(.docket-status, .tool-ticket).status-review { --docket-status-color: var(--review); }
+:is(.docket-status, .tool-ticket, .idle-ticket).status-open { --docket-status-color: var(--ink); }
+:is(.docket-status, .tool-ticket, .idle-ticket).status-in_progress { --docket-status-color: var(--work); }
+:is(.docket-status, .tool-ticket, .idle-ticket).status-blocked { --docket-status-color: var(--bad); }
+:is(.docket-status, .tool-ticket, .idle-ticket).status-review { --docket-status-color: var(--review); }
 /* `waiting` takes --warn, the band that already marks PENDING things — every
    other declared token is a docket status already, or too near one. */
-:is(.docket-status, .tool-ticket).status-waiting { --docket-status-color: var(--warn); }
-:is(.docket-status, .tool-ticket).status-approved { --docket-status-color: var(--approved); }
-:is(.docket-status, .tool-ticket).status-deploy_ready { --docket-status-color: var(--deploy-ready); }
-:is(.docket-status, .tool-ticket).status-backlogged { --docket-status-color: var(--backlog); }
-:is(.docket-status, .tool-ticket).status-done { --docket-status-color: var(--ok); }
-:is(.docket-status, .tool-ticket).status-superseded, :is(.docket-status, .tool-ticket).status-dropped { --docket-status-color: var(--dim); }
+:is(.docket-status, .tool-ticket, .idle-ticket).status-waiting { --docket-status-color: var(--warn); }
+:is(.docket-status, .tool-ticket, .idle-ticket).status-approved { --docket-status-color: var(--approved); }
+:is(.docket-status, .tool-ticket, .idle-ticket).status-deploy_ready { --docket-status-color: var(--deploy-ready); }
+:is(.docket-status, .tool-ticket, .idle-ticket).status-backlogged { --docket-status-color: var(--backlog); }
+:is(.docket-status, .tool-ticket, .idle-ticket).status-done { --docket-status-color: var(--ok); }
+:is(.docket-status, .tool-ticket, .idle-ticket).status-superseded, :is(.docket-status, .tool-ticket, .idle-ticket).status-dropped { --docket-status-color: var(--dim); }
 .docket-status.attention { color: var(--agent-accent-text, var(--accent)); }
 /* a question is answered in the Inbox, so its ticket says so quietly: no
    attention colour, no glow (user 2026-09-30) */
@@ -8486,6 +8486,18 @@ a.doc-chip, a.doc-badge, a.doc-gallery-row { text-decoration: none; }
 .event-values { margin: 3px 0; padding-left: 20px; }
 .event-values > li + li { margin-top: 5px; }
 .event-unsupported { display: block; color: var(--dim); font-size: 11px; }
+/* the idle-docket reminder's items as ticket cards (events/idledocket.tsx):
+   the docket chip, its title and status on one wrapping line, edged in the
+   status colour like the tool-call ticket chips */
+.idle-items { list-style: none; margin: 3px 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.idle-ticket { display: flex; flex-wrap: wrap; align-items: center; gap: 3px 8px; min-width: 0;
+  padding: 3px 8px; border: 1px solid var(--line-soft); border-radius: 5px;
+  box-shadow: inset 3px 0 0 var(--docket-status-color, transparent); font-size: 12px; }
+.idle-ticket-link { flex: none; font-family: var(--mono); }
+.idle-ticket-title { flex: 1 1 140px; min-width: 0; overflow-wrap: anywhere; color: var(--ink); }
+.idle-ticket-status { flex: none; font-size: 11px; }
+.idle-ticket-role { flex: 1 0 100%; font-size: 11px; }
+.idle-more { font-size: 11px; margin-top: 2px; }
 /* an mqtt or websocket fire's caution: its lines are outside input */
 /* an mqtt or websocket fire's outside-source tag: small and muted in the
    card header, its meaning in the tooltip (user 2026-10-20 09:17Z) */
