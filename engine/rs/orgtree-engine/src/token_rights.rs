@@ -33,9 +33,11 @@ pub struct Reading {
 
 #[nolog]
 impl Reading {
-    /// Administrator rights: Administrators enabled, or a High label or above.
+    /// Administrator rights, by any of the readings: Windows' own (what the
+    /// user sees in Task Manager), Administrators enabled, or a High label or
+    /// above. alpha.33's engine was elevated by Windows' reading alone.
     pub fn elevated(&self) -> bool {
-        self.administrators || self.label >= HIGH_RID
+        self.windows || self.administrators || self.label >= HIGH_RID
     }
 }
 
