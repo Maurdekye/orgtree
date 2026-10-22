@@ -220,9 +220,9 @@ test('③  a tab switch is lossless: an edit made on one tab is still there '
     await setField(view.el.querySelector<HTMLInputElement>(
       'input[aria-label="top-level grant cap"]')!, '77')
 
-    // edit on Policies (the Fable policies were dropped with the feature, DECISIONS 31): flip a cost-bubbling switch
+    // edit on Policies (the Fable policies were dropped with the feature, DECISIONS 31): flip a switch
     await open(view.el, 'Policies')
-    await inAct(async () => { view.el.querySelector<HTMLInputElement>('input[aria-label="hires bubble their cost up the chain"]')!.click() })
+    await inAct(async () => { view.el.querySelector<HTMLInputElement>('input[aria-label="reset a session before a known-cold turn"]')!.click() })
 
     // wander, then come back — both edits survive, because the panels are
     // hidden rather than unmounted
@@ -232,7 +232,7 @@ test('③  a tab switch is lossless: an edit made on one tab is still there '
       'input[aria-label="top-level grant cap"]')!.value, '77')
     await open(view.el, 'Policies')
     assert.equal(view.el.querySelector<HTMLInputElement>(
-      'input[aria-label="hires bubble their cost up the chain"]')!.checked, false)
+      'input[aria-label="reset a session before a known-cold turn"]')!.checked, false)
 
     // one save carries BOTH, from whichever tab you happen to be on
     seen.length = 0
@@ -244,8 +244,24 @@ test('③  a tab switch is lossless: an edit made on one tab is still there '
     assert.ok(settings, 'save did not POST the settings')
     const body = settings!.body as Record<string, unknown>
     assert.equal(body.max_top_grant, 77)
-    assert.equal(body.cascade_hire, false)
+    assert.equal((body.auto_cheap_compact as { enabled: boolean }).enabled, false)
     assert.equal(closed.length, 1, 'a successful save closes the panel')
+  } finally { await view.unmount(); delete g.fetch }
+})
+
+test('⑤  credit cost bubbling is no per-org setting: it moved to App settings > Runtime (USER 2026-10-22)', async () => {
+  const seen: { method: string; path: string; body: unknown }[] = []
+  stubFetch(seen)
+  const { view } = await mountOrg()
+  try {
+    await open(view.el, 'Policies')
+    assert.doesNotMatch(view.el.textContent ?? '', /bubble their cost|Credit cost bubbling/)
+    const save = [...view.el.querySelectorAll<HTMLButtonElement>('button')]
+      .find((b) => b.textContent?.trim() === 'save')!
+    await inAct(async () => { save.click(); await flush(12) })
+    const body = seen.find((r) => r.method === 'POST' && r.path === '/api/orgs/acme/settings')!.body as Record<string, unknown>
+    assert.equal('cascade_hire' in body, false, 'the org save no longer sends cascade_hire')
+    assert.equal('cascade_alloc' in body, false, 'the org save no longer sends cascade_alloc')
   } finally { await view.unmount(); delete g.fetch }
 })
 
