@@ -30,6 +30,7 @@ app.whenReady().then(async () => {
   assert.equal(state.tab, 'events'); assert.equal(state.tabId, 'listeners'); assert.equal(state.eventsView, true)
   assert.match(state.hint, /desk shows the events tab/)
   assert(state.settingBox.y >= 0 && state.settingBox.y + state.settingBox.h <= state.settingsHeight)
+  assert(state.tabBox.h >= 16 && state.tabBox.w >= 30, 'desk label must be readable at window scale')
   assert(state.tabBox.y >= 0 && state.tabBox.y + state.tabBox.h <= state.deskHeight)
   const png = await win.webContents.capturePage(); assert(!png.isEmpty())
   fs.writeFileSync(path.join(out, 'project-events.png'), png.toPNG())

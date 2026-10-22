@@ -27,5 +27,5 @@ const refs = { world: { org: 'synthetic' }, onOpen: noop } as never
 const desk = new URLSearchParams(location.search).get('surface') === 'desk'
 rememberDesk('synthetic', node.id, 'tab', 'listeners')
 createRoot(document.getElementById('root')!).render(desk
-  ? <ProjectDesk node={node} slug="synthetic" tree={tree} map={map} op={op} toast={noop} refs={refs} />
+  ? <ProjectDesk bare node={node} slug="synthetic" tree={tree} map={map} op={op} toast={noop} refs={refs} />
   : <NodeConfig node={node} map={map} tree={tree} slug="synthetic" op={op} toast={noop} close={noop} />)
