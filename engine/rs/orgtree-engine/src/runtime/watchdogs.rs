@@ -351,7 +351,7 @@ fn arm_retry(engine: &Arc<Engine>, row: i64, failures: u32) {
                     // before run(): a topic filter such as +/status is no regex
                     Ok(Some(dog)) if dog.kind == "mqtt" => { events::unsubscribe(&engine, id, &event_sub); mqtt::run(&engine, dog, &token).await },
                     Ok(Some(dog)) if dog.kind == "websocket" => { events::unsubscribe(&engine, id, &event_sub); websocket::run(&engine, dog, &token).await },
-                    Ok(Some(dog)) => { events::unsubscribe(&engine, id, &event_sub); run(&engine, dog, &token,failures>0).await },
+                    Ok(Some(dog)) => { events::unsubscribe(&engine, id, &event_sub); crate::util::boxed(|| run(&engine, dog, &token,failures>0)).await },
                     Ok(None) => Ok(()),
                     Err(e) => Err(e),
                 };
@@ -441,7 +441,7 @@ async fn run(engine: &Arc<Engine>, dog: Dog, cancel: &CancellationToken,retrying
         "fair_queue" => run_fair_queue(engine, dog, cancel).await,
         "slot" => run_slot(engine, dog, cancel).await,
         "project_listener" | "listener_watch" => run_project_listener(engine, dog, cancel).await,
-        _ => run_poll(engine, dog.row, cancel,retrying).await,
+        _ => crate::util::boxed(|| run_poll(engine, dog.row, cancel,retrying)).await,
     }
 }
 
@@ -536,7 +536,7 @@ async fn run_poll(engine: &Arc<Engine>, row: i64, cancel: &CancellationToken,mut
         }
         retrying=false;
         let span = crate::trace::request(&format!("dog:{}/{}", dog.uid, dog.owner_name));
-        let next = tracing::Instrument::instrument(poll_once(engine, dog), span).await?;
+        let next = tracing::Instrument::instrument(crate::util::boxed(|| poll_once(engine, dog)), span).await?;
         let Some(wait) = next else { return Ok(()) };
         tokio::select! {
             _ = tokio::time::sleep(wait) => {}
@@ -578,7 +578,7 @@ async fn poll_once(engine: &Arc<Engine>, mut dog: Dog) -> Result<Option<Duration
                 return Ok(None);
             }
         }
-    } else if matched && fire(engine, &mut dog, &events, "").await? {
+    } else if matched && crate::util::boxed(|| fire(engine, &mut dog, &events, "")).await? {
         return Ok(None);
     }
     if let Some(lost) = subject_lost(&dog) {
@@ -1342,7 +1342,7 @@ async fn fire_quiet(engine:&Arc<Engine>,dog:&mut Dog)->Result<bool> {
 
 #[logged]
 async fn fire(engine: &Arc<Engine>, dog: &mut Dog, events: &[String], prefix: &str) -> Result<bool> {
-    fire_with(engine, dog, events, prefix, None).await
+    crate::util::boxed(|| fire_with(engine, dog, events, prefix, None)).await
 }
 
 /// [`fire`], with `extra` members for the fire's event: an mqtt fire's
@@ -1388,7 +1388,7 @@ async fn fire_with(engine: &Arc<Engine>, dog: &mut Dog, events: &[String], prefi
     let actions: Vec<Value> = dog.memo["fire_actions"].as_array().cloned().unwrap_or_default();
     let mut results = String::new();
     if !actions.is_empty() {
-        results = run_fire_actions(engine, dog.org_id, dog.owner, &dog.owner_name, &dog.uid, &dog.name, &actions).await;
+        results = crate::util::boxed(|| run_fire_actions(engine, dog.org_id, dog.owner, &dog.owner_name, &dog.uid, &dog.name, &actions)).await;
         body.push_str(&results);
     }
     let lines: Vec<String> = events.iter().take(40).cloned().collect();
