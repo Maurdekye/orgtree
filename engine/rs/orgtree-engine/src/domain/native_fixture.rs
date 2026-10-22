@@ -44,6 +44,12 @@ fn json_file(path: &Path, base: &Path) -> Result<Value> {
 }
 
 #[nolog]
+fn require_loopback(cfg: &Config) -> Result<()> {
+    ensure!(matches!(cfg.get_hosts(), [Host::Tcp(host)] if host == "127.0.0.1"), "database must use explicit loopback only");
+    Ok(())
+}
+
+#[nolog]
 impl Fixture {
     fn validate(input: &Inputs) -> Result<Self> {
         ensure!(!input.owner.is_empty() && input.owner.len() <= 64 && input.owner.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_'), "invalid synthetic owner");
@@ -65,7 +71,7 @@ impl Fixture {
         ensure!(marker["rig"] == 1 && marker["run"].as_str() == Some(id), "missing disposable rig marker");
         let cfg: Config = input.url.parse().map_err(|_| anyhow::anyhow!("invalid synthetic database config"))?;
         ensure!(cfg.get_dbname() == Some("orgtree_engine") && cfg.get_user() == Some("orgtree_admin"), "non-disposable database/user refused");
-        ensure!(matches!(cfg.get_hosts(), [Host::Tcp(host)] if host == "127.0.0.1"), "database must use explicit loopback only");
+        require_loopback(&cfg)?;
         ensure!(cfg.get_options().is_none(), "database options refused");
         let cluster = data.join("pg/cluster");
         let attach = json_file(&cluster.join("pg-attach.json"), &root)?;
@@ -107,6 +113,15 @@ impl Fixture {
         ensure!(path.is_file(), "migration input must be a file");
         Ok(path)
     }
+}
+
+#[test]
+#[nolog]
+fn hostaddr_override_is_rejected_without_connecting() {
+    let mut cfg: Config = "host=127.0.0.1 port=12345 user=orgtree_admin dbname=orgtree_engine".parse().unwrap();
+    require_loopback(&cfg).expect("host-only loopback is admitted");
+    cfg.hostaddr("192.0.2.1".parse().unwrap());
+    assert!(require_loopback(&cfg).is_err(), "hostaddr overrides host before server identity can be checked");
 }
 
 #[tokio::test]
