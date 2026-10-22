@@ -44,7 +44,7 @@ export default async function(rig){
    p.check(`${name} data keeps once, actions and original delivery`,await until(()=>dog(name)?.fired===1&&dog(name)?.state==='spent'&&!!dog('action-'+mode)&&mail(name).some(m=>m.body.includes('payload: normal data')&&m.body.includes('untrusted')&&m.notice===dataNotice)))
   }
   for(const mode of ['notice','wake','off']){
-   const name='mqtt-'+mode,made=await rig.tool('boss','orgtree_watchdog',{action:'create',name,kind:'mqtt',target:`mqtt://127.0.0.1:${broker.address().port}`,pattern:'#',connection_messages:mode,notice:mode==='wake',credentials:{client_id:name}})
+   const name='mqtt-'+mode,made=await rig.tool('boss','orgtree_watchdog',{action:'create',name,kind:'mqtt',target:`mqtt://127.0.0.1:${broker.address().port}`,pattern:'#',connection_messages:mode,notice:mode==='wake',credentials:{username:'synthetic',client_id:name}})
    p.check(`${name} creates at synthetic refusing broker`,made.ok,made.text)
    p.check(`${name} runner observed refusal`,await until(()=>dog(name)?.memo?.run?.mqtt?.state==='refused'))
    p.check(`${name} refusal respects independent connection delivery`,mode==='off'?mail(name).length===0:await until(()=>mail(name).some(m=>m.notice===(mode==='notice')&&m.body.includes('REFUSED'))))

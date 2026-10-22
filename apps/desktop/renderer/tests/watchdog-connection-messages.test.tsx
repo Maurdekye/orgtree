@@ -29,7 +29,7 @@ for (const kind of ['mqtt','websocket'] as const) {
 test('failed connection-mode save preserves the previous selection and allows retry',async t=>{
   const original=globalThis.fetch, errors:string[]=[]
   globalThis.fetch=(async()=>({ok:false,status:409,statusText:'Conflict',headers:new Headers(),json:async()=>({detail:'watchdog departed'})})) as typeof fetch
-  const view=await mountView(<WatchdogPanel slug="synthetic" dog={{...base,kind:'mqtt',connection_messages:'wake'} as Watchdog} toast={m=>errors.push(...m)} close={()=>{}}/>,h=>h)
+  const view=await mountView(<WatchdogPanel slug="synthetic" dog={{...base,kind:'mqtt',connection_messages:'wake'} as Watchdog} toast={m=>errors.push(...(m ?? []))} close={()=>{}}/>,h=>h)
   t.after(async()=>{await view.unmount();globalThis.fetch=original})
   const select=view.el.querySelector<HTMLSelectElement>('select[aria-label="Connection messages"]')
   assert.equal(!!select,true)
