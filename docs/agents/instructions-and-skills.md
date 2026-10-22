@@ -545,3 +545,14 @@ existing tag projection is nolog. Synthetic tag-filtered mail proves unchanged
 client body/labels and absent wire/handler canaries in both logging modes.
 [verified: http/mailbox.rs::filter_inbox, domain/mail_tags.rs::window_many;
 real-engine regression remaining-inbox-wire-privacy.mjs]
+
+## Standalone Developer preset (2026-10-22)
+
+The Developer preset is a complete author/assigned-reviewer charter, usable
+without Heavy dev shop notes. Development-role policy moved from the template
+team/personal notes into the preset; machine, resource, phase-budget and
+release protocols stay in notes. Universal shared evidence/status/hand-in
+rules remain for non-developer roles; their minimum standalone-preset overlap
+is explicitly accepted. Existing local charter files are still not overwritten.
+[decided: user 2026-10-22 11:02:01Z; coordinator clarification 11:04:07Z;
+verified: engine/docs/charters/developer.md, templates/heavy-dev-shop.json]
