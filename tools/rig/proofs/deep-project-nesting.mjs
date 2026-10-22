@@ -98,7 +98,7 @@ export default async function (rig) {
     record('record snapshot retains all projects and agents', agents.length === depth + 7
       && agents.some(r => r.body?.id === 'leaf') && agents.some(r => r.body?.id === last), { got: agents.length, expected: depth + 7 })
     phase = 'compatibility tree'
-    const tree = await api('GET', `/api/orgs/${rig.org}/tree`)
+    const tree = await api('GET', `/api/orgs/${rig.org}`)
     const names = [], stack = [...tree.roots]
     while (stack.length) { const n = stack.pop(); names.push(n.id); stack.push(...n.children) }
     record('compatibility tree retains deepest agents', names.length === depth + 7 && names.includes('leaf') && names.includes(last),
