@@ -8,6 +8,13 @@ These attributed records were moved from the root guide at `22daffd`; they retai
 
 ## Renderer, capture and rig traps
 
+- The document-chips proof compares exact shared document titles (no historical
+  `read ` or status prefix). Keep newest-four ordering, interleaved sent-file
+  exclusion and Report 6 opening from both header and canvas. Record named
+  `Proof.check` verdicts and save a failure on setup/driver errors; raw driver
+  completion with zero checks is not a passing proof.
+  [verified: `tools/rig/proofs/document-chips.mjs`, `tools/rig/desktop/document-chips.cjs`; 2026-10-22]
+
 - A scratch HOME or empty Git config alone does not isolate the credential
   broker: it launches native Git/gh from PATH, which can still read Windows
   credential stores. Use the offline executables, cleared task environment and
