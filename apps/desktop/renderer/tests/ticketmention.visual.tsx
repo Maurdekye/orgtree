@@ -26,12 +26,11 @@ const ticket = (slug: string, title: string, status: string) => ({
   last_updater: { node: 'dev1', generation: 0 }, manual_attention: null, dismissals: [], questions: [], effective_attention: false,
   attention_sources: [], acceptance: [], dependencies: [], evidence: [], delivery: null, accepted: null, superseded_by: null, history: [],
 })
-const groups: Record<string, ReturnType<typeof ticket>[]> = {
-  items: [ticket('build-the-docs', 'Build the docs site from main', 'in_progress'),
-    ticket('review-the-docs', 'Review the docs before release', 'review')],
-  backlogged: [ticket('backlog-cleanup', 'Clean up the backlog labels', 'backlogged')],
-}
-const all = [...groups.items, ...groups.backlogged]
+const items = [ticket('build-the-docs', 'Build the docs site from main', 'in_progress'),
+  ticket('review-the-docs', 'Review the docs before release', 'review')]
+const backlogged = [ticket('backlog-cleanup', 'Clean up the backlog labels', 'backlogged')]
+const groups: Record<string, ReturnType<typeof ticket>[]> = { items, backlogged }
+const all = [...items, ...backlogged]
 const message = { role: 'assistant', seq: 0, event_id: 'r-1', at: '2026-10-22T09:05:00.000Z',
   text: 'The docs work is tracked in @item:org/build-the-docs. I will report there.' }
 
@@ -50,7 +49,7 @@ window.fetch = (async (url: RequestInfo | URL) => {
     : /\/work-item-references/.test(p) ? { references: all.filter(r => (u.searchParams.get('names') ?? '').split(',').includes(r.slug))
       .map(({ slug, title, status }) => ({ slug, title, status, parent: null, archived: false, rev: 1 })) }
     : /\/work-items\/[^/?]+$/.test(u.pathname) ? { item: all.find(r => r.slug === u.pathname.split('/').pop()) }
-    : /\/work-items/.test(p) ? { items: groups.items, archived: [], backlogged: groups.backlogged, references: [], attention: [],
+    : /\/work-items/.test(p) ? { items, archived: [], backlogged, references: [], attention: [],
       counts: { attention: 0, active: 2, archived: 0, backlogged: 1 } }
     : /\/inbox/.test(p) ? { pending: [], delivered: [], sent: [] }
     : /\/transfers/.test(p) ? { transfers: [], next_cursor: null }

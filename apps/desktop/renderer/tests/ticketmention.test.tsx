@@ -23,8 +23,8 @@ import { legacyAppBackend } from './appfeed-fixture'
 import { DeskChat } from '../src/canvas/desk'
 import { ProjectDesk } from '../src/canvas/projectdesk'
 import { refreshConvo, resetConvos } from '../src/convo'
-import type { CanvasNode, OpResult } from '../src/canvas/shared'
-import type { TreePayload, WorkItem } from '../src/types'
+import type { CanvasNode } from '../src/canvas/shared'
+import type { OpResult, TreePayload, WorkItem } from '../src/types'
 
 const ticket = (slug: string, extra: Partial<WorkItem> = {}): WorkItem => ({
   slug, title: `Title of ${slug}`, rev: 1, kind: 'code', objective: 'Scope text',
