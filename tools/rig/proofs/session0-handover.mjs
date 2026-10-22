@@ -36,6 +36,8 @@
 //   I  sign-out mid-turn: the turn is cut and resumes in Session 0 at once;
 //      the sign-out notice says the user signed out; session_placement
 //      `signed-out` (4, 6, 10).
+//   J  signed in with no helper, the first turn after the 60 s grace: it
+//      starts at once in Session 0, and the fallback is logged once (3).
 // Credentials (9) are credential_bridge's unit tests: the rig has no
 // synthetic signed-in broker. A `recover` run: a safe-start engine otherwise
 // holds back its restart path. It needs a rig home the helper's descriptor
@@ -354,6 +356,30 @@ export default async function (rig) {
     const adaOut = await treeNode(s, AGENT)
     p.check('I (10): the tree says Session 0, signed out', adaOut?.session_placement?.session === 'session0' && adaOut?.session_placement?.reason === 'signed-out',
       adaOut?.session_placement)
+
+    // ------------------------------------------------------------ J: the grace ran out before the first turn
+    // rig-sol-b's finding on a1f6c43: signed in, no helper, and the stretch's
+    // first turn arrives after the 60 s grace: it starts at once in Session 0,
+    // and that fallback is logged, once per stretch (3)
+    before = s
+    fs.rmSync(marker, { force: true })
+    await fetch(`http://127.0.0.1:${before.port}/api/desktop/shutdown`, { method: 'POST', headers: { [TOKEN_HEADER]: before.token } })
+    await within(host.exited, 120000)
+    from = logFrom()
+    mark = lastMail()
+    host = startHost('host-J')
+    s = await waitServing('J: the engine, signed in, with no helper', x => x.hostPid === host.pid && x.enginePid !== before.enginePid)
+    await sleep(65000)
+    const fallbacks = () => (logSince(from).match(/the sign-in helper did not connect in time while the user is signed in/g) ?? []).length
+    const sentJ = Date.now()
+    const tj = await turn(s, AGENT, 'J-LATE-TURN', 60000)
+    p.check('J (3): a first turn after the grace ran out starts at once in Session 0, and the fallback is logged',
+      Date.now() - sentJ < 20000 && placed(AGENT).session === 'session0' && placed(AGENT).reason === 'helper-unreachable' && fallbacks() === 1 && !tj.error,
+      { turnMs: Date.now() - sentJ, placed: placed(AGENT), fallbacks: fallbacks() })
+    await turn(s, AGENT, 'J-SECOND-TURN', 60000)
+    p.check('J (3): once per stretch: the next turn logs no second fallback', fallbacks() === 1 && placed(AGENT).session === 'session0', { fallbacks: fallbacks() })
+    p.check('J (6): the engine cycled alone, with no helper: no sign-in or sign-out notice', notices(mark, AGENT, '[ORGTREE SIGN-').length === 0,
+      notices(mark, AGENT, '[ORGTREE SIGN-'))
   } catch (error) {
     p.check(`no step stopped the proof early (${error.message})`, false)
   } finally {
