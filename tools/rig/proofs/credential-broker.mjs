@@ -23,13 +23,13 @@
 //    failing host's) reports [no-desktop].
 //
 // The descriptor's folder must pass the trust check, and E:\ is writable by
-// Authenticated Users, so run it with a rig home under your profile, and its
-// synthetic home and evidence (RIG_BROKER_OUTPUT) outside that rig home: inside
-// it, the rig's live-data guard refuses the run once the fixture has pointed
-// APPDATA and the home folder there:
+// Authenticated Users, so run it with a rig home under your profile:
 //   set ORGTREE_RIG_HOME=%LOCALAPPDATA%\orgtree-rig-broker
-//   set RIG_BROKER_OUTPUT=<a folder outside it>
 //   node tools/rig/rig.mjs run tools/rig/proofs/credential-broker.mjs
+// RIG_BROKER_OUTPUT=<a folder> puts its synthetic home and evidence there. A
+// rig whose live-data guard reads the environment the fixture replaced
+// (before 3e73720 bound it to the original one) refuses a synthetic home
+// inside the rig home, so there it must name a folder outside it.
 // The broker comes from your cargo target's debug build
 // (ORGTREE_RIG_BROKER names another).
 import fs from 'node:fs'
