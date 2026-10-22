@@ -390,26 +390,34 @@ verification phase and build-project permits still govern what may be run.
 
 ### Renderer tests from a worktree without node_modules
 
-The runner imports esbuild as ESM, so NODE_PATH alone does not satisfy its initial
-import. Resolve the actual dependencies in place through a coordinator-assigned
-runner; do not create dependency copies or junctions. The repaired team
+The repaired run.mjs resolves existing dependencies in place through
+createRequire, with nodePaths for bundled dependencies and an absolute file URL
+for external jsdom. All modes (temporary output, --output and --prebuilt) create
+no dependency links or copies. A worktree without node_modules sets
+ORGTREE_TEST_DEPS to the existing dependency checkout's absolute package.json
+path. A checkout with its own dependencies needs no override. The old ESM loader
+and separate NODE_PATH setup are no longer required on repaired checkouts.
+Batch size, timeouts, kernel Job containment, output ownership and cleanup
+behavior remain unchanged.
+
+The repaired team
 renderer-tests-from-worktree/bundle-tests.mjs adapter takes REPO, OUT, DEPS and
 one or more filename filters. DEPS is an existing node_modules directory:
 createRequire resolves esbuild there, nodePaths resolves bundled dependencies,
 and an onResolve plugin rewrites external jsdom to its absolute file URL. It
 creates no dependency links or copies and stops esbuild after each batch of
 eight, including build failures. OUT must be empty and outside worktrees.
-Use run.mjs --prebuilt OUT (with the existing ESM esbuild loader and NODE_PATH
-set to DEPS for its CommonJS package lookup), or execute
-the bundles directly with Node's test runner. Prebuilt mode never removes OUT;
+Use run.mjs --prebuilt OUT with ORGTREE_TEST_DEPS as above, or execute the
+bundles directly with Node's test runner. Prebuilt mode never removes OUT;
 retain receipts and clean only authorized generated leaves after path/activity
-checks. Normal run.mjs bundling modes still create dependency junctions and are
-not covered by this repair; do not use them under the no-link policy.
+checks. For older, unrepaired checkouts, the existing ESM esbuild loader plus
+NODE_PATH set to DEPS still supports prebuilt execution; their normal bundling
+modes must remain unused because they create junctions.
 [verified: team adapter bundle-tests.mjs; 2026-10-22]
 
 The earlier [source-checked recipe](legacy-and-superseded.md#renderer-adapter-recipe-2026-10-21)
-is retained as history, not an exemption. Windows --import paths still need a
-file URL (pathToFileURL(path).href); select the exact filename filters and prove
+is retained as history, not an exemption. Any Windows --import paths still need
+a file URL (pathToFileURL(path).href); select exact filename filters and prove
 the intended tests ran. Bundling/execution follows the current permit, output
 scope and containment in the rule-home table above.
 

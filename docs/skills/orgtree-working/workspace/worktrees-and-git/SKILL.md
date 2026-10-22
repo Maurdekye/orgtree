@@ -21,6 +21,16 @@ Never edit another agent's worktree. Git's stash is shared across worktrees: do 
 
 Never junction, symlink or copy `node_modules` between source checkouts. A worktree can look clean while an ignored junction points into another tree; removal can delete through it. Use the repository's dependency verification helper where applicable, and obtain the authorized dependency arrangement rather than improvising a link or install.
 
+The repaired renderer `tests/run.mjs` uses explicit dependency paths in every
+output mode, including temporary output, `--output` and `--prebuilt`. In a
+worktree without dependencies, set `ORGTREE_TEST_DEPS` to an existing dependency
+checkout's absolute `package.json` path; no install, copy or link is needed.
+The team bundle-tests adapter likewise uses explicit paths. Current invocation,
+output and cleanup details live in the repository's
+docs/agents/development-and-verification.md, Renderer tests from a worktree
+without node_modules. Older unrepaired runners still need the safe prebuilt
+recipe there; this is no permission to execute their junction-creating modes.
+
 When Codex reports a `.git` write denied by its OS sandbox, follow the delivered sandbox retry instructions for an operation already within your grant. The worktree helper runs Git internally and cannot bypass that sandbox. An ungranted path still requires a scope decision; changing command spelling does not create authority.
 
 ## Remove only a finished owned worktree
