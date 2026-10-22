@@ -14,13 +14,14 @@
 // Run: node tools/rig/rig.mjs run tools/rig/proofs/project-listeners.mjs
 
 import { Proof } from '../proof.mjs'
+import fs from 'node:fs'
+import path from 'node:path'
 
 export async function setup() {
   return { recover: true }
 }
 
-export default async function (rig) {
-  const p = new Proof('project-listeners')
+async function projectListeners(rig, p) {
   rig.scenario({ default: { turns: [{ name: 'default', steps: [{ text: 'OK.' }] }] } })
   const settle = what => rig.waitFor(() => rig.sql(`SELECT 1 FROM ot.turns WHERE ended_at IS NULL`).length === 0,
     { what, timeout: 60000 }).catch(() => {})
@@ -155,4 +156,26 @@ export default async function (rig) {
   p.file('dogs.json', rig.sql(`SELECT kind, name, state, fired FROM ot.watchdogs WHERE kind IN ('project_listener','listener_watch') ORDER BY id`))
   p.keep(rig, { agents: ['sa', 'sb', 'sd', 'se', 'sl', 'boss'], grep: /listener|PROJECT EVENT|LISTENERS READY/i })
   return p.summary()
+}
+
+export default async function (rig) {
+  const p = new Proof('project-listeners')
+  try {
+    return await projectListeners(rig, p)
+  } catch (error) {
+    const executed = p.checks.length
+    const failure = e => e && ({ name: e.name, message: e.message, code: e.code,
+      stack: e.stack, cause: failure(e.cause) })
+    p.check('project-listeners completes all 23 semantic guards without setup or connection abort', false,
+      { executed, notExecuted: 23 - executed, error: failure(error),
+        enginePid: rig.run?.enginePid, keeperPid: rig.run?.keeperPid })
+    // Persist before the rig's cleanup, including partial runs with no verdict.
+    for (const [name, read] of [
+      ['engine-abort.log', () => rig.engineLog()],
+      ['keeper-abort.log', () => fs.readFileSync(path.join(rig.dir, 'keeper.log'), 'utf8')],
+    ]) {
+      try { p.file(name, read()) } catch (e) { p.note(`Could not retain ${name}`, { message: e.message }) }
+    }
+    return p.summary()
+  }
 }

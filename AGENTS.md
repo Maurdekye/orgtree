@@ -2,6 +2,8 @@
 
 Read this file before working in this repository. It is the startup guide, not a landing log. Detailed rules, source references and the complete earlier notes live in the [topic index](docs/agents/README.md).
 
+Recursive project fires must construct nested futures with `util::boxed(|| ...)`: `Box::pin(f())` still grows debug poll frames at every level, even with the depth-four cutoff. See [fire-action stack verification](docs/rust-engine/tool-cards.md#fire-actions). [verified: `domain/listeners.rs`, 2026-10-22]
+
 ## Read this first
 
 1. **Work on the assigned line and scope.** Current development is the Rust engine in `engine/rs/` on local `rust-engine` (4.4.0). The 3.x Python rewrite is stopped; its procedures are historical. Read [PLAN §10](docs/rust-engine/PLAN.md#10-user-facing-differences--complete-ledger), [DECISIONS](docs/rust-engine/DECISIONS.md) and [HANDOFF](docs/rust-engine/HANDOFF.md). Preserve 3.x product behavior unless a signed decision changes it. Current user rulings and the assignment take precedence over old notes. [decided: user 2026-10-06, DECISIONS 1–2, 45]

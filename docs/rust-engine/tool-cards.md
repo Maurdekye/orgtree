@@ -145,6 +145,24 @@ would lose the task-local fire-action depth. Static frames on that path:
 In an alpha.10 release engine the whole path is inlined into `arm_retry`, about
 78 KB of static frames.
 
+Project event delivery has the same recursive shape: `fire` → bounded page →
+durable notification → fire actions → `fire`. The depth-four guard worked, but
+the debug worker overflowed while completing the fifth listener's notification.
+Construct these nested futures with `util::boxed(|| ...)`, including result
+append and listener-watch evaluation; `Box::pin(f())` still builds `f()` in each
+recursive poll frame. This retains the current task-local depth, ordered awaited
+actions, authority checks and durable once-delivery protocol without changing
+worker stack size or spawning detached actions.
+
+`listener-self-fire-stack.mjs` exercises the chain through a direct event, a
+satisfied listener watch and a command watchdog. It requires five event deliveries
+for a direct event, four when the triggering watchdog consumes the first action
+depth, exactly one depth-four SKIPPED result on the last delivery and no unfinished
+notification. Run it on the default debug worker stack and release profile.
+`project-listeners.mjs` retains its 23 semantic guards; a setup/request abort saves
+a named FAIL, the unexecuted count, request cause/PIDs and available engine/keeper
+logs before cleanup. Partial passing results never stand for a completed proof.
+
 ### The tool path
 
 `tools::dispatch` awaited each of its 43 tool handlers inline, and
