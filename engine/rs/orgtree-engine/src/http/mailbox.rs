@@ -52,7 +52,8 @@ pub struct TagFilter {
     tags:Vec<String>, before:Option<String>,
 }
 
-#[logged]
+// Filtered pages contain private mail bodies even when the wire is quiet.
+#[nolog]
 pub async fn filter_inbox(State(e):State<Arc<Engine>>,Path(slug):Path<String>,Json(body):Json<TagFilter>)->ApiResult<Json<Value>> {
     let o=org(&e,&slug)?;
     let before=body.before.as_deref().map(str::parse::<i64>).transpose()

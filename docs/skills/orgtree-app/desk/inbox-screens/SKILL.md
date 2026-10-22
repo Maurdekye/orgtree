@@ -6,6 +6,8 @@ Up: [orgtree-desk](../SKILL.md)
 
 # Inboxes and transfers
 
+Tag-filtered user Inbox pages have the same diagnostic privacy boundary as ordinary reads: the HTTP body and private handler return are omitted in both logging modes; filtering results and tag labels remain available to the client.
+
 The org inbox viewer omits retained outside-mail bodies from HTTP and handler-return diagnostics with verbose logging off or on. The viewer still receives complete entries and counts, and route/status metadata remains logged.
 
 Agent and project mailbox reads, including history pages, omit private HTTP bodies and mailbox helper returns from diagnostics in both logging modes. The reader still receives full message content; route/status metadata remains logged.

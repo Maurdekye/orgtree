@@ -536,3 +536,12 @@ projection is already uninstrumented. The reader retains full entries/counts
 and wire logs retain route/status metadata.
 [verified: http/mod.rs, http/orginbox.rs::list, domain/orginbox.rs::entry;
 real-engine synthetic regression remaining-inbox-wire-privacy.mjs]
+
+## Filtered inbox handler logging (2026-10-22)
+
+POST inbox/filter already shares the outer quiet-body family; its handler must
+also be nolog because window_many returns complete private mail pages. The
+existing tag projection is nolog. Synthetic tag-filtered mail proves unchanged
+client body/labels and absent wire/handler canaries in both logging modes.
+[verified: http/mailbox.rs::filter_inbox, domain/mail_tags.rs::window_many;
+real-engine regression remaining-inbox-wire-privacy.mjs]

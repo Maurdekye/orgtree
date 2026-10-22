@@ -648,7 +648,7 @@ mod inbox_reader_wire_tests {
     #[test]
     fn inbox_reader_wire_bodies_are_quiet_with_exact_route_boundaries() {
         let headers = axum::http::HeaderMap::new();
-        for path in ["/api/orgs/fixture/inbox","/api/orgs/fixture/inbox/read","/api/orgs/fixture/inbox/unknown-child"] { assert!(quiet_body(path, &headers), "{path}"); }
+        for path in ["/api/orgs/fixture/inbox","/api/orgs/fixture/inbox/filter","/api/orgs/fixture/inbox/read","/api/orgs/fixture/inbox/unknown-child"] { assert!(quiet_body(path, &headers), "{path}"); }
         for path in ["/api/orgs/fixture/inbox-extra","/api/orgs/fixture/org_inbox-extra"] { assert!(!quiet_body(path, &headers), "{path}"); }
     }
 }
