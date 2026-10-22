@@ -527,3 +527,12 @@ The agent_mailbox projection is nolog because it returns private rows.
 Client content and path/status metadata remain unchanged.
 [verified: http/mod.rs, feed/compute.rs::agent_mailbox;
 real-engine synthetic regression remaining-inbox-wire-privacy.mjs]
+
+## Org inbox diagnostic boundary (2026-10-22)
+
+Retained outside correspondence uses the outer org_inbox quiet-body family,
+including rejected child routes. The list handler is nolog; its pure entry
+projection is already uninstrumented. The reader retains full entries/counts
+and wire logs retain route/status metadata.
+[verified: http/mod.rs, http/orginbox.rs::list, domain/orginbox.rs::entry;
+real-engine synthetic regression remaining-inbox-wire-privacy.mjs]

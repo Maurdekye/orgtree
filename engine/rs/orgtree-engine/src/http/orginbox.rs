@@ -13,7 +13,8 @@ use crate::engine::Engine;
 use crate::http::error::ApiResult;
 use crate::http::orgs::org;
 /// The newest 100 rows (oldest first), with the log's real size and unread count.
-#[logged]
+// Retained outside mail bodies must not enter handler return diagnostics.
+#[nolog]
 pub async fn list(State(e): State<Arc<Engine>>, Path(slug): Path<String>) -> ApiResult<Json<Value>> {
     let o = org(&e, &slug)?;
     orginbox::require_enabled(&e, o.id).await?;

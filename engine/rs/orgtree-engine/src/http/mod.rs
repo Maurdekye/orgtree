@@ -337,6 +337,10 @@ fn quiet_body(path: &str, headers: &axum::http::HeaderMap) -> bool {
             .and_then(|rest| rest.split_once('/'))
             .map(|(_, rest)| rest == "inbox" || rest.starts_with("inbox/"))
             .unwrap_or(false)
+        // Retained outside correspondence is private too, including errors.
+        || path.strip_prefix("/api/orgs/").and_then(|p| p.split_once('/'))
+            .map(|(_, rest)| rest == "org_inbox" || rest.starts_with("org_inbox/"))
+            .unwrap_or(false)
         // Private mail reader bodies, including rejected child routes.
         || path.strip_prefix("/api/orgs/").and_then(|p| p.split_once('/'))
             .map(|(_, rest)| rest.starts_with("mail/")).unwrap_or(false)
@@ -645,7 +649,7 @@ mod inbox_reader_wire_tests {
     fn inbox_reader_wire_bodies_are_quiet_with_exact_route_boundaries() {
         let headers = axum::http::HeaderMap::new();
         for path in ["/api/orgs/fixture/inbox","/api/orgs/fixture/inbox/read","/api/orgs/fixture/inbox/unknown-child"] { assert!(quiet_body(path, &headers), "{path}"); }
-        for path in ["/api/orgs/fixture/inbox-extra","/api/orgs/fixture/org_inbox"] { assert!(!quiet_body(path, &headers), "{path}"); }
+        for path in ["/api/orgs/fixture/inbox-extra","/api/orgs/fixture/org_inbox-extra"] { assert!(!quiet_body(path, &headers), "{path}"); }
     }
 }
 
@@ -679,5 +683,16 @@ mod node_inbox_wire_tests {
         let headers = axum::http::HeaderMap::new();
         for path in ["/api/orgs/fixture/nodes/worker/inbox", "/api/orgs/fixture/nodes/12/inbox", "/api/orgs/fixture/nodes/worker/inbox/unknown-child"] { assert!(quiet_body(path, &headers), "{path}"); }
         for path in ["/api/orgs/fixture/nodes/worker/inbox-extra", "/api/orgs/fixture/nodes/inbox/detail", "/api/orgs/fixture/nodes/worker/message"] { assert!(!quiet_body(path, &headers), "{path}"); }
+    }
+}
+
+#[cfg(test)]
+mod org_inbox_wire_tests {
+    use super::*;
+    #[test]
+    fn org_inbox_wire_bodies_are_quiet_with_exact_route_boundaries() {
+        let headers = axum::http::HeaderMap::new();
+        for path in ["/api/orgs/fixture/org_inbox", "/api/orgs/fixture/org_inbox/read", "/api/orgs/fixture/org_inbox/unknown-child"] { assert!(quiet_body(path, &headers), "{path}"); }
+        for path in ["/api/orgs/fixture/org_inbox-extra", "/api/orgs/org_inbox/nodes", "/api/orgs/fixture/net"] { assert!(!quiet_body(path, &headers), "{path}"); }
     }
 }

@@ -6,6 +6,8 @@ Up: [orgtree-desk](../SKILL.md)
 
 # Inboxes and transfers
 
+The org inbox viewer omits retained outside-mail bodies from HTTP and handler-return diagnostics with verbose logging off or on. The viewer still receives complete entries and counts, and route/status metadata remains logged.
+
 Agent and project mailbox reads, including history pages, omit private HTTP bodies and mailbox helper returns from diagnostics in both logging modes. The reader still receives full message content; route/status metadata remains logged.
 
 Private notification projections are excluded from function argument/return logging too; refreshing app notices must not copy mail or ask previews into diagnostics. The app still receives those notification bodies normally.
