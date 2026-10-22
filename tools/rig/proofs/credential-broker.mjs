@@ -37,7 +37,7 @@ const LEAD = 'lead'
 const STUB = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'credential-desktop-stub.mjs')
 
 export async function setup() {
-  return { bootIsolated: true, prepare: prepareFixture, fixture: { org: { name: 'Broker Org' },
+  return { 'boot-isolated': true, bootIsolated: true, prepare: prepareFixture, fixture: { org: { name: 'Broker Org' },
     agents: [{ name: LEAD, tier: 'opus', grant: 4 }],
     scenario: { default: { turns: [{ steps: [{ text: 'OK.' }] }] } } } }
 }
@@ -120,8 +120,10 @@ export default async function (rig) {
   try {
     // the boot host's descriptor, as host.rs writes it (owner-only by inheritance here)
     const identity = await rig.api('GET', '/api/desktop/identity')
-    p.check('the rig engine reports the boot isolation', identity.credentialContext?.general_vault_isolated === true && identity.credentialContext?.bridge_ready === false,
-      { isolated: identity.credentialContext?.general_vault_isolated, ready: identity.credentialContext?.bridge_ready })
+    if (!p.check('the rig engine reports the boot isolation', identity.credentialContext?.general_vault_isolated === true && identity.credentialContext?.bridge_ready === false,
+      { isolated: identity.credentialContext?.general_vault_isolated, ready: identity.credentialContext?.bridge_ready })) {
+      throw Error('required rig boot isolation is unavailable')
+    }
     fs.writeFileSync(path.join(rig.data, 'engine-attach.json'), JSON.stringify({ type: 'attach', protocol: 1, port, enginePid: identity.pid,
       hostPid: run.keeperPid, dataRootId: identity.dataRootId, token: rig.token, startedAt: new Date().toISOString() }))
 

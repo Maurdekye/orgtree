@@ -12,6 +12,7 @@ test('credential-broker prepares synthetic tools before the rig engine starts', 
   assert.equal(typeof config.prepare, 'function',
     'the broker and hosted child must receive scratch executables and homes before launch')
   assert.equal(config.bootIsolated, true)
+  assert.equal(config['boot-isolated'], true, 'rig.mjs reads CLI-shaped flags from setup')
 })
 
 test('synthetic environment ignores inherited credentials and native tool search paths', () => {
