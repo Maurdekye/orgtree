@@ -4,13 +4,12 @@ import fs from 'node:fs'
 import path from 'node:path'
 import vm from 'node:vm'
 import {createRequire} from 'node:module'
+import { testOutput } from './helpers/test-output.mjs'
 const require=createRequire(process.env.ORGTREE_TEST_DEPS||import.meta.url),{buildSync,transformSync}=require('esbuild')
-const scope=process.env.ORGTREE_TRAY_TEST_ROOT
-assert.match(scope||'',/^C:[\\/]orgtree-build[\\/]taskbar-orgs-sol[\\/]/i)
-fs.mkdirSync(scope,{recursive:true});const temp=fs.mkdtempSync(path.join(scope,'recent-'))
+const output=testOutput('ORGTREE_TRAY_TEST_ROOT','recent-'),temp=output.directory
+test.after(()=>output.cleanup())
 buildSync({entryPoints:['apps/desktop/main/traylist.ts','apps/desktop/main/org-placement.ts'],outdir:temp,entryNames:'[name]',outExtension:{'.js':'.cjs'},bundle:true,platform:'node',format:'cjs'})
 const tray=require(path.join(temp,'traylist.cjs')),{OrgPlacement,migratePlacementFile}=require(path.join(temp,'org-placement.cjs'))
-test.after(()=>{assert.ok(fs.realpathSync(temp).toLowerCase().startsWith(fs.realpathSync(scope).toLowerCase()+path.sep));fs.rmSync(temp,{recursive:true,force:true})})
 const rows=Array.from({length:15},(_,i)=>({slug:'org-'+i,name:'Organization '+i,working:i%3,live:20,attention:0}))
 
 for(const count of [1,4,10])test(`tray list reserves no scrollbar gutter for ${count} orgs`,()=>{

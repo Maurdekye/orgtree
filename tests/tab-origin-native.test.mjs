@@ -3,11 +3,10 @@ import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import path from 'node:path'
 import {createRequire} from 'node:module'
-import {build} from 'esbuild'
-const root=process.env.TAB_ORIGIN_NATIVE_OUT
-assert.match(root||'',/^C:[\\/]orgtree-build[\\/]helper-transcript-sol[\\/]/i)
-assert.equal(fs.existsSync(root),false,'preserve prior native receipts')
-fs.mkdirSync(root,{recursive:true})
+import { testOutput } from './helpers/test-output.mjs'
+const {build}=createRequire(process.env.ORGTREE_TEST_DEPS||import.meta.url)('esbuild')
+const fixture=testOutput('TAB_ORIGIN_NATIVE_OUT','tab-origin-'),root=fixture.directory
+test.after(()=>fixture.cleanup())
 const output=path.join(root,'windows.cjs')
 await build({entryPoints:['apps/desktop/main/windows.ts'],outfile:output,bundle:true,platform:'node',format:'cjs',
  plugins:[{name:'synthetic-screen',setup(b){b.onResolve({filter:/^electron$/},()=>({path:'electron',namespace:'synthetic-screen'}));

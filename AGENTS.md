@@ -20,6 +20,7 @@ Rig live-root guards retain import-time `APPDATA`/home/data-override paths after
 ## Engine and desktop invariants
 
 - The native window-controls edge fixture bundles the full renderer stylesheet with embedded font assets; preserve its styles and hit-test/mutation assertions. See [native edge probe assets](docs/agents/development-and-verification.md#native-window-controls-edge-probe-assets). [verified: `tools/test-window-controls-edge-native.mjs`; 2026-10-22]
+- The seven scratch-note/taskbar/tray/native-tab root tests allocate fresh temporary output leaves without author-specific environment variables. Optional output overrides require the current `ORGTREE_AGENT` scope, canonical containment and no linked ancestors; cleanup rechecks directory identity. See [test output setup](docs/agents/development-and-verification.md#portable-root-test-output). [verified: `tests/helpers/test-output.mjs`; 2026-10-22]
 
 - Desk model eligibility uses the staffing tier's eligible managed accounts as well as its native-login flags. A spent native login cannot hide a tier with another eligible account; the picker prefers native when usable, otherwise submits and discloses an eligible managed ID. Current-model queue cancellation leaves the account alone. [verified: `canvas/deskmodel.tsx`, `desk-model-instant.test.tsx`; 2026-10-22]
 - Antigravity conditional models retain their last confirmed in-memory catalog

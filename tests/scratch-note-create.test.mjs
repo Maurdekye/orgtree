@@ -3,10 +3,10 @@ import assert from 'node:assert/strict'
 import fs from 'node:fs/promises'
 import path from 'node:path'
 import { createRequire } from 'node:module'
-const scope=process.env.ORGTREE_NOTE_TEST_ROOT
-assert.match(scope||'',/^C:[\\/]orgtree-build[\\/]taskbar-orgs-sol[\\/]/i)
-await fs.mkdir(scope,{recursive:true})
-const deps=createRequire(process.env.ORGTREE_TEST_DEPS),bundle=path.join(scope,'native.cjs')
+import { testOutput } from './helpers/test-output.mjs'
+const output=testOutput('ORGTREE_NOTE_TEST_ROOT','scratch-note-'),scope=output.directory
+test.after(()=>output.cleanup())
+const deps=createRequire(process.env.ORGTREE_TEST_DEPS||import.meta.url),bundle=path.join(scope,'native.cjs')
 await deps('esbuild').build({entryPoints:['apps/desktop/main/scratch-folder.ts'],outfile:bundle,bundle:true,platform:'node',format:'cjs'})
 const {openAgentScratchAgentsFile}=createRequire(import.meta.url)(bundle)
 let directory,echo='agent';const original=globalThis.fetch

@@ -17,6 +17,28 @@ in this fixture and is never executed. [verified: `tests/test-baseline.test.mjs`
 
 ## Native test homes
 
+### Portable root test output
+
+`scratch-note-create`, `taskbar-badge`, `taskbar-dot-art`, `taskbar-eligibility`,
+`taskbar-unified`, `tray-recent` and `tab-origin-native` run with ordinary
+`node --test tests/<name>.test.mjs`. Each allocates its own fresh child of the
+platform temporary directory; team runners set `TEMP`/`TMP` to their authorized
+output scope. No module requires another author's folder. Existing dependencies
+resolve locally, or via `ORGTREE_TEST_DEPS` pointing to the existing dependency
+checkout's package.json; never install, copy or link dependencies for a test.
+
+The optional `ORGTREE_NOTE_TEST_ROOT`, `ORGTREE_BADGE_TEST_ROOT`,
+`ORGTREE_TRAY_TEST_ROOT` and `TAB_ORIGIN_NATIVE_OUT` select output **parents**,
+not reusable receipt leaves. Each must be an absolute strict descendant of
+`C:/orgtree-build/<ORGTREE_AGENT>/`, with no parent traversal or linked
+ancestors. The shared helper checks canonical containment before allocation,
+then verifies containment and the fresh directory's identity before cleanup.
+Repeated/concurrent runs preserve existing parent contents. Safety controls
+are in `tests/test-output.test.mjs`; Windows override controls need an owned
+C output temp directory and `ORGTREE_AGENT`, while default/refusal/identity
+controls run without them. Product assertions and synthetic dependencies remain
+unchanged. [verified: `tests/helpers/test-output.mjs`; 2026-10-22]
+
 - Built-in preset byte assertions run in a subprocess with an empty owned
   `ORGTREE_TEST_HOME`; preset resolution deliberately prefers the user's
   `.orgtree/charters` files. Never set a process-wide home while parallel tests

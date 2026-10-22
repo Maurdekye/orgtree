@@ -3,13 +3,12 @@ import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import path from 'node:path'
 import {createRequire} from 'node:module'
+import { testOutput } from './helpers/test-output.mjs'
 const require=createRequire(process.env.ORGTREE_TEST_DEPS||import.meta.url),{buildSync}=require('esbuild')
-const scope=process.env.ORGTREE_BADGE_TEST_ROOT
-assert.match(scope||'',/^C:[\\/]orgtree-build[\\/]taskbar-orgs-sol[\\/]/i)
-fs.mkdirSync(scope,{recursive:true});const temp=fs.mkdtempSync(path.join(scope,'unified-'))
+const output=testOutput('ORGTREE_BADGE_TEST_ROOT','unified-'),temp=output.directory
+test.after(()=>output.cleanup())
 buildSync({entryPoints:['apps/desktop/main/taskbar-attention.ts','apps/desktop/main/taskbar-badge.ts'],outdir:temp,entryNames:'[name]',outExtension:{'.js':'.cjs'},bundle:true,platform:'node',format:'cjs'})
 const {TaskbarAttention}=require(path.join(temp,'taskbar-attention.cjs')),{TaskbarDot}=require(path.join(temp,'taskbar-badge.cjs'))
-test.after(()=>{assert.ok(fs.realpathSync(temp).toLowerCase().startsWith(fs.realpathSync(scope).toLowerCase()+path.sep));fs.rmSync(temp,{recursive:true,force:true})})
 const feed=(total,notices=[])=>({attentionTotal:()=>total,allNotices:()=>notices})
 function fixture(){
  const flashes=[],overlays=[],w={isDestroyed:()=>false,isFocused:()=>false,flashFrame:v=>flashes.push(v),setOverlayIcon:v=>overlays.push(v)}

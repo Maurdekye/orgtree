@@ -27,6 +27,19 @@ A coordinator-declared priority build is an external team agreement: follow the 
 
 ## Storage, isolation and waiting
 
+For the root scratch-note, taskbar, tray-recent and native-tab test modules,
+ordinary `node --test tests/<name>.test.mjs` needs no author-specific output
+variables. They use fresh children of the platform temporary directory; team
+runners set `TEMP`/`TMP` inside their assigned output scope. Existing dependencies
+can be selected with `ORGTREE_TEST_DEPS=<dependency-checkout>/package.json`.
+Optional `ORGTREE_NOTE_TEST_ROOT`, `ORGTREE_BADGE_TEST_ROOT`,
+`ORGTREE_TRAY_TEST_ROOT` and `TAB_ORIGIN_NATIVE_OUT` are parent directories:
+each must be an absolute strict descendant of the current
+`C:/orgtree-build/<ORGTREE_AGENT>/` scope with no traversal or linked ancestors.
+Every run allocates a fresh leaf, preserving earlier receipts; cleanup rechecks
+canonical containment and directory identity. These variables do not grant
+permission to use another agent's folder.
+
 Follow the current team storage cap. Cleanup needs authorization plus resolved-path/activity checks; protect source, live data, evidence and required deliverables. Source worktrees remain on D:, separate from generated output. A permit never widens build, storage or folder scope.
 
 Use only the assigned synthetic rig with fake CLI, scratch database and isolated data root. A bare SAFE_START engine can still read live sign-ins and run usage probes; it is not an isolated test environment. Never touch live data to obtain a test result.

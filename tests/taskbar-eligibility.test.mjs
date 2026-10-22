@@ -3,16 +3,15 @@ import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import path from 'node:path'
 import {createRequire} from 'node:module'
+import { testOutput } from './helpers/test-output.mjs'
 const require=createRequire(process.env.ORGTREE_TEST_DEPS||import.meta.url),{buildSync}=require('esbuild')
-const scope=process.env.ORGTREE_BADGE_TEST_ROOT
-assert.match(scope||'',/^C:[\\/]orgtree-build[\\/]taskbar-orgs-sol[\\/]/i)
-fs.mkdirSync(scope,{recursive:true});const temp=fs.mkdtempSync(path.join(scope,'eligibility-'))
+const output=testOutput('ORGTREE_BADGE_TEST_ROOT','eligibility-'),temp=output.directory
+test.after(()=>output.cleanup())
 buildSync({entryPoints:['apps/desktop/main/taskbar-badge.ts','apps/desktop/main/jumplist.ts','apps/desktop/main/taskbar-attention.ts','packages/contracts/app-feed.ts'],outdir:temp,entryNames:'[name]',outExtension:{'.js':'.cjs'},bundle:true,platform:'node',format:'cjs'})
 const {TaskbarDot,needsTaskbarDot}=require(path.join(temp,'taskbar-badge.cjs'))
 const {TaskbarAttention}=require(path.join(temp,'taskbar-attention.cjs'))
 const {taskbarAttentionItems,taskbarTasks}=require(path.join(temp,'jumplist.cjs'))
 const {AppFeedState}=require(path.join(temp,'app-feed.cjs'))
-test.after(()=>{assert.ok(fs.realpathSync(temp).toLowerCase().startsWith(fs.realpathSync(scope).toLowerCase()+path.sep));fs.rmSync(temp,{recursive:true,force:true})})
 const row=(kind,id=kind)=>({kind,id,org:'other',agent:'helper',item:'ticket',title:kind})
 const feed=(notices,total=0)=>({allNotices:()=>notices,attentionTotal:()=>total})
 const menu=state=>taskbarTasks([{slug:'other',name:'Other'}],'synthetic.exe',undefined,{},taskbarAttentionItems(state))

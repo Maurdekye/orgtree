@@ -3,17 +3,15 @@ import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import path from 'node:path'
 import {createRequire} from 'node:module'
-import {build} from 'esbuild'
+import { testOutput } from './helpers/test-output.mjs'
+const {build}=createRequire(process.env.ORGTREE_TEST_DEPS||import.meta.url)('esbuild')
 
-const scope=process.env.ORGTREE_BADGE_TEST_ROOT
-assert.match(scope||'',/^C:[\\/]orgtree-build[\\/]taskbar-orgs-sol[\\/]/i)
-fs.mkdirSync(scope,{recursive:true})
-const temp=fs.mkdtempSync(path.join(scope,'unit-'))
+const output=testOutput('ORGTREE_BADGE_TEST_ROOT','badge-'),temp=output.directory
+test.after(()=>output.cleanup())
 await build({entryPoints:['apps/desktop/main/taskbar-badge.ts','packages/contracts/app-feed.ts'],outdir:temp,entryNames:'[name]',outExtension:{'.js':'.cjs'},bundle:true,platform:'node',format:'cjs'})
 const require=createRequire(import.meta.url)
 const {TaskbarDot,needsTaskbarDot}=require(path.join(temp,'taskbar-badge.cjs'))
 const {AppFeedState}=require(path.join(temp,'app-feed.cjs'))
-test.after(()=>{assert.ok(fs.realpathSync(temp).toLowerCase().startsWith(fs.realpathSync(scope).toLowerCase()+path.sep));fs.rmSync(temp,{recursive:true,force:true})})
 const feed=(attention=0,notices=[])=>({attentionTotal:()=>attention,allNotices:()=>notices})
 function window(){return {destroyed:false,calls:[],isDestroyed(){return this.destroyed},setOverlayIcon(image,description){this.calls.push({image,description})}}}
 function windowsDot(windows){let images=0;return {controller:new TaskbarDot({platform:'win32',windows:()=>windows,dot:()=>{images++;return 'dot'}}),images:()=>images}}
