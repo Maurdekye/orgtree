@@ -90,9 +90,13 @@ starts where it should run (`runtime/session_host.rs` `wanted`):
 - **In Session 0**, started by the engine, while no helper hosts, and when a
   hosted start fails (the engine logs `the sign-in helper could not start the
   CLI; starting it in Session 0`).
-- An engine that is not in Session 0 (a per-user installation, a desktop-
-  started engine) runs every CLI in the signed-in session already; nothing is
-  hosted.
+- An engine that is not in Session 0 runs every CLI in its own signed-in
+  session; nothing is hosted. That covers an engine a restart or update
+  started while the user was signed in (decision 93), a per-user
+  installation and a desktop-started engine. From there `orgtree_session`
+  refuses a `use` of Session 0 or another session. A stored preference that
+  would pick another place is kept and reported as not followed
+  (`preference_followed: false`; coordinator 2026-10-21 23:13Z).
 
 The helper starts only the five harness CLIs, by absolute path
 (`credential_broker_host::hostable`: `claude.exe`, `codex.exe`, `agy.exe`,

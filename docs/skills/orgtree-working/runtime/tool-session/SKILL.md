@@ -21,8 +21,8 @@ Without arguments it only reads, and is cheap.
 
 | Parameter | Meaning |
 |---|---|
-| `prefer` | Optional. Your preference, kept in your settings (the user sees it in Agent settings as "Desktop session"): `signed-in` (the default: any of the user's sessions, an active one first), `console`, `remote`, `session0` (always Session 0), or an ordered list of kinds such as `"remote,console"`. Session 0 is always the fallback. It applies from your next turn. |
-| `use` | Optional. A session id from `sessions` for your **next turn only**; `0` is Session 0. It lapses if that session has gone by then. |
+| `prefer` | Optional. Your preference, kept in your settings (the user sees it in Agent settings as "Desktop session"): `signed-in` (the default: any of the user's sessions, an active one first), `console`, `remote`, `session0` (always Session 0), or an ordered list of kinds such as `"remote,console"`. Session 0 is always the fallback. It applies from your next turn. While the engine itself runs in the user's session (below), a preference that would not pick that session is kept but not followed: `preference_followed` is `false`. |
+| `use` | Optional. A session id from `sessions` for your **next turn only**; `0` is Session 0. It lapses if that session has gone by then. While the engine itself runs in the user's session, only that session can be picked: Session 0 or another session is refused. |
 
 With either, end your turn (or restart it with `orgtree_interrupt`) to apply it at once.
 
@@ -36,8 +36,9 @@ With either, end your turn (or restart it with `orgtree_interrupt`) to apply it 
 | `next_turn_moves` | `true` when your next turn runs in another session than this one. |
 | `sign_in_helper` | `true` while at least one sign-in helper is connected. |
 | `preference` | Your stored preference (`"signed-in"` when you never set one). |
+| `preference_followed` | `true` when your preference decides where your turns run. It is always `true` while the engine runs in Session 0, where Session 0 is the preference's fallback. While the engine runs in the user's session it is `true` only when the preference would pick that session (the default, its kind, or a list that names it), and `false` for `session0` or a kind it is not. Never `null`. |
 | `use` | The session you picked for your next turn, if any. |
-| `sessions` | Session 0 (always), then each session of the engine's Windows user where a sign-in helper runs: `id`, `kind` (`console` or `remote`; `session0`), `state` (`active` or `disconnected`) and `user`. Other Windows users' sessions are never listed or used. |
+| `sessions` | While the engine runs in Session 0: Session 0, then each session of the engine's Windows user where a sign-in helper runs. While it runs in the user's session: that session only, since every turn runs there. Each entry has `id`, `kind` (`console` or `remote`; `session0`), `state` (`active` or `disconnected`) and `user`. Other Windows users' sessions are never listed or used. |
 | `summary` | The same in a few sentences. |
 
 The answers come from the engine itself: your own runtime says where your CLI runs and where your next turn's will, by the rule it applies when that turn starts, and Windows says who is signed in where.
@@ -46,7 +47,7 @@ The answers come from the engine itself: your own runtime says where your CLI ru
 - A CLI that is still running background work when your next turn starts stays where it is and moves at a later turn.
 - If the user is signed in but `sign_in_helper` is `false`, turns start in Session 0. The engine starts the helper again by itself after 30 seconds, then less and less often.
 - A disconnected session counts as signed in; it runs apps, but nothing is shown there, so screenshots fail. An active session is chosen before a disconnected one.
-- When the engine itself runs in the user's session (a per-user install, or an engine the desktop app started), every turn runs there.
+- When the engine itself runs in the user's session, every turn runs there. That is where a restart or update while the user is signed in puts it, and also a per-user install or an engine the desktop app started. Until the engine runs in Session 0 again (with Run on boot: after the user signs out, or at a boot before they sign in), `use` can name only that session. A preference that would pick another place is kept, and the answer says it is not followed.
 - On macOS and Linux there is no Session 0: your CLI runs in the engine's own session, and `signed_in` is `null`.
 
 ## Sign-in and sign-out
@@ -61,7 +62,7 @@ Signing out of a session ends its sign-in helper and every CLI that helper start
 
 Like `orgtree_status`, this tool has no Orgtree tool-group prerequisite: every agent has it on every harness, whatever its tool groups. It reports on and sets only you; it has no `node` argument.
 
-Refusals: an unknown preference ("session must be signed-in, session0, console, remote, or an ordered list…"); a `use` id with no sign-in helper ("session N has no sign-in helper…"); a stopping runtime ("the agent's runtime is stopping") or one that did not answer within 30 seconds ("the agent did not answer in time").
+Refusals: an unknown preference ("session must be signed-in, session0, console, remote, or an ordered list…"); a `use` id with no sign-in helper ("session N has no sign-in helper…"); a `use` the engine cannot follow while it runs in the user's session ("Orgtree's engine runs in the user's Windows session N, so all your turns run there: Session 0 cannot be picked while it does…"), which stores nothing, not even a `prefer` given with it; a stopping runtime ("the agent's runtime is stopping") or one that did not answer within 30 seconds ("the agent did not answer in time").
 
 ## Examples
 
@@ -81,9 +82,18 @@ An answer during a turn that started before the user signed in:
 
 ```json
 {"signed_in": true, "this_turn": "session0", "this_session": 0, "next_turn": "signed-in", "next_session": 2, "next_turn_moves": true,
- "sign_in_helper": true, "preference": "signed-in", "use": null,
+ "sign_in_helper": true, "preference": "signed-in", "preference_followed": true, "use": null,
  "sessions": [{"id": 0, "kind": "session0", "state": "active", "user": "ada"}, {"id": 2, "kind": "console", "state": "active", "user": "ada"}],
  "summary": "The user is signed in to this computer. This turn runs in Windows Session 0, which has no desktop: you cannot see or use the user's desktop and apps. Your next turn moves to the user's signed-in session."}
+```
+
+An answer from an engine that runs in the user's session 1, for an agent that prefers Session 0:
+
+```json
+{"signed_in": true, "this_turn": "signed-in", "this_session": 1, "next_turn": "signed-in", "next_session": 1, "next_turn_moves": false,
+ "sign_in_helper": true, "preference": "session0", "preference_followed": false, "use": null,
+ "sessions": [{"id": 1, "kind": "console", "state": "active", "user": "ada"}],
+ "summary": "Orgtree's engine runs in the user's signed-in session, so all your turns run there, with access to their desktop and apps. You prefer Session 0, which is not followed: preferences apply only while Orgtree's engine runs in Session 0."}
 ```
 
 ## See also

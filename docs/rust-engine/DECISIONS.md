@@ -1769,6 +1769,11 @@ All entries are dated 2026-10-06 unless stated otherwise.
       as admin. Register always runs the boot task last. One permission prompt per setting change.
     - **The restart notice says where the engine runs:** "Engine session at start: Session 0." or
       "...: Windows session <n>.", replacing decision 84's "Session access at start" line.
+    - **Session choices from an engine in the user's session** (Lane B finding 2026-10-21;
+      coordinator 23:13Z): decision 86's choices place turns only from Session 0. From an engine in
+      the user's session every turn runs there, so `orgtree_session` refuses a `use` of Session 0 or
+      another session, storing nothing. It keeps a preference it cannot follow and reports it as not
+      followed (`preference_followed`). Placing turns elsewhere from there awaits the user's decision.
     Details, verification and limits: [`run-on-boot.md`](run-on-boot.md#restarts-and-updates-while-signed-in-decision-93);
     proof `tools/rig/proofs/session0-handover.mjs`.
 
