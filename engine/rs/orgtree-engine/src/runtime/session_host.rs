@@ -251,6 +251,16 @@ pub fn turn_waits_for_helper(s: &Settle) -> bool {
     !s.skip && !s.hosting && s.signed_in != Some(false) && s.now_ms < s.start_ms.max(s.last_hosting_ms) + SETTLE_MS
 }
 
+/// Whether a turn whose wait for the helper is over runs in Session 0 for
+/// want of one while the user is signed in (or that is unread): the grace ran
+/// out during its wait or before it arrived. That is invariant 3's fallback,
+/// logged once per stretch without a helper; the agent's own Session 0
+/// choice, a sign-out and a hosting helper are no fallback.
+#[nolog]
+pub fn falls_back_for_want_of_helper(_s: &Settle) -> bool {
+    false
+}
+
 /// Why a turn's CLI runs in Session 0, for the desk's Session 0 badge
 /// (`session_placement` in the tree).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -860,6 +870,24 @@ mod settle_tests {
         assert_eq!(why_session0(Some(true), true, true), BackgroundWork, "a CLI with background work stays where it is");
         assert_eq!([SignedOut, HelperUnreachable, Preference, BackgroundWork].map(Why::code),
             ["signed-out", "helper-unreachable", "preference", "background-work"]);
+    }
+
+    #[test]
+    fn a_turn_that_arrives_after_the_grace_ran_out_is_a_logged_fallback() {
+        // rig-sol-b's finding on a1f6c43: a stretch's first turn may come
+        // after the grace has run out; it falls back at once, and that is
+        // the fallback a wait would have logged
+        let late = signed_in_at(START + SETTLE_MS + 5_000);
+        assert!(!turn_waits_for_helper(&late), "no wait: the grace is over");
+        assert!(falls_back_for_want_of_helper(&late));
+        assert!(falls_back_for_want_of_helper(&Settle { signed_in: None, ..late }), "unread counts as signed in");
+        let lost = START + 600_000;
+        assert!(falls_back_for_want_of_helper(&Settle { last_hosting_ms: lost, ..signed_in_at(lost + SETTLE_MS) }), "after a helper loss too");
+        // silent: the agent's own choice, a sign-out, a hosting helper, or a wait still running
+        assert!(!falls_back_for_want_of_helper(&Settle { skip: true, ..late }));
+        assert!(!falls_back_for_want_of_helper(&Settle { signed_in: Some(false), ..late }));
+        assert!(!falls_back_for_want_of_helper(&Settle { hosting: true, ..late }));
+        assert!(!falls_back_for_want_of_helper(&signed_in_at(START + 1_000)), "still within the grace: the turn waits");
     }
 
     #[test]
