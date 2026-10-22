@@ -86,6 +86,7 @@ async fn monitor(engine: Arc<Engine>, mut recv: mpsc::Receiver<Command>) {
             cmd = recv.recv() => {
                 let Some(cmd) = cmd else { break };
                 let stopped = core_state::stopped(root, &state);
+                let before = state.clone();
                 let accepted = match &cmd {
                     Command::Member { desktop, who, .. } => {
                         let previous = if *desktop { &state.desktop } else { &state.helper };
@@ -111,7 +112,8 @@ async fn monitor(engine: Arc<Engine>, mut recv: mpsc::Receiver<Command>) {
                     }
                 };
                 if accepted { finish_ready_transition(&mut state, boot); }
-                let ok = accepted && core_state::write(root, &state).is_ok();
+                let written = accepted && core_state::write(root, &state).is_ok();
+                let ok = keep_or_restore(&mut state, before, written);
                 if ok { engine.core.state.store(Some(Arc::new(state.clone()))); }
                 match cmd { Command::Member { reply, .. } | Command::Transition { reply, .. } => { let _ = reply.send(ok); } }
             }
@@ -223,9 +225,37 @@ pub fn cli(args: &[String]) -> std::process::ExitCode {
     std::process::ExitCode::SUCCESS
 }
 
+/// What the monitor keeps after a command: the state the command changed
+/// only when it was accepted and written, else exactly the state before it,
+/// so a refused or unwritten change never reaches a later tick's write or the
+/// published state.
+#[cfg(windows)]
+#[nolog]
+fn keep_or_restore(_state: &mut Snapshot, _before: Snapshot, ok: bool) -> bool {
+    ok
+}
+
 #[cfg(all(test, windows))]
 mod tests {
     use super::*;
+    #[test]
+    fn a_refused_or_unwritten_command_leaves_the_state_as_it_was() {
+        // rig-sol-b's finding on a1f6c43: the revert dropped the prior tip's
+        // rollback, so a command whose write failed kept its changes in the
+        // monitor's state for a later tick to persist and publish
+        let json = |s: &Snapshot| serde_json::to_value(s).unwrap();
+        let before = pending();
+        let mut state = before.clone();
+        state.desktop = None;
+        state.transition_until = 0;
+        state.installing = false;
+        state.completion_requested = false;
+        assert!(!keep_or_restore(&mut state, before.clone(), false));
+        assert_eq!(json(&state), json(&before), "a refused or unwritten command is undone");
+        state.transition_until = 7;
+        assert!(keep_or_restore(&mut state, before.clone(), true));
+        assert_eq!(state.transition_until, 7, "an accepted, written command stays");
+    }
     fn pending() -> Snapshot {
         let identity = core_process::identity(std::process::id()).unwrap();
         Snapshot { generation: "a".repeat(32), engine: identity.clone(), host: Some(identity.clone()),
