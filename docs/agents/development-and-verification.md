@@ -37,6 +37,12 @@ These attributed records were moved from the root guide at `22daffd`; they retai
   admission rejects absent/foreign/live paths, traversal and reparse points;
   it checks run ownership/marker, disposable DB/user, loopback port/credentials
   and the server's actual data directory before any functional writes.
+  It rejects every `hostaddr` override before opening any connection (the
+  driver can otherwise use that address instead of the checked `host`). A pure
+  no-connect regression starts with an admitted host-only config, then adds
+  `hostaddr=192.0.2.1` and requires refusal; the metadata admission control also
+  appends that override to its actual good owned config. These controls require
+  no outside probe and do not repeat the seven functional boundary cases.
   One guard control precedes the unchanged seven named boundary cases. Engine
   fixture outputs and migration reads use the supplied owned output; never
   select another author's executable or bypass admission to reuse a rig.

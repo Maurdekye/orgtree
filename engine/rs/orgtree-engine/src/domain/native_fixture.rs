@@ -46,6 +46,8 @@ fn json_file(path: &Path, base: &Path) -> Result<Value> {
 #[nolog]
 fn require_loopback(cfg: &Config) -> Result<()> {
     ensure!(matches!(cfg.get_hosts(), [Host::Tcp(host)] if host == "127.0.0.1"), "database must use explicit loopback only");
+    // libpq-style hostaddr overrides host before a server-identity query runs.
+    ensure!(cfg.get_hostaddrs().is_empty(), "database hostaddr overrides refused");
     Ok(())
 }
 
@@ -138,6 +140,7 @@ async fn rejects_invalid_inputs() {
     let mut bad = good.clone(); bad.output.clear(); assert!(Fixture::validate(&bad).is_err());
     let mut bad = good.clone(); bad.url.clear(); assert!(Fixture::validate(&bad).is_err());
     let mut bad = good.clone(); bad.url.push_str(" password=wrong"); assert!(Fixture::validate(&bad).is_err());
+    let mut bad = good.clone(); bad.url.push_str(" hostaddr=192.0.2.1"); assert!(Fixture::validate(&bad).is_err());
     assert!(fixture.input_file(Path::new("C:/Windows")).is_err());
     assert!(fixture.input_file(&fixture.output).is_err());
     for url in ["host=192.0.2.1 user=orgtree_admin dbname=orgtree_engine", "host=127.0.0.1 user=postgres dbname=postgres", "host=127.0.0.1 user=orgtree_admin dbname=orgtree_engine port=1"] {
