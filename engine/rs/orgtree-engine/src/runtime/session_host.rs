@@ -654,6 +654,60 @@ mod win {
         };
         if ok == 0 { 0 } else { out as usize }
     }
+
+    /// The hosted CLI's pipes belong to the engine's own user whatever the
+    /// engine's rights. An elevated engine's default pipe security makes
+    /// Administrators the owner and the label High (measured on this user's
+    /// linked token, 2026-10-22), so the sign-in helper, Medium with
+    /// Administrators deny-only, could only read them: the engine's user must
+    /// be granted full access, and the label must be Medium.
+    #[cfg(test)]
+    mod pipe_tests {
+        use super::*;
+
+        #[nolog]
+        fn security_text(pipe: &NamedPipeServer) -> String {
+            use std::os::windows::io::AsRawHandle;
+            use windows_sys::Win32::Foundation::LocalFree;
+            use windows_sys::Win32::Security::Authorization::{
+                ConvertSecurityDescriptorToStringSecurityDescriptorW, GetSecurityInfo, SDDL_REVISION_1, SE_KERNEL_OBJECT,
+            };
+            use windows_sys::Win32::Security::{DACL_SECURITY_INFORMATION, LABEL_SECURITY_INFORMATION, OWNER_SECURITY_INFORMATION};
+            let what = OWNER_SECURITY_INFORMATION | DACL_SECURITY_INFORMATION | LABEL_SECURITY_INFORMATION;
+            let mut sd = std::ptr::null_mut();
+            let read = unsafe {
+                GetSecurityInfo(pipe.as_raw_handle() as HANDLE, SE_KERNEL_OBJECT, what, std::ptr::null_mut(), std::ptr::null_mut(),
+                    std::ptr::null_mut(), std::ptr::null_mut(), &mut sd)
+            };
+            assert_eq!(read, 0, "GetSecurityInfo failed");
+            let mut text: *mut u16 = std::ptr::null_mut();
+            let ok = unsafe { ConvertSecurityDescriptorToStringSecurityDescriptorW(sd, SDDL_REVISION_1, what, &mut text, std::ptr::null_mut()) };
+            assert!(ok != 0, "the descriptor has no text form");
+            let mut n = 0;
+            while unsafe { *text.add(n) } != 0 {
+                n += 1;
+            }
+            let out = String::from_utf16_lossy(unsafe { std::slice::from_raw_parts(text, n) });
+            unsafe {
+                LocalFree(text as *mut std::ffi::c_void);
+                LocalFree(sd);
+            }
+            out
+        }
+
+        #[tokio::test]
+        async fn hosted_pipes_grant_the_engines_user_and_carry_a_medium_label() {
+            let user = crate::host::launch_identity().0.expect("the engine's user");
+            for inbound in [true, false] {
+                let name = format!(r"\\.\pipe\orgtree-cli-test-{}", uuid::Uuid::new_v4().simple());
+                let pipe = serve(&name, inbound).expect("the pipe is served");
+                let sddl = security_text(&pipe);
+                assert!(sddl.contains(&format!("(A;;FA;;;{user})")), "the engine's user lacks full access: {sddl}");
+                assert!(sddl.contains("S:(ML;;NW;;;ME)"), "no Medium label: {sddl}");
+                assert!(!sddl.contains("(A;;FA;;;WD)") && !sddl.contains("(A;;FA;;;AN)"), "broader than the default: {sddl}");
+            }
+        }
+    }
 }
 
 /// No sign-in helper outside Windows: every CLI starts here.
