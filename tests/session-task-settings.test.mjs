@@ -79,37 +79,44 @@ function execute(script, setup='') {
   assert.ok(line, r.stdout+'\n'+r.stderr)
   return JSON.parse(line)
 }
+// Decision 94 retires the "Orgtree User Session Engine" task: the next update
+// deletes it. A leftover one (this fixture's third task) is never changed here.
 const USER_SESSION = 'Orgtree User Session Engine'
-test('startup off removes automatic triggers from every owned task but preserves demand launch',()=>{
+test('startup off removes automatic triggers from the boot and helper tasks but preserves demand launch',()=>{
   for (const on of [true,false]) for (const asAdmin of [0,1]) {
     const r=execute(startup.elevatedStartupScript(on), `$values.RunAsAdministrator=${asAdmin}; $store.Values | ForEach-Object {$_.Enabled=$false;$_.Trigger=$true}`)
     assert.equal(r.failure,null)
-    assert.equal(Object.keys(r.tasks).length,3)
-    for(const [name,task] of Object.entries(r.tasks)){
-      assert.equal(task.Enabled,true,`${name} keeps demand launch`)
-      // the user-session engine moves in at sign-in only while Run as admin is on too (coordinator Q1)
-      assert.equal(task.Trigger,name===USER_SESSION ? on && asAdmin===1 : on,`${name} trigger (startup ${on}, admin ${asAdmin})`)
+    for(const name of [startup.BOOT_TASK, startup.HELPER_TASK]){
+      assert.equal(r.tasks[name].Enabled,true,`${name} keeps demand launch`)
+      assert.equal(r.tasks[name].Trigger,on,`${name} trigger (startup ${on}, admin ${asAdmin})`)
     }
+    assert.ok(!r.events.includes(`register:${USER_SESSION}`),'the retired user-session task is left alone')
     assert.equal(r.values.RunOnStartup,Number(on))
   }
 })
-test('admin on and off update all three owned tasks, keeping each logon type',()=>{
+test('invariants 7 and 8: admin on and off set the boot and helper tasks together, keeping each logon type',()=>{
   for(const on of [true,false]) for (const runs of [0,1]) {
     const r=execute(admin.elevatedWriteScript(on),`$values.RunOnStartup=${runs}; $store.Values | ForEach-Object {$_.Level=1;$_.Trigger=${runs===1 ? '$true' : '$false'}}`)
     assert.equal(r.failure,null)
-    // the Session 0 boot engine follows the one toggle too (coordinator Q2)
-    for(const name of [admin.BOOT_TASK, admin.HELPER_TASK, USER_SESSION]) assert.equal(r.tasks[name].Level,Number(on),name)
+    // one prompt sets both run levels: the Session 0 engine and the session-1 helper
+    for(const name of [admin.BOOT_TASK, admin.HELPER_TASK]) assert.equal(r.tasks[name].Level,Number(on),name)
     assert.equal(r.tasks[admin.BOOT_TASK].Logon,2,'the boot task stays S4U')
     assert.equal(r.tasks[admin.HELPER_TASK].Logon,3)
-    assert.equal(r.tasks[USER_SESSION].Logon,3)
-    assert.equal(r.tasks[USER_SESSION].Trigger,on && runs===1,'the sign-in move follows Run as admin and Run on boot')
     assert.equal(r.tasks[admin.BOOT_TASK].Trigger,runs===1,'Run as admin never changes the boot trigger')
     assert.equal(r.tasks[admin.HELPER_TASK].Trigger,runs===1,'nor the helper trigger')
+    assert.ok(!r.events.includes(`register:${USER_SESSION}`),'the retired user-session task is left alone')
+    assert.equal(r.tasks[USER_SESSION].Level,1,'and keeps what it had')
     assert.equal(r.values.RunAsAdministrator,Number(on))
   }
 })
+test('Run as admin no longer needs the user-session task',()=>{
+  const r=execute(admin.elevatedWriteScript(true),`$store.Remove('${USER_SESSION}')`)
+  assert.equal(r.failure,null)
+  for(const name of [admin.BOOT_TASK, admin.HELPER_TASK]) assert.equal(r.tasks[name].Level,1,name)
+  assert.equal(r.values.RunAsAdministrator,1)
+})
 test('an owned task with an unexpected logon type refuses before any change',()=>{
-  for (const [name,logon] of [[admin.BOOT_TASK,3],[USER_SESSION,2]]) {
+  for (const [name,logon] of [[admin.BOOT_TASK,3],[admin.HELPER_TASK,2]]) {
     const r=execute(admin.elevatedWriteScript(true),`$store['${name}'].Logon=${logon}`)
     assert.match(r.failure,/operator does not match/)
     assert.deepEqual(r.events,[])
@@ -117,7 +124,7 @@ test('an owned task with an unexpected logon type refuses before any change',()=
 })
 test('a foreign task refuses all writes before changing any task',()=>{
   for(const script of [startup.elevatedStartupScript(false),admin.elevatedWriteScript(true)]){
-    const r=execute(script,"$store['Orgtree User Session Engine'].Marker='foreign'")
+    const r=execute(script,"$store['Orgtree Credential Helper'].Marker='foreign'")
     assert.match(r.failure,/Refusing to change/)
     assert.deepEqual(r.events,[])
   }
@@ -134,13 +141,13 @@ test('failed protected setting write rolls every task back',()=>{
   assert.match(r.failure,/injected registry failure/)
   assert.equal(r.values.RunAsAdministrator,0)
   for(const task of Object.values(r.tasks)) assert.equal(task.Level,0)
-  assert.equal(r.events.filter(e=>e.startsWith('restore:')).length,3)
+  assert.equal(r.events.filter(e=>e.startsWith('restore:')).length,2,'the boot and helper tasks')
 })
 test('failed startup changes restore prior triggers and never rewrite the stored choice',()=>{
   for(const failure of ['$failSecond=$true','$failWrite=$true']) {
     const r=execute(startup.elevatedStartupScript(true),failure)
     assert.match(r.failure,/injected/)
     assert.equal(r.values.RunOnStartup,0)
-    for(const task of Object.values(r.tasks)) assert.equal(task.Trigger,false)
+    for(const name of [startup.BOOT_TASK, startup.HELPER_TASK]) assert.equal(r.tasks[name].Trigger,false,name)
   }
 })

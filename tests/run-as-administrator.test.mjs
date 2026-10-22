@@ -165,8 +165,9 @@ test('main wires the setting and keeps the recovery poll out of a deliberate res
   // Deliberate restart remains excluded from the legacy path as before.
   assert.match(main, /if \(stats === null && !engine\.managed && !backgroundEngineRestart && !coreLifecycle\)/)
   // Settings and the tray share one guarded change (de04072); run it through
-  // the Settings handler. Only a real change is written, and "Restart now"
-  // restarts after the write.
+  // the Settings handler. Only a real change is written, and it applies at
+  // once (coordinator Q1, invariant 7): the engine restarts with it, so no
+  // "Restart now" state is left where the engine and the helper could differ.
   const steps = [], stored = { available: true, enabled: false }, handlers = {}
   const setter = mainClosure(main, '      changeRunAsAdministrator = async', '      /** "Run on boot"', {
     handleApp: (name, fn) => { handlers[name] = fn }, changeRunAsAdministrator: undefined, adminChanging: false,
@@ -177,23 +178,24 @@ test('main wires the setting and keeps the recovery poll out of a deliberate res
     restartBackgroundEngine: async () => { steps.push('restart') },
   })
   const set = handlers['desktop:set-run-as-admin']
-  await set(true, true)
-  assert.deepEqual(steps, ['warning', 'write true', 'restart'], 'a change is warned about, written, then restarted')
-  await set(true, true)
-  assert.deepEqual(steps.slice(3), ['restart'], '"Restart now" repeats the stored value: no warning, no write')
-  await set(false, false)
-  assert.deepEqual(steps.slice(4), ['write false'], 'switching off is written without a warning or a restart')
+  await set(true)
+  assert.deepEqual(steps, ['warning', 'write true', 'restart'], 'a change is warned about, written, then applied at once')
+  await set(true)
+  assert.deepEqual(steps.slice(3), [], 'the stored value again: no warning, no write, no restart')
+  await set(false)
+  assert.deepEqual(steps.slice(3), ['write false', 'restart'], 'switching off is written without a warning and applied at once too')
   assert.equal(setter.adminChanging, false)
-  // The restart this setting shares with the tray's Restart engine, away from
-  // a verified console session (decision 93): graceful stop, then the boot
-  // task, then reattach, with the recovery poll held off until it has ended,
-  // failed or not.
+  // The restart this setting shares with the tray's Restart engine, at a
+  // verified console session too (decision 94; decision 93 handed it to the
+  // user's session from here): graceful stop, then the boot task, then
+  // reattach, with the recovery poll held off until it has ended, failed or not.
+  const atConsole = { session: 7, console: 7, ownsConsole: true, known: true, operatorSid: 'fixture', elevated: false }
   const order = [], origin = 'http://127.0.0.1:1'
   let reattached = true
   const restart = {
     restartBackground: undefined, backgroundEngineRestart: false, quitComplete: false, engineRestartBlocked: () => false,
     quitting: false, installerUpgradeShutdown: false, engineOptions: { binary: 'engine.exe', dataRoot: 'data' },
-    readStartupTasks: async () => ({ boot: true, helper: true, interactive: true }), launchContext: async () => null, route,
+    readStartupTasks: async () => ({ boot: true, helper: true, interactive: true }), launchContext: async () => atConsole, route,
     startInSession: async () => { order.push('user-session task') }, runSessionAsAdmin: async () => { order.push('UAC prompt') },
     coreLifecycle: { transition: async on => { order.push(`transition ${on}`) }, complete: async () => { order.push('complete') },
       stop() { order.push('lifecycle stopped') } },
@@ -216,7 +218,10 @@ test('main wires the setting and keeps the recovery poll out of a deliberate res
   assert.equal(restart.backgroundEngineRestart, false, 'a failed restart lets the recovery poll act again')
   const preload = read('apps/desktop/preload/index.ts')
   assert.match(preload, /getRunAsAdministrator: \(\) => ipcRenderer\.invoke\('desktop:run-as-admin'\)/)
-  assert.match(preload, /ipcRenderer\.invoke\('desktop:set-run-as-admin', enabled, restartNow\)/)
+  assert.match(preload, /ipcRenderer\.invoke\('desktop:set-run-as-admin', enabled\)/)
+  // the one-off button is retired for 4.4.0 (the user, Q2, 2026-10-22 07:38Z)
+  assert.doesNotMatch(main, /desktop:run-session-as-admin|runSessionAsAdmin/)
+  assert.doesNotMatch(preload, /runThisSessionAsAdmin|run-session-as-admin/)
 })
 
 test('reattaching after the restart never starts an engine of the desktop\'s own', async () => {

@@ -62,7 +62,7 @@ async function fixture(initial = false, { platform = 'win32', installed = true }
     ctx, handlers, writes, dialogs, restarts, answers,
     get menu() { return ctx.tray.menu }, get builds() { return builds }, get stored() { return stored },
     get item() { return ctx.tray.menu.getMenuItemById('run-as-admin') },
-    settings: (value, restart = false) => handlers['desktop:set-run-as-admin'](value, restart),
+    settings: value => handlers['desktop:set-run-as-admin'](value),
     click() { const item = this.item; assert.ok(item, 'tray has the admin checkbox'); item.checked = !item.checked; item.click(item) },
     async finish(ok = true) { await tick(); assert.equal(pending.length, 1); pending.shift()[ok ? 'yes' : 'no'](); await tick() },
     outside(value) { stored = value }, failReads() { rejectRead = true }, block() { blocked = true },
@@ -80,7 +80,7 @@ test('admin checkbox is immediately after startup and mirrors the saved value', 
 })
 
 for (const initial of [false, true]) {
-  test(`tray change ${initial}: warning only for ON, one write, no implicit restart`, async () => {
+  test(`tray change ${initial}: warning only for ON, one write, then applied at once (Q1)`, async () => {
     const f = await fixture(initial), menu = f.menu
     menu.emit('menu-will-show'); f.click(); await tick()
     assert.equal(f.menu, menu); assert.equal(f.item.checked, initial)
@@ -89,7 +89,9 @@ for (const initial of [false, true]) {
     if (!initial) assert.match(f.dialogs[0].detail, /Every agent.*full administrator rights/)
     await f.finish()
     assert.equal(f.item.checked, !initial); assert.equal(f.item.enabled, true)
-    assert.deepEqual(f.restarts, [])
+    // invariant 7: the engine restarts with the change (its helper is replaced
+    // to match), so the running rights never differ from the setting's
+    assert.equal(f.restarts.length, 1, 'one restart after the one write')
   })
   test(`declined Windows prompt preserves ${initial} and restores an open menu`, async () => {
     const f = await fixture(initial), menu = f.menu
@@ -104,6 +106,7 @@ test('declining the full-admin warning never calls Windows', async () => {
   const f = await fixture(); f.answers.push(1); f.click(); await tick()
   assert.deepEqual(f.writes, []); assert.equal(f.stored, false)
   assert.equal(f.item.checked, false); assert.equal(f.item.enabled, true)
+  assert.deepEqual(f.restarts, [], 'nothing changed, nothing restarts')
 })
 
 test('Settings and tray share one pending guard and state refresh', async () => {

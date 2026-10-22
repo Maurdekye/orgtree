@@ -312,10 +312,8 @@ Assert ($script:task.Enabled) 'Completing Register must restore boot-start after
 Assert ($script:events -contains 'run') 'Registered task not started'
 
 # An update starts the boot task whether or not the operator is signed in at the
-# console (coordinator 2026-10-21 16:27Z, plan point 6): its host hands the engine
-# to the user-session task while they are (src/boot_supervisor.rs) and stays in
-# Session 0 for the sign-out fallback. Register never starts the user-session
-# task itself. The boot task's run level follows "Run as admin" (Q2).
+# console: the engine always runs in Session 0 (decision 94). Register never
+# starts a user-session task. The boot task's run level follows "Run as admin".
 foreach ($console in @($null,$sid,'S-1-5-21-111-222-333-9999')) {
     foreach ($admin in @($false,$true)) {
         $script:runAsAdmin=$admin; $script:consoleSid=$console; $script:events.Clear()
@@ -656,50 +654,49 @@ Assert ($null -eq $script:signin -and $script:events -contains 'signin-delete') 
 Assert ($script:events.IndexOf('signin-stop') -ge 0 -and $script:events.IndexOf('signin-stop') -lt $script:events.IndexOf('signin-delete')) 'The sign-in engine task was deleted before its stop'
 Assert ($null -eq $script:record -and $null -eq $script:task -and $null -eq $script:helper) 'Uninstall did not remove the other tasks and the record'
 
-# Native installations add the protected user-session engine task. These are
-# fake task objects and empty executable fixtures; nothing is launched.
+# Decision 94 retires the "Orgtree User Session Engine" task (decision 93's
+# move into the signed-in session; the user, 2026-10-22 07:28Z: the main
+# engine always runs in Session 0). An update stops an owned one that a 4.4.0
+# alpha registered, with the boot tree, deletes it and never registers it
+# again; one Orgtree did not install refuses every change; uninstall deletes a
+# leftover. Fake task objects and empty executable fixtures; nothing runs.
 [IO.File]::WriteAllText($engineExe,'fixture')
-$script:record=$original.Clone();$script:record.RunOnStartup=0
-$script:consoleSid=$sid;$script:events.Clear();$script:runAsAdmin=$false
+$script:record=$original.Clone();$script:record.RunOnStartup=1
+$script:consoleSid=$sid;$script:runAsAdmin=$true
+# What alpha.27 to alpha.32 registered (their New-InteractiveTaskXml).
+$doc=Read-BootXml (New-HelperTaskXml $script:record $true)
+$doc.Task.RegistrationInfo.Description="com.maurdekye.orgtree.user-session.v1:$($script:record.Id)"
+$doc.Task.Triggers.LogonTrigger.Enabled='true'
+$doc.Task.Actions.Exec.Command=[string](Get-HelperPath $script:record.InstallDir)
+$argument=$doc.CreateElement('Arguments',$doc.DocumentElement.NamespaceURI)
+$argument.InnerText='session-engine'
+$null=$doc.Task.Actions.Exec.InsertAfter($argument,$doc.Task.Actions.Exec.SelectSingleNode('*[local-name()="Command"]'))
+$doc.Task.Settings.MultipleInstancesPolicy='Parallel'
+$null=$doc.Task.Settings.RemoveChild($doc.Task.Settings.RestartOnFailure)
+$leftoverXml=$doc.OuterXml
+function New-LeftoverInteractive([string]$Xml) {
+    $value=New-HelperFake $Xml
+    $value | Add-Member -Force ScriptMethod Stop { param($flags) $script:events.Add('interactive-stop') }
+    $value | Add-Member -Force ScriptMethod Run { param($args) $script:events.Add('interactive-run') }
+    return $value
+}
+$script:interactive=New-LeftoverInteractive $leftoverXml
+$script:events.Clear()
 Invoke-BootLifecycle Register $dir
-Assert ($null -ne $script:interactive) 'Native installation omitted the interactive engine task'
-Assert (-not ($script:events -match '^(run|helper-run|interactive-run)$')) 'Native startup-off install started an owned task'
-foreach($owned in @($script:task,$script:helper,$script:interactive)) {
-    Assert ((Read-BootXml $owned.Xml).Task.Settings.Enabled -eq 'true') 'Demand launch is disabled'
-    Assert (-not (Get-RegisteredEnabled $owned)) 'An automatic trigger survived startup off'
-}
-# The user-session task's logon trigger moves the engine at sign-in only while
-# both "Run on boot" and "Run as admin" are on (coordinator Q1); it is always
-# registered before the boot task runs, so the boot host can hand over to it.
-foreach ($startup in @(0,1)) {
-    foreach ($admin in @($false,$true)) {
-        $script:record.RunOnStartup=$startup;$script:runAsAdmin=$admin;$script:events.Clear()
-        Invoke-BootLifecycle Register $dir
-        $trigger=(Read-BootXml $script:interactive.Xml).Task.Triggers.LogonTrigger.Enabled
-        Assert ($trigger -ceq (Get-EnabledText ($startup -eq 1 -and $admin))) "The user-session logon trigger must follow startup=$startup and admin=$admin"
-        if ($startup -eq 1) {
-            Assert ($script:events -contains 'run' -and -not ($script:events -contains 'interactive-run')) 'Signed-in install must start the boot task, whose host hands over'
-            $registered=$script:events.IndexOf(($script:events | Where-Object { $_ -like 'interactive-register:*' } | Select-Object -First 1))
-            Assert ($registered -ge 0 -and $registered -lt $script:events.IndexOf('run')) "The user-session task must be registered before the boot task runs: $($script:events -join ',')"
-        }
-    }
-}
-Assert ((Read-BootXml $script:interactive.Xml).Task.Principals.Principal.RunLevel -eq 'HighestAvailable') 'Stored admin choice was not applied to interactive engine'
-$script:interactive.Instances=1;$script:interactive.Enabled=$true
-Refuses { Stop-OwnedBootTask $script:folder $script:record $dir 0 } 'Orgtree User Session Engine'
-Assert ($script:interactive.Enabled) 'Failed installer stop did not restore interactive demand launch'
-$script:interactive.Enabled=$false
-Refuses { Stop-OwnedBootTask $script:folder $script:record $dir 0 } 'Orgtree User Session Engine'
-Assert (-not $script:interactive.Enabled) 'Failed installer stop unexpectedly enabled a disabled interactive task'
-$script:interactive.Instances=0
-$goodInteractive=$script:interactive.Xml
-$script:interactive.Xml=$goodInteractive.Replace('>session-engine<','>foreign command<')
+Assert ($null -eq $script:interactive -and $script:events -contains 'interactive-delete') "Register did not delete the leftover user-session task: $($script:events -join ',')"
+Assert (-not ($script:events -match '^interactive-(register|run)')) "Register registered or ran the retired user-session task: $($script:events -join ',')"
+Assert ($script:events.IndexOf('interactive-delete') -lt $script:events.IndexOf('run')) 'The leftover goes before the boot task starts the engine in Session 0'
+Assert ($script:events -contains 'run' -and $script:events -contains 'helper-run') 'Register starts the Session 0 engine and the helper'
+$script:events.Clear()
+Invoke-BootLifecycle Register $dir
+Assert ($null -eq $script:interactive -and -not ($script:events -match '^interactive-')) "A Register with no leftover never creates one: $($script:events -join ',')"
+$script:interactive=New-LeftoverInteractive ($leftoverXml.Replace('>session-engine<','>foreign command<'))
 $script:events.Clear()
 Refuses { Invoke-BootLifecycle Register $dir } 'interactive engine'
 Assert (-not ($script:events -match 'register:|stop|delete')) 'Foreign interactive task permitted installer mutation'
-$script:interactive.Xml=$goodInteractive
+$script:interactive=New-LeftoverInteractive $leftoverXml
 Invoke-BootLifecycle Remove $dir
-Assert ($null -eq $script:interactive -and $null -eq $script:record) 'Uninstall retained the interactive task'
+Assert ($null -eq $script:interactive -and $null -eq $script:record) 'Uninstall retained the leftover user-session task'
 [IO.File]::Delete($engineExe)
 [IO.File]::Delete($signinHost); [IO.File]::Delete($brokerPath)
 Write-Output "PASS $script:checks installer assertions; synthetic fixture: $root"

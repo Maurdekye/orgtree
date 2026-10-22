@@ -9,11 +9,11 @@ function native(value?: Partial<NativeDesktop>) {
   Object.defineProperty(window, 'orgtreeDesktop', { value, configurable: true })
 }
 
-test('"Run as admin" is off by default, warns, and changes only through the bridge', async () => {
+test('"Run as admin" is off by default, warns, and a change applies at once (coordinator Q1)', async () => {
   let state: RunAsAdministratorState = { available: true, enabled: false }
-  const calls: [boolean, boolean][] = []
+  const calls: unknown[][] = []
   native({ getRunAsAdministrator: async () => state,
-    setRunAsAdministrator: async (enabled, restartNow) => { calls.push([enabled, restartNow]); return state = { ...state, enabled } } })
+    setRunAsAdministrator: (async (...args: unknown[]) => { calls.push(args); return state = { ...state, enabled: args[0] === true } }) as NativeDesktop['setRunAsAdministrator'] })
   const v = await mountView(<RunAsAdministratorSetting />, el => el)
   try {
     await inAct(async () => { await flush(5) })
@@ -22,17 +22,27 @@ test('"Run as admin" is off by default, warns, and changes only through the brid
     assert.equal(toggle.checked, false)
     assert.equal(toggle.disabled, false)
     assert.match(v.el.textContent ?? '', /Every agent runs with full administrator rights/)
-    assert.equal(v.el.querySelector('button') === null, true, 'nothing to restart before a change')
-    // Turning it on asks main to write it; it applies at the next engine start.
+    // invariant 7: the engine and the sign-in helper change together, at once
+    assert.match(v.el.textContent ?? '', /engine in Session 0 and the sign-in helper in your session/)
+    assert.match(v.el.textContent ?? '', /restart at once/)
     await inAct(async () => { toggle.click(); await flush(5) })
-    assert.deepEqual(calls, [[true, false]])
+    assert.deepEqual(calls, [[true]], 'one call: main writes it and restarts the engine, and the helper follows')
     assert.equal(toggle.checked, true)
-    const restart = [...v.el.querySelectorAll('button')].find(b => /Restart the background engine now/.test(b.textContent ?? ''))
-    assert.ok(restart, 'a change offers the restart')
-    // Restart now repeats the stored value with restartNow; the offer then goes away.
-    await inAct(async () => { restart!.click(); await flush(5) })
-    assert.deepEqual(calls, [[true, false], [true, true]])
-    assert.equal(v.el.querySelector('button') === null, true, 'the offer goes once the restart ran')
+    assert.equal(v.el.querySelector('button') === null, true, 'no restart is left to offer: nothing is pending')
+  } finally { await v.unmount() }
+})
+
+test('the one-off "Run this session as admin" is gone, even from a bridge that still offers it (user Q2)', async () => {
+  let launches = 0
+  native({ getRunAsAdministrator: async () => ({ available: true, enabled: false, canRunInSession: true }) as RunAsAdministratorState,
+    setRunAsAdministrator: async () => ({ available: true, enabled: false }),
+    runThisSessionAsAdmin: async () => { launches++; return { available: true, enabled: false } } } as unknown as Partial<NativeDesktop>)
+  const v = await mountView(<RunAsAdministratorSetting />, el => el)
+  try {
+    await inAct(async () => { await flush(5) })
+    assert.ok(v.el.querySelector('input[aria-label="Run as admin"]'), 'the setting itself stays')
+    assert.equal([...v.el.querySelectorAll('button')].some(b => /Run this session as admin/.test(b.textContent ?? '')), false)
+    assert.equal(launches, 0)
   } finally { await v.unmount() }
 })
 
