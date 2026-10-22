@@ -362,11 +362,12 @@ export default async function (rig) {
     // first turn arrives after the 60 s grace: it starts at once in Session 0,
     // and that fallback is logged, once per stretch (3)
     before = s
+    // the marks before the stop: the database stops with the engine
+    from = logFrom()
+    mark = lastMail()
     fs.rmSync(marker, { force: true })
     await fetch(`http://127.0.0.1:${before.port}/api/desktop/shutdown`, { method: 'POST', headers: { [TOKEN_HEADER]: before.token } })
     await within(host.exited, 120000)
-    from = logFrom()
-    mark = lastMail()
     host = startHost('host-J')
     s = await waitServing('J: the engine, signed in, with no helper', x => x.hostPid === host.pid && x.enginePid !== before.enginePid)
     await sleep(65000)
