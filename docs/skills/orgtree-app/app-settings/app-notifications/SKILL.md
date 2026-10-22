@@ -33,6 +33,8 @@ Clicking a transcript mention banner or taskbar entry keeps that notification's
 mention and source-event identity. If the agent has since mentioned you again,
 the newer mention remains unseen. Current tree metadata can fill a missing event
 only for the same mention ID; a changed agent generation still blocks the jump.
+If the clicked source is unknown or unavailable after bounded history loading,
+the desk opens without centering another mention.
 
 The persistent taskbar/dock attention dot is separate from these banner
 preferences. It follows unresolved questions, urgent mail, docket attention and

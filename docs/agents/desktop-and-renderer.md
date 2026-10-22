@@ -19,9 +19,12 @@ mention ID and `source_id`, preserving existing generation guards. The current
 tree marker may provide a missing event ID only when its mention ID equals the
 clicked ID. A newer marker cannot replace the target or be acknowledged by that
 click. The engine's existing ID-matched mention-seen endpoint remains unchanged.
+The desk pages for a known event within its existing bounds. If that event is
+unavailable, or the clicked notice has no identifiable source, it centers no
+substitute row; the latest visible mention is never a fallback destination.
 This is routing/acknowledgement correction, with no new action or tool. [verified:
-`src/App.tsx`, `src/notifications.ts`,
-`tests/stalementionnotice.test.tsx`, `http/nodes.rs`; 2026-10-22]
+`src/App.tsx`, `src/notifications.ts`, `src/canvas/desk.tsx`,
+`tests/{stalementionnotice,mention-click-scroll}.test.tsx`, `http/nodes.rs`; 2026-10-22]
 
 ## Retained mail reconciliation (2026-10-21)
 

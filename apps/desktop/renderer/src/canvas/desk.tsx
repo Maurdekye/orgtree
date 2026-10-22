@@ -2970,16 +2970,8 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
       stopSettle()
       return
     }
-    if (!target) {
-      const candidates = [...host.querySelectorAll<HTMLElement>('.msg.assistant')]
-      for (let i = candidates.length - 1; i >= 0; i--) {
-        const c = candidates[i]!
-        if (/(^|[^0-9A-Za-z._%+-])@user(?![0-9A-Za-z_@/-]|\.[0-9A-Za-z])/i.test(c.textContent ?? '')) {
-          target = c
-          break
-        }
-      }
-    }
+    // An explicit mention jump owns this event identity. Missing source or
+    // exhausted history must never redirect an old click to a newer mention.
     if (!target) return
     const rowEl = target.closest<HTMLElement>('[data-transcript-row], .reply-event, .msg') ?? target
     const msgEl = rowEl.querySelector<HTMLElement>('.msg.assistant, .msg') ?? rowEl
