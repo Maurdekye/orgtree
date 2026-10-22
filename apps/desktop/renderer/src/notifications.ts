@@ -5,6 +5,7 @@ import { onLiveBump } from './livebus'
 import { desktop } from './desktop'
 import { onHeldEvent } from './events/heldbus'
 import type { NativeNotice } from './desktop'
+import type { UserMentionInfo } from './types'
 import type { NotificationIdentity } from '../../../../packages/contracts'
 import { notificationEnabled, notificationPreferences } from '../../../../packages/contracts/notifications'
 import { questionVisible } from './notification-visibility'
@@ -45,6 +46,12 @@ export async function notifyOnce(notice: NativeNotice): Promise<boolean> {
 }
 
 export type DesktopNotice = NativeNotice & { focusDesk?: boolean; fromTaskbar?: boolean }
+/** A queued click keeps its own identity even when the tree has a newer marker.
+ * Only a matching marker may fill in an event omitted by an older notice. */
+export function notificationMentionTarget(notice: DesktopNotice, current?: Pick<UserMentionInfo, 'id' | 'event_id'> | null) {
+  const mentionId = notice.id.startsWith('mention:') ? notice.id.split(':').slice(3).join(':') : ''
+  return { mentionId, eventId: notice.source_id ?? (current?.id === mentionId ? current.event_id : undefined) }
+}
 /** Inbox question rows use a namespace so ask IDs cannot collide with mail. */
 export function notificationInboxTarget(notice: DesktopNotice): string {
   const source = notice.source_id ?? notice.id.replace(/^(mail|ask):/, '')

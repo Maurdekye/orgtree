@@ -29,6 +29,11 @@ Suggest individual kinds according to what the user wants to notice. All mail is
 
 Native alerts have stable identities to avoid duplicate banners, and resolved attention removes corresponding native alerts where supported. The desktop closes pending/shown alerts for kinds disabled by a changed preference. OS support and native delivery still matter: the engine recording mail or attention does not prove a banner appeared, and a banner does not establish that the user read or approved it.
 
+Clicking a transcript mention banner or taskbar entry keeps that notification's
+mention and source-event identity. If the agent has since mentioned you again,
+the newer mention remains unseen. Current tree metadata can fill a missing event
+only for the same mention ID; a changed agent generation still blocks the jump.
+
 The persistent taskbar/dock attention dot is separate from these banner
 preferences. It follows unresolved questions, urgent mail, docket attention and
 plain user mentions; ordinary unread mail and standalone terminal failures do

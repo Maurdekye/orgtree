@@ -5,7 +5,7 @@ import { useOpenCommit } from './opentiming'
 import { publishAgentPanelEvent } from './recordevents'
 import { useRecordInbox, useRecordEvents } from './recordpanelhooks'
 import type { DesktopNotice } from './notifications'
-import { notificationInboxTarget, useNativeNotifications } from './notifications'
+import { notificationInboxTarget, notificationMentionTarget, useNativeNotifications } from './notifications'
 import { startPendingMirror, usePendingAttention, waitingNow } from './pending-attention'
 import { ownsNotifications, useWindowIdentity } from './shell/identity'
 import { restoredWindows, restoreWindowKind } from './windowlayout'
@@ -712,8 +712,7 @@ export default function App() {
       if (!agent || nativeTarget.generation === undefined || (agent.generation ?? 0) === nativeTarget.generation) {
         const agentId = agent?.id ?? nativeTarget.agent
         if (nativeTarget.kind === 'mention') {
-          const mentionId = agent?.user_mention?.id ?? (nativeTarget.id.startsWith('mention:') ? nativeTarget.id.split(':').slice(3).join(':') : '')
-          const eventId = agent?.user_mention?.event_id ?? nativeTarget.source_id
+          const { mentionId, eventId } = notificationMentionTarget(nativeTarget, agent?.user_mention)
           if (mentionId) void dismissUserMention(slug, agentId, mentionId, eventId, { highlight: true })
         }
         setFocusAgentDesk(true); setFocusAgent(agentId)
@@ -736,8 +735,7 @@ export default function App() {
       const agent = flatNodes(tree).get(nativeTarget.agent)
       if (!agent || nativeTarget.generation === undefined || (agent.generation ?? 0) === nativeTarget.generation) {
         const agentId = agent?.id ?? nativeTarget.agent
-        const mentionId = agent?.user_mention?.id ?? (nativeTarget.id.startsWith('mention:') ? nativeTarget.id.split(':').slice(3).join(':') : '')
-        const eventId = agent?.user_mention?.event_id ?? nativeTarget.source_id
+        const { mentionId, eventId } = notificationMentionTarget(nativeTarget, agent?.user_mention)
         if (mentionId) void dismissUserMention(slug, agentId, mentionId, eventId, { highlight: true })
         if (v3 && viewMode === 'attention' && !nativeTarget.fromTaskbar) {
         // AttentionView reads focusAgent directly.

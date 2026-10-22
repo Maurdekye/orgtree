@@ -12,6 +12,16 @@ This replaces fallback-to-preview copying. Clipboard actions are local UI
 operations; no engine mutation or agent tool was added.
 [verified: `canvas/copytext.ts`, `desk.tsx`, `mail.tsx`, `mailreply.tsx`,
 `replypreview.tsx`, `objectnavhost.tsx`; decided: coordinator 2026-10-21 hardening assignment]
+## Transcript mention notification identity (2026-10-22)
+
+Both native-banner and taskbar/forced-desk App routes use the clicked notice's
+mention ID and `source_id`, preserving existing generation guards. The current
+tree marker may provide a missing event ID only when its mention ID equals the
+clicked ID. A newer marker cannot replace the target or be acknowledged by that
+click. The engine's existing ID-matched mention-seen endpoint remains unchanged.
+This is routing/acknowledgement correction, with no new action or tool. [verified:
+`src/{App,notifications}.tsx`, `src/notifications.ts`,
+`tests/stalementionnotice.test.tsx`, `http/nodes.rs`; 2026-10-22]
 
 ## Retained mail reconciliation (2026-10-21)
 
