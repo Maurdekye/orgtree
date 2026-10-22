@@ -184,10 +184,15 @@ test('main and the preload wire one startup switch and the Session 0 restart pat
   // engine gracefully and starts it again through the boot task, in Session
   // 0; there is no restart into the user's session and no one-off admin
   // restart
-  assert.match(restart, /if \(route\(await readStartupTasks\(\)\.catch\(\(\) => null\)\) === 'boot'\) \{/)
+  // an installed build that cannot read its tasks refuses before anything
+  // stops (invariant 1, fail closed: rig-sol-b's finding on a1f6c43)
+  assert.match(restart, /const where = route\(await readStartupTasks\(\)\.catch\(\(\) => null\), app\.isPackaged\)/)
+  assert.match(restart, /if \(where === 'unknown'\) throw new Error\(UNREADABLE_TASKS\)/)
+  assert.ok(restart.indexOf("where === 'unknown'") < restart.indexOf('stopAttachedForUpdate'), 'the refusal comes before the stop')
+  assert.match(restart, /if \(where === 'boot'\) \{/)
   assert.match(restart, /await engine\.stopAttachedForUpdate\(\)\s+await startEngineTask\(\)\s+if \(!await engine\.reattachBackground\(engineOptions, 120000\)\)/)
   assert.doesNotMatch(restart, /startInSession|runSessionAsAdmin|adminOnce|where === 'session'|stopForSessionRestart|replaceWithSessionAdmin/)
-  assert.match(main, /launchBackground\(engineOptions\)/)
+  assert.equal((main.match(/launchBackground\(engineOptions, app\.isPackaged\)/g) ?? []).length, 2, 'the first start and the recovery both say whether this build is installed')
   assert.match(main, /engine\.usesBackgroundTask && restartBackground\) await restartBackground\(\)/, 'the tray restarts a task-run engine the same way')
   // Switching Run as admin on first says what it does, before the one UAC
   // prompt, and declining keeps it off and says so. Settings and the tray
