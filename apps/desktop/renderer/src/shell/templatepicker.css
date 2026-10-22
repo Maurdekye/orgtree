@@ -50,3 +50,5 @@ tr.tp-blocked td { background: rgba(255, 120, 90, .06); }
 .save-template-groups .org-check input { flex: 0 0 auto; }
 .save-template-label { flex: 1; min-width: 0; }
 .save-template-path { word-break: break-all; font-size: 12px; }
+/* Machine watchdogs are an opt-in within the watchdog include choice. */
+.save-template-subchoice { margin-left: 22px; }

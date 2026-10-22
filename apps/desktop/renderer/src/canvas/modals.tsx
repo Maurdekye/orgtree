@@ -262,6 +262,7 @@ export function WatchdogPanel({ slug, dog, dogs, op, toast, close }: {
           <p className="wd-description">{description.summary}</p>
           <div className="dim wd-delivery">{description.delivery}</div>
         </div>
+        {dog.template_warning && <div className="ask-warn" role="alert">{dog.template_warning}</div>}
         {dog.once && <div className="wd-once-note">
           {dog.spent
             ? 'This one-shot dog has fired. Its spark is travelling to its owner; it will disappear shortly.'

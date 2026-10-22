@@ -72,6 +72,9 @@ const GROUPS: { key: keyof TemplateInclude; label: string; hint?: string }[] = [
   { key: 'quick_chat', label: 'Quick chat defaults', hint: 'the superior, model and effort it starts with here' },
   { key: 'settings', label: 'Org-wide settings',
     hint: 'grant caps, new-agent defaults, compaction and resume; never folders, accounts or hubs' },
+  { key: 'watchdogs', label: 'Include watchdogs', hint: 'standing watches; node targets follow the new layout; credentials are never saved' },
+  { key: 'machine_watchdogs', label: 'Include machine-specific watchdogs', hint: 'files, commands, processes, streams, MQTT and WebSocket; recreated paused so you can check their targets' },
+  { key: 'audiences', label: 'Include audiences', hint: 'explicit grants between saved nodes, plus user and outside-mail access; shown before creation' },
   { key: 'accounts', label: 'Account binding', hint: 'this computer only; used where it can run, otherwise picked automatically' },
   { key: 'folders', label: 'Folder scopes', hint: "this computer only; trimmed to the new organization's folders" },
   { key: 'standing_notes', label: 'Scratch AGENTS.md files',
@@ -79,6 +82,7 @@ const GROUPS: { key: keyof TemplateInclude; label: string; hint?: string }[] = [
 ]
 export const DEFAULT_INCLUDE: TemplateInclude = {
   charters: true, credits: true, effort: true, tools: true, org_md: true, accounts: false, folders: false, quick_chat: true, settings: true, standing_notes: false,
+  watchdogs: true, machine_watchdogs: false, audiences: true,
 }
 
 /** Hand the saved file to the browser's download, as documents are. */
@@ -145,14 +149,14 @@ export function SaveTemplateModal({ slug, orgName, tree, close }: { slug: string
             <label className="row org-check"><input type="checkbox" checked disabled /> Tree, names and tiers
               <span className="dim"> · always</span></label>
             {GROUPS.map((g) => (
-              <label className="row org-check" key={g.key}>
-                <input type="checkbox" checked={include[g.key]}
+              <label className={`row org-check${g.key === 'machine_watchdogs' ? ' save-template-subchoice' : ''}`} key={g.key}>
+                <input type="checkbox" checked={!!include[g.key]} disabled={g.key === 'machine_watchdogs' && !include.watchdogs}
                   onChange={(e) => setInclude((i) => ({ ...i, [g.key]: e.target.checked }))} />
                 <span className="save-template-label">{g.label}{g.hint && <span className="dim"> · {g.hint}</span>}</span>
               </label>
             ))}
           </div>
-          <p className="dim">Never saved: mail, docket items, transcripts, watchdogs and audiences.
+          <p className="dim">Never saved: mail, docket items, transcripts or watchdog credentials.
             Anything unticked takes the normal hire defaults when the template is used.</p>
           {error && <div className="ask-warn" role="alert">{error}</div>}
           <div className="row">
@@ -166,6 +170,8 @@ export function SaveTemplateModal({ slug, orgName, tree, close }: { slug: string
           <p>Saved <b>{saved.file}</b> with {saved.agents} agent{saved.agents === 1 ? '' : 's'} to your templates
             folder. It is offered under Starting layout when you create an organization.</p>
           <p className="dim save-template-path">{saved.path}</p>
+          <p className="dim">{saved.watchdogs ?? 0} watchdogs · {saved.audiences ?? 0} explicit audience grants</p>
+          {!!saved.warnings?.length && <div className="ask-warn" role="alert">{saved.warnings.join('; ')}</div>}
           {saved.problems.length > 0 && (
             <div className="ask-warn" role="alert">This template cannot be used as saved: {saved.problems.join('; ')}</div>)}
           <div className="row">

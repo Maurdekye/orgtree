@@ -752,6 +752,8 @@ export interface AskTab {
 
 /** FR-18: a watchdog — a free persistent pet (ledger `watchdogs`) */
 export interface Watchdog {
+  template_warning?: string
+  needs_credentials?: boolean
   /** Lightweight project relationship; read exact detail for retained events. */
   metadata_only?: boolean
   /** fair_queue: messages per assignment round and maximum unacked mail; default 1 */

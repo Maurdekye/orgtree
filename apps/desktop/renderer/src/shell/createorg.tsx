@@ -132,8 +132,9 @@ export function CreateOrgView({ onCreated, onRequestClose, wrapCreate }: CreateO
       // terminal for this form whatever the binding then does
       published.current = false
       await desktop()?.setUnsavedCreation?.(false)?.catch?.(() => {})
-      if (made.standing_notes?.warnings.length) {
-        setCreatedWarning({ slug: made.slug, warnings: made.standing_notes.warnings })
+      const warnings = [...(made.standing_notes?.warnings ?? []), ...(made.watchdogs?.warnings ?? [])]
+      if (warnings.length) {
+        setCreatedWarning({ slug: made.slug, warnings })
       } else await onCreated(made.slug)
     } catch (err) {
       // ⚠ NOTHING IS RESET HERE. An actionable error and every detail still
@@ -145,8 +146,8 @@ export function CreateOrgView({ onCreated, onRequestClose, wrapCreate }: CreateO
 
   if (createdWarning) return <div className="shell-page shell-create"><div className="shell-page-inner">
     <h1 className="shell-page-title">Organization created</h1>
-    <div role="alert">Some standing-notes files could not be copied: {createdWarning.warnings.join('; ')}.
-      The organization exists; inspect its scratch notes before starting work.</div>
+    <div role="alert">Review the template warnings: {createdWarning.warnings.join('; ')}.
+      The organization exists; check these items before starting work.</div>
     <button type="button" className="primary" onClick={() => { void onCreated(createdWarning.slug) }}>Open organization</button>
   </div></div>
   return (

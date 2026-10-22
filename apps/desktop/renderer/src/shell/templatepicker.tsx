@@ -175,6 +175,8 @@ export function TemplatePicker({ choice, onChange, plan, onPlan, orgName, dirs }
               {a.depth > 0 && <span className="tp-indent" style={{ marginLeft: (a.depth - 1) * 12 }} aria-hidden="true">{'└'}</span>}
               <input value={choice.overrides[a.slot]?.name ?? a.name} aria-label={`name of ${a.slot}`}
                 onChange={(e) => setSlot(a.slot, { name: e.target.value })} />
+              {!!a.watchdogs && <div className="tp-note">{a.watchdogs} watchdog{a.watchdogs === 1 ? '' : 's'}</div>}
+              {!!a.audiences?.length && <div className="tp-note">Audience grants: {a.audiences.map(g => g === '@user' || g === 'user' ? 'user' : g === '@extern' || g === 'extern' ? 'outside mail' : g).join(', ')}</div>}
             </td>
             <td>
               {a.requested_tier === 'project' ? <span className="tp-chip">project</span> : <select value={a.tier ?? ''} aria-label={`tier of ${a.name}`} data-provider={a.provider ?? ''}
@@ -195,6 +197,7 @@ export function TemplatePicker({ choice, onChange, plan, onPlan, orgName, dirs }
           </tr>)}
         </tbody>
       </table>
+      {!!plan.warnings?.length && <div className="ask-warn" role="alert">{plan.warnings.join('; ')}</div>}
       <div className="tp-foot">
         <span>{choice.removed.length > 0 && <button type="button" className="tp-link"
           onClick={() => onChange({ ...choice, removed: [] })}>bring back {choice.removed.length} left out</button>}

@@ -229,8 +229,8 @@ export const createOrg = (
   name: string, dirs: string[],
   netAutoconnect = true, netHubs: string[] = [],
   template: TemplatePick | null = null,
-): Promise<{ slug: string; hired?: string[]; standing_notes?: { created: number; existing: number; warnings: string[] } }> =>
-  req<{ slug: string; hired?: string[]; standing_notes?: { created: number; existing: number; warnings: string[] } }>('/api/orgs', {
+): Promise<{ slug: string; hired?: string[]; standing_notes?: { created: number; existing: number; warnings: string[] }; watchdogs?: { created: number; warnings: string[] } }> =>
+  req<{ slug: string; hired?: string[]; standing_notes?: { created: number; existing: number; warnings: string[] }; watchdogs?: { created: number; warnings: string[] } }>('/api/orgs', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -267,6 +267,8 @@ export interface TemplatePlanRow {
   seat: number; grant: number; charter: string
   team_charter: string | null; kickoff: boolean; blocked: boolean
   dirs_dropped: string[]
+  watchdogs?: number
+  audiences?: string[]
 }
 export interface TemplatePlan {
   id: string; name: string; agents: TemplatePlanRow[]; blocked: string[]
@@ -275,6 +277,7 @@ export interface TemplatePlan {
   /** the engine has not finished its first sign-in check: ask again shortly */
   loading?: boolean
   unusable_here?: boolean
+  warnings?: string[]
 }
 export interface TemplateInclude {
   charters: boolean; credits: boolean; effort: boolean; tools: boolean
@@ -285,9 +288,13 @@ export interface TemplateInclude {
   settings: boolean
   /** Opt-in bounded copies of shared, team and personal scratch AGENTS.md. */
   standing_notes?: boolean
+  watchdogs?: boolean
+  machine_watchdogs?: boolean
+  audiences?: boolean
 }
 export interface SavedTemplate {
   id: string; file: string; path: string; content: string; agents: number; problems: string[]
+  watchdogs?: number; audiences?: number; warnings?: string[]
 }
 export const listTemplates = (name = ''): Promise<{ templates: TemplateSummary[]; dir: string; folder_error?: string | null; loading?: boolean }> =>
   req('/api/templates' + (name ? `?name=${encodeURIComponent(name)}` : ''))
