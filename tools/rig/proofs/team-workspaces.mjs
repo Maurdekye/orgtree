@@ -33,7 +33,7 @@ export function teamNotesBlockOrder(prompt, files) {
     [files.lead, "lead's team", '- TEAM-LEAD-NOTES-V1\n'],
     [files.boss, "boss's team", '- TEAM-BOSS-NOTES-V1\n'],
   ]
-  const rules = text.indexOf('TEAM WORKSPACES:')
+  const rules = text.indexOf('TEAM WORKSPACES, nearest first: ')
   return rules >= 0 && rules < blocks[0].index && blocks.every((block, i) => {
     const [file, label, body] = expected[i]
     const header = `${file}, the shared AGENTS.md of ${label} as it was when your CLI started. Every agent in that subtree gets it and may edit it; the file itself is the current version.`

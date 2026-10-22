@@ -41,7 +41,7 @@ no-engine-written-file rule; other workspace contents remain the agents'.
 
 ## What the agent is told
 
-After the org folder's rule, a `TEAM WORKSPACES:` sentence lists the folders nearest first,
+After the org folder's rule, a `TEAM WORKSPACES, nearest first:` sentence lists the folders,
 each labelled ("your own team's", "lead's team"). It says that agents outside a subtree never
 see its workspace, that a move changes the set from the next session, that each workspace's
 `AGENTS.md` is that team's shared notes, and the org folder's rules (descriptive names or a
