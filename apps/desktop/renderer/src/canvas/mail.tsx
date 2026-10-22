@@ -1146,6 +1146,7 @@ export function MailReplyBox({ target, slug, onSend, placeholder, sendDisabled =
     inputRef: taRef,
     candidates: mentionCandidates,
     disabled: sendDisabled,
+    org: slug,
   })
   const enterKey = useComposerEnter()
   // what happened to the last send, said in the box: `sending` from the click,

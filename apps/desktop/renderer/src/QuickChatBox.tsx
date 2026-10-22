@@ -188,6 +188,7 @@ export function QuickChat({ slug, tree, op, toast, onHired, agentList, label = '
     inputRef,
     candidates: mentionCandidates,
     disabled: busy,
+    org: slug,
   })
   const open = (kind: PopKind) => (e: { currentTarget: HTMLElement }) => {
     const anchor = e.currentTarget

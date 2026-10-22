@@ -362,6 +362,7 @@ function ProjectComposer({ node, slug, tree, map, toast, members, recipients, ba
     inputRef: textareaRef,
     candidates: mentionCandidates,
     disabled: !can,
+    org: slug,
   })
   onRegisterMention?.(can ? mentions.captureMention : null, mentions.noteRightClickDown)
   const attach = (file: File) => {

@@ -3659,6 +3659,7 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
     candidates: mentionCandidates,
     disabled: !canMail,
     transcriptTexts,
+    org: slug,
   })
   const mentionScope = useDeskMentionScope(canMail ? mentions.captureMention : null, mentions.noteRightClickDown)
   // №6: dropping a file anywhere on the desk uploads it (and prevents the

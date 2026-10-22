@@ -9,12 +9,29 @@ import { useContextMenu, copyToClipboard } from './contextmenu'
 import type { MenuEntry } from './contextmenu'
 import { orgMenuEntries, orgTitle } from './orgidentity'
 import { requestOpenOrg } from '../shell/openorg'
+import { DocketIcon } from '../icons'
+import { objectTooltipProps } from './objecttooltip'
+import { refToken } from './reflinks'
+import { useTicketMentionCandidates } from './ticketmentions'
 
 export interface MentionCandidate {
   id: string
   tier: string
-  kind: 'agent' | 'project'
+  kind: 'agent' | 'project' | 'ticket'
+  /** a ticket's org: completing it inserts the ticket's reference */
+  org?: string
+  /** a ticket's title, matched as well as its slug */
+  title?: string
 }
+
+/** What completing a candidate inserts: `@<name>`, or a ticket's reference
+ *  `@item:<org>/<slug>` (the form Copy reference copies). */
+export function mentionText(c: MentionCandidate): string {
+  return c.kind === 'ticket' && c.org ? refToken({ kind: 'item', org: c.org, id: c.id }) : `@${c.id}`
+}
+
+/** One entry's identity in the list: a ticket and an agent may share a name. */
+const mentionKey = (c: MentionCandidate): string => c.kind + ':' + c.id
 
 const orgCandidates = new Map<string, MentionCandidate[]>()
 const candidateListeners = new Set<() => void>()
@@ -173,10 +190,13 @@ export function filterMentionCandidates(
   const substring: MentionCandidate[] = []
   for (const c of candidates) {
     const id = c.id.toLowerCase()
+    const ticket = c.kind === 'ticket'
     const isPrefix = !q || id.startsWith(q)
-    const isMatch = isPrefix || id.includes(q)
+    // a ticket's title words find it too: a slug is a cut-down title
+    const isMatch = isPrefix || id.includes(q) || (ticket && !!c.title?.toLowerCase().includes(q))
     if (!isMatch) continue
-    const seq = recency?.get(id)
+    // a ticket counts as mentioned by its own reference, never by a same-named agent
+    const seq = recency?.get(ticket ? `item:${(c.org ?? '').toLowerCase()}/${id}` : id)
     if (seq !== undefined) {
       mentioned.push({ c, seq })
     } else if (isPrefix) {
@@ -197,6 +217,7 @@ export function useAgentMentions({
   candidates,
   disabled,
   transcriptTexts,
+  org,
 }: {
   value: string
   onChange?: (next: string) => void
@@ -205,6 +226,9 @@ export function useAgentMentions({
   candidates: MentionCandidate[]
   disabled?: boolean
   transcriptTexts?: () => Iterable<string>
+  /** the org whose docket tickets the list also offers (USER 2026-10-22
+   *  18:16:44Z); omitted, it offers agents and projects only */
+  org?: string | null
 }): {
   onKeyDown: (e: React.KeyboardEvent<HTMLInputElement | HTMLTextAreaElement>) => boolean
   syncCaret: () => void
@@ -224,7 +248,9 @@ export function useAgentMentions({
   const recencySessionRef = useRef<{ start: number; recency: ReadonlyMap<string, number> } | null>(null)
   const preRightClickSnapRef = useRef<{ focused: boolean; start: number; end: number; ts: number } | null>(null)
   const [caret, setCaret] = useState(value.length)
-  const [selection, setSelection] = useState<{ key: string | null; index: number }>({ key: null, index: -1 })
+  // `pick` holds the highlighted entry itself: tickets arrive after the list
+  // opens, and an arrival must not move the highlight to another entry
+  const [selection, setSelection] = useState<{ key: string | null; index: number; pick?: string }>({ key: null, index: -1 })
   const [dismissedKey, setDismissedKey] = useState<string | null>(null)
   const [rect, setRect] = useState<{ left: number; bottom: number; width: number } | null>(null)
 
@@ -329,6 +355,10 @@ export function useAgentMentions({
     }
   }
   const activeRecency = recencySessionRef.current?.recency ?? null
+  // tickets FOLLOW the agents and projects: at an equal match the list keeps
+  // agents nearest the box, as it draws bottom-up
+  const tickets = useTicketMentionCandidates(org, canShow && activeQuery ? activeQuery.query : null)
+  const offered = useMemo(() => tickets.length ? [...candidates, ...tickets] : candidates, [candidates, tickets])
 
   useEffect(() => {
     if (selection.key !== null && selection.key !== queryKey) {
@@ -338,16 +368,19 @@ export function useAgentMentions({
   }, [queryKey, dismissedKey, selection.key])
 
   const matches = useMemo(
-    () => (canShow && activeQuery ? filterMentionCandidates(candidates, activeQuery.query, activeRecency).reverse() : []),
-    [canShow, activeQuery, candidates, activeRecency],
+    () => (canShow && activeQuery ? filterMentionCandidates(offered, activeQuery.query, activeRecency).reverse() : []),
+    [canShow, activeQuery, offered, activeRecency],
   )
   if (!matches.length) {
     recencySessionRef.current = null
   }
 
   const open = !disabled && matches.length > 0 && activeQuery !== null
+  const picked = selection.key === queryKey && selection.pick
+    ? matches.findIndex(c => mentionKey(c) === selection.pick) : -1
   const clampedIndex = matches.length === 0
     ? 0
+    : picked >= 0 ? picked
     : selection.key === queryKey && selection.index >= 0 && selection.index < matches.length
       ? selection.index
       : matches.length - 1
@@ -377,7 +410,7 @@ export function useAgentMentions({
   const complete = useCallback((candidate: MentionCandidate) => {
     if (!activeQuery) return
     const after = value.slice(activeQuery.end)
-    const insert = `@${candidate.id}${after.startsWith(' ') ? '' : ' '}`
+    const insert = `${mentionText(candidate)}${after.startsWith(' ') ? '' : ' '}`
     const nextValue = value.slice(0, activeQuery.start) + insert + after
     const nextCaret = activeQuery.start + insert.length
     emit?.(nextValue)
@@ -407,13 +440,15 @@ export function useAgentMentions({
     if (e.key === 'ArrowDown') {
       e.preventDefault()
       e.stopPropagation()
-      setSelection({ key: queryKey, index: (clampedIndex + 1) % matches.length })
+      const next = (clampedIndex + 1) % matches.length
+      setSelection({ key: queryKey, index: next, pick: mentionKey(matches[next]!) })
       return true
     }
     if (e.key === 'ArrowUp') {
       e.preventDefault()
       e.stopPropagation()
-      setSelection({ key: queryKey, index: (clampedIndex - 1 + matches.length) % matches.length })
+      const next = (clampedIndex - 1 + matches.length) % matches.length
+      setSelection({ key: queryKey, index: next, pick: mentionKey(matches[next]!) })
       return true
     }
     if (e.key === 'Escape') {
@@ -440,24 +475,28 @@ export function useAgentMentions({
           ref={menuRef}
           className="agent-mentions"
           role="listbox"
-          aria-label="Agent and project mentions"
+          aria-label="Agent, project and ticket mentions"
           style={rect ? { position: 'fixed', left: rect.left, bottom: rect.bottom, minWidth: rect.width, zIndex: 10000 } : undefined}
         >
           {matches.map((c, idx) => (
             <button
-              key={c.id}
+              key={mentionKey(c)}
               type="button"
               role="option"
               aria-selected={idx === clampedIndex}
-              className={'agent-mention-item' + (idx === clampedIndex ? ' active on' : '')}
+              className={'agent-mention-item' + (c.kind === 'ticket' ? ' mention-ticket' : '') + (idx === clampedIndex ? ' active on' : '')}
+              // a ticket hovers with the one ticket identity every ticket link shows
+              {...(c.kind === 'ticket' ? { ...objectTooltipProps('ticket', c.id, c.org), 'aria-label': `ticket ${c.id}` } : {})}
               onMouseDown={e => {
                 e.preventDefault()
                 e.stopPropagation()
                 complete(c)
               }}
             >
-              <TierChip tier={c.kind === 'project' ? 'project' : c.tier} />
-              <span className="agent-mention-name">{'@' + c.id}</span>
+              {c.kind === 'ticket'
+                ? <span className="mention-ticket-mark" aria-hidden="true"><DocketIcon fontSize="inherit" /></span>
+                : <TierChip tier={c.kind === 'project' ? 'project' : c.tier} />}
+              <span className="agent-mention-name">{c.kind === 'ticket' ? c.id : '@' + c.id}</span>
             </button>
           ))}
         </div>,
