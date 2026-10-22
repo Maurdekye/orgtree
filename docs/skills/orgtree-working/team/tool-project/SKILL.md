@@ -49,6 +49,14 @@ Everything else uses the usual tools with the project's name: [orgtree-tool-move
 - `action=slots` with `name`: the project's slot count, its holders (agent, lease, since, reminders; no slot number), the line in order (place, agent, since) and its newest **30** ended holds with how each ended. Agents above or below the project may look. This is a fixed status-history page: `limit`/`offset` do not shrink or page it. A returned `history_next` belongs to the separate history-read path used by the desktop; this agent action exposes no older-history cursor input. Limit/offset on other actions apply only where documented below.
 - `action=release_slot` with `lease` (and an optional `note`, e.g. `build ok 265s`): releases the concurrency slot you hold; the next in line is granted it at once. The holder releases its own lease; any project ancestor may use force=true; another member or unrelated agent is refused (`lease … is …'s; only its holder releases it`). A released or reclaimed lease is refused (`lease … has already ended (…)`).
 
+Retiring an agent releases all its leases across every project and removes its
+waiting claims from the active line. Dissolve and delete also clean up each
+affected descendant. Whole multi-slot leases end together; after commit the
+existing strict FIFO line is checked immediately for complete grants. Recent
+holds preserve each lease and quantity with `retired` as the end reason.
+User-owned holds are unaffected. Automatic bookkeeping release does not itself
+stop protected work or grant permission to overlap an old process.
+
 ```json
 {"action":"release_slot","lease":"s3f1c2a9b0d4e","note":"build ok"}
 ```

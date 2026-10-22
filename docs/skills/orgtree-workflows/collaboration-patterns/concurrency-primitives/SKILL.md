@@ -74,6 +74,15 @@ If granted immediately, use the returned lease. If queued, end the turn; the one
 
 For a counting semaphore, the supervisor configures `{"action":"configure","name":"resource-lock","settings":{"slots":3}}` instead. A worker may add `"slots":2` to its slot watchdog claim; omitted means 1. Capacity is 0–9,999,999, and a claim is 1–9,999,999. The engine grants all requested units together as **one lease** and releasing that lease frees all of them. Requests above capacity minus that holder's active units and counted pending requests are refused with an explanatory conflict. Agents may hold several leases but keep one armed/paused pending claim per project; cancel it before making another. The user may keep several pending requests, all counted against their remaining room. Admission and resume recheck under the project lock. The eligible line is strict FIFO: a head needing two slots blocks a smaller claim behind it while only one is free. Three is an example capacity, not permission for three builds on any machine. Capacity 0 disables new claims; a capacity decrease can leave an existing head waiting until capacity is raised or the claim is cancelled. There is no priority setting. Resource/RAM gates and process containment remain separate agreements; [build-slots](../build-slots/SKILL.md) applies these ideas to builds.
 
+Retiring an agent releases every lease it holds in every project, including
+all units of multi-slot leases, and removes its waiting claims from the active
+line. Dissolve and delete do the same for every affected descendant. After the
+change commits, each affected project's line is checked immediately in strict
+FIFO order; a newly eligible claim is granted whole. Recent holds retain the
+lease quantity with `retired` as its end reason. User-owned holds are unaffected.
+This bookkeeping does not prove the former holder's protected work has stopped;
+the agreed process-containment and shutdown rules still apply.
+
 ## Read/write agreement: one slot per reader, all slots per writer
 
 An authorized supervisor creates an N-slot project above the workers. For

@@ -1,5 +1,19 @@
 # Projects and concurrency
 
+## Slots when agents leave the tree (2026-10-22)
+
+Retire, dissolve and delete capture every affected agent's active lease and
+waiting-claim project before pausing/removing its watchdogs. `slots::departing_projects`
+uses 64-row keyset pages over active records; that page size is not a lease/project
+limit. After commit, `slots::check` ends gone holders' whole leases as `retired`
+and runs the existing strict FIFO grant path. This includes a waiting-only head
+whose removal makes a smaller tail eligible without releasing any held lease.
+History retains each lease's quantity and retirement reason. Halt's existing
+reclaim path and user-owned leases are unchanged.
+[decided: user 2026-10-22 22:18:24Z, automatic retirement release; coordinator
+2026-10-22, dissolve/delete scope; verified: `domain/{ops,slots}.rs`, focused
+`tools/rig/proofs/project-retirement-slots.mjs`]
+
 ## Uncapped registrations and durable delivery (2026-10-21)
 
 Queue allocation filters live/reachable canonical listeners and ACK capacity

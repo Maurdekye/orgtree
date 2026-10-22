@@ -471,6 +471,35 @@ pub async fn idle_timeouts(engine: &Arc<Engine>, org_id: i64, agent: i64, name: 
     Ok(kept)
 }
 
+/// Every active slot target of agents leaving the tree. Capture before
+/// pause_owned/delete removes waiting claims from the eligible line. Read
+/// bounded keyset pages, without turning a query page into a project cap;
+/// ended leases and inactive watchdog history never enter the result.
+/// The operation keeps these targets in Effects and checks them after commit.
+#[logged]
+pub(crate) async fn departing_projects(client: &impl GenericClient, org_id: i64, owners: &[i64]) -> Result<Vec<i64>> {
+    let mut projects = Vec::new();
+    let mut after = 0i64;
+    loop {
+        let rows = client.query(
+            "SELECT project_id FROM (
+                SELECT project_id FROM ot.slot_leases
+                 WHERE org_id=$1 AND holder_agent_id=ANY($2) AND ended_at IS NULL
+                UNION SELECT (memo->>'target_id')::bigint AS project_id FROM ot.watchdogs
+                 WHERE org_id=$1 AND owner_agent_id=ANY($2) AND kind='slot' AND state='armed'
+                   AND memo->>'target_id' IS NOT NULL
+             ) active WHERE project_id>$3 ORDER BY project_id LIMIT 64",
+            &[&org_id, &owners, &after],
+        ).await?;
+        for row in &rows {
+            after = row.get(0);
+            projects.push(after);
+        }
+        if rows.len() < 64 { break; }
+    }
+    Ok(projects)
+}
+
 /// The projects an agent holds a slot of or waits in line for: what its
 /// halt, retire or claim change can move (`projects::recheck_holder`).
 #[logged]

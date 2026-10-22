@@ -1898,3 +1898,15 @@ All entries are dated 2026-10-06 unless stated otherwise.
   (m201e750b317d, relayed by the coordinator at 23:04Z) keeps DnD for **any descendant**;
   call it DnD for descendants, not subordinates. Existing UI labels and API enum values
   remain unchanged in this docs-only alignment.
+
+95. **Retiring an agent releases every project-slot lease and active waiting claim**
+    (user 2026-10-22 22:18:24Z, mf88cbe17d615; coordinator assignment for 4.4.2).
+    Whole multi-slot leases and holds across every project are released, with
+    `retired` retained as their history reason. After commit, each affected
+    project grants complete requests in its existing strict FIFO order. This
+    includes a waiting-only head whose removal unblocks a smaller tail without
+    releasing a held lease. Dissolve/delete apply the same cleanup to affected
+    descendants (coordinator scope); halt's existing behavior and user-owned
+    holds are unchanged. No slot bookkeeping proves protected work has stopped.
+    See [slot lifecycle](../agents/projects-and-concurrency.md#slots-when-agents-leave-the-tree-2026-10-22)
+    and `tools/rig/proofs/project-retirement-slots.mjs`.

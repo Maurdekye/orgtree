@@ -19,6 +19,13 @@ Read with `action=settings`, never `action=describe`: omitted-description `descr
 
 ## Run one assigned batch
 
+Retirement releases all the agent's slot leases, including multi-slot leases
+and holds in several projects, and removes its active waiting claims. Dissolve
+and delete apply the same cleanup to affected descendants. The line is checked
+after commit in strict FIFO order, and recent holds show `retired` as the end
+reason. A user-owned hold stays held. Automatic release is recovery, not a
+substitute for normal release or proof that a compiler/process tree stopped.
+
 1. Prepare the checkout, storage audit, tests/fixes and commands before claiming. Verify this CLI has watchdog `kind=slot` and project `release_slot`; stale startup schemas need a fresh CLI or coordinator help. Never claim a permit you cannot release, invent a lock-file fallback or bypass the tool interface through live APIs.
 2. Claim with `orgtree_watchdog action=create kind=slot target=build-slot name=<assigned batch>`. If queued, end the turn; the one-shot dog wakes you with the lease when granted. Do not poll. If granted immediately, `resolved:true, registered:false` returns the lease inline without a dog, mail or wake. Retain that lease and proceed without yielding; never guess a permit number.
 3. Check fresh free RAM against the current project Summary immediately before every phase. Follow its current Cargo jobs, Job limit and low-RAM wait/release deadline, using a once RAM watchdog where instructed. If the lease is reclaimed, claim again before work. Capacity alone never authorizes extra work.

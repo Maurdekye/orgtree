@@ -71,6 +71,8 @@ pub(crate) struct Effects {
     queue_modes: Vec<(i64, String, bool)>,
     /// projects whose free slots go to their line after commit (`slots::grant`)
     slot_grants: Vec<i64>,
+    /// retirement targets captured before their owners' waiting dogs are paused/removed
+    slot_rechecks: BTreeSet<i64>,
     /// projects whose listener count or watches changed through the user's own
     /// registrations (no runner re-checks them): evaluated after commit (`listeners::evaluate`)
     listener_evals: Vec<i64>,
@@ -1057,6 +1059,14 @@ pub(crate) async fn apply_effects(engine: &Arc<Engine>, org: &Arc<OrgHandle>, fx
     for id in &fx.stop {
         crate::domain::projects::recheck_holder(engine, org.id, *id).await;
     }
+    // A waiting-only owner no longer has an armed dog after retirement. Its
+    // targets, and every held target beyond projects_of's page, were captured
+    // in the operation transaction. Release gone holders, then grant FIFO.
+    for p in &fx.slot_rechecks {
+        if let Err(e) = Box::pin(crate::domain::slots::check(engine, org.id, *p)).await {
+            tracing::warn!(project = p, error = %format!("{e:#}"), "rechecking project slots after retirement failed");
+        }
+    }
     for p in &fx.queue_runs {
         if let Err(e) = Box::pin(crate::domain::projects::dispatch(engine, org.id, *p)).await {
             tracing::warn!(project = p, error = %format!("{e:#}"), "running a project's queue after a dead-letter retry failed");
@@ -1952,6 +1962,7 @@ async fn retire(org: &Arc<OrgHandle>, tx: &Transaction<'_>, actor: &Actor, req: 
         .await?;
     let kids: Vec<i64> = rows.iter().map(|r| r.get::<_, i64>(0)).filter(|id| *id != n.id).collect();
     moot_asks(tx, &ids, fx).await?;
+    fx.slot_rechecks.extend(super::slots::departing_projects(tx, org.id, &ids).await?);
     fx.dogs_off.extend(crate::runtime::watchdogs::pause_owned(tx, &ids).await?);
     let mut clawed = 0.0;
     if rescind {
@@ -2013,6 +2024,7 @@ async fn dissolve(org: &Arc<OrgHandle>, tx: &Transaction<'_>, actor: &Actor, req
         .await?;
     let done: Vec<i64> = rows.iter().map(|r| r.get(0)).collect();
     moot_asks(tx, &done, fx).await?;
+    fx.slot_rechecks.extend(super::slots::departing_projects(tx, org.id, &done).await?);
     fx.dogs_off.extend(crate::runtime::watchdogs::pause_owned(tx, &done).await?);
     event(tx, org.id, "dissolve", actor, Some(n.id), json!({ "node": n.name, "nodes": done.len() }), fx).await?;
     fx.agents.extend(done.iter().copied());
@@ -2044,6 +2056,7 @@ async fn delete(org: &Arc<OrgHandle>, tx: &Transaction<'_>, actor: &Actor, req: 
     )
     .await?;
     moot_asks(tx, &ids, fx).await?;
+    fx.slot_rechecks.extend(super::slots::departing_projects(tx, org.id, &ids).await?);
     let gone = tx
         .query(
             "UPDATE ot.watchdogs SET state = 'removed' WHERE owner_agent_id = ANY($1) AND state IN ('armed', 'paused', 'exited') RETURNING id",
