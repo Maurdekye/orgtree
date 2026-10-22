@@ -19,6 +19,21 @@ decided: coordinator 2026-10-22, 4.4.2 defect assignment]
 
 Shift+F4 visits the current org's retained mention destinations, including seen entries, through bounded cursor reads. History begins at 4.4.2 with a bounded pending seed; the feed retains 2,000 entries per org. Preserve exact transcript identities and the shared Settings/matcher table. See [mention navigation](../rust-engine/mention-navigation.md). [decided: user 2026-10-22, m5c9a92bca6d8; coordinator defaults mec06fbc099af]
 
+## Deep compatibility tree reads (2026-10-22)
+
+The initial/full HTTP tree response writes project nesting with an explicit
+heap stack from flat records. Do not rebuild a recursively nested JSON Value:
+its construction, serialization and destruction can each exhaust the engine
+thread's stack. Keep field escaping in serde_json, sibling order, parent names,
+runtime overlays, retired counts and revision/foreground metadata unchanged.
+The former depth-1024 truncation is removed from this transport; project bunch
+grouping is unrelated. The focused synthetic depth fixture is
+`tools/rig/proofs/deep-project-nesting.mjs` (approved depths are explicit in the
+fixture). It retains generated context files before rig cleanup and checks
+ancestry separately from the compatibility response. An HTTP fix does not
+prove all descendant operations or template paths at the same depth.
+[verified: `http/{tree,orgs}.rs`; 2026-10-22]
+
 ## Canvas superior insertion target (2026-10-22)
 
 Superior draft permissions identify the insertion target and keep its scope

@@ -69,7 +69,7 @@ pub async fn tree(State(e): State<Arc<Engine>>, Path(slug): Path<String>, header
         return Ok(r);
     }
     let body = crate::http::tree::project(&snap);
-    let mut r = Json(body).into_response();
+    let mut r = ([(axum::http::header::CONTENT_TYPE, "application/json")], body).into_response();
     r.headers_mut().insert("etag", HeaderValue::from_str(&etag).unwrap());
     r.headers_mut().insert("x-orgtree-sync-rev", HeaderValue::from(rev));
     r.headers_mut().insert("x-orgtree-org-rev", HeaderValue::from(rev));

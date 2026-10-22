@@ -10,7 +10,7 @@ use serde_json::{json, Map, Value};
 use crate::feed::groups::GROUPS;
 
 #[logged]
-pub fn project(snapshot: &Value) -> Value {
+pub fn project(snapshot: &Value) -> Vec<u8> {
     let records = snapshot["records"].as_array().cloned().unwrap_or_default();
     let mut header = Map::new();
     let mut agents: HashMap<String, Map<String, Value>> = HashMap::new();
@@ -67,45 +67,11 @@ pub fn project(snapshot: &Value) -> Value {
                 .then_with(|| ax.get("ord").and_then(Value::as_i64).cmp(&ay.get("ord").and_then(Value::as_i64)))
         });
     }
-    fn build(
-        id: &str,
-        parent: Option<&str>,
-        agents: &HashMap<String, Map<String, Value>>,
-        children: &HashMap<Option<String>, Vec<String>>,
-        held: &HashMap<Option<String>, i64>,
-        depth: usize,
-    ) -> Value {
-        let mut node = agents[id].clone();
-        node.remove("parent_id");
-        node.remove("sibling_order");
-        if let Some(total) = node.remove("retired_children_total").and_then(|t| t.as_i64()) {
-            let shown = held.get(&Some(id.to_string())).copied().unwrap_or(0);
-            node.insert("hidden_retired_children".into(), json!((total - shown).max(0)));
-        }
-        let kids: Vec<Value> = if depth < 1024 {
-            children
-                .get(&Some(id.to_string()))
-                .map(|ks| ks.iter().map(|k| build(k, Some(id), agents, children, held, depth + 1)).collect())
-                .unwrap_or_default()
-        } else {
-            Vec::new()
-        };
-        node.insert(
-            "parent".into(),
-            parent.and_then(|p| agents.get(p)).map(|p| p["id"].clone()).unwrap_or(Value::Null),
-        );
-        node.insert("children".into(), Value::Array(kids));
-        Value::Object(node)
-    }
-    let roots: Vec<Value> = children
-        .get(&None)
-        .map(|ks| ks.iter().map(|k| build(k, None, &agents, &children, &held, 0)).collect())
-        .unwrap_or_default();
     let rev = snapshot.pointer("/cursor/rev").cloned().unwrap_or(json!(0));
     let retired_total = header.remove("retired_total").unwrap_or(json!(0));
     let retired_roots = header.remove("retired_roots_total").and_then(|t| t.as_i64()).unwrap_or(0);
     let retired_roots = (retired_roots - held.get(&None).copied().unwrap_or(0)).max(0);
-    header.insert("roots".into(), Value::Array(roots));
+    header.remove("roots");
     header.insert("capabilities".into(), json!({ "record_changes_v1": true }));
     header.insert("sync_rev".into(), rev.clone());
     header.insert("org_rev".into(), rev);
@@ -114,5 +80,105 @@ pub fn project(snapshot: &Value) -> Value {
         json!({ "catalog_revision": "full", "present": agents.values().map(|a| a["id"].clone()).collect::<Vec<_>>(),
                 "missing": [], "hidden_retired_roots": retired_roots, "retired_total": retired_total }),
     );
-    Value::Object(header)
+    // The compatibility transport is nested JSON, but building a nested Value
+    // would recurse again when serializing AND when dropping it. Keep records
+    // flat and write only the tree structure with an explicit heap stack.
+    // serde_json still owns field/string escaping and each shallow record.
+    let mut out = serde_json::to_vec(&header).expect("JSON header values serialize");
+    out.pop(); // header's closing object brace; roots is its last field
+    out.extend_from_slice(b",\"roots\":[");
+    enum Part<'a> {
+        Node(&'a str, Option<&'a str>),
+        Bytes(&'static [u8]),
+    }
+    let mut pending = Vec::new();
+    if let Some(roots) = children.get(&None) {
+        for (i, id) in roots.iter().enumerate().rev() {
+            pending.push(Part::Node(id, None));
+            if i > 0 { pending.push(Part::Bytes(b",")); }
+        }
+    }
+    while let Some(part) = pending.pop() {
+        let Part::Node(id, parent) = part else {
+            if let Part::Bytes(bytes) = part { out.extend_from_slice(bytes); }
+            continue;
+        };
+        let mut node = agents[id].clone();
+        node.remove("parent_id");
+        node.remove("sibling_order");
+        node.remove("children");
+        if let Some(total) = node.remove("retired_children_total").and_then(|t| t.as_i64()) {
+            let shown = held.get(&Some(id.to_string())).copied().unwrap_or(0);
+            node.insert("hidden_retired_children".into(), json!((total - shown).max(0)));
+        }
+        node.insert("parent".into(), parent.and_then(|p| agents.get(p))
+            .map(|p| p["id"].clone()).unwrap_or(Value::Null));
+        let mut encoded = serde_json::to_vec(&node).expect("JSON node values serialize");
+        encoded.pop();
+        out.extend_from_slice(&encoded);
+        out.extend_from_slice(b",\"children\":[");
+        pending.push(Part::Bytes(b"]}"));
+        if let Some(kids) = children.get(&Some(id.to_string())) {
+            for (i, child) in kids.iter().enumerate().rev() {
+                pending.push(Part::Node(child, Some(id)));
+                if i > 0 { pending.push(Part::Bytes(b",")); }
+            }
+        }
+    }
+    out.extend_from_slice(b"]}");
+    out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[nolog]
+    fn record(id: &str, body: Value) -> Value {
+        json!({"entity":"agent","id":id,"body":body})
+    }
+
+    #[test]
+    fn compatibility_fields_order_runtime_and_retired_counts_survive() {
+        let snapshot = json!({"cursor":{"rev":17},"records":[
+            {"entity":"org","id":"settings","body":{"name":"test","retired_total":5,"retired_roots_total":2}},
+            record("2",json!({"id":"child","parent_id":"1","sibling_order":2,"state":"live","title":"quotes \" \\ 🦀"})),
+            record("3",json!({"id":"old","parent_id":"1","sibling_order":1,"state":"archived"})),
+            record("1",json!({"id":"boss","parent_id":null,"state":"live","retired_children_total":4})),
+            record("4",json!({"id":"orphan","parent_id":"missing","state":"archived"}))
+        ],"runtime":{"agents":{"2":{"busy":true,"seq":9,"epoch":"ignore","ask_linger_visible":true}}}});
+        let actual: Value = serde_json::from_slice(&project(&snapshot)).unwrap();
+        let roots = actual["roots"].as_array().unwrap();
+        let boss = roots.iter().find(|n| n["id"] == "boss").unwrap();
+        assert_eq!(boss["parent"], Value::Null);
+        assert_eq!(boss["hidden_retired_children"], 3);
+        assert_eq!(boss["children"][0]["id"], "old");
+        assert_eq!(boss["children"][1]["parent"], "boss");
+        assert_eq!(boss["children"][1]["busy"], true);
+        assert_eq!(boss["children"][1]["title"], "quotes \" \\ 🦀");
+        for key in ["parent_id", "sibling_order", "seq", "epoch", "ask_linger_visible"] {
+            assert!(boss["children"][1].get(key).is_none(), "{key}");
+        }
+        assert_eq!(actual["sync_rev"], 17);
+        assert_eq!(actual["org_rev"], 17);
+        assert_eq!(actual["foreground"]["retired_total"], 5);
+        assert_eq!(actual["foreground"]["hidden_retired_roots"], 1);
+        assert_eq!(actual["capabilities"]["record_changes_v1"], true);
+        assert_eq!(actual["foreground"]["present"].as_array().unwrap().len(), 4);
+    }
+
+    #[test]
+    fn deep_tree_bytes_do_not_build_serialize_or_drop_recursive_values() {
+        let records: Vec<Value> = (0..=2049).map(|i| record(&i.to_string(), json!({
+            "id":format!("node-{i}"),"parent_id":if i==0 {Value::Null} else {json!((i-1).to_string())},
+            "state":"live","sibling_order":0
+        }))).collect();
+        let bytes = project(&json!({"cursor":{"rev":1},"records":records}));
+        let text = std::str::from_utf8(&bytes).unwrap();
+        assert_eq!(text.matches("\"children\":[").count(), 2050);
+        assert!(text.contains("\"id\":\"node-2049\""));
+        assert!(text.contains("\"parent\":\"node-2048\",\"children\":[]"));
+        assert_eq!(text.bytes().filter(|b| *b==b'{').count(), text.bytes().filter(|b| *b==b'}').count());
+        assert_eq!(text.bytes().filter(|b| *b==b'[').count(), text.bytes().filter(|b| *b==b']').count());
+    }
 }

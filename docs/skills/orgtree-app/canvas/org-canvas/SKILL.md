@@ -16,6 +16,10 @@ The bottom-left HUD offers switchboard, full view, zoom in and zoom out. Off-scr
 
 Consecutive project chains can appear as compact [project bunches](../piles/SKILL.md#project-bunches). Their grouping changes layout, not membership, audiences or which agent supervises work.
 
+The initial/full tree read preserves the complete project chain instead of
+silently cutting off deeper descendants. Bunch grouping is a display choice,
+not a depth limit on that read.
+
 ## Structural gestures
 
 On desktop, drag an agent's card body to move its subtree; buttons, fields, the credit bar and desk content keep their own interactions. The moving group includes descendant cards and their watchdog satellites. Near an edge the camera can pan to expose a distant destination. Escape or pointer cancellation abandons the drag without committing its structural operation.
