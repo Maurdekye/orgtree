@@ -54,8 +54,10 @@ export default async function(rig){
       p.check(`${name}: real missing-host launch precedes mail delivery`,!prompts(name).some(s=>s.includes(token(name))))
       const recovering=name.startsWith('recover')
       if(recovering)helper=start()
+      // Decision 94 (invariant 3): with the user signed in, the fallback waits
+      // up to 60 s from the helper's last hosting before it runs in Session 0.
       const resumed=await rig.waitFor(()=>prompts(name).some(s=>s.includes(token(name)))&&quiet(),
-        {what:`${name}: unsent mail retries without another wake`,timeout:20000}).catch(()=>false)
+        {what:`${name}: unsent mail retries without another wake`,timeout:recovering?20000:90000}).catch(()=>false)
       const wanted=recovering?'signed-in':'session0'
       p.check(`${name}: unsent mail resumes automatically in ${wanted}`,!!resumed&&rig.agentRow(name)?.extra?.session===wanted)
       const row=rig.agentRow(name)

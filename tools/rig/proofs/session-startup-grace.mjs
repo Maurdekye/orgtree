@@ -86,13 +86,20 @@ export default async function(rig) {
     p.check('resumed waking mail delivered once',
       prompts('resume').filter(s=>s.includes('DELAYED-HELPER-RESUME')).length===1)
     const real = mailMax()
+    const lostAt = Date.now()
     await stop(helper)
     await rig.waitFor(()=>placement()==='session0',{what:'real helper loss debounce',timeout:12000})
-    // "late" has not had a turn since restart: the closed startup window must
-    // not make this first turn wait out the rest of the 60-second grace.
-    await turn('late','REAL-LOSS-AFTER-RECONNECT',12000)
-    p.check('genuine helper loss still sends one global sign-out',
-      notices(real,'late','[ORGTREE SIGN-OUT NOTICE]').length===1)
+    // Decision 94 (invariant 3): with the user still signed in, a turn after a
+    // real helper loss waits up to 60 s from the helper's last hosting, then
+    // runs in Session 0 ("late" has not had a turn since the restart).
+    await turn('late','REAL-LOSS-AFTER-RECONNECT',90000)
+    const lateMs = Date.now()-lostAt
+    p.check('a turn after a genuine helper loss waits the grace out, then runs in Session 0',
+      lateMs>=50000&&lateMs<90000&&rig.agentRow('late')?.extra?.session==='session0'
+      &&rig.agentRow('late')?.extra?.session_reason==='helper-unreachable',{lateMs,extra:rig.agentRow('late')?.extra})
+    const lost = notices(real,'late','[ORGTREE SIGN-OUT NOTICE]')
+    p.check('genuine helper loss while signed in sends one helper-stopped notice',
+      lost.length===1&&lost[0].includes("Orgtree's sign-in helper stopped while the user is still signed in"),lost)
     p.check('genuine move still sends one turn downgrade',
       notices(real,'late','[ORGTREE SESSION NOTICE]').filter(s=>s.includes('Session 0')).length===1
       &&rig.agentRow('late')?.extra?.session==='session0')

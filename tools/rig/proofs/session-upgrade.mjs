@@ -188,8 +188,8 @@ export default async function (rig) {
     p.check('4 flo: last in the signed-in session, her first turn after the restart moved down to Session 0, in a CLI the engine started, and was told so',
       down.includes(NOTICE) && down.includes(DOWN) && /Session access at start: Session 0\./.test(down) && own('flo')
       && placement('flo') === 'session0', { ...launch('flo'), placement: placement('flo'), prompt: down.slice(-900) })
-    p.check('4 the wait for the helper ran out once, logged', lines(/did not register again after the engine's start/).length === 1,
-      lines(/did not register again/))
+    p.check('4 the wait for the helper ran out once, logged', lines(/did not connect in time while the user is signed in/).length === 1,
+      lines(/did not connect in time/))
   } finally {
     kill(broker)
     p.check(`the temporary task ${taskName} is deleted`, session.remove())
