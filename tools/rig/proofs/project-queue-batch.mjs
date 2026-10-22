@@ -1,5 +1,18 @@
 // Bounded fair-queue batches, message-level fairness and independent ACKs.
 import { Proof } from '../proof.mjs'
+// Export the exact custody predicate for offline replay of retained proof rows.
+export function hasExactInlineCustody(originals, handedCopies, currentCopies, holder) {
+  const uid = value => typeof value === 'string' && value.trim().length > 0
+  if (![originals, handedCopies, currentCopies].every(rows => Array.isArray(rows) && rows.length === 2
+    && rows.every(row => uid(row.uid)) && new Set(rows.map(row => row.uid)).size === 2)) return false
+  const matches = (copy, original) => copy.uid === original.extra?.claimed?.copy
+    && copy.extra?.via_project?.mail === original.uid
+  return originals.every(original => {
+    const claim = original.extra?.claimed
+    return claim?.by === holder && claim.inline === true && claim.dog === null && !claim.acked_at && uid(claim.copy)
+      && handedCopies.some(copy => matches(copy, original)) && currentCopies.some(copy => matches(copy, original))
+  }) && [handedCopies, currentCopies].every(rows => rows.every(copy => originals.some(original => matches(copy, original))))
+}
 export async function setup() {
   return { fixture: { org: { name: 'Queue batches' }, agents: [{ name: 'boss', tier: 'sol', grant: 100 }] } }
 }
@@ -96,9 +109,7 @@ export default async function (rig) {
   // A later mail to an unlistened queue can legitimately warn/wake its
   // manager and cause ACK reminders. No-wake belongs to inline creation;
   // custody and absence of duplicate copies must survive that later action.
-  p.check('spent one-shot still owns its unacked batch', originals('short').length === 2 && originals('short').every(m => m.extra?.claimed?.by === 'short-worker'
-    && m.extra.claimed.inline === true && m.extra.claimed.dog === null && !m.extra.claimed.acked_at
-    && m.extra.claimed.copy === shortCopies.find(c => c.extra.via_project.mail === m.uid)?.uid)
+  p.check('spent one-shot still owns its unacked batch', hasExactInlineCustody(originals('short'), shortCopies, copies('short-worker', 'short'), 'short-worker')
     && JSON.stringify(copies('short-worker', 'short').map(m => m.uid)) === JSON.stringify(shortCopies.map(m => m.uid))
     && !dog('short-worker', 'short'), { originals: originals('short'), copies: copies('short-worker', 'short'), turns: rig.turns('short-worker').length })
   p.keep(rig, { agents: ['one-worker', 'a'], grep: /batch|dispatch|error/ })

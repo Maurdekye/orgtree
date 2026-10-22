@@ -23,6 +23,10 @@ These attributed records were moved from the root guide at `22daffd`; they retai
   Check no-wake at inline creation, before any later explicit mail to an
   unlistened project can legitimately warn/wake its manager and trigger ACK
   reminders. After that mail, require the same unacked custody and copy ids.
+  Require non-empty original/copy UIDs and both link directions in the handed
+  and current rows; missing links must never pass as `undefined === undefined`.
+  Replay the exact exported custody predicate against retained rows, with
+  separate missing-link mutations as negative controls.
   This follows [wake an agent to listen for project mail](../skills/orgtree-app/app-settings/app-concurrency-and-checkups/SKILL.md)
   and the [consumed-copy turn-end reminder](../skills/orgtree-working/team/projects/SKILL.md)
   (`domain/mail.rs`, `domain/projects.rs`), not an exception to inline no-wake.
