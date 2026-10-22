@@ -162,7 +162,9 @@ mod tests {
         assert_eq!(actual["sync_rev"], 17);
         assert_eq!(actual["org_rev"], 17);
         assert_eq!(actual["foreground"]["retired_total"], 5);
-        assert_eq!(actual["foreground"]["hidden_retired_roots"], 1);
+        // A missing physical parent is normalized only for placement; the
+        // existing retired-root tally still groups by the stored parent link.
+        assert_eq!(actual["foreground"]["hidden_retired_roots"], 2);
         assert_eq!(actual["capabilities"]["record_changes_v1"], true);
         assert_eq!(actual["foreground"]["present"].as_array().unwrap().len(), 4);
     }
