@@ -16,6 +16,16 @@ Desk tab selections are remembered per organization and node across restarts. An
 
 Open an agent's desk from its name/card or desk navigation. A focused desk, a pinned canvas window and a detached window show the same agent identity and work tabs. Pinning fixes it in screen space; pop-out opens its window surface. These view choices are not agent lifecycle changes.
 
+## Badges
+
+A **badge** is a small state marker in an agent's desk header or zoom card,
+separate from the card itself and from composer controls. Use the kind in its
+name: **next-turn badge** (account, model, effort or fast mode), **effort badge**,
+**fast mode badge**, **frozen badge**, **halted badge**, **DND badge**, or
+**Session 0 badge** for the session marker. A badge reports its own state; it
+does not by itself prove a process is running or a queued change has applied.
+Agent cards, zoom cards, jump cards and presentation cards remain cards.
+
 ## Header controls
 
 | Control/indicator | Meaning |
@@ -31,7 +41,7 @@ Open an agent's desk from its name/card or desk navigation. A focused desk, a pi
 | Gear | Opens this agent's settings. |
 | Pin, pop-out/window controls | Change the viewing surface rather than starting a different agent. |
 
-The metadata row can show MCP count/readiness, cache forecast, last reported status, halt, freeze/limit, held-seat, cost, queued-mail and serving-account/route information when supplied. Queued account, model and effort chips describe pending configuration separately. Distinguish current versus “last” route/account evidence.
+The metadata row can show MCP count/readiness, cache forecast, last reported status, halt, freeze/limit, held-seat, cost, queued-mail and serving-account/route information when supplied. Queued account, model, effort and fast mode badges describe pending configuration separately. Distinguish current versus “last” route/account evidence.
 
 Idle age measures time since the last completed turn ended, including killed turns, across every harness. Open or legacy records without a completion time retain their start-time fallback. Active time measures the current turn's admission; ordinary Antigravity mid-turn hook mail keeps that original active clock. The card and tray use the same idle reference. Halted and usage-freeze clocks retain their own timestamps.
 

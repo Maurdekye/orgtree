@@ -30,8 +30,8 @@ separate from thinking effort. The user or an authorized superior can change it.
   speed request sent to that turn. Its tooltip gives both values. It clears on
   next admission, turn completion or reverting the choice. Unknown serving state
   shows no badge; saving alone does not prove a change is pending.
-  The same queued-state card and tooltip appear at near canvas zoom with the
-  pending account, model and effort cards. None appears in the composer.
+  The same next-turn fast mode badge and tooltip appear at near canvas zoom with the
+  pending account, model and effort badges. None appears in the composer.
   Its speed toggle keeps the top row: either queued direction uses a slightly
   darker highlight until admission. Steady on has the ordinary active highlight;
   steady off has none.

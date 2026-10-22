@@ -24,7 +24,7 @@ settings afterward. Only a cross-provider conversation reset asks for confirmati
 Same-provider changes during a busy turn queue directly, and the toast says they
 apply next turn. History-enabled changes keep their Undo toast. Escape or clicking
 away before choosing a tier saves nothing. Refusals remain visible, and queued
-changes appear on the next-turn model card. Only models available with their
+changes appear on the next-turn model badge. Only models available with their
 default account are offered for a new switch; choosing the running tier to cancel
 its pending model change does not rebind its account or clear its version pin.
 Pinned and popped-out desks share this control; retired identities stay passive.
@@ -43,7 +43,7 @@ A busy agent's model change is queued for the turn boundary; a later request can
 While a model change is queued, the settings model selector shows its target.
 Choose the currently running model again and Save to cancel the queue. The
 desk model picker does the same immediately when you click the current model.
-The next-turn model card clears when the cancellation arrives from the engine.
+The next-turn model badge clears when the cancellation arrives from the engine.
 An untouched Save leaves pending changes alone, and cancelling does not ask to
 reset the current conversation. Model and account queues can be cancelled
 together in settings by explicitly choosing both current values.

@@ -5,7 +5,7 @@ Orgtree 4.0.1 is a fix-and-polish release on top of 4.0.0. It adds optional Clau
 ## New
 
 - **Claude Sonnet 5.5 and Opus 5.5 through Antigravity.** They appear as "sonnet (antigravity)" and "opus (antigravity)" and are off by default. Turn them on in App settings > Runtime.
-- **"Next turn" cards.** When you queue an account, model or effort change for an agent that is working, its card now shows what will apply at the next turn (for example "next turn → opus"), with a tooltip that explains it. Several queued changes fit together on one card, and long names wrap instead of overflowing.
+- **"Next turn" badges.** When you queue an account, model or effort change for an agent that is working, its card now shows what will apply at the next turn (for example "next turn → opus"), with a tooltip that explains it. Several queued changes fit together on one card, and long names wrap instead of overflowing.
 
 ## Improved
 

@@ -1163,12 +1163,12 @@ Original section: AGENTS.md — working on Orgtree. Source lines 956–963.
 
 <a id="e-bcba00ddb0d9815f"></a>
 
-## DND is a header token beside effort on agent cards/desks, outside status.
+## DND is a header badge beside effort on agent cards/desks, outside status.
 
 Original section: AGENTS.md — working on Orgtree. Source lines 965–969.
 
 <!-- preserved:e-bcba00ddb0d9815f -->
-- DND is a header token beside effort on agent cards/desks, outside status.
+- DND is a header badge beside effort on agent cards/desks, outside status.
   Urgent agent mail uses the notice-shaped round `!`, orange when armed;
   it sits beside composer Fast and is offered for project broadcast only with
   a current DND recipient. [decided: user 2026-10-18 17:42–17:43Z;

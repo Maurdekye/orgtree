@@ -88,7 +88,7 @@ The rich agent model hover's final segment reads "fast" instead of "fast mode";
 its existing support and saved-preference gating remains. The desk speed
 button's help/accessible name and the Model-tab setting retain their wording.
 
-## Aligned composer and near queued card (2026-10-18)
+## Aligned composer and near queued badge (2026-10-18)
 
 The agent composer keeps the lightning toggle on the top row, with the queued
 badge directly to its left. Effort and Send/Stop stay together on the lower row,
@@ -102,8 +102,8 @@ explanatory tooltip. They require a supported live agent, busy=true and a known
 boolean serving value opposite the saved preference. Idle, unknown, matching,
 unsupported and archived states hide it. Reversion, next admission, completion
 or loss of support clears it. Far/map views omit near badges. The active-speed
-bolt is independent: queued-on/current-off shows just the queued card;
-queued-off/current-on shows the active bolt plus the queued-off card.
+bolt is independent: queued-on/current-off shows just the queued badge;
+queued-off/current-on shows the active bolt plus the queued-off badge.
 
 Confirmed layout: user 14:51Z and coordinator 14:52Z m60c9799b5dfe.
 

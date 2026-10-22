@@ -19,7 +19,7 @@ A queued account change is shown as the selected target. To cancel it, choose
 the account currently serving the agent again, then Save in settings.
 The desk model picker changes only the model with its default account and latest
 version; account choices remain here. This selector submits the existing account cancellation request;
-the next-turn account card clears on the engine update. Saving an untouched
+the next-turn account badge clears on the engine update. Saving an untouched
 selector preserves the queue.
 
 Changing providers updates the form's account choice for the new provider. On Save a model switch and its account travel together; an account-only edit uses account assignment before the scope save. A busy assignment is queued for the turn boundary. A direct idle rebind validates the account and marks the process for reconfiguration. It refuses a genuine usage-limit freeze: releasing that freeze requires the continuation/recovery workflow, not an account selector used as an unlock.

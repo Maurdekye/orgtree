@@ -109,7 +109,7 @@ ask before building. The steps were:
 ## What changed in the engine on 2026-10-07 (for orientation)
 
 - `accounts.rs`: per-account active switch and gate (DECISIONS 41), cached native-sign-in flag,
-  the secondary-account card (`serving_card`), missing emails read from sign-in folders.
+  the secondary-account badge (`serving_card`), missing emails read from sign-in folders.
 - `runtime/mod.rs`: CLI warming at start and on hire, with the 64-CLI cap and a free-commit-memory
   floor (DECISIONS 42).
 - `runtime/convo.rs` and `runtime/actor.rs`: handoff notes and saved history for fresh sessions

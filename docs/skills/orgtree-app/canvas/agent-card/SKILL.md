@@ -6,6 +6,9 @@ Up: [orgtree-canvas](../SKILL.md)
 
 # Read an agent card
 
+The small header state markers are [badges](../../desk/agent-desk/SKILL.md#badges);
+the containing agent/zoom card remains a card.
+
 At ordinary overview zoom, a card has identity, state and shortcut rows. Its tier token names the model tier; the name tooltip can identify a bound account. The context wheel shows measured or estimated occupancy against capacity, not provider usage or a token spending budget. Its tooltip explains unavailable/empty values and the compaction threshold; an estimate carries an approximation mark. On the overview card the wheel is a passive indicator.
 
 | Visible indicator | Read it as |
@@ -13,16 +16,16 @@ At ordinary overview zoom, a card has identity, state and shortcut rows. Its tie
 | Working spinner/state and elapsed time | A turn is active; the age is not a completion estimate. |
 | Queued/waiting state | Waiting for a free turn slot, rather than currently generating. |
 | Compacting | Session compaction is in progress. |
-| Halting/halted | A deliberate stop/wake barrier; separate from a usage freeze. |
-| Usage freeze and countdown | Provider/limit interruption; an inferred marker qualifies the account/tier observation. Read the tooltip's reason. |
+| Halting/halted badge | A deliberate stop/wake barrier; separate from a usage freeze. |
+| Frozen badge and countdown | Provider/limit interruption; an inferred marker qualifies the account/tier observation. Read the tooltip's reason. |
 | Done/blocked/idle summary and age | The recorded agent status and time since the last completed turn ended, not an independent verification of its task. See the [desk clock rules](../../desk/agent-desk/SKILL.md#header-controls) for legacy and active references. |
 | Error dot | Last recorded error; hover for the text. |
 | Archived/unrecoverable label | The seat is not an ordinary live worker; do not infer its history was deleted. |
 | Pinned | Its desk is hosted in a canvas window; focusing can raise that window. |
 | Secondary serving-account badge | The account actually serving the turn when supplied; ambient/default serving accounts do not get this badge. |
-| Next turn → account/model/effort/fast | A queued requested value, distinct from the current serving configuration. |
-| Lightning bolt (tooltip: fast) | Near-zoom supported active fast speed: a busy turn uses known serving speed; idle uses the saved setting. Queued-on/current-off and unknown busy speed do not show it. Queued-off keeps it until the fast turn ends. |
-| Next turn fast on/off | Near-zoom queued saved speed, with a tooltip naming current and next values. Only supported live running seats with known opposite serving speed show it; idle, unknown and matching values do not. It is independent of the active bolt. |
+| Next-turn account/model/effort/fast mode badge | A queued requested value, distinct from the current serving configuration. |
+| Fast mode badge (lightning bolt; tooltip: fast) | Near-zoom supported active fast speed: a busy turn uses known serving speed; idle uses the saved setting. Queued-on/current-off and unknown busy speed do not show it. Queued-off keeps it until the fast turn ends. |
+| Next-turn fast mode badge (fast on/off) | Near-zoom queued saved speed, with a tooltip naming current and next values. Only supported live running seats with known opposite serving speed show it; idle, unknown and matching values do not. It is independent of the active bolt. |
 | Effort badge | An agent-specific effort override; it can appear even when equal to the org default. |
 | Watchdog count/one-shot mark | Attached watchers; the satellite/detail controls are separate from agents. |
 | Stack/layers count | More agents share this visible stack; use [piles](../piles/SKILL.md) to choose its front. |

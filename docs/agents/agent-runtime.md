@@ -424,14 +424,14 @@ Original section: AGENTS.md — working on Orgtree. Source lines 1533–1562.
   The queued-fast badge shares the account/model/effort next-turn group in
   the desk header and near-zoom badge row; only
   supported live/busy seats with known opposite serving speed show it. No
-  next-turn cards render in the composer. Its bolt keeps the top 30px row;
+  next-turn badges render in the composer. Its bolt keeps the top 30px row;
   either pending speed direction uses a darker highlight, steady on the ordinary
   highlight and steady off none (user 2026-10-19 13:40–13:41Z).
   Queued controls show saved intent; speed hover names the next and current
-  values. Shared pending cards say `next turn: <value>` (user 13:46Z).
+  values. Shared pending badges say `next turn: <value>` (user 13:46Z).
   effort and Send stay in a separate
   right-aligned lower row (user16:47Z restores the original vertical placement). [decided:
-  user/coordinator 2026-10-19 13:39Z, replacing the composer queued-card placement;
+  user/coordinator 2026-10-19 13:39Z, replacing the composer queued-badge placement;
   verified: `canvas/{nextturn,effort,desk,cards,fastmodebutton}.tsx`, `styles.css`]
   Near-zoom cards show a passive bolt (tooltip "fast") for supported active speed:
   busy reads known fast_mode_current; idle reads saved scope. Unknown busy speed

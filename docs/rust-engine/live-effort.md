@@ -39,9 +39,9 @@ reads for the composer's toast:
 `sent` means the line reached the running CLI. It does not mean the CLI
 applied it.
 
-The card's `pending_effort` (the next-turn effort card) is set only while a
+The card's `pending_effort` (the next-turn effort badge) is set only while a
 turn runs on a process at another level. After a live delivery the running
-process has the level, so no card shows.
+process has the level, so no badge shows.
 
 ## Measured on the real CLI
 
@@ -59,8 +59,8 @@ pick up the user's SessionStart hooks.
 `node tools/rig/rig.mjs run tools/rig/proofs/live-effort.mjs [--ui <bundle>]`
 covers these paths mid-turn on a Claude agent: retool, the settings route,
 a clear, and an unchanged level. It shows the control request reaching the
-fake CLI, the card state, and the fresh process with `--effort` on the next
+fake CLI, the badge state, and the fresh process with `--effort` on the next
 turn. It also covers an idle change, a Codex agent parked and mid-turn, and an
 effort-only retool leaving a report's parked CLI alone. With a UI bundle it
-drives the desk: no next-turn card after a retool mid-turn, and the
+drives the desk: no next-turn badge after a retool mid-turn, and the
 composer's toast.
