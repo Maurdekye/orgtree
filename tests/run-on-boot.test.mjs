@@ -73,8 +73,10 @@ test('the reading is the boot task and the sign-in helper, nothing else', () => 
 
 test('the reading script reads all owned automatic triggers and changes nothing', () => {
   const script = startup.readScript()
-  for (const name of ['Orgtree Background Engine', 'Orgtree Credential Helper', 'Orgtree User Session Engine']) assert.ok(script.includes(`(State '${name}')`), name)
+  for (const name of ['Orgtree Background Engine', 'Orgtree Credential Helper']) assert.ok(script.includes(`(State '${name}')`), name)
   assert.ok(!script.includes('Orgtree Sign-in Engine'), 'the removed sign-in engine task is still read')
+  // decision 94: the engine always runs in Session 0; the user-session task is retired
+  assert.ok(!script.includes('Orgtree User Session Engine'), 'the retired user-session task is still read')
   assert.doesNotMatch(script, /StartupMode/)
   assert.doesNotMatch(script, /SetValue|\.Enabled =|RegisterTask|DeleteTask/)
   assert.match(script, /\$task\.Enabled -and .*\$task\.Definition\.Triggers/)
@@ -83,14 +85,13 @@ test('the reading script reads all owned automatic triggers and changes nothing'
 test('the elevated script verifies both tasks first, switches both and records only RunOnStartup', () => {
   for (const enabled of [true, false]) {
     const script = startup.elevatedStartupScript(enabled)
-    for (const marker of ['com.maurdekye.orgtree.boot.v1:', 'com.maurdekye.orgtree.credential-helper.v1:', 'com.maurdekye.orgtree.user-session.v1:']) assert.ok(script.includes(marker), marker)
+    for (const marker of ['com.maurdekye.orgtree.boot.v1:', 'com.maurdekye.orgtree.credential-helper.v1:']) assert.ok(script.includes(marker), marker)
     assert.ok(!script.includes('signin-engine'), 'the removed sign-in engine task is still switched')
+    // decision 94: no user-session task, so no trigger depends on Run as admin
+    assert.ok(!script.includes('user-session'), 'the retired user-session task is still switched')
+    assert.doesNotMatch(script, /RunAsAdministrator/)
     assert.ok(script.includes('$definition.Settings.Enabled = $true'), 'manual demand launch remains available')
-    assert.ok(script.includes(`$want = $${enabled}`), `automatic triggers ${enabled ? 'on' : 'off'}`)
-    assert.ok(script.includes('foreach ($trigger in $definition.Triggers) { $trigger.Enabled = $want }'))
-    // the user-session engine's sign-in trigger also needs Run as admin (coordinator Q1)
-    assert.ok(script.includes(`if ($name -ceq 'Orgtree User Session Engine') { $want = ($${enabled} -and $asAdmin) }`))
-    assert.ok(script.includes("$asAdmin = ([int]$runtime.GetValue('RunAsAdministrator') -eq 1)"))
+    assert.ok(script.includes(`foreach ($trigger in $definition.Triggers) { $trigger.Enabled = $${enabled} }`), `automatic triggers ${enabled ? 'on' : 'off'}`)
     assert.ok(script.includes(`SetValue('RunOnStartup', ${enabled ? 1 : 0}, [Microsoft.Win32.RegistryValueKind]::DWord)`))
     assert.doesNotMatch(script, /StartupMode/)
     const refusal = script.indexOf('Refusing to change a task Orgtree did not install')
@@ -132,32 +133,29 @@ test('"Run Orgtree as administrator" sets the sign-in helper\'s run level first,
   for (const enabled of [true, false]) {
     const script = admin.elevatedWriteScript(enabled)
     assert.ok(script.includes("'Orgtree Credential Helper' = 'com.maurdekye.orgtree.credential-helper.v1:'"))
-    assert.ok(script.includes("'Orgtree User Session Engine' = 'com.maurdekye.orgtree.user-session.v1:'"))
     assert.ok(!script.includes('Orgtree Sign-in Engine'), 'the removed sign-in engine task is still changed')
     assert.ok(script.includes(`$definition.Principal.RunLevel = ${enabled ? 1 : 0}`))
     assert.ok(script.includes("'Orgtree Background Engine' = 'com.maurdekye.orgtree.boot.v1:'"), 'the Session 0 engine follows the one toggle (Q2)')
-    assert.ok(script.includes("$logonOf = @{ 'Orgtree Background Engine' = 2; 'Orgtree Credential Helper' = 3; 'Orgtree User Session Engine' = 3 }"))
+    // decision 94, invariant 7: the engine and the helper, both or neither; no
+    // user-session task, and no sign-in move into the user's session
+    assert.ok(script.includes("$logonOf = @{ 'Orgtree Background Engine' = 2; 'Orgtree Credential Helper' = 3 }"))
+    assert.ok(!script.includes('user-session') && !script.includes('Orgtree User Session Engine'), 'the retired user-session task is still changed')
+    assert.doesNotMatch(script, /\$trigger\.Enabled/, 'Run as admin moves nothing at sign-in')
     assert.ok(script.includes('RegisterTaskDefinition($name, $definition, 20, $sid, $null, $logons[$name],'))
-    assert.ok(script.includes(`$trigger.Enabled = ($${enabled} -and $runs)`), 'the sign-in move follows Run as admin and Run on boot')
     const refusal = script.indexOf('Refusing to change a task Orgtree did not install')
     assert.ok(refusal > 0 && refusal < script.indexOf('RegisterTaskDefinition'), 'the task was changed before it was verified')
     assert.ok(script.indexOf('RegisterTaskDefinition') < script.indexOf("SetValue('RunAsAdministrator'"), 'the setting changed before the task did')
   }
 })
 
-test('readback expects the user-session trigger only while Run as admin is on', async () => {
-  const tasks = interactive => ({ code: 0, stdout: JSON.stringify({ boot: true, helper: true, interactive }), stderr: '' })
-  const adminValue = on => ({ code: 0, stdout: `\r\n    RunAsAdministrator    REG_DWORD    0x${on ? 1 : 0}\r\n`, stderr: '' })
-  await startup.writeRunOnStartup(true, fakeRunner(ok, tasks(true), adminValue(true)).runner)
-  await startup.writeRunOnStartup(true, fakeRunner(ok, tasks(false), adminValue(false)).runner)
-  await assert.rejects(startup.writeRunOnStartup(true, fakeRunner(ok, tasks(true), adminValue(false)).runner), /reads back differently/)
-  await assert.rejects(startup.writeRunOnStartup(true, fakeRunner(ok, tasks(false), adminValue(true)).runner), /reads back differently/)
-})
-
-test('readback refuses a still-enabled interactive trigger after disabling startup', async () => {
-  await assert.rejects(startup.writeRunOnStartup(false, fakeRunner(ok, {
-    code: 0, stdout: JSON.stringify({boot:false,helper:false,interactive:true}), stderr:''
-  }).runner), /reads back differently/)
+test('readback is the boot task and the helper only, with no Run as admin query (decision 94)', async () => {
+  // a reading from an alpha that still had the user-session task names it too:
+  // the switch ignores it, and asks nothing about Run as admin
+  for (const [enabled, interactive] of [[true, true], [true, false], [false, true], [false, false]]) {
+    const r = fakeRunner(ok, { code: 0, stdout: JSON.stringify({ boot: enabled, helper: enabled, interactive }), stderr: '' })
+    await startup.writeRunOnStartup(enabled, r.runner)
+    assert.equal(r.calls.length, 2, 'the change and one reading, nothing else')
+  }
 })
 
 test('every script parses in Windows PowerShell 5.1', { skip: !windows && 'UNEXECUTED: needs Windows PowerShell' }, () => {
@@ -170,7 +168,7 @@ test('every script parses in Windows PowerShell 5.1', { skip: !windows && 'UNEXE
   }
 })
 
-test('main and the preload wire one startup switch and the session-aware restart path', async () => {
+test('main and the preload wire one startup switch and the Session 0 restart path', async () => {
   const main = read('apps/desktop/main/index.ts')
   assert.doesNotMatch(main, /desktop:engine-start|desktop:set-engine-start|changeEngineStart|engineStartState/)
   // "Run on boot", or "Run on sign-in" where Orgtree cannot start at boot (coordinator ruling A)
@@ -182,15 +180,15 @@ test('main and the preload wire one startup switch and the session-aware restart
   assert.match(change, /finally \{\s+startupChanging = false/)
   assert.match(change, /if \(tasks\.boot !== null && startupOn\(tasks\) !== enabled\) await writeRunOnStartup\(enabled\)/)
   const restart = main.slice(main.indexOf('const restartBackgroundEngine = async'), main.indexOf('const runAsAdministratorState'))
-  // at the console the user-session task's launcher restarts the engine; the
-  // one-off admin restart goes through one UAC prompt; elsewhere the boot task
-  assert.match(restart, /if \(where === 'session'\) \{ await startInSession\(engineOptions\.dataRoot, true\); await attach\(\) \}/)
-  assert.match(restart, /if \(adminOnce\) \{ await runSessionAsAdmin\(engineOptions\); await attach\(\) \}/)
-  assert.match(restart, /await engine\.stopAttachedForUpdate\(\)\s+await startEngineTask\(\)\s+await attach\(\)/)
-  assert.match(restart, /engine\.reattachBackground\(engineOptions/)
-  assert.doesNotMatch(restart, /stopForSessionRestart|replaceWithSessionAdmin/)
+  // decision 94: wherever the boot task is installed, a restart stops the
+  // engine gracefully and starts it again through the boot task, in Session
+  // 0; there is no restart into the user's session and no one-off admin
+  // restart
+  assert.match(restart, /if \(route\(await readStartupTasks\(\)\.catch\(\(\) => null\)\) === 'boot'\) \{/)
+  assert.match(restart, /await engine\.stopAttachedForUpdate\(\)\s+await startEngineTask\(\)\s+if \(!await engine\.reattachBackground\(engineOptions, 120000\)\)/)
+  assert.doesNotMatch(restart, /startInSession|runSessionAsAdmin|adminOnce|where === 'session'|stopForSessionRestart|replaceWithSessionAdmin/)
   assert.match(main, /launchBackground\(engineOptions\)/)
-  assert.match(main, /engine\.usesBackgroundTask && restartBackground\) await restartBackground\(false\)/, 'the tray restarts a task-run engine the same way')
+  assert.match(main, /engine\.usesBackgroundTask && restartBackground\) await restartBackground\(\)/, 'the tray restarts a task-run engine the same way')
   // Switching Run as admin on first says what it does, before the one UAC
   // prompt, and declining keeps it off and says so. Settings and the tray
   // share one change (de04072); run it through the Settings handler.
@@ -203,10 +201,11 @@ test('main and the preload wire one startup switch and the session-aware restart
     writeRunAsAdministrator: async enabled => { steps.push(`write ${enabled}`) },
     restartBackgroundEngine: async () => { steps.push('restart') },
   })
-  await assert.rejects(handlers['desktop:set-run-as-admin'](true, false), /Run as admin was not turned on\./)
+  await assert.rejects(handlers['desktop:set-run-as-admin'](true), /Run as admin was not turned on\./)
   assert.deepEqual(steps, ['warning'], 'declining the warning writes nothing')
-  await handlers['desktop:set-run-as-admin'](true, false)
-  assert.deepEqual(steps, ['warning', 'warning', 'write true'], 'the warning comes before the write')
+  await handlers['desktop:set-run-as-admin'](true)
+  // and it applies at once (coordinator Q1): the engine restarts
+  assert.deepEqual(steps, ['warning', 'warning', 'write true', 'restart'], 'the warning comes before the write, the restart after it')
   assert.equal(warnings[0].message, 'Run every agent as administrator?')
   assert.equal(warnings[0].buttons[warnings[0].defaultId], 'Cancel', 'Cancel is the default answer')
   const preload = read('apps/desktop/preload/index.ts')
