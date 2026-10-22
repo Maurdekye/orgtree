@@ -8,6 +8,14 @@ Up: [orgtree-canvas](../SKILL.md)
 
 Hire chips open a draft at the chosen relationship: subordinate, coworker or inserted superior; the user root opens a top-level draft. The chip's cost is a seat reservation, not dollars or tokens. Provider rows retain their own groups; within each group hire tokens run from cheaper to more expensive seats with stable ties. Disabled choices explain an availability reason; expanding the strip only exposes choices, it does not hire anyone.
 
+An agent's top hire strip opens a superior draft above that exact agent,
+including a top-level agent directly under the user. Hire preserves this
+insertion target when undo history is enabled or disabled; the new superior
+and its existing report are placed together in one operation. The compact
+hire sheet's superior placement follows the same rule. Superior hiring stays
+on the hire strips or placement form; the shared context menu offers
+subordinate hiring, rather than adding a superior-menu action.
+
 The dashed draft says uninitialized because no live seat exists yet. It shows the selected tier, name, permission gear, charter/presets, grant bar and Hire/Cancel. A nonblank name enables submission; engine validation can still refuse an invalid/duplicate name. The human form allows an optional charter, unlike the explicit full charter required on an agent's hire tool.
 
 | Draft control | Staged behavior |

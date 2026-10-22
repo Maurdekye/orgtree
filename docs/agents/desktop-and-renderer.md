@@ -1,5 +1,26 @@
 # Desktop and renderer
 
+## Canvas superior insertion target (2026-10-22)
+
+Superior drafts retain their anchor in `above` for the engine's operation
+endpoint. The undo gesture forwards its steps to that same endpoint; keeping
+only the agent-tool fields `hire_type: superior` and `target` loses the anchor.
+Both request forms must retain the operation field, including a draft above a
+root agent where `parent` is null. The compact hire sheet supplies `above` as
+well, with history enabled or disabled, so its superior insertion is atomic;
+it must not hire a sibling and chain a separate move afterward.
+
+The top strips use `spawnAbove` and the shared draft confirmation. Existing
+shared context menus deliberately offer subordinate hiring only (user
+2026-10-18 07:17Z); do not add a superior entry as part of this fix. The compact
+sheet branch is retained even though `mobile.tsx` currently disables mobile
+mode. The correction uses existing operation/tool contracts and leaves engine
+credit/scope/admission checks intact. Agent parity remains `orgtree_hire` with
+`hire_type: superior` and the explicit `target`; no new tool is introduced.
+[verified: `canvas/OrgCanvas.tsx`,
+`tests/superiorhire-target.test.tsx`, `http/undo.rs`, `domain/ops.rs`;
+decided: user report 2026-10-22 19:42:05Z, coordinator scope 19:45Z]
+
 ## Unresolved tool file paths (2026-10-22)
 
 `ToolChip` uses `ToolFilePath` for every recorded `file_paths` entry, across
