@@ -1936,3 +1936,5 @@ All entries are dated 2026-10-06 unless stated otherwise.
   entries and a 4.4.2 history baseline with bounded pending seeding, without old
   history backfill. The implementation retains the newest 2,000 per org. See
   [mention navigation](mention-navigation.md) for the source and cursor contract.
+
+**Template watchdogs and audiences, USER 2026-10-22 22:33Z–22:35Z (4.4.2):** Save as template includes standing watchdogs and explicit directional audiences. Coordinator defaults: both include choices on, machine watchdog sub-choice off; preview discloses dog counts and user/extern grants per node. Credentials/file references never export, including nested fire actions. Import stages paused without smoke/immediate effects, then arms eligible portable dogs; machine/credential dogs stay paused. Node references remap, missing endpoints warn/drop, event/usage target names remain unchanged. Audiences restore through canonical transactional grants. See [template links](template-links.md).

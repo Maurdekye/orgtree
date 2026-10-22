@@ -23,7 +23,7 @@ const BUNDLED: &[(&str, &str)] = &[
 ];
 const MAX_AGENTS: usize = 24;
 const MAX_DEPTH: usize = 4;
-const FILE_MAX: u64 = 256 * 1024;
+pub(crate) const FILE_MAX: u64 = 256 * 1024;
 
 #[derive(Deserialize, Debug, Clone)]
 pub struct Template {
@@ -47,6 +47,12 @@ pub struct Template {
     /// `ORG_SETTINGS` keys
     #[serde(default)]
     pub settings: Option<serde_json::Map<String, Value>>,
+    #[serde(default)]
+    pub watchdogs: Vec<super::template_links::Dog>,
+    #[serde(default)]
+    pub audiences: Vec<super::template_links::Grant>,
+    #[serde(default)]
+    pub warnings: Vec<String>,
 }
 
 /// The org settings a template may carry: every Org settings key except
@@ -344,6 +350,9 @@ fn walk<'a>(slots: &'a [Slot], depth: usize, parent: Option<&'a str>, out: &mut 
 #[logged]
 pub fn validate(t: &Template) -> Vec<String> {
     let mut p = Vec::new();
+    for d in &t.watchdogs {
+        if let Err(e) = super::template_links::validate(d) { p.push(e); }
+    }
     if t.id.trim().is_empty() || t.name.trim().is_empty() {
         p.push("a template needs an id and a name".to_string());
     }
@@ -721,6 +730,7 @@ pub fn creation_requests(p: &Planned, kickoff: bool) -> Vec<Value> {
 /// The preview the picker shows.
 #[logged]
 pub fn plan_json(t: &Template, planned: &[Planned], blocked: &[String]) -> Value {
+    let links = super::template_links::plan(t, planned);
     let rows: Vec<Value> = planned.iter().map(|p| json!({
         "slot": p.slot.name, "name": p.name, "parent": p.parent, "depth": p.depth,
         "tier": p.tier, "requested_tier": p.slot.tier, "note": p.note, "account": p.account,
@@ -730,12 +740,15 @@ pub fn plan_json(t: &Template, planned: &[Planned], blocked: &[String]) -> Value
             (Some(n), _) => format!("preset: {n}"), (None, Some(_)) => "text".to_string(), _ => "none".to_string() },
         "team_charter": p.slot.team_charter, "kickoff": p.slot.kickoff.is_some() && p.depth == 0,
         "blocked": p.tier.is_none(), "dirs_dropped": p.dirs_dropped,
+        "watchdogs": links.dogs.iter().filter(|d| d.owner == p.name).count(),
+        "audiences": p.slot.audiences.iter().cloned().chain(links.audiences.iter().filter(|g| g.grantee == p.name).map(|g| g.grantor.clone())).collect::<Vec<_>>(),
     })).collect();
     let top: f64 = planned.iter().filter(|p| p.depth == 0).map(|p| p.grant).sum();
     let mut out = json!({ "id": t.id, "name": t.name, "agents": rows, "org_md": t.org_md.is_some(), "blocked": blocked, "ok": blocked.is_empty(), "top_grant": round2(top) });
     let notes = usize::from(t.shared_agents_md.is_some()) + planned.iter().map(|p|
         usize::from(p.slot.team_agents_md.is_some()) + usize::from(p.slot.scratch_agents_md.is_some())).sum::<usize>();
     if notes > 0 { out["standing_notes"] = json!(notes); }
+    out["warnings"] = json!(links.warnings);
     out
 }
 
@@ -810,6 +823,12 @@ pub struct Include {
     /// Opt-in: only fixed scratch AGENTS.md files, with bounded credential checks.
     #[serde(default)]
     pub standing_notes: bool,
+    #[serde(default = "yes")]
+    pub watchdogs: bool,
+    #[serde(default)]
+    pub machine_watchdogs: bool,
+    #[serde(default = "yes")]
+    pub audiences: bool,
 }
 
 #[nolog]
@@ -819,7 +838,7 @@ fn yes() -> bool {
 
 impl Default for Include {
     fn default() -> Self {
-        Include { charters: true, credits: true, effort: true, tools: true, org_md: true, accounts: false, folders: false, quick_chat: true, settings: true, standing_notes: false }
+        Include { charters: true, credits: true, effort: true, tools: true, org_md: true, accounts: false, folders: false, quick_chat: true, settings: true, standing_notes: false, watchdogs: true, machine_watchdogs: false, audiences: true }
     }
 }
 
@@ -1176,7 +1195,7 @@ mod tests {
     #[test]
     fn unticked_groups_are_left_out() {
         let rows = vec![row(1, None, "lead", "opus", 4.0, 10.0)];
-        let inc = Include { charters: false, credits: false, effort: false, tools: false, org_md: false, accounts: false, folders: false, quick_chat: false, settings: false, standing_notes: false };
+        let inc = Include { charters: false, credits: false, effort: false, tools: false, org_md: false, accounts: false, folders: false, quick_chat: false, settings: false, standing_notes: false, watchdogs: false, machine_watchdogs: false, audiences: false };
         let v = from_rows("t", "T", None, &rows, Some("x".into()), None, &Value::Null, &inc);
         let a = &v["agents"][0];
         assert!(a["charter"].is_null() && a["effort"].is_null() && a["tools"].is_null() && v["org_md"].is_null());

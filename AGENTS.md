@@ -4,6 +4,8 @@ Read this file before working in this repository. It is the startup guide, not a
 
 Ticket/presentation menu actions capture their owning composer before metadata reads; Quick chat owns only its canvas content. See [composer ownership](docs/agents/docket-and-presentations.md#object-actions-belong-to-a-composer-2026-10-22). [verified: `canvas/composerobjects.tsx`; 2026-10-22]
 
+Template watchdog import stages paused without smoke or immediate effects, then arms eligible portable dogs after all rows exist. Never export runtime memo or credential references, including nested fire-action credentials; explicit audiences restore through grant_tx. See [template links](docs/rust-engine/template-links.md). [verified: `domain/template_links.rs`, `runtime/watchdogs.rs`, 2026-10-22]
+
 Recursive project fires must construct nested futures with `util::boxed(|| ...)`: `Box::pin(f())` still grows debug poll frames at every level, even with the depth-four cutoff. See [fire-action stack verification](docs/rust-engine/tool-cards.md#fire-actions). [verified: `domain/listeners.rs`, 2026-10-22]
 
 ## Read this first

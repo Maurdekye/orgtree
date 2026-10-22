@@ -2072,6 +2072,18 @@ async fn listener_watch_said(engine: &Arc<Engine>, org_id: i64, p: &crate::domai
 // Inline queue results contain full mail; credentials may also be supplied.
 #[nolog]
 pub async fn create(engine: &Arc<Engine>, org_id: i64, owner: i64, args: &Value) -> Result<Value> {
+    crate::util::boxed(|| create_mode(engine, org_id, owner, args, None)).await
+}
+
+/// Internal restore mode only: validate through the normal creation path, but
+/// stage paused without smoke, immediate resolutions, subscriptions or runners.
+#[nolog]
+pub(crate) async fn create_from_template(engine: &Arc<Engine>, org_id: i64, owner: i64, args: &Value, needs_credentials: bool) -> Result<Value> {
+    crate::util::boxed(|| create_mode(engine, org_id, owner, args, Some(needs_credentials))).await
+}
+
+#[nolog]
+async fn create_mode(engine: &Arc<Engine>, org_id: i64, owner: i64, args: &Value, template: Option<bool>) -> Result<Value> {
     let kind = args["kind"].as_str().unwrap_or("").to_string();
     if !["file", "command", "process", "stream", "activity", "event", "usage", "fair_queue", "slot", "project_listener", "listener_watch", "mqtt", "websocket"].contains(&kind.as_str()) {
         refuse!(BadRequest, "kind must be one of file, command, process, stream, activity, event, usage, fair_queue, slot, project_listener, listener_watch, mqtt, websocket");
@@ -2134,6 +2146,10 @@ pub async fn create(engine: &Arc<Engine>, org_id: i64, owner: i64, args: &Value)
         }
     }
     let mut memo = json!({ "run": {} });
+    if let Some(needs_credentials) = template {
+        memo["template_needs_credentials"] = json!(needs_credentials);
+        memo["paused_why"] = json!(if needs_credentials { "needs credentials: recreate this template watchdog with credentials before use" } else { "restored from template; check its target before resuming" });
+    }
     let connection_mode = crate::domain::watchdogs::connection_messages_arg(args,false)?;
     if matches!(kind.as_str(), "mqtt" | "websocket") {
         memo["connection_messages"] = json!(connection_mode.unwrap_or("notice"));
@@ -2148,15 +2164,18 @@ pub async fn create(engine: &Arc<Engine>, org_id: i64, owner: i64, args: &Value)
         if memo["usage"]["accounts"].as_array().is_some_and(|ids|ids.iter().any(|id|!rows.iter().any(|r|r["account"]==*id))) {
             refuse!(Forbidden,"requested usage account is unavailable to this organization");
         }
-        let (baseline,pending)=usage::initial(engine,org_id,owner,&memo["usage"],&rows).await?;
-        memo["run"]["usage"]=baseline;
-        memo["run"]["usage_pending"]=json!(pending);
-        memo["run"]["usage_pending_fired"]=json!(0);
+        if template.is_none() {
+            let (baseline,pending)=usage::initial(engine,org_id,owner,&memo["usage"],&rows).await?;
+            memo["run"]["usage"]=baseline;
+            memo["run"]["usage_pending"]=json!(pending);
+            memo["run"]["usage_pending_fired"]=json!(0);
+        }
     } else if ["accounts","windows","usage_events","threshold_percent"].iter().any(|k|args.get(k).is_some()) {
         refuse!(BadRequest,"accounts/windows/usage_events/threshold_percent require kind usage");
     }
     if kind == "event" {
         events::validate(&target,args)?;
+        if template.is_some() { events::validate_owner(engine, owner, args).await?; }
         memo["threshold"]=args["threshold"].clone();
         memo["event_scope"]=json!(args["event_scope"].as_str().unwrap_or("subtree"));
     } else if args.get("threshold").is_some() || args.get("event_scope").is_some() { refuse!(BadRequest,"threshold/event_scope require kind event"); }
@@ -2351,7 +2370,7 @@ pub async fn create(engine: &Arc<Engine>, org_id: i64, owner: i64, args: &Value)
     // where the runner starts: a file from its current end, a process from its current state
     match kind.as_str() {
         "file" => memo["run"]["offset"] = json!(std::fs::metadata(&target).map(|m| m.len()).unwrap_or(0)),
-        "process" => {
+        "process" if template.is_none() => {
             if let Some(up) = target_up(&target).await {
                 memo["run"]["up"] = json!(up);
             }
@@ -2362,7 +2381,8 @@ pub async fn create(engine: &Arc<Engine>, org_id: i64, owner: i64, args: &Value)
     // an mqtt smoke's connection is handed to the dog's runner once it is armed
     let mut parked: Option<crate::mqtt::Parked> = None;
     let mut ws_parked: Option<crate::ws::Conn> = None;
-    let mut smoked = if kind=="usage" {json!({"push":true,"note":"Current cached levels evaluated now; future changes use edges. No provider requests. Clock checks detect stale/reset transitions within 15 seconds."})}
+    let mut smoked = if template.is_some() { json!({"skipped":"template import stages paused; no smoke or immediate effects"}) }
+        else if kind=="usage" {json!({"push":true,"note":"Current cached levels evaluated now; future changes use edges. No provider requests. Clock checks detect stale/reset transitions within 15 seconds."})}
         else if let Some(c) = &mqtt_new { let (v, p) = mqtt::smoke(engine, owner, c).await; parked = p; v }
         else if let Some(c) = &ws_new { let (v, p) = websocket::smoke(engine, c).await; ws_parked = p; v }
         else if kind=="event" { events::smoke(engine,owner,&target,args).await? }
@@ -2372,7 +2392,7 @@ pub async fn create(engine: &Arc<Engine>, org_id: i64, owner: i64, args: &Value)
         else { smoke(&kind, &target, re.as_ref(), shell_col.as_deref(), cwd.as_deref()).await };
     let smoke_lines: Vec<String> = smoked.as_object_mut().and_then(|o| o.remove("_fire_lines"))
         .and_then(|v| v.as_array().cloned()).unwrap_or_default().into_iter().filter_map(|v| v.as_str().map(str::to_string)).collect();
-    if once && fire_mode == "event" {
+    if template.is_none() && once && fire_mode == "event" {
         let id = crate::domain::watchdog_inventory::available_id(&**engine.db.get().await?, owner, &base).await?;
         if let Some(out) = immediate::resolve(engine, org_id, owner, &owner_name, &id, &kind, &target,
             &memo, &smoked, &smoke_lines, &fire_actions).await? {
@@ -2391,16 +2411,16 @@ pub async fn create(engine: &Arc<Engine>, org_id: i64, owner: i64, args: &Value)
         let id = crate::domain::watchdog_inventory::available_id(&**client, owner, &base).await?;
         // a dog and its sealed inline credentials are written together
         let tx = client.transaction().await?;
-        if let Some(p)=&slot_project {
+        if let Some(p)=slot_project.as_ref().filter(|_| template.is_none()) {
             crate::domain::slots::admit(&tx,p.id,Some(owner),i64::from(crate::domain::slots::requested(&memo)),None).await?;
         }
         let inserted = tx
             .query_one(
                 "INSERT INTO ot.watchdogs (uid, org_id, owner_agent_id, name, kind, target, pattern, shell, interval_s, fire_mode,
                                            quiet_period_s, once, state, memo, silence_since,next_check_at,next_silence_at)
-                 VALUES ($1, $2, $3, $1, $4, $5, $6, $7, $8, $9, $10, $11, 'armed', $12, CASE WHEN $9 = 'silence' THEN now() END, CASE WHEN $4 IN ('file','command','process') THEN now() END, CASE WHEN $9 = 'silence' THEN now()+greatest(coalesce($10,600),1)*interval '1 second' END)
+                 VALUES ($1, $2, $3, $1, $4, $5, $6, $7, $8, $9, $10, $11, $13, $12, CASE WHEN $9 = 'silence' THEN now() END, CASE WHEN $4 IN ('file','command','process') THEN now() END, CASE WHEN $9 = 'silence' THEN now()+greatest(coalesce($10,600),1)*interval '1 second' END)
                  RETURNING id",
-                &[&id, &org_id, &owner, &kind, &target, &pattern, &shell_col, &interval, &fire_mode, &quiet, &once, &memo],
+                &[&id, &org_id, &owner, &kind, &target, &pattern, &shell_col, &interval, &fire_mode, &quiet, &once, &memo, &if template.is_some() { "paused" } else { "armed" }],
             )
             .await;
         match inserted {
@@ -2414,7 +2434,7 @@ pub async fn create(engine: &Arc<Engine>, org_id: i64, owner: i64, args: &Value)
                 if let Some(sealed) = sealed {
                     tx.execute("INSERT INTO ot.watchdog_secrets (watchdog_id, sealed) VALUES ($1, $2)", &[&row, &sealed]).await?;
                 }
-                if let Some(p) = &listener_project {
+                if let Some(p) = listener_project.as_ref().filter(|_| template.is_none()) {
                     // arming a listener or watch switches the project's event
                     // listeners on (user 2026-10-20 10:50Z): in this
                     // transaction, so a refused or failed create changes nothing
@@ -2445,6 +2465,9 @@ pub async fn create(engine: &Arc<Engine>, org_id: i64, owner: i64, args: &Value)
         .await?;
     drop(client);
     // a slot claim is granted now if a slot is free, so the result can say so
+    if template.is_some() {
+        return Ok(json!({ "id": id, "name": name, "state": "paused" }));
+    }
     let slot_said = match &slot_project {
         Some(p) => Some(slot_claim_said(engine, org_id, p, row).await?),
         None => None,
@@ -2630,6 +2653,9 @@ pub async fn act(engine: &Arc<Engine>, org_id: i64, actor: Option<i64>, id: &str
             "paused"
         }
         "resume" => {
+            if dog.memo["template_needs_credentials"] == true {
+                refuse!(Conflict, "this template watchdog needs credentials; recreate it with credentials before use");
+            }
             if dog.kind == "slot" && dog.state == "spent" {
                 refuse!(Conflict, "this concurrency slot claim was granted and is spent; create a new one to claim again");
             }
@@ -2929,6 +2955,8 @@ pub async fn list(engine: &Engine, agent: i64, args: &Value) -> Result<Value> {
                 put("slots", json!(crate::domain::slots::requested(&d.memo)));
             }
             put("fire_actions", d.memo["fire_actions"].clone());
+            if d.state == "paused" { put("paused_why", d.memo["paused_why"].clone()); }
+            if d.memo["template_needs_credentials"] == true { put("needs_credentials", json!(true)); }
             if d.kind == "mqtt" {
                 // how it authenticates, never with what
                 put("credentials", json!(mqtt::credentials_label(&d.memo)));

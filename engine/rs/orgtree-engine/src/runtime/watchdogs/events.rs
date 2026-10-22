@@ -250,6 +250,15 @@ async fn count(engine: &Engine, owner: i64, active: bool, scope: &str, members: 
 }
 
 /// Current conditions are smoke evidence, not replayed historical transitions.
+#[nolog]
+pub(super) async fn validate_owner(engine: &Engine, owner: i64, args: &Value) -> Result<()> {
+    if args["event_scope"] == "org" && identity(engine, owner).await?.visibility != "full" {
+        refuse!(Forbidden, "org count requires full organization visibility; use event_scope subtree");
+    }
+    Ok(())
+}
+
+/// Current conditions are smoke evidence, not replayed historical transitions.
 #[logged]
 pub(super) async fn smoke(engine: &Engine, owner: i64, target: &str, args: &Value) -> Result<Value> {
     let current=match target {

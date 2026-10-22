@@ -115,6 +115,8 @@ message/fire limits below. Fire-action results have their own truncation.
 
 ## Restart and resume schedules
 
+Save as template can include standing watchdog definitions. Portable dogs remap to the new org's nodes; event names and usage filters retain their meaning. Machine-specific dogs are a separate off-by-default choice and restore paused. Template import stages every dog paused without smoke or immediate effects, then arms eligible portable dogs after all imports exist. Runtime output, clocks, events and leases are omitted. Credentials and credential-file paths are never saved, including inside fire actions: an affected whole action is removed with a warning and its parent dog stays paused, marked needs credentials. Recreate it with credentials before use; resume refuses while that marker stands. Lists and the desktop show the pause reason. See orgtree-org-templates (orgtree-app > org-settings) for fields, warnings and preview behavior. Ordinary tool creation below retains its smoke and ready-once behavior.
+
 Polling and silence deadlines survive engine restarts. A future slot stays put;
 an overdue slot runs/fires at most once immediately, then the first original
 recurrence slot in the future is used. For a six-hour dog last run at h0,

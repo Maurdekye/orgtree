@@ -1,0 +1,13 @@
+# Template watchdogs and audiences
+
+4.4.2 scope: USER 2026-10-22 22:33:12Z/22:33:19Z requested watchdog templates; 22:34:50Z/22:35:08Z added audiences. Coordinator defaults and implementation decisions are recorded on @item:orgtree/org-templates-can-include-watchdogs and mail m3e90e453d93a.
+
+Save captures active definitions through keyset pages. Definitions use a whitelist, not the display inventory or raw memo. Sealed secret rows are never read. Credential descriptors only become a boolean needs_credentials marker. Credential-bearing nested fire actions are omitted wholesale. Runtime output, clocks, target IDs and leases do not cross the boundary. Hand-edited definitions containing secret fields or unsupported/runtime keys are refused. Source: domain/template_links.rs.
+
+Audience pairs come from ot.audiences, never effective_audiences. Only live saved endpoints and @user/@extern destinations survive. Both endpoints follow picker renames; removed endpoints generate warnings. Canonical audiences::grant_tx runs after all nodes are inserted in the node transaction, preserving contact-only authority and inbox policy.
+
+Watchdogs cannot call the ordinary create then pause: create smokes commands/network and can resolve one-shots inline. Internal create_from_template shares canonical validation but inserts paused and returns before smoke, immediate resolution, project switching, leases, subscriptions or runner start. Once every import has been staged, eligible portable dogs resume normally. Machine-specific, saved-paused and credential-dependent definitions remain paused. The latter refuse resume and must be recreated with credentials. Per-dog refusal messages remain visible on the already-created organization. Org creation applies its warm/kickoff effects afterward.
+
+The template endpoints provide parity; there is no template Orgtree tool. include.watchdogs and include.audiences default true; include.machine_watchdogs defaults false. The saved file, save response, preview and create result surface counts and warnings. Preview rows disclose direct user/extern grants before creation.
+
+Verification is phase 1: the focused template_links Rust tests cover definition/runtime separation, target and audience rename/drop, event/usage targets, nested credential stripping, machine opt-in/paused plans and per-node preview disclosures. The renderer test verifies checkbox defaults/dependency, submitted fields, counts and warnings. Its red control loads the exact base components in memory, without mutating source. One offline real-component save-dialog capture checks layout. No live org/auth or engine rig is used.

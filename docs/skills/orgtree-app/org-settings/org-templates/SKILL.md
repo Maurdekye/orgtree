@@ -26,12 +26,25 @@ appears in the creation picker's list. Tree, names and tiers are always included
 | org.md | Yes | Org charter content. |
 | Quick chat defaults | Yes | Starting superior, model and effort. A superior absent from the saved live layout becomes top level. |
 | Org-wide settings | Yes | Portable settings the org explicitly saved, including grant/default/compaction/resume choices; excludes folders, accounts and hubs. |
+| Include watchdogs | Yes | Armed/paused definitions owned by saved agents; node targets remap to the new layout. No runtime history or credentials. |
+| Include machine-specific watchdogs | No | Sub-choice under watchdogs: file, command, process, stream, MQTT and WebSocket. Recreated paused; check the targets before resuming. |
+| Include audiences | Yes | Active explicit directional grants between saved nodes, plus user and extern grants. Inherited/project-derived routes come from structure. |
 | Account binding | No | Preferred accounts and saved per-agent fallback overrides; where an account is unavailable at creation, another runnable account is selected. |
 | Folder scopes | No | Machine-specific agent folders, trimmed to folders held by the new org when used. |
 | Scratch AGENTS.md files | No | Copies this org's shared, team/project and personal standing notes into the template file. Include only secret-free text; limits and refusals are below. |
 
 An unticked group takes normal hire defaults when the template is used. Mail,
-docket items, transcripts, watchdogs and audiences are never copied. Live agents and projects are saved; a node without a live saved parent becomes top level. Project Summary is included with charters; its slots and peer-mail policy retain the structural configuration. Projects are free and pass funding through to the nearest agent; the saved spare-credit calculation accounts for their descendants.
+docket items, transcripts and watchdog runtime history are never copied. Live agents and projects are saved; a node without a live saved parent becomes top level. Project Summary is included with charters; its slots and peer-mail policy retain the structural configuration. Projects are free and pass funding through to the nearest agent; the saved spare-credit calculation accounts for their descendants.
+
+## Watchdogs and audiences
+
+The preview shows watchdog counts per node and lists each node's explicit audience grants, including **user** and **outside mail**, before creation. Renaming a node remaps watchdog owners, activity/project targets and both ends of audience grants. Removing a node drops its dogs and any dog or grant whose endpoint is absent, with warnings in the preview and creation result. Event-name targets and the literal usage target stay unchanged; usage account IDs remain as saved and scoped account eligibility is checked again during restoration.
+
+Watchdogs keep silence/quiet period, once, notice, intervals, filters and secret-free fire actions. Clocks, output, events, queue position, leases and sealed secret rows are never exported. Credential objects and credential-file paths are never copied. A fire-action entry containing credentials anywhere inside it is removed as a whole with a warning. Its parent dog, and any network dog whose credentials were removed, is marked **needs credentials**, stays paused and must be recreated with credentials before use. Recognizable credential material in other definition text causes that dog to be omitted with a warning; review arbitrary command/message text before sharing a template.
+
+Creation restores audiences after all nodes exist through normal grant checks in the node transaction. Grants provide contact only, never tools or folders; org-inbox eligibility and multi-holder policy still apply. It then stages dogs paused after commit and before warm/first-message effects, without command/network smoke or immediate one-shot/fire-action effects. Eligible portable dogs arm only after all imported rows exist, and evaluate normally once armed. Saved-paused, machine-specific and credential-dependent dogs stay paused with a reason. A per-dog restore refusal leaves the organization created and appears as a visible warning.
+
+There is no template agent tool. Existing HTTP/file/shell parity remains: POST /api/orgs/{slug}/template accepts include.watchdogs (default true), include.machine_watchdogs (default false, effective only with watchdogs), and include.audiences (default true). Template JSON adds watchdogs as owner/args/paused/needs_credentials definitions, audiences as grantee/grantor pairs (grantor is the contact destination), and warnings. POST /api/templates/resolve previews the remapped definitions; POST /api/orgs recreates the selected template. Normal agent tools manage the recreated watchdogs and audiences within existing permissions.
 
 **Save template** is disabled with a blank name or while busy. An org with no
 live agents is refused. A normalized filename collision is refused first and

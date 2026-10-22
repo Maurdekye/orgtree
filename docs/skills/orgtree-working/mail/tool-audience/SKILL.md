@@ -7,6 +7,8 @@ Up: [orgtree-mail](../SKILL.md)
 
 # orgtree_audience
 
+Save as template can capture active explicit grants among its saved nodes, plus user and extern grants, with a default-on Include audiences choice. It stores directional grantee/grantor pairs, never effective/inherited routes. The creation preview lists the grants per node, explicitly naming user and outside-mail access. Renamed endpoints remap; omitted/outside endpoints are dropped with warnings. All restored grants use the normal grant checks after the nodes exist, in the same transaction; org-inbox and multi-holder policy remain enforced. Audiences grant contact only, never tools or folders. There is no template agent tool: the existing template HTTP endpoints carry the include field. See orgtree-org-templates (orgtree-app > org-settings).
+
 ## Call contract
 
 Manage directional audiences: agent/project endpoints, request target (optional from=managed project), grant from, deny requester, revoke grantee. Projects pass their explicit grants to live direct members as their own; no nested relay. An audience with a project also reaches its direct agents; reverse access needs a reverse grant. User project mail/broadcast grants only the project; members inherit without personal grants. Direct contact adds no user grant while effective access exists; manual Acquire audience can. Project decisions belong to their nearest agent superior (user if none). External/org-inbox access remains agent-only. Requests do not grant access.

@@ -39,6 +39,7 @@ pub mod templates;
 #[cfg(test)]
 pub(crate) mod native_fixture;
 pub mod template_notes;
+pub mod template_links;
 pub mod tree;
 pub mod undo;
 pub mod watchdogs;

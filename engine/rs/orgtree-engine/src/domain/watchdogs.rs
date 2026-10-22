@@ -138,6 +138,12 @@ pub fn view(w: &Value, owner: &str) -> Value {
     }
     o.insert("id".into(), json!(handle(owner, w["uid"].as_str().unwrap_or_default())));
     o.insert("owner".into(), json!(owner));
+    if let Some(why) = w["memo"]["paused_why"].as_str().filter(|_| w["state"] == "paused") {
+        o.insert("template_warning".into(), json!(why));
+    }
+    if w["memo"]["template_needs_credentials"] == true {
+        o.insert("needs_credentials".into(), json!(true));
+    }
     o.insert("name".into(), w["name"].clone());
     o.insert("kind".into(), w["kind"].clone());
     if w["kind"] == "fair_queue" {

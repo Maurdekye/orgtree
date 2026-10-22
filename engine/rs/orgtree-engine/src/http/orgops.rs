@@ -141,6 +141,7 @@ pub async fn create(State(e): State<Arc<Engine>>, Json(b): Json<CreateOrg>) -> A
     let mut hired = Vec::new();
     let mut projects = Vec::new();
     let mut pending_notes = Vec::new();
+    let mut template_links = crate::domain::template_links::Plan::default();
     if let Some((template, planned)) = &planned {
         let pending = crate::orgs::provisional(id, uuid.to_string(), slug.clone(), name.clone());
         let kickoff = b.template.as_ref().is_some_and(|p| p.kickoff);
@@ -161,6 +162,10 @@ pub async fn create(State(e): State<Arc<Engine>>, Json(b): Json<CreateOrg>) -> A
                 personal: row.get::<_,Option<String>>(3).map(PathBuf::from).unwrap_or_else(|| e.cfg.scratch_root(&slug).join(row.get::<_,String>(1))),
             }).collect();
         pending_notes = crate::domain::template_notes::pending(&e.cfg.scratch_root(&slug), template, planned, &locations);
+        template_links = crate::domain::template_links::plan(template, planned);
+        for grant in &template_links.audiences {
+            crate::domain::audiences::grant_tx(&e, &*tx, &pending, &Actor::User, &grant.grantee, Some(&grant.grantor), "restored from template").await?;
+        }
     }
     tx.commit().await?;
     drop(client);
@@ -176,6 +181,7 @@ pub async fn create(State(e): State<Arc<Engine>>, Json(b): Json<CreateOrg>) -> A
     }
     crate::net::kick(&e);
     let o = crate::orgs::open(&e, id, uuid.to_string(), slug.clone(), name);
+    let watchdog_result = crate::domain::template_links::restore(&e, id, &template_links).await;
     if planned.is_some() {
         ops::apply_effects(&e, &o, fx).await;
     }
@@ -185,6 +191,8 @@ pub async fn create(State(e): State<Arc<Engine>>, Json(b): Json<CreateOrg>) -> A
         out["hired"] = json!(hired);
         if !projects.is_empty() { out["projects"] = json!(projects); }
         if !pending_notes.is_empty() { out["standing_notes"] = note_result; }
+        out["watchdogs"] = watchdog_result;
+        out["audiences"] = json!(template_links.audiences.len());
     }
     Ok(Json(out))
 }

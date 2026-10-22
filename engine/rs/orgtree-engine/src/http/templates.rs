@@ -149,6 +149,7 @@ pub async fn save(State(e): State<Arc<Engine>>, Path(slug): Path<String>, Json(b
     let org_md = std::fs::read(e.cfg.workspace_dir(&o.slug).join("org.md")).ok().map(|b| String::from_utf8_lossy(&b).into_owned());
     let settings: Value = e.db.get().await?.query_one("SELECT settings FROM ot.orgs WHERE id = $1", &[&o.id]).await?.get(0);
     let mut t = templates::from_rows(&id, &name, b.description.as_deref(), &rows, org_md, b.quick_chat.as_ref(), &settings, &b.include);
+    crate::domain::template_links::capture(&e, o.id, &rows, &b.include, &mut t).await?;
     if b.include.standing_notes {
         crate::domain::template_notes::capture_layout(&e.cfg.scratch_root(&slug), &locations, &mut t)
             .map_err(ApiError::unprocessable)?;
@@ -161,5 +162,6 @@ pub async fn save(State(e): State<Arc<Engine>>, Path(slug): Path<String>, Json(b
         ApiError::new(StatusCode::from_u16(code).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR), msg)
     })?;
     Ok(Json(json!({ "id": id, "file": format!("{id}.json"), "path": path.to_string_lossy(), "content": body,
-                    "agents": rows.iter().filter(|r| r.tier != crate::domain::projects::TIER).count(), "problems": problems })))
+                    "agents": rows.iter().filter(|r| r.tier != crate::domain::projects::TIER).count(), "problems": problems,
+                    "watchdogs": parsed.watchdogs.len(), "audiences": parsed.audiences.len(), "warnings": parsed.warnings })))
 }
