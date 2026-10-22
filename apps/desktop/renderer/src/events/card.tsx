@@ -16,6 +16,7 @@ import type { RefWorld, ResolvedRef } from '../canvas/reflinks'
 import type { TypedRef } from '../canvas/workrefs'
 import { md } from '../canvas/shared'
 import { useDogRoute } from '../canvas/deskdogs'
+import { WATCHDOG_CARD_LIMIT } from '../canvas/watchdoggroup'
 import { WatchdogLink } from '../canvas/watchdoglink'
 import { AnsweredAsk, AnsweredCard, ResolvedSections, batchAskQuestions, resolvedSectionKinds } from './answered'
 import { StructuredJson } from '../canvas/structuredjson'
@@ -96,7 +97,7 @@ function WatchdogObjectLabel({ object }: { object: Extract<NonNullable<Event['ob
   const spent = Boolean(match && (match.spent || match.state === 'spent'))
   const dog = match && !spent ? match : undefined
   const owner = object.owner || (id.includes('/') ? id.split('/')[0]! : '')
-  const partialOwner = sameOrg && Boolean(owner) && (route.counts?.[owner]?.total ?? 0) > 8
+  const partialOwner = sameOrg && Boolean(owner) && (route.counts?.[owner]?.total ?? 0) > WATCHDOG_CARD_LIMIT
   const gone = sameOrg && (spent || (!match && !partialOwner))
   return <WatchdogLink dog={dog} id={id} name={object.name} org={object.org}
     stale={gone} className={gone ? 'event-watchdog-gone' : ''} countdown>

@@ -97,6 +97,24 @@ reader preserve that document in the pinned open marker; reload restores it
 along with the same node generation and reader scope. [verified:
 `canvas/{OrgCanvas,gallery}.tsx`, `tests/readers.test.tsx`; 2026-10-21]
 
+## Monitor card partial watchdog previews and team reader scope
+
+Monitor event cards (`WatchdogObjectLabel` in `events/card.tsx`) keep a watcher's
+live detail/menu button when its owner's loaded preview is partial
+(`route.counts[owner].total > WATCHDOG_CARD_LIMIT` and the watcher falls outside the eight-row
+preview), matching `WatchdogLink`. Show `(no longer exists)` only when the
+watcher has confirmed spent evidence or is absent from a complete owner preview.
+See [watchdog panel](../skills/orgtree-app/desk/watchdog-panel/SKILL.md).
+[verified: `events/card.tsx`, `tests/eventcard.test.tsx`; 2026-10-21]
+
+Team presentation readers (`AgentGalleryView` in `canvas/gallery.tsx`) clear an
+in-memory `selId` when an authoritative refresh removes that document from the
+current team scope (such as after its presenter moves out of that team), and
+`pickReader` (`canvas/readers.ts`) ignores `showing(docId)` handles whose rank is
+`Infinity` when current ancestry is known, so later document links route using
+current team membership. See [presentations](../skills/orgtree-app/desk/presentations/SKILL.md).
+[verified: `canvas/{readers,gallery}.ts*`, `tests/readers{-order,}.test.ts*`; 2026-10-21]
+
 ## Tray administrator setting
 
 The tray Run as admin checkbox and Settings share the protected admin-change
