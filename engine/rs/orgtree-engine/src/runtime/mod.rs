@@ -501,6 +501,25 @@ pub fn rehost_all(engine: &Arc<Engine>) {
     }, span));
 }
 
+/// Places for the moves of idle Session 0 CLIs (`rehost_all`): at most so
+/// many run at once, engine-wide, whichever sweep sent them, and a move holds
+/// its place until it is done.
+#[derive(Debug)]
+pub(crate) struct Places(Arc<tokio::sync::Semaphore>);
+
+#[logged]
+impl Places {
+    pub(crate) fn new(at_once: usize) -> Self {
+        Places(Arc::new(tokio::sync::Semaphore::new(at_once)))
+    }
+
+    /// A place, once one is free: held until the permit is dropped.
+    pub(crate) async fn take(&self) -> tokio::sync::OwnedSemaphorePermit {
+        let _ = &self.0;
+        Arc::new(tokio::sync::Semaphore::new(1)).acquire_owned().await.expect("a new semaphore is open")
+    }
+}
+
 /// Warming turned off: close every parked CLI (running turns keep theirs).
 #[logged]
 pub fn cool_all(engine: &Engine) {
@@ -623,4 +642,29 @@ pub async fn shutdown(engine: &Arc<Engine>) {
         }
     }
     let _ = tokio::time::timeout(std::time::Duration::from_secs(8), futures::future::join_all(waits)).await;
+}
+
+#[cfg(test)]
+mod rehost_place_tests {
+    use super::Places;
+    use std::sync::Arc;
+    use std::time::Duration;
+
+    #[tokio::test]
+    async fn at_most_three_moves_hold_a_place_whichever_sweep_sent_them() {
+        let places = Arc::new(Places::new(3));
+        // three moves, as one sweep dispatches them: each holds its place until done
+        let mut held = vec![places.take().await, places.take().await, places.take().await];
+        // a fourth waits for one of them, from the same sweep
+        assert!(tokio::time::timeout(Duration::from_millis(200), places.take()).await.is_err(), "a fourth move must wait for a place");
+        // or from another sweep
+        let other = places.clone();
+        let waiting = tokio::spawn(async move { other.take().await });
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        assert!(!waiting.is_finished(), "another sweep's move waits too");
+        // a move that ends gives its place to the one waiting
+        held.pop();
+        let next = tokio::time::timeout(Duration::from_secs(2), waiting).await;
+        assert!(matches!(next, Ok(Ok(_))), "a freed place admits the waiting move");
+    }
 }
