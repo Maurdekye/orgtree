@@ -136,6 +136,22 @@ the run.
 
 ## What keeps it safe
 
+The `credential-broker.mjs` proof prepares compiled offline `git.exe` and
+`gh.exe` fixtures before the engine starts. Both the engine and its interactive
+broker receive an allowlisted environment with scratch HOME/USERPROFILE, empty
+Git configuration, and a scratch gh config directory. The temporary task clears
+its inherited environment too. The hosted child verifies that its gh adapter is
+the rig engine and that its native gh target is the fixture before executing
+lookups. Only reserved synthetic hosts are accepted; no GitHub network or real
+credential-store check is part of this proof. It preserves capability, successful
+lookup, fixed lookup failure, invalid-capability refusal, handover and no-broker
+checks. Preflight, command plans and synthetic-call receipts accompany the verdict.
+`RIG_BROKER_OUTPUT` can keep fixtures/evidence in a separate authorized output
+directory. The descriptor data root must still pass normal broker trust checks;
+never weaken shared ancestor ACLs to run it.
+[verified: `tools/rig/{broker-synthetic.mjs,broker-agent-check.mjs,synthetic-credential-tool.cs}`,
+2026-10-22]
+
 - **Rig mode in the engine** (`src/rig.rs`) is compiled into debug builds only. It switches on
   only with `ORGTREE_ENGINE_SAFE_START=1`, `ORGTREE_ENGINE_RIG=1`, the marker file
   `.orgtree-rig-root` in the data root, and a root outside `%APPDATA%\Orgtree v2`; asking for it

@@ -8,6 +8,14 @@ These attributed records were moved from the root guide at `22daffd`; they retai
 
 ## Renderer, capture and rig traps
 
+- A scratch HOME or empty Git config alone does not isolate the credential
+  broker: it launches native Git/gh from PATH, which can still read Windows
+  credential stores. Use the offline executables, cleared task environment and
+  preflight in the [broker proof](../rust-engine/test-rig.md#what-keeps-it-safe).
+  Its success/failure checks exercise the real bridge with synthetic credentials;
+  they are not GitHub network coverage. [verified: 2026-10-22,
+  `tools/rig/proofs/credential-broker.mjs`]
+
 - IPC source-extraction fixtures must isolate the intended registration before
   transpiling TypeScript. A distant handler sentinel can silently include new
   adjacent registrations and their unrelated dependencies; raw `new Function`

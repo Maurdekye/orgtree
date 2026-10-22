@@ -10,14 +10,8 @@
 // 2026-10-10 08:33Z) via a hidden wscript launcher (no window). The task is
 // deleted in a finally block and its absence checked.
 //
-// 1. The broker attaches through a descriptor (the desktop's trust and
-//    identity checks) and holds the bridge. An agent runs `gh auth status`,
-//    git credential lookups through the engine's git helper, and
-//    `git ls-remote`. A synthetic credential for rig-proof.example, visible
-//    only to the broker's process (GIT_CONFIG_GLOBAL including the user's own
-//    file), proves a git credential coming back; the gh and github.com
-//    lookups reach this Windows user's real store and only their outcome is
-//    kept. Nothing is pushed.
+// 1. The broker and hosted child use scratch-native Git/gh fixtures only.
+//    No network, user Git include, gh config or Windows credential store.
 // 2. Handover both ways with the stand-in desktop (credential-desktop-stub.mjs):
 //    held while the broker lives, taken at once when it dies, the broker
 //    stands by, and the desktop's release hands it back within one poll.
@@ -31,19 +25,19 @@
 // The broker comes from your cargo target's debug build
 // (ORGTREE_RIG_BROKER names another).
 import fs from 'node:fs'
-import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { execFileSync } from 'node:child_process'
 
 import { Proof } from '../proof.mjs'
+import { prepareFixture, fixtureEnvironment, assertFixture, agentCommand } from '../broker-synthetic.mjs'
 
 const sleep = ms => new Promise(r => setTimeout(r, ms))
 const LEAD = 'lead'
 const STUB = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'credential-desktop-stub.mjs')
 
 export async function setup() {
-  return { bootIsolated: true, fixture: { org: { name: 'Broker Org' },
+  return { bootIsolated: true, prepare: prepareFixture, fixture: { org: { name: 'Broker Org' },
     agents: [{ name: LEAD, tier: 'opus', grant: 4 }],
     scenario: { default: { turns: [{ steps: [{ text: 'OK.' }] }] } } } }
 }
@@ -59,12 +53,22 @@ export const q = s => "'" + String(s).replace(/'/g, "''") + "'"
 
 /** One temporary interactive task; each start runs what launch.txt names
  *  (NAME=value lines set the environment, `run <command line>` starts it hidden). */
-export function sessionLauncher(dir, name) {
+export function sessionLauncher(dir, name, { isolated = false } = {}) {
   const vbs = path.join(dir, 'launch.vbs'), txt = path.join(dir, 'launch.txt')
   fs.writeFileSync(vbs, [
     'Set fso = CreateObject("Scripting.FileSystemObject")',
     `Set f = fso.OpenTextFile("${txt}", 1)`,
     'Set sh = CreateObject("WScript.Shell")',
+    ...(isolated ? [
+      'keys = ""',
+      'For Each entry In sh.Environment("Process")',
+      '  eq = InStr(entry, "=")',
+      '  If eq > 1 Then keys = keys & Left(entry, eq - 1) & vbLf',
+      'Next',
+      'For Each key In Split(keys, vbLf)',
+      '  If Len(key) > 0 Then sh.Environment("Process").Remove key',
+      'Next',
+    ] : []),
     'Do Until f.AtEndOfStream',
     '  line = f.ReadLine',
     '  eq = InStr(line, "=")',
@@ -100,6 +104,10 @@ const kill = pid => { if (pid) try { process.kill(pid) } catch {} }
 
 export default async function (rig) {
   const p = new Proof('credential-broker')
+  if (process.env.RIG_BROKER_OUTPUT) {
+    p.dir = path.join(process.env.RIG_BROKER_OUTPUT, 'evidence')
+    fs.mkdirSync(p.dir, { recursive: true })
+  }
   const exe = brokerExe()
   if (!fs.existsSync(exe)) throw Error(`no broker at ${exe}: cargo build -p orgtree-engine --bins`)
   const run = rig.refresh()
@@ -107,7 +115,7 @@ export default async function (rig) {
   const out = path.join(rig.dir, 'agent-out')
   fs.mkdirSync(out, { recursive: true })
   const taskName = `OrgtreeRigProof-${path.basename(rig.dir)}`
-  const session = sessionLauncher(rig.dir, taskName)
+  const session = sessionLauncher(rig.dir, taskName, { isolated: true })
   let broker = 0, desk = null
   try {
     // the boot host's descriptor, as host.rs writes it (owner-only by inheritance here)
@@ -119,20 +127,18 @@ export default async function (rig) {
 
     const bin = path.join(rig.dir, 'bin', 'orgtree-credential-broker.exe')
     fs.copyFileSync(exe, bin)
-    // a credential only the broker's process can see; the user's own global file stays included
-    const gitGlobal = path.join(rig.dir, 'broker-gitconfig')
-    fs.writeFileSync(gitGlobal, `[include]\n\tpath = ${path.join(os.homedir(), '.gitconfig').replace(/\\/g, '/')}\n` +
-      '[credential "https://rig-proof.example"]\n\thelper = "!f() { test \\"$1\\" = get && echo username=rig-proof && echo password=rig-proof-synthetic; }; f"\n')
+    const isolated = fixtureEnvironment(rig.dir)
+    p.file('synthetic-preflight.json', assertFixture(isolated))
     const brokerLog = () => { try { return fs.readFileSync(path.join(rig.data, 'credential-broker.log'), 'utf8') } catch { return '' } }
     const startBroker = async () => {
-      await session.start({ ORGTREE_V2_DATA: rig.data, GIT_CONFIG_GLOBAL: gitGlobal }, `"${bin}"`)
+      await session.start({ ...isolated, ORGTREE_V2_DATA: rig.data }, `"${bin}"`)
       await rig.waitFor(() => brokerPid(bin) > 0, { timeout: 15000, what: 'broker process' })
       return brokerPid(bin)
     }
     const startDesk = async () => {
       const file = path.join(rig.dir, 'desk.json')
       fs.rmSync(file, { force: true })
-      await session.start({}, `"${process.execPath}" "${STUB}" "${file}"`)
+      await session.start(isolated, `"${process.execPath}" "${STUB}" "${file}"`)
       await rig.waitFor(() => fs.existsSync(file), { timeout: 15000, what: 'stand-in desktop' })
       return JSON.parse(fs.readFileSync(file, 'utf8'))
     }
@@ -142,51 +148,36 @@ export default async function (rig) {
       body: JSON.stringify({ pipe: d.pipe, secret: d.secret, pid: d.pid, ...extra }) })).status
     const holds = () => (brokerLog().match(/holding the bridge/g) || []).length
 
-    // the agent's commands: outcomes and presence only, never a secret in a file
-    const script = path.join(rig.dir, 'agent-check.cmd')
+    // Audit this fixed command plan before starting the broker or hosted child.
+    const script = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'broker-agent-check.mjs')
     const engineExe = path.join(rig.dir, 'bin', 'orgtree-engine.exe')
-    // git's request on stdin from a file: a parenthesised echo block in a cmd
-    // pipe is re-parsed with a trailing space on every value
-    const gitLookup = (host, tag) => {
-      const input = path.join(rig.dir, `${tag}.in`)
-      fs.writeFileSync(input, `protocol=https\nhost=${host}\n\n`)
-      return `"${engineExe}" credential-helper get < "${input}" 2> "%OUT%-${tag}-err.txt" | findstr /b /c:"password=" > nul && (echo present> "%OUT%-${tag}.txt") || (echo absent> "%OUT%-${tag}.txt")`
-    }
-    fs.writeFileSync(script, [
-      '@echo off',
-      `set OUT=${out}\\%1`,
-      'if defined ORGTREE_CREDENTIAL_AUTH (echo capability=yes> "%OUT%-env.txt") else (echo capability=no> "%OUT%-env.txt")',
-      'gh auth status > "%OUT%-gh.txt" 2>&1',
-      gitLookup('rig-proof.example', 'synthetic'),
-      gitLookup('github.com', 'github'),
-      'git ls-remote https://github.com/Maurdekye/orgtree HEAD > "%OUT%-lsremote.txt" 2>&1',
-      'echo done> "%OUT%-done.txt"',
-    ].join('\r\n') + '\r\n')
+    p.file('command-plan.json', { node: process.execPath, script, engine: engineExe,
+      gh: ['auth', 'status', '--hostname', 'rig-proof.example'],
+      git: ['credential-helper', 'get'], hosts: ['rig-proof.example', 'rig-failure.example'],
+      denied: 'synthetic-invalid-capability', noExternalNetwork: true })
+    let completedTurns = 0
     const agentRun = async phase => {
-      rig.scenario({ default: { turns: [{ steps: [{ spawn: `${script} ${phase}` }, { sleep_ms: 30000 }, { text: 'OK.' }] }] } })
+      const command = agentCommand(rig.dir, [process.execPath, script, engineExe, out], phase)
+      p.file(phase + '-agent-check.cmd', fs.readFileSync(path.join(rig.dir, 'agent-check.cmd')))
+      rig.scenario({ default: { turns: [{ steps: [{ spawn: command }, { sleep_ms: 30000 }, { text: 'OK.' }] }] } })
       await rig.userMail(LEAD, `check ${phase}`)
       await rig.waitFor(() => fs.existsSync(path.join(out, `${phase}-done.txt`)), { timeout: 120000, what: `${phase} commands` })
-      const read = f => { try { return fs.readFileSync(path.join(out, `${phase}-${f}.txt`), 'utf8').trim() } catch { return '' } }
-      const r = { env: read('env'), gh: read('gh').replace(/gh[opsu]_[A-Za-z0-9_*]+/g, 'gh*_…'), synthetic: read('synthetic'), syntheticErr: read('synthetic-err'),
-        github: read('github'), githubErr: read('github-err'), ls: read('lsremote') }
-      p.file(`${phase}.json`, r)
-      return r
+      const result = JSON.parse(fs.readFileSync(path.join(out, phase + '.json'), 'utf8'))
+      p.file(phase + '-commands.json', fs.readFileSync(path.join(out, phase + '-commands.json')))
+      p.file(phase + '.json', result)
+      await rig.waitTurns(LEAD, ++completedTurns)
+      return result
     }
-    const brokerCode = text => (text.match(/\[([a-z0-9-]+)\]/) || [])[1]
-
     // ---- 1. the broker serves an agent
     broker = await startBroker()
     await rig.waitFor(async () => (await context()).bridge_ready === true, { timeout: 30000, what: 'broker registration' })
     p.check('the broker (started by the interactive task) attaches and holds the bridge', /holding the bridge/.test(brokerLog()), brokerLog().split(/\r?\n/).filter(Boolean).slice(-3))
     const served = await agentRun('helper')
-    p.check('the agent CLI carries a credential capability', served.env === 'capability=yes', served.env)
-    p.check('a git credential comes back through engine → broker (synthetic rig-proof.example)', served.synthetic === 'present', { result: served.synthetic, stderr: served.syntheticErr })
-    const ghCode = brokerCode(served.gh)
-    p.check('gh reaches the broker: a GH_TOKEN login, or the broker\'s own lookup error', /GH_TOKEN/.test(served.gh) || (ghCode && !['no-desktop', 'no-engine', 'denied', 'busy'].includes(ghCode)),
-      served.gh.split(/\r?\n/).filter(l => /Logged in|GH_TOKEN|\[|exit=|not logged/i.test(l)))
-    p.check('the github.com git lookup reaches the user\'s store through the broker', served.github === 'present' || !/no-desktop|no-engine|denied/.test(served.githubErr),
-      { result: served.github, stderr: served.githubErr })
-    p.check('git ls-remote over HTTPS succeeds', /^[0-9a-f]{40}\s+HEAD/m.test(served.ls), served.ls.slice(0, 120))
+    p.check('the hosted child carries a credential capability', served.capability)
+    p.check('synthetic Git credential returns through engine and broker', served.synthetic.present, served.synthetic)
+    p.check('synthetic gh receives only the broker token', served.gh.status === 0 && served.gh.label === 'synthetic token received through bridge', served.gh)
+    p.check('synthetic lookup failure reaches the child as a fixed code', !served.failure.present && /\[git-exit-42\]/.test(served.failure.stderr), served.failure)
+    p.check('an invalid child capability is refused', !served.denied.present && /\[denied\]/.test(served.denied.stderr), served.denied)
     p.note('the engine\'s last lookup through the broker', (await context()).bridge_lookup)
 
     // ---- 2. handover, both ways
@@ -208,7 +199,7 @@ export default async function (rig) {
     await rig.waitFor(() => holds() > before, { timeout: 15000, what: 'broker takes over' })
     p.check('after the release the broker takes over within one poll (5 s)', Date.now() - t1 < 7000, { ms: Date.now() - t1 })
     const again = await agentRun('handback')
-    p.check('the agent is served again after the handover', again.synthetic === 'present', again.synthetic)
+    p.check('the agent is served again after the handover', again.synthetic.present, again.synthetic)
 
     // ---- 3. idle cost (no lookups since the last turn)
     const stat = () => JSON.parse(ps(`$p=Get-Process -Id ${broker}; @{ws=$p.WorkingSet64; priv=$p.PrivateMemorySize64; cpu=$p.TotalProcessorTime.TotalMilliseconds; threads=$p.Threads.Count} | ConvertTo-Json -Compress`))
@@ -223,10 +214,11 @@ export default async function (rig) {
     kill(broker); broker = 0
     await rig.waitFor(() => brokerPid(bin) === 0, { timeout: 10000, what: 'broker exit' })
     const none = await agentRun('none')
-    p.check('without a broker gh reports [no-desktop]', /\[no-desktop\]/.test(none.gh), none.gh.split(/\r?\n/).filter(l => /no-desktop/.test(l)))
-    p.check('without a broker the git helper reports [no-desktop]', /\[no-desktop\]/.test(none.syntheticErr) && none.synthetic === 'absent', none.syntheticErr)
+    p.check('without a broker gh reports no-desktop and uses only the empty synthetic fallback', /\[no-desktop\]/.test(none.gh.stderr) && none.gh.status === 1 && none.gh.label === 'synthetic native fallback without credentials', none.gh)
+    p.check('without a broker Git returns no-desktop and no credential', /\[no-desktop\]/.test(none.synthetic.stderr) && !none.synthetic.present, none.synthetic)
     p.check('the bridge is reported down', (await context()).bridge_ready === false)
     p.file('credential-broker.log', brokerLog())
+    p.file('synthetic-calls.tsv', fs.readFileSync(path.join(isolated.HOME, 'calls.tsv'), 'utf8'))
     p.keep(rig, { agents: [LEAD], grep: /[Cc]redential (broker|bridge)/ })
   } finally {
     kill(broker)
