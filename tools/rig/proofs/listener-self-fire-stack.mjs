@@ -32,8 +32,13 @@ export default async function (rig) {
       }
       const mail = () => rig.sql(`SELECT m.body,m.ev->>'fire_actions' AS actions FROM ot.mail m
         JOIN ot.agents a ON a.id=m.recipient_agent_id WHERE a.name='${agent}' AND m.sender='echo' ORDER BY m.id`)
-      await rig.waitFor(() => mail().some(m => /SKIPPED/.test(m.actions ?? '')),
+      let readError
+      await rig.waitFor(() => {
+        try { return mail().some(m => /SKIPPED/.test(m.actions ?? '')) }
+        catch (error) { readError = error; return true }
+      },
         { what: `${entry} depth cutoff`, timeout: 30000 })
+      if (readError) throw readError
       if (entry === 'command') await rig.tool(agent, 'orgtree_watchdog', { action: 'pause', id: 'trigger' })
       const rows = mail(), expected = entry === 'event' ? 5 : 4
       const pending = rig.one(`SELECT count(*) AS n FROM ot.listener_fire_outbox f
