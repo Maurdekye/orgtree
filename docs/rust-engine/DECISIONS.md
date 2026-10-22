@@ -7,6 +7,13 @@ policy remain physical, per the user's explicit exceptions.
 
 # Orgtree 4 rewrite — the user's standing decisions
 
+Tool paths (user 2026-10-22 18:39:30Z, staffed 19:35:49Z): an unresolved
+file in a tool row must retain its full attempted path. Show the directory
+dimmed inline, preserve the path in its tooltip, and keep Copy path available
+even when file actions cannot resolve it. Apply across tools and harnesses
+with recorded paths; existing files keep their usual behavior. See
+[unresolved tool paths](../agents/desktop-and-renderer.md#unresolved-tool-file-paths-2026-10-22).
+
 **Heavy dev shop and optional template notes (user 2026-10-21 18:40:32Z,
 maf10b255d511; 18:41:15Z, ma2ebac78cf61; 18:42:15Z, m173a65d0bc11;
 18:45:37Z, m1678b37fb750):** ship the large mixed-model layout mimicking the

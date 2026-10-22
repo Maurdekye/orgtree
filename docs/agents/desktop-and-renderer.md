@@ -1,5 +1,26 @@
 # Desktop and renderer
 
+## Unresolved tool file paths (2026-10-22)
+
+`ToolChip` uses `ToolFilePath` for every recorded `file_paths` entry, across
+tools and harnesses. The projection's `link` flag means a native target has a
+base; it does not establish that the file exists. The existing native
+`localFileStatus` bridge decides whether a filename-only link is appropriate.
+Pending, missing and unavailable status retain the full attempted path with a
+dim directory; a relative path without cwd is never passed to native file
+actions. Native click delegation blocks these unresolved targets. The shared
+file menu always retains path/name copying, even when it cannot offer Open or
+Show in folder; prose links receive the same copy fallback.
+
+Status reads are local to each mounted path, refreshed on tool completion and
+hover/focus. Replaced/unmounted requests cannot overwrite newer results; no
+global status cache or filesystem polling is added. Resolved links preserve
+their existing labels, title and actions. This is a display/clipboard fix using
+existing native capabilities, so there is no new engine action or agent tool.
+[decided: user 2026-10-22 18:39:30Z, staffing defaults 19:35:49Z;
+verified: `canvas/{desk.tsx,toolfilepath.tsx,localfile.ts,shared.ts}`, tests
+`toolmissingpaths.test.tsx`]
+
 History trimming must reopen older paging whenever it discards rows, including
 after reaching the true start. Retain an unchanged window's metadata; recreate
 Rust cursors from the oldest retained sequence and refresh opaque legacy tails

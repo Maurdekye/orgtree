@@ -21,7 +21,19 @@ drafts scroll inside the field. Deleting or sending text shrinks the box again;
 changing the panel width also recalculates its height. Quick chat uses its own
 single-line input.
 
-File-reading/writing tool calls show a local-file link immediately after the tool chip, labelled with only the filename; hovering shows the full path. A path already shown by the link is omitted from the tool argument so it appears once. Skill reads link when the event includes the resolved `SKILL.md` path or when a name-only call resolves to exactly one file in the selected, materialized skill registry; missing or ambiguous names stay unlinked.
+File-reading/writing tool calls show the attempted file immediately after the
+tool chip. Existing files keep a filename-only link; hover shows the full path.
+Missing files, unavailable file-status checks and relative paths without a
+working directory show the full attempted path, with its directory dimmed.
+Their tooltip keeps that path and explains its status. They cannot open or
+reveal a file, but their context menu retains **Copy path** and **Copy file
+name**. The same rule covers every tool kind and harness with recorded file
+paths, including read, write, edit and glob calls. File status is checked when
+the row appears, when the tool completes, and on hover or keyboard focus.
+A path already shown beside the tool is omitted from its argument so it
+appears once. Skill reads use the resolved `SKILL.md` path or exactly one file
+in the selected, materialized skill registry; missing or ambiguous skill names
+remain unlinked because no attempted file path is known.
 
 Chat is the conversation surface. It includes messages, thoughts when supplied, tools, typed events, attachments and pending delivery rows. Opening another tab does not stop the agent. Earlier messages load on demand; failure offers retry rather than claiming the transcript ends there.
 
