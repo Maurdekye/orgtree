@@ -45,7 +45,7 @@ test('embedded project desk never reveals its clipped underlying normal-card nam
   const node = project('discord-compress-picker-with-a-long-clipped-name') as unknown as CanvasNode
   const tree = bunchTree([node])
   const el = (focused: boolean) => <ProjectSquare node={node} pos={{ x: 100, y: 100 }} lod="norm" focused={focused}
-    tree={tree} map={new Map([[node.id, node]])} refs={{} as never} zoom={1} dragging={false} isDrop={false}
+    tree={tree} map={new Map([[node.id, node]])} refs={{ world: { org: tree.slug }, onOpen: noop } as never} zoom={1} dragging={false} isDrop={false}
     op={async () => ({} as never)} slug={tree.slug} toast={noop} seats={{}} hire={{}} onHire={noop} onNewProject={noop}
     onInbox={noop} onDragStart={noop} onDragMove={noop} onDragEnd={noop} onDragCancel={noop} />
   const view = await mountView(el(false), el => el)
@@ -55,5 +55,5 @@ test('embedded project desk never reveals its clipped underlying normal-card nam
   await view.render(el(true))
   assert.ok(view.el.querySelector('.cc-head'), 'real embedded project desk mounted')
   await hover(view.el.querySelector('.cc-head')!)
-  assert.equal(view.el.querySelector('.name-full'), null, 'desk content cannot reveal the hidden card-name backdrop')
+  assert.equal(!!view.el.querySelector('.name-full'), false, 'desk content cannot reveal the hidden card-name backdrop')
 })
