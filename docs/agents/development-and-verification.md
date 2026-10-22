@@ -8,6 +8,14 @@ These attributed records were moved from the root guide at `22daffd`; they retai
 
 ## Renderer, capture and rig traps
 
+- The mailbox proof checks explicit reads, not the historical blanket-pending
+  expectation: list/conversation previews and invalid/deferred/foreign reads
+  leave mail alone; returned own fetch/chunk content records read/delivery.
+  To test chunk consumption independently, it re-arms one immutable synthetic
+  row after fetch and uses the genuine continuation handle. Keep UTF-8/digest,
+  paging and restart controls; attachment checks retain their separate verdicts.
+  [verified: `tools/rig/proofs/mailbox.mjs`; 2026-10-22]
+
 - The document-chips proof compares exact shared document titles (no historical
   `read ` or status prefix). Keep newest-four ordering, interleaved sent-file
   exclusion and Report 6 opening from both header and canvas. Record named

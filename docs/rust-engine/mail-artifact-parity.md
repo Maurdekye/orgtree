@@ -28,9 +28,12 @@ Database routing, transactional races, actual hub delivery and browser execution
 are source-inspected and compile-checked, not exercised against a running engine. No live data
 or network peer was changed. During the prototype no unit-test suite was run.
 
-PLAN C3 removes 3.x's multi-level delivery evidence. Manual reads therefore explicitly report
-that waiting mail retains normal automatic delivery; they do not claim a provider receipt or
-consume pending mail. A repeated tool call without either a known delivery_id or a preserved
+The later explicit-content-read contract supersedes the original non-consuming manual-read
+rule: successful own-mail fetch/chunk calls consume only pending received rows whose content
+is returned and record read/delivery. Previews, deferred/missing/foreign IDs and project reads
+do not consume mail. See [orgtree-tool-inbox](../skills/orgtree-working/mail/tool-inbox/SKILL.md).
+The mailbox rig checks these state transitions independently of its content-integrity and
+restart-handle controls. A repeated tool call without either a known delivery_id or a preserved
 provider tool-use ID cannot be recognized after total response loss. Earlier 4.0 presentations
 whose source assets were never stored cannot have those missing assets reconstructed; the
 snapshot contract applies to newly presented/replaced HTML. HTML downloads use ZIP's stored

@@ -8,7 +8,8 @@
 //       not fit in 256 KB, and does not see another agent's mail; chunk
 //       reads the rest (UTF-8 boundaries, digests, the whole body back),
 //       refuses a wrong handle or index, and works again after an engine
-//       restart; reading changes no delivery state.
+//       restart; previews/refusals/deferred/foreign ids do not consume mail,
+//       while returned own content records a read and delivery receipt.
 //   pam (holds a user audience) mails the user with attachments: at most
 //       10; only to the user or @net: peers; a snapshot in her outbox that a
 //       later edit does not change; a file outside her folders is refused;
@@ -44,6 +45,11 @@ export default async function (rig) {
   const waiting = rig.sql(`SELECT uid, body FROM ot.mail WHERE recipient_agent_id = ${id('ian')} AND state = 'pending' ORDER BY id`)
   p.note('waiting', { count: waiting.length })
   const uidOf = text => waiting.find(m => m.body === text)?.uid
+  const quote = s => `'${String(s).replaceAll("'", "''")}'`
+  const stateOf = uid => rig.one(`SELECT uid, state, read_at, delivered_at FROM ot.mail WHERE uid = ${quote(uid)}`)
+  const ownStates = () => rig.sql(`SELECT uid, state, read_at, delivered_at FROM ot.mail WHERE uid IN (${waiting.map(m => quote(m.uid)).join(',')}) ORDER BY id`)
+  const isRead = row => row?.state === 'read' && !!row.read_at && !!row.delivered_at
+  const initialStates = ownStates()
 
   // ---------------------------------------------------------------- list
   const l1 = await inbox({ action: 'list' })
@@ -63,7 +69,12 @@ export default async function (rig) {
   // ---------------------------------------------------------------- fetch
   const tooMany = await inbox({ action: 'fetch', message_ids: waiting.slice(0, 21).map(m => m.uid) })
   p.check('fetch: more than 20 ids are refused', !tooMany.ok && /1 to 20/.test(tooMany.text ?? ''), tooMany.text)
+  const conversation = await inbox({ action: 'conversation', peer: 'user', limit: 1 })
+  p.check('previews and refused reads: list/conversation and invalid fetch leave every waiting row unread', conversation.ok
+    && conversation.json?.messages?.length === 1 && JSON.stringify(ownStates()) === JSON.stringify(initialStates),
+  { waiting: initialStates.length, conversation: conversation.json?.messages?.length })
   const bossMail = rig.one(`SELECT uid FROM ot.mail WHERE recipient_agent_id = ${id('boss')} ORDER BY id DESC LIMIT 1`)?.uid
+  const foreignBefore = stateOf(bossMail)
   const f = await inbox({ action: 'fetch', message_ids: [uidOf('Notice 0: small.'), ...long.map(uidOf), bossMail].filter(Boolean) })
   const got = f.json?.messages ?? []
   const first = got.find(m => m.id === uidOf(long[0]))
@@ -75,8 +86,29 @@ export default async function (rig) {
     && got.some(m => m.content === 'Notice 0: small.' && m.complete === true), { served: got.length, deferred: f.json?.deferred_ids })
   p.check('fetch: another agent\'s message is simply not found here', (f.json?.not_found ?? []).includes(bossMail) && !got.some(m => m.id === bossMail),
     { not_found: f.json?.not_found })
+  const servedIds = new Set(got.map(m => m.id))
+  const deferredIds = f.json?.deferred_ids ?? []
+  const afterFetch = ownStates()
+  p.check('fetch: every returned own body, including partial content, is read and delivered', got.length > 0
+    && afterFetch.filter(m => servedIds.has(m.uid)).length === got.length
+    && afterFetch.filter(m => servedIds.has(m.uid)).every(isRead),
+  { returned: got.length, read: afterFetch.filter(isRead).length })
+  p.check('fetch: deferred and unrequested own mail stays pending; foreign mail is unchanged', deferredIds.length > 0
+    && deferredIds.every(uid => stateOf(uid)?.state === 'pending')
+    && afterFetch.filter(m => !servedIds.has(m.uid)).every(m => m.state === 'pending' && !m.read_at && !m.delivered_at)
+    && JSON.stringify(stateOf(bossMail)) === JSON.stringify(foreignBefore),
+  { deferred: deferredIds, untouched: afterFetch.filter(m => !servedIds.has(m.uid)).length })
 
   // ---------------------------------------------------------------- chunk
+  // Isolate chunk consumption from the preceding fetch: re-arm this one
+  // immutable synthetic row, retaining the genuine returned continuation.
+  // No live mailbox or product behavior is altered by this fixture setup.
+  rig.exec(`UPDATE ot.mail SET state = 'pending', read_at = NULL, delivered_at = NULL, extra = extra - 'manual_read' WHERE uid = ${quote(first.id)}`)
+  const beforeInvalidChunks = ownStates()
+  const wrongHandle = await inbox({ action: 'chunk', delivery_id: 'inbox:0:x:y', message_id: first.id, chunk_index: 1 })
+  const outside = await inbox({ action: 'chunk', delivery_id: first.delivery_id, message_id: first.id, chunk_index: 99 })
+  p.check('chunk: a wrong handle and an index past the end are refused without consuming pending mail', !wrongHandle.ok && !outside.ok
+    && JSON.stringify(ownStates()) === JSON.stringify(beforeInvalidChunks), { wrongHandle: wrongHandle.text, outside: outside.text })
   let whole = first?.content ?? ''
   let chunkOk = true
   for (let i = 1; i < (first?.chunk_total ?? 0); i++) {
@@ -86,15 +118,17 @@ export default async function (rig) {
   }
   p.check('chunk: every chunk is whole UTF-8 within 64 KB with its digest, and together they are the exact body', chunkOk && whole === long[0]
     && sha(whole) === first?.body_sha256, { chunks: first?.chunk_total, same: whole === long[0] })
-  const wrongHandle = await inbox({ action: 'chunk', delivery_id: 'inbox:0:x:y', message_id: first?.id, chunk_index: 1 })
-  const outside = await inbox({ action: 'chunk', delivery_id: first?.delivery_id, message_id: first?.id, chunk_index: 99 })
-  p.check('chunk: a wrong handle and an index past the end are refused', !wrongHandle.ok && !outside.ok, { wrongHandle: wrongHandle.text, outside: outside.text })
-  const states = rig.sql(`SELECT state FROM ot.mail WHERE recipient_agent_id = ${id('ian')}`).map(r => r.state)
-  p.check('reading changes no delivery state: everything is still waiting', states.length === waiting.length && states.every(s => s === 'pending'),
-    { states: [...new Set(states)] })
+  const afterChunks = ownStates()
+  p.check('chunk: valid returned content consumes its pending row and leaves every other own/foreign row unchanged', isRead(stateOf(first.id))
+    && JSON.stringify(afterChunks.filter(m => m.uid !== first.id)) === JSON.stringify(beforeInvalidChunks.filter(m => m.uid !== first.id))
+    && JSON.stringify(stateOf(bossMail)) === JSON.stringify(foreignBefore), { consumed: first.id, deferred: deferredIds })
+  const receiptBeforeRestart = stateOf(first.id)
   await rig.restart()
   const after = await inbox({ action: 'chunk', delivery_id: first?.delivery_id, message_id: first?.id, chunk_index: 1 })
-  p.check('chunk: the same handle still reads after an engine restart', after.ok && after.json?.chunk_index === 1, after.text?.slice(0, 160))
+  p.check('chunk: the same handle reads exact content after restart without changing its read receipt', after.ok && after.json?.chunk_index === 1
+    && after.json.body_sha256 === sha(long[0]) && after.json.chunk_sha256 === sha(after.json.content ?? '')
+    && first.content + after.json.content === long[0]
+    && JSON.stringify(stateOf(first.id)) === JSON.stringify(receiptBeforeRestart), after.text?.slice(0, 160))
 
   // ---------------------------------------------------------------- attachments (P13)
   const scratch = name => path.join(rig.data, 'scratch', rig.org, name)
