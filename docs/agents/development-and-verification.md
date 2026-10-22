@@ -8,6 +8,13 @@ These attributed records were moved from the root guide at `22daffd`; they retai
 
 ## Renderer, capture and rig traps
 
+- IPC source-extraction fixtures must isolate the intended registration before
+  transpiling TypeScript. A distant handler sentinel can silently include new
+  adjacent registrations and their unrelated dependencies; raw `new Function`
+  then fails on TypeScript instead of executing authorization assertions.
+  `tests/scratch-folder.test.mjs` bounds the next sibling registration and uses
+  esbuild's TypeScript transform. [verified: 2026-10-22]
+
 - Docket detail tests must account for first-shown-ticket opening on org,
   agent, team and project surfaces (USER 2026-10-21 16:50:46Z, PLAN §10).
   Use `selectDocketRow` for idempotent detail setup and deliberately clear the

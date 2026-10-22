@@ -6,7 +6,7 @@ import fs from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import { createRequire } from 'node:module'
-import { build } from 'esbuild'
+import { build, transform } from 'esbuild'
 
 const temp = await fs.mkdtemp(path.join(os.tmpdir(), 'scratch-folder-'))
 const bundle = path.join(temp, 'native.cjs')
@@ -18,13 +18,19 @@ test('production IPC registration restricts folder opening to the caller organiz
   const source = await fs.readFile('apps/desktop/main/index.ts', 'utf8')
   const start = source.indexOf("    handle('desktop:open-agent-scratch-folder'")
   assert.ok(start >= 0)
-  const end = source.indexOf("    handleApp('desktop:open-charter-folder'", start)
-  assert.ok(end > start)
+  // Bound the fixture to this one registration: new adjacent handlers must
+  // not become part of its mocked dependencies or authorization assertions.
+  const following = source.slice(start + 1).search(/\r?\n {4}handle(?:App)?\(/)
+  assert.ok(following >= 0, 'the next IPC registration bounds the fixture')
+  const end = start + 1 + following
+  const { code } = await transform(source.slice(start, end), {
+    loader: 'ts', target: 'node22', sourcefile: 'scratch-folder-registration.ts',
+  })
   const calls = []
   const engine = { origin: 'http://127.0.0.1:1234', token: 'fixture' }
   let callback
   const options = { dataRoot: temp }
-  const register = new Function('handle', 'engineRestartOptions', 'windows', 'engine', 'shell', 'openAgentScratchFolder', source.slice(start, end))
+  const register = new Function('handle', 'engineRestartOptions', 'windows', 'engine', 'shell', 'openAgentScratchFolder', code)
   register((channel, fn) => { assert.equal(channel, 'desktop:open-agent-scratch-folder'); callback = fn },
     options, { identity: id => id === 'mine-window' ? { org: 'mine' } : { kind: 'homepage' } }, engine,
     { openPath: async directory => { calls.push(['shell', directory]); return '' } },
