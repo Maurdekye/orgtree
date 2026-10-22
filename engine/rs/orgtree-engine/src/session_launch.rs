@@ -223,6 +223,22 @@ fn admission(port: u16, token: &str, generation: &str, who: &Identity, action: h
         .is_ok_and(|a| a.status == 200 && a.body["ok"] == json!(true))
 }
 
+/// Write the attempt record, trying again briefly when the atomic replace
+/// fails (a reader may hold the file without delete sharing): the error, if
+/// it still fails, for the caller to act on.
+#[nolog]
+fn record_attempt(root: &Path, record: &Record) -> std::io::Result<()> {
+    let mut result = handover::write(root, record);
+    for wait in [100, 200, 400] {
+        if result.is_ok() {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(wait));
+        result = handover::write(root, record);
+    }
+    result
+}
+
 /// The old engine is gone and its tree has released the data root.
 #[nolog]
 fn stopped(root: &Path, engine: &Identity, within: Duration) -> bool {
@@ -327,19 +343,38 @@ fn launch(root: &Path, by: &str, session: u32, admin: bool, restart: bool, recei
     let epoch = Vec::new();
     let mut record = Record { id: crate::util::random_hex(16), phase: Phase::Begun, by: by.into(), owner: me.clone(), session,
         admin, stopped_old: false, at_ms: crate::core_state::now(), epoch, error: None, rollback: None, reported: None };
-    let save = |r: &Record| { if let Err(e) = handover::write(root, r) { crate::host::say(Some(root), &format!("session launch: could not record the attempt: {e}")); } };
-    save(&record);
+    // The boot host's rollback and the desktop's wait read this record, so a
+    // write that fails is never only a log line (save says so and answers false).
+    let save = |r: &Record| match record_attempt(root, r) {
+        Ok(()) => true,
+        Err(e) => {
+            crate::host::say(Some(root), &format!("session launch: could not record the attempt ({:?}): {e}", r.phase));
+            false
+        }
+    };
     let fail = |record: &mut Record, error: &'static str| {
         record.phase = Phase::Failed;
         record.error = Some(error.into());
-        save(record);
+        let recorded = save(record);
         crate::host::say(Some(root), &format!("session launch ({by}): {error}"));
-        receipt("error.json", json!({"error": error, "stoppedOld": record.stopped_old}));
+        if !recorded && record.stopped_old {
+            crate::host::say(Some(root), "session launch: the boot host cannot read this failure, so its 120 s backstop recovers the engine instead of the immediate rollback");
+        }
+        receipt("error.json", json!({"error": error, "stoppedOld": record.stopped_old, "recorded": recorded}));
     };
+    // Nothing is stopped before the attempt is on disk: the old engine stays
+    // as it is (decision 93: a failure before the stop leaves it untouched).
+    if !save(&record) {
+        fail(&mut record, why::UNRECORDED);
+        return ExitCode::from(1);
+    }
     match (planned, &current) {
         (Plan::Replace, Some(old)) => {
             record.phase = Phase::Stopping;
-            save(&record);
+            if !save(&record) {
+                fail(&mut record, why::UNRECORDED);
+                return ExitCode::from(1);
+            }
             if !admission(old.port, &old.token, &old.generation, &me, handover::Action::Begin) {
                 fail(&mut record, why::REFUSED);
                 return ExitCode::from(1);
@@ -364,7 +399,9 @@ fn launch(root: &Path, by: &str, session: u32, admin: bool, restart: bool, recei
         }
     }
     record.phase = Phase::Starting;
-    save(&record);
+    if !save(&record) {
+        say("starting the engine anyway: the old one is stopped, and until a later record lands the boot host and the desktop see the previous phase");
+    }
     say(&format!("starting the engine in this session (admin: {admin})"));
     let mut lock = Some(lock);
     let mut became_ready = false;
@@ -377,8 +414,8 @@ fn launch(root: &Path, by: &str, session: u32, admin: bool, restart: bool, recei
             let _ = admission(ready.port, ready.token, &generation, &me, handover::Action::Complete);
         }
         record.phase = Phase::Ready;
-        save(&record);
-        receipt("done.json", json!({"enginePid": ready.pid}));
+        let recorded = save(&record);
+        receipt("done.json", json!({"enginePid": ready.pid, "recorded": recorded}));
         crate::host::say(Some(root), &format!("session launch ({by}): the engine is ready in this session (pid {})", ready.pid));
         lock.take();
     });
@@ -529,5 +566,28 @@ mod tests {
         r.data_root=root();
         assert_eq!(validate(&r,&c,Life::Alive,&root()),Ok(()));
         std::fs::remove_dir_all(ui).unwrap();
+    }
+
+    /// A record a reader holds without delete sharing cannot be replaced: an
+    /// error for the launcher to act on, after the short retry; released, it
+    /// lands and reads back.
+    #[cfg(windows)]
+    #[test]
+    fn an_unwritable_record_is_an_error_the_launcher_sees() {
+        use std::os::windows::fs::OpenOptionsExt;
+        let dir = std::env::temp_dir().join(format!("orgtree-record-{}", uuid::Uuid::new_v4().simple()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join(handover::RECORD), "{}").unwrap();
+        // FILE_SHARE_READ only: no delete (replace) sharing
+        let held = std::fs::OpenOptions::new().read(true).share_mode(1).open(dir.join(handover::RECORD)).unwrap();
+        let record = Record { id: "d".repeat(32), phase: Phase::Begun, by: "desktop".into(), owner: Identity { pid: 30, created: "300".into() },
+            session: 1, admin: false, stopped_old: false, at_ms: 5_000, epoch: Vec::new(), error: None, rollback: None, reported: None };
+        let started = Instant::now();
+        assert!(record_attempt(&dir, &record).is_err(), "the held record was replaced");
+        assert!(started.elapsed() >= Duration::from_millis(700), "it tried again before giving up");
+        drop(held);
+        record_attempt(&dir, &record).expect("the released record is written");
+        assert_eq!(handover::read(&dir).map(|r| r.id), Some(record.id.clone()));
+        std::fs::remove_dir_all(dir).ok();
     }
 }

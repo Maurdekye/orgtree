@@ -79,6 +79,7 @@ pub mod why {
     pub const LAUNCHER_LOST: &str = "the launcher in the signed-in session ended before its engine was ready";
     pub const TASK_FAILED: &str = "the user-session engine task did not start";
     pub const NO_ENGINE: &str = "no engine started in the signed-in session in time";
+    pub const UNRECORDED: &str = "the attempt could not be recorded";
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
