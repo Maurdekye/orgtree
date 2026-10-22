@@ -1,5 +1,17 @@
 # Desktop and renderer
 
+## Composer warning focus lifetime (2026-10-22)
+
+Focus-only cache notices use the composer-and-warning boundary, rather than
+textarea blur, so a pointer press or keyboard focus transfer cannot remove the
+settings link before activation. The link follows composer controls in DOM Tab
+order while CSS keeps the warning above the box. Leaving the region hides the
+mid-turn warning; existing readiness/context gates and settings routing remain.
+Compact modal notes, job-ack notes and project inbox no-listener notes have no
+focus visibility gate and need no lifetime change.
+[verified: `canvas/desk.tsx`, `agentcompact.tsx`, `jobackpane.tsx`,
+`inboxwarning.tsx`, `projectdesk.tsx`; decided: user 2026-10-22 09:37Z]
+
 ## Session 0 state badge (2026-10-22)
 
 `SessionZeroBadge` in `canvas/nextturn.tsx` renders the normal tree-feed

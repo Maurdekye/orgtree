@@ -104,6 +104,12 @@ Halted/organization-stop banners identify the durable hold; waiting-for-turn-slo
 
 The separate Halt and Stop controls are consequential: Stop interrupts a response; Halt also blocks later wakes until explicitly released. View navigation itself does neither.
 
+The focus-only mid-turn cache warning stays visible while focus is in the
+composer or its warning link. Pointer activation preserves composer focus;
+keyboard Tab reaches the link after the composer controls, and leaving that
+whole area hides the warning. Its settings destination and warning conditions
+are unchanged.
+
 ## Tabs and next destination
 
 - [Chat](../desk-chat/SKILL.md): conversation and composing.

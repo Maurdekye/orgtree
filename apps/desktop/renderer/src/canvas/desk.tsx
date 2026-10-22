@@ -1529,6 +1529,16 @@ const steerWarningGateOpen = (ratio: number | null, on: boolean | undefined,
   return ratio > 0.25
 }
 
+/** Retain focus-only notices while keyboard focus moves through their actions. */
+export function ComposerFocusRegion({ onFocusChange, children }: {
+  onFocusChange: (focused: boolean) => void; children: ReactNode
+}) {
+  return <div className="cc-composer-region" onFocusCapture={() => onFocusChange(true)}
+    onBlurCapture={(e) => {
+      if (!e.currentTarget.contains(e.relatedTarget as Node | null)) onFocusChange(false)
+    }}>{children}</div>
+}
+
 export function CacheForecastWarning({ forecast, midTurn, composerFocused,
   cheapCompactOn, cheapCompactOcc, contextRatio, onTurnOff }: {
   forecast?: CacheForecast | null
@@ -1606,6 +1616,7 @@ export function CacheForecastWarning({ forecast, midTurn, composerFocused,
  *  cheap-compact will happen, the way to stop it is one click away. */
 function TurnOffLink({ onClick }: { onClick: () => void }) {
   return <button type="button" className="cache-turn-off" onClick={onClick}
+    onPointerDown={(e) => { if (e.button === 0) e.preventDefault() }}
     title="Open the setting that turns automatic cheap compaction off for this agent">
     Turn off in settings</button>
 }
@@ -4514,16 +4525,7 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
       {/* `processActive`, not `turnActive`: the mid-turn banner is about a
           STEER WINDOW, which only exists while a turn is genuinely running.
           A queued or compacting agent has no window to miss. */}
-      <CacheForecastWarning forecast={node.cache_forecast}
-        midTurn={processActive} composerFocused={composerFocused}
-        cheapCompactOn={node.cheap_compact_on}
-        cheapCompactOcc={node.cheap_compact_occ} contextRatio={contextRatio}
-        // the control that governs THIS agent: its own gear when it carries an
-        // explicit ON override (the org switch would not stop it), else the
-        // org's Policies switch (ruling 2026-10-20 12:28Z)
-        onTurnOff={() => openSettingsAt(node.configured_scope?.auto_cheap_compact?.enabled === true
-          ? { scope: 'agent', org: slug, agentId: node.id, target: { tab: 'model', field: 'cheap-compact' } }
-          : { scope: 'org', org: slug, target: { tab: 'policies', field: 'cheap-compact' } })} />
+      <ComposerFocusRegion onFocusChange={setComposerFocused}>
       <div className={'cc-composer' + (canMail ? '' : ' off') + (noticeArmed ? ' notice-armed' : '')
         + (urgentMail ? ' urgent-armed' : '')} onClick={focusComposerBackground}>
         {/* the notice toggle sits ABOVE the attach button, not beside it
@@ -4575,9 +4577,8 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
           onKeyUp={mentions.syncCaret}
           onFocus={() => {
             setActiveChatKey(chatKey)
-            setComposerFocused(true)
           }}
-          onBlur={() => { setComposerFocused(false); grow() }}
+          onBlur={grow}
           onPaste={(e) => {
             // №6: Ctrl+V of an image/file auto-bridges to a real upload
             if (e.clipboardData?.files?.length) {
@@ -4649,6 +4650,17 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
         </div>
         </div>
       </div>
+      {/* Last in DOM for forward Tab from the composer controls; CSS keeps
+          the warning visually above the message box. */}
+      <CacheForecastWarning forecast={node.cache_forecast}
+        midTurn={processActive} composerFocused={composerFocused}
+        cheapCompactOn={node.cheap_compact_on}
+        cheapCompactOcc={node.cheap_compact_occ} contextRatio={contextRatio}
+        // The agent's explicit ON override governs it; otherwise org Policies.
+        onTurnOff={() => openSettingsAt(node.configured_scope?.auto_cheap_compact?.enabled === true
+          ? { scope: 'agent', org: slug, agentId: node.id, target: { tab: 'model', field: 'cheap-compact' } }
+          : { scope: 'org', org: slug, target: { tab: 'policies', field: 'cheap-compact' } })} />
+      </ComposerFocusRegion>
     </ReplySourceProvider>
     </FoldProvider>
     </AgentDirectoryProvider>

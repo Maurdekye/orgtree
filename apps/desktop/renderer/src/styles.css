@@ -2084,6 +2084,8 @@ button.cc-name:focus-visible {
 }
 /* -- composer: the Claude Code input box -- */
 /* send beside the input, no footer row (user ruling: reclaim vertical space) */
+.cc-composer-region { display: flex; flex-direction: column; gap: 6px; flex: none; min-width: 0; }
+.cc-composer-region > .cache-send-warning { order: -1; }
 .cache-send-warning {
   display: flex; align-items: flex-start; gap: 6px; flex: none;
   width: 100%; min-width: 0; padding: 5px 8px; border: 1px solid;
