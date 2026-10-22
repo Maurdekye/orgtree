@@ -42,7 +42,7 @@ export function fixtureEnvironment(dir, inherited = process.env) {
     GIT_CONFIG_NOSYSTEM: '1', GIT_TERMINAL_PROMPT: '0', GCM_INTERACTIVE: 'never',
     RIG_BROKER_FIXTURE: root,
   }
-  for (const key of ['ORGTREE_AGENT', 'ORGTREE_RIG_HOME', 'CARGO_TARGET_DIR', 'RIG_BROKER_OUTPUT']) if (inherited[key]) env[key] = inherited[key]
+  for (const key of ['ORGTREE_AGENT', 'ORGTREE_RIG_HOME', 'ORGTREE_RIG_BROKER', 'CARGO_TARGET_DIR', 'RIG_BROKER_OUTPUT']) if (inherited[key]) env[key] = inherited[key]
   return env
 }
 

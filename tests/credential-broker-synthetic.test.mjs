@@ -20,6 +20,7 @@ test('synthetic environment ignores inherited credentials and native tool search
   const env = fixtureEnvironment(path.resolve('fixture'), {
     SystemRoot: process.env.SystemRoot || path.resolve('system'), PATH: 'live-tools', GH_TOKEN: 'live-canary',
     GIT_CONFIG_GLOBAL: 'live-config', ORGTREE_CREDENTIAL_AUTH: 'live-capability',
+    ORGTREE_RIG_BROKER: path.resolve('explicit-debug-broker.exe'),
   })
   assert.equal(env.GH_TOKEN, undefined)
   assert.equal(env.ORGTREE_CREDENTIAL_AUTH, undefined)
@@ -27,6 +28,7 @@ test('synthetic environment ignores inherited credentials and native tool search
   assert.equal(env.HOME, env.USERPROFILE)
   assert.equal(env.GIT_CONFIG_GLOBAL, path.join(env.HOME, 'gitconfig'))
   assert.ok(!env.PATH.includes('live-tools'))
+  assert.equal(env.ORGTREE_RIG_BROKER, path.resolve('explicit-debug-broker.exe'))
 })
 
 test('preflight refuses inherited tokens, escaped executables and user config includes', () => {
