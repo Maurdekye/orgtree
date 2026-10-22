@@ -1253,6 +1253,47 @@ mod tests {
         }
     }
 
+    // Keep test-home changes in a child process: other tests may read home
+    // concurrently. Never fall through to the user's real charter directory.
+    fn in_preset_test_home(test: &str, developer_override: Option<&str>) -> bool {
+        const CHILD: &str = "ORGTREE_PRESET_HOME_TEST_CHILD";
+        if std::env::var(CHILD).ok().as_deref() == Some(test) { return false; }
+        let home = std::env::temp_dir().join(format!("orgtree-preset-home-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir(&home).unwrap();
+        if let Some(text) = developer_override {
+            let dir = home.join(".orgtree").join("charters");
+            std::fs::create_dir_all(&dir).unwrap();
+            std::fs::write(dir.join("developer.md"), text).unwrap();
+        }
+        let output = std::process::Command::new(std::env::current_exe().unwrap())
+            .args(["--exact", test, "--nocapture", "--test-threads=1"])
+            .env(CHILD, test)
+            .env("ORGTREE_TEST_HOME", &home)
+            .output();
+        let cleanup = std::fs::remove_dir_all(&home);
+        let output = output.expect("run preset assertion in its own test home");
+        cleanup.expect("remove only the home created for this child");
+        assert!(output.status.success(), "isolated preset assertion failed: {}\n{}\n{}",
+            output.status, String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr));
+        assert!(String::from_utf8_lossy(&output.stdout).contains("1 passed; 0 failed"),
+            "the isolated test must actually execute");
+        true
+    }
+
+    #[test]
+    fn heavy_dev_shop_bundled_assertion_ignores_user_preset_override() {
+        const TEST: &str = "domain::templates::tests::heavy_dev_shop_bundled_assertion_ignores_user_preset_override";
+        const OVERRIDE: &str = "Synthetic Developer override: preserve custom preset precedence.";
+        if in_preset_test_home(TEST, Some(OVERRIDE)) { return; }
+        let home = crate::rig::home_dir().unwrap();
+        let override_file = home.join(".orgtree").join("charters").join("developer.md");
+        assert_eq!(crate::http::settings::preset_content("developer").as_deref(), Some(OVERRIDE));
+        heavy_dev_shop_has_all_ruled_seats_efforts_audience_and_notes();
+        assert_eq!(crate::rig::home_dir().unwrap(), home, "child isolation must not change the parent's home");
+        assert_eq!(std::fs::read_to_string(override_file).unwrap(), OVERRIDE);
+        assert_eq!(crate::http::settings::preset_content("developer").as_deref(), Some(OVERRIDE));
+    }
+
     #[test]
     fn heavy_dev_shop_has_all_ruled_seats_efforts_audience_and_notes() {
         let t=bundled("heavy-dev-shop");
