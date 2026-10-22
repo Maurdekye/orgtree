@@ -206,10 +206,10 @@ async fn chain(tx: &Transaction<'_>, id: i64) -> Result<Vec<Node>> {
 async fn within(tx: &Transaction<'_>, root: i64, node: i64) -> Result<bool> {
     Ok(tx
         .query_one(
-            "WITH RECURSIVE up(id, parent_id, depth) AS (
-               SELECT id, parent_id, 0 FROM ot.agents WHERE id = $2
-               UNION ALL SELECT a.id, a.parent_id, up.depth + 1 FROM ot.agents a JOIN up ON a.id = up.parent_id
-                WHERE up.depth < 1024)
+            "WITH RECURSIVE up(id, parent_id, org_id) AS (
+               SELECT id, parent_id, org_id FROM ot.agents WHERE id = $2
+               UNION SELECT a.id, a.parent_id, a.org_id FROM ot.agents a JOIN up ON a.id = up.parent_id
+                WHERE a.org_id=up.org_id)
              SELECT EXISTS (SELECT 1 FROM up WHERE id = $1)",
             &[&root, &node],
         )
@@ -222,11 +222,15 @@ async fn within(tx: &Transaction<'_>, root: i64, node: i64) -> Result<bool> {
 async fn subtree(tx: &Transaction<'_>, id: i64) -> Result<Vec<i64>> {
     Ok(tx
         .query(
-            "WITH RECURSIVE down(id, depth) AS (
-               SELECT id, 1 FROM ot.agents WHERE parent_id = $1 AND state <> 'deleted'
-               UNION ALL SELECT a.id, d.depth + 1 FROM ot.agents a JOIN down d ON a.parent_id = d.id
-                WHERE d.depth < 1024 AND a.state <> 'deleted')
-             SELECT id FROM down ORDER BY depth",
+            "WITH RECURSIVE down(id, parent_id, org_id) AS (
+               SELECT a.id,a.parent_id,a.org_id FROM ot.agents a JOIN ot.agents root ON root.id=$1
+                WHERE a.parent_id=$1 AND a.id<>$1 AND a.org_id=root.org_id AND a.state<>'deleted'
+               UNION SELECT a.id,a.parent_id,a.org_id FROM ot.agents a JOIN down d ON a.parent_id=d.id
+                WHERE a.id<>$1 AND a.org_id=d.org_id AND a.state<>'deleted'),
+             ordered(id,depth) AS (
+               SELECT id,1 FROM down WHERE parent_id=$1
+               UNION ALL SELECT d.id,o.depth+1 FROM down d JOIN ordered o ON d.parent_id=o.id)
+             SELECT id FROM ordered ORDER BY depth",
             &[&id],
         )
         .await?

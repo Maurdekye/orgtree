@@ -16,6 +16,14 @@ ancestors and cycles still refuse, and cached results cannot broaden an outer
 restriction. Peer mail remains tied to physical siblings.
 [verified: `tools/{mod,orgview}.rs`, `domain/mail.rs`; 2026-10-22]
 
+Topology operations use a separate full-depth membership query and live-subtree
+walk in `domain/ops.rs`. The subtree keeps its shallow-to-deep lock/application
+order, excludes the subject and deleted nodes, and ends cycles using stable
+edges before computing order. Do not fix only the tool's descendant gate:
+reallocation/retirement validate again in the operation transaction, while
+dissolution needs the complete descendant list.
+[verified: `domain/ops.rs::{within,subtree}`; 2026-10-22]
+
 [Repository startup guide](../../AGENTS.md) · [All topics and entries](README.md)
 
 Scope, authority, topology, credits, hiring, lifecycle and typed tool contracts.
