@@ -143,9 +143,12 @@ impl Memory {
         }
     }
 
-    /// This host's own engine ended (`host::once` returned).
-    pub fn own_engine_ended(&mut self, _became_ready: bool) {
+    /// This host's own engine ended (`host::once` returned). If it became
+    /// ready, it settles what a reading of it would have: an earlier loss or
+    /// delegation, so its own loss is timed and claimed afresh.
+    pub fn own_engine_ended(&mut self, became_ready: bool) {
         self.served = false;
+        if became_ready { self.lost = None; self.delegated_at = None; }
     }
 }
 

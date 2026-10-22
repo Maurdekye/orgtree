@@ -622,15 +622,24 @@ fn core_fault(root: &Path, pid: u32, reason: &str) -> bool {
 }
 
 /// The ready handshake's shared state (atomics; the failure text is set once).
-#[derive(Default)]
 struct Handshake {
     done: AtomicBool,
     refused: AtomicBool,
     long: AtomicBool,
     port: AtomicU32,
-    /// milliseconds since the host started, at the last checkpoint
+    /// milliseconds since the host started, at the last checkpoint; at first
+    /// the spawn, so each engine gets the whole window however long the host
+    /// has run (the boot host starts several in one process)
     last: AtomicU64,
     failure: std::sync::OnceLock<String>,
+}
+
+impl Default for Handshake {
+    fn default() -> Handshake {
+        Handshake { done: AtomicBool::new(false), refused: AtomicBool::new(false), long: AtomicBool::new(false),
+                    port: AtomicU32::new(0), last: AtomicU64::new(since_start().as_millis() as u64),
+                    failure: std::sync::OnceLock::new() }
+    }
 }
 
 impl Handshake {
