@@ -100,6 +100,36 @@ All registration, failed-ping and lease-expiry notifications pass through
 credential_bridge::publish_availability. Only a readiness boolean is published;
 watchdog event hooks can attach there without receiving broker or grant data.
 
+### Signed out: what a broker served, kept in memory (decision 94, 2026-10-22)
+
+The user's invariant 9 (07:32:22Z) wants Session 0 agents to keep working git
+and gh credentials, signed in or not, and Q3 (07:38:29Z) chose a memory cache.
+The engine keeps every answer a live broker served (`credential_bridge::
+ServedCache`), keyed exactly as asked: kind (`git` or `gh`), host, path and
+username. When no broker is live (the user signed out, or the helper and the
+app are both gone), a request with the same four values gets the kept answer;
+anything else gets the clear `[no-desktop]` refusal, at once. The cache is
+memory only: its secret type has no Debug or Serialize, it is zeroed when
+dropped, nothing writes or logs it (`#[nolog]`), and a restart empties it. A
+broker's lookup failure for the same request removes the entry. An answer from
+memory passes the same grant, CLI process and live-agent checks as a broker's
+(`revalidated`). The first answer from memory in a stretch without a broker is
+logged with kind and host only. Tests: `a_served_credential_is_kept_exactly_as_served`,
+`a_kept_credential_never_reaches_the_log_or_the_bridges_views` (a canary
+through `LogCapture` and `lookup_view`) and
+`a_kept_credential_cannot_be_formatted_or_serialized` (compile time).
+
+Measured limit: the S4U engine's own logon (type 4) cannot read the user's
+saved credentials (the user's PC, 2026-10-21 14:45Z log: "Agents started
+before Windows sign-in can't use your saved git/GitHub credentials"). So after
+a reboot, before the user's first sign-in, or for a request no broker served
+since the engine started, Session 0 agents get `[no-desktop]`.
+
+The sign-in helper's host role also carries its administrator rights
+(`elevated`); the engine refuses a helper whose rights differ from its own
+with `412 [rights]` (invariant 7). The credentials role has no such check:
+the desktop registers it too, and credentials do not depend on rights.
+
 ## Verification
 
 Measured: cargo check with the agent's E: target and -j 2, TypeScript typecheck,

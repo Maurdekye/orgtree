@@ -3887,13 +3887,13 @@
     "np:automaticUpdates",
     "bridge:setRunAsAdministrator"
    ],
-   "purpose": "Runtime > desktop behavior: run on boot (where agents and the engine run), exit on close, automatic updates, Run as admin and Run this session as admin.",
+   "purpose": "Runtime > desktop behavior: run on boot (where agents and the engine run), exit on close, automatic updates and Run as admin.",
    "must_cover": [
     "each switch, default and effect",
     "installer Finish launch: token-based native/original-user dispatch, exclusive ownership and installer log before engine startup",
-    "restarting the background engine: in the user's session while they are signed in at the console, one Session 0 fallback, Start engine",
+    "restarting the background engine: always in Session 0 through the boot task (decision 94), the sign-in helper attaching within seconds, Start engine",
     "run on boot: the engine at boot in Session 0, agents in the signed-in session while the user is signed in; \"run on sign-in\" where Orgtree cannot start at boot",
-    "Run as admin: one switch and one prompt for the Session 0 and the signed-in session's engines; Run this session as admin: one prompt per click, never changes the switch"
+    "Run as admin: one switch and one prompt per change for the Session 0 engine and the sign-in helper, always together, applied at once; no Run this session as admin in 4.4.0"
    ],
    "sources": [
     "apps/desktop/renderer/src/canvas/desktopsettings.tsx:50",

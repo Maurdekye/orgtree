@@ -1732,7 +1732,8 @@ All entries are dated 2026-10-06 unless stated otherwise.
     Details: [`panel-activation.md`](panel-activation.md#several-instances-of-one-kind-2026-10-20).
 
 93. **A restart or update while the user is signed in starts the engine in their session; one
-    "Run as admin"** (user 2026-10-21 15:03Z report; rulings 15:15Z-15:27Z, final 15:27:17Z
+    "Run as admin"** (superseded by decision 94 except its database, pipe and readiness-window
+    fixes and the restart notice's session line; user 2026-10-21 15:03Z report; rulings 15:15Z-15:27Z, final 15:27:17Z
     mbe842e7be8d1; coordinator 15:10Z, 15:19Z, 15:29Z, 15:38Z and the approved design 16:27Z
     with Q1-Q3; docket `after-an-update-or-engine-restart-while-the-user`). Keeps decision 84 for
     a cold boot and for a plain sign-in with Run as admin off.
@@ -1781,7 +1782,59 @@ All entries are dated 2026-10-06 unless stated otherwise.
       the user's session every turn runs there, so `orgtree_session` refuses a `use` of Session 0 or
       another session, storing nothing. It keeps a preference it cannot follow and reports it as not
       followed (`preference_followed`). Placing turns elsewhere from there awaits the user's decision.
-    Details, verification and limits: [`run-on-boot.md`](run-on-boot.md#restarts-and-updates-while-signed-in-decision-93);
+    Details, verification and limits: [`run-on-boot.md`](run-on-boot.md#the-engine-stays-in-session-0-decision-94);
+    proof `tools/rig/proofs/session0-handover.mjs`.
+
+94. **The engine always runs in Session 0; the sign-in helper hosts each signed-in session**
+    (user 2026-10-22 07:27Z m55e25d2ff8c7 "Restart into Session 0", narrowed 07:28Z
+    m71679727e955: "the main engine should always run in session 0, through restarts, updates,
+    reboots, etc. the helper engine runs on sign-in in session 1 / whatever, as long as the user
+    is signed in"; 07:28:41Z-07:38:29Z; coordinator Q1, Q4 and Q5; docket
+    `4-4-0-restarts-and-updates-go-back-into-session-0`). Supersedes decision 93's restart
+    target, its user-session task and handover, its boot supervisor and "Run this session as
+    admin". The strict invariants (07:30:14Z m6cb4ab6192ee: "record all that as the strict
+    invariants of this feature"; any violation is a bug):
+    1. The main engine ALWAYS runs in Session 0: through restarts, updates, reboots and crash recovery. It never runs in the user's session.
+    2. The session-1 host (sign-in helper) runs in the user's session(s) while the user is signed in.
+    3. At each turn start, agents run in the signed-in session whenever it is reachable. They fall back to Session 0 only when it isn't: the user is signed out, or the helper is truly unreachable after the bounded grace, which is logged.
+    4. At sign-out, running turns are cut off and resume in Session 0.
+    5. After a restart or update, both sessions are available immediately. No agent starts a turn in Session 0 when it could start in session 1.
+    6. Agents are notified whenever the session-1 host goes up or down while the Session 0 engine keeps running: one notice per debounced transition, none on the engine's own restart.
+    7. Elevation is all-or-nothing: the Session 0 engine and the session-1 host are both elevated or neither, with no in-between state.
+    8. Elevation costs exactly one UAC prompt when the setting changes. There are no repeat prompts on restart, update, reboot, sign-in or helper restart. The one-off "Run this session as admin" button: one prompt per click, elevating both together until the next normal restart.
+    - **Recorded with them:** 9 (07:32:22Z m9728f1bce751): Session 0 agents have working git and
+      gh credentials through the Session 0 host's bridge, signed in or not, after every restart
+      and update; credentials are never serialized into logs, transcripts or prompts; where
+      Windows cannot serve, a clear refusal rather than a hang. 6 refined (07:34:52Z
+      m0f832771ab4b): a helper up/down notice only while the Session 0 engine stays up; when
+      both cycle together, only the restart notice. 10 (07:35:09Z m17af22c38ba3): a "Session 0"
+      card on the desk header and zoom card from the engine's real placement, with its reason.
+      Q2 (07:38:29Z m049077cca990): the one-off button is retired for 4.4.0, so 8's last
+      sentence has nothing to apply to.
+    - **Restarts, updates, recovery:** always the S4U boot task, also with Run on boot off (Q4);
+      the boot host runs one engine again, as before decision 93. An update deletes the
+      installer's own leftover "Orgtree User Session Engine" task and never registers it.
+    - **Turn start (3, 5):** every turn waits for the helper while the user is signed in (or that
+      is unread) and none hosts, up to 60 s after the engine's start or a helper's last hosting;
+      running out is logged once per stretch.
+    - **Notices (6):** a helper that comes or goes within the engine's 60 s startup grace is part
+      of its restart, with no notice; a helper that stops while the user is still signed in is
+      told as such, not as a sign-out.
+    - **Rights (7, 8):** one prompt per change re-registers the boot and helper tasks, then the
+      engine restarts at once (Q1). The helper reports its rights; the engine hosts only through
+      a helper with its own and refuses another (`412 [rights]`), which leaves while the engine
+      runs the helper's task at once. The restart notice names the shared rights.
+    - **Credentials (9, the user's Q3):** a memory cache of what a broker served while signed in,
+      exactly as served (kind, host, path, username), for Session 0 turns after sign-out: never
+      persisted, serialized or logged, lost at restart; nothing kept keeps the `[no-desktop]`
+      refusal. Measured limit: the S4U engine itself cannot read the user's saved credentials
+      (the user's PC, 2026-10-21 14:45Z log).
+    - **Placement field (10, Q5):** the tree's `session_placement` per agent (`session`,
+      `reason`, `at`); the badge itself is a separate renderer change.
+    - **Kept from 93:** the per-engine readiness window, PostgreSQL's restricted token and the
+      user pipes. Limits (labelled measured or inferred there): UAC off, an elevated helper's
+      stamp, per-user installations.
+    Details, verification and limits: [`run-on-boot.md`](run-on-boot.md#the-engine-stays-in-session-0-decision-94);
     proof `tools/rig/proofs/session0-handover.mjs`.
 
 - 2026-10-21: USER adds a short Developer preset combining assigned implementation and assigned exact-SHA peer review; Heavy dev shop developer seats use it. Operational practices remain in AGENTS.md; author owns fixes, reviewer never edits the author's code in place.

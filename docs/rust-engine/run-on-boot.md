@@ -1,4 +1,4 @@
-# Run on boot, and agents in the signed-in session (decisions 84 and 93)
+# Run on boot, and agents in the signed-in session (decisions 84 and 94)
 
 Orgtree 4.x starts its background engine at boot in Windows Session 0: the
 "Orgtree Background Engine" task, boot trigger, S4U as the operator. Session 0
@@ -10,10 +10,12 @@ were signed out. On 2026-10-16 the user replaced that choice (docket
 `option-to-run-the-background-engine-in-the-user-s`, 09:37Z): "agents always
 start at boot, and then automatically get upgraded when signed in". So the
 engine always starts at boot, and while the operator is signed in its agents'
-CLIs run in their session, started there by the sign-in helper. Since
-decision 93 (2026-10-21) the engine itself moves into the operator's session
-when it restarts or updates while they are signed in: see
-[restarts and updates while signed in](#restarts-and-updates-while-signed-in-decision-93).
+CLIs run in their session, started there by the sign-in helper. Decision 93
+(2026-10-21) moved the engine itself into the operator's session when it
+restarted or updated while they were signed in; decision 94 (2026-10-22)
+reverts that: the engine always runs in Session 0, and the sign-in helper
+hosts the agents in each signed-in session. See
+[the engine stays in Session 0](#the-engine-stays-in-session-0-decision-94).
 
 ## The switch
 
@@ -23,9 +25,7 @@ first-run setup and in the tray. The tray item mirrors the setting.
 
 - **On** (the default): the boot task starts the engine at boot, and the
   "Orgtree Credential Helper" task starts the helper at the operator's
-  sign-in; while **Run as admin** is on too, the "Orgtree User Session
-  Engine" task moves the engine into their session at sign-in (decision 93).
-  The window's own sign-in entry follows the switch as before.
+  sign-in. The window's own sign-in entry follows the switch as before.
 - **Off:** every boot and logon trigger of every owned task is disabled.
   The tasks stay installed and enabled, so a restart or recovery can still
   start them on demand, and nothing of Orgtree starts by itself (decision 70;
@@ -38,30 +38,33 @@ first-run setup and in the tray. The tray item mirrors the setting.
 - A change on an all-users Windows installation is one elevated script behind
   one Windows permission prompt (`runonstartup.ts` `elevatedStartupScript`).
   It verifies every owned task's marker before changing any, switches their
-  triggers (the user-session task's only while Run as admin is on), and
-  writes `RunOnStartup` to the installer's record. It never stops, starts or
+  triggers, and writes `RunOnStartup` to the installer's record. It never stops, starts or
   deletes a task: a running engine keeps running. The switch flips only once
   the change reads back; a declined prompt says what still holds ("so Orgtree
   still runs on boot"). One change at a time, from the tray or Settings.
 - Crash recovery and "Restart the background engine now" start the engine
-  through the user-session task while the operator is at the console, and
-  through the boot task otherwise (decision 93).
+  through the boot task, in Session 0, also with Run on boot off (decision
+  94, coordinator Q4).
 - **Run as admin** (it was "Run Orgtree as administrator"; still stored as
-  `RunAsAdministrator`) re-registers all three tasks with the matching run
+  `RunAsAdministrator`) re-registers both owned tasks with the matching run
   level, highest available or least privilege, in one permission prompt,
-  before it writes its own value: the boot engine (still S4U), the helper
-  (ruling C) and the user-session engine. A task's run level is what the
-  engine or the agents' CLIs it starts get. Switching it on first warns that
-  every agent then runs with full administrator rights on this PC, with no
-  further prompts (the user, 2026-10-21 15:27Z).
+  before it writes its own value: the boot engine (still S4U) and the helper
+  (ruling C). A task's run level is what the engine or the agents' CLIs it
+  starts get. Switching it on first warns that every agent then runs with
+  full administrator rights on this PC, with no further prompts (the user,
+  2026-10-21 15:27Z). The change applies at once: the desktop restarts the
+  engine, and a helper with the old rights is replaced (decision 94,
+  coordinator Q1). The one-off "Run this session as admin" button is
+  retired for 4.4.0 (the user's Q2).
 
 ## Tasks and the installer's record
 
-The three tasks belong to the installer (`tools/boot-engine-task.ps1`).
+The two tasks belong to the installer (`tools/boot-engine-task.ps1`).
 Administrators can change them; the operator can only read and run them. Each
-task's description carries the installer record's id. The third, "Orgtree
-User Session Engine", is described under
-[restarts and updates while signed in](#restarts-and-updates-while-signed-in-decision-93).
+task's description carries the installer record's id. The "Orgtree User
+Session Engine" task of 4.4.0 alphas 27 to 32 (decision 93) is stopped and
+deleted at the next update, only when it is the installer's own, and never
+registered again; uninstall deletes a leftover (decision 94).
 
 - The protected record `HKLM\SOFTWARE\Orgtree\BootEngine` holds `RunOnStartup`
   (DWORD, decision 70). `StartupMode` (decision 79) is deleted from it at the
@@ -77,9 +80,9 @@ User Session Engine", is described under
 
 ## Where agents run
 
-After a cold boot the engine runs in Session 0 until it restarts while the
-operator is signed in (decision 93). When an agent's turn starts, its CLI
-starts where it should run (`runtime/session_host.rs` `wanted`):
+The engine runs in Session 0, also after a restart, an update or a recovery
+(decision 94). When an agent's turn starts, its CLI starts where it should
+run (`runtime/session_host.rs` `wanted`):
 
 - **In the operator's signed-in session** while the sign-in helper holds the
   bridge's host role (`Bridge::can_host`: a live 20 s lease, the helper's
@@ -91,9 +94,8 @@ starts where it should run (`runtime/session_host.rs` `wanted`):
   hosted start fails (the engine logs `the sign-in helper could not start the
   CLI; starting it in Session 0`).
 - An engine that is not in Session 0 runs every CLI in its own signed-in
-  session; nothing is hosted. That covers an engine a restart or update
-  started while the user was signed in (decision 93), a per-user
-  installation and a desktop-started engine. From there `orgtree_session`
+  session; nothing is hosted. That covers a per-user installation and a
+  desktop-started engine. From there `orgtree_session`
   refuses a `use` of Session 0 or another session. A stored preference that
   would pick another place is kept and reported as not followed
   (`preference_followed: false`; coordinator 2026-10-21 23:13Z).
@@ -156,18 +158,20 @@ who="<agent>" reason="the user's Windows session ended" status="..."` line.
   replaced the line `Session access at start: ...`, which named where the
   agent's first CLI ran and so could say "signed-in session" for an engine
   in Session 0 (the user's report, 2026-10-21). Where a turn runs is
-  `orgtree_session`'s answer and the session notices'.
+  `orgtree_session`'s answer and the session notices'. An engine in Session 0
+  on Windows adds `Administrator rights: on, for the engine in Session 0 and
+  the sign-in helper alike.` (or `off`; decision 94, invariant 7).
 - **Restarts while signed in:** after an engine start the helper registers
-  again within seconds. An agent whose last turn ran in the signed-in session
-  waits at its first turn until 60 s after the engine's start for the helper
-  (2026-10-20 startup-transient fix, replacing ruling D's 15 s). An explicit
-  Session 0 preference or next-turn choice skips the wait. The first observed
-  hosting closes startup grace for all agents; a subsequent real loss follows
-  normal debounce, even for an agent that has not yet run since restart.
-  A reconnect within the grace is no move down and back up. When the wait runs
-  out the engine logs once `the sign-in helper did not register again after
-  the engine's start; agents start in Session 0`, and the agent moves down,
-  told so.
+  again within seconds. Every turn start waits for it while the user is
+  signed in and no helper hosts, until 60 s after the engine's start or
+  after a helper last hosted (decision 94, invariants 3 and 5; the 60 s are
+  the 2026-10-20 startup-transient fix, replacing ruling D's 15 s), whatever
+  the agent's last turn did. Signed out, or with the agent's own Session 0
+  preference or next-turn choice, it starts at once. A reconnect within the
+  grace is no move down and back up. When the wait runs out the engine logs,
+  once per stretch without a helper, `the sign-in helper did not connect in
+  time while the user is signed in; turns start in Session 0 until it does`,
+  and the agent moves down, told so.
 - **The session notices end** "orgtree_session tells you where you run at any
   time."
 
@@ -208,11 +212,15 @@ authenticated leases. See [session blips](session-placement-blips.md).
 A confirmed change from what agents were last told (kept in
 `<data>\session-placement.json`, baseline Session 0, so a restart while
 the user stays signed in tells nobody anything), sends every live agent one
-passive line. Readings and helper keepalive start immediately, but startup
-absence cannot count as sign-out until the 60 s grace expires. The first
-observed helper closes that grace early, so real later loss still needs only
-the ordinary three checks. The notices are `[ORGTREE SIGN-IN
-NOTICE]` or `[ORGTREE SIGN-OUT NOTICE]`. The sign-in line says where the
+passive line. Readings and helper keepalive start immediately. A helper
+that comes or goes within the 60 s startup grace is part of the engine's own
+start: agents count as told without a notice, since the restart notice
+covers it (decision 94, invariant 6 as refined by the user 2026-10-22
+07:34:52Z). The first observed helper closes that grace early, so real later
+loss still needs only the ordinary three checks. The notices are `[ORGTREE
+SIGN-IN NOTICE]` or `[ORGTREE SIGN-OUT NOTICE]`; the sign-out one says
+whether the user signed out or only the helper stopped while they are still
+signed in (then the next turn waits up to 60 s for it). The sign-in line says where the
 agent's next turn runs as its own runtime would start that turn (asked
 for its `orgtree_session` view, 5 s at most, every agent at once): in the
 signed-in session; or in Session 0, because its CLI still runs background
@@ -238,8 +246,11 @@ Helper"` after 30 s, then after 2, 5 and 10 minutes, then every 10
 minutes, logging each result (2d). A disabled task (Run on boot off)
 refuses. Measured 2026-10-16, read-only: the installed task's ACL gives
 the engine's user RX, which allows an on-demand run (inferred, not
-executed). A rig engine never starts the machine's own task, only a
-proof's task named in `<data>\rig-helper-task.txt`.
+executed). A helper the engine refused for other administrator rights
+leaves, and once it is gone the engine starts the task at once, without the
+30 s wait (decision 94, invariant 7). A rig engine never starts the
+machine's own task, only a proof's task named in
+`<data>\rig-helper-task.txt`.
 
 ## Ending your own turn: `orgtree_interrupt`
 
@@ -275,96 +286,131 @@ helper never reads the variable. Windows 11 Pro gives a user one interactive
 session, so two real sessions occur only on Server or multi-session
 editions: proven here with synthetic helpers only.
 
-## Restarts and updates while signed in (decision 93)
+## The engine stays in Session 0 (decision 94)
 
-The user, 2026-10-21 15:03Z (docket
-`after-an-update-or-engine-restart-while-the-user`): an update or engine
-restart while they were signed in brought the engine back in Session 0,
-because every restart ran the S4U boot task. Now, while a console user is
-signed in, an update, a restart or crash recovery starts the engine (and the
-mail hub it hosts) in their session. A cold boot with nobody signed in keeps
-the boot task.
+The user, 2026-10-22 07:27Z-07:38Z (docket
+`4-4-0-restarts-and-updates-go-back-into-session-0`), replacing decision
+93's restart target: "the main engine should always run in session 0,
+through restarts, updates, reboots, etc. the helper engine runs on sign-in
+in session 1 / whatever, as long as the user is signed in" (07:28Z). The
+sign-in helper is the per-session host while the user is signed in.
 
-**The route** (`sessionlaunch.ts` `route`): `session` when the user-session
-task is installed and the desktop runs in the console session; `boot` when
-the boot task is installed and Run on boot is on; otherwise the desktop's own
-engine (`managed`). For `session` the desktop writes the ask
-`<data>\session-launch-request.json` (`{by, restart, atMs}`, fixed words
-only) and runs the task. A restart then waits for its own attempt's record
-to read `ready` or `failed`.
+**The strict invariants** (the user, 07:30:14Z: "record all that as the
+strict invariants of this feature"; any violation is a bug):
 
-**The "Orgtree User Session Engine" task** (`New-InteractiveTaskXml`) runs
-as the operator's SID with their interactive token. Its one action is the
-installed broker, `orgtree-credential-broker.exe session-engine`, which
-starts `orgtree-engine.exe session-launch signin` beside it without a console
-window and returns its exit code. Instances run in parallel (the new start
-runs beside the host it replaces), and there is no RestartOnFailure, so a
-failed handover never loops in the Task Scheduler. Its run level follows Run
-as admin, so the engine and every agent it starts are elevated exactly when
-Run as admin is on. Its logon trigger is on only while Run on boot and Run
-as admin are both on (coordinator Q1, 16:27Z): then signing in moves the
-engine into the session. With Run as admin off, decision 84 stands until the
-next restart.
+1. The main engine ALWAYS runs in Session 0: through restarts, updates, reboots and crash recovery. It never runs in the user's session.
+2. The session-1 host (sign-in helper) runs in the user's session(s) while the user is signed in.
+3. At each turn start, agents run in the signed-in session whenever it is reachable. They fall back to Session 0 only when it isn't: the user is signed out, or the helper is truly unreachable after the bounded grace, which is logged.
+4. At sign-out, running turns are cut off and resume in Session 0.
+5. After a restart or update, both sessions are available immediately. No agent starts a turn in Session 0 when it could start in session 1.
+6. Agents are notified whenever the session-1 host goes up or down while the Session 0 engine keeps running: one notice per debounced transition, none on the engine's own restart.
+7. Elevation is all-or-nothing: the Session 0 engine and the session-1 host are both elevated or neither, with no in-between state.
+8. Elevation costs exactly one UAC prompt when the setting changes. There are no repeat prompts on restart, update, reboot, sign-in or helper restart. The one-off "Run this session as admin" button: one prompt per click, elevating both together until the next normal restart.
 
-**The handover** (`session_launch.rs` `launch`), one attempt at a time
-across sessions:
+Recorded with them:
 
-1. The launcher takes an ask once, only while fresh (120 s; `by` is
-   `desktop` or `boot-host`), and only in the console session.
-2. It takes the cross-session lock `<data>\core-handover.lock` (an exclusive
-   open; it waits up to 200 s) and writes the durable record
-   `<data>\core-handover.json`. The record holds an id, who asked, the phase
-   (`begun`, `stopping`, `starting`, `ready` or `failed`), the session,
-   whether the engine is elevated, whether the old engine was stopped, the
-   sign-in the record belongs to (`epoch`), a fixed failure reason and the
-   rollback (`done` or `failed`). The `begun` and `stopping` records must
-   land, after a short retry, before anything is asked or stopped. A reader
-   may hold the file without delete sharing, which blocks the atomic replace.
-   Then the launcher ends with "the attempt could not be recorded" and leaves
-   the old engine as it was (Lane B finding, 2026-10-21; proof step C0).
-   Later writes are attempted the same way. After the stop the start goes
-   on regardless, and the boot host's log and the receipts say what could
-   not be recorded. If the failure of a stopped attempt cannot be recorded,
-   the boot host's 120 s backstop recovers the engine instead of the
-   immediate rollback.
-3. It asks the running engine for admission (`POST
-   /api/desktop/session-handover`, Begin). Admission is given only to a
-   native peer (a live process of the engine's own executable, matched by
-   its creation stamp and run by the same user), only for the engine's
-   current generation, and never while another live owner holds a
-   transition. A transition whose owner has ended (a launcher that failed
-   after its stop) goes to the next launcher.
-4. It stops the old engine gracefully (`POST /api/desktop/shutdown`, up to
-   150 s) and waits up to 30 s for the data root to be released.
-5. It runs the engine host in this session (`host::run_in_session`). Once
-   the new engine serves, it sends Complete and records `ready`.
+- 9 (07:32:22Z): "Agents running in Session 0 have working GitHub credentials (git and gh) through the Session 0 host's credential bridge." This holds whether or not the user is signed in, and after every restart and update. Credentials are never serialized into logs, transcripts or prompts. Where Windows has no credential access, the bridge refuses with a clear error rather than hang.
+- 6, refined (07:34:52Z): "agents should *only* be told when the session 1 host goes up or down if the session 0 host also does not go up or down at the same time". When the engine also restarts, stops or starts around that time (a restart, an update, a reboot, a recovery), only the restart notice is sent.
+- 10 (07:35:09Z): agents whose turns run in Session 0 show a "Session 0" card on their desk header and zoom card. It is shown while the current or most recent turn placement is Session 0, says why in its tooltip (signed out, helper unreachable, or the agent's own preference), and comes from the engine's real placement.
+- Q2 (07:38:29Z): the one-off "Run this session as admin" button is retired for 4.4.0, so the last sentence of 8 has nothing to apply to. Elevation comes only from the Run as admin setting.
 
-A failure before the stop (not at the console, no admission, the task
-refused) leaves the old engine untouched. A replacement that fails after the
-stop gets exactly one rollback: the launcher runs the boot task once, and the
-record says rollback `done`, or `failed` when that engine does not start
-either.
+**How each holds:**
 
-**Run this session as admin** (`sessionlaunch.ts` `runSessionAsAdmin`)
-shows one Windows permission prompt per click. The prompt starts
-`orgtree-engine.exe session-launch prepare <request>` elevated. The request
-names only the data root and the UI folder, which the launcher checks (the
-root must be the installation's own; the UI folder must hold `index.html`),
-and the launcher then makes the same handover elevated. The button never
-changes Run as admin, and a declined prompt leaves the engine untouched. It
-is disabled while Run as admin is on and when nobody is at the console.
+- **1.** Every restart, update and recovery starts the engine through the
+  boot task ("Orgtree Background Engine", S4U, Session 0). The desktop's
+  restart (`sessionlaunch.ts` `launchBackground`, route `boot` whenever the
+  boot task is installed, also with Run on boot off: coordinator Q4) stops
+  the engine gracefully, runs the boot task and attaches again. Crash
+  recovery does the same, and the installer runs the boot task last. The
+  boot host (`orgtree-engine host`) is the one from before decision 93: it
+  runs one engine, replaces a hung one itself, and otherwise exits with it,
+  and Task Scheduler's restart-on-failure starts it again. Gone: the
+  "Orgtree User Session Engine" task, `orgtree-engine session-launch`, the
+  helper's `session-engine` and the boot supervisor. An update stops that
+  task with the boot tree and deletes it, only when it is the installer's
+  own; uninstall deletes a leftover too.
+- **2.** The "Orgtree Credential Helper" task (interactive token) starts the
+  helper at sign-in while Run on boot is on; it stays enabled for runs on
+  demand. The helper outlives an engine restart: every 5 s it attaches to
+  the engine the descriptor names and registers again. An update stops it,
+  runs its task again, then the boot task.
+- **3 and 5.** `session_host::turn_waits_for_helper`: every turn start waits
+  while the user is signed in (or that is not read yet) and no helper hosts,
+  until 60 s after the engine's start or after a helper last hosted. It
+  starts at once when the user is signed out or the agent chose Session 0
+  itself. Running out of the grace is logged once per stretch without a
+  helper: `the sign-in helper did not connect in time while the user is
+  signed in; turns start in Session 0 until it does`. A turn that waited and
+  got the helper logs `the turn waited for the sign-in helper, which
+  connected` with the wait.
+- **4.** Unchanged (decision 85): the hosted CLIs end with the session and
+  the turn resumes in Session 0.
+- **6.** The session watch's 60 s startup grace now absorbs a helper that
+  comes or goes with the engine's own start: agents count as told, with no
+  notice (the restart notice covers it). After the grace, each debounced
+  change notifies. A helper that stops while the user is still signed in
+  is told as such: "Orgtree's sign-in helper stopped while the user is
+  still signed in: Orgtree starts it again, and your next turn waits up to
+  60 s for it before it runs in Windows Session 0...". A real sign-out says
+  "The user signed out". What agents count as told is written to
+  `session-placement.json` also when the engine's start changed it silently.
+- **7 and 8.** Run as admin re-registers both owned tasks, the boot task and
+  the helper's, at highest or least privilege, in one UAC prompt
+  (`runasadmin.ts` `elevatedWriteScript`). The desktop then restarts the
+  engine at once (coordinator Q1). At every registration the helper says
+  whether it is elevated, by the engine's own test (Administrators enabled,
+  or a High label: `credential_broker` `elevated`). The engine hosts agents
+  only through a helper with its own rights (`credential_bridge::same_rights`)
+  and answers any other with `412 [rights]`. That helper leaves once its
+  CLIs are gone, and the engine runs the helper's task at once
+  (`session_watch::keepalive_due`), at the setting's level. Only the host
+  role is checked: the desktop's credentials role has no rights to match.
+  The restart notice says `Administrator rights: on, for the engine in
+  Session 0 and the sign-in helper alike.` (or `off`).
+- **9.** While the user is signed in, the helper (or the open app) brokers
+  git and gh credentials. The engine keeps what a broker served in memory
+  (`credential_bridge::ServedCache`, the user's Q3), exactly as served
+  (kind, host, path and username), so Session 0 turns can use it after
+  sign-out. It is never written, logged or serialized: it has no Debug or
+  Serialize, it is zeroed when dropped, and a restart loses it. A broker's
+  lookup failure for the same request forgets the entry. With nothing kept,
+  the refusal stays the clear `[no-desktop]` one. An answer from memory
+  passes the same grant, process and agent checks as a broker's, and its
+  first use per stretch is logged without the credential.
+- **10.** The engine records each turn's placement and reason
+  (`ot.agents.extra`: `session`, `session_reason`, `session_at`), and the
+  tree gives every agent `session_placement` (below). The badge itself is a
+  renderer change, assigned separately (coordinator Q5).
+
+**`session_placement`** (tree agent record; `domain/tree.rs`): `null` until
+the agent's first recorded turn, else `{ "session", "reason", "at" }`:
+
+| Field | Value |
+|---|---|
+| `session` | `session0` or `signed-in`: where the CLI of the agent's current or most recent turn runs, as the engine started it |
+| `reason` | for `session0` only, else `null`: `signed-out` (the user was signed out), `helper-unreachable` (signed in or unread, no helper in time), `preference` (the agent's `session` preference or its `use` 0), `background-work` (its CLI held background work and stayed); `null` for a record from before this field |
+| `at` | ISO time of the first turn with this placement and reason |
+
+The record changes only when the placement or the reason does, and its
+change refreshes the agent's tree record. An engine that is not in Session 0
+(a per-user installation) records `signed-in`.
+
+**Kept from decision 93:** each engine the boot host starts gets its own
+readiness window (`host.rs` `Handshake`); the database never runs as
+administrator; and the engine's pipes stay its user's, both below. Gone with
+the handover: its journal (`core-handover.json`, `core-handover.lock`,
+`session-launch-request.json`), the boot supervisor's loss memory and its
+`boot-host.lock`. An update leaves such files from an earlier alpha in the
+data folder; nothing reads them.
 
 **The database never runs as administrator** (`pg.rs` `spawn_postmaster`,
 `winproc::spawn_restricted`). PostgreSQL refuses administrator rights
 ("Execution of PostgreSQL by a user with administrative permissions is not
-permitted"). The engine that Run this session as admin started on the user's
-PC died there (alpha.29, 2026-10-21 22:47Z), and the rollback to Session 0
-worked. Run as admin's elevated engines, in the session and in Session 0
-(S4U, highest available), started PostgreSQL the same way (inferred from the
-source; not run on a real PC). On Windows the
-engine therefore always starts the postmaster with a restricted copy of its
-own token, as pg_ctl starts it. That token is `restricted_medium_token`, the
-one the boot host gives an engine without Run as admin:
+permitted"). An engine started elevated on the user's PC died of it
+(alpha.29, 2026-10-21 22:47Z). On Windows the engine therefore always starts
+the postmaster with a restricted copy of its own token, as pg_ctl starts it.
+That token is `restricted_medium_token`, the one the boot host gives an
+engine without Run as admin:
 
 - Administrators and Power Users are deny-only (PostgreSQL's own test is
   `CheckTokenMembership` on those two groups).
@@ -376,140 +422,57 @@ one the boot host gives an engine without Run as admin:
 The postmaster stays the engine's own child. `pg-attach.json` records its
 real pid, and stdout and stderr both append to `postgres.log`; those are its
 only inherited handles, with stdin on NUL. `pg_ctl stop`, then a kill and a
-wait, still end it, and it stays in the engine's kill-on-close job. It runs
-without a window, with the engine's environment and working folder, and its
-argv is quoted as a tokio spawn quotes it. initdb drops the rights itself (it
-starts itself again with a restricted token unless `PG_RESTRICT_EXEC=1`), so
-the engine removes an inherited `PG_RESTRICT_EXEC` from its environment. The
-engine itself, its agents, `pg_ctl` and the mail hub keep the engine's
-rights; none of them refuses administrator rights.
-
-Measured on `rig-opus/pg-restricted` over `rust-engine` `24aa387` (logs in
-`D:\orgtree-work\tmp\rig-opus\batch-pgrights\logs`):
-
-- `pg::rights_tests` (ignored by default; it starts a scratch cluster) reads
-  the postmaster's token from outside. At the red commit it failed only on
-  privileges: the postmaster held all five of the test process's. With the
-  fix it passed: SeChangeNotify only, Medium, the test's session and job.
-- `winproc::restricted_tests`: 5/5. The focused `winproc`, `pg`, `host`,
-  `boot_supervisor`, `session_launch`, `session_handover` and
-  `core_process` tests: 51/51.
-- Clippy: no warning on a changed line. The `x86_64-linux-android` check:
-  only the five base warnings.
-- `session0-handover.mjs` part 1: 23/23. All four of its engine starts went
-  through `spawn_restricted`.
-
-The test process was not elevated (Medium, Administrators deny-only). So
-PostgreSQL's refusal and an elevated parent's token are unmeasured here;
-only the user's elevated run can show them.
+wait, still end it, and it stays in the engine's kill-on-close job. initdb
+drops the rights itself (it starts itself again with a restricted token
+unless `PG_RESTRICT_EXEC=1`), so the engine removes an inherited
+`PG_RESTRICT_EXEC` from its environment. The engine itself, its agents,
+`pg_ctl` and the mail hub keep the engine's rights. Measured on
+`rig-opus/pg-restricted` over `24aa387`: `pg::rights_tests` read the
+postmaster's token from outside (SeChangeNotify only, Medium); the test
+process was not elevated, so PostgreSQL's refusal and an elevated parent's
+token are unmeasured here.
 
 **The engine's pipes stay its user's** (`winproc::create_user_pipe`; the
 coordinator 2026-10-22 00:24Z: "Grant the engine's own user SID and give it
-a Medium label, nothing broader"). The engine serves three kinds of pipe:
-the stdio of a CLI the sign-in helper hosts, the agents' tool bridge
-(`bridge.rs`) and OpenCode's mail hook (`opencode_mail.rs`). In the user's
-session, Medium processes open them: the helper and the CLIs it starts.
-Measured on this user's elevated linked token and on pipes made without
-elevation (2026-10-22):
+a Medium label, nothing broader"): the stdio of a CLI the helper hosts, the
+agents' tool bridge (`bridge.rs`) and OpenCode's mail hook
+(`opencode_mail.rs`) are created with the default pipe security, the
+engine's own user in the owner's entry and a Medium label. An elevated
+engine's default would let the helper and its CLIs only read them (inferred
+from a measured elevated token's defaults; not run elevated).
 
-- An elevated token's default owner is Administrators, and its default DACL
-  does not name the user.
-- A pipe made with default security grants SYSTEM, Administrators and its
-  owner full access, and Everyone and Anonymous read.
-- A pipe takes its creator's integrity level as its label.
+**Rig seams** (debug builds on a rig root only):
+`<data>\core-rig-signed-out` stands for the sign-out, `ORGTREE_RIG_SESSION0=1`
+makes an engine report Session 0, `ORGTREE_RIG_HELPER_SESSION` stands a
+helper for another session, `ORGTREE_RIG_HELPER_ELEVATED` (1 or 0) makes a
+helper report rights it does not have, and `ORGTREE_RIG_STOP_KEY` (HKCU)
+carries the installer's stop request. A release build reads none of them.
+The proof is `tools/rig/proofs/session0-handover.mjs`.
 
-So an elevated engine's pipes would let those processes only read (inferred;
-not run elevated). Every such pipe is now created with that same default,
-with the engine's own user in the owner's entry and a Medium label. Without
-elevation that is the default itself, apart from the label now being
-written out.
+**Windows limits:**
 
-**The boot host** (`boot_supervisor.rs`, the boot task's `orgtree-engine
-host`) now supervises instead of always starting an engine. Every 2 s a pure
-`decide` step chooses from what it sees:
+- **9, signed out with nothing kept (measured):** the S4U engine's logon
+  (type 4) has no access to the user's saved credentials. On the user's PC
+  (2026-10-21 14:45Z log) it said so: "Agents started before Windows
+  sign-in can't use your saved git/GitHub credentials". So a request that no
+  broker served while the user was signed in since the engine's start is
+  refused with `[no-desktop]`, at once.
+- **7, with UAC off (inferred):** every administrator's process then holds
+  the full token, so the helper reads elevated even at least privilege. The
+  engine reads elevated by the same test, so the two still match.
+- **7, the refused helper's stamp (unmeasured):** if an unelevated engine
+  cannot read an elevated helper's process stamp, it treats the refused
+  helper as gone at once. The helper task's run may then be ignored while
+  the old helper still runs (one instance at a time), and the next attempt
+  comes from the ordinary keepalive (30 s, then 2, 5 and 10 minutes).
+- **1 and 7 on a per-user installation:** it has no boot task, so the
+  desktop's own engine runs in the user's session, as before decision 93,
+  and nothing runs in Session 0.
 
-- Nobody signed in at the console, or no user-session task: it runs the
-  engine in Session 0 as before.
-- The operator at the console: it never starts a Session 0 engine itself.
-  While another engine holds the data root or an attempt runs, it waits.
-- The engine lost while the operator stays signed in: the desktop recovers
-  it. After 120 s with no engine, the boot host claims the one recovery and
-  runs the user-session task once. The claim is the same durable claim the
-  desktop's recovery takes, so the two never both act. If that fails, it
-  starts the Session 0 engine, which counts as the one rollback (coordinator
-  Q3).
-- Sign-out: after three empty readings 2 s apart, as for the sign-out
-  notices, it starts the engine in Session 0 again, and never before.
-- After a failed rollback it stays out for that sign-in (`epoch`), until the
-  user's Start engine.
-- One boot host runs per data root (`<data>\boot-host.lock`), and the
-  installer's stop request ends it.
-- It is one process for the whole boot, so what it knows belongs to each
-  engine. Every engine it starts gets the whole readiness window (120 s)
-  from its own spawn. When its own engine became ready, an earlier loss or
-  delegation is settled, so that engine's loss is timed from its own end
-  and claimed by its own generation. (Both were wrong until 2026-10-22:
-  the window counted from the host's first start, so the one rollback
-  failed at once, and a loss from a sign-out timed a later one.)
-
-The installer runs the boot task last at every Register (install, upgrade
-and repair). So after an update the boot host is running, and with the
-operator at the console it hands the engine to their session.
-
-**What the user and agents see.** The desktop says so once per attempt,
-with the reason from the record: a warning when the engine came back in
-Session 0, and an error ("Orgtree's engine is stopped.") when the rollback
-failed too. A failed restart also reports its own error. The tray's Restart
-engine reads **Start engine** while the engine is stopped or unavailable.
-After a
-rollback, the restart notice gets one more line: "Orgtree could not start the
-engine in the signed-in session (<why>), so it started the engine in Session
-0 instead." or "..., and it did not start in Session 0 either, so it stayed
-stopped until it was started again." That line is reported once (`reported`
-in the record).
-
-**Rig seams** apply only in debug builds on a rig root
-(`core_state::rig_root`):
-
-- `<data>\rig-user-session-task.json` and `<data>\rig-boot-task.json` name
-  what a task run starts;
-- `<data>\core-rig-signed-out` stands for the sign-out;
-- `ORGTREE_RIG_SESSION0=1` makes an engine report Session 0;
-- `ORGTREE_RIG_FAKE_ELEVATED=1` stands for the elevated launcher;
-- `ORGTREE_RIG_STOP_KEY` (HKCU) carries the installer's stop request.
-
-A release build reads none of them. The proof is `tools/rig/proofs/session0-handover.mjs`.
-
-**Verification**, measured on branch `rig-opus/session0-restart` over
-`rust-engine` `de59b1f`. Logs are in
-`D:\orgtree-work\tmp\rig-opus\batch-session0\logs`.
-
-- **Engine:**
-  - `cargo check --all-targets`: only the base's `domain/tree.rs` warning.
-  - Clippy: no warning on a changed line.
-  - `x86_64-linux-android` check: only the 4 known `core_monitor`/`core_startup` warnings and the base's.
-  - Focused tests, 72/72: `session_handover`, `core_monitor`, `boot_supervisor`, `session_launch`, `restart_session`, `core_recovery`, `core_state`, `core_process`, `install_stop`, `host::`, `runtime_notices` and `http::desktop`.
-  - The broker's tests: 12/12.
-  - Reds: the engine red ran 28 pass / 11 fail, and the admission red (a dead launcher's transition) 15 / 1.
-- **Installer** (fake task folder; no real task):
-  - Task definitions: 84/84; red, 11 failures.
-  - `tests/boot-installer.test.ps1`: 278 assertions.
-- **Desktop:**
-  - Root typecheck: 0 errors, as at the base.
-  - Node tests: 66/66. Against the base desktop, 20 failures: 17 intended, and 3 known failures of the exported copy ("Python engine exited before readiness").
-  - Renderer settings suites: 32/32. The restored restart row's red ran 6 / 1.
-  - Renderer typecheck: 42 errors, the same 42 as at the base.
-- **Rig proof** (`session0-handover.mjs`, a `recover` run in two parts):
-  - Part 1 (A B C D F G): 23/23.
-  - Part 2 (A B E H, with the real 120 s backstop): 10/10.
-
-**Only the user can confirm** a real task run, the real permission prompt, a
-real sign-in and sign-out, and a real update. The task definitions are
-checked as XML against a fake task folder. The rig's Session 0 is a stand-in:
-every proof process runs in the proof's own console session. Two things are
-unmeasured: the native-peer check across integrity levels (an elevated engine
-asked by an unelevated launcher), which falls back to the image and the
-process creation stamp, and whether a console window ever shows.
+**Only the user can confirm** a real task run, the real permission prompt,
+a real sign-in, sign-out and update, and real credentials: the rig's
+Session 0 is a stand-in, every proof process runs in the proof's own
+session, and a rig engine never runs a real task.
 
 ## Decisions beyond the user's words
 
@@ -518,8 +481,9 @@ level), D (15 s, logged) and E (delete the old task at upgrade). These were
 chosen in the implementation (rig-opus) and are flagged for the user on the
 docket item:
 
-- the settle wait runs at an agent's first turn, not during the engine's
-  recovery, which runs before the engine serves the helper;
+- the settle wait runs at a turn's start (every turn since decision 94), not
+  during the engine's recovery, which runs before the engine serves the
+  helper;
 - the restart-notice line is added when the notice is delivered, from the
   turn's real placement;
 - the session notices are plain system mail, not typed events;

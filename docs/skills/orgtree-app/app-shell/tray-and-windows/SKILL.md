@@ -20,12 +20,12 @@ While running, organizations are grouped into their own taskbar identities using
 | Mail hub status | Shows running/stopped/error state and opens the hub in the browser when available |
 | Connect your phone | Opens the phone panel in the last-used window, creating a homepage if needed |
 | Run on boot ("Run on sign-in" where Orgtree cannot start at boot) | Changes the native startup preference; a pending change disables the checkbox |
-| Run as admin | Same protected administrator setting as App settings: ON shows the full-admin warning then one Windows permission prompt; OFF asks permission once. Disabled while unavailable or changing; cancellation restores the saved checkmark. Applies at the next engine start. |
+| Run as admin | Same protected administrator setting as App settings: ON shows the full-admin warning then one Windows permission prompt; OFF asks permission once. Disabled while unavailable or changing; cancellation restores the saved checkmark. Applies at once: the engine restarts, and the sign-in helper follows with the same rights. |
 | Exit on close | Changes the native last-window-close preference |
 | Notifications | Master checkbox and per-event notification switches; subordinate switches are disabled when the master is off |
 | Harness setup | Detected harness status and the corresponding installation destinations |
 | Crash reports | Opens the local crash-report location |
-| Restart engine / Start engine | Explicit engine restart, in the user's session while they are signed in at the console. Reads Start engine while the engine is stopped or unavailable, for example after a failed move whose fallback to Session 0 failed too. Visible even when unavailable, disabled during conflicting shutdown/restart activity |
+| Restart engine / Start engine | Explicit engine restart, always in Session 0 through the boot task on an all-users install; the sign-in helper attaches to the new engine within seconds. Reads Start engine while the engine is stopped or unavailable. Visible even when unavailable, disabled during conflicting shutdown/restart activity |
 | Quit Orgtree | Requests application shutdown |
 
 For individual notification switches see [App notifications](../../app-settings/app-notifications/SKILL.md); startup and close semantics belong to the settings references below. A restart click is not a success receipt: the menu follows engine readiness and reports failure separately.
