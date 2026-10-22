@@ -40,7 +40,7 @@ pub fn vis_rank(v: &str) -> usize {
 }
 
 pub fn default_tools() -> Value {
-    json!({ "bash": true, "web": true, "edit": true, "subagents": true, "mcp": [] })
+    json!({ "bash": true, "web": true, "edit": true, "subagents": true, "orgtree_disabled": false, "mcp": [] })
 }
 
 /// Fill every key a NodeScope has, keeping any extra per-node knobs.
@@ -81,6 +81,7 @@ pub fn normalize_tools(t: &Value) -> Value {
     mcp.sort();
     mcp.dedup();
     json!({ "bash": b("bash"), "web": b("web"), "edit": b("edit"), "subagents": b("subagents"), "mcp": mcp,
+        "orgtree_disabled": t["orgtree_disabled"].as_bool().unwrap_or(false),
         "orgtree": super::tool_groups::normalize(t) })
 }
 
@@ -206,6 +207,7 @@ pub fn clamp_tools(child: &Value, parent: &Value) -> Value {
         c.into_iter().filter(|s| p.contains(s)).collect()
     };
     json!({ "bash": both("bash"), "web": both("web"), "edit": both("edit"), "subagents": both("subagents"), "mcp": mcp,
+        "orgtree_disabled": child["orgtree_disabled"] == true && parent["orgtree_disabled"] == true,
         "orgtree": super::tool_groups::intersect(child, parent) })
 }
 
@@ -256,7 +258,7 @@ pub fn org_ceiling(org_dirs: &Value) -> Value {
     json!({
         "permission_mode": "bypassPermissions",
         "add_dirs": org_dirs.as_array().cloned().unwrap_or_default(),
-        "tools": { "bash": true, "web": true, "edit": true, "subagents": true, "mcp": ["*"] },
+        "tools": { "bash": true, "web": true, "edit": true, "subagents": true, "orgtree_disabled": true, "mcp": ["*"] },
         "org_visibility": "full",
     })
 }
@@ -343,7 +345,7 @@ pub fn raise(current: &Value, wanted: &Value) -> Value {
     let mut out = normalize(current);
     let want = normalize(wanted);
     if wanted.get("tools").is_some() {
-        for k in ["bash", "web", "edit", "subagents"] {
+        for k in ["bash", "web", "edit", "subagents", "orgtree_disabled"] {
             if want["tools"][k] == true { out["tools"][k] = json!(true); }
         }
         for g in super::tool_groups::GROUPS {
@@ -406,6 +408,22 @@ pub fn folder_additions(before: &Value, after: &Value) -> Vec<Value> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn native_tools_default_off_parent_clamp_and_explicit_raise() {
+        assert_eq!(normalize(&json!({}))["tools"]["orgtree_disabled"],false);
+        assert_eq!(default_tools()["orgtree_disabled"],false);
+        let enabled=json!({"tools":{"orgtree_disabled":true}});
+        let ceiling=org_ceiling(&json!([]));
+        assert_eq!(clamp(&enabled,&ceiling)["tools"]["orgtree_disabled"],true);
+        assert_eq!(clamp(&enabled,&json!({}))["tools"]["orgtree_disabled"],false);
+        assert_eq!(clamp(&json!({}),&enabled)["tools"]["orgtree_disabled"],false);
+        assert_eq!(clamp(&transparent(),&enabled)["tools"]["orgtree_disabled"],true);
+        assert!(require_grant(&enabled,&json!({})).is_err());
+        assert_eq!(raise(&json!({}),&enabled)["tools"]["orgtree_disabled"],true);
+        assert_eq!(raise(&enabled,&json!({"tools":{"bash":true}}))["tools"]["orgtree_disabled"],true);
+    }
+
 
     #[test]
     fn whole_list_folder_intent_excludes_unchanged_latent_and_negative_edits() {

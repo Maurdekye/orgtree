@@ -68,6 +68,10 @@ pub fn effective_settings(org_settings: &Value, app_defaults: &Map<String, Value
             obj.insert(k.clone(), v.clone());
         }
     }
+    // Native replacement tools are always per-agent, never a hire default.
+    if let Some(tools) = obj.get_mut("default_tools").and_then(Value::as_object_mut) {
+        tools.insert("orgtree_disabled".into(), json!(false));
+    }
     // credit cost bubbling is an app-wide Runtime setting for the user's own actions (USER 2026-10-22 14:30Z):
     // old per-org and default values are retired, never read
     for k in RETIRED_SETTINGS {

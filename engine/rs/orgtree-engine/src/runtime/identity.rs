@@ -106,6 +106,7 @@ pub fn identity_parts(i: &Identity) -> (String, String) {
     let pm = i.scope["permission_mode"].as_str().unwrap_or("acceptEdits");
     let bypass = pm == "bypassPermissions";
     let tools = &i.scope["tools"];
+    let native = tools["orgtree_disabled"] == true;
     let on = |k: &str| tools.get(k).and_then(Value::as_bool).unwrap_or(true);
     let group = |g: &str| crate::domain::tool_groups::enabled(tools, g);
     let mut s = String::new();
@@ -331,11 +332,12 @@ pub fn identity_parts(i: &Identity) -> (String, String) {
         }
     }
     s.push_str(BACKGROUND);
+    if native { s.push_str("Native tools Disabled by Orgtree are enabled for this agent when its harness offers them. Native questions and plan approval use the normal user-audience route, otherwise the superior gets mail and the native call returns without approval. Other tool, folder and audience permissions still apply. "); }
     if (top || i.extern_holder) && group("messaging") {
         s.push_str(if trim { TRIM_ORG_INBOX } else { ORG_INBOX });
     }
     if trim {
-        if group("user") || group("messaging") { s.push_str("You run headless: AskUserQuestion and plan mode do not exist. "); }
+        if !native && (group("user") || group("messaging")) { s.push_str("You run headless: AskUserQuestion and plan mode do not exist. "); }
         if group("user") { s.push_str(TRIM_ASK_USER); }
         if group("messaging") { s.push_str("Ask agents with orgtree_message kind=question, then end your turn; replies arrive as mail. "); }
         if group("user") { s.push_str(TRIM_PRESENT); }
@@ -343,6 +345,8 @@ pub fn identity_parts(i: &Identity) -> (String, String) {
         let text = if group("messaging") { QUESTIONS_AND_FILES.to_owned() } else {
             QUESTIONS_AND_FILES.replace("To ask another AGENT, send orgtree_message kind=question and end your turn; their reply arrives as a future turn. ", "")
         };
+        let text = if native { text.replace("You run headless: interactive tools (AskUserQuestion, plan mode) do not exist here. ", "")
+            .replace("Never attempt AskUserQuestion (it is blocked). ", "") } else {text};
         s.push_str(&text);
     } else if group("messaging") {
         s.push_str("To ask another agent, send orgtree_message kind=question and end your turn; their reply arrives as mail. ");

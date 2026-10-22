@@ -631,6 +631,9 @@ async fn read_stdout(
                     async move {
                         let result = if method == "mcpServer/elicitation/request" {
                             Ok(super::elicitation::request(&engine,&caller,&params,&requests_stop).await)
+                        } else if method == "item/tool/requestUserInput" {
+                            let reply = super::native_questions::request(&engine,&caller,super::native_questions::Harness::Codex,&params,process,&requests_stop).await;
+                            Ok(super::native_questions::codex_response(&params,&reply))
                         } else { answer(&engine, &caller, &actor, &method, &params, policy, process).await };
                         let reply = match result {
                             Ok(result) => json!({ "jsonrpc": "2.0", "id": id, "result": result }),

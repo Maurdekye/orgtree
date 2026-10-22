@@ -14,6 +14,7 @@ pub mod claude_thinking;
 pub mod codex;
 pub mod context_reset;
 pub mod elicitation;
+pub mod native_questions;
 pub mod convo;
 pub mod envelope;
 pub mod event_text;

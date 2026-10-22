@@ -465,6 +465,10 @@ impl Actor {
             let parent_eff = parent.and_then(|p| self.eff_scope.get(&p)).unwrap_or(&ceiling);
             let eff = if raw["kind"]=="project" {parent_eff.clone()} else {scope::clamp(&raw["scope"], parent_eff)};
             let mut projected = agent_body(raw, &eff, parent, &ctx);
+            if raw["kind"] != "project" {
+                projected["native_tool_harness"] = json!(crate::domain::compaction::node_harness(&self.engine,
+                    raw["tier"].as_str().unwrap_or(""),raw["account"].as_str(),&raw["x_extra"]));
+            }
             projected["elicitations"] = json!(self.engine.elicitations.agent_cards(self.org_row["id"].as_i64().unwrap_or(0),id));
             let body = Arc::new(projected);
             self.eff_scope.insert(id, eff);

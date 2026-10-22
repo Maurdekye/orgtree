@@ -252,7 +252,8 @@ impl ClaudeProc {
         let hooks = if keepalive {
             json!({ "PreToolUse": [{ "matcher": null, "hookCallbackIds": [KEEPALIVE_DENY] }] })
         } else {
-            json!({ "PostToolUse": [{ "matcher": null, "hookCallbackIds": ["orgtree_mail"] }] })
+            json!({ "PostToolUse": [{ "matcher": null, "hookCallbackIds": ["orgtree_mail"] }],
+                "PreToolUse": [{"matcher":"AskUserQuestion|ExitPlanMode","hookCallbackIds":["orgtree_native_question"],"timeout":360}] })
         };
         let init = proc
             .request(json!({ "subtype": "initialize", "hooks": hooks, "sdkMcpServers": ["orgtree"] }), Duration::from_secs(60))
@@ -397,6 +398,8 @@ async fn read_stdout(
     // owned only by this task: request id -> its waiter
     let mut waiters: std::collections::HashMap<String, oneshot::Sender<Value>> = std::collections::HashMap::new();
     let mut waiters_open = true;
+    let requests_stop = tokio_util::sync::CancellationToken::new();
+    let _requests_guard = requests_stop.clone().drop_guard();
     let reason = loop {
         let line = tokio::select! {
             w = waiters_rx.recv(), if waiters_open => {
@@ -436,10 +439,11 @@ async fn read_stdout(
                 let engine = engine.clone();
                 let caller = caller.clone();
                 let actor = actor.clone();
+                let stop = requests_stop.clone();
                 // every control request (tool call, hook) is its own request
                 let span = crate::trace::request(&crate::trace::agent_client(caller.agent_id, &caller.name));
                 tokio::spawn(tracing::Instrument::instrument(async move {
-                    let response = if keepalive { Ok(answer_keepalive(&engine, &caller, &req).await) } else { answer_control(&engine, &caller, &actor, process, &req).await };
+                    let response = if keepalive { Ok(answer_keepalive(&engine, &caller, &req).await) } else { answer_control(&engine, &caller, &actor, process, &req, &stop).await };
                     let line = match response {
                         Ok(r) => json!({ "type": "control_response",
                                          "response": { "subtype": "success", "request_id": id, "response": r } }),
@@ -460,13 +464,14 @@ async fn read_stdout(
     let _ = actor.post(AgentMsg::ProcExited { process, reason });
 }
 
-#[logged]
+#[nolog] // Native question answers must never enter call/return diagnostics.
 async fn answer_control(
     engine: &Arc<Engine>,
     caller: &Caller,
     actor: &AgentTx,
     process: uuid::Uuid,
     req: &Value,
+    stop: &tokio_util::sync::CancellationToken,
 ) -> Result<Value> {
     match req["subtype"].as_str() {
         Some("mcp_message") => {
@@ -476,6 +481,19 @@ async fn answer_control(
             }
             let resp = crate::tools::handle_mcp(engine, caller, &req["message"]).await;
             Ok(json!({ "mcp_response": resp }))
+        }
+        Some("hook_callback") if req["callback_id"] == "orgtree_native_question" ||
+            (req["input"]["hook_event_name"] == "PreToolUse" && matches!(req["input"]["tool_name"].as_str(),Some("AskUserQuestion"|"ExitPlanMode"))) => {
+            let tool = req["input"]["tool_name"].as_str().unwrap_or("");
+            let plan = tool == "ExitPlanMode";
+            let harness = if plan {super::native_questions::Harness::ClaudePlan} else {super::native_questions::Harness::Claude};
+            let reply = super::native_questions::request(engine,caller,harness,&req["input"]["tool_input"],process,stop).await;
+            let verdict = super::native_questions::claude_response(&req["input"]["tool_input"],plan,&reply);
+            let mut hook = json!({"hookEventName":"PreToolUse",
+                "permissionDecision":if verdict["behavior"] == "allow" {"allow"} else {"deny"},
+                "permissionDecisionReason":reply.reason});
+            if let Some(updated) = verdict.get("updatedInput") {hook["updatedInput"] = updated.clone();}
+            Ok(json!({"hookSpecificOutput":hook}))
         }
         Some("hook_callback") => {
             let (tx, rx) = oneshot::channel();
@@ -488,6 +506,12 @@ async fn answer_control(
             let _ = actor.post(AgentMsg::Hook { process, input, reply: tx });
             let out = tokio::time::timeout(Duration::from_secs(30), rx).await.ok().and_then(Result::ok);
             Ok(out.unwrap_or_else(|| json!({})))
+        }
+        Some("can_use_tool") if matches!(req["tool_name"].as_str(),Some("AskUserQuestion"|"ExitPlanMode")) => {
+            let plan = req["tool_name"] == "ExitPlanMode";
+            let harness = if plan {super::native_questions::Harness::ClaudePlan} else {super::native_questions::Harness::Claude};
+            let reply = super::native_questions::request(engine,caller,harness,&req["input"],process,stop).await;
+            Ok(super::native_questions::claude_response(&req["input"],plan,&reply))
         }
         Some("can_use_tool") => Ok(json!({ "behavior": "allow", "updatedInput": req["input"] })),
         other => Err(anyhow!("unsupported control request {other:?}")),

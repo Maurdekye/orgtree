@@ -380,7 +380,8 @@ fn scope_props(dirs: &str) -> Value {
             "description": dirs },
         "tools": { "type": "object", "properties": {
             "bash": { "type": "boolean" }, "web": { "type": "boolean" }, "edit": { "type": "boolean" },
-            "subagents": { "type": "boolean" }, "mcp": { "type": "array", "items": { "type": "string" } },
+            "subagents": { "type": "boolean" },
+            "orgtree_disabled": { "type": "boolean", "description": "Restore Orgtree-disabled native tools; fresh hire omission=false, rehire/retool omission preserves. Parent-clamped; does not change defaults or other permissions. See native-tools glossary." }, "mcp": { "type": "array", "items": { "type": "string" } },
             "orgtree": crate::domain::tool_groups::schema() } },
         "org_visibility": { "type": "string", "enum": VIS },
         "permission_mode": { "type": "string", "enum": PM },
@@ -1492,6 +1493,14 @@ fn build_tool_fast_defaults() -> Value {
 
 #[cfg(test)]
 mod fast_tools_tests {
+    #[test]
+    fn native_tools_four_scope_shapes_expose_optional_opt_in() {
+        for name in ["orgtree_hire","orgtree_rehire","orgtree_staff","orgtree_retool"] {
+            let card=super::list().into_iter().find(|c|c["name"]==name).unwrap();
+            assert_eq!(card["inputSchema"]["properties"]["tools"]["properties"]["orgtree_disabled"]["type"],"boolean","{name}");
+        }
+    }
+
     #[test]
     fn fast_tools_defaults_card_is_implemented_and_team_gated() {
         let cards=super::list();

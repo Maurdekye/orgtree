@@ -135,6 +135,7 @@ pub struct MuseSpec {
     pub host: Option<u32>,
     pub may_web: bool,
     pub may_subagents: bool,
+    pub native_questions: bool,
     /// granted external MCP servers (registry entries), besides orgtree's own
     pub servers: Map<String, Value>,
     pub resume: Option<String>,
@@ -528,7 +529,7 @@ impl MuseProc {
         let next = Arc::new(AtomicI64::new(1));
         let (admitted, _) = watch::channel(None);
         tokio::spawn(tracing::Instrument::instrument(
-            read_stdout(stdout, actor, process, tx.clone(), wrx, policy, next.clone(), admitted.clone()), proc_span));
+            read_stdout(stdout, actor, process, tx.clone(), wrx, wtx.clone(), policy, next.clone(), admitted.clone(), engine.clone(), caller.clone()), proc_span));
         let mut proc = MuseProc {
             pid,
             process,
@@ -563,7 +564,7 @@ impl MuseProc {
             .request(
                 "initialize",
                 json!({ "clientInfo": { "name": "orgtree", "title": "Orgtree", "version": env!("CARGO_PKG_VERSION") },
-                        "capabilities": { "experimentalApi": true, "userInputDialogs": false,
+                        "capabilities": { "experimentalApi": true, "userInputDialogs": spec.native_questions,
                                           "requestedCapabilities": ["sessionMcp"] } }),
                 Duration::from_secs(60),
             )
@@ -875,10 +876,16 @@ async fn read_stdout(
     process: uuid::Uuid,
     writer: mpsc::UnboundedSender<String>,
     mut waiters_rx: mpsc::UnboundedReceiver<(i64, oneshot::Sender<Value>)>,
+    waiters_tx: mpsc::UnboundedSender<(i64, oneshot::Sender<Value>)>,
     policy: Policy,
     next: Arc<AtomicI64>,
     admitted: watch::Sender<Option<AdmittedTurn>>,
+    engine: Arc<Engine>,
+    caller: Caller,
 ) {
+    let requests_stop = CancellationToken::new();
+    let _requests_guard = requests_stop.clone().drop_guard();
+    let mut native_pending: HashMap<String,CancellationToken> = HashMap::new();
     let mut reader = BufReader::with_capacity(1 << 16, stdout);
     let mut buf: Vec<u8> = Vec::new();
     let mut waiters: HashMap<i64, oneshot::Sender<Value>> = HashMap::new();
@@ -925,9 +932,45 @@ async fn read_stdout(
                 // a must-answer request: the answer is only a presentation
                 // receipt; the decision travels as its own command after it
                 let _ = writer.send(json!({ "jsonrpc": "2.0", "id": v["id"], "result": {} }).to_string());
-                answer(method, &v["params"], &policy, &writer, &actor, process, &mut asked);
+                if method == "userInput/request" {
+                    let p = v["params"].clone();
+                    let key = p["userInputId"].as_str().unwrap_or("").to_string();
+                    if native_pending.contains_key(&key) { continue; }
+                    if native_pending.len() >= 16 {
+                        let reply = super::native_questions::Reply {answers:vec![],approved:false,reason:"Too many pending native questions".into()};
+                        let (method,params) = super::native_questions::muse_command(&p,&reply);
+                        let id=next.fetch_add(1,Ordering::Relaxed);
+                        let _=writer.send(json!({"jsonrpc":"2.0","id":id,"method":method,"params":params}).to_string());
+                        continue;
+                    }
+                    let stop = requests_stop.child_token();
+                    native_pending.insert(key,stop.clone());
+                    let (e,c,w,n,register)=(engine.clone(),caller.clone(),writer.clone(),next.clone(),waiters_tx.clone());
+                    tokio::spawn(async move {
+                        let reply=super::native_questions::request(&e,&c,super::native_questions::Harness::Muse,&p,process,&stop).await;
+                        if stop.is_cancelled() {return}
+                        let (method,params)=super::native_questions::muse_command(&p,&reply);
+                        let id=n.fetch_add(1,Ordering::Relaxed);
+                        let (tx,rx)=oneshot::channel();
+                        if register.send((id,tx)).is_err() {return}
+                        if w.send(json!({"jsonrpc":"2.0","id":id,"method":method,"params":params}).to_string()).is_err() {return}
+                        let accepted=tokio::time::timeout(Duration::from_secs(5),rx).await.ok().and_then(Result::ok)
+                            .is_some_and(|v|v.get("error").is_none() && v["result"]["status"]=="accepted");
+                        if !accepted && method == "userInput/answer" {
+                            let no=super::native_questions::Reply {answers:vec![],approved:false,reason:"Muse refused the native answer or did not acknowledge it".into()};
+                            let (method,params)=super::native_questions::muse_command(&p,&no);
+                            let id=n.fetch_add(1,Ordering::Relaxed);
+                            let _=w.send(json!({"jsonrpc":"2.0","id":id,"method":method,"params":params}).to_string());
+                        }
+                    });
+                } else { answer(method, &v["params"], &policy, &writer, &actor, process, &mut asked); }
             }
             (false, Some(method)) => {
+                if method == "userInput/settled" {
+                    if let Some(key) = v["params"]["userInputId"].as_str() {
+                        if let Some(stop) = native_pending.remove(key) {stop.cancel();}
+                    }
+                }
                 // The actor can be preparing an admitted turn (DB/prompt
                 // work) while Muse retries its own delivery turns. Cancel
                 // here, before the actor mailbox, so none runs in that gap.
@@ -1250,6 +1293,7 @@ mod tests {
             sandbox: true,
             may_web: false,
             may_subagents: false,
+            native_questions: false,
             servers: Map::new(),
             resume: None,
             env: vec![],

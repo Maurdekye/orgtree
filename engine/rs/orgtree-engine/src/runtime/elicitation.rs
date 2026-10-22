@@ -30,8 +30,13 @@ impl Registry {
     pub fn agent_cards(&self, org:i64, agent:i64) -> Vec<Value> {
         self.requests.pin().iter().filter(|(_,p)|p.org==org && p.agent==agent).map(|(_,p)|p.card.clone()).collect()
     }
+    #[cfg(test)]
     #[nolog]
     fn start(&self, caller:&Caller, params:&Value, duration:Duration) -> Result<(String,mpsc::UnboundedReceiver<Value>,OwnedSemaphorePermit)> {
+        self.start_kind(caller,params,duration,false)
+    }
+    #[nolog]
+    fn start_kind(&self, caller:&Caller, params:&Value, duration:Duration, native:bool) -> Result<(String,mpsc::UnboundedReceiver<Value>,OwnedSemaphorePermit)> {
         if params.to_string().len()>65536 {bail!("MCP permission request too large")}
         let server=params["serverName"].as_str().filter(|s|!s.is_empty()).ok_or_else(||anyhow::anyhow!("missing server name"))?;
         if !params["threadId"].is_string() || !params["message"].is_string() {bail!("invalid MCP request identity or message")}
@@ -44,9 +49,9 @@ impl Registry {
         let id=format!("elicitation-{}",uuid::Uuid::new_v4());
         let (reply,rx)=mpsc::unbounded_channel();
         let card=json!({"id":id,"node":caller.name,"kind":"elicitation","status":"open",
-            "at":crate::util::iso(chrono::Utc::now()),"header":format!("MCP permission · {server}"),
+            "at":crate::util::iso(chrono::Utc::now()),"header":if native {server.to_string()} else {format!("MCP permission · {server}")},
             "question":params["message"],"elicitation":{"server":server,"mode":params["mode"].as_str().unwrap_or("form"),
-            "message":params["message"],"url":params.get("url"),"schema":params.get("requestedSchema"),
+            "native_tool":native,"message":params["message"],"url":params.get("url"),"schema":params.get("requestedSchema"),
             "expires_at":crate::util::iso(chrono::Utc::now()+chrono::Duration::from_std(duration)?)}});
         self.requests.pin().insert(id.clone(),Arc::new(Pending {org:caller.org_id,agent:caller.agent_id,card,
             deadline:tokio::time::Instant::now()+duration,reply}));
@@ -84,8 +89,17 @@ pub async fn request(engine:&Arc<Engine>,caller:&Caller,params:&Value,stop:&Canc
 }
 #[nolog]
 async fn wait(engine:&Arc<Engine>,caller:&Caller,params:&Value,stop:&CancellationToken,duration:Duration)->Value {
+    wait_kind(engine,caller,params,stop,duration,false).await
+}
+/// Internal native-tool entry point; its caller checks scope and audience first.
+#[nolog]
+pub async fn native_request(engine:&Arc<Engine>,caller:&Caller,params:&Value,stop:&CancellationToken)->Value {
+    wait_kind(engine,caller,params,stop,TIMEOUT,true).await
+}
+#[nolog]
+async fn wait_kind(engine:&Arc<Engine>,caller:&Caller,params:&Value,stop:&CancellationToken,duration:Duration,native:bool)->Value {
     if stop.is_cancelled() || engine.shutdown.is_cancelled() {return json!({"action":"cancel"})}
-    let Ok((id,mut rx,capacity))=engine.elicitations.start(caller,params,duration) else {
+    let Ok((id,mut rx,capacity))=engine.elicitations.start_kind(caller,params,duration,native) else {
         // Fail closed without exposing the request (or answers) in diagnostics.
         tracing::warn!(agent=caller.agent_id,"unsupported or over-capacity MCP elicitation");
         return json!({"action":"decline"})
@@ -225,6 +239,24 @@ mod elicitation_tests {
         assert!(r.resolve(1,&id,&json!({"action":"accept","content":content})).is_err());
         assert!(r.cards(1).is_empty());
     }
+    #[tokio::test]
+    async fn native_tools_private_cards_are_correlated_once_and_timeout_cleans_up() {
+        let r=Registry::default();
+        let (id,mut rx,_permit)=r.start_kind(&caller(1),&form(),TIMEOUT,true).unwrap();
+        assert_eq!(r.cards(1)[0]["elicitation"]["native_tool"],true);
+        assert!(!r.cards(1)[0]["header"].as_str().unwrap().starts_with("MCP permission"));
+        assert!(r.resolve(2,&id,&json!({"action":"accept","content":{"allow":true}})).is_err());
+        r.resolve(1,&id,&json!({"action":"decline"})).unwrap();
+        assert_eq!(rx.recv().await.unwrap(),json!({"action":"decline"}));
+        assert!(r.resolve(1,&id,&json!({"action":"decline"})).is_err());
+        let engine=Engine::for_tests(std::env::temp_dir().join("orgtree-native-questions-test"));
+        let stop=CancellationToken::new();
+        assert_eq!(wait_kind(&engine,&caller(1),&form(),&stop,Duration::from_millis(1),true).await,json!({"action":"decline"}));
+        assert!(engine.elicitations.cards(1).is_empty());
+        stop.cancel();
+        assert_eq!(native_request(&engine,&caller(1),&form(),&stop).await,json!({"action":"cancel"}));
+    }
+
     #[tokio::test]
     async fn elicitation_decline_cancel_do_not_forward_content_or_metadata() {
         let r=Registry::default();

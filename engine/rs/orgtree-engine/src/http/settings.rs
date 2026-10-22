@@ -180,7 +180,9 @@ fn checked(e: &Engine, org: Option<&str>, key: &str, v: &Value) -> ApiResult<Val
         },
         "default_tools" if v.is_object() => {
             crate::domain::tool_groups::validate(v)?;
-            Ok(scope::normalize_tools(v))
+            let mut tools = scope::normalize_tools(v);
+            tools["orgtree_disabled"] = json!(false);
+            Ok(tools)
         },
         "default_tools" => bad("default_tools is an object of tool switches".into()),
         "auto_resume" | "auto_resume_compact" | "org_inbox_multi_holder"

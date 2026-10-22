@@ -59,8 +59,8 @@ pub async fn codex_scoped_catalog(
 #[logged]
 pub fn claude_disallowed(tools: &Value) -> Vec<String> {
     let on = |k: &str| tools.get(k).and_then(Value::as_bool).unwrap_or(true);
-    let mut names = vec!["AskUserQuestion", "EnterPlanMode", "ExitPlanMode", "CronCreate",
-        "CronDelete", "CronList", "ScheduleWakeup", "Monitor", "RemoteTrigger"];
+    let mut names = if tools["orgtree_disabled"] == true { Vec::new() } else { vec!["AskUserQuestion", "EnterPlanMode", "ExitPlanMode", "CronCreate",
+        "CronDelete", "CronList", "ScheduleWakeup", "Monitor", "RemoteTrigger"] };
     if !on("bash") { names.extend(["Bash", "PowerShell", "BashOutput", "KillShell"]); }
     if !on("web") { names.extend(["WebSearch", "WebFetch"]); }
     if !on("edit") {
@@ -93,7 +93,19 @@ mod tests {
     use serde_json::json;
 
     #[test]
-    fn replacements_are_always_removed_but_agent_messages_follow_subagent_scope() {
+    fn native_tools_claude_deny_lifts_only_for_explicit_opt_in_and_keeps_other_scope() {
+        for tools in [json!({}),json!({"orgtree_disabled":false})] {
+            assert!(claude_disallowed(&tools).contains(&"AskUserQuestion".into()));
+        }
+        let enabled=claude_disallowed(&json!({"orgtree_disabled":true,"subagents":false,"bash":false,"edit":false}));
+        for name in ["AskUserQuestion","EnterPlanMode","ExitPlanMode","CronCreate","CronDelete","CronList","ScheduleWakeup","Monitor","RemoteTrigger"] {
+            assert!(!enabled.contains(&name.into()),"replacement deny did not lift: {name}");
+        }
+        for name in ["Bash","Edit","SendMessage","Agent","TaskStop"] {assert!(enabled.contains(&name.into()));}
+    }
+
+    #[test]
+    fn replacements_are_default_removed_but_agent_messages_follow_subagent_scope() {
         let all = claude_disallowed(&json!({}));
         assert!(all.contains(&"Monitor".into()) && all.contains(&"CronCreate".into()));
         assert!(!all.contains(&"SendMessage".into()));

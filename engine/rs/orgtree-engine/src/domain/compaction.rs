@@ -14,15 +14,23 @@ pub async fn node_capability(engine: &Arc<Engine>, id: i64) -> Result<Value> {
     let account: Option<String> = row.get(1);
     let extra: Value = row.get(2);
     let provider = crate::providers::catalog::provider_of(&tier);
-    let harness = if crate::providers::catalog::is_openrouter(&tier) {
+    let harness = node_harness(engine,&tier,account.as_deref(),&extra);
+    Ok(normal_compact_capability(provider, harness.as_deref()))
+}
+
+/// Shared route metadata for native-tool coverage and normal compaction. No probes.
+#[nolog]
+pub(crate) fn node_harness(engine:&Engine,tier:&str,account:Option<&str>,extra:&Value)->Option<String> {
+    if crate::providers::catalog::is_openrouter(tier) {
         let stamp = extra["harness"].as_str();
         stamp.map(str::to_string).or_else(|| Some(crate::openrouter::seat_harness(
-            engine, account.as_deref(), stamp, extra["harness_pin"].as_bool().unwrap_or(false))))
-    } else if crate::providers::catalog::is_langserver(&tier) {
-        crate::langserver::route_of(engine, &tier)
+            engine, account, stamp, extra["harness_pin"].as_bool().unwrap_or(false))))
+    } else if crate::providers::catalog::is_langserver(tier) {
+        crate::langserver::route_of(engine, tier)
             .and_then(|(server, _)| server["harness"].as_str().map(str::to_string))
-    } else { None };
-    Ok(normal_compact_capability(provider, harness.as_deref()))
+    } else { Some(match crate::providers::catalog::provider_of(tier) {
+        "claude"=>"claude-code", "openai"=>"codex-cli", "google"=>"antigravity", "muse"=>"muse", _=>return None,
+    }.to_string()) }
 }
 
 /// Only desk commands establish user contact; tools retain the agent's origin.

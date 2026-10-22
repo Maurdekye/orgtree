@@ -1123,6 +1123,8 @@ fn hire_scope(caps: &OrgCaps, req: &Value) -> Value {
     if let Some(t) = req.get("tools").filter(|v| v.is_object()) {
         crate::settings::deep_merge(&mut tools, t);
     }
+    // This opt-in is always explicit for a fresh hire, never inherited from defaults.
+    tools["orgtree_disabled"] = json!(req["tools"]["orgtree_disabled"].as_bool().unwrap_or(false));
     let mut out = json!({
         "permission_mode": str_arg(req, "permission_mode").unwrap_or(s["permission_mode"].as_str().unwrap_or("acceptEdits")),
         "org_visibility": str_arg(req, "org_visibility").unwrap_or(s["default_visibility"].as_str().unwrap_or("subtree")),
@@ -3709,6 +3711,7 @@ async fn retool(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transaction<'_>
             let mut next = stored;
             for (key, field) in [("add_dirs","dirs"),("tools","default_tools"),("org_visibility","default_visibility"),("permission_mode","permission_mode")] {
                 if granted.get(key).is_some() { next[field] = raised[key].clone(); }
+                if key == "tools" { next[field]["orgtree_disabled"] = json!(false); }
             }
             tx.execute("UPDATE ot.orgs SET settings=$2 WHERE id=$1", &[&org.id,&next]).await?;
             fx.pulses.push(crate::changes::Change::Org);

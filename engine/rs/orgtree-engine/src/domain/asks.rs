@@ -547,7 +547,7 @@ fn item_key(item: &Value) -> String {
 }
 
 #[logged]
-async fn held_scope(engine: &Engine, org_id: i64, agent_id: i64) -> Result<Value> {
+pub(crate) async fn held_scope(engine: &Engine, org_id: i64, agent_id: i64) -> Result<Value> {
     let client = engine.db.get().await?;
     held_scope_in(&**client, engine, org_id, agent_id).await
 }

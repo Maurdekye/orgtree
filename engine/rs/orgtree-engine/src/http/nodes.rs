@@ -1066,6 +1066,7 @@ async fn cascade_up(tx: &tokio_postgres::Transaction<'_>, mut parent: Option<i64
                 tools[k] = json!(true);
             }
         }
+        if child["tools"]["orgtree_disabled"] == true { tools["orgtree_disabled"] = json!(true); }
         for group in crate::domain::tool_groups::GROUPS {
             if crate::domain::tool_groups::enabled(&child["tools"], group) {
                 tools["orgtree"][*group] = json!(true);

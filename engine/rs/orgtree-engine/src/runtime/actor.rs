@@ -3850,6 +3850,7 @@ impl Actor {
             host: want,
             may_web: on("web"),
             may_subagents: on("subagents"),
+            native_questions: tools["orgtree_disabled"] == true,
             servers: granted,
             resume: resume.clone(),
             env,
