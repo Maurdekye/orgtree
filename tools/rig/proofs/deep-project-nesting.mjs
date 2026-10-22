@@ -97,15 +97,24 @@ export default async function (rig) {
     const agents = records.records.filter(r => r.entity === 'agent')
     record('record snapshot retains all projects and agents', agents.length === depth + 7
       && agents.some(r => r.body?.id === 'leaf') && agents.some(r => r.body?.id === last), { got: agents.length, expected: depth + 7 })
+    phase = 'cheap source-chain and superior measurement'
+    const opsSource = fs.readFileSync(path.join(import.meta.dirname, '../../../engine/rs/orgtree-engine/src/domain/ops.rs'), 'utf8')
+    const chainSource = opsSource.slice(opsSource.indexOf('async fn chain('))
+    const chainSql = chainSource.match(/"(WITH RECURSIVE[\s\S]*?)",/)
+    if (!chainSql) throw Error('Source chain query seam changed; recheck instrument')
+    const measuredSql = chainSql[1].replaceAll('$1', String(row('leaf').id))
+    p.file('source-chain-query.sql', measuredSql)
+    const chainRows = rig.sql(measuredSql)
+    record('source chain query reaches the real root before locking', chainRows.length === depth + 2 && chainRows[0]?.id === boss,
+      { count: chainRows.length, expected: depth + 2, first: chainRows[0], root: boss, source: 'domain/ops.rs::chain query only; per-row locks not replayed' })
+    const superior = rig.one(`SELECT ot.superior_of(${row('leaf').id}) AS ordinary,ot.live_superior_of(${row('leaf').id}) AS live`)
+    record('transparent projects resolve the actual agent superior', superior.ordinary === boss && superior.live === boss, superior)
     phase = 'compatibility tree'
     const tree = await api('GET', `/api/orgs/${rig.org}`)
     const names = [], stack = [...tree.roots]
     while (stack.length) { const n = stack.pop(); names.push(n.id); stack.push(...n.children) }
     record('compatibility tree retains deepest agents', names.length === depth + 7 && names.includes('leaf') && names.includes(last),
       { got: names.length, expected: depth + 7, leaf: names.includes('leaf') })
-    phase = 'superior resolution'
-    const superior = rig.one(`SELECT ot.superior_of(${row('leaf').id}) AS ordinary,ot.live_superior_of(${row('leaf').id}) AS live`)
-    record('transparent projects resolve the actual agent superior', superior.ordinary === boss && superior.live === boss, superior)
     phase = 'chart and visibility'
     for (const who of ['boss', 'leaf']) {
       const chart = await tool(who, 'orgtree_chart')
@@ -125,7 +134,18 @@ export default async function (rig) {
     await rig.waitTurns('leaf', turns + 1, { timeout: 20000 })
     const prompt = rig.fakeLog('leaf').filter(r => r.kind === 'turn').at(-1)?.prompt ?? ''
     p.file('leaf-prompt.txt', prompt)
-    record('real fake-CLI prompt names boss as superior', prompt.includes('direct superior (boss)')
+    let generated = ''
+    if (prompt.includes('[ORGTREE CONTEXT BY REFERENCE]')) {
+      const reference = prompt.match(/snapshot \((\d+) UTF-8 bytes\) is at ([^\r\n]+?\.txt)\. Read it before/)
+      if (!reference) throw Error('Malformed generated context reference')
+      const actual = fs.realpathSync(reference[2]), allowed = fs.realpathSync(path.join(rig.data, 'scratch', rig.org, 'leaf'))
+      if (!actual.toLowerCase().startsWith(allowed.toLowerCase() + path.sep)) throw Error('Context reference escaped own synthetic agent')
+      const bytes = fs.readFileSync(actual)
+      if (bytes.length !== Number(reference[1])) throw Error('Generated context byte count changed')
+      generated = bytes.toString('utf8')
+      p.file('leaf-generated-context.txt', bytes)
+    }
+    record('real fake-CLI prompt names boss as superior', (generated + prompt).includes('direct superior (boss)')
       && prompt.includes('FROM boss (your superior)'), { bytes: prompt.length })
     phase = 'descendant halt/unhalt and interruption'
     const denied = await tool('outsider', 'orgtree_halt', { node: 'leaf' })
