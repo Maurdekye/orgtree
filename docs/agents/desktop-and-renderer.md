@@ -25,6 +25,7 @@ Create/Enter are disabled while pending, with a synchronous submission guard;
 Cancel remains available. A refusal re-enables only its still-current form.
 [verified: `canvas/OrgCanvas.tsx`, `canvas/newproject.tsx`,
 `tests/projectdraft-response.test.tsx`; coordinator 2026-10-21 23:31Z]
+
 ## Typed monitor senders
 
 Monitor-event mail rows render the shared `WatchdogLink` with the recorded
