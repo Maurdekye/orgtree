@@ -243,7 +243,7 @@ test('§4 while the event listeners are on the tab shows, empty or not (user 202
   const { view } = await desk(t, project({ event_listeners: true }), false)
   const tab = view.el.querySelector<HTMLButtonElement>('.cc-tabs button[data-tab="listeners"]')
   assert.ok(tab, 'the setting is on: the tab is there with nobody listening now')
-  assert.equal(tab!.textContent, 'listeners', 'no count while none is armed')
+  assert.equal(tab!.textContent, 'events', 'no count while none is armed')
   await inAct(async () => { tab!.click(); await flush(3) })
   const empties = [...view.el.querySelectorAll('.project-listeners .listeners-table td.slot-empty')].map((c) => c.textContent ?? '')
   assert.equal(empties.length, 3, 'its three sections say they are empty')
@@ -260,7 +260,7 @@ test('§4 the header cards, the tab, its rows and the fire control', async (t) =
   assert.equal(queue?.textContent, "2 listeners · 3 q'd · 1 in flight", 'the one merged magenta mail card beside it')
   const tab = view.el.querySelector<HTMLButtonElement>('.cc-tabs button[data-tab="listeners"]')
   assert.ok(tab, 'the listeners tab')
-  assert.match(tab!.textContent ?? '', /^listeners 2$/, 'its badge counts the armed listeners')
+  assert.match(tab!.textContent ?? '', /^events 2$/, 'its badge counts the armed listeners')
   await inAct(async () => { cyan!.click(); await flush(3) })
   assert.equal(view.el.querySelector('.cc-tabs button[data-tab="listeners"]')?.classList.contains('on'), true,
     'the card opens the listeners tab')
