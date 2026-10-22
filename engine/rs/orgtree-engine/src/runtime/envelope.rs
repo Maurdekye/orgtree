@@ -193,31 +193,58 @@ struct Tree<'a> {
     shown: HashSet<i64>,
 }
 
+enum ChartStep<'a> {
+    Row(&'a Row, usize),
+    Hidden(usize, usize),
+}
+
 impl<'a> Tree<'a> {
     #[nolog]
     fn subtree_all_dead(&self, id: i64) -> (bool, usize) {
-        let mut n = 1;
-        let mut dead = self.by_id.get(&id).map(|r| r.state != "live").unwrap_or(true);
-        for k in self.kids.get(&Some(id)).map(Vec::as_slice).unwrap_or(&[]) {
-            let (d, c) = self.subtree_all_dead(k.id);
-            dead &= d;
-            n += c;
+        let mut pending = vec![id];
+        let mut seen = HashSet::new();
+        let mut dead = true;
+        while let Some(id) = pending.pop() {
+            if !seen.insert(id) { continue; }
+            dead &= self.by_id.get(&id).map(|r| r.state != "live").unwrap_or(true);
+            pending.extend(self.kids.get(&Some(id)).into_iter().flatten().map(|r| r.id));
         }
-        (dead, n)
+        (dead, seen.len())
+    }
+
+    /// Queue a sibling level in reverse so its rows render in the original
+    /// preorder, with its archived summary after every visible child subtree.
+    #[nolog]
+    fn queue_level(&self, roots: &[&'a Row], indent: usize, pending: &mut Vec<ChartStep<'a>>) {
+        let mut shown = Vec::new();
+        let mut hidden_here = 0;
+        for r in roots {
+            if r.state != "live" {
+                let (dead, count) = self.subtree_all_dead(r.id);
+                if dead { hidden_here += count; continue; }
+            }
+            shown.push(*r);
+        }
+        if hidden_here > 0 { pending.push(ChartStep::Hidden(hidden_here, indent)); }
+        pending.extend(shown.into_iter().rev().map(|r| ChartStep::Row(r, indent)));
     }
 
     /// 3.x `_render_chart` (archived subtrees hidden, counted at their own indent).
     #[nolog]
     fn render(&mut self, roots: &[&'a Row], indent: usize, out: &mut Vec<String>) {
-        let mut hidden_here = 0;
-        for r in roots {
-            if r.state != "live" {
-                let (dead, n) = self.subtree_all_dead(r.id);
-                if dead {
-                    hidden_here += n;
+        let mut pending = Vec::new();
+        let mut visited = HashSet::new();
+        self.queue_level(roots, indent, &mut pending);
+        while let Some(step) = pending.pop() {
+            let (r, indent) = match step {
+                ChartStep::Hidden(count, indent) => {
+                    self.hidden += count;
+                    out.push(format!("{}+ {count} archived here — hidden", "  ".repeat(indent)));
                     continue;
                 }
-            }
+                ChartStep::Row(r, indent) => (r, indent),
+            };
+            if !visited.insert(r.id) { continue; }
             let mut tags: Vec<String> = Vec::new();
             self.shown.insert(r.id);
             if r.state != "live" {
@@ -233,11 +260,7 @@ impl<'a> Tree<'a> {
             let star = if r.id == self.me { "  ← you" } else { "" };
             out.push(format!("{}- {} [{}]{state}{note}{star}", "  ".repeat(indent), r.name, r.tier));
             let kids: Vec<&'a Row> = self.kids.get(&Some(r.id)).cloned().unwrap_or_default();
-            self.render(&kids, indent + 1, out);
-        }
-        if hidden_here > 0 {
-            self.hidden += hidden_here;
-            out.push(format!("{}+ {hidden_here} archived here — hidden", "  ".repeat(indent)));
+            self.queue_level(&kids, indent + 1, &mut pending);
         }
     }
 }

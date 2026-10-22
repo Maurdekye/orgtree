@@ -19,6 +19,41 @@ fn fixture(reports: usize, small_report: bool) -> (Facts, DateTime<Utc>) {
 }
 
 #[test]
+fn deep_project_chart_renders_iteratively_and_keeps_delta_identity() {
+    let (mut facts, now) = fixture(2049, false);
+    for (i, row) in facts.rows.iter_mut().enumerate().skip(1) {
+        row.parent = Some(i as i64);
+        row.project = i < 2049;
+        row.tier = if row.project { "project".into() } else { "sol".into() };
+    }
+    let first = render(&facts, &HashMap::new(), now);
+    assert!(first.text.contains("worker-2050"));
+    assert!(first.text.lines().count() > 2050);
+    facts.prior = first.record;
+    let unchanged = render(&facts, &HashMap::new(), now);
+    assert!(unchanged.text.contains("unchanged since #1"));
+}
+
+#[test]
+fn iterative_chart_keeps_archived_summaries_after_each_sibling_level() {
+    let (mut facts, now) = fixture(5, false);
+    facts.rows[1].state = "archived".into();
+    facts.rows[2].state = "archived".into();
+    facts.rows[2].parent = Some(2);
+    facts.rows[3].parent = Some(2);
+    facts.rows[4].state = "archived".into();
+    let output = render(&facts, &HashMap::new(), now);
+    let lines: Vec<&str> = output.text.lines().collect();
+    let live_child = lines.iter().position(|l| l.contains("- worker-04 [")).unwrap();
+    let inner = lines.iter().position(|l| *l == "      + 1 archived here — hidden").unwrap();
+    let next = lines.iter().position(|l| l.contains("- worker-06 [")).unwrap();
+    let outer = lines.iter().position(|l| *l == "    + 1 archived here — hidden").unwrap();
+    assert!(live_child < inner && inner < next && next < outer);
+    assert!(output.text.contains("2 archived agents hidden above"));
+    assert!(!output.text.contains("- worker-03 [") && !output.text.contains("- worker-05 ["));
+}
+
+#[test]
 fn audience_notice_self_only_header_shows_sources_and_semantic_changes() {
     use crate::domain::{audience_notices::self_audiences,audiences::EffectiveGrant};
     let (mut facts,now)=fixture(1,true);

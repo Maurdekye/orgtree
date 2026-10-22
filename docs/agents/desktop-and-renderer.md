@@ -34,6 +34,13 @@ ancestry separately from the compatibility response. An HTTP fix does not
 prove all descendant operations or template paths at the same depth.
 [verified: `http/{tree,orgs}.rs`; 2026-10-22]
 
+The per-turn org chart uses a separate explicit work stack in
+`runtime/envelope.rs`. Preserve preorder, per-level archived summaries, shown
+identities, status words and unchanged-header deltas. Archived-subtree checks
+also iterate with a visited set; fixing the HTTP projection alone does not
+make prompt generation safe at the same depth.
+[verified: `runtime/envelope.rs`, `envelope/header_delta_tests.rs`; 2026-10-22]
+
 ## Canvas superior insertion target (2026-10-22)
 
 Superior draft permissions identify the insertion target and keep its scope
