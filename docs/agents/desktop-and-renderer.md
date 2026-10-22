@@ -20,7 +20,7 @@ tree marker may provide a missing event ID only when its mention ID equals the
 clicked ID. A newer marker cannot replace the target or be acknowledged by that
 click. The engine's existing ID-matched mention-seen endpoint remains unchanged.
 This is routing/acknowledgement correction, with no new action or tool. [verified:
-`src/{App,notifications}.tsx`, `src/notifications.ts`,
+`src/App.tsx`, `src/notifications.ts`,
 `tests/stalementionnotice.test.tsx`, `http/nodes.rs`; 2026-10-22]
 
 ## Retained mail reconciliation (2026-10-21)
