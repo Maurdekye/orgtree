@@ -2,12 +2,25 @@
 // the caller stops escalation on failure/timeout and retains every verdict.
 import fs from 'node:fs'
 import path from 'node:path'
+import os from 'node:os'
+import { spawnSync } from 'node:child_process'
 import { Proof } from '../proof.mjs'
-import { TOKEN_HEADER } from '../lib.mjs'
+import { TOKEN_HEADER, Rig } from '../lib.mjs'
 import { runDesktop } from '../desktop.mjs'
 
 const depth = Number(process.env.DEEP_NESTING_DEPTH ?? 32)
 if (![32, 128, 512, 2048].includes(depth)) throw Error('Explicit approved depth required')
+if (process.argv.includes('--capture')) {
+  const at = process.argv.indexOf('--capture'), rigDir = process.argv[at + 1], output = process.argv[at + 2]
+  if (!rigDir?.replaceAll('\\', '/').includes('/rig/epic-combo-sol-deep-nesting/')
+    || !output?.replaceAll('\\', '/').startsWith('C:/orgtree-build/epic-combo-sol/')) throw Error('Owned synthetic capture paths required')
+  if (os.freemem() < 3e9) throw Error('Renderer RAM floor')
+  const result = await runDesktop(Rig.attach(rigDir), path.join(import.meta.dirname, '../desktop/deep-project-nesting.cjs'),
+    { out: path.join(output, 'desktop'), profile: path.join(output, 'profile'), preset: 'wide', timeout: 45000,
+      args: { depth, expectedRows: depth + 7 } })
+  fs.writeFileSync(path.join(output, 'desktop-receipt.json'), JSON.stringify(result, null, 2))
+  process.exit(result.ok && result.exit === 0 ? 0 : 1)
+}
 export async function setup() {
   return { recover: true, maxParked: 1, fixture: { org: { name: `Synthetic depth ${depth}` },
     agents: [{ name: 'boss', tier: 'sol', grant: 200 }] } }
@@ -146,12 +159,19 @@ export default async function (rig) {
       AND extra->'via_project'->>'name'='${last}' AND body LIKE '%DEPTH-${depth}-QUEUE%'`)
     record('deep project queue delivers one original-derived copy', queue.ok && copies.length === 1, { queue: queue.text, copies })
     phase = 'renderer canvas and agents list'
-    const desktop = await runDesktop(rig, path.join(import.meta.dirname, '../desktop/deep-project-nesting.cjs'),
-      { out: path.join(p.dir, 'desktop'), profile: path.join(p.dir, 'profile'), preset: 'wide', timeout: 45000,
-        args: { depth, expectedRows: depth + 7 } })
-    p.file('desktop-receipt.json', desktop)
+    const captureArgs = p.file('capture-args.txt', [import.meta.filename, '--capture', rig.dir, p.dir].join('\n') + '\n')
+    const fd = fs.openSync(path.join(p.dir, 'capture-job.log'), 'wx'), captureStart = Date.now()
+    let capture
+    try { capture = spawnSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass',
+      '-File', path.join(import.meta.dirname, '../../../apps/desktop/renderer/tests/joblimit.ps1'),
+      '-LimitMB', '3072', '-TimeoutSec', '90', '-WorkDir', path.resolve(import.meta.dirname, '../../..'),
+      '-Exe', process.execPath, '-ArgFile', captureArgs], { windowsHide: true, stdio: ['ignore', fd, fd] })
+    } finally { fs.closeSync(fd) }
+    p.file('capture-job-exit.json', { status: capture.status, signal: capture.signal, error: capture.error?.message ?? null, ms: Date.now() - captureStart })
+    const desktop = fs.existsSync(path.join(p.dir, 'desktop-receipt.json'))
+      ? JSON.parse(fs.readFileSync(path.join(p.dir, 'desktop-receipt.json'), 'utf8')) : { ok: false, error: 'No renderer verdict' }
     record('canvas and agents list retain deepest node without crash', desktop.ok && desktop.exit === 0
-      && desktop.value?.leaf && desktop.value?.rows === depth + 7 && !desktop.value?.crashed, desktop)
+      && capture.status === 0 && desktop.value?.leaf && desktop.value?.rows === depth + 7 && !desktop.value?.crashed, desktop)
     phase = 'retirement with full multi-slot release and FIFO'
     await op({ op: 'set_slots', node: last, capacity: 2 })
     const held = await tool('victim', 'orgtree_watchdog', { action: 'create', name: 'depth-hold', kind: 'slot', target: last, slots: 2 })
