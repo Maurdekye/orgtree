@@ -208,6 +208,15 @@ pub fn parse_pref(v: &serde_json::Value) -> std::result::Result<Pref, String> {
     Ok(Pref::Kinds(list))
 }
 
+/// Whether `pref` is followed by an engine that runs in the user's session
+/// `own` (of `kind`) rather than in Session 0: every turn runs there, so
+/// only a preference that would pick that session is. From Session 0 every
+/// preference is followed (Session 0 is its fallback).
+#[logged]
+pub fn followed_in(own: u32, kind: &str, pref: &Pref) -> bool {
+    choose(&[HostSession { id: own, kind: kind.to_string(), active: true }], pref, None) == Some(own)
+}
+
 /// Where a CLI that starts now runs among `sessions`: a session id, or None
 /// for Session 0. An on-demand pick wins while its session hosts (0 is
 /// Session 0); then the preference, an active session before a disconnected
@@ -754,5 +763,20 @@ mod choice_tests {
         assert_eq!(choose(&both, &Pref::SignedIn, Some(0)), None, "on demand, Session 0");
         assert_eq!(choose(&both, &Pref::Kinds(vec!["remote".into()]), Some(9)), Some(4), "a gone session lapses");
         assert_eq!(choose(&[], &Pref::SignedIn, Some(3)), None);
+    }
+
+    /// An engine in the user's console session 1 (decision 93) follows only
+    /// what would pick that session: not Session 0, not a remote session.
+    #[test]
+    fn an_engine_in_a_users_session_follows_only_what_picks_it() {
+        let kinds = |k: &[&str]| Pref::Kinds(k.iter().map(|s| s.to_string()).collect());
+        assert!(followed_in(1, "console", &Pref::SignedIn));
+        assert!(followed_in(1, "console", &kinds(&["console"])));
+        assert!(followed_in(1, "console", &kinds(&["remote", "console"])));
+        assert!(followed_in(1, "console", &kinds(&["remote", "signed-in"])));
+        assert!(!followed_in(1, "console", &Pref::Session0));
+        assert!(!followed_in(1, "console", &kinds(&["remote"])));
+        assert!(followed_in(3, "remote", &kinds(&["remote"])));
+        assert!(!followed_in(3, "remote", &kinds(&["console"])));
     }
 }

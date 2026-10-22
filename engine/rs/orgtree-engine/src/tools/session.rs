@@ -68,12 +68,19 @@ pub async fn run(engine: &Arc<Engine>, caller: &Caller, args: &Value) -> Result<
         },
         None => None,
     };
+    let session0 = crate::runtime::codex::session0();
+    let own = sh::engine_session();
     let use_id = match args.get("use").filter(|v| !v.is_null()) {
         Some(v) => {
             let Some(id) = v.as_u64().and_then(|n| u32::try_from(n).ok()) else {
                 crate::refuse!(Unprocessable, "use is a session id from sessions, or 0 for Session 0");
             };
-            if id != 0 && !engine.credential_bridge.hosting().iter().any(|(s, _)| *s == id) {
+            if let Some(why) = unplaceable(cfg!(windows), session0, own, id) {
+                crate::refuse!(Conflict, "{why}");
+            }
+            // an engine outside Session 0 runs every turn in its own session
+            let here = !session0 && id == own;
+            if id != 0 && !here && !engine.credential_bridge.hosting().iter().any(|(s, _)| *s == id) {
                 crate::refuse!(Unprocessable, "session {id} has no sign-in helper: pick one from sessions, or 0 for Session 0");
             }
             Some(id)
@@ -89,14 +96,13 @@ pub async fn run(engine: &Arc<Engine>, caller: &Caller, args: &Value) -> Result<
     }
     let root = engine.cfg.data_root.clone();
     let signed_in = tokio::task::spawn_blocking(move || signed_in(&root)).await.ok().flatten();
-    let session0 = crate::runtime::codex::session0();
     let mut sessions = Vec::new();
     if session0 {
         let user = std::env::var("USERNAME").unwrap_or_default();
         sessions.push(json!({ "id": 0, "kind": "session0", "state": "active", "user": user }));
         sessions.extend(engine.credential_bridge.hosting().into_iter().map(|(id, _)| sh::describe(engine, id)));
     } else {
-        sessions.push(sh::describe(engine, sh::engine_session()));
+        sessions.push(sh::describe(engine, own));
     }
     let num = |k: &str| view[k].as_u64().and_then(|n| u32::try_from(n).ok());
     Done::json(&answer(&Facts {
@@ -151,6 +157,58 @@ fn signed_in(_root: &Path) -> Option<bool> {
     None
 }
 
+/// Why `use` cannot pick session `id`: an engine that runs in the user's
+/// session `own` runs every turn there. Decision 93 made that the usual
+/// place after a restart or update while the user is signed in; until the
+/// user decides on placing turns elsewhere from there, the pick is refused
+/// rather than kept and ignored (coordinator 2026-10-21 23:13Z).
+#[logged]
+fn unplaceable(windows: bool, engine_session0: bool, own: u32, id: u32) -> Option<String> {
+    if !windows || engine_session0 || id == own {
+        return None;
+    }
+    let what = if id == 0 { "Session 0".to_string() } else { format!("session {id}") };
+    Some(format!(
+        "Orgtree's engine runs in the user's Windows session {own}, so all your turns run there: {what} cannot be picked \
+         while it does. Picks apply only while the engine runs in Session 0."
+    ))
+}
+
+/// The one session an engine outside Session 0 runs every turn in (the only
+/// one `sessions` lists then): its id and kind.
+#[nolog]
+fn own_session(f: &Facts) -> Option<(u32, &str)> {
+    if f.engine_session0 {
+        return None;
+    }
+    let s = f.sessions.first()?;
+    Some((u32::try_from(s["id"].as_u64()?).ok()?, s["kind"].as_str().unwrap_or("console")))
+}
+
+/// Whether the stored preference is followed where the engine runs: from
+/// Session 0 always, from an engine in the user's session only when it would
+/// pick that session.
+#[logged]
+fn preference_followed(f: &Facts) -> bool {
+    let Some((own, kind)) = own_session(f) else { return true };
+    let Ok(pref) = crate::runtime::session_host::parse_pref(&f.preference) else { return true };
+    crate::runtime::session_host::followed_in(own, kind, &pref)
+}
+
+/// The stored preference in words; None for the default.
+#[nolog]
+fn preference_words(v: &Value) -> Option<String> {
+    match v {
+        Value::String(s) if s == SESSION0 => Some("Session 0".into()),
+        Value::String(s) => Some(format!("a {s} session, then Session 0")),
+        Value::Array(kinds) => {
+            let kinds: Vec<&str> = kinds.iter().filter_map(Value::as_str).collect();
+            Some(format!("{} sessions, in that order, then Session 0", kinds.join(", then ")))
+        }
+        _ => None,
+    }
+}
+
 #[logged]
 fn answer(f: &Facts) -> Value {
     let moves = matches!((f.this_session, f.next_session), (Some(now), Some(next)) if now != next)
@@ -164,6 +222,7 @@ fn answer(f: &Facts) -> Value {
         "next_turn_moves": moves,
         "sign_in_helper": f.helper,
         "preference": if f.preference.is_null() { json!(SIGNED_IN) } else { f.preference.clone() },
+        "preference_followed": preference_followed(f),
         "use": f.use_id,
         "sessions": f.sessions,
         "summary": summary(f, moves),
@@ -176,7 +235,22 @@ fn summary(f: &Facts, moves: bool) -> String {
         return "This is not Windows: there is no Session 0, and your CLI runs in the engine's own session.".into();
     }
     if !f.engine_session0 {
-        return "Orgtree's engine runs in the user's signed-in session, so all your turns run there, with access to their desktop and apps.".into();
+        let mut out = String::from("Orgtree's engine runs in the user's signed-in session, so all your turns run there, with access to their desktop and apps.");
+        if !preference_followed(f) {
+            if let Some(words) = preference_words(&f.preference) {
+                out.push_str(&format!(" You prefer {words}, which is not followed: preferences apply only while Orgtree's engine runs in Session 0."));
+            }
+        }
+        let own = own_session(f).map(|(id, _)| id);
+        match f.use_id {
+            Some(id) if Some(id) != own => {
+                let what = if id == 0 { "Session 0".to_string() } else { format!("the user's session {id}") };
+                out.push_str(&format!(" Your pick of {what} for your next turn is not followed: picks apply only while Orgtree's engine runs in Session 0."));
+            }
+            Some(id) => out.push_str(&format!(" You picked the user's session {id} for your next turn.")),
+            None => {}
+        }
+        return out;
     }
     let mut out = String::from(match f.signed_in {
         Some(true) => "The user is signed in to this computer.",
@@ -206,15 +280,8 @@ fn summary(f: &Facts, moves: bool) -> String {
     if f.signed_in == Some(true) && !f.helper {
         out.push_str(" Orgtree's sign-in helper is not connected, so turns start in Session 0.");
     }
-    match &f.preference {
-        Value::Null => {}
-        Value::String(s) if s == SESSION0 => out.push_str(" You prefer Session 0."),
-        Value::String(s) => out.push_str(&format!(" You prefer a {s} session, then Session 0.")),
-        Value::Array(kinds) => {
-            let kinds: Vec<&str> = kinds.iter().filter_map(Value::as_str).collect();
-            out.push_str(&format!(" You prefer {} sessions, in that order, then Session 0.", kinds.join(", then ")));
-        }
-        _ => {}
+    if let Some(words) = preference_words(&f.preference) {
+        out.push_str(&format!(" You prefer {words}."));
     }
     match f.use_id {
         Some(0) => out.push_str(" You picked Session 0 for your next turn."),
@@ -342,6 +409,27 @@ mod tests {
         let mut f = facts(Some(true), true, SESSION0, SESSION0);
         f.preference = json!("session0");
         assert_eq!(answer(&f)["preference_followed"], true);
+    }
+
+    /// While the engine runs in the user's session 1, `use` may name only
+    /// that session: Session 0 and another session are refused with the
+    /// reason, before anything is stored. From Session 0, and outside
+    /// Windows, nothing changes.
+    #[test]
+    fn a_pick_the_engine_cannot_follow_is_refused() {
+        let why = unplaceable(true, false, 1, 0).expect("a pick of Session 0 from session 1 is refused");
+        assert!(why.contains("Windows session 1") && why.contains("Session 0 cannot be picked"), "{why}");
+        assert!(unplaceable(true, false, 1, 7).is_some_and(|w| w.contains("session 7 cannot be picked")));
+        assert_eq!(unplaceable(true, false, 1, 1), None, "its own session is where every turn runs anyway");
+        assert_eq!(unplaceable(true, true, 0, 0), None);
+        assert_eq!(unplaceable(true, true, 0, 7), None);
+        assert_eq!(unplaceable(false, false, 0, 3), None);
+        let mut f = facts(Some(true), true, SIGNED_IN, SIGNED_IN);
+        f.engine_session0 = false;
+        f.sessions = vec![json!({ "id": 1, "kind": "console" })];
+        f.use_id = Some(1);
+        let s = answer(&f)["summary"].as_str().unwrap().to_string();
+        assert!(s.ends_with("You picked the user's session 1 for your next turn.") && !s.contains("not followed"), "{s}");
     }
 }
 
