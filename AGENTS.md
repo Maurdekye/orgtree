@@ -85,6 +85,29 @@ Rig live-root guards retain import-time `APPDATA`/home/data-override paths after
 
 - **A CLI is reused only where its turn runs it, warming waits for the sign-in helper, and the helper's arrival takes idle Session 0 CLIs (2026-10-22).** Every harness's reuse check compares `hosted_in()` with the placement the turn chose as well as the prompt fingerprint: a full-access Codex seat has the same sandbox, and so the same prompt, in both sessions, and before this its Session 0 Codex ran its turns there while the helper hosted. Warming and a start by hand (`Actor::start_ahead`) wait in `session_settle` as a turn start does, so the warming after an engine start no longer starts CLIs in Session 0 before the helper is back, and they keep the next turn's `use` pick. When a helper starts hosting (the engine's start included), `runtime::rehost_all` closes each idle CLI parked in Session 0 and warms it again in the signed-in session, within warming's memory floor: never one in a turn, one holding background work, or one whose own choice is Session 0 (the user 14:21Z: "Move them at sign-in"). Bound such work by permits its actor holds until done (`REHOSTING`'s place travels in `AgentMsg::Rehost`), never by dispatch chunks: a timed-out reply does not stop a queued move, and sweeps overlap. `core_process::Sessions::read` passes over a session Windows lists as WTSDown or WTSReset, which is being torn down; any other failed call still makes the reading unknown, logged once per stretch with the call. Rig runs warm only with `warming` (`ORGTREE_RIG_WARMING`). [decided: user 2026-10-22 14:21Z, coordinator 14:19Z; verified: `runtime/actor.rs`, `runtime/mod.rs`, `runtime/session_watch.rs`, `core_process.rs`; proof `warm-placement.mjs`]
 
+- **A turn is mid-turn from its admission.** `start_turn` claims the mail and sets `inflight_at`, then
+  waits for the helper, starts the CLI and builds the ORG STATE; `begin_turn` sets `self.turn` last.
+  The published view's `starting` (turn slot held, no turn yet) covers that window and the chart reads
+  it as "▶ mid-turn". "Never finished — the engine stopped mid-turn" means a claimed turn with none
+  running or starting: judge a dead turn from `inflight_at` only together with `busy`/`starting`.
+  [verified: `runtime/actor.rs::{start_turn,runtime_value}`, `runtime/envelope.rs::live_from_view`; 2026-10-22]
+
+- **Retry a conflicted write only through `ops::conflict_retry`** (`conflict_retry_when` for a writer with
+  its own conflict test, as account removal's 55P03). Up to `CONFLICT_ATTEMPTS` (10) tries, each after a
+  full-jitter exponential backoff (up to 20 ms, doubling to 1280 ms) and after its transaction rolled back;
+  the last conflicted try refuses (`UserError::Conflict`: nothing changed, retry it). Topology ops run
+  SERIALIZABLE, so concurrent ones conflict by design: three fixed 20/40/60 ms retries left 7 of 22
+  concurrent retires failing (2026-10-22, `tools/rig/proofs/retire-concurrent.mjs`).
+  [verified: `domain/{ops,audiences,undo,account_removal}.rs`; 2026-10-22]
+
+- **A Claude Code tool call that seems to hang may never have reached the engine.** Claude Code
+  (2.1.292) starts an MCP call without `readOnlyHint` only when no other call runs, and Orgtree sends
+  no annotations: a reply's state-changing Orgtree calls run one at a time, after every earlier call in
+  that reply, a foreground subagent included. Look for the call's `tools.call` in the engine log
+  before debugging the engine (22 retires, 2026-10-22: none arrived). Agent guidance lives in
+  `orgtree-harness-claude-code` (orgtree-app › harnesses).
+  [verified: live log 2026-10-22 19:38–19:40Z; Claude Code 2.1.292 tool executor]
+
 - **PostgreSQL never runs as administrator.** It refuses to ("Execution of PostgreSQL by a user with administrative permissions is not permitted"), so on Windows `pg.rs` starts the postmaster only through `winproc::spawn_restricted`: `restricted_medium_token` (a LUA token: Administrators, Power Users and every other group Windows counts as elevated deny-only; no privilege but SeChangeNotify; Medium; a user default DACL), its real pid, both log streams, `pg_ctl` stop and the engine's job. initdb restricts itself; keep `PG_RESTRICT_EXEC` cleared for it. Never start postgres.exe with the engine's own token: an elevated engine (Run as admin) keeps its rights for its agents only. Likewise, create every pipe that the user's own processes open (hosted CLI stdio, the tool bridge, OpenCode mail) with `winproc::create_user_pipe`. That is the default pipe security plus the engine's user and a Medium label; an elevated engine's default would make them read-only for the helper. See [decision 94](docs/rust-engine/run-on-boot.md#the-engine-stays-in-session-0-decision-94). [decided: coordinator 2026-10-21 22:51Z, the user's alpha.29 run; verified: `pg.rs`, `winproc.rs`; test `pg::rights_tests`]
 
 - **"Elevated" means what Windows and Task Manager say.** `token_rights` measures the engine, its boot host and the sign-in helper: Windows' own `TokenElevation`, Administrators enabled, or a High label; any one is elevated. `CreateRestrictedToken` without `LUA_TOKEN` leaves "Local account and member of Administrators group" (S-1-5-114) enabled, and Windows reads that token as elevated even at Medium with Administrators deny-only (alpha.33's engine and mail hub in Task Manager, Run as admin off); `LUA_TOKEN` alone keeps the High label. The restart notice reports the setting and the rights measured for the engine and its helper, never the setting alone. Tests copy an elevated token they may only query (`token_probe::elevated_source`, the linked token of a UAC-filtered session); nothing elevated runs. See [run-on-boot.md](docs/rust-engine/run-on-boot.md#the-engine-stays-in-session-0-decision-94). [decided: user 2026-10-22 11:21Z-11:22Z; verified: `token_rights.rs`, `winproc.rs`, `domain/runtime_notices.rs`; tests `winproc::restricted_tests`]

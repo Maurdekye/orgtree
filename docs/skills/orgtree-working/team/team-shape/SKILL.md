@@ -19,6 +19,8 @@ Choose the operation by the intended result:
 
 Each tool page owns its accounting, authority and what follows a seat versus an identity. Do not treat those operations as interchangeable sequences of arbitrary parent edits. A new ancestor chain can also change effective scope, standing charters and team workspaces.
 
+Changes that arrive together run side by side, and ones that collide in the database are tried again: up to ten tries in all, each after a short random wait, so a burst of 22 retires under one parent completes in a few seconds. A change that still collides is refused with "… collided with other changes made at the same moment, 10 times in a row; nothing changed. Retry it." Nothing of it was applied, so send the same call again.
+
 Afterward, inspect the actual chart, pending changes and credit result. File/history retention and a resumable model session are separate facts; do not claim that retained files guarantee a cache hit or a fully remembered conversation. Leave durable items and scratch handoffs current. For the user's Undo controls and their limits, see `orgtree-toasts-and-undo` (orgtree-app › app-shell); do not promise that every engine or agent-tool action has an undo gesture.
 
 ## See also

@@ -16,6 +16,8 @@ Retirement archives the live target/team, stops their processes, makes open requ
 
 Conversation history, scratch files and durable docket records remain. [Rehire](../tool-rehire/SKILL.md) can restore the identity; retiring the owner does not complete or reassign its work. Leave accurate docket state/evidence and breadcrumbs first. User-only rescind and permanent deletion have different consequences and are not parameters of this tool. Top-level status does not grant retirement authority over peers.
 
+Retiring many seats takes one call each, and each takes well under a second in the engine. From Claude Code they run one at a time, each after every earlier call in the same reply has finished, so a foreground subagent earlier in that reply holds them all until it ends: send them in a reply of their own. See `orgtree-harness-claude-code` (orgtree-app › harnesses). Retires that do arrive together run side by side; [team shape](../team-shape/SKILL.md) says what a collision between them does.
+
 ```json
 {"node":"draft-checker"}
 ```
