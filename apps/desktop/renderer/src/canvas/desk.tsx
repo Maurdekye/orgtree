@@ -12,7 +12,7 @@ import { SystemRuns, transcriptEntries, revealSystemRuns } from '../events/syste
 import { livePartials } from '../livePartials'
 import { revealPendingRun } from './pendingrun'
 import { TranscriptFlow } from './transcriptflow'
-import { QueuedAccountBadge, QueuedModelBadge, QueuedFastBadge } from './nextturn'
+import { QueuedAccountBadge, QueuedModelBadge, QueuedFastBadge, SessionZeroBadge } from './nextturn'
 import { rememberEffort } from '../quickchat'
 import { ToolInputDetails } from './toolinput'
 import { hasHelperTranscript, HelperTranscript } from './helpertranscript'
@@ -3986,6 +3986,7 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
               node.pending_account?.account ?? node.account ?? null)
             : tierEffortLevels(slug, node.tier)} />}
         <DndBadge active={node.dnd} />
+        <SessionZeroBadge node={node} />
         </DeskMetaRow>
         } />
       {/* F-01: superior chip at the TOP. For a top-level agent the superior is

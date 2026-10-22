@@ -53,7 +53,7 @@ for (const [name,render,row] of [['desk',desk,'.cc-head-meta'],['zoom card',card
       await inAct(() => badge.focus())
       assert.equal(document.activeElement,badge)
     }
-    await view.render(render(node({session:'session0',reason:null,at:null})))
+    await view.render(render({...node({session:'session0',reason:null,at:null}),busy:false,proc_live:false}))
     assert.equal(view.el.querySelector<HTMLElement>('.session-0')?.title,'Runs in Windows Session 0')
     await view.render(render(node({session:'signed-in',reason:null,at})))
     assert.equal(view.el.querySelector('.session-0'),null,'a later tree update clears the badge')

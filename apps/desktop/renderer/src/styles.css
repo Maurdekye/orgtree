@@ -9837,6 +9837,8 @@ button.node-link.node-link:focus-visible {
 
 /* Turn-local DND stays a small inline state on cards, desks and mail. */
 .badge.dnd-badge { color: var(--ink); border-color: color-mix(in srgb, var(--accent) 30%, var(--line)); white-space: nowrap; }
+.badge.session-0 { color: var(--ink); border-color: var(--line); white-space: nowrap; }
+.badge.session-0:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .cc-notice-toggle.cc-urgent-toggle.armed { color: #ff4500; border-color: #ff4500; background: color-mix(in srgb, #ff4500 10%, transparent); }
 .cc-composer.urgent-armed,
 .cc-composer.urgent-armed:focus-within { border-color: #ff4500; }

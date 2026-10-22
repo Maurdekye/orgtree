@@ -383,7 +383,15 @@ export interface PendingAccount {
   at: string
 }
 
+/** Engine-owned placement evidence from the latest admitted turn. */
+export interface SessionPlacement {
+  session: 'session0' | 'signed-in'
+  reason: 'signed-out' | 'helper-unreachable' | 'preference' | 'background-work' | null
+  at: string | null
+}
+
 export interface TreeNode {
+  session_placement?: SessionPlacement | null
   dnd?: boolean
   peer_mail?: boolean
   /** Foreground projection omits the lineage axis even for live agents. */

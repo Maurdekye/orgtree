@@ -1218,6 +1218,8 @@ export interface CanvasNode {
   busy?: boolean
   /** When the running turn was admitted (TreeNode's); null while idle. */
   turn_started_at?: string | null
+  /** Normal tree-feed placement; never inferred from preference or runtime. */
+  session_placement?: TreeNode['session_placement']
   /** D-201 warm-process cache state. Synthetic canvas cards never have one. */
   proc_warm?: boolean
   proc_live?: boolean

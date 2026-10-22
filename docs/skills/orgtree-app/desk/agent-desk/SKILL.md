@@ -37,8 +37,14 @@ base the desk shows current effort alongside a queued effort change; the zoom
 card can show a local effort override without one. The active fast mode bolt
 is on the zoom card, while the desk has its composer toggle and queued fast
 mode state badge. Halt state also appears in the shared status presentation.
-**Session 0 badge** is the signed name for the forthcoming marker; it is not
-rendered at the terminology change's base.
+The **Session 0 badge** appears on the desk header and zoom card when the
+engine reports Session 0 placement. Null placement or signed-in placement hides
+it; saved preferences alone never show it. Its native tooltip explains why:
+signed out of Windows, sign-in helper did not connect in time, the agent's own
+session choice, or its CLI still running background work. Older records without
+a reason say **Runs in Windows Session 0**. A known placement time appears as
+**Since** with the local date and time. Keyboard focus exposes the same text
+as an accessible label. `orgtree_session` already reports placement to agents.
 
 Other card furniture keeps its specific name: lifecycle/pinned/remote markers
 can be zoom-only; retired-count badges open a list rather than report turn

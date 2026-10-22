@@ -1,5 +1,17 @@
 # Desktop and renderer
 
+## Session 0 state badge (2026-10-22)
+
+`SessionZeroBadge` in `canvas/nextturn.tsx` renders the normal tree-feed
+`session_placement` field on both the agent desk header and zoom-card state row.
+Only `session0` shows it, with the engine reason and known placement time; no
+preference, process or runtime-overlay inference is permitted. Native title and
+keyboard accessible label are identical. The normal tree-to-canvas spread
+preserves the field; missing legacy records hide the badge. Agent parity is the
+existing `orgtree_session` read, not a new UI action.
+[verified: `canvas/nextturn.tsx`, `desk.tsx`, `cards.tsx`, `shared.ts`;
+decided: user 2026-10-22 07:35Z, engine contract 2026-10-22 08:29Z]
+
 **State badges** describe agent state on both the desk header and zoom card
 (next-turn, effort, fast mode, frozen, halted, DND, Session 0). **Header badges**
 are desk-only setup/context markers (MCP, cache, audience, cost and related

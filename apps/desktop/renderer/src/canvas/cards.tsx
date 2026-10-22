@@ -1,7 +1,7 @@
 import { CardFace } from './cardface'
 import { RetiredBadge } from './retiredbadge'
 import { grantLimits, hireGrantMax } from './creditgrant'
-import { QueuedAccountBadge, QueuedModelBadge, QueuedFastBadge } from './nextturn'
+import { QueuedAccountBadge, QueuedModelBadge, QueuedFastBadge, SessionZeroBadge } from './nextturn'
 import { DndBadge } from './dnd'
 import { hireDisabledReason, signedOutHire } from './shared'
 import { CreditBarPaint, CreditBarStats, creditBarBackground } from './creditbarpaint'
@@ -2101,6 +2101,7 @@ export function NodeSquare({ node, pos, lod, focused: deskOpen, dragging, isDrop
             ? museEffortLevels(node.tier ?? '', node.scope?.model_version ?? null, node.account ?? null)
             : tierEffortLevels(slug, node.tier)} />
           <DndBadge active={node.dnd} />
+          <SessionZeroBadge node={node} />
           {onRetired && <RetiredBadge parent={node.id} count={retiredCount} onOpen={onRetired} />}
         </div>
       )}

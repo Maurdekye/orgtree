@@ -1,6 +1,23 @@
 import type { CanvasNode } from './shared'
 import { tierLabel } from './shared'
 import { useFastMode } from './fastmode'
+import { fmtStamp } from '../timefmt'
+
+/** One engine fact, shared by the desk header and zoom-card state row. */
+export function SessionZeroBadge({ node }: { node: Pick<CanvasNode, 'session_placement'> }) {
+  const placement = node.session_placement
+  if (placement?.session !== 'session0') return null
+  const reasons = {
+    'signed-out': 'The user is signed out of Windows',
+    'helper-unreachable': "Orgtree's sign-in helper did not connect in time",
+    preference: "This agent's own choice (its session preference or a one-turn pick)",
+    'background-work': 'Its CLI is still running background work',
+  }
+  const description = (placement.reason && reasons[placement.reason]) || 'Runs in Windows Session 0'
+  const since = fmtStamp(placement.at)
+  const detail = description + (since ? `\nSince ${since}` : '')
+  return <span className="badge session-0" tabIndex={0} title={detail} aria-label={detail}>Session 0</span>
+}
 
 /** The requested target is separate from the value serving this turn. */
 export function NextTurnBadge({ agent, kind, current, next }: {
