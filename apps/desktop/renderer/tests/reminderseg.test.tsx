@@ -116,7 +116,7 @@ test('each reminder item is a ticket card that opens its ticket and carries the 
   assert.match(cards[1]!.textContent ?? '', /awaiting your review/i, 'a reviewer role says so')
   assert.match(cards[2]!.textContent ?? '', /no reviewer/i, 'an unassigned review says so')
   link.click()
-  assert.deepEqual(opened, ['alpha-ticket'], 'clicking opens the ticket through the surface's own opener')
+  assert.deepEqual(opened, ['alpha-ticket'], "clicking opens the ticket through the surface's own opener")
   assert.equal(mounted.el.querySelector('.idle-more'), null, 'nothing omitted, so no omitted line')
   await mounted.unmount()
 })
