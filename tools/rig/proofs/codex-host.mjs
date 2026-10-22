@@ -12,8 +12,9 @@
 //      land; no "sandbox disabled" line for it;
 //   2. a read-only seat is hosted: told read-only (approvals on-request);
 //      its write leaves no file;
-//   3. a bypassPermissions seat stays in Session 0, started by the engine
-//      itself (ruling Q1);
+//   3. a bypassPermissions seat is hosted too, without the OS sandbox (the
+//      user, 2026-10-16 09:43Z: "Yes, all agents", superseding ruling Q1;
+//      session_host::HOST_BYPASS_SEATS);
 //   4. halting a hosted seat ends its Codex;
 //   0. a seat that ran before the helper came up (Session 0 mode) is
 //      relaunched hosted at its next turn: its prompt changed with the
@@ -130,7 +131,7 @@ export default async function (rig) {
       { name: 'lwriter', tier, grant: 1, charter: 'You prove a seat moves into the helper when it comes up.', tools: { edit: true, bash: true } },
       { name: 'hwriter', tier, grant: 1, charter: 'You prove hosted Codex commands run sandboxed.', tools: { edit: true, bash: true } },
       { name: 'hreader', tier, grant: 1, charter: 'You prove a hosted read-only seat stays read-only.', tools: { edit: false, bash: true } },
-      { name: 'bwriter', tier, grant: 1, charter: 'You prove a bypass seat stays in Session 0.', tools: { edit: true, bash: true }, permission_mode: 'bypassPermissions' },
+      { name: 'bwriter', tier, grant: 1, charter: 'You prove a bypass seat is hosted too.', tools: { edit: true, bash: true }, permission_mode: 'bypassPermissions' },
     ] })
 
     // ---- 0a. before the helper: Session 0 mode, started by the engine
@@ -207,13 +208,13 @@ export default async function (rig) {
     p.check('2 read seat: its write was denied by the sandbox and left no file', read('hreader', 'hr-write.txt') === null
       && /Access to the path [\s\S]* is denied/.test(output('PROOF-H-R-WRITE')), output('PROOF-H-R-WRITE').slice(0, 800))
 
-    // ---- 3. bypassPermissions seat: Session 0, started by the engine
+    // ---- 3. bypassPermissions seat: hosted too, unsandboxed
     const b = await turn('bwriter', 'PROOF-B-W')
     const bPid = lastPid('bwriter')
     p.check('3 bypass seat: the scripted steps ran to its done report', b?.status === 'idle', { status: status('bwriter'), last_error: rig.agentRow('bwriter')?.last_error })
-    p.check('3 bypass seat: not hosted; the engine started its Codex, in the engine\'s session', of('bwriter', HOSTED).length === 0 && bPid > 0
-      && parentOf(bPid) === identity.pid && sessionOf(bPid) === sessionOf(identity.pid),
-      { pid: bPid, parent: parentOf(bPid), engine: identity.pid, session: sessionOf(bPid) })
+    p.check('3 bypass seat: hosted too; the helper started its Codex, in a non-zero session', of('bwriter', HOSTED).length === 1 && bPid > 0
+      && parentOf(bPid) === broker && sessionOf(bPid) > 0,
+      { pid: bPid, parent: parentOf(bPid), helper: broker, session: sessionOf(bPid) })
     p.check('3 bypass seat: told danger-full-access, and its write landed', /`sandbox_mode` is `danger-full-access`/.test(told('PROOF-B-W'))
       && (read('bwriter', 'bw-shell.txt') ?? '').includes('PROOF-B-W-SHELL-OK'), told('PROOF-B-W').slice(0, 400))
 
