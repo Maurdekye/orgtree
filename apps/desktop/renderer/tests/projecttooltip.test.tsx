@@ -92,6 +92,11 @@ test('real canvas far-zoom hover omits the name and reads replacement feed facts
   // bypass the canvas's memoized derived tree instead of testing its lookup.
   tree = { ...tree, slot_leases: [], watchdogs: [] }
   await v.render(render())
+  // USER 2026-10-21 17:39Z: native titles stay snapshotted until both
+  // pointer and focus leave. Re-entry is the next lookup of current facts.
+  assert.equal(card.title, facts, 'replacement feed does not change an active hover')
+  await inAct(() => card.dispatchEvent(new MouseEvent('pointerout', { bubbles: true })))
+  assert.equal(card.hasAttribute('title'), false, 'leaving clears the old hover session')
   await inAct(() => card.dispatchEvent(new MouseEvent('pointerover', { bubbles: true })))
   assert.equal(card.title, "0/2 held · 4 q'd · 1 in flight")
 })
