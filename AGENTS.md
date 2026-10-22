@@ -209,3 +209,5 @@ Compatibility links to the original section records:
 <a id="where-the-detail-lives"></a>[where-the-detail-lives](docs/agents/legacy-and-superseded.md#e-8d3b3b0a9bb77e9d)<br>
 <a id="mcp-imports-from-installed-harnesses-2026-10-15"></a>[mcp-imports-from-installed-harnesses-2026-10-15](docs/agents/instructions-and-skills.md#e-696c902e76e39caa)<br>
 <a id="shared-skills-and-installed-plugin-imports-2026-10-15"></a>[shared-skills-and-installed-plugin-imports-2026-10-15](docs/agents/instructions-and-skills.md#e-87e9373ea83fb86f)
+
+- Ancestor scope/funding reads traverse the complete chain and refuse cycles. Their single batched row-lock read preserves root-first order; no org-wide lock is added. See [ancestor-chain.md](docs/rust-engine/ancestor-chain.md). [verified: `domain/ops.rs::chain`;2026-10-22]

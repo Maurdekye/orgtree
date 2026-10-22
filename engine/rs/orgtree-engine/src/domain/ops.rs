@@ -184,24 +184,21 @@ async fn agent_superior(tx: &Transaction<'_>, id: i64) -> Result<Option<i64>> {
 /// `id` and its ancestors, root first, locked in that order.
 #[logged]
 async fn chain(tx: &Transaction<'_>, id: i64) -> Result<Vec<Node>> {
-    let ids: Vec<i64> = tx
-        .query(
-            "WITH RECURSIVE up(id, parent_id, depth) AS (
-               SELECT id, parent_id, 0 FROM ot.agents WHERE id = $1
-               UNION ALL SELECT a.id, a.parent_id, up.depth + 1 FROM ot.agents a JOIN up ON a.id = up.parent_id
-                WHERE up.depth < 1024)
-             SELECT id FROM up ORDER BY depth DESC",
-            &[&id],
-        )
-        .await?
-        .iter()
-        .map(|r| r.get(0))
-        .collect();
-    let mut out = Vec::with_capacity(ids.len());
-    for i in ids {
-        out.push(node_by_id(tx, i).await?);
-    }
-    Ok(out)
+    // UNION on the stable edge, rather than (edge, depth), terminates cycles
+    // without a quadratic path array or a hidden depth ceiling. A second walk
+    // starts at the root: a cycle has no root and is refused below.
+    let columns = NODE_COLS.split(", ").map(|c| format!("a.{c}")).collect::<Vec<_>>().join(", ");
+    let rows = tx.query(&format!(
+        "WITH RECURSIVE up(id,parent_id) AS (
+           SELECT id,parent_id FROM ot.agents WHERE id=$1
+           UNION SELECT a.id,a.parent_id FROM ot.agents a JOIN up u ON a.id=u.parent_id),
+         root_first(id,depth) AS (
+           SELECT id,0 FROM up WHERE parent_id IS NULL
+           UNION ALL SELECT u.id,r.depth+1 FROM up u JOIN root_first r ON u.parent_id=r.id)
+         SELECT {columns} FROM ot.agents a JOIN root_first r ON a.id=r.id
+         ORDER BY r.depth FOR UPDATE OF a"), &[&id]).await?;
+    if rows.is_empty() { refuse!(Conflict, "ancestor chain has a cycle or a missing root"); }
+    Ok(rows.iter().map(node_of).collect())
 }
 
 /// Is `node` inside the subtree of `root` (or `root` itself)?
@@ -3876,3 +3873,7 @@ async fn pending_actor(tx: &Transaction<'_>, org: i64, intent: &Value) -> Result
     let Some(row) = row else { refuse!(Forbidden, "the caller of this queued change is no longer live") };
     Ok(Actor::Agent { id: row.get(0), name: row.get(1) })
 }
+
+#[cfg(test)]
+#[path = "chain_depth_tests.rs"]
+mod chain_depth_tests;
