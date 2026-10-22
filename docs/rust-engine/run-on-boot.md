@@ -60,6 +60,20 @@ first-run setup and in the tray. The tray item mirrors the setting.
   engine, and a helper with the old rights is replaced (decision 94,
   coordinator Q1). The one-off "Run this session as admin" button is
   retired for 4.4.0 (the user's Q2).
+- **A failed change says why.** The elevated PowerShell runs hidden, so its
+  own output never reaches the desktop, which gets only the exit code. Each
+  change has a fresh nonce (`runasadmin.ts` `failureReport`). After its
+  rollback, a failed script leaves the nonce and its message (and any task
+  the rollback could not restore) in `LastChangeFailure` under the protected
+  `HKLM\SOFTWARE\Orgtree\Runtime`, which SYSTEM and Administrators write and
+  users only read; a change that succeeds deletes it. Once the elevated
+  PowerShell has failed, the non-elevated launcher reads the value and
+  passes back only a message under its own nonce (base64 UTF-8, so localized
+  Windows text survives). The desktop then says `Changing the setting
+  failed: <message>.` or `Changing "run on boot" failed: <message>.`, and
+  the exit code only when there is no message. Never a temp file: an
+  elevated write to a path the user, and so every agent, can write could be
+  redirected by a link planted there.
 
 ## Tasks and the installer's record
 
@@ -73,6 +87,19 @@ registered again; uninstall deletes a leftover (decision 94).
 - The protected record `HKLM\SOFTWARE\Orgtree\BootEngine` holds `RunOnStartup`
   (DWORD, decision 70). `StartupMode` (decision 79) is deleted from it at the
   next Prepare.
+- **Operator by SID.** Each task's principal is the record's `OperatorSid`.
+  The elevated scripts of Run on boot and Run as admin resolve a task's
+  operator to a SID before they compare (`runasadmin.ts`
+  `OPERATOR_FUNCTIONS`): the XML `UserId` first, which holds what the
+  installer registered and is what its own ownership check reads, else the
+  COM `Principal.UserId`, a SID or a name that Windows translates. Task
+  Scheduler's COM principal gives the account NAME for a task registered by
+  SID (both owned tasks on alpha.34, measured read-only on the user's PC,
+  2026-10-22 13:10Z), so the raw comparison up to alpha.34 refused the
+  installer's own tasks: Run as admin could not be turned on ("Changing the
+  setting failed (exit code 1)."), and Run on boot's script compared the
+  same way. A principal that resolves to another account or to nothing
+  refuses before any change, and so does a record without an operator.
 - **Upgrade from 4.3.x** (ruling E): Register deletes the obsolete "Orgtree
   Sign-in Engine" task after stopping it, only when it is the installer's own
   (marker `com.maurdekye.orgtree.signin-engine.v1:<id>` and the expected
@@ -655,6 +682,29 @@ elevated:
 - Not measured: a real elevated or UAC-off engine, the real boot task, and
   Task Manager itself. The rig never runs anything elevated.
 
+**Verification of the operator match and the failure message**, on
+`rig-opus/runasadmin-principal` over `rust-engine` `a33a07a`, in one
+build-slot batch (logs in `C:\orgtree-build\rig-opus\runasadmin\batch\logs`),
+the test process not elevated:
+
+- Measured read-only on the user's PC, not elevated: both owned tasks' COM
+  `Principal.UserId` is the bare account name and their XML `UserId` the
+  SID; both resolve to the record's `OperatorSid`, and alpha.34's raw
+  comparison throws for both.
+- Focused node tests (`run-as-administrator`, `run-on-boot`,
+  `session-task-settings`, `startup-tray`, `tray-admin`, `update-channel`,
+  `disruptive-policy`): base 82 pass, 1 skipped; red 81 pass, 11 fail,
+  exactly the 10 new tests and the `allowDowngrade` guard's positive control
+  (the bare account name failed with "Task operator does not match the
+  installation"); tip 92 pass, 0 fail, 1 skipped (the HKLM write test needs
+  an elevated process). The new cases resolve the test's own account
+  through Windows and run the scripts and the launcher against in-memory
+  Task Scheduler and registry doubles.
+- Typecheck: 0 errors at the base and at the tip (1284 files).
+- Not measured: a real elevated script, a real permission prompt and a real
+  task registration. The user's checklist steps 4 to 6 on the next alpha
+  are the proof.
+
 **Only the user can confirm** a real task run, the real permission prompt,
 a real sign-in, sign-out and update, and real credentials: the rig's
 Session 0 is a stand-in, every proof process runs in the proof's own
@@ -728,6 +778,9 @@ registers real per-user tasks), and any build, installation or real task.
   sign-in they move back up, told so.
 - The real permission prompt switches "Run on boot" both ways, and an upgrade
   from 4.3.x deletes the "Orgtree Sign-in Engine" task.
+- The real permission prompt switches Run as admin on and off (alpha.34
+  failed here), Task Manager then shows the rights it set, and a change
+  that fails says why.
 
 ## Limits
 
