@@ -15,6 +15,11 @@ These attributed records were moved from the root guide at `22daffd`; they retai
   native-helper, auth, junction and file-replacement guards; save setup failures
   and every cleanup failure separately so a later error cannot mask the first.
   Parked synthetic directories/links stay in the disposable rig for inspection.
+  Its eight staging controls run without rig environment variables in a fresh
+  OS-temp directory. An explicit `SHARED_SCRATCH_CONTROL_OUTPUT` instead needs
+  `ORGTREE_AGENT`, an absolute descendant of that owner's `C:/orgtree-build/`
+  scope, canonical containment and no linked ancestors; each run gets a fresh
+  child. Mock-proof evidence and native-helper environment are isolated too.
   [verified: `tools/rig/proofs/shared-scratch-folder.mjs`; USER 2026-10-17
   17:26Z initializer; 2026-10-22]
 
