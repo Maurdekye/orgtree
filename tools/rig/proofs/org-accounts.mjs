@@ -7,7 +7,8 @@
 //      ops route and the agent tool; continue-on to B is refused (the fallback
 //      candidates are the same filter); B is gone from the account choices.
 //   3. An agent bound to B moves at its next turn (to the default sign-in),
-//      and that turn's [PROVIDER USAGE] board does not list B.
+//      and that turn's effective usage board excludes B; deltas explicitly
+//      remove B's old windows rather than pretending B was never present.
 //   4. Untick the Claude default too: an explicit `primary` is refused, a hire
 //      with no account is refused (none left), and an agent on the default
 //      sign-in freezes saying the org allows no Claude account; re-ticking
@@ -27,6 +28,7 @@ import { fileURLToPath } from 'node:url'
 
 import { Proof } from '../proof.mjs'
 import { runDesktop } from '../desktop.mjs'
+import { replayUsageBoards, hasAccountData } from '../org-accounts-board.mjs'
 
 const later = h => new Date(Date.now() + h * 3600e3).toISOString()
 const reading = (session, weekly, email) => ({ available: true, email, observed_at: new Date().toISOString(), limits: [
@@ -66,6 +68,7 @@ export default async function (rig) {
   const agent = name => rig.one(`SELECT a.account, a.frozen FROM ot.agents a JOIN ot.orgs o ON o.id = a.org_id
     WHERE o.slug = '${rig.org}' AND o.state = 'active' AND a.name = '${name}' AND a.state = 'live'`)
   const lastPrompt = name => rig.fakeLog(name).filter(l => l.kind === 'turn').at(-1)?.prompt ?? ''
+  const usageBoard = name => replayUsageBoards(rig.fakeLog(name).filter(l => l.kind === 'turn').map(l => l.prompt ?? ''))
 
   // ---------------------------------------------------------------- 1. the list
   const all = await rig.api('GET', `/api/orgs/${rig.org}/accounts-allowed`)
@@ -79,7 +82,11 @@ export default async function (rig) {
   p.check('before: hires on B and on the default sign-in are accepted', onB.ok && onP.ok, { onB, onP })
   await rig.userMail('bea', 'first turn on B')
   await rig.waitTurns('bea', 1)
-  p.check("before: bea's board lists B", lastPrompt('bea').includes(B), lastPrompt('bea').slice(0, 600))
+  const initialBoard = usageBoard('bea')
+  p.file('usage-before.json', initialBoard)
+  p.check("before: bea's board lists B", initialBoard.valid && initialBoard.fulls === 1
+    && initialBoard.accounts.includes(B) && initialBoard.current === B && initialBoard.provider === 'claude'
+    && initialBoard.tier === 'haiku' && [B, 'claude/primary', 'openai/primary', D].every(id => hasAccountData(initialBoard, id)), initialBoard)
 
   // ---------------------------------------------------------------- 2. untick B
   await settings([B])
@@ -102,9 +109,17 @@ export default async function (rig) {
     { what: 'bea to leave B', timeout: 60000 })
   p.check('bea moved off B at its next turn (to the default sign-in)', moved.account === null && !moved.frozen, moved)
   await rig.waitTurns('bea', 2, { timeout: 90000 })
-  const board = lastPrompt('bea')
-  p.check("bea's next board lists the default sign-in and not B", board.includes('claude/primary') && !board.includes(B),
-    board.slice(0, 900))
+  const board = usageBoard('bea')
+  const expectedRemoved = reading(5, 20, '').limits.map(l => `${B}|${JSON.stringify(l.kind)}|${JSON.stringify(l.group)}|null|${l.label}`).sort()
+  const roster = lastPrompt('bea').match(/^\[ACCOUNTS\] (.*)$/m)?.[1].split(' · ').map(a => a.split(' ')[0]) ?? []
+  p.file('usage-after.json', board)
+  p.check("bea's next board lists the default sign-in and not B", board.valid && board.fulls === 1 && board.deltas === 1
+    && board.accounts.includes('claude/primary') && !board.accounts.includes(B) && !hasAccountData(board, B)
+    && roster.includes('claude/primary') && !roster.includes(B)
+    && board.current === 'claude/primary' && board.provider === 'claude' && board.tier === 'haiku'
+    && board.accounts.length === initialBoard.accounts.length - 1
+    && initialBoard.accounts.filter(id => id !== B).every(id => board.accounts.includes(id) && hasAccountData(board, id))
+    && JSON.stringify(board.removed.slice().sort()) === JSON.stringify(expectedRemoved), board)
   const sw = rig.one(`SELECT detail FROM ot.events WHERE op = 'account_switch' AND detail ->> 'account' = 'primary' ORDER BY id DESC LIMIT 1`)
   p.check('the move is in the org log', !!sw, sw)
 

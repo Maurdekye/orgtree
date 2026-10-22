@@ -43,6 +43,16 @@ A missing record or unknown session conservatively starts with a full block.
 
 ## Measurement and tests
 
+The `org-accounts.mjs` rig proof replays the first full usage snapshot and
+subsequent deltas before checking disabled-account exclusion. Its `[ACCOUNTS]`
+roster and effective window set must exclude the disabled account; removal
+labels must identify exactly that account's two seeded windows. Unchanged
+active-account windows, the current account/provider/tier and all original
+24 account/UI checks remain required. `org-accounts-board.test.mjs` covers
+missing baselines/data/removals, foreign removals and unchanged references.
+The existing hire-index and two UI console baseline failures remain failures.
+[verified: `tools/rig/proofs/org-accounts.mjs`, 2026-10-22]
+
 Fixtures use synthetic data only: a 33-agent coordinator, a two-agent report
 with self visibility, and three cached providers with six windows, each over
 40 turns. Measured UTF-8 bytes are exact for these fixtures. Token counts are
