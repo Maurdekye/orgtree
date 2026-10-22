@@ -231,7 +231,10 @@ pub fn cli(args: &[String]) -> std::process::ExitCode {
 /// published state.
 #[cfg(windows)]
 #[nolog]
-fn keep_or_restore(_state: &mut Snapshot, _before: Snapshot, ok: bool) -> bool {
+fn keep_or_restore(state: &mut Snapshot, before: Snapshot, ok: bool) -> bool {
+    if !ok {
+        *state = before;
+    }
     ok
 }
 
