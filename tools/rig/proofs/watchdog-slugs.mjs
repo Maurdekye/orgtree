@@ -157,7 +157,8 @@ export default async function (rig) {
   // ------------------------------------------------------------ a spent one-shot frees its id; the feed keeps one row per handle
   await rig.waitFor(() => rig.sql(`SELECT 1 FROM ot.turns WHERE agent_id=${wes} AND ended_at IS NULL`).length === 0,
     { what: 'wes to settle before inline creation', timeout: 60000 })
-  const ledger = () => ({ dogs: rows(wes), mail: fires('shot'), turns: rig.turns('wes').length })
+  const ledger = () => ({ dogs: rows(wes), mail: rig.sql(`SELECT id,sender,kind FROM ot.mail WHERE recipient_agent_id=${wes} ORDER BY id`),
+    shotMails: fires('shot'), turns: rig.turns('wes').length })
   const inlineBefore = ledger()
   const shot = await dog('wes', { action: 'create', name: 'shot', kind: 'command', target: 'echo READY', pattern: 'READY', interval_s: 15, once: true })
   const inlineAfter = ledger()
@@ -184,7 +185,7 @@ export default async function (rig) {
   p.file('shot-inline.json', inline)
   p.file('shot-delayed.json', delayed)
   p.check('a spent one-shot frees its id: the next shot is shot again', inlineShotResult(shot) && inlineShotResult(inlineAgain)
-    && inlineBefore.dogs.every(d => d.uid !== 'shot') && inlineBefore.mail.length === 0
+    && inlineBefore.dogs.every(d => d.uid !== 'shot') && inlineBefore.shotMails.length === 0
     && isDeepStrictEqual(inlineBefore, inlineAfter) && isDeepStrictEqual(inlineBefore, inlineSettled)
     && pending.ok && out(pending).id === 'shot' && out(pending).once === true && out(pending).resolved !== true
     && registered.length === 1 && registered[0].state === 'armed' && spent?.id === registered[0].id && spent?.fired === 1
