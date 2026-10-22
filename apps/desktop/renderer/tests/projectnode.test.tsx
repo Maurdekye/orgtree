@@ -450,15 +450,15 @@ test('§3e Open > Listeners opens the listeners window, only while the event lis
   const items = (nd: CanvasNode) => entryNamed(projectMenuEntries(nd, h, {}), 'Open').children!
     .map((c) => c === 'sep' ? 'sep' : c.label)
   const on = project({ configured_scope: { tools: {}, add_dirs: [], slots_capacity: 2, event_listeners: true } } as never)
-  assert.deepEqual(items(on).slice(-3), ['Project docket', 'Slots', 'Listeners'], 'last, after Slots, as the desk tabs run')
-  const entry = entryNamed(projectMenuEntries(on, h, {}), 'Open').children!.find((c) => c !== 'sep' && c.label === 'Listeners')
+  assert.deepEqual(items(on).slice(-3), ['Project docket', 'Slots', 'events'], 'last, after Slots, as the desk tabs run')
+  const entry = entryNamed(projectMenuEntries(on, h, {}), 'Open').children!.find((c) => c !== 'sep' && c.label === 'events')
   assert.ok(entry && entry !== 'sep')
   entry.onSelect?.()
   assert.deepEqual(did, ['listeners'])
   const off = project({ configured_scope: { tools: {}, add_dirs: [], slots_capacity: 2 } } as never)
-  assert.ok(!items(off).includes('Listeners'), 'no entry while they are off, as there is no tab')
+  assert.ok(!items(off).includes('events'), 'no entry while they are off, as there is no tab')
   assert.ok(!entryNamed(projectMenuEntries(on, handlers({ onDocket: noop }), {}), 'Open').children!
-    .some((c) => c !== 'sep' && c.label === 'Listeners'), 'none on a surface that cannot open the window')
+    .some((c) => c !== 'sep' && c.label === 'events'), 'none on a surface that cannot open the window')
   assert.deepEqual(labels(projectMenuEntries(on, h, {})).slice(0, 2), ['Focus', 'Open'], 'Open stays the second entry')
 })
 

@@ -12,7 +12,7 @@
 //   §2 a dog the setting disabled is unwired: no line on the canvas (a dog
 //      its owner paused keeps its dimmed line); its chip and its detail say
 //      why;
-//   §3 the gear: an "Event listeners" switch, off by default; saving sends
+//   §3 the gear: an "Project Events" switch, off by default; saving sends
 //      one set_event_listeners; its hint says what off does and that agents
 //      switch it on by registering a listener.
 //
@@ -108,6 +108,7 @@ test('§1 the desk: on with nobody listening shows the tab and its fire control'
   const on = await desk(t, project({ event_listeners: true }), [])
   const tab = on.view.el.querySelector<HTMLButtonElement>('.cc-tabs button[data-tab="listeners"]')
   assert.ok(tab, 'the tab, empty')
+  assert.equal(tab!.textContent?.trim(), 'events', 'signed visible label; routing id stays listeners')
   await inAct(async () => { tab!.click(); await flush(3) })
   assert.ok(on.view.el.querySelector('.project-listeners button[data-action="fire-event"]'), 'the fire control on the tab')
 })
@@ -166,13 +167,13 @@ const save = async () => {
   await inAct(async () => { b.click(); await flush(4) })
 }
 
-test('§3 the gear: an Event listeners switch, off by default; switching it on and saving sends one set_event_listeners', async (t) => {
+test('§3 the gear: an Project Events switch, off by default; switching it on and saving sends one set_event_listeners', async (t) => {
   const { ops } = await gear(t, project())
-  const sw = document.querySelector<HTMLInputElement>('input[aria-label="Event listeners"]')
-  assert.ok(sw, 'an Event listeners switch')
+  const sw = document.querySelector<HTMLInputElement>('input[aria-label="Project Events"]')
+  assert.ok(sw, 'an Project Events switch')
   assert.equal(sw!.checked, false, 'off by default')
-  const hint = row('Event listeners')?.textContent ?? ''
-  assert.match(hint, /Listeners tab/, 'the hint says it controls the tab')
+  const hint = row('Project Events')?.textContent ?? ''
+  assert.match(hint, /events tab/, 'the hint says it controls the tab')
   assert.match(hint, /registering a listener/, 'and that agents switch it on by registering one')
   assert.match(hint, /Off disables every event listener and listener watch on the project/, 'and what off does')
   await inAct(() => { sw!.click() })
@@ -182,8 +183,8 @@ test('§3 the gear: an Event listeners switch, off by default; switching it on a
 
 test('§3 a project whose setting is on shows it on; switching it off and saving sends enabled false, nothing else', async (t) => {
   const { ops } = await gear(t, project({ event_listeners: true }))
-  const sw = document.querySelector<HTMLInputElement>('input[aria-label="Event listeners"]')
-  assert.ok(sw, 'an Event listeners switch')
+  const sw = document.querySelector<HTMLInputElement>('input[aria-label="Project Events"]')
+  assert.ok(sw, 'an Project Events switch')
   assert.equal(sw!.checked, true)
   await save()
   assert.deepEqual(ops, [], 'an untouched switch sends nothing')

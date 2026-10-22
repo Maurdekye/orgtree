@@ -48,7 +48,7 @@ test('§1 PanelCorner draws pin, pop-out and modal for project-listeners; the mo
     <div className="desk-tabpanel"><PanelCorner kind="project-listeners" slug={org} nid="sync" /></div></AgentSurfaceRoutesProvider>, (el) => el)
   t.after(() => v.unmount())
   const labels = [...v.el.querySelectorAll<HTMLButtonElement>('.panel-corner-btn')].map((b) => b.getAttribute('aria-label'))
-  assert.deepEqual(labels, ["pin sync's listeners as a window", "open sync's listeners in a new window", "open sync's listeners as a standalone modal"])
+  assert.deepEqual(labels, ["pin sync's events as a window", "open sync's events in a new window", "open sync's events as a standalone modal"])
   await inAct(async () => { v.el.querySelectorAll<HTMLButtonElement>('.panel-corner-btn')[2]!.click() })
   assert.deepEqual(opened, [['project-listeners', 'sync']])
 })
@@ -63,6 +63,7 @@ test('§2 the modal shows the listeners with Register… in its header', async (
   await inAct(async () => { await flush(6) })
   const text = document.body.textContent ?? ''
   assert.match(text, /sync/)
+  assert.match(v.el.querySelector('h3')?.textContent ?? '', /· events/, 'standalone title matches the desk tab')
   assert.match(text, /listeners/i)
   assert.ok(document.querySelector('.project-listeners'), 'the Listeners table')
   assert.ok(document.querySelector('[role="toolbar"] [data-action="register-menu"]'), 'Register… in the header toolbar')
