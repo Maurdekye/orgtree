@@ -15,6 +15,21 @@ export default async function(rig,{flags}){
  p.check('requested verbose mode is actually active',(await rig.api('GET','/api/app-settings/runtime')).verbose_logging===(mode==='on'))
  const pid=rig.refresh().enginePid
  const logFile=await rig.waitFor(()=>rig.engineLogFiles().find(file=>fs.readFileSync(file,'utf8').includes(`engine starting pid=${pid} `)),{what:'this engine session log',timeout:10000})
+ // Force a notification refresh after the window starts. The new message is
+ // public test control text; only the older fixture mail carries the canary.
+ const refreshOffset=fs.statSync(logFile).size,control='PUBLIC-REFRESH-CONTROL-'+crypto.randomBytes(6).toString('hex')
+ const trigger=await rig.tool('worker','orgtree_message',{to:'user',body:control,notice:true})
+ const refreshed=await rig.waitFor(async()=>{
+  const value=await rig.api('GET','/api/app/records'),text=JSON.stringify(value)
+  return text.includes(control)&&text.includes(mailText)?value:null
+ },{what:'updated notification projection with old private mail',timeout:10000})
+ const refreshEnd='reader-refresh-end-'+mode
+ await rig.api('GET','/api/templates?name='+refreshEnd)
+ await rig.waitFor(()=>fs.readFileSync(logFile,'utf8').split(/\r?\n/).some(line=>line.includes('RESPONSE')&&line.includes(refreshEnd)),{what:'notification log window flushed',timeout:10000})
+ const refreshLog=fs.readFileSync(logFile).subarray(refreshOffset).toString('utf8')
+ p.check('fresh notification projection still delivers the private mail to the app',trigger.ok&&JSON.stringify(refreshed).includes(mailText))
+ p.check('notification projection helpers do not serialize private mail into diagnostics',!refreshLog.includes(mailText))
+ p.file('notification-refresh-window.log',refreshLog)
  const cases=[
   ['inbox',`/api/orgs/${rig.org}/inbox`,mailText,v=>JSON.stringify(v).includes(mailText)],
   ['inbox-history',`/api/orgs/${rig.org}/inbox?folder=inbox`,mailText,v=>JSON.stringify(v).includes(mailText)],
