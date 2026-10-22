@@ -243,13 +243,14 @@ pub async fn request(engine: &Arc<Engine>, org: &Arc<OrgHandle>, me: (i64, &str)
 /// Give `grantee` an audience with `grantor`.
 #[logged]
 pub async fn grant(engine: &Arc<Engine>, org: &Arc<OrgHandle>, actor: &Actor, grantee: &str, target: Option<&str>, reason: &str) -> Result<Value> {
-    for attempt in 1..=4 {
+    let mut attempt = 0;
+    loop {
+        attempt += 1;
         match grant_once(engine,org,actor,grantee,target,reason).await {
-            Err(e) if attempt<4 && super::ops::retryable(&e) => tokio::time::sleep(std::time::Duration::from_millis(20*attempt)).await,
+            Err(e) => super::ops::conflict_retry("audience grant", attempt, e).await?,
             outcome => return outcome,
         }
     }
-    unreachable!()
 }
 
 #[logged]
@@ -503,13 +504,14 @@ pub async fn deny(engine: &Arc<Engine>, org: &Arc<OrgHandle>, actor: &Actor, req
 /// itself, and a top-level agent for user and org-inbox grants in its subtree.
 #[logged]
 pub async fn revoke(engine: &Arc<Engine>, org: &Arc<OrgHandle>, actor: &Actor, grantee: &str, grantor: Option<&str>) -> Result<Value> {
-    for attempt in 1..=4 {
+    let mut attempt = 0;
+    loop {
+        attempt += 1;
         match revoke_once(engine,org,actor,grantee,grantor).await {
-            Err(e) if attempt<4 && super::ops::retryable(&e) => tokio::time::sleep(std::time::Duration::from_millis(20*attempt)).await,
+            Err(e) => super::ops::conflict_retry("audience revoke", attempt, e).await?,
             outcome => return outcome,
         }
     }
-    unreachable!()
 }
 
 #[logged]

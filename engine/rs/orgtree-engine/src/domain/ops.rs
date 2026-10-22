@@ -671,11 +671,7 @@ pub async fn run(engine: &Arc<Engine>, org: &Arc<OrgHandle>, actor: Actor, req: 
                 finish(engine, org, fx, &mut v).await;
                 return Ok(v);
             }
-            Err(e) if attempt < 4 && retryable(&e) => {
-                tracing::warn!(op = %op, attempt, "op conflicted with another write; retrying");
-                tokio::time::sleep(std::time::Duration::from_millis(20 * attempt as u64)).await;
-            }
-            Err(e) => return Err(e),
+            Err(e) => conflict_retry(&op, attempt, e).await?,
         }
     }
 }
@@ -709,6 +705,76 @@ pub(crate) fn retryable(e: &anyhow::Error) -> bool {
             .map(|code| code.code() == "40001" || code.code() == "40P01")
             .unwrap_or(false)
     })
+}
+
+/// How many times in all a write is tried while it conflicts with others
+/// (`retryable`: PostgreSQL's serialization failures and deadlocks).
+pub(crate) const CONFLICT_ATTEMPTS: u32 = 10;
+
+/// After try `attempt` (from 1) of a write failed with `e`, whose transaction
+/// has rolled back. A conflict with tries left waits a full-jitter exponential
+/// backoff and returns Ok to try again, so writers that collided spread out
+/// instead of retrying in lockstep: 22 concurrent retires under one parent
+/// (2026-10-22) left 7 refused after three tries at a fixed 20/40/60 ms. A
+/// conflict on the last try becomes a refusal saying nothing changed; any
+/// other error comes back as it is.
+#[nolog] // once per failed try of a write that logs itself
+pub(crate) async fn conflict_retry(what: &str, attempt: u32, e: anyhow::Error) -> Result<()> {
+    let conflict = retryable(&e);
+    conflict_retry_when(what, attempt, e, conflict).await
+}
+
+/// `conflict_retry` for a writer with its own test of a conflict (account
+/// removal also retries a lock it could not take at once, 55P03).
+#[nolog]
+pub(crate) async fn conflict_retry_when(what: &str, attempt: u32, e: anyhow::Error, conflict: bool) -> Result<()> {
+    if !conflict {
+        return Err(e);
+    }
+    if attempt >= CONFLICT_ATTEMPTS {
+        tracing::warn!(what, attempt, error = %format!("{e:#}"), "write kept conflicting with others; refused");
+        refuse!(Conflict, "this {what} collided with other changes made at the same moment, {attempt} times in a row; nothing changed. Retry it.");
+    }
+    tracing::warn!(what, attempt, "write conflicted with another; retrying");
+    tokio::time::sleep(conflict_backoff(attempt)).await;
+    Ok(())
+}
+
+/// A random wait of 1 ms up to a cap of 20 ms doubled per earlier try, at most 1280 ms: about the time 22 colliding
+/// writers of 60 ms each need to commit one after another (2026-10-22: with 640 ms the slowest of them took 8 tries).
+#[nolog]
+fn conflict_backoff(attempt: u32) -> std::time::Duration {
+    use rand::Rng;
+    let cap = 20u64 << attempt.saturating_sub(1).min(6);
+    std::time::Duration::from_millis(rand::thread_rng().gen_range(1..=cap))
+}
+
+#[cfg(test)]
+mod conflict_retry_tests {
+    use super::*;
+
+    #[test]
+    fn the_backoff_is_a_random_wait_under_a_cap_that_doubles_to_1280_ms() {
+        for (attempt, cap) in [(1, 20), (2, 40), (3, 80), (4, 160), (5, 320), (6, 640), (7, 1280), (9, 1280), (40, 1280)] {
+            for _ in 0..200 {
+                let ms = conflict_backoff(attempt).as_millis() as u64;
+                assert!((1..=cap).contains(&ms), "try {attempt}: {ms} ms is outside 1..={cap}");
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn only_a_conflict_is_tried_again_and_its_last_try_is_refused() {
+        // any other error comes back as it is, on any try
+        let e = conflict_retry_when("retire", 1, anyhow::anyhow!("no such node"), false).await.unwrap_err();
+        assert_eq!(e.to_string(), "no such node");
+        // a conflict with tries left waits, then asks for another try
+        assert!(conflict_retry_when("retire", CONFLICT_ATTEMPTS - 1, anyhow::anyhow!("40001"), true).await.is_ok());
+        // a conflict on the last try is a plain refusal, not an engine failure
+        let e = conflict_retry_when("retire", CONFLICT_ATTEMPTS, anyhow::anyhow!("40001"), true).await.unwrap_err();
+        assert!(matches!(e.downcast_ref::<crate::domain::UserError>(), Some(crate::domain::UserError::Conflict(_))), "{e:#}");
+        assert!(e.to_string().contains("nothing changed") && e.to_string().contains("Retry it"), "{e}");
+    }
 }
 
 /// Dispatch and transaction policy share aliases; request/audit labels stay intact.

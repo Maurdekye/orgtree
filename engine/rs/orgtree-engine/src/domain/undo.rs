@@ -585,11 +585,7 @@ pub async fn gesture(engine: &Arc<Engine>, org: &Arc<OrgHandle>, steps: &[Value]
                 }
                 return Ok(out);
             }
-            Err(e) if attempt < 4 && ops::retryable(&e) => {
-                tracing::warn!(attempt, "gesture conflicted with another write; retrying");
-                tokio::time::sleep(std::time::Duration::from_millis(20 * attempt as u64)).await;
-            }
-            Err(e) => return Err(e),
+            Err(e) => ops::conflict_retry("gesture", attempt, e).await?,
         }
     }
 }
@@ -878,10 +874,7 @@ pub(crate) async fn logo(engine:&Arc<Engine>,org:&Arc<OrgHandle>,caller:&crate::
         attempt+=1;
         match logo_once(engine,org,caller,generation,&record,source).await {
             Ok(out)=>break out,
-            Err(e) if attempt<4 && ops::retryable(&e)=>{
-                tokio::time::sleep(std::time::Duration::from_millis(20*attempt)).await;
-            }
-            Err(e)=>return Err(e),
+            Err(e)=>ops::conflict_retry("logo change",attempt,e).await?,
         }
     };
     crate::profile_pictures::published(engine,org.id);
@@ -998,9 +991,8 @@ pub async fn step(engine: &Arc<Engine>, org: &Arc<OrgHandle>, dir: Dir, id: i64,
                 out["history"] = history_now(engine, org.id).await?;
                 return Ok(out);
             }
-            Err(e) if attempt < 4 && ops::retryable(&e) => {
-                tracing::warn!(attempt, "undo conflicted with another write; retrying");
-                tokio::time::sleep(std::time::Duration::from_millis(20 * attempt as u64)).await;
+            Err(e) if ops::retryable(&e) => {
+                ops::conflict_retry(if dir == Dir::Undo { "undo" } else { "redo" }, attempt, e).await?
             }
             Err(e) => {
                 if let Some(c) = e.downcast_ref::<Coded>() {

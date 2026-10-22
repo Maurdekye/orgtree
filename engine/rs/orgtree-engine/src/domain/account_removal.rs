@@ -153,17 +153,16 @@ pub async fn remove(engine: &Arc<Engine>, id: &str) -> Result<Value> {
         muse_read_logins(engine, id).await;
     }
     let mut out = None;
-    for attempt in 0..4 {
+    for attempt in 1..=super::ops::CONFLICT_ATTEMPTS {
         match remove_once(engine, id, &provider, &config_dir).await {
             Ok(v) => { out = Some(v); break; }
-            Err(e) if attempt < 3 && retryable(&e) => {
-                tracing::warn!(account = id, attempt, "account removal conflicted; retrying entire transaction");
-                // remove_once has rolled back and released account/agent locks.
-                // Let an org-first folder/settings writer complete before the
-                // next bounded attempt; never sleep while holding those rows.
-                tokio::time::sleep(std::time::Duration::from_millis(25 << attempt)).await;
+            // remove_once has rolled back and released account/agent locks.
+            // Let an org-first folder/settings writer complete before the
+            // next bounded attempt; never sleep while holding those rows.
+            Err(e) => {
+                let conflict = retryable(&e);
+                super::ops::conflict_retry_when(&format!("removal of account {id}"), attempt, e, conflict).await?
             }
-            Err(e) => return Err(e),
         }
     }
     let out = out.expect("successful removal or early error");
@@ -424,16 +423,15 @@ async fn remove_once(engine: &Arc<Engine>, id: &str, provider: &str, config_dir:
 #[logged]
 pub async fn remove_key(engine: &Arc<Engine>, id: &str) -> Result<Value> {
     let mut out = None;
-    for attempt in 0..4 {
+    for attempt in 1..=super::ops::CONFLICT_ATTEMPTS {
         match remove_key_once(engine, id).await {
             Ok(v) => { out = Some(v); break; }
-            Err(e) if attempt < 3 && retryable(&e) => {
-                tracing::warn!(attempt, key = id, "OpenRouter key removal conflicted; retrying entire transaction");
-                // the attempt has rolled back and released its key/seat locks
-                // (as `remove`): let an org-first writer finish first
-                tokio::time::sleep(std::time::Duration::from_millis(25 << attempt)).await;
+            // the attempt has rolled back and released its key/seat locks
+            // (as `remove`): let an org-first writer finish first
+            Err(e) => {
+                let conflict = retryable(&e);
+                super::ops::conflict_retry_when(&format!("removal of OpenRouter key {id}"), attempt, e, conflict).await?
             }
-            Err(e) => return Err(e),
         }
     }
     let (out, frozen) = out.expect("successful removal or early error");
