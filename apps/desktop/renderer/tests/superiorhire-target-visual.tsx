@@ -10,16 +10,20 @@ import '../src/shell.css'
 window.WebSocket = class { close() {} } as unknown as typeof WebSocket
 localStorage.clear()
 const agent = (id: string, children: unknown[] = []) => ({ id, title: id, tier: 'sol', state: 'live',
-  seat: 2, grant: 50, free: 40, generation: 0, children, turns: [], lineage: [], audiences_held: [],
+  seat: 2, grant: children.length ? 50 : 10, free: children.length ? 38 : 10, generation: 0, children, turns: [], lineage: [], audiences_held: [],
   last_denials: [], scope: { tools: {}, add_dirs: [] }, frozen: null })
 const initial = { slug: 'superior-target', name: 'Synthetic superior insertion', roots: [agent('coordinator')],
   dirs: [], tiers: { sol: 2 }, undo_history: true, default_top_grant: 50, max_top_grant: 1000,
   cascade_hire: true, default_visibility: 'team', default_tools: {},
-  audiences: [], audience_requests: [], credit_requests: [], user_inbox_count: 0 } as unknown as TreePayload
+    audiences: [], audience_requests: [], credit_requests: [], user_inbox_count: 0,
+    audit: { live_nodes: 1, top_level_holds: 12, no_overdraft: true, problems: [] } } as unknown as TreePayload
 let accept: (() => void) | undefined
 const recorded: unknown[] = []
 Object.assign(window, { superiorHireRequests: recorded })
 window.fetch = (async (url: RequestInfo | URL, options?: RequestInit) => {
+  if (String(url).includes('/chat?')) return new Response(JSON.stringify({ busy: false, queued: 0,
+    responding: false, last_error: null, occupancy: null, messages: [], live: [], mail_pending: 0, pending_mail: [], has_older: false }),
+    { headers: { 'content-type': 'application/json' } })
   if (String(url).endsWith('/gesture')) {
     const body = JSON.parse(String(options?.body)); recorded.push(body)
     if (body.steps.length !== 1 || body.steps[0].above !== 'coordinator' || body.steps[0].target !== 'coordinator')
@@ -33,7 +37,8 @@ window.fetch = (async (url: RequestInfo | URL, options?: RequestInit) => {
 function Fixture() {
   const [tree, setTree] = useState(initial)
   Object.assign(window, { superiorHireTree: tree })
-  accept = () => setTree({ ...initial, roots: [agent('liaison', [agent('coordinator')])] } as unknown as TreePayload)
+  accept = () => setTree({ ...initial, roots: [agent('liaison', [agent('coordinator')])],
+    audit: { live_nodes: 2, top_level_holds: 52, no_overdraft: true, problems: [] } } as unknown as TreePayload)
   return <CurrentOrg.Provider value={tree.slug}><div className="app"><main className="solo"><div className="canvas-stage">
     <OrgCanvas tree={tree} slug={tree.slug} mailEvt={null} toast={() => {}} op={async () => { throw Error('expected history request') }} />
   </div></main></div></CurrentOrg.Provider>

@@ -25,7 +25,7 @@ app.whenReady().then(async () => {
     fs.writeFileSync(path.join(root,'state.json'),JSON.stringify(state,null,2))
     if(state.requests.length!==1||state.requests[0].steps.length!==1||state.requests[0].steps[0].above!=='coordinator'
       ||state.requests[0].steps[0].target!=='coordinator'||state.tree.roots[0].id!=='liaison'
-      ||state.tree.roots[0].children[0].id!=='coordinator'||!state.text.includes('liaison')||state.draft)
+      ||state.tree.roots[0].children[0].id!=='coordinator'||!state.text.includes('liaison')||state.draft||state.text.includes('retrying'))
       throw Error('capture projection failed: '+JSON.stringify(state))
     const image=await win.webContents.capturePage(),bitmap=image.toBitmap()
     if(image.isEmpty())throw Error('empty capture')
