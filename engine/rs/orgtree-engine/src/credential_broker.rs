@@ -69,8 +69,9 @@ mod win {
     use windows_sys::Win32::Foundation::{CloseHandle, GetLastError, LocalFree, ERROR_ALREADY_EXISTS, HANDLE};
     use windows_sys::Win32::Security::Authorization::{ConvertStringSidToSidW, GetNamedSecurityInfoW, SE_FILE_OBJECT};
     use windows_sys::Win32::Security::{
-        EqualSid, GetAce, GetTokenInformation, TokenUser, ACCESS_ALLOWED_ACE, ACE_HEADER, ACL, DACL_SECURITY_INFORMATION,
-        OWNER_SECURITY_INFORMATION, PSECURITY_DESCRIPTOR, PSID, SID_AND_ATTRIBUTES, TOKEN_QUERY,
+        CheckTokenMembership, EqualSid, GetAce, GetSidSubAuthority, GetSidSubAuthorityCount, GetTokenInformation, TokenIntegrityLevel,
+        TokenUser, ACCESS_ALLOWED_ACE, ACE_HEADER, ACL, DACL_SECURITY_INFORMATION, OWNER_SECURITY_INFORMATION, PSECURITY_DESCRIPTOR, PSID,
+        SID_AND_ATTRIBUTES, TOKEN_MANDATORY_LABEL, TOKEN_QUERY,
     };
     use windows_sys::Win32::System::Threading::{CreateMutexW, GetCurrentProcess, OpenProcessToken, CREATE_NO_WINDOW};
 
@@ -129,6 +130,47 @@ mod win {
             return Some(s);
         }
         None
+    }
+
+    /// Whether this helper runs with administrator rights, by the engine's own
+    /// test (host.rs `is_elevated`): Administrators enabled, or a High
+    /// integrity label. A debug rig proof may say otherwise
+    /// (`ORGTREE_RIG_HELPER_ELEVATED` 1 or 0); never in a release build.
+    #[nolog]
+    fn elevated() -> bool {
+        #[cfg(debug_assertions)]
+        match std::env::var("ORGTREE_RIG_HELPER_ELEVATED").as_deref() {
+            Ok("1") => return true,
+            Ok("0") => return false,
+            _ => {}
+        }
+        unsafe {
+            let mut admins: PSID = std::ptr::null_mut();
+            let sid = wide("S-1-5-32-544");
+            if ConvertStringSidToSidW(sid.as_ptr(), &mut admins) != 0 {
+                let mut member = 0i32;
+                let ok = CheckTokenMembership(std::ptr::null_mut(), admins, &mut member);
+                LocalFree(admins as _);
+                if ok != 0 && member != 0 {
+                    return true;
+                }
+            }
+            let mut t: HANDLE = std::ptr::null_mut();
+            if OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &mut t) == 0 {
+                return false;
+            }
+            let mut size = 0u32;
+            GetTokenInformation(t, TokenIntegrityLevel, std::ptr::null_mut(), 0, &mut size);
+            let mut buf = vec![0u8; size.max(1) as usize];
+            let ok = size != 0 && GetTokenInformation(t, TokenIntegrityLevel, buf.as_mut_ptr() as *mut c_void, size, &mut size) != 0;
+            CloseHandle(t);
+            if !ok {
+                return false;
+            }
+            let label = &*(buf.as_ptr() as *const TOKEN_MANDATORY_LABEL);
+            let count = *GetSidSubAuthorityCount(label.Label.Sid) as u32;
+            count != 0 && *GetSidSubAuthority(label.Label.Sid, count - 1) >= 0x3000
+        }
     }
 
     /// The desktop's and the boot host's data root: ORGTREE_V2_DATA, else
@@ -242,10 +284,19 @@ mod win {
                     match host_status {
                         Ok(200) => note(&root, "holding the Codex host slot"),
                         Ok(409) => note(&root, "standing by: another helper holds the Codex host slot"),
+                        Ok(412) => note(&root, "refused: the engine runs with other administrator rights"),
                         Ok(_) => note(&root, "Codex host registration refused; will retry"),
                         Err(_) => note(&root, "Codex host registration unavailable; will retry"),
                     }
                     last_host_status = Some(host_status);
+                }
+                // Both elevated or neither (decision 94, invariant 7): this
+                // helper leaves once its CLIs are gone, and the engine starts
+                // the helper's task, which runs at the engine's rights.
+                if leaves_on(host_status) && crate::codex_host::sweep() == 0 {
+                    write_events();
+                    note(&root, "leaving: the helper's task starts one with the engine's administrator rights");
+                    return ExitCode::SUCCESS;
                 }
                 let (state, detail) = match register(a, &pipe, &secret, "credentials").await {
                     Ok(200) => ("holding the bridge", String::new()),
@@ -322,25 +373,27 @@ mod win {
 
     #[nolog]
     async fn register(a: &Attached, pipe: &str, secret: &str, role: &str) -> Result<u16, ()> {
-        let body = registration(pipe, secret, std::process::id(), role, rig_session(), false).to_string();
+        let body = registration(pipe, secret, std::process::id(), role, rig_session(), elevated()).to_string();
         http(a.port, "POST", "/api/desktop/credential-bridge", &a.token, Some(body)).await.map(|(s, _)| s)
     }
 
-    /// A registration's body. A debug rig proof may stand this helper for
-    /// another Windows session of the user; only a debug rig engine honours it.
+    /// A registration's body, with this helper's administrator rights. A debug
+    /// rig proof may stand this helper for another Windows session of the
+    /// user; only a debug rig engine honours it.
     #[nolog]
-    fn registration(pipe: &str, secret: &str, pid: u32, role: &str, rig_session: Option<u32>, _elevated: bool) -> serde_json::Value {
-        let mut body = serde_json::json!({"pipe": pipe, "secret": secret, "pid": pid, "caps": ["spawn"], "role": role});
+    fn registration(pipe: &str, secret: &str, pid: u32, role: &str, rig_session: Option<u32>, elevated: bool) -> serde_json::Value {
+        let mut body = serde_json::json!({"pipe": pipe, "secret": secret, "pid": pid, "caps": ["spawn"], "role": role, "elevated": elevated});
         if let Some(s) = rig_session {
             body["rig_session"] = serde_json::json!(s);
         }
         body
     }
 
-    /// Whether the engine's answer to a host registration ends this helper.
+    /// Whether the engine's answer to a host registration ends this helper:
+    /// 412, other administrator rights than the engine's.
     #[nolog]
-    fn leaves_on(_host_status: Result<u16, ()>) -> bool {
-        false
+    fn leaves_on(host_status: Result<u16, ()>) -> bool {
+        host_status == Ok(412)
     }
 
     /// One request to the engine on 127.0.0.1; the token never leaves this

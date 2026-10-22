@@ -9,7 +9,7 @@ use axum::{
 use serde_json::{json, Value};
 use std::{
     sync::{
-        atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering},
+        atomic::{AtomicBool, AtomicI64, AtomicU32, AtomicU64, AtomicU8, Ordering},
         Arc,
     },
     time::{Duration, Instant},
@@ -37,6 +37,9 @@ enum Fail {
     Lookup(String),
     /// Another live broker holds the lease (registration only).
     Held,
+    /// A sign-in helper with other administrator rights than the engine's
+    /// (host registration only; decision 94, invariant 7).
+    Rights,
 }
 impl From<()> for Fail {
     #[nolog]
@@ -142,10 +145,19 @@ pub(crate) struct ServedCache(std::sync::Mutex<std::collections::HashMap<ServedK
 #[nolog]
 impl ServedCache {
     /// Keep what a live broker just served.
-    pub(crate) fn keep(&self, _kind: &'static str, _host: &str, _path: &str, _username: &str, _answer: &[u8]) {}
+    pub(crate) fn keep(&self, kind: &'static str, host: &str, path: &str, username: &str, answer: &[u8]) {
+        let key = (kind, host.to_string(), path.to_string(), username.to_string());
+        self.0.lock().unwrap_or_else(|p| p.into_inner()).insert(key, Served(answer.to_vec()));
+    }
     /// What was served for exactly this request, if anything.
-    pub(crate) fn served(&self, _kind: &'static str, _host: &str, _path: &str, _username: &str) -> Option<Vec<u8>> {
-        None
+    pub(crate) fn served(&self, kind: &'static str, host: &str, path: &str, username: &str) -> Option<Vec<u8>> {
+        let key = (kind, host.to_string(), path.to_string(), username.to_string());
+        self.0.lock().unwrap_or_else(|p| p.into_inner()).get(&key).map(|s| s.0.clone())
+    }
+    /// A live broker no longer serves this request: drop what it served.
+    pub(crate) fn forget(&self, kind: &'static str, host: &str, path: &str, username: &str) {
+        let key = (kind, host.to_string(), path.to_string(), username.to_string());
+        self.0.lock().unwrap_or_else(|p| p.into_inner()).remove(&key);
     }
     pub(crate) fn len(&self) -> usize {
         self.0.lock().unwrap_or_else(|p| p.into_inner()).len()
@@ -167,13 +179,25 @@ pub struct Bridge {
     /// Watcher's debounced placement only. Never authorizes a credential or
     /// host operation: those still require a live authenticated lease.
     placement_hosts: ArcSwapOption<Vec<(u32, u32)>>,
-    placement_host_seen: AtomicBool,
     grants: papaya::HashMap<i64, Arc<Grant>>,
     slots: tokio::sync::Semaphore,
     reported_ready: AtomicBool,
     last_lookup: ArcSwapOption<LookupStatus>,
     /// Credentials served while signed in, for Session 0 turns after sign-out.
     pub(crate) served: ServedCache,
+    /// A request was last answered from `served` (logged once per stretch).
+    answered_from_memory: AtomicBool,
+    /// The session watch's last reading: 0 not read, 1 signed out, 2 signed in.
+    signed_in: AtomicU8,
+    /// When the session watch last saw a helper host (Unix ms; 0: not since
+    /// the engine started), for `session_host::turn_waits_for_helper`.
+    last_hosting_ms: AtomicI64,
+    /// A turn started in Session 0 after waiting the grace out (logged once
+    /// per stretch without a helper).
+    fallback_logged: AtomicBool,
+    /// A sign-in helper refused for other administrator rights: its pid and
+    /// process stamp, until it has left (invariant 7).
+    rights_refused: std::sync::Mutex<Option<(u32, u64)>>,
 }
 #[nolog]
 impl Bridge {
@@ -182,12 +206,65 @@ impl Bridge {
             broker: ArcSwapOption::empty(),
             hosts: HostLeases::default(),
             placement_hosts: ArcSwapOption::empty(),
-            placement_host_seen: AtomicBool::new(false),
             grants: papaya::HashMap::new(),
             slots: tokio::sync::Semaphore::new(16),
             reported_ready: AtomicBool::new(false),
             last_lookup: ArcSwapOption::empty(),
             served: ServedCache::default(),
+            answered_from_memory: AtomicBool::new(false),
+            signed_in: AtomicU8::new(0),
+            last_hosting_ms: AtomicI64::new(0),
+            fallback_logged: AtomicBool::new(false),
+            rights_refused: std::sync::Mutex::new(None),
+        }
+    }
+    /// The session watch's reading at each check: whether the engine's user
+    /// is signed in (None: unread) and whether a sign-in helper hosts.
+    pub(crate) fn note_reading(&self, signed_in: Option<bool>, hosting: bool) {
+        self.signed_in.store(match signed_in { None => 0, Some(false) => 1, Some(true) => 2 }, Ordering::Relaxed);
+        if hosting {
+            self.last_hosting_ms.store(chrono::Utc::now().timestamp_millis(), Ordering::Relaxed);
+            self.fallback_logged.store(false, Ordering::Relaxed);
+        }
+    }
+    /// Whether the engine's user is signed in, by the session watch's last
+    /// reading (None: not read yet, or not on Windows).
+    pub(crate) fn user_signed_in(&self) -> Option<bool> {
+        match self.signed_in.load(Ordering::Relaxed) {
+            1 => Some(false),
+            2 => Some(true),
+            _ => None,
+        }
+    }
+    /// When the session watch last saw a helper host (Unix ms; 0: never).
+    pub(crate) fn last_hosting_ms(&self) -> i64 {
+        self.last_hosting_ms.load(Ordering::Relaxed)
+    }
+    /// True once per stretch without a helper: a turn start that waited the
+    /// grace out logs it.
+    pub(crate) fn first_fallback(&self) -> bool {
+        !self.fallback_logged.swap(true, Ordering::Relaxed)
+    }
+    /// A sign-in helper was refused for its administrator rights.
+    fn refused_for_rights(&self, pid: u32) {
+        let mut refused = self.rights_refused.lock().unwrap_or_else(|p| p.into_inner());
+        if refused.map(|(p, _)| p) != Some(pid) {
+            tracing::warn!(pid, engine_elevated = crate::host::elevated(),
+                "Sign-in helper refused: it runs with other administrator rights than the engine; it leaves, and its task starts one with the engine's");
+        }
+        *refused = Some((pid, process_stamp(pid).unwrap_or(0)));
+    }
+    /// Whether a helper refused for its rights has left since: then the
+    /// session watch starts the helper's task at once. True once per refusal.
+    #[cfg_attr(not(windows), allow(dead_code))]
+    pub(crate) fn rights_refusal_ended(&self) -> bool {
+        let mut refused = self.rights_refused.lock().unwrap_or_else(|p| p.into_inner());
+        match *refused {
+            Some((pid, stamp)) if stamp == 0 || process_stamp(pid) != Some(stamp) => {
+                *refused = None;
+                true
+            }
+            _ => false,
         }
     }
     /// `untested` until a real git/gh lookup has gone through the desktop;
@@ -202,6 +279,13 @@ impl Bridge {
                 "message": l.reason.as_deref().map(describe),
                 "at_ms": l.at_ms,
             }),
+        }
+    }
+    /// A request was answered from the credentials served while signed in:
+    /// logged once per stretch, never the credential.
+    fn answered_from_memory(&self, kind: &'static str, host: &str) {
+        if !self.answered_from_memory.swap(true, Ordering::Relaxed) {
+            tracing::info!(kind, host, "Credential bridge answered from the credentials a signed-in broker served earlier: no signed-in broker now");
         }
     }
     fn record(&self, kind: &'static str, host: &str, reason: Option<&str>) {
@@ -246,15 +330,7 @@ impl Bridge {
         self.hosts.hosting()
     }
     pub(crate) fn set_placement_hosts(&self, hosts: Vec<(u32, u32)>) {
-        if !hosts.is_empty() {
-            self.placement_host_seen.store(true, Ordering::Relaxed);
-        }
         self.placement_hosts.store(Some(Arc::new(hosts)));
-    }
-    /// The watcher has observed a helper this boot. Later
-    /// losses use normal debounce, even for an agent's first turn this boot.
-    pub(crate) fn placement_host_seen(&self) -> bool {
-        self.placement_host_seen.load(Ordering::Relaxed)
     }
     pub(crate) fn placement_hosting(&self) -> Vec<(u32, u32)> {
         self.placement_hosts.load_full().map(|h| (*h).clone()).unwrap_or_else(|| self.hosting())
@@ -484,7 +560,11 @@ pub async fn dispatch(State(engine): State<Arc<Engine>>, req: Request) -> Respon
         )
             .into_response(),
         Err(fail) => (
-            if matches!(fail, Fail::Held) { StatusCode::CONFLICT } else { StatusCode::SERVICE_UNAVAILABLE },
+            match fail {
+                Fail::Held => StatusCode::CONFLICT,
+                Fail::Rights => StatusCode::PRECONDITION_FAILED,
+                _ => StatusCode::SERVICE_UNAVAILABLE,
+            },
             [("cache-control", "no-store")],
             match fail {
                 Fail::Denied => "Orgtree credential bridge: this process's credential capability is no longer valid; a new turn or CLI process gets a fresh one [denied].".to_string(),
@@ -492,6 +572,7 @@ pub async fn dispatch(State(engine): State<Arc<Engine>>, req: Request) -> Respon
                 Fail::Unavailable => NO_DESKTOP.to_string(),
                 Fail::Lookup(reason) => describe(&reason),
                 Fail::Held => "Orgtree credential bridge: another signed-in broker holds the bridge [held].".to_string(),
+                Fail::Rights => "Orgtree credential bridge: this sign-in helper runs with other administrator rights than the engine; Orgtree starts one with the engine's [rights].".to_string(),
             },
         )
             .into_response(),
@@ -499,9 +580,10 @@ pub async fn dispatch(State(engine): State<Arc<Engine>>, req: Request) -> Respon
 }
 /// Whether a sign-in helper that says it runs with `helper_elevated` rights may
 /// host the agents of an engine with `engine_elevated` rights.
+/// A helper that does not say runs without them.
 #[nolog]
-pub(crate) fn same_rights(_engine_elevated: bool, _helper_elevated: Option<bool>) -> bool {
-    true
+pub(crate) fn same_rights(engine_elevated: bool, helper_elevated: Option<bool>) -> bool {
+    helper_elevated.unwrap_or(false) == engine_elevated
 }
 
 /// A sign-in helper takes, renews or gives back the host role for the Windows
@@ -516,6 +598,12 @@ async fn register_host(engine: &Engine, value: &Value, pipe: &str, secret: &str,
             tracing::info!(pid, "Sign-in helper released its host role");
         }
         return Ok(b"released".to_vec());
+    }
+    // Both elevated or neither (decision 94, invariant 7): a helper with other
+    // rights leaves, and its task starts one at the engine's.
+    if !same_rights(crate::host::elevated(), value["elevated"].as_bool()) {
+        engine.credential_bridge.refused_for_rights(pid);
+        return Err(Fail::Rights);
     }
     let session = helper_session(value, pid).ok_or(Fail::Denied)?;
     if hosts.held(session, pipe, secret, pid) {
@@ -752,12 +840,15 @@ async fn handle(engine: &Engine, req: Request) -> Result<Vec<u8>, Fail> {
     if !safe_field(path) || !safe_field(username) {
         return Err(Fail::Denied);
     }
-    let broker = engine
-        .credential_bridge
-        .broker
-        .load_full()
-        .filter(|b| b.expires > Instant::now())
-        .ok_or(Fail::Unavailable)?;
+    // With no signed-in broker, what one served while the user was signed in,
+    // exactly as served (the user's Q3, 2026-10-22); nothing kept: the clear
+    // [no-desktop] refusal.
+    let bridge = &engine.credential_bridge;
+    let Some(broker) = bridge.broker.load_full().filter(|b| b.expires > Instant::now()) else {
+        let answer = bridge.served.served(kind, host, path, username).ok_or(Fail::Unavailable)?;
+        bridge.answered_from_memory(kind, host);
+        return revalidated(engine, agent, &grant, pid, stamp, answer).await;
+    };
     let answer = match exchange(
         &broker,
         json!({"kind":kind,"host":host,"path":path,"username":username,"diagnostics":1}),
@@ -765,12 +856,15 @@ async fn handle(engine: &Engine, req: Request) -> Result<Vec<u8>, Fail> {
     .await
     {
         Ok(answer) => {
-            engine.credential_bridge.record(kind, host, None);
+            bridge.record(kind, host, None);
+            bridge.served.keep(kind, host, path, username, &answer);
+            bridge.answered_from_memory.store(false, Ordering::Relaxed);
             answer
         }
         Err(ExchangeError::Busy) => return Err(Fail::Busy),
         Err(ExchangeError::Lookup(reason)) => {
-            engine.credential_bridge.record(kind, host, Some(&reason));
+            bridge.record(kind, host, Some(&reason));
+            bridge.served.forget(kind, host, path, username);
             return Err(Fail::Lookup(reason));
         }
         Err(ExchangeError::Unavailable) => {
@@ -789,20 +883,28 @@ async fn handle(engine: &Engine, req: Request) -> Result<Vec<u8>, Fail> {
                     publish_availability(engine);
                 }
                 engine.credential_bridge.record(kind, host, Some("broker-gone"));
-                return Err(Fail::Unavailable);
+                let answer = bridge.served.served(kind, host, path, username).ok_or(Fail::Unavailable)?;
+                bridge.answered_from_memory(kind, host);
+                return revalidated(engine, agent, &grant, pid, stamp, answer).await;
             }
             // Older desktops close the pipe without a reason.
             engine.credential_bridge.record(kind, host, Some("broker-failed"));
             return Err(Fail::Lookup("broker-failed".into()));
         }
     };
-    // Re-check revocation after the asynchronous desktop lookup.
+    revalidated(engine, agent, &grant, pid, stamp, answer).await
+}
+/// `answer` for `agent`, once its grant, its CLI process and the agent itself
+/// are re-checked after the lookup: a revoked grant or an ended process gets
+/// nothing, from a broker or from memory alike.
+#[nolog]
+async fn revalidated(engine: &Engine, agent: i64, grant: &Arc<Grant>, pid: u32, stamp: u64, answer: Vec<u8>) -> Result<Vec<u8>, Fail> {
     if !engine
         .credential_bridge
         .grants
         .pin()
         .get(&agent)
-        .map(|g| Arc::ptr_eq(g, &grant))
+        .map(|g| Arc::ptr_eq(g, grant))
         .unwrap_or(false)
     {
         return Err(Fail::Denied);
@@ -817,7 +919,7 @@ async fn handle(engine: &Engine, req: Request) -> Result<Vec<u8>, Fail> {
         .grants
         .pin()
         .get(&agent)
-        .map(|g| Arc::ptr_eq(g, &grant))
+        .map(|g| Arc::ptr_eq(g, grant))
         .unwrap_or(false)
     {
         return Err(Fail::Denied);
@@ -1442,10 +1544,8 @@ mod host_slot_tests {
     #[nolog]
     fn session_blip_placement_does_not_extend_authenticated_leases() {
         let bridge=Bridge::new();
-        assert!(!bridge.placement_host_seen());
         assert!(bridge.hosts.admit(1,lease(false,false)).is_ok());
         bridge.set_placement_hosts(bridge.hosting());
-        assert!(bridge.placement_host_seen());
         assert!(!bridge.placement_pending(1));
         assert!(bridge.hosts.admit(1,lease(true,false)).is_ok());
         assert!(!bridge.can_host() && !bridge.ready());
@@ -1453,7 +1553,6 @@ mod host_slot_tests {
         assert!(bridge.placement_pending(1));
         assert_eq!(bridge.host_pid_in(1),None,"cached placement cannot authorize spawning");
         bridge.set_placement_hosts(Vec::new());
-        assert!(bridge.placement_host_seen(), "a real loss must not reopen startup grace");
         assert!(bridge.placement_hosting().is_empty() && !bridge.placement_pending(1));
     }
 }

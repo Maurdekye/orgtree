@@ -82,7 +82,7 @@ pub async fn restarted(engine: &Arc<Engine>, org_id:i64, agent_id:i64, interrupt
     let (variant,fields,body)=if interrupted {
         ("context.drive_restart_interrupted",json!({"text":text,"summary":"The engine stopped during the preceding turn."}),text.to_string())
     } else {
-        ("runtime.restart_notice",json!({"prev_pid":null,"started_at":crate::util::iso(engine.boot.started_at),"branch":option_env!("ORGTREE_BUILD_BRANCH"),"version":env!("CARGO_PKG_VERSION")}),restart_body(env!("CARGO_PKG_VERSION"), option_env!("ORGTREE_BUILD_COMMIT").unwrap_or("unknown"), engine.boot.pid, &crate::util::iso(engine.boot.started_at), engine_session(engine), None))
+        ("runtime.restart_notice",json!({"prev_pid":null,"started_at":crate::util::iso(engine.boot.started_at),"branch":option_env!("ORGTREE_BUILD_BRANCH"),"version":env!("CARGO_PKG_VERSION")}),restart_body(env!("CARGO_PKG_VERSION"), option_env!("ORGTREE_BUILD_COMMIT").unwrap_or("unknown"), engine.boot.pid, &crate::util::iso(engine.boot.started_at), engine_session(engine), admin_line(engine_rights(engine))))
     };
     let ev=crate::events::typed(variant,"@system",build_ref(engine),fields);
     mail::system_event(engine,org_id,agent_id,&body,!interrupted,Some(ev)).await
@@ -382,8 +382,21 @@ pub(crate) fn engine_session(engine: &Engine) -> Option<u32> {
 /// The restart notice's line about administrator rights, which the Session 0
 /// engine and the sign-in helper always share (invariant 7).
 #[nolog]
-pub(crate) fn admin_line(_elevated: Option<bool>) -> Option<&'static str> {
-    None
+pub(crate) fn admin_line(elevated: Option<bool>) -> Option<&'static str> {
+    elevated.map(|on| {
+        if on {
+            "Administrator rights: on, for the engine in Session 0 and the sign-in helper alike."
+        } else {
+            "Administrator rights: off, for the engine in Session 0 and the sign-in helper alike."
+        }
+    })
+}
+
+/// The engine's administrator rights, for `admin_line`: said by an engine in
+/// Session 0 on Windows only, where its sign-in helper shares them.
+#[nolog]
+fn engine_rights(engine: &Engine) -> Option<bool> {
+    (cfg!(windows) && engine_session(engine) == Some(0)).then(crate::host::elevated)
 }
 
 // Extracted unchanged rendering; the regression below requires engine session
@@ -428,8 +441,8 @@ mod restart_session_tests {
         assert!(body.contains("informational notice; it does not start a turn"));
     }
     #[test]
-    fn a_failed_move_is_reported_before_the_informational_line() {
-        let note = "Orgtree could not start the engine in the signed-in session (x), so it started the engine in Session 0 instead.";
+    fn the_rights_line_comes_before_the_informational_line() {
+        let note = admin_line(Some(true)).unwrap();
         let body = restart_body("4.4", "abc123", 42, "now", Some(0), Some(note));
         let lines: Vec<&str> = body.lines().collect();
         assert_eq!(lines.len(), 5, "{body}");

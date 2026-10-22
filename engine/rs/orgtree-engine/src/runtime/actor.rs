@@ -366,11 +366,10 @@ fn helper_gone(host: crate::runtime::session_host::Host, live: &[(u32, (u32, u64
 /// Where an agent's last turn ran (`ot.agents.extra->>'session'`).
 const SIGNED_IN: &str = "signed-in";
 const SESSION0: &str = "session0";
-/// How long after the engine's start a first turn waits for the sign-in
-/// helper to register again (startup-transient fix, user 2026-10-20;
-/// replaces ruling D's 15 seconds).
-pub(crate) const SESSION_SETTLE: Duration = Duration::from_secs(60);
-static SETTLE_EXPIRED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+/// How long a turn start waits for the sign-in helper after the engine's
+/// start or a helper's loss, and the session watch's startup grace
+/// (startup-transient fix, user 2026-10-20; replaces ruling D's 15 seconds).
+pub(crate) const SESSION_SETTLE: Duration = Duration::from_millis(crate::runtime::session_host::SETTLE_MS as u64);
 
 mod interrupt_control;
 
@@ -920,9 +919,9 @@ struct Actor {
     /// (when, ttl seconds) of the last turn that read or wrote the cache
     receipt: Option<(DateTime<Utc>, i64)>,
     reconfigured: bool,
-    /// the first turn since the engine started has waited for the sign-in
-    /// helper (`session_settle`), and said where it started (`session_notes`)
-    settled: bool,
+    /// why the CLI placement last chosen runs in Session 0 (None: it does
+    /// not), for the Session 0 badge (`session_notes`)
+    placed_why: Option<crate::runtime::session_host::Why>,
     /// the seat counted as unsandboxed when its CLI's placement was last
     /// chosen (`session_host::wanted`), for `session_view`
     bypass_seat: bool,
@@ -1073,7 +1072,7 @@ impl Actor {
             sent_print,
             receipt,
             reconfigured: false,
-            settled: false,
+            placed_why: None,
             bypass_seat: false,
             session_pref: crate::runtime::session_host::Pref::SignedIn,
             use_session: None,
@@ -3007,11 +3006,28 @@ impl Actor {
         let bypass = ctx.effective["permission_mode"].as_str() == Some("bypassPermissions");
         self.bypass_seat = bypass;
         self.session_pref = ctx.session_pref.clone();
-        let want = crate::runtime::session_host::wanted(&self.engine, bypass, &self.session_pref, self.use_session.take());
-        match self.proc.as_ref() {
-            Some(p) if self.bg_pending() && p.hosted_in() != want => p.hosted_in(),
-            _ => want,
+        let use_id = self.use_session.take();
+        let want = crate::runtime::session_host::wanted(&self.engine, bypass, &self.session_pref, use_id);
+        let (placed, held) = match self.proc.as_ref() {
+            Some(p) if self.bg_pending() && p.hosted_in() != want => (p.hosted_in(), true),
+            _ => (want, false),
+        };
+        self.placed_why = self.why_session0(placed, use_id, held);
+        placed
+    }
+
+    /// Why a CLI placed in `placed` runs in Session 0, for the Session 0
+    /// badge: None when it does not (or the engine is not in Session 0).
+    fn why_session0(&self, placed: Option<u32>, use_id: Option<u32>, held: bool) -> Option<crate::runtime::session_host::Why> {
+        use crate::runtime::session_host as sh;
+        if placed.is_some() || !codexrt::session0() {
+            return None;
         }
+        let sessions = sh::host_sessions(&self.engine);
+        let own_choice = use_id == Some(0)
+            || self.session_pref == sh::Pref::Session0
+            || (!sessions.is_empty() && sh::choose(&sessions, &self.session_pref, use_id).is_none());
+        Some(sh::why_session0(self.engine.credential_bridge.user_signed_in(), own_choice, held))
     }
 
     /// Where this agent's CLI runs now and where its next turn's will, for
@@ -3054,40 +3070,59 @@ impl Actor {
         }
     }
 
-    /// Where the agent's last turn ran (`SIGNED_IN`, `SESSION0`), if it ran one.
-    async fn last_session(&self) -> Option<String> {
-        let client = self.engine.db.get().await.ok()?;
-        client.query_one("SELECT extra->>'session' FROM ot.agents WHERE id = $1", &[&self.id]).await.ok()?.get(0)
+    /// Where the agent's last turn ran (`SIGNED_IN`, `SESSION0`) and why
+    /// Session 0 (`session_host::Why::code`), if it ran one.
+    async fn last_placement(&self) -> (Option<String>, Option<String>) {
+        let Ok(client) = self.engine.db.get().await else { return (None, None) };
+        match client.query_one("SELECT extra->>'session', extra->>'session_reason' FROM ot.agents WHERE id = $1", &[&self.id]).await {
+            Ok(row) => (row.get(0), row.get(1)),
+            Err(_) => (None, None),
+        }
     }
 
-    /// After an engine restart while the operator was signed in, the sign-in
-    /// helper registers again within seconds. The agent's first turn waits for
-    /// it, at most `SESSION_SETTLE` from the engine's start, before it picks
-    /// where its CLI runs, so a restart is no move out of the signed-in session
-    /// and back. Its expiry is logged once.
+    /// Every turn start waits for the sign-in helper while the user is signed
+    /// in and none hosts (decision 94, invariants 3 and 5), at most
+    /// `SESSION_SETTLE` after the engine's start or after a helper last
+    /// hosted, so a restart, an update or a helper's own restart is no move out
+    /// of the signed-in session and back. Signed out, or by the agent's own
+    /// Session 0 choice, the turn starts at once. A turn that waited the grace
+    /// out starts in Session 0, logged once per stretch without a helper.
     async fn session_settle(&mut self, pref: &crate::runtime::session_host::Pref) {
-        if std::mem::replace(&mut self.settled, true) || !codexrt::session0()
-            || self.use_session == Some(0)
-            || (self.use_session.is_none() && *pref == crate::runtime::session_host::Pref::Session0)
-            || self.engine.credential_bridge.can_host() || self.engine.credential_bridge.placement_host_seen() {
+        use crate::runtime::session_host::{turn_waits_for_helper, Pref, Settle};
+        if !codexrt::session0() {
             return;
         }
-        if self.last_session().await.as_deref() != Some(SIGNED_IN) {
+        let skip = self.use_session == Some(0) || (self.use_session.is_none() && *pref == Pref::Session0);
+        let start_ms = self.engine.boot.started_at.timestamp_millis();
+        let bridge = &self.engine.credential_bridge;
+        let reading = || Settle {
+            skip,
+            hosting: !bridge.placement_hosting().is_empty(),
+            signed_in: bridge.user_signed_in(),
+            now_ms: Utc::now().timestamp_millis(),
+            start_ms,
+            last_hosting_ms: bridge.last_hosting_ms(),
+        };
+        if !turn_waits_for_helper(&reading()) {
             return;
         }
-        let elapsed = (Utc::now() - self.engine.boot.started_at).to_std().unwrap_or_default();
-        let until = Instant::now() + SESSION_SETTLE.saturating_sub(elapsed);
-        while Instant::now() < until {
-            if self.engine.credential_bridge.can_host() || self.engine.credential_bridge.placement_host_seen() {
-                return;
-            }
+        let waited = Instant::now();
+        loop {
             tokio::select! {
                 _ = self.engine.shutdown.cancelled() => return,
                 _ = tokio::time::sleep(Duration::from_millis(250)) => {}
             }
+            if !turn_waits_for_helper(&reading()) {
+                break;
+            }
         }
-        if !SETTLE_EXPIRED.swap(true, std::sync::atomic::Ordering::Relaxed) {
-            tracing::warn!(seconds = SESSION_SETTLE.as_secs(), "the sign-in helper did not register again after the engine's start; agents start in Session 0");
+        let last = reading();
+        let waited_ms = waited.elapsed().as_millis() as u64;
+        if last.hosting {
+            tracing::info!(agent = %self.name, waited_ms, "the turn waited for the sign-in helper, which connected");
+        } else if last.signed_in != Some(false) && bridge.first_fallback() {
+            tracing::warn!(seconds = SESSION_SETTLE.as_secs(), waited_ms,
+                "the sign-in helper did not connect in time while the user is signed in; turns start in Session 0 until it does");
         }
     }
 
@@ -3101,15 +3136,26 @@ impl Actor {
     async fn session_notes(&mut self, turn_id: i64, raw: &mut Vec<Value>) {
         let Some(hosted) = self.proc.as_ref().map(|p| p.hosted()) else { return };
         let now = if hosted || !codexrt::session0() { SIGNED_IN } else { SESSION0 };
-        let before = self.last_session().await;
-        if before.as_deref() == Some(now) {
+        // and why Session 0, for the Session 0 badge (tree `session_placement`)
+        let reason = (now == SESSION0).then(|| {
+            self.placed_why
+                .unwrap_or_else(|| crate::runtime::session_host::why_session0(self.engine.credential_bridge.user_signed_in(), false, false))
+                .code()
+        });
+        let (before, before_reason) = self.last_placement().await;
+        if before.as_deref() == Some(now) && before_reason.as_deref() == reason {
             return;
         }
         if let Ok(client) = self.engine.db.get().await {
             let _ = client
-                .execute("UPDATE ot.agents SET extra = jsonb_set(coalesce(extra, '{}'::jsonb), '{session}', to_jsonb($2::text)) WHERE id = $1",
-                    &[&self.id, &now])
+                .execute("UPDATE ot.agents SET extra = coalesce(extra, '{}'::jsonb)
+                            || jsonb_build_object('session', $2::text, 'session_reason', $3::text, 'session_at', $4::text) WHERE id = $1",
+                    &[&self.id, &now, &reason, &now_iso()])
                 .await;
+        }
+        self.org.feed.invalidate([crate::feed::Key::Agent(self.id)]);
+        if before.as_deref() == Some(now) {
+            return;
         }
         // an agent's first turn ever is no move
         if before.is_none() {
@@ -3155,7 +3201,9 @@ impl Actor {
             let pm = ctx.effective["permission_mode"].as_str().unwrap_or("acceptEdits");
             let may_write = ctx.effective["tools"].get("edit").and_then(Value::as_bool).unwrap_or(true) && pm != "plan";
             self.session_pref = ctx.session_pref.clone();
-            let (sb, hosted) = codexrt::seat_sandbox(&self.engine, may_write, pm, &self.session_pref, self.use_session.take());
+            let use_id = self.use_session.take();
+            let (sb, hosted) = codexrt::seat_sandbox(&self.engine, may_write, pm, &self.session_pref, use_id);
+            self.placed_why = self.why_session0(hosted, use_id, false);
             self.codex_seat = Some((may_write, pm.to_string(), sb, hosted));
             self.bypass_seat = codexrt::sandbox(may_write, pm, false).mode == "danger-full-access";
         }

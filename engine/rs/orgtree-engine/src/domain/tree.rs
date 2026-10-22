@@ -322,6 +322,7 @@ pub fn agent_body(raw: &Value, effective: &Value, parent_key: Option<i64>, ctx: 
     if let Some(um) = extra.get("user_mention").filter(|v| !v.is_null()) {
         o.insert("user_mention".into(), um.clone());
     }
+    o.insert("session_placement".into(), session_placement(&extra));
     if raw["kind"].as_str() == Some(crate::domain::projects::KIND) {
         project_fields(&mut o);
     }
@@ -333,8 +334,10 @@ pub fn agent_body(raw: &Value, effective: &Value, parent_key: Option<i64>, ctx: 
 /// (`session`, `session_reason`, `session_at`), null before its first
 /// recorded turn. `reason` is null outside Session 0.
 #[nolog]
-pub fn session_placement(_extra: &Value) -> Value {
-    Value::Null
+pub fn session_placement(extra: &Value) -> Value {
+    let Some(session) = extra.get("session").and_then(Value::as_str) else { return Value::Null };
+    let reason = extra.get("session_reason").filter(|_| session == "session0").cloned().unwrap_or(Value::Null);
+    json!({ "session": session, "reason": reason, "at": extra.get("session_at").cloned().unwrap_or(Value::Null) })
 }
 
 /// A project node's record (docs/rust-engine/PROJECT-NODES.md): the agent

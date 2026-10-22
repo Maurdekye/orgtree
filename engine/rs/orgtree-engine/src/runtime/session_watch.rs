@@ -11,6 +11,11 @@
 //! Codex's and Muse's steer, Antigravity's hook) and an idle one at its next
 //! turn. The move notices of the turn where an agent really moves
 //! (`runtime_notices::SESSION_UPGRADE`, `SESSION_DOWNGRADE`) are unchanged.
+//! Only the helper's own transitions while this engine keeps running are told
+//! (decision 94, invariant 6; the user, 2026-10-22 07:34:52Z): a helper that
+//! comes or goes with the engine's own start is part of its restart, which
+//! the restart notice alone tells. A helper that stops while the user is still
+//! signed in is told as such, not as a sign-out.
 //! The same change fires the watchdog events `session.signed_in` and
 //! `session.signed_out`, and at sign-in working agents idle in Session 0 get
 //! their checkup at once (`reminders::checkups_at_sign_in`; the user,
@@ -51,6 +56,9 @@ impl Placement {
     }
 
     fn observe(&mut self, hosting: bool, at: std::time::Instant) -> Option<bool> {
+        // The engine's own start: a helper that comes or goes with it is part
+        // of its restart, so agents count as told without a notice.
+        let starting = self.startup_until.is_some_and(|until| at < until);
         if hosting {
             self.startup_until = None;
             if self.told && self.misses > 0 {
@@ -58,12 +66,17 @@ impl Placement {
             }
             self.misses = 0;
             self.last_miss = None;
-            return if self.told { None } else { self.told = true; Some(true) };
+            let news = !self.told && !starting;
+            self.told = true;
+            return news.then_some(true);
         }
         // Absence before the helper's first reconnect is unknown, not a
         // sign-out. End this grace early on success; never renew it on loss.
-        if self.startup_until.is_some_and(|until| at < until) { return None; }
-        self.startup_until = None;
+        if starting { return None; }
+        if self.startup_until.take().is_some() {
+            self.told = false;
+            return None;
+        }
         if !self.told { return None; }
         // Skip overdue ticks in the watcher; this independent guard also
         // rejects burst replays without rejecting normal timer jitter.
@@ -76,16 +89,18 @@ impl Placement {
     }
 }
 
-pub const SIGNED_IN_NOTICE: &str = "[ORGTREE SIGN-IN NOTICE] The user signed in and Orgtree's sign-in helper connected: your next turn runs in their signed-in Windows session, with access to their desktop and apps. orgtree_session shows where you run.";
-pub const SIGNED_IN_KEPT_NOTICE: &str = "[ORGTREE SIGN-IN NOTICE] The user signed in and Orgtree's sign-in helper connected, but your session preference keeps your next turn in Windows Session 0. orgtree_session shows where you run and sets the preference.";
-pub const SIGNED_IN_HELD_NOTICE: &str = "[ORGTREE SIGN-IN NOTICE] The user signed in and Orgtree's sign-in helper connected, but your CLI still runs background work, so your next turn stays in Windows Session 0; a later turn moves once that work is done. orgtree_session shows where you run.";
-pub const SIGNED_IN_USE_NOTICE: &str = "[ORGTREE SIGN-IN NOTICE] The user signed in and Orgtree's sign-in helper connected, but you picked Windows Session 0 for your next turn (orgtree_session `use`); the turns after it follow your preference. orgtree_session shows where you run.";
-pub const SIGNED_OUT_NOTICE: &str = "[ORGTREE SIGN-OUT NOTICE] The user signed out, or Orgtree's sign-in helper stopped: your next turn runs in Windows Session 0, without their desktop and apps. orgtree_session shows where you run.";
+pub const SIGNED_IN_NOTICE: &str = "[ORGTREE SIGN-IN NOTICE] Orgtree's sign-in helper connected for the signed-in user: your next turn runs in their signed-in Windows session, with access to their desktop and apps. orgtree_session shows where you run.";
+pub const SIGNED_IN_KEPT_NOTICE: &str = "[ORGTREE SIGN-IN NOTICE] Orgtree's sign-in helper connected for the signed-in user, but your session preference keeps your next turn in Windows Session 0. orgtree_session shows where you run and sets the preference.";
+pub const SIGNED_IN_HELD_NOTICE: &str = "[ORGTREE SIGN-IN NOTICE] Orgtree's sign-in helper connected for the signed-in user, but your CLI still runs background work, so your next turn stays in Windows Session 0; a later turn moves once that work is done. orgtree_session shows where you run.";
+pub const SIGNED_IN_USE_NOTICE: &str = "[ORGTREE SIGN-IN NOTICE] Orgtree's sign-in helper connected for the signed-in user, but you picked Windows Session 0 for your next turn (orgtree_session `use`); the turns after it follow your preference. orgtree_session shows where you run.";
+pub const SIGNED_OUT_NOTICE: &str = "[ORGTREE SIGN-OUT NOTICE] The user signed out: your next turn runs in Windows Session 0, without their desktop and apps. orgtree_session shows where you run.";
+pub const HELPER_STOPPED_NOTICE: &str = "[ORGTREE SIGN-OUT NOTICE] Orgtree's sign-in helper stopped while the user is still signed in: Orgtree starts it again, and your next turn waits up to 60 s for it before it runs in Windows Session 0, without their desktop and apps. orgtree_session shows where you run.";
 
-/// The down notice, by whether the engine's user is still signed in.
+/// The down notice, by whether the engine's user is still signed in (an
+/// unread sign-in counts as signed in: only a reading says signed out).
 #[nolog]
-pub fn down_notice(_signed_in: Option<bool>) -> &'static str {
-    SIGNED_OUT_NOTICE
+pub fn down_notice(signed_in: Option<bool>) -> &'static str {
+    if signed_in == Some(false) { SIGNED_OUT_NOTICE } else { HELPER_STOPPED_NOTICE }
 }
 
 /// Whether a steady reading of where new turns run (`signed-in` while the
@@ -130,13 +145,15 @@ async fn watch(engine: Arc<Engine>) {
         let hosting = !hosts.is_empty();
         // the user is signed in (read as the core monitor reads it) and no helper
         #[cfg(windows)]
-        let hosting = {
-            let signed_in = crate::core_state::sessions(&engine.cfg.data_root, &mut sessions).map(|s| !s.is_empty());
-            keepalive(&engine, &mut keep, signed_in == Some(true) && !hosting).await;
-            hosting && signed_in != Some(false)
-        };
+        let signed_in = crate::core_state::sessions(&engine.cfg.data_root, &mut sessions).map(|s| !s.is_empty());
+        #[cfg(not(windows))]
+        let signed_in: Option<bool> = None;
+        #[cfg(windows)]
+        keepalive(&engine, &mut keep, signed_in == Some(true) && !hosting).await;
         #[cfg(not(windows))]
         let _ = &mut keep;
+        let hosting = hosting && signed_in != Some(false);
+        engine.credential_bridge.note_reading(signed_in, hosting);
         let now = if hosting { SIGNED_IN } else { SESSION0 };
         let changed = placement.observe(hosting, std::time::Instant::now());
         if hosting {
@@ -144,11 +161,16 @@ async fn watch(engine: Arc<Engine>) {
         } else if !placement.told && placement.startup_until.is_none() {
             engine.credential_bridge.set_placement_hosts(Vec::new());
         }
+        // what agents count as told, also when the engine's own start changed
+        // it without a notice
+        let counted = if placement.told { SIGNED_IN } else { SESSION0 };
+        if told != counted {
+            told = counted.to_string();
+            write(&path, &told);
+        }
         let Some(up) = changed else { continue };
-        told = now.to_string();
-        write(&path, &told);
         tracing::info!(to = now, "where new turns run changed; every agent is told");
-        if let Err(e) = tell(&engine, up).await {
+        if let Err(e) = tell(&engine, up, signed_in).await {
             tracing::warn!(error = %format!("{e:#}"), "the sign-in or sign-out notice could not be sent");
         }
         // watchdogs may wait for it (2c), and working agents idle in Session 0
@@ -162,9 +184,10 @@ async fn watch(engine: Arc<Engine>) {
 
 /// One passive line to every live agent of every active organization. At
 /// sign-in it says where the agent's next turn runs: as its own runtime would
-/// start that turn now (`view_of`), else by its stored preference.
+/// start that turn now (`view_of`), else by its stored preference; at a loss,
+/// whether the user signed out or only the helper stopped (`down_notice`).
 #[logged]
-async fn tell(engine: &Arc<Engine>, up: bool) -> anyhow::Result<()> {
+async fn tell(engine: &Arc<Engine>, up: bool, signed_in: Option<bool>) -> anyhow::Result<()> {
     use crate::runtime::session_host as sh;
     let client = engine.db.get().await?;
     let rows = client
@@ -192,7 +215,7 @@ async fn tell(engine: &Arc<Engine>, up: bool) -> anyhow::Result<()> {
     }))
     .await;
     for ((agent, org, pref), view) in agents.into_iter().zip(views) {
-        let text = if up { sign_in_line(sh::choose(&sessions, &pref, None).is_some(), view.as_ref()) } else { SIGNED_OUT_NOTICE };
+        let text = if up { sign_in_line(sh::choose(&sessions, &pref, None).is_some(), view.as_ref()) } else { down_notice(signed_in) };
         if let Err(e) = crate::domain::mail::system_event(engine, org, agent, text, true, None).await {
             tracing::warn!(agent, error = %format!("{e:#}"), "the sign-in or sign-out notice could not be sent to an agent");
         }
@@ -275,9 +298,19 @@ struct Keepalive {
     attempts: u32,
 }
 
+/// Whether the helper's task starts now: after `keepalive_wait`, or at once
+/// once a helper the engine refused for other administrator rights has left
+/// (decision 94, invariant 7: its task runs at the engine's rights).
+#[cfg_attr(not(windows), allow(dead_code))]
+#[logged]
+pub fn keepalive_due(waited: Duration, attempts: u32, refused_left: bool) -> bool {
+    refused_left || waited >= keepalive_wait(attempts)
+}
+
 /// Start the helper's task when the user has been signed in without a helper
-/// for `keepalive_wait`. A disabled task (Run on boot off) refuses, which is
-/// logged like any other result. Windows only: elsewhere nothing hosts.
+/// for `keepalive_wait`, or a helper refused for its rights has left. A
+/// disabled task refuses, which is logged like any other result. Windows
+/// only: elsewhere nothing hosts.
 #[cfg(windows)]
 #[logged]
 async fn keepalive(engine: &Arc<Engine>, k: &mut Keepalive, missing: bool) {
@@ -286,7 +319,7 @@ async fn keepalive(engine: &Arc<Engine>, k: &mut Keepalive, missing: bool) {
         return;
     }
     let since = *k.since.get_or_insert_with(std::time::Instant::now);
-    if since.elapsed() < keepalive_wait(k.attempts) {
+    if !keepalive_due(since.elapsed(), k.attempts, engine.credential_bridge.rights_refusal_ended()) {
         return;
     }
     let rig = crate::rig::active();
@@ -515,6 +548,17 @@ mod tests {
     fn the_helper_is_started_after_30_s_then_less_and_less_often() {
         let s = |n| keepalive_wait(n).as_secs();
         assert_eq!((s(0), s(1), s(2), s(3), s(9)), (30, 120, 300, 600, 600));
+        assert!(!keepalive_due(Duration::from_secs(29), 0, false));
+        assert!(keepalive_due(Duration::from_secs(30), 0, false));
+    }
+
+    /// Invariant 7: a helper refused for other administrator rights leaves,
+    /// and its task, which runs at the engine's rights, starts at once, so
+    /// both sessions are available again within seconds (invariant 5).
+    #[test]
+    fn a_helper_refused_for_its_rights_is_started_again_at_once() {
+        assert!(keepalive_due(Duration::ZERO, 0, true));
+        assert!(keepalive_due(Duration::from_secs(1), 3, true));
     }
 
     /// A rig engine never starts the machine's own helper task, only one a

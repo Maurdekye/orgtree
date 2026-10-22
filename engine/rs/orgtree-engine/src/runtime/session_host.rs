@@ -233,20 +233,22 @@ pub struct Settle {
     pub start_ms: i64,
     /// when a helper last hosted (0: not since the engine started)
     pub last_hosting_ms: i64,
-    /// the agent's last turn ran in the signed-in session
-    pub last_signed_in: bool,
 }
 
 /// How long a turn start waits for the sign-in helper: after the engine's
-/// start (startup-transient fix, the user 2026-10-20; ruling D's 15 s before).
+/// start (startup-transient fix, the user 2026-10-20; ruling D's 15 s before),
+/// and after a helper was last seen hosting.
 pub const SETTLE_MS: i64 = 60_000;
 
 /// Whether a turn starting now waits for the sign-in helper before it picks
-/// where its CLI runs: an agent whose last turn ran in the signed-in session,
-/// until `SETTLE_MS` after the engine's start, while no helper has hosted.
+/// where its CLI runs (decision 94, invariants 3 and 5): every turn, whatever
+/// its last one did, while the user is signed in (or that is not read yet)
+/// and no helper hosts, until `SETTLE_MS` after the engine's start or after a
+/// helper last hosted. Signed out, or by the agent's own Session 0 choice, a
+/// turn starts at once.
 #[nolog]
 pub fn turn_waits_for_helper(s: &Settle) -> bool {
-    !s.skip && !s.hosting && s.last_hosting_ms == 0 && s.last_signed_in && s.now_ms < s.start_ms + SETTLE_MS
+    !s.skip && !s.hosting && s.signed_in != Some(false) && s.now_ms < s.start_ms.max(s.last_hosting_ms) + SETTLE_MS
 }
 
 /// Why a turn's CLI runs in Session 0, for the desk's Session 0 badge
@@ -281,8 +283,16 @@ impl Why {
 /// a helper hosts in (always for `session0` or `use` 0); `held`: its CLI
 /// stayed for its background work.
 #[nolog]
-pub fn why_session0(_signed_in: Option<bool>, _own_choice: bool, _held: bool) -> Why {
-    Why::HelperUnreachable
+pub fn why_session0(signed_in: Option<bool>, own_choice: bool, held: bool) -> Why {
+    if held {
+        Why::BackgroundWork
+    } else if own_choice {
+        Why::Preference
+    } else if signed_in == Some(false) {
+        Why::SignedOut
+    } else {
+        Why::HelperUnreachable
+    }
 }
 
 /// Where a CLI that starts now runs among `sessions`: a session id, or None
