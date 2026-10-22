@@ -15,6 +15,16 @@ Read with `action=settings`, never `action=describe`: omitted-description `descr
 
 Use only the project's concurrency-slot permit. The filesystem `build.lock`/`build.queue.txt` protocol is retired: do not create, take, hand over or wait on those files. The historical skill path remains for existing links.
 
+The rig's legacy `withBuildLock` export is now only a compatibility callback
+wrapper: it returns `{ result, lock }` with informational caller-managed permit
+text and propagates callback errors. It performs no file-lock operations,
+lease validation, RAM check or process containment. `rig build` relies on the
+agent's real lease and external resource checks; invoking the script or setting
+an environment variable does not grant a permit. Its retired filesystem-lock
+proof refuses with a pointer to focused mock-build controls. Code recipes live
+in the repository's docs/rust-engine/test-rig.md and
+docs/agents/development-and-verification.md.
+
 ## Prepare, claim, batch and release
 
 1. Do light preparation first: source checkout, storage audit, test/fix commits and command/fixture preparation. Confirm this CLI exposes both [slot watchdog creation](../../watchdogs/tool-watchdog/SKILL.md) and the [project release action](../../team/tool-project/SKILL.md). Missing tools require coordinator help or a fresh CLI; documentation seats may intentionally lack them. There is no filesystem fallback and no authority to call a live API around the tools.

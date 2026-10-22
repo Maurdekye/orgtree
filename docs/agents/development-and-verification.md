@@ -392,11 +392,18 @@ verification phase and build-project permits still govern what may be run.
 
 The runner imports esbuild as ESM, so NODE_PATH alone does not satisfy its initial
 import. Resolve the actual dependencies in place through a coordinator-assigned
-runner; do not create dependency copies or junctions. The formerly recommended
-team bundle-tests.mjs adapter calls symlinkSync(..., 'junction') for its output
-node_modules. That violates the standing dependency rule even outside source;
-do not use it until a separately assigned code repair removes that behavior.
-This documentation change neither repairs nor executes the adapter.
+runner; do not create dependency copies or junctions. The repaired team
+renderer-tests-from-worktree/bundle-tests.mjs adapter takes REPO, OUT, DEPS and
+one or more filename filters. DEPS is an existing node_modules directory:
+createRequire resolves esbuild there, nodePaths resolves bundled dependencies,
+and an onResolve plugin rewrites external jsdom to its absolute file URL. It
+creates no dependency links or copies and stops esbuild after each batch of
+eight, including build failures. OUT must be empty and outside worktrees.
+Use run.mjs --prebuilt OUT (with the existing ESM esbuild loader), or execute
+the bundles directly with Node's test runner. Prebuilt mode never removes OUT;
+retain receipts and clean only authorized generated leaves after path/activity
+checks. Normal run.mjs bundling modes still create dependency junctions and are
+not covered by this repair; do not use them under the no-link policy.
 [verified: team adapter bundle-tests.mjs; 2026-10-22]
 
 The earlier [source-checked recipe](legacy-and-superseded.md#renderer-adapter-recipe-2026-10-21)
@@ -404,6 +411,18 @@ is retained as history, not an exemption. Windows --import paths still need a
 file URL (pathToFileURL(path).href); select the exact filename filters and prove
 the intended tests ran. Bundling/execution follows the current permit, output
 scope and containment in the rule-home table above.
+
+### Rig build permit compatibility
+
+The retired filesystem-lock implementation is removed. The old withBuildLock
+export remains solely for existing callers' result shape: it invokes the
+callback and returns its value with informational caller-managed build-slot
+text. Callback errors propagate unchanged. It performs no lock/queue I/O,
+lease validation, RAM check or process containment. The agent owns those
+checks and actual claim/release through the current project tools. Rig build
+steps and isolation remain unchanged; the retired build-lock proof refuses
+with a pointer to the focused mock-build controls. See the [rig guide](../rust-engine/test-rig.md#what-keeps-it-safe).
+[verified: tools/rig/{lib,rig}.mjs, tools/rig/tests/build-permit.test.mjs; 2026-10-22]
 
 <a id="e-43f61695c2e13155"></a>
 
