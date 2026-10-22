@@ -8,6 +8,17 @@ These attributed records were moved from the root guide at `22daffd`; they retai
 
 ## Renderer, capture and rig traps
 
+- The 21-check watchdog-slug proof distinguishes ready rowless one-shots from
+  registered dogs that later fire. Verify complete inline results, unchanged
+  row/mail/turn ledgers and immediate id reuse. Then arm a real command against
+  WAITING input before changing it to READY; require its original row to become
+  spent once, with one fire mail. Reuse its id while that tombstone is under
+  14 seconds old, verifying both its earlier spent feed entry and the unique
+  current handle/target afterward. Preserve all 21 names and the other 19 calls;
+  never manufacture spent SQL or remove the 15-second deduplication control.
+  [verified: `tools/rig/proofs/watchdog-slugs.mjs`; USER 2026-10-21 18:05:58Z;
+  2026-10-22]
+
 - The five-check draft-model proof snapshots the actual seed, including agent
   identities and persisted hire fields. Compare exact +0 engine-state deltas
   both before and after model selection, then exactly +1 newly identified Sol

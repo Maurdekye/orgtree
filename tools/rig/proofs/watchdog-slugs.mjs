@@ -18,11 +18,30 @@
 
 import fs from 'node:fs'
 import path from 'node:path'
+import { isDeepStrictEqual } from 'node:util'
 
 import { Proof } from '../proof.mjs'
 
 export async function setup() {
   return { recover: true }
+}
+
+export function inlineShotResult(result) {
+  const r = result?.json
+  return result?.ok === true && r?.id === 'shot' && r.name === 'shot' && r.once === true
+    && r.resolved === true && r.registered === false
+    && /Watchdog "shot" fired/.test(r.fire?.body ?? '') && /fire #1:/.test(r.fire?.body ?? '')
+    && isDeepStrictEqual(r.fire?.events, ['READY']) && r.fire?.fire_actions === ''
+}
+
+export function uniqueShotFeed(feed, spentAge) {
+  const dogs = feed?.dogs
+  if (feed?.error || !Array.isArray(dogs) || !Number.isFinite(spentAge) || spentAge < 0 || spentAge >= 14) return false
+  const handles = dogs.map(d => d.id)
+  return ['wes/build-watch-2', 'wes/build-watch', 'wes/file-owner-txt', 'kid/build-watch',
+    'wes/race', 'wes/race-2', 'wes/shot'].every(h => handles.includes(h))
+    && handles.filter(h => h === 'wes/shot').length === 1 && new Set(handles).size === handles.length
+    && dogs.find(d => d.id === 'wes/shot')?.target === 'echo LATER'
 }
 
 /** The watchdogs group of the org feed, from the records snapshot the desktop
@@ -136,19 +155,51 @@ export default async function (rig) {
   p.check('two creates racing for one name get race and race-2', raceIds[0] === 'race' && raceIds[1] === 'race-2', raced.map(said))
 
   // ------------------------------------------------------------ a spent one-shot frees its id; the feed keeps one row per handle
+  await rig.waitFor(() => rig.sql(`SELECT 1 FROM ot.turns WHERE agent_id=${wes} AND ended_at IS NULL`).length === 0,
+    { what: 'wes to settle before inline creation', timeout: 60000 })
+  const ledger = () => ({ dogs: rows(wes), mail: fires('shot'), turns: rig.turns('wes').length })
+  const inlineBefore = ledger()
   const shot = await dog('wes', { action: 'create', name: 'shot', kind: 'command', target: 'echo READY', pattern: 'READY', interval_s: 15, once: true })
-  const spent = await rig.waitFor(() => rows(wes).some(r => r.uid === 'shot' && r.state === 'spent'), { what: 'the one-shot to fire', timeout: 60000 })
-    .then(() => true, () => false)
+  const inlineAfter = ledger()
+  const inlineAgain = await dog('wes', { action: 'create', name: 'shot', kind: 'command', target: 'echo READY', pattern: 'READY', interval_s: 15, once: true })
+  await new Promise(r => setTimeout(r, 250))
+  const inlineSettled = ledger()
+  // READY at create is rowless. A separate pending command must really arm,
+  // then fire after its input changes, to exercise spent-row/feed retention.
+  const readyFile = path.join(W, 'shot-ready.txt')
+  fs.writeFileSync(readyFile, 'WAITING\n')
+  const pendingTarget = `type "${readyFile}"`
+  const pending = await dog('wes', { action: 'create', name: 'shot', kind: 'command', target: pendingTarget, pattern: '^READY$', interval_s: 15, once: true })
+  const registered = rows(wes).filter(r => r.uid === 'shot')
+  fs.writeFileSync(readyFile, 'READY\n')
+  const spent = await rig.waitFor(() => rig.one(`SELECT id,uid,state,fired FROM ot.watchdogs
+    WHERE owner_agent_id=${wes} AND uid='shot' AND state='spent'`), { what: 'the registered one-shot to fire', timeout: 60000 })
+    .catch(() => null)
+  const spentFeed = await feedDogs(rig, dogs => dogs.some(d => d.id === 'wes/shot' && d.target === pendingTarget && d.state === 'spent'))
+  const shotMails = fires('shot')
   const shot2 = await dog('wes', { action: 'create', name: 'shot', kind: 'command', target: 'echo LATER', pattern: 'NEVER', interval_s: 600 })
-  p.check('a spent one-shot frees its id: the next shot is shot again', shot.ok && spent && out(shot2).id === 'shot', { spent, shot: said(shot), again: said(shot2) })
+  const reusedRows = rows(wes).filter(r => r.uid === 'shot')
+  const inline = { before: inlineBefore, after: inlineAfter, settled: inlineSettled, shot, again: inlineAgain }
+  const delayed = { pending, registered, spent, spentFeed, shotMails, reused: shot2, rows: reusedRows }
+  p.file('shot-inline.json', inline)
+  p.file('shot-delayed.json', delayed)
+  p.check('a spent one-shot frees its id: the next shot is shot again', inlineShotResult(shot) && inlineShotResult(inlineAgain)
+    && inlineBefore.dogs.every(d => d.uid !== 'shot') && inlineBefore.mail.length === 0
+    && isDeepStrictEqual(inlineBefore, inlineAfter) && isDeepStrictEqual(inlineBefore, inlineSettled)
+    && pending.ok && out(pending).id === 'shot' && out(pending).once === true && out(pending).resolved !== true
+    && registered.length === 1 && registered[0].state === 'armed' && spent?.id === registered[0].id && spent?.fired === 1
+    && !spentFeed.error && spentFeed.dogs?.some(d => d.id === 'wes/shot' && d.target === pendingTarget && d.state === 'spent')
+    && shotMails.length === 1 && /READY/.test(shotMails[0].body) && shot2.ok && out(shot2).id === 'shot'
+    && reusedRows.length === 2 && reusedRows[0].state === 'spent' && reusedRows[1].state === 'armed'
+    && reusedRows[0].id !== reusedRows[1].id, { inline, delayed })
   const feed = await feedDogs(rig, dogs => dogs.some(d => d.id === 'wes/shot' && d.target === 'echo LATER'))
   // the feed shows a spent one-shot for 15 s: the check counts only inside that window
   const spentAge = rig.one(`SELECT extract(epoch FROM now() - spent_at)::float8 AS s FROM ot.watchdogs
                              WHERE owner_agent_id = ${wes} AND uid = 'shot' AND state = 'spent'`)?.s
   const handles = (feed.dogs ?? []).map(d => d.id)
+  p.file('shot-current-feed.json', { feed, spentAge })
   p.check('the desktop feed lists owner/id handles, one per dog, while the spent shot is still on show',
-    !feed.error && spentAge < 14 && handles.includes('wes/build-watch-2') && handles.includes('kid/build-watch')
-      && handles.filter(h => h === 'wes/shot').length === 1 && new Set(handles).size === handles.length,
+    uniqueShotFeed(feed, spentAge),
     { error: feed.error, spent_age_s: spentAge, handles })
 
   // ------------------------------------------------------------ a dog made before keeps its random id
