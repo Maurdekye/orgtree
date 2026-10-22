@@ -51,7 +51,7 @@ use anyhow::{anyhow, Context, Result};
 use serde_json::{json, Map, Value};
 use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncWriteExt, BufReader};
 use tokio::process::Command;
-use tokio::sync::{mpsc, oneshot};
+use tokio::sync::{mpsc, oneshot, watch};
 use tokio_util::sync::CancellationToken;
 
 use crate::engine::Engine;
@@ -174,7 +174,9 @@ pub struct MuseProc {
     who: String,
     stdin_close: Option<oneshot::Sender<()>>,
     waiters: mpsc::UnboundedSender<(i64, oneshot::Sender<Value>)>,
-    next: AtomicI64,
+    next: Arc<AtomicI64>,
+    /// Only protocol identity is shared with the reader, never actor state.
+    admitted: watch::Sender<Option<AdmittedTurn>>,
     child: Option<Launched>,
     job: Option<winproc::ChildJob>,
     /// the agent's tool bridge (its pipe closes with this process)
@@ -195,6 +197,23 @@ pub struct MuseProc {
     /// sticky replacement), so a resumed session runs on the current grants
     /// and never keeps a root that was revoked or made read-only since
     pub roots: Vec<String>,
+}
+
+/// One in-flight admission: registered before sending turn/start so a
+/// notification ahead of its acknowledgement is not mistaken for an own turn.
+#[derive(Clone)]
+struct AdmittedTurn {
+    command: String,
+    turn: Option<String>,
+    request: Option<i64>,
+}
+
+impl AdmittedTurn {
+    #[nolog]
+    fn matches(&self, params: &Value) -> bool {
+        params["commandId"].as_str() == Some(self.command.as_str())
+            || params["turnId"].as_str().is_some_and(|id| id == self.command || self.turn.as_deref() == Some(id))
+    }
 }
 
 /// A JSON-RPC error answered by the host, with its MSP kind.
@@ -506,7 +525,10 @@ impl MuseProc {
         let mut servers: Vec<String> = spec.servers.keys().cloned().collect();
         servers.push("orgtree".into());
         let policy = Policy { may_write: spec.may_write, may_shell: spec.may_shell, write, read, servers };
-        tokio::spawn(tracing::Instrument::instrument(read_stdout(stdout, actor, process, tx.clone(), wrx, policy), proc_span));
+        let next = Arc::new(AtomicI64::new(1));
+        let (admitted, _) = watch::channel(None);
+        tokio::spawn(tracing::Instrument::instrument(
+            read_stdout(stdout, actor, process, tx.clone(), wrx, policy, next.clone(), admitted.clone()), proc_span));
         let mut proc = MuseProc {
             pid,
             process,
@@ -514,7 +536,8 @@ impl MuseProc {
             who,
             stdin_close: Some(stdin_close),
             waiters: wtx,
-            next: AtomicI64::new(1),
+            next,
+            admitted,
             child: Some(child),
             job,
             pipe,
@@ -672,6 +695,14 @@ impl MuseProc {
     #[nolog]
     async fn exchange(&self, method: &str, params: Value, timeout: Duration) -> Result<Value> {
         let id = self.next.fetch_add(1, Ordering::Relaxed);
+        if method == "turn/start" {
+            self.admitted.send_if_modified(|a| {
+                if let Some(a) = a.as_mut().filter(|a| params["commandId"].as_str() == Some(a.command.as_str())) {
+                    a.request = Some(id);
+                    true
+                } else { false }
+            });
+        }
         let (tx, rx) = oneshot::channel();
         if self.waiters.send((id, tx)).is_err() {
             return Err(anyhow!("the Muse host is gone"));
@@ -709,14 +740,26 @@ impl MuseProc {
         tracing::info!(chars = text.chars().count(), images = images.len(), roots = self.roots.len(), "MSP turn start");
         let mut input = vec![json!({ "type": "text", "text": text })];
         input.extend(images);
-        let mut params = json!({ "commandId": uuid7(), "sessionId": self.session_id, "input": input, "ifBusy": "queue",
+        let command = uuid7();
+        let mut params = json!({ "commandId": command, "sessionId": self.session_id, "input": input, "ifBusy": "queue",
                                  "workspaceRoots": self.roots });
         if let Some(e) = &self.effort {
             params["reasoningEffort"] = json!(e);
         }
-        let r = self.request("turn/start", params, Duration::from_secs(120)).await?;
-        let turn = r["turnId"].as_str().filter(|s| !s.is_empty()).ok_or_else(|| anyhow!("turn/start named no turn"))?;
-        Ok((turn.to_string(), r["disposition"].as_str().unwrap_or("started").to_string()))
+        self.admitted.send_replace(Some(AdmittedTurn { command: command.clone(), turn: None, request: None }));
+        let result = self.request("turn/start", params, Duration::from_secs(120)).await.and_then(|r| {
+            let turn = r["turnId"].as_str().filter(|s| !s.is_empty()).ok_or_else(|| anyhow!("turn/start named no turn"))?;
+            Ok((turn.to_string(), r["disposition"].as_str().unwrap_or("started").to_string()))
+        });
+        self.admitted.send_if_modified(|admitted| {
+            if !admitted.as_ref().is_some_and(|a| a.command == command) { return false; }
+            match &result {
+                Ok((turn, _)) => admitted.as_mut().unwrap().turn = Some(turn.clone()),
+                Err(_) => *admitted = None,
+            }
+            true
+        });
+        result
     }
 
     /// Mid-turn input into the exact running turn; an error means it did not
@@ -762,13 +805,6 @@ impl MuseProc {
         let id = self.next.fetch_add(1, Ordering::Relaxed);
         self.send(&json!({ "jsonrpc": "2.0", "id": id, "method": "subagent/stop",
                            "params": { "commandId": uuid7(), "sessionId": self.session_id, "subagentId": subagent_id, "reason": reason } }))
-    }
-
-    /// Cancel a turn Orgtree did not start (a scheduled or automatic one).
-    pub fn cancel_turn(&self, turn_id: &str) -> bool {
-        let id = self.next.fetch_add(1, Ordering::Relaxed);
-        self.send(&json!({ "jsonrpc": "2.0", "id": id, "method": "turn/cancel",
-                           "params": { "commandId": uuid7(), "sessionId": self.session_id, "turnId": turn_id } }))
     }
 
     /// Compact the session (the `/compact` command): admission only, the
@@ -840,6 +876,8 @@ async fn read_stdout(
     writer: mpsc::UnboundedSender<String>,
     mut waiters_rx: mpsc::UnboundedReceiver<(i64, oneshot::Sender<Value>)>,
     policy: Policy,
+    next: Arc<AtomicI64>,
+    admitted: watch::Sender<Option<AdmittedTurn>>,
 ) {
     let mut reader = BufReader::with_capacity(1 << 16, stdout);
     let mut buf: Vec<u8> = Vec::new();
@@ -867,6 +905,15 @@ async fn read_stdout(
         let has_id = v.get("id").map(|i| !i.is_null()).unwrap_or(false);
         match (has_id, v.get("method").and_then(Value::as_str)) {
             (true, None) => {
+                // Bind the native alias before waking the actor: another
+                // turn/started can already be waiting on this stdout.
+                admitted.send_if_modified(|a| {
+                    if !a.as_ref().is_some_and(|a| a.request.is_some() && a.request == v["id"].as_i64()) { return false; }
+                    if let Some(turn) = v["result"]["turnId"].as_str().filter(|s| !s.is_empty()) {
+                        a.as_mut().unwrap().turn = Some(turn.to_string());
+                    } else { *a = None; }
+                    true
+                });
                 while let Ok((wid, tx)) = waiters_rx.try_recv() {
                     waiters.insert(wid, tx);
                 }
@@ -881,6 +928,25 @@ async fn read_stdout(
                 answer(method, &v["params"], &policy, &writer, &actor, process, &mut asked);
             }
             (false, Some(method)) => {
+                // The actor can be preparing an admitted turn (DB/prompt
+                // work) while Muse retries its own delivery turns. Cancel
+                // here, before the actor mailbox, so none runs in that gap.
+                if method == "turn/started" {
+                    let params = &v["params"];
+                    if let Some(turn) = params["turnId"].as_str().filter(|s| !s.is_empty()) {
+                        let ours = admitted.borrow().as_ref().is_some_and(|a| a.matches(params));
+                        if !ours {
+                            let id = next.fetch_add(1, Ordering::Relaxed);
+                            let cancel = json!({"jsonrpc":"2.0","id":id,"method":"turn/cancel",
+                                "params":{"commandId":uuid7(),"sessionId":params["sessionId"],"turnId":turn}});
+                            if writer.send(cancel.to_string()).is_err() { break "stdin writer closed".to_string(); }
+                        }
+                    }
+                } else if method == "turn/completed" {
+                    admitted.send_if_modified(|a| {
+                        if a.as_ref().is_some_and(|a| a.matches(&v["params"])) { *a = None; true } else { false }
+                    });
+                }
                 match method {
                     // the next stage of an approval: answered like the request
                     "approval/updated" => next_stage(&v["params"], &policy, &writer, &actor, process, &mut asked),
@@ -1101,7 +1167,9 @@ mod background_delivery_tests {
         let (writer, mut commands) = mpsc::unbounded_channel();
         let (_waiters, waiters_rx) = mpsc::unbounded_channel();
         let policy = Policy { may_write: false, may_shell: false, write: vec![], read: vec![], servers: vec![] };
-        let reader = tokio::spawn(read_stdout(Box::new(stdout), actor, uuid::Uuid::new_v4(), writer, waiters_rx, policy));
+        let (admitted, _) = watch::channel(None);
+        let reader = tokio::spawn(read_stdout(Box::new(stdout), actor, uuid::Uuid::new_v4(), writer, waiters_rx, policy,
+            Arc::new(AtomicI64::new(1)), admitted));
         // No actor consumes the notifications: admission/preparing its prompt
         // may be waiting on the database while the host retries delivery.
         for own in ["delivery-1", "delivery-2"] {
@@ -1122,6 +1190,44 @@ mod background_delivery_tests {
             if let AgentMsg::Muse(_, v) = envelope.msg { if v["method"] == "turn/started" { notices += 1; } }
         }
         assert_eq!(notices, 2, "actor still observes each cancellation for wake accounting");
+    }
+
+    #[tokio::test]
+    async fn admitted_command_and_native_alias_survive_before_the_actor_handles_the_ack() {
+        let (stdout, mut host) = tokio::io::duplex(4096);
+        let (actor, mut mailbox) = mpsc::unbounded_channel();
+        let (writer, mut commands) = mpsc::unbounded_channel();
+        let (waiters, waiters_rx) = mpsc::unbounded_channel();
+        let (reply, _ack_not_yet_read_by_actor) = oneshot::channel();
+        waiters.send((41, reply)).unwrap();
+        let (admitted, _) = watch::channel(Some(AdmittedTurn { command: "admitted-command".into(), turn: None, request: Some(41) }));
+        let policy = Policy { may_write: false, may_shell: false, write: vec![], read: vec![], servers: vec![] };
+        let reader = tokio::spawn(read_stdout(Box::new(stdout), actor, uuid::Uuid::new_v4(), writer, waiters_rx, policy,
+            Arc::new(AtomicI64::new(42)), admitted.clone()));
+        for params in [json!({"turnId":"admitted-command"}), json!({"turnId":"native-early","commandId":"admitted-command"})] {
+            let notification = json!({"jsonrpc":"2.0","method":"turn/started","params":params});
+            host.write_all(format!("{notification}\n").as_bytes()).await.unwrap();
+            mailbox.recv().await.unwrap();
+            assert!(commands.try_recv().is_err(), "admitted start before ack must not be cancelled");
+        }
+        let ack = json!({"jsonrpc":"2.0","id":41,"result":{"turnId":"native-alias"}});
+        let started = json!({"jsonrpc":"2.0","method":"turn/started","params":{"turnId":"native-alias"}});
+        host.write_all(format!("{ack}\n{started}\n").as_bytes()).await.unwrap();
+        mailbox.recv().await.unwrap();
+        assert!(commands.try_recv().is_err(), "native alias must be bound before actor resumes");
+        let foreign_done = json!({"jsonrpc":"2.0","method":"turn/completed","params":{"turnId":"foreign"}});
+        host.write_all(format!("{foreign_done}\n").as_bytes()).await.unwrap();
+        mailbox.recv().await.unwrap();
+        assert!(admitted.borrow().is_some(), "foreign completion cannot clear admission");
+        let done = json!({"jsonrpc":"2.0","method":"turn/completed","params":{"turnId":"native-alias"}});
+        host.write_all(format!("{done}\n").as_bytes()).await.unwrap();
+        mailbox.recv().await.unwrap();
+        assert!(admitted.borrow().is_none(), "matching completion releases the one admission");
+        host.write_all(format!("{started}\n").as_bytes()).await.unwrap();
+        let cancelled = tokio::time::timeout(Duration::from_millis(200), commands.recv()).await.unwrap().unwrap();
+        assert_eq!(serde_json::from_str::<Value>(&cancelled).unwrap()["method"], "turn/cancel");
+        drop(host);
+        reader.await.unwrap();
     }
 }
 

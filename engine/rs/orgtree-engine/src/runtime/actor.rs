@@ -4983,9 +4983,8 @@ impl Actor {
                 if let Some(id) = p["turnId"].as_str().filter(|id| Some(*id) != ours.as_deref()) {
                     // a host holding a background result for an idle agent starts
                     // one again at once after each cancel
-                    if let Some(Proc::Muse(m)) = &self.proc {
-                        m.cancel_turn(id);
-                    }
+                    // The protocol reader already cancelled it, ahead of
+                    // this mailbox's admission/prompt/database work.
                     self.own_turn_cancelled("Muse host", id).await;
                 }
             }
