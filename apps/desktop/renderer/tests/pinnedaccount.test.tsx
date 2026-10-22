@@ -9,7 +9,7 @@
 //      title bar is the surface that is always visible, and it carried only
 //      the pin glyph, the name, and the state chip.
 //   2. On the canvas node the card rendered at the CARD's inherited text
-//      size: `button.badge.serving-account` said `font-size: inherit`, which
+//      size: `.badge.serving-account` said `font-size: inherit`, which
 //      outweighs `.sq-badges .badge`'s 9.5px, so `default` towered over the
 //      `last: reserve` pill beside it.
 //
@@ -163,13 +163,13 @@ test('without the backend field a pinned desk shows no account card at all', asy
 
 test('the card uses the compact badge typography of its neighbours in every context', () => {
   const css = readFileSync(path.join(__SRC_DIR__, 'styles.css'), 'utf8')
-  const block = css.match(/button\.badge\.serving-account \{[^}]*\}/)?.[0]
-  assert.ok(block, 'the serving-account button rule exists')
+  const block = css.match(/\.badge\.serving-account \{[^}]*\}/)?.[0]
+  assert.ok(block, 'the serving-account badge rule exists')
   // `font-size: inherit` is the RC4 oversize: this selector outweighs the
   // span badges' context sizes, so inheriting makes the card wear the CARD's
   // text size instead of the pill size beside it.
   assert.doesNotMatch(block!, /font-size:\s*inherit/,
-    'the RC4 oversized-card regression: the button may not inherit its font size')
+    'the RC4 oversized-card regression: the badge may not inherit its font size')
 
   const size = (pattern: RegExp) => {
     const match = css.match(pattern)
@@ -179,11 +179,11 @@ test('the card uses the compact badge typography of its neighbours in every cont
   // Each context override must exist and be IN STEP with the span badges'
   // size for the same context, so the card is exactly as compact as the
   // reserve/last-reserve pill it sits beside.
-  assert.equal(size(/button\.badge\.serving-account \{[^}]*?font-size:\s*([\d.]+)px/),
+  assert.equal(size(/\.badge\.serving-account \{[^}]*?font-size:\s*([\d.]+)px/),
     size(/(?:^|\n)\.badge \{[^}]*?font-size:\s*([\d.]+)px/))
-  assert.equal(size(/\.sq-badges button\.badge\.serving-account \{[^}]*?font-size:\s*([\d.]+)px/),
+  assert.equal(size(/\.sq-badges \.badge\.serving-account \{[^}]*?font-size:\s*([\d.]+)px/),
     size(/\.sq-badges \.badge \{[^}]*?font-size:\s*([\d.]+)px/))
-  assert.equal(size(/\.desk-body button\.badge\.serving-account \{[^}]*?font-size:\s*([\d.]+)px/),
+  assert.equal(size(/\.desk-body \.badge\.serving-account \{[^}]*?font-size:\s*([\d.]+)px/),
     size(/\.desk-body \.badge \{[^}]*?font-size:\s*([\d.]+)px/))
 })
 
@@ -195,8 +195,8 @@ test('the title bar carries no account styling to orphan', () => {
   assert.doesNotMatch(css, /\.pinwin-title[^{]*\.serving-account/)
   // the card's own typography rules stay: they serve the canvas node and the
   // desk body, which is where the card still lives
-  assert.match(css, /\.desk-body button\.badge\.serving-account \{/)
-  assert.match(css, /\.sq-badges button\.badge\.serving-account \{/)
+  assert.match(css, /\.desk-body \.badge\.serving-account \{/)
+  assert.match(css, /\.sq-badges \.badge\.serving-account \{/)
 })
 
 

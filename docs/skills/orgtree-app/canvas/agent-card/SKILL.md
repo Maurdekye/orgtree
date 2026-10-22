@@ -22,7 +22,7 @@ At ordinary overview zoom, a card has identity, state and shortcut rows. Its tie
 | Error dot | Last recorded error; hover for the text. |
 | Archived/unrecoverable label | The seat is not an ordinary live worker; do not infer its history was deleted. |
 | Pinned | Its desk is hosted in a canvas window; focusing can raise that window. |
-| Secondary serving-account badge | The account actually serving the turn when supplied; ambient/default serving accounts do not get this badge. |
+| Secondary serving-account badge | The account actually serving the turn when supplied; ambient/default serving accounts do not get this badge. Display-only, with its account/email tooltip also accessible by keyboard focus. |
 | Session 0 state badge | Engine-reported Windows Session 0 placement, also shown on the desk header. The native tooltip and keyboard accessible label give the placement reason and known since time; null or signed-in placement hides it. See the [desk state badges](../../desk/agent-desk/SKILL.md#badges). |
 | Next-turn account/model/effort/fast mode badge | A queued requested value, distinct from the current serving configuration. |
 | Fast mode badge (lightning bolt; tooltip: fast) | Near-zoom supported active fast speed: a busy turn uses known serving speed; idle uses the saved setting. Queued-on/current-off and unknown busy speed do not show it. Queued-off keeps it until the fast turn ends. |
@@ -30,6 +30,8 @@ At ordinary overview zoom, a card has identity, state and shortcut rows. Its tie
 | Effort badge | An agent-specific effort override; it can appear even when equal to the org default. |
 | Watchdog count/one-shot mark | Attached watchers; the satellite/detail controls are separate from agents. |
 | Stack/layers count | More agents share this visible stack; use [piles](../piles/SKILL.md) to choose its front. |
+
+State badges are information. Clicking the serving-account, next-turn, effort, fast-mode, frozen, halted, DND or Session 0 marker selects/focuses the agent exactly like clicking the card body. They do not open account settings or consume the card's pointer gesture. Dedicated settings, halt/unhalt and unstick controls remain separate on the opened desk or context menu.
 
 Process readiness and provider-cache indicators on the opened desk are separate from the card's occupancy wheel; see [agent desk](../../desk/agent-desk/SKILL.md). A parked process is not proof of a provider cache hit. Session behavior belongs to `orgtree-turns-and-wakes` (orgtree-working › runtime), and usage interruption to `orgtree-usage-freezes` (orgtree-working › accounts).
 

@@ -333,10 +333,10 @@ export function RouteBadge({ route }: { route?: CodexRouteInfo | null }) {
  *
  *  A native tooltip is a MOUSE-HOVER surface — no engine renders one for a
  *  keyboard-focused element — so the keyboard reader is served by the
- *  `aria-label`, which now carries exactly the same short text. It stays a
- *  `<button>` so focus can land on it at all; `type="button"` and the stopped
- *  pointerdown keep it from submitting anything or swallowing the press that
- *  focuses the agent — the same two guards `ActionBadge` uses. */
+ *  `aria-label`, which carries exactly the same short text. A focusable span
+ *  keeps that detail accessible without claiming an action. USER 2026-10-22:
+ *  the badge must let the card's ordinary focus/select gesture through;
+ *  neither pointerdown nor click may be stopped or cancelled here. */
 export function ServingAccountBadge({ account }: { account?: ServingAccount | null }) {
   if (!account || servedByPrimary(account)) return null
   const display = account.display || account.id
@@ -349,15 +349,13 @@ export function ServingAccountBadge({ account }: { account?: ServingAccount | nu
   // not an observation.
   const detail = account.email ? `${display} · ${account.email}` : display
   return (
-    <button type="button"
+    <span tabIndex={0}
       className={'badge serving-account auth-' + account.auth + ' state-' + account.state}
       data-serving-account={display}
       title={detail}
-      aria-label={detail}
-      onPointerDown={(e) => e.stopPropagation()}
-      onClick={(e) => e.stopPropagation()}>
+      aria-label={detail}>
       {display}
-    </button>
+    </span>
   )
 }
 

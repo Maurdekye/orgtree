@@ -23,7 +23,7 @@ and from composer controls. There are two named groups:
 
 | Group | Meaning and members |
 | --- | --- |
-| **State badges** | Agent state shown on the desk header and zoom card: next-turn account, model, effort and fast mode; current effort; fast mode; frozen; halted; do-not-disturb (DND); Session 0. Name an individual marker by kind, such as **next-turn model badge** or **Session 0 badge**. |
+| **State badges** | Agent state shown on the desk header and zoom card: serving account; next-turn account, model, effort and fast mode; current effort; fast mode; frozen; halted; do-not-disturb (DND); Session 0. These are display-only; on a zoom card their clicks pass to the card's normal focus/select gesture. The serving-account badge retains its account/email native tooltip and matching accessible label, reachable by keyboard focus. Dedicated desk actions remain separate. Name an individual marker by kind, such as **next-turn model badge** or **Session 0 badge**. |
 | **Header badges** | Desk-only setup and context: MCP tool count/readiness, cache forecast, held audiences, cost/spend (with rights/metadata in its tooltip), separately reported status and queued-message count. |
 
 The renderer also shares reserve-route, secondary serving-account, limit-lock,

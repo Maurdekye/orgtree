@@ -17,6 +17,8 @@ Before renderer or desktop-main tests, visual captures or rig proofs, read the [
 
 ## Engine and desktop invariants
 
+- State badges pass card focus/select gestures through. The serving-account badge is a focusable informational span with native title = aria-label; it has no button role or pointer/click handler. Other state markers remain inert, with halt/unstick actions separate on the desk. [decided: user 2026-10-22 09:58Z; verified: `canvas/desk.tsx`, `statebadgefocus.test.tsx`]
+
 - Helper transcript tool inputs use the ordinary credential redactor before
   capture and on retained reads; never publish raw partial JSON. See
   [helper transcripts](docs/rust-engine/helper-transcripts.md).

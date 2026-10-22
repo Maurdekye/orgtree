@@ -842,9 +842,9 @@ button.badge.queued:hover { border-color: var(--button-accent); }
 .badge.unstick:hover { background: color-mix(in srgb, var(--accent) 15%, transparent); }
 button.badge.frozen { cursor: pointer; font: inherit; font-size: inherit; }
 button.badge.frozen:hover { border-color: var(--button-accent); }
-/* WHICH ACCOUNT IS SERVING THIS TURN (user requirement 2026-09-13). It stays
-   a button so keyboard focus can land on it at all, but it is styled as the
-   SIGN it is, not as an action: no hover fill, no pointer cursor, just the
+/* WHICH ACCOUNT IS SERVING THIS TURN (user requirement 2026-09-13). A
+   focusable span keeps its accessible detail and lets card focus presses
+   through (user 2026-10-22): no hover fill, no pointer cursor, just the
    focus ring it needs to be reachable. Monospace because the canonical
    account id is an identifier and reads as one beside the account ids in the
    Usage modal and the accounts panel.
@@ -852,33 +852,32 @@ button.badge.frozen:hover { border-color: var(--button-accent); }
    (user ruling 2026-09-17). The detail used to be a custom hover/focus panel
    listing six fields; the user asked for a plain `title` carrying the id and
    the email and nothing else, so the panel's rules are deleted rather than
-   left behind unused. The `:focus-visible` rule below is now the button's own
+   left behind unused. The `:focus-visible` rule below is the badge's own
    focus ring, not a reveal. */
-/* ⚠ COMPACT, LIKE ITS NEIGHBOURS. `font: inherit` here is only the UA-button
-   reset; the SIZES are restated explicitly because this selector outweighs
+/* ⚠ COMPACT, LIKE ITS NEIGHBOURS. The SIZES remain explicit because this selector outweighs
    `.badge`/`.sq-badges .badge`/`.desk-body .badge`, and `font-size: inherit`
    (the 2.1.4-RC4 state) made the card wear the CARD's text size — a `default`
    pill twice the height of the `last: reserve` pill beside it. The three
    sizes below mirror the span-badge sizes for the same three contexts; keep
    them in step with `.badge` (10.5px), `.sq-badges .badge` (9.5px), and
    `.desk-body .badge` (10px). */
-button.badge.serving-account {
-  font: inherit; font-size: 10.5px; font-family: var(--mono);
+.badge.serving-account {
+  font-size: 10.5px; font-family: var(--mono);
   cursor: default;
   border-color: color-mix(in srgb, var(--provider-accent, var(--accent)) 45%, transparent);
   color: var(--agent-accent-text, var(--accent));
 }
-.sq-badges button.badge.serving-account { font-size: 9.5px; }
-.desk-body button.badge.serving-account { font-size: 10px; }
-button.badge.serving-account:focus-visible {
+.sq-badges .badge.serving-account { font-size: 9.5px; }
+.desk-body .badge.serving-account { font-size: 10px; }
+.badge.serving-account:focus-visible {
   outline: 2px solid var(--button-accent); outline-offset: 1px;
 }
 /* a limited account still SERVES — it is simply out of room this window — so
    this is a quieter note beside the id, never the red of a fault */
-button.badge.serving-account.state-limited { border-color: #46647a; color: var(--ice); }
+.badge.serving-account.state-limited { border-color: #46647a; color: var(--ice); }
 /* `unobserved` gates nothing and must render as itself rather than as ready */
-button.badge.serving-account.auth-unobserved,
-button.badge.serving-account.auth-unauthenticated { color: var(--dim); }
+.badge.serving-account.auth-unobserved,
+.badge.serving-account.auth-unauthenticated { color: var(--dim); }
 /* NON-DEFAULT THINKING EFFORT (docket
    `show-non-default-effort-level-on-agent-headers`) — a compact header card in
    the same `.badge` vocabulary as the account, route, cost and lifecycle chips
