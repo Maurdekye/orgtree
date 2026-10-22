@@ -2,12 +2,20 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import childProcess from 'node:child_process'
+import os from 'node:os'
+import path from 'node:path'
 import { syncBuiltinESMExports } from 'node:module'
 import { withBuildLock } from '../lib.mjs'
 
 // Legacy callers retain their result shape, but may never probe, acquire,
 // release or recover the retired filesystem permit, even after failure.
 function forbidLockFiles(ctx) {
+  const previous = process.env.ORGTREE_BUILD_LOCK
+  process.env.ORGTREE_BUILD_LOCK = path.join(os.tmpdir(), 'synthetic-permit-check', 'build.lock')
+  ctx.after(() => {
+    if (previous === undefined) delete process.env.ORGTREE_BUILD_LOCK
+    else process.env.ORGTREE_BUILD_LOCK = previous
+  })
   const touched = []
   for (const name of ['existsSync', 'readFileSync', 'statSync', 'mkdirSync', 'writeFileSync', 'rmSync']) {
     const original = fs[name]
