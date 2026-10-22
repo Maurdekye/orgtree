@@ -106,7 +106,9 @@ test('fresh keeper imports after actual fixture replacement retain original root
 })
 
 test('fresh imports refuse malformed or empty protected-root transport', windows, () => {
-  for (const value of ['broken', '[]', '{}', '["relative"]', '[null]']) {
+  for (const value of ['broken', '[]', '{}', '["relative"]', '[null]',
+    JSON.stringify(Array(65).fill('C:\\Rig-Live-Roots-Unit')),
+    JSON.stringify(['C:\\' + '\u00e9'.repeat(8192)])]) {
     const result = childProcess.spawnSync(process.execPath, [childFixture, 'import-only'], {
       env: { ...fictionalEnvironment(), RIG_PROTECTED_ROOTS: value },
       windowsHide: true, encoding: 'utf8', timeout: 5000,

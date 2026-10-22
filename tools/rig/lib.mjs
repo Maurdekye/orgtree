@@ -53,8 +53,20 @@ export function rigHome() {
 }
 
 // Capture before a fixture replaces process.env; later guards must still protect
-// the original live folders. No filesystem access is needed to collect paths.
-const LIVE_ROOTS = Object.freeze((() => {
+// the original live folders. A fresh keeper import adopts the parent's original
+// paths rather than its synthetic profile. Invalid transport fails closed.
+function protectedRoots(value) {
+  if (value === undefined) return null
+  try {
+    if (typeof value !== 'string' || Buffer.byteLength(value, 'utf8') > 16384) throw Error()
+    const roots = JSON.parse(value)
+    if (!Array.isArray(roots) || !roots.length || roots.length > 64 ||
+      roots.some(root => typeof root !== 'string' || !path.isAbsolute(root) || root.includes('\0'))) throw Error()
+    return [...new Set(roots.map(root => path.resolve(root)))]
+  } catch { throw Error('invalid RIG_PROTECTED_ROOTS: expected a bounded nonempty array of absolute paths') }
+}
+
+const LIVE_ROOTS = Object.freeze(protectedRoots(process.env.RIG_PROTECTED_ROOTS) ?? (() => {
   const roots = []
   if (process.env.APPDATA) roots.push(path.join(process.env.APPDATA, 'Orgtree v2'), path.join(process.env.APPDATA, 'Orgtree'))
   const home = os.homedir()
@@ -66,6 +78,14 @@ const LIVE_ROOTS = Object.freeze((() => {
 /** Original live Orgtree paths; callers cannot mutate the guard's snapshot. */
 export function liveRoots() {
   return [...LIVE_ROOTS]
+}
+
+/** Carry original protection through environment allowlists. Ambient metadata
+ * may add roots, but cannot remove this process's captured roots. */
+export function protectedRootsEnvironment(inherited = process.env) {
+  const value = JSON.stringify([...new Set([...LIVE_ROOTS, ...(protectedRoots(inherited.RIG_PROTECTED_ROOTS) ?? [])])])
+  protectedRoots(value) // enforce bounds on the combined set too; never truncate
+  return value
 }
 
 export function assertSafeRoot(dir) {
@@ -854,6 +874,7 @@ export function cleanEnv() {
   const env = {}
   for (const [k, v] of Object.entries(process.env)) if (!drop.test(k)) env[k] = v
   for (const k of ['ORGTREE_RIG_HOME']) if (process.env[k]) env[k] = process.env[k]
+  env.RIG_PROTECTED_ROOTS = protectedRootsEnvironment()
   return env
 }
 

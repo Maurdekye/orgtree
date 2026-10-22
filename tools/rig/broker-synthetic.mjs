@@ -4,6 +4,7 @@ import path from 'node:path'
 import { execFileSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 import crypto from 'node:crypto'
+import { protectedRootsEnvironment } from './lib.mjs'
 
 export const fixtureSource = fileURLToPath(new URL('./synthetic-credential-tool.cs', import.meta.url))
 export const quotePS = s => "'" + String(s).replace(/'/g, "''") + "'"
@@ -41,6 +42,7 @@ export function fixtureEnvironment(dir, inherited = process.env) {
     GIT_CONFIG_GLOBAL: path.join(root, 'gitconfig'), GIT_CONFIG_SYSTEM: path.join(root, 'gitconfig'),
     GIT_CONFIG_NOSYSTEM: '1', GIT_TERMINAL_PROMPT: '0', GCM_INTERACTIVE: 'never',
     RIG_BROKER_FIXTURE: root,
+    RIG_PROTECTED_ROOTS: protectedRootsEnvironment(inherited),
   }
   for (const key of ['ORGTREE_AGENT', 'ORGTREE_RIG_HOME', 'ORGTREE_RIG_BROKER', 'CARGO_TARGET_DIR', 'RIG_BROKER_OUTPUT']) if (inherited[key]) env[key] = inherited[key]
   return env

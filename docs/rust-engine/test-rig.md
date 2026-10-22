@@ -213,9 +213,15 @@ never weaken shared ancestor ACLs to run it.
 Live-root paths from `APPDATA`, the home folder and any `ORGTREE_V2_DATA` override
 are captured when `tools/rig/lib.mjs` is imported; fixture environment replacement
 cannot redirect the guard. Configure original overrides before importing the rig.
+Fixture and keeper environment allowlists carry those paths in
+`RIG_PROTECTED_ROOTS`; fresh child imports adopt that original set instead of the
+synthetic profile. Each process's child transport retains its captured set and
+may add roots, never remove them. Invalid metadata fails closed (nonempty JSON
+array, at most 64 absolute paths and 16 KiB of text).
 The focused Windows check `node --test tools/rig/tests/live-roots.test.mjs` runs
-actual `prepareFixture` with file/compiler seams mocked: no live-folder access,
-engine or database is needed.
+actual `prepareFixture` with file/compiler seams mocked, including short-lived
+fresh Node imports across two generations using fictional roots: no live-folder
+access, real keeper, engine or database is needed.
 
 ## Fixtures
 

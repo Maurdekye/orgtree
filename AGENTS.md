@@ -15,7 +15,7 @@ Recursive project fires must construct nested futures with `util::boxed(|| ...)`
 
 Before renderer or desktop-main tests, visual captures or rig proofs, read the [test and capture traps](docs/agents/development-and-verification.md#renderer-capture-and-rig-traps): reduce DOM assertions to scalars, run main's own closures rather than one handler's text, wait for paint, and verify the PNG and the engine log being measured. [decided: coordinator 2026-10-21, standing-note relocation; main closures verified 2026-10-22: `tests/run-as-administrator.test.mjs`]
 
-Rig live-root guards retain import-time `APPDATA`/home/data-override paths after fixture environment replacement; set original overrides before importing the rig. See [rig isolation](docs/rust-engine/test-rig.md). [verified: `tools/rig/lib.mjs`, `tools/rig/tests/live-roots.test.mjs`; 2026-10-22]
+Rig live-root guards retain import-time `APPDATA`/home/data-override paths after fixture environment replacement; fixture/keeper allowlists carry validated `RIG_PROTECTED_ROOTS` across fresh imports without narrowing the captured set. Set original overrides before importing the rig. See [rig isolation](docs/rust-engine/test-rig.md). [verified: `tools/rig/{lib,broker-synthetic}.mjs`, `tools/rig/tests/live-roots.test.mjs`; 2026-10-22]
 
 ## Engine and desktop invariants
 
