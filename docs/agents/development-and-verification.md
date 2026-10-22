@@ -171,6 +171,17 @@ These attributed records were moved from the root guide at `22daffd`; they retai
   include required detail fields such as `attention_sources`; auto-selection
   exposes incomplete mocks immediately. See `docketselection.fixture.ts`.
   [verified: renderer docket/keyboard/membership suites; 2026-10-21]
+- **A bridge planted after load must not claim native windows.** App reads
+  `nativeWindows()` (`requestOrg`) at every render, and a v3 window's identity
+  is seeded at mount. A desk script whose catch-all Proxy answers `requestOrg`
+  makes the window a v3 window bound to no organization: the canvas goes
+  blank, and App settings (open per organization since b0aa671) closes. Leave
+  out `requestOrg`, `windowIdentity` and `getWindowIdentity`, as
+  `tools/rig/desktop/run-on-startup.cjs` does, or plant a typed v3 identity
+  before load (`Page.addScriptToEvaluateOnNewDocument`, as
+  `desktop/quick-chat-header.cjs` does). [verified:
+  `apps/desktop/renderer/src/App.tsx`, `src/desktop.ts`; measured: @rig-sol-b
+  2026-10-22 at 5dd06ee]
 - **Run main's closures; don't read one handler's text.** `apps/desktop/main/index.ts`
   starts Electron, so its wiring tests work from its source. A slice that
   starts at one `handleApp(...)` comes up empty (`-1 -1`) once that handler
