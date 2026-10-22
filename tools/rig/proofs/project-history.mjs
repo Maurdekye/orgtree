@@ -10,7 +10,8 @@
 //   that listener began listening (its arming, or its previous event); a
 //   listener watch's crossing is kept with its owner, count, the armed
 //   number and the listeners armed then; 30 a time, a cursor pages the rest;
-//   the tree's `last_fire` moves with every fire
+//   the tree's `last_fire` moves with every fire. Durable events capture their
+//   time before delivery; a listener waits from its own previous delivery.
 //   every hand-out records when its listener began waiting (its last
 //   hand-out, ack or arming); an ack frees the listener's dog (`freed_at`);
 //   op mail_queue_history lists, in ack mode, the jobs held now and the
@@ -103,7 +104,8 @@ export default async function (rig) {
     { said: said(f1), row: row1 && { ...row1, message: (row1.message ?? '').length } })
   p.check('a listener reached the first time had listened since its arming; the fire time is the dogs\' last fire',
     ms(row1?.listeners?.[0]?.since) === dogAt('ha', 'ha-ear2') && ms(row1?.listeners?.[1]?.since) === dogAt('hb', 'hb-once')
-    && ms(row1?.at) === lastFiredA && row1?.listeners?.[1]?.once === true && row1?.listeners?.[0]?.once === false,
+    && Number.isFinite(ms(row1?.at)) && ms(row1.at) <= lastFiredA
+    && row1?.listeners?.[1]?.once === true && row1?.listeners?.[0]?.once === false,
     { listeners: row1?.listeners, at: row1?.at, dogA: dogAt('ha', 'ha-ear2'), lastFiredA })
   const fireMail = who => rig.one(`SELECT uid FROM ot.mail WHERE recipient_agent_id = ${node(who).id} AND body LIKE '%PROJECT EVENT%' ORDER BY id DESC LIMIT 1`)?.uid
   const mailA = fireMail('ha'), mailB = fireMail('hb')
@@ -117,9 +119,12 @@ export default async function (rig) {
     { removedMail, gone })
   const f2 = await fire('boss', 'hx')
   const row2 = (await history('hx')).v?.history?.[0]
+  const lastFiredA2 = dbMs(`SELECT last_fired AS v FROM ot.watchdogs WHERE owner_agent_id = ${node('ha').id} AND name = 'ha-ear2'`)
   p.check('the next fire reaches the continuous listener only, listening since the previous fire; no message is null',
     f2.ok && row2?.id !== row1?.id && (row2?.listeners ?? []).map(l => l.agent).join() === 'ha'
-    && ms(row2?.listeners?.[0]?.since) === ms(row1?.at) && row2?.message == null, row2)
+    && ms(row2?.listeners?.[0]?.since) === lastFiredA && row2?.message == null
+    && Number.isFinite(ms(row2?.at)) && ms(row2.at) <= lastFiredA2 && lastFiredA2 > lastFiredA,
+    { ...row2, previousDelivery: lastFiredA, delivery: lastFiredA2 })
   const lb2 = await listen('hb', 'hb-ear', 'hx')
   const watch = await rig.tool('boss', 'orgtree_watchdog', { action: 'create', name: 'pair', kind: 'listener_watch', target: 'hx', count: 2, once: true, notice: true })
   await rig.waitFor(async () => (await history('hx')).v?.history?.[0]?.kind === 'watch', { what: 'the watch crossing', timeout: 20000 }).catch(() => {})
@@ -128,7 +133,7 @@ export default async function (rig) {
     lb2.ok && watch.ok && row3?.kind === 'watch' && row3?.by === 'boss' && row3?.watch?.agent === 'boss' && row3?.watch?.dog === 'pair'
     && row3?.watch?.count === 2 && row3?.watch?.armed === 2 && ms(row3?.watch?.since) === dogAt('boss', 'pair')
     && (row3?.listeners ?? []).map(l => l.agent).join() === 'ha,hb'
-    && ms(row3?.listeners?.[0]?.since) === ms(row2?.at) && ms(row3?.listeners?.[1]?.since) === dogAt('hb', 'hb-ear'),
+    && ms(row3?.listeners?.[0]?.since) === lastFiredA2 && ms(row3?.listeners?.[1]?.since) === dogAt('hb', 'hb-ear'),
     { said: said(watch), row: row3 })
   const hxTree = await treeNode('hx')
   const newestHx = rig.one(`SELECT max(id) AS id FROM ot.project_fires WHERE project_id = ${node('hx').id}`)?.id
@@ -286,12 +291,22 @@ export default async function (rig) {
   // ------------------------------------------------------------ slots
   const madeS = await project('hs', ['sa'])
   const capacity = await opTry({ op: 'set_slots', node: 'hs', capacity: 1 })
+  // USER 2026-10-21 18:05:58Z: ready slot claims have no dog. Queue this
+  // claim behind an occupied lease to exercise the actual claim-dog contract.
+  const blocker = await rig.tool('boss', 'orgtree_watchdog', { action: 'create', name: 'hs-blocker', kind: 'slot', target: 'hs', notice: true })
   const claim = await rig.tool('sa', 'orgtree_watchdog', { action: 'create', name: 'hs-build', kind: 'slot', target: 'hs', notice: true })
+  const pending = await opTry({ op: 'slot_status', node: 'hs' })
+  const unblocked = await rig.tool('boss', 'orgtree_project', { action: 'release_slot', lease: blocker.json?.lease })
+  await rig.waitFor(async () => (await opTry({ op: 'slot_status', node: 'hs' })).v?.holders?.[0]?.agent === 'sa',
+    { what: 'registered hs-build claim granted', timeout: 15000 }).catch(() => {})
   const s1 = await opTry({ op: 'slot_status', node: 'hs' })
   const holderDog = s1.v?.holders?.[0]?.dog
   p.check('a slot holder carries its claim dog (spent by the grant)',
-    madeS && capacity.ok && claim.ok && holderDog?.name === 'hs-build' && holderDog?.kind === 'slot' && holderDog?.owner === 'sa'
-    && holderDog?.id === 'sa/hs-build', { said: said(claim), holders: s1.v?.holders ?? s1.error })
+    madeS && capacity.ok && blocker.ok && blocker.json?.registered === false && !!blocker.json?.lease
+    && claim.ok && pending.v?.line?.[0]?.dog === 'hs-build' && unblocked.ok
+    && holderDog?.name === 'hs-build' && holderDog?.kind === 'slot' && holderDog?.owner === 'sa'
+    && holderDog?.id === 'sa/hs-build' && holderDog?.state === 'spent',
+    { said: said(claim), blocker: blocker.json, pending: pending.v, unblocked: said(unblocked), holders: s1.v?.holders ?? s1.error })
   // the claim dog is the desk's Watchdog column: an agent's
   // `orgtree_project action=slots` keeps the output it had, with or without team
   const toolSlots = async who => (await rig.tool(who, 'orgtree_project', { action: 'slots', name: 'hs' })).json
@@ -344,15 +359,55 @@ export default async function (rig) {
 
   // ------------------------------------------------------------ the migration's backfill
   const sqlText = fs.readFileSync(path.join(REPO, 'engine', 'rs', 'orgtree-engine', 'migrations', '0040_project_history.sql'), 'utf8')
-  const backfill = sqlText.split('-- BACKFILL')[1] ?? ''
+  const [migrationDdl, backfill = ''] = sqlText.split('-- BACKFILL')
   const madeB = await project('hb2', [])
   const madeD = await project('hd', [])
-  rig.exec(`INSERT INTO ot.events (org_id, at, op, actor, subject_agent_id, detail)
+  // migrate::run applies 0040 once, before 0050, then checks its checksum.
+  // Replaying its old timestamp anti-join over 0050 completion events is not
+  // an upgrade. Execute the unchanged migration in a pre-0040 schema instead.
+  const fixture = 'history_0040_upgrade', replay = 'history_0040_invalid_replay'
+  const baseTables = ['orgs', 'agents', 'events', 'watchdogs', 'mail']
+  const qualify = (sql, schema) => sql.replace(/\bot\./g, `${schema}.`)
+  const clone = (schema, modern) => {
+    rig.exec(`CREATE SCHEMA ${schema}`)
+    for (const table of [...baseTables, ...(modern ? ['project_fires', 'project_mail_endings'] : [])]) {
+      rig.exec(`CREATE TABLE ${schema}.${table} (LIKE ot.${table} INCLUDING DEFAULTS INCLUDING GENERATED INCLUDING IDENTITY)`)
+      // These two tables use bigserial, not identity. LIKE DEFAULTS would
+      // otherwise retain nextval(ot.*); install clone-owned sequences first.
+      if (table === 'project_fires' || table === 'project_mail_endings') {
+        rig.exec(`CREATE SEQUENCE ${schema}.${table}_id_seq OWNED BY ${schema}.${table}.id;
+          ALTER TABLE ${schema}.${table} ALTER COLUMN id SET DEFAULT nextval('${schema}.${table}_id_seq')`)
+      }
+      if (modern || table === 'orgs' || table === 'agents') {
+        rig.exec(`INSERT INTO ${schema}.${table} OVERRIDING SYSTEM VALUE SELECT * FROM ot.${table} WHERE ${table === 'orgs' ? 'id' : 'org_id'} = ${org()}`)
+      }
+    }
+    // LIKE does not copy indexes. Keep real row identities and independent
+    // sequences in each clone; in particular, never advance an ot sequence.
+    for (const table of [...baseTables, ...(modern ? ['project_fires', 'project_mail_endings'] : [])]) {
+      rig.exec(`ALTER TABLE ${schema}.${table} ADD PRIMARY KEY (id)`)
+      rig.exec(`SELECT setval(pg_get_serial_sequence('${schema}.${table}', 'id'),
+        coalesce((SELECT max(id) FROM ${schema}.${table}), 0) + 1, false)`)
+    }
+  }
+  const legacyExec = sql => rig.exec(qualify(sql, fixture))
+  const legacyRows = sql => rig.sql(qualify(sql, fixture))
+  const counts = schema => rig.one(`SELECT (SELECT count(*) FROM ${schema}.project_fires) AS fires, (SELECT count(*) FROM ${schema}.project_mail_endings) AS endings`)
+  const mainRows = () => ({
+    fires: rig.sql('SELECT * FROM ot.project_fires ORDER BY id'),
+    endings: rig.sql('SELECT * FROM ot.project_mail_endings ORDER BY id'),
+    sequences: rig.sql("SELECT sequencename,last_value FROM pg_sequences WHERE schemaname='ot' AND sequencename IN ('project_fires_id_seq','project_mail_endings_id_seq') ORDER BY sequencename"),
+    hd: node('hd').extra,
+  })
+  const mainBefore = mainRows()
+  clone(fixture, false)
+  legacyExec(migrationDdl)
+  legacyExec(`INSERT INTO ot.events (org_id, at, op, actor, subject_agent_id, detail)
             VALUES (${org()}, now() - interval '1 hour', 'project_event_fire', 'boss', ${node('hb2').id},
                     '{"project":"hb2","delivered":2,"listeners":["ha","hb"],"message":"an old fire"}'::jsonb)`)
-  rig.exec(`INSERT INTO ot.events (org_id, op, actor, subject_agent_id, detail)
+  legacyExec(`INSERT INTO ot.events (org_id, op, actor, subject_agent_id, detail)
             VALUES (${org()}, 'project_event_fire', 'boss', ${node('hb2').id}, '{"project":"hb2","listeners":"not a list"}'::jsonb)`)
-  rig.exec(`INSERT INTO ot.watchdogs (uid, org_id, owner_agent_id, name, kind, target, interval_s, state, memo, created_at)
+  legacyExec(`INSERT INTO ot.watchdogs (uid, org_id, owner_agent_id, name, kind, target, interval_s, state, memo, created_at)
             VALUES ('old-ear', ${org()}, ${node('boss').id}, 'old-ear', 'project_listener', 'hd', 5, 'removed',
                     jsonb_build_object('target_id', ${node('hd').id}), now() - interval '2 hours')`)
   // a job of hb2 handed twice and never acked: dead-lettered after its second attempt
@@ -362,34 +417,55 @@ export default async function (rig) {
     { n: 2, by: 'boss', by_id: node('boss').id, copy: 'old-copy-2', at: '2026-10-19T10:06:00Z',
       ended: { how: 'timed_out', why: 'did not ack it after 2 reminders', at: '2026-10-19T10:30:00Z' } },
   ])
-  rig.exec(`INSERT INTO ot.mail (uid, org_id, sender, recipient_kind, recipient_agent_id, recipient_name, body, state, extra)
+  legacyExec(`INSERT INTO ot.mail (uid, org_id, sender, recipient_kind, recipient_agent_id, recipient_name, body, state, extra)
             VALUES ('old-job', ${org()}, '@user', 'agent', ${node('hb2').id}, 'hb2', 'An old job', 'read',
                     jsonb_build_object('attempts', 2, 'attempt_log', '${log}'::jsonb,
                                        'dead_letter', jsonb_build_object('by', 'boss', 'attempts', 2)))`)
-  const counts = () => rig.one(`SELECT (SELECT count(*) FROM ot.project_fires) AS fires, (SELECT count(*) FROM ot.project_mail_endings) AS endings`)
-  const before = counts()
+  const before = counts(fixture)
   let ran = null
-  try { rig.exec(backfill); ran = 'ok' } catch (e) { ran = e.message }
-  const after1 = counts()
-  const old = rig.sql(`SELECT kind, fired_by, message, listeners, at FROM ot.project_fires WHERE project_id = ${node('hb2').id} ORDER BY id`)
-  const ends = rig.sql(`SELECT how, why, attempt, agent_name, copy_uid, held_at, ended_at FROM ot.project_mail_endings
+  try { legacyExec(backfill); ran = 'ok' } catch (e) { ran = e.message }
+  const after1 = counts(fixture)
+  const old = legacyRows(`SELECT kind, fired_by, message, listeners, at FROM ot.project_fires WHERE project_id = ${node('hb2').id} ORDER BY id`)
+  const ends = legacyRows(`SELECT how, why, attempt, agent_name, copy_uid, held_at, ended_at FROM ot.project_mail_endings
                          WHERE project_id = ${node('hb2').id} ORDER BY id`)
-  try { rig.exec(backfill) } catch (e) { ran = e.message }
-  const after2 = counts()
+  try { legacyExec(backfill) } catch (e) { ran = e.message }
+  const after2 = counts(fixture)
+  const legacyHd = legacyRows(`SELECT extra FROM ot.agents WHERE id = ${node('hd').id}`)[0]
+  // Negative control: preserve the old, unreachable after-the-fact replay in
+  // a separate clone. It must reproduce modern completion-event duplication,
+  // never mutate the engine's real synthetic history to manufacture a pass.
+  clone(replay, true)
+  rig.exec(`INSERT INTO ${replay}.events (org_id,at,op,actor,subject_agent_id,detail)
+            SELECT org_id,at,op,actor,subject_agent_id,detail FROM ${fixture}.events`)
+  rig.exec(`INSERT INTO ${replay}.mail (uid,org_id,sender,recipient_kind,recipient_agent_id,recipient_name,body,state,extra)
+            SELECT uid,org_id,sender,recipient_kind,recipient_agent_id,recipient_name,body,state,extra FROM ${fixture}.mail`)
+  const invalidBefore = counts(replay)
+  const unrepresented = rig.one(`SELECT count(*) AS n FROM ${replay}.events e WHERE e.op='project_event_fire'
+    AND e.detail ? 'fire_id' AND NOT EXISTS (SELECT 1 FROM ${replay}.project_fires f
+      WHERE f.project_id=e.subject_agent_id AND f.kind='event' AND f.at=e.at)`).n
+  rig.exec(qualify(backfill, replay))
+  const invalidAfter = counts(replay)
+  const mainAfter = mainRows()
+  const mainUnchanged = JSON.stringify(mainBefore) === JSON.stringify(mainAfter)
+  const invalidReproduced = Number(unrepresented) > 0
+    && Number(invalidAfter.fires) === Number(invalidBefore.fires) + 2 + Number(unrepresented)
+    && Number(invalidAfter.endings) === Number(invalidBefore.endings) + 2
+  p.file('migration-boundary.json', { fixture, replay, before, after1, after2, invalidBefore, invalidAfter,
+    modernTimestampMismatches: Number(unrepresented), invalidReproduced, mainUnchanged, mainBefore, mainAfter })
   p.check('the backfill copies earlier fires from ot.events (message, firer, listener names) and only those',
     madeB && madeD && backfill.length > 0 && ran === 'ok' && Number(after1.fires) === Number(before.fires) + 2 && old.length === 2
     && old[0].kind === 'event' && old[0].fired_by === 'boss' && old[0].message === 'an old fire'
     && JSON.stringify((old[0].listeners ?? []).map(l => l.agent)) === '["ha","hb"]'
-    && JSON.stringify(old[1].listeners) === '[]',
-    { ran, before, after1, old })
+    && JSON.stringify(old[1].listeners) === '[]' && mainUnchanged && invalidReproduced,
+    { ran, before, after1, old, mainUnchanged, invalidBefore, invalidAfter, unrepresented, invalidReproduced })
   p.check('it copies the endings a job\'s log shows (a failed attempt, then its dead letter) and only those',
     Number(after1.endings) === Number(before.endings) + 2 && ends.length === 2
     && ends[0].how === 'failed' && ends[0].why === 'was halted' && ends[0].attempt === 1 && ends[0].copy_uid === 'old-copy-1'
     && ends[1].how === 'dead_letter' && ends[1].attempt === 2 && /reminders/.test(ends[1].why ?? ''),
     { before, after1, ends })
   p.check('it marks a project whose only listener is long removed, and a second run adds nothing',
-    !!node('hd').extra?.listeners_seen_at && after2.fires === after1.fires && after2.endings === after1.endings,
-    { extra: node('hd').extra, after1, after2 })
+    !!legacyHd?.extra?.listeners_seen_at && after2.fires === after1.fires && after2.endings === after1.endings,
+    { extra: legacyHd?.extra, after1, after2 })
 
   p.file('fires.json', rig.sql(`SELECT f.id, a.name AS project, f.kind, f.fired_by, left(f.message, 80) AS message, f.watch, f.listeners, f.at
                                   FROM ot.project_fires f JOIN ot.agents a ON a.id = f.project_id ORDER BY f.id`))

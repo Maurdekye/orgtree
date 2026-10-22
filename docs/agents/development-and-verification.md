@@ -8,6 +8,19 @@ These attributed records were moved from the root guide at `22daffd`; they retai
 
 ## Renderer, capture and rig traps
 
+- Project-history keeps its 35 historical check names. Durable events capture
+  history time before delivery; require exact wait starts from each dog's prior
+  `last_fired`, with capture time no later than delivery. Listener watches still
+  register rows. To test slot claim-dog history, queue the claim behind an
+  occupied synthetic lease: ready claims deliberately create no dog (USER
+  2026-10-21 18:05:58Z). Execute unchanged migration 0040 in an isolated
+  pre-0040 schema; require exact +2 legacy fires/endings, repeat idempotence
+  and untouched modern history. Keep a separate negative clone reproducing the
+  invalid replay after 0050 fires; never edit a checksummed old migration or
+  ignore extra rows. See [project history](../rust-engine/PROJECT-NODES.md#the-project-desks-history-user-2026-10-20-0622z-0642z-migration-0040).
+  [verified: `tools/rig/proofs/project-history.mjs`, `src/migrate.rs`,
+  `src/domain/listeners.rs`; 2026-10-22]
+
 - The project-folder-raise proof's exact policy includes `event_listeners`
   (USER 2026-10-20 10:50Z, off by default). Configure outer=false and inner=true
   before capturing the rows; require exact equality afterward, including the

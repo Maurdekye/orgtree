@@ -646,9 +646,14 @@ coordinator 06:36Z with A1-A6, user additions 06:41Z-06:42Z).
   `failed` (released from a holder that stopped listening, was halted or
   retired, or did not ack in time), `taken_back` or `dead_letter`, with the
   holder, its dog, the attempt, `waited_from`, `held_at` and `ended_at`.
-  Each row is written in the transaction of the fire or ending it records
-  (`listeners::fire`/`evaluate`, `projects::reclaim_in`, the ack branch of
-  mail delivery), so id order is event order. Partial indexes
+  Durable events capture their history identity/time in `listeners::fire`
+  before bounded delivery transactions. Each listener's `last_fired` records
+  its delivery transaction; its next `since` equals that previous delivery
+  time, which need not equal the captured event time. Watch crossings keep
+  their registered dog and arming time; `listener_watch` is not among ready
+  one-shot kinds that skip registration. Ending rows are written in the
+  transaction of their ending (`projects::reclaim_in`, the ack branch of
+  mail delivery), so id order is ending order. Partial indexes
   `mail_project_copies` (a project's hand-outs, newest first) and
   `mail_project_held` (ack jobs held now) serve the live tables; each
   history table's `(project_id, id DESC)` index serves its pages.
@@ -657,7 +662,13 @@ coordinator 06:36Z with A1-A6, user additions 06:41Z-06:42Z).
   listeners' names; no dogs or times), endings from the ack records and each
   job's attempt log, and `listeners_seen_at` for projects that had a listener
   (migration 0043 switches those projects' event listeners on). It is
-  idempotent (the rig proof runs it twice).
+  idempotent at that upgrade boundary (the rig proof runs it twice in a
+  separate pre-0040 schema). `migrate::run` applies 0040 once, before 0050,
+  and refuses checksum drift. Replaying its timestamp anti-join after modern
+  0050 completion events exist is not a reachable upgrade: capture and
+  completion times differ, so that invalid replay duplicates current fires.
+  The proof retains this negative control in another isolated clone and
+  verifies that the modern main-schema history stays byte-for-byte unchanged.
 - **Reads** are bounded: 30 rows and one lookahead, the cursor the last row's
   id (`history_before`, a positive integer, else refused). Ops
   `listener_history` and `mail_queue_history` (`node`, `history_before`);
@@ -710,7 +721,11 @@ coordinator 06:36Z with A1-A6, user additions 06:41Z-06:42Z).
   (kept after the grant spends it), "Lease" for the claim column (A6) and
   **Recently Held** (A5). The claim dog is the desk's alone:
   `orgtree_project action=slots` strips it, so the tool's output is as
-  before.
+  before. Since USER 2026-10-21 18:05:58Z, an immediately ready one-shot
+  slot claim returns a durable lease without registering a dog, so its desk
+  dog is null. A queued claim still registers a dog whose identity survives
+  the grant and release. The history proof queues its claim behind an occupied
+  synthetic lease to retain this identity coverage.
 - **One look, at any normal width** (user 2026-10-20 08:59Z, 09:00Z, on
   4.4.0-alpha.16): the three tables' column header row and section
   headings take one style, set on the shared `.slots-table` and by no host
@@ -755,7 +770,7 @@ sheets; chart/docket visuals pending the user's answer.
   - wrapping a node with `above`.
 - Renderer: `tests/projecttoken.test.tsx` (the hire token) and `tests/projectnode.test.tsx`
   (the form, the card, the menus). Both are red at base 88e029a.
-- The desk's history: rig proof `tools/rig/proofs/project-history.mjs` (32 checks: fires,
+- The desk's history: rig proof `tools/rig/proofs/project-history.mjs` (35 checks: fires,
   watches, endings, deliveries, take back, wait starts, slot claim dogs, paging, the
   backfill) and `tests/projecthistory.test.tsx`; captures with
   `PROJECTNODE_VISUAL_ONLY=history` (`tests/projectnode-visual.{mjs,cjs,tsx}`).
