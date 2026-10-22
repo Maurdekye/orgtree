@@ -42,7 +42,9 @@ export default async function(rig){
     rig.scenario({default:{turns:[{steps:[{text:'OK.'}]}]}})
     await seed(rig,{org:{name:'Session Blip Admission'},agents})
     for(const name of names)await rig.userMail(name,'SESSION-BLIP-WARMUP')
-    await rig.waitFor(quiet,{what:'initial fake turns',timeout:45000})
+    // Decision 94 (invariant 5): the user is signed in and no helper has come
+    // yet, so these first turns after the engine's start wait up to 60 s for one.
+    await rig.waitFor(quiet,{what:'initial fake turns',timeout:120000})
     for(const name of names){
       let helper=start()
       await rig.waitFor(()=>placement()==='signed-in'&&logs().some(l=>l.includes('Sign-in helper took the Codex host slot')&&l.includes(`pid=${helper.child.pid} `)),
