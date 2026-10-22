@@ -64,14 +64,14 @@ export function TemplateDocumentsSetting() {
 /** The groups "Save as template" offers. The tree, names and tiers are
  *  always saved; accounts and folders belong to this computer and start off. */
 const GROUPS: { key: keyof TemplateInclude; label: string; hint?: string }[] = [
-  { key: 'charters', label: 'Charters and team charters' },
+  { key: 'charters', label: 'Charters, team charters and project Summary' },
   { key: 'credits', label: 'Credits', hint: "each agent's spare credits" },
   { key: 'effort', label: 'Effort, fast mode and harness pin' },
   { key: 'tools', label: 'Tool switches, visibility and permission mode' },
   { key: 'org_md', label: 'org.md' },
   { key: 'quick_chat', label: 'Quick chat defaults', hint: 'the superior, model and effort it starts with here' },
-  { key: 'settings', label: 'Org-wide and project settings',
-    hint: 'org defaults plus project queue, events, slots and peer mail; never folders, accounts or hubs' },
+  { key: 'settings', label: 'Org defaults and project queue/event settings',
+    hint: 'grant caps, new-agent defaults, compaction and resume, plus project queue and event policy; never folders, accounts or hubs' },
   { key: 'watchdogs', label: 'Include watchdogs', hint: 'standing watches; node targets follow the new layout; credentials are never saved' },
   { key: 'machine_watchdogs', label: 'Include machine-specific watchdogs', hint: 'files, commands, processes, streams, MQTT and WebSocket; recreated paused so you can check their targets' },
   { key: 'audiences', label: 'Include audiences', hint: 'explicit grants between saved nodes, plus user and outside-mail access; shown before creation' },
