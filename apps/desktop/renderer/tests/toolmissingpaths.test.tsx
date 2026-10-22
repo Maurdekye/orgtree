@@ -102,3 +102,21 @@ test('resolved files keep the filename-only label, full-path title and existing 
   assert.deepEqual((await localFileMenu(link, path, async () => true)).filter(e => e !== 'sep').map(e => e.label),
     ['Open', 'Show in folder', 'Copy path', 'Copy file name'])
 })
+
+test('a created file is rechecked at tool completion and an older status response cannot hide it again', async t => {
+  let finishOld!: (value: { ok: boolean; exists: boolean }) => void
+  let calls = 0
+  bridge(t, { localFileStatus: () => ++calls === 1 ? new Promise(resolve => { finishOld = resolve })
+    : Promise.resolve({ ok: true, exists: true }) })
+  const path = 'C:/synthetic/new/created.md'
+  const chip = (ended_at?: string) => <ToolChip t={{ id: 'created', name: 'Write', ended_at,
+    file_paths: [{ path, link: true }] }} slug="org" nid="agent" />
+  const v = await mountView(chip(), el => el)
+  t.after(() => v.unmount())
+  assert.equal(v.el.querySelector('[data-local-path]')?.textContent, path, 'unknown while the check is pending')
+  await v.render(chip('2026-10-22T19:40:00Z'))
+  await flush(3)
+  assert.equal(v.el.querySelector('[data-local-path]')?.textContent, 'created.md')
+  await inAct(() => finishOld({ ok: true, exists: false }))
+  assert.equal(v.el.querySelector('[data-local-path]')?.textContent, 'created.md', 'the earlier result cannot replace current status')
+})

@@ -46,6 +46,9 @@ test('same local file in tool, Markdown and raw prose has one tooltip and contex
 })
 
 test('tool file links show only the filename, expose the full path on hover, and replace a duplicate truncated argument', async t => {
+  const old = Object.getOwnPropertyDescriptor(window, 'orgtreeDesktop')
+  Object.defineProperty(window, 'orgtreeDesktop', { configurable: true, value: { localFileStatus: async () => ({ ok: true, exists: true }) } })
+  t.after(() => old ? Object.defineProperty(window, 'orgtreeDesktop', old) : delete (window as unknown as { orgtreeDesktop?: unknown }).orgtreeDesktop)
   const path = 'C:\\Users\\ncola_k8bx\\AppData\\Roaming\\Orgtree v2\\data\\scratch\\orgtree\\agent-tooltip-luna\\CLAUDE.md'
   const view = await mountView(<ToolChip t={{ id: 'read-1', name: 'Read', arg: path.slice(0, 90),
     file_paths: [{ path, link: true }, { path: 'C:\\workspace\\docs\\SKILL.md', link: true }] }} slug="org" nid="agent" />, el => el)
@@ -66,6 +69,9 @@ test('tool file links show only the filename, expose the full path on hover, and
 })
 
 test('Skill and edit tool paths keep the separator outside each filename link', async t => {
+  const old = Object.getOwnPropertyDescriptor(window, 'orgtreeDesktop')
+  Object.defineProperty(window, 'orgtreeDesktop', { configurable: true, value: { localFileStatus: async () => ({ ok: true, exists: true }) } })
+  t.after(() => old ? Object.defineProperty(window, 'orgtreeDesktop', old) : delete (window as unknown as { orgtreeDesktop?: unknown }).orgtreeDesktop)
   const skillPath = 'C:\\workspace\\skills\\review\\SKILL.md'
   const editPath = 'C:\\workspace\\src\\settings.json'
   const view = await mountView(<>
@@ -83,11 +89,11 @@ test('Skill and edit tool paths keep the separator outside each filename link', 
   assert.match(lines[1].textContent ?? '', /Edit\s+settings\.json/)
 })
 
-test('relative file paths without an event working directory stay plain text', async t => {
+test('relative file paths without an event working directory stay non-openable, with the full path', async t => {
   const view = await mountView(<ToolChip t={{ id: 'read-2', name: 'Read',
     file_paths: [{ path: 'notes/todo.md', link: false }] }} slug="org" nid="agent" />, el => el)
   t.after(() => view.unmount())
-  assert.equal(view.el.querySelector('a[data-local-path]') === null, true)
+  assert.equal(view.el.querySelector('[data-local-path]')?.getAttribute('aria-disabled'), 'true')
   assert.match(view.el.querySelector('.tline')?.textContent ?? '', /notes\/todo\.md/)
 })
 
@@ -157,6 +163,6 @@ test('tool-row file menu reports a path that disappeared before the menu opened'
 
   const menu = document.querySelector('.ctxmenu')!
   assert.ok(menu, 'the missing path still gets a context menu')
-  assert.deepEqual([...menu.querySelectorAll('[role="menuitem"]')].map(item => item.textContent), ['File no longer exists'])
+  assert.deepEqual([...menu.querySelectorAll('[role="menuitem"]')].map(item => item.textContent), ['File no longer exists', 'Copy path', 'Copy file name'])
   assert.equal((menu.querySelector('[role="menuitem"]') as HTMLButtonElement).disabled, true)
 })
