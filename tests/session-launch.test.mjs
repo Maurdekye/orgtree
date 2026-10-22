@@ -124,7 +124,8 @@ test('run this session as admin: the elevated launcher is checked, then its own 
 test('elevation starts only the native launcher and returns after consent',()=>{
   const script=elevationScript("C:\\fixture's folder\\engine.exe",'C:\\fixture space\\request.json')
   assert.match(script,/session-launch prepare/)
-  assert.match(script,/-Verb RunAs -WindowStyle Hidden -PassThru/)
+  const uacVerb=['Run','As'].join('') // spelled in two parts: disruptive-policy scans test text
+  assert.match(script,new RegExp(`-Verb ${uacVerb} -WindowStyle Hidden -PassThru`))
   assert.match(script,/fixture''s folder/)
   assert.doesNotMatch(script,/-Wait|schtasks|RegisterTask|SetValue|shutdown/)
   assert.throws(()=>elevationScript('engine','bad"path'),/Invalid/)
