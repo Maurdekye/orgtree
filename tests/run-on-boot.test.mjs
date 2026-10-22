@@ -20,7 +20,8 @@ import { spawnSync } from 'node:child_process'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { build } from 'esbuild'
+import vm from 'node:vm'
+import { build, transformSync } from 'esbuild'
 import { createRequire } from 'node:module'
 
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'orgtree-runonboot-'))
@@ -34,6 +35,16 @@ const admin = await load('apps/desktop/main/runasadmin.ts', 'runasadmin')
 const read = file => fs.readFileSync(file, 'utf8')
 const windows = process.platform === 'win32'
 const powershell = `${process.env.SystemRoot || 'C:\\Windows'}\\System32\\WindowsPowerShell\\v1.0\\powershell.exe`
+
+/** Run one of main's own closures (index.ts starts Electron, so it cannot be
+ *  imported): its source between two anchors, types stripped, in a context of
+ *  synthetic seams that record what it asks for. */
+function mainClosure(main, from, to, seams) {
+  const start = main.indexOf(from), end = main.indexOf(to, start)
+  assert.ok(start >= 0 && end > start, `main has ${from.trim()}`)
+  vm.runInNewContext(transformSync(main.slice(start, end), { loader: 'ts', target: 'node22' }).code, seams)
+  return seams
+}
 
 /** A runner that records calls and answers from a queue. */
 function fakeRunner(...answers) {
@@ -159,7 +170,7 @@ test('every script parses in Windows PowerShell 5.1', { skip: !windows && 'UNEXE
   }
 })
 
-test('main and the preload wire one startup switch and the session-aware restart path', () => {
+test('main and the preload wire one startup switch and the session-aware restart path', async () => {
   const main = read('apps/desktop/main/index.ts')
   assert.doesNotMatch(main, /desktop:engine-start|desktop:set-engine-start|changeEngineStart|engineStartState/)
   // "Run on boot", or "Run on sign-in" where Orgtree cannot start at boot (coordinator ruling A)
@@ -180,11 +191,24 @@ test('main and the preload wire one startup switch and the session-aware restart
   assert.doesNotMatch(restart, /stopForSessionRestart|replaceWithSessionAdmin/)
   assert.match(main, /launchBackground\(engineOptions\)/)
   assert.match(main, /engine\.usesBackgroundTask && restartBackground\) await restartBackground\(false\)/, 'the tray restarts a task-run engine the same way')
-  // switching Run as admin on first says what it does, before the one UAC prompt
-  const set = main.slice(main.indexOf("handleApp('desktop:set-run-as-admin'"), main.indexOf("handleApp('desktop:startup-kind'"))
-  const warn = set.indexOf('Run every agent as administrator?'), write = set.indexOf('await writeRunAsAdministrator(enabled)')
-  assert.ok(warn > 0 && write > warn, `the warning comes before the write: ${warn} ${write}`)
-  assert.match(set, /if \(response !== 0\) throw new Error\('Run as admin was not turned on\.'\)/)
+  // Switching Run as admin on first says what it does, before the one UAC
+  // prompt, and declining keeps it off and says so. Settings and the tray
+  // share one change (de04072); run it through the Settings handler.
+  const steps = [], warnings = [], answers = [1, 0], handlers = {}
+  mainClosure(main, '      changeRunAsAdministrator = async', '      /** "Run on boot"', {
+    handleApp: (name, fn) => { handlers[name] = fn }, changeRunAsAdministrator: undefined, adminChanging: false,
+    rebuildTray() {}, refreshRunAsAdministrator: async () => ({ available: true, enabled: steps.includes('write true') }),
+    backgroundEngineRestart: false, engineRestartBlocked: () => false,
+    dialog: { showMessageBox: async options => { steps.push('warning'); warnings.push(options); return { response: answers.shift() } } },
+    writeRunAsAdministrator: async enabled => { steps.push(`write ${enabled}`) },
+    restartBackgroundEngine: async () => { steps.push('restart') },
+  })
+  await assert.rejects(handlers['desktop:set-run-as-admin'](true, false), /Run as admin was not turned on\./)
+  assert.deepEqual(steps, ['warning'], 'declining the warning writes nothing')
+  await handlers['desktop:set-run-as-admin'](true, false)
+  assert.deepEqual(steps, ['warning', 'warning', 'write true'], 'the warning comes before the write')
+  assert.equal(warnings[0].message, 'Run every agent as administrator?')
+  assert.equal(warnings[0].buttons[warnings[0].defaultId], 'Cancel', 'Cancel is the default answer')
   const preload = read('apps/desktop/preload/index.ts')
   assert.match(preload, /getStartupKind: \(\) => ipcRenderer\.invoke\('desktop:startup-kind'\)/)
   assert.doesNotMatch(preload, /engine-start/)

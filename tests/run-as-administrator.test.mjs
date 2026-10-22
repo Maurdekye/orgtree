@@ -18,7 +18,8 @@ import { randomUUID } from 'node:crypto'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { build } from 'esbuild'
+import vm from 'node:vm'
+import { build, transformSync } from 'esbuild'
 import { createRequire } from 'node:module'
 
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'orgtree-runasadmin-'))
@@ -29,9 +30,20 @@ const load = async (source, name) => {
 }
 const admin = await load('apps/desktop/main/runasadmin.ts', 'runasadmin')
 const { Engine } = await load('apps/desktop/main/engine.ts', 'engine')
+const { route } = await load('apps/desktop/main/sessionlaunch.ts', 'sessionlaunch')
 const read = file => fs.readFileSync(file, 'utf8')
 const windows = process.platform === 'win32'
 const powershell = `${process.env.SystemRoot || 'C:\\Windows'}\\System32\\WindowsPowerShell\\v1.0\\powershell.exe`
+
+/** Run one of main's own closures (index.ts starts Electron, so it cannot be
+ *  imported): its source between two anchors, types stripped, in a context of
+ *  synthetic seams that record what it asks for. */
+function mainClosure(main, from, to, seams) {
+  const start = main.indexOf(from), end = main.indexOf(to, start)
+  assert.ok(start >= 0 && end > start, `main has ${from.trim()}`)
+  vm.runInNewContext(transformSync(main.slice(start, end), { loader: 'ts', target: 'node22' }).code, seams)
+  return seams
+}
 
 /** A runner that records calls and answers from a queue. */
 function fakeRunner(...answers) {
@@ -144,7 +156,7 @@ test('the write script really creates an admin-only key with the value (throwawa
     assert.ok(!/\(A;[^;]*;K[AW][^)]*;;;BU\)/.test(sddl) && !/;;;AU\)|;;;WD\)/.test(sddl), `no write for users: ${sddl}`)
   })
 
-test('main wires the setting and keeps the recovery poll out of a deliberate restart', () => {
+test('main wires the setting and keeps the recovery poll out of a deliberate restart', async () => {
   const main = read('apps/desktop/main/index.ts')
   assert.match(main, /handleApp\('desktop:run-as-admin'/)
   assert.match(main, /handleApp\('desktop:set-run-as-admin'/)
@@ -152,16 +164,56 @@ test('main wires the setting and keeps the recovery poll out of a deliberate res
   // shutdown; the legacy HTTP recovery poll must not resurrect that cohort.
   // Deliberate restart remains excluded from the legacy path as before.
   assert.match(main, /if \(stats === null && !engine\.managed && !backgroundEngineRestart && !coreLifecycle\)/)
-  const setter = main.slice(main.indexOf("handleApp('desktop:set-run-as-admin'"))
-  assert.match(setter, /if \(state\.enabled !== enabled\) await writeRunAsAdministrator\(enabled\)/)
-  assert.match(setter, /if \(restartNow\) await restartBackgroundEngine\(\)/)
-  // the restart this setting shares with "engine starts": graceful stop, then
-  // whichever engine task is enabled (the boot task or the sign-in engine), then reattach
-  const restart = main.slice(main.indexOf('const restartBackgroundEngine = async'), main.indexOf('const runAsAdministratorState'))
-  const order = ['engine.stopAttachedForUpdate()', 'startEngineTask()', 'engine.reattachBackground(']
-  const at = order.map(s => restart.indexOf(s))
-  assert.ok(at.every(i => i > 0) && at[0] < at[1] && at[1] < at[2], `graceful stop, then the task, then reattach: ${at}`)
-  assert.match(restart, /finally \{ backgroundEngineRestart = false/)
+  // Settings and the tray share one guarded change (de04072); run it through
+  // the Settings handler. Only a real change is written, and "Restart now"
+  // restarts after the write.
+  const steps = [], stored = { available: true, enabled: false }, handlers = {}
+  const setter = mainClosure(main, '      changeRunAsAdministrator = async', '      /** "Run on boot"', {
+    handleApp: (name, fn) => { handlers[name] = fn }, changeRunAsAdministrator: undefined, adminChanging: false,
+    rebuildTray() {}, refreshRunAsAdministrator: async () => ({ ...stored }),
+    backgroundEngineRestart: false, engineRestartBlocked: () => false,
+    dialog: { showMessageBox: async () => { steps.push('warning'); return { response: 0 } } },
+    writeRunAsAdministrator: async enabled => { steps.push(`write ${enabled}`); stored.enabled = enabled },
+    restartBackgroundEngine: async () => { steps.push('restart') },
+  })
+  const set = handlers['desktop:set-run-as-admin']
+  await set(true, true)
+  assert.deepEqual(steps, ['warning', 'write true', 'restart'], 'a change is warned about, written, then restarted')
+  await set(true, true)
+  assert.deepEqual(steps.slice(3), ['restart'], '"Restart now" repeats the stored value: no warning, no write')
+  await set(false, false)
+  assert.deepEqual(steps.slice(4), ['write false'], 'switching off is written without a warning or a restart')
+  assert.equal(setter.adminChanging, false)
+  // The restart this setting shares with the tray's Restart engine, away from
+  // a verified console session (decision 93): graceful stop, then the boot
+  // task, then reattach, with the recovery poll held off until it has ended,
+  // failed or not.
+  const order = [], origin = 'http://127.0.0.1:1'
+  let reattached = true
+  const restart = {
+    restartBackground: undefined, backgroundEngineRestart: false, quitComplete: false, engineRestartBlocked: () => false,
+    quitting: false, installerUpgradeShutdown: false, engineOptions: { binary: 'engine.exe', dataRoot: 'data' },
+    readStartupTasks: async () => ({ boot: true, helper: true, interactive: true }), launchContext: async () => null, route,
+    startInSession: async () => { order.push('user-session task') }, runSessionAsAdmin: async () => { order.push('UAC prompt') },
+    coreLifecycle: { transition: async on => { order.push(`transition ${on}`) }, complete: async () => { order.push('complete') },
+      stop() { order.push('lifecycle stopped') } },
+    engine: { origin, restart: async () => { order.push('own engine') },
+      stopAttachedForUpdate: async () => { order.push(held('graceful stop')) },
+      reattachBackground: async () => { order.push(held('reattach')); return reattached } },
+    startEngineTask: async () => { order.push(held('boot task')) },
+    initialOrigin: origin, records: new Map(), saveWindowLayout: async () => {}, relaunchApp() {}, app: { quit() {} },
+    rebuildTray() { order.push('tray') },
+  }
+  /** A step, marked if the recovery poll could act during it. */
+  const held = step => step + (restart.backgroundEngineRestart ? '' : ' (recovery poll not held off)')
+  mainClosure(main, '      const restartBackgroundEngine = async', '      const runAsAdministratorState', restart)
+  await restart.restartBackground()
+  assert.deepEqual(order, ['transition true', 'graceful stop', 'boot task', 'reattach', 'complete', 'tray'])
+  assert.equal(restart.backgroundEngineRestart, false)
+  reattached = false; order.length = 0
+  await assert.rejects(restart.restartBackground(), /has not reconnected to it yet/)
+  assert.deepEqual(order, ['transition true', 'graceful stop', 'boot task', 'reattach', 'tray'])
+  assert.equal(restart.backgroundEngineRestart, false, 'a failed restart lets the recovery poll act again')
   const preload = read('apps/desktop/preload/index.ts')
   assert.match(preload, /getRunAsAdministrator: \(\) => ipcRenderer\.invoke\('desktop:run-as-admin'\)/)
   assert.match(preload, /ipcRenderer\.invoke\('desktop:set-run-as-admin', enabled, restartNow\)/)
