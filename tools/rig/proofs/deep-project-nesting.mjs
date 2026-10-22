@@ -100,15 +100,46 @@ export default async function (rig) {
     phase = 'cheap source-chain and superior measurement'
     const opsSource = fs.readFileSync(path.join(import.meta.dirname, '../../../engine/rs/orgtree-engine/src/domain/ops.rs'), 'utf8')
     const chainSource = opsSource.slice(opsSource.indexOf('async fn chain('))
-    const chainSql = chainSource.match(/"(WITH RECURSIVE[\s\S]*?)",/)
+    const chainSql = chainSource.match(/"(WITH RECURSIVE[\s\S]*?)"/)
     if (!chainSql) throw Error('Source chain query seam changed; recheck instrument')
-    const measuredSql = chainSql[1].replaceAll('$1', String(row('leaf').id))
+    const measuredSql = chainSql[1].replace('SELECT {columns}', 'SELECT a.id').replaceAll('$1', String(row('leaf').id))
     p.file('source-chain-query.sql', measuredSql)
     const chainRows = rig.sql(measuredSql)
     record('source chain query reaches the real root before locking', chainRows.length === depth + 2 && chainRows[0]?.id === boss,
       { count: chainRows.length, expected: depth + 2, first: chainRows[0], root: boss, source: 'domain/ops.rs::chain query only; per-row locks not replayed' })
     const superior = rig.one(`SELECT ot.superior_of(${row('leaf').id}) AS ordinary,ot.live_superior_of(${row('leaf').id}) AS live`)
     record('transparent projects resolve the actual agent superior', superior.ordinary === boss && superior.live === boss, superior)
+    const toolsSource = fs.readFileSync(path.join(import.meta.dirname, '../../../engine/rs/orgtree-engine/src/tools/mod.rs'), 'utf8')
+    const descendantSql = toolsSource.slice(toolsSource.indexOf('pub async fn is_descendant(')).match(/"(WITH RECURSIVE[\s\S]*?)"/)
+    if (!descendantSql) throw Error('Descendant query seam changed; recheck instrument')
+    const descendant = (ancestor, subject) => {
+      const sql = descendantSql[1].replaceAll('$1', String(ancestor)).replaceAll('$2', String(subject))
+      return Object.values(rig.one(sql))[0]
+    }
+    record('strict descendant query includes deep reports and excludes self/outsiders',
+      descendant(boss, row('leaf').id) === true && descendant(row('leaf').id, row('leaf').id) === false
+      && descendant(row('outsider').id, row('leaf').id) === false)
+    const sqlControls = `BEGIN; SET LOCAL statement_timeout='3s';
+      UPDATE ot.agents SET state='archived',parent_id=${row('outsider').id} WHERE id=${boss};
+      DO $$ BEGIN
+        IF ot.superior_of(${row('leaf').id}) IS DISTINCT FROM ${boss}::bigint
+          OR ot.live_superior_of(${row('leaf').id}) IS DISTINCT FROM ${row('outsider').id}::bigint
+        THEN RAISE EXCEPTION 'nearest structural/live superior mismatch'; END IF;
+      END $$;
+      UPDATE ot.agents SET parent_id=id WHERE id=${row(last).id};
+      DO $$ BEGIN
+        IF ot.superior_of(${row('leaf').id}) IS NOT NULL OR ot.live_superior_of(${row('leaf').id}) IS NOT NULL
+        THEN RAISE EXCEPTION 'project cycle returned a superior'; END IF;
+      END $$;
+      UPDATE ot.agents SET parent_id=${row('leaf').id} WHERE id=${row(last).id};
+      DO $$ BEGIN
+        IF ot.superior_of(${row('leaf').id}) IS NOT NULL OR ot.live_superior_of(${row('leaf').id}) IS NOT NULL
+        THEN RAISE EXCEPTION 'subject returned as its own superior'; END IF;
+      END $$; ROLLBACK;`
+    p.file('superior-controls.sql', sqlControls)
+    rig.exec(sqlControls)
+    record('superior controls preserve nearest/live semantics and end cycles', row('boss').state === 'live'
+      && row('boss').parent_id === null && row(last).parent_id === row(`p-${depth - 2}`).id)
     phase = 'compatibility tree'
     const tree = await api('GET', `/api/orgs/${rig.org}`)
     const names = [], stack = [...tree.roots]
