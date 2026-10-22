@@ -16,7 +16,7 @@ const makeNode=():CanvasNode=>({id:'worker',tier:'sol',state:'live',generation:1
   session_placement:{session:'session0',reason:'preference',at:'2026-10-22T10:00:00Z'},
 } as CanvasNode)
 const selectors=['.serving-account','[data-next-turn="account"]','[data-next-turn="model"]',
-  '[data-next-turn="effort"]','[data-next-turn="fast"]','.effort-level','.fast-mode','.frozen','.halted','.dnd-badge','.session-0']
+  '[data-next-turn="effort"]','[data-next-turn="fast"]','.effort-level','.fast-mode','.frozen','.sq-halt-status','.dnd-badge','.session-0']
 
 test.beforeEach(()=>{localStorage.clear();installFetch(new FakeServer());
   syncProviderRegistries({providers:[{id:'openai',tiers:[{tier:'sol',fast_mode:true}]}]})})
