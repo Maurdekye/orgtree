@@ -250,7 +250,8 @@ test('§8c the same stable version is up to date, not offered again', async () =
 
 test('§8d the app never switches downgrades on (no channel or allowDowngrade is set)', () => {
   const main = fs.readFileSync('apps/desktop/main/index.ts', 'utf8')
-  const setsDowngrade = /allowDowngrade/
+  // word boundaries: two literal backspaces here once made it match nothing
+  const setsDowngrade = /\ballowDowngrade\b/
   assert.match('autoUpdater.allowDowngrade = true', setsDowngrade, 'the guard fires on the call it exists to catch')
   assert.doesNotMatch(main, setsDowngrade)
   assert.doesNotMatch(main, /autoUpdater\.channel\s*=/)
