@@ -139,6 +139,9 @@ pub enum AgentMsg {
     /// warming: start the CLI ahead of the next turn (quietly; replies
     /// whether a CLI is running afterwards)
     Warm(oneshot::Sender<bool>),
+    /// a sign-in helper started hosting: an idle CLI parked in Session 0
+    /// moves there (`rehost_all`); replies whether it moved
+    Rehost(oneshot::Sender<bool>),
 }
 
 // Like prompt::Mail, the mailbox is opaque to Debug fallback in #[logged].
@@ -179,6 +182,7 @@ impl std::fmt::Debug for AgentMsg {
             Self::CloseIdle => "CloseIdle",
             Self::ToolCard(..) => "ToolCard",
             Self::Warm(..) => "Warm",
+            Self::Rehost(..) => "Rehost",
         };
         f.debug_tuple(kind).finish_non_exhaustive()
     }
@@ -453,6 +457,47 @@ pub fn warm_all(engine: &Arc<Engine>) {
             }
         }
         tracing::info!(warmed, candidates = rows.len(), "warming done");
+    }, span));
+}
+
+/// A sign-in helper started hosting (also the first time after the engine's
+/// start): every idle CLI parked in Session 0 closes and is warmed again in
+/// the signed-in session (`Actor::rehost`; the user, 2026-10-22 14:21Z: "Move
+/// them at sign-in"), a few at a time and only while the machine has commit
+/// memory to spare, as warming starts them. Only while warming is on: with it
+/// off a parked CLI closes on its own, and the next turn starts where it runs.
+#[logged]
+pub fn rehost_all(engine: &Arc<Engine>) {
+    if !warming_allowed(engine) {
+        return;
+    }
+    let engine = engine.clone();
+    let span = tracing::Span::current();
+    tokio::spawn(tracing::Instrument::instrument(async move {
+        let handles: Vec<Arc<AgentHandle>> = engine.agents.map.pin().iter().map(|(_, h)| h.clone()).collect();
+        let mut moved = 0usize;
+        for chunk in handles.chunks(WARM_AT_ONCE) {
+            if engine.shutdown.is_cancelled() || !warming_allowed(&engine) {
+                return;
+            }
+            if !memory_for_warming() {
+                tracing::warn!(moved, "moving idle CLIs out of Session 0 stopped: the machine is low on commit memory");
+                return;
+            }
+            let mut waits = Vec::new();
+            for h in chunk {
+                let (tx, rx) = oneshot::channel();
+                if h.send(AgentMsg::Rehost(tx)) {
+                    waits.push(rx);
+                }
+            }
+            for w in waits {
+                if let Ok(Ok(true)) = tokio::time::timeout(std::time::Duration::from_secs(90), w).await {
+                    moved += 1;
+                }
+            }
+        }
+        tracing::info!(moved, checked = handles.len(), "idle CLIs in Session 0 moved to the signed-in session");
     }, span));
 }
 

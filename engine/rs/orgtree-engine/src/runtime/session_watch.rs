@@ -19,7 +19,10 @@
 //! The same change fires the watchdog events `session.signed_in` and
 //! `session.signed_out`, and at sign-in working agents idle in Session 0 get
 //! their checkup at once (`reminders::checkups_at_sign_in`; the user,
-//! 2026-10-16 12:12Z, 2c). While the user is signed in and no helper
+//! 2026-10-16 12:12Z, 2c). Whenever a helper starts hosting, the engine's own
+//! start included, the idle CLIs parked in Session 0 are warmed again in the
+//! signed-in session (`runtime::rehost_all`; the user, 2026-10-22 14:21Z:
+//! "Move them at sign-in"). While the user is signed in and no helper
 //! connects, the engine starts the helper's own task, less and less often
 //! (`keepalive_wait`, 2d).
 
@@ -136,6 +139,7 @@ async fn watch(engine: Arc<Engine>) {
     let mut sessions = crate::core_process::Sessions::new();
     let mut tick = tokio::time::interval(CHECK_EVERY);
     tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+    let mut was_hosting = false;
     loop {
         tokio::select! {
             _ = engine.shutdown.cancelled() => break,
@@ -161,6 +165,12 @@ async fn watch(engine: Arc<Engine>) {
         } else if !placement.told && placement.startup_until.is_none() {
             engine.credential_bridge.set_placement_hosts(Vec::new());
         }
+        // a helper that starts hosting, the engine's own start included, takes
+        // the idle CLIs parked in Session 0 (the user, 2026-10-22 14:21Z)
+        if hosting && !was_hosting {
+            crate::runtime::rehost_all(&engine);
+        }
+        was_hosting = hosting;
         // what agents count as told, also when the engine's own start changed
         // it without a notice
         let counted = if placement.told { SIGNED_IN } else { SESSION0 };

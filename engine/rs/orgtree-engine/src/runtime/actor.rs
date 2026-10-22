@@ -1606,6 +1606,10 @@ impl Actor {
                 let warm = boxed(|| self.warm()).await;
                 let _ = reply.send(warm);
             }
+            AgentMsg::Rehost(reply) => {
+                let moved = boxed(|| self.rehost()).await;
+                let _ = reply.send(moved);
+            }
             AgentMsg::CloseIdle if self.turn.is_none() && self.proc.is_some() && self.bg_pending() => {
                 // warming switched off, or the idle cap evicting it: its
                 // background work keeps it open, outside the cap, until it is over
@@ -1672,6 +1676,39 @@ impl Actor {
                 false
             }
         }
+    }
+
+    /// A sign-in helper started hosting (the user, 2026-10-22 14:21Z: "Move
+    /// them at sign-in"): an idle CLI parked in Session 0 closes and is warmed
+    /// again where this agent's next turn would start it. Idle: no turn, no
+    /// background work, and Session 0 is not the agent's own choice (its
+    /// preference or the next turn's `use` 0), nor where its preference puts
+    /// it among the sessions a helper hosts. Replies whether it moved.
+    async fn rehost(&mut self) -> bool {
+        if self.turn.is_some() || self.stopping || self.held || self.bg_pending() || !codexrt::session0() {
+            return false;
+        }
+        // a CLI this engine started itself, in Session 0
+        let Some(p) = self.proc.as_ref() else { return false };
+        if p.hosted_in().is_some() {
+            return false;
+        }
+        let ctx = match self.load_ctx().await {
+            Ok(c) => c,
+            Err(_) => return false,
+        };
+        if ctx.state != "live" || ctx.halted || ctx.frozen || ctx.killswitch {
+            return false;
+        }
+        let bypass = ctx.effective["permission_mode"].as_str() == Some("bypassPermissions");
+        let Some(session) = crate::runtime::session_host::wanted(&self.engine, bypass, &ctx.session_pref, self.use_session) else {
+            return false;
+        };
+        tracing::info!(agent = %self.name, session, "its idle CLI in Session 0 closes, to be warmed again in the signed-in session");
+        self.keep_until = None;
+        boxed(|| self.close_proc()).await;
+        self.publish();
+        boxed(|| self.warm()).await
     }
 
     /// A saved effort change (3.x `send_live_effort`; `previous` is the level
