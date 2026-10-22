@@ -82,6 +82,12 @@ pub const SIGNED_IN_HELD_NOTICE: &str = "[ORGTREE SIGN-IN NOTICE] The user signe
 pub const SIGNED_IN_USE_NOTICE: &str = "[ORGTREE SIGN-IN NOTICE] The user signed in and Orgtree's sign-in helper connected, but you picked Windows Session 0 for your next turn (orgtree_session `use`); the turns after it follow your preference. orgtree_session shows where you run.";
 pub const SIGNED_OUT_NOTICE: &str = "[ORGTREE SIGN-OUT NOTICE] The user signed out, or Orgtree's sign-in helper stopped: your next turn runs in Windows Session 0, without their desktop and apps. orgtree_session shows where you run.";
 
+/// The down notice, by whether the engine's user is still signed in.
+#[nolog]
+pub fn down_notice(_signed_in: Option<bool>) -> &'static str {
+    SIGNED_OUT_NOTICE
+}
+
 /// Whether a steady reading of where new turns run (`signed-in` while the
 /// sign-in helper hosts, else `session0`) is news to agents last told `last`:
 /// Some(true) for the signed-in session, Some(false) for Session 0.
@@ -347,14 +353,17 @@ mod tests {
     }
 
     #[test]
-    fn startup_missing_helper_eventually_announces_one_real_loss() {
+    fn a_helper_missing_after_the_engines_startup_is_part_of_its_restart() {
+        // invariant 6 (the user, 2026-10-22 07:34:52Z): when the Session 0
+        // engine cycles too, only its restart notice; the next turn's move
+        // notice tells each agent where it runs
         let at = std::time::Instant::now();
         let mut p = Placement::startup(true, at + Duration::from_secs(60));
-        assert_eq!(p.observe(false, at + Duration::from_secs(59)), None);
-        assert_eq!(p.observe(false, at + Duration::from_secs(60)), None);
-        assert_eq!(p.observe(false, at + Duration::from_secs(62)), None);
-        assert_eq!(p.observe(false, at + Duration::from_secs(64)), Some(false));
-        assert_eq!(p.observe(false, at + Duration::from_secs(66)), None);
+        for sec in [59, 60, 62, 64, 66, 68] {
+            assert_eq!(p.observe(false, at + Duration::from_secs(sec)), None, "no down notice at {sec} s");
+        }
+        assert!(!p.told, "agents now count as told Session 0, silently");
+        // a later helper is a transition while the engine stays up
         assert_eq!(p.observe(true, at + Duration::from_secs(70)), Some(true));
     }
 
@@ -370,13 +379,30 @@ mod tests {
     }
 
     #[test]
-    fn startup_first_signin_is_still_announced_immediately() {
+    fn a_helper_that_comes_up_with_the_engine_is_part_of_its_restart() {
         let at = std::time::Instant::now();
         let mut p = Placement::startup(false, at + Duration::from_secs(60));
         assert_eq!(p.observe(false, at), None);
         assert!(p.startup_until.is_some());
-        assert_eq!(p.observe(true, at + Duration::from_secs(2)), Some(true));
+        assert_eq!(p.observe(true, at + Duration::from_secs(2)), None, "no up notice for a helper that cycles with the engine");
+        assert!(p.told, "agents now count as told the signed-in session, silently");
         assert_eq!(p.observe(true, at + Duration::from_secs(4)), None);
+        // and a later loss is the helper's own transition
+        for sec in [6, 8] { assert_eq!(p.observe(false, at + Duration::from_secs(sec)), None); }
+        assert_eq!(p.observe(false, at + Duration::from_secs(10)), Some(false));
+    }
+
+    #[test]
+    fn the_notices_say_what_went_up_or_down() {
+        // invariant 6: a helper restart is no sign-in, a helper crash no sign-out
+        for line in [SIGNED_IN_NOTICE, SIGNED_IN_KEPT_NOTICE, SIGNED_IN_HELD_NOTICE, SIGNED_IN_USE_NOTICE] {
+            assert!(line.starts_with("[ORGTREE SIGN-IN NOTICE] Orgtree's sign-in helper connected"), "{line}");
+        }
+        assert!(down_notice(Some(false)).starts_with("[ORGTREE SIGN-OUT NOTICE] The user signed out"));
+        let stopped = down_notice(Some(true));
+        assert!(stopped.starts_with("[ORGTREE SIGN-OUT NOTICE] Orgtree's sign-in helper stopped while the user is still signed in"), "{stopped}");
+        assert!(stopped.contains("waits up to 60 s"), "{stopped}");
+        assert_eq!(down_notice(None), down_notice(Some(true)), "unread sign-in state reads as the helper's own stop");
     }
 
     #[test]

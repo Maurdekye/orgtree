@@ -322,14 +322,25 @@ mod win {
 
     #[nolog]
     async fn register(a: &Attached, pipe: &str, secret: &str, role: &str) -> Result<u16, ()> {
-        let mut body = serde_json::json!({"pipe": pipe, "secret": secret, "pid": std::process::id(), "caps": ["spawn"], "role": role});
-        // a debug rig proof may stand this helper for another Windows session
-        // of the user; only a debug rig engine honours it
-        if let Some(s) = rig_session() {
+        let body = registration(pipe, secret, std::process::id(), role, rig_session(), false).to_string();
+        http(a.port, "POST", "/api/desktop/credential-bridge", &a.token, Some(body)).await.map(|(s, _)| s)
+    }
+
+    /// A registration's body. A debug rig proof may stand this helper for
+    /// another Windows session of the user; only a debug rig engine honours it.
+    #[nolog]
+    fn registration(pipe: &str, secret: &str, pid: u32, role: &str, rig_session: Option<u32>, _elevated: bool) -> serde_json::Value {
+        let mut body = serde_json::json!({"pipe": pipe, "secret": secret, "pid": pid, "caps": ["spawn"], "role": role});
+        if let Some(s) = rig_session {
             body["rig_session"] = serde_json::json!(s);
         }
-        let body = body.to_string();
-        http(a.port, "POST", "/api/desktop/credential-bridge", &a.token, Some(body)).await.map(|(s, _)| s)
+        body
+    }
+
+    /// Whether the engine's answer to a host registration ends this helper.
+    #[nolog]
+    fn leaves_on(_host_status: Result<u16, ()>) -> bool {
+        false
     }
 
     /// One request to the engine on 127.0.0.1; the token never leaves this
@@ -758,8 +769,25 @@ mod win {
 
     #[cfg(test)]
     mod tests {
-        use super::instance_name;
+        use super::{instance_name, leaves_on, registration};
         use std::path::Path;
+
+        /// Invariant 7: the engine hosts agents only through a helper with its
+        /// own administrator rights, so the helper says which it has, and one
+        /// the engine refuses for them (412) leaves: its task, which runs at
+        /// the setting's level like the engine's, starts a matching one.
+        #[test]
+        fn the_helper_says_its_rights_and_leaves_when_they_differ() {
+            for elevated in [false, true] {
+                let body = registration("pipe", "secret", 7, "host", None, elevated);
+                assert_eq!(body["elevated"], serde_json::json!(elevated), "{body}");
+                assert_eq!(body["role"], "host");
+            }
+            assert!(leaves_on(Ok(412)));
+            for kept in [Ok(200), Ok(409), Ok(503), Err(())] {
+                assert!(!leaves_on(kept), "{kept:?}");
+            }
+        }
 
         /// The production guard, exactly as before: one broker per Windows
         /// session and data root, the root compared without case.

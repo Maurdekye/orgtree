@@ -217,6 +217,74 @@ pub fn followed_in(own: u32, kind: &str, pref: &Pref) -> bool {
     choose(&[HostSession { id: own, kind: kind.to_string(), active: true }], pref, None) == Some(own)
 }
 
+/// What a turn's start knows about where it could run, for
+/// `turn_waits_for_helper`.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Settle {
+    /// an explicit Session 0 choice (its `use` 0, or its preference) skips the wait
+    pub skip: bool,
+    /// a helper hosts where `wanted` looks (the session watch's placement)
+    pub hosting: bool,
+    /// the engine's user is signed in, by the session watch's last reading
+    /// (None: not read yet)
+    pub signed_in: Option<bool>,
+    pub now_ms: i64,
+    /// the engine's start
+    pub start_ms: i64,
+    /// when a helper last hosted (0: not since the engine started)
+    pub last_hosting_ms: i64,
+    /// the agent's last turn ran in the signed-in session
+    pub last_signed_in: bool,
+}
+
+/// How long a turn start waits for the sign-in helper: after the engine's
+/// start (startup-transient fix, the user 2026-10-20; ruling D's 15 s before).
+pub const SETTLE_MS: i64 = 60_000;
+
+/// Whether a turn starting now waits for the sign-in helper before it picks
+/// where its CLI runs: an agent whose last turn ran in the signed-in session,
+/// until `SETTLE_MS` after the engine's start, while no helper has hosted.
+#[nolog]
+pub fn turn_waits_for_helper(s: &Settle) -> bool {
+    !s.skip && !s.hosting && s.last_hosting_ms == 0 && s.last_signed_in && s.now_ms < s.start_ms + SETTLE_MS
+}
+
+/// Why a turn's CLI runs in Session 0, for the desk's Session 0 badge
+/// (`session_placement` in the tree).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Why {
+    /// the engine's user is signed out
+    SignedOut,
+    /// signed in (or not read yet), but no sign-in helper hosted in time
+    HelperUnreachable,
+    /// the agent's own choice: its `session` preference or this turn's `use`
+    Preference,
+    /// its CLI holds background work, so it stays where it started
+    BackgroundWork,
+}
+
+#[nolog]
+impl Why {
+    /// The reason code in `session_placement`.
+    pub fn code(self) -> &'static str {
+        match self {
+            Why::SignedOut => "signed-out",
+            Why::HelperUnreachable => "helper-unreachable",
+            Why::Preference => "preference",
+            Why::BackgroundWork => "background-work",
+        }
+    }
+}
+
+/// Why a turn that starts its CLI in Session 0 does. `own_choice`: the
+/// agent's preference or this turn's `use` picks Session 0 over every session
+/// a helper hosts in (always for `session0` or `use` 0); `held`: its CLI
+/// stayed for its background work.
+#[nolog]
+pub fn why_session0(_signed_in: Option<bool>, _own_choice: bool, _held: bool) -> Why {
+    Why::HelperUnreachable
+}
+
 /// Where a CLI that starts now runs among `sessions`: a session id, or None
 /// for Session 0. An on-demand pick wins while its session hosts (0 is
 /// Session 0); then the preference, an active session before a disconnected
@@ -740,6 +808,57 @@ mod other {
         pub async fn wait_exit(&self, _: uuid::Uuid, _: &str, _: Duration) -> String {
             "exit status unavailable".into()
         }
+    }
+}
+
+#[cfg(test)]
+mod settle_tests {
+    use super::*;
+
+    const START: i64 = 1_000_000;
+    fn signed_in_at(now_ms: i64) -> Settle {
+        Settle { signed_in: Some(true), now_ms, start_ms: START, ..Settle::default() }
+    }
+
+    #[test]
+    fn after_a_restart_every_turn_waits_for_the_helper_while_the_user_is_signed_in() {
+        // invariant 5: never Session 0 just because the engine got there first,
+        // whatever the agent's last turn did
+        assert!(turn_waits_for_helper(&signed_in_at(START + 1_000)));
+        assert!(turn_waits_for_helper(&Settle { signed_in: None, ..signed_in_at(START + 1_000) }),
+            "before the session watch's first reading too");
+    }
+
+    #[test]
+    fn a_helper_lost_while_signed_in_gets_the_grace_again() {
+        // invariant 3: Session 0 only once the helper is truly unreachable
+        let lost = START + 600_000;
+        assert!(turn_waits_for_helper(&Settle { last_hosting_ms: lost, ..signed_in_at(lost + 5_000) }));
+        assert!(!turn_waits_for_helper(&Settle { last_hosting_ms: lost, ..signed_in_at(lost + SETTLE_MS) }),
+            "then Session 0");
+    }
+
+    #[test]
+    fn the_badge_says_why_a_turn_runs_in_session_0() {
+        // the Session 0 badge's tooltip (the user, 2026-10-22): signed out,
+        // helper unreachable, or the agent's own preference
+        use Why::*;
+        assert_eq!(why_session0(Some(false), false, false), SignedOut);
+        assert_eq!(why_session0(Some(true), false, false), HelperUnreachable);
+        assert_eq!(why_session0(None, false, false), HelperUnreachable, "not read yet, and the grace ran out");
+        assert_eq!(why_session0(Some(false), true, false), Preference, "the agent's own choice, signed in or not");
+        assert_eq!(why_session0(Some(true), true, true), BackgroundWork, "a CLI with background work stays where it is");
+        assert_eq!([SignedOut, HelperUnreachable, Preference, BackgroundWork].map(Why::code),
+            ["signed-out", "helper-unreachable", "preference", "background-work"]);
+    }
+
+    #[test]
+    fn nothing_waits_where_waiting_cannot_help() {
+        let now = signed_in_at(START + 1_000);
+        assert!(!turn_waits_for_helper(&Settle { hosting: true, ..now }), "a helper hosts");
+        assert!(!turn_waits_for_helper(&Settle { signed_in: Some(false), ..now }), "signed out: Session 0 at once");
+        assert!(!turn_waits_for_helper(&Settle { skip: true, ..now }), "the agent chose Session 0");
+        assert!(!turn_waits_for_helper(&signed_in_at(START + SETTLE_MS)), "the grace after the start is over");
     }
 }
 

@@ -124,6 +124,34 @@ impl HostLeases {
         out
     }
 }
+/// A credential a signed-in broker served (the user's Q3, 2026-10-22 07:38Z:
+/// "MEMORY CACHE of the credentials already served while signed in, for
+/// Session 0 turns after sign-out"). In this engine's memory only: no Debug,
+/// no Serialize, never written or logged, zeroed when dropped, and gone with
+/// the engine. Kept exactly as served: kind, host, path and username.
+struct Served(Vec<u8>);
+impl Drop for Served {
+    #[nolog]
+    fn drop(&mut self) {
+        self.0.fill(0);
+    }
+}
+type ServedKey = (&'static str, String, String, String);
+#[derive(Default)]
+pub(crate) struct ServedCache(std::sync::Mutex<std::collections::HashMap<ServedKey, Served>>);
+#[nolog]
+impl ServedCache {
+    /// Keep what a live broker just served.
+    pub(crate) fn keep(&self, _kind: &'static str, _host: &str, _path: &str, _username: &str, _answer: &[u8]) {}
+    /// What was served for exactly this request, if anything.
+    pub(crate) fn served(&self, _kind: &'static str, _host: &str, _path: &str, _username: &str) -> Option<Vec<u8>> {
+        None
+    }
+    pub(crate) fn len(&self) -> usize {
+        self.0.lock().unwrap_or_else(|p| p.into_inner()).len()
+    }
+}
+
 struct Grant {
     secret: String,
     org: i64,
@@ -144,6 +172,8 @@ pub struct Bridge {
     slots: tokio::sync::Semaphore,
     reported_ready: AtomicBool,
     last_lookup: ArcSwapOption<LookupStatus>,
+    /// Credentials served while signed in, for Session 0 turns after sign-out.
+    pub(crate) served: ServedCache,
 }
 #[nolog]
 impl Bridge {
@@ -157,6 +187,7 @@ impl Bridge {
             slots: tokio::sync::Semaphore::new(16),
             reported_ready: AtomicBool::new(false),
             last_lookup: ArcSwapOption::empty(),
+            served: ServedCache::default(),
         }
     }
     /// `untested` until a real git/gh lookup has gone through the desktop;
@@ -466,6 +497,13 @@ pub async fn dispatch(State(engine): State<Arc<Engine>>, req: Request) -> Respon
             .into_response(),
     }
 }
+/// Whether a sign-in helper that says it runs with `helper_elevated` rights may
+/// host the agents of an engine with `engine_elevated` rights.
+#[nolog]
+pub(crate) fn same_rights(_engine_elevated: bool, _helper_elevated: Option<bool>) -> bool {
+    true
+}
+
 /// A sign-in helper takes, renews or gives back the host role for the Windows
 /// session it runs in (the user, 2026-10-16 12:12Z and 12:13Z: the engine
 /// user's sessions side by side, one helper each). The first helper is the
@@ -1445,5 +1483,61 @@ mod host_lease_tests {
         assert!(hosts.release("pipe-a", "test-only", std::process::id()));
         assert_eq!(hosts.hosting().iter().map(|h| h.0).collect::<Vec<_>>(), vec![2]);
         assert!(!hosts.release("pipe-a", "test-only", std::process::id()), "released once");
+    }
+
+    #[test]
+    fn a_served_credential_is_kept_exactly_as_served() {
+        // invariant 9 and the user's Q3: what a signed-in broker served stays
+        // usable by Session 0 turns after sign-out, and only for that request
+        let cache = ServedCache::default();
+        cache.keep("git", "github.com", "", "alice", b"password=served-secret\n");
+        assert_eq!(cache.served("git", "github.com", "", "alice").as_deref(), Some(&b"password=served-secret\n"[..]));
+        for (kind, host, path, user) in [("gh", "github.com", "", "alice"), ("git", "gitlab.com", "", "alice"),
+                                         ("git", "github.com", "org/repo", "alice"), ("git", "github.com", "", "bob")] {
+            assert_eq!(cache.served(kind, host, path, user), None, "{kind} {host} {path} {user}");
+        }
+        assert_eq!(Bridge::new().served.len(), 0, "an engine starts with nothing: the cache is lost at a restart");
+    }
+
+    #[tokio::test]
+    async fn a_kept_credential_never_reaches_the_log_or_the_bridges_views() {
+        let canary = format!("canary-{}", crate::util::random_hex(16));
+        let capture = crate::trace::LogCapture::start().await;
+        let bridge = Bridge::new();
+        bridge.served.keep("git", "github.com", "", "alice", format!("password={canary}\n").as_bytes());
+        assert_eq!(bridge.served.served("git", "github.com", "", "alice").as_deref(),
+            Some(format!("password={canary}\n").as_bytes()), "the cache holds it while the log is captured");
+        bridge.record("git", "github.com", None);
+        let view = bridge.lookup_view().to_string();
+        let log = capture.finish().await;
+        assert!(!log.contains(&canary), "the secret reached the log");
+        assert!(!view.contains(&canary), "the secret reached a view: {view}");
+    }
+
+    /// Nothing formats or serializes a kept credential: this compiles only
+    /// while neither `Served` nor its cache implements Debug or Serialize.
+    #[test]
+    fn a_kept_credential_cannot_be_formatted_or_serialized() {
+        trait NotDebug<A> { fn check() {} }
+        impl<T: ?Sized> NotDebug<()> for T {}
+        impl<T: ?Sized + std::fmt::Debug> NotDebug<u8> for T {}
+        trait NotSerialize<A> { fn check() {} }
+        impl<T: ?Sized> NotSerialize<()> for T {}
+        impl<T: ?Sized + serde::Serialize> NotSerialize<u8> for T {}
+        <Served as NotDebug<_>>::check();
+        <ServedCache as NotDebug<_>>::check();
+        <Served as NotSerialize<_>>::check();
+        <ServedCache as NotSerialize<_>>::check();
+    }
+
+    #[test]
+    fn a_helper_hosts_only_with_the_engines_own_administrator_rights() {
+        // invariant 7 (the user, 2026-10-22 07:29:35Z): both elevated or neither
+        assert!(same_rights(false, Some(false)));
+        assert!(same_rights(true, Some(true)));
+        assert!(!same_rights(true, Some(false)), "an elevated engine refuses an unelevated helper");
+        assert!(!same_rights(false, Some(true)), "an unelevated engine refuses an elevated helper");
+        assert!(same_rights(false, None), "a helper that does not say is an unelevated one");
+        assert!(!same_rights(true, None));
     }
 }

@@ -328,6 +328,15 @@ pub fn agent_body(raw: &Value, effective: &Value, parent_key: Option<i64>, ctx: 
     Value::Object(o)
 }
 
+/// Where the agent's current or most recent turn ran, and why Session 0, for
+/// the desk's Session 0 badge: `{session, reason, at}` from its record
+/// (`session`, `session_reason`, `session_at`), null before its first
+/// recorded turn. `reason` is null outside Session 0.
+#[nolog]
+pub fn session_placement(_extra: &Value) -> Value {
+    Value::Null
+}
+
 /// A project node's record (docs/rust-engine/PROJECT-NODES.md): the agent
 /// fields every reader expects, emptied of what a project never has (model,
 /// session, process, cache, account, credits of its own), and `kind`, which
@@ -572,6 +581,26 @@ mod turn_clock_tests {
         // Those turns masked the wrong start-only projection.
         let row = json!({"started_at":END,"ended_at":END});
         assert_eq!(turn_stat(&row)["at"], ts(&json!(END)));
+    }
+}
+
+#[cfg(test)]
+mod session_placement_tests {
+    use super::*;
+
+    #[test]
+    fn the_badge_reads_where_the_last_turn_ran_and_why() {
+        let at = "2026-10-22T08:00:00.000Z";
+        assert_eq!(session_placement(&json!({"session":"session0","session_reason":"signed-out","session_at":at})),
+            json!({"session":"session0","reason":"signed-out","at":at}));
+        assert_eq!(session_placement(&json!({"session":"signed-in","session_at":at})),
+            json!({"session":"signed-in","reason":null,"at":at}));
+        assert_eq!(session_placement(&json!({"session":"signed-in","session_reason":"preference","session_at":at}))["reason"],
+            Value::Null, "no reason outside Session 0");
+        assert_eq!(session_placement(&json!({"session":"session0"})),
+            json!({"session":"session0","reason":null,"at":null}), "recorded before reasons were");
+        assert_eq!(session_placement(&json!({"cache_receipt":{}})), Value::Null, "no turn recorded yet");
+        assert_eq!(session_placement(&Value::Null), Value::Null);
     }
 }
 

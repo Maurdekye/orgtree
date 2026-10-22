@@ -379,6 +379,13 @@ pub(crate) fn engine_session(engine: &Engine) -> Option<u32> {
     engine.credentials.state.load().process_session
 }
 
+/// The restart notice's line about administrator rights, which the Session 0
+/// engine and the sign-in helper always share (invariant 7).
+#[nolog]
+pub(crate) fn admin_line(_elevated: Option<bool>) -> Option<&'static str> {
+    None
+}
+
 // Extracted unchanged rendering; the regression below requires engine session
 // provenance before any agent turn/hosting decision is available.
 #[nolog]
@@ -394,6 +401,12 @@ fn restart_body(version: &str, commit: &str, pid: u32, started: &str, session: O
 #[cfg(test)]
 mod restart_session_tests {
     use super::*;
+    #[test]
+    fn the_restart_notice_says_which_rights_the_engine_and_its_helper_share() {
+        assert_eq!(admin_line(Some(true)), Some("Administrator rights: on, for the engine in Session 0 and the sign-in helper alike."));
+        assert_eq!(admin_line(Some(false)), Some("Administrator rights: off, for the engine in Session 0 and the sign-in helper alike."));
+        assert_eq!(admin_line(None), None, "outside Windows nothing is said");
+    }
     #[test]
     fn engine_zero_is_reported_even_when_agents_can_be_hosted() {
         assert!(restart_body("4.4", "test", 42, "now", Some(0), None).contains("Engine session at start: Session 0."));
