@@ -1608,8 +1608,10 @@ impl Actor {
                 let warm = boxed(|| self.warm()).await;
                 let _ = reply.send(warm);
             }
-            AgentMsg::Rehost(reply) => {
+            AgentMsg::Rehost(reply, place) => {
                 let moved = boxed(|| self.rehost()).await;
+                // the next move may start now
+                drop(place);
                 let _ = reply.send(moved);
             }
             AgentMsg::CloseIdle if self.turn.is_none() && self.proc.is_some() && self.bg_pending() => {

@@ -140,8 +140,9 @@ pub enum AgentMsg {
     /// whether a CLI is running afterwards)
     Warm(oneshot::Sender<bool>),
     /// a sign-in helper started hosting: an idle CLI parked in Session 0
-    /// moves there (`rehost_all`); replies whether it moved
-    Rehost(oneshot::Sender<bool>),
+    /// moves there (`rehost_all`); replies whether it moved. The place it
+    /// holds among the moves allowed at once is freed when the move is done.
+    Rehost(oneshot::Sender<bool>, tokio::sync::OwnedSemaphorePermit),
 }
 
 // Like prompt::Mail, the mailbox is opaque to Debug fallback in #[logged].
@@ -460,12 +461,18 @@ pub fn warm_all(engine: &Arc<Engine>) {
     }, span));
 }
 
+/// The places for the moves of idle Session 0 CLIs, shared by every sweep.
+static REHOSTING: std::sync::LazyLock<Places> = std::sync::LazyLock::new(|| Places::new(WARM_AT_ONCE));
+
 /// A sign-in helper started hosting (also the first time after the engine's
 /// start): every idle CLI parked in Session 0 closes and is warmed again in
 /// the signed-in session (`Actor::rehost`; the user, 2026-10-22 14:21Z: "Move
-/// them at sign-in"), a few at a time and only while the machine has commit
-/// memory to spare, as warming starts them. Only while warming is on: with it
-/// off a parked CLI closes on its own, and the next turn starts where it runs.
+/// them at sign-in"), only while the machine has commit memory to spare, as
+/// warming starts them. At most `WARM_AT_ONCE` moves run at once, engine-wide:
+/// each takes a place (`REHOSTING`) before it is sent, and its actor holds it
+/// until the move is done, also past this sweep's wait for its answer, and
+/// whichever sweep sent it. Only while warming is on: with it off a parked
+/// CLI closes on its own, and the next turn starts where it runs.
 #[logged]
 pub fn rehost_all(engine: &Arc<Engine>) {
     if !warming_allowed(engine) {
@@ -475,28 +482,24 @@ pub fn rehost_all(engine: &Arc<Engine>) {
     let span = tracing::Span::current();
     tokio::spawn(tracing::Instrument::instrument(async move {
         let handles: Vec<Arc<AgentHandle>> = engine.agents.map.pin().iter().map(|(_, h)| h.clone()).collect();
-        let mut moved = 0usize;
-        for chunk in handles.chunks(WARM_AT_ONCE) {
+        let mut answers = Vec::new();
+        for h in &handles {
+            let place = REHOSTING.take().await;
             if engine.shutdown.is_cancelled() || !warming_allowed(&engine) {
                 return;
             }
             if !memory_for_warming() {
-                tracing::warn!(moved, "moving idle CLIs out of Session 0 stopped: the machine is low on commit memory");
+                tracing::warn!(sent = answers.len(), "moving idle CLIs out of Session 0 stopped: the machine is low on commit memory");
                 return;
             }
-            let mut waits = Vec::new();
-            for h in chunk {
-                let (tx, rx) = oneshot::channel();
-                if h.send(AgentMsg::Rehost(tx)) {
-                    waits.push(rx);
-                }
-            }
-            for w in waits {
-                if let Ok(Ok(true)) = tokio::time::timeout(std::time::Duration::from_secs(90), w).await {
-                    moved += 1;
-                }
+            let (tx, rx) = oneshot::channel();
+            if h.send(AgentMsg::Rehost(tx, place)) {
+                answers.push(rx);
             }
         }
+        // for the log only: a move still running holds its place regardless
+        let answered = tokio::time::timeout(std::time::Duration::from_secs(90), futures::future::join_all(answers)).await;
+        let moved = answered.map(|a| a.into_iter().filter(|r| matches!(r, Ok(true))).count()).ok();
         tracing::info!(moved, checked = handles.len(), "idle CLIs in Session 0 moved to the signed-in session");
     }, span));
 }
@@ -515,8 +518,7 @@ impl Places {
 
     /// A place, once one is free: held until the permit is dropped.
     pub(crate) async fn take(&self) -> tokio::sync::OwnedSemaphorePermit {
-        let _ = &self.0;
-        Arc::new(tokio::sync::Semaphore::new(1)).acquire_owned().await.expect("a new semaphore is open")
+        self.0.clone().acquire_owned().await.expect("the places are never closed")
     }
 }
 
