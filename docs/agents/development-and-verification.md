@@ -8,6 +8,16 @@ These attributed records were moved from the root guide at `22daffd`; they retai
 
 ## Renderer, capture and rig traps
 
+- Shared-scratch folder proofs must preserve header-initialized workspaces:
+  stage originals and test-created directories with reversible renames, snapshot
+  exact original file bytes without following links, and verify their restore.
+  Never assume a resolved shared/team directory is empty. Keep all 16 folder,
+  native-helper, auth, junction and file-replacement guards; save setup failures
+  and every cleanup failure separately so a later error cannot mask the first.
+  Parked synthetic directories/links stay in the disposable rig for inspection.
+  [verified: `tools/rig/proofs/shared-scratch-folder.mjs`; USER 2026-10-17
+  17:26Z initializer; 2026-10-22]
+
 - The single-slot proof preserves its 16 names: immediate grants use structured
   lease/quantity and no watchdog/mail/turn changes; a blocked registered claim
   proves one spent dog and grant mail. Distinguish held-capacity refusal from

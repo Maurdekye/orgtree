@@ -34,6 +34,13 @@ ones, are never overwritten; other files remain the agents'. This replaces the
 earlier no-engine-created-file rule. Deleting an org moves the folder to the
 trash with the rest of its scratch folder.
 
+The shared-scratch-folder proof stages and restores the original directories
+by rename, with exact byte snapshots and no link traversal. Header-only notes
+make these directories nonempty; its junction/file boundary setup parks the
+generated directory instead of removing its notes. Setup and cleanup failures
+are saved separately, and every original workspace is restored independently.
+[verified: `tools/rig/proofs/shared-scratch-folder.mjs`; 2026-10-22]
+
 ## Who holds it
 
 Every launch adds the folder to the agent's effective folders (`scope::with_org_notes` in
