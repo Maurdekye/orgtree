@@ -50,6 +50,19 @@ function olderPageProgress(current: ChatPayload, page: ChatPayload): boolean {
     && (typeof oldest !== 'number' || typeof row.seq !== 'number' || row.seq < oldest))
 }
 
+/** Pagination describes the retained rows. Dropping known history reopens it,
+ * even after a previous visit reached the true start. Rust cursors are seqs;
+ * an opaque legacy cursor cannot be moved, so refresh that tail in full. */
+function retainTail(chat: ChatPayload, count: number): ChatPayload {
+  if (chat.messages.length <= count) return chat
+  const messages = chat.messages.slice(-count)
+  const oldest = messages[0]?.seq
+  const before = /^a\d+$/.test(chat.conversation_id ?? '') && typeof oldest === 'number'
+    ? String(oldest) : undefined
+  return { ...chat, messages, has_older: true, before,
+    ...(before === undefined ? { after: undefined } : {}) }
+}
+
 function stalledPage(slug: string, nid: string, reason: string): void {
   console.warn('Transcript pagination stopped', { slug, nid, reason })
 }
@@ -700,8 +713,7 @@ export function collapseWindow(slug: string, nid: string, keep = CHAT_WINDOW): v
   if (e.s.win <= floor && !e.s.paged) return
   patchEntry(e, {
     win: floor, paged: false,
-    ...(e.s.chat ? { chat: { ...e.s.chat,
-      messages: e.s.chat.messages.slice(-floor), before: undefined } } : {}),
+    ...(e.s.chat ? { chat: retainTail(e.s.chat, floor) } : {}),
   })
   e.dirty = true
   void refreshConvo(slug, nid, { force: true })
@@ -752,8 +764,7 @@ export function useConvo(slug: string, nid: string, ownerWindow?: Window | null,
           // re-shipping thousands of rows for as long as the entry lived.
           // The expanded window belongs to the viewing session that asked
           // for it; the next mount starts at the tail again.
-          e.s = { ...e.s, paged: false, win: CHAT_WINDOW, chat: { ...e.s.chat,
-            messages: e.s.chat.messages.slice(-CHAT_WINDOW), before: undefined } }
+          e.s = { ...e.s, paged: false, win: CHAT_WINDOW, chat: retainTail(e.s.chat, CHAT_WINDOW) }
           e.dirty = true
         } else if (e.s.win > CHAT_WINDOW) {
           e.s = { ...e.s, win: CHAT_WINDOW }

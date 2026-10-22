@@ -46,6 +46,29 @@ Cancelled first loads can retry silently; replaced/stale errors cannot overwrite
 the active request. Timeout and HTTP failures retain the normal five-second
 retry and the small retrying status.
 
+## Returning from history (2026-10-22)
+
+Returning to the live tail or closing the last desk discards older cached rows.
+The retained window must then advertise older history again, even when the
+previous window had reached the true start. Its Rust cursor is the oldest
+retained sequence, including zero or imported negative sequences. If no rows
+were discarded, keep the existing pagination metadata. An opaque legacy cursor
+cannot be moved to a new boundary, so a trimmed legacy tail refreshes in full.
+
+Previously both trimming paths kept `has_older=false` from an exhausted history
+and cleared `before`. A subsequent event-driven incremental response preserved
+those fields, so scrolling back stopped without loading the discarded history.
+The taller-tail case also displayed the false start-of-conversation marker.
+This is a shared renderer defect, reported on an Antigravity seat; the API pages
+by unique sequence and does not filter by harness, timestamp or visible content.
+
+`historytrim.test.tsx` reproduces both paths against the Rust page/delta contract,
+with mixed thought/tool/empty/user rows, equal timestamps and negative/zero
+sequences. It checks complete reload without gaps, a true short conversation,
+an unchanged zero cursor and legacy cursor compatibility. The reproduction is
+synthetic; the affected installed seat was not read because the API requires a
+desktop token. A real-seat recheck remains separate from this source diagnosis.
+
 ## Verification
 
 `npm run typecheck` and the mounted synthetic smoke pass. The smoke covers first

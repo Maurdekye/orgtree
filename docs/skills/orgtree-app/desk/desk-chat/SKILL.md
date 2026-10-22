@@ -25,6 +25,11 @@ File-reading/writing tool calls show a local-file link immediately after the too
 
 Chat is the conversation surface. It includes messages, thoughts when supplied, tools, typed events, attachments and pending delivery rows. Opening another tab does not stop the agent. Earlier messages load on demand; failure offers retry rather than claiming the transcript ends there.
 
+Returning to the latest messages or reopening a desk keeps earlier history
+available to scroll back into. The start-of-conversation marker means the loaded
+history has reached the actual beginning, including on Antigravity agents; it
+does not mean that older rows were merely released from the screen's cache.
+
 Chat Markdown can display inline images. Relative image paths resolve within the author's files; absolute Windows paths and HTTP(S) URLs use the checked image endpoint. PNG, JPEG, GIF and WebP are supported there; an image that cannot be loaded falls back to a link (local files can be revealed in their folder).
 
 ## Markdown math formatting

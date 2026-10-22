@@ -1,5 +1,12 @@
 # Desktop and renderer
 
+History trimming must reopen older paging whenever it discards rows, including
+after reaching the true start. Retain an unchanged window's metadata; recreate
+Rust cursors from the oldest retained sequence and refresh opaque legacy tails
+in full. This applies to return-to-tail and last-desk close, across harnesses.
+[verified: `convo.ts::retainTail`, `historytrim.test.tsx`; 2026-10-22]
+See [transcript history](../rust-engine/transcript-history-retries.md#returning-from-history-2026-10-22).
+
 The desk model picker reads the warm staffing answer. `default_ok` describes host/org availability; `native_ok` adds the native login's usage gate, while `accounts` independently contains eligible managed choices. `DeskModelButton` prefers an eligible native login, otherwise selects the first compatible managed account in engine order and names it in the token tooltip/cross-provider confirmation. It sends that same ID through both legacy `switch_model` and history gestures; current-tier queue cancellation never rewrites account or model version. General engine usage policy is unchanged. [verified: `canvas/deskmodel.tsx`, `domain/staffing.rs::options`; 2026-10-22]
 
 State badges are display-only and let card pointer gestures reach the normal focus/select path (USER 2026-10-22 09:58Z). `ServingAccountBadge` is a focusable span with the same account/email native title and aria-label on the desk and zoom card; it stops no events. Next-turn, effort, fast mode, frozen, halted, DND and Session 0 markers already use inert spans on cards. Dedicated settings and halt/unstick actions remain separate. Regression: `statebadgefocus.test.tsx` compares each marker's pointerdown/up/click path with the body, with the gear as an action control.
