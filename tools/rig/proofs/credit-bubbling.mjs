@@ -15,8 +15,10 @@ export default async function (rig) {
   const tool = (agent, name, args) => rig.tool(agent, name, args)
   const runtime = body => rig.api('PUT', '/api/app-settings/runtime', body).then(v => ({ ok: true, v }), e => ({ ok: false, error: String(e.body?.detail ?? e.message) }))
   const grant = n => rig.one(`SELECT grant_credits::float8 AS g FROM ot.agents WHERE name = '${n}' AND state = 'live'`)?.g
+  const free = n => rig.one(`SELECT (a.grant_credits - coalesce((SELECT sum(c.seat + c.grant_credits) FROM ot.agents c WHERE c.parent_id = a.id AND c.state = 'live'), 0))::float8 AS f FROM ot.agents a WHERE a.name = '${n}' AND a.state = 'live'`)?.f
   const overdrawn = () => rig.sql(`SELECT a.name FROM ot.agents a WHERE a.state = 'live' AND a.grant_credits - coalesce((SELECT sum(c.seat + c.grant_credits) FROM ot.agents c WHERE c.parent_id = a.id AND c.state = 'live'), 0) < -1e-6`).map(r => r.name)
-  const hireTool = (caller, name, parent, g) => tool(caller, 'orgtree_hire', { name, parent, tier: 'haiku', grant: g, charter: 'Credit proof.', index: 0 })
+  const hireTool = (caller, name, parent, g) => tool(caller, 'orgtree_hire', { name, parent, tier: 'haiku', grant: g, charter: 'Credit proof.', index: 0,
+    add_dirs: [], org_visibility: 'self', tools: { bash: false, web: false, edit: false, subagents: false, mcp: [] } })
 
   // boss (1000) > pm (20) > dev (5): pm has far fewer free credits than the hires below need
   await op({ op: 'hire', name: 'pm', parent: 'boss', tier: 'haiku', grant: 20 })
@@ -34,9 +36,9 @@ export default async function (rig) {
   p.check('an agent hire below a poor descendant bubbles the cost up even with the old per-org switch OFF',
     agentHire.ok === true && grant('pm') > pm0 && grant('pm') >= 60, { agentHire, pm: [pm0, grant('pm')] })
   const dev0 = grant('dev')
-  const agentRealloc = await tool('boss', 'orgtree_reallocate', { node: 'dev', delta: 200 })
+  const agentRealloc = await tool('boss', 'orgtree_reallocate', { node: 'dev', delta: 40 })
   p.check('an agent reallocation below a poor descendant bubbles the cost up even with the old per-org switch OFF',
-    agentRealloc.ok === true && grant('dev') === dev0 + 200, { agentRealloc, dev: [dev0, grant('dev')] })
+    agentRealloc.ok === true && grant('dev') === dev0 + 40, { agentRealloc, dev: [dev0, grant('dev')] })
 
   // 3. the agent's own allocation is still the floor
   const poor = await hireTool('pm', 'kid-b', 'dev', 5000)
@@ -47,19 +49,22 @@ export default async function (rig) {
   // 4. the user's switches (app-wide): OFF refuses the user's bubbling, ON allows it
   const off = await runtime({ credit_bubble_hire_enabled: false, credit_bubble_alloc_enabled: false })
   p.check('the switches save app-wide', off.ok && off.v.credit_bubble_hire_enabled === false && off.v.credit_bubble_alloc_enabled === false, { off })
-  const tree = await rig.api('GET', `/api/orgs/${rig.org}`).catch(() => null)
-  p.check('the org tree carries the app-wide values (the desk limits read them)',
-    tree?.cascade_hire === false && tree?.cascade_alloc === false, { hire: tree?.cascade_hire, alloc: tree?.cascade_alloc })
-  const pm1 = grant('pm')
-  const userHire = await op({ op: 'hire', name: 'kid-d', parent: 'pm', tier: 'haiku', grant: pm1 + 100 })
+  // the org feed republishes after the change notification, so poll the tree for the new values
+  const tree = await rig.waitFor(async () => {
+    const t = await rig.api('GET', `/api/orgs/${rig.org}`)
+    return t.cascade_hire === false && t.cascade_alloc === false ? t : null
+  }, { timeout: 15000, every: 300, what: 'the org tree to carry the app-wide values' }).catch(() => null)
+  p.check('the org tree carries the app-wide values (the desk limits read them)', tree != null)
+  const need = () => Math.ceil(free('pm')) + 30   // always more than pm holds free, far below boss's free credits
+  const userHire = await op({ op: 'hire', name: 'kid-d', parent: 'pm', tier: 'haiku', grant: need() })
   p.check('the user hire below a poor descendant is refused with the app-wide switch OFF', userHire.ok === false && /insufficient credits/.test(userHire.error ?? ''), { userHire })
-  const userRealloc = await op({ op: 'reallocate', node: 'dev', delta: pm1 + 100 })
+  const userRealloc = await op({ op: 'reallocate', node: 'dev', delta: need() })
   p.check('the user reallocation below a poor descendant is refused with the app-wide switch OFF', userRealloc.ok === false && /insufficient credits/.test(userRealloc.error ?? ''), { userRealloc })
-  const agentWhileOff = await hireTool('boss', 'kid-e', 'pm', pm1 + 100)
+  const agentWhileOff = await hireTool('boss', 'kid-e', 'pm', need())
   p.check('an agent still bubbles while the user switches are OFF', agentWhileOff.ok === true, { agentWhileOff })
   const on = await runtime({ credit_bubble_hire_enabled: true, credit_bubble_alloc_enabled: true })
   const pm2 = grant('pm')
-  const userHireOn = await op({ op: 'hire', name: 'kid-f', parent: 'pm', tier: 'haiku', grant: pm2 + 100 })
+  const userHireOn = await op({ op: 'hire', name: 'kid-f', parent: 'pm', tier: 'haiku', grant: need() })
   p.check('the user hire bubbles again once the switch is ON', on.ok && userHireOn.ok === true && grant('pm') > pm2, { on, userHireOn })
   p.check('no agent is overdrawn at the end', overdrawn().length === 0, overdrawn())
   return p.summary()
