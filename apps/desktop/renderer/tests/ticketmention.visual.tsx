@@ -86,12 +86,12 @@ function Surface() {
   }, [])
   return <CurrentOrg.Provider value="org">
     <AgentNavProvider><ObjectNavProvider><AgentMenus />
-      <ObjectNavHost org="org" dogs={[]} openDog={noop} openTicket={noop} toast={noop} />
+      <ObjectNavHost org="org" dogs={[]} openDog={noop} openTicket={noop} openDocument={noop} toast={noop} />
       <ObjectMenuBoundary>
         <DeskHosts map={map} slug="org" treeSlug="org">
           <DeskDogsProvider value={{ dogs: [], slotLeases: [], open: noop }}>
             <div style={{ width: 640, height: 560, display: 'flex', padding: 8 }} data-fixture="agent-desk">
-              <DeskSlot node={boss} map={map} slug="org" op={op} toast={noop} bare onJump={noop} onWorkLink={noop} />
+              <DeskSlot node={boss} map={map} slug="org" op={op} toast={noop} bare onJump={noop} onWorkLink={noop} onOpenDoc={noop} />
             </div>
           </DeskDogsProvider>
         </DeskHosts>

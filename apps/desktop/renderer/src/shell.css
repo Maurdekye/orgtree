@@ -152,6 +152,7 @@
   -webkit-app-region: drag;
 }
 .shell-header-quick .quickchat { flex: 1 1 auto; max-width: none; }
+.shell-header-quick .quickchat-compose { max-width: none; }
 .shell-header-end > .window-controls { align-self: stretch; height: auto; margin-left: 0; }
 
 .shell-header-actions {
@@ -548,6 +549,7 @@ main.solo:has(> .shell-header) > .canvas-stage > .viewport {
   min-width: 200px;
 }
 .shell-statusbar-quick .quickchat { flex: 1 1 auto; max-width: none; font-size: 13px; }
+.shell-statusbar-quick .quickchat-compose { max-width: none; }
 @container shellfooter (max-width: 760px) {
   .shell-statusbar-quick { min-width: 160px; }
   .shell-statusbar-quick .quickchat-btn { max-width: 72px; }

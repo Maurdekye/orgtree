@@ -9044,6 +9044,9 @@ main:has(> .orgbar.native-header) > .error {
  * (+ the new agent's name), effort bar, attachments, send. Never taller than
  * its bar; the pickers open as overlays beside it (.quickchat-pop): above the
  * footer, where it lives (user 2026-10-10 18:48Z). */
+.quickchat-compose { position: relative; flex: 1 1 360px; min-width: 0; max-width: 640px; }
+.quickchat-compose > .quickchat { max-width: none; }
+.quickchat-compose > .reply-preview { position: absolute; bottom: 100%; left: 0; right: 0; margin: 0 0 6px; z-index: 20; background: var(--panel); }
 .quickchat {
   display: flex;
   align-items: center;
