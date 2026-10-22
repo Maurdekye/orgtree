@@ -3201,8 +3201,8 @@ impl Actor {
             return Err(anyhow!("OpenAI is turned off in App settings"));
         }
         // decided once, before the prompt is built: a changed placement (the
-        // helper came or went) changes the prompt, so the Codex is relaunched
-        {
+        // helper came or went) relaunches the Codex where the turn runs it
+        let hosted = {
             let pm = ctx.effective["permission_mode"].as_str().unwrap_or("acceptEdits");
             let may_write = ctx.effective["tools"].get("edit").and_then(Value::as_bool).unwrap_or(true) && pm != "plan";
             self.session_pref = ctx.session_pref.clone();
@@ -3211,10 +3211,15 @@ impl Actor {
             self.placed_why = self.why_session0(hosted, use_id, false);
             self.codex_seat = Some((may_write, pm.to_string(), sb, hosted));
             self.bypass_seat = codexrt::sandbox(may_write, pm, false).mode == "danger-full-access";
-        }
+            hosted
+        };
         let plan = self.plan(ctx);
+        // where it runs as well as its prompt, as for every other harness: a
+        // full-access seat's sandbox, and so its prompt, is the same in both
+        // sessions, and its Codex parked in Session 0 ran the turns there
+        // while the helper hosted (alpha.34, 2026-10-22; invariant 3)
         let reuse = match self.proc.as_mut() {
-            Some(p) => p.is_codex() && self.proc_print.as_ref() == Some(&plan.print) && !self.reconfigured && p.alive(),
+            Some(p) => p.is_codex() && self.proc_print.as_ref() == Some(&plan.print) && !self.reconfigured && p.alive() && p.hosted_in() == hosted,
             None => false,
         };
         if reuse {
