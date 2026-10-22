@@ -76,6 +76,9 @@ pub fn claude_disallowed(tools: &Value) -> Vec<String> {
 pub fn codex_overrides(tools: &Value) -> Vec<String> {
     let on = |k: &str| tools.get(k).and_then(Value::as_bool).unwrap_or(true);
     let mut settings = Vec::new();
+    // Installed Codex advertises this local feature; otherwise normal-mode
+    // requests remain unavailable even after Orgtree restores their handler.
+    if tools["orgtree_disabled"] == true { settings.push("features.default_mode_request_user_input=true"); }
     if !on("bash") {
         settings.extend(["features.shell_tool=false", "features.unified_exec=false", "features.code_mode=false"]);
     }
@@ -102,6 +105,16 @@ mod tests {
             assert!(!enabled.contains(&name.into()),"replacement deny did not lift: {name}");
         }
         for name in ["Bash","Edit","SendMessage","Agent","TaskStop"] {assert!(enabled.contains(&name.into()));}
+    }
+
+    #[test]
+    fn native_tools_codex_opt_in_offers_questions_without_widening_other_scope() {
+        let enabled=codex_overrides(&json!({"orgtree_disabled":true,"subagents":false,"web":false}));
+        for value in ["features.default_mode_request_user_input=true","features.multi_agent=false","web_search=\"disabled\""] {
+            assert!(enabled.iter().any(|v|v==value));
+        }
+        assert!(codex_overrides(&json!({})).is_empty());
+        assert!(codex_overrides(&json!({"orgtree_disabled":false})).is_empty());
     }
 
     #[test]

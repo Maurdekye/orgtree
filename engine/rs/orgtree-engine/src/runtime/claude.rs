@@ -623,7 +623,7 @@ mod tool_result_timing_tests {
         let result = answer_control(&engine, &caller, &actor, uuid::Uuid::nil(),
             &json!({"subtype":"mcp_message", "server_name":"orgtree", "message":{
                 "jsonrpc":"2.0", "id":73, "method":"tools/call", "params":{
-                    "name":"orgtree_chart", "arguments":[]}}})).await.unwrap();
+                    "name":"orgtree_chart", "arguments":[]}}}), &tokio_util::sync::CancellationToken::new()).await.unwrap();
         assert_eq!(result["mcp_response"]["id"],73);
         assert_eq!(result["mcp_response"]["result"]["isError"],true);
         let content = result["mcp_response"]["result"]["content"].as_array().unwrap();

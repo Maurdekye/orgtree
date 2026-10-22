@@ -79,8 +79,12 @@ fn destination(enabled: bool, may_ask_user: bool, superior: Option<&str>) -> Res
 }
 
 #[nolog]
-async fn authorized(engine: &Engine, caller: &Caller) -> Result<asks::Asker> {
+fn may_exit_plan(scope: &Value) -> bool { scope["permission_mode"] != "plan" }
+
+#[nolog]
+async fn authorized(engine: &Engine, caller: &Caller, plan: bool) -> Result<asks::Asker> {
     let held = asks::held_scope(engine, caller.org_id, caller.agent_id).await?;
+    if plan && !may_exit_plan(&held) { bail!("Orgtree plan-only scope cannot exit plan mode; ask your superior to change its permission mode") }
     let asker = asks::asker(engine, caller.org_id, caller.agent_id).await?;
     destination(held["tools"]["orgtree_disabled"] == true, asker.may_ask_user, asker.superior.as_deref())?;
     Ok(asker)
@@ -99,7 +103,8 @@ pub async fn request(engine: &Arc<Engine>, caller: &Caller, harness: Harness, pa
 async fn request_inner(engine: &Arc<Engine>, caller: &Caller, harness: Harness, params: &Value,
     process: uuid::Uuid, stop: &CancellationToken) -> Result<Reply> {
     if stop.is_cancelled() || engine.shutdown.is_cancelled() { return Ok(Reply::declined("Native question cancelled because the process stopped")) }
-    let asker = authorized(engine, caller).await?;
+    let plan = matches!(harness, Harness::ClaudePlan);
+    let asker = authorized(engine, caller, plan).await?;
     let qs = questions(harness, params)?;
     if !asker.may_ask_user {
         let org = engine.orgs.get(&caller.org_slug).ok_or_else(|| anyhow!("Organization unavailable"))?;
@@ -108,7 +113,6 @@ async fn request_inner(engine: &Arc<Engine>, caller: &Caller, harness: Harness, 
         let receipt = asks::ask(engine, &org, &asker, &json!({"questions":forwarded})).await?;
         return Ok(Reply::declined(format!("{receipt} No native approval was granted; the answer will arrive as mail.")))
     }
-    let plan = matches!(harness, Harness::ClaudePlan);
     let title = match harness { Harness::Claude => "Claude Code question", Harness::ClaudePlan => "Claude Code plan approval",
         Harness::Codex => "Codex question", Harness::Muse => "Muse question" };
     let args = json!({"serverName":title,"threadId":process.to_string(),"message":"Answer this native tool request. Other Orgtree permissions still apply.",
@@ -116,7 +120,7 @@ async fn request_inner(engine: &Arc<Engine>, caller: &Caller, harness: Harness, 
     let response = super::elicitation::native_request(engine, caller, &args, stop).await;
     if response["action"] != "accept" { return Ok(Reply::declined("Native question declined, cancelled or expired after five minutes")) }
     // Recheck a revoked scope/audience or replacement generation before replying.
-    let current = authorized(engine, caller).await?;
+    let current = authorized(engine, caller, plan).await?;
     if current.generation != asker.generation || !current.may_ask_user { bail!("Native question authorization changed") }
     let mut answers = Vec::new();
     for i in 0..qs.len() {
@@ -163,7 +167,7 @@ pub fn claude_response(input: &Value, plan: bool, reply: &Reply) -> Value {
 /// an explicit reason. Never send an unrecognized guessed answer command.
 #[nolog]
 pub fn muse_command(params: &Value, reply: &Reply) -> (&'static str, Value) {
-    let mut out = json!({"commandId":uuid::Uuid::now_v7().to_string(),"sessionId":params["sessionId"],"userInputId":params["userInputId"]});
+    let mut out = json!({"commandId":super::muse::uuid7(),"sessionId":params["sessionId"],"userInputId":params["userInputId"]});
     if !reply.approved { out["reason"] = json!(reply.reason); return ("userInput/cancel",out) }
     let mut answers = Vec::new();
     for (i, q) in params["questions"].as_array().into_iter().flatten().enumerate() {
@@ -183,6 +187,13 @@ pub fn muse_command(params: &Value, reply: &Reply) -> (&'static str, Value) {
 mod tests {
     use super::*;
     #[test]
+    fn native_tools_plan_approval_never_exits_an_orgtree_plan_only_scope() {
+        assert!(!may_exit_plan(&json!({"permission_mode":"plan"})));
+        assert!(may_exit_plan(&json!({"permission_mode":"default"})));
+        assert!(may_exit_plan(&json!({"permission_mode":"acceptEdits"})));
+        assert!(may_exit_plan(&json!({"permission_mode":"bypassPermissions"})));
+    }
+    #[test]
     fn native_tools_question_routing_obeys_the_flag_and_the_normal_ask_destination() {
         assert!(destination(false,true,None).is_err());
         assert!(destination(false,false,Some("superior")).is_err());
@@ -193,7 +204,8 @@ mod tests {
     }
     #[test]
     fn native_tools_refusal_never_approves_a_plan_and_answers_preserve_native_ids() {
-        let params=json!({"questions":[{"id":"original","question":"Choose","options":[{"label":"A"}]}]});
+        let params=json!({"sessionId":"session-original","userInputId":"input-original",
+            "questions":[{"id":"original","question":"Choose","selection":{"mode":"single"},"options":[{"label":"A"}]}]});
         let no=Reply::declined("expired");
         assert_eq!(codex_response(&params,&no)["answers"]["original"]["answers"],json!(["expired"]));
         assert_eq!(claude_response(&json!({"allowedPrompts":["anything"]}),true,&no)["behavior"],"deny");
@@ -201,7 +213,12 @@ mod tests {
         assert_eq!(codex_response(&params,&yes)["answers"]["original"]["answers"],json!(["A"]));
         assert_eq!(claude_response(&params,false,&yes)["updatedInput"]["answers"]["Choose"],"A");
         assert!(claude_response(&json!({"allowedPrompts":["anything"]}),true,&yes)["updatedInput"].get("allowedPrompts").is_none());
-        assert_eq!(muse_command(&params,&yes).0,"userInput/answer");
+        let (method,body)=muse_command(&params,&yes);
+        assert_eq!(method,"userInput/answer");
+        assert_eq!(body["sessionId"],"session-original");
+        assert_eq!(body["userInputId"],"input-original");
+        assert_eq!(body["answers"][0]["questionId"],"original");
+        assert_eq!(body["answers"][0]["selectedLabel"],"A");
         assert_eq!(muse_command(&params,&no).0,"userInput/cancel");
     }
     #[test]

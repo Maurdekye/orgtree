@@ -381,7 +381,7 @@ fn scope_props(dirs: &str) -> Value {
         "tools": { "type": "object", "properties": {
             "bash": { "type": "boolean" }, "web": { "type": "boolean" }, "edit": { "type": "boolean" },
             "subagents": { "type": "boolean" },
-            "orgtree_disabled": { "type": "boolean", "description": "Restore Orgtree-disabled native tools; fresh hire omission=false, rehire/retool omission preserves. Parent-clamped; does not change defaults or other permissions. See native-tools glossary." }, "mcp": { "type": "array", "items": { "type": "string" } },
+            "orgtree_disabled": { "type": "boolean", "description": "Restore Orgtree-disabled native tools; fresh hire omission=false, rehire/retool omission preserves. Parent-clamped; does not change defaults or other permissions. See orgtree-agent-tools-tab." }, "mcp": { "type": "array", "items": { "type": "string" } },
             "orgtree": crate::domain::tool_groups::schema() } },
         "org_visibility": { "type": "string", "enum": VIS },
         "permission_mode": { "type": "string", "enum": PM },

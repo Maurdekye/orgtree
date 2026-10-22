@@ -936,8 +936,10 @@ async fn read_stdout(
                     let p = v["params"].clone();
                     let key = p["userInputId"].as_str().unwrap_or("").to_string();
                     if native_pending.contains_key(&key) { continue; }
-                    if native_pending.len() >= 16 {
-                        let reply = super::native_questions::Reply {answers:vec![],approved:false,reason:"Too many pending native questions".into()};
+                    let ours = admitted.borrow().as_ref().is_some_and(|a| a.matches(&p));
+                    if !ours || native_pending.len() >= 16 {
+                        let reason = if ours {"Too many pending native questions"} else {"The native question does not belong to the admitted turn"};
+                        let reply = super::native_questions::Reply {answers:vec![],approved:false,reason:reason.into()};
                         let (method,params) = super::native_questions::muse_command(&p,&reply);
                         let id=next.fetch_add(1,Ordering::Relaxed);
                         let _=writer.send(json!({"jsonrpc":"2.0","id":id,"method":method,"params":params}).to_string());
@@ -1204,15 +1206,43 @@ mod background_delivery_tests {
     use super::*;
 
     #[tokio::test]
+    async fn native_tools_unadmitted_muse_question_is_cancelled_without_exposing_a_card() {
+        let (stdout,mut host)=tokio::io::duplex(4096);
+        let (actor,_mailbox)=mpsc::unbounded_channel();
+        let (writer,mut commands)=mpsc::unbounded_channel();
+        let (waiters,waiters_rx)=mpsc::unbounded_channel();
+        let (admitted,_)=watch::channel(None);
+        let policy=Policy {may_write:false,may_shell:false,write:vec![],read:vec![],servers:vec![]};
+        let engine=Engine::for_tests(std::env::temp_dir().join("muse-native-question-tests"));
+        let caller=Caller {org_id:1,org_slug:"fixture".into(),agent_id:1,name:"fixture".into()};
+        let reader=tokio::spawn(read_stdout(Box::new(stdout),actor,uuid::Uuid::new_v4(),writer,waiters_rx,waiters,
+            policy,Arc::new(AtomicI64::new(1)),admitted,engine.clone(),caller));
+        let input=json!({"jsonrpc":"2.0","id":7,"method":"userInput/request", "params":{
+            "sessionId":"session","turnId":"not-admitted","userInputId":"native-question","questions":[]}});
+        host.write_all(format!("{input}\n").as_bytes()).await.unwrap();
+        let receipt=tokio::time::timeout(Duration::from_secs(1),commands.recv()).await.unwrap().unwrap();
+        assert_eq!(serde_json::from_str::<Value>(&receipt).unwrap()["id"],7);
+        let cancelled=tokio::time::timeout(Duration::from_secs(1),commands.recv()).await.unwrap().unwrap();
+        let cancelled:Value=serde_json::from_str(&cancelled).unwrap();
+        assert_eq!(cancelled["method"],"userInput/cancel");
+        assert_eq!(cancelled["params"]["userInputId"],"native-question");
+        assert!(engine.elicitations.cards(1).is_empty());
+        drop(host);reader.await.unwrap();
+    }
+
+
+    #[tokio::test]
     async fn unsolicited_delivery_turns_are_cancelled_while_the_actor_cannot_drain_its_mailbox() {
         let (stdout, mut host) = tokio::io::duplex(4096);
         let (actor, mut mailbox) = mpsc::unbounded_channel();
         let (writer, mut commands) = mpsc::unbounded_channel();
-        let (_waiters, waiters_rx) = mpsc::unbounded_channel();
+        let (waiters, waiters_rx) = mpsc::unbounded_channel();
         let policy = Policy { may_write: false, may_shell: false, write: vec![], read: vec![], servers: vec![] };
         let (admitted, _) = watch::channel(None);
-        let reader = tokio::spawn(read_stdout(Box::new(stdout), actor, uuid::Uuid::new_v4(), writer, waiters_rx, policy,
-            Arc::new(AtomicI64::new(1)), admitted));
+        let engine=Engine::for_tests(std::env::temp_dir().join("muse-background-tests"));
+        let caller=Caller {org_id:1,org_slug:"fixture".into(),agent_id:1,name:"fixture".into()};
+        let reader = tokio::spawn(read_stdout(Box::new(stdout), actor, uuid::Uuid::new_v4(), writer, waiters_rx, waiters.clone(), policy,
+            Arc::new(AtomicI64::new(1)), admitted, engine, caller));
         // No actor consumes the notifications: admission/preparing its prompt
         // may be waiting on the database while the host retries delivery.
         for own in ["delivery-1", "delivery-2"] {
@@ -1245,8 +1275,10 @@ mod background_delivery_tests {
         waiters.send((41, reply)).unwrap();
         let (admitted, _) = watch::channel(Some(AdmittedTurn { command: "admitted-command".into(), turn: None, request: Some(41) }));
         let policy = Policy { may_write: false, may_shell: false, write: vec![], read: vec![], servers: vec![] };
-        let reader = tokio::spawn(read_stdout(Box::new(stdout), actor, uuid::Uuid::new_v4(), writer, waiters_rx, policy,
-            Arc::new(AtomicI64::new(42)), admitted.clone()));
+        let engine=Engine::for_tests(std::env::temp_dir().join("muse-background-tests"));
+        let caller=Caller {org_id:1,org_slug:"fixture".into(),agent_id:1,name:"fixture".into()};
+        let reader = tokio::spawn(read_stdout(Box::new(stdout), actor, uuid::Uuid::new_v4(), writer, waiters_rx, waiters.clone(), policy,
+            Arc::new(AtomicI64::new(42)), admitted.clone(), engine, caller));
         for params in [json!({"turnId":"admitted-command"}), json!({"turnId":"native-early","commandId":"admitted-command"})] {
             let notification = json!({"jsonrpc":"2.0","method":"turn/started","params":params});
             host.write_all(format!("{notification}\n").as_bytes()).await.unwrap();
