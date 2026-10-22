@@ -67,6 +67,28 @@ export async function readRunAsAdministrator(runner: Runner = run): Promise<bool
   return result.code === 0 && parseRegQuery(result.stdout)
 }
 
+/** PowerShell for the elevated scripts of Run as admin and Run on boot: a
+ *  task's operator as a SID, or $null. Its XML holds what the installer registered
+ *  and checks, the SID; Task Scheduler's COM principal can give that
+ *  account's NAME instead (alpha.34 on the user's PC, 2026-10-22: both owned
+ *  tasks read UserId '<account name>'), which a raw comparison with the
+ *  record's SID refused. A name is translated; anything that does not
+ *  resolve is $null, and $null never matches. */
+export const OPERATOR_FUNCTIONS = [
+  'function ConvertTo-Sid([string]$Account) {',
+  '  if (-not $Account) { return $null }',
+  '  try {',
+  "    if ($Account -match '^S-1-') { return ([Security.Principal.SecurityIdentifier]::new($Account)).Value }",
+  '    return ([Security.Principal.NTAccount]::new($Account)).Translate([Security.Principal.SecurityIdentifier]).Value',
+  '  } catch { return $null }',
+  '}',
+  'function Get-TaskOperatorSid($Task) {',
+  '  try { $user = [string]([xml]$Task.Xml).Task.Principals.Principal.UserId } catch { $user = $null }',
+  '  if (-not $user) { $user = [string]$Task.Definition.Principal.UserId }',
+  '  return ConvertTo-Sid $user',
+  '}',
+]
+
 /** The script the ELEVATED PowerShell runs: set the run level of both tasks
  *  the installer owns, the Session 0 boot engine and the sign-in helper, to
  *  the same level (both elevated or neither: invariant 7), then create (or
@@ -80,13 +102,14 @@ export async function readRunAsAdministrator(runner: Runner = run): Promise<bool
 export function elevatedWriteScript(enabled: boolean, report?: FailureReport): string {
   return [
     "$ErrorActionPreference = 'Stop'",
+    ...OPERATOR_FUNCTIONS,
     "$hive = [Microsoft.Win32.RegistryKey]::OpenBaseKey('LocalMachine', 'Registry64')",
     '$updated = @(); $originalXml = @{}; $logons = @{}',
     'try {',
     "  $record = $hive.OpenSubKey('SOFTWARE\\Orgtree\\BootEngine')",
     '  if ($null -ne $record) {',
     '    try {',
-    "      $id = [string]$record.GetValue('Id'); $sid = [string]$record.GetValue('OperatorSid')",
+    "      $id = [string]$record.GetValue('Id'); $sid = [string]$record.GetValue('OperatorSid'); $operator = ConvertTo-Sid $sid",
     '      $service = New-Object -ComObject Schedule.Service',
     '      $service.Connect()',
     "      $folder = $service.GetFolder('\\')",
@@ -104,7 +127,7 @@ export function elevatedWriteScript(enabled: boolean, report?: FailureReport): s
     '        try { $task = $folder.GetTask($name) } catch { if ($_.Exception.GetBaseException().HResult -ne -2147024894) { throw } }',
     '        if ($null -eq $task) { continue }',
     '        if (-not $id -or [string]([xml]$task.Xml).Task.RegistrationInfo.Description -cne ($markers[$name] + $id)) { throw "Refusing to change a task Orgtree did not install: $name" }',
-    '        if ([string]$task.Definition.Principal.UserId -cne $sid -or $task.Definition.Principal.LogonType -ne $logonOf[$name]) { throw "Task operator does not match the installation: $name" }',
+    '        if (-not $operator -or (Get-TaskOperatorSid $task) -cne $operator -or $task.Definition.Principal.LogonType -ne $logonOf[$name]) { throw "Task operator does not match the installation: $name" }',
     '        $tasks[$name] = $task',
     '        $originalXml[$name] = [string]$task.Xml; $logons[$name] = $task.Definition.Principal.LogonType',
     '      }',

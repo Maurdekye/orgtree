@@ -1,5 +1,5 @@
-import { HELPER_TASK, POWERSHELL, RUN_AS_ADMIN_KEY, UAC_CANCELLED, elevatedArgs, elevatedFailureMessage, failureReport, run, startTask,
-  type FailureReport, type Runner } from './runasadmin'
+import { HELPER_TASK, OPERATOR_FUNCTIONS, POWERSHELL, RUN_AS_ADMIN_KEY, UAC_CANCELLED, elevatedArgs, elevatedFailureMessage, failureReport, run,
+  startTask, type FailureReport, type Runner } from './runasadmin'
 
 /** "Run on boot" on an all-users Windows installation (docket
  *  option-to-run-the-background-engine-in-the-user-s; the user, 2026-10-16
@@ -96,6 +96,7 @@ export function elevatedStartupScript(enabled: boolean, target: StartupTarget = 
   const flag = enabled ? '$true' : '$false'
   return [
     "$ErrorActionPreference = 'Stop'",
+    ...OPERATOR_FUNCTIONS,
     `$hive = [Microsoft.Win32.RegistryKey]::OpenBaseKey('${target.hive}', 'Registry64')`,
     '$updated = @(); $originalXml = @{}; $logons = @{}',
     'try {',
@@ -103,7 +104,7 @@ export function elevatedStartupScript(enabled: boolean, target: StartupTarget = 
     "  if ($null -eq $key) { throw 'This installation has no startup tasks of its own.' }",
     '  try {',
     "    $id = [string]$key.GetValue('Id')",
-    "    $sid = [string]$key.GetValue('OperatorSid')",
+    "    $sid = [string]$key.GetValue('OperatorSid'); $operator = ConvertTo-Sid $sid",
     "    if (-not $id) { throw 'The installation record has no id.' }",
     '    $service = New-Object -ComObject Schedule.Service',
     '    $service.Connect()',
@@ -117,7 +118,7 @@ export function elevatedStartupScript(enabled: boolean, target: StartupTarget = 
     '      if ($null -eq $task) { continue }',
     '      $xml = [xml]$task.Xml',
     '      if ([string]$xml.Task.RegistrationInfo.Description -cne ($markers[$name] + $id)) { throw "Refusing to change a task Orgtree did not install: $name" }',
-    '      if (-not $sid -or [string]$task.Definition.Principal.UserId -cne $sid) { throw "Task operator does not match the installation: $name" }',
+    '      if (-not $operator -or (Get-TaskOperatorSid $task) -cne $operator) { throw "Task operator does not match the installation: $name" }',
     '      $tasks[$name] = $task',
     '      $originalXml[$name] = [string]$task.Xml; $logons[$name] = $task.Definition.Principal.LogonType',
     '    }',
