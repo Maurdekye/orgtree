@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { replayUsageBoards, hasAccountData } from '../tools/rig/org-accounts-board.mjs'
+import { replayUsageBoards, hasAccountData, excludesSwitchedAccount } from '../tools/rig/org-accounts-board.mjs'
 
 const full = `[PROVIDER USAGE #1 — synthetic]
 [ACCOUNTS] claude/primary · claude-1
@@ -38,4 +38,23 @@ test('unchanged references preserve the effective account and provider', () => {
   assert.equal(board.current, 'claude-1')
   assert.equal(board.provider, 'claude')
   assert.equal(hasAccountData(board, 'claude-1'), true)
+})
+const expectedRemoved = ['claude-1|"session"|"session"|null|Current session', 'claude-1|"weekly_all"|"weekly_all"|null|Current week (all models)']
+const initial = replayUsageBoards([full])
+const excludes = (board, allowed = ['claude/primary', 'google/primary']) => excludesSwitchedAccount(initial, board, board.accounts, 'claude-1', allowed, expectedRemoved)
+test('a newly cached allowed provider may arrive while B is removed', () => {
+  const changed = delta.replace('[ACCOUNTS] claude/primary', '[ACCOUNTS] claude/primary · google/primary')
+    .replace('Removed:', 'google/primary | usage | - | - | - | now | unavailable (synthetic)\nRemoved:')
+  const board = replayUsageBoards([full, changed])
+  assert.equal(excludes(board), true)
+  assert.equal(excludes(board, ['claude/primary']), false)
+  assert.equal(excludes({ ...board, rows: board.rows.filter(row => row.account !== 'claude/primary'), valid: false }), false)
+})
+test('current account/provider and exact removal identities remain required', () => {
+  const board = replayUsageBoards([full, delta])
+  assert.equal(excludes(board), true)
+  for (const changed of [{ current: 'claude-1' }, { provider: 'openai' }, { removed: [expectedRemoved[0]] },
+    { removed: expectedRemoved.map(label => label.replace('claude-1|', 'openai-1|')) }]) {
+    assert.equal(excludes({ ...board, ...changed }), false)
+  }
 })

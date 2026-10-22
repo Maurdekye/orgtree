@@ -51,3 +51,13 @@ export function replayUsageBoards(prompts) {
 }
 
 export const hasAccountData = (board, account) => board.rows.some(row => row.account === account)
+
+export function excludesSwitchedAccount(initial, board, roster, removedAccount, allowedAccounts, expectedRemoved) {
+  return initial.valid && board.valid && board.fulls === 1 && board.deltas === 1
+    && board.accounts.includes('claude/primary') && !board.accounts.includes(removedAccount) && !hasAccountData(board, removedAccount)
+    && roster.includes('claude/primary') && !roster.includes(removedAccount)
+    && board.current === 'claude/primary' && board.provider === 'claude' && board.tier === 'haiku'
+    && board.accounts.every(id => allowedAccounts.includes(id))
+    && initial.accounts.filter(id => id !== removedAccount).every(id => board.accounts.includes(id) && hasAccountData(board, id))
+    && JSON.stringify(board.removed.slice().sort()) === JSON.stringify(expectedRemoved.slice().sort())
+}

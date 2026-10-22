@@ -28,7 +28,7 @@ import { fileURLToPath } from 'node:url'
 
 import { Proof } from '../proof.mjs'
 import { runDesktop } from '../desktop.mjs'
-import { replayUsageBoards, hasAccountData } from '../org-accounts-board.mjs'
+import { replayUsageBoards, hasAccountData, excludesSwitchedAccount } from '../org-accounts-board.mjs'
 
 const later = h => new Date(Date.now() + h * 3600e3).toISOString()
 const reading = (session, weekly, email) => ({ available: true, email, observed_at: new Date().toISOString(), limits: [
@@ -113,13 +113,8 @@ export default async function (rig) {
   const expectedRemoved = reading(5, 20, '').limits.map(l => `${B}|${JSON.stringify(l.kind)}|${JSON.stringify(l.group)}|null|${l.label}`).sort()
   const roster = lastPrompt('bea').match(/^\[ACCOUNTS\] (.*)$/m)?.[1].split(' · ').map(a => a.split(' ')[0]) ?? []
   p.file('usage-after.json', board)
-  p.check("bea's next board lists the default sign-in and not B", board.valid && board.fulls === 1 && board.deltas === 1
-    && board.accounts.includes('claude/primary') && !board.accounts.includes(B) && !hasAccountData(board, B)
-    && roster.includes('claude/primary') && !roster.includes(B)
-    && board.current === 'claude/primary' && board.provider === 'claude' && board.tier === 'haiku'
-    && board.accounts.length === initialBoard.accounts.length - 1
-    && initialBoard.accounts.filter(id => id !== B).every(id => board.accounts.includes(id) && hasAccountData(board, id))
-    && JSON.stringify(board.removed.slice().sort()) === JSON.stringify(expectedRemoved), board)
+  p.check("bea's next board lists the default sign-in and not B", excludesSwitchedAccount(initialBoard, board, roster, B,
+    again.accounts.filter(a => a.allowed).map(a => a.id), expectedRemoved), board)
   const sw = rig.one(`SELECT detail FROM ot.events WHERE op = 'account_switch' AND detail ->> 'account' = 'primary' ORDER BY id DESC LIMIT 1`)
   p.check('the move is in the org log', !!sw, sw)
 

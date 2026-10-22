@@ -47,7 +47,7 @@ The `org-accounts.mjs` rig proof replays the first full usage snapshot and
 subsequent deltas before checking disabled-account exclusion. Its `[ACCOUNTS]`
 roster and effective window set must exclude the disabled account; removal
 labels must identify exactly that account's two seeded windows. Unchanged
-active-account windows, the current account/provider/tier and all original
+active-account windows, newly cached allowed accounts with their data, the current account/provider/tier and all original
 24 account/UI checks remain required. `org-accounts-board.test.mjs` covers
 missing baselines/data/removals, foreign removals and unchanged references.
 The existing hire-index and two UI console baseline failures remain failures.
