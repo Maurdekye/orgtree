@@ -93,7 +93,8 @@ for (const source of [undefined, 'unavailable-old-event', 'e2']) {
       await dismissUserMention('synthetic', node.id, target.mentionId, target.eventId, { highlight: true })
     })
     const view = await mountView(
-      <DeskChat node={node} map={new Map([[node.id, node]])} slug="synthetic" op={async () => ({})} toast={() => {}} bare />,
+      <DeskChat node={node} map={new Map([[node.id, node]])} slug="synthetic" op={async () => ({})} toast={() => {}}
+        onMailLink={() => {}} bare />,
       el => el,
     )
     try {
