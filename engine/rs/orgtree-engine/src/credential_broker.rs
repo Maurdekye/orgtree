@@ -49,71 +49,7 @@ fn main() -> ExitCode {
 #[cfg(windows)]
 #[nolog]
 fn main() -> ExitCode {
-    let args: Vec<std::ffi::OsString> = std::env::args_os().skip(1).collect();
-    if args.len() == 1 && args[0] == "session-engine" { return launcher::run(); }
     win::run()
-}
-
-/// `orgtree-credential-broker session-engine`: the action of the "Orgtree
-/// User Session Engine" task (docket after-an-update-or-engine-restart-while-
-/// the-user). `orgtree-engine` is a console program: started by an
-/// interactive-token task it would open a console window every time. This
-/// windowless binary starts its `session-launch signin` beside it with no
-/// window and waits for it, so the task runs as long as that host does (the
-/// installer counts it). Nothing else is accepted.
-#[cfg(windows)]
-mod launcher {
-    use std::path::{Path, PathBuf};
-    use std::process::ExitCode;
-
-    /// The engine binary beside this one.
-    #[nolog]
-    pub fn engine_beside(me: &Path) -> PathBuf {
-        let name = if cfg!(windows) { "orgtree-engine.exe" } else { "orgtree-engine" };
-        me.parent().map(|dir| dir.join(name)).unwrap_or_else(|| PathBuf::from(name))
-    }
-
-    /// The host's exit code as the task's last result.
-    #[nolog]
-    pub fn exit_code(code: Option<i32>) -> u8 {
-        code.and_then(|c| u8::try_from(c).ok()).unwrap_or(1)
-    }
-
-    #[nolog]
-    pub fn run() -> ExitCode {
-        use std::os::windows::process::CommandExt;
-        use std::process::{Command, Stdio};
-        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-        let Ok(me) = std::env::current_exe() else { return ExitCode::from(1) };
-        let engine = engine_beside(&me);
-        let mut host = Command::new(&engine);
-        host.args(["session-launch", "signin"]).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null())
-            .creation_flags(CREATE_NO_WINDOW);
-        if let Some(dir) = engine.parent() { host.current_dir(dir); }
-        match host.status() {
-            Ok(status) => ExitCode::from(exit_code(status.code())),
-            Err(_) => ExitCode::from(1),
-        }
-    }
-
-    #[cfg(test)]
-    mod tests {
-        use super::*;
-        #[test]
-        fn the_task_runs_the_session_launcher_beside_it() {
-            let dir = Path::new("resources").join("engine");
-            let engine = if cfg!(windows) { "orgtree-engine.exe" } else { "orgtree-engine" };
-            assert_eq!(engine_beside(&dir.join("orgtree-credential-broker.exe")), dir.join(engine));
-        }
-        #[test]
-        fn the_task_result_is_the_host_exit_code() {
-            assert_eq!(exit_code(Some(0)), 0);
-            assert_eq!(exit_code(Some(75)), 75);
-            assert_eq!(exit_code(Some(-1)), 1);
-            assert_eq!(exit_code(Some(300)), 1);
-            assert_eq!(exit_code(None), 1);
-        }
-    }
 }
 
 #[cfg(windows)]

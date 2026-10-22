@@ -39,66 +39,20 @@ const HUNG_RELEASE_WAIT: Duration = Duration::from_secs(30);
 pub(crate) static STOP: AtomicBool = AtomicBool::new(false);
 
 #[nolog]
-fn engine_admin(boot_setting: bool, session_admin: Option<bool>) -> bool {
-    session_admin.unwrap_or(boot_setting)
-}
-
-#[nolog]
 pub(crate) fn launch_identity() -> (Option<String>, bool) {
     (win::user_sid(), win::is_elevated())
 }
 
-#[cfg(test)]
-mod session_launch_tests {
-    use super::*;
-    #[test]
-    fn boot_keeps_both_stored_choices() {
-        assert!(engine_admin(true, None));
-        assert!(!engine_admin(false, None));
-    }
-    #[test]
-    fn signed_in_restart_drops_rights_even_when_boot_is_admin() {
-        assert!(!engine_admin(true, Some(false)));
-    }
-    #[test]
-    fn one_off_admin_does_not_depend_on_boot_setting() {
-        assert!(engine_admin(false, Some(true)));
-    }
-}
-
-/// The boot task's entry. On Windows the boot supervisor decides where the
-/// engine runs (src/boot_supervisor.rs); elsewhere the host runs it here.
+/// The boot task's entry: the engine always runs in Session 0 under this host
+/// (user 2026-10-22 07:28Z; decision 94 replaces decision 93's move into the
+/// signed-in session). One engine at a time; a hung one is replaced here, and
+/// any other end ends the host: a restart, an update or a recovery runs the
+/// boot task again.
 pub fn run() -> ExitCode {
-    #[cfg(windows)]
-    { crate::boot_supervisor::run() }
-    #[cfg(not(windows))]
-    { run_with_rights(None, &mut |_| {}) }
-}
-
-/// What a host learns when its engine is ready: its port, token and pid.
-pub(crate) struct Ready<'a> {
-    pub port: u16,
-    pub token: &'a str,
-    pub pid: u32,
-}
-
-/// Desktop launches never inherit the Session 0 preference. A one-off admin
-/// launch has already verified its elevated token and interactive operator.
-/// `ready` runs each time an engine of this host becomes ready.
-pub(crate) fn run_in_session(admin: bool, ready: &mut dyn FnMut(&Ready)) -> ExitCode {
-    run_with_rights(Some(admin), ready)
-}
-
-/// Whether this process has administrator rights (the restricted-token test).
-pub(crate) fn elevated() -> bool {
-    win::is_elevated()
-}
-
-fn run_with_rights(session_admin: Option<bool>, ready: &mut dyn FnMut(&Ready)) -> ExitCode {
     install_stop_handler();
     let mut hangs: Vec<Instant> = Vec::new();
     loop {
-        let code = once(session_admin, ready);
+        let code = once();
         if code != EXIT_ENGINE_HUNG {
             return ExitCode::from(code);
         }
@@ -367,9 +321,13 @@ fn record_liveness(root: &Path, event: Value) {
     say(Some(root), &line.to_string());
 }
 
-/// Run ONE engine until it exits, is stopped, or hangs. `ready` runs once the
-/// engine is ready and its descriptor published.
-pub(crate) fn once(session_admin: Option<bool>, ready: &mut dyn FnMut(&Ready)) -> u8 {
+/// Whether this process has administrator rights (the restricted-token test).
+pub(crate) fn elevated() -> bool {
+    win::is_elevated()
+}
+
+/// Run ONE engine until it exits, is stopped, or hangs.
+fn once() -> u8 {
     let root = match data_root() {
         Ok(r) => r,
         Err(e) => {
@@ -436,7 +394,7 @@ pub(crate) fn once(session_admin: Option<bool>, ready: &mut dyn FnMut(&Ready)) -
     env.push(("ORGTREE_CORE_MODE".into(), "boot".into()));
     env.extend(pg);
     let elevated = win::is_elevated();
-    let as_admin = engine_admin(win::run_as_administrator(), session_admin);
+    let as_admin = win::run_as_administrator();
     if as_admin {
         say(Some(&root), "administrator launch selected; the engine keeps this host's rights");
     }
@@ -534,7 +492,6 @@ pub(crate) fn once(session_admin: Option<bool>, ready: &mut dyn FnMut(&Ready)) -
         return if core_stopping { 0 } else { 1 };
     }
     say(Some(&root), &format!("engine ready on 127.0.0.1:{port} (pid {pid})"));
-    ready(&Ready { port, token: &token, pid });
     let watch = Arc::new(Liveness::new());
     {
         let watch = watch.clone();

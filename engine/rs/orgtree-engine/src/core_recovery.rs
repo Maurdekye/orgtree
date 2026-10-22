@@ -10,22 +10,6 @@ pub fn cli(args: &[String]) -> ExitCode {
     #[cfg(not(windows))] { let _ = args; ExitCode::from(2) }
 }
 
-/// The boot host's claim on the one recovery of a lost engine generation: the
-/// same durable claim the desktop takes (`core-recovery engine`), so exactly
-/// one of them recovers it (coordinator 2026-10-21 16:27Z).
-#[cfg(windows)]
-#[nolog]
-pub fn claim_engine(root: &Path, generation: &str) -> bool { win::claim(root, "engine", generation) }
-
-/// A failed rollback keeps the engine stopped for the sign-in it happened in:
-/// automatic recovery waits for the user's Start engine.
-#[cfg(windows)]
-#[nolog]
-fn held_stopped(root: &Path, active: &[crate::core_process::Session]) -> bool {
-    crate::session_handover::read(root).is_some_and(|r| r.rollback == Some(crate::session_handover::Rollback::Failed)
-        && r.epoch.iter().any(|s| active.contains(s)))
-}
-
 #[cfg(windows)]
 mod win {
     use super::*;
@@ -108,11 +92,8 @@ mod win {
     // One durable attempt per failed identity, capped across successive crashes.
     // The short native owner serializes admission, including concurrent callers.
     #[nolog]
-    pub(super) fn claim(root: &Path, role: &str, key: &str) -> bool {
+    fn claim(root: &Path, role: &str, key: &str) -> bool {
         let Some(_owner) = singleton(root, "admission") else { return false; };
-        // The boot host claims from Session 0, where the Local mutex above is
-        // another one: the handover lock serializes the two sessions too.
-        let Some(_cross) = crate::session_handover::lock_within(root, Duration::from_secs(5)) else { return false; };
         let now = core_state::now();
         let file = root.join(format!("core-recovery-{role}-budget.json"));
         let mut times: Vec<i64> = match read_json(&file) {
@@ -173,8 +154,7 @@ mod win {
             }
             "engine" if core_process::identity(pid).as_ref() == Some(&who) => {
                 let valid = current(&root, &who).filter(|v| v.generation == s.generation)
-                    .is_some_and(|v| !core_state::recovery_deferred(&v) && signed_in(&root, &v) == Some(true) && core_process::life(&v.engine) == Life::Gone)
-                    && !core_state::sessions(&root, &mut core_process::Sessions::new()).is_some_and(|a| super::held_stopped(&root, &a));
+                    .is_some_and(|v| !core_state::recovery_deferred(&v) && signed_in(&root, &v) == Some(true) && core_process::life(&v.engine) == Life::Gone);
                 let ready = valid && resources() && claim(&root, "engine", &s.generation);
                 if ready { record(&root, "engine-recovery-admitted", &s, None); }
                 println!("{}", serde_json::json!({"admitted":ready}));
@@ -288,13 +268,7 @@ mod win {
             assert!(claim(&dir, "engine", "third"));
             fs::write(&budget, serde_json::to_vec(&vec![core_state::now()-60_000;3]).unwrap()).unwrap();
             assert!(!claim(&dir, "engine", "fourth"));
-            // the budget, the claim and the cross-session handover lock (one fixed file)
-            assert_eq!(fs::read_dir(&dir).unwrap().count(), 3, "fixed-size journal, no per-crash file growth");
-            let held = crate::session_handover::try_lock(&dir).unwrap();
-            fs::write(&budget, b"[]").unwrap();
-            assert!(!claim(&dir, "engine", "fifth"), "a claim waits for a handover attempt running in another session");
-            drop(held);
-            assert!(claim(&dir, "engine", "fifth"));
+            assert_eq!(fs::read_dir(&dir).unwrap().count(), 2, "fixed-size journal, no per-crash file growth");
             fs::remove_dir_all(dir).unwrap();
         }
         #[test]

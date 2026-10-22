@@ -44,7 +44,6 @@ pub fn router(engine: Arc<Engine>) -> Router {
     let api = Router::new()
         // desktop launcher / tray
         .route("/api/desktop/identity", get(desktop::identity))
-        .route("/api/desktop/session-handover", post(desktop::session_handover))
         .route("/api/desktop/credential-bridge", post(crate::credential_bridge::dispatch))
         .route("/api/agent-credential", post(crate::credential_bridge::dispatch))
         .route("/api/desktop/alive", get(desktop::alive))

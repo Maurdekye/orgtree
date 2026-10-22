@@ -8,7 +8,6 @@ use tokio::sync::{mpsc, oneshot};
 pub enum Command {
     Member { desktop: bool, who: Identity, reply: oneshot::Sender<bool> },
     Transition { who: Identity, finish: bool, installing: bool, reply: oneshot::Sender<bool> },
-    Handover { request: crate::session_handover::Admission, reply: oneshot::Sender<bool> },
 }
 pub struct Core {
     send: mpsc::Sender<Command>,
@@ -35,12 +34,6 @@ impl Core {
         let (reply, answer) = oneshot::channel();
         if self.send.try_send(Command::Transition { who, finish, installing, reply }).is_err() { return false; }
         tokio::time::timeout(Duration::from_secs(5), answer).await.ok().and_then(Result::ok).unwrap_or(false)
-    }
-    pub async fn handover(&self, request: crate::session_handover::Admission) -> bool {
-        if !self.enabled || !core_process::native_peer(&request.who) { return false; }
-        let (reply, answer)=oneshot::channel();
-        if self.send.try_send(Command::Handover {request,reply}).is_err() { return false; }
-        tokio::time::timeout(Duration::from_secs(5),answer).await.ok().and_then(Result::ok).unwrap_or(false)
     }
 }
 
@@ -93,14 +86,7 @@ async fn monitor(engine: Arc<Engine>, mut recv: mpsc::Receiver<Command>) {
             cmd = recv.recv() => {
                 let Some(cmd) = cmd else { break };
                 let stopped = core_state::stopped(root, &state);
-                let before = state.clone();
                 let accepted = match &cmd {
-                    Command::Handover {request,..} => {
-                        // a transition whose owner has ended (a launcher that failed after
-                        // the stop) can never finish; a new launcher may take it over
-                        let owner_gone = state.transition_desktop.as_ref().is_some_and(|d| core_process::life(d) == Life::Gone);
-                        crate::session_handover::admit(&mut state,request,core_state::now(),stopped,core_process::native_peer(&request.who),owner_gone)
-                    }
                     Command::Member { desktop, who, .. } => {
                         let previous = if *desktop { &state.desktop } else { &state.helper };
                         let replacement = previous.as_ref().is_some_and(|p| core_process::life(p) == Life::Gone)
@@ -127,8 +113,7 @@ async fn monitor(engine: Arc<Engine>, mut recv: mpsc::Receiver<Command>) {
                 if accepted { finish_ready_transition(&mut state, boot); }
                 let ok = accepted && core_state::write(root, &state).is_ok();
                 if ok { engine.core.state.store(Some(Arc::new(state.clone()))); }
-                else { state=before; }
-                match cmd { Command::Member { reply, .. } | Command::Transition { reply, .. } | Command::Handover {reply,..} => { let _ = reply.send(ok); } }
+                match cmd { Command::Member { reply, .. } | Command::Transition { reply, .. } => { let _ = reply.send(ok); } }
             }
             _ = timer.tick() => {
                 let current = core_state::sessions(root, &mut sessions);

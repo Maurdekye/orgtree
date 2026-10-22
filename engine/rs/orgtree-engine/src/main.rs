@@ -34,9 +34,6 @@ mod engine;
 mod events;
 mod feed;
 mod host;
-mod boot_supervisor;
-mod session_launch;
-mod session_handover;
 #[cfg(windows)]
 mod hosted_pipes;
 mod http;
@@ -95,7 +92,6 @@ fn main() -> ExitCode {
         None | Some("serve") => serve(false),
         Some("standalone") => serve(true),
         Some("host") => host::run(),
-        Some("session-launch") => session_launch::cli(&args[2..]),
         Some("core-control") => core_monitor::cli(&args[2..]),
         Some("core-recovery") => core_recovery::cli(&args[2..]),
         Some("credential-helper") => credential_bridge::cli("git", &args[2..]),
@@ -239,7 +235,6 @@ async fn run_with_cluster(
         pid: std::process::id(),
         started_at: chrono::Utc::now(),
         port,
-        note: session_handover::startup_note(&cfg.data_root, &startup.generation),
     };
     let settings = settings::AppSettings::new(settings_doc);
     trace::apply_verbose(settings.verbose_logging());

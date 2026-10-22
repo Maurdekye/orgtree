@@ -14,27 +14,18 @@ const MAX: u64 = 16 * 1024;
 #[cfg(windows)]
 #[nolog]
 pub fn sessions(root: &Path, source: &mut Option<core_process::Sessions>) -> Option<Vec<Session>> {
-    if rig_root(root) && root.join("core-rig-signed-out").is_file() { return Some(vec![]); }
-    source.as_mut().and_then(|s| s.read())
-}
-
-/// A debug rig run's own data root (never in a release build): the rig asked
-/// for it (ORGTREE_ENGINE_RIG=1 with SAFE_START), the root carries the rig's
-/// marker, and it lies outside the live `%APPDATA%\Orgtree v2` folder. The
-/// boot host's and the launcher's test seams apply only there.
-#[nolog]
-pub fn rig_root(root: &Path) -> bool {
     #[cfg(debug_assertions)]
+    if std::env::var("ORGTREE_ENGINE_RIG").as_deref() == Ok("1")
+        && std::env::var("ORGTREE_ENGINE_SAFE_START").as_deref() == Ok("1")
+        && root.join(".orgtree-rig-root").is_file()
     {
-        if std::env::var("ORGTREE_ENGINE_RIG").as_deref() != Ok("1")
-            || std::env::var("ORGTREE_ENGINE_SAFE_START").as_deref() != Ok("1")
-            || !root.join(".orgtree-rig-root").is_file() { return false; }
-        let (Ok(resolved), Some(live)) = (root.canonicalize(), dirs::data_dir().map(|d| d.join("Orgtree v2"))) else { return false };
-        let live = live.canonicalize().unwrap_or(live);
-        !resolved.to_string_lossy().to_lowercase().starts_with(&live.to_string_lossy().to_lowercase())
+        let resolved = root.canonicalize().ok()?;
+        let live = dirs::data_dir()?.join("Orgtree v2").canonicalize().ok()?;
+        if !resolved.to_string_lossy().to_lowercase().starts_with(&live.to_string_lossy().to_lowercase())
+            && root.join("core-rig-signed-out").is_file() { return Some(vec![]); }
     }
-    #[cfg(not(debug_assertions))]
-    { let _ = root; false }
+    #[cfg(not(debug_assertions))] let _ = root;
+    source.as_mut().and_then(|s| s.read())
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -132,19 +123,6 @@ pub fn write(root: &Path, state: &Snapshot) -> std::io::Result<()> {
     file.sync_all()?;
     drop(file);
     let result = replace(&tmp, &root.join(FILE));
-    if result.is_err() { let _ = std::fs::remove_file(tmp); }
-    result
-}
-
-/// Another small journal file in the data root, replaced atomically the same way.
-#[nolog]
-pub fn write_file(root: &Path, name: &str, bytes: &[u8]) -> std::io::Result<()> {
-    let tmp = root.join(format!(".{name}-{}.tmp", uuid::Uuid::new_v4().simple()));
-    let mut file = std::fs::OpenOptions::new().write(true).create_new(true).open(&tmp)?;
-    file.write_all(bytes)?;
-    file.sync_all()?;
-    drop(file);
-    let result = replace(&tmp, &root.join(name));
     if result.is_err() { let _ = std::fs::remove_file(tmp); }
     result
 }
