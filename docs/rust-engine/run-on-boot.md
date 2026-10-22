@@ -317,7 +317,16 @@ across sessions:
    (`begun`, `stopping`, `starting`, `ready` or `failed`), the session,
    whether the engine is elevated, whether the old engine was stopped, the
    sign-in the record belongs to (`epoch`), a fixed failure reason and the
-   rollback (`done` or `failed`).
+   rollback (`done` or `failed`). The `begun` and `stopping` records must
+   land, after a short retry, before anything is asked or stopped. A reader
+   may hold the file without delete sharing, which blocks the atomic replace.
+   Then the launcher ends with "the attempt could not be recorded" and leaves
+   the old engine as it was (Lane B finding, 2026-10-21; proof step C0).
+   Later writes are attempted the same way. After the stop the start goes
+   on regardless, and the boot host's log and the receipts say what could
+   not be recorded. If the failure of a stopped attempt cannot be recorded,
+   the boot host's 120 s backstop recovers the engine instead of the
+   immediate rollback.
 3. It asks the running engine for admission (`POST
    /api/desktop/session-handover`, Begin). Admission is given only to a
    native peer (a live process of the engine's own executable, matched by

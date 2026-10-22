@@ -1756,7 +1756,9 @@ All entries are dated 2026-10-06 unless stated otherwise.
       the engine this button started died because PostgreSQL refuses administrator rights). On
       Windows the postmaster always starts with a restricted copy of the engine's token, as
       pg_ctl starts it; the engine and its agents keep the engine's rights.
-    - **Failures:** one before the stop leaves the old engine untouched. After a graceful stop,
+    - **Failures:** one before the stop leaves the old engine untouched, including an attempt
+      record that cannot be written (Lane B finding 2026-10-21: nothing is asked or stopped
+      until it lands). After a graceful stop,
       a failed replacement gets exactly one boot-task rollback, recorded durably and reported in
       the app and in the next restart notice. If the rollback fails too, the engine stays
       stopped and the tray offers Start engine.
