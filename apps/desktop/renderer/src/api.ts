@@ -254,7 +254,7 @@ export interface TemplateSummary {
 }
 export interface TemplatePick {
   id: string
-  overrides?: Record<string, { tier?: string; name?: string }>
+  overrides?: Record<string, { tier?: string; name?: string; fast_mode?: boolean; harness?: string }>
   removed?: string[]
   kickoff?: boolean
   /** slot → the tier the preview showed; a create whose plan moved is refused */
@@ -268,6 +268,8 @@ export interface TemplatePlanRow {
   team_charter: string | null; kickoff: boolean; blocked: boolean
   dirs_dropped: string[]
   watchdogs?: number
+  fast_mode?: boolean | null
+  harness?: string | null
   audiences?: string[]
 }
 export interface TemplatePlan {
@@ -278,6 +280,8 @@ export interface TemplatePlan {
   loading?: boolean
   unusable_here?: boolean
   warnings?: string[]
+  harnesses?: string[]
+  fast_tiers?: string[]
 }
 export interface TemplateInclude {
   charters: boolean; credits: boolean; effort: boolean; tools: boolean

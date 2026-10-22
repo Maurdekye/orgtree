@@ -66,12 +66,12 @@ export function TemplateDocumentsSetting() {
 const GROUPS: { key: keyof TemplateInclude; label: string; hint?: string }[] = [
   { key: 'charters', label: 'Charters and team charters' },
   { key: 'credits', label: 'Credits', hint: "each agent's spare credits" },
-  { key: 'effort', label: 'Effort' },
+  { key: 'effort', label: 'Effort, fast mode and harness pin' },
   { key: 'tools', label: 'Tool switches, visibility and permission mode' },
   { key: 'org_md', label: 'org.md' },
   { key: 'quick_chat', label: 'Quick chat defaults', hint: 'the superior, model and effort it starts with here' },
-  { key: 'settings', label: 'Org-wide settings',
-    hint: 'grant caps, new-agent defaults, compaction and resume; never folders, accounts or hubs' },
+  { key: 'settings', label: 'Org-wide and project settings',
+    hint: 'org defaults plus project queue, events, slots and peer mail; never folders, accounts or hubs' },
   { key: 'watchdogs', label: 'Include watchdogs', hint: 'standing watches; node targets follow the new layout; credentials are never saved' },
   { key: 'machine_watchdogs', label: 'Include machine-specific watchdogs', hint: 'files, commands, processes, streams, MQTT and WebSocket; recreated paused so you can check their targets' },
   { key: 'audiences', label: 'Include audiences', hint: 'explicit grants between saved nodes, plus user and outside-mail access; shown before creation' },
@@ -99,10 +99,14 @@ export function downloadTemplate(owner: Document, saved: SavedTemplate) {
 }
 
 /** the live agents' names, for the Quick chat snapshot's superior check */
-function liveNames(tree: TreePayload | undefined): Set<string> {
+export function liveNames(tree: TreePayload | undefined): Set<string> {
   const out = new Set<string>()
-  const walk = (n: TreeNode) => { if (n.state === 'live') out.add(n.id); n.children.forEach(walk) }
-  ;(tree?.roots ?? []).forEach(walk)
+  const pending: TreeNode[] = [...(tree?.roots ?? [])]
+  while (pending.length) {
+    const n = pending.pop()!
+    if (n.state === 'live') out.add(n.id)
+    for (const child of n.children) pending.push(child)
+  }
   return out
 }
 

@@ -16,7 +16,7 @@ import './templatepicker.css'
 export interface LayoutChoice {
   /** '' = Empty */
   id: string
-  overrides: Record<string, { tier?: string; name?: string }>
+  overrides: Record<string, { tier?: string; name?: string; fast_mode?: boolean; harness?: string }>
   removed: string[]
   kickoff: boolean
 }
@@ -66,6 +66,8 @@ export function TemplatePicker({ choice, onChange, plan, onPlan, orgName, dirs }
   orgName: string
   dirs: string[]
 }) {
+  const [page, setPage] = useState(0)
+  useEffect(() => setPage(0), [choice.id])
   const [templates, setTemplates] = useState<TemplateSummary[] | null>(null)
   const [listError, setListError] = useState('')
   const [folderError, setFolderError] = useState('')
@@ -109,7 +111,7 @@ export function TemplatePicker({ choice, onChange, plan, onPlan, orgName, dirs }
   const offered = useMemo(() => [...(plan?.offered ?? [])].sort((a, b) =>
     PROVIDER_ORDER.indexOf(a.provider) - PROVIDER_ORDER.indexOf(b.provider) || b.seat - a.seat), [plan])
   const pick = (id: string) => onChange({ ...EMPTY_LAYOUT, id })
-  const setSlot = (slot: string, v: { tier?: string; name?: string }) =>
+  const setSlot = (slot: string, v: { tier?: string; name?: string; fast_mode?: boolean; harness?: string }) =>
     onChange({ ...choice, overrides: { ...choice.overrides, [slot]: { ...choice.overrides[slot], ...v } } })
   const agentCount = (rows: { tier: string | null }[]) => rows.filter(a => a.tier !== 'project').length
   const projectCount = (rows: { tier: string | null }[]) => rows.filter(a => a.tier === 'project').length
@@ -118,6 +120,8 @@ export function TemplatePicker({ choice, onChange, plan, onPlan, orgName, dirs }
     return `${agents} agent${agents === 1 ? '' : 's'}${projects ? ` + ${projects} project${projects === 1 ? '' : 's'}` : ''}`
   }
   const anyKickoff = plan?.agents.some((a) => a.kickoff) ?? false
+  const lastPage = Math.max(0, Math.ceil((plan?.agents.length ?? 0) / 100) - 1)
+  const shownPage = Math.min(page, lastPage)
   const currentPlan = plan?.id === choice.id ? plan : null
   const planUnusable = !!currentPlan && !currentPlan.loading &&
     (currentPlan.unusable_here ?? (currentPlan.agents.length > 0 && currentPlan.agents.filter(a => a.requested_tier !== 'project').every(a => !a.tier)))
@@ -170,11 +174,12 @@ export function TemplatePicker({ choice, onChange, plan, onPlan, orgName, dirs }
       <table>
         <thead><tr><th>Name</th><th>Tier</th><th>Account</th><th>Charter</th><th className="num">Seat + grant</th><th /></tr></thead>
         <tbody>
-          {plan.agents.map((a) => <tr key={a.slot} className={a.blocked && !plan.loading ? 'tp-blocked' : ''}>
+          {plan.agents.slice(shownPage * 100, (shownPage + 1) * 100).map((a) => <tr key={a.slot} className={a.blocked && !plan.loading ? 'tp-blocked' : ''}>
             <td className="tp-nm">
-              {a.depth > 0 && <span className="tp-indent" style={{ marginLeft: (a.depth - 1) * 12 }} aria-hidden="true">{'└'}</span>}
+              {a.depth > 0 && <span className="tp-indent" style={{ marginLeft: Math.min(a.depth - 1, 8) * 12 }} aria-hidden="true">{'└'}</span>}
               <input value={choice.overrides[a.slot]?.name ?? a.name} aria-label={`name of ${a.slot}`}
                 onChange={(e) => setSlot(a.slot, { name: e.target.value })} />
+              {a.depth > 8 && <div className="tp-note">level {a.depth + 1} · under {a.parent}</div>}
               {!!a.watchdogs && <div className="tp-note">{a.watchdogs} watchdog{a.watchdogs === 1 ? '' : 's'}</div>}
               {!!a.audiences?.length && <div className="tp-note">Audience grants: {a.audiences.map(g => g === '@user' || g === 'user' ? 'user' : g === '@extern' || g === 'extern' ? 'outside mail' : g).join(', ')}</div>}
             </td>
@@ -184,6 +189,16 @@ export function TemplatePicker({ choice, onChange, plan, onPlan, orgName, dirs }
                 {!a.tier && <option value="" disabled>{plan.loading ? 'checking…' : 'needs a sign-in'}</option>}
                 {offered.map((o) => <option key={o.tier} value={o.tier}>{o.tier}</option>)}
               </select>}
+              {a.requested_tier !== 'project' && a.fast_mode != null && <label className="tp-note">
+                <input type="checkbox" checked={choice.overrides[a.slot]?.fast_mode ?? a.fast_mode}
+                  disabled={!a.fast_mode && !(plan.fast_tiers ?? []).includes(a.tier ?? '')}
+                  onChange={e => setSlot(a.slot, { fast_mode: e.target.checked })} /> Fast mode
+              </label>}
+              {a.harness && <label className="tp-note">Harness pin <select aria-label={`harness of ${a.name}`}
+                value={choice.overrides[a.slot]?.harness ?? a.harness} onChange={e => setSlot(a.slot, { harness: e.target.value })}>
+                {!(plan.harnesses ?? []).includes(a.harness) && <option value={a.harness}>{a.harness} (unavailable)</option>}
+                {(plan.harnesses ?? []).map(h => <option key={h} value={h}>{h}</option>)}
+              </select></label>}
               {a.note && <div className={a.blocked && !plan.loading ? 'tp-bad' : 'tp-note'}>{a.note}</div>}
               {a.dirs_dropped.length > 0 && <div className="tp-note">
                 folders not in this organization: {a.dirs_dropped.join(', ')}</div>}
@@ -197,6 +212,11 @@ export function TemplatePicker({ choice, onChange, plan, onPlan, orgName, dirs }
           </tr>)}
         </tbody>
       </table>
+      {lastPage > 0 && <div className="row tp-pages">
+        <button type="button" disabled={shownPage === 0} onClick={() => setPage(shownPage - 1)}>Previous 100</button>
+        <span>Nodes {shownPage * 100 + 1}–{Math.min((shownPage + 1) * 100, plan.agents.length)} of {plan.agents.length}</span>
+        <button type="button" disabled={shownPage === lastPage} onClick={() => setPage(shownPage + 1)}>Next 100</button>
+      </div>}
       {!!plan.warnings?.length && <div className="ask-warn" role="alert">{plan.warnings.join('; ')}</div>}
       <div className="tp-foot">
         <span>{choice.removed.length > 0 && <button type="button" className="tp-link"
