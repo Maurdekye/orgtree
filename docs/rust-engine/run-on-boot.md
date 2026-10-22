@@ -49,8 +49,12 @@ first-run setup and in the tray. The tray item mirrors the setting.
   `RunAsAdministrator`) re-registers both owned tasks with the matching run
   level, highest available or least privilege, in one permission prompt,
   before it writes its own value: the boot engine (still S4U) and the helper
-  (ruling C). A task's run level is what the engine or the agents' CLIs it
-  starts get. Switching it on first warns that every agent then runs with
+  (ruling C). The helper task's run level is what the helper and the agents'
+  CLIs it starts get. The boot task's S4U logon gets the account's full token
+  at either level (measured 2026-09-30 and again 2026-10-22), so its host
+  decides: it starts the engine with that token only when Run as admin is on,
+  and otherwise with a restricted copy Windows reads as not elevated
+  (decision 94, 7 and 8). Switching it on first warns that every agent then runs with
   full administrator rights on this PC, with no further prompts (the user,
   2026-10-21 15:27Z). The change applies at once: the desktop restarts the
   engine, and a helper with the old rights is replaced (decision 94,
@@ -159,8 +163,10 @@ who="<agent>" reason="the user's Windows session ended" status="..."` line.
   agent's first CLI ran and so could say "signed-in session" for an engine
   in Session 0 (the user's report, 2026-10-21). Where a turn runs is
   `orgtree_session`'s answer and the session notices'. An engine in Session 0
-  on Windows adds `Administrator rights: on, for the engine in Session 0 and
-  the sign-in helper alike.` (or `off`; decision 94, invariant 7).
+  on Windows adds a line with the Run as admin setting and the administrator
+  rights measured for the engine and its sign-in helper (decision 94,
+  invariant 7; the wordings are under "Administrator rights are measured as
+  Windows reads them" below).
 - **Restarts while signed in:** after an engine start the helper registers
   again within seconds. Every turn start waits for it while the user is
   signed in and no helper hosts, until 60 s after the engine's start or
@@ -370,15 +376,15 @@ Recorded with them:
   the helper's, at highest or least privilege, in one UAC prompt
   (`runasadmin.ts` `elevatedWriteScript`). The desktop then restarts the
   engine at once (coordinator Q1). At every registration the helper says
-  whether it is elevated, by the engine's own test (Administrators enabled,
-  or a High label: `credential_broker` `elevated`). The engine hosts agents
+  whether it is elevated, measured as the engine measures itself
+  (`token_rights`, below): Windows' own reading, Administrators enabled, or a
+  High label (`credential_broker` `elevated`). The engine hosts agents
   only through a helper with its own rights (`credential_bridge::same_rights`)
   and answers any other with `412 [rights]`. That helper leaves once its
   CLIs are gone, and the engine runs the helper's task at once
   (`session_watch::keepalive_due`), at the setting's level. Only the host
   role is checked: the desktop's credentials role has no rights to match.
-  The restart notice says `Administrator rights: on, for the engine in
-  Session 0 and the sign-in helper alike.` (or `off`).
+  The restart notice gives the setting and both measurements (below).
 - **9.** While the user is signed in, the helper (or the open app) brokers
   git and gh credentials. The engine keeps what a broker served in memory
   (`credential_bridge::ServedCache`, the user's Q3), exactly as served
@@ -430,6 +436,9 @@ engine without Run as admin:
 
 - Administrators and Power Users are deny-only (PostgreSQL's own test is
   `CheckTokenMembership` on those two groups).
+- It is a LUA token (UAC's own filtering), so every other group Windows
+  counts as elevated is deny-only too, and Windows reads it as not elevated
+  (below).
 - Every privilege but SeChangeNotify is removed, and the label is Medium.
 - The default DACL grants the user, SYSTEM and Administrators. An elevated
   token's default DACL names only Administrators and SYSTEM, so without this
@@ -457,6 +466,70 @@ engine's own user in the owner's entry and a Medium label. An elevated
 engine's default would let the helper and its CLIs only read them (inferred
 from a measured elevated token's defaults; not run elevated).
 
+**Administrator rights are measured as Windows reads them** (docket
+`session-0-engine-and-mail-hub-run-elevated-while`; the user 2026-10-22
+11:21Z-11:22Z: keep Run as admin, make both settings correct, and have the
+restart notice report the measured elevation of the engine and the helper,
+never the setting alone). On alpha.33 with Run as admin off, Task Manager
+showed `orgtree-engine.exe serve` and its `orgtree-mailhub.exe` "Elevated:
+Yes", while the restart notice said the rights were off. Measured read-only
+on those live processes (2026-10-22): Administrators deny-only, a Medium
+label and only SeChangeNotify, but "Local account and member of
+Administrators group" (S-1-5-114) enabled, and Windows' `TokenElevation`, the
+column's value, 1. The sign-in helper's UAC-filtered token has that group
+deny-only and reads 0. The engine's own test then (Administrators enabled,
+or a High label) said not elevated, so the both-or-neither check let the
+unelevated helper host.
+
+- **The engine's token without Run as admin**
+  (`winproc::restricted_medium_token`, also every postmaster's) is a LUA
+  token (`CreateRestrictedToken` with `LUA_TOKEN`): every group Windows counts
+  as elevated is deny-only. A LUA token alone keeps the High label, so the
+  Medium step stays. Measured read-only on the token an S4U batch logon of
+  the user's own account gets (the boot task's logon, at Identification
+  level: an unsplit full token, `TokenElevation` 1): the old copy read 1, the
+  LUA copy 0. The linked token of the user's session gave the same.
+- **One measurement** (`token_rights.rs`, shared by the engine, the boot host
+  and the sign-in helper's binary): elevated when Windows says so
+  (`TokenElevation`), when Administrators is an enabled group, or with a High
+  label or above. An engine Windows reads as elevated now refuses an
+  unelevated helper (`412 [rights]`); alpha.33's would have.
+- **The restart notice's line** (`runtime_notices::admin_line`) gives the
+  setting, then what was measured:
+  - `Administrator rights (Run as admin: off), measured: neither the engine in Session 0 nor the sign-in helper is elevated.`
+  - `Administrator rights (Run as admin: on), measured: the engine in Session 0 and the sign-in helper are both elevated.`
+  - Signed out: `Administrator rights (Run as admin: off), measured: the engine in Session 0 is not elevated; no sign-in helper runs while the user is signed out.`
+  - No helper 60 s after the engine's start: `...; no sign-in helper had connected 60 s after the engine started.`
+  - A helper refused for its rights, with none hosting: `...; a sign-in helper that is elevated was refused, so none hosts.`
+  - A hosting helper with other rights (the refusal prevents it): `... is not elevated, but the sign-in helper is elevated.`
+  - An engine whose measurement differs from the setting adds `The engine's rights do not match the setting.`
+- **The passive restart notice waits for the helper** as a turn start does
+  (`session_host::turn_waits_for_helper`, for an agent without a Session 0
+  choice): until a helper hosts, the user is signed out, or 60 s after the
+  engine's start. The waking restart message of an interrupted turn and the
+  start's other wakes do not wait; a turn that starts before the notice gets
+  it at its next turn. Each start logs `the engine's administrator rights,
+  measured` (Windows' reading, Administrators, the label and the setting) and
+  the notice's line.
+- **The boot host itself stays elevated** with either setting: its S4U logon
+  always has the full token, it runs no agent code, and it must be able to
+  start an elevated engine when Run as admin is on (coordinator 2026-10-22
+  11:32Z: no boot-task change).
+
+What Task Manager's Details tab should show (User name, Session ID and
+Elevated; inferred from the measurements above, for the user to confirm):
+
+| Process | Run as admin off | Run as admin on |
+|---|---|---|
+| `orgtree-engine.exe`, command line `host` (the boot task) | the user's account (an S4U logon of the operator, not SYSTEM), Session 0, Elevated Yes | the same, Elevated Yes |
+| `orgtree-engine.exe serve` (the engine) | the user's account, Session 0, Elevated No | the user's account, Session 0, Elevated Yes |
+| `orgtree-mailhub.exe serve` (the engine's child) | Session 0, Elevated No | Session 0, Elevated Yes |
+| `postgres.exe` (the engine's database) | Session 0, Elevated No | Session 0, Elevated No |
+| `orgtree-credential-broker.exe` (the sign-in helper) | the user's session, Elevated No | the user's session, Elevated Yes |
+
+Agent CLIs have their parent's rights: the engine's in Session 0, the
+helper's in the user's session.
+
 **Rig seams** (debug builds on a rig root only):
 `<data>\core-rig-signed-out` stands for the sign-out, `ORGTREE_RIG_SESSION0=1`
 makes an engine report Session 0, `ORGTREE_RIG_HELPER_SESSION` stands a
@@ -473,9 +546,14 @@ The proof is `tools/rig/proofs/session0-handover.mjs`.
   sign-in can't use your saved git/GitHub credentials". So a request that no
   broker served while the user was signed in since the engine's start is
   refused with `[no-desktop]`, at once.
-- **7, with UAC off (inferred):** every administrator's process then holds
-  the full token, so the helper reads elevated even at least privilege. The
-  engine reads elevated by the same test, so the two still match.
+- **7, with UAC off (inferred, unmeasured):** every administrator's
+  process then holds the full token, so the helper is elevated even at least
+  privilege, while the engine without Run as admin gets the restricted token
+  and is not. The engine refuses that helper, so agents run in Session 0, and
+  each refused helper that leaves has its task run again at once. Run as
+  admin on makes the two match. The old test called that engine not elevated
+  either, so this predates the measured rights. (This entry used to say the
+  two still match.)
 - **7, the refused helper's stamp (unmeasured):** if an unelevated engine
   cannot read an elevated helper's process stamp, it treats the refused
   helper as gone at once. The helper task's run may then be ignored while
@@ -487,7 +565,7 @@ The proof is `tools/rig/proofs/session0-handover.mjs`.
 
 **Verification**, measured on `rig-opus/session0-revert` over `rust-engine`
 `ef7f3d2`, in one build-slot batch (logs in
-`C:\orgtree-buildig-opus\session0-revertatch\logs`):
+`C:\orgtree-build\rig-opus\session0-revert\batch\logs`):
 
 - **Engine:**
   - Red at the engine test commit: 53 pass, 11 fail, exactly the new tests;
@@ -554,6 +632,28 @@ The proof is `tools/rig/proofs/session0-handover.mjs`.
   signed-in broker, so its unit tests stand alone. Helper-attached proofs
   need a rig home whose ancestors no other user can replace (here
   `%LOCALAPPDATA%\orgtree-rig-rig-opus`).
+
+**Verification of the measured rights**, on `rig-opus/session0-elevation`
+over `rust-engine` `7698e1a`, in one build-slot batch (logs in
+`C:\orgtree-build\rig-opus\session0-elev\batch\logs`), the test process not
+elevated:
+
+- Engine red (`token_rights`, `winproc`, `runtime_notices`): 22 pass, 4 fail,
+  exactly the new tests. Both token tests copy the linked full token of the
+  test's UAC session (`token_probe::elevated_source`), so they measured the
+  elevated case without running anything elevated. The helper's red: 11
+  pass, 1 fail. Green: 88/88 focused (also `credential_bridge`,
+  `session_host`, `session_watch`, `host::`, `http::desktop`,
+  `runtime::actor`); the helper's 12/12.
+- `cargo check --all-targets`: only the base's `domain/tree.rs` warning.
+  Clippy: 172 warning locations, none on a changed line. The
+  `x86_64-linux-android` check: only the known warnings.
+- `session0-handover.mjs` against `7698e1a`'s engine: 35 pass, 5 fail, the 5
+  rights lines (A, D, E, F and J still said "off, ... alike"). At the tip:
+  40/40 in 161 s, with the signed-out, both-measured and no-helper wordings.
+  `session-startup-grace.mjs` 12/12, `session-blip-admission.mjs` 20/20.
+- Not measured: a real elevated or UAC-off engine, the real boot task, and
+  Task Manager itself. The rig never runs anything elevated.
 
 **Only the user can confirm** a real task run, the real permission prompt,
 a real sign-in, sign-out and update, and real credentials: the rig's

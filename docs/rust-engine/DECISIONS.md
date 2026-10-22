@@ -1825,7 +1825,13 @@ All entries are dated 2026-10-06 unless stated otherwise.
     - **Rights (7, 8):** one prompt per change re-registers the boot and helper tasks, then the
       engine restarts at once (Q1). The helper reports its rights; the engine hosts only through
       a helper with its own and refuses another (`412 [rights]`), which leaves while the engine
-      runs the helper's task at once. The restart notice names the shared rights.
+      runs the helper's task at once. Rights are measured as Windows reads them (the user
+      2026-10-22 11:21Z-11:22Z, after alpha.33's engine showed "Elevated: Yes" with Run as admin
+      off; docket `session-0-engine-and-mail-hub-run-elevated-while`): Windows' `TokenElevation`,
+      Administrators enabled or a High label. Without Run as admin the engine gets a LUA-filtered
+      Medium token, which Windows reads as not elevated. The restart notice gives the setting and
+      the rights measured for the engine and its helper, never the setting alone (it replaced
+      "names the shared rights").
     - **Credentials (9, the user's Q3):** a memory cache of what a broker served while signed in,
       exactly as served (kind, host, path, username), for Session 0 turns after sign-out: never
       persisted, serialized or logged, lost at restart; nothing kept keeps the `[no-desktop]`

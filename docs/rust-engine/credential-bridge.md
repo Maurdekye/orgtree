@@ -126,8 +126,9 @@ a reboot, before the user's first sign-in, or for a request no broker served
 since the engine started, Session 0 agents get `[no-desktop]`.
 
 The sign-in helper's host role also carries its administrator rights
-(`elevated`); the engine refuses a helper whose rights differ from its own
-with `412 [rights]` (invariant 7). The credentials role has no such check:
+(`elevated`, measured as the engine measures its own: `token_rights`, which
+counts Windows' `TokenElevation`); the engine refuses a helper whose rights
+differ from its own with `412 [rights]` (invariant 7). The credentials role has no such check:
 the desktop registers it too, and credentials do not depend on rights.
 
 ## Verification
