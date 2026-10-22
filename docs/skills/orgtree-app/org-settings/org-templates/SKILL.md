@@ -19,13 +19,13 @@ appears in the creation picker's list. Tree, names and tiers are always included
 
 | Include choice | Initially checked | Content |
 | --- | --- | --- |
-| Charters and team charters | Yes | Each live agent's instructions and team instructions. |
+| Charters, team charters and project Summary | Yes | Agent instructions, team instructions and project Summary. |
 | Credits | Yes | Each agent's spare credits. |
-| Effort | Yes | Saved agent effort selections. |
+| Effort, fast mode and harness pin | Yes | Saved effort and explicit fast-mode booleans, plus explicitly pinned OpenRouter harnesses. An unpinned harness stamp is not exported. |
 | Tool switches, visibility and permission mode | Yes | Saved scope controls. |
 | org.md | Yes | Org charter content. |
 | Quick chat defaults | Yes | Starting superior, model and effort. A superior absent from the saved live layout becomes top level. |
-| Org-wide settings | Yes | Portable settings the org explicitly saved, including grant/default/compaction/resume choices; excludes folders, accounts and hubs. |
+| Org defaults and project queue/event settings | Yes | Portable org grant/default/compaction/resume settings plus each project's queue mode, sender exclusion, ACK timeout/attempt/reminder policy and event-listener switch. Excludes folders, accounts and hubs. |
 | Include watchdogs | Yes | Armed/paused definitions owned by saved agents; node targets remap to the new layout. No runtime history or credentials. |
 | Include machine-specific watchdogs | No | Sub-choice under watchdogs: file, command, process, stream, MQTT and WebSocket. Recreated paused; check the targets before resuming. |
 | Include audiences | Yes | Active explicit directional grants between saved nodes, plus user and extern grants. Inherited/project-derived routes come from structure. |
@@ -52,8 +52,8 @@ offers **Replace it**, which overwrites that template file only after the user
 chooses it. Filesystem failures remain visible for retry.
 
 Saving can succeed while reporting **This template cannot be used as saved**.
-The saver reads up to 200 live agents; template validation permits at most
-24 total agent/project nodes and four levels and reports other layout problems. A saved JSON file
+The saver reads the complete live layout through keyset paging. Template validation
+has no node-count or tree-depth limit and reports other layout problems. A saved JSON file
 is not proof that its model/account choices can run on a different computer.
 
 After saving, the dialog shows filename, agent count and path, with **Download**,
@@ -65,9 +65,9 @@ leave machine-specific groups off for portable layouts.
 
 Template list/preview/save HTTP request and response bodies are omitted from wire diagnostics with verbose logging both off and on, including rejected requests and unknown child routes in those endpoint families. Request paths and status remain logged. This does not remove copied text from the returned downloadable template or its saved file; review those files before sharing them. Creation selects a stored template by id and returns copy counts/warnings, not note contents.
 
-The save checkbox is off by default. It reads only AGENTS.md from this org's shared scratch, each live node's ID-based team/project folder, and each live agent's stored personal scratch within this org. It never walks arbitrary folders, reads other scratch files or imports another org's notes. Absent files add no field. Linked/reparse paths, non-regular files, invalid UTF-8, NUL, files over 16,000 UTF-8 bytes or more than 128,000 bytes combined refuse the save. Recognizable credential assignments, bearer tokens, private-key headers and common API-token forms are refused; this guard cannot prove arbitrary prose contains no secret. Review text before opting in. The complete template file is capped at 256 KiB; too much included text is refused rather than truncated. A refusal writes no new template file.
+The save checkbox is off by default. It reads only AGENTS.md from this org's shared scratch, each live node's ID-based team/project folder, and each live agent's stored personal scratch within this org. It never walks arbitrary folders, reads other scratch files or imports another org's notes. Absent files add no field. Linked/reparse paths, non-regular files, invalid UTF-8, NUL, files over 16,000 UTF-8 bytes or more than 128,000 bytes combined refuse the save. Recognizable credential assignments, bearer tokens, private-key headers and common API-token forms are refused; this guard cannot prove arbitrary prose contains no secret. Review text before opting in. The complete UTF-8 template file is capped at 16 MiB as a parse-safety bound; a larger file is refused with that limit in the message, never truncated. A refusal writes no new template file.
 
-Portable template fields are shared_agents_md on the template, plus team_agents_md and scratch_agents_md on an agent slot; a project may carry team_agents_md but has no personal note. Values are UTF-8 text, never filenames. A slot with tier=project represents a container with optional description (Summary), slots (0–9,999,999) and peer_mail; other project policy keeps its defaults. Agent slots may request user or extern audiences explicitly through the usual atomic hire checks; audiences are still not captured from an existing org by Save as template. They grant contact only, not tool/folder rights. Project slots cannot carry model, credit, audience or other agent settings, and cannot be switched into a model through picker overrides.
+Portable template fields are shared_agents_md on the template, plus team_agents_md and scratch_agents_md on an agent slot; a project may carry team_agents_md but has no personal note. Values are UTF-8 text, never filenames. A slot with tier=project represents a container with optional description (Summary), slots (0–9,999,999) and peer_mail (always copied with the layout). Its optional settings object carries mail_queue (round_robin or ack), exclude_sender, ack_timeout, max_attempts (1–100), ack_reminders (1–10), turn_end_reminder and event_listeners. Creation validates and applies these through normal configure_project operations. Agent slots may request user or extern audiences explicitly through the usual atomic hire checks; the separate Include audiences choice also captures explicit grants as described above. They grant contact only, not tool/folder rights. Project slots cannot carry model, credit, audience or other agent settings, and cannot be switched into a model through picker overrides.
 
 Creation writes supplied note text into the new org's matching folders after the node transaction commits and before its warm/kickoff effects. It creates missing directories and uses create-new files, never overwriting an existing AGENTS.md. Missing fields add no template note; normal header seeding still applies. The response reports created/existing counts and any copy warnings. If a file write fails, the org remains created and the creation view shows the warning with an Open organization button; inspect its notes before starting work. The preview distinguishes free project rows from agent seats and shows how many AGENTS.md files will be copied. Removing a slot also removes its subtree and its notes from creation; renamed nodes get the correct new personal/team locations.
 
@@ -83,3 +83,11 @@ Generic operating practices live once at the widest shared level that needs them
 - [orgtree-create-organization](../../app-shell/create-organization/SKILL.md).
 
 For the roles and workflow behind the bundled layouts, see `orgtree-dev-team` (orgtree-workflows › collaboration-patterns).
+
+## Deep layouts and portable choices
+
+Files retain nested version-1 agents/reports JSON. There is no node or level limit; only the 16 MiB file bound applies. Internally the engine owns a flat node list and uses iterative parsing, planning and export, so deep trees also clone and drop without recursive ownership. Other JSON parsers keep their normal limits. Older 4.4.1 readers keep their own restrictions: their validator allows four tree levels and their default parser accepts 63 tree levels, refusing 64. They cannot open a 5,000-level template. An unknown format version is refused with a clear version message.
+
+The creation preview displays 100 nodes per page with Previous 100/Next 100. Large depths show the actual level and parent while visual indentation is capped. All nodes remain in the creation plan. A saved fast_mode=true that the chosen model cannot support blocks creation until turned off or the model is changed; explicit false is preserved. An unavailable explicit OpenRouter harness pin is shown and blocks creation until an installed harness is selected. Selecting a different provider removes the inapplicable OpenRouter pin with a preview note.
+
+HTTP/file parity: include.effort controls effort, fast_mode and the explicit harness pin; include.settings controls org defaults and the project queue/event settings. Agent slots use fast_mode and harness; project slots use settings. POST /api/templates/resolve and POST /api/orgs accept per-slot overrides.fast_mode and overrides.harness along with the existing tier/name overrides. The same canonical speed, harness and configure_project checks run at creation. Slots capacity and peer_mail remain part of the always-copied project layout.

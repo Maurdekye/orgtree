@@ -6,6 +6,7 @@
 //! are this machine's, and are resolved when the org is created.
 
 use std::collections::{BTreeMap, HashMap, HashSet};
+use std::io::Read;
 use std::path::{Path, PathBuf};
 
 use serde::Deserialize;
@@ -320,9 +321,16 @@ fn list_in(dir: &Path) -> Vec<(Result<Template, String>, &'static str, String)> 
     for p in files {
         let file = p.file_name().map(|f| f.to_string_lossy().to_string()).unwrap_or_default();
         let parsed = if std::fs::metadata(&p).map(|m| m.len() > FILE_MAX).unwrap_or(true) {
-            Err(format!("{file} is larger than {FILE_MAX} bytes"))
+            Err(format!("{file} exceeds 16 MiB ({FILE_MAX} bytes)"))
         } else {
-            std::fs::read_to_string(&p).map_err(|e| e.to_string()).and_then(|s| parse(&s))
+            // Bound the actual read as well as metadata: an editor may grow a
+            // file between stat and open. Parsing still checks the real length.
+            (|| {
+                let mut s=String::new();
+                std::fs::File::open(&p).map_err(|e| e.to_string())?.take(FILE_MAX+1)
+                    .read_to_string(&mut s).map_err(|e| e.to_string())?;
+                parse(&s)
+            })()
         };
         out.push((parsed, "folder", p.to_string_lossy().to_string()));
     }
@@ -773,7 +781,7 @@ pub fn plan_json(t: &Template, planned: &[Planned], blocked: &[String]) -> Value
         "charter": match (&p.slot.charter.preset, &p.slot.charter.text) {
             (Some(n), _) => format!("preset: {n}"), (None, Some(_)) => "text".to_string(), _ => "none".to_string() },
         "team_charter": p.slot.team_charter, "kickoff": p.slot.kickoff.is_some() && p.depth == 0,
-        "blocked": p.tier.is_none(), "dirs_dropped": p.dirs_dropped,
+        "blocked": p.tier.is_none() || blocked.contains(&p.name), "dirs_dropped": p.dirs_dropped,
         "watchdogs": links.dogs.iter().filter(|d| d.owner == p.name).count(),
         "audiences": p.slot.audiences.iter().cloned().chain(links.audiences.iter().filter(|g| g.grantee == p.name).map(|g| g.grantor.clone())).collect::<Vec<_>>(),
     })).collect();
@@ -1006,6 +1014,7 @@ pub fn populate() -> Result<Value, String> {
 // Serialized templates may contain private standing notes.
 #[nolog]
 pub fn write(id: &str, body: &str, replace: bool) -> Result<PathBuf, (u16, String)> {
+    if body.len() as u64 > FILE_MAX { return Err((422, "template file exceeds 16 MiB".into())); }
     let dir = user_dir();
     crate::http::settings::plain_path(&dir).map_err(|e| (409, e))?;
     std::fs::create_dir_all(&dir).map_err(|e| (500, format!("could not create the templates folder: {e}")))?;
@@ -1742,3 +1751,7 @@ mod tests {
 #[cfg(test)]
 #[path = "template_scale_tests.rs"]
 mod scale_tests;
+
+#[cfg(test)]
+#[path = "template_scale_http_tests.rs"]
+mod scale_http_tests;

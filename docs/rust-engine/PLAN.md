@@ -294,6 +294,8 @@ can clear any hold itself; clearing triggers native delivery now without a
 count cap, preserving size budgets and supported harness boundaries. See
 [DnD](../skills/orgtree-working/runtime/do-not-disturb/SKILL.md).
 
+Template portability (USER 2026-10-22,4.4.2): nested-v1 JSON keeps no node/depth limit, only a16MiB file bound. Complete keyset save preserves project queue/event policy, per-agent speed and explicit OpenRouter harness pins; preview pages100nodes and exposes unavailable choices. See [template portability](template-portability.md).
+
 Templates can include watchdog definitions and explicit audiences (USER 2026-10-22, 4.4.2). Both default on; machine-specific dogs are an off-by-default sub-choice and restore paused. Credentials never export. Preview shows counts and user/extern grants by node; removed/outside endpoints warn/drop. Import stages without smoke/immediate effects and arms eligible portable dogs only after all rows exist. See [template links](template-links.md) and [template controls](../skills/orgtree-app/org-settings/org-templates/SKILL.md).
 
 Network watchdog connection mail (user 2026-10-22 13:01Z/13:02:30Z):

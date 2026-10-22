@@ -25,3 +25,5 @@ A template may include free project containers and optional shared/team/personal
 - [orgtree-org-templates](../../org-settings/org-templates/SKILL.md)
 
 For the roles and workflow behind the bundled layouts, see `orgtree-dev-team` (orgtree-workflows › collaboration-patterns).
+
+Deep templates retain every node, with no node-count or tree-depth limit and a 16 MiB file bound. The preview pages 100 rows at a time; visual indentation is bounded and deeper rows show their actual level/parent. Saved fast mode and explicit OpenRouter harness pins appear in the preview. Unsupported fast mode or an unavailable pin blocks Create until corrected using the speed/harness controls or a different model. Project queue and event policy is restored through the normal project configuration checks. See [organization templates](../../org-settings/org-templates/SKILL.md).
