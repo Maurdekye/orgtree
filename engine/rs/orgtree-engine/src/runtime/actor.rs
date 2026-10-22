@@ -8238,6 +8238,10 @@ impl Actor {
         let live = self.proc.is_some();
         let mut value = json!({
             "busy": busy,
+            // admitted with a turn slot, the turn not begun: start_turn claims the
+            // mail (inflight_at), waits for the helper, starts the CLI and builds the
+            // ORG STATE before begin_turn; the chart must not read that as a dead turn
+            "starting": !busy && self.slot.is_some(),
             "interrupt": self.last_interrupt,
             // the running turn's admission: a tool call that started before it
             // belongs to an earlier turn and is never timed live again

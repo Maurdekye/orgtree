@@ -105,10 +105,15 @@ fn live_of(engine: &Engine, id: i64) -> Live {
     }
 }
 
-/// The chart's reading of an actor's published runtime view.
+/// The chart's reading of an actor's published runtime view. A turn still
+/// starting (its mail claimed, its CLI starting, this ORG STATE being built)
+/// is mid-turn: only a claimed turn with none running or starting was cut off.
 #[nolog]
 fn live_from_view(v: &Value) -> Live {
-    Live { busy: v["busy"].as_bool() == Some(true), waiting: v["waiting"].as_bool() == Some(true) }
+    Live {
+        busy: v["busy"].as_bool() == Some(true) || v["starting"].as_bool() == Some(true),
+        waiting: v["waiting"].as_bool() == Some(true),
+    }
 }
 
 /// 3.x `_age_phrase`: coarse on purpose, so the chart (and its digest) stays
