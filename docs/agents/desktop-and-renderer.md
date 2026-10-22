@@ -53,6 +53,24 @@ The desk model picker reads the warm staffing answer. `default_ok` describes hos
 
 State badges are display-only and let card pointer gestures reach the normal focus/select path (USER 2026-10-22 09:58Z). `ServingAccountBadge` is a focusable span with the same account/email native title and aria-label on the desk and zoom card; it stops no events. Next-turn, effort, fast mode, frozen, halted, DND and Session 0 markers already use inert spans on cards. Dedicated settings and halt/unstick actions remain separate. Regression: `statebadgefocus.test.tsx` compares each marker's pointerdown/up/click path with the body, with the gear as an action control.
 
+## Ticket Mention and @-completion (2026-10-22)
+
+The shared ticket menu (`ticketReferenceActions`, so docket rows and every
+`ObjectNavHost` ticket link) puts **Mention** first inside a desk composer
+scope, inserting `@item:<org>/<slug> ` exactly as agent links insert `@<name> `.
+Capture it when the menu opens (`captureTicketMention`): the object host reads
+the item afterwards. `captureMention` no longer consumes the right-click caret
+snapshot, since a ticket and its Owner submenu each capture one; its one-second
+age bound remains. The `@` completion adds current and backlogged tickets
+(`canvas/ticketmentions.ts`: the docket page search per org and query, one read
+in flight, five-second answers, never the archive) after the agents and projects,
+matched by slug or title, with transcript recency keyed `item:<org>/<slug>`.
+The highlighted entry is held by identity so a late answer cannot move it.
+Composer text action: agents already write the reference; no tool added.
+[decided: user 2026-10-21 19:12:54Z, 2026-10-22 18:15:39Z, 18:16:44Z, 19:36:06Z;
+verified: `canvas/{ticketmenu,objectactions,objectnavhost,docket,agentmentions,ticketmentions}.ts*`,
+`tests/ticketmention.test.tsx`]
+
 ## Composer warning focus lifetime (2026-10-22)
 
 Focus-only cache notices use the composer-and-warning boundary, rather than
