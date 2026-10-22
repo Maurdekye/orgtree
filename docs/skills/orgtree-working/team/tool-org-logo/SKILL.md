@@ -9,7 +9,7 @@ Up: [orgtree-team](../SKILL.md)
 Use this tool to change the picture representing your own organization. Requires
 the `logo` Orgtree tool group, on by default. An explicit denial on you or any
 ancestor disables the tool and also refuses remembered calls. Any enabled agent
-may use it, including a subordinate without a user or org-inbox audience. There
+may use it at any depth, without a user or org-inbox audience. There
 is no top-level-only restriction and no org selector: the engine gets your
 identity from the calling process.
 

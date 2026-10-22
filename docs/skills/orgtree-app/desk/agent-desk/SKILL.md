@@ -6,10 +6,10 @@ Up: [orgtree-desk](../SKILL.md)
 
 # Agent desk
 
-The Team tab appears only while the agent/project has live direct subordinates.
-Its badge counts those direct subordinates, including projects; the Team list
+The Team tab appears only while the agent/project has live physical child nodes.
+Its badge counts those physical children, including projects; the Team list
 itself includes all descendants. Hiring or retiring updates the tab live. If
-the last direct subordinate leaves while Team is open, an agent desk returns
+the last physical child leaves while Team is open, an agent desk returns
 to Chat and a project desk returns to Summary. A later hire does not reopen Team.
 
 Desk tab selections are remembered per organization and node across restarts. An unavailable tab falls back to Chat. The shared memory rules and project Mail-folder behavior are documented in [orgtree-project-desk](../project-desk/SKILL.md).

@@ -18,6 +18,8 @@ controls; agents explain and suggest. Edits join the footer Save described in
 | File and command access | `org:permission_mode` | `acceptEdits` | `plan` = Read only; `default` = Ask before changes; `acceptEdits` = Allow normal changes; `bypassPermissions` = Unrestricted access. |
 | Provider / Account | `org:default_account` | No explicit binding (`null`; form uses empty string) | Provider chooses the account family; Account chooses the starting binding, subject to eligibility. |
 
+The label **Its team and all reports** includes descendants at every depth, not only direct reports.
+
 The engine fills these defaults after application and org overrides. The UI
 uses **full** if visibility is absent from a payload; that loading/missing-data
 fallback does not change the engine's **subtree** default. Invalid visibility

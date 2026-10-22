@@ -21,7 +21,7 @@ Close using the actual [status](../docket-statuses/SKILL.md), leave open threads
 First list/read existing items to avoid duplicating a finding. For a new finding,
 create the item with yourself as owner (the default), with the problem, evidence
 and requested next action. You cannot create or assign an item owned by your
-superior: create/assign accept yourself or a live subordinate only.
+superior: create/assign accept yourself or a live descendant agent only.
 
 Use orgtree_work action=handoff with that slug and a reason to request transfer
 to your immediate superior. Handoff sends a request; it does not change ownership.

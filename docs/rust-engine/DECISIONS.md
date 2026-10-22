@@ -1890,3 +1890,11 @@ All entries are dated 2026-10-06 unless stated otherwise.
   that govern only the user's own actions. Stored per-org and default values are ignored;
   old clients and templates may still send them (accepted, ignored). See
   [credit cascade boundary](credit-cascade-boundary.md).
+
+- 2026-10-22 23:01Z, USER (m22010c4dd33e): "Define; subordinate = direct report".
+  The glossary's [relationship terms](../skills/orgtree-working/team/team-shape/SKILL.md#relationship-terms)
+  own the definitions and distinguish reporting through projects from physical placement.
+  Align loose wording with actual authority without changing behavior. The later user ruling
+  (m201e750b317d, relayed by the coordinator at 23:04Z) keeps DnD for **any descendant**;
+  call it DnD for descendants, not subordinates. Existing UI labels and API enum values
+  remain unchanged in this docs-only alignment.

@@ -13,7 +13,7 @@ An audience opens a direction of communication; it does not move an agent or del
 
 ## Peer-mail setting
 
-A visible reporting peer may be unreachable when the actual common parent's [peer-mail switch](../../team/peer-mail/SKILL.md) is OFF. The rule affects only direct tree siblings, applies equally under a manager or project, and requires a directional audience. Audience requests remain allowed; a shared nearest agent superior may grant between those direct siblings. A manager's switch does not propagate to deeper levels or to separate physical project groups.
+A visible physical peer may be unreachable when the actual common parent's [peer-mail switch](../../team/peer-mail/SKILL.md) is OFF. The rule affects only direct tree siblings, applies equally under a manager or project, and requires a directional audience. Audience requests remain allowed; a shared nearest agent superior may grant between those direct siblings. A manager's switch does not propagate to deeper levels or to separate physical project groups.
 
 ## Request, decide, then use
 

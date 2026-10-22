@@ -1,6 +1,6 @@
 ---
 name: orgtree-tool-interrupt
-description: Interrupt yourself or a report, optionally at a completion boundary, and restart its next turn.
+description: Interrupt yourself or a descendant agent, optionally at a completion boundary, and restart its next turn.
 ---
 Up: [orgtree-runtime](../SKILL.md)
 

@@ -17,9 +17,9 @@ A confirmation concerns the named operation and target; a batch can still encoun
 | Delete agent | The complete target subtree and generations counted by the dialog; this is destructive removal rather than retirement |
 | Retire | The agent stops and releases its stake; retained context supports rehire, subject to available capacity |
 | Dissolve | Includes the named agent's entire suborganization |
-| Retire all subordinates | Leaves the named parent live; the result distinguishes completed, already-retired, and failed targets |
+| Retire all subordinates | Retires live descendant agents at every depth, leaving the named parent live; the result distinguishes completed, already-retired, and failed targets |
 | Rescind | Includes the subtree and, for a non-root agent, removes the stake from its superior's grant rather than returning that headroom |
-| Batch halt/unhalt | The exact listed subtree or subordinates, whether the parent is included, and the requested direction |
+| Batch halt/unhalt | The exact listed subtree or descendants, whether the parent is included, and the requested direction |
 | Cheap compact | Starts a fresh session for the same agent with a handoff; inspect the scope before selecting a single agent or branch |
 | Compact now | Requests provider compaction of the current conversation; this differs from cheap compact |
 | Undo hire | Retires the hired agent after it has begun working; its work and context remain archived |

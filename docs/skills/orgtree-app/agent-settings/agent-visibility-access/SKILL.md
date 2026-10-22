@@ -20,6 +20,8 @@ These Scope-tab choices are stored in the selected agent's scope. Agents explain
 | Its team and all reports | `subtree` |
 | Everyone | `full` |
 
+The label **Its team and all reports** includes descendants at every depth, not only direct reports.
+
 The saved/configured value initializes the field. New hires normally start from org hire defaults; the engine's missing-value normalization is `subtree`. The form's `full` fallback for missing data is not an engine default. See `orgtree-visibility` (orgtree-working › inspection) for the exact visible set and how visibility affects reads; visibility alone does not grant authority to write or contact everybody.
 
 ## File and command access

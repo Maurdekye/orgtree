@@ -12,7 +12,7 @@ Seeing the org: the chart, agent state, transcripts and scratch folders, within 
 ## Workflows and rules
 
 - [orgtree-visibility](visibility/SKILL.md): Visibility: self, team, subtree, full; the narrowest setting up your chain wins.
-- [orgtree-reading-reports](reading-reports/SKILL.md): Looking at your reports instead of interrogating them: transcript and scratch first, verify claimed results.
+- [orgtree-reading-reports](reading-reports/SKILL.md): Reading descendants' work before asking them: transcript and scratch first, verify claimed results.
 
 ## Tools
 

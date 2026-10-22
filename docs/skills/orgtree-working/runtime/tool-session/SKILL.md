@@ -104,6 +104,6 @@ An answer from an engine that runs in the user's session 1, for an agent that pr
 - [orgtree-turn-envelope](../turn-envelope/SKILL.md)
 
 For a saved change that applies next turn, use `orgtree_interrupt` with
-`queued:true,restart:true` on yourself or a runtime-authorized running report.
+`queued:true,restart:true` on yourself or a runtime-authorized running descendant agent.
 It waits for a completion boundary; asynchronous harnesses may cut the next
 step off early. See the orgtree-tool-interrupt page for boundary and refusal rules.

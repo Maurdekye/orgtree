@@ -51,7 +51,7 @@ Verified at `2ec8c0e`: `tools/defs.rs`, `tools/treetools.rs::own_slot_status`,
 Each group is disabled in the UI when the superior has denied it. Missing group flags preserve on for compatibility; unknown group names or nonboolean values are refused by the engine. See `orgtree-scope-and-permissions` (orgtree-working › team) for effective ceilings and `orgtree-tool-request-scope` (orgtree-working › user) for asking for missing capability.
 
 Organization Logo is **on by default**, including existing agents. It inherits
-the same ceiling as other groups. Enabled subordinates need neither a user nor
+the same ceiling as other groups. Enabled agents at any depth need neither a user nor
 an org-inbox audience to change their own org's Logo. Details and file/crop limits:
 `orgtree-tool-org-logo` (orgtree-working › team).
 

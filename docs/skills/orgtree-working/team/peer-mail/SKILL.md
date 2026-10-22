@@ -14,7 +14,7 @@ An audience still opens the granted direction. A peer may request one even while
 
 A project is transparent for reporting, but not for ordinary coworker mail. Agents under different actual parents need a directional audience even when they report to the same superior. A project-to-project audience connects the two projects' direct live members only while **both projects' peer-mail switches are ON**. Turning either OFF suspends that bridge; it does not revoke the grant. An explicit agent-to-agent, agent-to-project or project-to-agent grant keeps its ordinary directional override. Nested project members do not inherit a parent's bridge.
 
-Superior/subordinate reach, user and outside-mail audience requirements, chart visibility and docket reading keep their separate rules. Sharing a reporting superior does not itself authorize cross-project mail.
+Superior/descendant reach, user and outside-mail audience requirements, chart visibility and docket reading keep their separate rules. Sharing a reporting superior does not itself authorize cross-project mail.
 
 OFF also hides ordinary neighbour connector lines between that node's direct children, in row/circular charts, at every zoom level and in both GL and SVG rendering. Hierarchy and audience lines keep their normal behavior. ON restores the neighbour links.
 

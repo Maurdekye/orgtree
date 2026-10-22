@@ -17,7 +17,7 @@ Use this when a descendant's stored freeze should be released, such as after its
 
 `node` is required and names one agent in your org; a leading `@` is accepted. There is no batch, account, reason, or default-target parameter.
 
-Requires effective `tools.orgtree.runtime`. Only strict descendants are permitted. Top-level agents have the same downward-only authority. Self is refused with `you cannot unstick yourself`; peers and superiors are refused as outside your reports; an unknown/deleted name is not found.
+Requires effective `tools.orgtree.runtime`. Only strict descendants are permitted. Top-level agents have the same downward-only authority. Self is refused with `you cannot unstick yourself`; peers and superiors are refused as outside your descendant scope; an unknown/deleted name is not found.
 
 ## What changes
 

@@ -1,10 +1,30 @@
 ---
 name: orgtree-team-shape
-description: Choose the appropriate team-structure change without confusing placement, capacity, session identity and saved work.
+description: Define reporting and placement relationships, then choose a team-structure change without confusing capacity, session identity and saved work.
 ---
 Up: [orgtree-team](../SKILL.md)
 
 # Shape the team deliberately
+
+## Relationship terms
+
+These terms distinguish the reporting chain from the physical tree:
+
+| Term | Meaning |
+| --- | --- |
+| **Superior** | Your nearest agent ancestor, skipping any intervening projects. If there is no agent above you, you are top-level and report to the user. A project is never an agent superior. |
+| **Report / subordinate** | An agent whose superior is you: your **direct report**. Projects between you and that agent are transparent. These three names mean the same relationship. |
+| **Descendant** | Any agent or project below a node, at any depth. A node is not its own descendant; its subtree includes itself and its descendants. |
+| **Sibling / peer** | A node sharing the same physical parent. For agent peer mail, these are agents under the same actual parent; top-level agents share the user root. Sharing a superior across different projects does not make agents physical peers. |
+| **Parent / child** | The immediate physical placement in the tree. Either node may be a project. A physical child project is not a report. |
+
+Projects are transparent **for reporting**, not for physical placement. For example, with @lead → @project → @worker → @helper, @worker is a report/subordinate of @lead, and @helper is a report of @worker. All three lower nodes are descendants of @lead. @worker and an agent directly under @lead can share @lead as superior without being siblings.
+
+Read each tool's authority separately. A descendant-wide action is not limited to reports: this includes DnD **for descendants**, whose scope remains agents at any depth. Visibility can also include agents with the same superior even when they have different physical parents; that does not grant peer-mail reach. See [chart visibility](../../inspection/tool-chart/SKILL.md) and [peer mail](../peer-mail/SKILL.md).
+
+Some existing UI labels say **Subordinates may message each other** or **all subordinates**. Keep those exact labels when locating a control: the peer-mail setting concerns physical siblings, while bulk **all subordinates** actions cover descendants and exclude the selected root. Their tool and screen pages own the exact eligible targets. Likewise, the API value `hire_type="subordinate"` means placement under the chosen parent, which need not be the caller; it does not limit hiring to the caller's direct reports.
+
+## Choose a structure change
 
 Keep a team flat by default. Add a manager when coordinating the direct reports consumes too much bandwidth for one agent, rather than adding hierarchy as a formality. Before a change, identify who will own each unfinished item and where the next session will find its handoff.
 

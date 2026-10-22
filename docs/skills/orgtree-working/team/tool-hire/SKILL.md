@@ -1,6 +1,6 @@
 ---
 name: orgtree-tool-hire
-description: Hire a new subordinate or superior with explicit placement, credits, scope and an optional first task.
+description: Hire an agent under an authorized parent or insert a superior with explicit placement, credits, scope and an optional first task.
 ---
 Up: [orgtree-team](../SKILL.md)
 
@@ -20,7 +20,7 @@ The schema requires the complete ordinary-hire scope: `add_dirs`, `org_visibilit
 | `charter` | Required nonblank full role and standing instructions. A charter alone starts no task. |
 | `index` | Required integer, zero-based live sibling insertion position, `0..existing_count`; last appends. For superior insertion, exclude its target from the old sibling set. |
 | `hire_type` | `subordinate` by default; `superior` inserts above the target. |
-| `target`, `parent` | Subordinate's parent, default yourself; superior's target, default yourself. `target` takes precedence over the hire alias `parent`. Ordinary subordinate placement must be within your subtree. |
+| `target`, `parent` | Parent for `hire_type="subordinate"`, default yourself; superior-insertion target, default yourself. `target` takes precedence over the hire alias `parent`. Ordinary placement must be within your subtree. A new agent under a descendant agent reports to that agent; a project parent is transparent for reporting. |
 | `add_dirs` | Ordinary hire requires a whole starting list of `{path, mode}` folders; `[]` is valid, mode `ro` or `rw` (omitted mode normalizes to `rw`). Each folder must fit the new parent's effective grants. |
 | `tools` | Ordinary hire requires explicit `bash`, `web`, `edit`, `subagents` booleans and `mcp` server list. Optional `orgtree` group booleans restrict the engine tools. Missing groups remain enabled, subject to inherited ceilings. |
 | `org_visibility` | Required for ordinary hire: `self`, `team`, `subtree`, `full`, no broader than the future parent's. |

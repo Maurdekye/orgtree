@@ -21,5 +21,5 @@ clear a preference after support disappears. Changes are recorded in org history
 Defaults affect future hires through hire, staff and Quick chat, with explicit
 hire `fast_mode` taking precedence. A stale unsupported default is ignored at hire.
 Existing agents and restored seats keep their saved choice. Use retool with
-`fast_mode` to change an existing scoped report, and state_inspect to verify it.
+`fast_mode` to change an existing authorized descendant agent, and state_inspect to verify it.
 Changing defaults does not restart CLIs or switch accounts/models/sessions.

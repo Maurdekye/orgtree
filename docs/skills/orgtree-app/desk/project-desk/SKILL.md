@@ -34,7 +34,7 @@ When broadcast is off and no mail listener is attached, a compact warning above 
 | mail | Project inbox, sent and listeners folders. Reading a project message does not claim or acknowledge its queue job. The separate project Mail window uses the same view. |
 | docket | Items owned by agents under this project, through nested projects. A project owns no items itself. |
 | presented | Only documents attributed to this project. The canvas card's document chips and desk-header chips show the same own-only scope (up to four recent documents). Descendant documents are available through Open → Presentations → Team presentations; unlike an agent gallery, the project tab has no Team checkbox. |
-| team | The descendant Agents List. Appears while the node has live direct subordinates; its badge counts those direct nodes, including projects. |
+| team | The descendant Agents List. Appears while the node has live physical child nodes; its badge counts those children, including projects. |
 | slots | Appears while configured concurrency-slot capacity is greater than zero. |
 | dead letters | Appears while the project has open dead letters. |
 | events | Appears exactly while the project's **Project Events** setting is on (Project settings). It is off by default; an agent registering an event listener or listener watch switches it on, and only you or an agent above the project switch it off. Its badge counts armed event listeners. |

@@ -147,7 +147,7 @@
     "orgtree_hire"
    ],
    "tool_group": "team",
-   "purpose": "Hire a subordinate or insert a superior: tiers, harnesses, scope, charter, credits.",
+   "purpose": "Hire under an authorized parent or insert a superior: tiers, harnesses, scope, charter, credits.",
    "must_cover": [
     "when to use it and when not",
     "every parameter/action with defaults and limits from the definition",
@@ -485,7 +485,7 @@
     "orgtree_reallocate"
    ],
    "tool_group": "team",
-   "purpose": "Give credits to or take them from a report.",
+   "purpose": "Give credits to or take them from a descendant agent.",
    "must_cover": [
     "when to use it and when not",
     "every parameter/action with defaults and limits from the definition",
@@ -679,14 +679,17 @@
    "kind": "concept",
    "registered": false,
    "covers": [],
-   "purpose": "Changing the shape of a team: retire, rehire, dissolve, move, swap, self-subjugate, and what survives each.",
+   "purpose": "Reporting and placement terms, then changing team shape: retire, rehire, dissolve, move, swap, self-subjugate, and what survives each.",
    "must_cover": [
+    "superior, report/subordinate, descendant and physical sibling/peer definitions; projects are transparent for reporting only",
     "what each operation keeps (context, docket items, scratch)",
     "archived agents and rehiring",
     "seat/credit effects",
     "undo from the app"
    ],
    "sources": [
+    "engine/rs/orgtree-engine/migrations/0025_project_nodes.sql superior_of",
+    "engine/rs/orgtree-engine/migrations/0037_agent_reporting.sql reports_of",
     "engine/rs/orgtree-engine/src/runtime/identity.rs REHIRE, TEAM_SHAPE",
     "engine/rs/orgtree-engine/src/domain/lifecycle.rs"
    ],
@@ -1785,7 +1788,7 @@
     "orgtree_interrupt"
    ],
    "tool_group": "none (yourself); runtime (others)",
-   "purpose": "Stop a report's current turn, or end your own and start a new one at once.",
+   "purpose": "Stop a descendant agent's current turn, or end your own and start a new one at once.",
    "must_cover": [
     "when to use it and when not",
     "every parameter/action with defaults and limits from the definition",
@@ -2383,7 +2386,7 @@
    "kind": "concept",
    "registered": false,
    "covers": [],
-   "purpose": "Looking at your reports instead of interrogating them: transcript and scratch first, verify claimed results.",
+   "purpose": "Reading descendants' work before asking them: transcript and scratch first, verify claimed results.",
    "must_cover": [
     "read before asking",
     "verify a claimed file or commit",

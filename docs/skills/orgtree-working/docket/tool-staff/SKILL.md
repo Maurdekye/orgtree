@@ -41,8 +41,8 @@ The schema follows the selected operation: a new seat needs `name`, `tier`, `gra
 | `tier` | Required new-hire tier; optional rehire tier override in this composite. Offered model/provider and credit admission still apply. |
 | `grant` | Required nonnegative integer for new hire; omitted rehire retains stored grant. |
 | `charter` | Required full standing role for new hire; optional nonblank replacement for rehire. |
-| `target` | Seat destination in your team; subordinate new-hire default yourself, rehire default old live parent/nearest live ancestor. |
-| `hire_type` | subordinate default or superior insertion above target. New self-parent insertion has hire's special fixed-budget rule; rehire does not gain it. |
+| `target` | Seat destination in your team; ordinary new-hire parent defaults to yourself, rehire default old live parent/nearest live ancestor. |
+| `hire_type` | `subordinate` default or `superior` insertion above target. New self-parent insertion has hire's special fixed-budget rule; rehire does not gain it. |
 | `index` | Required zero-based live sibling position for new hire, excluding the anchor on superior insertion; refused on rehire. Ordinary rehire appends. |
 | `harness` | OpenRouter claude-code/codex-cli/opencode choice; new hire can pin the installed route. Omitted follows normal seat/key rules. Rehire retains its existing route; do not assume this field repins an existing seat. |
 | `add_dirs` | Required ordinary new-hire whole starting list; supplied rehire list **replaces**, despite the shared hire-oriented schema wording. Entries path and mode ro/rw, omitted mode rw; [] valid. |
@@ -56,7 +56,7 @@ The schema follows the selected operation: a new seat needs `name`, `tier`, `gra
 | `audiences` | At most 64 string targets, checked/granted before kickoff under ordinary audience authority. |
 | `kickoff`, `kickoff_kind` | Optional first task and message default/question kind; legacy kinds normalize to message. Assignment mail already starts the owner. |
 
-For superior insertion omit add_dirs/tools/org_visibility/permission_mode: target effective scope is inherited. New self-parent insertion can be top-level; normal subordinate hire cannot create a peer and restored superior placement retains its existing restrictions. Parent work item and target agent name are separate identities.
+For superior insertion omit add_dirs/tools/org_visibility/permission_mode: target effective scope is inherited. New self-parent insertion can be top-level; ordinary placement cannot create a peer of the caller and restored superior placement retains its existing restrictions. Parent work item and target agent name are separate identities.
 
 ## Example and outcomes
 

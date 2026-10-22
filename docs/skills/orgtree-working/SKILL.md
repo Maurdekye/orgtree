@@ -27,6 +27,8 @@ If the glossary is vague, missing details or incorrect, read [Orgtree's public s
 
 ## Find the right section
 
+For precise definitions of **superior**, **report / subordinate**, **descendant** and **sibling / peer**, read [relationship terms](team/team-shape/SKILL.md#relationship-terms), including when projects are transparent.
+
 | Your question | Open |
 | --- | --- |
 | Choose a tier or restore an existing expert | [orgtree-team](team/SKILL.md) |

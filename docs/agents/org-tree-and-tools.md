@@ -6,6 +6,10 @@ Scope, authority, topology, credits, hiring, lifecycle and typed tool contracts.
 
 These attributed records were moved from the root guide at `22daffd`; they retain the original substance, dates, verification limits and replacements. They are source evidence, not a declaration that every historical state is current. Read the signed decisions/current source before changing behavior. Inline source paths remain relative to the repository root; Markdown links were rebased. Add current detailed guidance here; preserve replaced records in history and update the coverage destination when moving one.
 
+## Relationship terminology
+
+The glossary's [relationship terms](../skills/orgtree-working/team/team-shape/SKILL.md#relationship-terms) are the canonical definitions for superior, report/subordinate, descendant and physical sibling/peer. Use those definitions when documenting authority; retain exact UI labels and API enum values while explaining their actual scope. This is terminology alignment, not a change to descendant-wide controls, including DnD for descendants. [decided: user 2026-10-22, m22010c4dd33e and m201e750b317d; verified: `engine/rs/orgtree-engine/migrations/{0025_project_nodes,0037_agent_reporting}.sql`, `domain/docket.rs`, `tools/orgview.rs`, `apps/desktop/renderer/src/canvas/agentmenu.tsx`]
+
 <a id="e-760313f9ff3352c2"></a>
 
 ## A file link rendered from an agent tool row keeps the same reveal-only click,

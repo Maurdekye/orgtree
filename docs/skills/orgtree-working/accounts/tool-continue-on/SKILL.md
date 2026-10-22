@@ -79,6 +79,6 @@ On a timeout or uncertain engine error, inspect current state before repeating a
 - [orgtree-cache-continuity](../cache-continuity/SKILL.md)
 
 For a saved change that applies next turn, use `orgtree_interrupt` with
-`queued:true,restart:true` on yourself or a runtime-authorized running report.
+`queued:true,restart:true` on yourself or a runtime-authorized running descendant agent.
 It waits for a completion boundary; asynchronous harnesses may cut the next
 step off early. See the orgtree-tool-interrupt page for boundary and refusal rules.

@@ -13,7 +13,7 @@ Use [list tiers](../tool-list-tiers/SKILL.md) for identifiers and seat costs, th
 If a turn is running, the result has `queued: true`, `pending_switch` and any `replaced` intent. The current model does not change mid-call. A newer choice replaces the older one; choosing the currently active tier cancels a pending switch and returns `unchanged: true`. Applying a queued choice revalidates its authority/eligibility; failure can leave the old configuration and record a dropped intent. Inspect the resulting state before claiming the switch applied.
 
 To apply a pending switch promptly, use `orgtree_interrupt` with `queued:true`
-and `restart:true` on that report. It waits for a completion boundary; asynchronous
+and `restart:true` on that descendant agent. It waits for a completion boundary; asynchronous
 harnesses may cut off the next step near its start. Read the
 [interrupt boundary table](../../runtime/tool-interrupt/SKILL.md).
 

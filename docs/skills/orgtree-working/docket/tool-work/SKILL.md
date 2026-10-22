@@ -22,7 +22,7 @@ Requires `docket`. Use for substantive work whose scope, ownership, progress and
 | `get` | Read slug, optional projection/fields. Read the full current objective before acting. |
 | `create` | Required title/objective; optional kind, owner, participants, parent, dependencies, initial status/reason and progress. Defaults kind code, status open, owner yourself. |
 | `update` | Current progress plus status/scope/reviewer/attention changes; optional revision guard. An agent update claims ownership unless it explicitly preserves the current owner. |
-| `assign` | Required owner (yourself or live subordinate); changes ownership only, preserving status/progress. Same owner is a conflict. |
+| `assign` | Required owner (yourself or a live descendant agent); changes ownership only, preserving status/progress. Same owner is a conflict. |
 | `handoff` | Optional target/reason: owner requests transfer to its immediate superior; default that superior, or user for a top-level owner. Ownership stays unchanged until assignment. Closed items cannot request handoff. |
 | `participants` | Add/remove live collaborators using add/remove lists; changes access, not ownership. A no-change request is refused. |
 | `evidence` | One kind/ref/note entry or items batch; add support without reopening closed work. |
@@ -51,7 +51,7 @@ These are action-specific fields, not a universal object to pass on every call. 
 | `title` | create/update concrete title, at most 200 Unicode scalar characters; not an identity change. |
 | `objective`, `objective_append` | create requires nonblank objective; update replaces it or appends text, mutually exclusive. No docket text truncation cap. |
 | `kind` | create code/non-code (code default); evidence note/link/file/commit/log (note default). It is not a mail kind. |
-| `owner` | create/assign chooses yourself or live subordinate; update names CURRENT holder to leave it with them or yourself to claim. Use assign for a different new holder. |
+| `owner` | create/assign chooses yourself or a live descendant agent; update names CURRENT holder to leave it with them or yourself to claim. Use assign for a different new holder. |
 | `reviewer` | update names another live agent; owner cannot review its own work. Reviewer receives access, not ownership. |
 | `status` | See status table; create defaults open. Omitted update status retains it, except reopen defaults in_progress. |
 | `blocked_reason`, `dropped_reason` | Required for the corresponding state, maximum 2,000/1,500 characters. Each clears on leaving that state. |
