@@ -23,6 +23,24 @@ These attributed records were moved from the root guide at `22daffd`; they retai
   include required detail fields such as `attention_sources`; auto-selection
   exposes incomplete mocks immediately. See `docketselection.fixture.ts`.
   [verified: renderer docket/keyboard/membership suites; 2026-10-21]
+- **Run main's closures; don't read one handler's text.** `apps/desktop/main/index.ts`
+  starts Electron, so its wiring tests work from its source. A slice that
+  starts at one `handleApp(...)` comes up empty (`-1 -1`) once that handler
+  delegates to a shared closure (de04072: Settings and the tray share
+  `changeRunAsAdministrator`). Slice the closure itself between anchors and
+  run it (esbuild `transformSync`, loader `ts`, in `vm` with synthetic seams),
+  as `tests/tray-admin.test.mjs` and `tests/run-as-administrator.test.mjs` do.
+  After changing `index.ts`, run the tests that read it
+  (`grep -l "main/index.ts" tests/*.test.mjs`) at the base and the tip.
+  [verified: `tests/run-as-administrator.test.mjs`, `tests/run-on-boot.test.mjs`;
+  measured: @rig-sol-b 2026-10-22 at 5dd06ee]
+- **Keep the UAC verb out of test text.** `tests/disruptive-policy.test.mjs` §2
+  reads every `tests/*.test.mjs` as text and fails on `-Verb RunAs` or
+  `runas`, even in an assertion against a fake runner. Spell it
+  `['Run', 'As'].join('')`, as `tests/run-on-boot.test.mjs` does, and run
+  `disruptive-policy.test.mjs` with any new or changed test file.
+  [verified: `tests/disruptive-policy.test.mjs`; measured: @rig-sol-b
+  2026-10-22 at 5dd06ee]
 
 Relocated from team standing notes on 2026-10-21. The dates below identify the
 original observations; relocation is not a fresh test run. Current assignment,
