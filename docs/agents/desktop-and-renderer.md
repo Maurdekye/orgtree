@@ -2,6 +2,17 @@
 
 ## Canvas superior insertion target (2026-10-22)
 
+Superior draft permissions identify the insertion target and keep its scope
+inherited at admission. The modal offers effort and account separately, and
+`confirmDraft` excludes folders, tools and visibility overrides for an `above`
+draft, including retained snapshots. Both direct operations and undo gestures
+use that request boundary; the engine's inheritance refusal remains intact.
+The focused fixture rejects the engine's four forbidden scope fields and
+exercises gear Apply, effort and account above root/nested agents in both
+transports. Subordinate draft grants retain their existing editing behavior.
+[verified: `canvas/{OrgCanvas,modals}.tsx`, `tests/superiorhire-target.test.tsx`;
+decided: coordinator 2026-10-22, 4.4.1 release-defect assignment]
+
 Superior drafts retain their anchor in `above` for the engine's operation
 endpoint. The undo gesture forwards its steps to that same endpoint; keeping
 only the agent-tool fields `hire_type: superior` and `target` loses the anchor.
