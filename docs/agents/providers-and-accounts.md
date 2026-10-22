@@ -1415,6 +1415,28 @@ Original section: Read this first. Source lines 4175–4179.
 
 ## Conditional Gemini tiers: Argon (gemini-4-argon) and speculative Barium
 
+**Current 4.4 behavior (2026-10-22):** the failed-read behavior in the historical
+entry below is superseded. An inconclusive registry read (including a credential
+metadata race, timeout, output limit, I/O error or failed command) retains the last
+confirmed in-memory IDs only for the same checked principal and logs the error
+plus retained count. The guard hashes its silent check's normalized account name
+in memory; the fingerprint is neither logged nor serialized. Offers and admission
+require the current credential metadata to match that check. A raced stamp gets
+at most one additional bounded silent identity check, never a second models
+command: same-principal token rotation retains IDs; a different or unverified
+identity clears them. A successful catalog carries its own check's identity and
+stamp, so a late result cannot become a replacement login's entitlement. A
+successful current catalog, including empty or
+omitting a model, replaces the IDs; `SignedOut`/`NotIsolated` clears them. No prior
+successful catalog means no conditional models. Authentication refusal rules
+remain unchanged; 30-second attempt reuse is now principal-bound. Argon spends
+only Gemini's usage windows; a
+third-party/Claude window cannot exhaust it. Existing authentication, account and
+quota gates remain enforced, with their existing reasons; explicit admission of
+an unlisted conditional tier still returns the catalog-absence reason (409).
+[verified: `providers/{agy_auth,agy_models,mod}.rs`, `providers/agy_model_refresh_tests.rs`,
+`usage/agy_reading_tests.rs`, `domain/ops.rs`; 2026-10-22]
+
 Original section: Providers, accounts and usage. Source lines 4812–4837.
 
 <!-- preserved:e-f9bfc5ac5f086eb7 -->

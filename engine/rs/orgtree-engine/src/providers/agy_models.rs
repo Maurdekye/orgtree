@@ -16,6 +16,33 @@ pub const EFFORT_SUFFIXES: [&str; 4] = ["-low", "-medium", "-high", "-max"];
 /// How long one `agy models` run may take (3.x: 45 s).
 const TIMEOUT: Duration = Duration::from_secs(45);
 
+/// Model IDs and the principal established by this command's guarded check.
+/// Identity is memory-only and is not safe to log or serialize.
+pub struct Catalog {
+    pub ids: Vec<String>,
+    pub identity: Option<super::agy_auth::CatalogIdentity>,
+}
+
+/// Keep authentication refusals distinct from an inconclusive catalog read.
+/// No command output or credential contents are retained in an error.
+#[derive(Debug)]
+pub enum ReadError {
+    Auth(super::agy_auth::Failure),
+    Io(std::io::Error),
+    Exit(Option<i32>),
+}
+
+impl std::fmt::Display for ReadError {
+    #[nolog]
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Auth(e) => e.fmt(f),
+            Self::Io(e) => e.fmt(f),
+            Self::Exit(code) => write!(f, "agy models exited {code:?}"),
+        }
+    }
+}
+
 /// The ids of `agy models` stdout. Registry rows are `<id>\t<label>`; the
 /// "Fetching available models..." banner has spaces and no tab, and a
 /// signed-out CLI prints no rows at all (its log says "Auth mode is
@@ -59,32 +86,38 @@ fn command(exe: &Path, dir: &Path, log: &Path) -> tokio::process::Command {
     cmd
 }
 
-/// One read of the registry. `Err` is no evidence (signed out, refused,
-/// timed out), and no evidence offers no conditional tier. Nothing about
+/// One read of the registry. A successful list is authoritative. Typed errors
+/// distinguish authentication refusals from an inconclusive read, so the caller
+/// can retain its last confirmed list on transient failures. Nothing about
 /// `agy models` signed out was measured, so it runs only behind the auth
 /// guard: a silent check first, and a sign-in prompt kills it and latches. Each probe writes
 /// its own log, then moves it onto `models-probe.log` for anyone reading it
 /// by hand (3.x: concurrent probes sharing one log lost lines).
 #[nolog]
-pub async fn read(engine: &Engine, exe: &Path) -> Result<Vec<String>, String> {
+pub async fn read(engine: &Engine, exe: &Path) -> Result<Catalog, ReadError> {
     let dir = engine.cfg.path("diagnostics").join("agy-probe");
-    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    std::fs::create_dir_all(&dir).map_err(ReadError::Io)?;
     let log: PathBuf = dir.join(format!("models-probe.{}.{:x}.log", std::process::id(), rand::random::<u64>()));
     let out = run(engine, exe, command(exe, &dir, &log)).await;
     if std::fs::rename(&log, dir.join("models-probe.log")).is_err() {
         let _ = std::fs::remove_file(&log);
     }
-    let out = out?;
+    let (out, identity) = out?;
     if !out.status.success() {
-        return Err(format!("agy models exited {:?}", out.status.code()));
+        return Err(ReadError::Exit(out.status.code()));
     }
-    Ok(parse(&String::from_utf8_lossy(&out.stdout)))
+    // Bind the result to the command's own check, not whichever account a
+    // later overlapping check happened to observe. The apply edge checks again.
+    if identity.is_none() || identity != super::agy_auth::catalog_identity(engine) {
+        return Err(ReadError::Auth(super::agy_auth::Failure::Unavailable));
+    }
+    Ok(Catalog { ids: parse(&String::from_utf8_lossy(&out.stdout)), identity })
 }
 
 /// The one place `agy models` is started: through the auth guard.
 #[nolog]
-async fn run(engine: &Engine, exe: &Path, cmd: tokio::process::Command) -> Result<std::process::Output, String> {
-    super::agy_auth::checked_output(engine, exe, cmd, TIMEOUT).await.map_err(|e| e.to_string())
+async fn run(engine: &Engine, exe: &Path, cmd: tokio::process::Command) -> Result<(std::process::Output, Option<super::agy_auth::CatalogIdentity>), ReadError> {
+    super::agy_auth::checked_catalog_output(engine, exe, cmd, TIMEOUT).await.map_err(ReadError::Auth)
 }
 
 #[cfg(test)]

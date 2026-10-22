@@ -142,3 +142,22 @@ async fn profile_reading_keeps_model_pool_selection() {
     assert!(at_limit(&engine, Some(&account), "agy-opus").is_some());
     assert!(!has_room(&engine, Some(&account), "agy-opus"));
 }
+
+#[tokio::test]
+async fn agy_model_argon_spends_gemini_windows_only() {
+    let engine = Engine::for_tests(PathBuf::from("synthetic-unused-argon-quota"));
+    let reset = iso(Utc::now() + chrono::Duration::days(1));
+    let mut value = json!({"available":true,"limits":[
+        {"group":"gemini-5h","percent":0,"resets_at":reset},
+        {"group":"gemini-weekly","percent":80,"resets_at":reset},
+        {"group":"3p-weekly","percent":100,"resets_at":reset}
+    ]});
+    engine.usage.put("agy", &value);
+    assert!(at_limit(&engine, None, "argon").is_none());
+    assert!(at_limit(&engine, None, "agy-opus").is_some());
+    assert!(has_room(&engine, None, "argon"));
+    value["limits"][1]["percent"] = json!(100);
+    engine.usage.put("agy", &value);
+    assert!(at_limit(&engine, None, "argon").is_some(), "Gemini exhaustion remains enforced");
+    assert!(!has_room(&engine, None, "argon"));
+}

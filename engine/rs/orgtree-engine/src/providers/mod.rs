@@ -47,6 +47,7 @@ pub struct State {
     pub openrouter: Vec<(String, f64, String, String, String, String, String)>,
     /// models the Antigravity account lists (conditional tiers)
     pub agy_models: Vec<String>,
+    pub agy_model_principal: Option<agy_auth::Principal>,
     pub codex_efforts: std::collections::BTreeMap<String, Vec<String>>,
     pub codex_fast_modes: std::collections::BTreeMap<String, String>,
     pub codex_efforts_error: Option<String>,
@@ -84,7 +85,7 @@ pub struct Providers {
     muse_logins: ArcSwap<std::collections::HashMap<String, MuseLoginRead>>,
     /// when `agy models` was last read: held across a read, so at most one
     /// runs and a caller arriving meanwhile reuses its answer
-    agy_models_read: tokio::sync::Mutex<Option<std::time::Instant>>,
+    agy_models_read: tokio::sync::Mutex<Option<(std::time::Instant, Option<agy_auth::Principal>)>>,
 }
 
 /// One registered Muse login's catalog as its own metadata read last saw it.
@@ -397,7 +398,10 @@ pub async fn discover(engine: &Engine) {
     // the agy registry is read when it matters (start, and each opened model
     // choice: `refresh_agy_models`), never by this periodic pass
     let first = !engine.providers.state.load().probed;
-    st.agy_models = engine.providers.state.load().agy_models.clone();
+    let previous = engine.providers.state.load();
+    st.agy_models = previous.agy_models.clone();
+    st.agy_model_principal = previous.agy_model_principal;
+    drop(previous);
     st.probed = true;
     engine.providers.state.store(Arc::new(st));
     publish(engine);
@@ -889,12 +893,13 @@ pub fn payload(engine: &Engine) -> Value {
     }
     if st.agy.installed {
         let mut tiers = tier_rows(catalog::GOOGLE, false);
+        let models = agy_catalog_ids(engine, &st);
         tiers.retain(|t| {
             let tier = t["tier"].as_str().unwrap_or("");
             if catalog::antigravity_claude(tier) && !engine.settings.antigravity_claude_enabled() {
                 return false;
             }
-            agy_offers(tier, &st.agy_models)
+            agy_offers(tier, models)
         });
         let mut e = entry(catalog::GOOGLE, "Antigravity", "agy", &st.agy, tiers);
         e["preview_tiers"] = json!(catalog::listed().iter()
@@ -1264,52 +1269,101 @@ fn agy_offers(tier: &str, listed: &[String]) -> bool {
 /// and the tier list offer.
 #[nolog]
 pub fn agy_offered(engine: &Engine, tier: &str) -> bool {
-    agy_offers(tier, &engine.providers.state.load().agy_models)
+    agy_offers(tier, agy_catalog_ids(engine, &engine.providers.state.load()))
 }
 
-/// One `agy models` read, logged with the conditional tiers it offers. A
-/// failed read is no evidence: an empty list.
-#[logged]
-async fn read_agy_models(engine: &Engine, exe: &std::path::Path) -> Vec<String> {
-    let ids = match agy_models::read(engine, exe).await {
-        Ok(ids) => ids,
+#[nolog]
+fn agy_catalog_ids<'a>(engine: &Engine, st: &'a State) -> &'a [String] {
+    if st.agy_model_principal.is_some()
+        && agy_auth::catalog_identity(engine).map(|i| i.principal) == st.agy_model_principal {
+        &st.agy_models
+    } else {
+        &[]
+    }
+}
+
+/// Apply one registry read to the same cache used by menus and admission.
+/// An inconclusive check retains a catalog only for its confirmed principal.
+/// Auth refusals still invalidate it; a successful current list replaces it.
+#[nolog] // The result includes a principal fingerprint: never log it.
+fn apply_agy_model_read(engine: &Engine, result: Result<agy_models::Catalog, agy_models::ReadError>) {
+    let current = agy_auth::catalog_identity(engine);
+    let keep_current = || {
+        current.is_some() && current.map(|i| i.principal) == engine.providers.state.load().agy_model_principal
+    };
+    let (ids, principal) = match result {
+        Ok(catalog) if catalog.identity.is_some() && catalog.identity == current =>
+            (catalog.ids, current.map(|i| i.principal)),
+        Ok(_) => {
+            tracing::warn!("Antigravity model result no longer matches the checked login");
+            if keep_current() { return; }
+            (Vec::new(), None)
+        }
+        Err(e @ agy_models::ReadError::Auth(agy_auth::Failure::SignedOut | agy_auth::Failure::NotIsolated)) => {
+            tracing::warn!(error = %e, "Antigravity model list cleared after authentication refusal");
+            (Vec::new(), None)
+        }
         Err(e) => {
-            tracing::warn!(error = %e, "Antigravity model list unavailable");
-            Vec::new()
+            let retain = keep_current();
+            tracing::warn!(error = %e, retained = if retain { engine.providers.state.load().agy_models.len() } else { 0 },
+                "Antigravity model list unavailable; retaining only a confirmed same-login list");
+            if retain { return; }
+            (Vec::new(), None)
         }
     };
     tracing::info!(conditional = ?catalog::TIERS.iter().filter(|t| t.provider == catalog::GOOGLE && t.conditional && agy_models::listed(t.model, &ids)).map(|t| t.tier).collect::<Vec<_>>(),
                    listed = ids.len(), "Antigravity model list");
-    ids
-}
-
-/// A read of the agy registry younger than this is reused (user 2026-10-14).
-const AGY_MODELS_REUSE: Duration = Duration::from_secs(30);
-
-/// Read the account's `agy models` registry when it matters: at engine start,
-/// whenever a model choice or the providers page opens, and before placing a
-/// conditional tier (user 2026-10-14: no polling). At most one read runs; a
-/// result under 30 s old is reused. A changed list is published, so hire
-/// tokens and selectors follow it live.
-#[logged]
-pub async fn refresh_agy_models(engine: &Engine) {
-    let mut last = engine.providers.agy_models_read.lock().await;
-    if last.is_some_and(|at| at.elapsed() < AGY_MODELS_REUSE) {
-        return;
-    }
-    let Some(exe) = engine.providers.agy_path() else { return };
-    let ids = read_agy_models(engine, &exe).await;
-    *last = Some(std::time::Instant::now());
-    if engine.providers.state.load().agy_models == ids {
+    if engine.providers.state.load().agy_models == ids && engine.providers.state.load().agy_model_principal == principal {
         return;
     }
     engine.providers.state.rcu(|cur| {
         let mut st = State::clone(cur);
         st.agy_models = ids.clone();
+        st.agy_model_principal = principal;
         st
     });
     publish(engine);
 }
+
+/// A read of the agy registry younger than this is reused (user 2026-10-14).
+const AGY_MODELS_REUSE: Duration = Duration::from_secs(30);
+
+#[nolog]
+async fn recheck_catalog_identity<C, F>(engine: &Engine, check: C) -> Option<agy_auth::CatalogIdentity>
+where C: FnOnce() -> F, F: std::future::Future<Output = Result<agy_auth::Stamp, agy_auth::Failure>> {
+    // A raced metadata stamp needs at most one extra bounded silent identity
+    // check, never another models command. Ordinary same-login I/O errors do not.
+    if agy_auth::catalog_identity(engine).is_none() { let _ = check().await; }
+    agy_auth::catalog_identity(engine)
+}
+
+#[nolog]
+fn agy_models_reusable(last: Option<(std::time::Instant, Option<agy_auth::Principal>)>, principal: Option<agy_auth::Principal>) -> bool {
+    last.is_some_and(|(at, checked)| at.elapsed() < AGY_MODELS_REUSE && checked == principal)
+}
+
+/// Read the account's `agy models` registry when it matters: at engine start,
+/// whenever a model choice or the providers page opens, and before placing a
+/// conditional tier (user 2026-10-14: no polling). At most one read runs; an
+/// attempt under 30 s old is reused only for the same principal. A changed
+/// list is published, so hire tokens and selectors follow it live.
+#[logged]
+pub async fn refresh_agy_models(engine: &Engine) {
+    let mut last = engine.providers.agy_models_read.lock().await;
+    if agy_models_reusable(*last, agy_auth::catalog_identity(engine).map(|i| i.principal)) {
+        return;
+    }
+    let Some(exe) = engine.providers.agy_path() else { return };
+    let result = agy_models::read(engine, &exe).await;
+    if matches!(&result, Err(e) if !matches!(e, agy_models::ReadError::Auth(agy_auth::Failure::SignedOut | agy_auth::Failure::NotIsolated))) {
+        recheck_catalog_identity(engine, || agy_auth::preflight(engine, &exe)).await;
+    }
+    apply_agy_model_read(engine, result);
+    *last = Some((std::time::Instant::now(), agy_auth::catalog_identity(engine).map(|i| i.principal)));
+}
+
+#[cfg(test)]
+mod agy_model_refresh_tests;
 
 /// Whether a conditional Antigravity tier may be placed now (3.x
 /// `conditional_antigravity_availability`): the last read lists it, or a

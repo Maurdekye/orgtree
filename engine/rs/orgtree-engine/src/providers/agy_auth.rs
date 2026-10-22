@@ -109,6 +109,78 @@ pub struct AuthGate {
     // A profile login's in-memory latch, by account id (its file wins, as for
     // the default sign-in's).
     profiles: Mutex<HashMap<String, (Stamp, Refusal, SystemTime)>>,
+    // The default sign-in's last stable silent-check identity. Never logged or persisted.
+    principal: Mutex<Option<CatalogIdentity>>,
+    #[cfg(test)]
+    catalog_test_metadata: Mutex<Option<Result<Option<Stamp>, Failure>>>,
+}
+
+/// Account equality only. No Debug/Serialize: never emit the fingerprint.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub struct Principal([u8; 32]);
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub struct CatalogIdentity {
+    pub principal: Principal,
+    stamp: Stamp,
+}
+
+#[nolog]
+fn catalog_identity_of(stamp: Stamp, who: Option<&str>) -> Option<CatalogIdentity> {
+    use sha2::{Digest, Sha256};
+    who.map(str::trim).filter(|s| !s.is_empty()).map(|who| CatalogIdentity {
+        principal: Principal(Sha256::digest(who.to_ascii_lowercase().as_bytes()).into()), stamp,
+    })
+}
+
+#[nolog]
+pub(super) fn record_catalog_identity(engine: &Engine, stamp: Stamp, who: Option<&str>) -> Option<CatalogIdentity> {
+    let identity = catalog_identity_of(stamp, who);
+    let previous = {
+        let mut known = engine.providers.agy_auth.principal.lock().unwrap_or_else(|p| p.into_inner());
+        std::mem::replace(&mut *known, identity)
+    };
+    // A token rotation may keep the catalog, but a different/unnamed login
+    // must establish its own. The identity is updated before the state, so
+    // concurrent readers cannot use the old principal's IDs in this gap.
+    let principal = identity.map(|i| i.principal);
+    let before = engine.providers.state.load();
+    let invalid = principal.is_none() || before.agy_model_principal != principal;
+    // Revalidation of a same-account rotation can make quarantined offers
+    // visible again without changing the IDs; publish that restoration too.
+    let changed = (invalid || previous != identity)
+        && (!before.agy_models.is_empty() || before.agy_model_principal.is_some());
+    drop(before);
+    if invalid {
+        engine.providers.state.rcu(|cur| {
+            let mut st = super::State::clone(cur);
+            if principal.is_none() || st.agy_model_principal != principal {
+                st.agy_models.clear();
+                st.agy_model_principal = None;
+            }
+            st
+        });
+    }
+    if changed { super::publish(engine); }
+    identity
+}
+
+/// No CLI request: a cached identity is usable only while its checked
+/// credential metadata is still current. Unknown metadata is not identity.
+#[nolog]
+pub(super) fn catalog_identity(engine: &Engine) -> Option<CatalogIdentity> {
+    let known = *engine.providers.agy_auth.principal.lock().unwrap_or_else(|p| p.into_inner());
+    let known = known?;
+    if metadata(engine).ok().flatten() != Some(known.stamp) || latched(engine, &PRIMARY, known.stamp) {
+        return None;
+    }
+    let current = *engine.providers.agy_auth.principal.lock().unwrap_or_else(|p| p.into_inner());
+    (current == Some(known)).then_some(known)
+}
+
+#[cfg(test)]
+pub(super) fn catalog_test_metadata(engine: &Engine, stamp: Result<Option<Stamp>, Failure>) {
+    *engine.providers.agy_auth.catalog_test_metadata.lock().unwrap() = Some(stamp);
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -177,6 +249,10 @@ fn system_stamp() -> Result<Option<Stamp>, Failure> {
 
 #[nolog]
 fn metadata(engine: &Engine) -> Result<Option<Stamp>, Failure> {
+    #[cfg(test)]
+    if let Some(stamp) = *engine.providers.agy_auth.catalog_test_metadata.lock().unwrap() {
+        return stamp;
+    }
     if crate::rig::active() {
         // Rig fixtures never enumerate the real vault. Missing fixture retains
         // the pre-existing fake CLI's signed-in default.
@@ -366,6 +442,7 @@ pub fn refuse_for(engine: &Engine, login: &Login, stamp: Stamp, kind: Refusal) {
         if std::fs::write(path, bytes).is_err() { tracing::error!("could not persist AGY auth latch"); }
     }
     if *login == Login::Primary {
+        record_catalog_identity(engine, stamp, None);
         connected(engine, false);
         crate::usage::record_agy_auth_failure(engine, Failure::SignedOut.reading());
     }
@@ -528,7 +605,12 @@ pub fn preflight_for<'a>(engine: &'a Engine, exe: &'a Path, login: &'a Login) ->
     // A concrete async state propagates through ensure_agy/start_turn and the
     // actor's select branches. Keep this boundary heap-owned and type-erased:
     // otherwise its nested pipe readers multiply the debug actor stack frame.
-    Box::pin(async move { preflight_inner(engine, exe, login).await.map(|(stamp, _)| stamp) })
+    Box::pin(async move { identified_preflight(engine, exe, login).await.map(|(stamp, _)| stamp) })
+}
+
+#[nolog]
+fn identified_preflight<'a>(engine: &'a Engine, exe: &'a Path, login: &'a Login) -> BoxFuture<'a, Result<(Stamp, Option<String>), Failure>> {
+    Box::pin(preflight_inner(engine, exe, login))
 }
 
 /// Agent admission/launch only: retry one inconclusive check, not a known
@@ -559,7 +641,7 @@ where C: FnMut() -> F, F: std::future::Future<Output = Result<Stamp, Failure>> {
 /// answer names an account.
 #[nolog]
 pub fn identity_for<'a>(engine: &'a Engine, exe: &'a Path, login: &'a Login) -> BoxFuture<'a, Result<Option<String>, Failure>> {
-    Box::pin(async move { preflight_inner(engine, exe, login).await.map(|(_, who)| who) })
+    Box::pin(async move { identified_preflight(engine, exe, login).await.map(|(_, who)| who) })
 }
 
 /// The silent check's command for a login. IMPORTANT: no args. With any args
@@ -579,7 +661,13 @@ async fn preflight_inner(engine: &Engine, exe: &Path, login: &Login) -> Result<(
     let _check = engine.providers.agy_auth.check.lock().await;
     let stamp = match metadata_for(engine, login) {
         Ok(Some(s)) => s,
-        Ok(None) => { if *login == Login::Primary { connected(engine, false); } return Err(Failure::SignedOut); }
+        Ok(None) => {
+            if *login == Login::Primary {
+                record_catalog_identity(engine, Stamp(0), None);
+                connected(engine, false);
+            }
+            return Err(Failure::SignedOut);
+        }
         Err(e) => return Err(check_failure("metadata_before_check", e)),
     };
     if let Some(kind) = holding(engine, login, stamp) {
@@ -605,7 +693,10 @@ async fn preflight_inner(engine: &Engine, exe: &Path, login: &Login) -> Result<(
                 }
             }
             release(engine, login);
-            if *login == Login::Primary { connected(engine, true); }
+            if *login == Login::Primary {
+                record_catalog_identity(engine, stamp, who.as_deref());
+                connected(engine, true);
+            }
             Ok((stamp, who))
         }
         // The measured clean signed-out answer: non-zero exit, no output.
@@ -646,12 +737,23 @@ pub fn checked_output<'a>(engine: &'a Engine, exe: &'a Path, cmd: Command, timeo
 #[nolog]
 pub fn checked_output_for<'a>(engine: &'a Engine, exe: &'a Path, cmd: Command, timeout: Duration, login: &'a Login)
     -> BoxFuture<'a, Result<Output, Failure>> {
-    Box::pin(checked_output_inner(engine, exe, cmd, timeout, login))
+    Box::pin(async move { checked_output_inner(engine, exe, cmd, timeout, login).await.map(|(out, _)| out) })
+}
+
+/// Catalogs need the identity from their own check, not a later caller's check.
+#[nolog]
+pub(super) fn checked_catalog_output<'a>(engine: &'a Engine, exe: &'a Path, cmd: Command, timeout: Duration)
+    -> BoxFuture<'a, Result<(Output, Option<CatalogIdentity>), Failure>> {
+    Box::pin(checked_output_inner(engine, exe, cmd, timeout, &PRIMARY))
 }
 
 #[nolog]
-async fn checked_output_inner(engine: &Engine, exe: &Path, mut cmd: Command, timeout: Duration, login: &Login) -> Result<Output, Failure> {
-    let stamp = preflight_for(engine, exe, login).await?;
+async fn checked_output_inner(engine: &Engine, exe: &Path, mut cmd: Command, timeout: Duration, login: &Login) -> Result<(Output, Option<CatalogIdentity>), Failure> {
+    let (stamp, who) = identified_preflight(engine, exe, login).await?;
+    let identity = if *login == Login::Primary {
+        // The check's own value, even if another check updates the cache meanwhile.
+        catalog_identity_of(stamp, who.as_deref())
+    } else { None };
     configure(&mut cmd);
     login.apply(&mut cmd);
     // Recheck the latch/metadata at the launch edge as another caller may have
@@ -660,7 +762,7 @@ async fn checked_output_inner(engine: &Engine, exe: &Path, mut cmd: Command, tim
     if latched(engine, login, stamp) { return Err(Failure::SignedOut); }
     let result = capture(cmd, timeout).await;
     if matches!(result, Err(Failure::SignedOut)) { refuse_for(engine, login, stamp, Refusal::Untrusted); }
-    result
+    result.map(|out| (out, identity))
 }
 
 #[cfg(test)]

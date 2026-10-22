@@ -25,6 +25,24 @@ medium; Pro, Barium and Carbon retain low/high. Model availability still depends
 on the account's registry. These controls do not promise a measured change in
 reasoning tokens, latency or answer quality.
 
+Conditional models such as Argon appear after the account's model catalog lists
+their exact model ID. A temporary catalog/auth-check failure keeps the last
+confirmed list only for the same verified login. If credentials change, one
+bounded silent identity recheck can retain it for that same account; a changed
+or unverified login loses the old list. It does not make an unknown model
+available or prove that sign-in is currently working. A successful current
+catalog that omits the model removes it, as does a sign-out or account-isolation
+refusal. A late result from the previous login cannot give models to the new
+login. A later successful read can restore them. Model menus request a refresh
+when opened, reusing attempts for up to 30 seconds for the same login; the cache
+starts empty after an engine restart.
+
+Argon uses Gemini's usage windows, independently of the Claude/GPT windows on
+Antigravity. Retaining a catalog never bypasses sign-in, account enablement or a
+spent Gemini window. Sign-in/usage refusals keep their usual reasons; asking to
+hire or switch to a conditional model absent from the catalog returns an
+unavailable-model explanation.
+
 `agent_response` steps stream text deltas. At the step's DONE state, its input/cache-read/output usage is accumulated; thinking-token counts join output. At `32bb414` (source audit 2026-10-20), Orgtree also adds exposed thinking **after DONE**, before that step's response: explicit stream thinking if present, otherwise a bounded read-only lookup in the selected home's native history. The lookup matches session and step exactly, avoids duplicates, skips redacted/unsafe/unreadable data and never logs recovered text. This is not live reasoning streaming, and a thinking-token count alone does not guarantee visible thinking. A response supplied only in the final result still becomes a transcript row. Sources: [`runtime/actor.rs:5685`](https://github.com/Maurdekye/orgtree/blob/32bb4144e0337a3c425e71515863a3412bf77987/engine/rs/orgtree-engine/src/runtime/actor.rs#L5685), [`runtime/agy_thinking.rs:17`](https://github.com/Maurdekye/orgtree/blob/32bb4144e0337a3c425e71515863a3412bf77987/engine/rs/orgtree-engine/src/runtime/agy_thinking.rs#L17); full comparison: `docs/harness-parity.md` in the development checkout.
 
 Tool steps provide a tool name, parameters, state and result/error. Orgtree records the first observed step as the start and DONE/ERROR as the end, updating arguments when later step information arrives. No distinct tool-writing phase is reported here; writing time is unknown, and these are engine-observed intervals rather than guaranteed native execution durations.

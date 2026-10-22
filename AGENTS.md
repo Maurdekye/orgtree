@@ -18,6 +18,13 @@ Before renderer or desktop-main tests, visual captures or rig proofs, read the [
 ## Engine and desktop invariants
 
 - Desk model eligibility uses the staffing tier's eligible managed accounts as well as its native-login flags. A spent native login cannot hide a tier with another eligible account; the picker prefers native when usable, otherwise submits and discloses an eligible managed ID. Current-model queue cancellation leaves the account alone. [verified: `canvas/deskmodel.tsx`, `desk-model-instant.test.tsx`; 2026-10-22]
+- Antigravity conditional models retain their last confirmed in-memory catalog
+  on inconclusive refresh failures only for the same silently checked principal.
+  Metadata changes quarantine cached offers until one bounded identity recheck;
+  a different/unknown login clears them. Catalog results carry their own identity;
+  successful omission/empty and auth refusals still remove models. See
+  [conditional Gemini tiers](docs/agents/providers-and-accounts.md#e-f9bfc5ac5f086eb7).
+  [verified: `providers/{agy_auth,agy_models,mod}.rs`; 2026-10-22]
 
 - State badges pass card focus/select gestures through. The serving-account badge is a focusable informational span with native title = aria-label; it has no button role or pointer/click handler. Other state markers remain inert, with halt/unstick actions separate on the desk. [decided: user 2026-10-22 09:58Z; verified: `canvas/desk.tsx`, `statebadgefocus.test.tsx`]
 
