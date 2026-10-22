@@ -1866,3 +1866,12 @@ All entries are dated 2026-10-06 unless stated otherwise.
   the WebSocket connect fire; no once/fired/actions, data untouched. Legacy
   stored flags resolve notice; notify_on_connect create/configure true=>notice,
   false=>off, conflicting arguments refused. See websocket-watchdogs.md.
+
+- 2026-10-22 14:30Z, USER (m10fbcccbec63): "Credit cost bubbling" is no longer a per-org
+  or new-org-default setting (a 4.4.0 freeze exception). Agents ALWAYS bubble hire, re-hire,
+  allocation, model-upgrade and credit-request cost up the chain, to their own allocation
+  (the floor, cap and scope invariants are unchanged). The two switches are app-wide
+  Runtime settings (`credit_bubble_hire_enabled`, `credit_bubble_alloc_enabled`, default on)
+  that govern only the user's own actions. Stored per-org and default values are ignored;
+  old clients and templates may still send them (accepted, ignored). See
+  [credit cascade boundary](credit-cascade-boundary.md).

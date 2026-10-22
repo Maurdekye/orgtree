@@ -14,7 +14,7 @@ Read the current ORG STATE and use state inspection when you need exact balances
 
 Use [reallocate](../tool-reallocate/SKILL.md) for an authorized redistribution; its negative-delta refusal protects credits already held by the target's reports. If the caller's allocation is insufficient, use [request credits](../../user/tool-request-credits/SKILL.md) through the permitted request route. A cascade is not permission to silently raise your own grant.
 
-The two cost-bubbling switches affect hiring and allocation/model-price changes separately; exact effects and refusal boundaries are in the corresponding tool pages. See `orgtree-org-policies-cost` (orgtree-app › org-settings) for their user settings. Moving an existing team transfers its stake rather than funding new work; use [move](../tool-move/SKILL.md) for that conservation rule.
+Agents always bubble cost up the chain, up to their own allocation. The two cost-bubbling switches are app-wide, govern only the user's own hires and allocation/model-price changes separately, and default on; see `orgtree-app-credit-bubbling` (orgtree-app › app-settings). Exact effects and refusal boundaries are in the corresponding tool pages. Moving an existing team transfers its stake rather than funding new work; use [move](../tool-move/SKILL.md) for that conservation rule.
 
 When a tool refuses capacity, report the actual payer, available room and required action. Do not derive token budgets from the credit bar, repeatedly retry unchanged balances, or change user settings yourself to bypass a refusal.
 
@@ -22,4 +22,4 @@ When a tool refuses capacity, report the actual payer, available room and requir
 
 - [orgtree-tool-reallocate](../tool-reallocate/SKILL.md)
 - [orgtree-tool-request-credits](../../user/tool-request-credits/SKILL.md)
-- `orgtree-org-policies-cost` (orgtree-app › org-settings)
+- `orgtree-app-credit-bubbling` (orgtree-app › app-settings)

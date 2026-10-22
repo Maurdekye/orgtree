@@ -17,7 +17,8 @@ When a named eligible account makes the choice runnable, the hire carries that
 account. A configured eligible org default wins over other named alternatives.
 
 Credit checks mirror the user hire cascade: projects pass costs upward,
-`cascade_hire: false` requires the paying parent's free credits, and the
+the user's app-wide hire-bubbling switch (Runtime, `credit_bubble_hire_enabled`; the tree's `cascade_hire`)
+set OFF requires the paying parent's free credits, and the
 top-level grant cap still applies. They do not disable all models merely
 because a parent can draw credits through its normal cascade.
 

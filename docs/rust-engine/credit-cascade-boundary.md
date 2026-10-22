@@ -48,3 +48,17 @@ was launched. The adapter was restored byte-for-byte and is not in the commit.
 The disposable engine and PostgreSQL processes were stopped. This is measured
 scratch behavior, not a live/deployment claim. Live data was not changed.
 
+
+## Caller policy (2026-10-22)
+
+The cascade switch is no longer an org setting. `ops.rs::ensure_room` forces
+the cascade for `Actor::Agent` (the agent's own allocation stays the floor and
+the top-level cap, project transparency and plan-before-write are unchanged);
+for `Actor::User` it is the app-wide Runtime switch `credit_bubble_hire_enabled`
+(hire, re-hire) or `credit_bubble_alloc_enabled` (allocation, model upgrade),
+default on, read from `settings.rs`. A credit request's headroom
+(`asks.rs::credit_room`) always bubbles. The org tree (`cascade_hire`,
+`cascade_alloc`) carries the app-wide values so the desk previews the user's
+limits; stored org/default values and template entries are ignored. The
+evidence above predates this rule and still describes the switch-off refusal
+that now applies to the user only. Proof: `tools/rig/proofs/credit-bubbling.mjs`.

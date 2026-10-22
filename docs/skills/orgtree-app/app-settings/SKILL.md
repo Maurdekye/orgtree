@@ -20,6 +20,7 @@ Inside an organization window App settings has the same ↗ pop-out and pin butt
 - [orgtree-app-quick-staff](app-quick-staff/SKILL.md): Runtime > Quick staff behavior: request staffing vs staff immediately.
 - [orgtree-app-turn-limits](app-turn-limits/SKILL.md): Runtime > Turn time limits: total and silence limits.
 - [orgtree-app-concurrency-and-checkups](app-concurrency-and-checkups/SKILL.md): Runtime > Turns: concurrent turns, working checkups, MCP wait, docket reminders, process warming.
+- [orgtree-app-credit-bubbling](app-credit-bubbling/SKILL.md): Runtime > Credit cost bubbling: the user's two app-wide switches (agents always bubble).
 - [orgtree-app-charters-and-templates](app-charters-and-templates/SKILL.md): Runtime > Charter documents and Organization templates: template folders, populating documents, restoring default templates.
 - [orgtree-app-display-appearance](app-display-appearance/SKILL.md): Display > Appearance and Canvas background: theme, custom color, contrast color, agent colors, canvas background and intensity.
 - [orgtree-app-display-desk-and-chart](app-display-desk-and-chart/SKILL.md): Display > Desk: chart layout, desk text size, piles, retired agents, card shortcuts, pinned-panel behavior.

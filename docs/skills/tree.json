@@ -711,7 +711,7 @@
    "must_cover": [
     "seat vs grant vs free",
     "credits bound concurrent capacity, not tokens",
-    "cost bubbling (cascade_hire, cascade_alloc)",
+    "cost bubbling (agents always; the two app-wide user switches)",
     "reallocate and request_credits"
    ],
    "sources": [
@@ -721,7 +721,7 @@
    "see_also": [
     "tool-reallocate",
     "tool-request-credits",
-    "org-policies-cost"
+    "app-credit-bubbling"
    ],
    "writer": "org-sol",
    "status": "fixed"
@@ -3863,6 +3863,7 @@
     "app-quick-staff",
     "app-turn-limits",
     "app-concurrency-and-checkups",
+    "app-credit-bubbling",
     "app-charters-and-templates",
     "app-display-appearance",
     "app-display-desk-and-chart",
@@ -4331,6 +4332,57 @@
    ]
   },
   {
+   "path": "orgtree-app/app-settings/app-credit-bubbling",
+   "name": "orgtree-app-credit-bubbling",
+   "level": 3,
+   "kind": "setting",
+   "registered": false,
+   "covers": [
+    "rt:credit_bubble_hire_enabled",
+    "rt:credit_bubble_alloc_enabled"
+   ],
+   "purpose": "Runtime > Credit cost bubbling: the user's two app-wide switches (agents always bubble).",
+   "must_cover": [
+    "each switch and default; user-only scope; agents always bubble"
+   ],
+   "sources": [
+    "apps/desktop/renderer/src/canvas/accounts.tsx",
+    "engine/rs/orgtree-engine/src/domain/ops.rs",
+    "engine/rs/orgtree-engine/src/settings.rs"
+   ],
+   "see_also": [
+    "credits"
+   ],
+   "writer": "usage-header-sonnet",
+   "status": "fixed",
+   "ui_labels": [
+    {
+     "file": "apps/desktop/renderer/src/canvas/accounts.tsx",
+     "label": "your hires bubble their cost up the chain"
+    },
+    {
+     "file": "apps/desktop/renderer/src/canvas/accounts.tsx",
+     "label": "your allocations & model upgrades bubble their cost up the chain"
+    }
+   ],
+   "key_sources": [
+    {
+     "key": "rt:credit_bubble_hire_enabled",
+     "file": "apps/desktop/renderer/src/canvas/accounts.tsx",
+     "needles": [
+      "credit_bubble_hire_enabled"
+     ]
+    },
+    {
+     "key": "rt:credit_bubble_alloc_enabled",
+     "file": "apps/desktop/renderer/src/canvas/accounts.tsx",
+     "needles": [
+      "credit_bubble_alloc_enabled"
+     ]
+    }
+   ]
+  },
+  {
    "path": "orgtree-app/app-settings/app-charters-and-templates",
    "name": "orgtree-app-charters-and-templates",
    "level": 3,
@@ -4728,8 +4780,6 @@
     "defaults:default_top_grant",
     "defaults:compact_at",
     "defaults:default_effort",
-    "defaults:cascade_hire",
-    "defaults:cascade_alloc",
     "defaults:auto_resume"
    ],
    "purpose": "Default org settings: values new organizations start with (also the standalone form).",
@@ -4767,14 +4817,6 @@
     },
     {
      "file": "apps/desktop/renderer/src/shell/defaults.tsx",
-     "label": "hires bubble their cost up the chain"
-    },
-    {
-     "file": "apps/desktop/renderer/src/shell/defaults.tsx",
-     "label": "allocations & model upgrades bubble their cost up the chain"
-    },
-    {
-     "file": "apps/desktop/renderer/src/shell/defaults.tsx",
      "label": "auto-resume usage-limit-frozen agents after the reset time"
     }
    ],
@@ -4805,20 +4847,6 @@
      "file": "apps/desktop/renderer/src/shell/defaults.tsx",
      "needles": [
       "default_effort"
-     ]
-    },
-    {
-     "key": "defaults:cascade_hire",
-     "file": "apps/desktop/renderer/src/shell/defaults.tsx",
-     "needles": [
-      "cascade_hire"
-     ]
-    },
-    {
-     "key": "defaults:cascade_alloc",
-     "file": "apps/desktop/renderer/src/shell/defaults.tsx",
-     "needles": [
-      "cascade_alloc"
      ]
     },
     {
@@ -4976,7 +5004,6 @@
     "org-hire-defaults-scope",
     "org-hire-defaults-tools",
     "org-policies-compaction",
-    "org-policies-cost",
     "org-policies-inbox",
     "org-autonomy",
     "org-accounts",
@@ -5368,55 +5395,6 @@
      "needles": [
       "auto_cheap_compact",
       "occ"
-     ]
-    }
-   ]
-  },
-  {
-   "path": "orgtree-app/org-settings/org-policies-cost",
-   "name": "orgtree-org-policies-cost",
-   "level": 3,
-   "kind": "setting",
-   "registered": false,
-   "covers": [
-    "org:cascade_hire",
-    "org:cascade_alloc"
-   ],
-   "purpose": "Policies > cost bubbling up the chain.",
-   "must_cover": [
-    "each switch"
-   ],
-   "sources": [
-    "apps/desktop/renderer/src/App.tsx:3266-3271"
-   ],
-   "see_also": [
-    "credits"
-   ],
-   "writer": "orgsettings-sol",
-   "status": "fixed",
-   "ui_labels": [
-    {
-     "file": "apps/desktop/renderer/src/App.tsx",
-     "label": "hires bubble their cost up the chain"
-    },
-    {
-     "file": "apps/desktop/renderer/src/App.tsx",
-     "label": "allocations & model upgrades bubble their cost up the chain"
-    }
-   ],
-   "key_sources": [
-    {
-     "key": "org:cascade_hire",
-     "file": "apps/desktop/renderer/src/App.tsx",
-     "needles": [
-      "cascade_hire"
-     ]
-    },
-    {
-     "key": "org:cascade_alloc",
-     "file": "apps/desktop/renderer/src/App.tsx",
-     "needles": [
-      "cascade_alloc"
      ]
     }
    ]

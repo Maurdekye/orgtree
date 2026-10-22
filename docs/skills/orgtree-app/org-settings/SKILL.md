@@ -26,7 +26,6 @@ not rendered. Connections is documented in
 - [orgtree-org-hire-defaults-scope](org-hire-defaults-scope/SKILL.md): Hire defaults > visibility, file and command access, provider and account.
 - [orgtree-org-hire-defaults-tools](org-hire-defaults-tools/SKILL.md): Hire defaults > native tools, Orgtree tool groups and MCP servers.
 - [orgtree-org-policies-compaction](org-policies-compaction/SKILL.md): Policies > reset a session before a known-cold turn.
-- [orgtree-org-policies-cost](org-policies-cost/SKILL.md): Policies > cost bubbling up the chain.
 - [orgtree-org-policies-inbox](org-policies-inbox/SKILL.md): Policies > outside communication through the org inbox.
 - [orgtree-org-autonomy](org-autonomy/SKILL.md): Autonomy: automatic account switching and auto-resume of frozen agents.
 - [orgtree-org-accounts](org-accounts/SKILL.md): Accounts: which accounts this org may use.
