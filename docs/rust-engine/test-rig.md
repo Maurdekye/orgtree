@@ -144,6 +144,20 @@ the run.
 | `run-on-startup.mjs` | the "run on boot" switch (it was "run on startup") in the real renderer (`--ui <bundle>`, desktop script `desktop/run-on-startup.cjs`, decisions 70 and 83): App settings › Runtime › Desktop with a planted bridge standing in for main; the switch reads "run on boot" (nothing still says "run on startup" or "start at login", and there is no "engine starts" choice) with a hint saying what on and off mean; a change main reports as declined (a Windows permission prompt answered No) shows main's message and leaves it on; an accepted change turns it off. What main does with it is `tests/disruptive/run-on-startup.test.mjs` and `tests/unix-boot-engine.test.mjs` |
 | `build-lock.mjs` | Retired filesystem-lock proof: exits with a notice and performs no file or process operations. Its old protocol controls remain in git history; focused replacement is `node --test tools/rig/tests/build-permit.test.mjs` (mock builds, no rig run), including the retained rig-home and target-path guards. |
 
+### Account-removal retry exhaustion
+
+`folder-grants-account-removal.mjs` keeps its disposable org-row holder locked
+until the real removal request settles, then releases it in `finally`, including
+setup/call failures. This exhausts all ten attempts regardless of full-jitter
+backoff; a fixed 500 ms release can instead admit a later successful attempt.
+The checks require the current HTTP 409 Conflict refusal naming ten collisions
+and unchanged atomic state, followed by successful removal after release.
+Elapsed time is evidence only, not the oracle; the rig API timeout bounds a
+blocking regression. Preserve all 23 check positions and the independent durable
+approval check, whose failure was also measured on v4.4.0.
+[verified: `tools/rig/proofs/folder-grants-account-removal.mjs`,
+`engine/rs/orgtree-engine/src/domain/{account_removal,ops}.rs`; 2026-10-22]
+
 ## What keeps it safe
 
 The `credential-broker.mjs` proof prepares compiled offline `git.exe` and

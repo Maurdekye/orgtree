@@ -134,22 +134,26 @@ export default async function (rig) {
   rig.exec("INSERT INTO ot.accounts(id,provider,kind,label) VALUES('claude/primary','claude','managed','Synthetic primary') ON CONFLICT(id) DO NOTHING")
   const primary = await capture(() => rig.api('DELETE', '/api/accounts/claude%2Fprimary'))
   p.check('primary account remains protected', !primary.ok && primary.status === 409, primary)
-  // Contention beyond the existing four-attempt budget must refuse atomically.
-  // Release after 500ms so the predecessor's blocking path also finishes; it
-  // must not be mistaken for the corrected bounded-refusal behavior.
+  // Hold contention until the removal settles, through every jittered retry.
+  // A fixed release delay can let a later attempt succeed instead of exhausting
+  // the ten-attempt policy. rig.api's timeout bounds a blocking regression;
+  // finally releases the disposable holder even when setup or the call fails.
   const busyK = await account()
   await bind(busyK)
   const beforeBusy = snapshot(), held = session()
-  held.child.stdin.write(`BEGIN; SELECT id FROM ot.orgs WHERE id=${oid} FOR NO KEY UPDATE;\n\\echo READY\n`)
-  await rig.waitFor(() => held.output().includes('READY'), { timeout: 10000, every: 50, what: 'controlled prolonged org contention' })
-  const released = new Promise(resolve => setTimeout(() => {
-    held.child.stdin.end('COMMIT;\n\\q\n'); resolve(held.exited)
-  }, 500))
   const started = Date.now()
   let busy
-  try { busy = await capture(() => rig.api('DELETE', `/api/accounts/${busyK}`)) }
-  finally { await released }
-  p.check('retry budget exhaustion refuses with lock error rather than waiting for holder', !busy.ok && /could not obtain lock/.test(busy.text ?? ''), { busy, elapsedMs: Date.now()-started })
+  try {
+    held.child.stdin.write(`BEGIN; SELECT id FROM ot.orgs WHERE id=${oid} FOR NO KEY UPDATE;\n\\echo READY\n`)
+    await rig.waitFor(() => held.output().includes('READY'), { timeout: 10000, every: 50, what: 'controlled prolonged org contention' })
+    busy = await capture(() => rig.api('DELETE', `/api/accounts/${busyK}`))
+  } finally {
+    held.child.stdin.end('ROLLBACK;\n\\q\n')
+    const released = await held.exited
+    if (released.code !== 0) throw new Error(released.stderr)
+  }
+  p.check('retry budget exhaustion gives a clear Conflict refusal after ten attempts', !busy.ok && busy.status === 409
+    && /collided with other changes made at the same moment, 10 times in a row; nothing changed\. Retry it\./.test(busy.text ?? ''), { busy, elapsedMs: Date.now()-started })
   p.check('exhausted removal retries preserve all atomic state', JSON.stringify(snapshot()) === JSON.stringify(beforeBusy))
   const afterContention = rig.one(`SELECT id FROM ot.accounts WHERE id=${q(busyK)}`)
     ? await capture(() => rig.api('DELETE', `/api/accounts/${busyK}`)) : { ok: true }
