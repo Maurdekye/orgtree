@@ -491,7 +491,7 @@ fn build_tool_org_logo() -> Value {
 fn build_tool_status() -> Value {
     tool(
         "orgtree_status",
-        "Report your working/done/blocked/idle status. Or use node+dnd only to control a descendant (runtime required). Idle targets arm next turn. dnd=false clears whoever set it and releases held mail now at native boundaries, without a count cap; size budgets remain. Urgent bypasses; turn end clears DND. Guide has delivery details.",
+        "Report own work status; done does not end turn. Or node+dnd only: self or descendant (descendants need runtime). Idle arms next turn. false clears any setter's hold and triggers native delivery now, without a count cap; size limits remain. Urgent bypasses; turn end clears DND.",
         json!({
             "status": { "type": "string", "enum": ["working", "done", "blocked", "idle"] },
             "summary": { "type": "string", "description": "one or two sentences" },
@@ -1677,7 +1677,7 @@ mod builder_stack_tests {
             ("orgtree_watchdog", "Uncapped watchers; paged list. create: kind/target (usage defaults usage); command regex. command/stream smoke-run as you (cmd.exe or shell=bash). Ready once command/process/usage/slot/fair_queue returns effects/actions inline; else registers. Silence/event/listeners unchanged. usage checks cached levels then edges, no probes. fair_queue routes mail; slot grants lease. project_listener hears events; listener_watch counts listeners; fire_actions run tools. mqtt/websocket send uses live connection (MQTT: topic). configure sets connection health mail (default notice) without reconnect. Limits: guide.\nGuide: orgtree-tool-watchdog."),
             ("orgtree_inbox", "Read own mail: list previews; fetch<=20 IDs; chunk long bodies. Recall conversation after fresh session/compaction before replying. Returned pending received content is consumed, even outside DND; previews are not. Received/project opens enter transcript once; sent history does not. Project reads never claim/ack. folder selects full history; omitted list waits only. Keep project/folder/status with cursors. See guide for handles and filters.\nGuide: orgtree-tool-inbox."),
             ("orgtree_audience", "Manage directional audiences; requests grant nothing. request target/from managed project; grant from; deny requester; revoke grantee. Project grants reach direct live members, never nested; reverse needs its own grant. User contact does not add personal access while inherited; manual Acquire can. Project decisions go to nearest agent superior (user if none). External/org-inbox remains agent-only. Read guide for grant authority.\nGuide: orgtree-tool-audience."),
-            ("orgtree_status", "Report your working/done/blocked/idle status. Or use node+dnd only to control a descendant (runtime required). Idle targets arm next turn. dnd=false clears whoever set it and releases held mail now at native boundaries, without a count cap; size budgets remain. Urgent bypasses; turn end clears DND. Guide has delivery details.\nGuide: orgtree-tool-status."),
+            ("orgtree_status", "Report own work status; done does not end turn. Or node+dnd only: self or descendant (descendants need runtime). Idle arms next turn. false clears any setter's hold and triggers native delivery now, without a count cap; size limits remain. Urgent bypasses; turn end clears DND.\nGuide: orgtree-tool-status."),
         ] {
             expected.as_array_mut().unwrap().iter_mut().find(|c| c["name"] == name).unwrap()["description"] = serde_json::json!(description);
         }
