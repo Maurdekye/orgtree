@@ -60,7 +60,7 @@ import { ForegroundViewContext, RefProse, refToken, resolveRef, useAgentOutcome 
 import { DocketDescription } from './docketdesc'
 import { copyToClipboard, useContextMenu } from './contextmenu'
 import { quickStaffPath } from './quickstaff'
-import { ticketMenuEntries, ticketStaffable, ticketStaffEntry } from './ticketmenu'
+import { captureTicketMention, ticketMenuEntries, ticketStaffable, ticketStaffEntry } from './ticketmenu'
 import { peekQuickStaff, prefetchQuickStaff, queueStaffingWarm } from './staffingoptions'
 import type { QuickStaffPreview } from './quickstaff'
 import type { MenuEntry } from './contextmenu'
@@ -2250,6 +2250,7 @@ export const DocketRow = memo(function DocketRow({ item, selected, onClick, onDi
       open: () => openDetails.current(),
       copySlug: () => copySlugAt(row, clientX, clientY),
       fold, staffing, feedback: announce,
+      mention: captureTicketMention(row, org, item.slug),
     })
   }
   return (

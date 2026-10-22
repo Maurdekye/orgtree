@@ -7,7 +7,7 @@ import type { ToastFn, Watchdog } from '../types'
 import { copyToClipboard } from './contextmenu'
 import type { MenuEntry } from './contextmenu'
 import { nodeMenuAction, watchdogActions } from './objectactions'
-import { ticketMenuEntries, ticketStaffable } from './ticketmenu'
+import { captureTicketMention, ticketMenuEntries, ticketStaffable } from './ticketmenu'
 import { quickStaffPath } from './quickstaff'
 import type { QuickStaffPreview } from './quickstaff'
 import { peekQuickStaff, prefetchQuickStaff } from './staffingoptions'
@@ -75,6 +75,8 @@ export function ObjectNavHost({ org, dogs, openDog, openTicket, openDocument, op
         ? getWatchdog(org,id).then(page=>menu(page.watchdogs.find(w=>w.id===id))) : menu(dog)
     }
     if (!openTicket || id.includes('/')) return []
+    // before the read: the caret it inserts at is the one the right-click found
+    const mention = captureTicketMention(anchor, org, id)
     return getWorkItem(org, id).then(async ({ item }) => {
       const name = item.owner?.node
       const entries = name ? agents?.current?.(name) ?? [] : []
@@ -88,7 +90,7 @@ export function ObjectNavHost({ org, dogs, openDog, openTicket, openDocument, op
         }
       }
       return ticketMenuEntries({ org, item, anchor, ownerEntries: entries,
-        open: () => openTicket(item.slug), toast, staffing, staffError })
+        open: () => openTicket(item.slug), toast, staffing, staffError, mention })
     })
   }, org, openMail ? () => openMail({ id: '@user', to: 'user_inbox' }) : undefined)
   return null

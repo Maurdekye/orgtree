@@ -252,8 +252,10 @@ export function useAgentMentions({
     const el = inputRef.current
     if (!el || el.disabled) return null
     const doc = el.ownerDocument ?? document
+    // ⚠ NOT CONSUMED: one right-click can capture twice (a ticket's own
+    // Mention, then its Owner… submenu's, once the ticket has loaded), and
+    // both belong at the caret it found. A second is its age limit.
     const pre = preRightClickSnapRef.current
-    preRightClickSnapRef.current = null
     const usePre = Boolean(pre && Date.now() - pre.ts < 1000 && pre.focused)
     const focusedNow = doc.activeElement === el
     const wasFocused = focusedNow || usePre

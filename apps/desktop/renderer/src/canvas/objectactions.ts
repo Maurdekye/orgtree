@@ -54,12 +54,16 @@ export function senderMenuAction(anchor: Element | null, sender: string | undefi
   }
 }
 
-/** Transcript order is canonical; docket-only extras follow its own separator. */
-export function ticketReferenceActions({ open, owner, copyTitle, copySlug, copyReference, extras = [] }: {
+/** Transcript order is canonical; docket-only extras follow its own separator.
+ *  Mention, offered only inside a desk with a live message box, comes first,
+ *  as it does on every identity link. */
+export function ticketReferenceActions({ open, owner, copyTitle, copySlug, copyReference, mention, extras = [] }: {
   open: () => void; owner?: Exclude<MenuEntry, 'sep'>;
-  copyTitle: () => void; copySlug: () => void; copyReference?: () => void; extras?: MenuEntry[]
+  copyTitle: () => void; copySlug: () => void; copyReference?: () => void; mention?: (() => void) | null;
+  extras?: MenuEntry[]
 }): MenuEntry[] {
-  return [{ label: 'Open details', onSelect: open }, ...(owner ? [owner] : []), 'sep',
+  return [...(mention ? [{ label: 'Mention', onSelect: mention }] : []),
+    { label: 'Open details', onSelect: open }, ...(owner ? [owner] : []), 'sep',
     { label: 'Copy ticket title', onSelect: copyTitle }, { label: 'Copy slug', onSelect: copySlug },
     ...(copyReference ? [{ label: 'Copy reference', onSelect: copyReference }] : []),
     ...(extras.length ? ['sep' as const, ...extras] : [])]
