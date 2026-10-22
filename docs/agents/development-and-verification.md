@@ -8,6 +8,15 @@ These attributed records were moved from the root guide at `22daffd`; they retai
 
 ## Renderer, capture and rig traps
 
+- The org-shared-notes proof expects a new shared `AGENTS.md` to contain
+  exactly `# Shared standing notes for this organization\n` (USER 2026-10-17
+  17:26Z), and checks that initialization preserves existing empty/custom
+  notes. Keep its 16 historical names for baseline comparison: only the two
+  empty-directory predicates change; seven reproduced baseline prompt/harness/
+  isolation failures remain FAIL. Never delete notes to manufacture an empty
+  fixture. See [shared notes](../rust-engine/org-shared-notes.md).
+  [verified: `tools/rig/proofs/org-shared-notes.mjs`; 2026-10-22]
+
 - The next-turn-query proof saves the native fake CLI log before decoding.
   Its display text joins MCP blocks, so correlate the original response by
   process/request id and parse only its primary JSON block; permit only the

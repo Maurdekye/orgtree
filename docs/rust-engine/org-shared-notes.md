@@ -26,9 +26,12 @@ agent's folder. The folder holds nothing else of the org: `org.md` and the works
 (`workspaces\<slug>`) stay out of reach, and so do the other agents' folders beside it.
 
 The engine creates the folder when the org opens (`orgs::open`: at engine start for every
-active org, and when an org is created) and again before it starts a CLI (`ensure_proc`). It
-never creates, edits or deletes anything inside it: the first agent to write `AGENTS.md`
-creates it, and every other file there is the agents'. Deleting an org moves the folder to the
+active org, and when an org is created) and again before it starts a CLI (`ensure_proc`).
+Under the later initialization rule (user 2026-10-17 17:26Z), `shared_notes::ensure`
+exclusively creates a missing `AGENTS.md` with exactly
+`# Shared standing notes for this organization\n`. Existing files, even empty
+ones, are never overwritten; other files remain the agents'. This replaces the
+earlier no-engine-created-file rule. Deleting an org moves the folder to the
 trash with the rest of its scratch folder.
 
 ## Who holds it
@@ -95,7 +98,8 @@ turn never reads.
 
 ## Concurrent edits
 
-Ordinary file semantics. Orgtree never writes the file, so it never loses an agent's edit.
+Ordinary file semantics. Orgtree initializes a missing file only, never overwriting
+an existing file or an agent's edit.
 Claude Code's Edit refuses a file changed since it was read, and Codex's patches fail on
 changed context. The prompt tells agents to re-read the file right before editing and never
 to write their session-start copy back over it.
@@ -127,6 +131,14 @@ to write their session-start copy back over it.
   lanes are inferred from the source.
 
 ## Verification (2026-10-13, on `rust-engine` `fa3a5f3`)
+
+The later `org-shared-notes.mjs` initialization checks follow the signed
+header-only rule and verify that shared-folder access preserves both existing
+empty files and agent-written content. The 16 historical check names remain for
+baseline comparison, including the two names that still say empty/no file;
+their predicates now require the exact header. All other warm-CLI, prompt,
+read-only, harness and cross-org controls remain unchanged, and their reproduced
+baseline failures remain failures. [verified: 2026-10-22]
 
 Measured in an isolated rig (scratch data root and cluster, fake home); no live data, provider
 or account was involved. Engine binaries were built here: `fa3a5f3` (before) and the change

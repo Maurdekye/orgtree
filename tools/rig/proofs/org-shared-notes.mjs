@@ -5,7 +5,7 @@
 // docket org-wide-shared-scratch-folder-any-agent-reads-w, user 2026-10-14
 // 13:25Z: the folder is the org's shared scratch space for any file).
 //   a new org has its _shared folder as soon as it exists, before any launch.
-//   nia (Claude): the folder holds no file until an agent writes one; her CLI
+//   nia (Claude): the folder starts with header-only AGENTS.md; her CLI
 //     holds it read-write (--add-dir, no deny rule) and her prompt names it as
 //     the org's shared scratch folder with its AGENTS.md, apart from her
 //     granted folders. An edit of the
@@ -34,6 +34,7 @@ const norm = p => String(p ?? '').replace(/\//g, '\\').replace(/^\\\\\?\\/, '').
 const has = (text, part) => String(text ?? '').toLowerCase().includes(String(part).toLowerCase())
 const read = f => { try { return fs.readFileSync(f, 'utf8') } catch { return null } }
 const alive = pid => { try { process.kill(pid, 0); return true } catch { return false } }
+const INITIAL_NOTES = '# Shared standing notes for this organization\n'
 
 export default async function (rig) {
   const p = new Proof('org-shared-notes')
@@ -42,9 +43,13 @@ export default async function (rig) {
   const ORG = rig.org
   const other = (await rig.api('POST', '/api/orgs', { name: 'Other Org', dirs: [], net_autoconnect: false })).slug
   const freshDir = path.join(rig.data, 'scratch', other, '_shared')
+  const freshFile = path.join(freshDir, 'AGENTS.md')
+  // Keep the historical names for exact baseline comparison. These two
+  // predicates now follow the signed 2026-10-17 header-only initialization.
   p.check('0 a new org has its empty _shared folder as soon as it exists, before any agent launches',
-    fs.existsSync(freshDir) && fs.statSync(freshDir).isDirectory() && fs.readdirSync(freshDir).length === 0,
-    { dir: freshDir, exists: fs.existsSync(freshDir) })
+    fs.existsSync(freshDir) && fs.statSync(freshDir).isDirectory()
+      && fs.readdirSync(freshDir).length === 1 && read(freshFile) === INITIAL_NOTES,
+    { dir: freshDir, exists: fs.existsSync(freshDir), expected: INITIAL_NOTES, actual: read(freshFile) })
   const scratch = (org, name) => path.join(rig.data, 'scratch', org, name)
   const notesDir = org => path.join(rig.data, 'scratch', org, '_shared')
   const notesFile = org => path.join(notesDir(org), 'AGENTS.md')
@@ -74,14 +79,25 @@ export default async function (rig) {
   const brief = f => f && { readiness: f.readiness, cause: f.readiness_cause, changed: f.changed_inputs }
   const hire = (name, extra = {}, org = ORG) => rig.op({ op: 'hire', name, tier: 'haiku', title: 'shared notes proof', ...(org === ORG ? { parent: 'boss' } : {}), ...extra }, { org })
 
-  // ------------------------------------------------- A: before the file exists
+  // ------------------------------------------------- A: initialized header and existing-note preservation
+  const initialNotes = read(FILE)
+  // Exercise the real initializer on this isolated org before its first agent.
+  // Do not remove a file or manufacture an empty-directory expectation.
+  const preserved = []
+  for (const text of ['', '# Existing shared notes\n\n- Preserve this agent edit.\n']) {
+    fs.writeFileSync(freshFile, text)
+    await rig.api('GET', `/api/orgs/${other}/nodes/_shared/scratch-folder?scope=shared`)
+    preserved.push({ expected: text, actual: read(freshFile) })
+  }
   await hire('nia')
   await turn('nia', 'PROOF-A: hello nia.')
   const a = starts('nia').at(-1)
   const promptA = prompt('nia')
   p.check('A nia: the org\'s _shared folder exists and holds no file (the engine never writes into it)',
-    fs.existsSync(notesDir(ORG)) && fs.statSync(notesDir(ORG)).isDirectory() && fs.readdirSync(notesDir(ORG)).length === 0,
-    { dir: notesDir(ORG), exists: fs.existsSync(notesDir(ORG)), entries: fs.existsSync(notesDir(ORG)) ? fs.readdirSync(notesDir(ORG)) : null })
+    fs.existsSync(notesDir(ORG)) && fs.statSync(notesDir(ORG)).isDirectory()
+      && fs.readdirSync(notesDir(ORG)).length === 1 && initialNotes === INITIAL_NOTES && read(FILE) === INITIAL_NOTES
+      && preserved.every(row => row.actual === row.expected),
+    { dir: notesDir(ORG), exists: fs.existsSync(notesDir(ORG)), expected: INITIAL_NOTES, initialNotes, actual: read(FILE), preserved })
   p.check('A nia: her CLI holds the folder (--add-dir) with no Edit/Write deny rule, read-write',
     holds(a, ORG) && !deny('nia').some(d => has(d, '_shared')), { add_dirs: a?.add_dirs, deny: deny('nia') })
   p.check('A nia: her prompt names the shared folder, its AGENTS.md and her right to write any file there, apart from her granted folders, and carries no copy while there is no file',
