@@ -33,6 +33,7 @@ registerHooks({
 const { OrgPlacement, orgOfKey } = await import('../apps/desktop/main/org-placement.ts')
 const { planRestore } = await import('../apps/desktop/main/org-windows.ts')
 const { performClose } = await import('../apps/desktop/main/window-close.ts')
+const { taskbarTarget } = await import('../apps/desktop/main/jumplist.ts')
 const main = fs.readFileSync(path.join(root, 'apps/desktop/main/index.ts'), 'utf8').replaceAll('\r\n', '\n')
 const section = (start, end) => {
   const a = main.indexOf(start), b = main.indexOf(end, a)
@@ -43,6 +44,7 @@ const quitCode = section("  app.on('before-quit', event => {", '  app.whenReady(
 const installerCode = section('  const requestInstallerUpgradeShutdown = async () => {', '  const quitAfterLastView = ')
 const closeCode = section("        window.on('close', event => {", '        // ⚠ THE WINDOW IS RECOVERED')
 const startupCode = section('      const openStartupWindows = async ', '      engineReady = true')
+const taskbarQueueCode = section('  const initialTaskbar = ', '  const taskbarIcons = ')
 const revealCode = section("      if (!process.argv.includes('--background'))", '      // Not awaited:')
 const signalCode = section("  for (const signal of ['SIGHUP'", '  /** ⚠ A GRACEFUL QUIT OWES')
 const engineRestartCode = section('  const restartEngine = async () => {', '  let trayHarnesses:')
@@ -86,6 +88,9 @@ async function fixture() {
     QUIT_STOP_BUDGET_MS: 1, QUIT_ENGINE_TOTAL_MS: 1, INSTALLER_UPGRADE_STOP_BUDGET_MS: 1,
     credentialBridge: { async release() {} }, tray: { destroy() {} }, closeTrayPopup() {},
     cancelProviderLogin() {}, windowEvents: { record() {} }, windowFacts() {},
+    // No renderer read work runs here: model its close gate already drained.
+    // Pending/rejected drains have their own mailleave-native tests.
+    drainReads: () => false,
     clearInterval() {}, dialog: { async showMessageBox() { return { response: 0 } } }, CREATION_DISCARD_DIALOG: {},
     process: { argv: [], on: (name, fn) => signals.set(name, fn) },
     savePlacement: record => placement.captureWindow(record.placementKey, record.window),
@@ -122,7 +127,8 @@ async function fixture() {
 }
 async function startup(file, { background = false, mode = 'restore', unavailableOrg } = {}) {
   const placement = new OrgPlacement(file), records = new Map()
-  const context = vm.createContext({ console, placement, records, planRestore, orgOfKey,
+  const context = vm.createContext({ console, placement, records, planRestore, orgOfKey, taskbarTarget,
+    quitting: false, installerUpgradeShutdown: false,
     preferences: { get: () => ({ startupMode: mode }) }, process: { argv: background ? ['--background'] : [] },
     sendTo() {}, async openWindow({ kind, org }) {
       const key = org ? `org:${org}` : 'homepage'
@@ -133,6 +139,9 @@ async function startup(file, { background = false, mode = 'restore', unavailable
       return record
     }, revealWindow: record => { record.window.visible = true },
   })
+  // Use the real queue initialization and drain, even for ordinary launches
+  // with no taskbar request, rather than omitting their enclosing bindings.
+  run(context, taskbarQueueCode)
   await run(context, `(async () => { ${startupCode} ${revealCode} })()`)
   return { placement, records, visible: [...records.values()].filter(record => record.window.isVisible()) }
 }

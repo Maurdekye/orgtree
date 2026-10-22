@@ -53,6 +53,13 @@ revisions. There was no new adjacent failure; the full adjacent run is not
 claimed all-green. Initial dependency/resolver failures were preserved and
 excluded from the final native execution evidence.
 
+The 4.4 startup fixture also initializes the production taskbar queue and
+drain used by the extracted startup callback. Its close-policy host models
+renderer read draining as already complete; pending/rejected read drains
+are covered separately by `mailleave-native.test.ts`. These fixture inputs
+preserve all reopen, visibility, placement and quit assertions, without
+starting Electron or changing product startup behavior.
+
 The route suite does not start Electron, an installer, an engine or a
 provider. Actual installed Electron/NSIS/Windows event order, interactive
 focus and on-screen geometry remain unmeasured. The updater case exercises
