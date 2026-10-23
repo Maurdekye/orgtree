@@ -601,7 +601,7 @@ The mail hub, org connections, Hubchat and the phone link.
 |---|---|---|---|---|---|
 | `mailhub-hosting` | setting | `hub:name`, `hub:max_attachment_bytes`, `hub:port`, `hub:bind`, `hub:retention_days`, `hub:public_listener` | App settings > Mail hub: hosting, retention and the relay-only door. Must cover: each field and default; save behavior. | `apps/desktop/renderer/src/canvas/hosthub.tsx:130-191` | org-connections, tool-transfers |
 | `org-connections` | setting | `org:net_autoconnect`, `org:net_hubs` | Org settings > Connections: the org's mail identity, hub connections and adding a hub. Must cover: identity and secret; adding a hub. | `apps/desktop/renderer/src/canvas/connections.tsx:103-160` | external-mail, tool-list-orgs |
-| `phone-link` | setting | `hub:keep_awake`, `screen:phone-panel` | Connecting a phone: the phone panel, its setup steps and keep-awake. Must cover: steps; authority note it adds to org.md. | `apps/desktop/renderer/src/canvas/phonelink.tsx:184-317` | external-mail, hubchat |
+| `phone-link` | setting | `screen:phone-panel` | Connecting a phone: the phone panel, its setup steps and link lifecycle. Must cover: steps; authority note it adds to org.md. | `apps/desktop/renderer/src/canvas/phonelink.tsx:184-317` | external-mail, hubchat |
 | `hubchat` | concept | `surface:hubchat` | Hubchat, the human chat client for people and orgs on a mail hub (used from a phone or browser). Must cover: what the user sees and can do; how it maps to org mail and @net: addresses. | `docs/team-setup.md`<br>`docs/rust-engine/mailhub-v2-hosting.md` | phone-link |
 
 ### Category `orgtree-workflows` — `docs/skills/orgtree-workflows/SKILL.md`

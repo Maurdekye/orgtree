@@ -108,7 +108,7 @@ If you already use desktop Hubchat, carry that existing identity to the phone wi
 
 Linking writes the exact trusted-address note into the selected org's charter and reconfigures agents for later turns. **Unlink** removes the generated authority notes and saved phone link. It does not disable the relay, delete mail, delete the Hubchat identity or unlink every device. If removal of a note fails, repair the reported problem before assuming the delegation ended.
 
-The PC/hub and network must remain reachable. The panel stores a **Keep this PC awake while plugged in** preference, but its actual sleep-prevention effect is not verified in this release. Use Windows power settings and real reachability checks rather than relying on that checkbox. Tailscale sign-out behavior, key expiry and Android battery restrictions can also affect access.
+The PC/hub and network must remain reachable. Use your computer's power settings and real reachability checks when diagnosing sleep-related loss of access. Tailscale sign-out behavior, key expiry and Android battery restrictions can also affect access.
 
 ## Choose a hosting arrangement
 

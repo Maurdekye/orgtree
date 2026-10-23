@@ -40,7 +40,6 @@
 .phone-n { font-size: 11px; color: var(--accent, #b89474); margin-bottom: 6px; }
 .phone-done { display: flex; gap: 8px; align-items: baseline; font-size: 13px; line-height: 1.45; margin-bottom: 10px; }
 .phone-tick { color: var(--ok, #7c7); width: 16px; flex: none; }
-.phone-cbx { display: flex; gap: 8px; align-items: center; font-size: 13px; margin-top: 10px; cursor: pointer; }
 .phone-warn { font-size: 12px; line-height: 1.4; color: var(--warn, #e0b050); margin: 6px 0; }
 .phone-linked { font-size: 13px; line-height: 1.45; padding: 12px; border: 1px solid var(--ok, #7c7); border-radius: 8px; margin-bottom: 10px; }
 .phone-needs p { margin: 0 0 8px; font-size: 13px; }

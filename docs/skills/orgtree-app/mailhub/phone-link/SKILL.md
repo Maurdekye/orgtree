@@ -1,6 +1,6 @@
 ---
 name: orgtree-phone-link
-description: "Explain the phone-link panel, setup codes, stored keep-awake preference and link lifecycle."
+description: "Explain the phone-link panel, setup codes, availability warnings and link lifecycle."
 ---
 
 Up: [orgtree-mailhub](../SKILL.md)
@@ -36,9 +36,9 @@ To add another device for the same identity, use Hubchat's **Settings > Devices 
 
 **Undo** after a new link and **Unlink** remove the generated authority notes from org charters and clear the saved link. If a note cannot be removed, the error is reported and the link record is kept. Do not describe Unlink as disabling the relay, deleting Hubchat's identity, deleting mail, or disconnecting all devices; these are separate operations. A malformed marked note can require human repair in the charter.
 
-## Availability and keep-awake limits
+## Availability
 
-**Keep this PC awake while it’s plugged in** stores `keep_awake` in `phone.json`, default true. The checked source persists and displays the preference, but no sleep-inhibition consumer was found. Its actual power-management effect is unverified; do not promise the PC will stay awake because it is checked. Use actual machine power settings and reachability when diagnosing sleep-related loss of access.
+The PC/hub and network must remain reachable. Use the computer's own power settings and reachability checks when diagnosing sleep-related loss of access.
 
 The panel can warn about a sleep timeout, Tailscale key expiry, or Tailscale stopping on Windows sign-out, with appropriate help links. The Android instructions recommend Always-on VPN and unrestricted battery use for Tailscale. Network access still depends on the PC/hub and the chosen network remaining available.
 

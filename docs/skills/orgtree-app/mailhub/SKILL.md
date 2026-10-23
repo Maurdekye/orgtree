@@ -19,6 +19,6 @@ Choose the child page for the task; tool pages hold call mechanics, workflow pag
 
 - [orgtree-mailhub-hosting](mailhub-hosting/SKILL.md): App settings > Mail hub: hosting, retention and the relay-only door.
 - [orgtree-org-connections](org-connections/SKILL.md): Org settings > Connections: the org's mail identity, hub connections and adding a hub.
-- [orgtree-phone-link](phone-link/SKILL.md): Connecting a phone: the phone panel, its setup steps and keep-awake.
+- [orgtree-phone-link](phone-link/SKILL.md): Connecting a phone: the phone panel, its setup steps and link lifecycle.
 
 For agent tools and workflows, use `orgtree-working`; cross-category references name the skill and breadcrumb rather than linking outside this bundle.

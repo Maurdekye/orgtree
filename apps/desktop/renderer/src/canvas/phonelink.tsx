@@ -37,7 +37,6 @@ export interface PhoneState {
   access: { state: 'A0' | 'A1' | 'A2'; scope: 'tailnet' | 'lan' | 'all'; port: number; door?: string | null; door_waiting?: boolean
     firewall?: string | null; firewall_wanted?: string }
   hub: { running: boolean; healthy: boolean; error?: string | null }
-  keep_awake: boolean
   card: { show: boolean; dismissed: boolean; org: string | null }
   warnings: { sleep_minutes?: number | null; key_expiry?: string | null; unattended?: boolean | null }
   hubchat_pc: boolean
@@ -286,10 +285,9 @@ export function PhonePanel({ org: opened, onClose }: { org: string | null; onClo
       const r = await bridge.addPhoneFirewallRule(scope)
       if (!r.ok) { setNote(r.error); return }
     }
-    setState(await post<PhoneState>('/api/desktop/phone/access', { scope, keep_awake: state?.keep_awake ?? true }))
+    setState(await post<PhoneState>('/api/desktop/phone/access', { scope }))
     await reload()
   })
-  const setKeepAwake = (k: boolean) => act(async () => { setState(await post<PhoneState>('/api/desktop/phone/settings', { keep_awake: k })); await reload() })
   const unlink = () => act(async () => { await post('/api/desktop/phone/unlink'); setJustLinked(false); setNotYou([]); await reload() })
   const isMe = (address: string) => act(async () => { await post('/api/desktop/phone/link', { org, address }); await reload() })
   const newCode = () => act(async () => { await post('/api/desktop/phone/code', { org }); await reload() })
@@ -318,8 +316,6 @@ export function PhonePanel({ org: opened, onClose }: { org: string | null; onClo
         <p>{wifi
           ? <><b>Let your phone reach this PC.</b> Anyone on your Wi-Fi can reach the hub’s door: they can sign up and message your organizations, but can’t read anyone else’s mail. Windows asks for permission once.</>
           : <><b>Let your phone reach this PC.</b> Only devices on your Tailscale network can connect. Windows asks for permission once.</>}</p>
-        <label className="phone-cbx"><input type="checkbox" checked={state.keep_awake} disabled={busy}
-          onChange={e => { void setKeepAwake(e.target.checked) }} />Keep this PC awake while it’s plugged in</label>
         <div className="phone-acts"><button type="button" className="primary" disabled={busy} onClick={() => { void turnOn(wifi ? 'lan' : 'tailnet') }}>Turn on phone access</button></div></div>)
       else if (access.state === 'A2') left.push(<Ok key="a">Phone access is on, for every network this PC is on.{' '}
         <button type="button" className="linkish" disabled={busy || ts.state !== 'T2'} onClick={() => { void turnOn('tailnet') }}>Limit it to Tailscale</button></Ok>)
@@ -327,9 +323,8 @@ export function PhonePanel({ org: opened, onClose }: { org: string | null; onClo
     } else left.push(<div key="a" className="phone-done dim"><span className="phone-tick" />2 · Phone access (after step 1)</div>)
     if (step1done && access.state !== 'A0') {
       const w = state.warnings
-      if (!state.keep_awake && w.sleep_minutes && state.link) left.push(<div key="ws" className="phone-warn">
-        This PC goes to sleep after {w.sleep_minutes} minutes, and your phone can’t reach it then.{' '}
-        <button type="button" className="linkish" onClick={() => { void setKeepAwake(true) }}>Keep awake while plugged in</button></div>)
+      if (w.sleep_minutes && state.link) left.push(<div key="ws" className="phone-warn">
+        This PC goes to sleep after {w.sleep_minutes} minutes, and your phone can’t reach it then.</div>)
       if (!wifi && w.key_expiry) left.push(<div key="wk" className="phone-warn">
         Tailscale will sign this PC out on {fmtDay(w.key_expiry)}.{' '}
         <button type="button" className="linkish" onClick={() => openExternal(KEY_EXPIRY_HELP)}>Turn off key expiry ↗</button></div>)

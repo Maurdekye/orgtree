@@ -7233,10 +7233,9 @@
    "kind": "setting",
    "registered": false,
    "covers": [
-    "hub:keep_awake",
     "screen:phone-panel"
    ],
-   "purpose": "Connecting a phone: the phone panel, its setup steps and keep-awake.",
+   "purpose": "Connecting a phone: the phone panel, its setup steps and link lifecycle.",
    "must_cover": [
     "steps",
     "authority note it adds to org.md"
@@ -7253,15 +7252,7 @@
    "components": [
     "apps/desktop/renderer/src/canvas/phonelink.tsx#PhonePanel"
    ],
-   "key_sources": [
-    {
-     "key": "hub:keep_awake",
-     "file": "apps/desktop/renderer/src/canvas/phonelink.tsx",
-     "needles": [
-      "keep_awake"
-     ]
-    }
-   ]
+   "key_sources": []
   },
   {
    "path": "orgtree-app/mailhub/hubchat",

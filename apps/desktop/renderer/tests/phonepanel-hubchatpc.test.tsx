@@ -23,7 +23,6 @@ const state = {
   access: { state: 'A1', scope: 'tailnet', port: 7371, door: '100.64.0.2', door_waiting: false,
     firewall: '100.64.0.0/10,fd7a:115c:a1e0::/48', firewall_wanted: '100.64.0.0/10,fd7a:115c:a1e0::/48' },
   hub: { running: true, healthy: true, error: null },
-  keep_awake: true,
   card: { show: false, dismissed: false, org: 'acme' },
   warnings: {},
   hubchat_pc: true,
@@ -64,4 +63,41 @@ test('phone setup modal dismisses with Escape and has no dedicated close button'
   })
   assert.equal(closed, 1, 'Escape dismisses the phone setup modal')
   await view.unmount()
+})
+
+test('phone access has no power-preference checkbox even with a legacy field', async t => {
+  g.fetch = () => Promise.resolve(new Response(JSON.stringify({...state,keep_awake:true,
+    access:{...state.access,state:'A0'}}),{status:200}))
+  const view=await mountView(<PhonePanel org="acme" onClose={()=>{}}/>,el=>el)
+  t.after(()=>view.unmount())
+  await inAct(async()=>{await flush(5)})
+  assert.ok([...view.el.querySelectorAll('button')].some(b=>b.textContent==='Turn on phone access'))
+  assert.equal(!!view.el.querySelector('.phone-cbx'),false,'retired checkbox is not offered')
+  assert.doesNotMatch(view.el.textContent??'',/keep.*awake/i)
+})
+
+test('linked phone still shows a sleep warning without a removed settings action', async t => {
+  g.fetch = () => Promise.resolve(new Response(JSON.stringify({...state,keep_awake:true,
+    link:{org:'acme',address:'person.example',name:'Person',at:'',via:'code'},
+    warnings:{sleep_minutes:5}}),{status:200}))
+  const view=await mountView(<PhonePanel org="acme" onClose={()=>{}}/>,el=>el)
+  t.after(()=>view.unmount())
+  await inAct(async()=>{await flush(5)})
+  assert.match(view.el.textContent??'',/goes to sleep after 5 minutes/)
+  assert.doesNotMatch(view.el.textContent??'',/keep.*awake/i)
+})
+
+test('turning on phone access submits only its network scope', async t => {
+  const calls:{url:string;body:unknown}[]=[]
+  g.fetch=(url:string,init?:RequestInit)=>{
+    if(init?.method==='POST')calls.push({url:String(url),body:JSON.parse(String(init.body))})
+    return Promise.resolve(new Response(JSON.stringify({...state,access:{...state.access,state:'A0'}}),{status:200}))
+  }
+  const view=await mountView(<PhonePanel org="acme" onClose={()=>{}}/>,el=>el)
+  t.after(()=>view.unmount())
+  await inAct(async()=>{await flush(5)})
+  const button=[...view.el.querySelectorAll('button')].find(b=>b.textContent==='Turn on phone access')
+  assert.ok(button)
+  await inAct(async()=>{button.click();await flush(5)})
+  assert.deepEqual(calls,[{url:'/api/desktop/phone/access',body:{scope:'tailnet'}}])
 })
