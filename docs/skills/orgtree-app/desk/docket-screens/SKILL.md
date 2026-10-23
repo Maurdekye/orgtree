@@ -8,6 +8,12 @@ Up: [orgtree-desk](../SKILL.md)
 
 The Work docket is the org work list. An agent Docket tab/modal narrows it to that agent's associated items; Team docket is opened from an agent's context menu and narrows by ownership in that agent's visible subtree. Team membership can require checking retained owners, so “checking membership” is not an empty result.
 
+## Opening priority and remembered selection
+
+A fresh opening selects the topmost ticket with a manual attention flag, or the oldest unread/changed presentation by its current update/creation time. Otherwise it restores the last viewed eligible item for that organization and collection scope (org, node/project or team), then the topmost row, or nothing for an empty list. Closed tickets and dismissed documents do not win the remembered-item preference. The preference survives close/reopen and restart, respects current filters, and does not mark a document viewed on an agent's behalf.
+
+This applies to the top-bar buttons, agent/project Open submenus including team views, and entering a desk's Docket/Presented tab. Leaving a desk tab and returning is a fresh opening. Explicit item/document links keep their target. Bringing forward, resizing, pinning, popping out or restoring an already-open reader keeps its current selection, including a deliberate empty pane. Polls never replace a choice.
+
 ## Find work
 
 Search matches ticket text. View options expose Arrange (No group, Group by status, Group by agent) and Sort (Last updated, Newest first, Status changed). Initial defaults are no grouping and last-updated order; these display choices are stored locally, not as item state. Archived and backlog are separate inclusion controls. Load more expands a bounded result window.

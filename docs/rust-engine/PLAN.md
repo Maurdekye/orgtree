@@ -348,9 +348,9 @@ Preset introductions describe selection/capabilities without manual-copy
 instructions; whole-file insertion and local override behavior stay intact.
 See [charters](../skills/orgtree-working/team/charters/SKILL.md).
 
-Docket opening (user 2026-10-21 16:50:46Z): every org, agent, team and project
-docket surface selects the first shown ticket on open/initial load, unless a
-specific ticket link supplies the target. This replaces the org-only active-row
+Docket/Presentation opening (user 2026-10-23, 4.4.4; replaces 2026-10-21): every org, agent, team and project
+docket selects topmost manual attention, then remembered eligible item, then first shown; presentations choose oldest unread/changed before their scoped last view. A
+specific ticket/document link supplies the target. Continued readers retain selection; tab return is fresh. This replaces the org-only active-row
 default. Explicit selections/clears and later polls do not re-arm opening;
 empty lists stay empty. See [docket behavior](../agents/docket-and-presentations.md).
 

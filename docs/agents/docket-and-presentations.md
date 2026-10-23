@@ -1,5 +1,24 @@
 # Docket and presentations
 
+## Opening priority (2026-10-23)
+
+A fresh opening selects the topmost ticket with a manual attention flag, or the oldest unread/changed presentation by its current update/creation time. Otherwise it restores the last viewed eligible item for that organization and collection scope (org, node/project or team), then the topmost row, or nothing for an empty list. Closed tickets and dismissed documents do not win the remembered-item preference. The preference survives close/reopen and restart, respects current filters, and does not mark a document viewed on an agent's behalf.
+
+This applies to the top-bar buttons, agent/project Open submenus including team views, and entering a desk's Docket/Presented tab. Leaving a desk tab and returning is a fresh opening. Explicit item/document links keep their target. Bringing forward, resizing, pinning, popping out or restoring an already-open reader keeps its current selection, including a deliberate empty pane. Polls never replace a choice.
+
+`readeropening.ts` stores identity-only local navigation under `orgtree.reader.last.v1:`
+plus a JSON scope tuple. Clearing a pane does not erase the last-viewed identity.
+Window/pin restore metadata additionally stores `selection` (empty string means
+deliberately empty); do not confuse continuation with a fresh generic opening.
+This is display/navigation behavior. Agents retain `orgtree_work get` and existing
+document reads; no new tool definition or user-viewed write is added for them.
+
+Presentation opening passes `previous` to the existing scoped opening lookup;
+unread still wins across unloaded history. Docket first pages may include at most
+two extra `opening_rows`: one manual flag and one named remembered row, under the
+same group/search/node filters. Normal page cursors stay unchanged; refresh only
+keeps the named row and never re-arms opening. No migration is required.
+
 ## Object actions belong to a composer (2026-10-22)
 
 Ticket/presentation Mention and Reply capture the nearest owning message box

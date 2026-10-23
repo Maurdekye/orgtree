@@ -84,6 +84,12 @@ Duplicate docket-list entries cannot be safely distinguished and are refused.
 Selected replies currently stay within the organization; outside mail retains
 its existing whole-message reply behavior.
 
+## Opening Work and Presentations
+
+A fresh opening selects the topmost ticket with a manual attention flag, or the oldest unread/changed presentation by its current update/creation time. Otherwise it restores the last viewed eligible item for that organization and collection scope (org, node/project or team), then the topmost row, or nothing for an empty list. Closed tickets and dismissed documents do not win the remembered-item preference. The preference survives close/reopen and restart, respects current filters, and does not mark a document viewed on an agent's behalf.
+
+This applies to the top-bar buttons, agent/project Open submenus including team views, and entering a desk's Docket/Presented tab. Leaving a desk tab and returning is a fresh opening. Explicit item/document links keep their target. Bringing forward, resizing, pinning, popping out or restoring an already-open reader keeps its current selection, including a deliberate empty pane. Polls never replace a choice.
+
 ## Use Mail and the user Inbox
 
 An agent's **Mail** tab is that agent's inbox and sent history. Your **Inbox** is your own received mail, questions and sent/record views. The **organization inbox** is outside correspondence. Reading one is not the same as becoming its owner or gaining a composer for all of its contacts.
@@ -141,7 +147,7 @@ An unarchived backlog item can offer **Staff…**. The action follows the app's 
 
 Ask for a **presentation** when you want a plan, report or other document to read. Open **Presentations** in the header, or **Presented** in a desk. Team presentations include documents below an agent or project. Use **Show retired** to include retained documents from retired presenters.
 
-Unread or changed documents have highlighted titles. Opening one marks it viewed **by you**; an agent reading it does not. A fresh reader normally selects the oldest unread/changed document, or the most recently created/changed one if all are read. Explicit document links take priority. Later refreshes do not continually replace your selection.
+Unread or changed documents have highlighted titles. Opening one marks it viewed **by you**; an agent reading it does not. A fresh reader normally selects the oldest unread/changed document, then the last viewed eligible document for this collection, then the topmost card if all are read. Explicit document links take priority. Later refreshes do not continually replace your selection.
 
 The reader supports Markdown and HTML previews, source identity, downloads and the reply/dismiss controls available to that surface. Multiple readers can coexist for different agent, project or team scopes. A document link raises a suitable existing reader when possible. Pin/pop-out changes where you read it, not its author or contents.
 

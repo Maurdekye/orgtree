@@ -31,6 +31,12 @@ Rig live-root guards retain import-time `APPDATA`/home/data-override paths after
 
 ## Engine and desktop invariants
 
+- Fresh Work/Presented openings use attention/unread, scoped last-viewed identity,
+  then topmost. Continued readers and explicit links preserve their targets.
+  See [opening rules](docs/agents/docket-and-presentations.md#opening-priority-2026-10-23).
+  [decided: user 2026-10-23; verified: `canvas/readeropening.ts`, `http/docs.rs`, `domain/docket.rs`]
+
+
 - Codex sealed reasoning keeps a thought placeholder, not ciphertext; agent
   transcript reads include bounded supplied thinking and sealed markers. Keep
   Codex tool chips visible in the ordinary row form. See [thinking history](docs/rust-engine/codex-thinking-history.md).

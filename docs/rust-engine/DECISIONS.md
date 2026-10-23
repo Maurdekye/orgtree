@@ -1987,3 +1987,9 @@ hire drafts. Save stages policy locally; Create applies it in the same transacti
 as the new project. The existing agent project-create settings object has the same
 policy semantics. Name and Summary remain creation fields; no later ancestor-policy
 authority is conferred by insertion. See [project nodes](PROJECT-NODES.md).
+
+**Reader opening priority, USER 2026-10-23 (4.4.4):**
+A fresh opening selects the topmost ticket with a manual attention flag, or the oldest unread/changed presentation by its current update/creation time. Otherwise it restores the last viewed eligible item for that organization and collection scope (org, node/project or team), then the topmost row, or nothing for an empty list. Closed tickets and dismissed documents do not win the remembered-item preference. The preference survives close/reopen and restart, respects current filters, and does not mark a document viewed on an agent's behalf.
+
+This applies to the top-bar buttons, agent/project Open submenus including team views, and entering a desk's Docket/Presented tab. Leaving a desk tab and returning is a fresh opening. Explicit item/document links keep their target. Bringing forward, resizing, pinning, popping out or restoring an already-open reader keeps its current selection, including a deliberate empty pane. Polls never replace a choice.
+Sources: md3fefbb66b7b, m2ff1ceebe0d0, m170087aca8f6, mcc0d73b33275. See [opening contract](../agents/docket-and-presentations.md#opening-priority-2026-10-23).
