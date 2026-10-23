@@ -2,11 +2,13 @@ const {app,BrowserWindow}=require('electron'),fs=require('node:fs'),path=require
 const out=process.env.PROJECT_DRAFT_OUT,deps='E:/Libraries/Desktop/orgtree/node_modules'
 assert(/^C:[\\/]orgtree-build[\\/]epic-combo-sol[\\/]project-draft-[a-z0-9-]+[\\/]capture$/i.test(out||''),'own output required')
 fs.mkdirSync(out,{recursive:true})
+try {
 const esbuild=require(path.join(deps,'esbuild'))
 esbuild.buildSync({entryPoints:['apps/desktop/renderer/tests/projectdraft-settings-visual.tsx'],bundle:true,format:'esm',platform:'browser',outfile:out+'/fixture.js',nodePaths:[deps],define:{'process.env.NODE_ENV':'"production"'}})
-esbuild.buildSync({stdin:{contents:'@import "./styles.css"; @import "./shell.css";',resolveDir:path.resolve('apps/desktop/renderer/src'),loader:'css'},bundle:true,outfile:out+'/fixture.css',loader:{'.woff2':'dataurl','.woff':'dataurl','.ttf':'dataurl','.svg':'dataurl','.png':'dataurl'}})
+esbuild.buildSync({stdin:{contents:'@import "./styles.css"; @import "./shell.css";',resolveDir:path.resolve('apps/desktop/renderer/src'),loader:'css'},bundle:true,nodePaths:[deps],outfile:out+'/fixture.css',loader:{'.woff2':'dataurl','.woff':'dataurl','.ttf':'dataurl','.svg':'dataurl','.png':'dataurl'}})
 fs.writeFileSync(out+'/fixture.html','<!doctype html><meta charset="utf-8"><link rel="stylesheet" href="fixture.css"><div id="root"></div><script type="module" src="fixture.js"></script>')
 for(const key of ['userData','sessionData','logs','crashDumps']){fs.mkdirSync(out+'/'+key,{recursive:true});app.setPath(key,out+'/'+key)}
+} catch(error) { console.error(error.stack||error); app.exit(1) }
 app.disableHardwareAcceleration()
 const settle='new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(()=>setTimeout(r,100))))'
 app.whenReady().then(async()=>{
