@@ -57,6 +57,8 @@ Folder and tool grants are bounded by the organization and the agent's superiors
 
 The harness and Windows session determine actual sandbox and approval enforcement. A writable folder alone does not enable a disabled edit tool, and a permission label does not establish identical protection across every harness. Compare routes in [Providers, models and tools](providers-and-tools.md).
 
+For **Muse with normal write access in Windows Session 0**, Orgtree disables Muse's OS sandbox. Native shell/file operations can exceed granted folders without an approval callback. A normal-write Muse CLI hosted in the signed-in session keeps the sandbox; read-only and Unrestricted have separate policies. Check actual CLI placement and the [Muse permission reference](skills/orgtree-app/harnesses/harness-muse/SKILL.md#tools-permissions-and-sandbox) when folder confinement matters.
+
 ### Visibility and tools
 
 **Visible agents** chooses Only this agent, Its team, Its team and all reports, or Everyone. Visibility controls what can be read. It does not grant management authority or permission to message everybody.

@@ -15,7 +15,7 @@ These terms distinguish the reporting chain from the physical tree:
 | **Superior** | Your nearest agent ancestor, skipping any intervening projects. If there is no agent above you, you are top-level and report to the user. A project is never an agent superior. |
 | **Report / subordinate** | An agent whose superior is you: your **direct report**. Projects between you and that agent are transparent. These three names mean the same relationship. |
 | **Descendant** | Any agent or project below a node, at any depth. A node is not its own descendant; its subtree includes itself and its descendants. |
-| **Sibling / peer** | A node sharing the same physical parent. For agent peer mail, these are agents under the same actual parent; top-level agents share the user root. Sharing a superior across different projects does not make agents physical peers. |
+| **Sibling / peer** | A node sharing the same physical parent. Agents placed directly under the user root are physical peers. Top-level agents inside projects retain their actual project parents; sharing a superior across different projects does not make them physical peers. |
 | **Parent / child** | The immediate physical placement in the tree. Either node may be a project. A physical child project is not a report. |
 
 Projects are transparent **for reporting**, not for physical placement. For example, with @lead → @project → @worker → @helper, @worker is a report/subordinate of @lead, and @helper is a report of @worker. All three lower nodes are descendants of @lead. @worker and an agent directly under @lead can share @lead as superior without being siblings.

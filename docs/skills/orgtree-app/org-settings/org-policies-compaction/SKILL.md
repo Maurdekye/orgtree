@@ -14,7 +14,7 @@ footer Save in [orgtree-org-basic](../org-basic/SKILL.md).
 | Control | Key | Default | Range/effect |
 | --- | --- | --- | --- |
 | reset a session before a known-cold turn | `org:auto_cheap_compact.enabled` | On for new orgs | Allows a fresh session with a summary before an eligible turn whose cache forecast is known cold. |
-| only above a context occupancy of | `org:auto_cheap_compact.occ` | 25% | Shown while enabled; UI 5–95%, step 5. Stored as fraction 0.05–0.95. The endpoint clamps numeric values to this interval, refuses a non-number, and refuses a non-boolean enabled value. |
+| at or above a context occupancy of | `org:auto_cheap_compact.occ` | 25% | Shown while enabled; UI 5–95%, step 5. Stored as fraction 0.05–0.95. The endpoint clamps numeric values to this interval, refuses a non-number, and refuses a non-boolean enabled value. |
 
 New organizations and fresh installations default to On at 25%. An explicitly
 saved app default still wins, and explicit template settings override it.
@@ -22,8 +22,8 @@ Existing organizations keep their previous effective policy: migration 0045
 pins previously unset org values, including trashed orgs, without writing an
 app default. Existing explicit On/Off choices are preserved.
 
-The runtime threshold comparison is **at or above**, despite the UI's "above"
-label. Reset also needs measured context usage and window size, an existing
+The threshold comparison is **at or above**. Reset also needs measured context
+usage and window size, an existing
 session, and a live eligible agent. An unknown cache forecast does not reset
 the session. Agent-level overrides merge key by key over the org policy;
 otherwise the effective org policy applies. A partial org save preserves the

@@ -19,7 +19,7 @@ Native switches are bash (shell), web (web capability), edit (file editing), and
 | messaging | message, send_notice, inbox, audience, transfers. |
 | inspection | chart, state_inspect, usage, list_tiers, list_orgs, read_transcript, read_scratch. |
 | watchdogs | watchdog. |
-| runtime | Interrupt another agent, halt, unhalt, unstick, continue_on, account_mark; optional usage refresh also needs runtime. |
+| runtime | Interrupt another agent, halt, unhalt, unstick, continue_on, account_mark; controlling a descendant's DnD with status also needs runtime, as do usage refresh and list_tiers refresh=true. Self status/DnD and ordinary cached tier reads retain their separate availability rules. |
 | user | ask, withdraw_ask, present, send_file, request_credits, request_scope. |
 | logo | org_logo: set/remove this organization's Logo, logged and undoable. |
 

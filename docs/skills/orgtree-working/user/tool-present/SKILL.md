@@ -18,7 +18,7 @@ Required tool group: `user`, through the ancestor chain. With `project=<P>`, an 
 | `title` | Required nonblank title. Trimmed, retained up to 120 characters. |
 | `body` | Markdown text, at most 64 KiB of UTF-8 bytes. Use exactly one of body or path. |
 | `path` | Existing `.md`/`.markdown`, or `.html`/`.htm`, instead of body. Relative paths start at your scratch folder; absolute paths still require authority. |
-| `replaces` | Optional existing presentation ID belonging to you in this org. Updates that card in place instead of creating another. Empty value behaves as omitted. |
+| `replaces` | Optional existing presentation ID in the same destination bucket: your own agent's gallery, or the selected project's gallery. Updates that card in place instead of creating another. Empty value behaves as omitted. |
 | `project` | Optional live project node name. The card goes under that project instead of beside your seat; you must be above or below it ([orgtree-projects](../../team/projects/SKILL.md)). Members, including nested descendants, need no user audience for this project; agents above it still need one. |
 
 Minimal call:
@@ -31,7 +31,7 @@ For a Markdown file, the engine reads UTF-8 text and removes a leading UTF-8 BOM
 
 ## Snapshot and replacement
 
-The stored body is a snapshot. Editing the original file does not update the card. Preserve the returned document ID and use it as replaces when revising that document. Replacement updates title/body/format/time, recaptures any HTML resources, and clears dismissal. You cannot replace another agent's presentation by guessing its ID.
+The stored body is a snapshot. Editing the original file does not update the card. Preserve the returned document ID and use it as replaces when revising that document. Replacement updates title/body/format/time, recaptures any HTML resources, and clears dismissal. In your own gallery, the ID must belong to your agent. A project is a shared destination: any agent currently authorized to present into that project can replace an existing presentation in that project's bucket, including one originally presented by another agent. The project remains the displayed owner and the **presented by** attribution switches to the replacing agent. An ID from a different agent/project bucket is refused.
 
 Paths are canonicalized and checked inside your scratch or effectively held folders, with organization/ancestor scope clamps and your held organization/shared/team workspaces. Symlinks do not grant access outside those roots. An inaccessible/missing file refuses instead of presenting whatever a path happened to name.
 

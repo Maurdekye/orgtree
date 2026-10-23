@@ -46,7 +46,7 @@ The Keyboard shortcuts settings tab is a reference, not a key-rebinding editor. 
 | Docket | Enter opens the top search result; Esc clears the search or closes view options. Letters jump to an agent in the reply-recipient list; Space chooses a recipient. |
 | Canvas | Esc cancels an agent, pin or window drag, or cancels a drafted hire. Holding Shift while dragging places a pinned window without snapping. Enter hires a drafted agent; Shift+Enter adds a charter newline. |
 | Attention | Left/Right switches Canvas/Attention on the view switch. Up/Down/Home/End navigates the queue or agent list. Left/Right/Home/End on the divider resizes the split; Shift uses larger steps. |
-| Quick chat | Enter hires and sends; Shift+Enter inserts a newline. Up/Down/Enter chooses a superior in its list; Esc closes the picker. This hire composer has its own Enter behavior. |
+| Quick chat | Single-line input: Enter hires and sends; Shift+Enter does not submit or insert a newline. Up/Down/Enter chooses a superior in its list; Esc closes the picker. This hire composer has its own Enter behavior. |
 | Menus | Up/Down/Home/End moves through items; Right opens a submenu; Left/Esc backs out. Enter runs the item's own action rather than its submenu. Down opens the Orgtree menu button; Esc closes the tray popup. |
 | Logo crop | Arrows move the focused square or corner handle; Shift+Left/Up shrinks and Shift+Right/Down enlarges it. |
 | Settings tabs | Arrows/Home/End changes the active tab. |

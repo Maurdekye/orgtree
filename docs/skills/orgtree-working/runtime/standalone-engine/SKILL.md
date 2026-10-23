@@ -61,8 +61,12 @@ development checkout for those source and verification boundaries.
 
 ## User MCP endpoint
 
-Standalone exposes stateless Streamable HTTP MCP: one JSON-RPC message per
-POST and one JSON response. GET returns 405, rather than opening a stream.
+Standalone exposes stateless Streamable HTTP MCP. A POST accepts one JSON-RPC
+object or a batch processed sequentially. Requests with non-null IDs receive
+response objects; a batch returns those responses as an array. A POST with no
+ID-bearing requests returns HTTP 202 without a response body. Tool calls need
+request IDs: an idless tools/call does not execute an action. A batch is not one
+atomic transaction. GET returns 405, rather than opening a stream.
 The routes return 404 outside standalone mode and require the same token:
 
 | Endpoint | Served tools |

@@ -35,7 +35,7 @@ The model browser supplies search/filter and per-model offered/window controls. 
 
 Seat-price changes reprice existing seats as well as future hires and can hit credit constraints; inspect reported repricing failures. Removing a server leaves existing agents but their next turn cannot find that model. Address/key/model changes affect future launches and can break working routes; no whole-app restart/UAC is inherent.
 
-Minimum/default model context is 65,536; local output is capped at 8,192 by the launch. Agents-at-once is a hardware/server scheduling cap, not a subscription bar. Cache lifetime and provider quota remain unsupported; do not invent zero usage.
+Minimum/default model context is 65,536. Local Claude Code and OpenCode launches configure an 8,192-token generation-output ceiling. The Codex adapter supplies context and compaction configuration without the same generation-output cap; native CLI/server limits still apply and are not established as unlimited. A tool-output truncation limit is separate from generation tokens. Agents-at-once is a hardware/server scheduling cap, not a subscription bar. Cache lifetime and provider quota remain unsupported; do not invent zero usage.
 
 The llama.cpp preset notes a tested Responses implementation at b11540; older builds can lack required fields. Do not assume an arbitrary server version/API combination works because another harness does.
 

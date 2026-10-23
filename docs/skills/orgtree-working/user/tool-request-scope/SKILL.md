@@ -22,7 +22,7 @@ Required tool group: `user`, intersected through your ancestor chain. Agents wit
 | `mcp` | `server`: nonblank MCP server name. |
 | `permission_mode` | `mode`: plan, default, acceptEdits or bypassPermissions. No default; an unknown/blank mode refuses. |
 
-The valid group requests are `orgtree.docket`, `orgtree.team`, `orgtree.messaging`, `orgtree.inspection`, `orgtree.watchdogs`, `orgtree.runtime`, and `orgtree.user`. Request a group with `kind: "tool"`, not an individual `orgtree_*` tool name. A server request authorizes that MCP name; it does not install/configure a server or prove the harness can connect.
+The valid group requests are `orgtree.docket`, `orgtree.team`, `orgtree.messaging`, `orgtree.inspection`, `orgtree.watchdogs`, `orgtree.runtime`, `orgtree.user`, and `orgtree.logo`. Request a group with `kind: "tool"`, not an individual `orgtree_*` tool name. A server request authorizes that MCP name; it does not install/configure a server or prove the harness can connect.
 
 Minimal folder request using the actual needed absolute path:
 

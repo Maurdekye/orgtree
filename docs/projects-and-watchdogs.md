@@ -53,6 +53,8 @@ project's configured reminder budget and current custody.
 
 Project **Acknowledgement** settings include Ack timeout, Ack reminders, Max attempts and the mail-only turn-end reminder. With Runtime working checkups and timeout on, an inactive agent gets the configured reminder budget, then its job can return to the queue. These are eligibility-based checkups, not precise wall-clock deadlines. A turn-end reminder is a separate nudge after a consumed job and ordinary successful turn; it does not prove the task finished.
 
+Reporting Blocked, Idle or Done does not by itself suppress these resource-custody checkups: an agent still holding unacknowledged project mail or a slot lease can remain eligible under the checkup setting. Inspect the actual holdings and release/acknowledge completed work rather than treating a status label as a release.
+
 **Take back** reclaims an agent-held job after confirmation and prefers another listener for its next assignment. It tells the former holder to stop that assignment, but does not terminate its process or undo file writes. Coordinate work already in progress before another worker repeats it. Retries are not a promise of exactly-once external effects.
 
 After the attempt limit is exhausted on a qualifying reclaim, the job moves to **Dead letters**. Details shows its body and attempt history. **Retry** resets attempts and returns it to the queue; **Drop** closes it with a reason. Show dropped includes history, without making it runnable. Resolve the last open entry and the tab disappears. The normal dead-letter notification reaches the nearest live agent superior, or the user if none; it does not notify every member automatically.

@@ -10,6 +10,8 @@ Requires `team`. Use for a reporting-line change; use [reorder](../tool-reorder/
 
 Pass either `node` plus `new_parent`, or `moves`, an array of 1–20 `{node,new_parent}` objects. When moves is an array, the handler selects batch mode; do not mix the forms. Both source and destination names must resolve, the target parent must be live, and the source must be your descendant. The destination may be yourself or another descendant. You cannot move a seat beneath itself or its own subtree. `user`/top-level destinations are refused to agents, including top-level callers; self, peers and superiors are not movable targets.
 
+There is also a project-placement exception: you may move your own descendant into a live project that contains you, even though that project is above you. This does not permit moving yourself or grant authority to change the containing project's policy. The ordinary cycle, credit and batch checks still apply.
+
 An archived/unrecoverable descendant may be moved: it holds no live credits, so the move is free, and later rehire costs fall on the new superior. A live move transfers the subtree's existing seat-plus-grant stake along the old and new paths below their common ancestor. That ancestor's hold is unchanged; no new external budget appears. Batch credit checks judge the final net allocation and roll back every leg on refusal. Each leg must still form a valid tree in its application order.
 
 The moved seat appends to the new parent's live sibling order. Its descendants stay with it; inherited scope/team charters/workspace membership may change and affected launches are reconfigured at the next boundary. Configured broader scope does not defeat the new ancestor's effective ceiling.

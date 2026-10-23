@@ -18,7 +18,7 @@ Do not close a form assuming every visible edit was saved. A failed multi-part s
 
 **Display > Appearance** separates accent from contrast. Choose a provider-colored or custom accent, and a light/dark contrast scheme. Automatic appearance can follow an installed harness until you make an explicit choice. Agent color can follow the provider or the organization. These choices do not change an account, model or work state.
 
-The named presets are Claude Terracotta, Codex Teal, Antigravity Navy, Muse Eggshell, OpenRouter Lavender and LMS Gold, plus Custom. The former Orgtree Grey choice is retired: an explicitly saved old selection becomes **Custom #b6bdc8**, preserving its base RGB. An old unset/automatic preference keeps provider detection instead. No separate agent, organization or template theme field is introduced by that migration.
+The named presets are Claude Terracotta, Codex Teal, Antigravity Navy, Muse Eggshell, OpenRouter Lavender and LMS Gold, plus Custom. If Rainbow has already been revealed in this profile, choosing Custom also offers the saved **Rainbow** switch. It animates the accent; turning it off restores the static custom color. The former Orgtree Grey choice is retired: an explicitly saved old selection becomes **Custom #b6bdc8**, preserving its base RGB. An old unset/automatic preference keeps provider detection instead. No separate agent, organization or template theme field is introduced by that migration.
 
 **Canvas background** offers dots, grids, checkerboard, outlined tiles, None and Claude Waves, with an intensity saved per pattern. Lower intensity or None can make a busy canvas calmer. The animated background can pause or reduce work when hidden or under load.
 
@@ -74,13 +74,13 @@ Readings separated by 30 minutes or more connect as a step: the earlier value st
 | --- | --- |
 | Most agent turns running at once | Engine default 16; UI range 1–512. Lower for machine pressure. Raising it does not add credits or provider capacity. |
 | Keep agent processes warm | On. Keeps eligible idle harnesses ready, within memory and parked-process limits. Off cools idle processes without interrupting active turns. |
-| Check on working agents after 20 minutes | On. Eligibility-based checkups for working agents that have been inactive, not an exact alarm. |
+| Check on working agents after 20 minutes | On. Eligibility-based checkups for inactive working agents and agents still holding project mail/slot leases, not an exact alarm. |
 | Remind idle agents about unfinished docket items | On. Wakes for actionable owed work. |
 | Also remind when every ticket is blocked | Off. Adds blocked reminders under that condition; it does not detect an external dependency becoming ready. |
 | Wake an agent to listen for project mail | On. If a project receives mail without a queue listener, asks a direct member to arm one. Off leaves mail waiting. |
 | Wait until the MCP tool surface is ready | Off. Enables a supported startup readiness wait; it does not install/authenticate/grant a server. |
 
-Lowering concurrency leaves admitted turns running and queues new ones. Scheduling is first-come within an organization and round-robin across organizations. A model server can impose another capacity wait. Checkups defer for busy, halted, frozen or otherwise ineligible agents. Working checkups and docket reminders are independent; neither substitutes for a real message or event watcher.
+Lowering concurrency leaves admitted turns running and queues new ones. Scheduling is first-come within an organization and round-robin across organizations. A model server can impose another capacity wait. Checkups defer for busy, halted, frozen or otherwise ineligible agents. An agent holding unacknowledged project mail or a slot lease can receive a resource-custody checkup even after reporting Blocked, Idle or Done. Working checkups and docket reminders are independent; neither substitutes for a real message or event watcher.
 
 The feedback suggestion switch encourages agents to prepare redacted issue drafts when appropriate. It does not authorize posting without your explicit OK. The optional Antigravity Claude-model switch exposes eligible offers; it does not create quota or move existing native Claude seats.
 
@@ -88,13 +88,13 @@ The feedback suggestion switch encourages agents to prepare redacted issue draft
 
 **Turn time limits** distinguishes a total ceiling (built-in 24 hours) from a silence ceiling (built-in 10 minutes without a stream event). A row can be disabled or edited in minutes/hours. Zero disables the corresponding engine limit.
 
-Use actual evidence before increasing a silence allowance for a legitimate quiet operation. A changed limit can affect an already running turn at its next timer check, despite a next-turn hint in the UI. Raising a limit does not revive a turn already ended. Some Muse foreground-tool recovery differs, but the total ceiling still applies. See [Operating and troubleshooting](operating-orgtree.md).
+Use actual evidence before increasing a silence allowance for a legitimate quiet operation. Changes apply across organizations and can affect an already running turn at its next timer check. A harness may also retain a timeout supplied when its process launched. Raising a limit does not revive a turn already ended. Some Muse foreground-tool recovery differs, but the total ceiling still applies. See [Operating and troubleshooting](operating-orgtree.md).
 
 ## Set organization defaults deliberately
 
 **App settings > Default org settings** supplies defaults for future organizations. Explicit existing-org values remain; missing keys can still inherit effective defaults. For a current org, use its own settings.
 
-**Organization settings > Basic** contains the top-level grant cap, new-hire grant, context-compaction threshold, default effort, logo and org charter. Loaded effective values include saved overrides. Built-in defaults include a 1,000-credit top-level cap, 20-credit hire grant and 80% ordinary compaction threshold. Effort with no explicit effective choice currently resolves to high before harness mapping, despite the “CLI default” label.
+**Organization settings > Basic** contains the top-level grant cap, new-hire grant, context-compaction threshold, default effort, logo and org charter. Loaded effective values include saved overrides. Built-in defaults include a 1,000-credit top-level cap, 20-credit hire grant and 80% ordinary compaction threshold. An agent's own effort wins; otherwise it inherits the org setting for its next turn. **Default (high fallback)** uses high only when neither supplies a level, before harness/model mapping.
 
 The **Logo** picker accepts a static PNG/JPEG/WebP up to 5 MiB and 16 million pixels. Crop it, then use **Save logo**; logo saves/removal are independent of the footer. The org logo is also its Hubchat account picture.
 
@@ -135,7 +135,7 @@ The **Logo** picker accepts a static PNG/JPEG/WebP up to 5 MiB and 16 million pi
 | Alt+N | Toggle a passive notice in a desk composer. |
 | Alt+Up/Down | Previous/next mail; in focused Docket/Presentations, previous/next eligible rendered item. |
 
-Lists, menus, settings tabs, effort and grant controls support keyboard navigation. Question batches use Alt+Left/Right between questions; Alt+Up/Down adjusts a credit offer. Docket/Presentation navigation skips filtered/folded items and clamps at the ends. Draft replies, answers and child editors can block navigation to protect unfinished input. Quick chat uses Enter to hire/send and Shift+Enter for a newline.
+Lists, menus, settings tabs, effort and grant controls support keyboard navigation. Question batches use Alt+Left/Right between questions; Alt+Up/Down adjusts a credit offer. Docket/Presentation navigation skips filtered/folded items and clamps at the ends. Draft replies, answers and child editors can block navigation to protect unfinished input. Quick chat has a single-line field: Enter hires/sends; Shift+Enter does not submit or insert a newline.
 
 Shift+F4 includes seen entries and resets to the newest if a newer mention arrives. It opens the desk/mail/ticket reader and highlights the mention. If a ticket edit removed the original text, a labelled recorded excerpt remains available. No history shows **No @user mentions yet**; reaching the oldest shows **No older @user mentions**, keeping the current view in place. Holding the key does not keep stepping.
 

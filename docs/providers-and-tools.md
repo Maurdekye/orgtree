@@ -23,6 +23,8 @@ Orgtree does not include model access. Your provider's subscription, API charges
 
 **Installed**, **signed in**, **active**, **allowed by this org** and **able to run this model now** are separate checks. The provider Enabled switch is app-wide; an account's Active switch is another gate; Organization settings > Accounts is a third. Turning one on does not bypass the others. Existing agents can remain visible on a model that is no longer offered for a new hire.
 
+For older catalog choices, **App settings > Runtime > Show legacy models (Terra, Gemini Pro)** controls visibility in hire/model menus. It starts off and is saved in the local desktop/browser profile. It does not change existing agents or create access to a model your account cannot use.
+
 The default Codex row offers **Sign in / Sign in again**, opening Codex's browser authorization with its default profile. A managed account's Sign in targets that row's profile. Complete the authorization yourself; browser-only clients have no native login bridge. Some other harnesses open a terminal and ask you to finish login there: “terminal opened” is not verified sign-in. An unavailable authentication check is different from a confirmed signed-out result. Do not paste keys or verification codes into an agent conversation.
 
 **Providers > Refresh** immediately requests ordinary discovery/sign-in checking instead of only reading the periodic snapshot. One check runs at a time; overlapping requests and results completed within the last two seconds are shared. After a sign-in, verification checks that provider without probing unrelated providers. Discovery is separate from **Usage** account refresh and does not perform model inference, switch accounts or authorize the browser for you. An authorized agent can request the same discovery through its tier-list refresh, while browser sign-in remains a human action.
@@ -49,6 +51,8 @@ supplied thinking and sealed markers from every harness; those reads cap each
 row's thinking at 1,200 Unicode characters and report when it was shortened.
 
 Folder and approval enforcement also varies. Read the permission choices in [Managing agents](managing-agents.md#give-the-agent-the-right-access), and use a task with a narrow known scope when trying a new route. No comparison of features guarantees equal model quality, speed, tool obedience or operating-system isolation. The app's **Harnesses** tab lists detected versions and official installation links; installation/version updates are separate from adding a model.
+
+**Muse normal-write seats in Windows Session 0 disable Muse's operating-system sandbox.** Some native shell/file operations can then exceed folder grants without asking Orgtree for approval. A normal-write Muse CLI running in the signed-in session keeps its sandbox; the engine's session alone does not establish the CLI's actual placement. Read-only and Unrestricted use their own policies. See the [Muse permission reference](skills/orgtree-app/harnesses/harness-muse/SKILL.md#tools-permissions-and-sandbox) before relying on folder confinement.
 
 ## Manage multiple accounts
 
@@ -105,6 +109,10 @@ For **Custom…**, set **Base path** if needed: it is appended to Address. For a
 **Match the real context window.** Orgtree flags windows below **65,536 tokens**: its agent instructions and tool definitions need substantial space. Changing the number in Orgtree does not enlarge the server's window. Ollama can otherwise run a model with only 4K context and truncate longer prompts. Set its `num_ctx` or `OLLAMA_CONTEXT_LENGTH` to at least `65536`, or use **Create a 64K version of this model** when offered. That action adds a model entry with the same weights and its own context setting; it does not download new weights. Check the displayed window mismatch before hiring.
 
 To change a saved server's address, key, capacity or other settings, use its **edit** button, then **Save**; **Cancel** discards the draft. Model chips offer or withdraw models immediately, and **more** opens the larger browser. Withdrawing a model stops new hires on it while existing agents keep running. Turning a server off makes its agents wait; removing it leaves those agents needing a switch to another tier. Org account switches restrict only that org, and cannot turn on a server disabled app-wide. Language model server agents keep their server rather than automatically moving to another one.
+
+Changing **Seat price** also attempts to reprice existing agents using that server, across organizations. Each organization's update can succeed or fail separately under its credit constraints. Inspect any reported failures and the current grants before retrying; the saved server price does not prove every existing seat was repriced.
+
+Output settings depend on the harness. Orgtree configures an 8,192-token generation ceiling for local Claude Code and OpenCode launches. Its Codex route supplies context/compaction settings without that same configured generation-output ceiling; the server and native CLI may impose their own limits. This does not imply unlimited output.
 
 If setup fails, use the server card's **refresh** button to check its answer and reported windows. Check the address, actual listening port and API style; **401/403** indicates an API-key problem. An unavailable harness needs its CLI installed on the Orgtree machine. If a model is absent from hiring, check that it is offered, that both app switches are on, and that the org allows the server. A successful model-list query establishes discovery; try one small agent task to check the model's tool-call behavior. For slow Ollama model loading, its preset notes describe `OLLAMA_LOAD_TIMEOUT=30m` and checking the GPU backend in Ollama's own log.
 

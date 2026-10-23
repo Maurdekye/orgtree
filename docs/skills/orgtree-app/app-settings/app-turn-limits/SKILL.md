@@ -18,7 +18,7 @@ The switch enables/disables the row. The amount accepts a positive finite value 
 
 ## Timing and expiration
 
-The UI says limits apply from the next turn and a running turn keeps its limit. The current actor's watchdog instead reads the current app settings when calculating its deadline and checking an active turn. A changed limit can therefore affect an already running turn at its next timer check; do not promise the UI hint's snapshot semantics. A harness can also have a launch-time timeout: Antigravity receives the total timeout when its process starts. This source discrepancy is not a measured timing guarantee for every harness.
+The actor's watchdog reads the current app settings when calculating its deadline and checking an active turn. Changes apply across organizations and can affect an already running turn at its next timer check. A harness can also have a launch-time timeout: Antigravity receives the total timeout when its process starts. This is not an exact timing guarantee for every harness, and increasing a limit does not revive a turn that already ended.
 
 Expiration normally stops the agent process and ends the turn with the recorded silence/total-limit reason. The Muse foreground-tool exception stops eligible silent tool calls and lets the model continue; it does not cancel the total ceiling. Background work or an unresponsive already-stopped call can still result in ending the turn. See `orgtree-turns-and-wakes` (orgtree-working › runtime) for the runtime lifecycle.
 

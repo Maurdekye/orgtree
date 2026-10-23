@@ -25,11 +25,11 @@ that agent's Open submenu.
 | top-level grant cap | `org:max_top_grant` | 1,000 | Bounds increases to a top-level agent's grant. Lowering it preserves existing grants above the cap and returns a warning naming them. UI minimum 1, step 1; storage also supports 0 as uncapped, although this form omits a zero cap when saving. Negative values are ignored. |
 | default top-level grant | `org:default_top_grant` | 20 | Prefills a new top-level hire's grant. UI minimum 0, step 1. Changing it does not reallocate existing grants. Negative values are ignored. The UI fallback is 50 when the field is absent; that is not the engine default. |
 | compaction threshold | `org:compact_at` | 80% | UI 50–95%, step 1; the endpoint refuses percentages outside that range. Stored as a percentage and exposed to the renderer as a fraction. Claude Code receives the automatic-compaction percentage at process start; Codex receives the corresponding context token limit. A running process retains its launch threshold until replaced. Antigravity has no corresponding threshold setting. |
-| default thinking effort | `org:default_effort` | empty saved value | Agents without their own effort use the org default on subsequent turns. The menu offers CLI default (no flag), low, medium, high, xhigh and max. The engine accepts the catalog's additional none/minimal names as well; unknown names are refused. |
+| default thinking effort | `org:default_effort` | empty saved value | Agents without their own effort use the org default on subsequent turns. The menu offers Default (high fallback), low, medium, high, xhigh and max. The engine accepts the catalog's additional none/minimal names as well; unknown names are refused. |
 
-The empty effort option is labelled **CLI default (no flag)**, but the current
-engine's `effective_effort` resolves an empty level to **high** before launch.
-Treat the label as a UI/source discrepancy, not a promise to omit effort.
+The empty effort option is labelled **Default (high fallback)**. An agent's
+own effort wins, then the org's effective default; only when neither supplies
+a level does `effective_effort` fall back to **high** before launch.
 Each harness/model maps the effective level to its supported names; an
 agent's explicit level takes precedence. No rehire is needed. Do not promise
 an immediate mid-turn effort change from this org control.
