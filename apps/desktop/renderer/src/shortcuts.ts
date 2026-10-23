@@ -142,7 +142,7 @@ export function shortcutGroups(enter: EnterKeyBehavior = 'send'): ShortcutGroup[
         note: 'on the divider; hold Shift for bigger steps', sources: [R('attention/AttentionView.tsx')] },
     ] },
     { title: 'Quick chat', items: [
-      { keys: ['Enter'], action: 'Hire a new agent and send', note: 'Shift+Enter: new line',
+      { keys: ['Enter'], action: 'Hire a new agent and send', note: 'Single-line input; Shift+Enter does not submit',
         sources: [R('QuickChatBox.tsx')] },
       { keys: ['ArrowUp', 'ArrowDown', 'Enter'], action: 'Pick the superior', note: 'in the superior list',
         sources: [R('QuickChatBox.tsx')] },

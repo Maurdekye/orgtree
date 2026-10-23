@@ -61,8 +61,8 @@ export function DefaultsForm({ toast, onDone }: {
               onChange={(e) => set('compact_at', (+e.target.value || 80) / 100)} />
           </SetRow>
           <SetRow label="default thinking effort"
-            hint="agents without their own setting inherit this, live">
-            <EffortBar value={d.default_effort ?? ''} level="" inheritLabel="CLI default (no flag)"
+            hint="Agents without their own effort use the org default. If neither sets a level, high is the fallback before harness/model mapping.">
+            <EffortBar value={d.default_effort ?? ''} level="" inheritLabel="Default (high fallback)"
               onSet={(v) => set('default_effort', v)} />
           </SetRow>
         </SetGroup>

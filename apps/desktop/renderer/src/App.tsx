@@ -3354,12 +3354,12 @@ export function SettingsPanel({ tree, toast, close, initialTab, target }: {
               without their own effort follow this LIVE — changing it here
               reaches every unset agent's next turn, no rehire */}
           <SetRow label="default thinking effort"
-            hint={'agents without their own setting inherit this, live — '
-              + 'no rehire needed. Changing it restarts every agent that '
-              + 'inherits it.'}>
+            hint={'Agents without their own effort inherit this setting for their next turn; '
+              + 'no rehire is needed. If neither sets a level, high is the fallback '
+              + 'before harness/model mapping.'}>
             <select value={defEffort} aria-label="default thinking effort"
               onChange={(e) => setDefEffort(e.target.value)}>
-              <option value="">CLI default (no flag)</option>
+              <option value="">Default (high fallback)</option>
               <option value="low">low</option>
               <option value="medium">medium</option>
               <option value="high">high</option>
@@ -3456,7 +3456,7 @@ export function SettingsPanel({ tree, toast, close, initialTab, target }: {
                   + 'mismatch is cold immediately; unknown forecasts never '
                   + 'auto-compact.'} />
               {accOn && (
-                <SetRow label="only above a context occupancy of">
+                <SetRow label="at or above a context occupancy of">
                   <input type="number" min="5" max="95" step="5" value={accOcc}
                     aria-label="cheap compaction context occupancy percent"
                     onChange={(e) => setAccOcc(e.target.value)} />
