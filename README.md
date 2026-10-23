@@ -153,13 +153,6 @@ Select any image to see it full size.
 Create an organization, hire one agent and give it a small, concrete task.
 The [getting-started guide](docs/getting-started.md) covers installation, providers, model servers and your first organization.
 
-## Learn more
-
-- [Installation, providers and model servers](docs/getting-started.md).
-- [Shared memory, the glossary, developer teams and phone access](docs/collaborating.md).
-- [Updates, background operation, account fallback and privacy](docs/operating-orgtree.md).
-- [Development, packaging and contributions](docs/development.md).
-
 ## How Orgtree works
 
 A harness combines a language model with tools that can act on a task: read a repository, change files, run commands or investigate a question. Orgtree runs these harnesses, such as Claude Code and Codex, as agents: persistent members of your organization, each with its own conversation, mailbox and working folder. You choose the models and accounts, give each agent a role, and decide which folders and tools it can use.
@@ -171,6 +164,13 @@ The tree makes responsibility visible. An agent can manage a team within the cap
 This is meant for work that benefits from sustained investigation and several roles: developing and maintaining software, researching a subject, reviewing a body of material, or producing documents through several rounds of work. A developer might put implementation, tests and review with different agents; a researcher might divide sources and ask a coordinator to assemble the findings. Individuals and teams can use it, with Hubchat and a shared mail hub connecting people and organizations across machines.
 
 Orgtree is a power tool for people willing to direct and check that work. You still define the outcome, answer questions and judge the evidence. Begin with a small task and add coordination as the work needs it.
+
+## Learn more
+
+- [Installation, providers and model servers](docs/getting-started.md).
+- [Shared memory, the glossary, developer teams and phone access](docs/collaborating.md).
+- [Updates, background operation, account fallback and privacy](docs/operating-orgtree.md).
+- [Development, packaging and contributions](docs/development.md).
 
 ## License
 
