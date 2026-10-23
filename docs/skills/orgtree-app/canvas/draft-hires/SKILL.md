@@ -6,6 +6,15 @@ Up: [orgtree-canvas](../SKILL.md)
 
 # From a hire chip to a seat
 
+App settings > Display > Desk > **New hires go** chooses End (default), Start or
+Centre for ordinary agents and projects, including root creation and hires under
+projects. Centre inserts just after the middle of the live direct children,
+counting agents and projects, excluding retired nodes: A B [new] C for three;
+A B [new] C D for four. The draft previews that position in rows and circular
+arcs. Side/above tokens keep their placement. The compact hire sheet's ordinary
+report placement follows the same app preference; existing nodes do not move.
+See [Desk and chart display](../../app-settings/app-display-desk-and-chart/SKILL.md#new-hires-go).
+
 Hire chips open a draft at the chosen relationship: subordinate, coworker or inserted superior; the user root opens a top-level draft. The chip's cost is a seat reservation, not dollars or tokens. Provider rows retain their own groups; within each group hire tokens run from cheaper to more expensive seats with stable ties. Disabled choices explain an availability reason; expanding the strip only exposes choices, it does not hire anyone.
 
 Each round hire token shows the tier's letter. Its seat cost appears in the

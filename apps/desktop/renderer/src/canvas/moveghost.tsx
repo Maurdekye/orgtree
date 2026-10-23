@@ -1,4 +1,5 @@
 import type { TreePayload } from '../types'
+import type { NewHirePosition } from '../hireposition'
 import { withPendingOrder, type PendingOrder } from './pendingorder'
 import { canonPiles, pruneRetiredView, viewPiles, viewHidden, canvasTargets } from './canvaslayout'
 import { USER, DRAFT, INBOX, NODE_W, NODE_H, flatten, withDraftTree, withPendingMoves, treeParents } from './shared'
@@ -6,6 +7,7 @@ import type { Pt, ChartLayout, DraftState, PendingMoves } from './shared'
 
 export type MoveGhostOptions = {
   draft: DraftState | null
+  newHirePosition?: NewHirePosition
   seats: Record<string, number>
   pileFront: Record<string, string>
   crowdPiles: boolean
@@ -34,7 +36,7 @@ export function moveGhostOffset(tree: TreePayload, moves: PendingMoves,
   let projected = withPendingMoves(tree, new Map(moves).set(id, parent))
   for (const entry of orders.values())
     if (!entry.block.includes(id)) projected = withPendingOrder(projected, entry)
-  const full = canonPiles(withDraftTree(projected, options.draft))
+  const full = canonPiles(withDraftTree(projected, options.draft, options.newHirePosition))
   const root = pruneRetiredView(full, options.hideRetired, options.shownRetired).root
   const map = flatten(full, options.seats)
   const piles = viewPiles(root, options.pileFront, options.crowdPiles, options.hideRetired, options.shownRetired)

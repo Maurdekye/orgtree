@@ -2,6 +2,7 @@ import { refreshAgyModels, req } from '../api'
 import type { MenuItem } from './contextmenu'
 import { ANTIGRAVITY_TIERS, MUSE_TIERS, museEffortLevels, orderAntigravityTiers, tierLabel } from './shared'
 import type { StaffingAccount } from './staffingoptions'
+import { newHirePlacement } from '../hireposition'
 
 export interface QuickStaffModel {
   tier: string
@@ -44,6 +45,7 @@ export function quickStaffEntry(org: string, item: string, preview: QuickStaffPr
   const select = async (tier?: string, effort?: string, account?: string) => {
     if (preview.mode !== 'request' && !tier) return
     const body = { mode: preview.mode, configured_mode: preview.configured_mode,
+      ...(preview.mode === 'request' ? {} : newHirePlacement()),
       owner: preview.owner, ...(tier ? { tier } : {}), ...(effort ? { effort } : {}),
       ...(account ? { account } : {}) }
     const key = JSON.stringify([org, item, body])

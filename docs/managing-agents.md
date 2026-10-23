@@ -12,6 +12,15 @@ An agent's **superior** is the nearest agent above it, skipping projects. Its **
 
 ## Choose a role and hire
 
+In **App settings > Display > Desk**, **New hires go** chooses **End** (default),
+**Start** or **Centre** for new agents and projects across your organizations.
+Centre goes just after the middle of the existing live direct reports: with
+three, A B **[new]** C; with four, A B **[new]** C D. Projects count as reports;
+retired nodes and grandchildren do not. This applies to ordinary tokens/menus,
+the compact hire sheet, Quick chat and immediate Staff. Existing nodes,
+side/above tokens, moves and template order retain their placement. Circular
+view uses the same sibling position within the team's arc.
+
 Hover the intended superior's card and choose a hire token. The dashed draft lets you set a name, model, grant, charter and permissions before **Hire**. A charter describes the standing role; a message gives the immediate task. Applying the draft's permission gear stages its choices and does not hire by itself.
 
 For a research task, a useful charter might ask for sourced findings and explicit uncertainty. For a developer, name the repository, scope of changes and expected verification. Avoid copying the same long policy into every charter: put a team-wide rule in team instructions and an organization-wide rule in org instructions.

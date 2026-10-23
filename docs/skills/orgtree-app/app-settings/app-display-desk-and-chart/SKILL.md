@@ -39,6 +39,22 @@ swap remains agent-only and is not used for bunch reordering. In the circular ch
 a bunch takes one wider slot on its ring; the other cards on that ring keep their
 usual dense spacing and arcs.
 
+## New hires go
+
+Display > Desk > **New hires go** saves immediately to
+`ls:orgtree-new-hire-position` for this app profile, across its organizations and
+windows. Choices are End (default), Start and Centre. It selects the insertion
+position of ordinary new agents AND projects; changing it never moves existing
+nodes. Centre goes just after the middle of the existing live direct children,
+counting agents and projects: A B [new] C for three; A B [new] C D for four.
+Retired nodes and grandchildren do not count.
+
+This covers tokens/menus, the compact hire sheet, Quick chat and immediate Staff.
+In circular view the same sibling order places the new node within its team's
+arc; Centre is a list position, not a fixed screen angle. Explicit side/above
+tokens, moves and template order retain their placement. Agent hire/staff tools
+keep their required explicit `index`; no new tool is needed for this user choice.
+
 ## See also
 
 - [orgtree-org-canvas](../../canvas/org-canvas/SKILL.md).

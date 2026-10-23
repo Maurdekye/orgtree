@@ -2445,6 +2445,8 @@ export interface ProjectPolicySettings {
 }
 
 export interface OpRequest {
+  /** App Display choice on ordinary human creation; resolved among live siblings at admission. */
+  user_position?: import('./hireposition').NewHirePosition
   /** create_project: policy applied atomically with creation. */
   settings?: Partial<ProjectPolicySettings>
   peer_mail?: boolean

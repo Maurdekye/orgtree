@@ -4592,6 +4592,7 @@
    "registered": false,
    "covers": [
     "ls:orgtree-chart-layout",
+    "ls:orgtree-new-hire-position",
     "ls:orgtree-desk-dpi",
     "ls:orgtree-crowd-piles",
     "ls:orgtree-hide-retired",
@@ -4645,6 +4646,10 @@
      "label": "org chart layout"
     },
     {
+     "file": "apps/desktop/renderer/src/canvas/hirepositionsetting.tsx",
+     "label": "New hires go"
+    },
+    {
      "file": "apps/desktop/renderer/src/canvas/accounts.tsx",
      "label": "hide retired agents"
     },
@@ -4675,6 +4680,13 @@
      "file": "apps/desktop/renderer/src/canvas/shared.ts",
      "needles": [
       "orgtree-chart-layout"
+     ]
+    },
+    {
+     "key": "ls:orgtree-new-hire-position",
+     "file": "apps/desktop/renderer/src/hireposition.ts",
+     "needles": [
+      "orgtree-new-hire-position"
      ]
     },
     {

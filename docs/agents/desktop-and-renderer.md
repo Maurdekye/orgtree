@@ -1,5 +1,26 @@
 # Desktop and renderer
 
+## New-hire position (2026-10-23)
+
+USER m0d1975636f40: **New hires go** is an app Display preference, not an org
+default or a new agent tool. Renderer localStorage `orgtree-new-hire-position`
+stores end/start/centre, with End for missing/invalid values and storage-event
+updates across profile windows. Ordinary drafts/tokens/shared menus, compact
+HireSheet, Quick chat, project drafts and immediate Staff submit the choice at
+creation time. Request Staff delegates unchanged. Agent hire/staff `index`
+supplies parity; no tool schema/prompt change is required.
+
+Memoized preview and admission use ceil(n/2) for Centre over live physical
+children, including projects. Preview work stays off animation-frame dependencies.
+Rows/rings consume the same ordered sibling list. Explicit side/above placement,
+moves, existing nodes and templates keep their order. The UI `user_position`
+field resolves against the engine's locked live sibling set in the existing
+serializable transaction. End/omission keeps historical append behavior;
+explicit indices/anchors take precedence. Quick Staff includes placement in its
+retry identity and forwards it only on immediate creation.
+[verified: `src/hireposition.ts`, `canvas/OrgCanvas.tsx`, `canvas/newproject.tsx`,
+`canvas/quickstaff.ts`, `domain/ops/ordering.rs`, `domain/staffing.rs`]
+
 ## Fractional canvas overlay bounds (2026-10-23)
 
 The always-mounted Attention `.org-slot` is an absolute sibling of the canvas

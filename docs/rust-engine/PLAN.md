@@ -285,6 +285,13 @@ still resume, so the agents themselves remember).
 
 ## 10. User-facing differences — complete ledger
 
+New-hire position (USER 2026-10-23, 4.4.5): App settings > Display > Desk >
+New hires go selects End (default), Start or Centre for ordinary UI agent and
+project creation. Centre is ceil(n/2) among live direct children, projects
+included. Existing nodes, side/above placement, moves and templates retain
+their order. No new tool; hire/staff explicit index is parity. See
+[ordering](agent-ordering.md#user-creation-position-2026-10-23-445).
+
 Desk reader tabs (USER 2026-10-23, 4.4.4): empty Docket/Presented tabs hide
 outside their active reader; team-only content defaults to Team, including the
 project Presented checkbox. Existing docket row membership and recently-done

@@ -24,6 +24,13 @@ The named presets are Claude Terracotta, Codex Teal, Antigravity Navy, Muse Eggs
 
 **Display > Desk** includes:
 
+- **New hires go:** End (default), Start or Centre for ordinary new agents and
+  projects. Centre goes just after the middle of live direct reports, counting
+  agents and projects: A B [new] C for three, A B [new] C D for four. This app-wide
+  choice saves immediately for future UI creations, including Quick chat and
+  immediate Staff. Existing nodes, side/above placement and templates keep
+  their order.
+
 - Row or circular chart layout, desk text size (75–250%), crowded-team stacks and hiding retired agents.
 - Bunching consecutive projects, and a separate opt-in to rearrange projects inside a bunch. Bunching alone changes drawing; rearranging changes tree order.
 - Card shortcut buttons, folding long jump-card rows, pin snapping, overlap fading and keeping corner controls inside the area left by pins.

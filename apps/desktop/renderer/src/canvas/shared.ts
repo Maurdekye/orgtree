@@ -22,6 +22,7 @@ import { desktop } from '../desktop'
 import { localFileTitle } from './localfile'
 import { THEME_ACCENTS } from '../../../../../packages/contracts/visual-theme'
 import { siblingOrder } from '../treeorder'
+import { newHireIndex, type NewHirePosition } from '../hireposition'
 import { refreshAgyModels } from '../api'
 import { ringArcCentres } from './ringarcs'
 import { settleRingSprings, type SpringRing } from './ringsprings'
@@ -1898,7 +1899,7 @@ export const saveView = (slug: string, v: View): void => {
   } catch { /* private mode */ }
 }
 
-export function withDraftTree(tree: TreePayload, draft: DraftState | null): CanvasNode {
+export function withDraftTree(tree: TreePayload, draft: DraftState | null, position: NewHirePosition = 'end'): CanvasNode {
   const draftNode = (): CanvasNode => ({
     id: DRAFT, title: '', tier: draft!.tier, state: 'draft', children: [],
     seat: 0, grant: 0, free: 0, ...(draft!.project ? { kind: 'project' as const } : {}),
@@ -1907,7 +1908,7 @@ export function withDraftTree(tree: TreePayload, draft: DraftState | null): Canv
   // previews the ordering the hire will pin; an insert-superior draft (FR-25)
   // WRAPS its anchor — the draft takes the anchor's slot and the anchor hangs
   // beneath it, previewing the exact post-splice shape without touching the
-  // real structure; a plain draft appends at the end
+  // real structure; a plain draft follows the app's creation-position choice.
   const place = (kids: CanvasNode[]): CanvasNode[] => {
     const a = draft!.above
     if (a) {
@@ -1919,7 +1920,13 @@ export function withDraftTree(tree: TreePayload, draft: DraftState | null): Canv
     }
     const b = draft!.beside
     const i = b ? kids.findIndex((k) => k.id === b.anchor) : -1
-    if (i < 0) return [...kids, draftNode()]
+    if (i < 0) {
+      if (b || position === 'end') return [...kids, draftNode()]
+      const live = kids.filter(k => k.state === 'live')
+      const next = live[newHireIndex(live.length, position)]
+      const at = next ? kids.indexOf(next) : kids.length
+      return [...kids.slice(0, at), draftNode(), ...kids.slice(at)]
+    }
     const at = b!.side === 'right' ? i + 1 : i     // nUIA: i ≥ 0 ⇒ b matched
     return [...kids.slice(0, at), draftNode(), ...kids.slice(at)]
   }

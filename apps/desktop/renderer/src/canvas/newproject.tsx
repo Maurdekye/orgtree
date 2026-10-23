@@ -13,6 +13,7 @@ import type { OpRequest, ProjectPolicySettings } from '../types'
 import { normalizeUserEnteredName } from './nameinput'
 import { ModalOverPins, PinFrame } from './modalpin'
 import { DEFAULT_PROJECT_POLICY, ProjectPolicyFields } from './projectpolicy'
+import { newHirePlacement } from '../hireposition'
 
 /** a project draft's `tier`: projects have no model */
 export const PROJECT_DRAFT = 'project'
@@ -24,6 +25,7 @@ export function projectDraftSteps(draft: DraftState, typed: string, description:
   // spaces become hyphens, as in a hire's name (user 2026-10-17 19:22:46Z)
   const name = normalizeUserEnteredName(typed)
   const create: OpRequest = { op: 'create_project', name,
+    ...newHirePlacement(!!(draft.beside || draft.above)),
     ...(settings ? { settings } : {}),
     ...(description.trim() ? { description: description.trim() } : {}),
     ...(draft.above ? { above: draft.above.anchor } : { parent: draft.parent ?? 'user' }) }

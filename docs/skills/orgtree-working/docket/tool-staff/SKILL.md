@@ -6,6 +6,12 @@ Up: [orgtree-docket](../SKILL.md)
 
 # orgtree_staff
 
+New-hire placement still requires an explicit `index`, independent of the user's
+App settings > Display > New hires go preference. That index already provides
+the same Start (`0`), End (live child count) and Centre (`ceil(count/2)`)
+positions. Count direct live children including projects. Rehire retains its
+separate restoration rules.
+
 Requires **both `docket` and `team`**. It combines seat hire/rehire, item create/update and assignment in one transaction; a refusal leaves no partial seat/item/assignment. The assigned agent owns the item and receives its user replies; assignment mail starts work, so kickoff is optional.
 
 For a live agent use [work assign](../tool-work/SKILL.md). For a new hire merely taking an existing unchanged item, [hire](../../team/tool-hire/SKILL.md) with work_item is sufficient. Staff is useful when both the seat and item need creation/restoration/updates together; it is not the user's Quick staff UI mode selector.

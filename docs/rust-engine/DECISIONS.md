@@ -1,3 +1,13 @@
+**User creation position, USER 2026-10-23 19:12Z m0d1975636f40 (4.4.5):**
+App settings > Display > Desk > New hires go: End (default), Start or Centre.
+Ordinary user agent AND project creation follows it, including compact hire,
+Quick chat and immediate Staff. Centre is ceil(n/2), just after the old middle,
+counting live direct children including projects. Existing nodes, explicit
+side/above placement, moves and template order retain their ordering. It is a
+user-facing app preference; no new tool, since hire/staff already take an explicit
+index. Selecting that index at creation time is approved by the coordinator.
+See [ordering](agent-ordering.md#user-creation-position-2026-10-23-445).
+
 **Renderer project transparency, user/coordinator 2026-10-19:** supervisory
 controls cross projects to the nearest agent and next agent reports. Projects
 remain placement containers, not payers or user-contact lines. Root-project

@@ -15,6 +15,10 @@ Inside an organization window App settings has the same ↗ pop-out and pin butt
 
 ## Settings
 
+For **New hires go** (End / Start / Centre), use
+[Display > Desk](app-display-desk-and-chart/SKILL.md#new-hires-go). This is an
+app-wide user preference for ordinary new agents and projects.
+
 - [orgtree-app-runtime-desktop](app-runtime-desktop/SKILL.md): Runtime > desktop behavior: run on boot (where agents and the engine run), exit on close, automatic updates, Run as admin and Run this session as admin.
 - [orgtree-app-notifications](app-notifications/SKILL.md): Runtime > Notifications: the master switch and each notification kind.
 - [orgtree-app-quick-staff](app-quick-staff/SKILL.md): Runtime > Quick staff behavior: request staffing vs staff immediately.

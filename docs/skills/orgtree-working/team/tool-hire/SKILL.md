@@ -6,6 +6,12 @@ Up: [orgtree-team](../SKILL.md)
 
 # orgtree_hire
 
+The user's App settings > Display > **New hires go** choice applies to ordinary
+UI creation. This tool keeps its required explicit `index`, independent of that
+preference: `0` is Start, the existing live child count is End, and
+`ceil(existing_live_child_count / 2)` is the user's Centre position. Count live
+direct children including projects, without flattening descendants.
+
 Requires the `team` tool group. Use for a new role; first inspect archived expertise with [chart](../../inspection/tool-chart/SKILL.md) and consider [rehire](../tool-rehire/SKILL.md). A hire reserves concurrent capacity, not tokens. For a live assignee, assign work through [work](../../docket/tool-work/SKILL.md) instead of creating another seat.
 
 ## Parameters

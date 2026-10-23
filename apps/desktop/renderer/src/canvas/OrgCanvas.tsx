@@ -33,6 +33,7 @@ import type { TreeBrowse } from '../treeview'
 import { DeskHosts, revealExistingDesk, useDeskActionsNow } from './deskhosts'
 import { normalizeUserEnteredName } from './nameinput'
 import { tierEffortLevels } from './staffingoptions'
+import { newHirePlacement, useNewHirePosition } from '../hireposition'
 // canvas/OrgCanvas.tsx — the canvas core: the OrgCanvas component itself —
 // camera (pan/zoom/springs/follow), tree layout orchestration, wires and
 // mail sparks, node dragging and re-parenting, the retired/crowd piles, the
@@ -840,8 +841,9 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
     const has = (nodes: TreeNode[]): boolean => nodes.some(n => n.id === hireId || has(n.children))
     return has(shownTree.roots)
   })()
-  const vrootFull = useMemo(() => canonPiles(withDraftTree(shownTree, hireArrived ? null : draft)),
-    [shownTree, draft, hireArrived])   // eslint-disable-line react-hooks/exhaustive-deps
+  const newHirePosition = useNewHirePosition()
+  const vrootFull = useMemo(() => canonPiles(withDraftTree(shownTree, hireArrived ? null : draft, newHirePosition)),
+    [shownTree, draft, hireArrived, newHirePosition])   // eslint-disable-line react-hooks/exhaustive-deps
   // hide-retired (user resumed 2026-09-10 13:25): a DISPLAY prune of the
   // LAYOUT tree only. `map` stays FULL below, so desks, mail routing, the
   // agents tray's archived rows, lineage and window restoration keep every
@@ -1477,9 +1479,9 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
   const ghostOffset = useMemo(() => draggingId && !draggingInBunch ? moveGhostOffset(
     pendingBunch ? withProjectBunchRotation(tree, pendingBunch) : tree, pendingTargets,
     pendingOrders, draggingId, dropId, { draft, seats, pileFront, crowdPiles,
-      hideRetired, shownRetired, chartLayout, inboxPxc, draftCredits, bunchProjects }) : undefined,
+      hideRetired, shownRetired, chartLayout, inboxPxc, draftCredits, bunchProjects, newHirePosition }) : undefined,
   [draggingId, draggingInBunch, dropId, tree, pendingTargets, pendingOrders, draft, seats, pileFront,
-    crowdPiles, hideRetired, shownRetired, chartLayout, inboxPxc, draftCredits, bunchProjects, pendingBunch])
+    crowdPiles, hideRetired, shownRetired, chartLayout, inboxPxc, draftCredits, bunchProjects, pendingBunch, newHirePosition])
   const ghostParent = dropId ? springs.current.get(dropId) ?? target.get(dropId) : undefined
   const moveGhost = ghostOffset && ghostParent
     ? { x: ghostParent.x + ghostOffset.x, y: ghostParent.y + ghostOffset.y } : undefined
@@ -3992,6 +3994,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
     const museAccount = scope?.account === undefined
       ? museHireAccount(slug, draft!.tier, tree.default_account) : undefined
     const hireBody: Parameters<OpFn>[0] = { op: 'hire', parent: draft!.parent, tier: draft!.tier, grant, name,
+         ...newHirePlacement(!!(draft.beside || draft.above)),
          ...(museAccount ? { account: museAccount } : {}),
          charter: charter?.trim() || undefined,
          // FR-25: the anchor rides the hire op — the SERVER splices the new
@@ -5153,6 +5156,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
               const pin = placement === 'left' || placement === 'right' ? ringSide(a, placement) : null
               const museAccount = museHireAccount(slug, tier, tree.default_account)
               const body: Parameters<OpFn>[0] = { op: 'hire', parent, tier, grant, name,
+                ...newHirePlacement(placement !== 'below'),
                 ...(placement === 'above' ? { above: a.id } : {}),
                 ...(museAccount ? { account: museAccount } : {}) }
               const steps: Record<string, unknown>[] = [{ ...body, ...(placement === 'above' ? { hire_type: 'superior', target: a.id } : {}) }]

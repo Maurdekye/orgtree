@@ -6,6 +6,11 @@ Up: [orgtree-canvas](../SKILL.md)
 
 # Context menus
 
+Ordinary **Hire a subordinate**, **Hire under this project** and **New project…**
+drafts follow App settings > Display > Desk > **New hires go** (End by default).
+They share the token workflow; confirming creates the node at that position.
+See [draft hires](../draft-hires/SKILL.md).
+
 ## Shared object links
 
 Mail **Copy contents** / **Copy message text** copies the complete message,

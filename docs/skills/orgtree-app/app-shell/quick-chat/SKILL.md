@@ -7,6 +7,11 @@ Up: [orgtree-app-shell](../SKILL.md)
 
 # Quick chat
 
+New agents follow App settings > Display > Desk > **New hires go**: End
+(default), Start or Centre among their superior's live direct children. Centre
+goes just after the middle, counting agents and projects. This app-wide choice
+is separate from the remembered model, effort and superior below.
+
 Quick chat creates a new agent from the message and focuses its desk. It does not send to an existing agent. The name preview comes from the message's words; this hire supplies no charter. Enter submits the single-line field, excluding IME composition. Shift+Enter does not submit or insert a newline.
 
 Use the model control to choose an offered model, the effort control to choose an explicit effort or the organization default, and the superior picker to choose top level or a live agent/project. The files control lists attachments and allows removal; drag/drop and pasted files also add attachments. With no offered model, sending reports that problem.

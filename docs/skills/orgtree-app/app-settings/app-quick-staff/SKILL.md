@@ -7,6 +7,11 @@ Up: [orgtree-app-settings](../SKILL.md)
 
 # Quick staff behavior
 
+Immediate staffing places the new agent using Display > Desk > **New hires go**
+(End by default; Start or Centre are optional). Request staffing leaves placement
+to the assignee, whose agent hire/staff tool supplies an explicit index. Changing
+the app preference does not move existing staffed agents.
+
 Runtime > Docket > **Quick staff behavior** is app-wide, stored as `rt:quick_staff_behavior` through `/api/app-settings/runtime`. The built-in default is `request`. The selector saves immediately, shows a pending disabled state during the request, and displays an error if it fails. Agents explain and suggest the choice; they do not change settings themselves.
 
 | Choice | Stored value | Staff action on a backlogged ticket |

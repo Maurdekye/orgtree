@@ -2,6 +2,7 @@ import { AccountRegistrySection, AddAccountDialog, useAccountRegistry } from './
 import type { AccountProvider } from './accountsregistry'
 import { ThemeSetting } from '../themes'
 import { CanvasBackgroundSetting } from './canvasbgsetting'
+import { NewHirePositionSetting } from './hirepositionsetting'
 import { setProjectBunchesOn, useProjectBunches, setProjectBunchRearrangeOn, useProjectBunchRearrange } from './projectbunchprefs'
 import { DesktopSettings, RunAsAdministratorSetting } from './desktopsettings'
 import { QuickStaffSetting } from './quickstaffsetting'
@@ -950,7 +951,7 @@ export function AccountsPanel({ toast, close, initialTab, target }: {
     <SettingsTabPanel id="display" idBase="app-settings" active={tab === 'display'}>
       <ThemeSetting />
       <CanvasBackgroundSetting />
-      <SetGroup title="Desk"><ChartLayoutSetting /><ProjectBunchSetting /><ProjectBunchRearrangeSetting /><DeskTextSize /><CrowdStackToggle /><HideRetiredToggle /><AgentShortcutsToggle /><ModalOverlapSettings /><PinSnapToggle /><JumpFoldToggle /><CanvasAnchorSettings /></SetGroup>
+      <SetGroup title="Desk"><ChartLayoutSetting /><NewHirePositionSetting /><ProjectBunchSetting /><ProjectBunchRearrangeSetting /><DeskTextSize /><CrowdStackToggle /><HideRetiredToggle /><AgentShortcutsToggle /><ModalOverlapSettings /><PinSnapToggle /><JumpFoldToggle /><CanvasAnchorSettings /></SetGroup>
       <SetGroup title="Quick chat"><QuickChatPositionSetting /></SetGroup>
       <SetGroup title="Typing">
         <SetRow label="Enter key" hint={composerKeyHint(enterKey ?? runtime?.enter_key_behavior ?? 'send')}>
