@@ -14,7 +14,7 @@ This is display/navigation behavior. Agents retain `orgtree_work get` and existi
 document reads; no new tool definition or user-viewed write is added for them.
 
 Presentation opening passes `previous` to the existing scoped opening lookup;
-unread still wins across unloaded history. Docket first pages may include at most
+unread still wins across unloaded history. The final fallback follows actual list order (document ID descending), not the modification timestamp used for unread priority. Docket first pages may include at most
 two extra `opening_rows`: one manual flag and one named remembered row, under the
 same group/search/node filters. Normal page cursors stay unchanged; refresh only
 keeps the named row and never re-arms opening. No migration is required.
