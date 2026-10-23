@@ -1355,7 +1355,7 @@ async fn hire(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transaction<'_>, 
         }
     } else { parent.clone() };
     let mut siblings = ordering::siblings(tx, org.id, placement_parent.as_ref().map(|p| p.id), anchor.as_ref().map(|a| a.id)).await?;
-    let index = ordering::position(req, &siblings, agent)?;
+    let (index, append) = ordering::creation_position(req, &siblings, agent)?;
     // a superior inserted above `anchor` also carries the anchor's stake
     let anchor_stake = anchor.as_ref().filter(|_| !self_parent).map(|a| a.seat + a.grant).unwrap_or(0.0);
     let grant = grant + anchor_stake;
@@ -1448,7 +1448,7 @@ async fn hire(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transaction<'_>, 
     }
     // A user/internal hire without placement keeps the historical append rule,
     // including a superior insertion (whose anchor used to count in max).
-    let order = if req.get("index").is_none() && req.get("before").is_none() && req.get("after").is_none() {
+    let order = if append {
         tx.query_one(
             "SELECT coalesce(max(sibling_order), 0)::float8 + 1 FROM ot.agents WHERE org_id = $1 AND parent_id IS NOT DISTINCT FROM $2 AND state = 'live'",
             &[&org.id, &parent_id]).await?.get(0)
@@ -1577,17 +1577,17 @@ async fn create_project(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transac
     }
     let parent_id = parent.as_ref().map(|p| p.id);
     let mut siblings = ordering::siblings(tx, org.id, parent_id, anchor.as_ref().map(|a| a.id)).await?;
-    let index = match &anchor {
+    let (index, append) = match &anchor {
         // the anchor's own slot among its siblings
         Some(a) => {
             let order: f64 = tx.query_one("SELECT sibling_order FROM ot.agents WHERE id = $1", &[&a.id]).await?.get(0);
-            siblings.iter().filter(|s| s.order < order).count()
+            (siblings.iter().filter(|s| s.order < order).count(), false)
         }
-        None => ordering::position(req, &siblings, agent)?,
+        None => ordering::creation_position(req, &siblings, agent)?,
     };
     let order: f64 = if let Some(a) = &anchor {
         tx.query_one("SELECT sibling_order FROM ot.agents WHERE id = $1", &[&a.id]).await?.get(0)
-    } else if req.get("index").is_none() && req.get("before").is_none() && req.get("after").is_none() {
+    } else if append {
         tx.query_one(
             "SELECT coalesce(max(sibling_order), 0)::float8 + 1 FROM ot.agents WHERE org_id = $1 AND parent_id IS NOT DISTINCT FROM $2 AND state = 'live'",
             &[&org.id, &parent_id]).await?.get(0)

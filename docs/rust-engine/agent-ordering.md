@@ -1,5 +1,20 @@
 # Agent descendant ordering and explicit hire placement
 
+## User creation position (2026-10-23, 4.4.5)
+
+USER m0d1975636f40 chooses an app Display preference, End (default), Start or
+Centre, for ordinary UI agent/project creation. Centre is ceil(n/2) over the
+locked live direct sibling set, including projects. The renderer submits
+`user_position` only for ordinary creations; admission resolves the ordinal and
+uses existing midpoint placement in the same transaction. Explicit
+index/before/after, superior insertion and template request order keep their
+precedence and behavior. Changing the preference does not reorder existing
+nodes. No new tool or org setting: agent hire/staff still require explicit index.
+Immediate Staff forwards the choice and includes it in retry identity; request
+Staff delegates without a placement choice.
+
+## Explicit agent placement
+
 2026-10-11. User request mb137ddaf7c1d and explicit-value correction
 m848012229292, relayed by lead-astra. The correction replaces the initial
 optional-index assumption: **new agent hires require `index` explicitly**.

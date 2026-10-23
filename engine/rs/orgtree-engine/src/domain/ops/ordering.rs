@@ -76,6 +76,25 @@ pub(super) fn position(req: &Value, list: &[Sibling], required: bool) -> Result<
     Ok(pos)
 }
 
+/// Human creation requests carry the app Display choice; agent tools keep their
+/// required explicit index. The already-locked live list is the admission truth.
+/// Return whether to retain the historical max-order append calculation.
+#[logged]
+pub(super) fn creation_position(req: &Value, list: &[Sibling], required: bool) -> Result<(usize, bool)> {
+    let pos = position(req, list, required)?;
+    let append = req.get("index").is_none() && req.get("before").is_none() && req.get("after").is_none();
+    if required || !append || req.get("above").filter(|v| !v.is_null()).is_some() || req["hire_type"] == "superior" {
+        return Ok((pos, append));
+    }
+    match req.get("user_position") {
+        None => Ok((pos, append)), // templates and old clients retain append
+        Some(Value::String(s)) if s == "end" => Ok((list.len(), true)),
+        Some(Value::String(s)) if s == "start" => Ok((0, false)),
+        Some(Value::String(s)) if s == "centre" => Ok((list.len().div_ceil(2), false)),
+        _ => refuse!(BadRequest, "user_position must be end, start or centre"),
+    }
+}
+
 #[nolog]
 fn midpoint(list: &[Sibling], pos: usize) -> Option<f64> {
     let prev = if pos > 0 { list[pos - 1].order } else { list.first().map(|s| s.order - 2.0).unwrap_or(0.0) };
@@ -96,4 +115,59 @@ pub(super) async fn place(tx: &Transaction<'_>, list: &mut [Sibling], pos: usize
         changed.push(s.id);
     }
     Ok((midpoint(list, pos).expect("normalized finite sibling gap"), changed))
+}
+
+#[cfg(test)]
+mod hire_position_tests {
+    use super::*;
+    use serde_json::json;
+
+    fn siblings(n: usize) -> Vec<Sibling> {
+        (0..n).map(|i| Sibling { id: i as i64, name: format!("n{i}"), order: (i + 1) as f64 * 2.0 }).collect()
+    }
+
+    #[test]
+    fn hire_position_start_centre_end_use_current_live_count() {
+        for n in 0..8 {
+            let list = siblings(n);
+            assert_eq!(creation_position(&json!({"user_position":"start"}), &list, false).unwrap(), (0, false));
+            let (at, append) = creation_position(&json!({"user_position":"centre"}), &list, false).unwrap();
+            assert_eq!((at, append), ((n + 1) / 2, false));
+            assert!(midpoint(&list, at).is_some());
+            assert_eq!(creation_position(&json!({"user_position":"end"}), &list, false).unwrap(), (n, true));
+        }
+    }
+
+    #[test]
+    fn hire_position_omission_preserves_template_and_old_client_order() {
+        assert_eq!(creation_position(&json!({}), &siblings(4), false).unwrap(), (4, true));
+    }
+
+    #[test]
+    fn hire_position_explicit_placement_and_superiors_win() {
+        let list = siblings(4);
+        for agent in [false, true] {
+            assert_eq!(creation_position(&json!({"index":1,"user_position":"start"}), &list, agent).unwrap(), (1, false));
+        }
+        assert_eq!(creation_position(&json!({"before":"n2","user_position":"start"}), &list, false).unwrap(), (2, false));
+        assert_eq!(creation_position(&json!({"after":"n2","user_position":"start"}), &list, false).unwrap(), (3, false));
+        for req in [json!({"above":"anchor","user_position":"start"}), json!({"hire_type":"superior","user_position":"centre"})] {
+            assert_eq!(creation_position(&req, &list, false).unwrap(), (4, true));
+        }
+    }
+
+    #[test]
+    fn hire_position_does_not_replace_required_agent_index() {
+        for req in [json!({}), json!({"user_position":"start"}), json!({"index":null}), json!({"index":5})] {
+            assert!(creation_position(&req, &siblings(4), true).is_err());
+        }
+    }
+
+    #[test]
+    fn hire_position_rejects_malformed_choices_and_conflicting_indices() {
+        for value in [json!(null), json!(false), json!(1), json!("center"), json!("unknown")] {
+            assert!(creation_position(&json!({"user_position":value}), &siblings(4), false).is_err());
+        }
+        assert!(creation_position(&json!({"index":1,"before":"n2","user_position":"start"}), &siblings(4), false).is_err());
+    }
 }

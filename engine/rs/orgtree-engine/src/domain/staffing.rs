@@ -283,12 +283,20 @@ pub async fn quick_preview(engine: &Engine, org: &OrgHandle, slug: &str) -> Resu
     Ok(ctx)
 }
 
+/// Placement participates in retry identity; old requests retain their old shape.
+#[logged]
+fn quick_selection(body: &Value) -> Value {
+    let mut selection = json!({ "mode": body["mode"], "configured_mode": body["configured_mode"], "owner": body["owner"],
+                              "tier": body["tier"], "effort": body["effort"], "account": body["account"] });
+    if let Some(position) = body.get("user_position") { selection["user_position"] = position.clone(); }
+    selection
+}
+
 /// `POST …/quick-staff`: commit the selection (idempotent per request id).
 #[logged]
 pub async fn quick_commit(engine: &Arc<Engine>, org: &Arc<OrgHandle>, slug: &str, body: &Value) -> Result<Value> {
     let request_id = body["request_id"].as_str().unwrap_or("").to_string();
-    let selection = json!({ "mode": body["mode"], "configured_mode": body["configured_mode"], "owner": body["owner"],
-                            "tier": body["tier"], "effort": body["effort"], "account": body["account"] });
+    let selection = quick_selection(body);
     // a retried request answers what it did the first time
     if !request_id.is_empty() {
         let client = engine.db.get().await?;
@@ -402,6 +410,7 @@ pub async fn quick_commit(engine: &Arc<Engine>, org: &Arc<OrgHandle>, slug: &str
             "charter": format!("Own the docket item {item_slug}: {title}. Read its full description and complete its requirements. Keep the docket current."),
         });
         let assignee = ctx["owner"]["node"].as_str().map(str::to_string);
+        if let Some(position) = body.get("user_position") { req["user_position"] = position.clone(); }
         if !top {
             if let Some(a) = &assignee {
                 req["parent"] = json!(a);
@@ -518,6 +527,21 @@ pub async fn staff(engine: &Arc<Engine>, org: &Arc<OrgHandle>, me: (i64, &str, i
         "status": "Seat and docket committed together; the assignment mail starts the agent." });
     docket::copy_notice_metadata(&hired, &mut out);
     Ok(out)
+}
+
+#[cfg(test)]
+mod hire_position_tests {
+    use super::*;
+    #[test]
+    fn hire_position_is_part_of_immediate_staff_retry_identity() {
+        let old = json!({"mode":"top_level","tier":"sol"});
+        assert!(quick_selection(&old).get("user_position").is_none());
+        let mut start = old.clone(); start["user_position"] = json!("start");
+        let mut centre = old.clone(); centre["user_position"] = json!("centre");
+        assert_ne!(quick_selection(&old), quick_selection(&start));
+        assert_ne!(quick_selection(&start), quick_selection(&centre));
+        assert_eq!(quick_selection(&centre), quick_selection(&centre.clone()));
+    }
 }
 
 /// `GET /api/orgs/{slug}/staffing-options`: the warm availability every
