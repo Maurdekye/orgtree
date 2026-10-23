@@ -23,7 +23,7 @@ Header badge counts remain separate. These are user display/navigation preferenc
 existing docket and presentation read tools retain their authority and scope, with
 no new agent tool card, tool-prefix growth or user-viewed write by an agent.
 [decided: user 2026-10-23 m725412d6748e, m46f154fe793f; coordinator m6327d4ef662e;
-verified: `canvas/{deskreaders,desk,projectdesk,gallery}.tsx`, `http/reader_availability.rs`]
+verified: `canvas/deskreaders.ts`, `canvas/{desk,projectdesk,gallery}.tsx`, `http/reader_availability.rs`]
 
 
 ## Opening priority (2026-10-23)
