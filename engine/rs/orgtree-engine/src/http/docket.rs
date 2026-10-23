@@ -76,6 +76,8 @@ pub struct ReplyBody {
     attachments: Vec<String>,
     #[serde(default)]
     notice: bool,
+    #[serde(default)]
+    selections: Vec<Value>,
 }
 
 /// The user's reply on an item (to its owner, or a participant it names).
@@ -99,7 +101,7 @@ pub async fn reply(State(e): State<Arc<Engine>>, Path((slug, wid)): Path<(String
             _ => warnings.push(format!("{p} — no such file (never uploaded, or the upload failed)")),
         }
     }
-    let mut r = docket::reply(&e, &o, &wid, &b.body, b.to.as_deref(), atts, b.notice).await?;
+    let mut r = docket::reply(&e, &o, &wid, &b.body, b.to.as_deref(), atts, b.notice, &b.selections).await?;
     if !warnings.is_empty() {
         r["warnings"] = json!(warnings);
     }

@@ -265,7 +265,7 @@ fn selection_part_properties() -> serde_json::Map<String, Value> {
     json!({
         "part":{"type":"string","enum":["text","thinking","cmd_out","tool.input","tool.result","tool.error","mail.body","document.body","document.title","work_item.title","work_item.objective","work_item.blocked_reason","work_item.dropped_reason","work_item.done_so_far","work_item.working_on_next","work_item.evidence.note"]},
         "tool_id":{"type":"string","minLength":1,"maxLength":200},
-        "pointer":{"type":"string","maxLength":1024,"description":"tool.input only: RFC6901 pointer; decoded strings, otherwise deterministic pretty JSON"},
+        "pointer":{"type":"string","maxLength":1024,"description":"tool.input/result: RFC6901 pointer; decoded strings, otherwise deterministic pretty JSON"},
         "role":{"type":"string","enum":["value","key"]},
         "entry":{"type":"integer","minimum":0,"maximum":49,"description":"required for a docket list entry; duplicate entries refuse"}
     }).as_object().unwrap().clone()

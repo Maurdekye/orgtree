@@ -58,6 +58,7 @@ pub fn event_part(body: &Value, inputs: &Value, native: &Value, part: &Part, age
     match part.part.as_str() {
         "mail.body" if mail.is_some() => Ok(super::replies::event_context(body, agent, mail)?.1),
         "text" if body["role"] == "user" => Ok(super::replies::event_context(body, agent, None)?.1),
+        "thinking" if body["thinking_sealed"] == true => Err(missing()),
         "text" | "thinking" | "cmd_out" => text(&body[&part.part]),
         "tool.input" | "tool.result" | "tool.error" => {
             let id = part.tool_id.as_deref().ok_or_else(missing)?;

@@ -2419,7 +2419,7 @@ fn reply_role(target: &str, owner: Option<&str>, participants: &[String], attent
 
 /// The user's reply on an item: mail to its owner, a participant, or its current attention raiser.
 #[logged]
-pub async fn reply(engine: &Arc<Engine>, org: &Arc<OrgHandle>, slug: &str, body: &str, to: Option<&str>, attachments: Vec<Value>, notice: bool) -> Result<Value> {
+pub async fn reply(engine: &Arc<Engine>, org: &Arc<OrgHandle>, slug: &str, body: &str, to: Option<&str>, attachments: Vec<Value>, notice: bool, selections: &[Value]) -> Result<Value> {
     let text = body.trim();
     if text.is_empty() && attachments.is_empty() {
         refuse!(Unprocessable, "empty reply");
@@ -2453,7 +2453,21 @@ pub async fn reply(engine: &Arc<Engine>, org: &Arc<OrgHandle>, slug: &str, body:
     let mut out = Outgoing::new(From::User, &target, &format!("{text}\n\n{how}"));
     out.notice = notice;
     out.attachments = attachments;
-    out.reply_to = Some(reply_to(&it));
+    if selections.is_empty() { out.reply_to = Some(reply_to(&it)); }
+    else {
+        // Validate every range before mail::send and before any attention write.
+        // This endpoint only quotes the item it is answering.
+        let targets=super::replies::targets(None,Some(&json!(selections)))?;
+        for wrapped in &targets {
+            let (target,selector)=super::reply_sources::wrapper(wrapped)?.ok_or_else(||super::user_err(super::UserError::BadRequest,"docket selections need target and selection"))?;
+            if target["kind"]!="work_item" || target["org"]!=org.slug || target["slug"]!=it.slug {
+                refuse!(BadRequest,"docket replies only accept selections from this item");
+            }
+            let source=super::reply_sources::load(engine,org,&super::reply_sources::Reader::User,target,&selector.part()).await?;
+            out.replies.push(source.capture(&selector)?);
+        }
+        out.reply_to=out.replies.first().cloned();
+    }
     out.ev = Some(crate::events::reply_docket(&org.slug, &it.slug, &it.title, text, role, it.owner_name()));
     let sent = mail::send(engine, org.id, out).await?;
     // Mail is sent outside the transaction. Do not clear a newer flag, or a
