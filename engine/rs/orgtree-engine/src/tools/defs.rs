@@ -272,22 +272,35 @@ fn selection_part_properties() -> serde_json::Map<String, Value> {
 }
 
 #[nolog]
-fn selection_schema() -> Value {
-    let mut props = selection_part_properties();
-    for (key,value) in json!({
-        "projection":{"type":"string","enum":["source-v1"]},
-        "unit":{"type":"string","enum":["unicode-scalar"]},
-        "expected_sha256":{"type":"string","pattern":"^[0-9a-f]{64}$"},
-        "start":{"type":"integer","minimum":0},"end":{"type":"integer","minimum":1}
-    }).as_object().unwrap() { props.insert(key.clone(),value.clone()); }
-    json!({"type":"object","additionalProperties":false,"required":["part","projection","unit","expected_sha256","start","end"],"properties":props})
+fn plain_reply_schema() -> Value {
+    let identity = |kind: &str, field: &str| {
+        let mut properties = serde_json::Map::new();
+        properties.insert("kind".into(), json!({"type":"string","enum":[kind]}));
+        properties.insert("org".into(), json!({"type":"string","minLength":1,"maxLength":200}));
+        properties.insert(field.into(), json!({"type":"string","minLength":1,"maxLength":200}));
+        json!({"type":"object","additionalProperties":false,"required":["kind","org",field],"properties":properties})
+    };
+    json!({
+        "anyOf":[
+            {"type":"string","minLength":1,"maxLength":200,"description":"legacy mail message ID"},
+            {"type":"object","oneOf":[
+                {"type":"object","additionalProperties":false,"required":["kind","org","id"],"properties":{"kind":{"type":"string","enum":["document","presentation"]},"org":{"type":"string","minLength":1,"maxLength":200},"id":{"type":"string","minLength":1,"maxLength":200}}},
+                identity("work_item","slug"),
+                {"type":"object","additionalProperties":false,"required":["source_event_ref"],"properties":{"source_event_ref":{"type":"object","additionalProperties":false,"required":["org","agent","generation","eventId"],"properties":{"org":{"type":"string","minLength":1,"maxLength":200},"agent":{"type":"string","minLength":1,"maxLength":200},"generation":{"type":"integer","minimum":1},"eventId":{"type":"string","minLength":1,"maxLength":200}}},"mail_id":{"type":"string","minLength":1,"maxLength":200}}}
+            ],"description":"Identity only. Supported forms: {kind: document|presentation, org, id}; {kind: work_item, org, slug}; or {source_event_ref: {org, agent, generation, eventId}, mail_id?}. Mail replies continue to use legacy message IDs. Do not supply quote text; the engine loads it from the authorized source."}
+        ]
+    })
 }
 
 #[nolog]
 fn reply_target_schema() -> Value {
-    json!({"anyOf":[reply_identity_schema(),{"type":"object","additionalProperties":false,"required":["target","selection"],
-        "properties":{"target":reply_identity_schema(),"selection":selection_schema()},
-        "description":"Verified selection reply: read the canonical part with orgtree_read_reply_source, then send its digest and half-open Unicode-scalar range. The engine derives the exact excerpt; at most 8 selections, 4096 UTF-8 bytes each, 48 KiB metadata. Internal recipients only. Source changes before send refuse without delivery."}]})
+    let mut schema = plain_reply_schema();
+    schema["anyOf"].as_array_mut().unwrap().push(json!({
+        "type":"object","additionalProperties":false,"required":["target","selection"],
+        "properties":{"target":{},"selection":{"type":"object"}},
+        "description":"Selection wrapper; read orgtree_read_reply_source and its Guide for the selector contract."
+    }));
+    schema
 }
 
 #[cfg(test)]
@@ -298,10 +311,10 @@ mod reply_selection_tool_tests {
         for shape in [MailShape::Split,MailShape::Flat] {
             let [mail,_]=mail_tools(shape);
             let props=if shape==MailShape::Split { &mail["inputSchema"]["properties"]["metadata"]["properties"] } else { &mail["inputSchema"]["properties"] };
-            let wrapper=&props["reply_to"]["anyOf"][1];
+            let wrapper=props["reply_to"]["anyOf"].as_array().unwrap().last().unwrap();
             assert_eq!(wrapper["required"],json!(["target","selection"]));
-            assert_eq!(wrapper["properties"]["selection"]["properties"]["unit"]["enum"],json!(["unicode-scalar"]));
-            assert_eq!(props["replies"]["items"]["anyOf"][1],*wrapper);
+            assert_eq!(wrapper["properties"]["selection"]["type"],json!("object"));
+            assert_eq!(props["replies"]["items"]["anyOf"].as_array().unwrap().last().unwrap(),wrapper);
         }
         let source=build_tool_read_reply_source();
         assert_eq!(source["inputSchema"]["required"],json!(["target","part"]));
@@ -692,7 +705,7 @@ fn build_tool_read_transcript() -> Value {
 #[nolog]
 fn build_tool_read_reply_source() -> Value {
     tool("orgtree_read_reply_source",
-        "Read one canonical reply source part in windows of at most 4096 UTF-8 bytes. Inspection required; own sent/received mail, self/downward settled transcripts, readable docket items, authored/reachable project Markdown presentations. No mail consume/viewed side effects. Continuation needs the returned SHA256. Use with selection replies.",
+        "Read one canonical reply source part in windows of at most 4096 UTF-8 bytes. Inspection required; own sent/received mail, self/downward settled transcripts, readable docket items, authored/reachable project Markdown presentations. No mail consume/viewed side effects. Continuation needs the returned SHA256. Use with selection replies: send {target,selection} in orgtree_message replies. selection requires part, projection: source-v1, unit: unicode-scalar, expected_sha256 from this read, and half-open start/end scalar offsets in that exact part. Optional tool_id, pointer, role and entry match this tool's part. The engine derives the excerpt and refuses changed digests before sending. At most 8 selections, 4096 UTF-8 bytes each, 48 KiB combined metadata; internal recipients only. Never send excerpt/prefix/suffix as caller-owned metadata. Read the Guide for source parts, continuation, permissions and examples.",
         json!({"target":reply_identity_schema(),
             "part":{"type":"object","additionalProperties":false,"required":["part"],"properties":selection_part_properties()},
             "offset":{"type":"integer","minimum":0,"description":"Unicode-scalar offset, default 0"},
@@ -1838,6 +1851,7 @@ mod builder_stack_tests {
             "message_flat_base_bytes":bytes(&old_flat),"message_flat_extended_bytes":bytes(&flat),
             "message_flat_delta_bytes":bytes(&flat) as i64-bytes(&old_flat) as i64});
         assert!(costs["message_split_delta_bytes"].as_i64().unwrap()>0,"a zero delta means the predecessor control was overwritten");
+        assert!(costs["message_split_delta_bytes"].as_i64().unwrap() <= 800, "keep eager selection schema compact");
         println!("SELECTION_TOOL_COST {costs}");
         if let Ok(path)=std::env::var("ORGTREE_SELECTION_TOOL_COST") {
             assert!(path.replace('\\',"/").starts_with("C:/orgtree-build/native-tools-sol/"));
