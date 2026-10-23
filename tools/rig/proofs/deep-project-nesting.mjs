@@ -42,7 +42,7 @@ export default async function (rig) {
     if (!response.ok) throw Error(`${method} ${route}: ${response.status}: ${text.slice(0, 300)}`)
     return value
   }
-  const row = name => rig.one(`SELECT * FROM ot.agents WHERE org_id=${org} AND name='${name}'`)
+  const row = name => rig.one(`SELECT id,parent_id,kind,state,halt,grant_credits FROM ot.agents WHERE org_id=${org} AND name='${name}'`)
   const tool = (who, name, args = {}) => api('POST', '/api/rig/tool', { org: rig.org, agent: who, tool: name, args })
   const op = body => api('POST', `/api/orgs/${rig.org}/ops`, body)
   const settle = () => rig.waitFor(() => rig.sql('SELECT id FROM ot.turns WHERE ended_at IS NULL').length === 0,
