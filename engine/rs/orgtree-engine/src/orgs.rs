@@ -101,11 +101,12 @@ pub fn provisional(id: i64, uuid: String, slug: String, name: String) -> Arc<Org
 
 #[logged]
 pub async fn load_all(engine: &Arc<Engine>) -> Result<()> {
-    let client = engine.db.get().await?;
+    let mut client = engine.db.get().await?;
     let rows = client
         .query("SELECT id, uuid::text, slug, name FROM ot.orgs WHERE state = 'active' ORDER BY id", &[])
         .await?;
     for r in rows {
+        crate::domain::mention_navigation::seed(&mut client, r.get(0)).await?;
         open(engine, r.get(0), r.get(1), r.get(2), r.get(3));
     }
     Ok(())

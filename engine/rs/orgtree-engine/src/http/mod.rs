@@ -14,6 +14,7 @@ pub mod reports;
 pub mod retired;
 pub mod error;
 pub mod mailbox;
+pub mod mention_navigation;
 pub mod markdown_image;
 pub mod nodes;
 pub mod orgops;
@@ -105,6 +106,7 @@ pub fn router(engine: Arc<Engine>) -> Router {
         .route("/api/orgs/{slug}/inbox/clear", post(mailbox::clear))
         .route("/api/orgs/{slug}/mail/{box}/{id}", get(mailbox::mail_by_id))
         .route("/api/orgs/{slug}/events", get(mailbox::events))
+        .route("/api/orgs/{slug}/mention-navigation", get(mention_navigation::next))
         .route("/api/orgs/{slug}/history", get(history::sources))
         .route("/api/orgs/{slug}/history/{section}", get(history::page))
         .route("/api/orgs/{slug}/nodes/{nid}/history", get(mailbox::history))

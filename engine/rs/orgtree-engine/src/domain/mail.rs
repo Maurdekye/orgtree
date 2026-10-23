@@ -318,6 +318,7 @@ pub(crate) async fn send_with_notices(engine: &Arc<Engine>, org_id: i64, mut out
             )
             .await?;
         super::mail_tags::attach(&tx,org_id,inserted.get(0),&out.tags).await?;
+        super::mention_navigation::record_mail(&*tx,org.id,&mail_uid,&out.body,out.urgent_reason.as_deref()).await?;
         tx.commit().await?;
         let mut ch = vec![Change::UserMail, Change::Spark { from: sender_name.clone(), to: "@user".into() }];
         if let Some(a) = sender_agent {
@@ -377,6 +378,7 @@ pub(crate) async fn send_with_notices(engine: &Arc<Engine>, org_id: i64, mut out
             ],
         )
         .await?;
+    super::mention_navigation::record_mail(&*tx,org.id,&mail_uid,&out.body,out.urgent_reason.as_deref()).await?;
     tx.commit().await?;
     notices.committed(forwarded);
     drop(client);
@@ -474,6 +476,7 @@ async fn send_project(engine: &Arc<Engine>, org: &crate::orgs::OrgHandle, mut cl
         crate::domain::projects::record_ending(&*tx, org.id, project.id, orig_uid, claimed, sender_agent,
             &out.from.name(), "acked", None, attempt, Some(mail_uid.as_str())).await?;
         crate::domain::projects::free_listener(&*tx, sender_agent, claimed).await?;
+        super::mention_navigation::record_mail(&*tx,org.id,&mail_uid,&out.body,out.urgent_reason.as_deref()).await?;
         tx.commit().await?;
         drop(client);
         let me = match &out.from { From::Agent { name, .. } => name.clone(), _ => String::new() };
@@ -501,6 +504,7 @@ async fn send_project(engine: &Arc<Engine>, org: &crate::orgs::OrgHandle, mut cl
         ],
     )
     .await?;
+    super::mention_navigation::record_mail(&*tx,org.id,&mail_uid,&out.body,out.urgent_reason.as_deref()).await?;
     tx.commit().await?;
     notices.committed(forwarded);
     drop(client);

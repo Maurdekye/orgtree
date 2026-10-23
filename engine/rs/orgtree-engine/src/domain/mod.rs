@@ -17,6 +17,7 @@ pub mod mail_history;
 pub mod replies;
 pub mod lifecycle;
 pub mod notices;
+pub mod mention_navigation;
 pub mod node_kind;
 pub mod runtime_notices;
 pub mod ops;

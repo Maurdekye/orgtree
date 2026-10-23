@@ -211,6 +211,11 @@ pub async fn send_extern(engine: &Arc<Engine>, org_id: i64, out: &Outgoing) -> R
     let holders = &route.to;
     let delivered = publish_copies(&tx, dst.id, holders, &src_peer, &out.body, &out.kind,
         &attachments, &replies_there, None, None).await?;
+    let mut mention_rows=[(org_id,out_uid.as_str()),(dst.id,in_uid.as_str())];
+    mention_rows.sort_by_key(|row|row.0);
+    for (org,id) in mention_rows {
+        super::mention_navigation::record_org_mail(&*tx,org,id,&out.body).await?;
+    }
     tx.commit().await?;
     drop(client);
     // the spark rides from the sender to the mailbox here, and from the mailbox to each holder there
@@ -376,11 +381,12 @@ pub async fn deliver_inbound_replies(engine: &Arc<Engine>, org_id:i64, peer:&str
     // Serialize only this org's publication boundary, including the duplicate
     // check; different hubs may concurrently deliver to the same org.
     admit(&tx, &[org_id]).await?;
+    let mention_mail_uid=uid("x");
     let n = tx.execute(
         "INSERT INTO ot.org_inbox (uid, org_id, dir, peer, body, attachments, net_id, hub, reply_to, replies)
          SELECT $1, $2, 'in', $3, $4, $5, $6, $7, $8, $9
           WHERE NOT EXISTS (SELECT 1 FROM ot.org_inbox WHERE org_id=$2 AND dir='in' AND net_id=$6)",
-        &[&uid("x"), &org_id, &peer, &crate::util::pg_text(body).as_ref(),
+        &[&mention_mail_uid, &org_id, &peer, &crate::util::pg_text(body).as_ref(),
           &crate::util::pg_json(&Value::Array(attachments.clone())).as_ref(), &net_id, &hub,
           &crate::util::pg_json_option(&stored).as_ref(), &json!(quotes)],
     ).await?;
@@ -388,6 +394,7 @@ pub async fn deliver_inbound_replies(engine: &Arc<Engine>, org_id:i64, peer:&str
     let holders = &route.to;
     let delivered = publish_copies(&tx, org_id, holders, peer, body, "message",
         &Value::Array(attachments), &quotes, Some(net_id), Some(hub)).await?;
+    super::mention_navigation::record_org_mail(&*tx,org_id,&mention_mail_uid,body).await?;
     tx.commit().await?;
     drop(client);
     wake_copies(engine, org_id, delivered);

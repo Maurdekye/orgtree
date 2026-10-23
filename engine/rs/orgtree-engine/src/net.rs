@@ -1197,6 +1197,7 @@ async fn queue_row(
         )
         .await?;
     let ids = transfers::plan(&tx, org_id, row.get(0), "", "", attachments).await?;
+    crate::domain::mention_navigation::record_org_mail(&*tx,org_id,&uid,body).await?;
     tx.commit().await?;
     drop(client);
     kick(engine);
