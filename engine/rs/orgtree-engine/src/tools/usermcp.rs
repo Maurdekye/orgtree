@@ -91,13 +91,13 @@ fn cards(org_scoped: bool) -> Vec<Value> {
                         "body":{"type":"string"}}), &["metadata","body"]);
             }
             "orgtree_inbox" => *card = user_card("orgtree_inbox",
-                "Read the user's own inbox. list (default): limit 1–200 per pending/delivered/sent list, default50. fetch: 1–20 message_ids. settings reads the org outside-inbox mode; configure with mode normal|dnd|closed changes it as the user. Each action accepts only its own fields; no project/org-inbox pulls, chunk or conversation reads.",
+                "Read the user's own inbox. list (default): limit 1–200 per pending/delivered/sent list, default 50. fetch: 1–20 message_ids. settings reads the org outside-inbox mode; configure with mode normal|dnd|closed changes it as the user. Each action accepts only its own fields; no project/org-inbox pulls, chunk or conversation reads.",
                 json!({"action":{"type":"string","enum":["list","fetch","settings","configure"]},
                     "limit":{"type":"integer","minimum":1,"maximum":200},
                     "message_ids":{"type":"array","items":{"type":"string"},"minItems":1,"maxItems":20},
                     "mode":{"type":"string","enum":["normal","dnd","closed"]}}), &[]),
             "orgtree_interrupt" => *card = user_card("orgtree_interrupt",
-                "Stop the named agent's current turn as the user. No running turn returns interrupted=false. Waits up to60seconds for the runtime; queued/restart orchestration is unsupported and refused.",
+                "Stop the named agent's current turn as the user. No running turn returns interrupted=false. Waits up to 60 seconds for the runtime; queued/restart orchestration is unsupported and refused.",
                 json!({"node":{"type":"string"}}), &["node"]),
             "orgtree_chart" => card["description"] = json!("Read this organization's chart as the user: tiers, credits, status and audiences. include_archived includes retired nodes; include_standing_charter defaults true."),
             "orgtree_list_tiers" => card["description"] = json!("List available tiers and seat prices as the user. refresh=true requests coalesced provider discovery/sign-in checking; no agent permission group is required."),
@@ -141,6 +141,9 @@ fn cards(org_scoped: bool) -> Vec<Value> {
                 "required": ["ask"]
             }
         }));
+    }
+    for card in &mut out {
+        card["inputSchema"]["additionalProperties"] = json!(false);
     }
     out
 }
@@ -496,6 +499,7 @@ mod tests {
     #[test]
     fn user_cards_do_not_advertise_agent_only_options() {
         let user = cards(true);
+        assert!(user.iter().all(|c| c["inputSchema"]["additionalProperties"] == false));
         let card = |name: &str| user.iter().find(|c| c["name"] == name).unwrap();
         let interrupt = &card("orgtree_interrupt")["inputSchema"]["properties"];
         assert_eq!(interrupt.as_object().unwrap().len(), 1);
