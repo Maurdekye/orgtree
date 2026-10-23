@@ -82,7 +82,7 @@ export function TurnLimitsSetting() {
       .catch((err: Error) => setError(err.message)).finally(() => setBusy(false))
   }
   return <SetGroup title="Turn time limits"
-    note="Applies to every organization from the next turn that starts; a turn already running keeps its limit.">
+    note="Applies to every organization. Changes can affect a running turn at its next timer check; a harness may also retain a timeout set when its process launched.">
     <LimitRow label="Total limit"
       hint="Stop a turn that runs longer than this, even if the agent is active. Default 24 hours."
       stored={runtime?.turn_timeout_s} fallback={86400} busy={busy} onSave={save('turn_timeout_s')} />
