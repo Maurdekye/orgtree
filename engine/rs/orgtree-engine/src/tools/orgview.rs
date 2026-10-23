@@ -573,6 +573,23 @@ fn transcript_result(node: &str, access: Value, busy: bool, occupancy: Option<i3
 }
 
 #[cfg(test)]
+mod reply_selection_thinking_bridge_tests {
+    use super::*;
+    #[test]
+    fn reply_selection_transcript_ids_coexist_with_thinking_and_partial_markers() {
+        let result=transcript_result("worker",json!({"via":"self"}),false,Some(5),true,vec![
+            json!({"role":"assistant","event_id":"e12","convo_revision":9,"text":"unfinished","thinking":"🦀".repeat(1201),"thinking_sealed":true,
+                "content_blocks":[{"kind":"thinking","sealed":true}],"assistant_state":"partial","interrupted":true,"tools":[{"id":"call","result":"whole output"}]}),
+            json!({"role":"assistant","event_id":"e13","convo_revision":10,"thinking":"","thinking_sealed":true})]);
+        let row=&result["messages"][0];
+        assert_eq!(row["event_id"],"e12");assert_eq!(row["convo_revision"],9);
+        assert_eq!(row["thinking"].as_str().unwrap().chars().count(),1200);assert_eq!(row["thinking_truncated"],true);assert_eq!(row["thinking_sealed"],true);
+        assert_eq!(row["tools"][0]["result"],"whole output");assert_eq!(row["incomplete"],true);assert_eq!(row["interrupted"],true);
+        assert_eq!(result["messages"][1]["event_id"],"e13");assert_eq!(result["messages"][1]["thinking"],"");assert_eq!(result["messages"][1]["thinking_sealed"],true);
+    }
+}
+
+#[cfg(test)]
 mod codex_thinking_tests {
     use super::*;
     #[test]

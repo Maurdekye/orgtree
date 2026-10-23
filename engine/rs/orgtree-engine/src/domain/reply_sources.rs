@@ -58,7 +58,7 @@ pub fn event_part(body: &Value, inputs: &Value, native: &Value, part: &Part, age
     match part.part.as_str() {
         "mail.body" if mail.is_some() => Ok(super::replies::event_context(body, agent, mail)?.1),
         "text" if body["role"] == "user" => Ok(super::replies::event_context(body, agent, None)?.1),
-        "thinking" if body["thinking_sealed"] == true => Err(missing()),
+        "thinking" if body["thinking_sealed"] == true && body["thinking"].as_str().is_none_or(str::is_empty) => Err(missing()),
         "text" | "thinking" | "cmd_out" => text(&body[&part.part]),
         "tool.input" | "tool.result" | "tool.error" => {
             let id = part.tool_id.as_deref().ok_or_else(missing)?;
@@ -228,6 +228,10 @@ mod tests {
         let part=Part::parse(&json!({"part":"text"})).unwrap();
         assert_eq!(event_part(&body,&Value::Null,&Value::Null,&part,"writer",None).unwrap(),"visible\nonly");
         assert!(event_part(&body,&Value::Null,&Value::Null,&Part::parse(&json!({"part":"thinking"})).unwrap(),"writer",None).is_err());
+        let thinking=Part::parse(&json!({"part":"thinking"})).unwrap();
+        assert!(event_part(&json!({"thinking":"","thinking_sealed":true}),&Value::Null,&Value::Null,&thinking,"writer",None).is_err());
+        // A mixed row's marker does not erase the separately supplied readable text.
+        assert_eq!(event_part(&json!({"thinking":"visible summary","thinking_sealed":true,"content_blocks":[{"kind":"thinking","sealed":true}]}),&Value::Null,&Value::Null,&thinking,"writer",None).unwrap(),"visible summary");
     }
     #[test]
     fn reply_selection_source_tool_scalars_keys_and_redaction() {
