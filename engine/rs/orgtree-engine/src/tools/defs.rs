@@ -1817,7 +1817,13 @@ mod builder_stack_tests {
         // Approved 4.4.3 selection-reply contract: identity strings/objects
         // remain nested unchanged; the additive wrapper is covered separately.
         let cards=expected.as_array_mut().unwrap();
-        let baseline=cards.iter().find(|c|c["name"]=="orgtree_message").unwrap().clone();
+        let mut baseline=cards.iter().find(|c|c["name"]=="orgtree_message").unwrap().clone();
+        // The earlier fixture reconciliation already uses today's helper.
+        // Restore its exact 4.4.2 identity schema for a real byte-cost control.
+        // Frozen from assigned base 3b3a5c779795127af10f3c20e51a28ff2077e246.
+        let legacy:Value=serde_json::from_str(include_str!("../../testdata/reply-target-schema-442.json")).unwrap();
+        baseline["inputSchema"]["properties"]["metadata"]["properties"]["reply_to"]["anyOf"]=legacy["anyOf"].clone();
+        baseline["inputSchema"]["properties"]["metadata"]["properties"]["replies"]["items"]=legacy;
         let [extended,_]=super::mail_tools(super::MailShape::Split);
         let [flat,_]=super::mail_tools(super::MailShape::Flat);
         let mut old_flat=flat.clone();
@@ -1831,6 +1837,7 @@ mod builder_stack_tests {
             "message_split_base_schema_bytes":bytes(&baseline["inputSchema"]),"message_split_extended_schema_bytes":bytes(&extended["inputSchema"]),
             "message_flat_base_bytes":bytes(&old_flat),"message_flat_extended_bytes":bytes(&flat),
             "message_flat_delta_bytes":bytes(&flat) as i64-bytes(&old_flat) as i64});
+        assert!(costs["message_split_delta_bytes"].as_i64().unwrap()>0,"a zero delta means the predecessor control was overwritten");
         println!("SELECTION_TOOL_COST {costs}");
         if let Ok(path)=std::env::var("ORGTREE_SELECTION_TOOL_COST") {
             assert!(path.replace('\\',"/").starts_with("C:/orgtree-build/native-tools-sol/"));

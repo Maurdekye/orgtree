@@ -1,0 +1,116 @@
+{
+  "anyOf": [
+    {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200,
+      "description": "legacy mail message ID"
+    },
+    {
+      "type": "object",
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "org",
+            "id"
+          ],
+          "properties": {
+            "kind": {
+              "type": "string",
+              "enum": [
+                "document",
+                "presentation"
+              ]
+            },
+            "org": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            },
+            "id": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "org",
+            "slug"
+          ],
+          "properties": {
+            "kind": {
+              "type": "string",
+              "enum": [
+                "work_item"
+              ]
+            },
+            "org": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            },
+            "slug": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "source_event_ref"
+          ],
+          "properties": {
+            "source_event_ref": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "org",
+                "agent",
+                "generation",
+                "eventId"
+              ],
+              "properties": {
+                "org": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 200
+                },
+                "agent": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 200
+                },
+                "generation": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "eventId": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 200
+                }
+              }
+            },
+            "mail_id": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            }
+          }
+        }
+      ],
+      "description": "Identity only. Supported forms: {kind: document|presentation, org, id}; {kind: work_item, org, slug}; or {source_event_ref: {org, agent, generation, eventId}, mail_id?}. Mail replies continue to use legacy message IDs. Do not supply quote text; the engine loads it from the authorized source."
+    }
+  ]
+}
