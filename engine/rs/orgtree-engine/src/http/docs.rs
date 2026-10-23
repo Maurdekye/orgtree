@@ -132,11 +132,11 @@ const OPENING_UNREAD_SQL: &str = "SELECT d.uid, d.id FROM ot.documents d LEFT JO
  AND CASE WHEN $3::bigint[] IS NULL THEN ($2 = '' OR d.node_name = $2)
           ELSE (d.agent_id = ANY($3) OR (d.agent_id IS NULL AND d.node_name = $2)) END
  AND (NOT $4::boolean OR a.state = 'live') ORDER BY d.at ASC, d.id ASC LIMIT 1";
-const OPENING_NEWEST_SQL: &str = "SELECT d.uid, d.id FROM ot.documents d LEFT JOIN ot.agents a ON a.id = d.agent_id
+const OPENING_TOPMOST_SQL: &str = "SELECT d.uid, d.id FROM ot.documents d LEFT JOIN ot.agents a ON a.id = d.agent_id
  WHERE d.org_id = $1 AND NOT d.dismissed
  AND CASE WHEN $3::bigint[] IS NULL THEN ($2 = '' OR d.node_name = $2)
           ELSE (d.agent_id = ANY($3) OR (d.agent_id IS NULL AND d.node_name = $2)) END
- AND (NOT $4::boolean OR a.state = 'live') ORDER BY d.at DESC, d.id DESC LIMIT 1";
+ AND (NOT $4::boolean OR a.state = 'live') ORDER BY d.id DESC LIMIT 1";
 const OPENING_POSITION_SQL: &str = "SELECT count(*) FROM ot.documents d WHERE d.org_id = $1 AND d.id > $2
  AND CASE WHEN $4::bigint[] IS NULL THEN ($3 = '' OR d.node_name = $3)
           ELSE (d.agent_id = ANY($4) OR (d.agent_id IS NULL AND d.node_name = $3)) END";
@@ -150,10 +150,10 @@ async fn opening_target(client: &tokio_postgres::Client, org_id: i64, node: &str
         None => {
             // Identity lookup, scoped exactly like the list; no history prefix.
             let prior = if previous.is_empty() || previous.len() > 512 { None } else {
-                let sql=OPENING_NEWEST_SQL.replace("ORDER BY d.at DESC, d.id DESC", "AND d.uid=$5 ORDER BY d.at DESC, d.id DESC");
+                let sql=OPENING_TOPMOST_SQL.replace("ORDER BY d.id DESC", "AND d.uid=$5 ORDER BY d.id DESC");
                 client.query_opt(&sql,&[&org_id,&node,members,&hired,&previous]).await?
             };
-            match prior { Some(row)=>Some(row), None=>client.query_opt(OPENING_NEWEST_SQL, params).await? }
+            match prior { Some(row)=>Some(row), None=>client.query_opt(OPENING_TOPMOST_SQL, params).await? }
         },
     };
     let Some(row) = row else { return Ok(None) };
@@ -386,7 +386,12 @@ mod opening_tests {
         client.batch_execute("UPDATE ot.documents SET viewed_at=at;UPDATE ot.documents SET at='2026-10-20' WHERE uid='changed'").await.unwrap();
         assert_eq!(super::opening_target(&client,1,"",&None,true, "").await.unwrap(),Some(("changed".into(),3)));
         client.batch_execute("UPDATE ot.documents SET viewed_at=at").await.unwrap();
-        assert_eq!(super::opening_target(&client,1,"",&None,true, "").await.unwrap(),Some(("changed".into(),3)));
+        // The list is id DESC even when an older document was replaced later.
+        assert_eq!(super::opening_target(&client,1,"",&None,true, "").await.unwrap(),Some(("new".into(),2)));
+        assert_eq!(super::opening_target(&client,1,"",&None,true, "changed").await.unwrap(),Some(("changed".into(),3)));
+        for unavailable in ["dismissed","retired","other-org","missing"] {
+            assert_eq!(super::opening_target(&client,1,"",&None,true, unavailable).await.unwrap(),Some(("new".into(),2)));
+        }
         drop(client); task.await.unwrap();
     }
 }
