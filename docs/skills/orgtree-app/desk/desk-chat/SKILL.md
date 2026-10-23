@@ -227,3 +227,5 @@ Supported parts are prose, displayed unsealed thoughts, expanded retained tool i
 A selection quote keeps its captured text after edits. Activate it to check the source: an exact or uniquely relocated passage may be highlighted after opening; changed or unavailable sources keep the quote and say so. The nearest owning reading surface scrolls. Agents use the Working category's **orgtree-read-reply-source** and **orgtree-tool-message** pages for the equivalent bounded read/send contract.
 
 A clipped prose/plain-result view may quote its visible prefix only after it matches version-bound canonical source windows. A clipped or repaired structured JSON view cannot quote invented closing text.
+
+If a selected desk reply fails after you have started a new draft, the new draft stays intact. The failed message retains its original text, attachments and selected passages; use its **Restore** control to recover that submission. Source parts over 1 MiB refuse before DOM mapping; use a smaller retained field or JSON scalar.
