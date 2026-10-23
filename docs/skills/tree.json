@@ -828,35 +828,35 @@
    "components": [],
    "ui_labels": [
     {
-     "file": "apps/desktop/renderer/src/canvas/modals.tsx",
+     "file": "apps/desktop/renderer/src/canvas/projectpolicy.tsx",
      "label": "Mail queue"
     },
     {
-     "file": "apps/desktop/renderer/src/canvas/modals.tsx",
+     "file": "apps/desktop/renderer/src/canvas/projectpolicy.tsx",
      "label": "Never hand an agent its own mail"
     },
     {
-     "file": "apps/desktop/renderer/src/canvas/modals.tsx",
+     "file": "apps/desktop/renderer/src/canvas/projectpolicy.tsx",
      "label": "Ack timeout"
     },
     {
-     "file": "apps/desktop/renderer/src/canvas/modals.tsx",
+     "file": "apps/desktop/renderer/src/canvas/projectpolicy.tsx",
      "label": "Max attempts"
     },
     {
-     "file": "apps/desktop/renderer/src/canvas/modals.tsx",
+     "file": "apps/desktop/renderer/src/canvas/projectpolicy.tsx",
      "label": "Concurrency slots"
     },
     {
-     "file": "apps/desktop/renderer/src/canvas/modals.tsx",
+     "file": "apps/desktop/renderer/src/canvas/projectpolicy.tsx",
      "label": "Ack reminders"
     },
     {
-     "file": "apps/desktop/renderer/src/canvas/modals.tsx",
+     "file": "apps/desktop/renderer/src/canvas/projectpolicy.tsx",
      "label": "Remind an agent that ends its turn with an un-acked job"
     },
     {
-     "file": "apps/desktop/renderer/src/canvas/modals.tsx",
+     "file": "apps/desktop/renderer/src/canvas/projectpolicy.tsx",
      "label": "Project Events"
     }
    ]
@@ -7441,6 +7441,10 @@
    "ui_labels": [
     {
      "file": "apps/desktop/renderer/src/canvas/modals.tsx",
+     "label": "Subordinates may message each other"
+    },
+    {
+     "file": "apps/desktop/renderer/src/canvas/projectpolicy.tsx",
      "label": "Subordinates may message each other"
     }
    ],
