@@ -189,9 +189,15 @@ export default async function (rig) {
     record('mail routes both ways through transparent projects', upward.ok && downward.ok,
       { up: upward.text, down: downward.text })
     const turns = rig.turns('leaf').filter(t => t.ended_at).length
+    const launchStarted=Date.now()
     await rig.userMail('leaf', 'Record the actual synthetic supervisor context.')
-    await rig.waitTurns('leaf', turns + 1, { timeout: 20000 })
-    const prompt = rig.fakeLog('leaf').filter(r => r.kind === 'turn').at(-1)?.prompt ?? ''
+    await rig.waitTurns('leaf', turns + 1, { timeout: 60000 })
+    p.file('launch-measurement.json',{elapsedMs:Date.now()-launchStarted,budgetMs:60000,coldWorkspaceInitialization:true})
+    const fakeLog=rig.fakeLog('leaf'),actualTurn=fakeLog.filter(r=>r.kind==='turn').at(-1)
+    const prompt = actualTurn?.prompt ?? ''
+    const native=fakeLog.findLast(r=>r.kind==='recv'&&r.pid===actualTurn?.pid&&['thread/start','thread/resume'].includes(r.line?.method))?.line?.params?.developerInstructions
+    p.file('leaf-native-instructions.txt',native??'')
+    p.file('leaf-fakecli.jsonl',fakeLog.map(r=>JSON.stringify(r)).join('\n'))
     p.file('leaf-prompt.txt', prompt)
     let generated = ''
     if (prompt.includes('[ORGTREE CONTEXT BY REFERENCE]')) {
@@ -206,7 +212,8 @@ export default async function (rig) {
     }
     record('real fake-CLI prompt names boss as superior', (generated + prompt).includes('direct superior (boss)')
       && prompt.includes('FROM boss (your superior)'), { bytes: prompt.length })
-    record('real fake-CLI prompt retains the outer team charter',(generated+prompt).includes('DEPTH_ROOT_TEAM_CHARTER_MUST_SURVIVE'))
+    record('real fake-CLI prompt retains the outer team charter',typeof native==='string'&&native.includes('DEPTH_ROOT_TEAM_CHARTER_MUST_SURVIVE'),
+      {source:'native thread/start developerInstructions correlated with actual turn PID'})
     phase = 'descendant halt/unhalt and interruption'
     const denied = await tool('outsider', 'orgtree_halt', { node: 'leaf' })
     record('unrelated agent cannot halt deepest node', !denied.ok && !row('leaf').halt, denied.text)
