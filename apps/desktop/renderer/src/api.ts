@@ -793,8 +793,15 @@ export const getDocuments = (slug: string, offset = 0, node = '', locate = '', l
     + (opening && previous ? `&previous=${encodeURIComponent(previous)}` : '')
     + (locate ? `&locate=${encodeURIComponent(locate)}` : ''))
 export type ReaderAvailability = { work: {own:boolean;team:boolean}; presented: {own:boolean;team:boolean} }
-export const getReaderAvailability = (org:string,nid:string,archived=false,backlogged=false,retired=false): Promise<ReaderAvailability> =>
-  req(`/api/orgs/${encodeURIComponent(org)}/nodes/${encodeURIComponent(nid)}/reader-availability?archived=${archived}&backlogged=${backlogged}&retired=${retired}`)
+export const getReaderAvailability = async (org:string,nid:string,archived=false,backlogged=false,retired=false): Promise<ReaderAvailability> => {
+  const value=await req<ReaderAvailability>(`/api/orgs/${encodeURIComponent(org)}/nodes/${encodeURIComponent(nid)}/reader-availability?archived=${archived}&backlogged=${backlogged}&retired=${retired}`)
+  // A successful HTTP response is not proof of the endpoint's wire contract.
+  // Let usePolled retain its last confirmed facts on incomplete/older replies.
+  if (typeof value?.work?.own!=='boolean' || typeof value?.work?.team!=='boolean'
+      || typeof value?.presented?.own!=='boolean' || typeof value?.presented?.team!=='boolean')
+    throw new Error('Desk reader availability response is incomplete')
+  return value
+}
 export const dismissDocument = (slug: string, did: string):
   Promise<{ ok: boolean; node: string }> =>
   req(`/api/orgs/${slug}/documents/${did}`, { method: 'DELETE' })

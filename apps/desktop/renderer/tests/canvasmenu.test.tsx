@@ -19,6 +19,7 @@ import { pinSurfaceKey, readPinSurfaces, updatePinSurface, removePinSurface } fr
 import { installAppShortcuts } from '../src/shell/appshortcuts'
 import type { CanvasShortcutActions } from '../src/shell/appshortcuts'
 import { resetConvos } from '../src/convo'
+import { getReaderAvailability } from '../src/api'
 import type { TreePayload } from '../src/types'
 
 const noop = () => {}
@@ -374,4 +375,24 @@ test('one handler each: the buttons and the menu entries call the same functions
   assert.match(src, /title=\{HUD_FIT\} onClick=\{hudFit\}/, 'fit button')
   assert.match(src, /label: sentence\(HUD_FIT\), onSelect: hudFit/, 'fit entry')
   assert.match(src, /label: sentence\(HUD_SWITCHBOARD\), onSelect: hudSwitchboard/, 'switchboard entry')
+})
+
+
+test('desk availability rejects incomplete successful replies and the shared fixture models empty and own scopes', async t=>{
+  const saved=globalThis.fetch
+  t.after(()=>{globalThis.fetch=saved})
+  for(const body of [{ok:true},null,{}, {work:{own:false,team:false}},
+    {work:{own:false,team:false},presented:{own:false,team:'false'}}]) {
+    globalThis.fetch=(async()=>new Response(JSON.stringify(body))) as typeof fetch
+    await assert.rejects(getReaderAvailability('availability-contract','lead'),/availability response is incomplete/)
+  }
+  const server=new FakeServer();installFetch(server)
+  assert.deepEqual(await getReaderAvailability('availability-contract','lead'),
+    {work:{own:false,team:false},presented:{own:false,team:false}})
+  server.workItems=[{slug:'review',reviewer:{node:'lead'}}]
+  server.documents=[{id:'own',node:'lead',node_state:'live'}]
+  assert.deepEqual(await getReaderAvailability('availability-contract','lead'),
+    {work:{own:true,team:true},presented:{own:true,team:true}})
+  assert.deepEqual(await getReaderAvailability('availability-contract','other'),
+    {work:{own:false,team:false},presented:{own:false,team:false}})
 })

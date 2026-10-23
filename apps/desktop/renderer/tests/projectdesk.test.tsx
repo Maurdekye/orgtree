@@ -9,7 +9,7 @@
 //      presented and Team (user 2026-10-18 10:53Z), and there is no chat
 //      tab (its message box broadcasts: §9); an unfocused card has none; the
 //      presented tab counts AND
-//      shows the subtree's documents (review P2);
+//      keeps its own count; empty optional tabs follow the 2026-10-23 rule;
 //   §2 the main tab: jump cards up to the parent and down to the members
 //      (the chat desk's NavChip), both on every tab as on the agent desk
 //      (user 2026-10-19 19:58Z), and the description editor: Markdown while
@@ -43,7 +43,7 @@ import { readFileSync } from 'node:fs'
 import path from 'node:path'
 import { FakeServer, flush, inAct, installFetch, mountView } from './harness'
 import { ProjectDesk, ProjectDeskModal, projectBroadcastRecipients, projectCounts, sourceOffset } from '../src/canvas/projectdesk'
-import { forgetDeskMemory } from '../src/canvas/desktabs'
+import { forgetDeskMemory, rememberDesk } from '../src/canvas/desktabs'
 import { AgentGalleryView } from '../src/canvas/gallery'
 import { pinAccentClass } from '../src/canvas/pins'
 import { CurrentOrg } from '../src/popout'
@@ -94,7 +94,8 @@ const tree = {
 
 function serve(t: TestContext) {
   const had = (globalThis as { fetch?: typeof fetch }).fetch
-  installFetch(new FakeServer())
+  const server=new FakeServer()
+  installFetch(server)
   const inner = globalThis.fetch
   // The generic FakeServer fallback is {ok:true}, not an inbox response.
   // Both the live window and its explicit history page use the folder contract.
@@ -107,17 +108,33 @@ function serve(t: TestContext) {
     return inner(url, init)
   }) as typeof fetch
   t.after(() => { (globalThis as { fetch?: typeof fetch }).fetch = had })
+  return server
 }
 
 async function desk(t: TestContext, h: { jump?: (id: string) => void; config?: () => void;
   pin?: () => void; popout?: () => void; bare?: boolean; node?: CanvasNode; ops?: OpRequest[]
   toast?: (lines: string[]) => void; openDoc?: (id: string) => void;
-  fetch?: (inner: typeof fetch) => typeof fetch; tree?: TreePayload } = {}) {
-  serve(t)
+  fetch?: (inner: typeof fetch) => typeof fetch; tree?: TreePayload; readerContent?: boolean; tab?: 'docket' } = {}) {
+  const server=serve(t)
   // each test opens the desk on Summary, not on the tab an earlier one picked
   forgetDeskMemory()
   if (h.fetch) globalThis.fetch = h.fetch(globalThis.fetch!)
   const nd = h.node ?? project()
+  if(h.tab)rememberDesk('org',nd.id,'tab',h.tab)
+  // A header count and its availability reply describe the same fixture data.
+  server.documents=(nd.documents ?? Array.from({length:nd.documents_count ?? (h.readerContent?1:0)},(_,i)=>
+    ({id:'project-doc-'+i,title:'Project document',at:'2026-10-23T12:00:00Z'})))
+    .map(d=>({...d,node:nd.id,node_state:'live',format:'markdown'}))
+  if(h.readerContent)server.workItems=[{slug:'member-ticket',title:'Member ticket',kind:'code',status:'open',rev:1,
+    owner:{node:'dev1',generation:0},participants:[],questions:[],dependencies:[],evidence:[],
+    done_so_far:[],working_on_next:[],at:'2026-10-23T12:00:00Z',updated_at:'2026-10-23T12:00:00Z'}]
+  const members=new Set([...projectMap(nd).keys()].filter(id=>id!==boss.id))
+  server.readerAvailability=(nid,archived,backlogged,retired)=>{
+    const docs=server.documents.filter((d:any)=>!d.dismissed && !d.evicted && (retired || d.node_state==='live')) as {node:string}[]
+    const work=[...server.workItems,...(archived?server.workArchived:[]),...(backlogged?server.workBacklogged:[])] as {owner?:{node?:string}}[]
+    return {work:{own:false,team:nid===nd.id && work.some(w=>members.has(w.owner?.node ?? ''))},
+      presented:{own:docs.some(d=>d.node===nid),team:nid===nd.id && docs.some(d=>members.has(d.node))}}
+  }
   const ops = h.ops ?? []
   // the slots tab reads the engine's slot_status shape (§2g opens it)
   const answer = (b: OpRequest) => b.op === 'slot_status'
@@ -127,7 +144,7 @@ async function desk(t: TestContext, h: { jump?: (id: string) => void; config?: (
     toast={h.toast ?? noop} refs={refs} bare={h.bare} onJump={h.jump} onConfig={h.config} onPin={h.pin} onPopout={h.popout}
     onOpenDoc={h.openDoc} />, (el) => el)
   t.after(() => view.unmount())
-  await flush(2)
+  await inAct(()=>flush(6))
   return view.el
 }
 
@@ -152,8 +169,8 @@ test('§1a the project desk: the agent desk frame, the project\'s name, the agen
   assert.equal(name?.closest('[data-agent-tooltip]')?.getAttribute('data-agent-tooltip'), 'website',
     'the project desk name carries the same identity hover as its project card')
   assert.equal(name?.hasAttribute('title'), false, 'no static title in front of the shared hover')
-  assert.deepEqual(tabs(el), ['desk', 'inbox', 'docket', 'presented', 'team'],
-    'no Listeners tab while no listener has ever registered on it (user 2026-10-20 06:22Z)')
+  assert.deepEqual(tabs(el), ['desk', 'inbox', 'team'],
+    'empty Docket/Presented tabs hide; no Events tab before a listener registers')
   assert.equal(el.querySelector('.cc-tabs button[data-tab="desk"]')?.classList.contains('on'), true, 'it opens on its main tab')
   assert.equal(el.querySelector('.cc-tabs button[data-tab="inbox"] .tab-count')?.textContent, '2')
   assert.equal(el.querySelector('.cc-tabs button[data-tab="chat"]') === null, true, 'no chat tab')
@@ -347,8 +364,8 @@ test('§2g the jump cards stay on every tab, the members\' row above the message
   const nd = project({ dead_letters: 1, configured_scope: { tools: {}, add_dirs: [], slots_capacity: 2, event_listeners: true } } as Partial<CanvasNode>)
   const dogs = [{ id: 'dev1/ready', owner: 'dev1', name: 'ready', kind: 'project_listener', target: 'website', interval_s: 5,
     state: 'armed', at: '2026-10-19T07:00:00.000Z', fired: 0, once: true, spent: false }]
-  const el = await desk(t, { jump: (id) => jumped.push(id), node: nd,
-    tree: { slug: 'org', roots: [], watchdogs: dogs, slot_leases: [] } as unknown as TreePayload })
+  const el = await desk(t, { jump: (id) => jumped.push(id), node: nd, readerContent:true,
+    tree: { slug: 'org', roots: [nd], watchdogs: dogs, slot_leases: [] } as unknown as TreePayload })
   const names = (row: Element | null) => [...(row?.querySelectorAll('button.desk-nav-chip') ?? [])].map((b) => b.getAttribute('data-copy-agent-name'))
   assert.deepEqual(tabs(el), ['desk', 'inbox', 'docket', 'presented', 'team', 'slots', 'dead', 'listeners'], 'every tab a project desk has')
   for (const tab of tabs(el)) {
@@ -737,9 +754,9 @@ test("§5c the focused project card's desk carries the card's pop-out", async (t
   assert.equal(popped, 1)
 })
 
-test('§5d an empty project docket says it lists the tickets of the agents under the project (user 2026-10-18 07:26Z)', async (t) => {
-  const el = await desk(t)
-  await inAct(() => { el.querySelector<HTMLButtonElement>('.cc-tabs button[data-tab="docket"]')!.click() })
+test('§5d an empty active project docket says it lists the tickets of the agents under the project (user 2026-10-18 07:26Z)', async (t) => {
+  // An empty tab is retained while active, including a remembered opening.
+  const el = await desk(t,{tab:'docket'})
   await flush(6)
   const empty = el.querySelector('.desk-tabpanel .dim.pad')?.textContent ?? ''
   assert.match(empty, /agents under website/, 'names whose tickets these are')
@@ -951,7 +968,7 @@ test('§9 Open desk: the project desk as a temporary modal that pins and pops ou
   assert.ok(panel!.classList.contains('pin-project'), 'in the org theme, as a pinned project window')
   assert.equal(panel!.querySelector('.cc-head-left .name')?.textContent, 'website', 'holding the project desk')
   assert.deepEqual([...panel!.querySelectorAll('.cc-tabs button')].map((b) => b.getAttribute('data-tab')),
-    ['desk', 'inbox', 'docket', 'presented', 'team'])
+    ['desk', 'inbox', 'team'])
   document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
   await flush(1)
   assert.equal(closed, 1, 'Escape closes a centred modal')

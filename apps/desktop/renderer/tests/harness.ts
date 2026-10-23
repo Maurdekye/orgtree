@@ -143,12 +143,23 @@ export class FakeServer {
   pending_mail: PendingMail[] = []
   /** the org's docket, as `GET /work-items` serves it. The desk polls this for
    *  the agent's own docket tab, so a test that leaves it empty gets the empty
-   *  panel — which is the honest default, not a stub that hides the tab. */
+   *  panel/hidden optional tab — the real empty-data contract. */
   workItems: unknown[] = []
   workArchived: unknown[] = []
   workBacklogged: unknown[] = []
   /** metadata returned by the agent-scoped document gallery endpoint */
   documents: unknown[] = []
+  /** This fixture models one node. Multi-node/team cases supply their scoped
+   * endpoint explicitly rather than treating unrelated org rows as its team. */
+  readerAvailability(nid:string,archived:boolean,backlogged:boolean,retired:boolean) {
+    const work=[...this.workItems,
+      ...this.workArchived.filter((r:any)=>archived || r.effective_attention || r.manual_attention),
+      ...this.workBacklogged.filter((r:any)=>backlogged || r.effective_attention || r.manual_attention)]
+    const ownWork=work.some((r:any)=>r.owner?.node===nid || (typeof r.reviewer==='string'?r.reviewer:r.reviewer?.node)===nid)
+    const ownDocs=this.documents.some((r:any)=>(r.node ?? r.node_name)===nid && !r.evicted
+      && !r.dismissed && (retired || !r.node_state || r.node_state==='live'))
+    return {work:{own:ownWork,team:ownWork},presented:{own:ownDocs,team:ownDocs}}
+  }
   /** every chat request the client has made, newest last */
   requests: { last: number | null; at: number; before?: string }[] = []
   /** every `/upload` request this server answered, newest last — a test
@@ -329,6 +340,9 @@ export function installFetch(server: FakeServer): Transport {
               { name: 'notes.txt', dir: false, size: 12 }],
         }
         : /\/history$/.test(u.pathname) ? { items: [] }
+          : /\/reader-availability$/.test(u.pathname)
+            ? server.readerAvailability(decodeURIComponent(u.pathname.split('/').at(-2)!),
+                u.searchParams.get('archived')==='true',u.searchParams.get('backlogged')==='true',u.searchParams.get('retired')==='true')
           : /\/documents$/.test(u.pathname)
             ? { documents: server.documents, total: server.documents.length, next_offset: null }
           : /\/work-items\/[^/]+$/.test(u.pathname)

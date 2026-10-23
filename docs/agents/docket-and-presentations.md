@@ -15,6 +15,13 @@ Desk presentation pages opt into `visible=true`; their rows, totals and opening/
 positions share dismissed/hired filters, so invisible history cannot produce a blank
 first page or a wrong opening position. Other reader callers keep their existing pages.
 
+The renderer validates all four boolean availability facts before publishing a
+successful read. An incomplete successful response is unavailable, not an empty
+collection; the poll keeps its last confirmed facts and retries through its
+normal live/fallback schedule. This keeps malformed/older endpoint replies out
+of the desk filters. The shared single-node FakeServer models this endpoint;
+team-specific fixtures must provide their explicit scoped summary.
+
 `deskreaders.ts` owns the shared visibility and team defaults. It holds a settled
 scope while active and waits for the first availability answer before mounting a
 fresh reader, so an own-scope opening cannot race ahead of a team default. Manual
