@@ -228,6 +228,11 @@ export default async function (rig) {
     p.file('reallocated-project-ledger.json', ledger)
     record('every project mirror preserves the exact reallocated frontier', ledger.length === depth && ledgerWrong.length === 0,
       { count: ledger.length, expected: depth, wrong: ledgerWrong.slice(0, 10), wrongCount: ledgerWrong.length })
+    const creditState=()=>rig.sql(`SELECT id,parent_id,state,seat::text,grant_credits::text,row_version
+      FROM ot.agents WHERE org_id=${org} ORDER BY id`)
+    const beforeRefusal=JSON.stringify(creditState())
+    const deniedAllocation=await tool('boss','orgtree_reallocate',{node:'leaf',delta:1000})
+    record('unaffordable deep allocation preserves every ledger row',!deniedAllocation.ok&&beforeRefusal===JSON.stringify(creditState()),deniedAllocation.text)
     phase = 'deep project broadcast/listeners/queue'
     const broadcast = await tool('boss', 'orgtree_project', { action: 'broadcast', name: last, body: `DEPTH-${depth}-BROADCAST`, notice: true })
     const recipients = rig.sql(`SELECT recipient_name FROM ot.mail WHERE org_id=${org} AND body='DEPTH-${depth}-BROADCAST' ORDER BY recipient_name`).map(r => r.recipient_name)
@@ -266,6 +271,13 @@ export default async function (rig) {
     record('ancestor retirement releases full lease and grants next claimant', held.ok && queued.ok && retire.ok
       && row('victim').state === 'archived' && leases.some(l => l.name === 'victim' && l.slot_count === 2 && l.ended_at && l.end_reason === 'retired')
       && leases.some(l => l.name === 'waiter' && !l.ended_at), { held: held.text, queued: queued.text, retire: retire.text, leases })
+    const retiredLedger=rig.sql(`SELECT name,seat::text,grant_credits::text FROM ot.agents
+      WHERE org_id=${org} AND kind='project' AND state='live' ORDER BY id`)
+    const retiredWrong=retiredLedger.filter(r=>Number(r.seat)!==0||Number(r.grant_credits)!==
+      (Number(r.name.slice(2))<=Math.floor(depth/2)?17:15))
+    p.file('retired-project-ledger.json',retiredLedger)
+    record('retirement releases the exact stake from every project mirror',retiredLedger.length===depth&&retiredWrong.length===0,
+      {count:retiredLedger.length,wrong:retiredWrong.slice(0,10),wrongCount:retiredWrong.length})
     phase = 'dissolve deep project subtree'
     const dissolve = await tool('boss', 'orgtree_dissolve', { node: 'p-0' })
     const liveBelow = rig.one(`SELECT count(*)::int AS n FROM ot.agents WHERE org_id=${org} AND state='live' AND name<>'boss' AND name<>'outsider'`).n
