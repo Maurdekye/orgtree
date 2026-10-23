@@ -22,7 +22,7 @@ window.fetch = async () => new Response(JSON.stringify({
   chat: [], live: [], pending_mail: [], documents: [], history: [],
   providers: [], items: [], enabled: false,
 }), { headers: { 'Content-Type': 'application/json' } })
-applyTheme('orgtree')
+applyTheme('custom:#b6bdc8')
 ;(window as unknown as { setProbeTheme: typeof applyTheme }).setProbeTheme = applyTheme
 
 createRoot(document.getElementById('root')!).render(<>

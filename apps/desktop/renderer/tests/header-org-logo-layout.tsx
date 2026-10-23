@@ -11,7 +11,7 @@ const draw=image.getContext('2d')!;draw.fillStyle='#71d6ca';draw.fillRect(0,0,32
 draw.strokeStyle='#143c45';draw.lineWidth=3;draw.strokeRect(5,5,8,8);draw.strokeRect(19,19,8,8);draw.beginPath();draw.moveTo(9,13);draw.lineTo(9,23);draw.lineTo(19,23);draw.stroke()
 const data=image.toDataURL('image/png').split(',')[1]
 window.fetch=async()=>new Response(JSON.stringify({owner:1,picture:{revision:'r1',data}}),{headers:{'Content-Type':'application/json'}})
-applyTheme('orgtree')
+applyTheme('custom:#b6bdc8')
 const menu=<button className="iconbtn" aria-label="Menu">☰</button>
 const modes=<button>Canvas</button>
 function Header({name='Orgtree',quick=false,logo=true}:{name?:string;quick?:boolean;logo?:boolean}) {

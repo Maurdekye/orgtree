@@ -35,7 +35,7 @@ import { Stage } from '../src/epic/stage'
 import type { TreePayload } from '../src/types'
 
 type Prefs = Record<string, unknown>
-let saved: Prefs = { visualTheme: 'orgtree', visualThemeExplicit: true, contrastTheme: 'charcoal', agentColorSource: 'provider' }
+let saved: Prefs = { visualTheme: 'custom:#b6bdc8', visualThemeExplicit: true, contrastTheme: 'charcoal', agentColorSource: 'provider' }
 const listeners = new Set<(e: { type: string; data: unknown }) => void>()
 ;(window as unknown as { orgtreeDesktop: unknown }).orgtreeDesktop = {
   getPreferences: async () => saved,
@@ -71,7 +71,7 @@ window.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
   applyContrast(theme)
 }
 
-applyTheme('orgtree')
+applyTheme('custom:#b6bdc8')
 // every word the stage paints, so a capture can say what was on screen
 const drawn: string[] = []
 ;(window as unknown as { __drawn: string[] }).__drawn = drawn

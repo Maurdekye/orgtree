@@ -115,5 +115,5 @@ function Fixture() {
   </div>
 }
 window.fetch = async () => new Response(JSON.stringify({}), { headers: { 'Content-Type': 'application/json' } })
-applyTheme('orgtree')
+applyTheme('custom:#b6bdc8')
 createRoot(document.getElementById('root')!).render(<AgentNavProvider><Fixture /></AgentNavProvider>)

@@ -57,7 +57,7 @@ interface Mode { view: View; contrast: string; theme: string }
 declare global { interface Window { __gallery?: { set: (m: Partial<Mode>) => void } } }
 
 function Fixture() {
-  const [mode, setMode] = useState<Mode>({ view: 'inbox', contrast: 'light', theme: 'orgtree' })
+  const [mode, setMode] = useState<Mode>({ view: 'inbox', contrast: 'light', theme: 'claude' })
   useEffect(() => { window.__gallery = { set: (m) => setMode((old) => ({ ...old, ...m })) } }, [])
   useEffect(() => {
     // the app's own setters: one contrast class on the root, the theme's

@@ -14,7 +14,7 @@ const fake = {
 } as unknown as NativeDesktop
 Object.assign(window, { orgtreeDesktop: fake })
 window.fetch = async () => new Response('{}', { headers: { 'content-type': 'application/json' } })
-applyTheme('orgtree')
+applyTheme('custom:#b6bdc8')
 createRoot(document.getElementById('root')!).render(<UserNode
   pos={{ x: focused ? (eyeW - 124) / 2 + 35 : 45, y: 90 }} isDrop={false} stats={{ circ: 0, seats: 0, free: 0 }} pip={null}
   seats={{ haiku: 1 }} pxc={1} zoom={1} focused={focused} eyeW={eyeW}

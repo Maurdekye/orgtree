@@ -138,7 +138,7 @@ Object.defineProperty(window, 'orgtreeDesktop', { configurable: true, value: {
   },
 }
 applyContrast(params.get('contrast') ?? 'light')
-applyTheme(params.get('theme') ?? 'orgtree')
+applyTheme(params.get('theme') ?? 'claude')
 
 history.replaceState(null, '', (home ? '/' : `/o/${SLUG}`) + location.search)
 createRoot(document.getElementById('root')!).render(<App />)

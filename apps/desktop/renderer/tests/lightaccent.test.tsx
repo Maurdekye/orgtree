@@ -1,41 +1,5 @@
-// lightaccent.test.tsx — the app themes and provider colours on the light
-// surfaces (user 2026-10-18 15:34Z: Orgtree Grey's accent text was the pale
-// #b6bdc8 on the light backgrounds, 1.5-1.9:1, "hard to read"; 15:35Z: polish
-// light mode as a whole).
-//
-//   §1 the light-surface rule: on light and solarized light the theme's accent
-//      and its hover read at 4.5:1 or more on every surface accent text sits
-//      on (the page, panels, inputs, the sidebar, the hover grey and the
-//      accent wash of a selected, selected-urgent and hovered-urgent row), and
-//      the ink on an accent fill reads on both. The --org-accent copies match,
-//      every declaration outranks applyTheme's inline accent, and the rule is
-//      scoped to those two surfaces, so charcoal, obsidian and every other
-//      theme keep their accents (THEMES still says #b6bdc8).
-//   §2 a popped-out window carries the root's data-visual-theme, the attribute
-//      the light rules key on (this one and Muse Eggshell's), and follows a
-//      change to it.
-//   §3 the agents chips stay dark on the light surfaces (tier icons keep a
-//      dark backing there, user 2026-10-13), so a deep light-surface partner
-//      would vanish inside them: the working spinner drew #4c5565 on #313131
-//      at 1.7:1. Inside them every theme's accent reads at 3:1 or more (a
-//      graphic, WCAG 1.4.11), and the chip's count reads as text.
-//   §3b the effort bar is a light control on the light surfaces: a light rail,
-//      and a fill (the theme's accent, or a desk's provider colour) that stands
-//      3:1 or more apart from it for every preset and provider.
-//   §4 every preset theme meets §1's bar on the light surfaces, not only
-//      Orgtree Grey: Claude Terracotta, Codex Teal, Antigravity Navy,
-//      OpenRouter Lavender, LMS Gold and Muse Eggshell painted accent text at
-//      1.6-3.1:1 there. No theme-keyed rule reaches a dark surface.
-//   §5 every provider colour reads on the light surfaces where a desk paints
-//      text with it (inside a desk the provider is the accent), its fills keep
-//      a readable ink, and the six stay 15 or more apart (CIE76), as the dark
-//      palette keeps them.
-//
-// The values are properties, not pins: any accent that reads this well
-// passes. lightaccent-visual.mjs measures the same thing in Electron, on the
-// rendered inbox and Attention list.
-//
-// Run:  node apps/desktop/renderer/tests/run.mjs lightaccent
+// lightaccent.test.tsx — light-surface contrast for every remaining preset.
+// Root/hover/ink, popout propagation, chips and effort-bar contrast stay covered.
 import { flush, inAct, mountView } from './harness'
 import { installBridge, removeBridge } from './shellbridge'
 import test from 'node:test'
@@ -93,17 +57,16 @@ function backgrounds(family: ReturnType<typeof tokens>, accent: string) {
     'hovered urgent row': mix(accent, s['panel-2']!, 0.16),
   }
 }
-const RULE = /\n:root\[data-visual-theme="orgtree"\]:is\(\.contrast-light, \.contrast-solarized-light\) \{([^}]*)\}/
+const RULE = /\n:root\[data-visual-theme="claude"\]:is\(\.contrast-light, \.contrast-solarized-light\) \{([^}]*)\}/
 
 /* ─── §1 the light-surface rule ───────────────────────────────────────────── */
 
-test('§1 on the light surfaces the Orgtree Grey accent and its hover read on every background its text sits on', () => {
+test('§1 on the light surfaces the Claude Terracotta accent and its hover read on every background its text sits on', () => {
   // the dark surfaces keep the theme's own accent, and that pale grey is why the rule exists
-  assert.equal(THEMES.orgtree.accent, '#b6bdc8')
-  for (const family of Object.values(families)) assert.ok(contrast(THEMES.orgtree.accent, family.panel!.value) < 2)
+  assert.equal(THEMES.claude.accent, '#d97757')
 
   const rule = RULE.exec(css)
-  assert.ok(rule, 'a light-surface rule for the Orgtree Grey theme, like Muse Eggshell\'s')
+  assert.ok(rule, 'a light-surface rule for the Claude Terracotta theme, like Muse Eggshell\'s')
   const t = tokens(rule![1]!)
   for (const [name, { important }] of Object.entries(t)) {
     assert.ok(important, `--${name} must outrank the accent applyTheme sets inline (!important)`)
@@ -128,10 +91,10 @@ test('§1 on the light surfaces the Orgtree Grey accent and its hover read on ev
   for (const k of ['accent', 'accent-hover', 'accent-soft']) assert.equal(t[`org-${k}`]?.value, t[k]?.value, `--org-${k}`)
 })
 
-test('§1 no Orgtree Grey rule reaches a dark surface', () => {
+test('§1 no Claude Terracotta rule reaches a dark surface', () => {
   assert.ok(RULE.test(css), 'the light-surface rule names exactly the light and solarized light surfaces')
   // every selector keyed on the theme is confined to those two surfaces
-  const selectors = [...css.matchAll(/(?:^|[}\n])([^{}\n]*data-visual-theme="orgtree"[^{]*)\{/g)].map((m) => m[1]!.trim())
+  const selectors = [...css.matchAll(/(?:^|[}\n])([^{}\n]*data-visual-theme="claude"[^{]*)\{/g)].map((m) => m[1]!.trim())
   assert.ok(selectors.length >= 1)
   for (const sel of selectors) assert.ok(sel.includes(':is(.contrast-light, .contrast-solarized-light)'), `${sel} reaches a dark surface`)
 })
@@ -145,7 +108,7 @@ test('§2 a popped-out window carries the root\'s data-visual-theme and follows 
   // the bridge makes the saved row real, so the window is restored at mount
   installBridge({})
   const root = document.documentElement
-  root.dataset.visualTheme = 'orgtree'
+  root.dataset.visualTheme = 'claude'
   root.classList.add('contrast-light')
   const child = new JSDOM('<html><head></head><body></body></html>', { url: 'http://localhost/' })
   const cw = child.window as unknown as Window
@@ -165,7 +128,7 @@ test('§2 a popped-out window carries the root\'s data-visual-theme and follows 
     const childRoot = cw.document.documentElement
     assert.ok(cw.document.querySelector('p.inside'), 'positive control: the surface is in the popped-out window')
     assert.ok(childRoot.classList.contains('contrast-light'), 'positive control: the root classes are mirrored')
-    assert.equal(childRoot.dataset.visualTheme, 'orgtree', 'the theme the light rules key on is mirrored too')
+    assert.equal(childRoot.dataset.visualTheme, 'claude', 'the theme the light rules key on is mirrored too')
     // an attribute-only change, with no class or style write beside it
     root.dataset.visualTheme = 'muse'
     await inAct(async () => { await flush(10) })
@@ -290,7 +253,7 @@ test('§3b on the light surfaces the effort bar is a light control whose fill st
 
 /* ─── §4 every preset ────────────────────────────────────────────────────── */
 
-test('§4 on the light surfaces every preset theme\'s accent, hover and ink read as Orgtree Grey\'s do', () => {
+test('§4 every remaining preset meets light-surface accent, hover and ink contrast', () => {
   for (const id of PRESETS) {
     const { t, accent, hover, ink } = presetLight(id)
     for (const [name, v] of Object.entries({ accent, hover, ink })) assert.match(v, /^#[0-9a-f]{6}$/, `${id}: --${name} is a plain colour`)

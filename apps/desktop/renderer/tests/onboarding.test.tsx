@@ -12,7 +12,7 @@ import type { NativePreferences } from '../src/desktop'
 const g = globalThis as unknown as Record<string, unknown>
 
 const prefs = (over: Partial<NativePreferences> = {}): NativePreferences => ({
-  visualTheme: 'orgtree', exitOnClose: false, startAtLogin: true,
+  visualTheme: 'custom:#b6bdc8', exitOnClose: false, startAtLogin: true,
   routineNotifications: false, onboarded: false, ...over,
 })
 

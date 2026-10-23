@@ -4,7 +4,7 @@ import {CurrentOrg} from '../src/popout'
 import {applyTheme} from '../src/themes'
 import type {CanvasNode} from '../src/canvas/shared'
 import type {TreePayload} from '../src/types'
-applyTheme('orgtree')
+applyTheme('custom:#b6bdc8')
 const child={id:'builder',title:'builder',tier:'sol',state:'live',children:[],turns:[]} as unknown as CanvasNode
 const boss={id:'lead',title:'lead',tier:'opus',state:'live',children:[],turns:[]} as unknown as CanvasNode
 const project={id:'website',title:'website',kind:'project',tier:'project',state:'live',parent:'lead',

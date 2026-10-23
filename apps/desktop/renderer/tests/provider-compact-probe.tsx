@@ -63,5 +63,5 @@ window.fetch = async (url, init) => {
   if (init?.method && init.method !== 'GET') throw new Error('Visual fixture forbids writes')
   return new Response(JSON.stringify(body), { headers: { 'Content-Type': 'application/json' } })
 }
-applyTheme('orgtree')
+applyTheme('custom:#b6bdc8')
 createRoot(document.getElementById('root')!).render(<AccountsPanel close={() => {}} toast={() => {}} />)

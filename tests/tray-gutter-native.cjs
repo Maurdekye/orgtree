@@ -18,7 +18,7 @@ app.whenReady().then(async()=>{
    const win=new BrowserWindow({...bounds,frame:false,show:false,useContentSize:true,skipTaskbar:true,webPreferences:{offscreen:true,backgroundThrottling:false,sandbox:true,contextIsolation:true,nodeIntegration:false,webviewTag:false}})
    try{
     win.webContents.setWindowOpenHandler(()=>({action:'deny'}));win.webContents.on('will-navigate',event=>event.preventDefault())
-    await win.loadURL('data:text/html;charset=utf-8,'+encodeURIComponent(trayListHtml(data,mode==='dark'?'claude':'orgtree')));await wait(win)
+    await win.loadURL('data:text/html;charset=utf-8,'+encodeURIComponent(trayListHtml(data,mode==='dark'?'claude':'custom:#b6bdc8')));await wait(win)
     const state=await measure(win)
     check(mode+'-'+count+'-geometry',()=>{
      assert.equal(state.count,count);assert.equal(state.top,0);assert.equal(state.whole,Math.min(count,10));assert.equal(state.left,state.right)
@@ -34,6 +34,6 @@ app.whenReady().then(async()=>{
    }finally{win.destroy()}
   }
  }
- const receipt={tests:cases.length,passed:cases.filter(c=>c.passed).length,failed:cases.filter(c=>!c.passed).length,cases,paletteNote:'Production tray document has a fixed dark palette. Both native dark/light settings and Claude/Orgtree accents are exercised.'}
+ const receipt={tests:cases.length,passed:cases.filter(c=>c.passed).length,failed:cases.filter(c=>!c.passed).length,cases,paletteNote:'Production tray document has a fixed dark palette. Both native dark/light settings and Claude/custom accents are exercised.'}
  fs.writeFileSync(path.join(out,'capture.json'),JSON.stringify(receipt,null,2));console.log(JSON.stringify(receipt));assert.equal(receipt.tests,8);assert.equal(receipt.failed,0)
 }).then(()=>app.exit(0),e=>{console.error(e.stack||e);app.exit(1)})

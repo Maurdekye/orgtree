@@ -43,5 +43,5 @@ function Fixture() {
     onContextMenu={event => menu.open(event, () => agentMenuEntries(node, handlers))}>
     Example agent</button>{menu.node}</>
 }
-applyTheme('orgtree')
+applyTheme('custom:#b6bdc8')
 createRoot(document.getElementById('root')!).render(<Fixture />)

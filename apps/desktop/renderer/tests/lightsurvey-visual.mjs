@@ -1,7 +1,7 @@
 // The light-mode survey: the real App on lightsurvey-fixture.tsx's fake
 // organization in offscreen Electron, on the canvas, the user's inbox, the
 // shell menu, the Attention view and the homepage, in the light,
-// solarized-light and charcoal contrast families with the Orgtree Grey and
+// solarized-light and charcoal contrast families with the Claude Terracotta and
 // Claude Terracotta themes. lightsurvey-visual.cjs audits every visible text
 // against the background it sits on (WCAG AA: 4.5:1, 3:1 for large text),
 // every icon (3:1), every field's edge or fill (3:1), and lists the dark

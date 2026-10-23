@@ -26,7 +26,7 @@ window.fetch = async (url, init) => {
       : doc
   return new Response(JSON.stringify(body), { headers: { 'Content-Type': 'application/json' } })
 }
-applyTheme('orgtree')
+applyTheme('custom:#b6bdc8')
 function Probe() {
   const [pickerOpen, setPickerOpen] = useState(false)
   return <PinFrame kind="app-settings" title="App settings" panel="settings acct-panel" pinnable={false} close={() => {}}>

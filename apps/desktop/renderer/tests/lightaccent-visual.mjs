@@ -55,7 +55,7 @@ if (!result.ok) { console.log(JSON.stringify({ ok: false, error: result.error, o
 
 const checked = []
 // the presets' own accents, which the dark surfaces keep (themes.tsx THEMES)
-const DARK_ACCENTS = { orgtree: '#b6bdc8', claude: '#d97757', codex: '#22c4bd', antigravity: '#75a5ff',
+const DARK_ACCENTS = { claude: '#d97757', codex: '#22c4bd', antigravity: '#75a5ff',
   openrouter: '#b69afa', langserver: '#cda206', muse: '#afe5ff' }
 if (flag === '--expect') {
   const { frames, tokens } = result.value
@@ -91,13 +91,13 @@ if (flag === '--expect') {
   }
   // the dark surfaces keep the theme's own accent, and the effort bar its dark rail
   for (const view of ['inbox', 'attention']) {
-    const f = frames[`charcoal-orgtree-${view}`]
-    assert.equal(f.root.accent, '#b6bdc8', `charcoal ${view}: Orgtree Grey keeps #b6bdc8`)
+    const f = frames[`charcoal-claude-${view}`]
+    assert.equal(f.root.accent, '#d97757', `charcoal ${view}: Claude Terracotta keeps #d97757`)
     assert.equal(f.root.ink, '#17191d', `charcoal ${view}: and its dark ink`)
     if (view === 'inbox') for (const e of f.effort) assert.equal(e.rail, '#3f3f46', `charcoal: the effort rail stays #3f3f46 (${e.rail})`)
-    checked.push(`charcoal-orgtree-${view}`)
+    checked.push(`charcoal-claude-${view}`)
   }
-  assert.equal(tokens['obsidian-black-orgtree'].accent, '#b6bdc8', 'obsidian black keeps the Orgtree Grey accent')
+  assert.equal(tokens['obsidian-black-claude'].accent, '#d97757', 'obsidian black keeps the Claude Terracotta accent')
   for (const [theme, accent] of Object.entries(DARK_ACCENTS)) {
     assert.equal(tokens[`charcoal-${theme}`].accent, accent, `charcoal keeps ${theme}'s own accent ${accent}`)
   }

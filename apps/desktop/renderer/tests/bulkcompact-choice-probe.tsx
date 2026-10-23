@@ -4,7 +4,7 @@ import { BulkCompactConfirm } from '../src/canvas/bulkcompact'
 import { applyTheme } from '../src/themes'
 import type { CanvasNode } from '../src/canvas/shared'
 
-applyTheme('orgtree')
+applyTheme('custom:#b6bdc8')
 const agent = (id: string, extra = {}): CanvasNode => ({ id, state: 'live', tier: 'sonnet', children: [], session_id: id + '-session', occupancy: 40000, context_window: 200000, ...extra } as CanvasNode)
 const targets = [agent('lead'), agent('muse-worker'), agent('codex-worker'), agent('busy-worker', { busy: true }), agent('new-worker', { session_id: null })]
 window.fetch = async url => {

@@ -25,5 +25,5 @@ function Probe() {
   </>
 }
 window.fetch = async () => new Response('{}')
-applyTheme('orgtree')
+applyTheme('custom:#b6bdc8')
 createRoot(document.getElementById('root')!).render(<Probe />)

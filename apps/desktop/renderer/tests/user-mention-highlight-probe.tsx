@@ -4,7 +4,7 @@ import { applyTheme } from '../src/themes'
 import { clearMentionHighlight, dismissUserMention, hasUnseenUserMention } from '../src/canvas/agentmentions'
 import type { ChatMessage } from '../src/types'
 
-applyTheme('orgtree')
+applyTheme('custom:#b6bdc8')
 const light = new URLSearchParams(location.search).get('theme') === 'light'
 document.documentElement.classList.toggle('contrast-light', light)
 window.fetch = async () => new Response(JSON.stringify({ ok: true }), { headers: { 'Content-Type': 'application/json' } })

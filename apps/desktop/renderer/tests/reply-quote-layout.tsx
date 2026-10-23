@@ -7,7 +7,7 @@ const org='synthetic',title='Project slots: UI/UX mockups and a deliberately lon
 const world={org,handles:new Set<'doc'|'mail'|'item'>(['doc','mail','item']),docs:new Map([['doc-one',title],['doc-two','Build notes']])}
 const doc=(id:string)=>({id,kind:'document',from:'writer',at:'',gist:'Retained presentation excerpt with useful context.'})
 window.fetch=async()=>new Response('{}',{headers:{'Content-Type':'application/json'}})
-applyTheme('orgtree')
+applyTheme('custom:#b6bdc8')
 createRoot(document.getElementById('root')!).render(<main className="settings" style={{width:960,height:600,maxWidth:'none',position:'static',transform:'none',margin:0,boxSizing:'border-box'}}>
   <h3>Reply targets · synthetic quotes</h3>
   <div style={{display:'grid',gridTemplateColumns:'430px 430px',gap:24}}>

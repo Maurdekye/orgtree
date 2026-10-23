@@ -33,7 +33,7 @@ window.fetch = async (url, init) => {
   }
   return new Response(JSON.stringify(body), { headers: { 'Content-Type': 'application/json' } })
 }
-applyTheme('orgtree')
+applyTheme('custom:#b6bdc8')
 function Probe() {
   const [org, setOrg] = useState(false)
   return <PinFrame kind="app-settings" title="Settings" panel="settings acct-panel" pinnable={false} close={() => {}}>

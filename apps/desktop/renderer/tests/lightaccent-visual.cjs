@@ -1,7 +1,7 @@
 // Page script for lightaccent-visual.mjs (tools/rig/desktop driver): the
 // light-mode gallery (lightaccent-visual.tsx) in the light and solarized-light
 // contrast families with every preset theme, and in charcoal with Orgtree
-// Grey, plus the root tokens of every preset on charcoal and of Orgtree Grey on
+// Grey, plus the root tokens of every preset on charcoal and of Claude Terracotta on
 // obsidian. For each frame it audits every element whose text is drawn in the
 // theme accent (or its hover) against the background it really sits on, every
 // accent fill against its own text, at rest and with the pointer on an urgent
@@ -10,9 +10,9 @@
 // assertions here, so the same script records a base.
 const fs = require('node:fs'), path = require('node:path')
 const W = 980, H = 620
-const PRESETS = ['orgtree', 'claude', 'codex', 'antigravity', 'openrouter', 'langserver', 'muse']
-const FRAMES = [...PRESETS.flatMap((t) => [['light', t], ['solarized-light', t]]), ['charcoal', 'orgtree']]
-const TOKENS_ONLY = [['obsidian-black', 'orgtree'], ...PRESETS.map((t) => ['charcoal', t])]
+const PRESETS = ['claude', 'codex', 'antigravity', 'openrouter', 'langserver', 'muse']
+const FRAMES = [...PRESETS.flatMap((t) => [['light', t], ['solarized-light', t]]), ['charcoal', 'claude']]
+const TOKENS_ONLY = [['obsidian-black', 'claude'], ...PRESETS.map((t) => ['charcoal', t])]
 module.exports = async (page, { out }) => {
   const paint = () => page.eval(async () => { await new Promise(requestAnimationFrame); await new Promise(requestAnimationFrame); await new Promise(r => setTimeout(r, 120)) })
   const park = async () => { await page.mouse('mouseMoved', W - 4, H - 4); await paint() }

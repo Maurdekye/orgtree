@@ -3,7 +3,7 @@ import { CurrentOrg } from '../src/popout'
 import { BulkCompactConfirm } from '../src/canvas/bulkcompact'
 import { applyTheme } from '../src/themes'
 import { agent, summaryTargets, supportReply, targetId } from './bulkcompact-summary-fixture'
-applyTheme('orgtree')
+applyTheme('custom:#b6bdc8')
 const targets=[...summaryTargets(),...Array.from({length:4},(_,i)=>agent('empty-'+(i+6),{occupancy:0}))]
 window.fetch=async url=>new Response(JSON.stringify(supportReply(targetId(url))),{headers:{'Content-Type':'application/json'}})
 createRoot(document.getElementById('root')!).render(<CurrentOrg.Provider value="fixture">

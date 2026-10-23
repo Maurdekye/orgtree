@@ -29,5 +29,5 @@ function Fixture() {
     </div>
   </main>
 }
-applyTheme('orgtree')
+applyTheme('custom:#b6bdc8')
 createRoot(document.getElementById('root')!).render(<Fixture />)

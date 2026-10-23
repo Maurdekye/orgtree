@@ -13,7 +13,7 @@ const dogs=kinds.flatMap(kind=>[false,true].map(once=>({id:'worker/'+kind+(once?
 const opened:string[]=[];Object.assign(window,{fixtureOpened:opened})
 const project={id:'synthetic',kind:'project',state:'live'} as CanvasNode
 const map=new Map([['worker',{id:'worker',tier:'sol',state:'live'} as CanvasNode]])
-localStorage.clear();applyTheme('orgtree')
+localStorage.clear();applyTheme('custom:#b6bdc8')
 createRoot(document.getElementById('root')!).render(<DeskDogsProvider value={{org:'fixture',dogs,open:id=>opened.push(id)}}>
   <main style={{padding:20,fontSize:12}}>
     <h2 style={{margin:'0 0 8px'}}>Watchdog links share their card’s appearance</h2>

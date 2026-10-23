@@ -41,5 +41,5 @@ function Fixture() {
       treeStatus={{ loading: false, stale: false, unavailable: false }} />
   </div>
 }
-applyTheme('orgtree')
+applyTheme('custom:#b6bdc8')
 createRoot(document.getElementById('root')!).render(<AgentNavProvider><Fixture /></AgentNavProvider>)

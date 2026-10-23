@@ -2,7 +2,7 @@ import { createRoot } from 'react-dom/client'
 import { AskCard } from '../src/canvas/asks'
 import { applyTheme } from '../src/themes'
 import { elicitationFixture } from './elicitation-fixture'
-applyTheme('orgtree')
+applyTheme('custom:#b6bdc8')
 const ask = elicitationFixture()
 if (new URLSearchParams(location.search).get('mode') === 'url') ask.elicitation = {
   ...ask.elicitation!, mode: 'url', url: 'https://example.invalid/permission', schema: undefined,

@@ -7,7 +7,7 @@ import { applyTheme } from '../src/themes'
 import type { OrgInboxEntry } from '../src/types'
 import type { CanvasNode } from '../src/canvas/shared'
 
-applyTheme('orgtree'); setHubchatInstalled(true)
+applyTheme('custom:#b6bdc8'); setHubchatInstalled(true)
 const entry:OrgInboxEntry={id:'out-1',dir:'out',peer:'@net:peer.fixture',by:'coordinator-opus',
   body:'Project update: the requested changes are ready for the next alpha.',at:'2026-10-18T12:00:00Z',state:'read'}
 window.fetch=async url=>new Response(JSON.stringify(String(url).endsWith('/org_inbox')

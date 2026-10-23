@@ -2,7 +2,7 @@ import { createRoot } from 'react-dom/client'
 import { DeskChat } from '../src/canvas/desk'
 import { NearCard, agent, seedFastMode } from './fastmode-near-fixture'
 import { applyTheme } from '../src/themes'
-applyTheme('orgtree'); seedFastMode()
+applyTheme('custom:#b6bdc8'); seedFastMode()
 document.documentElement.style.overflow='hidden'; document.body.style.overflow='hidden'
 window.fetch=async url=>{
  const path=new URL(String(url),location.href).pathname

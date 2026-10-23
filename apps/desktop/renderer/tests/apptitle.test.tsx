@@ -62,7 +62,7 @@ test('the default themes wear the user\'s exact display names; ids and Custom st
   // and both pickers (settings + onboarding) render this one table
   assert.deepEqual(
     Object.fromEntries(Object.entries(THEMES).map(([id, t]) => [id, t.label])),
-    { orgtree: 'Orgtree Grey', claude: 'Claude Terracotta', codex: 'Codex Teal',
+    { claude: 'Claude Terracotta', codex: 'Codex Teal',
       antigravity: 'Antigravity Navy', openrouter: 'OpenRouter Lavender', langserver: 'LMS Gold',
       muse: 'Muse Eggshell' })
   assert.match(src('themes.tsx'), /<option value="custom">Custom<\/option>/,

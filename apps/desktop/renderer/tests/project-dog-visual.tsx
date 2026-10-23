@@ -26,7 +26,7 @@ const status={holders:[{agent:'worker',lease:'synthetic-held',slot:1,reason:'Syn
  line:dogs.filter(w=>w.kind==='slot').map((w,i)=>({agent:w.owner,dog:w.id,position:i+1,since:at(20+i)})),
  history:[{agent:'worker',lease:'synthetic-ended',slot:1,reason:'Synthetic completed permit',queued:at(90),since:at(75),ended:at(30),how:'released'}]}
 function Register(){useProvideAgentNav(id=>id===node.id?projectActions():[]);return null}
-localStorage.clear();applyTheme('orgtree')
+localStorage.clear();applyTheme('custom:#b6bdc8')
 createRoot(document.getElementById('root')!).render(<AgentNavProvider><ObjectNavProvider><Register/>
  <ObjectNavHost {...{isProject:(id:string)=>id===node.id}} org="fixture" dogs={dogs} openDog={id=>opened.push(id)} toast={noop}/>
  <DeskDogsProvider value={{org:'fixture',dogs,open:id=>opened.push(id)}}><AgentSurfaceRoutesProvider value={{open:(kind,id)=>opened.push(kind+':'+id),show:noop}}>

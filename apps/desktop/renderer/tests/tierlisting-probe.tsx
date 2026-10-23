@@ -31,7 +31,7 @@ const PICKED: ProviderTier[] = [
 
 const view = new URLSearchParams(location.search).get('view') ?? 'hire'
 const root = createRoot(document.getElementById('root')!)
-applyTheme('orgtree')
+applyTheme('custom:#b6bdc8')
 
 if (view === 'hire') {
   // the engine serves them dearest first; the registry keeps that order

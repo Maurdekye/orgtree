@@ -10,7 +10,7 @@ const waitFor = (window: BrowserWindow, event: 'maximize' | 'unmaximize' | 'mini
 
 app.whenReady().then(async () => {
   const assetRoot = path.join(process.cwd(), 'apps/desktop/assets')
-  for (const name of ['orgtree-eye.ico', 'orgtree-eye-tray-grey.ico', 'orgtree-eye-tray-orgtree.ico', 'orgtree-eye-tray-claude.ico', 'orgtree-eye-tray-codex.ico', 'orgtree-eye-tray-antigravity.ico', 'orgtree-eye-tray-openrouter.ico']) {
+  for (const name of ['orgtree-eye.ico', 'orgtree-eye-tray-grey.ico', 'orgtree-eye-tray-custom.ico', 'orgtree-eye-tray-claude.ico', 'orgtree-eye-tray-codex.ico', 'orgtree-eye-tray-antigravity.ico', 'orgtree-eye-tray-openrouter.ico']) {
     const asset = path.join(assetRoot, name)
     assert.equal(fs.existsSync(asset), true, `icon asset exists: ${name}`)
     const image = nativeImage.createFromPath(asset)

@@ -36,7 +36,7 @@ if(scenario==='long'){
 const tree={slug:'fixture',name:'Fixture',roots:[node],watchdogs:dogs,slot_leases:leases,net:{hubs:[]},nodes:[],edges:[]} as unknown as TreePayload
 const map=new Map<string,CanvasNode>([[node.id,node],...children.map(n=>[n.id,n] as [string,CanvasNode])])
 window.fetch=legacyAppBackend(async()=>new Response(JSON.stringify({items:[],nodes:[],facts:[],rows:[],agents:[]}),{headers:{'content-type':'application/json'}}))
-localStorage.clear();applyTheme('orgtree')
+localStorage.clear();applyTheme('custom:#b6bdc8')
 const refs={world:{org:'fixture'},onOpen:noop} as never
 function Card({scale}:{scale:number}){return <section className="fixture-card" data-scale={scale} style={{position:'absolute',left:35,top:90+([1,0.75,1.25].indexOf(scale))*175,transform:`scale(${scale})`,transformOrigin:'top left'}}>
  <ProjectSquare node={node} tree={tree} map={map} pos={{x:0,y:0}} lod="norm" dragging={false} isDrop={false} op={async()=>({} as never)}

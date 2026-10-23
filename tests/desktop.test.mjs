@@ -59,9 +59,9 @@ test('notification preferences migrate safely and every independent choice survi
 
 test('preferences default close-to-tray/login and retain explicit off across reload', () => {
   const file = path.join(temp, 'prefs.json'), prefs = new Preferences(file)
-  assert.deepEqual(prefs.get(), { ...defaults, visualTheme: 'orgtree', contrastTheme: 'charcoal', agentColorSource: 'provider', visualThemeExplicit: false, exitOnClose: false, startAtLogin: true, automaticUpdates: true, routineNotifications: false, onboarded: false, startupMode: 'restore' })
+  assert.deepEqual(prefs.get(), { ...defaults, visualTheme: 'claude', contrastTheme: 'charcoal', agentColorSource: 'provider', visualThemeExplicit: false, exitOnClose: false, startAtLogin: true, automaticUpdates: true, routineNotifications: false, onboarded: false, startupMode: 'restore' })
   prefs.set({ exitOnClose: true, startAtLogin: false })
-  assert.deepEqual(new Preferences(file).get(), { ...defaults, visualTheme: 'orgtree', contrastTheme: 'charcoal', agentColorSource: 'provider', visualThemeExplicit: false, exitOnClose: true, startAtLogin: false, automaticUpdates: true, routineNotifications: false, onboarded: false, startupMode: 'restore' })
+  assert.deepEqual(new Preferences(file).get(), { ...defaults, visualTheme: 'claude', contrastTheme: 'charcoal', agentColorSource: 'provider', visualThemeExplicit: false, exitOnClose: true, startAtLogin: false, automaticUpdates: true, routineNotifications: false, onboarded: false, startupMode: 'restore' })
   // first-run setup completion persists like any preference and reloads
   assert.equal(prefs.set({ onboarded: true }).onboarded, true)
   assert.equal(new Preferences(file).get().onboarded, true)
@@ -138,7 +138,7 @@ test('all themes persist; invalid themes reject atomically and old preferences m
   const file = path.join(temp, 'theme-prefs.json')
   fs.writeFileSync(file, JSON.stringify({startAtLogin:false,exitOnClose:true}))
   const prefs = new Preferences(file)
-  assert.equal(prefs.get().visualTheme, 'orgtree')
+  assert.equal(prefs.get().visualTheme, 'claude')
   const freshFile = path.join(temp, 'fresh.json'), legacyNeutral = path.join(temp, 'legacy-neutral.json'), legacyCodex = path.join(temp, 'legacy-codex.json')
   fs.writeFileSync(legacyNeutral, JSON.stringify({visualTheme:'orgtree'}))
   fs.writeFileSync(legacyCodex, JSON.stringify({visualTheme:'codex'}))
@@ -146,7 +146,7 @@ test('all themes persist; invalid themes reject atomically and old preferences m
   assert.equal(new Preferences(legacyNeutral).get().visualThemeExplicit, true)
   fs.writeFileSync(path.join(temp, 'legacy-unset.json'), JSON.stringify({visualTheme:'orgtree',visualThemeExplicit:false}))
   assert.equal(new Preferences(path.join(temp, 'legacy-unset.json')).get().visualThemeExplicit, false)
-  for (const visualTheme of ['orgtree','claude','codex','antigravity','openrouter','langserver']) {
+  for (const visualTheme of ['custom:#b6bdc8','claude','codex','antigravity','openrouter','langserver']) {
     prefs.set({visualTheme})
     assert.deepEqual(new Preferences(file).get(), {...defaults,visualTheme,contrastTheme:'charcoal',agentColorSource:'provider',visualThemeExplicit:true,startAtLogin:false,exitOnClose:true,automaticUpdates:true,routineNotifications:false,onboarded:false,startupMode:'restore'})
   }

@@ -23,7 +23,7 @@ app.whenReady().then(async()=>{
   ipcMain.handle('desktop:preferences',()=>prefs.get())
   ipcMain.handle('desktop:window-state',()=>({visible:true,restoreWindows:false}))
   ipcMain.handle('desktop:set-effective-theme',(_event,theme)=>{
-    assert.ok(['orgtree','claude','codex','antigravity','openrouter'].includes(theme),'invalid effective theme')
+    assert.ok(['claude','codex','antigravity','openrouter'].includes(theme),'invalid effective theme')
     effectiveThemes.push(theme)
   })
   ipcMain.handle('desktop:set-preferences',(_e,patch)=>{

@@ -13,7 +13,7 @@ app.whenReady().then(async()=>{
  for(const org of ['org-04','org-11','org-17'])store.recordOrgOpen(org)
  const recent=new OrgPlacement(file).recentOrgs(),sorted=sortTrayRows(rows,recent)
  assert.deepEqual(sorted.slice(0,3).map(row=>row.slug),['org-17','org-11','org-04'])
- const html=trayListHtml(sorted,'orgtree'),url='data:text/html;charset=utf-8,'+encodeURIComponent(html)
+ const html=trayListHtml(sorted,'custom:#b6bdc8'),url='data:text/html;charset=utf-8,'+encodeURIComponent(html)
  const area={x:0,y:0,width:1000,height:650},anchor={x:900,y:650,width:24,height:24},bounds=popupBounds(anchor,area,rows.length)
  assert.equal(bounds.height,292)
  const create=()=>new BrowserWindow({...bounds,frame:false,show:false,useContentSize:true,skipTaskbar:true,webPreferences:{offscreen:true,backgroundThrottling:false,sandbox:true,contextIsolation:true,nodeIntegration:false,webviewTag:false}})

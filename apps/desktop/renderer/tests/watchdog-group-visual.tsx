@@ -28,6 +28,6 @@ function render(count:number){
     </main>
   </DeskDogsProvider>)
 }
-localStorage.clear();applyTheme('orgtree')
+localStorage.clear();applyTheme('custom:#b6bdc8')
 Object.assign(window,{fixtureRender:render,fixtureOpened:opened})
 render(8)

@@ -346,7 +346,7 @@ app.on('browser-window-created', (_event, main) => {
         if (tab === 'Display' && visualFixture) await check('native-theme-selector-keeps-provider-status', async () => {
           assert.equal(await waitFor(`document.querySelector('select[aria-label="Visual theme"]:not(:disabled)')`), true)
           const labels = await evaluate(`Array.from(document.querySelectorAll('.sq .name,.sq .status')).map(e=>e.textContent)`)
-          for (const theme of ['orgtree','openrouter']) {
+          for (const theme of ['claude','openrouter']) {
             await evaluate(`(()=>{const s=document.querySelector('select[aria-label="Visual theme"]');s.value='${theme}';s.dispatchEvent(new Event('change',{bubbles:true}));return true})()`)
             assert.equal(await waitFor(`!document.querySelector('select[aria-label="Visual theme"]').disabled`), true)
             assert.equal((await evaluate('window.orgtreeDesktop.getPreferences()')).visualTheme,theme)

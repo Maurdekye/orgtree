@@ -18,7 +18,7 @@ window.fetch=(async(url,init)=>{
     :u.pathname.includes('/work-items/')?{item:items.find(i=>i.slug===decodeURIComponent(u.pathname.split('/').at(-1)!))}:{}
   return new Response(JSON.stringify(payload),{headers:{'Content-Type':'application/json'}})
 }) as typeof fetch
-applyTheme('orgtree')
+applyTheme('custom:#b6bdc8')
 const jumpTo=new URL(location.href).searchParams.get('jump')
 createRoot(document.getElementById('root')!).render(<DocketModal slug="fixture" jumpTo={jumpTo} close={()=>{}} toast={()=>{}}
   tree={{slug:'fixture',name:'Fixture',roots:[],asks:[],epoch:1,rev:1} as unknown as TreePayload}/>)

@@ -6,7 +6,7 @@ import { isVisualTheme } from '../../../../packages/contracts/visual-theme'
 
 test('Custom reveals a picker, applies the selected color, and restores after remount', async () => {
   localStorage.clear()
-  localStorage.setItem('orgtree-visual-theme', 'orgtree')
+  localStorage.setItem('orgtree-visual-theme', 'claude')
   let view = await mountView(<ThemeSetting />, el => el)
   const change = async (el: HTMLInputElement | HTMLSelectElement, value: string) => {
     await inAct(async () => {

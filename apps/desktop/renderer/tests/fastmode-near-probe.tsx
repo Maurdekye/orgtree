@@ -1,7 +1,7 @@
 import { createRoot } from 'react-dom/client'
 import { NearCard, agent, seedFastMode } from './fastmode-near-fixture'
 import { applyTheme } from '../src/themes'
-applyTheme('orgtree'); seedFastMode()
+applyTheme('custom:#b6bdc8'); seedFastMode()
 document.documentElement.style.overflow = 'hidden'; document.body.style.overflow = 'hidden'
 const rows = [
   ['Idle - fast on', agent(true, { id: 'idle-on' })],
