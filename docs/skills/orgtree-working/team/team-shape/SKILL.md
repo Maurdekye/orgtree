@@ -52,8 +52,6 @@ Nested projects stay transparent to reporting at every depth: the nearest agent
 above the projects remains the superior. Runtime reports that require someone
 able to act skip inactive agents to find a live superior.
 
-Changes that arrive together run side by side, and ones that collide in the database are tried again: up to ten tries in all, each after a short random wait, so a burst of 22 retires under one parent completes in a few seconds. A change that still collides is refused with "… collided with other changes made at the same moment, 10 times in a row; nothing changed. Retry it." Nothing of it was applied, so send the same call again.
-
 Afterward, inspect the actual chart, pending changes and credit result. File/history retention and a resumable model session are separate facts; do not claim that retained files guarantee a cache hit or a fully remembered conversation. Leave durable items and scratch handoffs current. For the user's Undo controls and their limits, see `orgtree-toasts-and-undo` (orgtree-app › app-shell); do not promise that every engine or agent-tool action has an undo gesture.
 
 ## See also
