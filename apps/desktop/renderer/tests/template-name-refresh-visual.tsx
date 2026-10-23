@@ -2,7 +2,7 @@ import { createRoot } from 'react-dom/client'
 import { CreateOrgView } from '../src/shell/createorg'
 import { presetPlan, presetSummaries } from './templateavailability.fixture'
 import '../src/styles.css'
-import '../src/shell/shell.css'
+import '../src/shell.css'
 
 // Disposable Create form, with every API response owned by this fixture.
 // The driver holds each name request pending across rendered frames.

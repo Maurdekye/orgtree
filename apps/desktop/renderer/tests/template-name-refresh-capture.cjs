@@ -6,8 +6,11 @@ fs.mkdirSync(out,{recursive:true})
 for(const key of ['userData','sessionData','logs','crashDumps']){fs.mkdirSync(out+'/'+key,{recursive:true});app.setPath(key,out+'/'+key)}
 app.disableHardwareAcceleration();app.commandLine.appendSwitch('force-device-scale-factor','1')
 const esbuild=require(path.join(deps,'esbuild'))
-esbuild.buildSync({entryPoints:['apps/desktop/renderer/tests/template-name-refresh-visual.tsx'],bundle:true,format:'iife',platform:'browser',jsx:'automatic',outfile:out+'/fixture.js',nodePaths:[deps],define:{'process.env.NODE_ENV':'"production"'},loader:{'.woff2':'dataurl','.woff':'dataurl','.ttf':'dataurl','.svg':'dataurl','.png':'dataurl'}})
-esbuild.stop()
+try{
+  esbuild.buildSync({entryPoints:['apps/desktop/renderer/tests/template-name-refresh-visual.tsx'],bundle:true,format:'iife',platform:'browser',jsx:'automatic',outfile:out+'/fixture.js',nodePaths:[deps],define:{'process.env.NODE_ENV':'"production"'},loader:{'.woff2':'dataurl','.woff':'dataurl','.ttf':'dataurl','.svg':'dataurl','.png':'dataurl'}})
+}catch(error){
+  fs.writeFileSync(out+'/setup-error.json',JSON.stringify({error:error.stack||String(error)}));console.error(error);app.exit(1)
+}finally{esbuild.stop()}
 fs.writeFileSync(out+'/fixture.html','<!doctype html><meta charset="utf-8"><link rel="stylesheet" href="fixture.css"><div id="root"></div><script src="fixture.js"></script>')
 const settle='new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(()=>setTimeout(r,100))))'
 app.whenReady().then(async()=>{
