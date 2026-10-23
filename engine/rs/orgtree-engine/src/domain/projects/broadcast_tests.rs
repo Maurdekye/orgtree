@@ -27,8 +27,8 @@ async fn project_broadcast_stops_at_agent_children() {
     node(&tx,org,"nested-agent-report",Some(nested),"agent","live").await;
     let deeper=node(&tx,org,"deeper-project",Some(project),"project","live").await;
     node(&tx,org,"deep-member",Some(deeper),"agent","live").await;
-    node(&tx,org,"retired-member",Some(root),"agent","retired").await;
-    let retired=node(&tx,org,"retired-project",Some(root),"project","retired").await;
+    node(&tx,org,"retired-member",Some(root),"agent","archived").await;
+    let retired=node(&tx,org,"retired-project",Some(root),"project","archived").await;
     node(&tx,org,"retired-branch",Some(retired),"agent","live").await;
     let other_uuid=uuid::Uuid::new_v4();let other_slug=format!("foreign-{other_uuid}");
     let other:i64=tx.query_one("INSERT INTO ot.orgs(uuid,slug,name) VALUES($1,$2,$2) RETURNING id",&[&other_uuid,&other_slug]).await.unwrap().get(0);
