@@ -3265,7 +3265,8 @@ mod project_settings_tests {
         let org:i64=tx.query_one("INSERT INTO ot.orgs(uuid,slug,name) VALUES($1,$2,$2) RETURNING id",&[&uuid,&slug]).await.unwrap().get(0);
         let handle=crate::orgs::provisional(org,uuid.to_string(),slug.clone(),slug);
         let engine=Engine::for_tests(fixture.engine_root("draft-project-engine"));
-        let id:i64=tx.query_one("INSERT INTO ot.agents(org_id,name,kind,tier,state,born) VALUES($1,'creator','agent','sol','live','synthetic') RETURNING id",&[&org]).await.unwrap().get(0);
+        let boss:i64=tx.query_one("INSERT INTO ot.agents(org_id,name,kind,tier,state,born) VALUES($1,'boss','agent','sol','live','synthetic') RETURNING id",&[&org]).await.unwrap().get(0);
+        let id:i64=tx.query_one("INSERT INTO ot.agents(org_id,name,parent_id,kind,tier,state,born) VALUES($1,'creator',$2,'agent','sol','live','synthetic') RETURNING id",&[&org,&boss]).await.unwrap().get(0);
         let actor=Actor::Agent{id,name:"creator".into()};
         let mut effects=Effects::default();
         let settings=json!({"peer_mail":false,"mail_queue":"ack","exclude_sender":true,"slots":4,
