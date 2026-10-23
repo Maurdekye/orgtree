@@ -122,7 +122,9 @@ A useful item states the problem, desired result and scope in its description, t
 | Done | The actual objective is complete. |
 | Dropped / superseded | Cancelled/non-successful work, or work replaced by another item. |
 
-Archiving changes visibility, not whether work succeeded. Retiring an owner does not complete its items. A manual **attention flag** identifies a decision or result you need to see; it is separate from status and linked question cards. Dismissing a flag does not answer a question or approve an implementation by implication.
+Archiving changes visibility, not whether work succeeded. Retiring an owner does not complete its items. A manual **attention flag** identifies a decision or result you need to see; it is separate from linked question cards. **Dismiss** clears the flag and records the dismissal. Done and Review keep their status; every other status becomes Blocked, with a reason recording the dismissed attention. This does not answer a question or approve an implementation by implication.
+
+In an item's **Attachments** section, choose **Attach files…** to copy files onto that item, up to 25 MiB per file. Duplicate filenames receive unique stored names. You can open or download the item copy later. **remove** asks for confirmation and permanently deletes that stored item copy and its attachment record; your original file and other copies remain. These item attachments are separate from evidence links and files staged in a reply.
 
 The item reply UI retains exact context. Its recipient can be the owner or a participant; while attention is active, the flag raiser is also eligible and is the default. Replying does not assign the item. Use a linked question to answer a decision that needs a structured response.
 
@@ -135,6 +137,8 @@ Ask for a **presentation** when you want a plan, report or other document to rea
 Unread or changed documents have highlighted titles. Opening one marks it viewed **by you**; an agent reading it does not. A fresh reader normally selects the oldest unread/changed document, or the most recently created/changed one if all are read. Explicit document links take priority. Later refreshes do not continually replace your selection.
 
 The reader supports Markdown and HTML previews, source identity, downloads and the reply/dismiss controls available to that surface. Multiple readers can coexist for different agent, project or team scopes. A document link raises a suitable existing reader when possible. Pin/pop-out changes where you read it, not its author or contents.
+
+Presentations store a snapshot. Markdown text or a Markdown file is limited to 64 KiB; an HTML source file is limited to 4 MiB. HTML previews run in a sandbox offline: network resources are blocked, and missing local dependencies are shown in the preview notice. A single HTML file is downloaded as its stored snapshot; an HTML folder is captured as an immutable ZIP bundle, up to 25 MiB and 4,096 files. Later edits to the original files do not change the saved presentation; ask the agent to update it. For a file delivery rather than a presentation, the limit is 256 MiB.
 
 Closing a reader leaves the document in its collection. **Dismiss** is a separate document operation. A download saves a file and does not prove that it was read. For an installer, image, export or log wanted as a file, ask for a file delivery instead. Moving a scratch file alone does not publish it into Presented.
 

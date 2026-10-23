@@ -25,7 +25,9 @@ See [composer routing](../desk-chat/SKILL.md#composer).
 
 Selecting an item opens its full pane. Read the description as authoritative scope, then current status/reason, owner/reviewer/participants, dependencies/parent references, current progress/next steps, evidence, attachments and history when supplied. The pane loads full detail on demand and can show retry/error.
 
-Manual attention is visibly separate from an open question. Dismiss attention clears that user flag; it does not answer a question or approve an agent's implementation by implication. Linked question cards retain their own answer flow.
+Manual attention is visibly separate from an open question. **Dismiss** clears that flag and records its dismissal. Done and Review keep their status; every other status becomes Blocked, with a reason recording that the user dismissed the attention flag. It does not answer a question or approve an agent's implementation by implication. Linked question cards retain their own answer flow.
+
+The item's **Attachments** section offers **Attach files…**. It copies selected files onto that item, up to 25 MiB per file, with unique stored names when filenames collide. Open or download a listed attachment from the item. **remove** asks for confirmation, then permanently deletes that attachment's stored item copy and its record; it leaves the original selected file and other copies alone. Item attachments are separate from evidence links and attachments staged in a reply.
 
 User replies go through the ticket's reply UI with exact item context and supported attachment/notice controls. The owner and participants can receive replies; while an attention flag is active, its raiser is also an available recipient and is the default. Without an active attention flag, the owner remains the default. A reply to the attention raiser does not assign the item or grant docket access. Retired/unavailable recipients are shown rather than silently treated as current live holders. A local composed reply is not a saved scope change until the appropriate operation actually records it.
 

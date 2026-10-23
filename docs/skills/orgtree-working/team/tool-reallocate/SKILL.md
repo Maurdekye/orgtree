@@ -8,7 +8,7 @@ Up: [orgtree-team](../SKILL.md)
 
 Requires `team`. Required `node` names a live descendant and required integer `delta` is added to its grant: positive gives capacity, negative takes unused capacity back, zero returns the current grant without a change. Source authorizes any descendant, not just a direct report. Self, peers, superiors and unrelated seats are refused; top-level callers cannot raise their own allocation.
 
-Each live direct report reserves `seat + grant` from its parent's grant; free is the parent's grant minus that hold. Increasing a target grant needs room at its parent. If allocation cascade is enabled, intermediate descendant grants may rise just enough to fund it, stopping at the caller's existing allocation. Insufficient free room at that boundary, or disabled cascade with inadequate room, refuses atomically. It cannot draw extra credits from above the acting agent.
+Each live direct report reserves `seat + grant` from its parent's grant; free is the parent's grant minus that hold. Increasing a target grant needs room at its parent. Agent calls always bubble through intermediate descendant grants just enough to fund it, stopping at the caller's existing allocation. The app's allocation-bubbling switch controls user actions only. Insufficient free room at the agent's boundary refuses atomically; an agent call cannot draw extra credits from above its own allocation.
 
 Decreasing a grant cannot reclaim credits already held by the target's live children. The refusal reports how many credits are free and that the rest is held by reports. Retiring a finished report is a separate way to free that hold; do not retire unfinished work merely to make a grant edit fit. Credits are concurrent staffing capacity, not inference tokens or money.
 
