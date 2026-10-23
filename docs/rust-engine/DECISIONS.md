@@ -7,6 +7,14 @@ policy remain physical, per the user's explicit exceptions.
 
 # Orgtree 4 rewrite — the user's standing decisions
 
+**Reply to selection (USER 2026-10-23, 4.4.3):** include mail, settled transcript
+prose/tool input/results/displayed thoughts, Markdown presentations and docket
+fields. Carry verified exact excerpts and nearby context in ordinary replies;
+retain snapshots after edits and relocate only on a unique verified match.
+Agents can read context and send selection replies; glossary/user docs accompany
+the feature. Exclude interactive HTML and persistent threads. See
+[selection contract](selection-replies.md).
+
 **Remove Grey preset (USER2026-10-23;4.4.2):** selected legacy orgtree themes
 become Custom with exact base RGB(182,189,200). Coordinator preserves the old
 unset sentinel's explicit=false semantics as Claude+false/provider detection;

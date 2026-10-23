@@ -20,7 +20,7 @@ Requires effective `tools.orgtree.inspection`. Self is permitted; otherwise the 
 
 ## Result and bounds
 
-The structured response contains `node`, `access`, persisted `busy`, `occupancy`, `occupancy_estimated`, and `messages`. Each message has `role`, `text` and the stored `tools` array. The newest requested rows are returned in conversation order. A row is not necessarily a whole turn; tools and messages may span several rows.
+The structured response contains `node`, `access`, persisted `busy`, `occupancy`, `occupancy_estimated`, and `messages`. Each message has `role`, `text`, the stored `tools` array, `event_id` and `convo_revision`; the result also includes current `generation`. Use those identities with [read reply source](../tool-read-reply-source/SKILL.md) for exact bounded parts, including retained tool input and displayed thoughts. The newest requested rows are returned in conversation order. A row is not necessarily a whole turn; tools and messages may span several rows.
 
 Messages also include `thinking`, `thinking_sealed` and `thinking_truncated`.
 `thinking` contains supplied readable thinking for any harness, limited

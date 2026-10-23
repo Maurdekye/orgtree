@@ -2325,6 +2325,36 @@
    ]
   },
   {
+   "path": "orgtree-working/inspection/tool-read-reply-source",
+   "name": "orgtree-tool-read-reply-source",
+   "level": 3,
+   "kind": "tool",
+   "covers": [
+    "orgtree_read_reply_source"
+   ],
+   "tool_group": "inspection",
+   "purpose": "Read canonical source windows and digests for selection replies.",
+   "must_cover": [
+    "when to use it and when not",
+    "every parameter/action with defaults and limits from the definition",
+    "refusals and error texts agents hit",
+    "top-level vs. non-top-level differences",
+    "a minimal correct example call"
+   ],
+   "sources": [
+    "engine/rs/orgtree-engine/src/tools/defs.rs build_tool_read_reply_source",
+    "engine/rs/orgtree-engine/src/tools/orgview.rs read_reply_source",
+    "engine/rs/orgtree-engine/src/domain/reply_sources.rs"
+   ],
+   "writer": "native-tools-sol",
+   "status": "fixed",
+   "registered": false,
+   "see_also": [
+    "visibility",
+    "reading-reports"
+   ]
+  },
+  {
    "path": "orgtree-working/inspection/tool-read-scratch",
    "name": "orgtree-tool-read-scratch",
    "level": 3,

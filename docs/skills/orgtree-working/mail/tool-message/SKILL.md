@@ -88,6 +88,38 @@ Recall your [conversation](../tool-inbox/SKILL.md) after a fresh session or comp
 
 The engine stores immutable quoted context. Typed target objects carry identity only: documents/presentations and docket items are resolved in the named organization, while transcript events are checked against the named agent and generation and included only for the matching recipient. Mail replies continue to use the legacy message-ID form. On a hub route, an original without a hub identity cannot acquire a remote link. Multiple replies use the first structured link plus additional metadata; older hubs/clients show the first link and fallback quote text. Combined question/reply metadata is bounded to 4,096 bytes. A recipient with no matching quote still receives the message, and the result explains omitted references.
 
+## Selection replies
+
+`reply_to` and entries of `replies` also accept `{target, selection}`. `target`
+is an ordinary identity above (mail can also use `{kind: mail, org, id}`). Read
+the canonical part with [orgtree_read_reply_source](../../inspection/tool-read-reply-source/SKILL.md),
+then supply `part`, needed `tool_id`/`pointer`/`role`/`entry`,
+`projection: source-v1`, `unit: unicode-scalar`, `expected_sha256` and half-open
+`start`/`end` in `selection`. No excerpt or quote prose may be submitted: the
+engine validates the digest/range and derives the exact excerpt and nearby context.
+
+At most eight selected passages fit in a reply, each at most 4,096 UTF-8 bytes,
+with at most 48 KiB combined selection metadata. Fifty total reply targets still
+applies. Identical ranges dedupe; different passages of one source stay separate.
+Source changes before sending refuse without delivery. Quotes remain readable
+after edits/deletion; live access still follows ordinary source authority.
+Source matching never guesses among repeated passages or another source part.
+Current running transcript turns and ambiguous duplicate docket-list entries
+refuse. Interactive HTML and persistent comment threads are excluded.
+
+Selections support internal recipients only; outside `@org:`/`@net:` routes refuse
+rather than silently lose selection metadata. Ordinary recipient reach and
+conversation filtering still apply. Reading a delivered selection snapshot through
+inbox fetch/chunk retains ordinary consume/queue semantics; the separate exact
+source read never consumes mail or project work.
+
+```json
+{"metadata":{"to":"writer","reply_to":{"target":"mail-1","selection":{"part":"mail.body","projection":"source-v1","unit":"unicode-scalar","expected_sha256":"<digest returned by source read>","start":0,"end":5}}},"body":"Please expand this passage."}
+```
+
+The digest placeholder must be replaced by the actual 64 lowercase hexadecimal
+characters returned by the authorized source read. Metadata still goes first.
+
 ## Attachments and transfer evidence
 
 Attachments to local agents become absolute path references in the message body. The sender must have authority to read each existing file; relative paths resolve from the sender's working folder. The recipient can open the path only if their own access permits it. Attachments to `user` or `@net:` peers remain uploaded copies: user attachments require user-audience access, paths are checked against effective folder authority and copied into a fresh scratch outbox snapshot, and hub files must be inside your own scratch folder. `@org:` attachments are unsupported.

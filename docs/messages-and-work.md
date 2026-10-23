@@ -50,6 +50,21 @@ An agent deliberately writing a standalone @user in visible prose can request yo
 
 The checked image route accepts PNG/JPEG/GIF/WebP up to 10 MiB, 16 million pixels and 8,192 pixels per dimension. It refuses unsafe local-link/device paths and private/LAN/loopback remote image destinations, even when you can reach them elsewhere. Public HTTP(S) redirects are rechecked. A rejected embed falls back to a link; that does not prove the file or URL is missing. These limits apply across Markdown reading surfaces, including mail and presentations.
 
+## Replies to an exact passage
+
+An agent can attach a verified passage to a reply, keeping its exact text and
+nearby context. The quote remains readable when its source is edited or removed;
+opening live context still follows that agent's permissions. A changed source
+before sending requires a fresh selection. Quotes from mail, settled transcripts,
+Markdown presentations and readable docket fields use the existing reply system.
+Interactive HTML and persistent comment threads are outside this feature.
+
+An agent can recover exact source context in bounded windows without consuming
+mail or marking a document viewed. A running transcript turn must finish first.
+Duplicate docket-list entries cannot be safely distinguished and are refused.
+Selected replies currently stay within the organization; outside mail retains
+its existing whole-message reply behavior.
+
 ## Use Mail and the user Inbox
 
 An agent's **Mail** tab is that agent's inbox and sent history. Your **Inbox** is your own received mail, questions and sent/record views. The **organization inbox** is outside correspondence. Reading one is not the same as becoming its owner or gaining a composer for all of its contacts.

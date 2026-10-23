@@ -19,6 +19,12 @@ verified: `canvas/composerobjects.tsx`, `canvas/ticketmenu.ts`,
 
 [Repository startup guide](../../AGENTS.md) · [All topics and entries](README.md)
 
+Selection reply snapshots preserve exact text/context independently of source
+edits; canonical part reads retain ordinary source authority, bounded windows,
+and no mail/viewed side effects. List entries without durable IDs refuse duplicate
+text; never relocate to another entry. See [selection replies](../rust-engine/selection-replies.md).
+[verified: `domain/{selections,reply_sources}.rs`; decided: user 2026-10-23]
+
 Work records, questions, documents, attachments, viewers and attention.
 
 **Every docket selects its first shown ticket on open (user 2026-10-21

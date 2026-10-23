@@ -290,6 +290,12 @@ live project children and stop at live agent recipients; reports below those
 agents are excluded. Mail admission and delivery metadata remain unchanged.
 See [project nodes](PROJECT-NODES.md#placement-and-runtime-capabilities).
 
+Selection replies (USER 2026-10-23, 4.4.4): verified source excerpts in existing
+reply snapshots for mail, settled transcript prose/tools/displayed thoughts,
+Markdown presentations and docket fields; plain replies, excluding interactive
+HTML and threads. Exact agent source reads/send parity share ordinary authority.
+See [selection contract](selection-replies.md).
+
 Providers refresh (USER2026-10-23,4.4.2): explicit Refresh bypasses the periodic
 snapshot through shared/coalesced ordinary discovery; default Codex login gains
 the existing Sign in flow. `orgtree_list_tiers {refresh:true}` mirrors refresh
