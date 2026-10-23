@@ -23,7 +23,7 @@ test('project draft gear stages policy, cancels edits, and submits it with creat
   assert.equal(!!dialog(), true)
   await inAct(() => input('[aria-label="Concurrency slots"]', '4'))
   await inAct(() => input('[aria-label="Mail queue"]', 'ack'))
-  const toggle = (label: string) => [...dialog().querySelectorAll<HTMLButtonElement>('button[role="switch"]')]
+  const toggle = (label: string) => [...dialog().querySelectorAll<HTMLInputElement>('input[role="switch"]')]
     .find(el => el.getAttribute('aria-label') === label || el.closest('.set-row')?.textContent?.includes(label))!
   // Use accessible switch names, as in the live project settings.
   await inAct(() => toggle('Subordinates may message each other').click())
@@ -47,6 +47,6 @@ test('project draft gear stages policy, cancels edits, and submits it with creat
   assert.equal(settings.slots, 4)
   assert.equal(settings.mail_queue, 'ack')
   assert.equal(settings.peer_mail, false)
-  assert.deepEqual(projectDraftSteps({ parent: 'user', tier: 'project', project: true }, 'website', '', settings),
+  assert.deepEqual(projectDraftSteps({ parent: 'user', tier: 'project', project: true }, 'website', '', settings as never),
     [{ op: 'create_project', name: 'website', parent: 'user', settings }])
 })
