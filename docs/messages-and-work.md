@@ -52,6 +52,18 @@ The checked image route accepts PNG/JPEG/GIF/WebP up to 10 MiB, 16 million pixel
 
 ## Replies to an exact passage
 
+In a live mail reply context, highlight text, right-click **Reply to selection**,
+then enter your feedback in the existing reply box. Nothing sends until you
+press Send. Add several passages, remove one, or use **Cancel all selections**
+or Escape to clear the staged passages. Your draft text and recipient stay in
+place. A failed send restores the draft and excerpts; a changed recipient keeps
+the failed selection draft with its original recipient.
+
+The quote's **Nearby context** expands the saved surroundings. Activate the quote
+to check its current source; changed/unavailable sources keep the saved excerpt.
+Selecting across source boundaries or display-only text explains why the action
+is unavailable. Normal Copy and editable-field menus remain available.
+
 An agent can attach a verified passage to a reply, keeping its exact text and
 nearby context. The quote remains readable when its source is edited or removed;
 opening live context still follows that agent's permissions. A changed source

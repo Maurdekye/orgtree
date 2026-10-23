@@ -3,8 +3,8 @@
 User decision 2026-10-23: implement Reply to selection for 4.4.3 on mail,
 settled transcript prose/tool inputs/results/displayed thoughts, Markdown
 presentations and docket fields. Keep plain replies; exclude interactive HTML
-and persistent comment threads. This document records the engine foundation;
-desktop capture and source mapping follow in their own slice.
+and persistent comment threads. The foundation and shared mail capture use the same engine contract;
+transcript/presentation/docket desktop wiring follows in subsequent slices.
 
 ## Identity, validation and storage
 
@@ -61,6 +61,28 @@ recipients only in this slice: there is no Hubchat selection transport contract.
 `offset`, `expected_sha256`, and a previously delivered `selection` for a verified
 `location` result. It is read-only. Ordinary desk send resolvers derive selected
 quotes server-side and recheck transcript/conversation membership.
+
+## Desktop mapping and composer custody
+
+Markdown capture compares the full non-whitespace semantic projection against
+the owning DOM before returning source offsets. Lexical token positions preserve
+repeated-text identity without matching a selected string to a guessed occurrence.
+Ref chips and math are atomic; code/canonical source retains exact UTF-8/CRLF.
+Unknown projections and gestures crossing parts refuse. Captured descriptors and
+the nearest concrete composer are fixed before focus/metadata work. Source digest
+checks run at staging and send. The selection context-menu override is explicit
+and limited to noneditable text; ordinary native menus remain unchanged.
+
+The mail reply box carries separate selected targets, keeps unrelated explicit
+whole-message targets, and restores failed selections/drafts under the original
+recipient key. Read quotes show their retained exact excerpt and nearby context;
+current source checks never replace that snapshot with newly edited text.
+
+The source-read tool is marked deferred via the existing per-card hint. This
+defers it only on harnesses that honor native tool-search/deferred loading; do
+not claim a universal zero prefix cost. The focused card snapshot test records
+compact UTF-8 bytes for this definition and the base/extended split/flat message
+cards, with the schema costs separated. These are bytes, not tokenizer estimates.
 
 ## Verification scope
 

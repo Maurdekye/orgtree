@@ -3775,7 +3775,10 @@
     "apps/desktop/renderer/src/usemailtags.ts",
     "apps/desktop/renderer/src/canvas/mailtags.ts",
     "engine/rs/orgtree-engine/src/domain/mail_attention.rs",
-    "apps/desktop/renderer/src/mailattention.ts"
+    "apps/desktop/renderer/src/mailattention.ts",
+    "apps/desktop/renderer/src/canvas/replyselection.tsx",
+    "apps/desktop/renderer/src/canvas/selectionmap.ts",
+    "apps/desktop/renderer/src/canvas/selectionpreview.tsx"
    ],
    "see_also": [
     "mail-basics",

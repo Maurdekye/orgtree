@@ -6,6 +6,33 @@ Up: [orgtree-desk](../SKILL.md)
 
 # Inboxes and transfers
 
+## Reply to selected mail text
+
+In a live mail reply context, highlight a passage and right-click **Reply to
+selection**. The shared menu also keeps **Copy selection**. The passage stages
+beside the owning reply box without sending, replacing its text, or changing
+the recipient. Several passages can be staged; remove one, **Cancel all
+selections**, or Escape in the composer clears them. Explicit whole-message
+reply targets can accompany selected passages. The draft and selections return
+on a refused send. If the recipient changed during that request, the failed
+selection draft stays with its original recipient for reopening/retry.
+
+Quotes retain exact source text (including Markdown syntax inside the selected
+range), nearby context and a source version. **Nearby context** expands the
+snapshot. Activating the quote checks current source text, opens only a verified
+source, and reports **Source unchanged**, **Passage relocated**, **Source changed**
+or **Source unavailable**. The saved excerpt remains readable in every case.
+
+One gesture must stay within one source part; a rendering/source mismatch
+disables the reply action with a reason. Ref chips and rendered math map to
+whole original tokens. Copy buttons and other display-only chrome are excluded.
+Limit eight passages, 4,096 UTF-8 bytes each and 48 KiB combined metadata.
+Ordinary editable-field menus stay intact. The org inbox remains a viewer;
+selection does not add outside composition or acknowledge project jobs.
+Agents have matching exact source reads (`orgtree-tool-read-reply-source`,
+orgtree-working › inspection) and selection replies (`orgtree-tool-message`,
+orgtree-working › mail).
+
 Ticket and presentation links in a mail reading pane offer Mention and Reply
 while its reply box is live, including Reply & acknowledge for queue jobs.
 They insert a reference or stage that object as
