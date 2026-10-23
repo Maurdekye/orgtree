@@ -28,6 +28,17 @@ Read them before each assigned phase; if a required source or tool is inaccessib
 ask the coordinator for that input. Project visibility and mail audiences do not
 grant Summary-policy authority. A source-only/docs assignment stays source-only.
 
+## GL/SVG parity cameras
+
+The GL wire parity fixture compares two separate canvas mounts. Restore the
+same saved camera for both, and check their committed transforms before
+comparing the exact classes and geometry. The default opening glide makes
+wall-clock snapshots incomparable: a peer wire can cross the viewport boundary
+between mounts even though both renderers receive the same wire list. Preserve
+the off-screen peer and unculled GL-list controls. The fake layer proves data
+and camera parity, not shaders or pixels. [verified: `glwires.test.tsx`,
+`canvas/{OrgCanvas,viewport}.tsx`; 2026-10-23]
+
 ## Baseline-tool metadata fixtures
 
 The baseline tool's `show` filtering and concurrency-description tests use an

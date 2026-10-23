@@ -36,7 +36,7 @@ import {
   parseDropShadows, sameWires, sparkPoint, tessellate, VERT_FLOATS,
 } from '../src/canvas/glwires'
 import type { CameraView, GlWiresHooks, GlWiresLayer, SparkLike, Wire, WireStyles } from '../src/canvas/glwires'
-import { segD, segPoint, smooth } from '../src/canvas/shared'
+import { saveView, segD, segPoint, setStartView, smooth } from '../src/canvas/shared'
 import type { Seg } from '../src/canvas/shared'
 import { OrgCanvas } from '../src/canvas/OrgCanvas'
 import { forgetPins } from '../src/canvas/pins'
@@ -220,17 +220,29 @@ test('§5 the kill flag forces SVG even where GL could run', async (t) => {
 
 test('§6 GL mode: the layer receives the SAME wires the SVG layer draws', async (t) => {
   reset(); t.after(reset)
+  // Two separate mounts must compare the same camera, not different frames
+  // of the opening glide. This saved close view keeps the peer off-screen.
+  const camera = { x: -9200, y: 80, z: 1.6 }
+  setStartView('remember')
+  saveView(SLUG, camera)
   // what the SVG layer draws, as (d, class)
   const svgView = await canvas(t)
+  const svgTransform = svgView.el.querySelector<HTMLElement>('.space')!.style.transform
   const svgSet = visiblePaths(svgView.el).map(p => `${p.getAttribute('class')}|${p.getAttribute('d')}`).sort()
+  assert.ok(svgSet.some(w => w.startsWith('edge|')), 'the reference view includes tree edges')
+  assert.ok(!svgSet.some(w => w.startsWith('edge peer|')), 'the reference view culls the peer off-screen')
   await svgView.unmount()
 
   const log = fakeLayer()
   const restore = stubProbeStyles(); t.after(restore)
+  saveView(SLUG, camera)
   const v = await canvas(t)
   assert.ok(v.el.querySelector('canvas.glwires'), 'the GL canvas is mounted')
   assert.equal(log.created, 1)
   assert.equal(visiblePaths(v.el).length, 0, 'no wire is drawn twice: SVG holds only the probes now')
+  assert.equal(v.el.querySelector<HTMLElement>('.space')!.style.transform, svgTransform,
+    'both mounts use the same committed camera')
+  assert.deepEqual(log.lastView, camera, 'the layer draws with the saved camera')
   // The GL layer gets the UNCULLED list (the GPU clips; its own cover decides
   // uploads), the SVG layer culls with ViewportPath. So: every SVG path is in
   // the GL list, identically, and every GL-only wire is one SVG culled.
