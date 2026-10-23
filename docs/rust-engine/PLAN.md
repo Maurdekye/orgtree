@@ -285,6 +285,10 @@ still resume, so the agents themselves remember).
 
 ## 10. User-facing differences — complete ledger
 
+Project draft settings (USER 2026-10-23, 4.4.4): the draft gear stages project
+policy before creation. Create applies it atomically; the agent project-create
+tool accepts the same policy in settings. See [project nodes](PROJECT-NODES.md).
+
 Project broadcast (USER2026-10-23,4.4.3): both megaphone and tool pass through
 live project children and stop at live agent recipients; reports below those
 agents are excluded. Mail admission and delivery metadata remain unchanged.

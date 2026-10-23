@@ -8,6 +8,8 @@ A project groups agents without adding a model seat. Start with its Summary and 
 
 Use a project token or **New project…** at the intended place in the tree. Name it and optionally write its **Summary**. A project can sit above or below other projects and agents. It has no model, effort, account or independent credit grant and takes no turns itself. Its agents still report to the nearest agent superior above the project.
 
+Before creating it, use the draft card's **gear** to choose project settings: peer mail, queue mode and sender exclusion, concurrency slots, Project Events, and acknowledgement policy. **save** keeps those choices in the draft; **cancel** or Escape leaves the open settings edits unapplied. Create applies the saved settings together with the new project. A refused creation keeps the draft and its saved settings for correction and retry.
+
 Select it to open the desk. Click the Summary to edit; leaving the editor saves a change and Escape discards it. The Summary is standing guidance for agents under the project. State the purpose, responsibilities and any agreement about slots, queues or releases there.
 
 The desk's common tabs are Summary, Mail, Docket, Presented and, while it has live members, Team. Docket lists items owned by agents below it; the project is not itself an item owner. Presented shows documents attributed to the project; **Team presentations** adds its agents' documents. Settings controls project policies, and History appears when records exist.

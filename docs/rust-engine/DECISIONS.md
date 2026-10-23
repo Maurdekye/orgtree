@@ -1981,3 +1981,9 @@ are excluded. The desktop megaphone and agent tool use the same rule. This refin
 full-subtree description, without a depth cutoff. Ordinary per-recipient admission,
 attachments, replies, urgency and audience grants remain unchanged. Sources:
 m7214fddbec4a, m24d383f0fe1b, mcc739e71d42b. See [project nodes](PROJECT-NODES.md#placement-and-runtime-capabilities).
+**Project draft settings, USER 2026-10-23 12:23:16Z (4.4.4), mebf45caf5e69:**
+Project drafts gain a gear to preconfigure relevant project settings, like agent
+hire drafts. Save stages policy locally; Create applies it in the same transaction
+as the new project. The existing agent project-create settings object has the same
+policy semantics. Name and Summary remain creation fields; no later ancestor-policy
+authority is conferred by insertion. See [project nodes](PROJECT-NODES.md).

@@ -10,6 +10,8 @@ For worked coordination calls and their limits, open `orgtree-concurrency-primit
 
 ## Call contract
 
+`action=create` accepts optional `settings` for initial policy in the same transaction as creation: `peer_mail`, `mail_queue`, `exclude_sender`, `ack_timeout`, `max_attempts`, `ack_reminders`, `turn_end_reminder`, `slots` and `event_listeners`, with the same types and bounds as configure. Omitted fields keep the ordinary new-project defaults; explicit false and zero are retained. An empty settings object also keeps defaults. Put creation `name` and `description` at the top level; those identity fields inside creation settings are refused. Invalid policy refuses without creating the project. This mirrors the canvas draft's gear and grants no ongoing policy authority over a project created above the caller.
+
 Nested projects do not impose a fixed depth cutoff on broadcasts or queue
 listener eligibility. This tool pages broadcast recipients and applies ordinary
 mail authority to each one; queue ownership, ACK limits and above/below reach

@@ -539,6 +539,14 @@ agents under the project".
   places the project the way a hire is placed: under the card, beside it (create, then the side
   hire's reorder) or above it, holding it (`above`). Spaces in the typed name become hyphens,
   as in a hire (`normalizeUserEnteredName`). There is no separate form.
+  The draft gear stages the same policy fields as Project settings locally before
+  creation (USER 2026-10-23, 4.4.4). Save retains the draft choices; Cancel or
+  Escape discards the open settings edits. The shared controls are in
+  `canvas/projectpolicy.tsx`. Name/Summary remain on the card. `create_project`
+  validates optional `settings` with the existing policy validator and inserts
+  its initial scope in the creation transaction, retaining explicit false/zero.
+  Agents use the existing tool's settings object on create too; creation does
+  not grant later ancestor-policy authority. Invalid policy refuses before INSERT.
 - Menus: agents get "New project…" on the card and the Agents List row alike, and the eye
   card gets "New project…". Each opens the same draft project card. A project's own menu offers Open (mailbox, folder, presentations),
   Hire under this project, New project… and Retire project….
