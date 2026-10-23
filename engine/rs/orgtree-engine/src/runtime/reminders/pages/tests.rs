@@ -82,10 +82,10 @@ async fn reminder_pages_cross_old_limits_with_real_queries_and_durable_rotation(
     let project_off:i64=c.query_one("INSERT INTO ot.agents(org_id,name,state,tier,born,kind,scope) VALUES(1,'off','live','','fixture','project','{\"mail_queue\":\"ack\",\"mail_queue_ack_timeout\":false}') RETURNING id",&[]).await.unwrap().get(0);
     let project_on:i64=c.query_one("INSERT INTO ot.agents(org_id,name,state,tier,born,kind,scope) VALUES(1,'on','live','','fixture','project','{\"mail_queue\":\"ack\",\"mail_queue_ack_timeout\":true}') RETURNING id",&[]).await.unwrap().get(0);
     c.execute("INSERT INTO ot.mail(uid,org_id,sender,recipient_kind,recipient_agent_id,recipient_name,body,state,extra)
-       SELECT 'job-'||g,1,'@user','agent',CASE WHEN g<=20 THEN $1 ELSE $2 END,'project','job','read',
+       SELECT 'job-'||g,1,'@user','agent',CASE WHEN g<=20 THEN $1::bigint ELSE $2::bigint END,'project','job','read',
         jsonb_build_object('claimed',jsonb_build_object('by_id',1,'ack',true,'copy','copy-'||g,'wakes',0)) FROM generate_series(1,41) g",&[&project_off,&project_on]).await.unwrap();
     c.execute("INSERT INTO ot.slot_leases(uid,org_id,project_id,holder_agent_id,slot_no,slot_count)
-       SELECT 'lease-'||g,1,CASE WHEN g<=20 THEN $1 ELSE $2 END,1,g,CASE WHEN g=41 THEN 3 ELSE 1 END FROM generate_series(1,41) g",&[&project_off,&project_on]).await.unwrap();
+       SELECT 'lease-'||g,1,CASE WHEN g<=20 THEN $1::bigint ELSE $2::bigint END,1,g,CASE WHEN g=41 THEN 3 ELSE 1 END FROM generate_series(1,41) g",&[&project_off,&project_on]).await.unwrap();
     for (key,is_slot) in [(crate::domain::checkup_pages::JOBS,false),(crate::domain::checkup_pages::SLOTS,true)] {
         let mut ids=Vec::new();
         for (n,expected) in [20usize,20,1].into_iter().enumerate() {
