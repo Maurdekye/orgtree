@@ -1930,3 +1930,9 @@ All entries are dated 2026-10-06 unless stated otherwise.
     holds are unchanged. No slot bookkeeping proves protected work has stopped.
     See [slot lifecycle](../agents/projects-and-concurrency.md#slots-when-agents-leave-the-tree-2026-10-22)
     and `tools/rig/proofs/project-retirement-slots.mjs`.
+
+- 2026-10-22 23:54Z, USER (m5c9a92bca6d8): Shift+F4 goes to the latest @user mention.
+  The coordinator's flagged defaults include backward stepping, no wrap, seen
+  entries and a 4.4.2 history baseline with bounded pending seeding, without old
+  history backfill. The implementation retains the newest 2,000 per org. See
+  [mention navigation](mention-navigation.md) for the source and cursor contract.

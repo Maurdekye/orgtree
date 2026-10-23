@@ -15,6 +15,10 @@ or new action changes; agent parity remains the existing hire/message actions.
 [verified: `canvas/OrgCanvas.tsx`, `tests/{firstuse-hire,firstuse,pendinghire}.test.tsx`;
 decided: coordinator 2026-10-22, 4.4.2 defect assignment]
 
+## Mention navigation
+
+Shift+F4 visits the current org's retained mention destinations, including seen entries, through bounded cursor reads. History begins at 4.4.2 with a bounded pending seed; the feed retains 2,000 entries per org. Preserve exact transcript identities and the shared Settings/matcher table. See [mention navigation](../rust-engine/mention-navigation.md). [decided: user 2026-10-22, m5c9a92bca6d8; coordinator defaults mec06fbc099af]
+
 ## Canvas superior insertion target (2026-10-22)
 
 Superior draft permissions identify the insertion target and keep its scope

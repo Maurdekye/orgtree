@@ -17,6 +17,7 @@ The Keyboard shortcuts settings tab is a reference, not a key-rebinding editor. 
 | F2 | Toggle Usage. |
 | F3 | Toggle Usage History. |
 | F4 | Toggle Canvas/Attention; return to Canvas from an open panel. |
+| Shift+F4 | Go to the newest recorded @user mention in the current org, across agent transcripts, mail and tickets. Separate presses step backward, including seen mentions; no wrap. A newer mention resets the position. |
 | F5 | Refresh app view, using the header button's action. |
 | F6 | Toggle the current org Inbox. |
 | F7 | Toggle the current org Docket. |
@@ -55,6 +56,10 @@ The Keyboard shortcuts settings tab is a reference, not a key-rebinding editor. 
 | Standard widgets | Enter/Space activates focused button-like items. Tab moves focus, remains inside modal dialogs, or leaves/closes menus. Up/Down/Page Up/Page Down/Home/End/Space scrolls a conversation when focus allows native scrolling. |
 
 Undo is durable action history and can require confirmation; it is distinct from editing text. See [orgtree-toasts-and-undo](../../app-shell/toasts-and-undo/SKILL.md) for its scope and the resulting state changes. The source catalog is `shortcuts.ts` plus `shell/appshortcuts.ts`; if a newly added binding differs, use that source and update this page in the same landing.
+
+Mention history starts at **4.4.2**, seeded once from a bounded set of still-pending markers at upgrade. It retains the newest **2,000 mentions per org**, including seen entries recorded since then; older handled history is not backfilled. A jump opens the desk, mail or ticket reader and highlights the mention. If a ticket edit removed the original prose, its labelled recorded excerpt remains available. No mentions gives **No @user mentions yet**; past the oldest gives **No older @user mentions**, leaving the current view in place. Holding the key does not step repeatedly.
+
+Shift+F4 is UI navigation. Agents reach source content with `orgtree_read_transcript`, `orgtree_inbox` and `orgtree_work get` within their existing permissions.
 
 ## See also
 
