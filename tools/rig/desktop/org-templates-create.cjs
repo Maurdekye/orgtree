@@ -1,12 +1,29 @@
 // The Create organization window with a Starting layout picked. The rig has no
 // desktop bridge, so a minimal one is planted before the page loads with the
-// window identity "create" (the v3 shell's creation window); every other
-// bridge call resolves to null.
+// window identity "create" (the v3 shell's creation window). Subscription
+// cleanup is synchronous, as in the real preload. Only known async methods
+// may use the null stub; an unsupported member must name itself and fail.
 // args: { shot, name, template, overrides?: {slot: tier}, create?: bool }
 const BRIDGE = `
   (() => {
+    // Promise-returning DesktopBridge/NativeWindowBridge methods. Keep this
+    // allowlist explicit: a future synchronous method needs its own stub.
+    const asyncNoops = new Set([
+      'addPhoneFirewallRule', 'agentScratchAgentsFileExists', 'cancelCreation', 'cancelProviderLogin',
+      'checkForUpdates', 'closePopout', 'closeWindow', 'focusPopout', 'getAppVersion', 'getHarnesses',
+      'getMaintenanceStatus', 'getPopoutState', 'getPreferences', 'getProviderLoginStatus',
+      'getRunAsAdministrator', 'getStartupKind', 'getStatus', 'getUpdateCapability', 'getUpdateStatus',
+      'getWindowControlsState', 'getWindowState', 'installUpdate', 'localFileStatus', 'minimizePopout',
+      'minimizeWindow', 'notify', 'openAgentScratchAgentsFile', 'openAgentScratchFolder', 'openCharterFolder',
+      'openCreateOrgWindow', 'openHarnessLink', 'openHomepageWindow', 'openLocalFile', 'openLogsFolder',
+      'openOrgs', 'openTemplatesFolder', 'quit', 'removePhoneFirewallRule', 'revealFile', 'setEffectiveTheme',
+      'setPendingAttention', 'setPreferences', 'setRunAsAdministrator', 'setUnsavedCreation', 'showMainWindow',
+      'startProviderLogin', 'submitProviderLoginCode', 'syncNotifications', 'takePendingWindowEvents',
+      'toggleMaximizePopout', 'toggleMaximizeWindow',
+    ])
     const known = {
       windowIdentity: { windowId: 'rig-create', kind: 'create' },
+      onEvent: () => () => {},
       requestOrg: () => Promise.resolve(null),
       // the native side would bind this window to the new org; the rig keeps it here
       bindCreatedOrg: () => Promise.resolve({ action: 'pending' }),
@@ -17,6 +34,7 @@ const BRIDGE = `
       get(t, k) {
         if (k in t) return t[k]
         if (typeof k !== 'string' || k === 'then' || k === 'toJSON') return undefined
+        if (!asyncNoops.has(k)) throw new Error('org-templates rig bridge: unsupported member ' + k + '; add a contract-correct stub')
         return (...a) => { window.__rigBridgeCalls.push(k); return Promise.resolve(null) }
       },
     })

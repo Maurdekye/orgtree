@@ -341,6 +341,14 @@ verification phase and build-project permits still govern what may be run.
   report anything. After a red run, verify every expected test name appeared;
   the outer summary alone is insufficient. [decided: coordinator 2026-10-21;
   measured: @rig-opus 2026-10-14 round 439; @desk-parity-opus 2026-10-19]
+- **Fake desktop bridges must preserve synchronous contracts.** `onEvent`
+  returns an unsubscribe function, not a Promise. The Create-picker fixture
+  now gives it an explicit stub, limits null Promise stubs to known async
+  methods and names unsupported members in a refusal. A catch-all Promise
+  Proxy caused thousands of StrictMode cleanup errors and renderer crashes
+  in the 4.4.0/4.4.1 template proof. [verified:
+  `tools/rig/desktop/org-templates-create.cjs`, `packages/contracts/index.ts`;
+  measured: @template-dogs-sol 2026-10-23]
 - **Measure the intended text.** `textContent` joins adjacent elements without
   separators, so word-boundary checks can miss a separate `to` span or match
   across elements. Find that span and its `nextElementSibling` instead.
