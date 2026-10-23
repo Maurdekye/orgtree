@@ -11,6 +11,15 @@ controls, including the zoom toolbar. Both notes stay within the canvas; the con
 the corresponding note edge. Progress and hire-completion logic are unchanged.
 [verified: `canvas/firstuse.tsx`, `canvas/firstuseplacement.ts`; user 2026-10-23]
 
+## Welcome setup layout (2026-10-23)
+
+The homepage's first-run Welcome card uses the shared `shell-page-inner`
+management container, centered horizontally below the header. Its width is
+bounded by that container on narrow windows; vertical scrolling keeps all
+setup actions reachable on short windows. The canvas first-use
+guide is a separate surface. [decided: user 2026-10-23; verified:
+`shell/homepage.tsx`, `shell.css`]
+
 ## First-use guide hire completion (2026-10-22)
 
 The pending-hire layout effect advances the first-use guide before removing a

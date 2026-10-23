@@ -446,6 +446,9 @@ main.solo:has(> .shell-header) > .canvas-stage > .viewport {
   padding: 36px 24px 48px;
 }
 
+/* Welcome uses the same centered, scrollable management-page frame. */
+.shell-page-inner > .onboarding { align-self: center; max-width: 100%; }
+
 .shell-page-eyebrow {
   color: var(--org-accent);
   font-size: 10px;

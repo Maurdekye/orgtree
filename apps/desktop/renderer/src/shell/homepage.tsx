@@ -39,7 +39,9 @@ export function HomepageView(props: HomepageViewProps) {
   const { orgs, freshness, ageMs, error, isOpenElsewhere,
     onOpenOrg, onCreateOrg, onDelete, onboarding } = props
   const [filter, setFilter] = useState('')
-  if (onboarding) return <div className="shell-page shell-homepage">{onboarding}</div>
+  if (onboarding) return <div className="shell-page shell-homepage">
+    <div className="shell-page-inner">{onboarding}</div>
+  </div>
   const needle = filter.trim().toLowerCase()
   const shown = needle
     ? orgs.filter((o) => o.name.toLowerCase().includes(needle)
