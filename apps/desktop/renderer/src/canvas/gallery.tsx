@@ -700,6 +700,9 @@ export interface AgentGalleryViewProps {
    *  under it, passing through projects. A project's gallery is always so. */
   team?: boolean
   onTeam?: (team: boolean) => void
+  /** Desk filter; omitted by standalone readers to preserve their view. */
+  showRetired?: boolean
+  onShowRetired?: (show:boolean) => void
   /** a document to show, located by the list itself (a REQUEST: a repeat is
    *  a new one) — a reader asked to show a document it can show */
   jumpTo?: JumpReq | null
@@ -775,13 +778,13 @@ export function AgentGalleryModal({ slug, nid, node, toast, close, onFocusAgent,
  *  subtree when the "Team" checkbox is checked). */
 export function AgentGalleryView({ slug, nid, node, toast, onFocusAgent, onReply, onBroadcast,
   onReplyToDoc, projectBroadcastMembers, refs, onChanged, initialDocument, initialLoaded, selectedRow, onShown,
-  collapsible, team, onTeam, jumpTo, continuedSelection }: AgentGalleryViewProps) {
+  collapsible, team, onTeam, jumpTo, continuedSelection, showRetired, onShowRetired }: AgentGalleryViewProps) {
   const [localTeam, setLocalTeam] = useState(!!team)
   useEffect(() => { setLocalTeam(!!team) }, [team])
   const isProject = (node as { kind?: string } | undefined)?.kind === 'project'
   const effectiveTeam = onTeam ? !!team : localTeam
   const setTeam = (next: boolean) => { setLocalTeam(next); onTeam?.(next) }
-  const w = useDocWindow(slug, nid, jumpTo?.id ?? initialDocument ?? continuedSelection ?? '', jumpTo?.seq ?? 0, effectiveTeam, !initialDocument && continuedSelection === undefined)
+  const w = useDocWindow(slug, nid, jumpTo?.id ?? initialDocument ?? continuedSelection ?? '', jumpTo?.seq ?? 0, effectiveTeam, !initialDocument && continuedSelection === undefined, showRetired===false, showRetired!==undefined)
   // a team list holds other nodes' cards, and a project's own list may hold
   // cards presented under its old name (the engine reads a project by id,
   // point 27): the engine scoped both, so their rows are not narrowed to `nid`
@@ -813,8 +816,8 @@ export function AgentGalleryView({ slug, nid, node, toast, onFocusAgent, onReply
     const source = w.rows ? (polled ?? []) : fallbackRows
     const includeSelected = selectedRow && (wide || selectedRow.node === nid) && !source.some(r => r.id === selectedRow.id)
       ? [selectedRow, ...source] : source
-    return includeSelected.filter((r) => !dismissed.includes(r.id))
-  }, [w.rows, nid, fallbackRows, dismissed, selectedRow, wide])
+    return includeSelected.filter((r) => !dismissed.includes(r.id) && (showRetired!==false || isHired(r)))
+  }, [w.rows, nid, fallbackRows, dismissed, selectedRow, wide, showRetired])
   const rowGaps = visibleGaps(w, rows)
 
   const scope=readerScope('presented',slug,nid,effectiveTeam)
@@ -826,7 +829,7 @@ export function AgentGalleryView({ slug, nid, node, toast, onFocusAgent, onReply
   // later deselect or dismissal is never undone.
   const opening = useRef({ key: '', pending: true })
   useEffect(() => {
-    const key = JSON.stringify([slug, nid, effectiveTeam, initialDocument ?? null])
+    const key = JSON.stringify([slug, nid, effectiveTeam, initialDocument ?? null, showRetired])
     if (opening.current.key !== key) {
       opening.current = { key, pending: !initialDocument && continuedSelection === undefined }
       openingReveal.current = null
@@ -901,7 +904,7 @@ export function AgentGalleryView({ slug, nid, node, toast, onFocusAgent, onReply
       <div className="gallery-head desk-presented-head">
         <b>Presented</b>
         <span className="dim" data-copy-agent-name={nid}>documents and HTML previews from {nid}{effectiveTeam ? ' and the agents under it' : ''}</span>
-        {!isProject && (
+        {(!isProject || onTeam) && (
           <label className="docket-check gallery-team-check"
             title="include presentations from every agent under this one">
             <input type="checkbox" checked={effectiveTeam}
@@ -909,6 +912,10 @@ export function AgentGalleryView({ slug, nid, node, toast, onFocusAgent, onReply
             Team
           </label>
         )}
+        {onShowRetired && <label className="docket-check">
+          <input type="checkbox" checked={!!showRetired} onChange={e=>onShowRetired(e.target.checked)} />
+          Show retired
+        </label>}
       </div>
       {rows.length === 0 ? (
         <DocListEmpty w={w} className="desk-presented-empty">

@@ -10,7 +10,7 @@
 import { useCallback, useEffect, useState } from 'react'
 
 /** what a desk remembers: its tab, and a project desk's Mail folder */
-export type DeskPart = 'tab' | 'mail'
+export type DeskPart = 'tab' | 'mail' | 'work-team' | 'presented-team'
 type Saved = Partial<Record<DeskPart, string>>
 
 const KEY = 'orgtree-desk-tabs:'

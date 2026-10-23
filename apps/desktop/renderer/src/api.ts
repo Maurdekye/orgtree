@@ -784,13 +784,17 @@ export interface DocRow {
  *  the gallery reads from offset 0 and grows the window as the reader scrolls,
  *  so every response is a complete newest-first prefix (canvas/gallery.tsx).
  *  Omitted, the server's own default applies. */
-export const getDocuments = (slug: string, offset = 0, node = '', locate = '', limit = 0, team = false, opening = false, hired = false, previous = ''): Promise<{ documents: DocRow[]; total: number; next_offset: number | null; offset?: number; located?: string; opening_id?: string | null; opening_position?: number | null }> =>
+export const getDocuments = (slug: string, offset = 0, node = '', locate = '', limit = 0, team = false, opening = false, hired = false, previous = '', visible = false): Promise<{ documents: DocRow[]; total: number; next_offset: number | null; offset?: number; located?: string; opening_id?: string | null; opening_position?: number | null }> =>
   req(`/api/orgs/${slug}/documents?offset=${offset}&node=${encodeURIComponent(node)}`
     + (limit > 0 ? `&limit=${limit}` : '')
     + (team ? '&team=1' : '')
+    + (visible ? '&visible=true' : '')
     + (opening ? '&opening=1' : '') + (hired ? '&hired=1' : '')
     + (opening && previous ? `&previous=${encodeURIComponent(previous)}` : '')
     + (locate ? `&locate=${encodeURIComponent(locate)}` : ''))
+export type ReaderAvailability = { work: {own:boolean;team:boolean}; presented: {own:boolean;team:boolean} }
+export const getReaderAvailability = (org:string,nid:string,archived=false,backlogged=false,retired=false): Promise<ReaderAvailability> =>
+  req(`/api/orgs/${encodeURIComponent(org)}/nodes/${encodeURIComponent(nid)}/reader-availability?archived=${archived}&backlogged=${backlogged}&retired=${retired}`)
 export const dismissDocument = (slug: string, did: string):
   Promise<{ ok: boolean; node: string }> =>
   req(`/api/orgs/${slug}/documents/${did}`, { method: 'DELETE' })

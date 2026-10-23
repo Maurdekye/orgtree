@@ -34,8 +34,8 @@ type Loaded = { ident: string; rows: DocRow[] | null; total: number; more: boole
 /** Each HTTP read is <=200 rows, including later growth. No opening reads a
  * history-wide prefix. Sparse gaps remain explicit and fill on scroll/click. */
 export function useDocWindow(slug: string, node: string, locate = '', seq: unknown = 0,
-  team = false, autoOpen = true, hired = false): DocWindow {
-  const ident = `${slug}/${node}${team ? '/team' : ''}`
+  team = false, autoOpen = true, hired = false, visible = false): DocWindow {
+  const ident = `${slug}/${node}${team ? '/team' : ''}${visible ? '/visible/'+hired : ''}`
   const plan = useRef({ ident, ranges: fresh(), opened: false, aim: '', anchor: '' })
   if (plan.current.ident !== ident) plan.current = { ident, ranges: fresh(), opened: false, aim: '', anchor: '' }
   const [attempt, setAttempt] = useState(0)
@@ -56,7 +56,7 @@ export function useDocWindow(slug: string, node: string, locate = '', seq: unkno
         if (!state.opened || jump) {
           if (opening) await syncDocViewed(slug)
           if (dead) return
-          first = await getDocuments(slug, 0, node, jump ? locate : '', DOC_PAGE, team, opening, hired, opening ? lastReaderItem(readerScope('presented',slug,node,team)) ?? '' : '')
+          first = await getDocuments(slug, 0, node, jump ? locate : '', DOC_PAGE, team, opening, hired, opening ? lastReaderItem(readerScope('presented',slug,node,team)) ?? '' : '',visible)
           const offset = first.offset ?? 0
           if (jump && !first.documents.some(r => r.id === locate)) throw Error('that document is too far down the list to open from here')
           ranges = offset + DOC_PAGE <= DOC_OPEN_PREFIX
@@ -66,7 +66,7 @@ export function useDocWindow(slug: string, node: string, locate = '', seq: unkno
         } else if (anchor && ranges.length > 1) {
           // New presentations shift numeric offsets. Re-locate the target
           // page by identity so a boundary target cannot disappear on poll.
-          first = await getDocuments(slug, 0, node, anchor, DOC_PAGE, team, false, hired)
+          first = await getDocuments(slug, 0, node, anchor, DOC_PAGE, team, false, hired,'',visible)
           ranges = merged(ranges.map((r, i) => i === ranges.length - 1 ? { ...r, start: first!.offset ?? r.start } : r))
         }
         const parts = await Promise.all(ranges.map(async range => {
@@ -74,7 +74,7 @@ export function useDocWindow(slug: string, node: string, locate = '', seq: unkno
           for (let at = range.start; at < range.start + range.size; at += DOC_OPEN_PREFIX) {
             const size = Math.min(DOC_OPEN_PREFIX, range.start + range.size - at)
             const packet = first && (first.offset ?? 0) === at && size === DOC_PAGE ? first
-              : await getDocuments(slug, at, node, '', size, team, false, hired)
+              : await getDocuments(slug, at, node, '', size, team, false, hired,'',visible)
             if ((packet.offset ?? at) !== at) throw Error('the documents server returned a different page')
             packets.push(packet)
             if (packet.next_offset == null) break

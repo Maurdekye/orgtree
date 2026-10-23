@@ -119,6 +119,7 @@ import { DeskJumpCards, superiorKept } from './deskjumpcards'
 import { subtreeAgents } from './bulkcompact'
 import { DeskDocsStrip, DeskHead, DeskMetaRow, DeskTabs, deskTabLabel } from './deskshell'
 import { useDeskMemory } from './desktabs'
+import { deskReaderVisible, useDeskReaderAvailability, useDeskReaderTeam } from './deskreaders'
 import { AskCard } from './asks'
 import { useWorkItems } from './useworkitems'
 import { readerScope } from './readeropening'
@@ -2636,8 +2637,12 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
   const [workBump, setWorkBump] = useState(0)
   const [showArchivedDocket, setShowArchivedDocket] = useState(false)
   const [showBacklogDocket, setShowBacklogDocket] = useState(false)
-  const [teamDocket, setTeamDocket] = useState(false)
-  const [teamPresented, setTeamPresented] = useState(false)
+  const [showRetiredPresented,setShowRetiredPresented]=useState(false)
+  const readerAvailability=useDeskReaderAvailability(slug,node.id,showArchivedDocket,showBacklogDocket,showRetiredPresented)
+  const docketScope=useDeskReaderTeam(slug,node.id,'work',readerAvailability?.work,view==='docket')
+  const presentedScope=useDeskReaderTeam(slug,node.id,'presented',readerAvailability?.presented,view==='presented')
+  const {team:teamDocket,setTeam:setTeamDocket}=docketScope
+  const {team:teamPresented,setTeam:setTeamPresented}=presentedScope
   const [workPageFilter, setWorkPageFilter] = useState<import('../workpages').WorkPageOptions>({})
   const workFeed = useWorkItems(slug, view === 'docket' && showArchivedDocket,
     view === 'docket' && showBacklogDocket, 15000, workBump,
@@ -3912,7 +3917,9 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
               </button>
             )}
           </>}
-        tabs={<DeskTabs shown={view} tabs={AGENT_DESK_TABS.filter(v => v !== 'team' || teamCount > 0).map((v) => ({ id: v, label: deskTabLabel(v), count: tabCount(v), countClass: 'prov-' + providerOf(node.tier ?? '') }))} onShow={(v) => { if (!revealAgentPanelTab(v, slug, node.id, node.generation)) setView(v as typeof view) }} />}
+        tabs={<DeskTabs shown={view} tabs={AGENT_DESK_TABS.filter(v => (v !== 'team' || teamCount > 0)
+          && (v !== 'docket' || deskReaderVisible(v,view,readerAvailability?.work.team || readerAvailability?.work.own))
+          && (v !== 'presented' || deskReaderVisible(v,view,readerAvailability?.presented.team || readerAvailability?.presented.own))).map((v) => ({ id: v, label: deskTabLabel(v), count: tabCount(v), countClass: 'prov-' + providerOf(node.tier ?? '') }))} onShow={(v) => { if (!revealAgentPanelTab(v, slug, node.id, node.generation)) setView(v as typeof view) }} />}
         rightExtras={<>
           {/* FR-3: pin this desk to screenspace as a draggable window */}
           {!(hidePopout && !surface?.detached) && <PopoutButton />}
@@ -4455,7 +4462,7 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
           the DESK TAB, so the desk tab is where it is mounted. */}
       {view === 'docket' && <div className="desk-tabpanel">
         <PanelCorner kind="agent-docket" slug={slug} nid={node.id} />
-        <AgentDocketView slug={slug} nid={node.id} paging={{...workFeed.paging,setFilter:setWorkPageFilter}}
+        {docketScope.ready ? <AgentDocketView slug={slug} nid={node.id} paging={{...workFeed.paging,setFilter:setWorkPageFilter}}
           mine={myWork} facts={workFacts} toast={toast} onFocusAgent={onJump}
           team={teamDocket} onTeam={setTeamDocket}
           showArchived={showArchivedDocket}
@@ -4463,7 +4470,7 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
           onShowBacklog={setShowBacklogDocket}
           references={work?.references} boundedReferences workRevision={work?.revision}
           refs={deskRefs}
-          onChanged={() => setWorkBump((n) => n + 1)} />
+          onChanged={() => setWorkBump((n) => n + 1)} /> : <div className="dim pad" role="status">Loading docket…</div>}
       </div>}
       {view === 'team' && <div className="desk-tabpanel team-tabpanel">
         <AgentTeamView map={map} nid={node.id} onPick={onJump} refs={deskRefs} compactAt={compactAt}
@@ -4472,11 +4479,12 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
       {view === 'presented' && (
         <div className="desk-tabpanel">
           <PanelCorner kind="agent-gallery" slug={slug} nid={node.id} />
-          <AgentGalleryView slug={slug} nid={node.id} node={node} toast={toast}
+          {presentedScope.ready ? <AgentGalleryView slug={slug} nid={node.id} node={node} toast={toast}
             team={teamPresented} onTeam={setTeamPresented}
+            showRetired={showRetiredPresented} onShowRetired={setShowRetiredPresented}
             onFocusAgent={onJump} refs={deskRefs}
             onReplyToDoc={canMail ? (d) => replyToPresentation(d) : undefined}
-            onChanged={() => refresh(true)} />
+            onChanged={() => refresh(true)} /> : <div className="dim pad" role="status">Loading presentations…</div>}
         </div>
       )}
       {/* the mailbox is a name surface too (user request 2026-09-05: the inbox

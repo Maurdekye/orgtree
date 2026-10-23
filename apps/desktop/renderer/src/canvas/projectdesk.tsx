@@ -68,6 +68,7 @@ import { InboxNoListeners, inboxListened } from './inboxwarning'
 import { DeskJumpCards, superiorKept } from './deskjumpcards'
 import { DeskDocsStrip, DeskHead, DeskMetaRow, DeskModalShell, DeskTabs, deskTabLabel } from './deskshell'
 import { useDeskMemory } from './desktabs'
+import { deskReaderVisible, useDeskReaderAvailability, useDeskReaderTeam } from './deskreaders'
 
 export const PROJECT_DESK_TABS = ['desk', 'inbox', 'docket', 'presented', 'team'] as const
 /** the Slots tab joins them while the project has a slot count (user 2026-10-18) */
@@ -723,6 +724,9 @@ export function ProjectDesk({ node, slug, tree, map, op, toast, refs, bare, focu
   // as the agent docket modal does
   const [showArchived, setShowArchived] = useState(false)
   const [showBacklog, setShowBacklog] = useState(false)
+  const [showRetiredPresented,setShowRetiredPresented]=useState(false)
+  const readerAvailability=useDeskReaderAvailability(slug,node.id,showArchived,showBacklog,showRetiredPresented)
+  const presentedScope=useDeskReaderTeam(slug,node.id,'presented',readerAvailability?.presented,view==='presented')
   const [bump, setBump] = useState(0)
   const [pageFilter, setPageFilter] = useState<import('../workpages').WorkPageOptions>({})
   const workFeed = useWorkItems(slug, view === 'docket' && showArchived, view === 'docket' && showBacklog,
@@ -768,7 +772,9 @@ export function ProjectDesk({ node, slug, tree, map, op, toast, refs, bare, focu
   </div> : null
   // the tabs it offers now, by the rules the card's shortcuts share
   const deadLetters = node.dead_letters ?? 0
-  const tabs = projectDeskTabs(node, map)
+  const tabs = projectDeskTabs(node, map).filter(v =>
+    (v!=='docket' || deskReaderVisible(v,view,readerAvailability?.work.team))
+    && (v!=='presented' || deskReaderVisible(v,view,readerAvailability?.presented.own || readerAvailability?.presented.team)))
   const shown: Tab = tabs.includes(view) ? view : 'desk'
   // A TAB THE DESK DOES NOT OFFER (no team, slots, dead letters or listeners
   // any more, or remembered from an earlier visit) gives way to Summary, and
@@ -878,8 +884,10 @@ export function ProjectDesk({ node, slug, tree, map, op, toast, refs, bare, focu
       </div>}
       {shown === 'presented' && <div className="desk-tabpanel">
         <PanelCorner kind="agent-gallery" slug={slug} nid={node.id} />
-        {/* nid = the project: the engine widens a project's gallery to its subtree */}
-        <AgentGalleryView slug={slug} nid={node.id} node={node} toast={toast} onFocusAgent={onJump} refs={refs}
+        {/* Project own/team presentations use the same explicit toggle as agents. */}
+        {presentedScope.ready ? <AgentGalleryView slug={slug} nid={node.id} node={node} toast={toast} onFocusAgent={onJump} refs={refs}
+          team={presentedScope.team} onTeam={presentedScope.setTeam}
+          showRetired={showRetiredPresented} onShowRetired={setShowRetiredPresented}
           projectBroadcastMembers={broadcastRecipients.length}
           onReplyToDoc={(doc) => replyToDoc(doc)}
           onBroadcast={(_presenter, text, target, attachments, notice) =>
@@ -888,7 +896,7 @@ export function ProjectDesk({ node, slug, tree, map, op, toast, refs, bare, focu
                 + (notice ? ' as a notice' : ''), ...r.refused.map((f) => `${f.to}: ${f.why}`)])
               if (!r.sent.length) throw new Error(r.refused.map((f) => f.why).join('; ') || 'broadcast was not accepted')
               return r
-            })} />
+            })} /> : <div className="dim pad" role="status">Loading presentations…</div>}
       </div>}
       {shown === 'team' && <div className="desk-tabpanel team-tabpanel">
         <AgentTeamView map={map} nid={node.id} onPick={onJump} refs={refs} compactAt={tree.compact_at}
