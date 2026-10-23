@@ -119,8 +119,8 @@ struct Cli {
     out: Mutex<std::io::Stdout>,
     log: Mutex<Option<std::fs::File>>,
     waiters: Mutex<HashMap<String, mpsc::Sender<Value>>>,
-    /// (hook event, callback id) as `initialize` registered them
-    hook_ids: Mutex<Vec<(String, String)>>,
+    /// (hook event, callback id, matcher) as `initialize` registered them
+    hook_ids: Mutex<Vec<(String, String, Option<String>)>>,
     interrupted: AtomicBool,
     seq: AtomicU64,
     agent: String,
@@ -361,6 +361,44 @@ fn emit_text(cli: &Cli, turn: &mut Turn, kind: &str, text: &str, chunk: usize, d
     true
 }
 
+/// Whether a hook's matcher covers a tool, as Claude Code applies it to these
+/// matchers: none, empty or `*` covers every tool, otherwise `|`-separated tool
+/// names. The engine's native-question hook (`AskUserQuestion|ExitPlanMode`)
+/// must never see any other call: it would refuse it as a question.
+fn matcher_hits(matcher: Option<&str>, tool: &str) -> bool {
+    match matcher.map(str::trim) {
+        None | Some("") | Some("*") => true,
+        Some(m) => m.split('|').any(|alt| alt.trim() == tool),
+    }
+}
+
+/// How long a call runs when its step names no `run_ms`: the scenario's
+/// `"tool_ms": [min, max]` (none without it), drawn from `"tool_seed"`, the
+/// agent, its turn and the call's place in that turn, so a retake of the same
+/// scenario times every call the same.
+fn tool_latency(cli: &Cli, call: u64) -> Option<u64> {
+    let dir = cli.dir.as_deref()?;
+    let scn = load_json(&dir.join("scenario.json"))?;
+    let range = scn["tool_ms"].as_array()?;
+    let (lo, hi) = (range.first()?.as_u64()?, range.get(1)?.as_u64()?);
+    if hi <= lo {
+        return Some(lo);
+    }
+    let turns = load_json(&dir.join("state").join(format!("{}.json", cli.agent)))
+        .and_then(|s| s["turns"].as_u64())
+        .unwrap_or(0);
+    let mut x = scn["tool_seed"].as_u64().unwrap_or(1) ^ (turns << 32) ^ call;
+    for b in cli.agent.bytes() {
+        x = (x ^ u64::from(b)).wrapping_mul(0x0100_0000_01b3);
+    }
+    // splitmix64
+    let mut z = x.wrapping_add(0x9e37_79b9_7f4a_7c15);
+    z = (z ^ (z >> 30)).wrapping_mul(0xbf58_476d_1ce4_e5b9);
+    z = (z ^ (z >> 27)).wrapping_mul(0x94d0_49bb_1331_11eb);
+    z ^= z >> 31;
+    Some(lo + z % (hi - lo + 1))
+}
+
 /// One tool use: announced, run (orgtree tools through the engine's MCP
 /// server; any other tool answers from the script), hooked, answered.
 /// Returns the hook's additional context (mid-turn mail), if any.
@@ -387,7 +425,7 @@ fn tool_use(cli: &Cli, turn: &mut Turn, step: &Value) -> Option<String> {
     cli.stream(json!({ "type": "message_stop" }));
     // PreToolUse: a hook may deny the tool before it runs (the engine's keepalive denies every one)
     let ids = cli.hook_ids.lock().unwrap().clone();
-    for (_, cb) in ids.iter().filter(|(e, _)| e == "PreToolUse") {
+    for (_, cb, _) in ids.iter().filter(|(e, _, m)| e == "PreToolUse" && matcher_hits(m.as_deref(), &full)) {
         let input = json!({ "session_id": cli.session, "cwd": cli.cwd, "hook_event_name": "PreToolUse",
                             "tool_name": full, "tool_input": args });
         let resp = cli.request(json!({ "subtype": "hook_callback", "callback_id": cb, "input": input, "tool_use_id": tid }),
@@ -402,6 +440,10 @@ fn tool_use(cli: &Cli, turn: &mut Turn, step: &Value) -> Option<String> {
                                                                           "is_error": true }] } }));
             return None;
         }
+    }
+    // how long the call runs: the step's run_ms, else the scenario's seeded tool_ms range
+    if let Some(ms) = step["run_ms"].as_u64().or_else(|| tool_latency(cli, turn.calls)) {
+        cli.pause(ms);
     }
     let (text, is_error) = if orgtree {
         let rpc = json!({ "jsonrpc": "2.0", "id": cli.next(), "method": "tools/call",
@@ -423,9 +465,6 @@ fn tool_use(cli: &Cli, turn: &mut Turn, step: &Value) -> Option<String> {
             }
         }
     } else {
-        if let Some(ms) = step["run_ms"].as_u64() {
-            cli.pause(ms);
-        }
         (step["result"].as_str().unwrap_or("ok").to_string(), step["is_error"].as_bool().unwrap_or(false))
     };
     let mut check = json!({ "tool": short, "args": args, "is_error": is_error, "text": text });
@@ -440,7 +479,7 @@ fn tool_use(cli: &Cli, turn: &mut Turn, step: &Value) -> Option<String> {
     cli.log("tool_result", check);
     // PostToolUse: the engine hands waiting mail over here
     let mut context = None;
-    for (_, cb) in ids.into_iter().filter(|(e, _)| e != "PreToolUse") {
+    for (_, cb, _) in ids.into_iter().filter(|(e, _, m)| e != "PreToolUse" && matcher_hits(m.as_deref(), &full)) {
         let input = json!({ "session_id": cli.session, "cwd": cli.cwd, "hook_event_name": "PostToolUse",
                             "tool_name": full, "tool_input": args, "tool_response": { "text": text } });
         let resp = cli.request(json!({ "subtype": "hook_callback", "callback_id": cb, "input": input, "tool_use_id": tid }),
@@ -882,9 +921,10 @@ fn reader(cli: Arc<Cli>, tx: mpsc::Sender<Msg>) {
                         if let Some(hooks) = req["hooks"].as_object() {
                             for (event, list) in hooks.iter().filter_map(|(e, l)| l.as_array().map(|l| (e, l))) {
                                 for m in list {
+                                    let matcher = m["matcher"].as_str().map(str::to_string);
                                     for cb in m["hookCallbackIds"].as_array().cloned().unwrap_or_default() {
                                         if let Some(s) = cb.as_str() {
-                                            ids.push((event.clone(), s.to_string()));
+                                            ids.push((event.clone(), s.to_string(), matcher.clone()));
                                         }
                                     }
                                 }

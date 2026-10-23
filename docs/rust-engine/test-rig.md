@@ -283,6 +283,10 @@ and `agy.exe`) is launched by the engine exactly like Claude Code. It answers `i
 connects the in-process `orgtree` MCP server (initialize, tools/list), runs `orgtree_*` calls
 through `mcp_message`, fires the PostToolUse hook after every tool use (that is where the engine
 hands over mid-turn mail), and writes session transcripts under the fake home so `--resume` works.
+Hook callbacks honour the `matcher` they were registered with, as Claude Code does (none, empty
+or `*`: every tool; else `|`-separated tool names). The engine's native-question PreToolUse hook
+(`AskUserQuestion|ExitPlanMode`, from 4.4.2) therefore never sees another tool; a fake that
+called it for every tool had every call refused as a native question.
 As `codex.exe` it plays the Codex app-server, as `agy.exe` the Antigravity CLI (below).
 
 At every turn it re-reads `<run>\fakecli\scenario.json` (`rig scenario <file>` or
@@ -295,8 +299,9 @@ prompt (case-insensitive; `unless` excludes), trying `agents.<name>.turns` befor
 |---|---|
 | `{"text": "...", "chunk": 24, "delay_ms": 0}` | text deltas, then the assistant message |
 | `{"thinking": "..."}` | thinking deltas and block |
-| `{"tool": "orgtree_x", "args": {...}, "expect": "substr", "expect_error": false}` | a real tool call through the engine; the result and the expectation are logged |
+| `{"tool": "orgtree_x", "args": {...}, "expect": "substr", "expect_error": false, "run_ms": 0}` | a real tool call through the engine; the result and the expectation are logged. `run_ms`: the call runs that long (announced, then the pause, then the call) |
 | `{"tool": "Bash", "args": {...}, "result": "...", "is_error": false, "run_ms": 0}` | any other tool: announced and answered from the script |
+| scenario `"tool_ms": [500, 2000]`, `"tool_seed": n` (top level, Claude stand-in) | every call whose step names no `run_ms` runs a duration drawn from the range, seeded by `tool_seed`, the agent, its turn and the call's place in it, so a retake times every call the same. Absent: calls take no extra time |
 | `{"poll_mail": {"every_ms": 2000, "timeout_ms": 30000}}` | tool boundaries until the hook hands mail over |
 | `{"sleep_ms": n}` / `{"hang": true}` | silence (an interrupt ends either) |
 | `{"spawn": "sleep 300"}` | starts the command through a shell (`cmd /C` on Windows, `sh -c` elsewhere) and leaves it running in the fake's process group and session, as a tool's child of a real CLI; logs `spawned` with `child_pid` and `command` (every log line's `pid` is the fake's own) |
