@@ -39,6 +39,8 @@ Rig live-root guards retain import-time `APPDATA`/home/data-override paths after
 
 - Codex sealed reasoning keeps a thought placeholder, not ciphertext; agent
   transcript reads include bounded supplied thinking and sealed markers. Keep
+  supplied thinking out of verbose traces, including encoded nested MCP results.
+  Keep
   Codex tool chips visible in the ordinary row form. See [thinking history](docs/rust-engine/codex-thinking-history.md).
   [verified: `runtime/codex_thinking.rs`, `tools/orgview.rs`; 2026-10-23]
 

@@ -26,3 +26,10 @@ content-bearing helpers. Tests cover source red controls, sealed/readable row
 construction, same-item upgrades and tools, isolated PostgreSQL history reload,
 all-harness projection shapes and Unicode bounds, plus existing renderer sealed
 and readable thought forms. No real provider invocation is needed.
+
+Verbose traces also redact supplied thinking in the shared JSON formatter.
+Ordinary structured thinking fields are masked; thought blocks and JSON text
+inside Done/MCP/legacy results are omitted when they contain thinking, including
+nested encodings. Log-only decoding has size/depth bounds and fails closed.
+Actual tool replies remain intact, with ordinary call/return diagnostics kept.
+The captured-trace regression exercises Done.json and logged outer wrappers.

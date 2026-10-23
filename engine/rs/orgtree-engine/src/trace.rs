@@ -355,6 +355,7 @@ impl Shown {
         // MCP schemas/defaults and messages can carry private values under
         // arbitrary field names; key-name masking alone cannot protect them.
         if private_selection(v) { return Shown::text(format!("{pre}[reply selection omitted]{post}")); }
+        if private_thinking(v) { return Shown::text(format!("{pre}[thinking omitted]{post}")); }
         if v.get("kind").and_then(Value::as_str) == Some("elicitation") {
             return Shown::text(format!("{pre}[MCP elicitation omitted]{post}"));
         }
@@ -494,6 +495,7 @@ fn masked(key: &str) -> bool {
         "access_token", "refresh_token", "id_token", "auth_token", "oauth_token", "authorization", "cookie",
         "set-cookie", "x-orgtree-desktop-token", "key", "secret_key", "client_secret", "private_key", "credentials",
         "anthropic_api_key", "openai_api_key", "openrouter_key", "bearer", "x-api-key",
+        "thinking", "reasoning", "encrypted_content",
     ];
     let k = key.to_ascii_lowercase();
     KEYS.contains(&k.as_str())
@@ -531,8 +533,45 @@ mod reply_selection_privacy_tests {
     }
 }
 
+fn thought_block(v: &Value) -> bool {
+    v.get("type").and_then(Value::as_str).is_some_and(|kind|
+        kind.eq_ignore_ascii_case("thinking") || kind.eq_ignore_ascii_case("reasoning"))
+}
+
+// Done.text, MCP content.text and legacy tuple results contain JSON encoded
+// as strings. Key masking outside that boundary cannot protect their contents.
+// Omit that encoded payload as a whole; keep actual tool replies unchanged.
+fn private_thinking(v: &Value) -> bool {
+    thought_block(v) || v.as_str().is_some_and(|s| encoded_thinking(s, 0))
+}
+
+fn encoded_thinking(s: &str, depth: usize) -> bool {
+    if !s.trim_start().starts_with(['{', '[', '"']) { return false; }
+    // Bound log-only inspection and fail closed for oversized, malformed or
+    // excessively nested encoded payloads instead of printing their raw text.
+    if depth >= 16 || s.len() > 1024 * 1024 { return true; }
+    serde_json::from_str::<Value>(s).map_or(true, |v| contains_thinking(&v, depth + 1))
+}
+
+fn contains_thinking(v: &Value, depth: usize) -> bool {
+    if depth >= 32 { return true; }
+    if thought_block(v) { return true; }
+    match v {
+        Value::Object(m) => m.iter().any(|(key, val)|
+            key.eq_ignore_ascii_case("thinking") || key.eq_ignore_ascii_case("reasoning") ||
+            key.eq_ignore_ascii_case("encrypted_content") || contains_thinking(val, depth + 1)),
+        Value::Array(a) => a.iter().any(|val| contains_thinking(val, depth + 1)),
+        Value::String(s) => encoded_thinking(s, depth + 1),
+        _ => false,
+    }
+}
+
+#[cfg(test)]
+mod thinking_privacy_tests;
+
 fn render(v: &Value, out: &mut Capture) {
     if private_selection(v) { out.push_str("\"[reply selection omitted]\""); return; }
+    if private_thinking(v) { out.push_str("\"[thinking omitted]\""); return; }
     if v.get("kind").and_then(Value::as_str) == Some("elicitation") {
         out.push_str("\"[MCP elicitation omitted]\"");
         return;
