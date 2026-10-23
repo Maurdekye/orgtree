@@ -2,7 +2,8 @@ import { FakeServer, installFetch, flush, inAct, mountView } from './harness'
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { webcrypto } from 'node:crypto'
-import { selectedSourceRange } from '../src/canvas/selectionmap'
+import { appendReplyTarget, selectionReplyContext, replyWire, replyContext } from '../src/eventReply'
+import { sourceDomRange, selectedSourceRange } from '../src/canvas/selectionmap'
 import { md } from '../src/canvas/shared'
 import { appendSelection, contextBytes, selectionSnapshot, sourceDigest } from '../src/replySelection'
 import type { SelectionTarget } from '../src/replySelection'
@@ -124,4 +125,25 @@ test('selection menu stages an exact passage, preserves text and restores a refu
   assert.equal(ta.value,'Explain this');assert.equal(view.el.querySelector('.selection-excerpt')?.textContent,'passage')
   assert.equal(view.el.textContent!.includes('Source changed before sending'),true)
   selected.removeAllRanges()
+})
+
+test('selection reverse mapping identifies the second repeated passage and refuses modified DOM',()=>{
+  const source='first **same** then [same](https://example.invalid)';const root=body(source)
+  try{
+    const start=source.indexOf('[same]')+1;const range=sourceDomRange(root,source,start,start+4)
+    assert.equal(range?.toString(),'same');assert.equal(range?.startContainer.parentElement?.tagName,'A')
+    root.append(document.createTextNode('synthetic'));assert.equal(sourceDomRange(root,source,start,start+4),null)
+  }finally{root.remove()}
+})
+
+test('selection event drafts retain independent ranges and send only selectors',()=>{
+  const selector={part:'text',projection:'source-v1' as const,unit:'unicode-scalar' as const,expected_sha256:'a'.repeat(64),start:0,end:3}
+  const snapshot=selectionSnapshot('one two',selector,4)
+  const target={source_event_ref:{org:'demo',agent:'writer',generation:1,eventId:'e7'}}
+  const first=selectionReplyContext({target,selection:selector,snapshot},target.source_event_ref)
+  const other={...first,selection:{...snapshot,selector:{...selector,start:4,end:7},excerpt:'two'}}
+  assert.equal(appendReplyTarget([first],other).length,2)
+  assert.equal(appendReplyTarget([first],first).length,1)
+  assert.deepEqual(replyWire(first),{target,selection:selector})
+  assert.equal(replyContext({...target,quoted_context:'one',selection:snapshot})?.selection?.excerpt,'one')
 })

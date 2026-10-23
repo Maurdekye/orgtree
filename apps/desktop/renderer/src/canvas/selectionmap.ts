@@ -142,23 +142,15 @@ const nonspace = (unit: { char: string }) => !/^\s$/u.test(unit.char)
  * is retained as source text. A rendering mismatch refuses instead of guessing. */
 export function selectedSourceRange(root: Element, source: string, range: Range, format: 'markdown' | 'plain' = 'markdown'): SourceRange | null {
   if (!root.contains(range.startContainer) || !root.contains(range.endContainer) || range.collapsed) return null
-  const plain: Unit[] = []
-  if (format === 'plain') for (let i = 0; i < source.length;) {
-    const char = String.fromCodePoint(source.codePointAt(i)!); plain.push({ char, start: i, end: i + char.length }); i += char.length
-  }
-  const projected = format === 'plain' ? plain : markdownUnits(source, root.ownerDocument)
-  if (!projected) return null
-  const canonical = projected.filter(nonspace)
-  const visible = domUnits(root).filter(nonspace)
-  if (canonical.length !== visible.length || canonical.some((unit, i) => unit.char !== visible[i]!.char)) return null
+  const alignment = alignedUnits(root, source, format)
+  if (!alignment) return null
+  const { canonical, visible } = alignment
   const selected: number[] = []
   for (let i = 0; i < visible.length; i++) {
     const unit = visible[i]!
     const part = root.ownerDocument.createRange()
     if (unit.atomic) part.selectNode(unit.atomic)
     else { part.setStart(unit.node, unit.start); part.setEnd(unit.node, unit.end) }
-    // Positive intersection, including backwards selections whose Range has
-    // already normalized anchor/focus. Merely touching a boundary is excluded.
     if (range.compareBoundaryPoints(3, part) < 0 && range.compareBoundaryPoints(1, part) > 0) selected.push(i)
   }
   if (!selected.length) return null
@@ -175,4 +167,31 @@ export function selectedSourceRange(root: Element, source: string, range: Range,
     if (source[end] === '\r' && source[end + 1] === '\n') end++; end++
   }
   return { start: [...source.slice(0, start)].length, end: [...source.slice(0, end)].length }
+}
+
+function alignedUnits(root: Element, source: string, format: 'markdown'|'plain') {
+  const plain: Unit[] = []
+  if (format === 'plain') for (let i = 0; i < source.length;) {
+    const char = String.fromCodePoint(source.codePointAt(i)!); plain.push({ char, start: i, end: i + char.length }); i += char.length
+  }
+  const projected = format === 'plain' ? plain : markdownUnits(source, root.ownerDocument)
+  if (!projected) return null
+  const canonical = projected.filter(nonspace)
+  const visible = domUnits(root).filter(nonspace)
+  if (canonical.length !== visible.length || canonical.some((unit, i) => unit.char !== visible[i]!.char)) return null
+  return { canonical, visible }
+}
+
+/** Reverse the same verified projection; no quote-text search or DOM path. */
+export function sourceDomRange(root:Element,source:string,start:number,end:number,format:'markdown'|'plain'='markdown'):Range|null {
+  const aligned=alignedUnits(root,source,format);if(!aligned||start<0||end<=start)return null
+  const chars=[...source];if(end>chars.length)return null
+  const a=chars.slice(0,start).join('').length,b=a+chars.slice(start,end).join('').length
+  const indices=aligned.canonical.flatMap((u,i)=>u.end>a&&u.start<b?[i]:[])
+  if(!indices.length)return null
+  const first=aligned.visible[indices[0]!]!,last=aligned.visible[indices.at(-1)!]!
+  const range=root.ownerDocument.createRange()
+  if(first.atomic)range.setStartBefore(first.atomic);else range.setStart(first.node,first.start)
+  if(last.atomic)range.setEndAfter(last.atomic);else range.setEnd(last.node,last.end)
+  return range
 }

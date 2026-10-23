@@ -1,3 +1,4 @@
+import { SelectionReplyPreview } from './selectionpreview'
 import { createContext, isValidElement, useContext } from 'react'
 import type { ReactNode } from 'react'
 import { getDocument } from '../api'
@@ -61,6 +62,10 @@ export function ReplyPreview({ reply, available, onLocate, onRemove, presentatio
   reply: ReplyContext; available: boolean; onLocate: () => void; onRemove?: () => void
   presentationTitle?: string; sender?: string
 }) {
+  if (reply.selection) return <SelectionReplyPreview target={reply.workItemId ? {kind:'work_item',org:reply.org,slug:reply.workItemId}
+    : reply.docId ? {kind:'document',org:reply.org,id:reply.docId}
+    : {source_event_ref:{org:reply.org,agent:reply.agent,generation:reply.generation,eventId:reply.eventId},...(reply.mailId?{mail_id:reply.mailId}:{})}}
+    snapshot={reply.selection} onRemove={onRemove} onLocate={onLocate} />
   if (reply.workItemId) return <ObjectReplyDraft target={{ kind: 'work_item', org: reply.org, id: reply.workItemId, title: reply.quote }} onRemove={onRemove} />
   return <EventReplyPreview reply={reply} available={available} onLocate={onLocate} onRemove={onRemove} presentationTitle={presentationTitle} sender={senderProp} />
 }

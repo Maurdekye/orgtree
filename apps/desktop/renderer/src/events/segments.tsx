@@ -1,3 +1,5 @@
+import { TranscriptSelection } from '../canvas/transcriptselection'
+import { ReplySelectionSurface } from '../canvas/replyselection'
 import { SystemRuns, segmentEntries } from './systemruns'
 import type { SegmentEntry } from './systemruns'
 import { HUMAN_HIDDEN_VARIANTS } from '../generated/events'
@@ -55,7 +57,7 @@ export function SegmentAttachments({ values, slug, nid }: { values?: unknown[]; 
       : <a key={i} className="attach-chip" href={href} download={name}><DownloadIcon fontSize="inherit" /> {name}<span className="dim">{meta}</span></a>
   })}</div>
 }
-interface SegmentProps { bundle?: boolean; segments: AnySegment[]; profile: EventProfile; slug: string; nid: string
+interface SegmentProps { textSourceEvent?:string; bundle?: boolean; segments: AnySegment[]; profile: EventProfile; slug: string; nid: string
   world?: RefWorld | null; onOpen?: (ref: ResolvedRef) => void; actor?: (id: string) => ReactNode
   /** A quoted source has no transcript anchors or further reply annotations. */
   annotation?: boolean
@@ -70,14 +72,21 @@ interface SegmentProps { bundle?: boolean; segments: AnySegment[]; profile: Even
   replyAvailable?: (r: ReplyContext) => boolean
   onLocateReply?: (r: ReplyContext) => void }
 export function SegmentList({ segments, profile, slug, nid, world, onOpen, actor,
-  replyAvailable, onLocateReply, annotation, bundle = true }: SegmentProps) {
+  replyAvailable, onLocateReply, annotation, bundle = true, textSourceEvent }: SegmentProps) {
   const base = fileBase(slug, nid)
   const card = (row: unknown, preview: boolean, part?: "header" | "body", headerMeta?: ReactNode) => <EventCard row={row} profile={profile} org={slug}
     preview={preview} part={part} headerMeta={headerMeta} world={world} onOpen={onOpen} actor={actor} imgBase={base} />
   const entries = segmentEntries(segments)
+  const textOffsets=new Map<AnySegment,number>();const textParts:string[]=[]
+  for(const s of segments){
+    if(s.kind==='text'){textOffsets.set(s,textParts.length?[...textParts.join('\n\n')].length+2:0);textParts.push(s.text)}
+    else if(s.kind==='mail')textParts.push(...s.rows.map(r=>r.body))
+    else if(s.kind==='notices')textParts.push(...s.rows.map(r=>r.text??''))
+  }
+  const canonicalText=textParts.join('\n\n')
   const render = ({ segment, key: i }: SegmentEntry) => {
     switch (segment.kind) {
-      case 'text': return <RefMdBody key={i} className="msg user msgtext md" html={md(segment.text, base)} world={world} onOpen={onOpen} />
+      case 'text': return <TranscriptSelection key={i} org={slug} agent={nid} eventId={textSourceEvent} part={{part:'text'}} text={canonicalText} shown={segment.text} offset={textOffsets.get(segment)??0}><RefMdBody className="msg user msgtext md" html={md(segment.text, base)} world={world} onOpen={onOpen} /></TranscriptSelection>
       case 'state': case 'drive': {
         const row = 'event' in segment ? { ev: segment.event, text: segment.text }
           : { text: segment.text, ...(segment.ev_error ? { ev_error: segment.ev_error } : {}) }
@@ -175,7 +184,7 @@ export function MailMessage({ row, profile, slug, nid, world, onOpen, actor,
             _segments_for's mail rows), it was simply never rendered. */}
         {!annotation && <MailReplyPreview row={row} org={slug} world={world} onOpen={onOpen}
           replyAvailable={replyAvailable} onLocateReply={onLocateReply} />}
-        {card(row, true, "body")}<SegmentAttachments values={row.attachments} slug={slug} nid={nid}/>
+        {!annotation && row.id ? <ReplySelectionSurface source={{org:slug,target:{kind:'mail',org:slug,id:row.id},part:{part:'mail.body'},text:row.body}}>{card(row, true, "body")}</ReplySelectionSurface> : card(row, true, "body")}<SegmentAttachments values={row.attachments} slug={slug} nid={nid}/>
         {row.attachments_missing?.map((name,k)=><div key={k} className="dim">Attachment unavailable: {name}</div>)}
   </section>
 }

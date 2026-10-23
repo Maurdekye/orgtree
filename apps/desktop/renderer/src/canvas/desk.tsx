@@ -36,6 +36,9 @@ import { useOrgView } from '../attention/mode'
 import { HaltControl, HaltStatus } from './haltcontrol'
 import { resolveRef } from './reflinks'
 import { appendReplyTarget, objectReplyContext, readReplies, replyContext, replyFromRow, replyWire, storeReplies } from '../eventReply'
+import { TranscriptSelection, TranscriptSelectionContext } from './transcriptselection'
+import { useSelectionComposer } from './selectioncomposer'
+import { selectionReplyContext } from '../eventReply'
 import { useObjectComposer } from './composerobjects'
 import type { ReplyContext } from '../eventReply'
 import { ReplyPreview, ReplySourceProvider } from './replypreview'
@@ -2197,6 +2200,7 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
     } catch { /* private mode */ }
     return next
   }), [draftKey])
+  const composerIdentity=useRef(draftKey);composerIdentity.current=draftKey
   const [replyTargets, setReplyTargetsRaw] = useState<ReplyContext[]>(() => readReplies(draftKey))
   const reply = replyTargets[0] ?? null
   const setReplyTargets = (next: ReplyContext[]) => { setReplyTargetsRaw(next); storeReplies(draftKey, next) }
@@ -3464,6 +3468,7 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
     const paths = attached.map((a) => a.path)
     const sentReply = reply
     const sentReplies = replyTargets
+    const sentDraftKey=draftKey
     const armedNotice = isNoticeArmed(chatKey)
     if (armedNotice) setNoticeArmed(chatKey, false)
     setReply(null)
@@ -3486,7 +3491,7 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
     if (live && !node.halt && !armedNotice) markBusy(slug, node.id)
     flashMode('')   // the previous send's receipt must not outlive this one
     toBottom()
-    const pluralWire = sentReplies.length > 1 || sentReplies.some(r => !!r.mailId || !!r.docId || !!r.workItemId)
+    const pluralWire = sentReplies.length > 1 || sentReplies.some(r => !!r.mailId || !!r.docId || !!r.workItemId || !!r.selection)
     sendMessage(slug, node.id, t, paths, pluralWire ? undefined : sentReply ? replyWire(sentReply) : undefined, op, armedNotice,
       pluralWire ? sentReplies.map(replyWire) : undefined, undefined, node.dnd ? urgentMail : undefined)
       .then((r) => {
@@ -3539,6 +3544,10 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
       })
       .catch((e: Error) => {
         failPending(slug, node.id, ghostId, e.message)
+        if (sentReplies.some(r=>r.selection)) {
+          if(composerIdentity.current===sentDraftKey) {setText(previous=>previous || t); setReplyTargets(sentReplies); setAttached(attached)}
+          else {storeReplies(sentDraftKey,sentReplies);storeAttachments(sentDraftKey,attached);try{if(!localStorage.getItem(sentDraftKey))localStorage.setItem(sentDraftKey,t)}catch{/*best effort*/}}
+        }
         toast([`error: ${e.message}`])
       })
   }
@@ -3664,6 +3673,11 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
     org: slug,
   })
   const mentionScope = useDeskMentionScope(canMail ? mentions.captureMention : null, mentions.noteRightClickDown)
+  useSelectionComposer(taRef, { key:draftKey, disabled:!canMail, stage: selection => {
+    try { setReplyTargets(appendReplyTarget(replyTargets,selectionReplyContext(selection,{org:slug,agent:node.id,generation:node.generation??0,eventId:''}))) }
+    catch(error) { toast([(error as Error).message]); return }
+    taRef.current?.focus({preventScroll:true})
+  } })
   useObjectComposer(taRef, { key: draftKey, mention: mentions.captureMention, down: mentions.noteRightClickDown,
     disabled: !canMail, reply: target => {
       try { setReplyTargets(appendReplyTarget(replyTargets, objectReplyContext(node.id, node.generation ?? 0, target))) }
@@ -3819,7 +3833,7 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
     <CopyFeedback.Provider value={toast}>
     <AgentDirectoryProvider value={agentDir}>
     <FoldProvider value={folds.store}>
-    <ReplySourceProvider value={resolveReplySource}>
+    <ReplySourceProvider value={resolveReplySource}><TranscriptSelectionContext.Provider value={useMemo(()=>({org:slug,agent:node.id,generation:node.generation??0}),[slug,node.id,node.generation])}>
       <DeskHead nodeId={node.id}
         left={<>
           {/* ⚠ `bare` IS THE DESTINATION TEST, which is why this reads
@@ -4500,7 +4514,7 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
       {/* №13: the composer is present under EVERY tab — finding a wrong number
           on the inbox or docket tab shouldn't cost your place to say so */}
       {replyMenu.node}
-      {replyTargets.map(r => <ReplyPreview key={`${r.agent}/${r.generation}/${r.eventId}/${r.mailId ?? ''}/${r.docId ?? ''}`} reply={r} available={replyAvailable(r)}
+      {replyTargets.map(r => <ReplyPreview key={`${r.agent}/${r.generation}/${r.eventId}/${r.mailId ?? ''}/${r.docId ?? ''}/${JSON.stringify(r.selection?.selector)}`} reply={r} available={replyAvailable(r)}
         onLocate={() => locateReply(r)} onRemove={() => setReplyTargets(replyTargets.filter(x => x !== r))}
         presentationTitle={r.docId?(node.documents??[]).find(d=>d.id===r.docId)?.title:undefined}/>) }
       {replyTargets.length > 1 && <button className="link" onClick={() => setReply(null)}>Cancel all replies</button>}
@@ -4672,7 +4686,7 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
           ? { scope: 'agent', org: slug, agentId: node.id, target: { tab: 'model', field: 'cheap-compact' } }
           : { scope: 'org', org: slug, target: { tab: 'policies', field: 'cheap-compact' } })} />
       </ComposerFocusRegion>
-    </ReplySourceProvider>
+    </TranscriptSelectionContext.Provider></ReplySourceProvider>
     </FoldProvider>
     </AgentDirectoryProvider>
     </CopyFeedback.Provider>
@@ -5173,6 +5187,11 @@ export function ToolChip({ t, slug, nid, onMailLink, onWorkLink, onOpenDoc }: To
     return path === arg || (t.arg!.length === 90 && path.startsWith(arg))
   }) ? '' : t.arg
   const shellError = isFailedShellCall(t)
+  const inputEvent = t.event_id ?? (t.input_seq ? `e${t.input_seq}` : undefined)
+  const outputEvent = t.result_event_id ?? (t.output_seq ? `e${t.output_seq}` : inputEvent)
+  const inputSource = t.id ? {org:slug,agent:nid,eventId:inputEvent,part:{part:"tool.input",tool_id:t.id}} : undefined
+  const outputSource = t.id ? {org:slug,agent:nid,eventId:outputEvent,part:{part:"tool.result",tool_id:t.id}} : undefined
+  const resultText = (child:ReactNode,text:string) => outputSource ? <TranscriptSelection {...outputSource} text={text} format="plain">{child}</TranscriptSelection> : child
   const expandable = true
   const presentation = t.presentation && !t.error && onOpenDoc
     ? <PresentationCard slug={slug} doc={t.presentation} className="presentation-chat-card" onOpen={onOpenDoc}>
@@ -5234,7 +5253,7 @@ export function ToolChip({ t, slug, nid, onMailLink, onWorkLink, onOpenDoc }: To
             {t.task.ms ? ` · ${formatDuration(t.task.ms)}` : ''}
             {t.task.tokens ? ` · ${Math.round(t.task.tokens / 1000)}k tok` : ''}</span>)}
         {(t.images ?? 0) > 0 && <span className="dim"> · {t.images} image{t.images === 1 ? '' : 's'}</span>}
-        {(t.error || shellError) && <span className="terrtxt"> ⊘ {shellError ? 'an error occurred' : t.error}</span>}
+        {(t.error || shellError) && <span className="terrtxt"> ⊘ {shellError ? 'an error occurred' : t.error && t.id ? <TranscriptSelection org={slug} agent={nid} eventId={outputEvent} part={{part:'tool.error',tool_id:t.id}} text={t.error} format="plain">{t.error}</TranscriptSelection> : t.error}</span>}
         {/* Observed writing and execution clocks stay separate. */}
         <ToolTimes tool={t} />
         {/* the agents and the watchdog this call concerns, as the same links
@@ -5263,12 +5282,12 @@ export function ToolChip({ t, slug, nid, onMailLink, onWorkLink, onOpenDoc }: To
       {open && (writing
         ? t.preview_input !== null && typeof t.preview_input === 'object' && Object.keys(t.preview_input).length > 0
           ? <div className="toolinput"><StructuredJson value={t.preview_input} /></div> : null
-        : <ToolInputDetails slug={slug} nid={nid} seq={t.input_seq} tool={t.id} retained={t.retained_input} />)}
+        : <ToolInputDetails slug={slug} nid={nid} seq={t.input_seq} tool={t.id} retained={t.retained_input} selection={t.retained_input?undefined:inputSource} />)}
       {open && !writing && !t.retained_input && hasHelperTranscript(t) && <HelperTranscript slug={slug} nid={nid} seq={t.input_seq} tool={t.id} />}
       {open && shellError && <ToolOutputDetails slug={slug} nid={nid} seq={t.output_seq} tool={t.id}
         fallback={t.result || t.error || ''} clipped={t.truncated}
-        renderOutput={output => <CopyablePre><pre className="filepre respre"
-          data-reply-event={t.result_event_id ?? ''} data-reply-quote={output}>{output}</pre></CopyablePre>} />}
+        renderOutput={output => resultText(<CopyablePre><pre className="filepre respre"
+          data-reply-event={t.result_event_id ?? ''} data-reply-quote={output}>{output}</pre></CopyablePre>,output)} />}
       {open && !shellError && t.diff && (
         <CopyablePre><pre className="filepre diffpre" data-reply-event={t.result_event_id ?? ''} data-reply-quote={String(t.result_reply_quote ?? t.result ?? '')}>
           {t.diff.lines.map((l, i) => (
@@ -5281,12 +5300,13 @@ export function ToolChip({ t, slug, nid, onMailLink, onWorkLink, onOpenDoc }: To
         <div className="respre-json" data-reply-event={t.result_event_id ?? ''} data-reply-quote={String(t.result_reply_quote ?? t.result ?? '')}>
           <div className="dim">Output</div>
           <StructuredJson value={parseStructured(t.result, !!t.truncated)} raw={t.result}
-            note={t.truncated ? '… truncated' : undefined} />
+            note={t.truncated ? '… truncated' : undefined} selection={t.truncated?undefined:outputSource} />
         </div>)}
       {open && !shellError && !t.diff && t.result && parseStructured(t.result, !!t.truncated) === undefined && (
-        <CopyablePre><pre className="filepre respre" data-reply-event={t.result_event_id ?? ''} data-reply-quote={String(t.result_reply_quote ?? t.result ?? '')}>
-          {t.result}{t.truncated ? '\n… truncated' : ''}
-        </pre></CopyablePre>)}
+        resultText(<CopyablePre><pre className="filepre respre" data-reply-event={t.result_event_id ?? ''} data-reply-quote={String(t.result_reply_quote ?? t.result ?? '')}>
+          {t.result}
+        </pre></CopyablePre>,t.result))}
+      {open && !shellError && !t.diff && t.result && t.truncated && <div className="dim">… truncated</div>}
       {open && (t.images ?? 0) > 0 && t.id && Array.from({ length: t.images! }).map((_, i) => (
         <img key={i} className="toolimg" data-reply-event={t.result_event_id ?? ''} data-reply-quote={String(t.result_reply_quote ?? t.result ?? '')} alt="tool result"
           src={`/api/orgs/${slug}/nodes/${nid}/toolimg/${t.id}?idx=${i}`} />))}
@@ -5324,7 +5344,7 @@ export const Msg = memo(function Msg({ m, slug, nid, onMailLink, onWorkLink, ref
   if (m.role === 'user' && isSegments(m.segments, profile)) return <div className="typed-input">
     <SegmentList bundle={!systemPart} segments={m.segments} profile={profile} slug={slug} nid={nid}
       world={refs?.world} onOpen={refs?.onOpen} actor={id => <MailFrom from={id} />}
-      replyAvailable={replyAvailable} onLocateReply={onLocateReply} />
+      replyAvailable={replyAvailable} onLocateReply={onLocateReply} textSourceEvent={m.event_id ?? (m.seq ? `e${m.seq}` : undefined)} />
     {m.truncated && <div className="trunc-note">Shown truncated ? the agent received the full message</div>}
     {m.steered && m.receipt && <div className="trunc-note">{m.receipt}</div>}
   </div>
@@ -5332,15 +5352,20 @@ export const Msg = memo(function Msg({ m, slug, nid, onMailLink, onWorkLink, ref
   // relative image srcs in the text (`![](outbox/plot.png)`) resolve against
   // this node's own files — the way an agent embeds a picture in its reply
   const fb = fileBase(slug, nid)
+  const eventId = /^e[1-9]\d*$/.test(m.event_id??'') ? m.event_id : m.seq && m.seq>0 ? `e${m.seq}` : undefined
+  const selectText = (child:ReactNode, shown=m.text, offset=0) => <TranscriptSelection org={slug} agent={nid} eventId={eventId}
+    part={{part:'text'}} text={m.text} shown={shown} offset={offset}>{child}</TranscriptSelection>
+  const selectThought = (child:ReactNode, shown=m.thinking??'', offset=0) => <TranscriptSelection org={slug} agent={nid} eventId={m.thinking_event_id??eventId}
+    part={{part:'thinking'}} text={m.thinking??''} shown={shown} offset={offset}>{child}</TranscriptSelection>
   const orderedBlocks = m.content_blocks?.length ? m.content_blocks.map((block, index) => {
-    if (block.kind === 'text') return <RefMdBody key={index} className="msgtext md" world={refs?.world}
-      onOpen={refs?.onOpen} html={md(m.text.slice(block.start, block.end), fb, m.role === 'assistant')} />
+    if (block.kind === 'text') return <Fragment key={index}>{selectText(<RefMdBody className="msgtext md" world={refs?.world}
+      onOpen={refs?.onOpen} html={md(m.text.slice(block.start, block.end), fb, m.role === 'assistant')} />,m.text.slice(block.start,block.end),[...m.text.slice(0,block.start)].length)}</Fragment>
     if (block.kind === 'thinking') {
       const thought = block.sealed ? '' : (m.thinking ?? '').slice(block.start, block.end)
-      return <div key={index} className="reply-event"
+      return <Fragment key={index}>{selectThought(<div className="reply-event"
         data-reply-quote={thought}><ThoughtLine text={thought} secs={block.think_secs ?? (m.content_blocks?.filter(b => b.kind === 'thinking').length === 1 ? m.think_secs : undefined)}
           tokens={m.content_blocks?.filter(b => b.kind === 'thinking').length === 1 ? m.thinking_tokens : undefined}
-          sealed={block.sealed} foldKey={thoughtFoldKey(`${m.row_id ?? m.assistant_id}:thought:${index}`)} /></div>
+          sealed={block.sealed} foldKey={thoughtFoldKey(`${m.row_id ?? m.assistant_id}:thought:${index}`)} /></div>,thought,[...(m.thinking??'').slice(0,block.start)].length)}</Fragment>
     }
     const chip = m.tools?.find(tool => tool.id === block.id)
     return chip ? <ToolChip key={index} t={chip} slug={slug} nid={nid}
@@ -5351,9 +5376,9 @@ export const Msg = memo(function Msg({ m, slug, nid, onMailLink, onWorkLink, ref
     <div className={'msg ' + m.role + (m.oracle ? ' oracle' : '') + userMentionClass(m.role, text)}>
       {orderedBlocks ?? <>
       {(m.thinking || m.thinking_sealed) &&
-        <div className="reply-event" data-reply-event={m.thinking_event_id ?? ''} data-reply-quote={m.thinking_reply_quote ?? m.thinking ?? ''}><ThoughtLine text={m.thinking} secs={m.think_secs}
+        selectThought(<div className="reply-event" data-reply-event={m.thinking_event_id ?? ''} data-reply-quote={m.thinking_reply_quote ?? m.thinking ?? ''}><ThoughtLine text={m.thinking} secs={m.think_secs}
           tokens={m.thinking_tokens}
-          sealed={m.thinking_sealed} foldKey={thoughtFoldKey(m.thinking_event_id)} /></div>}
+          sealed={m.thinking_sealed} foldKey={thoughtFoldKey(m.thinking_event_id)} /></div>)}
       {/* (the string branch guards legacy live rows; the payload's tools
           rows are null-swept server-side, so no null case exists) */}
       {(m.tools ?? []).map((t, i) => (typeof t === 'string'
@@ -5366,8 +5391,8 @@ export const Msg = memo(function Msg({ m, slug, nid, onMailLink, onWorkLink, ref
           (the non-segment path above). Only `assistant` is a genuine agent
           response; the user's own text must stay exactly as inert as mail,
           tool output and presented documents. */}
-      {text && <RefMdBody className="msgtext md" world={refs?.world}
-        onOpen={refs?.onOpen} html={md(text, fb, m.role === 'assistant')} />}
+      {text && selectText(<RefMdBody className="msgtext md" world={refs?.world}
+        onOpen={refs?.onOpen} html={md(text, fb, m.role === 'assistant')} />)}
       </>}
       {m.assistant_state === 'partial' && <div className="dim small incomplete-response" role="note">
         {m.interrupted ? 'interrupted · incomplete response' : 'incomplete response'}</div>}

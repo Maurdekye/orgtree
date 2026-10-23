@@ -1,4 +1,6 @@
 import { useState } from 'react'
+import { useSurfaceDocument } from '../popout'
+import { requestSelectionLocation } from './selectionlocation'
 import { readReplySource } from '../api'
 import type { SelectionDraft, SourceIdentity, SelectionSnapshot } from '../replySelection'
 import { ReplyPreviewFrame } from './replypreview'
@@ -7,6 +9,7 @@ import { ReplyIcon } from '../icons'
 export function SelectionReplyPreview({ target, snapshot, onRemove, onLocate }: {
   target: SourceIdentity; snapshot: SelectionSnapshot; onRemove?: () => void; onLocate?: () => void
 }) {
+  const surfaceDocument=useSurfaceDocument()
   const [state, setState] = useState('Captured excerpt')
   const [checking, setChecking] = useState(false)
   const org = typeof target === 'string' ? '' : 'source_event_ref' in target ? target.source_event_ref.org : target.org
@@ -18,7 +21,10 @@ export function SelectionReplyPreview({ target, snapshot, onRemove, onLocate }: 
       const status = current.location?.state
       setState(status === 'exact' ? 'Source unchanged' : status === 'relocated' ? 'Passage relocated'
         : status === 'changed' ? 'Source changed' : 'Source unavailable')
-      if (status === 'exact' || status === 'relocated') onLocate?.()
+      if ((status === 'exact' || status === 'relocated') && current.location?.start!==undefined && current.location.end!==undefined) {
+        requestSelectionLocation(surfaceDocument,target,part,current.sha256,current.location.start,current.location.end)
+        onLocate?.()
+      }
     }).catch(() => setState('Source unavailable')).finally(() => setChecking(false))
   }
   return <ReplyPreviewFrame label={onRemove ? 'Replying to selection' : 'Selection reply'} onRemove={onRemove}

@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react'
 import { req } from '../api'
 import { StructuredJson } from './structuredjson'
+import type { JsonSelectionSource } from './structuredjson'
+import { TranscriptSelection } from './transcriptselection'
 
 export function formatToolInput(input: unknown): string {
   if (typeof input === 'string') return input
@@ -17,9 +19,9 @@ export function formatToolInput(input: unknown): string {
   return JSON.stringify(input, null, 2) ?? String(input)
 }
 
-export function ToolInputDetails({ slug, nid, seq, tool, retained }: {
+export function ToolInputDetails({ slug, nid, seq, tool, retained, selection }: {
   slug: string; nid: string; seq?: number; tool?: string | null
-  retained?: { input: unknown; note?: string }
+  retained?: { input: unknown; note?: string };selection?:JsonSelectionSource
 }) {
   const [result, setResult] = useState<{ input: unknown; note?: string }>()
   const [error, setError] = useState('')
@@ -43,8 +45,8 @@ export function ToolInputDetails({ slug, nid, seq, tool, retained }: {
       : !shown ? <div className="dim">Loading input…</div>
       : <>
         {shown.input !== undefined && (shown.input !== null && typeof shown.input === 'object'
-          ? <StructuredJson value={shown.input} rawText={() => formatToolInput(shown.input)} />
-          : <pre className="filepre respre">{formatToolInput(shown.input)}</pre>)}
+          ? <StructuredJson value={shown.input} rawText={() => formatToolInput(shown.input)} selection={selection} />
+          : selection ? <TranscriptSelection {...selection} text={formatToolInput(shown.input)} format="plain"><pre className="filepre respre">{formatToolInput(shown.input)}</pre></TranscriptSelection> : <pre className="filepre respre">{formatToolInput(shown.input)}</pre>)}
         {shown.note && <div className="dim">{shown.note} {!retained && <button onClick={() => setRetry(n => n + 1)}>Retry</button>}</div>}
       </>}
   </div>

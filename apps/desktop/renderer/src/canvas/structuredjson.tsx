@@ -1,3 +1,5 @@
+import { TranscriptSelection } from './transcriptselection'
+import type { SourcePart } from '../replySelection'
 import { useMemo, useState, type ReactNode } from 'react'
 
 // Structured view of a tool call's JSON input/output (docket item
@@ -11,6 +13,11 @@ export const ROW_LIMIT = 200
 export const BYTE_LIMIT = 64 * 1024
 
 type Json = unknown
+export type JsonSelectionSource = { org:string; agent:string; eventId?:string; part:SourcePart }
+const pointerKey=(key:string)=>key.replace(/~/g,"~0").replace(/\//g,"~1")
+function SelectScalar({source,pointer,role,text,children}:{source?:JsonSelectionSource;pointer:string;role?:"key"|"value";text:string;children:ReactNode}) {
+  return source ? <TranscriptSelection {...source} part={{...source.part,pointer,...(role?{role}:{})}} text={text} format="plain">{children}</TranscriptSelection> : children
+}
 
 const isContainer = (v: Json): v is Record<string, Json> | Json[] =>
   v !== null && typeof v === 'object'
@@ -87,8 +94,8 @@ function summary(v: Json): string {
   return `{${Object.keys(v as object).length}}`
 }
 
-function Row({ name, v, depth, collapseFrom }: {
-  name: string; v: Json; depth: number; collapseFrom: number
+function Row({ name, v, depth, collapseFrom, source, pointer }: {
+  source?:JsonSelectionSource; pointer:string; name: string; v: Json; depth: number; collapseFrom: number
 }) {
   const container = isContainer(v)
   const empty = container && (Array.isArray(v) ? v.length === 0 : Object.keys(v).length === 0)
@@ -96,32 +103,32 @@ function Row({ name, v, depth, collapseFrom }: {
   if (!container || empty) {
     const multi = typeof v === 'string' && v.includes('\n')
     return <div className={'sj-row' + (multi ? ' sj-block' : '')}>
-      <span className="sj-key">{name}</span>
-      {empty ? <span className="dim">{Array.isArray(v) ? '[]' : '{}'}</span> : <Scalar v={v} />}
+      <SelectScalar source={source} pointer={pointer} role="key" text={name}><span className="sj-key">{name}</span></SelectScalar>
+      {empty ? <span className="dim">{Array.isArray(v) ? '[]' : '{}'}</span> : <SelectScalar source={source} pointer={pointer} text={typeof v==='string'?v:JSON.stringify(v)}><Scalar v={v} /></SelectScalar>}
     </div>
   }
   return <div className="sj-group">
     <div className="sj-row sj-fold" onClick={() => setOpen(o => !o)} role="button"
       aria-expanded={open} title={open ? 'collapse' : 'expand'}>
       <span className="sj-caret">{open ? '▾' : '▸'}</span>
-      <span className="sj-key">{name}</span>
+      <SelectScalar source={source} pointer={pointer} role="key" text={name}><span className="sj-key">{name}</span></SelectScalar>
       <span className="dim">{summary(v)}</span>
     </div>
-    {open && <Children v={v} depth={depth + 1} collapseFrom={collapseFrom} />}
+    {open && <Children v={v} depth={depth + 1} collapseFrom={collapseFrom} source={source} pointer={pointer} />}
   </div>
 }
 
-function Children({ v, depth, collapseFrom }: { v: Json; depth: number; collapseFrom: number }) {
+function Children({ v, depth, collapseFrom, source, pointer="" }: { v: Json; depth: number; collapseFrom: number;source?:JsonSelectionSource;pointer?:string }) {
   const entries: [string, Json][] = Array.isArray(v)
     ? v.map((x, i) => [String(i), x]) : Object.entries(v as object)
   return <div className="sj-children">
-    {entries.map(([k, x]) => <Row key={k} name={k} v={x} depth={depth} collapseFrom={collapseFrom} />)}
+    {entries.map(([k, x]) => <Row key={k} name={k} v={x} depth={depth} collapseFrom={collapseFrom} source={source} pointer={`${pointer}/${pointerKey(k)}`} />)}
   </div>
 }
 
 /** Structured view with the Raw toggle. `raw` is what Raw shows. */
-export function StructuredJson({ value, raw, rawText, note }: {
-  value: Json; raw?: string; rawText?: () => string; note?: string
+export function StructuredJson({ value, raw, rawText, note, selection }: {
+  value: Json; raw?: string; rawText?: () => string; note?: string;selection?:JsonSelectionSource
 }): ReactNode {
   const [showRaw, setShowRaw] = useState(false)
   const big = useMemo(() => {
@@ -136,8 +143,8 @@ export function StructuredJson({ value, raw, rawText, note }: {
       title={showRaw ? 'show structured view' : 'show raw JSON'}
       onClick={e => { e.stopPropagation(); setShowRaw(r => !r) }}>Raw</button>
     {showRaw
-      ? <pre className="filepre respre sj-rawpre">{raw ?? rawText?.() ?? JSON.stringify(value, null, 2)}</pre>
-      : <Children v={value} depth={0} collapseFrom={collapseFrom} />}
+      ? <SelectScalar source={selection} pointer="" text={typeof value==='string'?value:JSON.stringify(value,null,2)}><pre className="filepre respre sj-rawpre">{raw ?? rawText?.() ?? JSON.stringify(value, null, 2)}</pre></SelectScalar>
+      : <Children v={value} depth={0} collapseFrom={collapseFrom} source={selection} />}
     {note && !showRaw && <div className="dim">{note}</div>}
   </div>
 }
