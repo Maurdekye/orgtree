@@ -60,6 +60,10 @@ before updates. There is no fixed nesting cutoff or per-project descendant
 scan. This changes neither cascade admission nor the acting agent's allocation
 boundary. [verified: `domain/projects{,/credit_settlement}.rs`, 2026-10-22]
 
+Only changed mirrors enter the update batch. Their read row versions must still
+match; a concurrent edit refuses and rolls back the whole operation, asking for
+a retry. Settlement never overwrites a newer project mirror from another branch.
+
 The cascade switch is no longer an org setting. `ops.rs::ensure_room` forces
 the cascade for `Actor::Agent` (the agent's own allocation stays the floor and
 the top-level cap, project transparency and plan-before-write are unchanged);

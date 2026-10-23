@@ -22,6 +22,8 @@ Credit transparency follows every nested project level. Each project's mirror
 counts the first live agents below it through live projects, with exact credit
 amounts; an actual agent starts its own allocation boundary. Invalid project
 cycles refuse settlement rather than applying a partial ledger.
+A concurrent mirror edit refuses with a retry request; that operation commits
+no partial credit changes.
 
 The above/below reach check follows all nested project levels, without a fixed
 depth cutoff. Unrelated branches and the project itself do not gain reach.

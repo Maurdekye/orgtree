@@ -630,17 +630,28 @@ pub async fn waiting(client: &impl GenericClient, project: i64, limit: i64) -> R
 #[logged]
 pub async fn settle_credits(tx: &impl GenericClient, org_id: i64) -> Result<Vec<i64>> {
     let live = tx.query(
-        "SELECT id,parent_id,kind='project',seat+grant_credits FROM ot.agents
+        "SELECT id,parent_id,kind='project',seat+grant_credits,seat,grant_credits,row_version FROM ot.agents
           WHERE org_id=$1 AND state='live' ORDER BY id", &[&org_id]).await?;
     let totals = credit_settlement::totals(live.iter().map(|r| (r.get(0),r.get(1),r.get(2),r.get(3))).collect())?;
-    if totals.is_empty() { return Ok(Vec::new()); }
-    let (ids, stakes): (Vec<_>, Vec<_>) = totals.into_iter().unzip();
+    let snapshots: HashMap<i64, _> = live.iter().filter(|r| r.get::<_,bool>(2)).map(|r|
+        (r.get(0),(r.get::<_,rust_decimal::Decimal>(4),r.get::<_,rust_decimal::Decimal>(5),r.get::<_,i64>(6)))).collect();
+    let mut ids=Vec::new();let mut stakes=Vec::new();let mut versions=Vec::new();
+    for (id,stake) in totals {
+        let (seat,grant,version)=snapshots[&id];
+        if seat!=rust_decimal::Decimal::ZERO || grant!=stake {
+            ids.push(id);stakes.push(stake);versions.push(version);
+        }
+    }
+    if ids.is_empty() { return Ok(Vec::new()); }
     let rows = tx.query(
         "UPDATE ot.agents a SET grant_credits=held.stake,seat=0,row_version=a.row_version+1
-           FROM unnest($1::bigint[],$2::numeric[]) AS held(id,stake)
+           FROM unnest($1::bigint[],$2::numeric[],$4::bigint[]) AS held(id,stake,version)
           WHERE a.id=held.id AND a.org_id=$3 AND a.state='live'
-            AND (a.grant_credits<>held.stake OR a.seat<>0)
-          RETURNING a.id,a.parent_id", &[&ids,&stakes,&org_id]).await?;
+            AND a.row_version=held.version
+          RETURNING a.id,a.parent_id", &[&ids,&stakes,&org_id,&versions]).await?;
+    if rows.len()!=ids.len() {
+        crate::refuse!(Conflict,"project credits changed concurrently; retry this operation (nothing changed)");
+    }
     let mut changed = Vec::new();
     for r in &rows {
         changed.push(r.get::<_, i64>(0));
