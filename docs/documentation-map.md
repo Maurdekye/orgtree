@@ -8,8 +8,7 @@ This is a maintenance record, outside the numbered reader path. The nine guides 
 
 - **Measured (static):** behavior sources are published **v4.4.1**, commit `ab27dbad85fe421b8f6444517f9746e0b216c60f`. This documentation starts from main `2adec97e818ca913a9e703fabb456b6e9f8a020b`; its app/engine sources match that release. The glossary snapshot is the one in this checkout.
 - **Measured (static):** the table below maps all 89 app-reference leaves to reader guides. A mapped leaf is a coverage pointer, not a claim that every control was clicked in a live app.
-- **Inferred (editorial):** the gradual learning order and task-first grouping make the tutorial a usable entry point. They follow the approved tour's concepts: harnesses, organization, canvas, hire tokens, first message, desk tabs, agent management, projects and larger-team navigation. Later guides expand those concepts and add advanced setup.
-- The **Orgtree School 1: Introduction** video link is deliberately a placeholder in [After the tour](getting-started.md#after-the-tour). No unpublished URL or chapter timestamp is asserted. Add the published URL and final chapter links there when available.
+- **Inferred (editorial):** the gradual learning order and task-first grouping give readers an approachable entry point: harnesses, organization, canvas, hire tokens, first message, desk tabs, agent management, projects and larger-team navigation. Later guides expand those concepts and add advanced setup.
 
 ## Keep both references current
 
@@ -196,4 +195,4 @@ These are **measured static source findings**, not new native-harness tests:
 
 Agent-only schemas, permission matrices, prompt/envelope internals, mail-recall mechanics, telemetry parsing and tool implementation details remain in the glossary/source. Local build permits, machine output roots, Session 0 test recipes and this repository's release routing are contributor practices, not product setup steps. The supplemental developer guide links the current contributor rules instead of imposing them on every user organization.
 
-The guides explain visible consequences of permissions, restart/session changes, skipped data and failures. They do not promise identical sandbox enforcement, provider pricing, model behavior, native GUI capability or cache TTL across harnesses. External provider/Hubchat links are references, not a live availability audit. No live organization, credentials, provider inference or device setup was changed or tested for this documentation pass. The tutorial URL remains pending publication.
+The guides explain visible consequences of permissions, restart/session changes, skipped data and failures. They do not promise identical sandbox enforcement, provider pricing, model behavior, native GUI capability or cache TTL across harnesses. External provider/Hubchat links are references, not a live availability audit. No live organization, credentials, provider inference or device setup was changed or tested for this documentation pass.

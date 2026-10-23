@@ -167,7 +167,7 @@ Orgtree is a power tool for people willing to direct and check that work. You st
 
 ## Documentation
 
-Finished **Orgtree School 1: Introduction**? Start with [After the tour](docs/getting-started.md#after-the-tour), then follow these guides from everyday work to larger teams and advanced setup. The video link will be added there when published.
+Start with [After the tour](docs/getting-started.md#after-the-tour), then follow these guides from everyday work to larger teams and advanced setup.
 
 1. [Getting started](docs/getting-started.md) — [Install](docs/getting-started.md#install-orgtree), [connect one provider](docs/getting-started.md#connect-one-provider), [create an organization](docs/getting-started.md#create-your-first-organization), [hire an agent](docs/getting-started.md#hire-one-agent) and [give it a task](docs/getting-started.md#give-it-a-first-task).
 2. [Workspace](docs/workspace.md) — [Canvas navigation](docs/workspace.md#move-around), [switchboard and header](docs/workspace.md#use-the-switchboard-and-header), [pinned windows](docs/workspace.md#keep-useful-surfaces-open), [Attention](docs/workspace.md#triage-attention) and [reusable layouts](docs/workspace.md#reuse-a-layout).

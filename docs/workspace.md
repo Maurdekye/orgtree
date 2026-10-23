@@ -2,7 +2,7 @@
 
 [Documentation](../README.md#documentation) · [Previous: Getting started](getting-started.md) · [Next: Managing agents](managing-agents.md)
 
-The tour introduces the canvas as a place to build a team. This page covers everyday navigation, finding a busy agent and keeping the right work in view. You can use several organizations without combining their conversations or work records.
+The canvas is a place to build a team. This page covers everyday navigation, finding a busy agent and keeping the right work in view. You can use several organizations without combining their conversations or work records.
 
 ## Open an organization
 
