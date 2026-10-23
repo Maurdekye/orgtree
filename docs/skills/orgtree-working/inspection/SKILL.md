@@ -16,6 +16,7 @@ Seeing the org: the chart, agent state, transcripts and scratch folders, within 
 
 ## Tools
 
+- [orgtree-tool-files](tool-files/SKILL.md): Retained local download cards from yourself or a descendant.
 - [orgtree-tool-chart](tool-chart/SKILL.md): The org chart within your visibility.
 - [orgtree-tool-state-inspect](tool-state-inspect/SKILL.md): Structured agent state: folders, tools, permission mode.
 - [orgtree-tool-read-transcript](tool-read-transcript/SKILL.md): Read the recent conversation of yourself or a descendant.

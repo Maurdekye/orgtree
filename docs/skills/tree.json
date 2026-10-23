@@ -5,10 +5,10 @@
  "counts": {
   "categories": 3,
   "sections": 19,
-  "leaves": 182,
-  "tools": 47,
+  "leaves": 183,
+  "tools": 48,
   "concepts": 56,
-  "total": 204
+  "total": 205
  },
  "leaves_per_writer": {
   "org-sol": 33,
@@ -27,7 +27,8 @@
   "skilltree-opus": 6,
   "compaction-cmds-sol": 1,
   "epic-combo-sol": 1,
-  "helper-transcript-sol": 1
+  "helper-transcript-sol": 1,
+  "template-dogs-sol": 1
  },
  "nodes": [
   {
@@ -2229,7 +2230,8 @@
     "tool-read-transcript",
     "tool-read-scratch",
     "visibility",
-    "reading-reports"
+    "reading-reports",
+    "tool-files"
    ],
    "writer": "runtime-sol",
    "status": "fixed"
@@ -2322,6 +2324,35 @@
    "see_also": [
     "visibility",
     "reading-reports"
+   ]
+  },
+  {
+   "path": "orgtree-working/inspection/tool-files",
+   "name": "orgtree-tool-files",
+   "level": 3,
+   "kind": "tool",
+   "covers": [
+    "orgtree_files"
+   ],
+   "tool_group": "inspection",
+   "purpose": "List retained local download cards from yourself or a descendant.",
+   "must_cover": [
+    "when to use it and when not",
+    "every parameter/action with defaults and limits from the definition",
+    "refusals and error texts agents hit",
+    "top-level vs. non-top-level differences",
+    "a minimal correct example call"
+   ],
+   "sources": [
+    "engine/rs/orgtree-engine/src/domain/deliveries.rs",
+    "engine/rs/orgtree-engine/src/tools/orgview.rs"
+   ],
+   "writer": "template-dogs-sol",
+   "status": "fixed",
+   "registered": false,
+   "see_also": [
+    "tool-read-transcript",
+    "tool-read-scratch"
    ]
   },
   {

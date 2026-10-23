@@ -37,6 +37,11 @@ The successful tool row remains timed/expandable, followed by the untimed file c
 
 ## Idempotent retries
 
+Recorded deliveries also appear in the agent's Files desk tab, including older
+retained records. Agents use orgtree_files (orgtree-working > inspection) to
+page their own or a descendant's delivery history. This is separate from hub
+attachment transfers. Listing a card does not send another copy.
+
 The engine allocates an identity before dispatch if one was not supplied. A preserved provider tool-use identity can yield a stable scoped delivery ID; failures include retry guidance with the allocated identity. Keep it when a response is uncertain.
 
 An existing delivery_id for your agent/org returns `Already delivered` and the recorded card, without changing its bytes/note. It does not recapture an edited path. Use a new ID for a revised file. A collision with another delivery's identity refuses. Concurrent attempts select the single recorded delivery, with its event stored atomically.

@@ -18,6 +18,16 @@ use crate::util::{iso, iso_opt};
 
 #[cfg(test)]
 mod depth_tests;
+/// The user's retained per-agent download cards, with the same reader as the tool.
+#[logged]
+pub async fn files(State(e): State<Arc<Engine>>, Path((slug, node)): Path<(String, String)>,
+    Query(page): Query<crate::domain::deliveries::Page>) -> ApiResult<Json<Value>> {
+    let o = org(&e, &slug)?;
+    let agent = crate::http::nodes::agent(&e, &o, &node).await?;
+    if agent.kind == "project" { return Err(ApiError::bad_request("Files lists an agent's delivered download cards")); }
+    let client = e.db.get().await?;
+    Ok(Json(crate::domain::deliveries::list(&**client, o.id, agent.id, &agent.name, &page).await?))
+}
 
 // Private document text; the wire guard records route/status only.
 #[nolog]

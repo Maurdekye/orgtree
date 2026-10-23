@@ -74,6 +74,7 @@ pub fn implemented() -> &'static [&'static str] {
         "orgtree_list_orgs",
         "orgtree_read_transcript",
         "orgtree_read_reply_source",
+        "orgtree_files",
         "orgtree_read_scratch",
         "orgtree_interrupt",
         "orgtree_halt",
@@ -156,7 +157,7 @@ pub fn sdk_server() -> Value { json!({ "type": "sdk", "name": "orgtree" }) }
 #[nolog]
 fn deferred(name: &str) -> bool {
     matches!(name,
-        "orgtree_fast_defaults" | "orgtree_org_logo" | "orgtree_transfers" | "orgtree_list_orgs" |
+        "orgtree_files" | "orgtree_fast_defaults" | "orgtree_org_logo" | "orgtree_transfers" | "orgtree_list_orgs" |
         "orgtree_halt" | "orgtree_unhalt" | "orgtree_unstick" | "orgtree_continue_on" |
         "orgtree_account_mark" | "orgtree_withdraw_ask" | "orgtree_project" | "orgtree_read_reply_source" |
         "orgtree_retire" | "orgtree_dissolve" | "orgtree_retool" | "orgtree_switch_model" |
@@ -502,6 +503,7 @@ fn all() -> Vec<Value> {
         build_tool_list_orgs(),
         build_tool_read_transcript(),
         build_tool_read_reply_source(),
+        build_tool_files(),
         build_tool_read_scratch(),
         build_tool_interrupt(),
         build_tool_halt(),
@@ -861,6 +863,27 @@ fn build_tool_send_file() -> Value {
             "delivery_id": { "type": "string", "description": "Reuse for the same delivery after a lost response; new ID for a new delivery" } }),
         &["path"],
     )
+}
+
+#[inline(never)]
+#[nolog]
+fn build_tool_files() -> Value {
+    tool("orgtree_files", "List retained download cards from yourself or a descendant, newest first.",
+        json!({"node":{"type":"string"},"limit":{"type":"integer","minimum":1,"maximum":100},"before":{"type":"string"}}), &[])
+}
+
+#[cfg(test)]
+mod files_tab_tests {
+    #[test]
+    fn listing_card_is_deferred_scoped_and_small() {
+        let card = super::build_tool_files();
+        assert_eq!(card["_meta"]["anthropic/alwaysLoad"],false);
+        assert!(crate::domain::tool_groups::allows(&serde_json::json!({}),"orgtree_files"));
+        assert!(!crate::domain::tool_groups::allows(&serde_json::json!({"orgtree":{"inspection":false}}),"orgtree_files"));
+        let bytes = serde_json::to_vec(&card).unwrap().len();
+        eprintln!("FILES_CARD_BYTES {bytes}");
+        assert!(bytes < 600);
+    }
 }
 
 #[inline(never)]

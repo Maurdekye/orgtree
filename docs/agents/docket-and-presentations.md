@@ -67,6 +67,12 @@ unread still wins across unloaded history. The final fallback follows actual lis
 two extra `opening_rows`: one manual flag and one named remembered row, under the
 same group/search/node filters. Normal page cursors stay unchanged; refresh only
 keeps the named row and never re-arms opening. No migration is required.
+## Retained download cards (2026-10-23)
+
+Download-card history uses ot.deliveries, independently of documents and hub
+transfers. Keep the bounded per-agent reader and existing immutable snapshots;
+never recover this list by scanning transcripts. See [agent files](../rust-engine/agent-files.md).
+[decided: user 2026-10-23, release after 4.4.2; verified: domain/deliveries.rs]
 
 ## Object actions belong to a composer (2026-10-22)
 

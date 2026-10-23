@@ -531,6 +531,21 @@ pub async fn read_transcript(engine: &Arc<Engine>, caller: &Caller, args: &Value
     Done::json(&result)
 }
 
+/// Local download-card history, never hub transfer jobs or another branch's files.
+#[logged]
+pub async fn files(engine: &Arc<Engine>, caller: &Caller, args: &Value) -> Result<Done> {
+    let page: crate::domain::deliveries::Page = serde_json::from_value(args.clone())
+        .map_err(|e| crate::domain::UserError::BadRequest(format!("invalid file listing: {e}")))?;
+    page.bounds()?;
+    let client = engine.db.get().await?;
+    let me = me(&client, caller).await?;
+    let name = page.node.as_deref().unwrap_or(&me.name);
+    let t = target(&client, me.org_id, name).await?;
+    if t.kind == "project" { crate::refuse!(BadRequest, "Files lists an agent's delivered download cards"); }
+    if t.id != me.id { downward(&client, &me, &t, "list delivered files of").await?; }
+    Done::json(&crate::domain::deliveries::list(&**client, me.org_id, t.id, &t.name, &page).await?)
+}
+
 /// Match 3.x's numeric coercion, default and bounded recent-row argument.
 #[logged]
 fn transcript_last(args: &Value) -> Result<i64> {
