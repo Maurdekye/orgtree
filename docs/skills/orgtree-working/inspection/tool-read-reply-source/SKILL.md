@@ -68,6 +68,13 @@ Recent [transcript reads](../tool-read-transcript/SKILL.md) expose `event_id`,
 
 The eager message tool exposes only the minimal `{target, selection}` wrapper. Load this deferred tool and read this Guide before constructing selectors; the engine still enforces the full contract. `projection` is `source-v1`, `unit` is `unicode-scalar`, `expected_sha256` is the returned exact UTF-8 digest, and `start`/`end` are half-open offsets in the same canonical part. No caller-owned quote/context fields are accepted.
 
+Send the wrapper in `orgtree_message` replies. Optional `tool_id`, `pointer`,
+`role` and `entry` must match the canonical part read here. The engine derives
+the excerpt and refuses changed digests before sending. Selection replies are
+internal-only: at most eight selections, each at most 4,096 UTF-8 bytes, with
+48 KiB combined metadata. Never supply `excerpt`, `prefix` or `suffix` as
+caller-owned metadata.
+
 `tool.result` also accepts `pointer` and optional `role: key` for complete retained JSON results. Strings are decoded scalar text; other values use deterministic pretty JSON. Invalid or clipped JSON is never repaired into a selectable part. A failed shell's separately retained full output is read before its clipped chip summary. The tool remains bounded and does not fetch provider-native history files.
 
 Transcript discovery retains bounded supplied thinking, sealed/truncated markers and incomplete/interrupted flags alongside selection event/revision IDs. A mixed readable/sealed row can expose its supplied readable summary; a sealed-only empty part remains unavailable. Ciphertext is never a source part.
