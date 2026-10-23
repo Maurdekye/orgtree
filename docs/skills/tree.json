@@ -5446,7 +5446,7 @@
     },
     {
      "file": "apps/desktop/renderer/src/App.tsx",
-     "label": "only above a context occupancy of"
+     "label": "at or above a context occupancy of"
     }
    ],
    "key_sources": [
