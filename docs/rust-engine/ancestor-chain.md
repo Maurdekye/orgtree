@@ -22,3 +22,25 @@ The first keeps the same row-locking query used by `ops::chain`; the second keep
 the ordered rows used by `tools::caller_tools_in`. Refusals and scope clamps stay
 with their callers. The reporting guard still scans both central caller modules;
 neither receives a file-wide structural exception.
+
+## Presentation, delivery and gallery depth (2026-10-23)
+
+The document presenter uses the same complete root-first scope rows for folder
+clamps and project membership. The helper now appends node id as column 4;
+the existing tool caller's scope/parent/depth/kind columns retain their indices.
+An unresolved root or ancestry cycle refuses folder authority. This shared
+presenter also serves file delivery, mail-file snapshots and logo Set; callers'
+canonical containment, file bounds and audience rules remain unchanged.
+
+Descendant project folders use stable-edge UNION recursion scoped to the root's
+org, excluding the root. A separate acyclic ordering walk retains nearest-first
+order and 256-row id pages. Human team galleries use UNION of stable node ids
+in the selected org, retaining retired identities and their existing document
+page limits. Neither has a 1,024-level cutoff; cycles terminate without duplicate
+members. Project presentation replacement admission is unchanged (D4 is separate).
+
+The owned native regression checks 1,500 project levels through the actual
+presenter/project-present and human gallery page helpers, including root folder
+clamps, no-user-audience membership, refusal outside the caller's project,
+retained renamed presenters, page size/continuation and malformed-cycle controls.
+User choice: m23e9823f7a3e, 2026-10-23, D2/D3 "change the app"; release 4.4.4.

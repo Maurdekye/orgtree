@@ -52,6 +52,7 @@ pub(crate) async fn locked_ancestor_rows(tx: &tokio_postgres::Transaction<'_>, i
 }
 
 /// Physical scope-chain order only; the caller still skips projects and clamps tools.
+/// Columns are scope, parent, depth, kind, id; existing tool callers keep their indices.
 #[logged]
 pub(crate) async fn scope_ancestor_rows<C: GenericClient + Sync>(client: &C, agent_id: i64, org_id: i64) -> Result<Vec<tokio_postgres::Row>> {
     Ok(client.query(
@@ -62,7 +63,7 @@ pub(crate) async fn scope_ancestor_rows<C: GenericClient + Sync>(client: &C, age
          root_first(id,depth) AS (
            SELECT id,0 FROM chain WHERE parent_id IS NULL
            UNION ALL SELECT c.id,r.depth+1 FROM chain c JOIN root_first r ON c.parent_id=r.id)
-         SELECT c.scope,c.parent_id,r.depth,c.kind FROM chain c JOIN root_first r ON c.id=r.id
+         SELECT c.scope,c.parent_id,r.depth,c.kind,c.id FROM chain c JOIN root_first r ON c.id=r.id
          ORDER BY r.depth", &[&agent_id, &org_id]).await?)
 }
 
@@ -700,11 +701,17 @@ pub async fn below(client: &impl GenericClient, agent: i64) -> Result<Vec<(i64, 
     loop {
       let page = client
         .query(
-            "WITH RECURSIVE down(id, depth) AS (
-               SELECT id, 1 FROM ot.agents WHERE parent_id = $1 AND state = 'live'
-               UNION ALL SELECT a.id, d.depth + 1 FROM ot.agents a JOIN down d ON a.parent_id = d.id
-                WHERE d.depth < 1024 AND a.state = 'live')
-             SELECT a.id,a.name,d.depth,a.sibling_order FROM down d JOIN ot.agents a ON a.id=d.id
+            // Stable edges stop cycles; excluding the root makes the ordering
+            // walk acyclic without a quadratic path array or a depth ceiling.
+            "WITH RECURSIVE down(id,parent_id,org_id) AS (
+               SELECT a.id,a.parent_id,a.org_id FROM ot.agents a JOIN ot.agents root ON root.id=$1
+                WHERE a.parent_id=$1 AND a.id<>$1 AND a.org_id=root.org_id AND a.state='live'
+               UNION SELECT a.id,a.parent_id,a.org_id FROM ot.agents a JOIN down d ON a.parent_id=d.id
+                WHERE a.id<>$1 AND a.org_id=d.org_id AND a.state='live'),
+             ordered(id,depth) AS (
+               SELECT id,1 FROM down WHERE parent_id=$1
+               UNION ALL SELECT d.id,o.depth+1 FROM down d JOIN ordered o ON d.parent_id=o.id)
+             SELECT a.id,a.name,o.depth,a.sibling_order FROM ordered o JOIN ot.agents a ON a.id=o.id
               WHERE a.kind='project' AND a.id>$2 ORDER BY a.id LIMIT 256",
             &[&agent,&after],
         )

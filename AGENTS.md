@@ -232,7 +232,7 @@ Compatibility links to the original section records:
 <a id="mcp-imports-from-installed-harnesses-2026-10-15"></a>[mcp-imports-from-installed-harnesses-2026-10-15](docs/agents/instructions-and-skills.md#e-696c902e76e39caa)<br>
 <a id="shared-skills-and-installed-plugin-imports-2026-10-15"></a>[shared-skills-and-installed-plugin-imports-2026-10-15](docs/agents/instructions-and-skills.md#e-87e9373ea83fb86f)
 
-- Ancestor scope/funding reads traverse the complete chain and refuse cycles. Their single batched row-lock read preserves root-first order; no org-wide lock is added. See [ancestor-chain.md](docs/rust-engine/ancestor-chain.md). [verified: `domain/ops.rs::chain`;2026-10-22]
+- Ancestor scope/funding/presenter reads traverse the complete chain and refuse cycles. Scope/funding retain root-first row-lock order; presenter reads share the ordered scope helper. No org-wide lock is added. See [ancestor-chain.md](docs/rust-engine/ancestor-chain.md). [verified: `domain/{ops,projects,docs}.rs`;2026-10-23]
 
 - Organization templates retain nested-v1 files with no node/depth ceiling and a 16 MiB file bound. Raw tree indexing, flat ownership and iterative export/plan avoid recursive Clone/Drop. Save reads all live nodes by keyset paging and keeps project queue/event policy, per-agent speed and explicit OpenRouter pins. See [template-portability.md](docs/rust-engine/template-portability.md). [decided: user 2026-10-22; verified: `domain/template_wire.rs`, `domain/templates.rs`, `http/templates.rs`]
 

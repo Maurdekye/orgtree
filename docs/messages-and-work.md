@@ -147,6 +147,8 @@ An unarchived backlog item can offer **Staff…**. The action follows the app's 
 
 Ask for a **presentation** when you want a plan, report or other document to read. Open **Presentations** in the header, or **Presented** in a desk. Team presentations include documents below an agent or project. Use **Show retired** to include retained documents from retired presenters.
 
+Team galleries include the whole selected team, even through very deep project nesting. File delivery and presentation-file reads likewise follow the complete folder authority chain; restrictions from higher in the tree still apply. Deep project membership keeps the ordinary presentation and audience rules.
+
 Unread or changed documents have highlighted titles. Opening one marks it viewed **by you**; an agent reading it does not. A fresh reader normally selects the oldest unread/changed document, then the last viewed eligible document for this collection, then the topmost card if all are read. Explicit document links take priority. Later refreshes do not continually replace your selection.
 
 The reader supports Markdown and HTML previews, source identity, downloads and the reply/dismiss controls available to that surface. Multiple readers can coexist for different agent, project or team scopes. A document link raises a suitable existing reader when possible. Pin/pop-out changes where you read it, not its author or contents.

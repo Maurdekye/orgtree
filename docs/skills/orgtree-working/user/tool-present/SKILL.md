@@ -35,6 +35,8 @@ The stored body is a snapshot. Editing the original file does not update the car
 
 Paths are canonicalized and checked inside your scratch or effectively held folders, with organization/ancestor scope clamps and your held organization/shared/team workspaces. Symlinks do not grant access outside those roots. An inaccessible/missing file refuses instead of presenting whatever a path happened to name.
 
+Folder authority and membership in an ancestor project resolve through the complete chain, including more than 1,024 nested projects. Root scope restrictions still apply; an ancestry cycle or missing root refuses folder authority. Reaching a project below you still needs the ordinary user audience to present there; deep membership adds no broader audience or file grant.
+
 ## HTML capture and preview
 
 The HTML entry is limited to 4 MiB. Capture collects supported local HTML/CSS dependency references under its source directory, including nested CSS resources, with a 25 MiB total resource bound and 4,096-file cap. Absolute/escaping/protected/missing local asset paths refuse. A resource in another granted folder still cannot escape the mockup root. Dynamically discovered assets are not guaranteed captured.

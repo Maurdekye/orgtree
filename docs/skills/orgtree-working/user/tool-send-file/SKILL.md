@@ -27,6 +27,8 @@ Minimal call:
 
 The file must be regular, nonempty and at most **256 MiB**. A directory refuses; create an archive first if that is the requested deliverable. Canonical containment checks use scratch/effectively held roots including organization/shared/team workspaces and ancestor clamps. A symlink to an ungranted location is not file authority.
 
+Folder resolution has no fixed nesting-depth cutoff. It retains the complete ancestor clamps and all reachable live descendant-project folders, without duplicating a folder through a cycle. Cyclic or incomplete ancestry refuses folder authority. These rules are shared with presentation-file and logo-file reads; their own file-size and format checks still apply.
+
 ## Delivery snapshot
 
 The engine copies the source into a fresh delivery subdirectory of your scratch outbox, including when the source is already under outbox. Later source edits do not alter the delivered bytes. An outbox that canonicalizes outside scratch is refused. Success records a delivery and returns a download card in your chat; supported image extensions render a picture with filename/size/download access.

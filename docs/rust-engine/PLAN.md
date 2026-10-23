@@ -285,6 +285,12 @@ still resume, so the agents themselves remember).
 
 ## 10. User-facing differences — complete ledger
 
+Presentation depth (USER 2026-10-23, 4.4.4): presenter folder/membership checks,
+descendant project folders and human team galleries no longer stop at1,024
+levels. Complete traversal retains scope clamps, org boundaries and gallery
+paging; cycles refuse authority or terminate without duplicates. See
+[ancestor reads](ancestor-chain.md#presentation-delivery-and-gallery-depth-2026-10-23).
+
 Project draft settings (USER 2026-10-23, 4.4.4): the draft gear stages project
 policy before creation. Create applies it atomically; the agent project-create
 tool accepts the same policy in settings. See [project nodes](PROJECT-NODES.md).

@@ -1993,3 +1993,11 @@ A fresh opening selects the topmost ticket with a manual attention flag, or the 
 
 This applies to the top-bar buttons, agent/project Open submenus including team views, and entering a desk's Docket/Presented tab. Leaving a desk tab and returning is a fresh opening. Explicit item/document links keep their target. Bringing forward, resizing, pinning, popping out or restoring an already-open reader keeps its current selection, including a deliberate empty pane. Polls never replace a choice.
 Sources: md3fefbb66b7b, m2ff1ceebe0d0, m170087aca8f6, mcc0d73b33275. See [opening contract](../agents/docket-and-presentations.md#opening-priority-2026-10-23).
+
+**Presentation depth, USER 2026-10-23 12:33:14Z (4.4.4), m23e9823f7a3e:**
+D2/D3 change the app: remove remaining1,024-level cutoffs in presenter folder
+and project-membership checks, descendant project folders and human team galleries.
+Complete cycle-safe traversal preserves folder clamps, org isolation, retained
+identities and document paging. Logo Set shares the presenter folder resolver.
+D4 replacement admission is unchanged, following the later USER mb1aa649788b2
+choice to keep the app's existing behavior. See [ancestor reads](ancestor-chain.md).

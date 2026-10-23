@@ -55,13 +55,7 @@ pub(crate) async fn presenter_in<C: tokio_postgres::GenericClient + Sync>(engine
         .map(PathBuf::from)
         .unwrap_or_else(|| engine.cfg.scratch_root(&org.slug).join(&name));
     let settings = crate::feed::groups::effective_settings(&r.get::<_, Value>(3), &engine.settings.defaults());
-    let chain = client.query(
-        "WITH RECURSIVE chain AS (
-           SELECT id, parent_id, scope, kind, 0 AS depth FROM ot.agents WHERE id = $1 AND org_id = $2
-           UNION ALL SELECT a.id, a.parent_id, a.scope, a.kind, c.depth + 1
-           FROM ot.agents a JOIN chain c ON a.id = c.parent_id WHERE a.org_id = $2 AND c.depth < 1024)
-         SELECT c.scope, c.parent_id, c.id, c.kind FROM chain c ORDER BY depth DESC LIMIT 1025",
-        &[&agent_id, &org.id]).await?;
+    let chain = crate::domain::projects::scope_ancestor_rows(client, agent_id, org.id).await?;
     if chain.first().map(|r| r.get::<_, Option<i64>>(1).is_some()).unwrap_or(true) {
         refuse!(Forbidden, "cannot resolve your complete folder authority chain");
     }
@@ -80,7 +74,7 @@ pub(crate) async fn presenter_in<C: tokio_postgres::GenericClient + Sync>(engine
     dirs.push(engine.cfg.org_notes_dir(&org.slug).to_string_lossy().to_string());
     // and the workspaces of the subtrees it is inside
     for ancestor in &chain {
-        dirs.push(engine.cfg.teams_dir(&org.slug).join(ancestor.get::<_, i64>(2).to_string()).to_string_lossy().to_string());
+        dirs.push(engine.cfg.teams_dir(&org.slug).join(ancestor.get::<_, i64>(4).to_string()).to_string_lossy().to_string());
     }
     // and the folders of the projects below it (docs/rust-engine/PROJECT-NODES.md)
     for (id, _) in crate::domain::projects::below(client, agent_id).await? {
@@ -217,15 +211,8 @@ pub async fn present(engine: &Arc<Engine>, org: &Arc<OrgHandle>, p: &Presenter, 
                 // Project members may present to their own project, including
                 // through nested projects. Reach also includes ancestors, so
                 // it alone cannot replace the user-audience requirement.
-                let member: bool = client.query_one(
-                    "WITH RECURSIVE up(id, parent_id, depth) AS (
-                       SELECT id, parent_id, 0 FROM ot.agents WHERE id = $1 AND org_id = $2
-                       UNION ALL SELECT a.id, a.parent_id, up.depth + 1
-                       FROM ot.agents a JOIN up ON a.id = up.parent_id
-                       WHERE a.org_id = $2 AND up.depth < 1024)
-                     SELECT EXISTS (SELECT 1 FROM up WHERE id = $3 AND depth > 0)",
-                    &[&p.id, &org.id, &pr.id],
-                ).await?.get(0);
+                let ancestors = crate::domain::projects::scope_ancestor_rows(&**client, p.id, org.id).await?;
+                let member = p.id != pr.id && ancestors.iter().any(|row| row.get::<_, i64>(4) == pr.id);
                 if !member {
                     refuse!(Forbidden, "presenting outside your own project needs a user audience (top-level agents hold one); send it to your superior instead");
                 }

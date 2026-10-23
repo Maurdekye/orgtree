@@ -16,6 +16,9 @@ use crate::http::error::{ApiError, ApiResult};
 use crate::http::orgs::org;
 use crate::util::{iso, iso_opt};
 
+#[cfg(test)]
+mod depth_tests;
+
 // Private document text; the wire guard records route/status only.
 #[nolog]
 pub async fn get(State(e): State<Arc<Engine>>, Path((slug, did)): Path<(String, String)>) -> ApiResult<Json<Value>> {
@@ -237,12 +240,11 @@ async fn subtree_members(client: &tokio_postgres::Client, o: &crate::orgs::OrgHa
     }
     let rows = client
         .query(
-            "WITH RECURSIVE below(id, depth) AS (
-               SELECT $1::bigint, 0
-               UNION ALL SELECT a.id, b.depth + 1 FROM ot.agents a JOIN below b ON a.parent_id = b.id
-                WHERE b.depth < 1024)
-             SELECT id FROM below",
-            &[&root],
+            "WITH RECURSIVE below(id) AS (
+               SELECT $1::bigint
+               UNION SELECT a.id FROM ot.agents a JOIN below b ON a.parent_id=b.id WHERE a.org_id=$2)
+             SELECT id FROM below ORDER BY id",
+            &[&root, &o.id],
         )
         .await?;
     Ok(Some(rows.iter().map(|r| r.get(0)).collect()))
