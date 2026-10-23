@@ -36,7 +36,8 @@ export function usePanelSteps(ids: readonly string[], selected: string | null,
   })
 
   const onKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
-    if (!e.altKey || (e.key !== 'ArrowUp' && e.key !== 'ArrowDown') || e.defaultPrevented) return
+    if (!e.altKey || e.shiftKey || e.ctrlKey || e.metaKey
+        || (e.key !== 'ArrowUp' && e.key !== 'ArrowDown') || e.defaultPrevented) return
     const root = e.currentTarget
     const target = e.target as Element
     const focus = root.ownerDocument.activeElement

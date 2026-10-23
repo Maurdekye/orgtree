@@ -79,6 +79,7 @@ export function EffortBar({ value, level, label, title, onSet, disabled: disable
     ? `Effort (${LV[preview]})`
     : label ?? (pinned < 0 && inheritLabel ? `${inheritLabel}${name ? ` (${name})` : ''}` : `Effort${name ? ` (${name})` : ''}`)
   const key = (e: KeyboardEvent) => {
+    if (e.altKey || e.ctrlKey || e.metaKey || e.nativeEvent.isComposing) return
     if (disabled) return
     const from = idx >= 0 ? idx : 0
     let next: number | null = null

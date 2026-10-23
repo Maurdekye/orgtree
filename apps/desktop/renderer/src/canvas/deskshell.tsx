@@ -6,6 +6,9 @@
 // callbacks — nothing here owns state, so DeskChatInner's ownership
 // invariants inside OwnedDeskChat are untouched.
 import type { ReactNode } from 'react'
+import { useLayoutEffect, useRef } from 'react'
+import { installNavigationKeys } from '../shell/navigationkeys'
+import { useSurfaceDocument } from '../popout'
 import { useDeskNamePlateGuard } from './cardnamereveal'
 import PushPinIcon from '@mui/icons-material/PushPinOutlined'
 import PushPinFilledIcon from '@mui/icons-material/PushPin'
@@ -154,6 +157,8 @@ export interface DeskTabDef {
 const DESK_TAB_LABELS: Readonly<Record<string, string>> = { desk: 'summary', inbox: 'mail', dead: 'dead letters', listeners: 'events' }
 export const deskTabLabel = (id: string): string => DESK_TAB_LABELS[id] ?? id
 
+const lastKeyboardDesk = new WeakMap<Document, HTMLElement>()
+
 /** The .cc-tabs strip, identical on both desks: one button per tab with an
  *  optional count chip. `onShow` carries each desk's own reveal-then-
  *  setView logic (revealAgentPanelTab first). */
@@ -162,8 +167,44 @@ export function DeskTabs({ tabs, shown, onShow }: {
   shown: string
   onShow: (id: string) => void
 }) {
+  const strip = useRef<HTMLSpanElement>(null)
+  const doc = useSurfaceDocument()
+  const current = useRef({ tabs, shown, onShow })
+  useLayoutEffect(() => { current.current = { tabs, shown, onShow } })
+  useLayoutEffect(() => {
+    const root = strip.current?.closest<HTMLElement>('.desk-over, .desk-bare')
+    if (!root) return
+    const select = () => { lastKeyboardDesk.set(doc, root) }
+    root.addEventListener('pointerdown', select, true)
+    root.addEventListener('focusin', select, true)
+    const stop = installNavigationKeys(doc, event => {
+      if (!event.altKey || event.shiftKey || event.ctrlKey || event.metaKey
+          || (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight')) return
+      const target = event.target as Element | null
+      if (target?.closest?.('.askcard')) return
+      let owner = target?.closest?.<HTMLElement>('.desk-over, .desk-bare')
+      if (!owner) {
+        const last = lastKeyboardDesk.get(doc)
+        const roots = [...doc.querySelectorAll<HTMLElement>('.desk-over, .desk-bare')]
+        owner = last?.isConnected ? last : roots.find(el => !el.closest('.pinwin, .tempdesk'))
+          ?? (roots.length === 1 ? roots[0] : undefined)
+      }
+      const { tabs, shown, onShow } = current.current
+      if (owner !== root || tabs.length < 2) return
+      event.preventDefault() // Chromium's Alt arrows otherwise navigate history.
+      const at = tabs.findIndex(tab => tab.id === shown)
+      const next = (Math.max(0, at) + (event.key === 'ArrowRight' ? 1 : -1) + tabs.length) % tabs.length
+      onShow(tabs[next]!.id)
+    })
+    return () => {
+      stop()
+      root.removeEventListener('pointerdown', select, true)
+      root.removeEventListener('focusin', select, true)
+      if (lastKeyboardDesk.get(doc) === root) lastKeyboardDesk.delete(doc)
+    }
+  }, [doc])
   return (
-    <span className="cc-tabs">
+    <span className="cc-tabs" ref={strip}>
       {tabs.map((t) => (
         <button key={t.id} data-tab={t.id} className={shown === t.id ? 'on' : ''}
           onClick={() => onShow(t.id)}>

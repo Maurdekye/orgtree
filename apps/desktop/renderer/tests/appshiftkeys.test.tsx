@@ -36,8 +36,8 @@ test('Shift+F1/F2/F3 rows are shared by matcher and Settings, with exact app-men
   assert.equal(matchAppShortcut(new window.KeyboardEvent('keydown', { key: 'F10', shiftKey: true })), 'halt')
 })
 
-test('Shift+F6/F7/F8 rows share their canvas actions with the matcher and Settings', () => {
-  for (const [key, id] of [['F6', 'fitOrg'], ['F7', 'lastDesk'], ['F8', 'switchboard']]) {
+test('Shift+F7 retains the last-desk action in the matcher and Settings', () => {
+  for (const [key, id] of [['F7', 'lastDesk']]) {
     const row = APP_FKEYS.find(row => row.keys.includes('Shift+' + key))
     assert.equal(row?.id, id)
     assert.ok(row?.action)
@@ -138,7 +138,7 @@ test('real main App Shift+F1/F3 reuse native window actions; Shift+F2 opens its 
   }
 })
 
-test('real main App Shift+F6/F8 work with pinned panels, a focused desk and EPIC Mode', async () => {
+test('real main App org fit/switchboard shortcuts defer to editors and work with pinned panels and EPIC Mode', async () => {
   const globals = globalThis as unknown as Record<string, unknown>
   const saved = { fetch: globals.fetch, WebSocket: globals.WebSocket, history: globals.history,
     CustomEvent: globals.CustomEvent, DocumentFragment: globals.DocumentFragment }
@@ -221,12 +221,18 @@ test('real main App Shift+F6/F8 work with pinned panels, a focused desk and EPIC
     await inAct(async () => { zoomIn.click(); await flush(10); await advance(500); zoomIn.click(); await flush(10); await advance(500) })
     const zoomedAway = camera()
     const beforeFit = zoomedAway
-    await inAct(async () => { press('F6', composer!, true); await flush(20); await advance(800) })
-    assert.notEqual(camera(), beforeFit, 'Shift+F6 fits the camera while pinned panels are open and the composer has focus')
+    const navigate = (key: string, code = '') => document.body.dispatchEvent(new window.KeyboardEvent('keydown', {
+      key, code, shiftKey: true, altKey: true, bubbles: true, cancelable: true,
+    }))
+    await inAct(async () => { navigate(' '); await flush(20); await advance(800) })
+    assert.equal(camera(), beforeFit, 'the focused composer owns its keys')
+    composer!.blur()
+    await inAct(async () => { navigate(' '); await flush(20); await advance(800) })
+    assert.notEqual(camera(), beforeFit, 'Shift+Alt+Space fits the camera while pinned modeless panels are open')
     const beforeSwitchboard = camera()
-    await inAct(async () => { press('F8', composer!, true); await flush(20); await advance(1600) })
+    await inAct(async () => { navigate('S', 'KeyS'); await flush(20); await advance(1600) })
     assert.ok(view.el.querySelector('.eye-desk'), 'the real App callback focused the switchboard')
-    assert.notEqual(camera(), beforeSwitchboard, 'Shift+F8 returns the real org canvas to the switchboard under EPIC Mode')
+    assert.notEqual(camera(), beforeSwitchboard, 'Shift+Alt+S returns the real org canvas to the switchboard under EPIC Mode')
   } finally {
     await view?.unmount(); stopEpic(); removeBridge(); modelessPinnedUsage.remove()
     await inAct(() => removePinSurface(usageSurface))

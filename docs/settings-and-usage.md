@@ -128,7 +128,13 @@ The **Logo** picker accepts a static PNG/JPEG/WebP up to 5 MiB and 16 million pi
 | F10 | Open the STOP ALL guard; does not halt or release an already halted org. |
 | Shift+F10 | Halt all immediately, whether armed or not. |
 | Shift+F1 / Shift+F2 / Shift+F3 | New Homepage window / app menu at Open organization / create organization. |
-| Shift+F6 / Shift+F7 / Shift+F8 | Fit whole org / last live agent desk / switchboard. |
+| Shift+F7 | Focus the last live agent desk. |
+| Shift+Alt+Up / Down | Visible parent / centre-most visible direct child. Top-level Up goes to the switchboard; projects are stops. |
+| Shift+Alt+Left / Right | Previous/next visible sibling in canvas order, wrapping. |
+| Shift+Alt+Space | Fit the whole org. |
+| Shift+Alt+Backspace | Walk back through earlier focused agents in this org. |
+| Shift+Alt+S | Focus the switchboard using the physical S key, including Hebrew layouts. |
+| Alt+Left / Right in a desk | Previous/next displayed agent or project desk tab, wrapping. Question cards keep their own question switching. |
 | Escape | Close the top menu/dialog, cancel a drag/draft or clear a staged reply, according to focus. |
 | Mod+Z / Ctrl+Y or Mod+Shift+Z | Undo / redo supported persistent actions, deferring to text editing while typing. |
 | Mod+Enter | Send or submit a ready answer; ordinary Enter follows the typing preference. |
@@ -136,6 +142,18 @@ The **Logo** picker accepts a static PNG/JPEG/WebP up to 5 MiB and 16 million pi
 | Alt+Up/Down | Previous/next mail; in focused Docket/Presentations, previous/next eligible rendered item. |
 
 Lists, menus, settings tabs, effort and grant controls support keyboard navigation. Question batches use Alt+Left/Right between questions; Alt+Up/Down adjusts a credit offer. Docket/Presentation navigation skips filtered/folded items and clamps at the ends. Draft replies, answers and child editors can block navigation to protect unfinished input. Quick chat has a single-line field: Enter hires/sends; Shift+Enter does not submit or insert a newline.
+
+The new org and desk-tab shortcuts defer to text fields, code editors, dropdowns,
+sliders, IME composition, open dialogs/menus and pointer gestures. Org shortcuts
+act in the main org window; tab cycling also works in detached desks and blocks
+browser back/forward when it acts. A missing target does nothing. Down chooses
+the earlier child in an even centre tie. Agent history is per org and window
+session, keeps up to 256 visits and skips unavailable agents; project, switchboard
+and fit visits preserve it. Existing pinned/detached/Attention desk routing applies.
+Shift+F6 and Shift+F8 are unbound; Shift+F7 remains. Hold does not repeat a jump.
+Windows may intercept Alt+Shift for input-language switching or Alt+Space for its
+system menu; the app changes no OS settings. On macOS, editors retain Option-arrow
+word movement/selection and deletion.
 
 Shift+F4 includes seen entries and resets to the newest if a newer mention arrives. It opens the desk/mail/ticket reader and highlights the mention. If a ticket edit removed the original text, a labelled recorded excerpt remains available. No history shows **No @user mentions yet**; reaching the oldest shows **No older @user mentions**, keeping the current view in place. Holding the key does not keep stepping.
 

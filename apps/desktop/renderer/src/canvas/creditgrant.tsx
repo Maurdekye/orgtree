@@ -136,6 +136,7 @@ export function CreditGrant({ node, map, tree, op }: {
     publish(g)
   }
   const key = (e: KeyboardEvent<HTMLDivElement>) => {
+    if (e.altKey || e.ctrlKey || e.metaKey || e.nativeEvent.isComposing) return
     if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); cancel(); return }
     if (disabled || !['ArrowLeft', 'ArrowDown', 'ArrowRight', 'ArrowUp', 'Home', 'End'].includes(e.key)) return
     e.preventDefault(); e.stopPropagation(); setError('')

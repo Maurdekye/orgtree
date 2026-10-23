@@ -25,6 +25,18 @@ This changes a display/navigation label, with no new agent action or delivery
 authority. [verified: `events/segments.tsx`, `canvas/desk.tsx`,
 `tests/youpreview.test.tsx`; 2026-10-23]
 
+## Organization keyboard navigation (2026-10-23)
+
+`shell/appshortcuts.ts` owns the main-window Shift+Alt navigation table;
+`canvas/keyboardnavigation.ts` uses visible physical placement, including project
+stops, and bounded per-org session agent history. Route every jump through
+`centerOn`, preserving pin/popout/Attention custody. DeskTabs cycles its actual
+displayed tab array in the surface's owning document. Bubble after local handlers,
+defer to editors/widgets/composition/overlays/gestures, and require exact modifiers
+on older Alt-arrow handlers so navigation cannot alter a credit offer. See the
+[keyboard glossary](../skills/orgtree-app/app-settings/app-keyboard-shortcuts/SKILL.md).
+[decided: user 2026-10-23 m0d10d980821a; verified: renderer sources named above]
+
 ## Desk lifecycle hover help (2026-10-23)
 
 Agent retire/dissolve and project dissolve use native button titles, like Halt

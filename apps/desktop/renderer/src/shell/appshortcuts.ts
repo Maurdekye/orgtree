@@ -1,15 +1,22 @@
 import { useLayoutEffect, useRef } from 'react'
 import type { OrgView } from '../attention/mode'
+import { installNavigationKeys } from './navigationkeys'
 
 export type AppShortcutAction = 'settings' | 'usage' | 'usageHistory' | 'view'
   | 'refresh' | 'inbox' | 'docket' | 'presentations' | 'orgSettings' | 'unlatch' | 'halt'
   | 'newWindow' | 'openOrganizations' | 'createWindow'
   | 'fitOrg' | 'lastDesk' | 'switchboard' | 'latestMention'
+  | 'parentNode' | 'childNode' | 'previousNode' | 'nextNode' | 'previousAgent'
 
 export interface CanvasShortcutActions {
   fitOrg: () => void
   lastDesk: () => void
   switchboard: () => void
+  parentNode: () => void
+  childNode: () => void
+  previousNode: () => void
+  nextNode: () => void
+  previousAgent: () => void
 }
 export interface CanvasShortcutRef { current: CanvasShortcutActions | null }
 
@@ -30,10 +37,25 @@ export const APP_FKEYS: { keys: string[]; action: string; id: AppShortcutAction 
   { keys: ['Shift+F2'], action: 'Toggle the app menu with its Open organization submenu focused', id: 'openOrganizations' },
   { keys: ['Shift+F3'], action: 'Open the create-organization window', id: 'createWindow' },
   { keys: ['Shift+F4'], action: 'Go to the latest @user mention; press again for older mentions', id: 'latestMention' },
-  { keys: ['Shift+F6'], action: 'Fit the whole org in view', id: 'fitOrg' },
   { keys: ['Shift+F7'], action: 'Focus the last desk', id: 'lastDesk' },
-  { keys: ['Shift+F8'], action: 'Focus the switchboard', id: 'switchboard' },
 ]
+
+export const ORG_NAV_KEYS: { keys: string[]; action: string; id: AppShortcutAction }[] = [
+  { keys: ['Shift+Alt+ArrowUp'], action: 'Focus the visible parent; top-level nodes go to the switchboard', id: 'parentNode' },
+  { keys: ['Shift+Alt+ArrowDown'], action: 'Focus the centre-most visible direct child', id: 'childNode' },
+  { keys: ['Shift+Alt+ArrowLeft'], action: 'Focus the previous visible sibling, wrapping', id: 'previousNode' },
+  { keys: ['Shift+Alt+ArrowRight'], action: 'Focus the next visible sibling, wrapping', id: 'nextNode' },
+  { keys: ['Shift+Alt+Space'], action: 'Fit the whole org in view', id: 'fitOrg' },
+  { keys: ['Shift+Alt+Backspace'], action: 'Go back through earlier focused agents in this org', id: 'previousAgent' },
+  { keys: ['Shift+Alt+S'], action: 'Focus the switchboard', id: 'switchboard' },
+]
+
+export function matchOrgNavigation(event: KeyboardEvent): AppShortcutAction | undefined {
+  if (!event.altKey || !event.shiftKey || event.ctrlKey || event.metaKey) return
+  if (event.key.toLowerCase() === 's' && event.code !== 'KeyS') return
+  const key = event.code === 'KeyS' ? 'S' : event.key === ' ' ? 'Space' : event.key
+  return ORG_NAV_KEYS.find(row => row.keys.includes('Shift+Alt+' + key))?.id
+}
 
 export type AppShortcutActions = Partial<Record<AppShortcutAction, () => void>>
 
@@ -55,7 +77,14 @@ export function installAppShortcuts(win: Window, actions: () => AppShortcutActio
     if (!event.repeat) actions()[action]?.()
   }
   win.addEventListener('keydown', onKey, true)
-  return () => win.removeEventListener('keydown', onKey, true)
+  const stopNavigation = installNavigationKeys(win.document, event => {
+    const action = matchOrgNavigation(event)
+    const run = action && actions()[action]
+    if (!run) return
+    event.preventDefault()
+    run()
+  })
+  return () => { win.removeEventListener('keydown', onKey, true); stopNavigation() }
 }
 
 export function useAppShortcuts(actions: AppShortcutActions): void {

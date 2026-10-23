@@ -388,6 +388,12 @@ Original section: AGENTS.md — working on Orgtree. Source lines 2282–2293.
 
 Original section: AGENTS.md — working on Orgtree. Source lines 2413–2431.
 
+**2026-10-23 supersession (USER m0d10d980821a, 4.4.4):** Shift+F6/F8 in the
+historical snapshot below are unbound. Shift+Alt+Space fits the org; physical
+Shift+Alt+S opens the switchboard; Shift+F7 remains. New navigation defers to
+editors/widgets/composition/overlays/gestures. Current arrows, history and desk-tab
+rules live in the [keyboard glossary](../skills/orgtree-app/app-settings/app-keyboard-shortcuts/SKILL.md).
+
 <!-- preserved:e-a4c44404ece5e210 -->
 - Main app menu orders App settings / Usage / Usage history; main ShellHeader
   orders Inbox / Work (Docket) / Presentations / Org settings. `APP_FKEYS` backs

@@ -616,7 +616,7 @@ export function MailList({ org, pending = [], delivered = [], waitLabel, sender,
   // row focuses the nearest tabindex ancestor, so the keydown bubbles here —
   // the same focus routing the ask cards use.
   const onKey = (e: KeyboardEvent<HTMLDivElement>) => {
-    if (!e.altKey || (e.key !== 'ArrowUp' && e.key !== 'ArrowDown')) return
+    if (!e.altKey || e.shiftKey || e.ctrlKey || e.metaKey || (e.key !== 'ArrowUp' && e.key !== 'ArrowDown')) return
     if (e.defaultPrevented) return
     if ((e.target as HTMLElement).closest?.('.askcard')) return
     e.preventDefault()

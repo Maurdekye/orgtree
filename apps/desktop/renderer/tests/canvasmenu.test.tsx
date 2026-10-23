@@ -128,6 +128,11 @@ function uiTest(name: string, body: (host: HTMLElement, viewport: HTMLElement,
       fitOrg: () => shortcutRef.current?.fitOrg(),
       lastDesk: () => shortcutRef.current?.lastDesk(),
       switchboard: () => shortcutRef.current?.switchboard(),
+      parentNode: () => shortcutRef.current?.parentNode(),
+      childNode: () => shortcutRef.current?.childNode(),
+      previousNode: () => shortcutRef.current?.previousNode(),
+      nextNode: () => shortcutRef.current?.nextNode(),
+      previousAgent: () => shortcutRef.current?.previousAgent(),
     }))
     const canvas = (ids: string[]) => <OrgCanvas tree={tree(ids)} op={() => Promise.resolve({} as never)}
       slug={SLUG} toast={noop} mailEvt={null} canvasShortcuts={shortcutRef} />
@@ -140,8 +145,10 @@ function uiTest(name: string, body: (host: HTMLElement, viewport: HTMLElement,
     await body(v.el, v.el.querySelector('.viewport') as HTMLElement,
       async (ids) => { await v.render(canvas(ids)); await flush(); await advance(1600) },
       async (key) => {
+        if (key !== 'F7') (document.activeElement as HTMLElement | null)?.blur?.()
         await inAct(() => { window.dispatchEvent(new KeyboardEvent('keydown', {
           key, shiftKey: true, bubbles: true, cancelable: true,
+          altKey: key !== 'F7', code: key === 'S' ? 'KeyS' : '',
         })) })
         await flush(); await advance(1600)
       })
@@ -173,16 +180,16 @@ uiTest('"Fit the whole org" lands exactly where the fit button does', async (hos
   assert.ok(same(cam(host), viaMenu), `button ${show(cam(host))} vs menu ${show(viaMenu)}`)
 })
 
-uiTest('Shift+F6 uses the same whole-org fit action as the existing HUD button', async (host, _viewport, _render, shortcut) => {
+uiTest('Shift+Alt+Space uses the same whole-org fit action as the existing HUD button', async (host, _viewport, _render, shortcut) => {
   const zin = hud(host, 'zoom in')
   await press(zin); await press(zin)
   const zoomed = cam(host)
-  await shortcut('F6')
+  await shortcut(' ')
   const viaShortcut = cam(host)
-  assert.ok(!same(viaShortcut, zoomed), `positive control: Shift+F6 moved from ${show(zoomed)}`)
+  assert.ok(!same(viaShortcut, zoomed), `positive control: Shift+Alt+Space moved from ${show(zoomed)}`)
   await press(zin); await press(zin)
   await press(hud(host, HUD_FIT))
-  assert.ok(same(cam(host), viaShortcut), 'Shift+F6 and the HUD fit share the same camera action')
+  assert.ok(same(cam(host), viaShortcut), 'Shift+Alt+Space and the HUD fit share the same camera action')
 })
 
 uiTest('"Jump to the switchboard" lands exactly where the eye button does', async (host, viewport) => {
@@ -195,14 +202,46 @@ uiTest('"Jump to the switchboard" lands exactly where the eye button does', asyn
   assert.ok(same(cam(host), viaMenu), `button ${show(cam(host))} vs menu ${show(viaMenu)}`)
 })
 
-uiTest('Shift+F8 uses the same switchboard focus action as the existing HUD button', async (host, _viewport, _render, shortcut) => {
-  await shortcut('F8')
+uiTest('Shift+Alt+S uses the same switchboard focus action as the existing HUD button', async (host, _viewport, _render, shortcut) => {
+  await shortcut('S')
   const viaShortcut = cam(host)
-  assert.ok(host.querySelector('.eye-desk'), 'Shift+F8 opened the switchboard')
+  assert.ok(host.querySelector('.eye-desk'), 'Shift+Alt+S opened the switchboard')
   await press(hud(host, HUD_FIT))
   assert.ok(!same(cam(host), viaShortcut), 'positive control: fit moved away from the switchboard')
   await press(hud(host, HUD_SWITCHBOARD))
-  assert.ok(same(cam(host), viaShortcut), 'Shift+F8 and the HUD eye share the same camera action')
+  assert.ok(same(cam(host), viaShortcut), 'Shift+Alt+S and the HUD eye share the same camera action')
+})
+
+uiTest('actual canvas arrow routing wraps and earlier-agent history walks back without toggling', async (host, _viewport, _render, shortcut) => {
+  await clickCard(cardOf(host, 'ceo'))
+  await shortcut('ArrowRight')
+  assert.equal(openDesk(host), 'cto')
+  await shortcut('ArrowRight')
+  assert.equal(openDesk(host), 'cfo')
+  await shortcut('Backspace')
+  assert.equal(openDesk(host), 'cto')
+  await shortcut('Backspace')
+  assert.equal(openDesk(host), 'ceo')
+  await shortcut('ArrowLeft')
+  assert.equal(openDesk(host), 'cfo', 'left from the first wraps to the last')
+  await shortcut('ArrowRight')
+  assert.equal(openDesk(host), 'ceo', 'right from the last wraps to the first')
+  await shortcut('ArrowUp')
+  assert.ok(host.querySelector('.eye-desk'), 'top-level Up focuses the switchboard')
+  await shortcut('ArrowDown')
+  assert.equal(openDesk(host), 'cto', 'Down selects the centre direct child')
+})
+
+uiTest('keyboard focus in a pinned desk changes the org navigation origin', async (host, _viewport, _render, shortcut) => {
+  await clickCard(cardOf(host, 'cfo'))
+  assert.equal(openDesk(host), 'cfo', 'positive control: the canvas starts elsewhere')
+  await inAct(() => { addPin(SLUG, 'cto', { x: 30, y: 30, w: 420, h: 420 }) })
+  await flush(); await advance(600)
+  const button = document.querySelector<HTMLButtonElement>('.pinwin .cc-tabs button')
+  assert.ok(button, 'the pinned cto desk has a tab strip')
+  await inAct(() => button!.focus())
+  await shortcut('ArrowLeft')
+  assert.equal(openDesk(host), 'ceo', 'left is relative to focused cto, not the previous canvas destination')
 })
 
 uiTest('switchboard card Focus uses the same camera move as the HUD switchboard action', async host => {
@@ -246,7 +285,7 @@ uiTest('Shift+F7 focuses the last live desk using the same camera action as its 
   assert.ok(same(cam(host), atCto), `Shift+F7 camera ${show(cam(host))} vs last desk ${show(atCto)}`)
 })
 
-uiTest('Shift+F6/F7/F8 leave the camera alone while an org modal surface is open', async (host, _viewport, _render, shortcut) => {
+uiTest('org fit/switchboard and last-desk keys leave the camera alone while an org modal surface is open', async (host, _viewport, _render, shortcut) => {
   await clickCard(cardOf(host, 'cto'))
   const key = pinSurfaceKey(SLUG, 'shortcut-guard', true)
   const modal = document.createElement('div')
@@ -259,7 +298,7 @@ uiTest('Shift+F6/F7/F8 leave the camera alone while an org modal surface is open
     assert.ok(readPinSurfaces().some(surface => surface.key === key && surface.org === SLUG && surface.modal), 'modal surface is registered')
     await advance(2000)
     const before = cam(host)
-    for (const functionKey of ['F6', 'F7', 'F8']) {
+    for (const functionKey of [' ', 'F7', 'S']) {
       await shortcut(functionKey)
       assert.ok(same(cam(host), before), `Shift+${functionKey} moved the camera under a modal`)
     }

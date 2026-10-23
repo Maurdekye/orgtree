@@ -266,14 +266,14 @@ function BatchAsk({ ask, slug, toast, seat, committed, maxTop, segments,
     if (isSubmitKey(e)) {
       e.preventDefault()
       if (ready && !busy) submit(null)
-    } else if (e.altKey && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')
+    } else if (e.altKey && !e.shiftKey && !e.ctrlKey && !e.metaKey && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')
         && tabs.length > 1 && !busy) {
       // alt+←/→ walks the tab strip, wrapping (preventDefault: the bare
       // combo is browser history navigation)
       e.preventDefault()
       setTab((cur + (e.key === 'ArrowRight' ? 1 : -1) + tabs.length)
         % tabs.length)
-    } else if (e.altKey && (e.key === 'ArrowUp' || e.key === 'ArrowDown')
+    } else if (e.altKey && !e.shiftKey && !e.ctrlKey && !e.metaKey && (e.key === 'ArrowUp' || e.key === 'ArrowDown')
         && t.kind === 'credits' && !busy) {
       // alt+↑/↓ steps the staged offer — same clamps as the mobile stepper
       e.preventDefault()
@@ -612,7 +612,7 @@ function QuestionAsk({ ask, slug, toast }: {
     if (isSubmitKey(e)) {
       e.preventDefault()
       if (ready && !busy) submit()
-    } else if (e.altKey && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')
+    } else if (e.altKey && !e.shiftKey && !e.ctrlKey && !e.metaKey && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')
         && batch && !busy) {
       // alt+←/→ walks the tab strip, wrapping (preventDefault: the bare
       // combo is browser history navigation)
@@ -743,7 +743,7 @@ function CreditAsk({ ask, slug, toast, seat, committed, maxTop, segments,
     if (isSubmitKey(e)) {
       e.preventDefault()
       if (!busy) decide('approve', gRef.current)
-    } else if (e.altKey && (e.key === 'ArrowUp' || e.key === 'ArrowDown')
+    } else if (e.altKey && !e.shiftKey && !e.ctrlKey && !e.metaKey && (e.key === 'ArrowUp' || e.key === 'ArrowDown')
         && !busy) {
       e.preventDefault()
       step(e.key === 'ArrowUp' ? 1 : -1)

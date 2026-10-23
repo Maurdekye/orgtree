@@ -291,6 +291,13 @@ levels. Complete traversal retains scope clamps, org boundaries and gallery
 paging; cycles refuse authority or terminate without duplicates. See
 [ancestor reads](ancestor-chain.md#presentation-delivery-and-gallery-depth-2026-10-23).
 
+Organization navigation (USER 2026-10-23, 4.4.4): Shift+Alt arrows traverse visible
+canvas placement, including project stops and wrapping siblings; Space fits the
+org, Backspace walks earlier agents, physical S opens the switchboard. Alt+Left/
+Right cycles displayed desk tabs with wrapping; question cards keep their own
+bindings. Shift+F6/F8 removed; Shift+F7 retained. Editor/widget/IME/overlay/gesture
+ownership and Windows interception are documented in the [keyboard glossary](../skills/orgtree-app/app-settings/app-keyboard-shortcuts/SKILL.md).
+
 Project draft settings (USER 2026-10-23, 4.4.4): the draft gear stages project
 policy before creation. Create applies it atomically; the agent project-create
 tool accepts the same policy in settings. See [project nodes](PROJECT-NODES.md).

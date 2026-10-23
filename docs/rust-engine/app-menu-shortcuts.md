@@ -40,10 +40,14 @@ User requests on 2026-10-14, docket
   or the mouse arming delay, whether locally armed or already persistently
   halted. A synchronous busy guard admits only one in-flight request. Mouse
   Halt all retains its 500 ms arming delay and all existing response handling.
-- Shift+F6 fits the whole org, Shift+F7 focuses the last live agent desk, and
-  Shift+F8 focuses the switchboard. They call the same canvas camera actions as
-  the empty-canvas menu and HUD controls; all three are no-ops while a modal
-  surface for that org is open.
+- Shift+F7 focuses the last live agent desk. Shift+Alt+Space fits the org and
+  Shift+Alt+S focuses the switchboard; Shift+F6/F8 are unbound (user 2026-10-23).
+  Shift+Alt arrows traverse visible placement with project stops and wrapping
+  siblings; Backspace walks bounded per-org earlier-agent history. These routes
+  reuse the canvas focus actions and defer to modals; the new chords also defer
+  to editors, widgets, composition and pointer gestures. The physical S key works
+  across layouts. Alt+Left/Right cycles displayed desk tabs except in question
+  cards. See the [keyboard glossary](../skills/orgtree-app/app-settings/app-keyboard-shortcuts/SKILL.md).
 - The local latch closes after five seconds instead of six. Mouse or F10
   arming starts that timer; a press at 4.9 seconds still works. Unmount and
   re-latching cancel its timers.

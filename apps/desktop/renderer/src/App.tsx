@@ -1471,6 +1471,11 @@ export default function App() {
       fitOrg: () => canvasShortcuts.current?.fitOrg(),
       lastDesk: () => canvasShortcuts.current?.lastDesk(),
       switchboard: () => canvasShortcuts.current?.switchboard(),
+      parentNode: () => canvasShortcuts.current?.parentNode(),
+      childNode: () => canvasShortcuts.current?.childNode(),
+      previousNode: () => canvasShortcuts.current?.previousNode(),
+      nextNode: () => canvasShortcuts.current?.nextNode(),
+      previousAgent: () => canvasShortcuts.current?.previousAgent(),
     } : {}),
   })
   // The freshness of the tree Attention reads its question rows out of. Owned

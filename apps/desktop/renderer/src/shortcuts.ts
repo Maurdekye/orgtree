@@ -17,7 +17,7 @@
 // apps/desktop.
 
 import type { EnterKeyBehavior } from './composerkeys'
-import { APP_FKEYS } from './shell/appshortcuts'
+import { APP_FKEYS, ORG_NAV_KEYS } from './shell/appshortcuts'
 
 export interface Shortcut {
   /** alternatives; each is one combo, e.g. 'Alt+ArrowUp' */
@@ -66,6 +66,17 @@ export function shortcutGroups(enter: EnterKeyBehavior = 'send'): ShortcutGroup[
     // shell/appshortcuts.ts); its matcher reads the same table
     { title: 'Function keys', items: APP_FKEYS.map(({ keys, action }) =>
       ({ keys, action, sources: [R('shell/appshortcuts.ts')] })) },
+    { title: 'Organization navigation', items: ORG_NAV_KEYS.map(({ keys, action, id }) =>
+      ({ keys, action, sources: [R('shell/appshortcuts.ts')],
+        note: id === 'switchboard' ? 'Physical S key, including Hebrew layouts.'
+          : id === 'fitOrg' ? 'Windows may reserve Alt+Shift / Alt+Space. No OS setting is changed.'
+          : id === 'previousAgent' ? 'Session history per org, up to 256 visits; skips unavailable agents.'
+          : 'Projects are stops. Outside editors, dropdowns, sliders, IME composition, dialogs and menus.' })) },
+    { title: 'Desk tabs', items: [
+      { keys: ['Alt+ArrowLeft', 'Alt+ArrowRight'], action: 'Previous or next displayed desk tab, wrapping',
+        note: 'agent and project desks; question cards keep their own Alt arrows; outside editors and widgets',
+        sources: [R('canvas/deskshell.tsx')] },
+    ] },
     { title: 'Writing a message', items: [
       enter === 'send'
         ? { keys: ['Enter', 'Mod+Enter'], action: 'Send', sources: [composer] }
@@ -85,7 +96,7 @@ export function shortcutGroups(enter: EnterKeyBehavior = 'send'): ShortcutGroup[
         note: 'in the list @ opens', sources: [R('canvas/agentmentions.tsx')] },
       { keys: ['Escape'], action: 'Close the mention list', sources: [R('canvas/agentmentions.tsx')] },
       { keys: ['Escape'], action: 'Cancel the reply you are preparing',
-        sources: [R('canvas/desk.tsx'), R('canvas/projectdesk.tsx')] },
+        sources: [R('canvas/desk.tsx'), R('canvas/projectdesk.tsx'), R('canvas/mail.tsx'), R('QuickChatBox.tsx')] },
     ] },
     { title: 'Project desk', items: [
       { keys: ['Enter'], action: "Fire the project's event", note: 'in the events tab message box',

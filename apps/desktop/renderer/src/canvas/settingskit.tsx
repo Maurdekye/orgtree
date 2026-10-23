@@ -68,6 +68,7 @@ export function SettingsTabs<T extends string>({
           className={'app-settings-tab' + (tab === item.id ? ' on' : '')}
           onClick={() => setTab(item.id)}
           onKeyDown={(e) => {
+            if (e.altKey || e.ctrlKey || e.metaKey || e.nativeEvent.isComposing) return
             if (e.key === 'ArrowRight' || e.key === 'ArrowDown') {
               e.preventDefault(); move(index, 1)
             } else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') {

@@ -1981,6 +1981,16 @@ are excluded. The desktop megaphone and agent tool use the same rule. This refin
 full-subtree description, without a depth cutoff. Ordinary per-recipient admission,
 attachments, replies, urgency and audience grants remain unchanged. Sources:
 m7214fddbec4a, m24d383f0fe1b, mcc739e71d42b. See [project nodes](PROJECT-NODES.md#placement-and-runtime-capabilities).
+**Organization navigation, USER 2026-10-23 13:05:12Z (4.4.4), m0d10d980821a:**
+Shift+Alt arrows use visible physical placement (projects are stops), wrapping
+siblings and the centre direct child. Space fits the org, Backspace walks earlier
+agents per org, and physical S opens the switchboard. Remove Shift+F6/F8, retain
+Shift+F7. Alt+Left/Right cycles actual displayed desk tabs with wrapping, while
+question cards retain question switching. New shortcuts yield to editors,
+dropdowns/sliders, composition, overlays and gestures; older Alt arrows require
+exact modifiers. Document possible Windows interception without changing OS
+settings. Navigation adds no agent authority. See [keyboard shortcuts](../skills/orgtree-app/app-settings/app-keyboard-shortcuts/SKILL.md).
+
 **Project draft settings, USER 2026-10-23 12:23:16Z (4.4.4), mebf45caf5e69:**
 Project drafts gain a gear to preconfigure relevant project settings, like agent
 hire drafts. Save stages policy locally; Create applies it in the same transaction

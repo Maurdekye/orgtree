@@ -27,6 +27,7 @@ import { moveDeskMemory } from './desktabs'
 import { treePresence, sweepAbsentDrafts, sweepAbsentPreferences } from '../treepresence'
 import { treeSelections } from '../treeselection'
 import { buttonAgentOf, onButtonAgent, setButtonAgent } from '../buttoncolours'
+import { agentFocusHistory, orgNavigationTarget, type OrgDirection } from './keyboardnavigation'
 import { retiredFronts, savedTreeSelection } from './treeselection'
 import type { TreeBrowse } from '../treeview'
 import { DeskHosts, revealExistingDesk, useDeskActionsNow } from './deskhosts'
@@ -1365,6 +1366,19 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
   const fitGeometry = useRef<{ slug: string; canvas: string; whole: string } | null>(null)
   const animBusyRef = useRef(false)  // a camera animation owns the view
   const focusRef = useRef<string | null>(null)   // №25: the desk the camera rides with
+  const keyboardDestination = useRef<string | null>(null)
+  useEffect(() => {
+    keyboardDestination.current = null
+    const clear = () => { keyboardDestination.current = null }
+    document.addEventListener('pointerdown', clear, true)
+    document.addEventListener('focusin', clear, true)
+    document.addEventListener('wheel', clear, true)
+    return () => {
+      document.removeEventListener('pointerdown', clear, true)
+      document.removeEventListener('focusin', clear, true)
+      document.removeEventListener('wheel', clear, true)
+    }
+  }, [slug])
   const followRef = useRef<{ id: string; x: number; y: number } | null>(null)
   // an in-flight background pan. sx/sy is where the finger went down and ox/oy
   // the camera at that moment; the pan then writes the camera ABSOLUTELY, as
@@ -2275,6 +2289,10 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
    *  jump stays generic and keeps preferring the open window. */
   const centerOn = useCallback((id: string, zoom: number | null = null,
     canvas = false) => {
+    keyboardDestination.current = id
+    const destination = mapRef.current.get(id)
+    if (destination?.tier && destination.kind !== 'project' && !destination.isBearerOf
+        && destination.state !== 'draft') agentFocusHistory(slug).record(id)
     // ⚠ ONLY A NUMBER IS A ZOOM, AND ONLY `true` MEANS THE CANVAS. An agent
     // link calls its handler as `onFocus(id, event)` (pins.tsx tells a pointer
     // from a keyboard activation), and a surface that hands centerOn over
@@ -2377,7 +2395,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
     // the focus STICKS: claim the camera back from `animateTo`, as `fitAll`
     // does for the whole org. After the glide starts, never before.
     camIntent.current = { kind: 'focus', id, z, onCanvas }
-  }, [animateTo, focusView, regionOf, setFront, toast, revealProjectDesk])
+  }, [animateTo, focusView, regionOf, setFront, toast, revealProjectDesk, slug])
 
   /** the pinned window's "Show on canvas": navigate the CANVAS to the agent
    *  and leave the window open (user bug 2026-09-11 - it used to raise the
@@ -3405,7 +3423,17 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
   const [lastDesk, setLastDesk] = useState<string | null>(null)
   useEffect(() => {
     setLastDesk(null)
-    const read = () => { const id = buttonAgentOf(slug); if (id) setLastDesk(id) }
+    const read = () => {
+      const id = buttonAgentOf(slug)
+      if (!id) return
+      setLastDesk(id)
+      // A glide may pass another desk before reaching its destination.
+      if (keyboardDestination.current && camIntent.current?.kind === 'focus'
+          && id !== keyboardDestination.current) return
+      const node = mapRef.current.get(id)
+      if (node?.tier && node.kind !== 'project' && !node.isBearerOf && node.state !== 'draft')
+        agentFocusHistory(slug).record(id)
+    }
     read()
     return onButtonAgent(read)
   }, [slug])
@@ -3426,17 +3454,36 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
     // a dialog. Only a live modal dialog or menu should suspend canvas moves.
     const allowed = () => !document.querySelector(
       '[aria-modal="true"], [role="dialog"]:not(.modalpin-win), [role="menu"]')
+    const navigate = (direction: OrgDirection) => () => {
+      if (!allowed()) return
+      const current = keyboardDestination.current ?? buttonAgentOf(slug) ?? focusRef.current
+      const next = orgNavigationTarget(direction, current, map, target, hidden, chartLayout === 'circular')
+      if (next && next !== current) centerOn(next)
+    }
     const actions = {
-      fitOrg: () => { if (allowed()) fitAll() },
+      fitOrg: () => { if (allowed()) { keyboardDestination.current = ''; fitAll() } },
       lastDesk: () => {
         const last = lastDesk ? map.get(lastDesk) : undefined
         if (allowed() && last && last.state !== 'archived') centerOn(lastDesk!)
       },
       switchboard: () => { if (allowed()) centerOn(USER) },
+      parentNode: navigate('up'),
+      childNode: navigate('down'),
+      previousNode: navigate('previous'),
+      nextNode: navigate('next'),
+      previousAgent: () => {
+        if (!allowed()) return
+        const current = keyboardDestination.current ?? buttonAgentOf(slug) ?? focusRef.current
+        const previous = agentFocusHistory(slug).back(current, id => {
+          const node = map.get(id)
+          return !!node?.tier && node.kind !== 'project' && !node.isBearerOf && node.state !== 'draft'
+        })
+        if (previous) centerOn(previous)
+      },
     }
     canvasShortcuts.current = actions
     return () => { if (canvasShortcuts.current === actions) canvasShortcuts.current = null }
-  }, [canvasShortcuts, fitAll, centerOn, lastDesk, map, slug])
+  }, [canvasShortcuts, fitAll, centerOn, lastDesk, map, target, hidden, chartLayout, slug])
   // empty background only: the viewport itself or the world plane under the
   // cards. Cards, desks, pins and the HUD are other elements and keep their
   // own menus (or the browser's); the dot grid and the wire layers are

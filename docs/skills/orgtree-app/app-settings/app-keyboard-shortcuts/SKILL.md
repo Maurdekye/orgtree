@@ -28,9 +28,32 @@ The Keyboard shortcuts settings tab is a reference, not a key-rebinding editor. 
 | Shift+F1 | Open a new Homepage window. |
 | Shift+F2 | Toggle the app menu focused on Open organization. |
 | Shift+F3 | Open the create-organization window. |
-| Shift+F6 | Fit the whole org in view. |
 | Shift+F7 | Focus the last live agent desk and bring it into view. |
-| Shift+F8 | Focus the switchboard. |
+
+## Organization navigation
+
+In the main org window, use these outside text fields, code editors, dropdowns,
+sliders and IME composition. Open dialogs, menus and pointer gestures keep their
+keys. Separate presses act once; holding a key does not repeat navigation.
+
+| Key | Action |
+| --- | --- |
+| Shift+Alt+Up | Visible canvas parent; from a top-level node, the switchboard. |
+| Shift+Alt+Down | Centre-most visible direct child; an even tie uses the earlier child in canvas order. |
+| Shift+Alt+Left / Right | Previous/next visible sibling in canvas order, wrapping. Projects are stops. |
+| Shift+Alt+Space | Fit the whole org in view. |
+| Shift+Alt+Backspace | Walk back through earlier focused agents, one at a time, per org. |
+| Shift+Alt+S | Focus the switchboard, using the physical S key even on a Hebrew or other non-Latin layout. |
+
+No available target leaves the view unchanged. Navigation uses the existing
+desk destination: pinned/detached desks are revealed; Attention selects its desk.
+History lasts for this window's session, retains up to 256 agent visits, skips
+agents no longer in the loaded tree, and is preserved by project/switchboard/fit
+visits. Shift+F6 and Shift+F8 are unbound; Shift+F7 remains the last-desk shortcut.
+
+Windows may intercept Alt+Shift for input-language switching or Alt+Space for the
+system menu before the app receives the chord. Orgtree changes no OS bindings.
+On macOS, Option-arrow selection/word movement and deletion remain with editors.
 
 ## Focus-dependent bindings
 
@@ -40,13 +63,14 @@ The Keyboard shortcuts settings tab is a reference, not a key-rebinding editor. 
 | Message composer, Enter set to Send | Enter or Mod+Enter sends; Shift+Enter inserts a newline. |
 | Message composer, Enter set to Newline | Mod+Enter sends; Enter inserts a newline. |
 | Desk composer | Up/Down recalls previous/next sent messages when the caret is on the first/last line. Alt+N toggles sending as a passive notice. Esc cancels the reply being prepared. |
+| Agent or project desk | Alt+Left/Right cycles the displayed tabs with wrapping, including conditional project tabs. It uses the normal tab action and prevents Chromium back/forward when it acts. Editors/widgets keep their keys; inside a question card, Alt+Left/Right continues to change questions. Works in detached desk documents too. |
 | Inbox | Alt+Up/Down moves to the previous/next message. |
 | Focused Presentations or Docket panel | Alt+Up/Down selects the previous/next eligible item in its rendered order, including desk, modal and detached hosts. Opening gives the list panel focus once, so navigation starts from its auto-selected item without a row click; an already focused child editor keeps focus. Later list polls do not reclaim focus. Folded or filtered rows are skipped; the ends clamp. Editing controls, question cards, consumed chords and unsent/staged reply or answer state keep their event or block switching. |
 | Questions and requests | Mod+Enter submits an answer; Alt+Left/Right changes question; Alt+Up/Down raises/lowers a credit offer. |
 | Docket | Enter opens the top search result; Esc clears the search or closes view options. Letters jump to an agent in the reply-recipient list; Space chooses a recipient. |
 | Canvas | Esc cancels an agent, pin or window drag, or cancels a drafted hire. Holding Shift while dragging places a pinned window without snapping. Enter hires a drafted agent; Shift+Enter adds a charter newline. |
 | Attention | Left/Right switches Canvas/Attention on the view switch. Up/Down/Home/End navigates the queue or agent list. Left/Right/Home/End on the divider resizes the split; Shift uses larger steps. |
-| Quick chat | Single-line input: Enter hires and sends; Shift+Enter does not submit or insert a newline. Up/Down/Enter chooses a superior in its list; Esc closes the picker. This hire composer has its own Enter behavior. |
+| Quick chat | Single-line input: Enter hires and sends; Shift+Enter does not submit or insert a newline. Up/Down/Enter chooses a superior in its list; Esc closes the picker or cancels a prepared reply. This hire composer has its own Enter behavior. |
 | Menus | Up/Down/Home/End moves through items; Right opens a submenu; Left/Esc backs out. Enter runs the item's own action rather than its submenu. Down opens the Orgtree menu button; Esc closes the tray popup. |
 | Logo crop | Arrows move the focused square or corner handle; Shift+Left/Up shrinks and Shift+Right/Down enlarges it. |
 | Settings tabs | Arrows/Home/End changes the active tab. |
@@ -60,6 +84,10 @@ Undo is durable action history and can require confirmation; it is distinct from
 Mention history starts at **4.4.2**, seeded once from a bounded set of still-pending markers at upgrade. It retains the newest **2,000 mentions per org**, including seen entries recorded since then; older handled history is not backfilled. A jump opens the desk, mail or ticket reader and highlights the mention. If a ticket edit removed the original prose, its labelled recorded excerpt remains available. No mentions gives **No @user mentions yet**; past the oldest gives **No older @user mentions**, leaving the current view in place. Holding the key does not step repeatedly.
 
 Shift+F4 is UI navigation. Agents reach source content with `orgtree_read_transcript`, `orgtree_inbox` and `orgtree_work get` within their existing permissions.
+
+Organization and desk-tab shortcuts are also UI navigation, with no new agent
+tool or authority. Agents read the organization using `orgtree_chart` and use
+the existing scoped transcript, inbox, docket and presentation tools for content.
 
 ## See also
 
