@@ -30,6 +30,21 @@ The next-action recipient can be a reviewer for a review item rather than merely
 
 ## What to do as an agent
 
+Scans advance through bounded pages, rather than always inspecting the first
+agents or tickets. Large organizations can take several sweep ticks to complete
+a cycle. New records beyond that cycle's captured boundary wait for the next
+cycle. The blocked-work option tests the entire current unfinished work set;
+an unblocked ticket outside the displayed page still prevents it. Each reminder
+continues to show at most 20 tickets, with the remaining count.
+
+Held queue jobs and slot leases also advance through rotating pages. One due
+checkup processes at most 20 jobs and 20 leases, names the holdings in that page,
+and applies each project's existing timeout/reminder policy. Later due checkups
+continue after it; timeout-disabled holdings cannot pin every checkup to the
+same first page. A page is not a limit on how many resources an agent can hold.
+The holding cursors survive restarts; scan preparation restarts, while durable
+wake stamps still prevent immediate duplicate wakes.
+
 Treat a reminder as a chance to re-read the work and continue or report a real blocker. Keep status accurate: report `done` or `blocked` when appropriate rather than leaving a stale `working` status that continues to earn checkups. For a specific event, use a [watchdog](../../watchdogs/tool-watchdog/SKILL.md) rather than counting on a generic checkup. A blocked item still needs a concrete route by which the answer reaches its owner.
 
 With working checkups disabled, the runtime can instead use billed disposable Claude prefix reads for eligible working sessions. That cache keeper does not advance the task or enter the prompt/answer in the main session, and it has its own eligibility/cadence limits. Disabling checkups is not a guarantee of no model-related activity or no cost; explain that tradeoff before suggesting the setting.

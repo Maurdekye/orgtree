@@ -21,6 +21,16 @@ Check **App settings > About** for desktop version and engine identity. The engi
 
 Inspect current files/records before repeating a mutation after a timeout or lost response. It may have applied even though the acknowledgment did not arrive.
 
+## Automatic checkups and reminders
+
+Automatic checkups and docket reminders scan agents and unfinished work in
+bounded pages, continuing through large organizations over later sweep ticks.
+A page does not cap the agents or tickets that can receive reminders. A docket
+reminder still displays at most 20 tickets and the omitted count. The optional
+all-blocked reminder checks the entire unfinished, unarchived, non-backlogged
+work set; a later unblocked ticket prevents that fallback. These reminders are
+eligibility-based nudges, rather than exact wall-clock alarms.
+
 ## Stop work at the intended scope
 
 **Stop** interrupts a turn. **Halt** keeps an agent stopped until Unhalt. Neither reverses external effects, and neither retires the seat. For an emergency organization-wide stop, open the guard and press **STOP ALL**, or use Shift+F10. F10 only opens the guard; it does not halt or release an already halted org.

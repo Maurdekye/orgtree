@@ -43,6 +43,14 @@ Start with a batch of one. Larger batches (up to 20) suit small independent task
 
 ### Reclaim and retry deliberately
 
+Timeout checkups rotate through all of an agent's held jobs and leases in
+bounded pages, across projects. One due checkup processes up to 20 jobs and
+20 whole leases; later checkups continue after that page. A holding with its
+timeout disabled stays held and does not prevent later holdings from being
+checked. These page sizes are processing bounds, not holding limits, and are
+separate from a mail listener's batch size. Reclaim remains subject to each
+project's configured reminder budget and current custody.
+
 Project **Acknowledgement** settings include Ack timeout, Ack reminders, Max attempts and the mail-only turn-end reminder. With Runtime working checkups and timeout on, an inactive agent gets the configured reminder budget, then its job can return to the queue. These are eligibility-based checkups, not precise wall-clock deadlines. A turn-end reminder is a separate nudge after a consumed job and ordinary successful turn; it does not prove the task finished.
 
 **Take back** reclaims an agent-held job after confirmation and prefers another listener for its next assignment. It tells the former holder to stop that assignment, but does not terminate its process or undo file writes. Coordinate work already in progress before another worker repeats it. Retries are not a promise of exactly-once external effects.

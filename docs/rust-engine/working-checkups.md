@@ -25,6 +25,29 @@ a separate mechanism.
   initialized first. Durable reservation stamps provide restart deduplication
   and failed-admission cooldown. This is not a precise timer.
 
+## Bounded progress (2026-10-23)
+
+Reminder preparation now carries finite ID/slug boundaries and keyset cursors
+between ticks: up to 5,000 reporting rows and 5,000 work rows per preparation
+step, then up to 200 eligible agents per wake step. Recipient resolution still
+uses `docket::next_recipient`, including reviewers and deployers. The accumulator
+retains only 20 displayed rows and an exact count per recipient/category. New
+records beyond the captured boundaries wait for the next finite cycle. The
+sign-in event completes a finite cycle using the same bounded steps and yields
+between them. A stopped organization receives no wakes.
+
+The all-blocked decision uses whole-set existence probes, with active-only
+indexes from migration 0057; it is never inferred from a prefix of work rows.
+Queue/slot checkups persist separate holder cursors in agent `extra`, rotating
+through at most 20 outstanding jobs and 20 active leases per due wake. Existing
+timeout, reminder-budget, claim-copy/custody, whole-lease and dispatch guards
+remain in the owning domain operations. Timeout-off rows advance the cursor
+without incrementing their reminder count. This bounds per-checkup writes and
+can stretch a full holding rotation across several checkups. Cursors are not
+holding caps or listener batch capacities. Wake stamps and admission rechecks
+remain unchanged. [decided: user, 2026-10-23 audit D8/R5 implementation;
+verified: `runtime/reminders{,/pages}.rs`, `domain/{checkup_pages,projects,slots}.rs`]
+
 ## Diagnosis and revised rule
 
 The overnight investigation read 640 successful sweeps from 05:20–08:53 UTC on

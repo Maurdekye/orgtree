@@ -193,6 +193,13 @@ A ready `once` claim returns its available batch inline without a dog, mail or w
 
 Release with `orgtree_project action=release_slot lease=L` as soon as the work ends ([orgtree-tool-project](../../team/tool-project/SKILL.md)). It frees **all N together**; there is no partial release. Halt, retirement, forced release and idle reclaim likewise end the whole lease, then check the FIFO head. Idle checks count per lease, using the project's configured reminder budget and timeout settings. Leases and waiting quantities survive restarts; old dogs and leases mean one slot. Tool list, descriptions, the Slots table and held/total headers expose quantities. A grant remains a cooperative agreement: it does not throttle processes, reserve RAM or grant folder access.
 
+Queue and slot timeout checkups rotate through bounded pages across all held
+records, including across projects. A due checkup processes at most 20 held
+jobs and 20 whole leases; later checkups continue the rotation. Records with
+timeout off remain held without preventing later records from being checked.
+This is separate from one queue listener's batch size, and introduces no
+holding limit. See [checkups and reminders](../../runtime/checkups-and-reminders/SKILL.md).
+
 ### project_listener
 
 Recovery only processes active organizations that are open in the engine.
