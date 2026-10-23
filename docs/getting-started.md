@@ -1,72 +1,89 @@
 # Getting started
 
-[Project overview](../README.md) · [Getting started](getting-started.md) · [Collaboration](collaborating.md) · [Operation and privacy](operating-orgtree.md) · [Development](development.md)
+[Documentation](../README.md#documentation) · [Next: Workspace](workspace.md)
 
-## Install
+## After the tour
+
+**Orgtree School 1: Introduction** shows how to hire a team, give it a goal and watch it work. These guides are the next step: use the same canvas, hire tokens, desks, Mail, Docket and Presented tabs on a real task of your own. You do not need to configure a large organization to begin.
+
+**Orgtree School 1: Introduction:** the video link will be added here after publication.
+<!-- Tutorial video URL placeholder: replace this sentence with the published link and chapter links when available. -->
+
+If you already followed the tour's **Set up your harnesses**, **Create your first organization**, **Hire your first agent** and **Talk to your agent** chapters, keep your working organization and continue with [Workspace](workspace.md). Return to this page when installing on another computer or starting a fresh team. Later guides go deeper into the larger-organization scenes, then introduce settings, model routes, outside connections and automation.
+
+| Word | What it means |
+| --- | --- |
+| Harness | A coding application, such as Claude Code or Codex, that combines a model with tools. |
+| Agent | A persistent member of your Orgtree organization, running through a harness, with its own conversation, mailbox and working folder. |
+| Organization | Your workspace for a team, its instructions, work items, mail and documents. |
+| Charter | An agent's standing job description. Your message supplies its current task. |
+| Desk | The place to talk to an agent and inspect its work. |
+| Credits | Capacity for seats and delegated teams, separate from model-provider charges. |
+
+<a id="install"></a>
+
+## Install Orgtree
 
 The published installer is for **64-bit Windows**. Windows builds are unsigned; macOS and Linux builds remain prototypes.
 
 1. Open the [latest release](https://github.com/Maurdekye/orgtree/releases/latest).
-2. Download the **`Orgtree-Setup-<version>.exe`** asset and run it. You do not need GitHub's source-code ZIP to install the app.
-3. Launch **Orgtree** from the Start menu and follow the welcome screen.
+2. Download **`Orgtree-Setup-<version>.exe`** and run it. GitHub's source-code ZIP is for source, not installation.
+3. Open **Orgtree** from the Start menu. The first-run card lets you choose a theme and startup behavior, then create an organization.
 
-The installer includes the desktop app, its local engine and the PostgreSQL database it uses. You do **not** need to install Node.js, Rust or PostgreSQL to use the packaged app. Installing a newer build over an existing one keeps your data. Provider applications and their accounts are set up separately.
+The installer includes the desktop app, local engine and PostgreSQL database. You do not need to install Node.js, Rust or PostgreSQL to use the packaged app. A newer installation keeps your organization data. Model access and provider applications are set up separately.
 
-### Set up a provider
+<a id="set-up-a-provider"></a>
 
-Open **App settings > Providers** to discover installed providers and use their setup or sign-in controls. You only need the providers you intend to use.
+## Connect one provider
 
-| Provider | Account / setup |
-| --- | --- |
-| Claude Code | Install and sign into [Claude Code](https://code.claude.com/docs/en/setup). |
-| Codex | Install and sign into the [Codex CLI](https://developers.openai.com/codex/cli). |
-| Antigravity | Install and sign into [Antigravity](https://antigravity.google/download). |
-| Muse Code | Install and sign into [Muse Code](https://dev.meta.ai/docs/muse-code#install). |
-| OpenRouter | Configure your OpenRouter API key and choose the models you want offered. |
-| Language model servers | Connect a model server on your machine or network, using an installed Claude Code, Codex or OpenCode harness. See [setup below](#language-servers). |
+Install and sign into one supported harness using its own setup instructions. For example, use [Claude Code](https://code.claude.com/docs/en/setup) or the [Codex CLI](https://developers.openai.com/codex/cli). You only need the provider you intend to use now.
 
-For providers with secondary-account support, use the add-account button in that provider's header. Create a managed profile, or import an existing profile where that provider supports it, then use the account row to manage it or sign in again. Muse supports managed profiles and API keys, but not profile-folder import. Account usage belongs in the dedicated **Usage** window, opened from the **Orgtree** menu.
-
-Orgtree does not include model access. Your provider's subscription, API charges and usage limits still apply. Availability depends on the provider, installed tools and signed-in account.
+Open **Orgtree menu > App settings > Providers** and check its installed and sign-in state. **Harnesses** lists installed tools, versions and installation links. A default Codex login is performed with Codex's own login command; a **Sign in** button on a separately added account is a different setup route. A provider refresh is not a substitute for completing its sign-in.
 
 <a id="language-servers"></a>
 
-### Language model servers
+Orgtree does not include model access. Your subscription, API charges and provider limits still apply. If you need another provider, managed account, OpenRouter or a model server, use [Providers, models and tools](providers-and-tools.md) after the first task works.
 
-The **Language model servers** provider runs agents on models you serve yourself with Ollama, LM Studio, llama.cpp, vLLM or a compatible server. Claude Code, Codex or OpenCode supplies the agent harness; the configured server supplies inference. Install the harness on the Orgtree machine, and start the model server separately. Choose a model that supports tool calls and has enough memory and context for coding tasks.
+<a id="your-first-organization"></a>
 
-The setup section is available in **App settings > Providers** before you add a server. Servers are registered through **Add server**; Orgtree does not scan your network for them. Configured, enabled servers contribute the models you offer to the hiring menus. The harness dropdown detects installed CLIs and explains unavailable choices.
+## Create your first organization
 
-1. **Start your model server.** Download or load the model using that server's own controls, and enable its HTTP API. Use the address reachable from the machine running Orgtree.
-2. **Open App settings > Providers > Language model servers > Add server.** Choose a server preset, enter its **Address**, and select an available **Harness**. Presets supply the API path; enter the server's base address, such as `http://127.0.0.1:11434`.
-3. **Find and offer models.** Click **Find models**, select the models to offer, and set each model's context window to match the server. One discovered model is selected automatically; several open the model browser. You can also add the server first and offer models later.
-4. **Set capacity and save.** **Agents at once** limits concurrent turns on this server; excess turns wait. It defaults to **1** and accepts **1–64**. **Seat price** is the Orgtree capacity credit cost per agent, default **1**, independently of hosting costs. Give the server an optional **Name**, then click **Add server**.
-5. **Allow it in your organization.** Keep the provider and individual server enabled in App settings, and check that server under the org's **Settings > Accounts**. Choose one of its offered models when hiring an agent.
+On the welcome card, enter an **Organization name** and keep **Starting layout: Empty** to build the team yourself. Click **Create organization**. You can also create another organization later through the **Orgtree** menu.
 
-| Preset | Initial address in Orgtree | Setup notes |
-| --- | --- | --- |
-| [Ollama](https://docs.ollama.com/integrations/claude-code) | `http://127.0.0.1:11434` | Use 0.14 or later. Configure the model's actual context window before offering it. |
-| [LM Studio](https://lmstudio.ai/docs/developer/core/server) | `http://127.0.0.1:1234` | Use 0.4.1 or later; start the API server in its Developer tab. Set context when loading the model. |
-| [llama.cpp](https://github.com/ggml-org/llama.cpp/blob/master/tools/server/README.md) | `http://127.0.0.1:9931` | Use the port your `llama-server` actually listens on; older builds use 8080. Orgtree's Codex integration was tested with b11540; older Responses implementations may be incompatible. |
-| [vLLM](https://docs.vllm.ai/en/latest/serving/integrations/claude_code/) | `http://127.0.0.1:8000` | Enable tool calling for your model. With Claude Code, use a served model name without `/`. Some reasoning models are incompatible with Codex's returned reasoning items. |
-| Custom… | Your HTTP or HTTPS address | Select Anthropic-compatible **Messages** for Claude Code, OpenAI-compatible **Responses** for Codex, or **Chat Completions** for OpenCode. The server must implement the protocol for the harness you select. |
+The new canvas starts with the **YOU** eye card. The first-use guide points at the actual hire and message controls. If you choose a starting layout that already hires agents, it begins with the first-message step instead. A layout is optional.
 
-For **Custom…**, set **Base path** if needed: it is appended to Address. For a typical Codex endpoint, use Address `https://models.example.net` and Base path `v1`; Codex appends `/responses`. Claude Code appends `/v1/messages` to its configured base; OpenCode uses `/chat/completions` below its configured API base. Enter an **API key** only if your server requires one. If discovery is unavailable, enter exact **Model ids**, separated by spaces or commas, and their **Context size**. A server keeps the harness it was created with; to use multiple harnesses against one address, add a separate entry for each.
+## Hire one agent
 
-**Match the real context window.** Orgtree flags windows below **65,536 tokens**: its agent instructions and tool definitions need substantial space. Changing the number in Orgtree does not enlarge the server's window. Ollama can otherwise run a model with only 4K context and truncate longer prompts. Set its `num_ctx` or `OLLAMA_CONTEXT_LENGTH` to at least `65536`, or use **Create a 64K version of this model** when offered. That action adds a model entry with the same weights and its own context setting; it does not download new weights. Check the displayed window mismatch before hiring.
+1. Hover the **YOU** card to show hire tokens, grouped by provider. Each token represents a model you can currently use.
+2. Click a token. The dashed **uninitialized** draft is a proposal, not an agent already running.
+3. Give the agent a name. Optionally select a charter preset or write a short role, such as “Investigate this repository and explain its structure.”
+4. Open the permission gear and choose the folders and tools needed for this task. Apply those draft choices, then click **Hire**.
 
-To change a saved server's address, key, capacity or other settings, use its **edit** button, then **Save**; **Cancel** discards the draft. Model chips offer or withdraw models immediately, and **more** opens the larger browser. Withdrawing a model stops new hires on it while existing agents keep running. Turning a server off makes its agents wait; removing it leaves those agents needing a switch to another tier. Org account switches restrict only that org, and cannot turn on a server disabled app-wide. Language model server agents keep their server rather than automatically moving to another one.
+The new card takes the draft's place and its desk opens. Seat prices use organizational credits; they are not dollar prices or token balances. Disabled choices explain their current restriction. If a hire is refused, read the reason and correct the saved draft rather than repeatedly clicking Hire.
 
-If setup fails, use the server card's **refresh** button to check its answer and reported windows. Check the address, actual listening port and API style; **401/403** indicates an API-key problem. An unavailable harness needs its CLI installed on the Orgtree machine. If a model is absent from hiring, check that it is offered, that both app switches are on, and that the org allows the server. A successful model-list query establishes discovery; try one small agent task to check the model's tool-call behavior. For slow Ollama model loading, its preset notes describe `OLLAMA_LOAD_TIMEOUT=30m` and checking the GPU backend in Ollama's own log.
+Start with access to the material needed. Harnesses differ in how they enforce folder and command permissions; [Managing agents](managing-agents.md) explains those choices before you give a team broader access.
 
-## Your first organization
+## Give it a first task
 
-1. **Create an organization** from the welcome screen. Give it a name and a capacity budget.
-2. **Hire an agent.** Choose a model and describe its role in its *charter*: the instructions it should keep following across tasks. You can start from a bundled charter preset.
-3. **Give it access to the project.** Select the folders and tools it needs. These settings control what the agent may work with.
-4. **Send a concrete task.** Open the agent and describe the result you want, any constraints, and how you will know it is finished.
-5. **Follow up in the workspace.** Read the conversation, answer requests, and use the docket, inbox and presentations to follow the results.
+Use the desk's **Chat** box. State the result, constraints and how you will judge completion. For example:
 
-Start with one agent and a small task. Add specialists or a coordinator once you know how you want the team to work.
+> Read the project README and source tree. Write a short plan for adding a settings page. Do not change files yet. Explain the main steps and anything you need me to decide.
 
-For shared notes, team connections and phone access, continue with [Collaboration](collaborating.md).
+Attach files or images with the paperclip, or drag them into the composer. Send the message and follow the streamed reply and tool rows. Hiring alone is not a substitute for sending the task.
+
+Read the result, answer any question cards and send a follow-up. Ask for a written plan or presentation when you want something to review away from the live transcript. **Docket** holds work items; **Presented** holds documents. [Messages and work](messages-and-work.md) explains those views and replies.
+
+## Keep going
+
+Use [Workspace](workspace.md) to move around and keep useful panels in view. Then learn to [manage agents](managing-agents.md), including their charters, model, effort, folders and stop controls. Add a coordinator and specialists when the task benefits from them.
+
+**Quick chat** is a shortcut once you know this flow: it hires a **new** agent from one message. It does not send to an existing agent. Keep using an existing desk when continuing that agent's work.
+
+## If the first steps fail
+
+- **No model to hire:** check the provider's installed/sign-in state and the organization's allowed accounts. An installed harness alone does not establish model access or remaining capacity.
+- **Creating or hiring reports a partial result:** inspect the organization or new card before retrying. A later upload or setup error can occur after something was created.
+- **A grant or folder is refused:** read the current capacity or permission reason. Changing a label does not provide more credits or access.
+- **The agent stops:** distinguish a deliberate Halt, a provider-limit freeze and an error before choosing a recovery action. See [Operating and troubleshooting](operating-orgtree.md).
+
+These guides describe published 4.4.1 behavior. Model availability, subscriptions and external applications can change independently of Orgtree.

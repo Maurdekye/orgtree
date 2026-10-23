@@ -1,6 +1,6 @@
 # Development and contributions
 
-[Project overview](../README.md) · [Getting started](getting-started.md) · [Collaboration](collaborating.md) · [Operation and privacy](operating-orgtree.md) · [Development](development.md)
+[Documentation](../README.md#documentation) · [Operating and troubleshooting](operating-orgtree.md) · [Maintenance source map](documentation-map.md)
 
 ## Development
 
