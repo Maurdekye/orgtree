@@ -82,7 +82,7 @@ impl Part {
             || tool != self.tool_id.is_some() || entry != self.entry.is_some()
             || self.tool_id.as_ref().is_some_and(|s| s.is_empty() || s.len() > 200 || s.chars().any(char::is_control))
             || self.entry.is_some_and(|n| n >= 50)
-            || (self.pointer.is_some() || self.role.is_some()) && self.part != "tool.input"
+            || (self.pointer.is_some() || self.role.is_some()) && !matches!(self.part.as_str(),"tool.input"|"tool.result")
             || self.pointer.as_ref().is_some_and(|s| s.len() > 1024 || !s.is_empty() && !s.starts_with('/')
                 || s.chars().any(char::is_control) || s.split('~').skip(1).any(|p| !p.starts_with(['0','1'])))
             || self.role.as_ref().is_some_and(|s| s != "key" && s != "value")

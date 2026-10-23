@@ -71,7 +71,16 @@ pub fn event_part(body: &Value, inputs: &Value, native: &Value, part: &Part, age
                 input_part(&input, part)
             } else {
                 let key = if part.part == "tool.result" { "result" } else { "error" };
-                let value = chip.get(key).ok_or_else(missing)?;
+                let retained = if part.part == "tool.result" { inputs.get(id).and_then(|v|v.get("failed_shell_output")) } else { None };
+                let decoded = retained.and_then(|v|v.get("output_base64")).and_then(Value::as_str).and_then(|encoded| {
+                    use base64::Engine as _;
+                    base64::engine::general_purpose::STANDARD.decode(encoded).ok().and_then(|bytes|String::from_utf8(bytes).ok()).map(Value::String)
+                });
+                let value = decoded.as_ref().or_else(||retained.and_then(|v|v.get("output"))).or_else(||chip.get(key)).ok_or_else(missing)?;
+                if part.pointer.is_some() || part.role.is_some() {
+                    let parsed = if let Some(raw)=value.as_str() { serde_json::from_str(raw).map_err(|_|missing())? } else { value.clone() };
+                    return input_part(&parsed,part);
+                }
                 Ok(match value.as_str() { Some(s) => s.to_owned(), None => serde_json::to_string_pretty(value)? })
             }
         }
@@ -229,6 +238,18 @@ mod tests {
         assert!(!event_part(&body,&inputs,&Value::Null,&raw,"writer",None).unwrap().contains("CANARY"));
         let key=Part::parse(&json!({"part":"tool.input","tool_id":"call","pointer":"/a~1b~0c","role":"key"})).unwrap();
         assert_eq!(input_part(&json!({"a/b~c":"value"}),&key).unwrap(),"a/b~c");
+    }
+    #[test]
+    fn reply_selection_source_retained_shell_output_and_result_pointers() {
+        let body=json!({"tools":[{"id":"call","result":"clipped"}]});
+        let kept=json!({"call":{"failed_shell_output":{"output":"full retained output"}}});
+        let part=Part::parse(&json!({"part":"tool.result","tool_id":"call"})).unwrap();
+        assert_eq!(event_part(&body,&kept,&Value::Null,&part,"writer",None).unwrap(),"full retained output");
+        let body=json!({"tools":[{"id":"call","result":"{\"a/b\":\"same\",\"other\":\"same\"}"}]});
+        let part=Part::parse(&json!({"part":"tool.result","tool_id":"call","pointer":"/a~1b","role":"key"})).unwrap();
+        assert_eq!(event_part(&body,&Value::Null,&Value::Null,&part,"writer",None).unwrap(),"a/b");
+        let clipped=json!({"tools":[{"id":"call","result":"{\"a/b\":\"same"}]});
+        assert!(event_part(&clipped,&Value::Null,&Value::Null,&part,"writer",None).is_err());
     }
     #[test]
     fn reply_selection_source_docket_duplicates_and_field_identity() {
