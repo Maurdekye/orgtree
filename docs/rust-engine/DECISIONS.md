@@ -7,7 +7,7 @@ policy remain physical, per the user's explicit exceptions.
 
 # Orgtree 4 rewrite — the user's standing decisions
 
-**Reply to selection (USER 2026-10-23, 4.4.3):** include mail, settled transcript
+**Reply to selection (USER 2026-10-23, renumbered to 4.4.4):** include mail, settled transcript
 prose/tool input/results/displayed thoughts, Markdown presentations and docket
 fields. Carry verified exact excerpts and nearby context in ordinary replies;
 retain snapshots after edits and relocate only on a unique verified match.
