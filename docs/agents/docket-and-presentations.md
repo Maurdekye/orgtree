@@ -1,5 +1,13 @@
 # Docket and presentations
 
+Continued docket readers pass their own saved/current identity to the paged
+feed's bounded candidate lookup, independently of generic collection memory.
+Org, agent and team scopes keep their ordinary filters and server eligibility;
+an off-page continuation never fetches the intervening history. Polls retain
+that reader's candidate without re-running its initial selection choice.
+[verified: `canvas/useworkitems.ts`, `canvas/{docket,agentdocket}.tsx`,
+`tests/docketcontinuation.test.tsx`; 2026-10-23]
+
 ## Desk reader availability (2026-10-23)
 
 Desk **Docket** and **Presented** tabs hide when neither the node nor its team has anything the tab would list under its default filters. A tab appears or disappears as content changes, but stays visible while you are on it; an empty tab disappears when you leave. Search and sorting do not hide tabs. The Docket check follows the existing list, including recently completed tickets during their one-hour window and attention exceptions. Show archived and Show backlogged include those groups when enabled. Presented starts with hired presenters; Show retired includes retired presenters.

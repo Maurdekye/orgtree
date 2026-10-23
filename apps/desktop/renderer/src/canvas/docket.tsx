@@ -1060,7 +1060,8 @@ export function DocketModal({ slug, toast, close, tree, onFocusAgent,
   const selectionScope=readerScope('work',slug)
   const resume=useReaderResume(slug,'docket')
   const [sel, setSel] = useState<{ slug: string; id: string } | null>(null)
-  const work = useWorkItems(slug, showArchived, showBacklog, 5000, bump, { query, sort: sortMode }, selectionScope)
+  const work = useWorkItems(slug, showArchived, showBacklog, 5000, bump, { query, sort: sortMode }, selectionScope,
+    sel?.slug === slug ? sel.id : resume)
   const data = work.value
   useOpenCommit('docket',slug,!!data && !work.status.loading)
   useOpenCommit('archive',slug,showArchived && !!data?.archived && !work.status.loading)

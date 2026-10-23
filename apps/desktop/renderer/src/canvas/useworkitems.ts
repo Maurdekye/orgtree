@@ -30,7 +30,8 @@ function payload(pages: Pages): WorkItemsPayload {
 }
 
 export function useWorkItems(slug: string, archive = false, backlog = false,
-                            ms = 5000, refreshKey: unknown = 0, options: WorkPageOptions = {}, openingScope?: string) {
+                            ms = 5000, refreshKey: unknown = 0, options: WorkPageOptions = {}, openingScope?: string,
+                            continuedSelection?: string) {
   const scope = JSON.stringify([slug, options, openingScope])
   const identity = JSON.stringify([scope, archive, backlog])
   const [state, setState] = useState<State>({identity,scope,slug,value:null,pages:{},status:loading,loadingMore:false})
@@ -43,6 +44,10 @@ export function useWorkItems(slug: string, archive = false, backlog = false,
   }
   const current = useRef(state)
   current.current = state
+  // One scoped identity is an extra bounded candidate, never a history walk.
+  // Keep the current window independent of another reader's generic preference.
+  const continued = useRef(continuedSelection)
+  continued.current = continuedSelection
   const requestMore = useRef<() => void>(() => {})
   useEffect(() => {
     let dead = false, busy = false
@@ -62,7 +67,7 @@ export function useWorkItems(slug: string, archive = false, backlog = false,
           if (more && previous?.next_offset === null) { pages[group] = previous; continue }
           const offset = more ? previous?.next_offset ?? 0 : 0
           const requestOptions=openingScope && !more ? {...options,opening:previous ? 'keep' : '1',
-            opening_last:lastReaderItem(openingScope) ?? ''} : options
+            opening_last:continued.current ?? lastReaderItem(openingScope) ?? ''} : options
           let page = await getWorkPage(slug,group,requestOptions,offset,more ? previous : pages.items)
           if (!valid()) return
           if (page.reset) throw new Conflict()

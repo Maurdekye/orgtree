@@ -5,7 +5,7 @@ import type { ToastFn, TreePayload } from '../types'
 import { DocketIcon } from '../icons'
 import { AgentDocketView, agentItems, itemActorIds, teamItems, useNodeFacts } from './docket'
 import { PinFrame, closeIfCentred } from './modalpin'
-import { readerScope, resumedReaderItem } from './readeropening'
+import { readerScope, resumedReaderItem, useReaderSelection } from './readeropening'
 import { instanceKind } from '../modalkinds'
 import { flatten, withDraftTree } from './shared'
 import type { RefRoutes } from './reflinks'
@@ -30,7 +30,8 @@ export function AgentDocketModal({ slug, nid, tree, toast, close, refs,
   const setTeam = (next: boolean) => { setLocalTeam(next); onTeamChange?.(next) }
   const [continued]=useState(() => resumedReaderItem(slug,pinKind))
   const [continuedTeam]=useState(isTeam)
-  const [shown,setShown]=useState<string | null>(continued ?? null)
+  const selectionScope=readerScope('work',slug,nid,isTeam)
+  const [shown,setShown]=useReaderSelection(selectionScope,continued ?? null)
   const [showArchived, setShowArchived] = useState(false)
   const [showBacklog, setShowBacklog] = useState(false)
   const [bump, setBump] = useState(0)
@@ -39,7 +40,8 @@ export function AgentDocketModal({ slug, nid, tree, toast, close, refs,
   const isProject = useMemo(() => flatten(withDraftTree(tree, null), tree.tiers).get(nid)?.kind === 'project', [tree, nid])
   const useSubtree = isTeam || isProject
   const workFeed = useWorkItems(slug, showArchived, showBacklog, 15000, bump,
-    { ...pageFilter, ...(useSubtree ? { team: nid } : { agent: nid }) },readerScope('work',slug,nid,isTeam))
+    { ...pageFilter, ...(useSubtree ? { team: nid } : { agent: nid }) },selectionScope,
+    shown ?? (isTeam===continuedTeam ? continued : undefined))
   const work = workFeed.value
   const mine = useMemo(() => useSubtree ? teamItems(work, nid, tree.roots, showArchived)
     : agentItems(work, nid, showArchived), [useSubtree, work, nid, tree.roots, showArchived])
