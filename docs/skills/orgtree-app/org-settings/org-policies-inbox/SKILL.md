@@ -25,6 +25,6 @@ Mode writes are **user-only**, through desktop HTTP settings or standalone user 
 
 ## See also
 
-- orgtree-org-inbox and orgtree-tool-inbox (orgtree-working > mail): authority, routing, extraction and continuations.
+- `orgtree-org-inbox` and `orgtree-tool-inbox` (orgtree-working › mail): authority, routing, extraction and continuations.
 - [Connections](../../mailhub/org-connections/SKILL.md): identity and hub memberships.
 - [History](../org-history/SKILL.md): retained history.
