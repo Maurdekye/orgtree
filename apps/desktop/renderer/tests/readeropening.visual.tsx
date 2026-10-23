@@ -17,7 +17,7 @@ rememberReaderItem(readerScope('presented',slug,'developer'),'remembered')
 globalThis.fetch=(async(url)=>{
   const path=String(url),id=path.match(/\/documents\/([^/?]+)$/)?.[1]
   const item=items.find(row=>path.endsWith('/'+row.slug))
-  return new Response(JSON.stringify(path.endsWith('/viewed')?{}:id?{...docs.find(row=>row.id===id),body:'# Earlier proposal\n\nThis unread proposal is the oldest pending presentation. It opens before the last viewed document.\n\nAfter all presentations are read, the next opening remembers your place.'}:item?{item}:{documents:docs}))
+  return new Response(JSON.stringify(path.endsWith('/viewed')?{}:id?{...docs.find(row=>row.id===id),body:'# Earlier proposal\n\nThis unread proposal is the oldest pending presentation. It opens before the last viewed document.\n\nAfter all presentations are read, the next opening remembers your place.'}:item?{item}:{documents:docs,total:docs.length,offset:0,next_offset:null}))
 }) as typeof fetch
 document.body.classList.add('theme-dark')
 createRoot(document.getElementById('root')!).render(<main style={{padding:24,display:'grid',gridTemplateColumns:'1fr 1fr',gap:20,height:'100vh',boxSizing:'border-box'}}>
