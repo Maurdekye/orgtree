@@ -51,7 +51,7 @@ test('continued empty presentation and docket panes do not auto-select an unread
   assert.equal(view.el.querySelectorAll('.doc-gallery-row.on').length,0)
   const item={slug:'flag',title:'Flag',status:'blocked',effective_attention:true,attention_sources:['manual'],manual_attention:{reason:'Check'},
     done_so_far:[],working_on_next:[],participants:[],questions:[],dependencies:[],evidence:[],at:'2026-10-23T00:00:00Z',updated_at:'2026-10-23T00:00:00Z'} as any
-  await inAct(()=>view.render(<AgentDocketView slug="continued-mount" nid="node" mine={[item]} facts={new Map()} toast={()=>{}} refs={{world:{org:'continued-mount'},onOpen:()=>{}} continuedSelection=""/>))
+  await inAct(()=>view.render(<AgentDocketView slug="continued-mount" nid="node" mine={[item]} facts={new Map()} toast={()=>{}} refs={{world:{org:'continued-mount'},onOpen:()=>{}}} continuedSelection=""/>))
   await flush(8)
   assert.equal(view.el.querySelectorAll('.docket-row.on').length,0)
 })

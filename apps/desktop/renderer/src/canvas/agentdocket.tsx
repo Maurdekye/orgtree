@@ -29,6 +29,7 @@ export function AgentDocketModal({ slug, nid, tree, toast, close, refs,
   const isTeam = onTeamChange ? !!team : localTeam
   const setTeam = (next: boolean) => { setLocalTeam(next); onTeamChange?.(next) }
   const [continued]=useState(() => resumedReaderItem(slug,pinKind))
+  const [continuedTeam]=useState(isTeam)
   const [shown,setShown]=useState<string | null>(continued ?? null)
   const [showArchived, setShowArchived] = useState(false)
   const [showBacklog, setShowBacklog] = useState(false)
@@ -93,7 +94,7 @@ export function AgentDocketModal({ slug, nid, tree, toast, close, refs,
       {unplaced.length > 0 && <span role="status" className="hint docket-membership-pending">
         Checking team membership for {unplaced.length} retired {unplaced.length === 1 ? 'owner' : 'owners'}…</span>}
     </h3>
-    <AgentDocketView slug={slug} nid={nid} mine={mine} continuedSelection={continued} onShown={setShown} facts={facts} toast={toast}
+    <AgentDocketView slug={slug} nid={nid} mine={mine} continuedSelection={isTeam===continuedTeam ? continued : undefined} onShown={setShown} facts={facts} toast={toast}
       team={!isProject ? isTeam : undefined}
       onTeam={!isProject ? setTeam : undefined}
       showArchived={showArchived} onShowArchived={setShowArchived}

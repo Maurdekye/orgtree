@@ -1,6 +1,6 @@
 // USER 2026-10-23: opening preference is local navigation, per org/collection.
 // Store identities only. Reading by an agent never changes this user preference.
-import { useCallback, useState } from 'react'
+import { useCallback, useRef, useState } from 'react'
 import type { Dispatch, SetStateAction } from 'react'
 import { readModalOpen } from './modalpin'
 import { restoredWindows } from '../windowlayout'
@@ -22,6 +22,12 @@ export function resumedReaderItem(org: string, kind: string): string | undefined
   const restore = readModalOpen(org).find(row => row.kind === kind)?.restore
     ?? restoredWindows(org).find(row => row.kind === kind)?.restore
   return restore?.selection ?? restore?.document
+}
+export function useReaderResume(org: string, kind: string): string | undefined {
+  const key=JSON.stringify([org,kind])
+  const held=useRef<{key:string;id:string | undefined} | null>(null)
+  if(held.current?.key!==key) held.current={key,id:resumedReaderItem(org,kind)}
+  return held.current.id
 }
 export function useReaderSelection(scope: string, initial: string | null = null): [string | null, Dispatch<SetStateAction<string | null>>] {
   const [state, setState] = useState({scope, id: initial})

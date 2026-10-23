@@ -41,7 +41,7 @@ import { useContextMenu } from './contextmenu'
 import { objectTooltipProps } from './objecttooltip'
 import { PinFrame, raisePinnedModal } from './modalpin'
 import { useReaderHandle } from './readers'
-import { lastReaderItem, readerScope, rememberReaderItem, resumedReaderItem, useReaderSelection } from './readeropening'
+import { lastReaderItem, readerScope, rememberReaderItem, resumedReaderItem, useReaderResume, useReaderSelection } from './readeropening'
 import { instanceKind } from '../modalkinds'
 import { revealDetachedPanel } from '../windowlife'
 import type { JumpReq } from './shared'
@@ -346,7 +346,7 @@ export function DocGalleryModal({ slug, toast, close, onFocusAgent, onReply,
   // USER 2026-10-20 19:03:28Z): a document opening elsewhere that this reader
   // can show comes here (canvas/readers.ts) as its own jump request, beside
   // the shell's; the newer request wins
-  const [resume] = useState(() => resumedReaderItem(slug,'gallery'))
+  const resume = useReaderResume(slug,'gallery')
   const scope = readerScope('presented',slug)
   const [ownJump, setOwnJump] = useState<JumpReq | null>(() => resume ? newJump(resume) : null)
   const jumpTo = ownJump && (!shellJump || ownJump.seq > shellJump.seq) ? ownJump : shellJump
@@ -385,9 +385,10 @@ export function DocGalleryModal({ slug, toast, close, onFocusAgent, onReply,
   const opening = useRef({ slug, pending: resume === undefined })
   useEffect(() => {
     if (opening.current.slug !== slug) {
-      opening.current = { slug, pending: true }
+      opening.current = { slug, pending: resume === undefined }
       openingReveal.current = null
-      setSelId(null)
+      setSelId(resume || null)
+      setOwnJump(resume ? newJump(resume) : null)
       return // useDocWindow clears the previous organization's rows too
     }
     if (!opening.current.pending) return
@@ -736,6 +737,7 @@ export function AgentGalleryModal({ slug, nid, node, toast, close, onFocusAgent,
    *  `setShown` is a useState setter, so its identity is stable and the
    *  report-upward effect below does not re-run on the render it causes. */
   const [continued] = useState(() => resumedReaderItem(slug,pinKind))
+  const [continuedTeam] = useState(!!team)
   const [shown, setShown] = useState<string | null>(initialDocument ?? continued ?? null)
   // Keep the parent marker writer informed without changing the view's
   // stable setShown callback or reporting again for unrelated parent renders.
@@ -759,7 +761,7 @@ export function AgentGalleryModal({ slug, nid, node, toast, close, onFocusAgent,
       onPanelClick={openLightboxIfEligibleImage}>
       <AgentGalleryView slug={slug} nid={nid} node={node} toast={toast}
         onFocusAgent={onFocusAgent} onReply={onReply} refs={refs} onShown={setShown}
-        onChanged={onChanged} initialDocument={initialDocument ?? (continued || undefined)} initialLoaded={initialLoaded} selectedRow={selectedRow} continuedSelection={continued}
+        onChanged={onChanged} initialDocument={initialDocument ?? (effectiveTeam===continuedTeam ? continued || undefined : undefined)} initialLoaded={initialLoaded} selectedRow={selectedRow} continuedSelection={effectiveTeam===continuedTeam ? continued : undefined}
         collapsible team={effectiveTeam} onTeam={handleTeam} jumpTo={jump} />
     </PinFrame>
   )
@@ -819,7 +821,7 @@ export function AgentGalleryView({ slug, nid, node, toast, onFocusAgent, onReply
   const [selId, setSelId] = useReaderSelection(scope, initialDocument ?? continuedSelection ?? null)
   const openingReveal = useRef<OpeningReveal | null>(null)
   useEffect(() => {setSelId(initialDocument ?? continuedSelection ?? null); setDismissed([])}, [scope, initialDocument, continuedSelection])
-  // Opening selects the oldest unread/changed card, otherwise the newest.
+  // Opening selects the oldest unread/changed card, otherwise scoped last-viewed then topmost.
   // A document the surface was opened to keeps selection, and a
   // later deselect or dismissal is never undone.
   const opening = useRef({ key: '', pending: true })

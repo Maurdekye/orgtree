@@ -50,7 +50,7 @@ import { AskCard } from './asks'
 import { DocReader } from './docs'
 import { revealDetachedDocument } from '../windowlife'
 import { closeIfCentred, PinFrame } from './modalpin'
-import { lastReaderItem, openingWork, readerScope, rememberReaderItem, resumedReaderItem } from './readeropening'
+import { lastReaderItem, openingWork, readerScope, rememberReaderItem, resumedReaderItem, useReaderResume } from './readeropening'
 import { AgentName, nodeTierOf } from './identity'
 import { DocketSelection, DocketSelectionContext } from './docketselection'
 import { MailReplyBox } from './mail'
@@ -1058,7 +1058,7 @@ export function DocketModal({ slug, toast, close, tree, onFocusAgent,
   // clearing in an effect also means there is no frame in which the stale rows
   // are still on screen.
   const selectionScope=readerScope('work',slug)
-  const [resume]=useState(() => resumedReaderItem(slug,'docket'))
+  const resume=useReaderResume(slug,'docket')
   const [sel, setSel] = useState<{ slug: string; id: string } | null>(null)
   const work = useWorkItems(slug, showArchived, showBacklog, 5000, bump, { query, sort: sortMode }, selectionScope)
   const data = work.value
@@ -1425,7 +1425,7 @@ export function DocketModal({ slug, toast, close, tree, onFocusAgent,
       ?? null
   }, [sections, searching, collapsed])
 
-  // Opening any docket gets its first shown ticket (user 2026-10-21).
+  // USER 2026-10-23: priority, scoped memory, then first shown ticket.
   // Explicit navigation and deliberate selects/clears already advance this
   // sequence, so neither a delayed load nor a later poll can steal their place.
   // Use the rendered nesting/folds and enabled sections, skipping headers.
