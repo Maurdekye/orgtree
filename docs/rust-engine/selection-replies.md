@@ -92,3 +92,11 @@ schema/refusal/aggregate bounds, redaction, visible-user projection, range-aware
 dedupe, split/flat tool contracts and log/wire privacy. Phase 1 uses a cheap
 predecessor control, one focused Rust run and cargo check. These are not live
 database, installed-app, external transport or native mouse acceptance claims.
+
+## Transcript slice and prefix budget
+
+The desktop now maps settled prose and displayed thoughts through their exact event identity, including original source offsets for ordered content blocks. Expanded tool input/result scalar fields use RFC6901 pointers; raw views must match the exact canonical projection. Full retained failed-shell output is supported. Current-turn admission is still rechecked by the engine, and no hidden/sealed source is exposed.
+
+Selection snapshots survive transcript reply persistence, multi-reply deduplication, pending cards and sent quote rendering. The source navigation registry accepts only a server-verified range/digest, reverses the same conservative DOM projection, and scrolls the nearest overflow owner. Existing fold/paging/object routes still open the source; no quote substring search is used for navigation.
+
+The eager message definition retains its prior identity schema and adds a minimal wrapper only. Detailed selection explanation lives in the deferred source-read definition and Guide. A focused serialized-card control compares both split and flat schemas with the frozen exact 4.4.2 schema and caps the eager delta at 800 compact UTF-8 bytes.

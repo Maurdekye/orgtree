@@ -217,3 +217,11 @@ terminal recording. A live preview is not a completion receipt.
 ## See also
 
 - [orgtree-agent-desk](../agent-desk/SKILL.md)
+
+## Reply to selected transcript text
+
+Select a passage in a retained transcript row, then right-click **Reply to selection**. The owning desk reply box keeps its existing text and stages the exact excerpt plus nearby context. Several passages from the same conversation may be staged; remove one or cancel all. Sending uses the normal conversation recipient and notice/urgent controls. A refused send restores the selected reply draft.
+
+Supported parts are prose, displayed unsealed thoughts, expanded retained tool inputs and results. Structured JSON keys and scalar values carry their own JSON pointer, so equal strings in different fields stay distinct. Select one source part per gesture. Live/current turns refuse at the engine until settled; hidden machine context, sealed thoughts, helper-private records and reconstructed clipped JSON are not selection sources. Source mapping mismatches refuse rather than guess.
+
+A selection quote keeps its captured text after edits. Activate it to check the source: an exact or uniquely relocated passage may be highlighted after opening; changed or unavailable sources keep the quote and say so. The nearest owning reading surface scrolls. Agents use the Working category's **orgtree-read-reply-source** and **orgtree-tool-message** pages for the equivalent bounded read/send contract.

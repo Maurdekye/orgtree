@@ -139,3 +139,9 @@ The reader supports Markdown and HTML previews, source identity, downloads and t
 Closing a reader leaves the document in its collection. **Dismiss** is a separate document operation. A download saves a file and does not prove that it was read. For an installer, image, export or log wanted as a file, ask for a file delivery instead. Moving a scratch file alone does not publish it into Presented.
 
 Continue with [Settings and usage](settings-and-usage.md) for shortcuts, notifications, limits and the settings that affect these workflows.
+
+### Reply to part of a transcript
+
+Highlight retained prose, an open thought, or text in expanded tool details and choose **Reply to selection**. In structured tool JSON, each key and scalar value is a separate source part. Your current desk draft stays in place. The quote includes the exact excerpt and nearby context; you can stage several passages before sending through that desk's normal reply box.
+
+The running turn must finish before its text can be quoted this way. Hidden context, sealed thoughts and reconstructed truncated JSON are excluded. If a source changes before sending, the send refuses and your draft is restored. After delivery, the captured excerpt remains readable; opening it checks for the original passage or a unique verified relocation. Otherwise it shows **Source changed** or **Source unavailable**.

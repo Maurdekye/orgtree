@@ -63,3 +63,9 @@ Recent [transcript reads](../tool-read-transcript/SKILL.md) expose `event_id`,
 
 - [orgtree-visibility](../visibility/SKILL.md)
 - [orgtree-reading-reports](../reading-reports/SKILL.md)
+
+## Compact message schema and JSON result parts
+
+The eager message tool exposes only the minimal `{target, selection}` wrapper. Load this deferred tool and read this Guide before constructing selectors; the engine still enforces the full contract. `projection` is `source-v1`, `unit` is `unicode-scalar`, `expected_sha256` is the returned exact UTF-8 digest, and `start`/`end` are half-open offsets in the same canonical part. No caller-owned quote/context fields are accepted.
+
+`tool.result` also accepts `pointer` and optional `role: key` for complete retained JSON results. Strings are decoded scalar text; other values use deterministic pretty JSON. Invalid or clipped JSON is never repaired into a selectable part. A failed shell's separately retained full output is read before its clipped chip summary. The tool remains bounded and does not fetch provider-native history files.
