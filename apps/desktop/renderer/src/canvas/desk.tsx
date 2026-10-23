@@ -2684,6 +2684,15 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
   const scrollbarPointer = useRef<number | null>(null)
   const touchY = useRef<number | null>(null)
   const [showJump, setShowJump] = useChangedState(false)
+  const syncJump = () => {
+    const el = scroller.current
+    // Visibility is independent of follow: a fitting transcript has nowhere
+    // to jump, even after upward input or an explicit history/mention jump.
+    setShowJump(!stickRef.current && !!el && el.clientHeight > 0
+      && el.scrollHeight > el.clientHeight)
+  }
+  const syncJumpRef = useRef(syncJump)
+  syncJumpRef.current = syncJump
   const atBottom = () => {
     const el = scroller.current
     // A small tail margin covers fractional layout and hand-scrolled stops.
@@ -2691,7 +2700,7 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
   }
   const setStuck = (v: boolean) => {
     stickRef.current = v
-    setShowJump(!v)   // only on a real flip — useChangedState, not an updater
+    syncJump()   // only on a real flip — useChangedState, not an updater
   }
   // A programmatic jump away from the tail ("jump to your message", a reply
   // link) must release bottom follow FIRST, the way an upward wheel does.
@@ -3090,6 +3099,7 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
   // reader who scrolled UP past every user turn has them all BELOW, and a
   // chip that points the wrong way is jumpbottom's territory, not this one's.
   const calcPin = () => {
+    syncJump()
     const el = scroller.current
     let v: number | null = null
     if (el) {
@@ -3150,9 +3160,15 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
   const calcPinRef = useRef(calcPin)
   calcPinRef.current = calcPin
   const roRef = useRef<ResizeObserver | null>(null)
+  const contentRO = useRef<ResizeObserver | null>(null)
+  const contentMO = useRef<MutationObserver | null>(null)
   const attachScroller = useCallback((el: HTMLDivElement | null) => {
     roRef.current?.disconnect()
     roRef.current = null
+    contentRO.current?.disconnect()
+    contentRO.current = null
+    contentMO.current?.disconnect()
+    contentMO.current = null
     scroller.current = el
     // no ResizeObserver (a pre-2020 browser) degrades to the old behaviour:
     // the layout effect above still covers every React-driven growth
@@ -3168,6 +3184,24 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
     })
     ro.observe(el)
     roRef.current = ro
+    // The scrollport's box need not resize when a thought/tool folds or an
+    // image loads. Observe its direct rows too, solely for card visibility;
+    // this must never repin, restore an anchor or request a history page.
+    const rows = new ResizeObserver(() => syncJumpRef.current())
+    for (const child of el.children) rows.observe(child)
+    contentRO.current = rows
+    const Mutation = el.ownerDocument.defaultView?.MutationObserver
+    if (Mutation) {
+      const changes = new Mutation(records => {
+        for (const record of records) {
+          for (const child of record.removedNodes) if (child.nodeType === 1) rows.unobserve(child as Element)
+          for (const child of record.addedNodes) if (child.nodeType === 1) rows.observe(child as Element)
+        }
+        syncJumpRef.current()
+      })
+      changes.observe(el, { childList: true })
+      contentMO.current = changes
+    }
   }, [])
   const pinTarget = pinSeq == null ? null
     : userTurns.find((u) => u.seq === pinSeq) ?? null

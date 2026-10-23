@@ -9,7 +9,7 @@ import { SurfaceDocumentOwner } from '../src/popout'
 
 async function fixture(t: TestContext, host = 'desk') {
   resetConvos(); localStorage.clear()
-  const server = new FakeServer(); server.assistantMsg('First result'); installFetch(server)
+  const server = new FakeServer(); server.assistantMsg('First result', { event_id: 'fit-mention' }); installFetch(server)
   const node: CanvasNode = { id: 'writer', generation: 1, state: 'live', tier: 'haiku',
     children: [], seat: 1, grant: 0, free: 0, scope: { tools: {}, add_dirs: [] } }
   const popup = host === 'popped-out' ? new JSDOM('<!doctype html><html><body></body></html>', { url: 'http://localhost/' }) : null
@@ -46,6 +46,12 @@ async function fixture(t: TestContext, host = 'desk') {
     height += 200; server.assistantMsg('Another result'); await refreshConvo('org', node.id, { force: true }); await flush(5)
   })
   return { frame, list, scroll, wheel, jump, detach, grow, bottom: () => height - 400,
+    rowResize: async (nextHeight: number) => inAct(() => {
+      height = nextHeight; list.scrollTop = top
+      const row = list.firstElementChild
+      assert.ok(row, 'fixture has an observed transcript row')
+      fireResize(row)
+    }),
     elapse: (ms: number) => { now += ms }, resize: async (nextHeight: number) => inAct(() => {
       height = nextHeight; list.scrollTop = top; fireResize(list)
     }) }
@@ -94,4 +100,38 @@ test('downward input far from the tail and input cancelled by blur do not reatta
   await inAct(() => { window.dispatchEvent(new Event('blur')) })
   await f.scroll(f.bottom())
   assert.equal(f.jump(), true, 'blur ends the downward gesture')
+})
+
+for (const host of ['desk', 'pinned', 'popped-out']) {
+  test(`${host}: a transcript that fits the scrollport never shows jump to bottom`, async t => {
+    const f = await fixture(t, host)
+    await f.resize(400)
+    assert.equal(f.list.scrollTop, 0)
+    await f.wheel(-1)
+    assert.equal(f.jump(), false, 'upward intent cannot offer a jump in a fitting transcript')
+    await inAct(() => f.list.dispatchEvent(new f.list.ownerDocument.defaultView!.KeyboardEvent('keydown', { key: 'Home', bubbles: true })))
+    assert.equal(f.jump(), false, 'keyboard intent cannot show it either')
+  })
+}
+
+test('fitting after resize hides the card without changing follow or history state', async t => {
+  const f = await fixture(t)
+  await f.detach()
+  await f.resize(400)
+  assert.equal(f.jump(), false, 'a previously visible card disappears once everything fits')
+  f.elapse(1500)
+  await f.resize(1200)
+  assert.equal(f.jump(), true, 'overflow returning does not silently re-enable follow')
+  assert.equal(f.list.scrollTop, 0, 'measuring overflow does not move the reader')
+  await f.grow()
+  assert.equal(f.list.scrollTop, 0, 'new output still respects the reader leaving follow')
+})
+
+test('a row folding to fit hides the card even when the scrollport size does not change', async t => {
+  const f = await fixture(t)
+  await f.detach()
+  await f.rowResize(400)
+  assert.equal(f.jump(), false, 'row-size changes refresh overflow independently of the scrollport observer')
+  await f.rowResize(1200)
+  assert.equal(f.jump(), true, 'expanding content restores the card for a detached reader')
 })

@@ -36,6 +36,15 @@ clicking a disclosure is not scroll intent.
   output through the existing pin path; another upward gesture detaches again.
 
 The shared DeskChat path covers full, temporary, mini and detached desks.
+
+Jump-card visibility also requires a measured `scrollHeight > clientHeight`
+on a nonzero-height transcript scrollport (user, 2026-10-23). Follow state stays
+independent: a fitting transcript hides the card without reattaching follow or
+collapsing history. Commit/scroll/viewport measurements and row-size observers
+refresh visibility after folding content, image loads and resizing. Direct-row
+observation follows child insertion/removal and disconnects with the scrollport;
+its callback only updates the visibility flag, never the pin or page loader.
+
 Existing row-based history anchors and the context-menu hold remain in place.
 `centerTranscriptTarget` remains the only centered-jump path and scrolls only
 the transcript list, preserving its desk frame.

@@ -57,6 +57,12 @@ available to scroll back into. The start-of-conversation marker means the loaded
 history has reached the actual beginning, including on Antigravity agents; it
 does not mean that older rows were merely released from the screen's cache.
 
+The **↓ jump to bottom** card appears only when follow is off and the loaded
+transcript overflows its visible scrollport. It stays hidden when everything
+fits, including after resizing or folding content. This does not change follow
+state or discard earlier history: scrolling down to within eight pixels of the
+tail, or explicitly jumping to the bottom, resumes follow as before.
+
 Chat Markdown can display inline images. Relative image paths resolve within the author's files; absolute Windows paths and HTTP(S) URLs use the checked image endpoint. PNG, JPEG, GIF and WebP are supported there; an image that cannot be loaded falls back to a link (local files can be revealed in their folder).
 
 ## Markdown image limits

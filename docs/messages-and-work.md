@@ -20,6 +20,12 @@ The Enter preference determines whether Enter sends or adds a line. The send but
 
 After sending, feedback such as **steering in mid-task** appears above the bottom jump cards. Those cards stay above the message box. The feedback describes the send outcome; it does not establish that the agent has finished acting on your message.
 
+The **↓ jump to bottom** card is shown only while follow is off and the loaded
+transcript is taller than its visible area. A transcript that fits has no card,
+even after an upward gesture or after content folds. Resizing or expanding
+content refreshes this check. Returning to the tail resumes follow; hiding the
+card alone does not change follow or remove earlier history.
+
 Every queued-message group has **Show/Hide**, even when it contains one message.
 Groups start open below six messages and close automatically at six or more.
 Clicking Show or Hide keeps your choice as messages arrive or leave that group.
