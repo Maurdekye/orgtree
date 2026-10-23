@@ -58,3 +58,8 @@ Use the returned digest and half-open Unicode-scalar range in
 [orgtree_message selection replies](../../mail/tool-message/SKILL.md#selection-replies).
 Recent [transcript reads](../tool-read-transcript/SKILL.md) expose `event_id`,
 `convo_revision` and the current `generation` to identify exact source rows.
+
+## See also
+
+- [orgtree-visibility](../visibility/SKILL.md)
+- [orgtree-reading-reports](../reading-reports/SKILL.md)
