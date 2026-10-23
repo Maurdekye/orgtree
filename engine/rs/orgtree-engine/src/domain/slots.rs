@@ -432,13 +432,7 @@ pub async fn held_by(client: &impl GenericClient, agent: i64) -> Result<Vec<(i32
 #[logged]
 pub async fn idle_timeouts(engine: &Arc<Engine>, org_id: i64, agent: i64, name: &str) -> Result<Vec<(i32, String, String)>> {
     let client = engine.db.get().await?;
-    let rows = client
-        .query(
-            "SELECT l.id, l.uid, l.slot_count, l.wakes, p.id, p.name, p.scope FROM ot.slot_leases l JOIN ot.agents p ON p.id = l.project_id
-              WHERE l.holder_agent_id = $1 AND l.ended_at IS NULL ORDER BY l.id LIMIT 20",
-            &[&agent],
-        )
-        .await?;
+    let rows = idle_timeouts_page(&**client, agent).await?;
     drop(client);
     let mut kept = Vec::new();
     for r in &rows {
@@ -468,6 +462,7 @@ pub async fn idle_timeouts(engine: &Arc<Engine>, org_id: i64, agent: i64, name: 
         }
         kept.push((count, pname, lease));
     }
+    super::checkup_pages::advance(&**engine.db.get().await?, agent, super::checkup_pages::SLOTS, &rows).await?;
     Ok(kept)
 }
 
@@ -572,4 +567,10 @@ mod tests {
         assert_eq!(free_slots(0, &[]).collect::<Vec<_>>(), Vec::<i32>::new());
         assert_eq!(free_slots(MAX_CAPACITY,&[1,3]).take(3).collect::<Vec<_>>(),vec![2,4,5]);
     }
+}
+
+#[logged]
+pub(crate) async fn idle_timeouts_page(client: &impl GenericClient, agent: i64) -> Result<Vec<tokio_postgres::Row>> {
+    super::checkup_pages::read(client, "SELECT l.id, l.uid, l.slot_count, l.wakes, p.id, p.name, p.scope FROM ot.slot_leases l JOIN ot.agents p ON p.id = l.project_id
+              WHERE l.holder_agent_id = $1 AND l.ended_at IS NULL AND l.id > $2 AND l.id <= $3 ORDER BY l.id LIMIT 20", "SELECT coalesce(max(id),0) FROM ot.slot_leases WHERE holder_agent_id=$1 AND ended_at IS NULL", agent, super::checkup_pages::SLOTS).await
 }

@@ -27,6 +27,7 @@ pub mod orginbox;
 pub mod dead_letters;
 pub mod listeners;
 pub mod projects;
+pub(crate) mod checkup_pages;
 pub mod presentation_chunks;
 pub mod slots;
 pub mod slot_history;

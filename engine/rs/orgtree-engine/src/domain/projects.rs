@@ -998,16 +998,7 @@ async fn superior(engine: &Arc<Engine>, project: i64) -> Option<String> {
 #[logged]
 pub async fn ack_timeouts(engine: &Arc<Engine>, org_id: i64, agent: i64, name: &str) -> Result<Vec<(String, String)>> {
     let client = engine.db.get().await?;
-    let rows = client
-        .query(
-            &format!("SELECT m.id, m.recipient_agent_id, p.name, p.scope, m.extra->'claimed'->>'copy',
-                             coalesce((m.extra->'claimed'->>'wakes')::bigint, 0)
-                        FROM ot.mail m JOIN ot.agents p ON p.id = m.recipient_agent_id
-                       WHERE (m.extra->'claimed'->>'by_id')::bigint = $1 AND {OUTSTANDING} AND p.kind = 'project'
-                       ORDER BY m.id LIMIT 20"),
-            &[&agent],
-        )
-        .await?;
+    let rows = ack_timeouts_page(&**client, agent).await?;
     drop(client);
     let mut kept = Vec::new();
     for r in &rows {
@@ -1035,6 +1026,7 @@ pub async fn ack_timeouts(engine: &Arc<Engine>, org_id: i64, agent: i64, name: &
         tx.commit().await?;
         if let Some(copy)=copy {kept.push((copy,pname));}
     }
+    super::checkup_pages::advance(&**engine.db.get().await?, agent, super::checkup_pages::JOBS, &rows).await?;
     Ok(kept)
 }
 
@@ -1949,4 +1941,13 @@ mod attempt_log_tests {
         assert!(sql.contains("jsonb_build_object('how', $6::text, 'why', $4::text, 'at', now())"), "{sql}");
         assert!(sql.trim_end().ends_with("ELSE m.extra END"), "{sql}");
     }
+}
+
+#[logged]
+pub(crate) async fn ack_timeouts_page(client: &impl GenericClient, agent: i64) -> Result<Vec<tokio_postgres::Row>> {
+    super::checkup_pages::read(client, &format!("SELECT m.id, m.recipient_agent_id, p.name, p.scope, m.extra->'claimed'->>'copy',
+                             coalesce((m.extra->'claimed'->>'wakes')::bigint, 0)
+                        FROM ot.mail m JOIN ot.agents p ON p.id = m.recipient_agent_id
+                       WHERE (m.extra->'claimed'->>'by_id')::bigint = $1 AND {OUTSTANDING} AND p.kind = 'project'
+                       AND m.id > $2 AND m.id <= $3 ORDER BY m.id LIMIT 20"), &format!("SELECT coalesce(max(m.id),0) FROM ot.mail m JOIN ot.agents p ON p.id=m.recipient_agent_id WHERE (m.extra->'claimed'->>'by_id')::bigint=$1 AND {OUTSTANDING} AND p.kind='project'"), agent, super::checkup_pages::JOBS).await
 }

@@ -19,6 +19,9 @@
 //! 3.x engine's (dev: supervisor.py, ledger.py, appsettings.py).
 
 use std::sync::Arc;
+use std::collections::HashMap;
+
+mod pages;
 use std::time::Duration;
 
 use anyhow::Result;
@@ -39,9 +42,7 @@ const AFTER_S: i64 = 20 * 60;
 const SWEEP_S: u64 = 20;
 /// 3.x IDLE_DOCKET_REMINDER_MAX_ITEMS.
 const MAX_ITEMS: usize = 20;
-/// Bounds on the per-org reads.
-const MAX_AGENTS: i64 = 5000;
-const MAX_WORK: i64 = 5000;
+
 
 /// The three switches. Stored under the 3.x keys (an imported
 /// app-settings.json keeps the user's choice); checkups and idle reminders
@@ -76,15 +77,18 @@ pub fn start(engine: &Arc<Engine>) {
         let mut tick = tokio::time::interval(Duration::from_secs(every));
         tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
         tick.tick().await; // the first tick is immediate: let startup settle
+        let mut scans: HashMap<i64, pages::Sweep> = HashMap::new();
         loop {
             tokio::select! {
                 _ = engine.shutdown.cancelled() => break,
                 _ = tick.tick() => {}
             }
             let sw = switches(&engine);
-            for org in engine.orgs.all() {
+            let orgs = engine.orgs.all();
+            scans.retain(|id,_| orgs.iter().any(|org| org.id == *id));
+            for org in orgs {
                 let span = crate::trace::request(&format!("reminders:{}", org.slug));
-                tracing::Instrument::instrument(tick_org(&engine, &org, sw), span).await;
+                tracing::Instrument::instrument(tick_org(&engine, &org, sw, scans.entry(org.id).or_default()), span).await;
             }
         }
     });
@@ -93,7 +97,7 @@ pub fn start(engine: &Arc<Engine>) {
 /// One org's automatic wakes for this tick, in 3.x's order. Recovery is
 /// independent of the optional switches, as in the 3.x keeper.
 #[logged]
-async fn tick_org(engine: &Arc<Engine>, org: &Arc<OrgHandle>, sw: Switches) {
+async fn tick_org(engine: &Arc<Engine>, org: &Arc<OrgHandle>, sw: Switches, scan: &mut pages::Sweep) {
     if let Err(e)=crate::domain::orginbox::release_page(engine,org.id).await {
         tracing::warn!(org=%org.slug,%e,"org inbox release recovery failed; retry next pass");
     }
@@ -101,9 +105,13 @@ async fn tick_org(engine: &Arc<Engine>, org: &Arc<OrgHandle>, sw: Switches) {
         tracing::warn!(org = %org.slug, error = %format!("{e:#}"), "abandoned docket recovery failed; retry next pass");
     }
     if sw.checkups || sw.idle {
-        if let Err(e) = sweep_org(engine, org, sw, false).await {
-            tracing::warn!(org = %org.slug, error = %format!("{e:#}"), "reminder sweep failed");
+        match sweep_org(engine, org, sw, false, scan).await {
+            Ok(true) => *scan = pages::Sweep::default(),
+            Ok(false) => {},
+            Err(e) => tracing::warn!(org = %org.slug, error = %format!("{e:#}"), "reminder sweep failed"),
         }
+    } else {
+        *scan = pages::Sweep::default();
     }
     // the checkup and the keeper are one switch's two modes
     if !sw.checkups {
@@ -149,27 +157,16 @@ fn stamp(v: &Value, key: &str) -> Option<DateTime<Utc>> {
 }
 
 #[logged]
-async fn sweep_org(engine: &Arc<Engine>, org: &Arc<OrgHandle>, sw: Switches, early: bool) -> Result<()> {
+async fn sweep_org(engine: &Arc<Engine>, org: &Arc<OrgHandle>, sw: Switches, early: bool, scan: &mut pages::Sweep) -> Result<bool> {
     let client = engine.db.get().await?;
     let ks: Option<Value> = client.query_opt("SELECT killswitch FROM ot.orgs WHERE id = $1", &[&org.id]).await?.and_then(|r| r.get(0));
     if ks.is_some() {
-        return Ok(());
+        return Ok(true);
     }
-    let rows = client
-        .query(
-            "SELECT a.id, a.name, a.generation, a.last_status, a.extra,
-                    (SELECT greatest(t.started_at, t.ended_at) FROM ot.turns t WHERE t.agent_id = a.id ORDER BY t.id DESC LIMIT 1)
-               FROM ot.agents a
-              WHERE a.org_id = $1 AND a.state = 'live' AND a.kind = 'agent' AND a.halt IS NULL AND a.frozen IS NULL AND NOT a.limit_locked
-                AND a.inflight_at IS NULL
-                AND (NOT $3 OR coalesce(a.extra->>'session', 'session0') <> 'signed-in')
-                AND NOT EXISTS (SELECT 1 FROM ot.turns t WHERE t.agent_id = a.id AND t.ended_at IS NULL)
-                AND NOT EXISTS (SELECT 1 FROM ot.mail m WHERE ((m.sender NOT LIKE '@org:%' AND m.sender NOT LIKE '@net:%' AND COALESCE(m.ev->>'variant','') <> 'runtime.external_unroutable' AND m.extra->>'transfer_failure' IS NULL) OR NOT EXISTS (SELECT 1 FROM ot.orgs inbox_org WHERE inbox_org.id=m.org_id AND inbox_org.settings->'org_inbox_enabled'='false'::jsonb)) AND m.recipient_agent_id = a.id
-                                 AND (m.state = 'delivering' OR (m.state = 'pending' AND NOT m.notice)))
-              ORDER BY a.id LIMIT $2",
-            &[&org.id, &MAX_AGENTS, &early],
-        )
-        .await?;
+    if !scan.prepare(&**client, org.id).await? { return Ok(false); }
+    let rows = pages::agent_rows(&**client, org.id, early, scan.after, scan.upper).await?;
+    let finished = rows.len() < pages::AGENTS as usize;
+    scan.after = rows.last().map(|r| r.get(0)).unwrap_or(scan.after);
     let mut agents = Vec::with_capacity(rows.len());
     for r in &rows {
         let status: Option<Value> = r.get(3);
@@ -189,48 +186,17 @@ async fn sweep_org(engine: &Arc<Engine>, org: &Arc<OrgHandle>, sw: Switches, ear
         });
     }
     if agents.is_empty() {
-        return Ok(());
+        return Ok(true);
     }
     for a in &mut agents {
         a.held = crate::domain::projects::held_by(&**client, a.id).await?;
         a.slots = crate::domain::slots::held_by(&**client, a.id).await?;
     }
-    // every agent but the deleted, for the reviewer's liveness and the owner's superior chain
-    let everyone: Agents = client
-        .query("SELECT name, id, state, superior_id FROM ot.agent_reporting WHERE org_id = $1 AND state <> 'deleted' LIMIT $2", &[&org.id, &MAX_AGENTS])
-        .await?
-        .iter()
-        .map(|r| (r.get(0), (r.get(1), r.get(2), r.get(3))))
-        .collect();
-    let work: Vec<WorkRow> = client
-        .query(
-            "SELECT w.slug, w.title, w.status, w.owner, w.owner_agent_id, w.reviewer, w.reviewer_agent_id,
-                    w.manual_attention IS NOT NULL,
-                    EXISTS (SELECT 1 FROM ot.asks k WHERE k.org_id = w.org_id AND k.status = 'open' AND w.slug = ANY (k.work_items))
-               FROM ot.work_items w
-              WHERE w.org_id = $1 AND w.archived_at IS NULL AND NOT coalesce((w.extra->>'deleted')::boolean, false)
-                AND w.status NOT IN ('done', 'superseded', 'dropped', 'backlogged')
-              ORDER BY w.slug LIMIT $2",
-            &[&org.id, &MAX_WORK],
-        )
-        .await?
-        .iter()
-        .map(|r| {
-            let status: String = r.get(2);
-            let owner: Option<Value> = r.get(3);
-            let reviewer: Option<Value> = r.get(5);
-            let (to, role) = docket::next_recipient(&status, owner.as_ref(), r.get(4), reviewer.as_ref(), r.get(6), &everyone);
-            WorkRow { slug: r.get(0), title: r.get(1), status, to, role, attention: r.get::<_, bool>(7) || r.get::<_, bool>(8) }
-        })
-        .collect();
+    // Use the complete current org set, never a prefix of the work page.
+    let all_blocked = sw.blocked && pages::all_blocked(&**client, org.id).await?;
     drop(client);
-    // 3.x `work_org_all_blocked`: the org's whole nonterminal set is blocked (an empty set is not)
-    let all_blocked = !work.is_empty() && work.iter().all(|w| w.status == "blocked");
     let now = Utc::now();
     for a in &agents {
-        // 3.x `work_idle_reminder_items`: owed by this agent, not blocked, not waiting on the user
-        let actionable: Vec<&WorkRow> =
-            work.iter().filter(|w| w.to.as_deref() == Some(a.name.as_str()) && w.status != "blocked" && !w.attention).collect();
         // 3.x `_working_cache_idle`: a turn, a wait for a slot or a running
         // cache keepalive defers the wake to a later sweep, nothing stamped
         if let Some(h) = engine.agents.get(a.id) {
@@ -241,12 +207,8 @@ async fn sweep_org(engine: &Arc<Engine>, org: &Arc<OrgHandle>, sw: Switches, ear
         }
         let span = crate::trace::request_from(&crate::trace::agent_client(a.id, &a.name), crate::trace::current_rq().as_deref());
         // 3.x `work_docket_reminder_items` with the blocked option: purely additive
-        let items: Vec<&WorkRow> = if !actionable.is_empty() || !sw.blocked || !all_blocked {
-            actionable.clone()
-        } else {
-            work.iter().filter(|w| w.to.as_deref() == Some(a.name.as_str()) && w.status == "blocked").collect()
-        };
-        let (remind, check) = wakes(sw, early, a.working || !a.held.is_empty() || !a.slots.is_empty(), !items.is_empty());
+        let items = scan.items(&a.name, sw.blocked && all_blocked);
+        let (remind, check) = wakes(sw, early, a.working || !a.held.is_empty() || !a.slots.is_empty(), items.total > 0);
         let wake = async {
             if remind && idle_reminder(engine, org, a, &items, now).await? {
                 return Ok(());
@@ -261,7 +223,7 @@ async fn sweep_org(engine: &Arc<Engine>, org: &Arc<OrgHandle>, sw: Switches, ear
             tracing::warn!(org = %org.slug, agent = %a.name, error = %format!("{e:#}"), "reminder failed");
         }
     }
-    Ok(())
+    Ok(finished)
 }
 
 /// What the sweep tries for an idle agent, in this order: (the docket
@@ -293,8 +255,15 @@ pub async fn checkups_at_sign_in(engine: &Arc<Engine>) {
         return;
     }
     for org in engine.orgs.all() {
-        if let Err(e) = sweep_org(engine, &org, sw, true).await {
-            tracing::warn!(org = %org.slug, error = %format!("{e:#}"), "the sign-in checkups failed");
+        // The sign-in event completes one finite cycle in bounded steps;
+        // it must also reach seats beyond the first agent page.
+        let mut scan = pages::Sweep::default();
+        loop {
+            match sweep_org(engine, &org, sw, true, &mut scan).await {
+                Ok(true) => break,
+                Ok(false) => tokio::task::yield_now().await,
+                Err(e) => { tracing::warn!(org = %org.slug, error = %format!("{e:#}"), "the sign-in checkups failed"); break; }
+            }
         }
     }
 }
@@ -386,7 +355,7 @@ fn held_note(held: &[(String, String)]) -> Option<String> {
 /// 3.x `_idle_docket_reminder_decision` + its reservation body. True when
 /// a reminder was due and claimed (sent, or withdrawn by a refused wake).
 #[logged]
-async fn idle_reminder(engine: &Arc<Engine>, org: &OrgHandle, a: &Agent, items: &[&WorkRow], now: DateTime<Utc>) -> Result<bool> {
+async fn idle_reminder(engine: &Arc<Engine>, org: &OrgHandle, a: &Agent, items: &pages::Items, now: DateTime<Utc>) -> Result<bool> {
     match a.activity.into_iter().chain(a.reminded).max() {
         None => {
             claim(engine, a.id, "docket_reminder_at", now).await?;
@@ -398,10 +367,10 @@ async fn idle_reminder(engine: &Arc<Engine>, org: &OrgHandle, a: &Agent, items: 
     if !claim(engine, a.id, "docket_reminder_at", now).await? {
         return Ok(false);
     }
-    let shown = &items[..items.len().min(MAX_ITEMS)];
+    let shown = &items.shown;
     let rows: Vec<Value> =
         shown.iter().map(|w| json!({ "slug": w.slug, "title": w.title, "status": w.status, "role": w.role })).collect();
-    let ev = crate::events::reminder_idle_docket(&org.slug, &a.name, a.generation as i64, rows, (items.len() - shown.len()) as i64);
+    let ev = crate::events::reminder_idle_docket(&org.slug, &a.name, a.generation as i64, rows, (items.total - shown.len()) as i64);
     send(engine, org.id, a, ev, None).await?;
     Ok(true)
 }
