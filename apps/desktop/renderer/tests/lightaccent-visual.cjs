@@ -1,7 +1,7 @@
 // Page script for lightaccent-visual.mjs (tools/rig/desktop driver): the
 // light-mode gallery (lightaccent-visual.tsx) in the light and solarized-light
-// contrast families with every preset theme, and in charcoal with Orgtree
-// Grey, plus the root tokens of every preset on charcoal and of Claude Terracotta on
+// contrast families with every preset theme, and in charcoal with Claude
+// Terracotta, plus the root tokens of every preset on charcoal and of Claude Terracotta on
 // obsidian. For each frame it audits every element whose text is drawn in the
 // theme accent (or its hover) against the background it really sits on, every
 // accent fill against its own text, at rest and with the pointer on an urgent

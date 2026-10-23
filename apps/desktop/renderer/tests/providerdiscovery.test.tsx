@@ -13,7 +13,7 @@ const payload = (label: string): ProvidersPayload => ({ providers: [{
 }] } as ProvidersPayload)
 const response = (body: unknown) => ({ ok: true, headers: new Headers(), json: async () => body }) as Response
 
-test('theme menu follows rendered Providers order with Orgtree first and Custom last', async t => {
+test('theme menu follows rendered Providers order with Custom last', async t => {
   clearProviderDiscovery()
   const old = globalThis.fetch
   localStorage.clear()

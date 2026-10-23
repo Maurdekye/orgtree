@@ -1,7 +1,7 @@
 // Captures the light-mode gallery (lightaccent-visual.tsx: the user's inbox and
 // the Attention list) in offscreen Electron, in the light and solarized-light
-// contrast families with every preset theme, and in charcoal with Orgtree
-// Grey. With --expect it checks every preset's accent on the light surfaces
+// contrast families with every preset theme, and in charcoal with Claude
+// Terracotta. With --expect it checks every preset's accent on the light surfaces
 // (user 2026-10-18 15:34Z and 15:35Z): every text drawn in the accent or its
 // hover reads at 4.5:1 or more on the background it really sits on, at rest
 // and on a hovered urgent and unread row, every accent fill's own text does

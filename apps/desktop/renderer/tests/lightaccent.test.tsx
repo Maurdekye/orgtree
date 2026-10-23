@@ -62,7 +62,7 @@ const RULE = /\n:root\[data-visual-theme="claude"\]:is\(\.contrast-light, \.cont
 /* ─── §1 the light-surface rule ───────────────────────────────────────────── */
 
 test('§1 on the light surfaces the Claude Terracotta accent and its hover read on every background its text sits on', () => {
-  // the dark surfaces keep the theme's own accent, and that pale grey is why the rule exists
+  // Dark surfaces retain the original accent; light surfaces use its deep partner.
   assert.equal(THEMES.claude.accent, '#d97757')
 
   const rule = RULE.exec(css)
