@@ -24,6 +24,12 @@ The structured response contains `node`, `access`, persisted `busy`, `occupancy`
 
 Each message's text is limited to 1,200 Unicode characters. Stored tool/card objects are retained, but separately stored on-demand tool input/output is not reconstructed by this projection. There is no `before`, `after`, cursor, or older-page parameter, and increasing `last` cannot exceed 80. The runtime can attempt an earlier-history import; failure to import does not manufacture missing historical rows.
 
+Each message also has `incomplete` and `interrupted` booleans. Unfinished
+streamed replies retained when a turn ends have `incomplete: true`; interruption
+or killing also sets `interrupted: true`. They remain ordinary assistant text,
+not thoughts. A matched later native completion replaces the partial row and
+clears both flags. These flags describe received text, not tool-call outcomes.
+
 Pass an integer for `last` as declared. The handler also accepts numeric coercions and clamps finite values to `1`–`80`, truncating fractions; absent/null/empty string uses 30. Invalid/nonfinite values refuse with `last must be a number`.
 
 Missing `node`, unknown/deleted names, or an out-of-chain target are refused. The downward error says `you can only read the transcript of your reports and their reports; … is not below you`. A stored busy flag is a snapshot, not proof that a tool is still executing now.

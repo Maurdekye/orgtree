@@ -29,6 +29,11 @@ Rig live-root guards retain import-time `APPDATA`/home/data-override paths after
 
 ## Engine and desktop invariants
 
+- Preserve nonblank streamed text before taking a turn; native-identity receipts
+  reconcile late completions in place. Thinking is separate. See [unfinished
+  responses](docs/rust-engine/incomplete-responses.md). [verified:
+  `runtime/actor.rs`, `runtime/convo.rs`; 2026-10-23]
+
 - DnD targeted status calls change only DnD, require runtime+descendant authority,
   and allow the target to clear any hold itself. Idle targets arm the next turn;
   admission consumes the flag under its agent-row lock after claiming opening mail.

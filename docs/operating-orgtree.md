@@ -29,6 +29,13 @@ STOP ALL sets an organization admission latch, requests interruption of busy tur
 
 If an interrupt was queued at a tool/completion boundary, acceptance is not proof the turn already stopped. Boundaries differ by harness, and some asynchronous notifications can cut off the beginning of the next step. Check the settled state. A halt or restart can also stop background work tied to that process.
 
+Unfinished reply text received before a turn stops remains visible in Chat and
+saved history as an **incomplete response**. Interrupted or killed turns also
+show **interrupted**. The text stays separate from thinking. If the harness
+later completes that same message, its completion replaces the partial response
+and removes the marker. This does not recover text the harness never emitted or
+confirm whether an interrupted tool finished its external action.
+
 ## Updates and background operation
 
 Right-click Orgtree's **system-tray icon** to check for updates, see download progress and choose **Update now** when the download is ready. The update can be completed from that menu.
