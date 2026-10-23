@@ -20,7 +20,7 @@ globalThis.fetch=(async(url)=>{
   return new Response(JSON.stringify(data),{headers:{'Content-Type':'application/json'}})
 }) as typeof fetch
 document.body.style.background='var(--bg)'
-createRoot(document.getElementById('root')!).render(<main style={{display:'flex',gap:16,padding:16,height:'100vh',boxSizing:'border-box'}}>
+createRoot(document.getElementById('root')!).render(<main style={{display:'flex',flexDirection:'row',gap:16,padding:16,height:'100vh',boxSizing:'border-box'}}>
   <section style={{width:430,display:'flex',flexDirection:'column'}}><h2>Empty node · tabs hidden</h2><div data-fixture="empty" style={{display:'flex',flex:1,minHeight:0}}><Agent node={empty}/></div></section>
   <section style={{width:540,display:'flex',flexDirection:'column'}}><h2>Agent · team presentations</h2><div data-fixture="agent" style={{display:'flex',flex:1,minHeight:0}}><Agent/></div></section>
   <section style={{width:540,display:'flex',flexDirection:'column'}}><h2>Project · same Team checkbox</h2><div data-fixture="project" style={{display:'flex',flex:1,minHeight:0}}><Project/></div></section>
