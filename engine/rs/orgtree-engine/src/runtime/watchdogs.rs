@@ -1564,9 +1564,13 @@ pub(crate) async fn run_fire_actions(engine: &Arc<Engine>, org_id: i64, owner: i
             // fire action that created a websocket dog overflowed a debug
             // engine's 2 MiB worker stack (a spawned task would lose the
             // task-local depth above)
+            // Erase the Send proof at this existing heap boundary. Tool
+            // dispatch can cause listener/slot fires that call tools again;
+            // retaining the concrete type recursively expands that proof.
+            let action: std::pin::Pin<Box<dyn std::future::Future<Output=(bool,String)> + Send + '_>> =
+                crate::util::boxed(|| crate::tools::call_tool(engine, &caller, tool, &argv, None));
             let (ok, text) = match tokio::time::timeout(
-                Duration::from_secs(FIRE_ACTION_TIMEOUT_S),
-                crate::util::boxed(|| crate::tools::call_tool(engine, &caller, tool, &argv, None)),
+                Duration::from_secs(FIRE_ACTION_TIMEOUT_S), action,
             ).await {
                 Ok(r) => r,
                 Err(_) => (false, format!("timed out after {FIRE_ACTION_TIMEOUT_S}s")),

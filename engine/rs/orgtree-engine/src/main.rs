@@ -8,8 +8,7 @@
 //! `orgtree-engine mcp-bridge` — stdio MCP bridge for CLIs that need one
 
 #![allow(dead_code)]
-// The source/reply routes add to the existing dispatch/listener Send proof chain.
-#![recursion_limit = "512"]
+#![recursion_limit = "256"]
 
 #[macro_use]
 extern crate orgtree_logged;
