@@ -4,6 +4,7 @@
 // pinned level clears it, the keys step it, and the slider says its level.
 import './harness'
 import { createElement, inAct, mountView } from './harness'
+import { useState } from 'react'
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { EffortBar, nearestLevel } from '../src/canvas/effortbar'
@@ -69,6 +70,38 @@ test('a drag moves the pick live and the release commits once', async () => {
   await fire(t, 'pointerup', x(3))
   assert.deepEqual(sets, ['xhigh'])
   await view.unmount()
+})
+
+test('release clears the old hover preview without another pointer move', async () => {
+  const sets: string[] = []
+  function ControlledBar() {
+    const [value, setValue] = useState('high')
+    return createElement(EffortBar, {
+      value, level: value || 'low',
+      label: value ? `Effort (${value})` : 'inherit (low)',
+      onSet: (next: string) => { sets.push(next); setValue(next) },
+    })
+  }
+  const view = await mountView(createElement(ControlledBar), (el) => el)
+  const t = track(view)
+  try {
+    await fire(t, 'pointermove', x(2))
+    await fire(t, 'pointerdown', x(2))
+    await fire(t, 'pointermove', x(1))
+    assert.equal(view.el.querySelector('.effort-bar-label')!.textContent, 'Effort (medium)')
+    await fire(t, 'pointerup', x(1))
+    assert.deepEqual(sets, ['medium'])
+    assert.equal(view.el.querySelector('.effort-bar-pip')!.getAttribute('data-level'), 'medium')
+    assert.equal(t.getAttribute('aria-valuetext'), 'medium')
+    assert.equal(view.el.querySelector('.effort-bar-label')!.textContent, 'Effort (medium)')
+
+    // Releasing the pinned level restores the caller's inherited label too.
+    await fire(t, 'pointermove', x(2))
+    await fire(t, 'pointerdown', x(1))
+    await fire(t, 'pointerup', x(1))
+    assert.deepEqual(sets, ['medium', ''])
+    assert.equal(view.el.querySelector('.effort-bar-label')!.textContent, 'inherit (low)')
+  } finally { await view.unmount() }
 })
 
 test('pressing and releasing on the pinned level clears it back to inherit', async () => {

@@ -45,6 +45,15 @@ This is a display correction; move/reorder tool authority is unchanged.
 [decided: user 2026-10-23; verified: `canvas/{moveghost,OrgCanvas}.tsx`,
 `tests/{pendingmove,hiddenretiredbunch}.test.tsx`]
 
+## Effort bar release (2026-10-23)
+
+Clear the pre-drag hover preview when committing a pointer release. Otherwise
+the label falls back to that old preview after the drag ends, even after the
+saved effort and pip update. Clearing it also restores the caller's inherited
+label when pressing the pinned level clears the override. Keep hover previews,
+dragging, keyboard behavior and the existing single commit unchanged.
+[verified: `canvas/effortbar.tsx`, `tests/effortbar.test.tsx`]
+
 ## Queue-group disclosure defaults (2026-10-23)
 
 Every nonempty `PendingRun` exposes its native Show/Hide summary. A nullable

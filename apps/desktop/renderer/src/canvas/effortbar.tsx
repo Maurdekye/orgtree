@@ -123,6 +123,7 @@ export function EffortBar({ value, level, label, title, onSet, disabled: disable
           const i = at(e)
           e.currentTarget.releasePointerCapture?.(e.pointerId)
           setDrag(null)
+          setHover(null)
           setTravelled(false)
           setHeld(i)
           if (i === pinned && !moved.current) onSet('')
