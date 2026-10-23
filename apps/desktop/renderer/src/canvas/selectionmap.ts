@@ -122,7 +122,9 @@ function domUnits(root: Element): DomUnit[] {
     const el = node as Element
     if (el !== root && el.hasAttribute('data-selection-source')) return
     const reference = el.getAttribute('data-ref-token') ?? el.getAttribute('data-ref-mention')
-    const math = el.matches('.katex') ? el.querySelector('annotation[encoding="application/x-tex"]')?.textContent : null
+    // The sanitizer preserves KaTeX's text annotation but may strip its
+    // encoding attribute; the trusted renderer's .katex ancestor is the gate.
+    const math = el.matches('.katex') ? el.querySelector('annotation')?.textContent : null
     const atomic = reference ?? math
     if (atomic !== null && atomic !== undefined) {
       for (const char of atomic) out.push({ node: el, start: 0, end: el.childNodes.length, char, atomic: el })
