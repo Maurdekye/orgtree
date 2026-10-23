@@ -1539,6 +1539,7 @@ async fn hire(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transaction<'_>, 
 async fn create_project(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transaction<'_>, actor: &Actor, req: &Value, fx: &mut Effects) -> Result<Value> {
     let agent = matches!(actor, Actor::Agent { .. });
     let name = valid_name(str_arg(req, "name").unwrap_or(""))?;
+    let initial_scope = project_initial_scope(req.get("settings"))?;
     name_free(tx, org.id, &name).await?;
     // `above`: the project takes that node's place and the node goes under it
     // (the hire token's top edge, user 2026-10-16 21:02Z)
@@ -1603,7 +1604,7 @@ async fn create_project(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transac
             "INSERT INTO ot.agents (org_id, name, parent_id, sibling_order, state, title, charter, tier, seat, grant_credits,
                                     scope, generation, born, kind)
              VALUES ($1, $2, $3, $4, 'live', $5, $6, $7, 0, 0, $8, 1, $9, $10) RETURNING id",
-            &[&org.id, &name, &parent_id, &order, &title, &description, &crate::domain::projects::TIER, &scope::transparent(),
+            &[&org.id, &name, &parent_id, &order, &title, &description, &crate::domain::projects::TIER, &initial_scope,
               &born, &crate::domain::projects::KIND],
         )
         .await?
@@ -2374,6 +2375,30 @@ async fn project_settings(org: &Arc<OrgHandle>, tx: &Transaction<'_>, actor: &Ac
         "turn_end_reminder":super::projects::turn_end_reminder(&n.scope),"slots":super::slots::capacity(&n.scope),
         "event_listeners":super::listeners::enabled(&n.scope)
     }}))
+}
+
+/// New projects have no queue, leases or listeners to reconfigure. Validate the
+/// same policy patch and store its initial scope in the creation INSERT. This
+/// also supports an authorized creator wrapping itself in a project, without
+/// granting it ongoing authority to edit an ancestor's policy.
+#[nolog]
+fn project_initial_scope(settings: Option<&Value>) -> Result<Value> {
+    let mut initial = scope::transparent();
+    let Some(settings) = settings else { return Ok(initial); };
+    let Some(fields) = settings.as_object() else { refuse!(BadRequest, "settings must be an object"); };
+    if fields.contains_key("name") || fields.contains_key("description") {
+        refuse!(BadRequest, "create uses name and description outside settings");
+    }
+    if fields.is_empty() { return Ok(initial); }
+    project_setting_ops("draft", settings)?;
+    for (key, stored) in [("peer_mail", "peer_mail"), ("mail_queue", "mail_queue"),
+        ("exclude_sender", "mail_queue_exclude_sender"), ("ack_timeout", "mail_queue_ack_timeout"),
+        ("max_attempts", "mail_queue_max_attempts"), ("ack_reminders", "mail_queue_ack_reminders"),
+        ("turn_end_reminder", "mail_queue_turn_end_reminder"), ("slots", "slots_capacity"),
+        ("event_listeners", "event_listeners")] {
+        if let Some(value) = fields.get(key) { initial[stored] = value.clone(); }
+    }
+    Ok(initial)
 }
 
 /// Prepare an explicit patch; canonical operations retain value validation and effects.
@@ -3227,6 +3252,67 @@ async fn cheap_compact(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transact
 #[cfg(test)]
 mod project_settings_tests {
     use super::*;
+    #[tokio::test]
+    #[ignore="explicit owned disposable native fixture required"]
+    #[nolog]
+    async fn creation_persists_policy_atomically_without_ancestor_policy_authority() {
+        let fixture=crate::domain::native_fixture::Fixture::from_env().await;
+        let (mut client, connection)=fixture.cfg.connect(tokio_postgres::NoTls).await.unwrap();
+        let connection=tokio::spawn(async move { connection.await });
+        crate::migrate::run(&mut client,&|_|{}).await.unwrap();
+        let tx=client.transaction().await.unwrap();
+        let uuid=uuid::Uuid::new_v4();let slug=format!("draft-project-{uuid}");
+        let org:i64=tx.query_one("INSERT INTO ot.orgs(uuid,slug,name) VALUES($1,$2,$2) RETURNING id",&[&uuid,&slug]).await.unwrap().get(0);
+        let handle=crate::orgs::provisional(org,uuid.to_string(),slug.clone(),slug);
+        let engine=Engine::for_tests(fixture.engine_root("draft-project-engine"));
+        let id:i64=tx.query_one("INSERT INTO ot.agents(org_id,name,kind,tier,state,born) VALUES($1,'creator','agent','sol','live','synthetic') RETURNING id",&[&org]).await.unwrap().get(0);
+        let actor=Actor::Agent{id,name:"creator".into()};
+        let mut effects=Effects::default();
+        let settings=json!({"peer_mail":false,"mail_queue":"ack","exclude_sender":true,"slots":4,
+            "event_listeners":true,"ack_timeout":false,"max_attempts":7,"ack_reminders":5,"turn_end_reminder":false});
+        for (name,placement) in [("under","parent"),("above","above")] {
+            let mut req=json!({"op":"create_project","name":name,"description":"Draft summary","index":0,"settings":settings});
+            req[placement]=json!("creator");
+            crate::util::boxed(|| run_in_tx(&engine,&handle,&tx,&actor,&req,&mut effects)).await.unwrap();
+            let row=tx.query_one("SELECT scope,charter FROM ot.agents WHERE org_id=$1 AND name=$2",&[&org,&name]).await.unwrap();
+            assert_eq!(row.get::<_,Value>(0),project_initial_scope(Some(&settings)).unwrap());
+            assert_eq!(row.get::<_,String>(1),"Draft summary");
+        }
+        let count:i64=tx.query_one("SELECT count(*) FROM ot.agents WHERE org_id=$1",&[&org]).await.unwrap().get(0);
+        let bad=json!({"op":"create_project","name":"invalid","above":"creator","settings":{"slots":-1}});
+        assert!(crate::util::boxed(|| run_in_tx(&engine,&handle,&tx,&actor,&bad,&mut effects)).await.is_err());
+        assert_eq!(tx.query_one("SELECT count(*) FROM ot.agents WHERE org_id=$1",&[&org]).await.unwrap().get::<_,i64>(0),count);
+        let configure=json!({"op":"configure_project","node":"above","settings":{"slots":8}});
+        assert!(crate::util::boxed(|| run_in_tx(&engine,&handle,&tx,&actor,&configure,&mut effects)).await.is_err(),"creating a wrapping project grants no ongoing policy authority");
+        tx.rollback().await.unwrap();drop(client);connection.await.unwrap().unwrap();
+    }
+    #[test]
+    fn creation_policy_preserves_defaults_false_zero_and_every_setting() {
+        assert_eq!(project_initial_scope(None).unwrap(), scope::transparent());
+        assert_eq!(project_initial_scope(Some(&json!({}))).unwrap(), scope::transparent());
+        let patch=json!({"peer_mail":false,"mail_queue":"ack","exclude_sender":true,
+            "ack_timeout":false,"max_attempts":7,"ack_reminders":5,"turn_end_reminder":false,
+            "slots":0,"event_listeners":true});
+        let initial=project_initial_scope(Some(&patch)).unwrap();
+        assert!(!super::super::peer_mail::enabled(&initial));
+        assert!(super::super::projects::ack_mode(&initial));
+        assert!(super::super::projects::exclude_sender(&initial));
+        assert!(!super::super::projects::ack_timeout(&initial));
+        assert_eq!(super::super::projects::max_attempts(&initial),7);
+        assert_eq!(super::super::projects::ack_reminders(&initial),5);
+        assert!(!super::super::projects::turn_end_reminder(&initial));
+        assert_eq!(super::super::slots::capacity(&initial),0);
+        assert!(super::super::listeners::enabled(&initial));
+        assert_eq!(project_initial_scope(Some(&json!({"slots":4}))).unwrap()["slots_capacity"],4);
+    }
+    #[test]
+    fn creation_policy_refuses_invalid_or_duplicate_identity_fields() {
+        for patch in [json!(null),json!([]),json!({"slots":-1}),json!({"slots":1.5}),
+            json!({"mail_queue":"fifo"}),json!({"peer_mail":"false"}),json!({"ack_reminders":11}),
+            json!({"account":"secret"}),json!({"name":"other"}),json!({"description":"ambiguous"})] {
+            assert!(project_initial_scope(Some(&patch)).is_err(),"accepted invalid creation policy {patch}");
+        }
+    }
     #[test]
     fn ack_reminder_default_control() {
         assert_eq!(super::super::projects::ACK_WAKES, 3);
