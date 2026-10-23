@@ -417,14 +417,14 @@ async fn hand_batch_in(tx: &impl GenericClient, org_id: i64, project: i64, limit
                       AND older.owner_agent_id IS NOT DISTINCT FROM w.owner_agent_id
                       AND (older.memo->>'target_id')::bigint=$2)
                 AND (w.owner_kind='user' OR EXISTS (
-                    WITH RECURSIVE owners(id,parent_id,depth) AS (
-                      SELECT id,parent_id,0 FROM ot.agents WHERE id=a.id
-                      UNION ALL SELECT x.id,x.parent_id,o.depth+1 FROM ot.agents x JOIN owners o ON x.id=o.parent_id WHERE o.depth<1024),
-                    project_line(id,parent_id,depth) AS (
-                      SELECT id,parent_id,0 FROM ot.agents WHERE id=$2
-                      UNION ALL SELECT x.id,x.parent_id,p.depth+1 FROM ot.agents x JOIN project_line p ON x.id=p.parent_id WHERE p.depth<1024)
-                    SELECT 1 FROM owners WHERE id=$2 AND depth>0
-                    UNION ALL SELECT 1 FROM project_line WHERE id=a.id AND depth>0))
+                    WITH RECURSIVE owners(id,parent_id,org_id) AS (
+                      SELECT id,parent_id,org_id FROM ot.agents WHERE id=a.id
+                      UNION SELECT x.id,x.parent_id,x.org_id FROM ot.agents x JOIN owners o ON x.id=o.parent_id AND x.org_id=o.org_id),
+                    project_line(id,parent_id,org_id) AS (
+                      SELECT id,parent_id,org_id FROM ot.agents WHERE id=$2
+                      UNION SELECT x.id,x.parent_id,x.org_id FROM ot.agents x JOIN project_line p ON x.id=p.parent_id AND x.org_id=p.org_id)
+                    SELECT 1 FROM owners WHERE id=$2 AND id<>a.id
+                    UNION ALL SELECT 1 FROM project_line WHERE id=a.id AND id<>$2))
                 AND (NOT $3 OR held.n < CASE WHEN w.memo->>'batch' IN
                       ('1','2','3','4','5','6','7','8','9','10','11','12','13','14','15','16','17','18','19','20')
                       THEN (w.memo->>'batch')::int ELSE 1 END)
@@ -1534,12 +1534,16 @@ pub async fn nudge_target(engine: &Engine, client: &impl GenericClient, project:
 pub async fn members(client: &impl GenericClient, project: i64) -> Result<Vec<String>> {
     Ok(client
         .query(
-            "WITH RECURSIVE down(id, depth) AS (
-               SELECT id, 1 FROM ot.agents WHERE parent_id = $1 AND state = 'live'
-               UNION ALL SELECT a.id, d.depth + 1 FROM ot.agents a JOIN down d ON a.parent_id = d.id
-                WHERE d.depth < 1024 AND a.state = 'live')
-             SELECT a.name FROM down d JOIN ot.agents a ON a.id = d.id
-              WHERE a.kind IS DISTINCT FROM 'project' ORDER BY d.depth, a.sibling_order, a.id LIMIT 1000",
+            "WITH RECURSIVE down(id,parent_id,org_id) AS (
+               SELECT a.id,a.parent_id,a.org_id FROM ot.agents a JOIN ot.agents root ON root.id=$1 AND root.org_id=a.org_id
+                WHERE a.parent_id=$1 AND a.id<>$1 AND a.state='live'
+               UNION SELECT a.id,a.parent_id,a.org_id FROM ot.agents a JOIN down d ON a.parent_id=d.id AND a.org_id=d.org_id
+                WHERE a.id<>$1 AND a.state='live'),
+             levels(id,depth) AS (
+               SELECT id,1 FROM down WHERE parent_id=$1
+               UNION ALL SELECT a.id,l.depth+1 FROM down a JOIN levels l ON a.parent_id=l.id)
+             SELECT a.name FROM levels l JOIN ot.agents a ON a.id=l.id
+              WHERE a.kind IS DISTINCT FROM 'project' ORDER BY l.depth,a.sibling_order,a.id LIMIT 1000",
             &[&project],
         )
         .await?

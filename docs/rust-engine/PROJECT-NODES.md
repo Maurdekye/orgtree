@@ -20,6 +20,12 @@ self, unrelated branches and cross-org edges still grant no reach. This shared
 check covers broadcast, events, listeners, queues and slots at deeply nested
 projects. [verified: `domain/projects.rs::reaches`, 2026-10-22]
 
+Broadcast membership traverses the full live project subtree before its existing
+recipient cap. Fair-queue eligibility independently follows full same-org ancestry
+for owners above or below the project. Stable edge unions terminate corrupt cycles;
+the existing recipient ordering, halt/ACK rules and per-owner registration checks
+are unchanged. [verified: `domain/projects.rs::{members,watchers}`, 2026-10-23]
+
 Movement, sibling reorder, rename, superior insertion and retirement operate on
 node identities. `self_subjugate` can promote a live descendant project into the
 caller's structural position: the project keeps its policy and resources, its
