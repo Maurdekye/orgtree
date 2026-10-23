@@ -190,3 +190,5 @@ Codex turn's MCP call create a project, with no overflow line in stderr; the pro
 create overflowed before the boxing.
 
 The fire-action dispatch future is also type-erased as `Pin<Box<dyn Future<Output=(bool,String)> + Send>>` at that same heap boundary. Listener/slot effects can dispatch tools recursively; retaining the concrete future recursively expands the compiler Send proof. Erasure retains the current task-local scope, timeout and awaited action order. It creates no detached task and does not increase the compiler recursion limit.
+
+`run_fire_actions` exposes the same explicit Send-erased future contract at its entry boundary; its private async implementation remains `#[nolog]`. This closes the recursive opaque-future Send proof when an immediate action itself dispatches another fire action.
