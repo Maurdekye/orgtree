@@ -162,7 +162,7 @@ The [getting-started guide](docs/getting-started.md) covers installation, provid
 
 ## How Orgtree works
 
-An agent combines a language model with tools that can act on a task: read a repository, change files, run commands or investigate a question. Orgtree runs these agents through supported harnesses such as Claude Code and Codex. You choose the models and accounts, give each agent a role, and decide which folders and tools it can use.
+A harness combines a language model with tools that can act on a task: read a repository, change files, run commands or investigate a question. Orgtree runs these harnesses, such as Claude Code and Codex, as agents: persistent members of your organization, each with its own conversation, mailbox and working folder. You choose the models and accounts, give each agent a role, and decide which folders and tools it can use.
 
 An organization is the workspace around those agents. Start with one agent, describe a concrete result and follow its conversation. For a larger job, a coordinator can divide the work among specialists, collect their results and bring decisions back to you. Agents keep their desks and working files between turns, so the team can return to an unfinished task. Their charters carry standing instructions; shared notes and the work docket preserve the team's knowledge and progress.
 
