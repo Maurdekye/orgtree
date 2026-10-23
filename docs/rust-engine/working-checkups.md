@@ -27,9 +27,15 @@ a separate mechanism.
 
 ## Bounded progress (2026-10-23)
 
-Reminder preparation now carries finite ID/slug boundaries and keyset cursors
-between ticks: up to 5,000 reporting rows and 5,000 work rows per preparation
-step, then up to 200 eligible agents per wake step. Recipient resolution still
+Working-only sweeps skip docket preparation entirely, including the sign-in
+path. Their finite agent boundary uses the live-agent index. When idle docket
+reminders are enabled, preparation carries finite slug boundaries and keyset
+cursors between ticks: up to 5,000 active work rows per preparation step, then
+up to 200 eligible agents per wake step. Each work page resolves only its named
+owners/reviewers and the deployment ancestors needed to reach a live superior;
+it never builds a map of unrelated retired reporting history. The routing map
+is discarded after the page. Setting changes restart the finite cycle.
+Recipient resolution still
 uses `docket::next_recipient`, including reviewers and deployers. The accumulator
 retains only 20 displayed rows and an exact count per recipient/category. New
 records beyond the captured boundaries wait for the next finite cycle. The

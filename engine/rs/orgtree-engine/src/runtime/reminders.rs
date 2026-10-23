@@ -163,7 +163,7 @@ async fn sweep_org(engine: &Arc<Engine>, org: &Arc<OrgHandle>, sw: Switches, ear
     if ks.is_some() {
         return Ok(true);
     }
-    if !scan.prepare(&**client, org.id).await? { return Ok(false); }
+    if !scan.prepare(&**client, org.id, sw.idle).await? { return Ok(false); }
     let rows = pages::agent_rows(&**client, org.id, early, scan.after, scan.upper).await?;
     let finished = rows.len() < pages::AGENTS as usize;
     scan.after = rows.last().map(|r| r.get(0)).unwrap_or(scan.after);
@@ -193,7 +193,7 @@ async fn sweep_org(engine: &Arc<Engine>, org: &Arc<OrgHandle>, sw: Switches, ear
         a.slots = crate::domain::slots::held_by(&**client, a.id).await?;
     }
     // Use the complete current org set, never a prefix of the work page.
-    let all_blocked = sw.blocked && pages::all_blocked(&**client, org.id).await?;
+    let all_blocked = sw.idle && sw.blocked && pages::all_blocked(&**client, org.id).await?;
     drop(client);
     let now = Utc::now();
     for a in &agents {

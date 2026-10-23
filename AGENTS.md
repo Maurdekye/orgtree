@@ -31,6 +31,11 @@ Rig live-root guards retain import-time `APPDATA`/home/data-override paths after
 
 ## Engine and desktop invariants
 
+- Working-only checkups skip docket preparation; reminder routing reads only
+  the active work page's named identities and required deployment ancestry.
+  Never preload unrelated retired reporting history. See [working checkups](docs/rust-engine/working-checkups.md).
+  [verified: `runtime/reminders{,/pages}.rs`; 2026-10-23]
+
 - Fresh Work/Presented openings use attention/unread, scoped last-viewed identity,
   then topmost. Continued readers and explicit links preserve their targets.
   See [opening rules](docs/agents/docket-and-presentations.md#opening-priority-2026-10-23).

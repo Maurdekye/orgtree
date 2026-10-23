@@ -1,12 +1,14 @@
 //! One bounded stage per sweep, with finite high-water marks. Keep only the
 //! displayed rows plus a count per recipient, not every outstanding work row.
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use anyhow::Result;
 use tokio_postgres::GenericClient;
 use super::{docket, Agents, WorkRow, MAX_ITEMS};
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod reminder_history_tests;
 
 pub(super) const AGENTS: i64 = 200;
 const PAGE: i64 = 5000;
@@ -33,9 +35,10 @@ pub(super) struct Sweep {
     initialized: bool,
     pub upper: i64,
     pub after: i64,
-    reporting_after: i64,
-    reporting_done: bool,
+    docket_needed: bool,
     everyone: Agents,
+    #[cfg(test)]
+    routing_rows: usize,
     work_upper: Option<String>,
     work_after: Option<String>,
     work_done: bool,
@@ -48,25 +51,18 @@ pub(super) struct Sweep {
 #[logged]
 impl Sweep {
     #[nolog]
-    pub async fn prepare(&mut self, client: &impl GenericClient, org: i64) -> Result<bool> {
+    pub async fn prepare(&mut self, client: &impl GenericClient, org: i64, docket_needed: bool) -> Result<bool> {
+        if self.initialized && self.docket_needed != docket_needed { *self = Self::default(); }
         if !self.initialized {
-            self.upper = client.query_one("SELECT coalesce(max(id),0) FROM ot.agents WHERE org_id=$1", &[&org]).await?.get(0);
-            self.work_upper = client.query_one(&format!("SELECT max(slug) FROM ot.work_items WHERE org_id=$1 AND {UNFINISHED}"), &[&org]).await?.get(0);
+            self.upper = client.query_one("SELECT coalesce(max(id),0) FROM ot.agents WHERE org_id=$1 AND state='live'", &[&org]).await?.get(0);
+            self.docket_needed = docket_needed;
+            if docket_needed {
+                self.work_upper = client.query_one(&format!("SELECT max(slug) FROM ot.work_items WHERE org_id=$1 AND {UNFINISHED}"), &[&org]).await?.get(0);
+            }
             self.initialized = true;
         }
-        if !self.reporting_done {
-            let rows = client.query(
-                "SELECT name,id,state,superior_id FROM ot.agent_reporting
-                 WHERE org_id=$1 AND state<>'deleted' AND id>$2 AND id<=$3 ORDER BY id LIMIT $4",
-                &[&org,&self.reporting_after,&self.upper,&PAGE],
-            ).await?;
-            for r in &rows {
-                self.reporting_after = r.get(1);
-                self.everyone.insert(r.get(0),(r.get(1),r.get(2),r.get(3)));
-            }
-            if rows.len() == PAGE as usize { return Ok(false); }
-            self.reporting_done = true;
-        }
+        // Checkups (including sign-in checks) need no docket/reporting scan.
+        if !docket_needed { return Ok(true); }
         if !self.work_done {
             if let Some(upper) = &self.work_upper {
                 let rows = client.query(
@@ -77,6 +73,7 @@ impl Sweep {
                           AND ($2::text IS NULL OR slug>$2) AND slug<=$3 ORDER BY slug LIMIT $4"),
                     &[&org,&self.work_after,&upper,&PAGE],
                 ).await?;
+                self.load_routing(client, org, &rows).await?;
                 for r in &rows {
                     let status: String = r.get(2);
                     let owner: Option<serde_json::Value> = r.get(3);
@@ -86,12 +83,64 @@ impl Sweep {
                     self.work_after = Some(row.slug.clone());
                     self.add(row);
                 }
+                self.everyone.clear();
                 if rows.len() == PAGE as usize { return Ok(false); }
             }
             self.work_done = true;
             self.everyone.clear();
         }
         Ok(true)
+    }
+
+    // Resolve only identities named by this active work page. Deployment
+    // follows their contracted agent chain only as far as the first live
+    // superior; unrelated retired history is never read or retained.
+    #[nolog]
+    async fn load_routing(&mut self, client: &impl GenericClient, org: i64, work: &[tokio_postgres::Row]) -> Result<()> {
+        self.everyone.clear();
+        let mut names = HashSet::new();
+        for row in work {
+            for column in [3, 5] {
+                let reference: Option<serde_json::Value> = row.get(column);
+                if let Some(name) = reference.as_ref().and_then(|v| v["node"].as_str()) { names.insert(name.to_owned()); }
+            }
+        }
+        if names.is_empty() { return Ok(()); }
+        let names: Vec<String> = names.into_iter().collect();
+        let rows = client.query("SELECT name,id,state,superior_id FROM ot.agent_reporting
+            WHERE org_id=$1 AND state<>'deleted' AND name=ANY($2)", &[&org,&names]).await?;
+        self.record_routing(&rows);
+        let mut pending = HashSet::new();
+        for row in work {
+            if row.get::<_,String>(2) != "deploy_ready" { continue; }
+            let owner: Option<serde_json::Value> = row.get(3);
+            let owner_id: Option<i64> = row.get(4);
+            let Some(reference) = owner.as_ref().filter(|v| v["deleted"].as_bool() != Some(true)) else { continue };
+            if let Some((id,state,Some(up))) = reference["node"].as_str().and_then(|name| self.everyone.get(name)) {
+                if state == "live" && owner_id.is_none_or(|recorded| recorded == *id) { pending.insert(*up); }
+            }
+        }
+        let mut visited = HashSet::new();
+        while !pending.is_empty() {
+            let ids: Vec<i64> = pending.drain().filter(|id| visited.insert(*id)).collect();
+            if ids.is_empty() { break; }
+            let rows = client.query("SELECT name,id,state,superior_id FROM ot.agent_reporting
+                WHERE org_id=$1 AND state<>'deleted' AND id=ANY($2)", &[&org,&ids]).await?;
+            for row in &rows {
+                if row.get::<_,String>(2) != "live" {
+                    if let Some(up) = row.get::<_,Option<i64>>(3) { pending.insert(up); }
+                }
+            }
+            self.record_routing(&rows);
+        }
+        Ok(())
+    }
+
+    #[nolog]
+    fn record_routing(&mut self, rows: &[tokio_postgres::Row]) {
+        #[cfg(test)]
+        { self.routing_rows += rows.len(); }
+        for row in rows { self.everyone.insert(row.get(0),(row.get(1),row.get(2),row.get(3))); }
     }
 
     #[nolog]
@@ -144,6 +193,6 @@ pub(super) async fn agent_rows(client: &impl GenericClient, org: i64, early: boo
 impl std::fmt::Debug for Sweep {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("ReminderSweep").field("after",&self.after).field("upper",&self.upper)
-            .field("reporting_after",&self.reporting_after).field("work_after",&self.work_after).finish_non_exhaustive()
+            .field("docket_needed",&self.docket_needed).field("work_after",&self.work_after).finish_non_exhaustive()
     }
 }

@@ -42,6 +42,9 @@ checkup processes at most 20 jobs and 20 leases, names the holdings in that page
 and applies each project's existing timeout/reminder policy. Later due checkups
 continue after it; timeout-disabled holdings cannot pin every checkup to the
 same first page. A page is not a limit on how many resources an agent can hold.
+Working-only checkups skip docket preparation. Docket reminders resolve only
+the current active work page's owner/reviewer identities and needed deployment
+ancestors; unrelated retired agents do not delay working-only checks.
 The holding cursors survive restarts; scan preparation restarts, while durable
 wake stamps still prevent immediate duplicate wakes.
 

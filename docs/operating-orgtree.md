@@ -25,6 +25,9 @@ Inspect current files/records before repeating a mutation after a timeout or los
 
 Automatic checkups and docket reminders scan agents and unfinished work in
 bounded pages, continuing through large organizations over later sweep ticks.
+Working-only checkups skip docket preparation; unrelated retired agents do not
+delay them. Docket reminder routing reads only the identities and ancestry
+needed by the current active work page.
 A page does not cap the agents or tickets that can receive reminders. A docket
 reminder still displays at most 20 tickets and the omitted count. The optional
 all-blocked reminder checks the entire unfinished, unarchived, non-backlogged
