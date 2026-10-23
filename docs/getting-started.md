@@ -4,12 +4,9 @@
 
 ## After the tour
 
-**Orgtree School 1: Introduction** shows how to hire a team, give it a goal and watch it work. These guides are the next step: use the same canvas, hire tokens, desks, Mail, Docket and Presented tabs on a real task of your own. You do not need to configure a large organization to begin.
+After a first look at Orgtree, use these guides to put the basics to work on a real task: connect a harness, create an organization, hire an agent and talk in its desk. You do not need to configure a large organization to begin.
 
-**Orgtree School 1: Introduction:** the video link will be added here after publication.
-<!-- Tutorial video URL placeholder: replace this sentence with the published link and chapter links when available. -->
-
-If you already followed the tour's **Set up your harnesses**, **Create your first organization**, **Hire your first agent** and **Talk to your agent** chapters, keep your working organization and continue with [Workspace](workspace.md). Return to this page when installing on another computer or starting a fresh team. Later guides go deeper into the larger-organization scenes, then introduce settings, model routes, outside connections and automation.
+If you already have a connected provider, an organization and an agent working on a task, keep that setup and continue with [Workspace](workspace.md). Return to this page when installing on another computer or starting a fresh team. Later guides cover larger teams, settings, model routes, outside connections and automation.
 
 | Word | What it means |
 | --- | --- |
