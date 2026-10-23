@@ -87,6 +87,15 @@ not execute; never count it as a product result.
 
 ## Renderer, capture and rig traps
 
+- **Scope click-away listener counts to the component lifecycle.** Import
+  canvas modules before intercepting document listeners, then snapshot the
+  mounted canvas's callback identities before opening the tray. Tray open and
+  reopen add exactly one; close/Escape return to the same baseline; unmount
+  removes all listeners owned by that mount. Global navigation and module
+  observers are independent owners. Keep a duplicate-handler mutation control
+  when changing this oracle. [verified: `tests/agentstrayclickaway.test.tsx`,
+  `canvas/OrgCanvas.tsx`, `windowlife.ts`;2026-10-23]
+
 - Work-status and next-turn-query share `tools/rig/native-tool-result.mjs`:
   correlate the original process/server/tool/request/RPC identity, and for
   repeated work calls also the tool-use id and exact scripted arguments. Accept

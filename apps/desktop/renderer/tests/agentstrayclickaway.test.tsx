@@ -145,6 +145,9 @@ test('outside controls and canvas drag starts close without being swallowed',
 
 test('Escape and close/unmount clean capture listeners without duplicates',
   async () => {
+    // Module-lifetime document observers are not owned by a mounted canvas.
+    // Import first so this test also measures the same lifecycle when filtered.
+    await import('../src/canvas/OrgCanvas')
     const originalAdd = document.addEventListener.bind(document)
     const originalRemove = document.removeEventListener.bind(document)
     const active = new Set<EventListenerOrEventListenerObject>()
@@ -162,8 +165,17 @@ test('Escape and close/unmount clean capture listeners without duplicates',
     let view: Awaited<ReturnType<typeof mountCanvas>> | null = null
     try {
       view = await mountCanvas()
+      // Navigation owns a separate capture listener for the whole canvas life.
+      // Track identities already installed, then count only the tray's additions.
+      const baseline = new Set(active)
+      const assertTrayListeners = (expected: number, message: string) => {
+        assert.equal([...baseline].every(listener => active.has(listener)), true,
+          'the tray removed an existing canvas capture listener')
+        assert.equal([...active].filter(listener => !baseline.has(listener)).length,
+          expected, message)
+      }
       await openTray()
-      assert.equal(active.size, 1, 'opening installed duplicate click-away handlers')
+      assertTrayListeners(1, 'opening installed duplicate click-away handlers')
 
       await inAct(() => {
         document.dispatchEvent(new window.KeyboardEvent('keydown', {
@@ -172,10 +184,17 @@ test('Escape and close/unmount clean capture listeners without duplicates',
       })
       await flush()
       assert.equal(document.querySelector('.tray'), null, 'Escape did not close the tray')
-      assert.equal(active.size, 0, 'closing left its click-away listener attached')
+      assertTrayListeners(0, 'closing left its click-away listener attached')
 
       await openTray()
-      assert.equal(active.size, 1, 'reopening accumulated click-away handlers')
+      assertTrayListeners(1, 'reopening accumulated click-away handlers')
+      await inAct(() => { (document.querySelector('.tray-toggle') as HTMLElement).click() })
+      await flush()
+      assert.equal(document.querySelector('.tray') === null, true, 'the trigger did not close the tray')
+      assertTrayListeners(0, 'trigger close left its click-away listener attached')
+
+      await openTray()
+      assertTrayListeners(1, 'a second reopen accumulated click-away handlers')
       await view.unmount()
       view = null
       assert.equal(active.size, 0, 'unmount left its click-away listener attached')
