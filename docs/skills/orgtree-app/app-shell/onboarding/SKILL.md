@@ -23,6 +23,11 @@ room, the note moves below or above the group, keeping the controls clear and th
 note inside the canvas. Notes also move clear of visible canvas controls, such as
 the zoom toolbar. If no clear space remains, the guide waits until the view has room.
 
+The first-message note prefers the composer's right side and stays clear of
+staged attachment previews, including wrapped rows. When it cannot fit beside
+the composer, it aligns right above or below the composer and its previews;
+the connector still points at the message box. It yields if no clear space fits.
+
 ## See also
 
 - [orgtree-homepage](../homepage/SKILL.md)

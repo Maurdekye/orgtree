@@ -49,7 +49,7 @@ Orgtree does not include model access. Your subscription, API charges and provid
 
 On the welcome card, enter an **Organization name** and keep **Starting layout: Empty** to build the team yourself. Click **Create organization**. You can also create another organization later through the **Orgtree** menu.
 
-The new canvas starts with the **YOU** eye card. The first-use guide points at the actual hire and message controls. Its hire-token note sits left of the token group and its name note right of the draft; they move above/below when space is tight and yield when no clear space remains. If you choose a starting layout that already hires agents, it begins with the first-message step instead. A layout is optional.
+The new canvas starts with the **YOU** eye card. The first-use guide points at the actual hire and message controls. Its hire-token note sits left of the token group and its name note right of the draft; they move above/below when space is tight and yield when no clear space remains. The first-message note stays toward the right of the composer, clear of staged attachment previews; in a narrow view it can move above or below the composer and previews. If you choose a starting layout that already hires agents, it begins with the first-message step instead. A layout is optional.
 
 ## Hire one agent
 

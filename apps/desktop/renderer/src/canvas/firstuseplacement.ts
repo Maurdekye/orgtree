@@ -4,7 +4,7 @@ export type GuidePlacement = GuideRect & { side: Side; path: string }
 
 /** Keep the note outside the whole control group, rather than just its target. */
 export function firstUsePlacement(target: GuideRect, group: GuideRect, viewport: GuideRect,
-  height: number, preferred: 'left' | 'right', obstacles: GuideRect[] = []): GuidePlacement | null {
+  height: number, preferred: 'left' | 'right', obstacles: GuideRect[] = [], fallbackAlign: 'center' | 'right' = 'center'): GuidePlacement | null {
   const gap = 20, pad = 12
   const x0 = viewport.left + pad, y0 = viewport.top + pad
   const x1 = viewport.left + viewport.width - pad, y1 = viewport.top + viewport.height - pad
@@ -27,7 +27,7 @@ export function firstUsePlacement(target: GuideRect, group: GuideRect, viewport:
   }
   if (!placed) {
     w = width
-    left = clamp(group.left + group.width / 2 - width / 2, x0, x1 - width)
+    left = clamp(fallbackAlign === 'right' ? group.left + group.width - width : group.left + group.width / 2 - width / 2, x0, x1 - width)
     // Narrow windows keep the entire group clear; never clamp a side note over it.
     if (group.top + group.height + gap + height <= y1 && clear(left, group.top + group.height + gap, width)) {
       side = 'below'; top = group.top + group.height + gap
@@ -39,7 +39,7 @@ export function firstUsePlacement(target: GuideRect, group: GuideRect, viewport:
   const start = side === 'left' ? [left + w, clamp(cy, top + 10, top + height - 10)]
     : side === 'right' ? [left, clamp(cy, top + 10, top + height - 10)]
       : [left + w / 2, side === 'above' ? top + height : top]
-  const routeLeft = group.left - 10 >= x0
+  const routeLeft = fallbackAlign !== 'right' && group.left - 10 >= x0
   const end = side === 'left' || (side !== 'right' && routeLeft) ? [target.left - 4, cy] : [target.left + target.width + 4, cy]
   const route = side === 'above' || side === 'below'
     ? ` L ${clamp(routeLeft ? group.left - 10 : group.left + group.width + 10, x0, x1)} ${start[1]} L ${clamp(routeLeft ? group.left - 10 : group.left + group.width + 10, x0, x1)} ${cy}` : ''

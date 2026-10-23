@@ -116,14 +116,21 @@ export function FirstUseGuide({ slug, root, hidden = false }: {
         return hit === el || !!(hit && el.contains(hit))
       }) ?? null
       let hint: GuidePlacement | null = null
-      if (next && host && (progress.step === 'token' || progress.step === 'name')) {
+      if (next && host && (progress.step === 'token' || progress.step === 'name'
+          || (progress.step === 'message' && !!next.dataset.firstUseChat))) {
+        const message = progress.step === 'message'
         const r = next.getBoundingClientRect()
-        const group = (next.closest(progress.step === 'token' ? '.hsof' : '.sq.draft') ?? next).getBoundingClientRect()
+        const composer = message ? next.closest('.cc-composer') : null
+        const group = (composer ?? next.closest(progress.step === 'token' ? '.hsof' : '.sq.draft') ?? next).getBoundingClientRect()
+        // Staged previews sit above the composer. Protect the whole attachment
+        // group, including wrapped rows, before choosing the note's position.
+        const attachments = message && composer ? Array.from(composer.closest('.cc-composer-region')?.parentElement?.querySelectorAll<HTMLElement>(':scope > .attach-row') ?? [])
+          .map(el => el.getBoundingClientRect()).filter(r => r.width > 0 && r.height > 0) : []
         const owner = progress.step === 'token' ? next.closest('.sq')?.getBoundingClientRect() : null
-        const left = Math.min(group.left, owner ? owner.left - 26 : group.left)
-        const top = Math.min(group.top, owner?.top ?? group.top)
-        const right = Math.max(group.right, owner?.right ?? group.right)
-        const bottom = Math.max(group.bottom, owner?.bottom ?? group.bottom)
+        const left = Math.min(group.left, owner ? owner.left - 26 : group.left, ...attachments.map(r => r.left))
+        const top = Math.min(group.top, owner?.top ?? group.top, ...attachments.map(r => r.top))
+        const right = Math.max(group.right, owner?.right ?? group.right, ...attachments.map(r => r.right))
+        const bottom = Math.max(group.bottom, owner?.bottom ?? group.bottom, ...attachments.map(r => r.bottom))
         const view = host.getBoundingClientRect()
         const x = Math.max(0, view.left), y = Math.max(0, view.top)
         const obstacles = Array.from(host.querySelectorAll<HTMLElement>('button,input,textarea,select,[role="button"]'))
@@ -135,7 +142,7 @@ export function FirstUseGuide({ slug, root, hidden = false }: {
           }).map(el => el.getBoundingClientRect())
         hint = firstUsePlacement(r, { left, top, width: right - left, height: bottom - top },
           { left: x, top: y, width: Math.min(window.innerWidth, view.right) - x, height: Math.min(window.innerHeight, view.bottom) - y },
-          card.current?.offsetHeight || 90, progress.step === 'token' ? 'left' : 'right', obstacles)
+          card.current?.offsetHeight || 90, progress.step === 'token' ? 'left' : 'right', obstacles, message ? 'right' : 'center')
         if (!hint) next = null
       }
       if (next !== target) {
