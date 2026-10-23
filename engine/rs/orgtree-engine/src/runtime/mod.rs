@@ -23,6 +23,7 @@ pub mod global_instructions;
 pub mod history;
 pub mod helper_transcript;
 pub mod identity;
+pub mod incomplete_response;
 pub mod interrupt;
 pub mod keepalive;
 pub mod live_usage;

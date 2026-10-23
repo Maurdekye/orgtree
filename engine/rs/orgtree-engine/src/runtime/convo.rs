@@ -18,6 +18,49 @@ pub struct ConvoWriter {
 }
 
 #[cfg(test)]
+mod incomplete_response_pg_tests {
+    use super::*;
+    #[tokio::test]
+    #[ignore = "requires the isolated incomplete response author fixture"]
+    async fn incomplete_response_survives_reload_and_native_completion_replay() {
+        let url=std::env::var("ORGTREE_INCOMPLETE_TEST_URL").expect("synthetic fixture URL required");
+        let cfg:tokio_postgres::Config=url.parse().unwrap();
+        assert_eq!(cfg.get_dbname(),Some("incomplete_response_fixture"));
+        assert_eq!(cfg.get_user(),Some("incomplete_response_fixture"));
+        let (client,connection)=cfg.connect(tokio_postgres::NoTls).await.unwrap();
+        let connection=tokio::spawn(async move {connection.await.unwrap()});
+        client.batch_execute("CREATE SCHEMA ot; CREATE TABLE ot.convo(agent_id bigint,seq bigint,ver bigint,body jsonb,tool_inputs jsonb,PRIMARY KEY(agent_id,seq));").await.unwrap();
+        client.batch_execute(include_str!("../../migrations/0056_incomplete_response.sql")).await.unwrap();
+        let mut writer=ConvoWriter::load(&client,1).await.unwrap();
+        for harness in ["claude","codex","muse","agy","acp"] {
+            let key=super::super::incomplete_response::key(harness,"synthetic-native-message");
+            let partial=super::super::incomplete_response::row("I found the first issue. The next change is **still being written**",&key,true,"2026-10-23T10:00:00Z").unwrap();
+            let seq=writer.append(&client,partial).await.unwrap();
+            let cursor=(writer.ver,writer.seq);
+            writer=ConvoWriter::load(&client,1).await.unwrap();
+            let saved=writer.incomplete(&client,&key).await.unwrap().unwrap();
+            assert_eq!(saved.0,seq);assert_eq!(saved.1["assistant_state"],"partial");assert_eq!(saved.1["interrupted"],true);
+            if harness=="claude" { if let Ok(path)=std::env::var("ORGTREE_INCOMPLETE_FIXTURE") {std::fs::write(path,saved.1.to_string()).unwrap();} }
+            assert!(writer.complete_incomplete(&client,&super::super::incomplete_response::key(harness,"unrelated"),&[saved.1["text"].as_str().unwrap().into()]).await.unwrap().is_none());
+            let full=format!("{} and is now complete.",saved.1["text"].as_str().unwrap());
+            assert_eq!(writer.complete_incomplete(&client,&key,&["unrelated text".into(),full.clone()]).await.unwrap(),Some(1));
+            writer=ConvoWriter::load(&client,1).await.unwrap();
+            assert_eq!(writer.complete_incomplete(&client,&key,&[full.clone()]).await.unwrap(),Some(0));
+            let page=read(&client,1,80,None,Some(cursor)).await.unwrap();
+            assert!(page.messages.is_empty());assert_eq!(page.updates.len(),1);
+            assert_eq!(page.updates[0]["seq"],seq);assert_eq!(page.updates[0]["text"],full);
+            assert_eq!(page.updates[0]["assistant_state"],"complete");assert_eq!(page.updates[0]["interrupted"],false);
+        }
+        let page=read(&client,1,80,None,None).await.unwrap();assert_eq!(page.messages.len(),5);
+        let mut other=ConvoWriter::load(&client,2).await.unwrap();
+        let key=super::super::incomplete_response::key("claude","synthetic-native-message");
+        other.append(&client,super::super::incomplete_response::row("same native ID, other agent",&key,true,"now").unwrap()).await.unwrap();
+        assert_eq!(other.incomplete(&client,&key).await.unwrap().unwrap().1["text"],"same native ID, other agent");
+        drop(client);connection.await.unwrap();
+    }
+}
+
+#[cfg(test)]
 mod agy_thinking_pg_tests {
     use super::*;
     use std::sync::{Arc, Mutex};
@@ -215,6 +258,26 @@ impl ConvoWriter {
             .await?;
         self.remember(seq, body);
         Ok(())
+    }
+
+    /// Indexed native receipt lookup also works after actor/engine restart.
+    #[nolog]
+    pub async fn incomplete(&self, client: &Client, key: &str) -> Result<Option<(i64, Value)>> {
+        let r=client.query_opt("SELECT seq,body FROM ot.convo WHERE agent_id=$1 AND body ? 'incomplete_key' AND body->>'incomplete_key'=$2",
+            &[&self.agent_id,&key]).await.map_err(|_|anyhow::anyhow!("incomplete response lookup failed"))?;
+        Ok(r.map(|r|(r.get(0),r.get(1))))
+    }
+
+    #[nolog]
+    pub async fn complete_incomplete(&mut self, client: &Client, key: &str, texts: &[String]) -> Result<Option<usize>> {
+        let Some((seq,mut row))=self.incomplete(client,key).await? else {return Ok(None)};
+        for (i,text) in texts.iter().enumerate() {
+            if super::incomplete_response::complete(&mut row,text) {
+                self.update(client,seq,row).await.map_err(|_|anyhow::anyhow!("incomplete response completion failed"))?;
+                return Ok(Some(i));
+            }
+        }
+        Ok(None)
     }
 
     #[nolog]

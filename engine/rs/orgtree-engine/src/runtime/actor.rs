@@ -415,6 +415,10 @@ struct Turn {
     shell_output: super::shell_output::State,
     model: Option<String>,
     draft: String,
+    draft_key: Option<String>,
+    stream_message: String,
+    acp_complete: bool,
+    acp_text: Option<String>,
     thinking: String,
     partial_serial: u64,
     draft_order: Option<u64>,
@@ -483,6 +487,30 @@ struct Turn {
 
 #[logged]
 impl Turn {
+    #[nolog]
+    fn observe_claude_text(&mut self, ev: &Value) {
+        match ev["type"].as_str() {
+            Some("message_start") => {
+                self.stream_message=ev["message"]["id"].as_str().unwrap_or("").to_string();
+            }
+            Some("content_block_start") if ev["content_block"]["type"]=="text" => {
+                self.draft_key=(!self.stream_message.is_empty()).then(||super::incomplete_response::key("claude",&self.stream_message));
+                self.draft.clear();self.draft_order=None;
+            }
+            Some("content_block_delta") if ev["delta"]["type"]=="text_delta" => {
+                let text=ev["delta"]["text"].as_str().unwrap_or("");
+                if self.draft.len()<64_000 {self.draft.push_str(text);}
+            }
+            _=>{}
+        }
+    }
+
+    #[nolog]
+    fn incomplete_response(&self, at: &str) -> Option<Value> {
+        let key=self.draft_key.clone().unwrap_or_else(||super::incomplete_response::key("turn",&self.id.to_string()));
+        super::incomplete_response::row(&self.draft,&key,self.interrupted||self.killed,at)
+    }
+
     fn new(id: i64, compact: bool) -> Turn {
         Turn {
             id,
@@ -508,6 +536,10 @@ impl Turn {
             shell_output: Default::default(),
             model: None,
             draft: String::new(),
+            draft_key: None,
+            stream_message: String::new(),
+            acp_complete: false,
+            acp_text: None,
             thinking: String::new(),
             partial_serial: 0,
             draft_order: None,
@@ -1590,6 +1622,7 @@ impl Actor {
                 }
                 boxed(|| self.cancel_keepalive()).await;
                 boxed(|| self.kill_proc()).await;
+                if self.retain_incomplete().await.is_err() {tracing::warn!(agent=self.id,"unfinished response could not be saved during shutdown");}
                 if let Some(t) = self.take_turn() {
                     if !self.engine.is_stopping() {
                         self.settle_cut_turn(t.id).await;
@@ -3660,6 +3693,7 @@ impl Actor {
             let mut usage=super::acp::usage(result);
             for key in ["context_used","context_window"] { usage[key]=turn.usage[key].clone(); }
             turn.usage=usage;
+            turn.acp_complete=result["stopReason"]=="end_turn";
             let error=match result["stopReason"].as_str() {
                 Some("end_turn")=>None,
                 Some("cancelled") if turn.interrupted=>None,
@@ -3677,6 +3711,7 @@ impl Actor {
                 let Some(text)=update["content"]["text"].as_str() else {return Ok(())};
                 let field=if thinking {"thinking"} else {"text"};
                 let id=update["messageId"].as_str().map(str::to_string).unwrap_or_else(|| format!("acp-{}-{field}",turn.id));
+                if !thinking {turn.acp_text=Some(id.clone());}
                 let existing=turn.rows.get(&id).cloned();
                 let mut row=existing.as_ref().map(|(_,r)|r.clone()).unwrap_or_else(|| json!({"role":"assistant","text":"","tools":[],"ts":now_iso(),"assistant_id":id}));
                 let current=row[field].as_str().unwrap_or("");
@@ -3692,6 +3727,7 @@ impl Actor {
             },
             "tool_call" | "tool_call_update" => {
                 turn.activity=true;
+                if update["sessionUpdate"]=="tool_call" {turn.acp_text=None;}
                 let Some(id)=update["toolCallId"].as_str() else {return Ok(())};
                 if turn.acp_items.len()>=512 && !turn.acp_items.contains_key(id) {return Err(anyhow!("ACP turn tool count exceeds limit"));}
                 let item=turn.acp_items.entry(id.into()).or_insert_with(|| json!({}));
@@ -5039,6 +5075,7 @@ impl Actor {
                 let text = p["delta"].as_str().unwrap_or("");
                 if let Some(t) = self.turn.as_mut() {
                     t.activity = true;
+                    if let Some(id)=p["itemId"].as_str().filter(|s|!s.is_empty()) { t.draft_key=Some(super::incomplete_response::key("codex",id)); }
                     if t.draft.len() < 64_000 {
                         t.draft.push_str(text);
                     }
@@ -5150,6 +5187,8 @@ impl Actor {
                     self.on_muse_compaction(item).await?;
                 } else if of_ours(&item["turnId"]) {
                     self.on_muse_item(item, done).await?;
+                } else if done && item["kind"]=="agentMessage" {
+                    self.complete_retained("muse",item["itemId"].as_str().unwrap_or(""),&[item["text"].as_str().unwrap_or("").to_string()]).await?;
                 } else if done && item["itemId"].as_str().is_some_and(|i| self.muse_bg.contains_key(i)) {
                     self.on_muse_late(item).await?;
                 }
@@ -5163,6 +5202,7 @@ impl Actor {
                     ("agentMessage", "text") => {
                         if let Some(t) = self.turn.as_mut() {
                             t.activity = true;
+                            t.draft_key=(!id.is_empty()).then(||super::incomplete_response::key("muse",id));
                             if t.draft.len() < 64_000 {
                                 t.draft.push_str(text);
                             }
@@ -5319,6 +5359,8 @@ impl Actor {
     /// subagent the scope does not allow is stopped at once; a reminder
     /// child is recorded, its usage kept apart from the turn's).
     async fn on_muse_item(&mut self, item: &Value, done: bool) -> Result<()> {
+        if done && item["kind"]=="agentMessage"
+            && self.complete_retained("muse",item["itemId"].as_str().unwrap_or(""),&[item["text"].as_str().unwrap_or("").to_string()]).await?.is_some() { return Ok(()); }
         if self.turn.is_none() {
             return Ok(());
         }
@@ -5350,6 +5392,7 @@ impl Actor {
                 if !done {
                     if let Some(t) = self.turn.as_mut() {
                         t.draft.clear();
+                        t.draft_key=(!id.is_empty()).then(||super::incomplete_response::key("muse",&id));
                         t.draft_order = None;
                     }
                     self.set_activity("writing", None);
@@ -6022,6 +6065,7 @@ impl Actor {
                     let client = self.engine.db.get().await?;
                     self.convo.append(&client, row).await?;
                     drop(client);
+                    if let Some(t)=self.turn.as_mut() {t.draft.clear();t.draft_order=None;}
                     self.text_landed().await;
                 }
                 self.end_turn(error, json!({ "agy": true })).await?;
@@ -6034,6 +6078,20 @@ impl Actor {
     /// An Antigravity step: response text, a tool call, or the user's input echoed.
     #[nolog]
     async fn on_agy_step(&mut self, step: &Value) -> Result<()> {
+        if step["step_type"]=="agent_response" && (step["state"]=="DONE" || self.turn.is_none())
+            && step["conversation_id"].as_str().is_some_and(|s|!s.is_empty()) && step["step_index"].as_i64().is_some_and(|n|n>=0) {
+            let native=format!("{}:{}",step["conversation_id"].as_str().unwrap_or(""),step["step_index"].as_i64().unwrap_or(-1));
+            let key=super::incomplete_response::key("agy",&native);
+            let client=self.engine.db.get().await?;
+            if let Some((seq,mut row))=self.convo.incomplete(&client,&key).await? {
+                let done=step["state"]=="DONE";
+                if let Some(text)=step["text"].as_str().filter(|_|done) {
+                    if !super::incomplete_response::complete(&mut row,text) {return Ok(())}
+                } else {super::incomplete_response::agy_delta(&mut row,step["text_delta"].as_str().unwrap_or(""),done);}
+                self.convo.update(&client,seq,row).await.map_err(|_|anyhow!("unfinished AGY response save failed"))?;
+                drop(client);self.stream("transcript",json!({}));return Ok(())
+            }
+        }
         if self.turn.is_none() {
             return Ok(());
         }
@@ -6047,6 +6105,7 @@ impl Actor {
             "agent_response" => {
                 if let Some(d) = step["text_delta"].as_str().filter(|d| !d.is_empty()) {
                     if let Some(t) = self.turn.as_mut() {
+                        t.draft_key=step["conversation_id"].as_str().filter(|s|!s.is_empty() && idx>=0).map(|session|super::incomplete_response::key("agy",&format!("{session}:{idx}")));
                         if t.draft.len() < 64_000 {
                             t.draft.push_str(d);
                         }
@@ -6299,6 +6358,8 @@ impl Actor {
 
     /// A Codex item started or completed: text rows, thoughts and tool chips.
     async fn on_codex_item(&mut self, item: &Value, completed: bool) -> Result<()> {
+        if completed && matches!(item["type"].as_str(),Some("agentMessage"|"plan"))
+            && self.complete_retained("codex",item["id"].as_str().unwrap_or(""),&[item["text"].as_str().unwrap_or("").to_string()]).await?.is_some() { return Ok(()); }
         if self.turn.is_none() {
             return Ok(());
         }
@@ -6320,6 +6381,7 @@ impl Actor {
                 if !completed {
                     if let Some(t) = self.turn.as_mut() {
                         t.draft.clear();
+                        t.draft_key=(!id.is_empty()).then(||super::incomplete_response::key("codex",&id));
                         t.draft_order = None;
                     }
                     self.set_activity("writing", None);
@@ -6612,7 +6674,7 @@ impl Actor {
 
     #[nolog]
     fn on_stream_event(&mut self, ev: &Value) {
-        if let Some(t) = self.turn.as_mut() { t.observe_claude_thought(ev, Instant::now()); }
+        if let Some(t) = self.turn.as_mut() { t.observe_claude_text(ev); t.observe_claude_thought(ev, Instant::now()); }
         match ev["type"].as_str() {
             Some("message_start") => {
                 if let Some(t)=self.turn.as_mut() {
@@ -6661,10 +6723,6 @@ impl Actor {
                         self.set_activity("tool_writing", Some(name));
                     }
                     Some("text") => {
-                        if let Some(t) = self.turn.as_mut() {
-                            t.draft.clear();
-                            t.draft_order = None;
-                        }
                         self.set_activity("writing", None);
                     }
                     _ => {}
@@ -6689,11 +6747,6 @@ impl Actor {
                 match d["type"].as_str() {
                     Some("text_delta") => {
                         let text = d["text"].as_str().unwrap_or("");
-                        if let Some(t) = self.turn.as_mut() {
-                            if t.draft.len() < 64_000 {
-                                t.draft.push_str(text);
-                            }
-                        }
                         self.stream("delta", json!({ "text": text }));
                     }
                     Some("thinking_delta") => {
@@ -6862,8 +6915,15 @@ impl Actor {
     }
 
     async fn on_assistant(&mut self, v: &Value) -> Result<()> {
-        let msg = &v["message"];
-        let mid = msg["id"].as_str().unwrap_or("").to_string();
+        let mut message=v["message"].clone();
+        let mid=message["id"].as_str().unwrap_or("").to_string();
+        let texts:Vec<String>=message["content"].as_array().into_iter().flatten().filter(|b|b["type"]=="text").map(|b|b["text"].as_str().unwrap_or("").to_string()).collect();
+        if let Some(index)=self.complete_retained("claude",&mid,&texts).await? {
+            let mut at=0;
+            if let Some(blocks)=message["content"].as_array_mut() { blocks.retain(|b|{if b["type"]!="text" {return true} let keep=at!=index;at+=1;keep}); }
+            if message["content"].as_array().is_none_or(|a|a.is_empty()) {return Ok(())}
+        }
+        let msg=&message;
         if self.turn.as_ref().and_then(|t|t.token_metrics.claude.as_ref()).is_some_and(|r|r.id!=mid) {
             self.finish_claude_metrics().await?;
         }
@@ -7419,6 +7479,44 @@ impl Actor {
         }
     }
 
+    /// Persist before take_turn discards the transient accumulators. Thinking
+    /// is intentionally untouched; a retained reply is ordinary visible text.
+    #[nolog]
+    async fn retain_incomplete(&mut self) -> Result<()> {
+        let Some(t)=self.turn.as_ref() else {return Ok(())};
+        let key=t.draft_key.clone().unwrap_or_else(||super::incomplete_response::key("turn",&t.id.to_string()));
+        let partial=t.incomplete_response(&now_iso());
+        let acp=if t.acp && !t.acp_complete {t.acp_text.as_ref().and_then(|id|t.rows.get(id)).filter(|(_,r)|r["text"].as_str().is_some_and(|s|!s.trim().is_empty())).cloned().into_iter().collect::<Vec<_>>()} else {Vec::new()};
+        let interrupted=t.interrupted||t.killed;
+        if partial.is_none() && acp.is_empty() {return Ok(())}
+        let client=self.engine.db.get().await?;
+        if let Some(row)=partial {
+            if self.convo.incomplete(&client,&key).await?.is_none() {
+                self.convo.append(&client,row).await.map_err(|_|anyhow!("unfinished response save failed"))?;
+            }
+        }
+        for (seq,mut row) in acp {
+            row["assistant_state"]=json!("partial");row["interrupted"]=json!(interrupted);
+            self.convo.update(&client,seq,row).await.map_err(|_|anyhow!("unfinished ACP response save failed"))?;
+        }
+        drop(client);
+        if let Some(t)=self.turn.as_mut() {t.draft.clear();t.draft_order=None;}
+        self.text_landed().await;
+        Ok(())
+    }
+
+    #[nolog]
+    async fn complete_retained(&mut self, harness: &str, native: &str, texts: &[String]) -> Result<Option<usize>> {
+        if native.is_empty() || texts.is_empty() {return Ok(None)}
+        let client=self.engine.db.get().await?;
+        let found=self.convo.complete_incomplete(&client,&super::incomplete_response::key(harness,native),texts).await?;
+        drop(client);
+        // A late completion can belong to an older turn. Publish its committed
+        // replacement without retiring the current turn's unrelated draft.
+        if found.is_some() {self.stream("transcript",json!({}));}
+        Ok(found)
+    }
+
     /// Close the turn: mail settled, ledger written, slot freed.
     async fn end_turn(&mut self, mut error: Option<String>, res: Value) -> Result<()> {
         let refusal_at = Utc::now();
@@ -7434,6 +7532,7 @@ impl Actor {
         self.typing_probe = None;
         crate::net::typing::stop_agent(&self.engine, self.id);
         self.finish_queued_interrupt();
+        if self.retain_incomplete().await.is_err() {tracing::warn!(agent=self.id,"unfinished response could not be saved at turn end");}
         let Some(turn) = self.take_turn() else { return Ok(()) };
         // the agent ended this turn itself and asked for a new one: exactly
         // one, as a turn is taken once; a halt takes its turn without this
@@ -8069,6 +8168,7 @@ impl Actor {
             t.killed = true;
         }
         self.kill_proc().await;
+        if self.retain_incomplete().await.is_err() {tracing::warn!(agent=self.id,"unfinished response could not be saved during halt");}
         if let Some(t) = self.take_turn() {
             self.return_mail(t.id, !t.activity).await;
             if let Ok(client) = self.engine.db.get().await {
@@ -9476,5 +9576,28 @@ mod claude_thinking_time_tests {
         let mut next=json!({"role":"assistant","text":"","content_blocks":[]});
         land(&mut t,&mut next,"next","thinking",at+Duration::from_secs(5));
         assert_eq!(next["think_secs"],3.0,"whole-turn runtime is never a thinking clock");
+    }
+}
+
+#[cfg(test)]
+mod incomplete_response_tests {
+    use super::*;
+    #[test]
+    fn incomplete_response_from_native_stop_without_completed_message() {
+        let mut t=Turn::new(41,false);
+        t.thinking="Earlier thought stays separate".into();
+        for ev in [json!({"type":"message_start","message":{"id":"synthetic-stop"}}),
+            json!({"type":"content_block_start","index":0,"content_block":{"type":"text"}}),
+            json!({"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"Visible unfinished reply"}})] {
+            t.observe_claude_text(&ev);
+        }
+        // EOF/interrupt: there is no assistant message or content_block_stop.
+        t.interrupted=true;
+        let row=t.incomplete_response("now").unwrap();
+        assert_eq!(row["text"],"Visible unfinished reply");assert_eq!(row["assistant_state"],"partial");
+        assert_eq!(row["interrupted"],true);assert!(row.get("thinking").is_none());
+        assert_eq!(t.thinking,"Earlier thought stays separate");
+        assert_eq!(row["incomplete_key"],super::super::incomplete_response::key("claude","synthetic-stop"));
+        t.draft.clear();assert!(t.incomplete_response("now").is_none());
     }
 }

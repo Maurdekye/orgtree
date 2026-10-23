@@ -554,9 +554,25 @@ fn transcript_result(node: &str, access: Value, busy: bool, occupancy: Option<i3
         "role": m["role"],
         "text": m["text"].as_str().unwrap_or("").chars().take(1200).collect::<String>(),
         "tools": m.get("tools").cloned().unwrap_or_else(|| json!([])),
+        "incomplete": m["assistant_state"] == "partial",
+        "interrupted": m["interrupted"].as_bool().unwrap_or(false),
     })).collect();
     json!({"node":node, "access":access, "busy":busy, "occupancy":occupancy,
            "occupancy_estimated":occupancy_estimated, "messages":messages})
+}
+
+#[cfg(test)]
+mod incomplete_response_tests {
+    use super::*;
+    #[test]
+    fn incomplete_response_flags_reach_agent_reads_without_changing_text_or_tools() {
+        let result=transcript_result("fixture",json!({}),false,None,false,vec![
+            json!({"role":"assistant","text":"unfinished reply","tools":[],"assistant_state":"partial","interrupted":true}),
+            json!({"role":"assistant","text":"ordinary reply","tools":[]})]);
+        assert_eq!(result["messages"][0]["text"],"unfinished reply");
+        assert_eq!(result["messages"][0]["incomplete"],true);assert_eq!(result["messages"][0]["interrupted"],true);
+        assert_eq!(result["messages"][1]["incomplete"],false);assert_eq!(result["messages"][1]["interrupted"],false);
+    }
 }
 
 #[logged]
