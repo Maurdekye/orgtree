@@ -125,8 +125,17 @@ function main() {
     const first = manifest.entries[0], changed = new Map(documents);
     changed.set(first.file, changed.get(first.file).replace(`<!-- preserved:${first.id} -->`, `<!-- preserved:e-0000000000000000 -->`));
     assert.throws(() => verify({...input,documents:changed}), 'coverage must reject a missing body');
-    const tagged = new Map(documents), tagFile = [...tagged].find(([,text]) => /\[(decided|verified)/i.test(text))[0];
-    tagged.set(tagFile, tagged.get(tagFile).replace(/\[(decided|verified)/i,'[removed-attribution'));
+    const tagged = new Map(documents);
+    // Mutate a preserved attribution, rather than a newer note outside the
+    // source manifest's coverage.
+    const tagEntry = manifest.entries.find(entry => {
+      const body = tagged.get(entry.file).split(`<!-- preserved:${entry.id} -->`)[1]?.split(`<!-- /preserved:${entry.id} -->`)[0];
+      return body && /\[(decided|verified)/i.test(body);
+    });
+    assert.ok(tagEntry, 'self-test needs a preserved attribution');
+    const marker = `<!-- preserved:${tagEntry.id} -->`;
+    const tagText = tagged.get(tagEntry.file), tagAt = tagText.indexOf(marker) + marker.length;
+    tagged.set(tagEntry.file, tagText.slice(0, tagAt) + tagText.slice(tagAt).replace(/\[(decided|verified)/i,'[removed-attribution'));
     assert.throws(() => verify({...input,documents:tagged}), 'coverage must reject a changed attribution');
     assert.throws(() => verify({...input,rootText:rootText+'\n[broken](docs/agents/does-not-exist.md)\n'}), 'navigation must reject a broken link');
     result.negativeControls = 4;
