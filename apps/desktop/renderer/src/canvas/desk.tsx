@@ -38,7 +38,7 @@ import { resolveRef } from './reflinks'
 import { appendReplyTarget, objectReplyContext, readReplies, replyContext, replyFromRow, replyWire, storeReplies } from '../eventReply'
 import { TranscriptSelection, TranscriptSelectionContext, useTranscriptSelectionReveal } from './transcriptselection'
 import { useSelectionComposer } from './selectioncomposer'
-import { selectionReplyContext } from '../eventReply'
+import { selectionReplyContext, displayReplyWire } from '../eventReply'
 import { useObjectComposer } from './composerobjects'
 import type { ReplyContext } from '../eventReply'
 import { ReplyPreview, ReplySourceProvider } from './replypreview'
@@ -5108,8 +5108,8 @@ export function PendingGhostRow({ p, slug, nid, world, onOpen, replyAvailable,
           body: p.text,
           at: new Date(p.at).toISOString(),
           attachments: p.attachments,
-          ...(p.reply ? { reply_to: replyWire(p.reply) } : {}),
-          ...(p.replies?.length ? { replies: p.replies.map(replyWire) } : {}),
+          ...(p.reply ? { reply_to: displayReplyWire(p.reply) } : {}),
+          ...(p.replies?.length ? { replies: p.replies.map(displayReplyWire) } : {}),
         }}
         profile={'operator'} slug={slug} nid={nid}
         world={world} onOpen={onOpen} actor={id => <MailFrom from={id} />}
@@ -5194,7 +5194,7 @@ export function ToolChip({ t, slug, nid, onMailLink, onWorkLink, onOpenDoc }: To
   useTranscriptSelectionReveal(slug,nid,outputEvent,outputEvent===inputEvent?undefined:t.id,open,toggleOpen)
   const inputSource = t.id ? {org:slug,agent:nid,eventId:inputEvent,part:{part:"tool.input",tool_id:t.id}} : undefined
   const outputSource = t.id ? {org:slug,agent:nid,eventId:outputEvent,part:{part:"tool.result",tool_id:t.id}} : undefined
-  const resultText = (child:ReactNode,text:string) => outputSource ? <TranscriptSelection {...outputSource} text={text} format="plain">{child}</TranscriptSelection> : child
+  const resultText = (child:ReactNode,text:string) => outputSource ? <TranscriptSelection {...outputSource} text={text} format="plain" partial={t.truncated}>{child}</TranscriptSelection> : child
   const expandable = true
   const presentation = t.presentation && !t.error && onOpenDoc
     ? <PresentationCard slug={slug} doc={t.presentation} className="presentation-chat-card" onOpen={onOpenDoc}>
@@ -5357,7 +5357,7 @@ export const Msg = memo(function Msg({ m, slug, nid, onMailLink, onWorkLink, ref
   const fb = fileBase(slug, nid)
   const eventId = /^e[1-9]\d*$/.test(m.event_id??'') ? m.event_id : m.seq && m.seq>0 ? `e${m.seq}` : undefined
   const selectText = (child:ReactNode, shown=m.text, offset=0) => <TranscriptSelection org={slug} agent={nid} eventId={eventId}
-    part={{part:'text'}} text={m.text} shown={shown} offset={offset}>{child}</TranscriptSelection>
+    part={{part:'text'}} text={m.text} partial={m.truncated} shown={shown} offset={offset}>{child}</TranscriptSelection>
   const selectThought = (child:ReactNode, shown=m.thinking??'', offset=0) => <TranscriptSelection org={slug} agent={nid} eventId={m.thinking_event_id??eventId}
     part={{part:'thinking'}} text={m.thinking??''} shown={shown} offset={offset}>{child}</TranscriptSelection>
   const orderedBlocks = m.content_blocks?.length ? m.content_blocks.map((block, index) => {

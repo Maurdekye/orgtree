@@ -94,8 +94,8 @@ function summary(v: Json): string {
   return `{${Object.keys(v as object).length}}`
 }
 
-function Row({ name, v, depth, collapseFrom, source, pointer }: {
-  source?:JsonSelectionSource; pointer:string; name: string; v: Json; depth: number; collapseFrom: number
+function Row({ name, v, depth, collapseFrom, source, pointer, keySource }: {
+  source?:JsonSelectionSource; keySource?:JsonSelectionSource; pointer:string; name: string; v: Json; depth: number; collapseFrom: number
 }) {
   const container = isContainer(v)
   const empty = container && (Array.isArray(v) ? v.length === 0 : Object.keys(v).length === 0)
@@ -103,7 +103,7 @@ function Row({ name, v, depth, collapseFrom, source, pointer }: {
   if (!container || empty) {
     const multi = typeof v === 'string' && v.includes('\n')
     return <div className={'sj-row' + (multi ? ' sj-block' : '')}>
-      <SelectScalar source={source} pointer={pointer} role="key" text={name}><span className="sj-key">{name}</span></SelectScalar>
+      <SelectScalar source={keySource} pointer={pointer} role="key" text={name}><span className="sj-key">{name}</span></SelectScalar>
       {empty ? <span className="dim">{Array.isArray(v) ? '[]' : '{}'}</span> : <SelectScalar source={source} pointer={pointer} text={typeof v==='string'?v:JSON.stringify(v)}><Scalar v={v} /></SelectScalar>}
     </div>
   }
@@ -111,7 +111,7 @@ function Row({ name, v, depth, collapseFrom, source, pointer }: {
     <div className="sj-row sj-fold" onClick={() => setOpen(o => !o)} role="button"
       aria-expanded={open} title={open ? 'collapse' : 'expand'}>
       <span className="sj-caret">{open ? '▾' : '▸'}</span>
-      <SelectScalar source={source} pointer={pointer} role="key" text={name}><span className="sj-key">{name}</span></SelectScalar>
+      <SelectScalar source={keySource} pointer={pointer} role="key" text={name}><span className="sj-key">{name}</span></SelectScalar>
       <span className="dim">{summary(v)}</span>
     </div>
     {open && <Children v={v} depth={depth + 1} collapseFrom={collapseFrom} source={source} pointer={pointer} />}
@@ -122,7 +122,7 @@ function Children({ v, depth, collapseFrom, source, pointer="" }: { v: Json; dep
   const entries: [string, Json][] = Array.isArray(v)
     ? v.map((x, i) => [String(i), x]) : Object.entries(v as object)
   return <div className="sj-children">
-    {entries.map(([k, x]) => <Row key={k} name={k} v={x} depth={depth} collapseFrom={collapseFrom} source={source} pointer={`${pointer}/${pointerKey(k)}`} />)}
+    {entries.map(([k, x]) => <Row key={k} name={k} v={x} depth={depth} collapseFrom={collapseFrom} source={source} keySource={Array.isArray(v)?undefined:source} pointer={`${pointer}/${pointerKey(k)}`} />)}
   </div>
 }
 

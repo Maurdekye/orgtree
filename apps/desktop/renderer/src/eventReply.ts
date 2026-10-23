@@ -119,3 +119,10 @@ export function selectionReplyContext(draft: SelectionDraft, desk: EventSourceRe
     ...(typeof target==='object' && 'kind' in target && target.kind==='document' ? {docId:target.id}:{}),
     ...(typeof target==='object' && 'kind' in target && target.kind==='work_item' ? {workItemId:target.slug}:{})}
 }
+
+/** Optimistic display keeps the captured quote; outgoing replyWire remains
+ * identity/selector-only so the server never trusts caller-owned prose. */
+export function displayReplyWire(reply:ReplyContext):MailReplyWire {
+  const wire=replyWire({...reply,selection:undefined})
+  return reply.selection ? {...wire,selection:reply.selection} as MailReplyWire : wire
+}

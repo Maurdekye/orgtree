@@ -1,14 +1,21 @@
-import { useLayoutEffect, useRef } from 'react'
+import { createContext, useContext, useLayoutEffect, useRef } from 'react'
 import type { ReactNode } from 'react'
 import { listenSelectionLocation } from './selectionlocation'
-import { readReplySource } from '../api'
-import { sourceDigest, selectionSnapshot, utf8Size } from '../replySelection'
+import { verifySelectionProjection } from './selectionprojection'
+import { selectionSnapshot, utf8Size } from '../replySelection'
 import type { SourceIdentity, SourcePart } from '../replySelection'
 import { captureSelectionComposer } from './selectioncomposer'
 import { selectedSourceRange } from './selectionmap'
 import { copyToClipboard, useContextMenu, useCopyFeedback } from './contextmenu'
 
-export type SelectionSource = { org: string; target: SourceIdentity; part: SourcePart; text: string; format?: 'markdown' | 'plain'; offset?: number; shown?: string }
+export type SelectionSource = { org: string; target: SourceIdentity; part: SourcePart; text: string; format?: 'markdown' | 'plain'; offset?: number; shown?: string; partial?:boolean }
+
+const SelectionTextContext=createContext<SelectionSource|null>(null)
+/** Typed mail fields may expose only the canonical body's visible prefix. */
+export function ReplySelectionText({text,children}:{text:string;children:ReactNode}){
+  const source=useContext(SelectionTextContext)
+  return source && text && source.text.startsWith(text) ? <ReplySelectionSurface source={{...source,shown:text,offset:0}}>{children}</ReplySelectionSurface> : children
+}
 
 /** One source part per gesture. The wrapper adds no layout box. Rendered
  * selection is mapped before menus/focus, then the engine verifies its digest. */
@@ -16,7 +23,7 @@ export function ReplySelectionSurface({ source, children }: { source: SelectionS
   const menu = useContextMenu(); const feedback = useCopyFeedback()
   const root=useRef<HTMLDivElement>(null)
   useLayoutEffect(()=>root.current ? listenSelectionLocation(root.current,source) : undefined,[source])
-  return <><div ref={root} className="selection-source" data-selection-source="" style={{ display: 'contents' }} onContextMenuCapture={event => {
+  return <SelectionTextContext.Provider value={source}><div ref={root} className="selection-source" data-selection-source="" style={{ display: 'contents' }} onContextMenuCapture={event => {
     const anchor = event.currentTarget
     if ((event.target as Element)?.closest?.('input,textarea,select,[contenteditable="true"]')) return
     const selection = anchor.ownerDocument.getSelection()
@@ -36,8 +43,8 @@ export function ReplySelectionSurface({ source, children }: { source: SelectionS
     const opening = menu.open(event, [
       { label: 'Reply to selection', disabled: Boolean(why), title: why ?? 'Stage this exact passage in the owning reply box', onSelect: () => {
         if (!mapped || why) return
-        void sourceDigest(captured.text).then(async expected_sha256 => {
-          const current = await readReplySource(captured.org, captured.target, captured.part, { expected_sha256 })
+        void verifySelectionProjection(captured).then(current => {
+          const expected_sha256=current.sha256
           const selector = { ...captured.part, projection: 'source-v1' as const, unit: 'unicode-scalar' as const,
             expected_sha256, start: mapped.start, end: mapped.end }
           stage({ target: captured.target, selection: selector, snapshot: selectionSnapshot(captured.text, selector, current.revision) })
@@ -46,5 +53,5 @@ export function ReplySelectionSurface({ source, children }: { source: SelectionS
       { label: 'Copy selection', onSelect: () => { void copyToClipboard(anchor, selectedText).then(ok => feedback?.([ok ? 'copied the selection' : 'clipboard unavailable'])) } },
     ], anchor, { textSelection: true })
     if (opening !== undefined) event.stopPropagation()
-  }}>{children}</div>{menu.node}</>
+  }}>{children}</div>{menu.node}</SelectionTextContext.Provider>
 }

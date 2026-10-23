@@ -1,4 +1,4 @@
-import { sourceDigest } from '../replySelection'
+import { verifySelectionProjection } from './selectionprojection'
 import type { SourceIdentity, SourcePart } from '../replySelection'
 import type { SelectionSource } from './replyselection'
 import { sourceDomRange } from './selectionmap'
@@ -23,8 +23,8 @@ export function listenSelectionLocation(root:HTMLElement,source:SelectionSource)
     if(!wanted||Date.now()-wanted.at>15000||wanted.key!==key(source.target,source.part))return
     const offset=source.offset??0,shown=source.shown??source.text
     if(wanted.start<offset||wanted.end>offset+[...shown].length)return
-    void sourceDigest(source.text).then(hash=>{
-      if(!active||!root.isConnected||pending.get(doc)!==wanted||hash!==wanted.hash)return
+    void verifySelectionProjection(source,wanted.hash).then(()=>{
+      if(!active||!root.isConnected||pending.get(doc)!==wanted)return
       let revealed=false
       for(let owner:Element|null=root;owner&&owner!==doc.body;owner=owner.parentElement){
         const selector=owner.matches('.docket-detail-section-body[hidden]') ? '.docket-detail-toggle[aria-expanded="false"]'
@@ -50,7 +50,7 @@ export function listenSelectionLocation(root:HTMLElement,source:SelectionSource)
         if(!/(auto|scroll)/.test(doc.defaultView!.getComputedStyle(owner).overflowY))continue
         const view=owner.getBoundingClientRect();owner.scrollTop+=box.top-view.top-owner.clientHeight/2+box.height/2;break
       }
-    })
+    }).catch(()=>{/* The retained quote stays readable when the projection changed. */})
   }
   doc.addEventListener(eventName,locate);locate()
   return()=>{active=false;doc.removeEventListener(eventName,locate)}

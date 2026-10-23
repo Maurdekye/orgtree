@@ -2,13 +2,14 @@ import { FakeServer, installFetch, flush, inAct, mountView } from './harness'
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { webcrypto } from 'node:crypto'
-import { appendReplyTarget, selectionReplyContext, replyWire, replyContext } from '../src/eventReply'
+import { appendReplyTarget, selectionReplyContext, replyWire, displayReplyWire, replyContext } from '../src/eventReply'
 import { sourceDomRange, selectedSourceRange } from '../src/canvas/selectionmap'
 import { md } from '../src/canvas/shared'
 import { appendSelection, contextBytes, selectionSnapshot, sourceDigest } from '../src/replySelection'
 import type { SelectionTarget } from '../src/replySelection'
 import { ReplySelectionSurface } from '../src/canvas/replyselection'
 import { MailReplyBox } from '../src/canvas/mail'
+import { verifySelectionProjection } from '../src/canvas/selectionprojection'
 import { Msg } from '../src/canvas/desk'
 import { TranscriptSelectionContext } from '../src/canvas/transcriptselection'
 import { CurrentOrg } from '../src/popout'
@@ -148,6 +149,7 @@ test('selection event drafts retain independent ranges and send only selectors',
   assert.equal(appendReplyTarget([first],first).length,1)
   assert.deepEqual(replyWire(first),{target,selection:selector})
   assert.equal(replyContext({...target,quoted_context:'one',selection:snapshot})?.selection?.excerpt,'one')
+  assert.equal(replyContext(displayReplyWire(first))?.selection?.excerpt,'one')
 })
 
 test('settled transcript prose, thoughts and JSON fields stage distinct source parts in the owning box',async t=>{
@@ -180,4 +182,17 @@ test('settled transcript prose, thoughts and JSON fields stage distinct source p
   await inAct(async()=>{view.el.querySelector<HTMLButtonElement>('.mail-reply-send')!.click();await flush(5)})
   assert.equal(sent[0]?.length,5)
   assert.deepEqual(sent[0]?.map(r=>[r.selection.part,r.selection.pointer??'',r.selection.role??'value']),[['text','','value'],['thinking','','value'],['tool.input','/a~1b','value'],['tool.result','/a~1b','value'],['tool.input','/a~1b','key']])
+})
+
+test('clipped projections verify every displayed scalar against canonical version-bound windows',async t=>{
+  const prior=globalThis.fetch;const offsets:number[]=[];let changed=false
+  globalThis.fetch=(async(_input,init)=>{
+    const request=JSON.parse(String(init?.body)),offset=request.offset??0;offsets.push(offset)
+    assert.equal(offset===0?request.expected_sha256===undefined:request.expected_sha256==='a'.repeat(64),true)
+    return new Response(JSON.stringify({text:offset===0?'one ':changed?'changed':'two trailing canonical text',sha256:'a'.repeat(64),revision:2,offset,next_offset:offset===0?4:null}),{status:200})
+  })as typeof fetch
+  t.after(()=>{globalThis.fetch=prior})
+  const source={org:'demo',target:{kind:'mail' as const,org:'demo',id:'m'},part:{part:'mail.body'},text:'one two',partial:true}
+  assert.equal((await verifySelectionProjection(source)).sha256,'a'.repeat(64));assert.deepEqual(offsets,[0,4])
+  changed=true;await assert.rejects(verifySelectionProjection(source),/displayed prefix/)
 })

@@ -7,6 +7,7 @@ import type { HumanValue } from './value'
 import type { EventProfile } from './decode'
 import { projectEvent } from './project'
 import type { EventField, KnownEvent } from './project'
+import { ReplySelectionText } from '../canvas/replyselection'
 import { RefMdBody } from '../canvas/refmd'
 import { ReceivedMailBody } from '../canvas/mailpreview'
 import { mailFoldKeys } from '../canvas/foldstate'
@@ -37,7 +38,7 @@ const FAMILY_ICON: Record<Family, string> = {
 }
 interface ContentProps { world?: RefWorld | null; onOpen?: (r: ResolvedRef) => void; imgBase?: string }
 function Text({ text, world, onOpen, imgBase }: ContentProps & { text: string }) {
-  return <RefMdBody className="event-prose md" html={md(text, imgBase)} world={world} onOpen={onOpen} />
+  return <ReplySelectionText text={text}><RefMdBody className="event-prose md" html={md(text, imgBase)} world={world} onOpen={onOpen} /></ReplySelectionText>
 }
 
 interface ValueProps extends ContentProps { profile: EventProfile; org: string; actor?: (id: string) => ReactNode }
