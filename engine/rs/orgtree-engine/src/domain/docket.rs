@@ -2463,7 +2463,11 @@ pub async fn reply(engine: &Arc<Engine>, org: &Arc<OrgHandle>, slug: &str, body:
             if target["kind"]!="work_item" || target["org"]!=org.slug || target["slug"]!=it.slug {
                 refuse!(BadRequest,"docket replies only accept selections from this item");
             }
-            let source=super::reply_sources::load(engine,org,&super::reply_sources::Reader::User,target,&selector.part()).await?;
+            let part=selector.part();
+            let reader=super::reply_sources::Reader::User;
+            let read:std::pin::Pin<Box<dyn std::future::Future<Output=Result<super::reply_sources::Source>> + Send + '_>>=
+                Box::pin(super::reply_sources::load(engine,org,&reader,target,&part));
+            let source=read.await?;
             out.replies.push(source.capture(&selector)?);
         }
         out.reply_to=out.replies.first().cloned();
