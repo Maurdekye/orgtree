@@ -1,13 +1,13 @@
 # Orgtree 4.4.2
 
-Orgtree 4.4.2 adds Do Not Disturb for the whole organization and for single agents, a shortcut to jump between mentions of you, mentions and replies in every message box, fuller templates and a switch for each agent's own question and plan tools. It also fixes first-run screens, very deep teams and the Codex sign-in check.
+Orgtree 4.4.2 adds Do Not Disturb for the whole organization and for single agents, a shortcut to jump between mentions of you, mentions and replies to tickets and presentations in every message box, fuller templates and a switch for each agent's own supported question and plan tools. It also fixes first-run screens, very deep teams and the Codex sign-in check.
 
 ## Messages and attention
 
 - **Org Do Not Disturb.** **Connections** sets the organization's outside inbox to one of three modes, with a warning about what it means for Hubchat.
 - **Do Not Disturb for one agent** from its desk header. It holds non-urgent mail for the current or next turn and shows when it is armed.
 - **Shift+F4 jumps between messages that mention you.**
-- **Mention and Reply work in every message box**, for agents, tickets and documents, including Quick chat.
+- **Ticket and presentation links offer Mention and Reply in every message box**, including Quick chat.
 
 ## Templates
 
@@ -17,7 +17,7 @@ Orgtree 4.4.2 adds Do Not Disturb for the whole organization and for single agen
 
 ## Agents and providers
 
-- **One switch per agent turns on its AI tool's own question and plan tools** in place of Orgtree's, in the agent's permissions and when hiring.
+- **One switch per agent restores its AI tool's own supported tools**, in the agent's permissions and when hiring: questions, plans and scheduling for Claude, and questions for Codex and Muse. Orgtree's own tools stay available, and existing scope and audience limits still apply.
 - **Refresh in Providers checks sign-ins right away**, instead of up to five minutes later, and the default Codex account has a **Sign in** button. Repeated refreshes are merged into one check.
 - Very deep teams work throughout: mail, projects, credits, retirements, inspection and the org chart follow the full chain of superiors.
 - Build-slot leases are cleaned up when their agents leave the organization.
