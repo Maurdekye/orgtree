@@ -462,7 +462,13 @@ mod fast_tools_tests {
 }
 
 #[logged]
-pub async fn list_tiers(engine: &Arc<Engine>) -> Result<Done> {
+pub async fn list_tiers(engine: &Arc<Engine>, args: &Value) -> Result<Done> {
+    if args.get("refresh").is_some_and(|v| !v.is_boolean()) {
+        crate::refuse!(BadRequest, "refresh must be true or false");
+    }
+    if args["refresh"].as_bool() == Some(true) {
+        crate::providers::refresh_status(engine, crate::providers::status_refresh::Scope::All).await;
+    }
     let mut out = Vec::new();
     for t in catalog::listed().iter().copied().filter(|t| !t.legacy) {
         if catalog::antigravity_claude(t.tier) && !engine.settings.antigravity_claude_enabled() { continue; }

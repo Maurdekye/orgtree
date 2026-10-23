@@ -14,6 +14,8 @@ Registered Active is app-wide `accounts/{id}/enabled`, default active for a new 
 
 Account refresh checks the selected row's identity. Sign-in, where supported, addresses its own managed/imported profile. A bound-agent count identifies impact, not extra permission to remove the login. No OS elevation or whole-app restart is inherent in Active.
 
+The default Codex login row offers the same native Sign in/Sign in again browser flow as a registered Codex row, using the default profile. Once it completes, provider status is refreshed. See [Providers refresh](../providers-tab/SKILL.md#sign-in-and-refresh).
+
 ## Add account
 
 The dialog supplies independent paths rather than converting a subscription into a key:

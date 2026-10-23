@@ -706,8 +706,20 @@ pub async fn put_runtime(State(e): State<Arc<Engine>>, Json(b): Json<Map<String,
 
 // ------------------------------------------------------------ providers
 
+#[derive(Deserialize, Debug, Default)]
+pub struct ProviderQuery {
+    #[serde(default)]
+    force: bool,
+    force_provider: Option<String>,
+}
+
 #[logged]
-pub async fn get_providers(State(e): State<Arc<Engine>>) -> ApiResult<Json<Value>> {
+pub async fn get_providers(State(e): State<Arc<Engine>>, Query(q): Query<ProviderQuery>) -> ApiResult<Json<Value>> {
+    if q.force {
+        let scope = crate::providers::status_refresh::Scope::from_provider(q.force_provider.as_deref())
+            .ok_or_else(|| ApiError::bad_request("unknown force_provider"))?;
+        crate::providers::refresh_status(&e, scope).await;
+    }
     Ok(Json(crate::providers::payload(&e)))
 }
 

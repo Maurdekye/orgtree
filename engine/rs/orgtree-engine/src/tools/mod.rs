@@ -231,7 +231,7 @@ async fn dispatch(engine: &Arc<Engine>, caller: &Caller, name: &str, args: &Valu
         "orgtree_chart" => boxed(|| orgview::chart(engine, caller, args)).await,
         "orgtree_state_inspect" => boxed(|| orgview::state_inspect(engine, caller, args)).await,
         "orgtree_usage" => boxed(|| usage::usage(engine, caller, args)).await,
-        "orgtree_list_tiers" => boxed(|| orgview::list_tiers(engine)).await,
+        "orgtree_list_tiers" => boxed(|| orgview::list_tiers(engine, args)).await,
         "orgtree_list_orgs" => boxed(|| orgview::list_orgs(engine, caller)).await,
         "orgtree_read_transcript" => boxed(|| orgview::read_transcript(engine, caller, args)).await,
         "orgtree_read_scratch" => boxed(|| orgview::read_scratch(engine, caller, args)).await,

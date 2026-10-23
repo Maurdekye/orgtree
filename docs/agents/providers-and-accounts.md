@@ -6,6 +6,20 @@ Harnesses, model/effort offers, account binding, credentials, usage and inferenc
 
 These attributed records were moved from the root guide at `22daffd`; they retain the original substance, dates, verification limits and replacements. They are source evidence, not a declaration that every historical state is current. Read the signed decisions/current source before changing behavior. Inline source paths remain relative to the repository root; Markdown links were rebased. Add current detailed guidance here; preserve replaced records in history and update the coverage destination when moving one.
 
+## Explicit provider refresh and default Codex sign-in (2026-10-23)
+
+Providers Refresh uses `GET /api/providers?force=true`; ordinary GET stays cached.
+Discovery serializes periodic, explicit and post-login checks, reusing overlapping
+checks or a matching result completed within two seconds. Existing desktop
+`force_provider` verification checks only that provider. These are the ordinary
+periodic probes, with no new inference or authentication calls. The default Codex
+row reuses `ProviderSignIn` and its default native profile. Tool parity is
+`orgtree_list_tiers {refresh:true}` (inspection + runtime); interactive browser
+authorization remains the user's existing login flow. See the
+[Providers page](../skills/orgtree-app/providers/providers-tab/SKILL.md).
+[verified: `providers/{mod,status_refresh}.rs`, `http/settings.rs`,
+`tools/{orgview,defs}.rs`, `domain/tool_groups.rs`, `canvas/{accounts,accountsregistry}.tsx`]
+
 ## Fast mode during a queued model switch (2026-10-22)
 
 User scope saves and agent retool validate the next-turn target in

@@ -80,6 +80,9 @@ pub fn allows(tools: &Value, name: &str) -> bool {
 /// Shared dispatch boundary for action-bearing tools.
 #[nolog]
 pub fn allows_call(tools: &Value, name: &str, args: &Value) -> bool {
+    if name == "orgtree_list_tiers" && args["refresh"].as_bool() == Some(true) {
+        return allows(tools, name) && enabled(tools, "runtime");
+    }
     if name == "orgtree_project" && !enabled(tools,"team") {
         return enabled(tools,"watchdogs")
             && matches!(args["action"].as_str(),Some("slots"|"release_slot"|"dead_letters"|"retry_dead_letter"|"drop_dead_letter"|"fire_event"|"listeners"))
@@ -114,6 +117,15 @@ pub fn schema() -> Value {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn provider_status_refresh_requires_runtime_and_inspection() {
+        let no_runtime = json!({"orgtree":{"runtime":false}});
+        assert!(allows_call(&no_runtime,"orgtree_list_tiers",&json!({})));
+        assert!(!allows_call(&no_runtime,"orgtree_list_tiers",&json!({"refresh":true})));
+        assert!(!allows_call(&json!({"orgtree":{"inspection":false}}),"orgtree_list_tiers",&json!({"refresh":true})));
+        assert!(allows_call(&json!({}),"orgtree_list_tiers",&json!({"refresh":true})));
+    }
 
     #[test]
     fn invalid_group_grants_are_refused() {

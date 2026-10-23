@@ -150,7 +150,7 @@ fn need_str<'a>(args: &'a Value, key: &str) -> Result<&'a str> {
 #[logged]
 async fn dispatch(engine: &Arc<Engine>, org: Option<&Arc<OrgHandle>>, name: &str, args: &Value) -> Result<Done> {
     match name {
-        "orgtree_list_tiers" => return super::orgview::list_tiers(engine).await,
+        "orgtree_list_tiers" => return super::orgview::list_tiers(engine, args).await,
         "orgtree_list_orgs" => return list_orgs(engine, org).await,
         "orgtree_create_org" => return create_org(engine, args).await,
         _ => {}

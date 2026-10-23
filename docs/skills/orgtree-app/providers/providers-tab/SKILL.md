@@ -16,9 +16,13 @@ There is no UAC/app restart built into this provider toggle. It can change which
 
 ## Sign-in and Refresh
 
-Refresh re-runs provider discovery/status and keeps the previous result visible while loading; a status error is not proof credentials disappeared. A missing executable offers its official download guidance.
+Refresh immediately requests a new engine discovery/sign-in check instead of just reading the five-minute periodic snapshot. It uses the same checks as periodic discovery, with one check in flight; overlapping calls and repeated clicks within two seconds of completion reuse that result. The previous result stays visible while loading; a status error is not proof credentials disappeared. A missing executable offers its official download guidance.
 
 Available native sign-in controls use the desktop bridge: Claude can request a pasted verification code; Codex uses its browser flow. Antigravity/Muse open a terminal, then tell the user to sign in there and refresh. “Terminal opened” does not verify success. A browser-only client has no native sign-in bridge. Registered-account sign-in targets that row's profile; see [accounts registry](../accounts-registry/SKILL.md).
+
+The default Codex account also offers **Sign in** (or **Sign in again** when connected), using Codex's existing browser flow and default profile. Post-login verification refreshes that provider's status without probing unrelated providers. The button does not sign in by itself: the user completes the provider's browser authorization.
+
+For agent tool parity, `orgtree_list_tiers` with `refresh: true` requests the same bounded provider discovery; it needs inspection and runtime permission and still returns tier/seat information. This differs from `orgtree_usage` account usage refresh. Sign-in reuses the existing desktop/CLI login action rather than granting an agent new authentication authority; an agent should ask the user to complete the browser flow.
 
 Do not paste secrets into chat or treat provider Refresh as a model inference test. Consult the actual discovery result when a tier is unavailable.
 

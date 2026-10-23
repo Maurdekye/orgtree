@@ -285,6 +285,11 @@ still resume, so the agents themselves remember).
 
 ## 10. User-facing differences — complete ledger
 
+Providers refresh (USER2026-10-23,4.4.2): explicit Refresh bypasses the periodic
+snapshot through shared/coalesced ordinary discovery; default Codex login gains
+the existing Sign in flow. `orgtree_list_tiers {refresh:true}` mirrors refresh
+with inspection+runtime. See [provider refresh](../agents/providers-and-accounts.md#explicit-provider-refresh-and-default-codex-sign-in-2026-10-23).
+
 Grey preset removal (USER/coordinator2026-10-23,4.4.2): no selectable orgtree
 preset; explicit legacy choices migrate silently to Custom #b6bdc8, while the
 old unset sentinel keeps provider detection. See [migration](removed-grey-theme.md).

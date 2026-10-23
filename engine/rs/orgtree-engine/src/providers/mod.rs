@@ -7,6 +7,7 @@ pub mod catalog;
 pub mod fast_mode;
 pub mod agy_auth;
 mod codex_models;
+pub mod status_refresh;
 pub mod muse_models;
 mod mcp;
 pub(crate) mod plugins;
@@ -73,6 +74,7 @@ pub struct MuseDiscovery {
 
 #[derive(Default)]
 pub struct Providers {
+    status_read: status_refresh::Gate,
     pub state: ArcSwap<State>,
     pub agy_auth: agy_auth::AuthGate,
     /// Installed harness user MCP definitions, re-read when sources change
@@ -331,70 +333,103 @@ fn jwt_email(token: &str) -> Option<String> {
 
 #[logged]
 pub async fn discover(engine: &Engine) {
+    refresh_status(engine, status_refresh::Scope::All).await;
+}
+
+/// Same checks as periodic discovery, shared with explicit refresh and login verification.
+#[logged]
+pub async fn refresh_status(engine: &Engine, scope: status_refresh::Scope) {
+    engine.providers.status_read.run(scope, || discover_status(engine, scope)).await;
+}
+
+#[logged]
+async fn discover_status(engine: &Engine, scope: status_refresh::Scope) {
+    use status_refresh::Scope;
     engine.providers.skills_registry();
-    let mut st = State::default();
-    if let Some((p, src)) = locate_claude() {
-        let (connected, email) = claude_identity(None);
-        st.claude = CliStatus {
-            installed: true,
-            version: version_of(&p).await,
-            path: Some(p),
-            source: src,
-            connected,
-            email,
-            kind: Some("subscription".into()),
-        };
-    }
-    if let Some((p, src)) = locate_codex() {
-        let (connected, email, kind) = codex_identity(None);
-        if connected {
-            match codex_models::probe(&p).await {
-                Ok(capabilities) => {
-                    st.codex_efforts = capabilities.efforts;
-                    st.codex_fast_modes = capabilities.fast_modes;
-                },
-                Err(e) => st.codex_efforts_error = Some(format!("Codex model capabilities unavailable: {e}")),
-            }
-        } else {
-            st.codex_efforts_error = Some("Codex model capabilities unavailable: primary login is signed out".into());
+    let mut st = State::clone(&engine.providers.state.load());
+    if scope.includes(Scope::Claude) {
+        st.claude = CliStatus::default();
+        if let Some((p, src)) = locate_claude() {
+            let (connected, email) = claude_identity(None);
+            st.claude = CliStatus {
+                installed: true,
+                version: version_of(&p).await,
+                path: Some(p),
+                source: src,
+                connected,
+                email,
+                kind: Some("subscription".into()),
+            };
         }
-        st.codex =
-            CliStatus { installed: true, version: version_of(&p).await, path: Some(p), source: src, connected, email, kind };
     }
-    if let Some((p, src)) = locate_agy() {
-        // the email comes from the usage probe's own CLI log (set_agy_email)
-        let prev = engine.providers.state.load().agy.clone();
-        // The version never depends on sign-in (Settings → Harnesses showed
-        // "unknown" for every signed-out or latched install).
-        let version = agy_auth::version(&p).await
-            .or_else(|| prev.version.clone().filter(|_| prev.path.as_deref() == Some(p.as_path())));
-        let auth = agy_auth::preflight(engine, &p).await;
-        st.agy_signed_out = match &auth {
-            Ok(_) => Some(false),
-            Err(agy_auth::Failure::SignedOut) => Some(true),
-            _ => None,
-        };
-        let connected = auth.is_ok();
-        st.agy = CliStatus {
-            installed: true,
-            version,
-            path: Some(p),
-            source: src,
-            connected: connected && agy_auth::blocked(engine).is_none(),
-            email: if connected { prev.email } else { None },
-            kind: if connected { prev.kind } else { None },
-        };
+    if scope.includes(Scope::Codex) {
+        st.codex = CliStatus::default();
+        st.codex_efforts.clear();
+        st.codex_fast_modes.clear();
+        st.codex_efforts_error = None;
+        if let Some((p, src)) = locate_codex() {
+            let (connected, email, kind) = codex_identity(None);
+            if connected {
+                match codex_models::probe(&p).await {
+                    Ok(capabilities) => {
+                        st.codex_efforts = capabilities.efforts;
+                        st.codex_fast_modes = capabilities.fast_modes;
+                    },
+                    Err(e) => st.codex_efforts_error = Some(format!("Codex model capabilities unavailable: {e}")),
+                }
+            } else {
+                st.codex_efforts_error = Some("Codex model capabilities unavailable: primary login is signed out".into());
+            }
+            st.codex =
+                CliStatus { installed: true, version: version_of(&p).await, path: Some(p), source: src, connected, email, kind };
+        }
     }
-    if let Some((status, found, error)) = discover_muse(engine).await {
-        st.muse = status;
-        st.muse_probe = found;
-        st.muse_error = error;
+    if scope.includes(Scope::Google) {
+        st.agy = CliStatus::default();
+        st.agy_signed_out = None;
+        if let Some((p, src)) = locate_agy() {
+            // the email comes from the usage probe's own CLI log (set_agy_email)
+            let prev = engine.providers.state.load().agy.clone();
+            // The version never depends on sign-in (Settings → Harnesses showed
+            // "unknown" for every signed-out or latched install).
+            let version = agy_auth::version(&p).await
+                .or_else(|| prev.version.clone().filter(|_| prev.path.as_deref() == Some(p.as_path())));
+            let auth = agy_auth::preflight(engine, &p).await;
+            st.agy_signed_out = match &auth {
+                Ok(_) => Some(false),
+                Err(agy_auth::Failure::SignedOut) => Some(true),
+                _ => None,
+            };
+            let connected = auth.is_ok();
+            st.agy = CliStatus {
+                installed: true,
+                version,
+                path: Some(p),
+                source: src,
+                connected: connected && agy_auth::blocked(engine).is_none(),
+                email: if connected { prev.email } else { None },
+                kind: if connected { prev.kind } else { None },
+            };
+        }
     }
-    if let Some((path, version)) = crate::runtime::opencode::discover(engine.cfg.path("profiles").join("opencode-discovery")).await {
-        st.opencode = CliStatus { installed:true, path:Some(path),version:Some(version),
-            source:"ACP initialize".into(), ..CliStatus::default() };
+    if scope.includes(Scope::Muse) {
+        st.muse = CliStatus::default();
+        st.muse_probe = None;
+        st.muse_error = None;
+        if let Some((status, found, error)) = discover_muse(engine).await {
+            st.muse = status;
+            st.muse_probe = found;
+            st.muse_error = error;
+        }
     }
-    st.openrouter = openrouter_favorites(engine);
+    if scope == Scope::All {
+        st.opencode = CliStatus::default();
+        if let Some((path, version)) = crate::runtime::opencode::discover(engine.cfg.path("profiles").join("opencode-discovery")).await {
+            st.opencode = CliStatus { installed:true, path:Some(path),version:Some(version),
+                source:"ACP initialize".into(), ..CliStatus::default() };
+        }
+        st.openrouter = openrouter_favorites(engine);
+    }
     // the agy registry is read when it matters (start, and each opened model
     // choice: `refresh_agy_models`), never by this periodic pass
     let first = !engine.providers.state.load().probed;
@@ -402,10 +437,10 @@ pub async fn discover(engine: &Engine) {
     st.agy_models = previous.agy_models.clone();
     st.agy_model_principal = previous.agy_model_principal;
     drop(previous);
-    st.probed = true;
+    st.probed |= scope == Scope::All;
     engine.providers.state.store(Arc::new(st));
     publish(engine);
-    if first {
+    if first && scope == Scope::All {
         refresh_agy_models(engine).await;
     }
 }

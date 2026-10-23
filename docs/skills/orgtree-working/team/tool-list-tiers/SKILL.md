@@ -6,11 +6,13 @@ Up: [orgtree-team](../SKILL.md)
 
 # orgtree_list_tiers
 
-Requires `inspection`, although this page is in the team section. It takes **no parameters** and is read-only; all callers, including top-level agents, use the same tool. Use it before choosing the `tier` for [hire](../tool-hire/SKILL.md) or [switch model](../tool-switch-model/SKILL.md).
+Requires `inspection`, although this page is in the team section. All callers, including top-level agents, use the same checks. Use it before choosing the `tier` for [hire](../tool-hire/SKILL.md) or [switch model](../tool-switch-model/SKILL.md).
 
 ```json
 {}
 ```
+
+Optional `refresh: true` additionally requires `runtime` and requests the same provider discovery/sign-in check as App settings → Providers → Refresh. It bypasses the five-minute periodic snapshot, serializes with periodic/explicit checks, and reuses overlapping checks or results completed within two seconds. It runs no model inference, sign-in flow, account switch or usage refresh. The response shape stays `tiers` and `seat_floor`; provider/account identities are not added. Omit `refresh` (default false) for the ordinary cached read. Browser authorization remains a user action through the existing provider login flow.
 
 The result has `tiers` and `seat_floor`. Built-in entries expose `tier`, provider label, `seat`, model and context capacity. OpenRouter favorite entries expose tier/provider/seat/model; language model server entries additionally identify `server` and available context. Seat price is concurrent credit capacity, not token pricing or cost per turn. Use returned values rather than an old hard-coded price table.
 

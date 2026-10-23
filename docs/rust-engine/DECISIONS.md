@@ -1956,3 +1956,11 @@ All entries are dated 2026-10-06 unless stated otherwise.
 **Template watchdogs and audiences, USER 2026-10-22 22:33Z–22:35Z (4.4.2):** Save as template includes standing watchdogs and explicit directional audiences. Coordinator defaults: both include choices on, machine watchdog sub-choice off; preview discloses dog counts and user/extern grants per node. Credentials/file references never export, including nested fire actions. Import stages paused without smoke/immediate effects, then arms eligible portable dogs; machine/credential dogs stay paused. Node references remap, missing endpoints warn/drop, event/usage target names remain unchanged. Audiences restore through canonical transactional grants. See [template links](template-links.md).
 
 **Template portability and depth, USER 2026-10-22 22:36Z–23:08Z (4.4.2):** Save complete portable project queue/event settings, per-agent fast mode and explicit OpenRouter harness pins. Read the entire live layout through keyset paging. Final ruling keeps nested-v1 JSON with no node or tree-depth limit; only a16MiB file safety bound remains. Parsing, walking, planning, serialization, Clone/Drop and desktop preview must handle deliberately deep trees. Earlier v2 and128-level proposals are superseded. Measure increasing deep layouts through near the file cap and a1000-node/20-level layout; canonical node transactions are measured in one disposable fixture with post-commit network/warm/CLI effects disabled. No org logo is copied. See [template portability](template-portability.md).
+
+**Providers refresh and default Codex sign-in, USER 2026-10-23 07:57Z (m45de8d130647;4.4.2):**
+Refresh requests a fresh provider/login check and the default Codex login row
+offers the existing browser sign-in flow. Coordinator boundedness: serialize
+checks, coalesce rapid clicks, and use only the ordinary periodic probes.
+Existing post-login `force_provider` checks stay scoped. Tool parity uses
+`orgtree_list_tiers {refresh:true}` with inspection+runtime; browser authorization
+remains a user action. See [provider refresh](../agents/providers-and-accounts.md#explicit-provider-refresh-and-default-codex-sign-in-2026-10-23).

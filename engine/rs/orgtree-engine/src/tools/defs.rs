@@ -611,7 +611,9 @@ fn build_tool_usage() -> Value {
 #[inline(never)]
 #[nolog]
 fn build_tool_list_tiers() -> Value {
-    tool("orgtree_list_tiers", "List hireable model tiers and seat prices in credits.", json!({}), &[])
+    tool("orgtree_list_tiers", "List tiers/prices; refresh rechecks logins (runtime).", json!({
+        "refresh":{"type":"boolean","description":"default false; coalesced provider discovery, runtime required"}
+    }), &[])
 }
 
 #[inline(never)]
@@ -1744,6 +1746,9 @@ mod builder_stack_tests {
         // G7 adds exactly one approved card; all older cards retain their bytes/order.
         let at = expected.as_array().unwrap().iter().position(|c| c["name"] == "orgtree_cheap_compact").unwrap() + 1;
         expected.as_array_mut().unwrap().insert(at, super::build_tool_compact());
+        let tiers = expected.as_array_mut().unwrap().iter_mut().find(|c| c["name"] == "orgtree_list_tiers").unwrap();
+        tiers["description"] = json!("List tiers/prices; refresh rechecks logins (runtime).");
+        tiers["inputSchema"]["properties"]["refresh"] = json!({"type":"boolean","description":"default false; coalesced provider discovery, runtime required"});
         assert!(serde_json::to_vec(&super::all()).unwrap() == serde_json::to_vec(&expected).unwrap(),
             "all() JSON differs from the pre-split capture beyond the approved project-presentation description");
     }
