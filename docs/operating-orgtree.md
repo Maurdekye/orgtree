@@ -31,9 +31,10 @@ If an interrupt was queued at a tool/completion boundary, acceptance is not proo
 
 Unfinished reply text received before a turn stops remains visible in Chat and
 saved history as an **incomplete response**. Interrupted or killed turns also
-show **interrupted**. The text stays separate from thinking. If the harness
-later completes that same message, its completion replaces the partial response
-and removes the marker. This does not recover text the harness never emitted or
+show **interrupted**. The text stays separate from thinking. Where supported, a
+later completion matching the saved message identity and text prefix replaces
+the partial response and removes the marker; without that matching completion,
+the marker remains. This does not recover text the harness never emitted or
 confirm whether an interrupted tool finished its external action.
 
 ## Updates and background operation

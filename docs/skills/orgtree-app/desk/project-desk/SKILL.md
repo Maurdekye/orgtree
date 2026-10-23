@@ -26,7 +26,7 @@ The header shows active/hired agents through nested projects, activity age, sett
 
 When broadcast is off and no mail listener is attached, a compact warning above the message box says "Messages sent here may not be read by anyone". Turn on **broadcast** with the megaphone (Alt+B) to send to all project participants. The warning disappears while broadcast is on or an armed or paused `fair_queue` mail listener is attached. Event listeners do not receive inbox mail and do not dismiss this warning. It uses the same warning line as the agent desk's cheap-compaction warning.
 
-Broadcast passes through live sub-projects and delivers to their live agent children, stopping at each agent. An agent's own reports, including projects under that agent, are excluded. The megaphone count and urgency candidates follow those recipients; header activity totals and Halt all still cover the full subtree. The agent broadcast tool uses the same recipient rule.
+Broadcast passes through live sub-projects and delivers to their live agent children, stopping at each agent. An agent's own reports, including projects under that agent, are excluded. The megaphone count and urgency candidates use that membership boundary; the desktop send retains its 1,000-recipient cap, and the displayed eligible-member count can be larger. Header activity totals and Halt all still cover the full subtree. The agent broadcast tool uses the same membership boundary, with paged delivery rather than the desktop cap.
 
 ## Tabs
 

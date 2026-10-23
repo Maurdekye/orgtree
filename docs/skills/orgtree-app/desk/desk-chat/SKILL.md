@@ -152,11 +152,14 @@ While responding, the button becomes Stop to interrupt; Enter can still queue te
 If a turn stops with unfinished streamed text, that text stays visible as an
 **incomplete response**, including after closing and reopening the desk. An
 interrupted or killed turn also shows **interrupted**. Other early turn endings
-keep the incomplete label. Thinking stays separate. A later native completion
-for that same message replaces the saved partial in place and removes the
-marker; unrelated messages with identical wording are kept separately. This
-applies across streaming harnesses, including OpenCode's already-saved chunks.
-It preserves received text, not words the harness never sent.
+keep the incomplete label. Thinking stays separate. Retention applies across
+streaming harnesses; OpenCode marks its already-saved chunks. Where a supported
+later native event matches the retained message identity and text prefix, it
+replaces the partial in place and clears the marker, including after an actor
+restart. OpenCode has no general post-turn completion reconciliation path here.
+A marker may therefore remain when no matching completion is received. Unrelated
+messages with identical wording stay separate. This preserves received text,
+not words the harness never sent.
 
 At the first/last line, plain Up/Down can browse local composer history; otherwise they move the caret normally. The app's Enter preference governs multiline composing rather than a fixed send-on-Enter assumption.
 
