@@ -1,3 +1,4 @@
+import { MentionLanding } from './mentionlanding'
 import { hasMailAttention } from '../mailattention'
 import { focusComposerBackground } from '../composerfocus'
 import { useReadOnLeave } from '../mailleave'
@@ -1022,6 +1023,7 @@ export function MailReadPane({ cur, members, org, refs, mdBase, fileHref, sender
   </>
   return (
     <>
+      <MentionLanding org={org ?? refs?.world.org ?? ''} kind="mail" id={cur.id} refs={refs} />
       <div className={'mailer-head event-head' + (compoundHeader ? ' compound-header' : '')}>
         {!run && <EventCard part="header" row={cur} profile={profile}
           hideKind={hideMailReplyKind && typed(cur)?.event.variant === 'reply.mail'}

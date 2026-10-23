@@ -4,7 +4,7 @@ import type { OrgView } from '../attention/mode'
 export type AppShortcutAction = 'settings' | 'usage' | 'usageHistory' | 'view'
   | 'refresh' | 'inbox' | 'docket' | 'presentations' | 'orgSettings' | 'unlatch' | 'halt'
   | 'newWindow' | 'openOrganizations' | 'createWindow'
-  | 'fitOrg' | 'lastDesk' | 'switchboard'
+  | 'fitOrg' | 'lastDesk' | 'switchboard' | 'latestMention'
 
 export interface CanvasShortcutActions {
   fitOrg: () => void
@@ -29,6 +29,7 @@ export const APP_FKEYS: { keys: string[]; action: string; id: AppShortcutAction 
   { keys: ['Shift+F1'], action: 'Open a new window (Homepage)', id: 'newWindow' },
   { keys: ['Shift+F2'], action: 'Toggle the app menu with its Open organization submenu focused', id: 'openOrganizations' },
   { keys: ['Shift+F3'], action: 'Open the create-organization window', id: 'createWindow' },
+  { keys: ['Shift+F4'], action: 'Go to the latest @user mention; press again for older mentions', id: 'latestMention' },
   { keys: ['Shift+F6'], action: 'Fit the whole org in view', id: 'fitOrg' },
   { keys: ['Shift+F7'], action: 'Focus the last desk', id: 'lastDesk' },
   { keys: ['Shift+F8'], action: 'Focus the switchboard', id: 'switchboard' },

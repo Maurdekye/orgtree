@@ -9936,3 +9936,7 @@ button.node-link.node-link:focus-visible {
 .job-ack-error { color: var(--danger-ink); font-size: 11px; margin-top: 3px; }
 .job-ack-done { color: var(--accent); font-weight: 600; }
 .queuekind.job-kind { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 55%, var(--line)); }
+
+.mention-navigation-highlight { background: color-mix(in srgb, var(--accent, #e9b949) 18%, transparent); outline: 2px solid var(--accent, #e9b949); outline-offset: 3px; border-radius: 4px; }
+.mention-landing { margin: 12px; padding: 10px; }
+.mention-landing .md > :first-child { margin-top: 6px; }

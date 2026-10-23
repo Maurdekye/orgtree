@@ -52,7 +52,7 @@ test('matcher accepts assigned function-key rows, preserving other chords', () =
     for (const modifier of ['altKey', 'ctrlKey', 'metaKey'])
       assert.equal(matchAppShortcut(new window.KeyboardEvent('keydown', { key: value, shiftKey, [modifier]: true })), undefined)
   }
-  for (const n of [4, 5, 9])
+  for (const n of [5, 9])
     assert.equal(matchAppShortcut(new window.KeyboardEvent('keydown', { key: 'F' + n, shiftKey: true })), undefined)
   assert.equal(matchAppShortcut(new window.KeyboardEvent('keydown', { key: 'F11' })), undefined)
 })

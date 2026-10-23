@@ -24,7 +24,7 @@ import type { Toast } from './toasts'
 import { HistorySurface, useUserHistory } from './historyui'
 import { Onboarding, onboardingCreate, showOnboarding } from './canvas/onboarding'
 import type { NativePreferences } from './desktop'
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { ReactElement, ReactNode } from 'react'
 import {
   audienceAction, clearInbox, createOrg, deleteOrg, deleteUserMail,
@@ -53,7 +53,10 @@ export { AdvancedOrgModal, OrgRows }
 import { ShellAction, ShellHeader } from './shell/header'
 import { OrgHeaderLogo } from './shell/orgheaderlogo'
 import { TranscriptMentionButton } from './shell/mentionbutton'
-import { dismissUserMention } from './canvas/agentmentions'
+import { dismissUserMention, requestMentionHighlight } from './canvas/agentmentions'
+import { MentionNavigator, readMention } from './shell/mentionnavigation'
+import type { NavigationMention } from './shell/mentionnavigation'
+import { requestMentionLanding } from './canvas/mentionlanding'
 import { OrgtreeMenu } from './shell/menu'
 import type { OrgtreeMenuActions } from './shell/menu'
 import { nextMainView, refreshFromHeader, useAppShortcuts } from './shell/appshortcuts'
@@ -1396,6 +1399,39 @@ export default function App() {
   const openDocket = () => toggleSurface('docket', showDocket, setShowDocket)
   const openPresentations = () => toggleSurface('gallery', showGallery, setShowGallery)
   const openOrgSettings = () => toggleSurface('org-settings', showSettings, setShowSettings)
+  const mentionRoute = useRef<(org: string, mention: NavigationMention) => void>(() => {})
+  mentionRoute.current = (org, mention) => {
+    if (org !== slug || tree?.slug !== org) return
+    const target = mention.target
+    if (target.kind === 'agent') {
+      const agent = target.node && tree && flatNodes(tree).get(target.node)
+      if (agent && target.generation !== undefined && (agent.generation ?? 0) !== target.generation) {
+        toast(['This mention belongs to an earlier agent session']); return
+      }
+    }
+    setViewMode('canvas')
+    setShowAccounts(false); setShowDefaults(false); setShowUsage(false); setShowUsageHistory(false)
+    setShowSettings(false); setShowGallery(false); setShowDocket(false); setShowInbox(false)
+    if (target.kind === 'agent' && target.node && target.mention_id) {
+      requestMentionHighlight(org, target.node, target.mention_id, target.event_id)
+      setFocusAgentDesk(true); setFocusAgent(target.node)
+    } else if (target.kind === 'work' && target.item) {
+      requestMentionLanding(org, mention)
+      setDocketJump(jumpTo(target.item)); setShowDocket(true); raisePinnedModal('docket', org)
+    } else if (target.kind === 'mail' && target.id && target.to) {
+      requestMentionLanding(org, mention)
+      if (target.to === 'user_inbox') {
+        setInboxJump(jumpTo(target.id)); setShowInbox(true); raisePinnedModal('inbox', org)
+      } else setMailJump({ id: target.id, to: target.to, seq: jumpTo(target.id).seq })
+    }
+  }
+  const mentionNavigator = useRef<MentionNavigator | null>(null)
+  if (!mentionNavigator.current) mentionNavigator.current = new MentionNavigator(readMention,
+    (org, mention) => mentionRoute.current(org, mention), text => toast([text]))
+  useLayoutEffect(() => {
+    mentionNavigator.current!.activate(slug)
+    return () => mentionNavigator.current!.activate(null)
+  }, [slug])
   useAppShortcuts({
     settings: () => toggleShortcut('app-settings', showAccounts, openAccounts, closeAccounts),
     usage: () => toggleShortcut('usage', showUsage, toggleUsage, () => setShowUsage(false)),
@@ -1404,6 +1440,7 @@ export default function App() {
     newWindow: () => newWindow(), createWindow: () => createWindow(),
     openOrganizations: () => mainMenu.current?.openOrganizations(),
     ...(slug && tree ? {
+      latestMention: () => { if (tree.slug === slug) void mentionNavigator.current!.go() },
       inbox: () => toggleShortcut('inbox', showInbox, openInbox, closeInbox),
       docket: () => toggleShortcut('docket', showDocket, openDocket, closeDocket),
       presentations: () => toggleShortcut('gallery', showGallery, openPresentations, () => setShowGallery(false)),

@@ -1,3 +1,4 @@
+import { MentionLanding } from './mentionlanding'
 // canvas/docket.tsx — the native work docket (docket-final-spec.md).
 //
 // SHAPED ON THE DOCUMENT GALLERY (same list-left/content-right structure,
@@ -2875,6 +2876,7 @@ function FullDocketPane({ slug, item, toast, asksById, onDismiss, close, onFocus
     <>
       {/* THE ONLY PLACE THE FULL DESCRIPTIVE TITLE IS PRINTED (user
           2026-09-05) — the list is named by slug alone. */}
+      <MentionLanding org={slug} kind="work" id={item.slug} refs={{ world: refWorld, onOpen: onOpenRef }} />
       <div ref={paneHead} className="mailer-head docket-pane-head" data-copy-ticket-title={item.title}>
         <b>{item.title || '(untitled)'}</b>
         <span className="spacer" />
