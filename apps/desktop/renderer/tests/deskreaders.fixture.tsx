@@ -13,7 +13,7 @@ export const project={...lead,id:'pool',title:'pool',kind:'project',tier:'projec
 export const tree=(node:CanvasNode)=>({slug:'readers',roots:[node],watchdogs:[],slot_leases:[]} as unknown as TreePayload)
 export const map=(node:CanvasNode)=>new Map([[node.id,node],...node.children.map(c=>[c.id,c] as [string,CanvasNode])])
 export const Agent=({node=lead}:{node?:CanvasNode})=><DeskChat node={node} map={map(node)} slug="readers" bare op={op} toast={noop}/>
-export const Project=()=> <ProjectDesk node={project} slug="readers" tree={tree(project)} map={map(project)} op={op} toast={noop} refs={{world:{org:'readers'},onOpen:noop} as never}/>
+export const Project=()=> <ProjectDesk node={project} slug="readers" tree={tree(project)} map={map(project)} bare op={op} toast={noop} refs={{world:{org:'readers'},onOpen:noop} as never}/>
 export const documentRow={id:'proposal',node:'worker',title:'Team proposal',at:'2026-10-22T10:00:00Z',viewed_at:null,node_state:'live',format:'markdown',evicted:false}
 export const workRow={slug:'team-ticket',title:'Team ticket',kind:'code',rev:1,status:'in_progress',archived:false,
   owner:{node:'worker',generation:1},owner_current:true,owner_state:'live',participants:[],questions:[],

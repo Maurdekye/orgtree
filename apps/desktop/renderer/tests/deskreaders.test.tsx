@@ -1,4 +1,4 @@
-import { FakeServer, installFetch, mountView, inAct, flush } from './harness'
+import { FakeServer, installFetch, mountView, inAct, flush, settleLive } from './harness'
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import type { TestContext } from 'node:test'
@@ -24,7 +24,7 @@ async function serve(t:TestContext,first=empty()) {
       total:u.searchParams.has('team')?1:0,next_offset:null,offset:0,opening_id:u.searchParams.has('team')?documentRow.id:null})
     if(u.pathname.endsWith('/documents/proposal'))return json({...documentRow,body:'# Team proposal\n\nAvailable from a report.'})
     if(u.pathname.endsWith('/work-items-page')) {
-      const rows=u.searchParams.has('team') || /nodes\/pool/.test(u.pathname)?[workRow]:[]
+      const rows=u.searchParams.has('team') || u.searchParams.get('agent')==='pool'?[workRow]:[]
       return json({format:'orgtree.work-page/v1',group:u.searchParams.get('group'),rows,total:rows.length,
         totals:{items:rows.length,archived:0,backlogged:0},matched:{items:rows.length,archived:0,backlogged:0},
         counts:{active:rows.length,attention:0,archived:0,backlogged:0},revision:'r1',next_offset:null,at:'2026-10-23T12:00:00Z'})
@@ -35,10 +35,10 @@ async function serve(t:TestContext,first=empty()) {
   const mounted:Awaited<ReturnType<typeof mountView>>[]=[]
   t.after(async()=>{for(const v of mounted)await v.unmount();globalThis.fetch=saved;resetConvos();forgetDeskMemory();localStorage.clear()})
   const mount=async(element:Parameters<typeof mountView>[0])=>{
-    const v=await mountView(element,el=>el);mounted.push(v);await flush(15);return v
+    const v=await mountView(element,el=>el);mounted.push(v);await inAct(()=>flush(15));return v
   }
   return {mount,requests,change:async(next:ReaderAvailability)=>{
-    value=next;await inAct(async()=>{bumpLive();flushLive();await flush(15)})
+    value=next;bumpLive();flushLive();await settleLive();await inAct(()=>flush(15))
   }}
 }
 const offered=(el:Element,tab:string)=>!!el.querySelector(`.cc-tabs button[data-tab="${tab}"]`)
@@ -78,7 +78,7 @@ test('team-only Docket opens in the team scope and its request carries scoped op
   const checks=[...v.el.querySelectorAll<HTMLInputElement>('label input[type="checkbox"]')]
   assert.equal(checks.find(c=>c.parentElement?.textContent?.trim()==='Team')?.checked,true)
   assert.equal(s.requests.some(p=>p.includes('work-items-page')&&p.includes('team=lead')&&p.includes('opening=1')),true)
-  assert.equal(v.el.querySelector('.docket-row.on .mfrom')?.textContent,'Team ticket')
+  assert.equal(v.el.querySelector('.docket-row.on .mfrom')?.textContent,'team-ticket')
 })
 
 test('project Presented offers Team and defaults it on; project Docket availability uses its subtree',async t=>{
