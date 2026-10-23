@@ -11,8 +11,9 @@ For worked coordination calls and their limits, open `orgtree-concurrency-primit
 ## Call contract
 
 Nested projects do not impose a fixed depth cutoff on broadcasts or queue
-listener eligibility. Broadcasts retain the existing recipient cap; queue
-ownership, ACK limits and above/below reach rules still apply.
+listener eligibility. This tool pages broadcast recipients and applies ordinary
+mail authority to each one; queue ownership, ACK limits and above/below reach
+rules still apply.
 
 Create/control projects above or below you: no turns/credits. create requires name/index; parent defaults you. above wraps a node atomically in its existing position instead of index/parent. settings reads all values; configure (name, settings) patches settings atomically. purge_waiting retracts unclaimed mail; broadcast uses normal per-recipient mail/attachment/DND/reply authority and reports each outcome. presentations lists project/team cards; read_presentation reads a bounded body chunk with next_chunk_index continuation. Concurrency slots: claim with a slot watchdog; slots (name) lists holders and line; release_slot (lease) releases yours. Any ancestor may force release or unqueue_slot (name, agent). Dead letters: dead_letters (name; id reads one); retry_dead_letter, drop_dead_letter (name, id[, reason]); event project.dead_letter alerts. Event listeners: fire_event (name, optional body) fires the project's event to its armed `project_listener` watchdogs at once; listeners (name) lists them and their `listener_watch` watches.
 

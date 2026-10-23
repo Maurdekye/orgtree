@@ -205,7 +205,7 @@ async fn project_broadcast(engine: &Arc<Engine>, caller: &Caller, args: &Value) 
     let mut outcomes=Vec::new();
     loop {
         let client=engine.db.get().await?;
-        let rows=client.query("WITH RECURSIVE below(id,depth) AS (SELECT $1::bigint,0 UNION ALL SELECT a.id,b.depth+1 FROM ot.agents a JOIN below b ON a.parent_id=b.id WHERE a.org_id=$2 AND b.depth<1024) SELECT a.id,a.name FROM ot.agents a JOIN below b ON b.id=a.id WHERE a.org_id=$2 AND a.kind='agent' AND a.state='live' AND a.id>$3 AND a.id<=$4 ORDER BY a.id LIMIT 100", &[&project.id,&caller.org_id,&after,&through]).await?;
+        let rows=client.query("WITH RECURSIVE below(id) AS (SELECT $1::bigint UNION SELECT a.id FROM ot.agents a JOIN below b ON a.parent_id=b.id WHERE a.org_id=$2) SELECT a.id,a.name FROM ot.agents a JOIN below b ON b.id=a.id WHERE a.org_id=$2 AND a.kind='agent' AND a.state='live' AND a.id>$3 AND a.id<=$4 ORDER BY a.id LIMIT 100", &[&project.id,&caller.org_id,&after,&through]).await?;
         drop(client);
         if rows.is_empty() { break; }
         for r in rows {
