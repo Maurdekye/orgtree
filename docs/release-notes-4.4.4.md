@@ -28,6 +28,7 @@ Orgtree 4.4.4 lets you reply to a highlighted passage, adds keyboard navigation 
 - **Charter folders are read safely**: links and online-only placeholders are skipped and large files are refused before reading.
 - The tool list Orgtree offers to your own AI assistant shows only the options that work there.
 - Setting labels and hints were corrected throughout, including the effort default and how turn-limit changes apply to running turns.
+- **Org windows no longer flicker a scrollbar at some window sizes and display scales**, which also made agents impossible to focus.
 
 ## Notes
 
