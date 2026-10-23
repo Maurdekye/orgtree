@@ -462,10 +462,12 @@ impl Usage {
     /// cooldowns until admission so the scheduler cannot forget a pending retry.
     #[nolog]
     fn claude_next_attempt(&self, key: &str) -> Option<Instant> {
-        let floor = claude_attempt_every();
-        let attempt = self.claude_attempts.pin().get(key).map(|at| *at + floor);
+        let minimum = claude_attempt_every();
+        let backoff = self.claude_throttles.pin().get(key).copied()
+            .map(claude_backoff).unwrap_or(minimum);
+        let attempt = self.claude_attempts.pin().get(key).map(|at| *at + backoff);
         let good = self.cache.pin().get(key)
-            .filter(|c| c.data["available"] == true).map(|c| c.at + floor);
+            .filter(|c| c.data["available"] == true).map(|c| c.at + minimum);
         let provider = self.cooldown.pin().get(key).copied();
         attempt.into_iter().chain(good).chain(provider).max()
     }

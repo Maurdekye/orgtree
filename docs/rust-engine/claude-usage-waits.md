@@ -19,8 +19,9 @@ All Claude readers share a 60-second per-key attempt floor, including desktop
 `force=true`, automatic reads and permitted tool reads. Failed attempts count.
 A floor hit returns the preceding result; a cooldown hit projects the current
 wait against last-good age. Both complete normally over HTTP. Real 401/403 and
-other errors keep the existing result/auth processing. Provider waits record no
-successful authentication or history reading.
+other errors keep the existing result/auth processing. Retained waits record no
+successful authentication or new quota reading; completed 429 probes can record
+unavailable status in Usage history.
 
 The existing cooldown map remains authoritative. Retry-After normalization is
 unchanged (integer seconds, default 60, clamped 1 second through 6 hours).

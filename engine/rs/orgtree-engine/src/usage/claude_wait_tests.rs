@@ -241,6 +241,28 @@ fn short429_backoff_is_bounded_resets_on_success_and_keeps_siblings_and_age() {
     assert!(*usage.cooldown.pin().get(&key).unwrap() <= Instant::now() + Duration::from_secs(60));
 }
 
+#[test]
+fn short429_transient_failure_cannot_clear_accumulated_backoff() {
+    let usage = Usage::default();
+    let key = claude_key(None);
+    let at = good(&usage, &key);
+    for _ in 0..2 {
+        usage.claude_result(&key, json!({"available":false,"retry_after_seconds":1}));
+    }
+    // The next admitted probe consumes the old provider deadline, but a
+    // transient failure has not recovered the usage service or its backoff.
+    let now = Instant::now();
+    usage.cooldown.pin().remove(&key);
+    usage.claude_attempts.pin().insert(key.clone(), now);
+    usage.claude_result(&key, json!({"available":false,"error":"HTTP 500"}));
+    assert!(!usage.claude_attempt(&key, now + Duration::from_secs(60)));
+    assert!(!usage.claude_attempt(&key, now + Duration::from_secs(119)));
+    assert!(usage.claude_attempt(&key, now + Duration::from_secs(120)));
+    assert_eq!(usage.cache.pin().get(&key).unwrap().at, at);
+    usage.claude_result(&key, json!({"available":true,"limits":[]}));
+    assert!(usage.claude_throttles.pin().get(&key).is_none());
+}
+
 #[tokio::test]
 async fn short429_concurrent_callers_receive_one_inflight_result() {
     use std::sync::atomic::{AtomicUsize, Ordering};
