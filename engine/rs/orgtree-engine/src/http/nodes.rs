@@ -221,6 +221,7 @@ pub async fn message(
     out.attachments = user_attachments(&b.attachments)?;
     out.reply_to = match (&b.target, &b.reply_to) {
         (Some(t), _) => resolve_target(&e, &org, t, None).await?,
+        (None, Some(r)) if r.is_object() && r.get("selection").is_some() => resolve_target(&e,&org,r,Some(a.id)).await?,
         (None, Some(r)) if r.is_object() => Some(r.clone()),
         _ => None,
     };
@@ -237,7 +238,7 @@ pub async fn message(
         // Durable source identities are revalidated by the existing legacy
         // event-context path; mailbox identities resolve server-side.
         for q in replies {
-            if q.get("source_event_ref").is_some() { out.replies.push(resolve_event_reply(&e,&org,&a.name,q).await?); }
+            if q.get("source_event_ref").is_some() || q["target"].get("source_event_ref").is_some() { out.replies.push(resolve_event_reply(&e,&org,&a.name,q).await?); }
             else if let Some(q)=resolve_target(&e,&org,q,Some(a.id)).await? { out.replies.push(q); }
         }
         if b.reply_to.as_ref().is_some_and(|q| replies.first().is_none_or(|first| q != first)) { return Err(ApiError::bad_request("reply_to must match the first replies target")); }
@@ -456,6 +457,10 @@ async fn project_audience(e: &Arc<Engine>, org_id: i64, project: i64) -> Value {
 /// derived from the durable event, not trusted from operator input.
 #[logged]
 pub(crate) async fn resolve_event_reply(e:&Engine,org:&OrgHandle,recipient:&str,q:&Value) -> ApiResult<Value> {
+    if let Some((identity,selector))=crate::domain::reply_sources::wrapper(q)? {
+        if identity["source_event_ref"]["agent"].as_str()!=Some(recipient) { return Err(ApiError::bad_request("reply source belongs to another transcript")); }
+        return Ok(crate::domain::reply_sources::load(e,org,&crate::domain::reply_sources::Reader::User,identity,&selector.part()).await?.capture(&selector)?);
+    }
     let source=&q["source_event_ref"];
     if source["org"].as_str()!=Some(org.slug.as_str()) { return Err(ApiError::bad_request("reply source belongs to another organization")); }
     let name=source["agent"].as_str().ok_or_else(|| ApiError::bad_request("reply source needs its agent"))?;
@@ -481,6 +486,22 @@ pub(crate) async fn resolve_event_reply(e:&Engine,org:&OrgHandle,recipient:&str,
 /// `{kind, org, box, node?, id}` (object identity only) → the reply snapshot.
 #[logged]
 pub(crate) async fn resolve_target(e: &Engine, org: &OrgHandle, t: &Value, transcript_agent: Option<i64>) -> ApiResult<Option<Value>> {
+    if let Some((identity,selector))=crate::domain::reply_sources::wrapper(t)? {
+        let source=crate::domain::reply_sources::load(e,org,&crate::domain::reply_sources::Reader::User,identity,&selector.part()).await?;
+        if let Some(agent)=transcript_agent {
+            let client=e.db.get().await?;
+            if let Some(event)=identity.get("source_event_ref") {
+                let generation=event["generation"].as_i64().and_then(|n|i32::try_from(n).ok()).unwrap_or(0);
+                let matches:bool=client.query_one("SELECT EXISTS(SELECT 1 FROM ot.agents WHERE org_id=$1 AND id=$2 AND name=$3 AND generation=$4)", &[&org.id,&agent,&event["agent"].as_str().unwrap_or(""),&generation]).await?.get(0);
+                if !matches { return Err(ApiError::bad_request("reply source belongs to another transcript")); }
+            } else if identity.is_string() || identity["kind"]=="mail" {
+                let id=identity.as_str().or_else(||identity["id"].as_str()).unwrap_or("").trim().trim_start_matches("@mail:");
+                let matches:bool=client.query_one("SELECT EXISTS(SELECT 1 FROM ot.mail WHERE org_id=$1 AND uid=$2 AND (recipient_agent_id=$3 OR sender_agent_id=$3))", &[&org.id,&id,&agent]).await?.get(0);
+                if !matches { return Err(ApiError::bad_request("reply source belongs to another conversation")); }
+            }
+        }
+        return Ok(Some(source.capture(&selector)?));
+    }
     if t["org"].as_str().is_some_and(|s| s!=org.slug) { return Err(ApiError::bad_request("reply target belongs to another organization")); }
     let kind = t["kind"].as_str().unwrap_or("");
     let id = t["id"].as_str().unwrap_or("");

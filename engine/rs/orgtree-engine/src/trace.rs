@@ -354,6 +354,7 @@ impl Shown {
     pub fn json_wrapped(v: &Value, pre: &str, post: &str) -> Shown {
         // MCP schemas/defaults and messages can carry private values under
         // arbitrary field names; key-name masking alone cannot protect them.
+        if private_selection(v) { return Shown::text(format!("{pre}[reply selection omitted]{post}")); }
         if v.get("kind").and_then(Value::as_str) == Some("elicitation") {
             return Shown::text(format!("{pre}[MCP elicitation omitted]{post}"));
         }
@@ -508,7 +509,30 @@ fn hidden(key: &str, val: &Value) -> bool {
 }
 
 /// Compact JSON with sensitive fields masked.
+fn private_selection(v: &Value) -> bool {
+    if v["projection"] == "source-v1" || v.get("selection").is_some_and(|s| s["version"] == 1 && s.get("excerpt").is_some()) { return true; }
+    v.as_str().filter(|s| s.contains("source-v1")).and_then(|s| serde_json::from_str::<Value>(s).ok())
+        .is_some_and(|v| v["projection"] == "source-v1" || v.get("selection").is_some())
+}
+
+#[cfg(test)]
+mod reply_selection_privacy_tests {
+    use super::*;
+    #[test]
+    fn reply_selection_private_text_is_omitted_even_inside_mcp_json_text() {
+        const CANARY: &str="THOUGHT_CANARY_SELECTION_73";
+        let window=serde_json::json!({"projection":"source-v1","text":CANARY});
+        let quote=serde_json::json!({"gist":CANARY,"selection":{"version":1,"excerpt":CANARY}});
+        for value in [window.clone(),quote.clone(),serde_json::json!({"content":[{"type":"text","text":window.to_string()}]}),serde_json::json!({"out":{"replies":[quote]}})] {
+            let shown=Shown::json(&value).flat();
+            assert!(!shown.text.contains(CANARY));
+            assert!(shown.text.contains("reply selection omitted"));
+        }
+    }
+}
+
 fn render(v: &Value, out: &mut Capture) {
+    if private_selection(v) { out.push_str("\"[reply selection omitted]\""); return; }
     if v.get("kind").and_then(Value::as_str) == Some("elicitation") {
         out.push_str("\"[MCP elicitation omitted]\"");
         return;

@@ -255,6 +255,11 @@ pub(crate) async fn send_with_notices(engine: &Arc<Engine>, org_id: i64, mut out
         super::replies::dedupe(&mut out.replies);
         out.reply_to = out.replies.first().cloned();
     }
+    super::selections::bounds(&super::replies::snapshots(out.reply_to.as_ref(), Some(&json!(out.replies))))?;
+    if super::replies::snapshots(out.reply_to.as_ref(), Some(&json!(out.replies))).iter().any(|q| q.get("selection").is_some())
+        && ["org:","net:"].iter().any(|prefix| out.to.trim_start_matches('@').starts_with(prefix)) {
+        refuse!(BadRequest, "selection replies currently support internal recipients only; external transport has no selection contract");
+    }
     for v in [&mut out.reply_to, &mut out.ev].into_iter().flatten() { crate::util::pg_json_mut(v); }
     let explicit_event = out.ev.is_some();
     if !explicit_event {

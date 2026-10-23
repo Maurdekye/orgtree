@@ -520,13 +520,15 @@ pub async fn read_transcript(engine: &Arc<Engine>, caller: &Caller, args: &Value
     // The same persisted turn/occupancy fields used by chart and node views.
     // Reading an idle or archived transcript must never start its actor.
     let state = client.query_one(
-        "SELECT inflight_at IS NOT NULL, occupancy, occupancy_est FROM ot.agents WHERE id = $1",
+        "SELECT inflight_at IS NOT NULL, occupancy, occupancy_est, generation FROM ot.agents WHERE id = $1",
         &[&t.id],
     ).await?;
     let access = if t.id == me.id { json!({"via":"self"}) } else {
         json!({"via":"chart", "note":format!("{} is your descendant — the ordinary downward read (§7.6)", t.name)})
     };
-    Done::json(&transcript_result(node, access, state.get(0), state.get(1), state.get(2), page.messages))
+    let mut result=transcript_result(node, access, state.get(0), state.get(1), state.get(2), page.messages);
+    result["generation"]=json!(state.get::<_,i32>(3));
+    Done::json(&result)
 }
 
 /// Match 3.x's numeric coercion, default and bounded recent-row argument.
@@ -556,6 +558,7 @@ fn transcript_result(node: &str, access: Value, busy: bool, occupancy: Option<i3
             || m["content_blocks"].as_array().into_iter().flatten().any(|b|b["kind"]=="thinking" && b["sealed"]==true);
         json!({
             "role": m["role"],
+            "event_id":m["event_id"], "convo_revision":m["convo_revision"],
             "text": m["text"].as_str().unwrap_or("").chars().take(1200).collect::<String>(),
             "thinking":thinking.chars().take(1200).collect::<String>(),
             "thinking_sealed":sealed,
@@ -618,6 +621,26 @@ mod incomplete_response_tests {
         assert_eq!(result["messages"][0]["incomplete"],true);assert_eq!(result["messages"][0]["interrupted"],true);
         assert_eq!(result["messages"][1]["incomplete"],false);assert_eq!(result["messages"][1]["interrupted"],false);
     }
+}
+
+/// Exact bounded canonical source windows for selection replies. Read-only:
+/// never claims mail, marks a document viewed, or loads native provider files.
+#[nolog]
+pub async fn read_reply_source(engine: &Arc<Engine>, caller: &Caller, args: &Value) -> Result<Done> {
+    let target = args.get("target").ok_or_else(|| anyhow::anyhow!("target is required"))?;
+    crate::domain::replies::targets(Some(target),None)?;
+    if target.get("selection").is_some() { crate::refuse!(BadRequest,"read_reply_source takes the identity target and a separate part"); }
+    let part = crate::domain::selections::Part::parse(&args["part"])?;
+    let offset = match args.get("offset") { None => 0, Some(v) => v.as_u64().and_then(|n| usize::try_from(n).ok()).ok_or_else(|| anyhow::anyhow!("offset must be a nonnegative integer"))? };
+    let client = engine.db.get().await?;
+    let me = me(&client,caller).await?;
+    drop(client);
+    let org = engine.orgs.by_id(me.org_id).ok_or_else(|| anyhow::anyhow!("organization not open"))?;
+    let reader = crate::domain::reply_sources::Reader::Agent { id:me.id, name:&me.name, inspection:true };
+    let source = crate::domain::reply_sources::load(engine,&org,&reader,target,&part).await?;
+    let mut out = crate::domain::selections::window(&source.text,&part,&source.revision,offset,args["expected_sha256"].as_str())?;
+    out["target"] = target.clone();
+    Done::json(&out)
 }
 
 #[logged]

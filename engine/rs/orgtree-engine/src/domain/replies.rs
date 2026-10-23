@@ -36,6 +36,7 @@ pub fn ids(first: Option<&str>, list: Option<&Value>) -> Result<Vec<String>> {
 #[nolog]
 pub fn targets(first: Option<&Value>, list: Option<&Value>) -> Result<Vec<Value>> {
     let parse = |v: &Value| -> Result<Value> {
+        if super::reply_sources::wrapper(v)?.is_some() { return Ok(v.clone()); }
         match v {
             Value::String(id) if valid_id(id) => Ok(v.clone()),
             Value::Object(_) if valid_target(v) => Ok(v.clone()),
@@ -56,6 +57,9 @@ pub fn targets(first: Option<&Value>, list: Option<&Value>) -> Result<Vec<Value>
         let target = parse(item)?;
         if !out.contains(&target) { out.push(target); }
     }
+    if out.iter().filter(|v| v.get("selection").is_some()).count() > super::selections::MAX_SELECTIONS {
+        crate::refuse!(BadRequest, "reply supports at most 8 selected passages");
+    }
     if first.filter(|v| !v.is_null()).is_some_and(|v| out.first() != Some(v)) {
         crate::refuse!(BadRequest, "reply_to must match the first replies target");
     }
@@ -75,7 +79,7 @@ fn valid_target(target: &Value) -> bool {
     }
     let kind = object.get("kind").and_then(Value::as_str);
     match kind {
-        Some("document" | "presentation") => object.keys().all(|k| ["kind", "org", "id"].contains(&k.as_str()))
+        Some("mail" | "document" | "presentation") => object.keys().all(|k| ["kind", "org", "id"].contains(&k.as_str()))
             && object.get("org").and_then(Value::as_str).is_some_and(valid_id)
             && object.get("id").and_then(Value::as_str).is_some_and(valid_id),
         Some("work_item") => object.keys().all(|k| ["kind", "org", "slug"].contains(&k.as_str()))
@@ -115,8 +119,8 @@ pub fn value(first: Option<&Value>, list: Option<&Value>) -> Value {
 pub fn dedupe(quotes:&mut Vec<Value>) {
     let mut seen=std::collections::HashSet::new();
     quotes.retain(|q| seen.insert(if q.get("source_event_ref").is_some() {
-        json!([q["source_event_ref"],q["mail_id"]]).to_string()
-    } else { json!([q["org"],q["kind"],q["id"],q["net_id"]]).to_string() }));
+        json!([q["source_event_ref"],q["mail_id"],q["selection"]["selector"]]).to_string()
+    } else { json!([q["org"],q["kind"],q["id"],q["net_id"],q["selection"]["selector"]]).to_string() }));
 }
 
 /// Quote visible event content, never the enveloped model prompt. A delivered
@@ -179,24 +183,37 @@ pub fn wire(body: &str, quotes: &[Value]) -> Result<(String, Option<Value>)> {
 mod tests {
     use super::*;
     #[test]
-    fn plural_ids_are_bounded_and_first_matches() {
+    fn reply_selection_plural_ids_are_bounded_and_first_matches() {
         assert_eq!(ids(Some("a"),Some(&json!(["a","b","a"]))).unwrap(),vec!["a","b"]);
         for list in [json!([]),json!(["b","a"]),json!(["a",3]),json!(["a","bad\n"]),json!(vec!["a";51])] { assert!(ids(Some("a"),Some(&list)).is_err()); }
         assert_eq!(incoming(Some("a"),Some(&json!({"replies":["b","a"]}))),vec!["a"]);
         assert_eq!(snapshots(Some(&json!({"id":"old"})),Some(&json!([]))),vec![json!({"id":"old"})]);
     }
     #[test]
-    fn typed_targets_are_identity_only_and_preserve_legacy_ids() {
+    fn reply_selection_legacy_targets_are_identity_only_and_preserve_legacy_ids() {
         let document=json!({"kind":"document","org":"demo","id":"d1"});
         let docket=json!({"kind":"work_item","org":"demo","slug":"release"});
         let transcript=json!({"source_event_ref":{"org":"demo","agent":"writer","generation":2,"eventId":"e42"}});
         assert_eq!(targets(Some(&document),None).unwrap(),vec![document.clone()]);
         assert_eq!(targets(Some(&json!("mail-1")),Some(&json!(["mail-1",document.clone(),docket,transcript]))).unwrap(),
             vec![json!("mail-1"),document,json!({"kind":"work_item","org":"demo","slug":"release"}),json!({"source_event_ref":{"org":"demo","agent":"writer","generation":2,"eventId":"e42"}})]);
-        for bad in [json!({"kind":"document","org":"demo","id":"d1","gist":"untrusted"}), json!({"source_event_ref":{"org":"demo","agent":"writer","generation":0,"eventId":"e42"}}), json!({"kind":"work_item","org":"demo","slug":""}), json!({"kind":"mail","org":"demo","id":"mail-1"})] {
+        for bad in [json!({"kind":"document","org":"demo","id":"d1","gist":"untrusted"}), json!({"source_event_ref":{"org":"demo","agent":"writer","generation":0,"eventId":"e42"}}), json!({"kind":"work_item","org":"demo","slug":""})] {
             assert!(targets(Some(&bad),None).is_err(),"{bad}");
         }
         assert!(targets(Some(&json!("a")),Some(&json!(["b"]))).is_err());
+    }
+    #[test]
+    fn reply_selection_wrappers_validate_dedupe_and_legacy_coexistence() {
+        let selector=json!({"part":"mail.body","projection":"source-v1","unit":"unicode-scalar","expected_sha256":"a".repeat(64),"start":0,"end":3});
+        let a=json!({"target":"mail-1","selection":selector});
+        let mut b=a.clone(); b["selection"]["start"]=json!(1);
+        assert_eq!(targets(None,Some(&json!([a.clone(),b.clone(),a.clone()]))).unwrap().len(),2);
+        let mut snapshots=vec![json!({"kind":"mail","id":"mail-1","selection":{"selector":a["selection"]}}),json!({"kind":"mail","id":"mail-1","selection":{"selector":b["selection"]}}),json!({"kind":"mail","id":"mail-1"})];
+        snapshots.push(snapshots[0].clone()); dedupe(&mut snapshots);
+        assert_eq!(snapshots.len(),3);
+        assert!(targets(None,Some(&json!((0..9).map(|n| {let mut v=a.clone(); v["selection"]["start"]=json!(n); v["selection"]["end"]=json!(n+1); v}).collect::<Vec<_>>()))).is_err());
+        let mut bad=a.clone(); bad["selection"]["excerpt"]=json!("forged"); assert!(targets(Some(&bad),None).is_err());
+        let nested=json!({"target":a,"selection":selector}); assert!(targets(Some(&nested),None).is_err());
     }
     #[test]
     fn fallback_keeps_all_context_and_first_link() {
@@ -207,7 +224,7 @@ mod tests {
         assert!(wire("answer",&[quotes[0].clone(),json!({"id":"internal"})]).is_err());
     }
     #[test]
-    fn event_quotes_use_visible_mail_and_authoritative_sender() {
+    fn reply_selection_event_quotes_use_visible_mail_and_authoritative_sender() {
         let event=json!({"role":"user","text":"HIDDEN envelope","segments":[{"kind":"state","text":"HIDDEN state"},{"kind":"mail","rows":[{"id":"a","from":"writer","body":"one"},{"id":"b","from":"other","body":"two"}]}]});
         assert_eq!(event_context(&event,"reader",Some("a")).unwrap(),("writer".into(),"one".into()));
         assert_eq!(event_context(&event,"reader",None).unwrap(),("@user".into(),"one\n\ntwo".into()));

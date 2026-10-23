@@ -73,6 +73,7 @@ pub fn implemented() -> &'static [&'static str] {
         "orgtree_list_tiers",
         "orgtree_list_orgs",
         "orgtree_read_transcript",
+        "orgtree_read_reply_source",
         "orgtree_read_scratch",
         "orgtree_interrupt",
         "orgtree_halt",
@@ -239,7 +240,7 @@ const NOTICE_DESC: &str = "Store passive mail for the recipient's next turn; wak
 const NOTICE_ORDER: &str = "Always write metadata (`to`) before body: metadata first, body last.";
 
 #[nolog]
-fn reply_target_schema() -> Value {
+fn reply_identity_schema() -> Value {
     let identity = |kind: &str, field: &str| {
         let mut properties = serde_json::Map::new();
         properties.insert("kind".into(), json!({"type":"string","enum":[kind]}));
@@ -251,12 +252,62 @@ fn reply_target_schema() -> Value {
         "anyOf":[
             {"type":"string","minLength":1,"maxLength":200,"description":"legacy mail message ID"},
             {"type":"object","oneOf":[
-                {"type":"object","additionalProperties":false,"required":["kind","org","id"],"properties":{"kind":{"type":"string","enum":["document","presentation"]},"org":{"type":"string","minLength":1,"maxLength":200},"id":{"type":"string","minLength":1,"maxLength":200}}},
+                {"type":"object","additionalProperties":false,"required":["kind","org","id"],"properties":{"kind":{"type":"string","enum":["mail","document","presentation"]},"org":{"type":"string","minLength":1,"maxLength":200},"id":{"type":"string","minLength":1,"maxLength":200}}},
                 identity("work_item","slug"),
                 {"type":"object","additionalProperties":false,"required":["source_event_ref"],"properties":{"source_event_ref":{"type":"object","additionalProperties":false,"required":["org","agent","generation","eventId"],"properties":{"org":{"type":"string","minLength":1,"maxLength":200},"agent":{"type":"string","minLength":1,"maxLength":200},"generation":{"type":"integer","minimum":1},"eventId":{"type":"string","minLength":1,"maxLength":200}}},"mail_id":{"type":"string","minLength":1,"maxLength":200}}}
-            ],"description":"Identity only. Supported forms: {kind: document|presentation, org, id}; {kind: work_item, org, slug}; or {source_event_ref: {org, agent, generation, eventId}, mail_id?}. Mail replies continue to use legacy message IDs. Do not supply quote text; the engine loads it from the authorized source."}
+            ],"description":"Identity only. Supported forms: {kind: document|presentation, org, id}; {kind: work_item, org, slug}; or {source_event_ref: {org, agent, generation, eventId}, mail_id?}. Mail replies accept legacy message IDs or {kind: mail, org, id}. Do not supply quote text; the engine loads it from the authorized source."}
         ]
     })
+}
+
+#[nolog]
+fn selection_part_properties() -> serde_json::Map<String, Value> {
+    json!({
+        "part":{"type":"string","enum":["text","thinking","cmd_out","tool.input","tool.result","tool.error","mail.body","document.body","document.title","work_item.title","work_item.objective","work_item.blocked_reason","work_item.dropped_reason","work_item.done_so_far","work_item.working_on_next","work_item.evidence.note"]},
+        "tool_id":{"type":"string","minLength":1,"maxLength":200},
+        "pointer":{"type":"string","maxLength":1024,"description":"tool.input only: RFC6901 pointer; decoded strings, otherwise deterministic pretty JSON"},
+        "role":{"type":"string","enum":["value","key"]},
+        "entry":{"type":"integer","minimum":0,"maximum":49,"description":"required for a docket list entry; duplicate entries refuse"}
+    }).as_object().unwrap().clone()
+}
+
+#[nolog]
+fn selection_schema() -> Value {
+    let mut props = selection_part_properties();
+    for (key,value) in json!({
+        "projection":{"type":"string","enum":["source-v1"]},
+        "unit":{"type":"string","enum":["unicode-scalar"]},
+        "expected_sha256":{"type":"string","pattern":"^[0-9a-f]{64}$"},
+        "start":{"type":"integer","minimum":0},"end":{"type":"integer","minimum":1}
+    }).as_object().unwrap() { props.insert(key.clone(),value.clone()); }
+    json!({"type":"object","additionalProperties":false,"required":["part","projection","unit","expected_sha256","start","end"],"properties":props})
+}
+
+#[nolog]
+fn reply_target_schema() -> Value {
+    json!({"anyOf":[reply_identity_schema(),{"type":"object","additionalProperties":false,"required":["target","selection"],
+        "properties":{"target":reply_identity_schema(),"selection":selection_schema()},
+        "description":"Verified selection reply: read the canonical part with orgtree_read_reply_source, then send its digest and half-open Unicode-scalar range. The engine derives the exact excerpt; at most 8 selections, 4096 UTF-8 bytes each, 48 KiB metadata. Internal recipients only. Source changes before send refuse without delivery."}]})
+}
+
+#[cfg(test)]
+mod reply_selection_tool_tests {
+    use super::*;
+    #[test]
+    fn reply_selection_read_send_contract_survives_split_and_flat_shapes() {
+        for shape in [MailShape::Split,MailShape::Flat] {
+            let [mail,_]=mail_tools(shape);
+            let props=if shape==MailShape::Split { &mail["inputSchema"]["properties"]["metadata"]["properties"] } else { &mail["inputSchema"]["properties"] };
+            let wrapper=&props["reply_to"]["anyOf"][1];
+            assert_eq!(wrapper["required"],json!(["target","selection"]));
+            assert_eq!(wrapper["properties"]["selection"]["properties"]["unit"]["enum"],json!(["unicode-scalar"]));
+            assert_eq!(props["replies"]["items"]["anyOf"][1],*wrapper);
+        }
+        let source=build_tool_read_reply_source();
+        assert_eq!(source["inputSchema"]["required"],json!(["target","part"]));
+        assert!(crate::domain::tool_groups::allows(&json!({}),"orgtree_read_reply_source"));
+        assert!(!crate::domain::tool_groups::allows(&json!({"orgtree":{"inspection":false}}),"orgtree_read_reply_source"));
+    }
 }
 
 /// How a harness is given the two mail tools (coordinator 2026-10-13 21:36Z):
@@ -431,6 +482,7 @@ fn all() -> Vec<Value> {
         build_tool_list_tiers(),
         build_tool_list_orgs(),
         build_tool_read_transcript(),
+        build_tool_read_reply_source(),
         build_tool_read_scratch(),
         build_tool_interrupt(),
         build_tool_halt(),
@@ -634,6 +686,18 @@ fn build_tool_read_transcript() -> Value {
         }),
         &["node"],
     )
+}
+
+#[inline(never)]
+#[nolog]
+fn build_tool_read_reply_source() -> Value {
+    tool("orgtree_read_reply_source",
+        "Read one canonical reply source part in windows of at most 4096 UTF-8 bytes. Inspection required; own sent/received mail, self/downward settled transcripts, readable docket items, authored/reachable project Markdown presentations. No mail consume/viewed side effects. Continuation needs the returned SHA256. Use with selection replies.",
+        json!({"target":reply_identity_schema(),
+            "part":{"type":"object","additionalProperties":false,"required":["part"],"properties":selection_part_properties()},
+            "offset":{"type":"integer","minimum":0,"description":"Unicode-scalar offset, default 0"},
+            "expected_sha256":{"type":"string","pattern":"^[0-9a-f]{64}$","description":"required at nonzero offset; returned by the first source window"}}),
+        &["target","part"])
 }
 
 #[inline(never)]
@@ -1749,6 +1813,14 @@ mod builder_stack_tests {
         let tiers = expected.as_array_mut().unwrap().iter_mut().find(|c| c["name"] == "orgtree_list_tiers").unwrap();
         tiers["description"] = serde_json::json!("List tiers/prices; refresh rechecks logins (runtime).\nGuide: orgtree-tool-list-tiers.");
         tiers["inputSchema"]["properties"]["refresh"] = serde_json::json!({"type":"boolean","description":"default false; coalesced provider discovery, runtime required"});
+        // Approved 4.4.3 selection-reply contract: identity strings/objects
+        // remain nested unchanged; the additive wrapper is covered separately.
+        let cards=expected.as_array_mut().unwrap();
+        let position=cards.iter().position(|c|c["name"]=="orgtree_read_transcript").unwrap()+1;
+        cards.insert(position,super::build_tool_read_reply_source());
+        let message=cards.iter_mut().find(|c|c["name"]=="orgtree_message").unwrap();
+        message["inputSchema"]["properties"]["metadata"]["properties"]["reply_to"]["anyOf"]=super::reply_target_schema()["anyOf"].clone();
+        message["inputSchema"]["properties"]["metadata"]["properties"]["replies"]["items"]=super::reply_target_schema();
         assert!(serde_json::to_vec(&super::all()).unwrap() == serde_json::to_vec(&expected).unwrap(),
             "all() JSON differs from the pre-split capture beyond the approved project-presentation description");
     }

@@ -150,7 +150,7 @@ async fn message_impl(engine:&Arc<Engine>,caller:&Caller,args:&Value,force_notic
         // Resolve every source before admitting any recipient's delivery. Only
         // identity fields are accepted; quote prose always comes from storage.
         for target in targets {
-            letter.replies.push(resolve_tool_reply_target(engine, &org, &letter.me, &target).await?);
+            letter.replies.push(resolve_tool_reply_target(engine, &org, &letter.me, caller, &target).await?);
         }
         letter.reply = letter.replies.first().cloned();
     }
@@ -356,8 +356,17 @@ async fn resolve_tool_reply_target(
     engine: &Engine,
     org: &crate::orgs::OrgHandle,
     me: &super::Me,
+    caller: &Caller,
     target: &Value,
 ) -> Result<Value> {
+    if let Some((identity, selector)) = crate::domain::reply_sources::wrapper(target)? {
+        let client = engine.db.get().await?;
+        let tools = super::caller_tools_in(&**client, caller).await?;
+        drop(client);
+        let reader = crate::domain::reply_sources::Reader::Agent { id:me.id, name:&me.name,
+            inspection:crate::domain::tool_groups::enabled(&tools,"inspection") };
+        return crate::domain::reply_sources::load(engine,org,&reader,identity,&selector.part()).await?.capture(&selector);
+    }
     if let Some(id) = target.as_str() {
         return Ok(mail::agent_reply_quote(engine, me.org_id, me.id, &me.name, id).await?);
     }

@@ -17,6 +17,7 @@ pub mod mailbox;
 pub mod mention_navigation;
 pub mod markdown_image;
 pub mod nodes;
+pub mod reply_sources;
 pub mod orgops;
 pub mod undo;
 pub mod orgs;
@@ -94,6 +95,7 @@ pub fn router(engine: Arc<Engine>) -> Router {
         .route("/api/orgs/{slug}/net", get(orginbox::net))
         .route("/api/orgs/{slug}/org_inbox/read", post(orginbox::read))
         .route("/api/orgs/{slug}/audiences", get(dogs::audiences_get).post(dogs::audiences_post))
+        .route("/api/orgs/{slug}/reply-source", post(reply_sources::read))
         .route("/api/orgs/{slug}/documents", get(docs::list))
         .route("/api/orgs/{slug}/documents/viewed", post(docs::viewed))
         .route("/api/orgs/{slug}/documents/{did}", get(docs::get).delete(docs::dismiss))
@@ -330,6 +332,9 @@ fn quiet_body(path: &str, headers: &axum::http::HeaderMap) -> bool {
         || path.strip_prefix("/api/orgs/").and_then(|p| p.split_once('/'))
             .map(|(_, rest)| rest == "template" || rest.starts_with("template/"))
             .unwrap_or(false)
+        // Selection windows may include displayed thinking or private input.
+        || path.strip_prefix("/api/orgs/").and_then(|p| p.split_once('/'))
+            .map(|(_, rest)| rest == "reply-source" || rest.starts_with("reply-source/")).unwrap_or(false)
         // Private inbox reader bodies, including rejected child routes.
         || path.strip_prefix("/api/orgs/").and_then(|p| p.split_once('/'))
             .map(|(_, rest)| rest == "inbox" || rest.starts_with("inbox/")).unwrap_or(false)
@@ -624,6 +629,17 @@ mod template_wire_tests {
             "/api/orgs/template/nodes", "/api/orgs/fixture/templates", "/api/orgs/fixture/template-extra"] {
             assert!(!quiet_body(path, &headers), "{path}");
         }
+    }
+}
+
+#[cfg(test)]
+mod reply_selection_wire_tests {
+    use super::*;
+    #[test]
+    fn reply_selection_source_body_is_private_before_auth_and_on_bad_routes() {
+        let headers=axum::http::HeaderMap::new();
+        for path in ["/api/orgs/demo/reply-source","/api/orgs/demo/reply-source/unknown"] { assert!(quiet_body(path,&headers)); }
+        assert!(!quiet_body("/api/orgs/demo/reply-source-extra",&headers));
     }
 }
 

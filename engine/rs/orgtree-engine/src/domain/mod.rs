@@ -15,6 +15,8 @@ pub mod mail;
 pub mod mail_attention;
 pub mod mail_history;
 pub mod replies;
+pub mod selections;
+pub mod reply_sources;
 pub mod lifecycle;
 pub mod notices;
 pub mod mention_navigation;
