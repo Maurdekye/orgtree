@@ -1483,6 +1483,10 @@ export const fileBase = (slug: string, nid: string): string =>
   `/api/orgs/${slug}/nodes/${nid}/file?path=`
 export const fileUrl = (slug: string, nid: string, path: string): string =>
   fileBase(slug, nid) + encodeURIComponent(path)
+export const readReplySource = (slug: string, target: import('./replySelection').SourceIdentity,
+  part: import('./replySelection').SourcePart, options?: { offset?: number; expected_sha256?: string; selection?: import('./replySelection').SelectionSnapshot }): Promise<import('./replySelection').SourceWindow> =>
+  req(`/api/orgs/${slug}/reply-source`, { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({target,part,...options}) })
+
 export const sendMessage = (
   slug: string, nid: string, text: string, attachments?: string[],
   replyTo?: { id?: string; from: string; at?: string; gist: string } | MailReplyWire,
@@ -1529,7 +1533,7 @@ export const broadcastMessage = (slug: string, project: string, text: string, at
       ...(notice ? { notice: true } : {}), ...(targets?.length ? { targets } : {}) }),
   })
 /** Object identity only; the server resolves authoritative reply context. */
-export const replyMessage = (slug: string, nid: string, text: string, target: ReplyTarget | ReplyTarget[],
+export const replyMessage = (slug: string, nid: string, text: string, target: ReplyTarget | import('./replySelection').SelectionTarget | (ReplyTarget | import('./replySelection').SelectionTarget)[],
   attachments?: string[], clientOp?: string, notice?: boolean): Promise<SendMessageResult> =>
   req(`/api/orgs/${slug}/nodes/${nid}/message`, {
     method: 'POST', headers: { 'Content-Type': 'application/json' },

@@ -1,3 +1,4 @@
+import type { SelectionTarget } from '../replySelection'
 import type { ReplyTarget } from '../generated/events'
 import { replyMessage } from '../api'
 import { addPending, bindPendingMail, dismissPending, mintClientOp } from '../convo'
@@ -7,7 +8,7 @@ import { addPending, bindPendingMail, dismissPending, mintClientOp } from '../co
  * submission's own minted name rides both the ghost and the POST, so the
  * durable copy retires the ghost by identity even before this call returns
  * (see PendingGhost.op). */
-export async function sendLinkedReply(org: string, node: string, text: string, target: ReplyTarget | ReplyTarget[],
+export async function sendLinkedReply(org: string, node: string, text: string, target: ReplyTarget | SelectionTarget | (ReplyTarget | SelectionTarget)[],
   attachments?: string[], notice?: boolean) {
   const op = mintClientOp()
   const ghost = addPending(org, node, text, undefined, undefined, op, notice)

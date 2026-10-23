@@ -528,10 +528,10 @@ export function AttentionQueue({
                             node={nodeMap.get(current.ask.node)} toast={toast} />
                         : null}
                       onReply={current.kind !== 'mail' || !current.mail ? undefined
-                        : (text, attachments, notice) => {
+                        : (text, attachments, notice, objectTarget, selections) => {
                           const mail = current.mail!
                           return sendLinkedReply(slug, mail.from, text,
-                            { kind: 'mail', org: slug, box: 'user', id: mail.id }, attachments, notice)
+                            selections?.length ? [...(objectTarget?[objectTarget]:[]),...selections] : objectTarget ?? { kind: 'mail', org: slug, box: 'user', id: mail.id }, attachments, notice)
                             .then(async (receipt) => {
                               toast([`sent to ${mail.from}`, ...(receipt.warnings ?? [])])
                               // Commands have no mail receipt; only a durable reply reads.

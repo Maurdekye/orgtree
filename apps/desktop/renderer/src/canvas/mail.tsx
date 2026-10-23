@@ -1,3 +1,8 @@
+import { ReplySelectionSurface } from './replyselection'
+import { useSelectionComposer } from './selectioncomposer'
+import { SelectionDrafts } from './selectionpreview'
+import { appendSelection } from '../replySelection'
+import type { SelectionDraft, SelectionTarget } from '../replySelection'
 import { MentionLanding } from './mentionlanding'
 import { hasMailAttention } from '../mailattention'
 import { focusComposerBackground } from '../composerfocus'
@@ -108,7 +113,7 @@ export interface MailListProps {
   onRead?: (m: MailRow) => void | Promise<unknown>
   /** `notice` is set only when the reply box's notice toggle was armed at
    *  send; the host forwards it to its own send call. */
-  onReply?: (m: MailRow, text: string, attachments?: string[], notice?: boolean, targets?: MailRow[], objectTarget?: ReplyTarget) => void
+  onReply?: (m: MailRow, text: string, attachments?: string[], notice?: boolean, targets?: MailRow[], objectTarget?: ReplyTarget, selections?: SelectionTarget[]) => void
   /** Fixed-transcript callers omit this. The global user inbox supplies the
    * recipient agent so a collected reply cannot span several transcripts. */
   replyConversation?: (m: MailRow) => string
@@ -734,10 +739,10 @@ export function MailList({ org, pending = [], delivered = [], waitLabel, sender,
             customSender={customS} waitLabel={waitLabel} custom={custom}
             party={displayParty(cur)!}
             onReply={replyable
-              ? async (text, attachments, notice, objectTarget) => {
-                const targets = replyTargets.length ? replyTargets : [cur]
+              ? async (text, attachments, notice, objectTarget, selections) => {
+                const targets = replyTargets.length ? replyTargets : selections?.length ? [] : [cur]
                 if (replyConversation && targets.some(m => replyConversation(m) !== replyConversation(cur))) { setReplyError('Open a message in the reply targets\' conversation before sending.'); throw Error('A multi-reply needs one conversation') }
-                await onReply!(targets[0]!, text, attachments, notice, targets, objectTarget)
+                await onReply!(targets[0] ?? cur, text, attachments, notice, targets, objectTarget, selections)
                 setReplyTargets(current => current.filter(m => !targets.some(t => t.id === m.id)))
               }
               : undefined}
@@ -986,7 +991,7 @@ export function MailReadPane({ cur, members, org, refs, mdBase, fileHref, sender
   /** a caller-supplied body that replaces the message AND the reply box
    *  (asks: the response form IS the body) */
   custom?: ReactNode | null
-  onReply?: (text: string, attachments?: string[], notice?: boolean, objectTarget?: ReplyTarget) => Promise<unknown> | void
+  onReply?: (text: string, attachments?: string[], notice?: boolean, objectTarget?: ReplyTarget, selections?: SelectionTarget[]) => Promise<unknown> | void
   /** acknowledge this mail as a job the project's queue handed the user (the user's inbox) */
   onAckJob?: (reply?: string, opts?: { attachments?: string[]; notice?: boolean; objectTarget?: ReplyTarget }) => Promise<unknown>
   toast?: ToastFn
@@ -1001,12 +1006,14 @@ export function MailReadPane({ cur, members, org, refs, mdBase, fileHref, sender
     const decoded = decodeEventRow(m, profile)
     return <>
       <MailReplyPreview row={m} org={org ?? refs?.world.org ?? ''} world={refs?.world} onOpen={refs?.onOpen} />
+      <ReplySelectionSurface source={{org:org ?? refs?.world.org ?? '',target:{kind:'mail',org:org ?? refs?.world.org ?? '',id:m.id ?? ''},part:{part:'mail.body'},text:m.body}}>
       {decoded.kind === 'legacy'
       ? <RefMdBody className={'mailer-body md' + (standalone && isMailNotice(m) ? ' event-notice' : '')} html={md(m.body, mdBase?.(m) || undefined)}
           world={refs?.world} onOpen={refs?.onOpen} />
       : <div className="mailer-body"><EventCard part={standalone ? undefined : "body"} row={m} profile={profile}
           org={org ?? refs?.world.org ?? ''} imgBase={mdBase?.(m) || undefined}
           world={refs?.world} onOpen={refs?.onOpen} actor={id => S(id, m)} /></div>}
+      </ReplySelectionSurface>
     </>
   }
   const run = members && members.length > 1 ? members : null
@@ -1102,7 +1109,7 @@ export function MailReadPane({ cur, members, org, refs, mdBase, fileHref, sender
            2026-09-17). NOT `?? ''` like the head: an absent org must stay
            ABSENT so the composer degrades the way its `slug?:` contract says. */
         <MailReplyBox target={outgoing ? cur.to : cur.from} slug={org ?? refs?.world.org} toast={toast} objectActions
-          onSend={(text, attachments, notice, _broadcast, objectTarget) => onReply(text, attachments, notice, objectTarget)} />
+          onSend={(text, attachments, notice, _broadcast, objectTarget, selections) => onReply(text, attachments, notice, objectTarget, selections)} />
       )}
     </>
   )
@@ -1129,7 +1136,7 @@ export function MailReplyBox({ target, slug, onSend, placeholder, sendDisabled =
   /** `notice` is true only for a send the user ARMED as a passive notice; the
    *  host decides what that means on its own wire and the server decides
    *  whether it is possible at all (see the toggle's comment below). */
-  onSend: (text: string, attachments?: string[], notice?: boolean, broadcast?: boolean, objectTarget?: ReplyTarget) => void | Promise<unknown>
+  onSend: (text: string, attachments?: string[], notice?: boolean, broadcast?: boolean, objectTarget?: ReplyTarget, selections?: SelectionTarget[]) => void | Promise<unknown>
   /** Enable a mail reader's actions outside a desk too. Contextual readers
    * embedded in desks automatically own their nearer reply box. */
   objectActions?: boolean
@@ -1156,6 +1163,23 @@ export function MailReplyBox({ target, slug, onSend, placeholder, sendDisabled =
     disabled: sendDisabled,
     org: slug,
   })
+  const [selections, setSelections] = useState<SelectionDraft[]>([])
+  const selectionRef=useRef(selections); selectionRef.current=selections
+  const composerKey=`${slug}/${target}`
+  const currentComposerKey=useRef(composerKey); currentComposerKey.current=composerKey
+  const failedSelectionDrafts=useRef(new Map<string,{draft:string;selections:SelectionDraft[];attached:{name:string;path:string;bytes:number}[];object:ComposerObject|null}>())
+  useEffect(() => {
+    const saved=failedSelectionDrafts.current.get(composerKey)
+    if (saved) {
+      failedSelectionDrafts.current.delete(composerKey)
+      setDraft(saved.draft);setAttached(saved.attached);setObjectReply(saved.object);setSelections(saved.selections)
+    } else setSelections([])
+  }, [composerKey])
+  useSelectionComposer(taRef, { key:`${slug}/${target}`, disabled:sendDisabled || !target || !slug || !objectActions,
+    stage: selection => {
+      try { const next=appendSelection(selectionRef.current,selection); selectionRef.current=next; setSelections(next); taRef.current?.focus({preventScroll:true}) }
+      catch (error) { toast?.([error instanceof Error ? error.message : String(error)]) }
+    } })
   const [objectReply, setObjectReply] = useState<ComposerObject | null>(null)
   useEffect(() => { setObjectReply(null) }, [slug, target])
   useObjectComposer(taRef, { key: `${slug}/${target}`, mention: mentions.captureMention, down: mentions.noteRightClickDown,
@@ -1199,11 +1223,14 @@ export function MailReplyBox({ target, slug, onSend, placeholder, sendDisabled =
     const sentDraft = draft
     const sentAttached = attached
     const sentObjectReply = objectReply
+    const sentSelections = selections
+    const sentKey=composerKey
+    setSelections([])
     setObjectReply(null)
     setDraft(''); setAttached([]); staging.newDraft()
     const sendingBroadcast = broadcastArmed
     const res = Promise.resolve().then(() => onSend(t || '(file attached)', paths.length ? paths : undefined, armed, sendingBroadcast,
-      sentObjectReply ? composerTarget(sentObjectReply) : undefined))
+      sentObjectReply ? composerTarget(sentObjectReply) : undefined, sentSelections.map(({target,selection}) => ({target,selection}))))
     if (res && typeof (res as Promise<unknown>).then === 'function') {
       const mine = ++sendSeq.current
       setSendState({ state: 'sending' })
@@ -1215,6 +1242,13 @@ export function MailReplyBox({ target, slug, onSend, placeholder, sendDisabled =
           }
         })
         .catch((e: unknown) => {
+          if (sentSelections.length && currentComposerKey.current!==sentKey) {
+            failedSelectionDrafts.current.set(sentKey,{draft:sentDraft,selections:sentSelections,attached:sentAttached,object:sentObjectReply})
+            toast?.([`Reply failed; the draft is retained for ${target}. Reopen that reply box to retry.`])
+            if(sendSeq.current===mine)setSendState({state:'failed',error:e instanceof Error?e.message:String(e)})
+            return
+          }
+          setSelections(current => [...sentSelections,...current].slice(0,8))
           setObjectReply(current => current ?? sentObjectReply)
           setDraft((cur) => (cur.trim() ? sentDraft + '\n\n' + cur : sentDraft))
           setAttached((cur) => [...sentAttached, ...cur])
@@ -1226,6 +1260,7 @@ export function MailReplyBox({ target, slug, onSend, placeholder, sendDisabled =
   }
   return (
     <>
+      <SelectionDrafts selections={selections} onRemove={index=>setSelections(current=>current.filter((_,i)=>i!==index))} onClear={()=>setSelections([])} />
       {objectReply && <ObjectReplyDraft target={objectReply} onRemove={() => setObjectReply(null)} />}
       {attached.length > 0 && (
         <div className="attach-row">
@@ -1246,7 +1281,7 @@ export function MailReplyBox({ target, slug, onSend, placeholder, sendDisabled =
       <StagingRows staging={staging} />
       <div className={'mail-reply' + (noticeArmed ? ' notice-armed' : '') + (broadcastArmed ? ' broadcast-armed' : '')}
         onClick={focusComposerBackground}
-        data-panel-draft={draft.length > 0 || attached.length > 0 || staging.rows.length > 0
+        data-panel-draft={draft.length > 0 || attached.length > 0 || selections.length > 0 || staging.rows.length > 0
           || sendState?.state === 'sending' || undefined}>
         {/* the composer's left column, exactly as the desk composer builds it
             (b38d9d9): the notice toggle ABOVE the attach button, both in the
@@ -1304,6 +1339,7 @@ export function MailReplyBox({ target, slug, onSend, placeholder, sendDisabled =
           }}
           onKeyDown={(e) => {
             if (mentions.onKeyDown(e)) return
+            if (e.key === 'Escape' && selections.length) { e.preventDefault(); e.stopPropagation(); setSelections([]); return }
             if (e.key === 'Escape' && objectReply) { e.preventDefault(); e.stopPropagation(); setObjectReply(null); return }
             // Alt+N, the desk composer's own shortcut. Checked BEFORE Enter so
             // the two can never race, and it returns rather than falling

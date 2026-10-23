@@ -1,4 +1,6 @@
 import { getDocument } from '../api'
+import { SelectionReplyPreview } from './selectionpreview'
+import type { SelectionSnapshot, SourceIdentity } from '../replySelection'
 import { replyContext, MAX_REPLY_QUOTE } from '../eventReply'
 import type { ReplyContext } from '../eventReply'
 import { decodeEventRow, record } from '../events/decode'
@@ -138,6 +140,15 @@ export function MailReplyPreview({ row, org, world, onOpen, replyAvailable, onLo
     onLocate={() => onLocateReply?.(chat)} />
   if (!reply) return null
   const target = reply.ref ? resolveRef(reply.ref, world ?? { org, handles: new Set() }) : null
+  const stored=record(row.reply_to)?row.reply_to:null
+  const selection=stored&&record(stored.selection)&&stored.selection.version===1&&typeof stored.selection.excerpt==='string'&&record(stored.selection.selector)
+    ? stored.selection as unknown as SelectionSnapshot : null
+  if(selection&&reply.id&&['mail','document','work_item'].includes(reply.kind)) {
+    const identity:SourceIdentity=reply.kind==='work_item'?{kind:'work_item',org:reply.ref?.org??org,slug:reply.id}
+      :{kind:reply.kind as 'mail'|'document',org:reply.ref?.org??org,id:reply.id}
+    return <SelectionReplyPreview target={identity} snapshot={selection}
+      onLocate={target?.outcome==='ready'&&onOpen?()=>onOpen(target):undefined} />
+  }
   if(target?.ref.kind==='doc')return <PresentationReply reply={reply} target={target} world={world??{org}} onOpen={onOpen}/>
   const unavailable = target?.outcome === 'absent'
     ? 'Reply to a message or item that is no longer available; quoted context is retained.'

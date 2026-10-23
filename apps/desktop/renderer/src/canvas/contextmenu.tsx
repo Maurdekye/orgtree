@@ -318,7 +318,7 @@ export interface ContextMenuHandle {
   replace: (entries: MenuEntry[], opening: number) => void
   /** the object's `onContextMenu`. `entries` may be a thunk so a list that
    *  renders many rows builds only the pressed row's items. */
-  open: (e: ReactMouseEvent, entries: MenuEntry[] | (() => MenuEntry[]), anchor?: Element) => number | undefined
+  open: (e: ReactMouseEvent, entries: MenuEntry[] | (() => MenuEntry[]), anchor?: Element, options?: { textSelection?: boolean }) => number | undefined
   close: () => void
   /** Point the open menu at the element that carries its object NOW.
    *
@@ -367,10 +367,10 @@ export function useContextMenu(toast?: ToastFn): ContextMenuHandle {
   const append = useCallback((entry: MenuEntry, id: number) => setState(s => s && opening.current === id ? { ...s,
     entries: [...s.entries.filter(e => e === 'sep' || entry === 'sep' || e.label !== entry.label), entry] } : s), [])
   const reanchor = useCallback((el: Element | null) => { if (el) anchorRef.current = el }, [])
-  const open = useCallback((e: ReactMouseEvent, entries: MenuEntry[] | (() => MenuEntry[]), anchor?: Element) => {
+  const open = useCallback((e: ReactMouseEvent, entries: MenuEntry[] | (() => MenuEntry[]), anchor?: Element, options?: { textSelection?: boolean }) => {
     if (e.defaultPrevented) return           // an inner object already took it
     const owner = anchor ?? e.currentTarget as HTMLElement
-    const localFile = localFileLinkAt(e.target, owner)
+    const localFile = options?.textSelection ? null : localFileLinkAt(e.target, owner)
     const el = localFile ?? owner
     // WHICH WINDOW — asked of the element under the pointer, before anything
     // else reads a coordinate. A press whose window has already gone opens
@@ -378,7 +378,9 @@ export function useContextMenu(toast?: ToastFn): ContextMenuHandle {
     // in, and placing it in another window is the bug, not the fallback.
     const doc = el.ownerDocument ?? surfaceDocument
     if (!liveBody(doc)) return
-    if (nativeMenuPreferred({ target: e.target, currentTarget: el })) return
+    const selectionMenu=options?.textSelection && !(e.target as Element)?.closest?.(EDITABLE)
+      && !doc.getSelection()?.isCollapsed && (doc.getSelection()?.rangeCount ?? 0)>0
+    if (!selectionMenu && nativeMenuPreferred({ target: e.target, currentTarget: el })) return
     const entriesList: MenuEntry[] = localFile
       ? [{ label: 'Checking file…', disabled: true, onSelect: () => {} }]
       : (typeof entries === 'function' ? entries() : entries)

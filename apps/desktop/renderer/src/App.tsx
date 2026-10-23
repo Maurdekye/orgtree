@@ -3044,9 +3044,9 @@ export function InboxPanel({ slug, tree, toast, refresh, close, jumpTo, jumpSeq,
                   onRead={(m: MailEntry) => readNow(m)
                     .catch((e: Error) => { toast([`could not mark read: ${e.message}`]); throw e })}
                   onDeleteUserMail={deleteMail}
-                  onReply={(m: MailEntry, text: string, attachments?: string[], notice?: boolean, targets?: MailEntry[], objectTarget?: import('./generated/events').ReplyTarget) => {
+                  onReply={(m: MailEntry, text: string, attachments?: string[], notice?: boolean, targets?: MailEntry[], objectTarget?: import('./generated/events').ReplyTarget, selections?: import('./replySelection').SelectionTarget[]) => {
                     const originals = targets?.length ? targets : [m]
-                    return sendLinkedReply(slug, m.from, text, objectTarget ?? (originals.length > 1
+                    return sendLinkedReply(slug, m.from, text, selections?.length ? [...(objectTarget ? [objectTarget] : []),...(targets ?? []).map(t=>({kind:'mail' as const,org:slug,box:'user' as const,id:t.id})),...selections] : objectTarget ?? (originals.length > 1
                       ? originals.map(t => ({ kind: 'mail' as const, org: slug, box: 'user' as const, id: t.id }))
                       : { kind: 'mail', org: slug, box: 'user', id: m.id }), attachments, notice)
                       .then(async (receipt) => {
