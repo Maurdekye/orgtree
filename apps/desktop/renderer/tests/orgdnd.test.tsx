@@ -10,7 +10,7 @@ test('Org DnD Connections exposes three modes, Hubchat warning, and saves the se
     if (String(url).endsWith('/settings') && init?.body) writes.push(JSON.parse(String(init.body)))
     return new Response(JSON.stringify(orgDndResponse(String(url))), { status: 200 })
   }
-  const view = await mountView(<SettingsPanel tree={orgDndTree} initialTab="mailserver" toast={() => {}} close={() => {}} />)
+  const view = await mountView(<SettingsPanel tree={orgDndTree} initialTab="mailserver" toast={() => {}} close={() => {}} />, el => el)
   try {
     await inAct(async () => { await flush(8) })
     const select = view.el.querySelector<HTMLSelectElement>('select[aria-label="org inbox mode"]')
