@@ -205,14 +205,14 @@ The following is a **measured static** reconciliation of the release log and cha
 
 ## Source discrepancies handled in the user text
 
-These are **measured static source findings**, not new native-harness tests:
+These are **measured static source findings**, not new native-harness tests. Resolved rows retain the correction history; the other rows identify remaining qualifications in the user text:
 
 | Finding | Reader wording and source |
 | --- | --- |
 | The model-server glossary calls 65,536 tokens a hard gate, but the release computes a `too_small` warning; tier/route construction does not enforce that threshold. | [Providers](providers-and-tools.md#language-model-servers) describes the warning and need to match real context. Source: `engine/rs/orgtree-engine/src/langserver.rs`. |
 | The former model-settings passage described only default-account choices; its 4.4.2 glossary correction now matches the managed-account picker. | [Managing agents](managing-agents.md#change-model-effort-or-account) retains the accurate native/managed choice and disclosure. Source: `apps/desktop/renderer/src/canvas/deskmodel.tsx`. |
-| A turn-limit hint says next turn; the actor consults current settings for an active deadline. | [Settings](settings-and-usage.md#time-limits) does not promise an active turn keeps its old limit. Source: `runtime/actor.rs`, `settings.rs` under the Rust engine. |
-| Empty effort is labeled CLI default/no flag; effective resolution falls back to high before harness mapping. | [Settings](settings-and-usage.md#set-organization-defaults-deliberately) states actual resolution. Source: `engine/rs/orgtree-engine/src/providers/catalog.rs`. |
+| Resolved for 4.4.4: the former turn-limit hint promised next-turn snapshots; the hint and guides now describe the actor's current-setting checks. | [Settings](settings-and-usage.md#time-limits) explains that changes can affect running turns, with launch-time harness timeouts qualified. Sources: `apps/desktop/renderer/src/canvas/turnlimitssetting.tsx`, `runtime/actor.rs` and `settings.rs` under the Rust engine. |
+| Resolved for 4.4.4: the former CLI-default/no-flag effort label is now Default (high fallback), matching effective resolution. | [Settings](settings-and-usage.md#set-organization-defaults-deliberately) explains own effort, then org default, then high fallback before harness/model mapping. Source: `engine/rs/orgtree-engine/src/providers/catalog.rs`. |
 | The standalone packaging index still calls user MCP deferred, while the release routes and detailed guide implement it. | [Operation](operating-orgtree.md#advanced-deployments) includes user MCP and leaves headless sign-in/desktop attachment deferred. Source: `http/mod.rs`, `http/usermcp.rs`, `tools/usermcp.rs` and `docs/rust-engine/STANDALONE-ENGINE.md`. |
 
 ## Deliberate exclusions and verification limits
