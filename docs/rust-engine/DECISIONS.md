@@ -7,6 +7,14 @@ policy remain physical, per the user's explicit exceptions.
 
 # Orgtree 4 rewrite — the user's standing decisions
 
+**Claude usage retry floor and backoff, coordinator 2026-10-23 (4.4.5):**
+An expired provider deadline never bypasses the shared 60-second per-key floor.
+Repeated HTTP 429s back off to a bounded 15 minutes, respecting longer normalized
+provider waits; genuine usage success resets the streak. Preserve last-good
+observation/auth ages and log only secret-free status and retry timing. This
+replaces the short-deadline exception in the 2026-10-15 Claude-waits decision.
+See [Claude usage waits](claude-usage-waits.md).
+
 **Reply to selection (USER 2026-10-23, renumbered to 4.4.4):** include mail, settled transcript
 prose/tool input/results/displayed thoughts, Markdown presentations and docket
 fields. Carry verified exact excerpts and nearby context in ordinary replies;

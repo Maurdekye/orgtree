@@ -124,7 +124,7 @@ fn short429_floor_counts_sequential_forced_and_automatic_callers_per_account() {
 }
 
 #[test]
-fn short429_expiry_retries_inside_floor_once_and_cache_reads_do_not_fetch() {
+fn short429_expiry_respects_floor_and_cache_reads_do_not_fetch() {
     let usage = Usage::default();
     let key = claude_key(None);
     let now = Instant::now();
@@ -138,12 +138,14 @@ fn short429_expiry_retries_inside_floor_once_and_cache_reads_do_not_fetch() {
         usage.peek(&key, "claude");
     }
     assert_eq!(*usage.claude_attempts.pin().get(&key).unwrap(), attempt);
-    assert!(usage.claude_retry_due(&key, now + Duration::from_secs(2)));
-    assert!(usage.claude_attempt(&key, now + Duration::from_secs(2)));
     assert!(!usage.claude_retry_due(&key, now + Duration::from_secs(2)));
-    assert!(!usage.claude_attempt(&key, now + Duration::from_secs(3)));
-    assert!(usage.claude_attempt(&key, now + Duration::from_secs(62)));
-    println!("Claude synthetic retry: 1 initial + 1 deadline retry; 100 board-style peek/snapshot pairs add 0 admissions");
+    assert!(!usage.claude_attempt(&key, now + Duration::from_secs(2)));
+    assert!(usage.claude_retry_due(&key, now + Duration::from_secs(60)));
+    assert!(usage.claude_attempt(&key, now + Duration::from_secs(60)));
+    assert!(!usage.claude_retry_due(&key, now + Duration::from_secs(60)));
+    assert!(!usage.claude_attempt(&key, now + Duration::from_secs(61)));
+    assert!(usage.claude_attempt(&key, now + Duration::from_secs(120)));
+    println!("Claude synthetic retry: minute floor respected; 100 board-style peek/snapshot pairs add 0 admissions");
 }
 
 #[test]
@@ -195,7 +197,7 @@ fn short429_success_after_retry_clears_pause_and_updates_reading_once() {
     let at = good(&usage, &key);
     usage.claude_result(&key, json!({"available":false,"retry_after_seconds":2}));
     usage.cooldown.pin().insert(key.clone(), Instant::now());
-    assert!(usage.claude_attempt(&key, Instant::now()));
+    assert!(usage.claude_attempt(&key, Instant::now() + Duration::from_secs(60)));
     let out = usage.claude_result(&key, json!({"available":true,"observed_at":"2026-01-01T00:01:00Z",
         "limits":[{"percent":24}]}));
     assert!(out["error"].is_null());
@@ -203,6 +205,40 @@ fn short429_success_after_retry_clears_pause_and_updates_reading_once() {
     assert_eq!(out["observed_at"], "2026-01-01T00:01:00Z");
     assert!(usage.cache.pin().get(&key).unwrap().at > at);
     assert!(!usage.claude_retry_due(&key, Instant::now()));
+}
+
+#[test]
+fn short429_backoff_is_bounded_resets_on_success_and_keeps_siblings_and_age() {
+    let usage = Usage::default();
+    let key = claude_key(None);
+    let sibling = claude_key(Some("synthetic-sibling"));
+    let at = good(&usage, &key);
+    let auth_at = usage.auth.pin().get(&key).unwrap().at;
+    for seconds in [60, 120, 240, 480, 900, 900] {
+        let before = Instant::now();
+        let out = usage.claude_result(&key, json!({"available":false,"retry_after_seconds":1}));
+        let after = Instant::now();
+        let until = *usage.cooldown.pin().get(&key).unwrap();
+        assert!(until >= before + Duration::from_secs(seconds));
+        assert!(until <= after + Duration::from_secs(seconds));
+        assert_eq!(usage.cache.pin().get(&key).unwrap().at, at);
+        assert_eq!(usage.auth.pin().get(&key).unwrap().at, auth_at);
+        assert_eq!(out["observed_at"], "2026-01-01T00:00:00Z");
+    }
+    let before = Instant::now();
+    usage.claude_result(&sibling, json!({"available":false,"retry_after_seconds":1}));
+    assert!(*usage.cooldown.pin().get(&sibling).unwrap() <= Instant::now() + Duration::from_secs(60));
+    assert!(*usage.cooldown.pin().get(&sibling).unwrap() >= before + Duration::from_secs(60));
+    let before = Instant::now();
+    usage.claude_result(&key, json!({"available":false,"retry_after_seconds":3600}));
+    assert!(*usage.cooldown.pin().get(&key).unwrap() >= before + Duration::from_secs(3600));
+    usage.claude_result(&key, json!({"available":true,"limits":[]}));
+    assert!(usage.cooling(&key).is_none());
+    assert!(usage.claude_throttles.pin().get(&key).is_none());
+    let before = Instant::now();
+    usage.claude_result(&key, json!({"available":false,"retry_after_seconds":1}));
+    assert!(*usage.cooldown.pin().get(&key).unwrap() >= before + Duration::from_secs(60));
+    assert!(*usage.cooldown.pin().get(&key).unwrap() <= Instant::now() + Duration::from_secs(60));
 }
 
 #[tokio::test]

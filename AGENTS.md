@@ -36,6 +36,11 @@ Rig live-root guards retain import-time `APPDATA`/home/data-override paths after
   Never preload unrelated retired reporting history. See [working checkups](docs/rust-engine/working-checkups.md).
   [verified: `runtime/reminders{,/pages}.rs`; 2026-10-23]
 
+- Claude usage retries honor both the per-key minute floor and provider deadline;
+  repeated 429s back off to 15 minutes, with only genuine success resetting them.
+  See [usage throttling](docs/agents/providers-and-accounts.md#claude-usage-throttling-backoff-2026-10-23-445).
+  [decided: coordinator 2026-10-23; verified: `usage.rs`]
+
 - Fresh Work/Presented openings use attention/unread, scoped last-viewed identity,
   then topmost. Continued readers and explicit links preserve their targets.
   See [opening rules](docs/agents/docket-and-presentations.md#opening-priority-2026-10-23).

@@ -24,12 +24,25 @@ successful authentication or history reading.
 
 The existing cooldown map remains authoritative. Retry-After normalization is
 unchanged (integer seconds, default 60, clamped 1 second through 6 hours).
-An expired provider deadline permits one new probe even within the ordinary
-60-second floor. The existing scheduler checks pending native and registered
-Claude deadlines on its passes. Its nominal tick is 10 seconds plus time spent
-on the existing sequential provider work, so this is not a hard retry latency
-guarantee. No per-request retry tasks are spawned. A registered retry updates
-only that account without refreshing siblings or moving their periodic cadence.
+For 4.4.5 (coordinator approval 2026-10-23), a retry must satisfy both the
+provider deadline and the per-key 60-second floor. Consecutive HTTP 429s add
+backoff of 60, 120, 240, 480, then 900 seconds, capped at 15 minutes; a longer
+normalized provider wait still wins. Only a genuine successful usage read clears
+the streak and cooldown. Retained results, other failures and clicks do not reset
+it. This replaces the 2026-10-15 exception that let an expired short provider
+deadline retry inside the floor.
+
+The existing scheduler checks pending native and registered Claude deadlines
+after both waits have expired. Its nominal tick is 10 seconds plus time spent on
+the existing sequential provider work, so this is not a hard retry latency
+guarantee. No per-request retry tasks are spawned. A registered retry updates only
+that account without refreshing siblings or moving their periodic cadence.
+
+Each completed probe logs only account ID, a closed status (`ok`, `rate_limited`,
+`signed_out`, `unavailable`), consecutive 429 count, normalized provider wait,
+retry interval and next eligible attempt time. Provider bodies, sign-in paths
+and credentials remain outside diagnostics. The original last-good cache and
+authentication clocks remain unchanged by a throttle.
 
 One lock-free reservation still covers HTTP, background and tool readers.
 The reservation now has a per-flight notification and a single immutable result.

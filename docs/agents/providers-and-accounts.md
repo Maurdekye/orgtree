@@ -6,6 +6,16 @@ Harnesses, model/effort offers, account binding, credentials, usage and inferenc
 
 These attributed records were moved from the root guide at `22daffd`; they retain the original substance, dates, verification limits and replacements. They are source evidence, not a declaration that every historical state is current. Read the signed decisions/current source before changing behavior. Inline source paths remain relative to the repository root; Markdown links were rebased. Add current detailed guidance here; preserve replaced records in history and update the coverage destination when moving one.
 
+## Claude usage throttling backoff (2026-10-23, 4.4.5)
+
+Claude retries respect both the provider deadline and the 60-second per-key
+minimum. Consecutive 429s wait 60/120/240/480/900 seconds (15-minute cap), or a
+longer normalized Retry-After. Only genuine success clears the streak. The
+expired-deadline floor bypass described in the historical 2026-10-15 entry is
+replaced. Diagnostic probe status and next-attempt timing use closed fields;
+never log provider bodies or sign-in paths. See [the contract](../rust-engine/claude-usage-waits.md).
+[decided: coordinator 2026-10-23; verified: `usage.rs::{claude_next_attempt,claude_result,finish_claude_probe}`]
+
 ## Explicit provider refresh and default Codex sign-in (2026-10-23)
 
 Providers Refresh uses `GET /api/providers?force=true`; ordinary GET stays cached.

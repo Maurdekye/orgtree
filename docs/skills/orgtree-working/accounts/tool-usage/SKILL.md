@@ -68,6 +68,8 @@ The ordinary reader may reuse its cache, perform a bounded HTTP metadata read, o
 
 Manual refresh attempts, including failures, share a per-lane floor across callers: 60 seconds, or 300 seconds for Google. A reading younger than that floor can be reused. Longer provider cooldowns remain, including Claude retry-after and Codex's app-server fallback cooldown. An existing read owns the shared reservation: a second caller gets `in_progress`, not a queued duplicate request. A local-server refresh is `unsupported`; API-key refresh reads local spend.
 
+Claude HTTP 429 retries also observe per-key backoff of 60, 120, 240, 480, then 900 seconds, always honoring a longer normalized provider wait. A successful provider usage read resets it. Neither a manual refresh nor an expired short provider deadline bypasses the shared 60-second minimum. Use `retry_after_seconds` and cached evidence instead of repeating refreshes.
+
 Read `refresh.status` and `retry_after_seconds` where present:
 
 | Status | Meaning |

@@ -56,6 +56,8 @@ Read the observation date, freshness and error alongside each bar:
 
 A Refresh can be pending, rate-limited or fail while preserving old observations with their date. A paused usage service is different from rejected credentials. Muse obtains observations through turns, so its independent refresh stays disabled; **reset; awaiting reading** means the new allowance is unknown. A provider/network error alone is not proof that another sign-in is required.
 
+If Claude's usage service returns HTTP 429, automatic retries wait at least a minute and increase through 2, 4, 8 and 15 minutes when throttling repeats. A longer provider wait still applies; a successful reading resets the backoff. Repeated Refresh clicks cannot shorten the wait. Leave automatic retry running, and read old bars with their original date; a usage-service 429 alone does not require another sign-in.
+
 Changing an account's allowed state is separate from reading its usage. **Organization settings > Accounts** allows or disallows lanes for that org immediately. A disabled application account must first be enabled in Providers. Unticking a serving account lets the running turn finish; later admission moves to another eligible same-provider lane or freezes if none is usable, even with usage-limit fallback off.
 
 ## Use usage history

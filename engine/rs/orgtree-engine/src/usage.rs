@@ -31,12 +31,19 @@ pub(crate) mod agy_reading_tests;
 
 const TTL: Duration = Duration::from_secs(30);
 const CLAUDE_ATTEMPT_EVERY: Duration = Duration::from_secs(60);
+const CLAUDE_BACKOFF_MAX: Duration = Duration::from_secs(15 * 60);
 
 /// The floor between two attempts at one Claude login: a minute, except where
 /// a rig proof lowered it (`crate::rig::claude_attempt_floor`).
 #[nolog]
 fn claude_attempt_every() -> Duration {
     crate::rig::claude_attempt_floor().unwrap_or(CLAUDE_ATTEMPT_EVERY)
+}
+
+#[nolog]
+fn claude_backoff(streak: u32) -> Duration {
+    claude_attempt_every().saturating_mul(1 << streak.saturating_sub(1).min(4))
+        .min(CLAUDE_BACKOFF_MAX)
 }
 /// a peek older than this is no claim about now
 const PEEK_MAX: Duration = Duration::from_secs(900);
@@ -370,6 +377,8 @@ pub struct Usage {
     probing: papaya::HashMap<String, Arc<Flight>>,
     /// All Claude callers share this floor, including forced desktop reads.
     claude_attempts: papaya::HashMap<String, Instant>,
+    /// Consecutive provider 429s for this login; only a genuine success resets it.
+    claude_throttles: papaya::HashMap<String, u32>,
     /// Last returned result for quiet floor hits; never re-dates last-good bars.
     claude_last: papaya::HashMap<String, Value>,
     /// Manual attempt floor (failures count); automatic cadence is unchanged.
@@ -446,25 +455,28 @@ impl Usage {
     #[nolog]
     fn claude_retry_due(&self, key: &str, now: Instant) -> bool {
         self.cooldown.pin().get(key).is_some_and(|until| *until <= now)
+            && self.claude_next_attempt(key).is_some_and(|until| until <= now)
     }
 
-    /// Called only under the account's shared reservation. A provider's own
-    /// retry deadline takes precedence over the ordinary 60-second floor.
+    /// The provider deadline and ordinary floor both apply. Keep expired
+    /// cooldowns until admission so the scheduler cannot forget a pending retry.
+    #[nolog]
+    fn claude_next_attempt(&self, key: &str) -> Option<Instant> {
+        let floor = claude_attempt_every();
+        let attempt = self.claude_attempts.pin().get(key).map(|at| *at + floor);
+        let good = self.cache.pin().get(key)
+            .filter(|c| c.data["available"] == true).map(|c| c.at + floor);
+        let provider = self.cooldown.pin().get(key).copied();
+        attempt.into_iter().chain(good).chain(provider).max()
+    }
+
+    /// Called only under the account's shared reservation, including force reads.
     #[nolog]
     fn claude_attempt(&self, key: &str, now: Instant) -> bool {
-        if let Some(until) = self.cooldown.pin().get(key).copied() {
-            if until > now { return false; }
-            self.cooldown.pin().remove(key);
-        } else {
-            if self.claude_attempts.pin().get(key).is_some_and(|at|
-                now.saturating_duration_since(*at) < claude_attempt_every()) {
-                return false;
-            }
-            if self.cache.pin().get(key).is_some_and(|c|
-                c.data["available"] == true && now.saturating_duration_since(c.at) < claude_attempt_every()) {
-                return false;
-            }
+        if self.claude_next_attempt(key).is_some_and(|until| until > now) {
+            return false;
         }
+        self.cooldown.pin().remove(key);
         self.claude_attempts.pin().insert(key.to_owned(), now);
         true
     }
@@ -591,12 +603,17 @@ impl Usage {
     fn claude_result(&self, key: &str, out: Value) -> Value {
         if let Some(secs) = out["retry_after_seconds"].as_u64() {
             // A pause is not a reading or an authentication observation.
-            let until = Instant::now() + Duration::from_secs(secs.clamp(1, 6 * 3600));
+            let streak = self.claude_throttles.pin().get(key).copied().unwrap_or(0).saturating_add(1);
+            self.claude_throttles.pin().insert(key.to_owned(), streak);
+            let wait = Duration::from_secs(secs.clamp(1, 6 * 3600)).max(claude_backoff(streak));
+            let until = Instant::now() + wait;
             self.cooldown.pin().insert(key.to_owned(), until);
             return self.claude_cooldown(key, until);
         }
         self.record_auth(key, &out);
         if out["available"].as_bool().unwrap_or(false) {
+            self.claude_throttles.pin().remove(key);
+            self.cooldown.pin().remove(key);
             self.put(key, &out);
         } else if let Some(prev) = self.fresh(key, Duration::MAX).filter(|p| p["available"].as_bool().unwrap_or(false)) {
             let mut v = prev;
@@ -779,7 +796,7 @@ async fn claude_probe(engine: &Engine, config_dir: Option<&str>) -> Value {
         if crate::rig::canned_reading(&v) {
             crate::account_marks::profile_history(engine, "claude", config_dir, Utc::now(), &v).await;
         }
-        return engine.usage.claude_result(&claude_key(config_dir), v);
+        return finish_claude_probe(engine, config_dir, v);
     }
     let key = claude_key(config_dir);
     let dir = claude_dir(config_dir);
@@ -800,7 +817,32 @@ async fn claude_probe(engine: &Engine, config_dir: Option<&str>) -> Value {
         },
     };
     out["email"] = json!(email);
-    engine.usage.claude_result(&key, out)
+    finish_claude_probe(engine, config_dir, out)
+}
+
+/// Only closed status labels, registry IDs and retry timing reach diagnostics.
+/// Never serialize provider bodies, sign-in paths, credentials or raw results.
+#[nolog]
+fn finish_claude_probe(engine: &Engine, config_dir: Option<&str>, raw: Value) -> Value {
+    let status = if raw["retry_after_seconds"].is_u64() { "rate_limited" }
+        else if raw["available"] == true { "ok" }
+        else if raw["reauth_required"] == true { "signed_out" }
+        else { "unavailable" };
+    let provider_retry_seconds = raw["retry_after_seconds"].as_u64().map(|s| s.clamp(1, 6 * 3600));
+    let key = claude_key(config_dir);
+    let result = engine.usage.claude_result(&key, raw);
+    let now = Instant::now();
+    let wait = engine.usage.claude_next_attempt(&key).unwrap_or(now).saturating_duration_since(now);
+    let next_attempt_at = Utc::now() + chrono::Duration::from_std(wait).unwrap_or_default();
+    let streak = engine.usage.claude_throttles.pin().get(&key).copied().unwrap_or(0);
+    let view = engine.accounts.view();
+    let account = if config_dir.is_none() { "claude/primary" }
+        else { view.all().into_iter().find(|a| a.provider == "claude" && a.config_dir.as_deref() == config_dir)
+            .map(|a| a.id.as_str()).unwrap_or("claude/managed") };
+    tracing::info!(account, provider = "claude", status, consecutive_429s = streak,
+        provider_retry_seconds, retry_in_seconds = wait.as_secs_f64(),
+        next_attempt_at = %iso(next_attempt_at), "Claude usage probe completed");
+    result
 }
 
 /// The sign-in a Claude login holds: (access token, expires at ms, plan). Not logged.
