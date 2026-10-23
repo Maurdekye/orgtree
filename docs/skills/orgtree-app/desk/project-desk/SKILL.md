@@ -6,6 +6,8 @@ Up: [orgtree-desk](../SKILL.md)
 
 # Project desk
 
+The **dissolve** button's native hover tooltip explains that it archives this project and stops/archives every agent under it, while retaining history and files. The confirmation still precedes the operation. Restoring the project does not automatically rehire all former members. Projects run no turns and have no per-agent DND button; their **halt all** acts on live agents below them.
+
 Select a project on the canvas to focus its desk. **Open > Desk** opens its modal; the desk can also be pinned or popped out. These surfaces share the same project views. A project has a mailbox and team but runs no conversation or turns itself.
 
 Opening a desk that is already visible refocuses or reveals that existing desk,

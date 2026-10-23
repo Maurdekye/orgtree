@@ -103,6 +103,8 @@ Cross-provider switches start a fresh session with a handoff summary. Scratch fi
 
 ## Hold mail for focused work
 
+The desk header's **DND** hover tooltip briefly explains that it holds non-urgent mail while urgent mail still arrives, and how to turn the hold on or off.
+
 Use **DND** in the desk header to hold non-urgent mail during the current turn. If the agent is idle, it arms **DND next turn**: opening mail starts that turn normally, then the hold applies. The card/desk badge distinguishes armed from active DND. Arming is not yet an urgent-mail bypass target.
 
 Turning DND off clears active or armed state and releases held mail at the harness's next supported delivery boundary, without interrupting/restarting the turn. Large input remains ordered across bounded follow-up deliveries. The target agent can clear its own hold, and authorized agent superiors can control descendants at any depth. A hold set by you is not irrevocable. Active DND also clears when the turn actually ends; it is separate from Halt, freeze and the organization's outside-inbox mode.
@@ -110,6 +112,8 @@ Turning DND off clears active or armed state and releases held mail at the harne
 Only urgent mail bypasses an active hold. User and superior ordinary mail wait too. An agent can explicitly read selected held mail itself. See [Messages and work](messages-and-work.md#continue-a-conversation) for the composer urgency control and [Collaboration](collaborating.md#choose-an-outside-inbox-mode) for organization-wide outside DND.
 
 ## Stop, pause or finish work
+
+The desk header's **retire** and **dissolve** hover tooltips explain their scope, released credits and retained history/files. An agent with a live team offers dissolve; a leaf offers retire. A project's dissolve includes the project and every agent under it; restoring the project alone does not rehire all former members. These buttons still open a confirmation.
 
 | Action | Result |
 | --- | --- |

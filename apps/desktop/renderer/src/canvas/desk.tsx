@@ -3876,10 +3876,12 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
             {(live || node.halt) && <HaltControl key={node.id} slug={slug} nid={node.id}
               halt={node.halt} toast={toast} />}
             {live && !liveKids &&
-              <button className="danger" onClick={() => setAsking('retire')}>
+              <button className="danger" title="Stop and archive this agent, freeing its credits. History and files are kept."
+                onClick={() => setAsking('retire')}>
                 retire · {fmtCredits(node.seat! + node.grant!)}</button>}
             {live && liveKids &&
-              <button className="danger" onClick={() => setAsking('dissolve')}>
+              <button className="danger" title="Stop and archive this agent and its whole team, freeing their credits. History and files are kept."
+                onClick={() => setAsking('dissolve')}>
                 dissolve · {fmtCredits(node.seat! + node.grant!)}</button>}
             {!live && <button onClick={() => op({ op: 'rehire', node: node.id })}>rehire</button>}
             {!live && onDismiss && (

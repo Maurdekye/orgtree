@@ -12,6 +12,17 @@ This is a display correction; move/reorder tool authority is unchanged.
 [decided: user 2026-10-23; verified: `canvas/{moveghost,OrgCanvas}.tsx`,
 `tests/{pendingmove,hiddenretiredbunch}.test.tsx`]
 
+## Desk lifecycle hover help (2026-10-23)
+
+Agent retire/dissolve and project dissolve use native button titles, like Halt
+and DND. Explain the affected agent/team/project and preserved history/files;
+do not promise that restoring a root also rehires every former member. DND's
+title explains holding non-urgent mail while urgent mail passes, with its
+existing current/next-turn and release-boundary behavior. These are explanatory
+changes only; confirmations, lifecycle operations and DND authority stay in
+their existing handlers. [verified: `canvas/desk.tsx`, `canvas/projectdesk.tsx`,
+`canvas/dnd.tsx`; user 2026-10-23]
+
 ## Template availability while typing (2026-10-23)
 
 The Create form rechecks template availability when the name changes because

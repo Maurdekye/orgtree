@@ -19,8 +19,9 @@ export function DndControl({ slug, nid, active, nextTurn, toast }: {
   useEffect(()=>setApplied(null),[slug,nid,active,nextTurn])
   const on=applied ? applied.dnd || applied.dnd_next_turn : !!(active || nextTurn)
   const armed=applied ? applied.dnd_next_turn : nextTurn
-  const title=on ? 'Turn off Do Not Disturb and release held mail now at the next supported delivery boundary'
-    : 'Turn on Do Not Disturb for this turn, or arm the next turn if idle'
+  const explanation='Do Not Disturb holds non-urgent mail during a turn; urgent mail still arrives. '
+  const title=explanation+(on ? 'Turn off to release held mail at the next supported delivery boundary.'
+    : 'Turn on for this turn, or the next turn if idle.')
   return <button type="button" className="dnd-control" aria-label="Do Not Disturb" aria-pressed={on}
     title={title} disabled={saving} onClick={async()=>{
       setSaving(true)

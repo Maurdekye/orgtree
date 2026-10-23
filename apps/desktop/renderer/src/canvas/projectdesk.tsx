@@ -810,7 +810,7 @@ export function ProjectDesk({ node, slug, tree, map, op, toast, refs, bare, focu
                   {allHalted ? 'unhalt all' : 'halt all'}</button>
               )}
               {live && <button className="danger" data-action="dissolve"
-                title="retire the project and every agent under it; context is kept and rehire brings each back"
+                title="Archive this project and stop and archive every agent under it. History and files are kept."
                 onClick={() => setAsking('dissolve')}>dissolve</button>}
               {!live && node.state === 'archived' && <button data-action="restore"
                 onClick={() => { void op({ op: 'rehire', node: node.id }).catch(() => {}) }}>restore</button>}
