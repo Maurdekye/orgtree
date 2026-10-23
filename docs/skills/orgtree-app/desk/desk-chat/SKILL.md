@@ -37,6 +37,13 @@ remain unlinked because no attempted file path is known.
 
 Chat is the conversation surface. It includes messages, thoughts when supplied, tools, typed events, attachments and pending delivery rows. Opening another tab does not stop the agent. Earlier messages load on demand; failure offers retry rather than claiming the transcript ends there.
 
+Completed Codex reasoning steps without readable text retain a sealed thought
+placeholder in saved history, like Claude's sealed thoughts. The placeholder
+records that thinking occurred; it does not reveal encrypted reasoning or
+invent a duration or token count. Supplied readable summaries remain expandable.
+This applies to newly received steps; it does not backfill previously omitted
+sealed rows. Thought rows can also contain ordinary tool chips, which stay visible.
+
 Returning to the latest messages or reopening a desk keeps earlier history
 available to scroll back into. The start-of-conversation marker means the loaded
 history has reached the actual beginning, including on Antigravity agents; it

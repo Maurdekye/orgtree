@@ -29,6 +29,11 @@ Rig live-root guards retain import-time `APPDATA`/home/data-override paths after
 
 ## Engine and desktop invariants
 
+- Codex sealed reasoning keeps a thought placeholder, not ciphertext; agent
+  transcript reads include bounded supplied thinking and sealed markers. Keep
+  Codex tool chips visible in the ordinary row form. See [thinking history](docs/rust-engine/codex-thinking-history.md).
+  [verified: `runtime/codex_thinking.rs`, `tools/orgview.rs`; 2026-10-23]
+
 - Preserve nonblank streamed text before taking a turn; native-identity receipts
   reconcile late completions in place. Thinking is separate. See [unfinished
   responses](docs/rust-engine/incomplete-responses.md). [verified:

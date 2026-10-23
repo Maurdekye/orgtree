@@ -14,11 +14,18 @@ The restored result contains:
   chart; `occupancy` and `occupancy_estimated`: its persisted occupancy fields.
   This is a single bounded row read and starts no actor.
 - `messages`: oldest first within the requested recent page, each containing
-  `role`, `text` and `tools`. Only text is sliced to 1,200 Unicode characters,
+  `role`, `text` and `tools`. Text is sliced to 1,200 Unicode characters,
   without whitespace collapse or an added ellipsis. Missing/null text is empty.
   The complete stored tools value survives, including results, cards, diffs and
   future fields; it is not reduced to a name/argument/error summary.
 - An empty conversation still returns the metadata with `messages: []`.
+
+The 4.4.4 thinking extension also returns `thinking` (independently capped at
+1,200 Unicode characters), `thinking_sealed` (row marker or any sealed ordered
+thought block) and `thinking_truncated`. Mixed readable/sealed rows retain both
+signals. Ciphertext is not transcript content. The existing `incomplete` and
+`interrupted` assistant-text flags and complete tools projection are unchanged.
+These fields extend the older 3.x equality fixtures described below.
 
 `last` keeps the 3.x default 30, bounds 1–80, numeric string/float coercion and
 invalid-number refusal. The tool description now advertises 30. The existing

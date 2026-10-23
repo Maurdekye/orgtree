@@ -22,6 +22,15 @@ Requires effective `tools.orgtree.inspection`. Self is permitted; otherwise the 
 
 The structured response contains `node`, `access`, persisted `busy`, `occupancy`, `occupancy_estimated`, and `messages`. Each message has `role`, `text` and the stored `tools` array. The newest requested rows are returned in conversation order. A row is not necessarily a whole turn; tools and messages may span several rows.
 
+Messages also include `thinking`, `thinking_sealed` and `thinking_truncated`.
+`thinking` contains supplied readable thinking for any harness, limited
+independently to **1,200 Unicode characters**; the truncation flag says that
+this projection shortened the stored thinking. `thinking_sealed: true` means
+the row includes a sealed/unavailable thought, detected from either its row
+marker or its ordered thought blocks. A mixed row can have readable thinking
+and a sealed marker together. Empty thinking with no sealed marker is not proof
+that a reasoning step occurred. Encrypted reasoning is never reconstructed.
+
 Each message's text is limited to 1,200 Unicode characters. Stored tool/card objects are retained, but separately stored on-demand tool input/output is not reconstructed by this projection. There is no `before`, `after`, cursor, or older-page parameter, and increasing `last` cannot exceed 80. The runtime can attempt an earlier-history import; failure to import does not manufacture missing historical rows.
 
 Each message also has `incomplete` and `interrupted` booleans. Unfinished

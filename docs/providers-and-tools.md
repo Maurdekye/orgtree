@@ -41,6 +41,13 @@ A **harness** runs tools and manages the agent session. A **model provider or se
 
 All routes share Orgtree's persistent identity, mail, docket and fresh-session handoff facilities. They differ in timing, image delivery, native approval mechanisms and observable output. Antigravity/OpenCode image attachments use a text/path envelope in this adapter; Claude, Codex and Muse have native image-input paths. Missing thought text or live output is not evidence that a tool did nothing.
 
+Codex reasoning steps that supply no readable summary keep a sealed thought
+placeholder in saved Chat history. It records the step without exposing
+encrypted reasoning; supplied readable summaries remain available. Existing
+omitted sealed steps are not backfilled. Agents reading transcripts can receive
+supplied thinking and sealed markers from every harness; those reads cap each
+row's thinking at 1,200 Unicode characters and report when it was shortened.
+
 Folder and approval enforcement also varies. Read the permission choices in [Managing agents](managing-agents.md#give-the-agent-the-right-access), and use a task with a narrow known scope when trying a new route. No comparison of features guarantees equal model quality, speed, tool obedience or operating-system isolation. The app's **Harnesses** tab lists detected versions and official installation links; installation/version updates are separate from adding a model.
 
 ## Manage multiple accounts
