@@ -1,6 +1,20 @@
 //! Baseline-red contract tests, written before the short-429 fix.
 use super::*;
 
+#[test]
+fn short429_expired_deadline_never_bypasses_the_minute_floor() {
+    let usage = Usage::default();
+    let key = claude_key(None);
+    let now = Instant::now();
+    assert!(usage.claude_attempt(&key, now));
+    usage.cooldown.pin().insert(key.clone(), now + Duration::from_secs(2));
+    assert!(!usage.claude_attempt(&key, now + Duration::from_secs(10)),
+        "a short provider deadline must not allow a ten-second retry");
+    assert!(!usage.claude_retry_due(&key, now + Duration::from_secs(10)));
+    assert!(usage.claude_retry_due(&key, now + Duration::from_secs(60)));
+    assert!(usage.claude_attempt(&key, now + Duration::from_secs(60)));
+}
+
 fn good(usage: &Usage, key: &str) -> Instant {
     usage.claude_result(key, json!({"available":true,"observed_at":"2026-01-01T00:00:00Z",
         "limits":[{"kind":"session","percent":23}]}));
