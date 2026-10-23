@@ -42,7 +42,7 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import path from 'node:path'
 import { FakeServer, flush, inAct, installFetch, mountView } from './harness'
-import { ProjectDesk, ProjectDeskModal, sourceOffset } from '../src/canvas/projectdesk'
+import { ProjectDesk, ProjectDeskModal, projectBroadcastRecipients, projectCounts, sourceOffset } from '../src/canvas/projectdesk'
 import { forgetDeskMemory } from '../src/canvas/desktabs'
 import { AgentGalleryView } from '../src/canvas/gallery'
 import { pinAccentClass } from '../src/canvas/pins'
@@ -456,12 +456,29 @@ test('§2f the description has no border or background while not edited; the edi
 
 /* ─── §10 the message box ─────────────────────────────────────────────────── */
 
-test("§10 the desk's message box: by default one mail to the project's own inbox; with the megaphone on, one broadcast to every agent under it (user 2026-10-18 07:33Z, 07:43Z)", async (t) => {
+test('broadcast preview stops at agents while header totals keep their full subtree', () => {
+  const node = project()
+  node.children[0].children = [{ id: 'report-of-member', state: 'live', tier: 'sol', children: [] } as unknown as CanvasNode]
+  assert.deepEqual(projectBroadcastRecipients(node).map(a => a.id), ['dev1', 'dev2'])
+  assert.equal(projectCounts(node).agents.some(a => a.id === 'report-of-member'), true, 'header/halt scope is unchanged')
+})
+
+test('broadcast preview crosses 2048 projects and terminates a duplicate root edge', () => {
+  const root = project({ children: [] })
+  let last = root
+  for (let i = 0; i < 2048; i++) { const child = project({ id: `level-${i}`, children: [] }); last.children = [child]; last = child }
+  last.children = [{ id: 'deep-member', state: 'live', tier: 'sol', children: [] } as unknown as CanvasNode, root]
+  assert.deepEqual(projectBroadcastRecipients(root).map(a => a.id), ['deep-member'])
+})
+
+test("§10 the desk's message box: one project mail by default; broadcast crosses projects and stops at agents", async (t) => {
   // a listener on the inbox, so one agent under it takes the mail (with none,
   // the box says so instead: projectinboxwarning.test.tsx)
   const listener = { id: 'dev1/inbox', owner: 'dev1', name: 'inbox', kind: 'fair_queue', target: 'website', interval_s: 5,
     state: 'armed', at: '2026-10-20T11:00:00.000Z', fired: 0, once: false, spent: false }
-  const el = await desk(t, { tree: { slug: 'org', roots: [], watchdogs: [listener], slot_leases: [] } as unknown as TreePayload })
+  const node = project()
+  node.children[0].children = [{ id: 'not-a-recipient', state: 'live', tier: 'sol', children: [] } as unknown as CanvasNode]
+  const el = await desk(t, { node, tree: { slug: 'org', roots: [], watchdogs: [listener], slot_leases: [] } as unknown as TreePayload })
   const sent: { path: string; body: unknown }[] = []
   const inner = globalThis.fetch
   globalThis.fetch = ((url: RequestInfo | URL, init?: RequestInit) => {

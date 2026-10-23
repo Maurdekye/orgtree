@@ -127,6 +127,23 @@ export function projectCounts(node: CanvasNode): { active: number; hired: number
   return { active: agents.filter((a) => a.busy).length, hired: agents.length, agents }
 }
 
+/** Broadcast preview/DnD candidates mirror the engine: projects pass through,
+ *  agents receive and stop. Header totals and Halt all still use the subtree. */
+export function projectBroadcastRecipients(node: CanvasNode): CanvasNode[] {
+  const pending = [...(node.children ?? [])].reverse()
+  const seen = new Set([node.id]), recipients: CanvasNode[] = []
+  while (pending.length) {
+    const child = pending.pop()!
+    if (seen.has(child.id)) continue
+    seen.add(child.id)
+    if (child.state !== 'live') continue
+    if (child.kind === 'project' || child.tier === 'project') {
+      for (let i = (child.children?.length ?? 0) - 1; i >= 0; i--) pending.push(child.children[i])
+    } else recipients.push(child)
+  }
+  return recipients
+}
+
 
 /** The project's LAST ACTIVITY (user 2026-10-17 22:21Z): active while any
  *  live agent under it runs a turn; otherwise the newest turn end among them,
@@ -290,7 +307,7 @@ function DescriptionEditor({ node, op, toast, editable }: {
  *  own mailbox, the fair-queue project mail one agent under it claims
  *  (`sendMessage` to the project node). With the megaphone on (it stays on
  *  until turned off, and the box's border brightens) a send reaches every
- *  live agent under the project, nested projects included
+ *  live agent child through nested projects, stopping at each agent
  *  (`broadcastMessage`). Attachments upload into the project's own uploads
  *  folder and ride either kind of send. No slash commands: a project has no
  *  CLI. */
@@ -571,7 +588,7 @@ function ProjectComposer({ node, slug, tree, map, toast, members, recipients, ba
             : `Megaphone: send to all ${members} agents under ${node.id} instead of the project's inbox`}
           title={members === 0 ? `no agent works under ${node.id} yet`
             : megaphone ? `on: each message goes to all ${members} agents under ${node.id}; click or press Alt+B to send to the project's inbox again`
-              : `send to all ${members} agents under ${node.id} at once, instead of the project's inbox that one agent claims (Alt+B)`}
+              : `send to all ${members} agents under ${node.id} at once, through sub-projects but not below agent recipients, instead of the project's inbox that one agent claims (Alt+B)`}
           onClick={() => setMegaphone((v) => !v)}>
           <CampaignIcon fontSize="inherit" />
         </button>
@@ -714,6 +731,7 @@ export function ProjectDesk({ node, slug, tree, map, op, toast, refs, bare, focu
   const facts = useNodeFacts(slug, tree, useMemo(() => itemActorIds(mine), [mine]))
   const live = node.state === 'live'
   const { agents } = projectCounts(node)
+  const broadcastRecipients = projectBroadcastRecipients(node)
   const allHalted = agents.length > 0 && agents.every((a) => a.halt?.phase === 'halted')
   // up through projects, as the agent desk's up row: the nearest agent
   // superior, then every project between it and this one, outermost first
@@ -858,7 +876,7 @@ export function ProjectDesk({ node, slug, tree, map, op, toast, refs, bare, focu
         <PanelCorner kind="agent-gallery" slug={slug} nid={node.id} />
         {/* nid = the project: the engine widens a project's gallery to its subtree */}
         <AgentGalleryView slug={slug} nid={node.id} node={node} toast={toast} onFocusAgent={onJump} refs={refs}
-          projectBroadcastMembers={agents.length}
+          projectBroadcastMembers={broadcastRecipients.length}
           onReplyToDoc={(doc) => replyToDoc(doc)}
           onBroadcast={(_presenter, text, target, attachments, notice) =>
             broadcastMessage(slug, node.id, text, attachments, notice, undefined, [target]).then((r) => {
@@ -886,7 +904,7 @@ export function ProjectDesk({ node, slug, tree, map, op, toast, refs, bare, focu
       <DeskReportRow node={node} map={map} onJump={onJump} org={slug} />
       {/* under every tab, as the agent desk's composer is */}
       <ProjectComposer key={slug + ':' + node.id} node={node} slug={slug} tree={tree} map={map} toast={toast}
-        members={agents.length} recipients={agents} bare={bare} focusRequest={replyFocus}
+        members={broadcastRecipients.length} recipients={broadcastRecipients} bare={bare} focusRequest={replyFocus}
         replies={replies} onReplies={setReplies}
         replyAvailable={(r) => !!r.workItemId || !!r.docId && (Boolean(onOpenDoc) || subtreeDocs(node).some((d) => d.id === r.docId))}
         onLocateReply={(r) => { if (r.docId) onOpenDoc?.(r.docId) }}
