@@ -1,10 +1,9 @@
 # Selection replies
 
-User decision 2026-10-23: implement Reply to selection for 4.4.3 on mail,
+User decision 2026-10-23: implement Reply to selection for 4.4.4 (renumbered by the user on 2026-10-23) on mail,
 settled transcript prose/tool inputs/results/displayed thoughts, Markdown
 presentations and docket fields. Keep plain replies; exclude interactive HTML
-and persistent comment threads. The foundation and shared mail capture use the same engine contract;
-transcript/presentation/docket desktop wiring follows in subsequent slices.
+and persistent comment threads. All supported desktop surfaces use the same engine contract.
 
 ## Identity, validation and storage
 
@@ -100,3 +99,9 @@ The desktop now maps settled prose and displayed thoughts through their exact ev
 Selection snapshots survive transcript reply persistence, multi-reply deduplication, pending cards and sent quote rendering. The source navigation registry accepts only a server-verified range/digest, reverses the same conservative DOM projection, and scrolls the nearest overflow owner. Existing fold/paging/object routes still open the source; no quote substring search is used for navigation.
 
 The eager message definition retains its prior identity schema and adds a minimal wrapper only. Detailed selection explanation lives in the deferred source-read definition and Guide. A focused serialized-card control compares both split and flat schemas with the frozen exact 4.4.2 schema and caps the eager delta at 800 compact UTF-8 bytes.
+
+## Presentation and docket replies
+
+Markdown presentation title/body capture stages in the nearest owning reader reply box. Its existing direct reply or project broadcast callback carries the selected targets; no new fan-out route is invented. HTML capture is disabled. Docket title/objective/current reason/progress entries/evidence notes use distinct parts and list indices. The canonical docket reply endpoint validates all selections before mail send and attention clearing, retains its current recipient roles, and refuses selection targets belonging to another item. Ordinary replies keep the old path.
+
+Folded source navigation reveals the existing disclosure and highlights only after the exact current projection matches the server-verified digest. A missing/mismatched rendering keeps the captured excerpt. This is a plain reply feature, with no resolve/unresolve thread state.

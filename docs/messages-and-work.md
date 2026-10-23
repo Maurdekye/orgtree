@@ -145,3 +145,9 @@ Continue with [Settings and usage](settings-and-usage.md) for shortcuts, notific
 Highlight retained prose, an open thought, or text in expanded tool details and choose **Reply to selection**. In structured tool JSON, each key and scalar value is a separate source part. Your current desk draft stays in place. The quote includes the exact excerpt and nearby context; you can stage several passages before sending through that desk's normal reply box.
 
 The running turn must finish before its text can be quoted this way. Hidden context, sealed thoughts and reconstructed truncated JSON are excluded. If a source changes before sending, the send refuses and your draft is restored. After delivery, the captured excerpt remains readable; opening it checks for the original passage or a unique verified relocation. Otherwise it shows **Source changed** or **Source unavailable**.
+
+### Reply to part of a presentation or docket item
+
+Highlight text in a Markdown presentation title/body, or a docket title, description, current reason, progress entry or evidence note. **Reply to selection** adds its exact excerpt and nearby context to that reader's reply box. Keep typing in your existing draft, remove individual passages, or cancel all. Each gesture selects one field or entry; identical list entries cannot be safely distinguished and are refused.
+
+Presentation replies retain their direct/project broadcast destination. Docket replies retain the ordinary recipient and attention rules: a changed selected source refuses before mail is sent or attention is cleared. HTML presentations do not offer this action. Delivered quotes survive later edits; opening a quote checks the current source and highlights only a verified passage.

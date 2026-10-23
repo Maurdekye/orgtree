@@ -43,3 +43,9 @@ An unarchived backlogged item offers Staff… using the app's Runtime > Docket >
 
 - See `orgtree-docket-statuses` (orgtree-working › docket).
 - See `orgtree-tool-work` (orgtree-working › docket).
+
+## Reply to selected docket text
+
+Select part of a title, description, current blocked/dropped reason, a progress entry or an evidence note and choose **Reply to selection**. One gesture covers one field/entry. The item reply box stages the excerpt and nearby context without replacing your draft or selected recipient. Remove individual passages or cancel all before sending.
+
+Sending retains the ordinary item reply rules: the current owner/participant/attention-raiser recipient check, and attention clearing only after a successful send under its existing conditions. Every selected source is validated first; a changed field refuses without clearing attention. Duplicate list entries without stable identities refuse rather than guess. Captured quotes remain readable after later edits. Agents use the Working category's **orgtree-read-reply-source** and **orgtree-tool-message** contract for equivalent scoped reads and selection replies.
