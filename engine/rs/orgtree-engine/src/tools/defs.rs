@@ -158,7 +158,7 @@ fn deferred(name: &str) -> bool {
     matches!(name,
         "orgtree_fast_defaults" | "orgtree_org_logo" | "orgtree_transfers" | "orgtree_list_orgs" |
         "orgtree_halt" | "orgtree_unhalt" | "orgtree_unstick" | "orgtree_continue_on" |
-        "orgtree_account_mark" | "orgtree_withdraw_ask" | "orgtree_project" |
+        "orgtree_account_mark" | "orgtree_withdraw_ask" | "orgtree_project" | "orgtree_read_reply_source" |
         "orgtree_retire" | "orgtree_dissolve" | "orgtree_retool" | "orgtree_switch_model" |
         "orgtree_move" | "orgtree_rename" | "orgtree_reorder" | "orgtree_reallocate" |
         "orgtree_cheap_compact" | "orgtree_compact" | "orgtree_request_credits" | "orgtree_request_scope" |
@@ -1604,10 +1604,11 @@ mod fast_tools_tests {
 
 #[cfg(test)]
 mod builder_stack_tests {
+    use serde_json::{json,Value};
     /// Keep the pre-split card bytes/order, except the explicitly approved
     /// own-project presentation permission description (user 2026-10-18).
     #[test]
-    fn all_tool_json_matches_pre_split_snapshot() {
+    fn reply_selection_all_tool_json_matches_pre_split_snapshot() {
         let mut expected: serde_json::Value = serde_json::from_slice(include_bytes!("../../testdata/tool-cards-c89111b.json")).unwrap();
         // User 2026-10-20: TOTAL moved from inline instructions to this card.
         let credit = expected.as_array_mut().unwrap().iter_mut().find(|card| card["name"] == "orgtree_request_credits").unwrap();
@@ -1816,6 +1817,26 @@ mod builder_stack_tests {
         // Approved 4.4.3 selection-reply contract: identity strings/objects
         // remain nested unchanged; the additive wrapper is covered separately.
         let cards=expected.as_array_mut().unwrap();
+        let baseline=cards.iter().find(|c|c["name"]=="orgtree_message").unwrap().clone();
+        let [extended,_]=super::mail_tools(super::MailShape::Split);
+        let [flat,_]=super::mail_tools(super::MailShape::Flat);
+        let mut old_flat=flat.clone();
+        for key in ["reply_to","replies"] { old_flat["inputSchema"]["properties"][key]=baseline["inputSchema"]["properties"]["metadata"]["properties"][key].clone(); }
+        let bytes=|v:&Value|serde_json::to_vec(v).unwrap().len();
+        let source=super::build_tool_read_reply_source();
+        let costs=json!({"encoding":"compact UTF-8 JSON via serde_json::to_vec","source_tool_bytes":bytes(&source),
+            "source_schema_bytes":bytes(&source["inputSchema"]),"source_deferred":super::deferred("orgtree_read_reply_source"),
+            "message_split_base_bytes":bytes(&baseline),"message_split_extended_bytes":bytes(&extended),
+            "message_split_delta_bytes":bytes(&extended) as i64-bytes(&baseline) as i64,
+            "message_split_base_schema_bytes":bytes(&baseline["inputSchema"]),"message_split_extended_schema_bytes":bytes(&extended["inputSchema"]),
+            "message_flat_base_bytes":bytes(&old_flat),"message_flat_extended_bytes":bytes(&flat),
+            "message_flat_delta_bytes":bytes(&flat) as i64-bytes(&old_flat) as i64});
+        println!("SELECTION_TOOL_COST {costs}");
+        if let Ok(path)=std::env::var("ORGTREE_SELECTION_TOOL_COST") {
+            assert!(path.replace('\\',"/").starts_with("C:/orgtree-build/native-tools-sol/"));
+            std::fs::write(path,serde_json::to_vec_pretty(&costs).unwrap()).unwrap();
+        }
+        assert!(super::deferred("orgtree_read_reply_source"));
         let position=cards.iter().position(|c|c["name"]=="orgtree_read_transcript").unwrap()+1;
         cards.insert(position,super::build_tool_read_reply_source());
         let message=cards.iter_mut().find(|c|c["name"]=="orgtree_message").unwrap();
