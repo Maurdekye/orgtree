@@ -1747,8 +1747,8 @@ mod builder_stack_tests {
         let at = expected.as_array().unwrap().iter().position(|c| c["name"] == "orgtree_cheap_compact").unwrap() + 1;
         expected.as_array_mut().unwrap().insert(at, super::build_tool_compact());
         let tiers = expected.as_array_mut().unwrap().iter_mut().find(|c| c["name"] == "orgtree_list_tiers").unwrap();
-        tiers["description"] = json!("List tiers/prices; refresh rechecks logins (runtime).");
-        tiers["inputSchema"]["properties"]["refresh"] = json!({"type":"boolean","description":"default false; coalesced provider discovery, runtime required"});
+        tiers["description"] = serde_json::json!("List tiers/prices; refresh rechecks logins (runtime).");
+        tiers["inputSchema"]["properties"]["refresh"] = serde_json::json!({"type":"boolean","description":"default false; coalesced provider discovery, runtime required"});
         assert!(serde_json::to_vec(&super::all()).unwrap() == serde_json::to_vec(&expected).unwrap(),
             "all() JSON differs from the pre-split capture beyond the approved project-presentation description");
     }
