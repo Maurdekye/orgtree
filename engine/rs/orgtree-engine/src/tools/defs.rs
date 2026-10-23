@@ -1761,6 +1761,10 @@ mod builder_stack_tests {
                 }
             }
         }
+        // Assigned 4.4.4 base 3c579c4 includes the published 4.4.3
+        // agent-boundary broadcast rule. Keep its exact body wording guarded.
+        let project=expected.as_array_mut().unwrap().iter_mut().find(|c|c["name"]=="orgtree_project").unwrap();
+        project["inputSchema"]["properties"]["body"]["description"]=serde_json::json!("broadcast: message to live agent children through nested projects, stopping at each agent; fire_event: optional message carried to its event listeners");
         // User 2026-10-19 20:35Z: physical siblings alone are default mail
         // coworkers; other project memberships need a directional audience.
         let message=expected.as_array_mut().unwrap().iter_mut().find(|c|c["name"]=="orgtree_message").unwrap();
@@ -1779,6 +1783,9 @@ mod builder_stack_tests {
         ] {
             expected.as_array_mut().unwrap().iter_mut().find(|c| c["name"] == name).unwrap()["description"] = serde_json::json!(description);
         }
+        // The same assigned base exposes supplied thinking and sealed markers.
+        let transcript=expected.as_array_mut().unwrap().iter_mut().find(|c|c["name"]=="orgtree_read_transcript").unwrap();
+        transcript["description"]=serde_json::json!("Read recent conversation rows, supplied thinking and sealed markers for yourself or an agent below you; last defaults 30, maximum 80.\nGuide: orgtree-tool-read-transcript.");
         // Approved node-placement contracts (bfa9369) and their concise wording.
         // Keep the captured required-field text and guide; schemas/order stay guarded.
         for (name, description) in [
@@ -1827,7 +1834,7 @@ mod builder_stack_tests {
         let tiers = expected.as_array_mut().unwrap().iter_mut().find(|c| c["name"] == "orgtree_list_tiers").unwrap();
         tiers["description"] = serde_json::json!("List tiers/prices; refresh rechecks logins (runtime).\nGuide: orgtree-tool-list-tiers.");
         tiers["inputSchema"]["properties"]["refresh"] = serde_json::json!({"type":"boolean","description":"default false; coalesced provider discovery, runtime required"});
-        // Approved 4.4.3 selection-reply contract: identity strings/objects
+        // Approved 4.4.4 selection-reply contract: identity strings/objects
         // remain nested unchanged; the additive wrapper is covered separately.
         let cards=expected.as_array_mut().unwrap();
         let mut baseline=cards.iter().find(|c|c["name"]=="orgtree_message").unwrap().clone();
