@@ -1,6 +1,7 @@
-import { useEffect, useId, useMemo, useState, useSyncExternalStore } from 'react'
+import { useEffect, useId, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import type { RefObject } from 'react'
 import { createPortal } from 'react-dom'
+import { firstUsePlacement, type GuidePlacement } from './firstuseplacement'
 import './firstuse.css'
 
 // Creation is the opt-in boundary. An empty or merely first-seen old org is
@@ -71,7 +72,8 @@ export function FirstUseGuide({ slug, root, hidden = false }: {
 }) {
   const progress = useFirstUse(slug)
   const id = useId()
-  const [anchor, setAnchor] = useState<{ left: number; top: number; width: number; height: number; chat: boolean } | null>(null)
+  const card = useRef<HTMLDivElement>(null)
+  const [anchor, setAnchor] = useState<{ left: number; top: number; width: number; height: number; chat: boolean; hint: GuidePlacement | null } | null>(null)
   useEffect(() => {
     if (!progress || progress.step === 'done' || hidden) { setAnchor(null); return }
     let frame = 0, target: HTMLElement | null = null
@@ -97,7 +99,7 @@ export function FirstUseGuide({ slug, root, hidden = false }: {
         // has finished; otherwise point at the real agent card to open it.
         if (step === 'message') nodes.sort((a, b) => Number(!!b.dataset.firstUseChat) - Number(!!a.dataset.firstUseChat))
       }
-      const next = nodes.find(el => {
+      let next = nodes.find(el => {
         const r = el.getBoundingClientRect(), style = getComputedStyle(el)
         const onscreen = r.width > 0 && r.height > 0 && r.right > 0 && r.bottom > 0
           && r.left < window.innerWidth && r.top < window.innerHeight
@@ -113,12 +115,28 @@ export function FirstUseGuide({ slug, root, hidden = false }: {
         const hit = document.elementFromPoint(x, y)
         return hit === el || !!(hit && el.contains(hit))
       }) ?? null
+      let hint: GuidePlacement | null = null
+      if (next && host && (progress.step === 'token' || progress.step === 'name')) {
+        const r = next.getBoundingClientRect()
+        const group = (next.closest(progress.step === 'token' ? '.hsof' : '.sq.draft') ?? next).getBoundingClientRect()
+        const owner = progress.step === 'token' ? next.closest('.sq')?.getBoundingClientRect() : null
+        const left = Math.min(group.left, owner ? owner.left - 26 : group.left)
+        const top = Math.min(group.top, owner?.top ?? group.top)
+        const right = Math.max(group.right, owner?.right ?? group.right)
+        const bottom = Math.max(group.bottom, owner?.bottom ?? group.bottom)
+        const view = host.getBoundingClientRect()
+        const x = Math.max(0, view.left), y = Math.max(0, view.top)
+        hint = firstUsePlacement(r, { left, top, width: right - left, height: bottom - top },
+          { left: x, top: y, width: Math.min(window.innerWidth, view.right) - x, height: Math.min(window.innerHeight, view.bottom) - y },
+          card.current?.offsetHeight || 90, progress.step === 'token' ? 'left' : 'right')
+        if (!hint) next = null
+      }
       if (next !== target) {
         unlabel(); target = next
         if (target) target.setAttribute('aria-describedby', [target.getAttribute('aria-describedby'), id].filter(Boolean).join(' '))
       }
       const r = target?.getBoundingClientRect()
-      const value = r ? { left: r.left, top: r.top, width: r.width, height: r.height, chat: !!target?.dataset.firstUseChat } : null
+      const value = r ? { left: r.left, top: r.top, width: r.width, height: r.height, chat: !!target?.dataset.firstUseChat, hint } : null
       setAnchor(old => JSON.stringify(old) === JSON.stringify(value) ? old : value)
       frame = requestAnimationFrame(measure)
     }
@@ -133,14 +151,14 @@ export function FirstUseGuide({ slug, root, hidden = false }: {
     : step === 'hire' ? 'Click Hire to create your agent.'
     : anchor.chat ? `Send ${progress.agent} a message here to begin working together.`
       : `Click ${progress.agent} to open its chat and send your first message.`
-  const width = Math.min(280, window.innerWidth - 24)
-  const left = Math.max(12, Math.min(window.innerWidth - width - 12, anchor.left))
+  const width = anchor.hint?.width ?? Math.min(280, window.innerWidth - 24)
+  const left = anchor.hint?.left ?? Math.max(12, Math.min(window.innerWidth - width - 12, anchor.left))
   const below = anchor.top + anchor.height + 18
-  const top = below + 100 < window.innerHeight ? below : Math.max(12, anchor.top - 112)
+  const top = anchor.hint?.top ?? (below + 100 < window.innerHeight ? below : Math.max(12, anchor.top - 112))
   return createPortal(<div className="first-use-guide" data-tutorial-step={step}>
-    <svg aria-hidden="true"><path d={`M ${left + width / 2} ${top < anchor.top ? top + 90 : top} L ${anchor.left + anchor.width / 2} ${top < anchor.top ? anchor.top : anchor.top + anchor.height}`} /></svg>
+    <svg aria-hidden="true"><path d={anchor.hint?.path ?? `M ${left + width / 2} ${top < anchor.top ? top + 90 : top} L ${anchor.left + anchor.width / 2} ${top < anchor.top ? anchor.top : anchor.top + anchor.height}`} /></svg>
     <div className="first-use-ring" aria-hidden="true" style={{ left: anchor.left - 4, top: anchor.top - 4, width: anchor.width + 8, height: anchor.height + 8 }} />
-    <div className="first-use-card" style={{ left, top, width }} id={id} role="status" aria-live="polite" aria-atomic="true">
+    <div ref={card} className="first-use-card" data-placement={anchor.hint?.side} style={{ left, top, width }} id={id} role="status" aria-live="polite" aria-atomic="true">
       <span>Getting started · {number} of 4</span><p>{text}</p>
     </div>
   </div>, document.body)
