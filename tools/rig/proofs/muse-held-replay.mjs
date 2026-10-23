@@ -146,8 +146,12 @@ export default async function (rig) {
   const dB = await removal
   const wrote = await writer
   rig.exec('DROP TRIGGER replay_barrier ON ot.events; DROP FUNCTION ot.replay_barrier()')
-  // the only removal in this run that met a conflict
-  const retried = /account removal conflicted; retrying entire transaction/.test(rig.engineLog())
+  // The shared retry helper replaced the old account-removal warning. Match
+  // its first rolled-back attempt for B, never an unrelated account's retry.
+  const retried = rig.engineLog().split(/\r?\n/).some((line) => {
+    const event = line.match(/\bdomain\.ops: write conflicted with another; retrying what=removal of account (\S+) attempt=(\d+)\s*$/)
+    return event?.[1] === B.id && event[2] === '1'
+  })
   const events = rig.sql(`SELECT a.name FROM ot.events e JOIN ot.agents a ON a.id = e.subject_agent_id
     WHERE e.op = 'account_removed' AND e.detail->>'removed_account' = ${q(B.id)}`).map((r) => r.name).sort()
   const s1mail = givenBack(ids.s1)
