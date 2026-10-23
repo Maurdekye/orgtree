@@ -18,7 +18,7 @@ export function PendingRun({ count, children, onToggle }: {
       if (e.currentTarget.open !== expanded) setChoice(e.currentTarget.open)
       onToggle()
     }}>
-    <summary onClick={e => { e.preventDefault(); setChoice(!expanded) }}>
+    <summary>
       {count} queued / undelivered — {expanded ? 'Hide' : 'Show'}
     </summary>
     <div className="pending-run-rows">{children}</div>
