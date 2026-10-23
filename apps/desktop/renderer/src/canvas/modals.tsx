@@ -1223,7 +1223,7 @@ function ProjectConfig({node,map,tree,slug,op,toast,onScratchFolder,refs,onFocus
           ...(mode !== savedMode ? { mode } : {}), ...(exclude !== savedExclude ? { exclude_sender: exclude } : {}),
           ...(timeout !== savedTimeout ? { ack_timeout: timeout } : {}),
           ...(attempts !== savedAttempts ? { max_attempts: attempts } : {}),
-          ...(reminders !== savedReminders ? { ack_reminders: reminders }} : {}),
+          ...(reminders !== savedReminders ? { ack_reminders: reminders } : {}),
           ...(turnEnd !== savedTurnEnd ? { turn_end_reminder: turnEnd } : {}) })
       if (slots !== savedSlots) await op({ op: 'set_slots', node: node.id, capacity: slots })
       if (listenersOn !== savedListeners) await op({ op: 'set_event_listeners', node: node.id, enabled: listenersOn })
