@@ -12,6 +12,7 @@ pub mod agy_thinking;
 pub mod claude;
 pub mod claude_thinking;
 pub mod codex;
+pub mod codex_thinking;
 pub mod context_reset;
 pub mod elicitation;
 pub mod native_questions;

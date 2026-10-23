@@ -6357,6 +6357,7 @@ impl Actor {
     }
 
     /// A Codex item started or completed: text rows, thoughts and tool chips.
+    #[nolog]
     async fn on_codex_item(&mut self, item: &Value, completed: bool) -> Result<()> {
         if completed && matches!(item["type"].as_str(),Some("agentMessage"|"plan"))
             && self.complete_retained("codex",item["id"].as_str().unwrap_or(""),&[item["text"].as_str().unwrap_or("").to_string()]).await?.is_some() { return Ok(()); }
@@ -6413,20 +6414,12 @@ impl Actor {
                     self.set_activity("thinking", None);
                     return Ok(());
                 }
-                let parts: Vec<String> = item["summary"]
-                    .as_array()
-                    .filter(|a| !a.is_empty())
-                    .or_else(|| item["content"].as_array())
-                    .map(|a| a.iter().filter_map(|x| x.as_str().map(str::to_string)).collect())
-                    .unwrap_or_default();
-                let body = parts.join("\n");
-                if body.trim().is_empty() {
-                    return Ok(());
-                }
-                let row = json!({ "role": "assistant", "text": "", "thinking": convo::clip(&body, 20_000).0, "tools": [],
-                                  "ts": now_iso(), "assistant_id": id });
+                let previous=self.turn.as_ref().and_then(|t|t.rows.get(&id).cloned());
+                let row=super::codex_thinking::row(item,previous.as_ref().map(|(_,r)|r.clone()),&now_iso());
                 let client = self.engine.db.get().await?;
-                let seq = self.convo.append(&client, row.clone()).await?;
+                let seq=if let Some((seq,_))=previous {
+                    self.convo.update(&client,seq,row.clone()).await?;seq
+                } else {self.convo.append(&client,row.clone()).await?};
                 drop(client);
                 if let Some(t) = self.turn.as_mut() {
                     t.rows.insert(id.clone(), (seq, row));

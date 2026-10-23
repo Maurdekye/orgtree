@@ -546,19 +546,64 @@ fn transcript_last(args: &Value) -> Result<i64> {
     }
 }
 
-/// Text alone is capped; preserve the complete stored tool objects/cards.
-#[logged]
+/// Prose and supplied thinking are bounded independently. Keep tools intact.
+#[nolog]
 fn transcript_result(node: &str, access: Value, busy: bool, occupancy: Option<i32>, occupancy_estimated: bool,
                      messages: Vec<Value>) -> Value {
-    let messages: Vec<Value> = messages.into_iter().map(|m| json!({
-        "role": m["role"],
-        "text": m["text"].as_str().unwrap_or("").chars().take(1200).collect::<String>(),
-        "tools": m.get("tools").cloned().unwrap_or_else(|| json!([])),
-        "incomplete": m["assistant_state"] == "partial",
-        "interrupted": m["interrupted"].as_bool().unwrap_or(false),
-    })).collect();
+    let messages: Vec<Value> = messages.into_iter().map(|m| {
+        let thinking=m["thinking"].as_str().unwrap_or("");
+        let sealed=m["thinking_sealed"].as_bool().unwrap_or(false)
+            || m["content_blocks"].as_array().into_iter().flatten().any(|b|b["kind"]=="thinking" && b["sealed"]==true);
+        json!({
+            "role": m["role"],
+            "text": m["text"].as_str().unwrap_or("").chars().take(1200).collect::<String>(),
+            "thinking":thinking.chars().take(1200).collect::<String>(),
+            "thinking_sealed":sealed,
+            "thinking_truncated":thinking.chars().nth(1200).is_some(),
+            "tools": m.get("tools").cloned().unwrap_or_else(|| json!([])),
+            "incomplete": m["assistant_state"] == "partial",
+            "interrupted": m["interrupted"].as_bool().unwrap_or(false),
+        })
+    }).collect();
     json!({"node":node, "access":access, "busy":busy, "occupancy":occupancy,
            "occupancy_estimated":occupancy_estimated, "messages":messages})
+}
+
+#[cfg(test)]
+mod codex_thinking_tests {
+    use super::*;
+    #[test]
+    fn codex_thinking_projection_keeps_readable_and_sealed_harness_rows() {
+        let rows=vec![
+            json!({"role":"assistant","text":"","thinking":"","thinking_sealed":true,"tools":[]}),
+            json!({"role":"assistant","text":"reply","thinking":"Readable Claude summary","thinking_sealed":true,"content_blocks":[{"kind":"thinking","sealed":true}],"tools":[{"id":"t","result":"whole result","card":{"x":1}}]}),
+            json!({"role":"assistant","text":"","thinking":"Muse thought","tools":[]}),
+            json!({"role":"assistant","text":"","thinking":"AGY thought","tools":[]}),
+            json!({"role":"assistant","text":"","thinking":"ACP thought","tools":[]}),
+            json!({"role":"assistant","text":"","content_blocks":[{"kind":"thinking","sealed":true}],"tools":[]}),
+            json!({"role":"user","text":"ordinary message","tools":[]})];
+        let result=transcript_result("worker",json!({"via":"self"}),false,Some(10),true,rows);
+        let rows=result["messages"].as_array().unwrap();assert_eq!(rows.len(),7);
+        assert_eq!(rows[0]["thinking_sealed"],true);assert_eq!(rows[0]["thinking"],"");
+        assert_eq!(rows[1]["thinking"],"Readable Claude summary");assert_eq!(rows[1]["thinking_sealed"],true);
+        assert_eq!(rows[1]["tools"][0]["card"]["x"],1);assert_eq!(rows[1]["tools"][0]["result"],"whole result");
+        for i in 2..5 {assert!(!rows[i]["thinking"].as_str().unwrap().is_empty());assert_eq!(rows[i]["thinking_sealed"],false);}
+        assert_eq!(rows[5]["thinking_sealed"],true);
+        assert_eq!(rows[6]["role"],"user");assert_eq!(rows[6]["text"],"ordinary message");assert_eq!(rows[6]["thinking_sealed"],false);
+        assert_eq!(result["busy"],false);assert_eq!(result["occupancy"],10);assert_eq!(result["occupancy_estimated"],true);
+    }
+    #[test]
+    fn codex_thinking_projection_unicode_bounds_and_existing_partial_flags() {
+        let result=transcript_result("worker",json!({}),true,None,false,vec![json!({
+            "role":"assistant","text":"x".repeat(1201),"thinking":"🦀".repeat(1201),
+            "assistant_state":"partial","interrupted":true,"tools":[{"result":"r".repeat(5000)}]})]);
+        let r=&result["messages"][0];assert_eq!(r["thinking"].as_str().unwrap().chars().count(),1200);
+        assert_eq!(r["thinking_truncated"],true);assert_eq!(r["text"].as_str().unwrap().chars().count(),1200);
+        assert_eq!(r["tools"][0]["result"].as_str().unwrap().len(),5000);
+        assert_eq!(r["incomplete"],true);assert_eq!(r["interrupted"],true);
+        let exact=transcript_result("worker",json!({}),false,None,false,vec![json!({"role":"assistant","thinking":"🦀".repeat(1200)})]);
+        assert_eq!(exact["messages"][0]["thinking_truncated"],false);
+    }
 }
 
 #[cfg(test)]

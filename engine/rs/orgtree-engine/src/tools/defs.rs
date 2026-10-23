@@ -627,7 +627,7 @@ fn build_tool_list_orgs() -> Value {
 fn build_tool_read_transcript() -> Value {
     tool(
         "orgtree_read_transcript",
-        "Read recent conversation rows of yourself or an agent below you; last defaults 30, maximum 80.",
+        "Read recent conversation rows, supplied thinking and sealed markers for yourself or an agent below you; last defaults 30, maximum 80.",
         json!({
             "node": { "type": "string" },
             "last": { "type": "integer", "minimum": 1, "maximum": 80, "description": "how many recent rows (default 30)" },
