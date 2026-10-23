@@ -37,7 +37,7 @@ test('fresh gallery opens newest visible content, preserves choices on refresh, 
   await view.render(null)
   await view.render(panel)
   await flush()
-  assert.match(view.el.querySelector('.mailer-read')?.textContent ?? '', /body of new/, 'each fresh open resets to newest')
+  assert.match(view.el.querySelector('.mailer-read')?.textContent ?? '', /body of old/, 'fresh open remembers the last eligible document')
 })
 
 test('explicit gallery jump selects its document and survives clearing the handled jump', async t => {

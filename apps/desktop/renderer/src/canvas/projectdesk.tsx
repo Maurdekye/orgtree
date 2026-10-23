@@ -36,6 +36,7 @@ import { InboxView } from './mail'
 import { ReplyPreview } from './replypreview'
 import { AttachThumb, fmtBytes, isImg } from './img'
 import { useWorkItems } from './useworkitems'
+import { readerScope } from './readeropening'
 import { actionableTeamCount, AgentDocketView, itemActorIds, teamItems, useNodeFacts } from './docket'
 import { AgentGalleryView } from './gallery'
 import { PanelCorner, revealAgentPanelTab, useAgentSurfaceRoutes } from './panelcorner'
@@ -722,7 +723,7 @@ export function ProjectDesk({ node, slug, tree, map, op, toast, refs, bare, focu
   const [bump, setBump] = useState(0)
   const [pageFilter, setPageFilter] = useState<import('../workpages').WorkPageOptions>({})
   const workFeed = useWorkItems(slug, view === 'docket' && showArchived, view === 'docket' && showBacklog,
-    15000, bump, { ...pageFilter, agent: node.id })
+    15000, bump, { ...pageFilter, agent: node.id },view==='docket' ? readerScope('work',slug,node.id) : undefined)
   const work = workFeed.value
   // every item owned by an agent under the project, through nested projects
   // (user 2026-10-17 22:21Z; items no longer attach to projects)

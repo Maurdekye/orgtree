@@ -184,3 +184,48 @@ test('ticket reference wins over opening default and remains selected after refr
     assert.equal(selected(view.el), 'second')
   })
 })
+
+
+for (const surface of ['org','agent modal','team modal','project modal','agent desk','project desk'] as const) {
+  test(`${surface}: attention wins, then remembered eligible ticket, then first shown`,async()=>{
+    await scenario(async({served,mount})=>{
+      served.items=[item('top'),item('needs-answer',{effective_attention:true,attention_sources:['manual'],manual_attention:{reason:'Choose next',set_rev:1} as any}),item('remember')]
+      const view=await mount(surface)
+      assert.equal(selected(view.el),'needs-answer')
+      await click(row(view.el,'remember'))
+      await view.render(null)
+      served.items=served.items.map(it=>({...it,effective_attention:false,attention_sources:[],manual_attention:null}))
+      const next=await mount(surface)
+      assert.equal(selected(next.el),'remember','last view survives fresh opening')
+      await next.render(null)
+      served.items=served.items.map(it=>it.slug==='remember'?{...it,status:'done' as const}:it)
+      const closed=await mount(surface)
+      assert.equal(selected(closed.el),rowNames(closed.el)[0],'closed ticket does not win last-viewed preference')
+    })
+  })
+}
+
+test('paged docket opening admits a bounded off-page attention row and keeps explicit choices',async()=>{
+  await scenario(async({served,mount})=>{
+    const saved=globalThis.fetch
+    const attention=item('old-flag',{effective_attention:true,attention_sources:['manual'],manual_attention:{reason:'Inspect',set_rev:1} as any,
+      updated_at:'2026-10-01T00:00:00Z',docket_at:'2026-10-01T00:00:00Z'})
+    const requests:string[]=[]
+    globalThis.fetch=(async(url,init)=>{
+      const response=await saved(url,init),path=String(url)
+      if(!path.includes('/work-items-page'))return response
+      requests.push(path)
+      const body=await response.json()
+      return new Response(JSON.stringify({...body,opening_rows:[attention]}))
+    }) as typeof fetch
+    try {
+      const view=await mount('org')
+      assert.equal(selected(view.el),'old-flag')
+      assert.equal(requests.some(path=>path.includes('opening=1')),true)
+      assert.ok(requests.length<=3,'no history walk for opening')
+      await click(row(view.el,'second'))
+      await inAct(async()=>{await advance(5001);await flush(15)})
+      assert.equal(selected(view.el),'second','later responses never take selection')
+    } finally {globalThis.fetch=saved}
+  })
+})

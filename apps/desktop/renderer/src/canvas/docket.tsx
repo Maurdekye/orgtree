@@ -50,6 +50,7 @@ import { AskCard } from './asks'
 import { DocReader } from './docs'
 import { revealDetachedDocument } from '../windowlife'
 import { closeIfCentred, PinFrame } from './modalpin'
+import { lastReaderItem, openingWork, readerScope, rememberReaderItem, resumedReaderItem } from './readeropening'
 import { AgentName, nodeTierOf } from './identity'
 import { DocketSelection, DocketSelectionContext } from './docketselection'
 import { MailReplyBox } from './mail'
@@ -791,6 +792,8 @@ function DocketControlBar({ idBase, heading, search, disclosure,
   backlogCount?: number
   team?: boolean
   onTeam?: (team: boolean) => void
+  continuedSelection?: string
+  onShown?: (id: string | null) => void
   groupMode: DocketGroupMode
   onGroup: (m: DocketGroupMode) => void
   sortMode: DocketSortMode
@@ -1054,8 +1057,10 @@ export function DocketModal({ slug, toast, close, tree, onFocusAgent,
   // URL (Astra review 2026-09-05). Comparing the tag during RENDER rather than
   // clearing in an effect also means there is no frame in which the stale rows
   // are still on screen.
+  const selectionScope=readerScope('work',slug)
+  const [resume]=useState(() => resumedReaderItem(slug,'docket'))
   const [sel, setSel] = useState<{ slug: string; id: string } | null>(null)
-  const work = useWorkItems(slug, showArchived, showBacklog, 5000, bump, { query, sort: sortMode })
+  const work = useWorkItems(slug, showArchived, showBacklog, 5000, bump, { query, sort: sortMode }, selectionScope)
   const data = work.value
   useOpenCommit('docket',slug,!!data && !work.status.loading)
   useOpenCommit('archive',slug,showArchived && !!data?.archived && !work.status.loading)
@@ -1156,6 +1161,7 @@ export function DocketModal({ slug, toast, close, tree, onFocusAgent,
   const selected = allKnown.get(selId ?? '') ?? (located?.slug === slug
     && located.item.slug === selId ? located.item : undefined)
   const cur = useSelectedWork(slug, selId, selected, showArchived, showBacklog, query.trim() !== '')
+  useEffect(() => { if(cur) rememberReaderItem(selectionScope,cur.slug) },[selectionScope,cur?.slug])
   useEffect(() => {
     if (located && (located.slug !== slug || located.item.slug !== selId
         || allKnown.has(located.item.slug))) setLocated(null)
@@ -1426,10 +1432,11 @@ export function DocketModal({ slug, toast, close, tree, onFocusAgent,
   useEffect(() => {
     if (!data || work.status.loading || navigation.current.sequence !== 0
         || jumpTo || selId) return
-    const first = windowSections.filter(section => !section.folded)
-      .flatMap(section => section.rows)[0]
+    const candidates=windowSections.flatMap(section=>section.rows.map(row=>row.item))
+    const id=resume !== undefined ? (candidates.some(row=>row.slug===resume) ? resume : null)
+      : openingWork(candidates,lastReaderItem(selectionScope),flaggedForUser)
     ++navigation.current.sequence // consume even an empty initial list
-    if (first) setSelId(first.item.slug)
+    if (id) { setCollapsedCategories(new Set()); setSelId(id) }
   }, [slug, data, work.status.loading, windowSections, jumpTo, selId, setSelId])
 
   const onSearchKey = useCallback((e: ReactKeyboardEvent<HTMLInputElement>) => {
@@ -1452,7 +1459,7 @@ export function DocketModal({ slug, toast, close, tree, onFocusAgent,
 
   return (
     <ForegroundViewContext.Provider value={tree?.foreground}>
-    <PinFrame kind="docket" title="Work docket" panel="settings wide docket-modal"
+    <PinFrame kind="docket" title="Work docket" restore={{selection:selId ?? ''}} panel="settings wide docket-modal"
       close={close} onEsc={escClose}>
         {/* One mounted set of controls: inline when wide, disclosed when narrow. */}
         <div className="gallery-head docket-head" onKeyDown={e => {
@@ -1796,7 +1803,7 @@ export function actionableTeamCount(items: readonly WorkItem[] | null | undefine
 export function AgentDocketView({ slug, nid, mine, facts, toast, onFocusAgent,
   onChanged, showArchived = false, onShowArchived = () => {}, refs,
   emptyText, onShowBacklog, references, boundedReferences = false, workRevision, paging,
-  team, onTeam }: {
+  team, onTeam, continuedSelection, onShown }: {
   slug: string
   nid: string
   /** this agent's items, already selected by `agentItems` — null while the
@@ -1817,6 +1824,8 @@ export function AgentDocketView({ slug, nid, mine, facts, toast, onFocusAgent,
   workRevision?: string
   team?: boolean
   onTeam?: (team: boolean) => void
+  continuedSelection?: string
+  onShown?: (id: string | null) => void
   /** THE DESK'S OWN REFERENCE WIRING, passed down whole rather than rebuilt.
    *  Required, not optional: a fallback world here would be a second answer to
    *  the same question on the same desk, and the two would drift. */
@@ -1836,7 +1845,7 @@ export function AgentDocketView({ slug, nid, mine, facts, toast, onFocusAgent,
   const [sortMode, setSortMode] = useState<DocketSortMode>(readSortMode)
   const [groupMode, setGroupMode] = useState<DocketGroupMode>(readGroupMode)
   const [selection, setSelection] = useState<{ scope: string; id: string } | null>(null)
-  const selectionScope = JSON.stringify([slug, nid])
+  const selectionScope = readerScope('work',slug,nid,!!team)
   const opening = useRef({ scope: selectionScope, consumed: false })
   if (opening.current.scope !== selectionScope) opening.current = { scope: selectionScope, consumed: false }
   const selId = selection?.scope === selectionScope ? selection.id : null
@@ -1875,6 +1884,7 @@ export function AgentDocketView({ slug, nid, mine, facts, toast, onFocusAgent,
                             [...facts].map(([id, f]) => [id, f.tier] as const)),
     [byName, facts, references])
   const hiddenSelection = references?.find(it => it.slug === selId)
+  useEffect(() => { if (selId && byName.has(selId)) rememberReaderItem(selectionScope,selId); onShown?.(selId) },[selectionScope,selId,byName,onShown])
   const cur = useSelectedWork(selectionScope, selId, byName.get(selId ?? '') ?? (hiddenSelection
     ? { ...hiddenSelection, view: 'list' } as unknown as WorkItem : undefined), showArchived, showBacklog)
   /** THE DESK'S WORLD, WITH EXACTLY ONE ROUTE TAKEN OVER.
@@ -1961,10 +1971,12 @@ export function AgentDocketView({ slug, nid, mine, facts, toast, onFocusAgent,
     if (mine === null || opening.current.consumed) return
     opening.current.consumed = true // an empty first load also consumes opening
     if (selId) return
-    const first = windowSections.find(section => !section.folded && section.rows.length)?.rows[0]
-    if (first) setSelId(first.item.slug)
+    const candidates=windowSections.flatMap(section=>section.rows.map(row=>row.item))
+    const id=continuedSelection !== undefined ? (candidates.some(row=>row.slug===continuedSelection) ? continuedSelection : null)
+      : openingWork(candidates,lastReaderItem(selectionScope),flaggedForUser)
+    if(id) { setCollapsedCategories(new Set()); setSelId(id) }
   }, [selectionScope, mine, windowSections, selId, setSelId])
-  useEffect(() => { paging?.setFilter?.({ query, sort: sortMode }) }, [query, sortMode, paging?.setFilter])
+  useEffect(() => { paging?.setFilter?.({ query, sort: sortMode }, selectionScope) }, [query, sortMode, paging?.setFilter])
   const onSearchKey = (e: ReactKeyboardEvent<HTMLInputElement>) => {
     if (e.key === 'Escape') {
       if (!query) return

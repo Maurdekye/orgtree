@@ -41,6 +41,7 @@ import { useContextMenu } from './contextmenu'
 import { objectTooltipProps } from './objecttooltip'
 import { PinFrame, raisePinnedModal } from './modalpin'
 import { useReaderHandle } from './readers'
+import { lastReaderItem, readerScope, rememberReaderItem, resumedReaderItem, useReaderSelection } from './readeropening'
 import { instanceKind } from '../modalkinds'
 import { revealDetachedPanel } from '../windowlife'
 import type { JumpReq } from './shared'
@@ -136,10 +137,11 @@ const PANE_STATE_WHY: Record<DocRow['node_state'], string | null> =
 const isHired = (r: DocRow) => r.node_state === 'live'
 
 /** Same rule for bootstrap/older-server rows and the engine's opening query. */
-function openingPresentation(slug: string, rows: DocRow[]): string | null {
+export function openingPresentation(slug: string, rows: DocRow[], last: string | null = null): string | null {
   const visible = rows.filter(r => !r.evicted)
   const unread = visible.filter(r => docUnread(slug, r.id, r.at, r.viewed_at))
-  const candidates = unread.length ? unread : visible
+  if (!unread.length) return visible.find(row => row.id === last)?.id ?? visible[0]?.id ?? null
+  const candidates = unread
   let chosen = candidates[0]
   for (const row of candidates) {
     if (chosen && (unread.length ? Date.parse(row.at) < Date.parse(chosen.at) : Date.parse(row.at) > Date.parse(chosen.at))) chosen = row
@@ -344,10 +346,12 @@ export function DocGalleryModal({ slug, toast, close, onFocusAgent, onReply,
   // USER 2026-10-20 19:03:28Z): a document opening elsewhere that this reader
   // can show comes here (canvas/readers.ts) as its own jump request, beside
   // the shell's; the newer request wins
-  const [ownJump, setOwnJump] = useState<JumpReq | null>(null)
+  const [resume] = useState(() => resumedReaderItem(slug,'gallery'))
+  const scope = readerScope('presented',slug)
+  const [ownJump, setOwnJump] = useState<JumpReq | null>(() => resume ? newJump(resume) : null)
   const jumpTo = ownJump && (!shellJump || ownJump.seq > shellJump.seq) ? ownJump : shellJump
   const jumpHandled = ownJump && jumpTo === ownJump ? () => setOwnJump(null) : onJumpHandled
-  const w = useDocWindow(slug, '', jumpTo?.id ?? '', jumpTo?.seq ?? 0, false, true, true)
+  const w = useDocWindow(slug, '', jumpTo?.id ?? '', jumpTo?.seq ?? 0, false, resume === undefined, true)
   const all = useMemo(() => w.rows?.filter(r => !r.evicted), [w.rows])
   const [showRetired, setShowRetired] = useState(false)
   // ONE list, grouped — not two views (user, 2026-09-03: "one tab with a
@@ -376,9 +380,9 @@ export function DocGalleryModal({ slug, toast, close, onFocusAgent, onReply,
   useEffect(() => { if (rows && rows.length === 0 && w.more) w.grow() })
   // selection is BY ID, not index — the list repolls, and the filter above
   // narrows it, so an index would silently address a different document
-  const [selId, setSelId] = useState<string | null>(null)
+  const [selId, setSelId] = useReaderSelection(scope, resume || null)
   const openingReveal = useRef<OpeningReveal | null>(null)
-  const opening = useRef({ slug, pending: true })
+  const opening = useRef({ slug, pending: resume === undefined })
   useEffect(() => {
     if (opening.current.slug !== slug) {
       opening.current = { slug, pending: true }
@@ -392,7 +396,7 @@ export function DocGalleryModal({ slug, toast, close, onFocusAgent, onReply,
     if (jumpTo) { opening.current.pending = false; return }
     if (w.rows == null) return
     opening.current.pending = false
-    const id = w.openingId !== undefined ? w.openingId : openingPresentation(slug, rows ?? [])
+    const id = w.openingId !== undefined ? w.openingId : openingPresentation(slug, rows ?? [], lastReaderItem(scope))
     openingReveal.current = unreadReveal(slug, w.rows, id)
     setSelId(id)
   }, [slug, rows, jumpTo, w.rows, w.openingId])
@@ -443,6 +447,7 @@ export function DocGalleryModal({ slug, toast, close, onFocusAgent, onReply,
     setSelId(id)
   }
   const cur = rows?.find((r) => r.id === selId)
+  useEffect(() => { if (cur) rememberReaderItem(scope,cur.id) }, [scope,cur?.id])
   const steps = usePanelSteps((rows ?? []).map(row => row.id), selId, openDocument, '.doc-gallery-row')
   // ⚠ A DOCUMENT REFERENCING A DOCUMENT STAYS HERE. This panel IS the
   // document reader; sending the reader off to the shell's copy would close
@@ -470,7 +475,7 @@ export function DocGalleryModal({ slug, toast, close, onFocusAgent, onReply,
     // same fix as DocReader (docs.tsx) — an eligible image is opened from
     // `onPanelClick`, which the frame runs BEFORE the stopPropagation every
     // other click in the modal still needs to keep the backdrop from closing
-    <PinFrame kind="gallery" title="Presented documents"
+    <PinFrame kind="gallery" title="Presented documents" restore={{selection:selId ?? ''}}
       panel="settings wide gallery-modal" close={close}
       onPanelClick={openLightboxIfEligibleImage}>
         <div className="gallery-head">
@@ -679,6 +684,7 @@ export interface AgentGalleryViewProps {
   onChanged?: () => void
   initialDocument?: string
   initialLoaded?: LoadedDoc
+  continuedSelection?: string
   selectedRow?: DocRow
   pinKind?: string
   /** Report the row currently in the reading pane — null when nothing is
@@ -729,7 +735,8 @@ export function AgentGalleryModal({ slug, nid, node, toast, close, onFocusAgent,
    *
    *  `setShown` is a useState setter, so its identity is stable and the
    *  report-upward effect below does not re-run on the render it causes. */
-  const [shown, setShown] = useState<string | null>(initialDocument ?? null)
+  const [continued] = useState(() => resumedReaderItem(slug,pinKind))
+  const [shown, setShown] = useState<string | null>(initialDocument ?? continued ?? null)
   // Keep the parent marker writer informed without changing the view's
   // stable setShown callback or reporting again for unrelated parent renders.
   const reportShown = useRef(onShown)
@@ -747,12 +754,12 @@ export function AgentGalleryModal({ slug, nid, node, toast, close, onFocusAgent,
   })
   return (
     <PinFrame kind={pinKind} title={effectiveTeam ? `Team presentations for ${nid}` : `Presented documents for ${nid}`}
-      restore={{ agent: nid, generation: node?.generation, ...(shown ? {document:shown} : {}), ...(effectiveTeam ? { team: true } : {}) }}
+      restore={{ agent: nid, generation: node?.generation, selection:shown ?? '', ...(shown ? {document:shown} : {}), ...(effectiveTeam ? { team: true } : {}) }}
       panel="settings wide gallery-modal" close={close}
       onPanelClick={openLightboxIfEligibleImage}>
       <AgentGalleryView slug={slug} nid={nid} node={node} toast={toast}
         onFocusAgent={onFocusAgent} onReply={onReply} refs={refs} onShown={setShown}
-        onChanged={onChanged} initialDocument={initialDocument} initialLoaded={initialLoaded} selectedRow={selectedRow}
+        onChanged={onChanged} initialDocument={initialDocument ?? (continued || undefined)} initialLoaded={initialLoaded} selectedRow={selectedRow} continuedSelection={continued}
         collapsible team={effectiveTeam} onTeam={handleTeam} jumpTo={jump} />
     </PinFrame>
   )
@@ -766,13 +773,13 @@ export function AgentGalleryModal({ slug, nid, node, toast, close, onFocusAgent,
  *  subtree when the "Team" checkbox is checked). */
 export function AgentGalleryView({ slug, nid, node, toast, onFocusAgent, onReply, onBroadcast,
   onReplyToDoc, projectBroadcastMembers, refs, onChanged, initialDocument, initialLoaded, selectedRow, onShown,
-  collapsible, team, onTeam, jumpTo }: AgentGalleryViewProps) {
+  collapsible, team, onTeam, jumpTo, continuedSelection }: AgentGalleryViewProps) {
   const [localTeam, setLocalTeam] = useState(!!team)
   useEffect(() => { setLocalTeam(!!team) }, [team])
   const isProject = (node as { kind?: string } | undefined)?.kind === 'project'
   const effectiveTeam = onTeam ? !!team : localTeam
   const setTeam = (next: boolean) => { setLocalTeam(next); onTeam?.(next) }
-  const w = useDocWindow(slug, nid, jumpTo?.id ?? '', jumpTo?.seq ?? 0, effectiveTeam, !initialDocument)
+  const w = useDocWindow(slug, nid, jumpTo?.id ?? initialDocument ?? continuedSelection ?? '', jumpTo?.seq ?? 0, effectiveTeam, !initialDocument && continuedSelection === undefined)
   // a team list holds other nodes' cards, and a project's own list may hold
   // cards presented under its old name (the engine reads a project by id,
   // point 27): the engine scoped both, so their rows are not narrowed to `nid`
@@ -808,22 +815,23 @@ export function AgentGalleryView({ slug, nid, node, toast, onFocusAgent, onReply
   }, [w.rows, nid, fallbackRows, dismissed, selectedRow, wide])
   const rowGaps = visibleGaps(w, rows)
 
-  const [selId, setSelId] = useState<string | null>(initialDocument ?? null)
+  const scope=readerScope('presented',slug,nid,effectiveTeam)
+  const [selId, setSelId] = useReaderSelection(scope, initialDocument ?? continuedSelection ?? null)
   const openingReveal = useRef<OpeningReveal | null>(null)
-  useEffect(() => {setSelId(initialDocument ?? null); setDismissed([])}, [slug, nid, initialDocument])
+  useEffect(() => {setSelId(initialDocument ?? continuedSelection ?? null); setDismissed([])}, [scope, initialDocument, continuedSelection])
   // Opening selects the oldest unread/changed card, otherwise the newest.
   // A document the surface was opened to keeps selection, and a
   // later deselect or dismissal is never undone.
   const opening = useRef({ key: '', pending: true })
   useEffect(() => {
-    const key = JSON.stringify([slug, nid, initialDocument ?? null])
+    const key = JSON.stringify([slug, nid, effectiveTeam, initialDocument ?? null])
     if (opening.current.key !== key) {
-      opening.current = { key, pending: !initialDocument }
+      opening.current = { key, pending: !initialDocument && continuedSelection === undefined }
       openingReveal.current = null
     }
     if (!opening.current.pending || w.rows == null) return
     opening.current.pending = false
-    const id = w.openingId !== undefined ? w.openingId : openingPresentation(slug, rows)
+    const id = w.openingId !== undefined ? w.openingId : openingPresentation(slug, rows, lastReaderItem(scope))
     openingReveal.current = unreadReveal(slug, w.rows, id)
     setSelId(id)
   }, [slug, nid, initialDocument, rows, w.rows, w.openingId])
@@ -842,6 +850,7 @@ export function AgentGalleryView({ slug, nid, node, toast, onFocusAgent, onReply
     setSelId(jumpTo.id)
   }, [jumpTo, w.seq, w.error, w.located, w.rows, toast])
   const cur = rows.find((r) => r.id === selId)
+  useEffect(() => { if (cur) rememberReaderItem(scope,cur.id) }, [scope,cur?.id])
   // Clear an out-of-scope or missing selection once authoritative rows arrive.
   useEffect(() => {
     if (w.rows != null && !w.busy && !opening.current.pending && selId !== null && !cur) setSelId(null)

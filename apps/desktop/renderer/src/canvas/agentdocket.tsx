@@ -5,6 +5,7 @@ import type { ToastFn, TreePayload } from '../types'
 import { DocketIcon } from '../icons'
 import { AgentDocketView, agentItems, itemActorIds, teamItems, useNodeFacts } from './docket'
 import { PinFrame, closeIfCentred } from './modalpin'
+import { readerScope, resumedReaderItem } from './readeropening'
 import { instanceKind } from '../modalkinds'
 import { flatten, withDraftTree } from './shared'
 import type { RefRoutes } from './reflinks'
@@ -27,6 +28,8 @@ export function AgentDocketModal({ slug, nid, tree, toast, close, refs,
   useEffect(() => { setLocalTeam(!!team) }, [team])
   const isTeam = onTeamChange ? !!team : localTeam
   const setTeam = (next: boolean) => { setLocalTeam(next); onTeamChange?.(next) }
+  const [continued]=useState(() => resumedReaderItem(slug,pinKind))
+  const [shown,setShown]=useState<string | null>(continued ?? null)
   const [showArchived, setShowArchived] = useState(false)
   const [showBacklog, setShowBacklog] = useState(false)
   const [bump, setBump] = useState(0)
@@ -35,7 +38,7 @@ export function AgentDocketModal({ slug, nid, tree, toast, close, refs,
   const isProject = useMemo(() => flatten(withDraftTree(tree, null), tree.tiers).get(nid)?.kind === 'project', [tree, nid])
   const useSubtree = isTeam || isProject
   const workFeed = useWorkItems(slug, showArchived, showBacklog, 15000, bump,
-    { ...pageFilter, ...(useSubtree ? { team: nid } : { agent: nid }) })
+    { ...pageFilter, ...(useSubtree ? { team: nid } : { agent: nid }) },readerScope('work',slug,nid,isTeam))
   const work = workFeed.value
   const mine = useMemo(() => useSubtree ? teamItems(work, nid, tree.roots, showArchived)
     : agentItems(work, nid, showArchived), [useSubtree, work, nid, tree.roots, showArchived])
@@ -84,13 +87,13 @@ export function AgentDocketModal({ slug, nid, tree, toast, close, refs,
   } }
   const titleText = isTeam ? `${nid} · Team docket` : `${nid} · Docket`
   return <PinFrame kind={pinKind}
-    restore={{ agent: nid, generation: flatten(withDraftTree(tree, null), tree.tiers).get(nid)?.generation, ...(isTeam ? { team: true } : {}) }}
+    restore={{ selection:shown ?? '', agent: nid, generation: flatten(withDraftTree(tree, null), tree.tiers).get(nid)?.generation, ...(isTeam ? { team: true } : {}) }}
     title={titleText} panel="settings wide" close={close}>
     <h3 className="docket-membership-head" data-copy-agent-name={nid}><DocketIcon fontSize="inherit" /> {nid} <span className="dim">· {isTeam ? 'Team docket' : 'Docket'}</span>
       {unplaced.length > 0 && <span role="status" className="hint docket-membership-pending">
         Checking team membership for {unplaced.length} retired {unplaced.length === 1 ? 'owner' : 'owners'}…</span>}
     </h3>
-    <AgentDocketView slug={slug} nid={nid} mine={mine} facts={facts} toast={toast}
+    <AgentDocketView slug={slug} nid={nid} mine={mine} continuedSelection={continued} onShown={setShown} facts={facts} toast={toast}
       team={!isProject ? isTeam : undefined}
       onTeam={!isProject ? setTeam : undefined}
       showArchived={showArchived} onShowArchived={setShowArchived}

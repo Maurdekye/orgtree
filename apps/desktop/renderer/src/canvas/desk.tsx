@@ -121,6 +121,7 @@ import { DeskDocsStrip, DeskHead, DeskMetaRow, DeskTabs, deskTabLabel } from './
 import { useDeskMemory } from './desktabs'
 import { AskCard } from './asks'
 import { useWorkItems } from './useworkitems'
+import { readerScope } from './readeropening'
 import { AgentDocketView, actionableAssignedCount, agentItems, teamItems } from './docket'
 import { AgentGalleryView } from './gallery'
 import { PanelCorner, useAgentSurfaceRoutes, revealAgentPanelTab } from './panelcorner'
@@ -2640,7 +2641,7 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
   const [workPageFilter, setWorkPageFilter] = useState<import('../workpages').WorkPageOptions>({})
   const workFeed = useWorkItems(slug, view === 'docket' && showArchivedDocket,
     view === 'docket' && showBacklogDocket, 15000, workBump,
-    { ...workPageFilter, ...(view === 'docket' && teamDocket ? { team: node.id } : { agent: node.id }) })
+    { ...workPageFilter, ...(view === 'docket' && teamDocket ? { team: node.id } : { agent: node.id }) },view==='docket' ? readerScope('work',slug,node.id,teamDocket) : undefined)
   const work = workFeed.value
   const myWork = useMemo(() => teamDocket
     ? teamItems(work, node.id, [...map.values()], showArchivedDocket)

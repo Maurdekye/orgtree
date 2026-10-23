@@ -4,7 +4,7 @@ import { baseKind, instanceKind, instanceTarget, isInstanceKind, migratedKind } 
 
 export const WINDOW_LAYOUT_KEY = 'orgtree-desktop-windows-v1'
 export interface WindowRect { x: number; y: number; width: number; height: number }
-export interface WindowRestore { agent?: string; generation?: number; document?: string; watchdog?: string; team?: boolean }
+export interface WindowRestore { agent?: string; generation?: number; document?: string; selection?: string; watchdog?: string; team?: boolean }
 export interface SavedWindow { restore?: WindowRestore; key: string; kind: string; org: string | null; open: boolean; rect: WindowRect }
 let exiting = false
 export const windowExitStarted = () => exiting
@@ -35,6 +35,7 @@ const validRestore = (v: unknown): v is WindowRestore => {
   return Object.entries(v).every(([key, value]) => key === 'generation'
     ? Number.isSafeInteger(value) && Number(value) >= 0
     // a gallery's TEAM scope (point 25): only ever `true`, absent otherwise
+    : key === 'selection' ? typeof value === 'string' && value.length <= 512
     : key === 'team' ? value === true
     : ['agent', 'document', 'watchdog'].includes(key) && typeof value === 'string' && value.length > 0 && value.length <= 512)
 }

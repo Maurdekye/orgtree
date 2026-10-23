@@ -1,12 +1,13 @@
 import type { WorkItem, WorkItemsPayload } from './types'
 
 export type WorkGroup = 'items' | 'backlogged' | 'archived'
-export type WorkPageOptions = { query?: string; sort?: string; agent?: string; team?: string; attention?: string }
+export type WorkPageOptions = { query?: string; sort?: string; agent?: string; team?: string; attention?: string; opening?: string; opening_last?: string }
 export interface WorkPage {
   format: 'orgtree.work-page/v1'
   reset?: boolean
   group: WorkGroup
   rows: WorkItem[]
+  opening_rows?: WorkItem[]
   total: number
   totals: Record<WorkGroup, number>
   matched: Record<WorkGroup, number>

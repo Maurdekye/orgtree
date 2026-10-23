@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { getWorkPage } from '../api'
+import { lastReaderItem } from './readeropening'
 import { onLiveBump } from '../livebus'
 import type { WorkItem, WorkItemsPayload } from '../types'
 import type { WorkGroup, WorkPage, WorkPageOptions, WorkPaging } from '../workpages'
@@ -16,6 +17,8 @@ type State = { identity: string; scope: string; slug: string; value: WorkItemsPa
   pages: Pages; status: PolledStatus; loadingMore: boolean }
 
 function payload(pages: Pages): WorkItemsPayload {
+  pages=Object.fromEntries(Object.entries(pages).map(([key,page])=>[key,{...page,
+    rows:[...new Map([...page.rows,...(page.opening_rows ?? [])].map(row=>[row.slug,row])).values()]}]))
   const first = pages.items!
   const rows = Object.values(pages).flatMap(p => p.rows)
   return { items: first.rows, ...(pages.archived ? { archived: pages.archived.rows } : {}),
@@ -27,8 +30,8 @@ function payload(pages: Pages): WorkItemsPayload {
 }
 
 export function useWorkItems(slug: string, archive = false, backlog = false,
-                            ms = 5000, refreshKey: unknown = 0, options: WorkPageOptions = {}) {
-  const scope = JSON.stringify([slug, options])
+                            ms = 5000, refreshKey: unknown = 0, options: WorkPageOptions = {}, openingScope?: string) {
+  const scope = JSON.stringify([slug, options, openingScope])
   const identity = JSON.stringify([scope, archive, backlog])
   const [state, setState] = useState<State>({identity,scope,slug,value:null,pages:{},status:loading,loadingMore:false})
   if (state.identity !== identity) {
@@ -58,14 +61,17 @@ export function useWorkItems(slug: string, archive = false, backlog = false,
           const previous = old.pages[group]
           if (more && previous?.next_offset === null) { pages[group] = previous; continue }
           const offset = more ? previous?.next_offset ?? 0 : 0
-          let page = await getWorkPage(slug,group,options,offset,more ? previous : pages.items)
+          const requestOptions=openingScope && !more ? {...options,opening:previous ? 'keep' : '1',
+            opening_last:lastReaderItem(openingScope) ?? ''} : options
+          let page = await getWorkPage(slug,group,requestOptions,offset,more ? previous : pages.items)
           if (!valid()) return
           if (page.reset) throw new Conflict()
           if (!more && previous?.revision === page.revision && previous.total === page.total
               && previous.rows.length > page.rows.length) {
-            pages[group] = {...previous,counts:page.counts,totals:page.totals,matched:page.matched}
+            pages[group] = {...previous,opening_rows:page.opening_rows,counts:page.counts,totals:page.totals,matched:page.matched}
             continue
           }
+          const openingRows=more ? previous?.opening_rows : page.opening_rows
           let rows = more && previous ? [...previous.rows,...page.rows] : page.rows
           // Refresh only pages this view has already asked to see. Never walk
           // unloaded pages just because a poll or live notification fired.
@@ -76,7 +82,7 @@ export function useWorkItems(slug: string, archive = false, backlog = false,
             if (page.reset) throw new Conflict()
             rows = [...rows,...page.rows]
           }
-          pages[group] = {...page,rows:[...new Map(rows.map(r => [r.slug,r])).values()]}
+          pages[group] = {...page,opening_rows:openingRows,rows:[...new Map(rows.map(r => [r.slug,r])).values()]}
         }
         if (!valid()) return
         const revisions = new Set(Object.values(pages).map(p => p.revision))
