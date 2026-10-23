@@ -433,12 +433,7 @@ async fn discover_status(engine: &Engine, scope: status_refresh::Scope) {
     // the agy registry is read when it matters (start, and each opened model
     // choice: `refresh_agy_models`), never by this periodic pass
     let first = !engine.providers.state.load().probed;
-    let previous = engine.providers.state.load();
-    st.agy_models = previous.agy_models.clone();
-    st.agy_model_principal = previous.agy_model_principal;
-    drop(previous);
-    st.probed |= scope == Scope::All;
-    engine.providers.state.store(Arc::new(st));
+    engine.providers.state.rcu(|current| status_refresh::merge_status(current, &st, scope));
     publish(engine);
     if first && scope == Scope::All {
         refresh_agy_models(engine).await;

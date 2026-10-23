@@ -24,6 +24,26 @@ impl Scope {
 #[derive(Default)]
 pub struct Gate(Mutex<Option<(Instant, Scope)>>);
 
+/// Keep unrelated live observations and the separately refreshed model registry.
+/// Not logged: the state contains account labels and identity metadata.
+#[nolog]
+pub(super) fn merge_status(current: &super::State, checked: &super::State, scope: Scope) -> super::State {
+    let mut next = current.clone();
+    if scope.includes(Scope::Claude) { next.claude = checked.claude.clone(); }
+    if scope.includes(Scope::Codex) {
+        next.codex = checked.codex.clone();
+        next.codex_efforts = checked.codex_efforts.clone();
+        next.codex_fast_modes = checked.codex_fast_modes.clone();
+        next.codex_efforts_error = checked.codex_efforts_error.clone();
+    }
+    if scope.includes(Scope::Google) { next.agy = checked.agy.clone(); next.agy_signed_out = checked.agy_signed_out; }
+    if scope.includes(Scope::Muse) {
+        next.muse = checked.muse.clone(); next.muse_probe = checked.muse_probe.clone(); next.muse_error = checked.muse_error.clone();
+    }
+    if scope == Scope::All { next.opencode = checked.opencode.clone(); next.openrouter = checked.openrouter.clone(); next.probed = true; }
+    next
+}
+
 #[logged]
 impl Gate {
     pub async fn run<F: Future<Output = ()>>(&self, scope: Scope, check: impl FnOnce() -> F) {
@@ -40,6 +60,26 @@ impl Gate {
 mod tests {
     use super::*;
     use std::sync::atomic::{AtomicUsize, Ordering};
+
+    #[test]
+    fn provider_status_refresh_preserves_unrelated_live_observations() {
+        let mut current = super::super::State::default();
+        current.agy.email = Some("new@example.invalid".into());
+        current.agy_models = vec!["new-model".into()];
+        current.muse.connected = true;
+        current.probed = true;
+        let mut checked = super::super::State::default();
+        checked.codex.connected = true;
+        let next = merge_status(&current, &checked, Scope::Codex);
+        assert!(next.codex.connected);
+        assert!(next.muse.connected);
+        assert_eq!(next.agy.email, current.agy.email);
+        assert_eq!(next.agy_models, current.agy_models);
+        assert!(next.probed);
+        let full = merge_status(&current, &checked, Scope::All);
+        assert!(!full.muse.connected, "full discovery still replaces checked provider state");
+        assert_eq!(full.agy_models, current.agy_models, "separate registry never regresses");
+    }
 
     #[tokio::test]
     async fn provider_status_refresh_coalesces_and_expires_without_live_probes() {
