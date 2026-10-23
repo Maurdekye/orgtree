@@ -41,6 +41,10 @@ const fixture = () => {
   } as unknown as TreePayload
   const refs = { world: { org: slug }, onOpen: noop }
   const server = new FakeServer()
+  // Availability and the custom light pages below describe the same tickets.
+  // Keep the transport oracle intact: only selecting a row hydrates detail.
+  server.workItems = [item]
+  server.workBacklogged = [hidden]
   installFetch(server)
   const original = globalThis.fetch
   const calls: string[] = []
