@@ -1003,6 +1003,7 @@ export interface TreePayload {
     unread: number
     holders: string[]          // ledger.py extern_holders() -> list[str]
     enabled?: boolean          // missing on older engines: enabled
+    mode?: 'normal' | 'dnd' | 'closed'
     multi_holder_enabled: boolean
     visible: boolean
   }
@@ -2551,6 +2552,7 @@ export interface SettingsRequest {
   auto_cheap_compact?: { enabled?: boolean; occ?: number } | null
   /** organization-level external inbox holder policy */
   org_inbox_enabled?: boolean | null
+  org_inbox_mode?: 'normal' | 'dnd' | 'closed' | null
   org_inbox_multi_holder?: boolean | null
   // F-06
   net_hub_address?: string | null      // global defaults only

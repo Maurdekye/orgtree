@@ -147,6 +147,8 @@ import {
   SettingsTabs, SetToggle, useSettingsAsk, useSettingsTarget, useVisitedTabs,
 } from './canvas/settingskit'
 import type { SettingsTab, SettingsTarget } from './canvas/settingskit'
+import { OrgInboxPolicy } from './orginboxpolicy'
+import type { OrgInboxMode } from './orginboxpolicy'
 import { ingestPulse, ingestStream, resetConvos } from './convo'
 import { clearNodeMetadata, metadataPatch, publishNodeMetadata, replaceNodeMetadata } from './nodemetadata'
 import type { NodeStreamFrame } from './nodemetadata'
@@ -3144,8 +3146,7 @@ export function DefaultsPanel({ toast, close }: { toast: ToastFn; close: () => v
 
 /** D-222: the org settings modal's tab series. "basic" is always first; the
  *  rest are the categories that used to be inside the nested advanced modal,
- *  now siblings of it. `mailserver` and `autonomy` are conditional — see
- *  `orgTabs` in the panel. */
+ *  now siblings of it. Connections also owns the inbox mode without a hub. */
 type OrgSettingsTab =
   'basic' | 'hiredefaults' | 'policies' | 'orgtype' | 'mailserver'
   | 'autonomy' | 'accounts' | 'history'
@@ -3199,10 +3200,8 @@ export function SettingsPanel({ tree, toast, close, initialTab, target }: {
   const stripRef = useRef<HTMLDivElement | null>(null)
   useEffect(() => { if (target) setTab(target.tab as OrgSettingsTab) }, [target?.seq])  // eslint-disable-line react-hooks/exhaustive-deps
   useSettingsTarget(stripRef, target, !!target && tab === target.tab && visited(target.tab as OrgSettingsTab))
-  // the strip is built from live org shape: an org
-  // with no mail identity has no mailserver tab. Same conditionals the
-  // advanced modal's tab array used — moved out here so the tab strip and
-  // the panels below cannot disagree about which tabs exist.
+  // Connections always exposes the inbox mode; network controls still need
+  // the org's network block.
   const orgTabs = useMemo<SettingsTab<OrgSettingsTab>[]>(() => [
     { id: 'basic', label: 'Basic' },
     // user 2026-09-11: the overseer eye's standalone ⚙ is gone and its panel
@@ -3210,8 +3209,7 @@ export function SettingsPanel({ tree, toast, close, initialTab, target }: {
     // group is the other half of the same subject.
     { id: 'hiredefaults', label: 'Hire defaults' },
     { id: 'policies', label: 'Policies' },
-    ...(tree.net != null
-      ? [{ id: 'mailserver' as const, label: 'Connections' }] : []),
+    { id: 'mailserver', label: 'Connections' },
     { id: 'autonomy', label: 'Autonomy' },
     // which signed-in accounts this org may use (user 2026-10-10)
     { id: 'accounts', label: 'Accounts' },
@@ -3236,8 +3234,9 @@ export function SettingsPanel({ tree, toast, close, initialTab, target }: {
   const setCompactAt = set('compactAt', compactAt)
   const defEffort = val('defEffort', tree.default_effort ?? '')
   const setDefEffort = set('defEffort', defEffort)
-  const orgInboxEnabled = val('orgInboxEnabled', tree.org_inbox?.enabled !== false)
-  const setOrgInboxEnabled = set('orgInboxEnabled', orgInboxEnabled)
+  const orgInboxMode = val<OrgInboxMode>('orgInboxMode', tree.org_inbox?.mode
+    ?? (tree.org_inbox?.enabled === false ? 'closed' : 'normal'))
+  const setOrgInboxMode = set<OrgInboxMode>('orgInboxMode', orgInboxMode)
   const multiHolder = val('multiHolder',
     tree.org_inbox?.multi_holder_enabled === true)
   const setMultiHolder = set('multiHolder', multiHolder)
@@ -3465,15 +3464,6 @@ export function SettingsPanel({ tree, toast, close, initialTab, target }: {
                 </SetRow>
               )}
             </SetGroup>
-            <SetGroup title="External org inbox">
-              <SetToggle label="allow outside communication through the org inbox"
-                checked={orgInboxEnabled} onChange={setOrgInboxEnabled}
-                hint="off: blocks mail to and from other orgs and mailhub peers, and hides the inbox node; same-org mail is unchanged" />
-              <SetToggle
-                label="allow multiple org-inbox audience holders"
-                checked={multiHolder} onChange={setMultiHolder}
-                hint="off: granting a different holder moves the audience; turning this off with several holders requires revoking all but one first" />
-            </SetGroup>
           </>)}
         </SettingsTabPanel>
 
@@ -3481,13 +3471,15 @@ export function SettingsPanel({ tree, toast, close, initialTab, target }: {
         {/* ── Mailserver (F-06). Saves IMMEDIATELY on its own, which is why
             it is rendered only once visited: an unvisited tab must not fetch
             hub state the operator never asked to see. ─────────────────── */}
-        {tree.net != null && (
-          <SettingsTabPanel id="mailserver" idBase="org-settings"
-            active={tab === 'mailserver'}>
-            {visited('mailserver') && <NetTab tree={tree} toast={toast}
+        <SettingsTabPanel id="mailserver" idBase="org-settings"
+          active={tab === 'mailserver'}>
+          {visited('mailserver') && <>
+            <OrgInboxPolicy mode={orgInboxMode} onMode={setOrgInboxMode}
+              multi={multiHolder} onMulti={setMultiHolder} />
+            {tree.net != null && <NetTab tree={tree} toast={toast}
               adding={netHubDraft} setAdding={setNetHubDraft} />}
-          </SettingsTabPanel>
-        )}
+          </>}
+        </SettingsTabPanel>
 
         {/* ── Autonomy ── */}
         <SettingsTabPanel id="autonomy" idBase="org-settings"
@@ -3522,7 +3514,7 @@ export function SettingsPanel({ tree, toast, close, initialTab, target }: {
                   default_top_grant: Number.isFinite(+defTop) ? +defTop : undefined,
                   compact_at: Number.isFinite(+compactAt) ? +compactAt : undefined,
                   default_effort: defEffort,
-                  org_inbox_enabled: orgInboxEnabled,
+                  org_inbox_mode: orgInboxMode,
                   org_inbox_multi_holder: multiHolder,
                   auto_cheap_compact: { enabled: accOn,
                     occ: (+accOcc || 25) / 100 },
