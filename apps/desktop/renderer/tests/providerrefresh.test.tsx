@@ -35,6 +35,8 @@ test('default Codex row uses native sign-in and Providers refresh forces discove
   const calls: string[] = [], logins: unknown[][] = []
   const idle = {phase:'idle',ok:null,timedOut:false,output:'',ageMs:0}
   ;(window as any).orgtreeDesktop = {
+    getPreferences: async () => ({visualTheme:'codex',visualThemeExplicit:true}),
+    setPreferences: async (patch: unknown) => patch,
     getProviderLoginStatus: async () => idle,
     onEvent: () => () => {},
     startProviderLogin: async (...args: unknown[]) => { logins.push(args); return {...idle,phase:'starting'} },

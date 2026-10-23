@@ -5,6 +5,7 @@ import '../src/styles.css'
 import '../src/shell.css'
 const idle = {phase:'idle',ok:null,timedOut:false,output:'',ageMs:0}
 ;(window as any).orgtreeDesktop = {onEvent:()=>()=>{},getProviderLoginStatus:async()=>idle,
+  getPreferences:async()=>({visualTheme:'codex',visualThemeExplicit:true}),setPreferences:async(patch:unknown)=>patch,
   startProviderLogin:async()=>idle}
 window.fetch = async url => new Response(JSON.stringify(String(url).startsWith('/api/providers')
   ? {providers:[{id:'openai',label:'Codex',cli:'Codex',status:{installed:true,connected:false,version:'fixture'},
