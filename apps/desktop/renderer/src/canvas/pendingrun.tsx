@@ -6,15 +6,19 @@ import type { ReactNode } from 'react'
 export function PendingRun({ count, children, onToggle }: {
   count: number; children: ReactNode; onToggle: () => void
 }) {
-  const [expanded, setExpanded] = useState(false)
-  const collapsible = count >= 6
-  return <details className="pending-run" open={!collapsible || expanded}
+  // null follows the six-row default. An explicit choice wins until this
+  // visible run unmounts, including when its count crosses the threshold.
+  const [choice, setChoice] = useState<boolean | null>(null)
+  const expanded = choice ?? count < 6
+  return <details className="pending-run" open={expanded}
     onToggle={e => {
       if (e.target !== e.currentTarget) return
-      if (collapsible) setExpanded(e.currentTarget.open)
+      // Native/programmatic reveal is also a deliberate opening. Do not
+      // mistake an initial or count-driven open-attribute change for a choice.
+      if (e.currentTarget.open !== expanded) setChoice(e.currentTarget.open)
       onToggle()
     }}>
-    <summary hidden={!collapsible}>
+    <summary onClick={e => { e.preventDefault(); setChoice(!expanded) }}>
       {count} queued / undelivered — {expanded ? 'Hide' : 'Show'}
     </summary>
     <div className="pending-run-rows">{children}</div>

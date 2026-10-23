@@ -29,7 +29,12 @@ alone does not split a run. The same stable mail ID keys both carriers, so a
 partial or complete delivery preserves the bundle and its disclosure state.
 Actual live output/starting indicators, authored mail and waking requests still
 break runs. No delivery, wake or backend ordering is changed. Pending authored
-mail keeps its six-row disclosure within each uninterrupted non-system run.
+mail keeps its independent disclosure within each uninterrupted non-system run.
+Since 4.4.4 (user 2026-10-23), every nonempty run exposes Show/Hide. Untouched
+runs auto-collapse at six rows; a manual choice wins through count changes
+while that run remains mounted. Emptying the run, closing/reopening its desk
+or a new agent generation resets the choice. Delivery uses normal transcript
+presentation, and the separate five-line body preview remains unchanged.
 The existing queue divider stays at the first pending entry, inside a notice
 bundle if that entry belongs to one; opening it retains delivery labels/actions.
 

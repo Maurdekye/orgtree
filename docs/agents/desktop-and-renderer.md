@@ -12,6 +12,21 @@ This is a display correction; move/reorder tool authority is unchanged.
 [decided: user 2026-10-23; verified: `canvas/{moveghost,OrgCanvas}.tsx`,
 `tests/{pendingmove,hiddenretiredbunch}.test.tsx`]
 
+## Queue-group disclosure defaults (2026-10-23)
+
+Every nonempty `PendingRun` exposes its native Show/Hide summary. A nullable
+local choice distinguishes the untouched six-row automatic default from an
+explicit open/closed choice. Count-driven native toggle events must not become
+manual choices: compare the observed open state with the controlled value.
+Explicit summary activation and reply-target reveals preserve their choice
+while the run is mounted. Existing run/desk/generation teardown resets it;
+never transfer a queue-group choice to delivered transcript rows. Keep card
+mounts, event deduplication, current/later positions, five-line body previews,
+system-notice bundles and optimistic/failed sends unchanged. This is local
+display state, not a new agent tool operation. [decided: user 2026-10-23
+m4f228e48f792; verified: `canvas/{pendingrun,transcriptflow}.tsx`,
+`tests/{pendingrun,pendingtoggle}.test.tsx`]
+
 ## User-message jump previews (2026-10-23)
 
 `authoredUserLabel` requires a canonical user actor plus a communication variant

@@ -26,7 +26,7 @@ function fill(s: FakeServer, count: number, prefix = 'm') {
   }
 }
 
-test('five remain visible; six collapse; toggles preserve cards and updates preserve expansion', async t => {
+test('five default visible; six default collapsed; all groups toggle and manual choices survive updates', async t => {
   resetConvos(); localStorage.clear()
   const slug = 'pending-run-threshold', s = new FakeServer(); fill(s, 5); installFetch(s)
   const view = await mountView(desk(slug), el => el)
@@ -34,13 +34,13 @@ test('five remain visible; six collapse; toggles preserve cards and updates pres
   await refresh(slug)
   const run = runs(view.el)[0]
   assert.equal(run.open, true)
-  assert.equal(run.querySelector('summary')!.hidden, true)
+  assert.equal(run.querySelector('summary')!.hidden, false)
   const first = run.querySelector('.pendrow')!
   s.postMail('Sixth', 'sixth'); await refresh(slug)
-  assert.equal(runs(view.el)[0], run, 'stable wrapper at threshold')
+  assert.equal(runs(view.el)[0] === run, true, 'stable wrapper at threshold')
   assert.equal(run.open, false)
   assert.match(run.querySelector('summary')!.textContent!, /6 queued \/ undelivered — Show/)
-  assert.equal(run.querySelector('.pendrow'), first, 'cards stay mounted')
+  assert.equal(run.querySelector('.pendrow') === first, true, 'cards stay mounted')
   const before = JSON.stringify(s.pending_mail)
   await toggle(run)
   assert.equal(run.open, true)
@@ -52,11 +52,11 @@ test('five remain visible; six collapse; toggles preserve cards and updates pres
   assert.equal(JSON.stringify(s.pending_mail.slice(0, 6)), before, 'view toggle never changes mail')
   assert.equal(run.querySelectorAll('button[title="retract (undelivered)"]').length, 7)
   s.pending_mail.splice(0, 2); await refresh(slug)
-  assert.equal(run.open, true, 'falling below threshold exposes remaining mail')
-  assert.equal(run.querySelector('summary')!.hidden, true)
+  assert.equal(run.open, false, 'manual Hide survives falling below threshold')
+  assert.equal(run.querySelector('summary')!.hidden, false)
   s.pending_mail = []; await refresh(slug)
   assert.equal(runs(view.el).length, 0)
-  assert.equal(view.el.querySelector('.pending-divider'), null)
+  assert.equal(!!view.el.querySelector('.pending-divider'), false)
 })
 
 test('current-turn and waiting runs stay on opposite sides of response; failed and optimistic sends stay outside', async t => {
@@ -101,7 +101,7 @@ test('threshold counts surviving rendered events, including typed notices; deliv
   const run = runs(view.el)[0]
   assert.equal(run.querySelectorAll('.pendrow').length, 5)
   assert.equal(run.open, true)
-  assert.equal(run.querySelector('summary')!.hidden, true)
+  assert.equal(run.querySelector('summary')!.hidden, false)
   assert.ok(run.querySelector('.turn-mail.passive'))
   s.pending_mail[5].event_id = 'event-unique'; await refresh(slug)
   assert.equal(run.open, false)

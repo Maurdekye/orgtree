@@ -103,7 +103,16 @@ keep “a moment”. No historical time is invented from a message timestamp.
 
 A tool chip distinguishes call-writing from execution and can expand to show arguments/result. Completed tool behavior is not inferred from the spinner alone. Successful docket status-change chips can show captured old → new states; failure/no-op or missing historical before-state does not invent one. Thoughts can expose supplied reasoning or only elapsed duration; absence of text is not evidence the model did not think.
 
-Pending/undelivered cards sit separately from delivered conversation. Runs of six or more pending rows collapse behind Show/Hide within their current/later delivery group. Optimistic or failed sends remain visible. A quote/reply navigation can reveal a folded target; opening a disclosure is not a read/delivery acknowledgment.
+Pending/undelivered cards sit separately from delivered conversation. Every
+nonempty queue group has a Show/Hide toggle, including a single message. Until
+you choose, fewer than six rows stay open and six or more collapse automatically;
+the count uses rendered rows after deduplication. Your choice survives arrivals,
+polling and count changes while that group stays on screen. It resets when the
+group empties, the desk closes/reopens or the agent starts a new generation.
+Current-turn and later groups stay independent. Delivered messages display
+normally; their five-line body previews are unchanged. Optimistic or failed
+sends remain visible. A quote/reply navigation can reveal a folded target;
+opening a disclosure is not a read/delivery acknowledgment.
 
 Event cards and reference links can open their exact related agent, mail, work item, watchdog or document when a route is available. Copy/reply menus use durable source identity; a missing exact source can disable a reply action rather than inventing a target.
 

@@ -20,6 +20,14 @@ The Enter preference determines whether Enter sends or adds a line. The send but
 
 After sending, feedback such as **steering in mid-task** appears above the bottom jump cards. Those cards stay above the message box. The feedback describes the send outcome; it does not establish that the agent has finished acting on your message.
 
+Every queued-message group has **Show/Hide**, even when it contains one message.
+Groups start open below six messages and close automatically at six or more.
+Clicking Show or Hide keeps your choice as messages arrive or leave that group.
+The choice resets when the group empties, you close/reopen the desk or the agent
+starts a new conversation generation. Delivered messages display normally;
+individual message-body previews are unchanged. Folding the queue does not
+deliver, retract or acknowledge its messages.
+
 The **Notice** control makes the next message passive: it waits for a later turn instead of waking the recipient. Use it for an FYI that can wait. A task requiring action needs an ordinary message. **DND** means an agent is holding non-urgent mail for the current turn; **DND next turn** is an idle armed hold. The desk-header button controls it, and clearing it releases held mail at supported delivery boundaries. When the orange urgency control is offered for active DND, it can bypass that hold for the next send. It does not convert an interrupted turn into completed work. [Managing agents](managing-agents.md#hold-mail-for-focused-work) explains the full lifecycle.
 
 ## Read the transcript
