@@ -36,6 +36,8 @@ Organization and agent presentation modals collapse the list into a menu-control
 
 ## Copy, download and reply
 
+Project presentations use a shared project bucket. An agent currently authorized to present into that project can replace a card there even if another agent originally presented it. The project remains its owner and the **presented by** line changes to the replacing agent. Personal agent galleries keep their own-agent replacement boundary. See `orgtree-tool-present` for the authority checks.
+
 In a live message-box context, presentation cards and reference links put
 **Mention** and **Reply** first. Mention inserts the same `@doc:` reference
 that Copy reference copies. Reply prepares an answer about that presentation

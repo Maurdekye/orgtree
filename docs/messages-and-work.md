@@ -140,6 +140,8 @@ The reader supports Markdown and HTML previews, source identity, downloads and t
 
 Presentations store a snapshot. Markdown text or a Markdown file is limited to 64 KiB; an HTML source file is limited to 4 MiB. HTML previews run in a sandbox offline: network resources are blocked, and missing local dependencies are shown in the preview notice. A single HTML file is downloaded as its stored snapshot; an HTML folder is captured as an immutable ZIP bundle, up to 25 MiB and 4,096 files. Later edits to the original files do not change the saved presentation; ask the agent to update it. For a file delivery rather than a presentation, the limit is 256 MiB.
 
+Project presentations belong to the project's shared collection. Any agent authorized to present into that project can update an existing card there, even one first presented by another agent. The project stays its owner and **presented by** changes to the replacing agent. An agent's personal collection remains limited to that agent's own replacements.
+
 Closing a reader leaves the document in its collection. **Dismiss** is a separate document operation. A download saves a file and does not prove that it was read. For an installer, image, export or log wanted as a file, ask for a file delivery instead. Moving a scratch file alone does not publish it into Presented.
 
 Continue with [Settings and usage](settings-and-usage.md) for shortcuts, notifications, limits and the settings that affect these workflows.
