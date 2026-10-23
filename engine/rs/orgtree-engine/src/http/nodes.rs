@@ -321,7 +321,8 @@ pub struct BroadcastBody {
 }
 
 /// The project desk's message box (user 2026-10-18 07:33Z): one send from
-/// the user to every live agent under the project, nested projects included,
+/// the user to live agent children, passing through live nested projects but
+/// never descending below an agent recipient (user 2026-10-23 09:42Z),
 /// with the same attachments and notice flag. As an agent's list send does
 /// (tools/mailtools.rs), it is one delivery per recipient through the
 /// ordinary mail admission, and each recipient's outcome is reported; no

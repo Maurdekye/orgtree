@@ -1557,30 +1557,39 @@ pub async fn nudge_target(engine: &Engine, client: &impl GenericClient, project:
     Ok(members.iter().find(|(id, _)| !busy(*id)).or_else(|| members.first()).cloned())
 }
 
-/// The live agents under `project`, through live nested projects (the
-/// projects themselves left out), nearest first: who a message from the
-/// project desk reaches (user 2026-10-18 07:33Z, "broadcasts the message to
-/// all project participants at once").
+/// Existing desktop cap/order and agent-tool keyset paging stay distinct.
+#[derive(Clone, Copy, Debug)]
+pub enum BroadcastPage {
+    Desk,
+    Tool { after: i64, through: i64 },
+}
+
+/// One recipient traversal for desktop and tool: live projects are transparent,
+/// live agents receive once and stop the walk (user 2026-10-23 09:42Z).
+#[logged]
+pub async fn broadcast_members(client: &impl GenericClient, project: i64, page: BroadcastPage) -> Result<Vec<(i64, String)>> {
+    let (after, through, limit, order) = match page {
+        BroadcastPage::Desk => (0i64, i64::MAX, 1000i64, "l.depth,a.sibling_order,a.id"),
+        BroadcastPage::Tool { after, through } => (after, through, 100i64, "a.id"),
+    };
+    Ok(client.query(&format!(
+        "WITH RECURSIVE down(id,parent_id,org_id,kind) AS (
+           SELECT a.id,a.parent_id,a.org_id,a.kind FROM ot.agents a JOIN ot.agents root ON root.id=$1 AND root.org_id=a.org_id
+            WHERE a.parent_id=$1 AND a.id<>$1 AND a.state='live'
+           UNION SELECT a.id,a.parent_id,a.org_id,a.kind FROM ot.agents a JOIN down d ON a.parent_id=d.id AND a.org_id=d.org_id
+            WHERE d.kind='project' AND a.id<>$1 AND a.state='live'),
+         levels(id,depth) AS (
+           SELECT id,1 FROM down WHERE parent_id=$1
+           UNION ALL SELECT a.id,l.depth+1 FROM down a JOIN levels l ON a.parent_id=l.id)
+         SELECT a.id,a.name FROM levels l JOIN ot.agents a ON a.id=l.id
+          WHERE a.kind='agent' AND a.id>$2 AND a.id<=$3 ORDER BY {order} LIMIT $4"),
+        &[&project,&after,&through,&limit]).await?.iter().map(|r| (r.get(0),r.get(1))).collect())
+}
+
+/// The project desk's recipients, nearest first, with its existing cap.
 #[logged]
 pub async fn members(client: &impl GenericClient, project: i64) -> Result<Vec<String>> {
-    Ok(client
-        .query(
-            "WITH RECURSIVE down(id,parent_id,org_id) AS (
-               SELECT a.id,a.parent_id,a.org_id FROM ot.agents a JOIN ot.agents root ON root.id=$1 AND root.org_id=a.org_id
-                WHERE a.parent_id=$1 AND a.id<>$1 AND a.state='live'
-               UNION SELECT a.id,a.parent_id,a.org_id FROM ot.agents a JOIN down d ON a.parent_id=d.id AND a.org_id=d.org_id
-                WHERE a.id<>$1 AND a.state='live'),
-             levels(id,depth) AS (
-               SELECT id,1 FROM down WHERE parent_id=$1
-               UNION ALL SELECT a.id,l.depth+1 FROM down a JOIN levels l ON a.parent_id=l.id)
-             SELECT a.name FROM levels l JOIN ot.agents a ON a.id=l.id
-              WHERE a.kind IS DISTINCT FROM 'project' ORDER BY l.depth,a.sibling_order,a.id LIMIT 1000",
-            &[&project],
-        )
-        .await?
-        .iter()
-        .map(|r| r.get(0))
-        .collect())
+    Ok(broadcast_members(client,project,BroadcastPage::Desk).await?.into_iter().map(|(_,name)| name).collect())
 }
 
 /// Kept rows one page of a project's Recently Finished or Recently

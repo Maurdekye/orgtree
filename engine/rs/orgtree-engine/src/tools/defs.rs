@@ -825,7 +825,7 @@ fn build_tool_project() -> Value {
             "body_revision": {"type":"string","description":"read_presentation: required after chunk0; return its body_revision unchanged, restart at0 if replaced"},
             "limit": {"type":"integer","minimum":1,"maximum":100},
             "offset": {"type":"integer","minimum":0},
-            "body": {"type":"string","description":"broadcast: message to every live agent under the project; fire_event: optional message carried to its event listeners"},
+            "body": {"type":"string","description":"broadcast: message to live agent children through nested projects, stopping at each agent; fire_event: optional message carried to its event listeners"},
             "attachments": {"type":"array","items":{"type":"string"},"maxItems":10},
             "notice": {"type":"boolean"},
             "urgent": {"type":"boolean","description":"broadcast: requires urgent_reason; each agent recipient must currently be in DND"},
