@@ -886,11 +886,11 @@ export const getWorkPage = (org: string, group: import('./workpages').WorkGroup,
 export const getWorkItem = (slug: string, id: string): Promise<WorkItemPayload> =>
   req(`/api/orgs/${slug}/work-items/${id}`)
 export const replyWorkItem = (slug: string, id: string, body: string, to?: string,
-  attachments?: string[], notice?: boolean): Promise<WorkItemReplyResult> =>
+  attachments?: string[], notice?: boolean, selections?: import('./replySelection').SelectionTarget[]): Promise<WorkItemReplyResult> =>
   req(`/api/orgs/${slug}/work-items/${id}/reply`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ body, ...(to !== undefined ? { to } : {}),
+    body: JSON.stringify({ body, ...(to !== undefined ? { to } : {}), ...(selections?.length?{selections}:{}),
       ...(attachments?.length ? { attachments } : {}),
       // notice-toggle parity (user 2026-09-17): the same flag Message.notice
       // carries on the ordinary send path, wired into the ticket reply box
@@ -1526,7 +1526,7 @@ export interface BroadcastResult {
  *  failed grant leaves the mail delivered. */
 export interface AudienceGrantResult { granted: boolean; error?: string }
 export const broadcastMessage = (slug: string, project: string, text: string, attachments?: string[],
-  notice?: boolean, urgency?: {urgent:true;urgent_reason?:string}, targets?: ReplyTarget[]): Promise<BroadcastResult> =>
+  notice?: boolean, urgency?: {urgent:true;urgent_reason?:string}, targets?: (ReplyTarget | import('./replySelection').SelectionTarget)[]): Promise<BroadcastResult> =>
   req(`/api/orgs/${slug}/nodes/${project}/broadcast`, {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ text, ...(urgency ?? {}), ...(attachments?.length ? { attachments } : {}),

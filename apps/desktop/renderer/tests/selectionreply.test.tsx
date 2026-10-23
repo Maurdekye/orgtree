@@ -9,6 +9,8 @@ import { appendSelection, contextBytes, selectionSnapshot, sourceDigest } from '
 import type { SelectionTarget } from '../src/replySelection'
 import { ReplySelectionSurface } from '../src/canvas/replyselection'
 import { MailReplyBox } from '../src/canvas/mail'
+import { Msg } from '../src/canvas/desk'
+import { TranscriptSelectionContext } from '../src/canvas/transcriptselection'
 import { CurrentOrg } from '../src/popout'
 
 function body(source: string, plain = false) {
@@ -146,4 +148,36 @@ test('selection event drafts retain independent ranges and send only selectors',
   assert.equal(appendReplyTarget([first],first).length,1)
   assert.deepEqual(replyWire(first),{target,selection:selector})
   assert.equal(replyContext({...target,quoted_context:'one',selection:snapshot})?.selection?.excerpt,'one')
+})
+
+test('settled transcript prose, thoughts and JSON fields stage distinct source parts in the owning box',async t=>{
+  const cryptoDescriptor=Object.getOwnPropertyDescriptor(globalThis,'crypto');Object.defineProperty(globalThis,'crypto',{configurable:true,value:webcrypto})
+  const prior=globalThis.fetch;installFetch(new FakeServer());const fallback=globalThis.fetch
+  globalThis.fetch=(async(input,init)=>String(input).includes('/toolinput/')?new Response(JSON.stringify({input:{'a/b':'input phrase'}}),{status:200})
+    :String(input).includes('/reply-source')?new Response(JSON.stringify({revision:1}),{status:200}):fallback(input,init))as typeof fetch
+  t.after(()=>{globalThis.fetch=prior;if(cryptoDescriptor)Object.defineProperty(globalThis,'crypto',cryptoDescriptor)})
+  const sent:SelectionTarget[][]=[]
+  const view=await mountView(<CurrentOrg.Provider value="demo"><TranscriptSelectionContext.Provider value={{org:'demo',agent:'writer',generation:1}}><div className="mailer-read">
+    <Msg slug="demo" nid="writer" m={{role:'assistant',event_id:'e7',seq:7,text:'prose phrase',thinking:'thought phrase',thinking_tokens:20,
+      tools:[{id:'call',event_id:'e7',result_event_id:'e7',input_seq:7,name:'example',result:'{"a/b":"result phrase"}'}]}} />
+    <MailReplyBox slug="demo" target="writer" objectActions onSend={(_text,_files,_notice,_broadcast,_object,selections)=>{sent.push(selections??[])}} />
+  </div></TranscriptSelectionContext.Provider></CurrentOrg.Provider>,el=>el)
+  t.after(()=>view.unmount())
+  await inAct(async()=>{view.el.querySelector<HTMLButtonElement>('.thoughtline')!.click();view.el.querySelector<HTMLElement>('.tline')!.click();await flush(15)})
+  const pick=async(node:Node,start:number,end:number)=>{const selected=document.getSelection()!;selected.removeAllRanges();selected.addRange(selection(node,start,end))
+    await inAct(async()=>{node.parentElement!.dispatchEvent(new MouseEvent('contextmenu',{bubbles:true,cancelable:true,button:2,clientX:20,clientY:30}));await flush(2)})
+    const button=[...document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find(b=>b.textContent?.trim()==='Reply to selection')
+    assert.equal(!!button&&!button.disabled,true)
+    await inAct(async()=>{button!.click();await flush(5)});selected.removeAllRanges()
+  }
+  await pick(textNode(view.el,'prose phrase'),0,5)
+  await pick(textNode(view.el,'thought phrase'),0,7)
+  await pick(textNode(view.el,'input phrase'),0,5)
+  await pick(textNode(view.el,'result phrase'),0,6)
+  const key=view.el.querySelector('.toolinput .sj-key')!;await pick(key.firstChild!,0,3)
+  const ta=view.el.querySelector('textarea')!,setter=Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype,'value')!.set!
+  await inAct(()=>{setter.call(ta,'Explain these');ta.dispatchEvent(new Event('input',{bubbles:true}))})
+  await inAct(async()=>{view.el.querySelector<HTMLButtonElement>('.mail-reply-send')!.click();await flush(5)})
+  assert.equal(sent[0]?.length,5)
+  assert.deepEqual(sent[0]?.map(r=>[r.selection.part,r.selection.pointer??'',r.selection.role??'value']),[['text','','value'],['thinking','','value'],['tool.input','/a~1b','value'],['tool.result','/a~1b','value'],['tool.input','/a~1b','key']])
 })

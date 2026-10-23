@@ -879,7 +879,7 @@ export function ProjectDesk({ node, slug, tree, map, op, toast, refs, bare, focu
           projectBroadcastMembers={broadcastRecipients.length}
           onReplyToDoc={(doc) => replyToDoc(doc)}
           onBroadcast={(_presenter, text, target, attachments, notice) =>
-            broadcastMessage(slug, node.id, text, attachments, notice, undefined, [target]).then((r) => {
+            broadcastMessage(slug, node.id, text, attachments, notice, undefined, Array.isArray(target)?target:[target]).then((r) => {
               toast([`sent to ${r.sent.length} of ${r.sent.length + r.refused.length} agents under ${node.id}`
                 + (notice ? ' as a notice' : ''), ...r.refused.map((f) => `${f.to}: ${f.why}`)])
               if (!r.sent.length) throw new Error(r.refused.map((f) => f.why).join('; ') || 'broadcast was not accepted')

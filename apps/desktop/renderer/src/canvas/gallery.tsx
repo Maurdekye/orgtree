@@ -27,6 +27,9 @@ import type { MouseEvent as ReactMouseEvent, ReactNode } from 'react'
 import type { DocRow } from '../api'
 import { fileBase, mockupUrl } from '../api'
 import { onLiveBump } from '../livebus'
+import { ReplySelectionSurface } from './replyselection'
+import type { SelectionTarget } from '../replySelection'
+type PresentationReplyTarget = ReplyTarget | SelectionTarget | (ReplyTarget | SelectionTarget)[]
 import { sendLinkedReply } from '../events/reply'
 import type { ReplyTarget } from '../generated/events'
 import type { ToastFn, TreeNode } from '../types'
@@ -330,7 +333,7 @@ export function DocGalleryModal({ slug, toast, close, onFocusAgent, onReply,
   toast: ToastFn
   close: () => void
   onFocusAgent?: (agentId: string) => void
-  onReply?: (node: string, text: string, target: ReplyTarget, attachments?: string[], notice?: boolean) => Promise<unknown> | void
+  onReply?: (node: string, text: string, target: PresentationReplyTarget, attachments?: string[], notice?: boolean) => Promise<unknown> | void
   /** canonical references written inside a document, and where they go. A
    *  presented plan names items, agents and the mail it answers; this panel
    *  can open none of those itself, so the shell supplies the routes and
@@ -584,8 +587,8 @@ function DocPane({ slug, row, toast, onDismissed, close, onFocusAgent, onReply,
   onDismissed: () => void
   close: () => void
   onFocusAgent?: (agentId: string) => void
-  onReply?: (node: string, text: string, target: ReplyTarget, attachments?: string[], notice?: boolean) => Promise<unknown> | void
-  onBroadcast?: (node: string, text: string, target: ReplyTarget, attachments?: string[], notice?: boolean) => Promise<unknown> | void
+  onReply?: (node: string, text: string, target: PresentationReplyTarget, attachments?: string[], notice?: boolean) => Promise<unknown> | void
+  onBroadcast?: (node: string, text: string, target: PresentationReplyTarget, attachments?: string[], notice?: boolean) => Promise<unknown> | void
   projectBroadcast?: { project: string; members: number }
   refs?: { world: RefWorld; onOpen?: (r: ResolvedRef) => void }
 }) {
@@ -613,7 +616,7 @@ function DocPane({ slug, row, toast, onDismissed, close, onFocusAgent, onReply,
         </div>
         {row.node && <PresentedBy r={row} sentence tierOf={tierOf} onFocus={onFocusAgent && ((id) => { close(); onFocusAgent(id) })} />}
         <div className="doc-pane-title-row">
-          <b>{row.title || '(untitled)'}</b>
+          <ReplySelectionSurface source={{org:slug,target:{kind:'document',org:slug,id:row.id},part:{part:'document.title'},text:row.title,format:'plain'}}><b>{row.title || '(untitled)'}</b></ReplySelectionSurface>
           {!row.evicted && <DocumentDownload slug={slug} id={row.id} title={row.title} format={row.format} />}
           <span className="spacer" />
           {!row.evicted && (
@@ -636,14 +639,14 @@ function DocPane({ slug, row, toast, onDismissed, close, onFocusAgent, onReply,
             {/* relative image srcs resolve against the PRESENTING node's
                 files — `![](outbox/chart.png)` embeds a figure that agent saved */}
             {doc?.format === 'html' && <MockupOpen slug={slug} docId={row.id} />}
-            {doc && doc.format !== 'html' && <RefMdBody className="mailer-body md"
+            {doc && doc.format !== 'html' && <ReplySelectionSurface source={{org:slug,target:{kind:'document',org:slug,id:row.id},part:{part:'document.body'},text:doc.body}}><RefMdBody className="mailer-body md"
               html={md(doc.body, fileBase(slug, doc.node))}
-              world={refs?.world} onOpen={refs?.onOpen} />}
+              world={refs?.world} onOpen={refs?.onOpen} /></ReplySelectionSurface>}
             {!doc && !err && <div className="dim pad">loading…</div>}
             {replyable && (
-              <MailReplyBox target={row.node} slug={slug} toast={toast} broadcast={projectBroadcast}
-                onSend={(text, attachments, notice, broadcast, objectTarget) => {
-                  const target: ReplyTarget = objectTarget ?? { kind: 'document', org: slug, id: row.id }
+              <MailReplyBox target={row.node} slug={slug} toast={toast} broadcast={projectBroadcast} selectionActions={doc?.format!=='html'}
+                onSend={(text, attachments, notice, broadcast, objectTarget, selections) => {
+                  const target: PresentationReplyTarget = selections?.length ? [...(objectTarget?[objectTarget]:[]),...selections] : objectTarget ?? { kind: 'document', org: slug, id: row.id }
                   if (broadcast && onBroadcast) return onBroadcast(row.node, text, target, attachments, notice)
                   if (onReply) return onReply(row.node, text, target, attachments, notice)
                   return sendLinkedReply(slug, row.node, text, target, attachments, notice)
@@ -666,8 +669,8 @@ export interface AgentGalleryViewProps {
   node?: TreeNode | { id: string; documents?: any[] | null; state?: string; tier?: string | null; generation?: number }
   toast: ToastFn
   onFocusAgent?: (agentId: string) => void
-  onReply?: (node: string, text: string, target: ReplyTarget, attachments?: string[], notice?: boolean) => Promise<unknown> | void
-  onBroadcast?: (node: string, text: string, target: ReplyTarget, attachments?: string[], notice?: boolean) => Promise<unknown> | void
+  onReply?: (node: string, text: string, target: PresentationReplyTarget, attachments?: string[], notice?: boolean) => Promise<unknown> | void
+  onBroadcast?: (node: string, text: string, target: PresentationReplyTarget, attachments?: string[], notice?: boolean) => Promise<unknown> | void
   projectBroadcastMembers?: number
   /** Desk context-menu action: stages a reply to this presentation in the
    *  desk composer (using the same reply-target chip as replying to mail). */

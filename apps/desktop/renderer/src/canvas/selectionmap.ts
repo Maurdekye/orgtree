@@ -130,7 +130,7 @@ function domUnits(root: Element): DomUnit[] {
       for (const char of atomic) out.push({ node: el, start: 0, end: el.childNodes.length, char, atomic: el })
       return
     }
-    if (el.matches('button,input,textarea,select,svg,script,style,[aria-hidden="true"],.code-copy,.ref-why')) return
+    if (el.matches('button,input,textarea,select,svg,script,style,[aria-hidden="true"],.code-copy,.ref-why,.token-count')) return
     for (const child of el.childNodes) visit(child)
   }
   visit(root)

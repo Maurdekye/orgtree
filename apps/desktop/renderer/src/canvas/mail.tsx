@@ -1127,7 +1127,7 @@ export function MailReadPane({ cur, members, org, refs, mdBase, fileHref, sender
  *  the reply prose already says "reply to X…" about), so no new node-id
  *  prop is needed beyond `slug`, which callers did not previously have to
  *  pass because nothing here touched the API layer directly. */
-export function MailReplyBox({ target, slug, onSend, placeholder, sendDisabled = false, objectActions = false,
+export function MailReplyBox({ target, slug, onSend, placeholder, sendDisabled = false, objectActions = false, selectionActions = false,
   toast, broadcast, sendLabel = 'reply', sendTitle, below }: {
   target?: string
   /** required to actually upload anything — omit it and the attach button
@@ -1140,6 +1140,7 @@ export function MailReplyBox({ target, slug, onSend, placeholder, sendDisabled =
   /** Enable a mail reader's actions outside a desk too. Contextual readers
    * embedded in desks automatically own their nearer reply box. */
   objectActions?: boolean
+  selectionActions?: boolean
   placeholder?: string
   /** Keep the draft editable while its selected recipient is unavailable. */
   sendDisabled?: boolean
@@ -1175,7 +1176,7 @@ export function MailReplyBox({ target, slug, onSend, placeholder, sendDisabled =
       setDraft(saved.draft);setAttached(saved.attached);setObjectReply(saved.object);setSelections(saved.selections)
     } else setSelections([])
   }, [composerKey])
-  useSelectionComposer(taRef, { key:`${slug}/${target}`, disabled:sendDisabled || !target || !slug || !objectActions,
+  useSelectionComposer(taRef, { key:`${slug}/${target}`, disabled:sendDisabled || !target || !slug || !(objectActions || selectionActions),
     stage: selection => {
       try { const next=appendSelection(selectionRef.current,selection); selectionRef.current=next; setSelections(next); taRef.current?.focus({preventScroll:true}) }
       catch (error) { toast?.([error instanceof Error ? error.message : String(error)]) }

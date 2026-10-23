@@ -51,6 +51,7 @@ import { DocReader } from './docs'
 import { revealDetachedDocument } from '../windowlife'
 import { closeIfCentred, PinFrame } from './modalpin'
 import { AgentName, nodeTierOf } from './identity'
+import { DocketSelection, DocketSelectionContext } from './docketselection'
 import { MailReplyBox } from './mail'
 import { sendLinkedReply } from '../events/reply'
 import { ago, jumpKey, useEsc } from './shared'
@@ -2421,8 +2422,8 @@ function DocketList({ heading, items, refIndex, onGoToItem, onGoToAgent, mark,
         : <ul className={'docket-list-items mark-' + mark}>
             {items.map((t, i) => (
               <li key={i}>
-                <RefProse text={t} world={refWorld} onOpen={onOpenRef}
-                  index={refIndex} onPick={onGoToItem} />
+                <DocketSelection field={mark==='done'?'done_so_far':'working_on_next'} text={t} entry={i}><RefProse text={t} world={refWorld} onOpen={onOpenRef}
+                  index={refIndex} onPick={onGoToItem} /></DocketSelection>
               </li>
             ))}
           </ul>}
@@ -2873,12 +2874,12 @@ function FullDocketPane({ slug, item, toast, asksById, onDismiss, close, onFocus
     ? (id: string) => { close(); onFocusAgent(id) }
     : undefined
   return (
-    <>
+    <DocketSelectionContext.Provider value={{org:slug,slug:item.slug}}>
       {/* THE ONLY PLACE THE FULL DESCRIPTIVE TITLE IS PRINTED (user
           2026-09-05) — the list is named by slug alone. */}
       <MentionLanding org={slug} kind="work" id={item.slug} refs={{ world: refWorld, onOpen: onOpenRef }} />
       <div ref={paneHead} className="mailer-head docket-pane-head" data-copy-ticket-title={item.title}>
-        <b>{item.title || '(untitled)'}</b>
+        <DocketSelection field="title" text={item.title}><b>{item.title || '(untitled)'}</b></DocketSelection>
         <span className="spacer" />
         
       </div>
@@ -2955,9 +2956,9 @@ function FullDocketPane({ slug, item, toast, asksById, onDismiss, close, onFocus
           </div>
         )}
         {item.objective
-          ? <DocketDescription text={item.objective} slug={slug}
+          ? <DocketSelection field="objective" text={item.objective} format="markdown"><DocketDescription text={item.objective} slug={slug}
               world={refWorld} onOpen={onOpenRef}
-              index={refIndex} onPick={onGoToItem} />
+              index={refIndex} onPick={onGoToItem} /></DocketSelection>
           : <div className="dim docket-list-empty">
               no description — this item predates the rule that every item
               states its problem and proposed solution
@@ -2971,7 +2972,7 @@ function FullDocketPane({ slug, item, toast, asksById, onDismiss, close, onFocus
       {stateInfo && (
         <DocketSection title={stateInfo.heading}>
           {stateInfo.text
-            ? <div className="docket-desc-body">{stateInfo.text}</div>
+            ? <DocketSelection field={item.status==='blocked'?'blocked_reason':'dropped_reason'} text={stateInfo.text}><div className="docket-desc-body">{stateInfo.text}</div></DocketSelection>
             : <div className="dim docket-list-empty">
                 not recorded — this item entered {item.status} before the rule
                 that the state says why
@@ -2987,6 +2988,7 @@ function FullDocketPane({ slug, item, toast, asksById, onDismiss, close, onFocus
         mark="next" refIndex={refIndex} onGoToItem={onGoToItem}
         onGoToAgent={goToAgent}
         refWorld={refWorld} onOpenRef={onOpenRef} />
+      {(item.evidence??[]).some(ev=>ev.note) && <DocketSection title="EVIDENCE NOTES"><ul>{(item.evidence??[]).map((ev,i)=>ev.note ? <li key={i}><code>{ev.ref}</code>{' · '}<DocketSelection field="evidence.note" text={ev.note} entry={i}>{ev.note}</DocketSelection></li>:null)}</ul></DocketSection>}
       <DocketAcceptance item={item} />
       <DocketVerification slug={slug} item={item} />
       <DocketAttachments slug={slug} item={item} toast={toast}
@@ -3110,12 +3112,12 @@ function FullDocketPane({ slug, item, toast, asksById, onDismiss, close, onFocus
           {recipient?.state === 'retired' && <div className="dim docket-reply-note">
             {recipient.node} is retired — the reply waits for rehire.
           </div>}
-          <MailReplyBox target={replyTo || undefined} slug={slug} toast={toast} sendDisabled={unavailable}
-            onSend={(text, attachments, notice, _broadcast, objectTarget) => {
+          <MailReplyBox target={replyTo || undefined} slug={slug} toast={toast} sendDisabled={unavailable} selectionActions
+            onSend={(text, attachments, notice, _broadcast, objectTarget, selections) => {
               if (unavailable) return Promise.reject(new Error('Recipient unavailable'))
               setReplyBusy(true)
               return (objectTarget ? sendLinkedReply(slug, replyTo, text, objectTarget, attachments, notice).then(r => ({ ...r, to: replyTo }))
-                : replyWorkItem(slug, item.slug, text, replyTo, attachments, notice))
+                : replyWorkItem(slug, item.slug, text, replyTo, attachments, notice, selections))
                 .then((r) => {
                   const sentTo = r.to ?? replyTo
                   toast([r.deferred
@@ -3141,6 +3143,6 @@ function FullDocketPane({ slug, item, toast, asksById, onDismiss, close, onFocus
         </div>
         </DocketSection>
       )}
-    </>
+    </DocketSelectionContext.Provider>
   )
 }

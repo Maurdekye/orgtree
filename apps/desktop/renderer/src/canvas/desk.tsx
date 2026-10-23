@@ -36,7 +36,7 @@ import { useOrgView } from '../attention/mode'
 import { HaltControl, HaltStatus } from './haltcontrol'
 import { resolveRef } from './reflinks'
 import { appendReplyTarget, objectReplyContext, readReplies, replyContext, replyFromRow, replyWire, storeReplies } from '../eventReply'
-import { TranscriptSelection, TranscriptSelectionContext } from './transcriptselection'
+import { TranscriptSelection, TranscriptSelectionContext, useTranscriptSelectionReveal } from './transcriptselection'
 import { useSelectionComposer } from './selectioncomposer'
 import { selectionReplyContext } from '../eventReply'
 import { useObjectComposer } from './composerobjects'
@@ -2484,6 +2484,7 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
     draft: convo.draft, draftId: convo.draftEventId, thinking: convo.thinking, thinkingId: convo.thinkingEventId,
   }), [chat?.messages, chat?.pending_mail, live_feed, chat?.transient,
     convo.draft, convo.draftEventId, convo.thinking, convo.thinkingEventId])
+  const selectionDesk=useMemo(()=>({org:slug,agent:node.id,generation:node.generation??0}),[slug,node.id,node.generation])
   // Every reply id the payload carries, mapped to the event it belongs to.
   // A reply naming the STALE snapshot of a row still has somewhere to go: the
   // surviving snapshot of that same event is on screen under a different reply
@@ -3833,7 +3834,7 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
     <CopyFeedback.Provider value={toast}>
     <AgentDirectoryProvider value={agentDir}>
     <FoldProvider value={folds.store}>
-    <ReplySourceProvider value={resolveReplySource}><TranscriptSelectionContext.Provider value={useMemo(()=>({org:slug,agent:node.id,generation:node.generation??0}),[slug,node.id,node.generation])}>
+    <ReplySourceProvider value={resolveReplySource}><TranscriptSelectionContext.Provider value={selectionDesk}>
       <DeskHead nodeId={node.id}
         left={<>
           {/* ⚠ `bare` IS THE DESTINATION TEST, which is why this reads
@@ -5189,6 +5190,8 @@ export function ToolChip({ t, slug, nid, onMailLink, onWorkLink, onOpenDoc }: To
   const shellError = isFailedShellCall(t)
   const inputEvent = t.event_id ?? (t.input_seq ? `e${t.input_seq}` : undefined)
   const outputEvent = t.result_event_id ?? (t.output_seq ? `e${t.output_seq}` : inputEvent)
+  useTranscriptSelectionReveal(slug,nid,inputEvent,t.id,open,toggleOpen)
+  useTranscriptSelectionReveal(slug,nid,outputEvent,outputEvent===inputEvent?undefined:t.id,open,toggleOpen)
   const inputSource = t.id ? {org:slug,agent:nid,eventId:inputEvent,part:{part:"tool.input",tool_id:t.id}} : undefined
   const outputSource = t.id ? {org:slug,agent:nid,eventId:outputEvent,part:{part:"tool.result",tool_id:t.id}} : undefined
   const resultText = (child:ReactNode,text:string) => outputSource ? <TranscriptSelection {...outputSource} text={text} format="plain">{child}</TranscriptSelection> : child
