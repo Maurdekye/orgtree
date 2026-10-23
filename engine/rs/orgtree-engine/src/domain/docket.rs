@@ -2463,11 +2463,7 @@ pub async fn reply(engine: &Arc<Engine>, org: &Arc<OrgHandle>, slug: &str, body:
             if target["kind"]!="work_item" || target["org"]!=org.slug || target["slug"]!=it.slug {
                 refuse!(BadRequest,"docket replies only accept selections from this item");
             }
-            let part=selector.part();
-            let reader=super::reply_sources::Reader::User;
-            let read:std::pin::Pin<Box<dyn std::future::Future<Output=Result<super::reply_sources::Source>> + Send + '_>>=
-                Box::pin(super::reply_sources::load(engine,org,&reader,target,&part));
-            let source=read.await?;
+            let source=super::reply_sources::load(engine,org,&super::reply_sources::Reader::User,target,&selector.part()).await?;
             out.replies.push(source.capture(&selector)?);
         }
         out.reply_to=out.replies.first().cloned();
@@ -2513,14 +2509,14 @@ mod reply_role_tests {
     use serde_json::json;
 
     #[test]
-    fn current_attention_actor_is_read_as_a_reply_destination() {
+    fn reply_selection_current_attention_actor_is_read_as_a_reply_destination() {
         let attention = json!({"by":{"node":"flag-raiser","generation":2}});
         assert_eq!(attention_raiser(Some(&attention)), Some("flag-raiser"));
         assert_eq!(attention_raiser(None), None);
     }
 
     #[test]
-    fn reply_role_allows_only_owner_participant_or_current_flag_raiser() {
+    fn reply_selection_role_allows_only_owner_participant_or_current_flag_raiser() {
         let participants = vec!["participant".to_string()];
         assert_eq!(reply_role("owner", Some("owner"), &participants, Some("owner")), Some("owner"));
         assert_eq!(reply_role("participant", Some("owner"), &participants, Some("participant")), Some("participant"));
