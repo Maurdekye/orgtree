@@ -86,7 +86,9 @@ import {
   saveScope, sendMessage,
   unstickNode, uploadFile,
 } from '../api'
-import { AttachThumb, fmtBytes, ImgCardCaption, isImg } from './img'
+import { AttachThumb, fmtBytes, isImg } from './img'
+import { SentFileCard } from './filecard'
+import { AgentFilesView } from './files'
 import { openLightbox } from './lightbox'
 import PushPinIcon from '@mui/icons-material/PushPinOutlined'
 import {
@@ -2063,7 +2065,7 @@ export function SpendBadge({ node }: { node: SpendNode }) {
 const SENDMODE_MS = 6000
 
 /** the agent desk's tabs, in strip order; Team shows only with live reports */
-const AGENT_DESK_TABS = ['chat', 'inbox', 'docket', 'presented', 'team'] as const
+const AGENT_DESK_TABS = ['chat', 'inbox', 'docket', 'presented', 'files', 'team'] as const
 
 /** Where the event a context menu was raised on is RIGHT NOW.
  *
@@ -4510,6 +4512,7 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
         <AgentTeamView map={map} nid={node.id} onPick={onJump} refs={deskRefs} compactAt={compactAt}
           actions={<PanelCorner kind="agent-team" slug={slug} nid={node.id} />} />
       </div>}
+      {view === 'files' && <div className="desk-tabpanel"><AgentFilesView slug={slug} nid={node.id} /></div>}
       {view === 'presented' && (
         <div className="desk-tabpanel">
           <PanelCorner kind="agent-gallery" slug={slug} nid={node.id} />
@@ -5256,29 +5259,8 @@ export function ToolChip({ t, slug, nid, onMailLink, onWorkLink, onOpenDoc }: To
   // viewer, the download link rides the caption.
   let downloadCard: ReactNode = null
   if (t.file && !t.error) {
-    const file = t.file
-    const href = fileUrl(slug, nid, file.path!)
-    if (isImg(file.name)) {
-      downloadCard = (
-        <div className="filecard imgcard" data-reply-event={t.result_event_id ?? ''} data-reply-quote={String(t.result_reply_quote ?? t.result ?? '')}>
-          <img className="imgcard-img" src={href} alt={file.name}
-            loading="lazy" title={`${file.name} — click to view`}
-            onClick={() => openLightbox(href, { name: file.name, download: href })} />
-            <ImgCardCaption name={file.name} bytes={file.bytes} href={href}
-            note={file.note} />
-        </div>
-      )
-    } else downloadCard = (
-      <a className="filecard" data-reply-event={t.result_event_id ?? ''} data-reply-quote={String(t.result_reply_quote ?? t.result ?? '')} href={href}
-        download={file.name} title="download">
-        <DownloadIcon fontSize="inherit" className="fc-ico" />
-        <span className="fc-body">
-          <span className="fc-name">{file.name}</span>
-          <span className="dim"> · {fmtBytes(file.bytes)}</span>
-          {file.note && <span className="fc-note">{file.note}</span>}
-        </span>
-      </a>
-    )
+    downloadCard = <SentFileCard slug={slug} nid={nid} file={t.file}
+      eventId={t.result_event_id} quote={String(t.result_reply_quote ?? t.result ?? '')} />
   }
   return (
     <><div className={'tools tchip' + (t.error || shellError ? ' terr' : '')}>

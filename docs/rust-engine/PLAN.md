@@ -341,6 +341,10 @@ Providers refresh (USER2026-10-23,4.4.2): explicit Refresh bypasses the periodic
 snapshot through shared/coalesced ordinary discovery; default Codex login gains
 the existing Sign in flow. `orgtree_list_tiers {refresh:true}` mirrors refresh
 with inspection+runtime. See [provider refresh](../agents/providers-and-accounts.md#explicit-provider-refresh-and-default-codex-sign-in-2026-10-23).
+Agent Files (USER 2026-10-23, scheduled for 4.4.5): each agent desk lists its
+retained delivered download cards, newest first, with metadata and snapshot
+downloads. Deferred orgtree_files provides scoped inspection parity. See
+[agent files](agent-files.md).
 
 Grey preset removal (USER/coordinator2026-10-23,4.4.2): no selectable orgtree
 preset; explicit legacy choices migrate silently to Custom #b6bdc8, while the

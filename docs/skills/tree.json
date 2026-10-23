@@ -3676,7 +3676,8 @@
    "writer": "providers-sol",
    "status": "fixed",
    "components": [
-    "apps/desktop/renderer/src/canvas/team.tsx#TeamModal"
+    "apps/desktop/renderer/src/canvas/team.tsx#TeamModal",
+    "apps/desktop/renderer/src/canvas/files.tsx#AgentFilesView"
    ]
   },
   {

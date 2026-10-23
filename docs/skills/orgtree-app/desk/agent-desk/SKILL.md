@@ -130,6 +130,12 @@ hover precision, thinking receipts and missing observations.
 - [Mail](../inbox-screens/SKILL.md): the agent's mailbox, with its inbox and sent folders.
 - [Docket](../docket-screens/SKILL.md): its work items.
 - [Presented](../presentations/SKILL.md): document collection.
+- **Files**: this agent's delivered download cards, newest first, including older
+  retained deliveries. Each entry shows filename, size, delivery time and note.
+  Download uses the original snapshot; images also open in the image viewer.
+  Load older files pages through history; Refresh returns to newest. While you
+  browse older pages, incoming activity keeps that browsing window stable.
+  Agents use orgtree_files (orgtree-working > inspection) for the same list.
 - [Team](../../canvas/agents-list/SKILL.md): the same Agents List restricted to this node and all descendants, including its Filter, Active and archived controls. Project desks offer Team as well.
 
 The shared agent/project context menu's **Open → Team** entry opens that node's Team panel. Team supports pinning and popping out through the existing window controls. Its saved window placement is tied to the organization, node and node generation, so a replacement identity does not inherit the old panel. Rows and membership follow the current feed; opening Team does not start another agent or turn.

@@ -51,6 +51,12 @@ This applies to the top-bar buttons, agent/project Open submenus including team 
 ## Copy, download and reply
 
 Project presentations use a shared project bucket. An agent currently authorized to present into that project can replace a card there even if another agent originally presented it. The project remains its owner and the **presented by** line changes to the replacing agent. Personal agent galleries keep their own-agent replacement boundary. See `orgtree-tool-present` for the authority checks.
+Download cards delivered by an agent are collected separately in that agent's
+**Files** desk tab, beside Presented. It includes retained earlier deliveries
+with name, size, time and note, using the same immutable download snapshots.
+Hub attachment transfers are tracked separately. A recorded card can remain
+listed if its snapshot was removed externally; a failed download does not
+recreate the file. Project document placement is unchanged.
 
 In a live message-box context, presentation cards and reference links put
 **Mention** and **Reply** first. Mention inserts the same `@doc:` reference

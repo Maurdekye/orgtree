@@ -944,7 +944,13 @@ export const markRead = (slug: string, ids: string[]): Promise<{ read: number }>
     body: JSON.stringify({ ids }),
   })
 export const getHistory = (slug: string, nid: string): Promise<HistoryPayload> =>
-  req(`/api/orgs/${slug}/nodes/${nid}/history`)
+    req(`/api/orgs/${slug}/nodes/${nid}/history`)
+export interface DeliveredFile {
+  delivery_id: string; name: string; path: string; bytes: number; note: string | null; at: string
+}
+export interface DeliveredFilesPage { node: string; files: DeliveredFile[]; next_cursor: string | null }
+export const getDeliveredFiles = (slug: string, nid: string, before?: string): Promise<DeliveredFilesPage> =>
+  req(`/api/orgs/${slug}/agents/${encodeURIComponent(nid)}/files?limit=50${before ? `&before=${encodeURIComponent(before)}` : ''}`)
 export const getOrgMd = (slug: string): Promise<OrgMdPayload> =>
   req(`/api/orgs/${slug}/orgmd`)
 export const putOrgMd = (

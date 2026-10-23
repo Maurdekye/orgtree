@@ -44,6 +44,12 @@ retain snapshots after edits and relocate only on a unique verified match.
 Agents can read context and send selection replies; glossary/user docs accompany
 the feature. Exclude interactive HTML and persistent threads. See
 [selection contract](selection-replies.md).
+**Agent Files (USER 2026-10-23 07:59:47Z; release 08:00:58Z):** a Files desk
+tab collects each agent's presented download cards. Include retained earlier
+deliveries, newest first, with filename, size, time, note and snapshot download.
+Provide agent listing parity. Originally assigned after 4.4.2; USER 2026-10-23
+15:13:25Z moved it to 4.4.5.
+See [agent files](agent-files.md).
 
 **Remove Grey preset (USER2026-10-23;4.4.2):** selected legacy orgtree themes
 become Custom with exact base RGB(182,189,200). Coordinator preserves the old

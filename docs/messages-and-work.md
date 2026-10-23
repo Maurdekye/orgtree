@@ -191,6 +191,32 @@ Project presentations belong to the project's shared collection. Any agent autho
 
 Closing a reader leaves the document in its collection. **Dismiss** is a separate document operation. A download saves a file and does not prove that it was read. For an installer, image, export or log wanted as a file, ask for a file delivery instead. Moving a scratch file alone does not publish it into Presented.
 
+## Find files an agent delivered
+
+Open an agent's desk and select **Files**, beside **Presented**. This tab
+collects the download cards that agent has sent, newest first. You can see the
+filename, size, delivery time and note without searching its conversation.
+Earlier deliveries appear too when Orgtree still has their records.
+
+Click a file card to download its original delivered copy. Image cards also
+open in the image viewer. Editing the agent's source file later does not
+change that delivered copy. If its saved copy was removed outside Orgtree,
+the card can remain listed while its download fails.
+
+Use **Load older files** to browse earlier deliveries. **Refresh** returns to
+the newest page. The list refreshes with activity while showing its newest
+page; browsing older pages keeps your place until you refresh. Renaming or
+retiring an agent does not change which retained deliveries belong to it.
+
+Files contains local download cards, including delivered pictures, archives,
+logs and exports. Readable reports stay in **Presented**. Mail attachments and
+hub transfer jobs keep their existing mail and transfer views; project
+presentations keep their existing placement.
+
+Agents can read the same delivery history with **orgtree_files** for themselves
+or a descendant, with inspection permission. It is a listing action: it does
+not deliver another copy or prove that a person downloaded the file.
+
 Continue with [Settings and usage](settings-and-usage.md) for shortcuts, notifications, limits and the settings that affect these workflows.
 
 ### Reply to part of a transcript

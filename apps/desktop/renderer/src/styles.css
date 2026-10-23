@@ -6431,6 +6431,13 @@ svg.MuiSvgIcon-root {
 .diffpre .dplus { color: var(--ok); background: color-mix(in srgb, var(--ok) 10%, transparent); }
 .diffpre .dminus { color: var(--bad); background: color-mix(in srgb, var(--bad) 10%, transparent); }
 .diffpre .dhunk { color: var(--dim); opacity: .85; margin-top: 3px; }
+.agent-files { padding: 14px; overflow: auto; min-width: 0; flex: 1; }
+.agent-files-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+.agent-files-list { list-style: none; padding: 0; margin: 16px 0; display: flex; flex-direction: column; gap: 16px; }
+.agent-files-list li { min-width: 0; }
+.agent-files-list time { display: block; font-size: 11px; margin-bottom: 5px; }
+.agent-files-list .filecard { max-width: 100%; }
+
 /* files flow BACK (user spec 2026-07-31): orgtree_send_file renders as a
    download card in the chat; inline images retain their own download link */
 .filecard {
