@@ -82,29 +82,46 @@ fn approved_examples_match_exact_wording() {
 }
 
 #[test]
-fn legacy_profiles_change_only_approved_mentions() {
+fn legacy_profiles_change_only_approved_mentions_and_claude_loading() {
     use sha2::{Digest, Sha256};
     let expected: Value = serde_json::from_str(include_str!(
         "../../../testdata/standing-compression/legacy-3dc7095.json")).unwrap();
     let mut checked = 0;
     for (key,text) in profiles().into_iter().filter(|(key,_)| key.ends_with("trimfalse")) {
         // The 21:44Z follow-up changes the two mention passages on legacy
-        // profiles too. Undo only those approved replacements before checking
-        // the original fingerprint; unrelated wording remains byte-pinned.
+        // profiles too. Also undo the 2026-10-23 Claude loading correction;
+        // unrelated wording remains pinned to the original fingerprint.
         let text = text.replace(
             "MENTIONS: whenever you name an agent, project or docket item in text a person or agent will read (your replies, mail, docket descriptions, presentations), write @name or @item:<org>/<slug> as plain text, never in backticks or code spans. A bare name is wrong.",
             "MENTIONS: whenever you name an agent, project or docket item in text a person or agent will read (your replies, mail, docket descriptions, presentations), write it as a mention: `@name`, or `@item:<org>/<slug>`. A bare name is wrong. Don't put mentions inside code spans.",
         ).replace(
             "Write @user (plain text, never in backticks) in replies, mail, presented documents or docket updates to notify the user: 'I need you to see this'. Anything needing an answer still goes by mail or question.",
             "Write `@user` in your reply for 'I need you to see this'; anything needing an answer still goes by mail or question.",
+        ).replace(
+            "Act on the org with the orgtree tools, named mcp__orgtree__orgtree_status and so on. Some load up front; others are deferred. Fetch them with ToolSearch by full name. ",
+            "Act on the org with the orgtree tools. Their full names carry the server prefix — mcp__orgtree__orgtree_status and so on — and they are always loaded, never deferred. ",
         );
         assert_eq!(json!(text.len()), expected[&key]["bytes"], "{key}: byte length");
         assert_eq!(json!(format!("{:x}", Sha256::digest(text.as_bytes()))),
-            expected[&key]["sha256"], "{key}: unchanged legacy text outside approved mentions");
+            expected[&key]["sha256"], "{key}: unchanged legacy text outside approved mentions/loading");
         checked += 1;
     }
     assert_eq!(checked, 20);
     assert_eq!(expected.as_object().unwrap().len(), checked);
+}
+
+#[test]
+fn orgtree_loading_guidance_matches_the_native_harness() {
+    for (key, text) in profiles() {
+        assert!(!text.contains("always loaded, never deferred"), "{key}: false eager-only claim");
+        let loading = "Some load up front; others are deferred. Fetch them with ToolSearch by full name.";
+        if key.starts_with("Claude-") {
+            assert!(text.contains(loading), "{key}: missing deferred-tool discovery");
+            assert!(text.contains("mcp__orgtree__orgtree_status"), "{key}: missing full-name example");
+        } else {
+            assert!(!text.contains(loading), "{key}: Claude-only ToolSearch guidance");
+        }
+    }
 }
 
 #[test]

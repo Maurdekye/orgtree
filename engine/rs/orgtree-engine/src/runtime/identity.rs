@@ -281,8 +281,8 @@ pub fn identity_parts(i: &Identity) -> (String, String) {
     s.push_str("Escalate decisions to your superior rather than the user unless the user addresses you directly. You act when messaged. ");
     s.push_str(match i.lane {
         Lane::Claude => {
-            "Act on the org with the orgtree tools. Their full names carry the server prefix — \
-             mcp__orgtree__orgtree_status and so on — and they are always loaded, never deferred. "
+            "Act on the org with the orgtree tools, named mcp__orgtree__orgtree_status and so on. \
+             Some load up front; others are deferred. Fetch them with ToolSearch by full name. "
         }
         Lane::OpenCode => "Act on the org with the direct tools named orgtree_orgtree_status and so on. ",
         Lane::Codex if trim => "", // The short shared contract below supplies this sentence.

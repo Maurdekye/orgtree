@@ -4,6 +4,16 @@
 
 Identity prefixes, tool cards, notes, globals, shared skills and glossary delivery.
 
+## Claude tool-loading guidance (2026-10-23)
+
+The Claude identity distinguishes tools loaded up front from deferred tools and
+directs ToolSearch to their full `mcp__orgtree__` names. The wording does not pin
+the set or count; loading hints and permissions are unchanged. Other harnesses
+keep their own tool guidance without a Claude ToolSearch claim. The corrected
+identity applies at the next launch and changes its prompt prefix.
+[decided: user 2026-10-23, 4.4.2 accuracy fix; verified: runtime/identity.rs,
+tools/defs.rs, runtime/codex.rs]
+
 ## Chat wire-log privacy (2026-10-21)
 
 Agent /api/orgs/{slug}/nodes/{nid}/chat bodies are omitted by the same
