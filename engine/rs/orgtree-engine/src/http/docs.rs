@@ -127,6 +127,7 @@ pub struct ListQuery {
     hired: Option<String>,
     #[serde(default)]
     previous: String,
+    #[serde(default)] visible: bool,
 }
 
 const OPENING_UNREAD_SQL: &str = "SELECT d.uid, d.id FROM ot.documents d LEFT JOIN ot.agents a ON a.id = d.agent_id
@@ -140,13 +141,14 @@ const OPENING_TOPMOST_SQL: &str = "SELECT d.uid, d.id FROM ot.documents d LEFT J
  AND CASE WHEN $3::bigint[] IS NULL THEN ($2 = '' OR d.node_name = $2)
           ELSE (d.agent_id = ANY($3) OR (d.agent_id IS NULL AND d.node_name = $2)) END
  AND (NOT $4::boolean OR a.state = 'live') ORDER BY d.id DESC LIMIT 1";
-const OPENING_POSITION_SQL: &str = "SELECT count(*) FROM ot.documents d WHERE d.org_id = $1 AND d.id > $2
+const OPENING_POSITION_SQL: &str = "SELECT count(*) FROM ot.documents d LEFT JOIN ot.agents a ON a.id=d.agent_id WHERE d.org_id = $1 AND d.id > $2
  AND CASE WHEN $4::bigint[] IS NULL THEN ($3 = '' OR d.node_name = $3)
-          ELSE (d.agent_id = ANY($4) OR (d.agent_id IS NULL AND d.node_name = $3)) END";
+          ELSE (d.agent_id = ANY($4) OR (d.agent_id IS NULL AND d.node_name = $3)) END
+ AND (NOT $5::boolean OR (NOT d.dismissed AND (NOT $6::boolean OR a.state='live')))";
 
 #[logged]
 async fn opening_target(client: &tokio_postgres::Client, org_id: i64, node: &str,
-    members: &Option<Vec<i64>>, hired: bool, previous: &str) -> ApiResult<Option<(String, i64)>> {
+    members: &Option<Vec<i64>>, hired: bool, previous: &str, visible: bool) -> ApiResult<Option<(String, i64)>> {
     let params: &[&(dyn tokio_postgres::types::ToSql + Sync)] = &[&org_id, &node, members, &hired];
     let row = match client.query_opt(OPENING_UNREAD_SQL, params).await? {
         Some(row) => Some(row),
@@ -161,7 +163,7 @@ async fn opening_target(client: &tokio_postgres::Client, org_id: i64, node: &str
     };
     let Some(row) = row else { return Ok(None) };
     let id: i64 = row.get(1);
-    let position: i64 = client.query_one(OPENING_POSITION_SQL, &[&org_id, &id, &node, members]).await?.get(0);
+    let position: i64 = client.query_one(OPENING_POSITION_SQL, &[&org_id, &id, &node, members, &visible, &hired]).await?.get(0);
     Ok(Some((row.get(0), position)))
 }
 
@@ -173,12 +175,13 @@ pub async fn list(State(e): State<Arc<Engine>>, Path(slug): Path<String>, Query(
     let node = q.node.trim().to_string();
     let team = matches!(q.team.as_deref(), Some("1" | "true"));
     let members = subtree_members(&client, &o, &node, team).await?;
+    let hired=matches!(q.hired.as_deref(), Some("1" | "true"));
     let limit = if q.limit > 0 { q.limit.min(1000) } else { 60 };
     if q.locate.is_empty() && matches!(q.opening.as_deref(), Some("1" | "true")) {
         let target = opening_target(&client, o.id, &node, &members,
-            matches!(q.hired.as_deref(), Some("1" | "true")), &q.previous).await?;
+            hired, &q.previous, q.visible).await?;
         let offset = target.as_ref().map_or(0, |(_, position)| position / limit * limit);
-        let Json(mut page) = list_page(&client, &o, &node, members.as_deref(), offset, limit, None).await?;
+        let Json(mut page) = list_page(&client, &o, &node, members.as_deref(), offset, limit, None, q.visible, hired).await?;
         page["opening_id"] = json!(target.as_ref().map(|(id, _)| id));
         page["opening_position"] = json!(target.as_ref().map(|(_, position)| position));
         return Ok(Json(page));
@@ -189,11 +192,12 @@ pub async fn list(State(e): State<Arc<Engine>>, Path(slug): Path<String>, Query(
         // grow the window until it holds the located card
         let pos: Option<i64> = client
             .query_one(
-                "SELECT (SELECT count(*) FROM ot.documents d2 WHERE d2.org_id = $1 AND d2.id > d.id
+                "SELECT (SELECT count(*) FROM ot.documents d2 LEFT JOIN ot.agents a2 ON a2.id=d2.agent_id WHERE d2.org_id = $1 AND d2.id > d.id
                           AND CASE WHEN $4::bigint[] IS NULL THEN ($3 = '' OR d2.node_name = $3)
-                                   ELSE (d2.agent_id = ANY($4) OR (d2.agent_id IS NULL AND d2.node_name = $3)) END)
+                                   ELSE (d2.agent_id = ANY($4) OR (d2.agent_id IS NULL AND d2.node_name = $3)) END
+                          AND (NOT $5::boolean OR (NOT d2.dismissed AND (NOT $6::boolean OR a2.state='live'))))
                    FROM ot.documents d WHERE d.org_id = $1 AND d.uid = $2",
-                &[&o.id, &q.locate, &node, &members],
+                &[&o.id, &q.locate, &node, &members, &q.visible, &hired],
             )
             .await
             .ok()
@@ -202,11 +206,11 @@ pub async fn list(State(e): State<Arc<Engine>>, Path(slug): Path<String>, Query(
             located = Some(q.locate.clone());
             offset = 0;
             if p >= limit {
-                return list_page(&client, &o, &node, members.as_deref(), 0, p + 1, located).await;
+                return list_page(&client, &o, &node, members.as_deref(), 0, p + 1, located, q.visible, hired).await;
             }
         }
     }
-    list_page(&client, &o, &node, members.as_deref(), offset, limit, located).await
+    list_page(&client, &o, &node, members.as_deref(), offset, limit, located, q.visible, hired).await
 }
 
 /// The nodes whose documents a TEAM gallery lists, or `None` for the plain
@@ -258,6 +262,8 @@ async fn list_page(
     offset: i64,
     limit: i64,
     located: Option<String>,
+    visible: bool,
+    hired: bool,
 ) -> ApiResult<Json<Value>> {
     let members: Option<Vec<i64>> = members.map(<[i64]>::to_vec);
     let rows = client
@@ -273,16 +279,18 @@ async fn list_page(
               WHERE d.org_id = $1
                 AND CASE WHEN $5::bigint[] IS NULL THEN ($2 = '' OR d.node_name = $2)
                          ELSE (d.agent_id = ANY($5) OR (d.agent_id IS NULL AND d.node_name = $2)) END
+                AND (NOT $6::boolean OR (NOT d.dismissed AND (NOT $7::boolean OR a.state='live')))
               ORDER BY d.id DESC OFFSET $3 LIMIT $4",
-            &[&o.id, &node, &offset, &limit, &members],
+            &[&o.id, &node, &offset, &limit, &members, &visible, &hired],
         )
         .await?;
     let total: i64 = client
         .query_one(
-            "SELECT count(*) FROM ot.documents
-              WHERE org_id = $1 AND CASE WHEN $3::bigint[] IS NULL THEN ($2 = '' OR node_name = $2)
-                                         ELSE (agent_id = ANY($3) OR (agent_id IS NULL AND node_name = $2)) END",
-            &[&o.id, &node, &members],
+            "SELECT count(*) FROM ot.documents d LEFT JOIN ot.agents a ON a.id=d.agent_id
+              WHERE d.org_id = $1 AND CASE WHEN $3::bigint[] IS NULL THEN ($2 = '' OR d.node_name = $2)
+                                         ELSE (d.agent_id = ANY($3) OR (d.agent_id IS NULL AND d.node_name = $2)) END
+                AND (NOT $4::boolean OR (NOT d.dismissed AND (NOT $5::boolean OR a.state='live')))",
+            &[&o.id, &node, &members, &visible, &hired],
         )
         .await?
         .get(0);
@@ -381,18 +389,18 @@ mod opening_tests {
             (5,'dismissed',1,1,'old-name','2026-01-01',NULL,true);
           CREATE INDEX documents_org ON ot.documents(org_id,id DESC);").await.unwrap();
         client.batch_execute(include_str!("../../migrations/0041_document_opening.sql")).await.unwrap();
-        assert_eq!(super::opening_target(&client,1,"",&None,true, "").await.unwrap(),Some(("changed".into(),3)));
-        assert_eq!(super::opening_target(&client,1,"renamed",&Some(vec![1]),false, "").await.unwrap(),Some(("changed".into(),2)));
-        assert_eq!(super::opening_target(&client,1,"retired",&Some(vec![2]),false, "").await.unwrap(),Some(("retired".into(),0)));
-        assert_eq!(super::opening_target(&client,99,"",&None,true, "").await.unwrap(),None);
+        assert_eq!(super::opening_target(&client,1,"",&None,true, "", false).await.unwrap(),Some(("changed".into(),3)));
+        assert_eq!(super::opening_target(&client,1,"renamed",&Some(vec![1]),false, "", false).await.unwrap(),Some(("changed".into(),2)));
+        assert_eq!(super::opening_target(&client,1,"retired",&Some(vec![2]),false, "", false).await.unwrap(),Some(("retired".into(),0)));
+        assert_eq!(super::opening_target(&client,99,"",&None,true, "", false).await.unwrap(),None);
         client.batch_execute("UPDATE ot.documents SET viewed_at=at;UPDATE ot.documents SET at='2026-10-20' WHERE uid='changed'").await.unwrap();
-        assert_eq!(super::opening_target(&client,1,"",&None,true, "").await.unwrap(),Some(("changed".into(),3)));
+        assert_eq!(super::opening_target(&client,1,"",&None,true, "", false).await.unwrap(),Some(("changed".into(),3)));
         client.batch_execute("UPDATE ot.documents SET viewed_at=at").await.unwrap();
         // The list is id DESC even when an older document was replaced later.
-        assert_eq!(super::opening_target(&client,1,"",&None,true, "").await.unwrap(),Some(("new".into(),2)));
-        assert_eq!(super::opening_target(&client,1,"",&None,true, "changed").await.unwrap(),Some(("changed".into(),3)));
+        assert_eq!(super::opening_target(&client,1,"",&None,true, "", false).await.unwrap(),Some(("new".into(),2)));
+        assert_eq!(super::opening_target(&client,1,"",&None,true, "changed", false).await.unwrap(),Some(("changed".into(),3)));
         for unavailable in ["dismissed","retired","other-org","missing"] {
-            assert_eq!(super::opening_target(&client,1,"",&None,true, unavailable).await.unwrap(),Some(("new".into(),2)));
+            assert_eq!(super::opening_target(&client,1,"",&None,true, unavailable, false).await.unwrap(),Some(("new".into(),2)));
         }
         drop(client); task.await.unwrap();
     }

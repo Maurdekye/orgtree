@@ -541,6 +541,15 @@ fn sort_rows(rows: &mut [Value]) {
     });
 }
 
+/// Shared by bounded desk availability and the paged user list. `$3` is the
+/// request time; attention rows stay in the main list even after closure.
+pub(crate) const PAGE_GROUP_SQL: &str = "CASE
+        WHEN NOT attention AND (archived_at IS NOT NULL OR status='dropped' OR
+          (status IN ('done','superseded') AND coalesce(docket_at,updated_at,created_at) < $3::timestamptz - interval '1 hour'))
+          THEN 'archived'
+        WHEN status='backlogged' AND NOT attention THEN 'backlogged'
+        ELSE 'items' END";
+
 /// The user's docket view: the main list (attention rows always on it), and
 /// the archive and the backlog when asked for.
 #[logged]
@@ -706,7 +715,7 @@ pub async fn user_page(engine: &Engine, org: &OrgHandle, q: &PageQuery) -> Resul
     let terms: Vec<String> = q.query.to_lowercase().split_whitespace().map(str::to_owned).collect();
     // Keep these fields aligned with renderer searchText: no historical text,
     // evidence, owners, or hidden groups enter the user's search.
-    let mut base = "WITH source AS (
+    let mut base = format!("WITH source AS (
       SELECT w.*, (manual_attention IS NOT NULL OR slug=ANY($2)) AS attention,
         lower(concat_ws(E'\\n',title,slug,objective,
           (SELECT string_agg(value,E'\\n') FROM jsonb_array_elements_text(done_so_far)),
@@ -715,14 +724,9 @@ pub async fn user_page(engine: &Engine, org: &OrgHandle, q: &PageQuery) -> Resul
         AND ($4::text='' OR owner->>'node'=$4 OR reviewer->>'node'=$4)
         AND (cardinality($5::text[])=0 OR owner->>'node'=ANY($5))
     ), grouped AS (
-      SELECT source.*, CASE
-        WHEN NOT attention AND (archived_at IS NOT NULL OR status='dropped' OR
-          (status IN ('done','superseded') AND coalesce(docket_at,updated_at,created_at) < $3::timestamptz - interval '1 hour'))
-          THEN 'archived'
-        WHEN status='backlogged' AND NOT attention THEN 'backlogged'
-        ELSE 'items' END AS group_name,
+      SELECT source.*, {PAGE_GROUP_SQL} AS group_name,
         NOT EXISTS(SELECT 1 FROM unnest($6::text[]) term WHERE position(term in hay)=0) AS matches
-      FROM source)".to_string();
+      FROM source)");
     if q.attention == "1" {
         base = base.replace("WHERE org_id=$1 AND NOT", "WHERE (manual_attention IS NOT NULL OR slug=ANY($2)) AND org_id=$1 AND NOT");
     }

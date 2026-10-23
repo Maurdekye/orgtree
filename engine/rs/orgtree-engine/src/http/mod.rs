@@ -18,6 +18,7 @@ pub mod mention_navigation;
 pub mod markdown_image;
 pub mod nodes;
 pub mod reply_sources;
+pub mod reader_availability;
 pub mod orgops;
 pub mod undo;
 pub mod orgs;
@@ -112,6 +113,7 @@ pub fn router(engine: Arc<Engine>) -> Router {
         .route("/api/orgs/{slug}/history/{section}", get(history::page))
         .route("/api/orgs/{slug}/nodes/{nid}/history", get(mailbox::history))
         .route("/api/orgs/{slug}/nodes/{nid}/detail", get(mailbox::detail))
+        .route("/api/orgs/{slug}/nodes/{nid}/reader-availability", get(reader_availability::get))
         .route("/api/orgs/{slug}/defaults", post(settings::save_org_defaults))
         .route("/api/orgs/{slug}/orgmd", get(settings::get_orgmd).put(settings::put_orgmd))
         .route("/api/defaults", get(settings::get_defaults).post(settings::save_defaults))
