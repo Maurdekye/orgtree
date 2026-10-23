@@ -83,6 +83,12 @@ not claim a universal zero prefix cost. The focused card snapshot test records
 compact UTF-8 bytes for this definition and the base/extended split/flat message
 cards, with the schema costs separated. These are bytes, not tokenizer estimates.
 
+Desk draft conversion must retain the durable mail ID for string mail targets,
+typed mail-card targets and event targets: `mail:<id>` requires matching
+`mail_id` at source admission. The `presentation` identity alias uses the same
+document draft field as `document`. [verified: `eventReply.ts`,
+`selectionreply.test.tsx`; 2026-10-23]
+
 ## Verification scope
 
 Focused source fixtures cover exact whitespace/Unicode/ranges, stale digests,

@@ -114,9 +114,13 @@ export function appendReplyTarget(current: ReplyContext[], next: ReplyContext): 
 export function selectionReplyContext(draft: SelectionDraft, desk: EventSourceRef): ReplyContext {
   const target=draft.target
   const identity=typeof target==='object' && 'source_event_ref' in target ? target.source_event_ref : { ...desk,eventId:typeof target==='object' && 'kind'in target ? `${target.kind}:${'slug'in target?target.slug:target.id}` : `mail:${target}` }
+  // Mail cards and legacy string targets need the same durable ID as an
+  // explicit event target: the source loader checks mail:<id> against mail_id.
+  const mailId=typeof target==='string' ? target : 'mail_id' in target ? target.mail_id
+    : 'kind' in target && target.kind==='mail' ? target.id : undefined
   return {...identity,quote:draft.snapshot.excerpt.slice(0,MAX_REPLY_QUOTE),selection:draft.snapshot,
-    ...(typeof target==='object' && 'mail_id' in target ? {mailId:target.mail_id}:{}),
-    ...(typeof target==='object' && 'kind' in target && target.kind==='document' ? {docId:target.id}:{}),
+    ...(mailId ? {mailId}:{}),
+    ...(typeof target==='object' && 'kind' in target && (target.kind==='document' || target.kind==='presentation') ? {docId:target.id}:{}),
     ...(typeof target==='object' && 'kind' in target && target.kind==='work_item' ? {workItemId:target.slug}:{})}
 }
 

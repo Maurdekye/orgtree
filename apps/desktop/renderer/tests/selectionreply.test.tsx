@@ -10,7 +10,11 @@ import type { SelectionTarget } from '../src/replySelection'
 import { ReplySelectionSurface } from '../src/canvas/replyselection'
 import { MailReplyBox } from '../src/canvas/mail'
 import { verifySelectionProjection } from '../src/canvas/selectionprojection'
-import { Msg } from '../src/canvas/desk'
+import { DeskChat, Msg } from '../src/canvas/desk'
+import type { CanvasNode } from '../src/canvas/shared'
+import type { SourceIdentity } from '../src/replySelection'
+import { captureSelectionComposer } from '../src/canvas/selectioncomposer'
+import { resetConvos } from '../src/convo'
 import { TranscriptSelectionContext } from '../src/canvas/transcriptselection'
 import { CurrentOrg } from '../src/popout'
 
@@ -150,6 +154,68 @@ test('selection event drafts retain independent ranges and send only selectors',
   assert.deepEqual(replyWire(first),{target,selection:selector})
   assert.equal(replyContext({...target,quoted_context:'one',selection:snapshot})?.selection?.excerpt,'one')
   assert.equal(replyContext(displayReplyWire(first))?.selection?.excerpt,'one')
+})
+
+test('desk mail selections retain the durable mail ID in every supported identity form',()=>{
+  const desk={org:'demo',agent:'writer',generation:1,eventId:''}
+  const event={...desk,eventId:'mail:m1'}
+  const selector={part:'mail.body',projection:'source-v1' as const,unit:'unicode-scalar' as const,expected_sha256:'a'.repeat(64),start:0,end:3}
+  const snapshot=selectionSnapshot('one two',selector,1)
+  for(const target of ['m1',{kind:'mail',org:'demo',id:'m1'},{source_event_ref:event,mail_id:'m1'}] satisfies SourceIdentity[]){
+    const reply=selectionReplyContext({target,selection:selector,snapshot},desk)
+    assert.equal(reply.mailId,'m1')
+    assert.deepEqual(replyWire(reply),{target:{source_event_ref:event,mail_id:'m1'},selection:selector})
+    assert.equal(replyContext(displayReplyWire(reply))?.mailId,'m1','optimistic snapshot keeps the same identity')
+  }
+})
+
+test('desk document, presentation, docket and transcript selections retain their source identities',()=>{
+  const desk={org:'demo',agent:'writer',generation:1,eventId:''}
+  const event={...desk,eventId:'e7'}
+  const cases:[SourceIdentity,SourceIdentity,string][]=[
+    [{kind:'document',org:'demo',id:'d1'},{kind:'document',org:'demo',id:'d1'},'document.body'],
+    [{kind:'presentation',org:'demo',id:'d1'},{kind:'document',org:'demo',id:'d1'},'document.title'],
+    [{kind:'work_item',org:'demo',slug:'task'},{kind:'work_item',org:'demo',slug:'task'},'work_item.objective'],
+    [{source_event_ref:event},{source_event_ref:event},'text'],
+  ]
+  for(const [target,expected,part] of cases){
+    const selector={part,projection:'source-v1' as const,unit:'unicode-scalar' as const,expected_sha256:'a'.repeat(64),start:0,end:3}
+    const snapshot=selectionSnapshot('one two',selector,1)
+    const reply=selectionReplyContext({target,selection:selector,snapshot},desk)
+    assert.deepEqual(replyWire(reply),{target:expected,selection:selector})
+    assert.equal(reply.mailId,undefined)
+  }
+})
+
+test('the desk sends a staged mail-card selection with mail_id through the real message API',async t=>{
+  localStorage.clear();resetConvos()
+  const prior=globalThis.fetch;installFetch(new FakeServer());const fallback=globalThis.fetch
+  const requests:Record<string,unknown>[]=[]
+  globalThis.fetch=(async(input,init)=>{
+    if(String(input).endsWith('/nodes/writer/message')){
+      requests.push(JSON.parse(String(init?.body)))
+      return new Response(JSON.stringify({id:'accepted',queued:0}),{status:200})
+    }
+    return fallback(input,init)
+  })as typeof fetch
+  t.after(()=>{globalThis.fetch=prior;resetConvos();localStorage.clear()})
+  const writer:CanvasNode={id:'writer',generation:1,state:'live',tier:'sol',children:[],seat:1,grant:0,free:0,scope:{tools:{},add_dirs:[]}}
+  const view=await mountView(<DeskChat node={writer} map={new Map([[writer.id,writer]])} slug="demo" op={async()=>({})} toast={()=>{}} bare/>,el=>el)
+  t.after(()=>view.unmount())
+  const ta=view.el.querySelector<HTMLTextAreaElement>('textarea')!
+  const stage=captureSelectionComposer(ta)
+  assert.equal(typeof stage,'function')
+  const selector={part:'mail.body',projection:'source-v1' as const,unit:'unicode-scalar' as const,expected_sha256:'a'.repeat(64),start:0,end:3}
+  await inAct(()=>{
+    stage!({target:{kind:'mail',org:'demo',id:'m1'},selection:selector,snapshot:selectionSnapshot('one two',selector,1)})
+    Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype,'value')!.set!.call(ta,'Explain this')
+    ta.dispatchEvent(new Event('input',{bubbles:true}))
+  })
+  await inAct(async()=>{view.el.querySelector<HTMLButtonElement>('.cc-send')!.click();await flush(10)})
+  assert.equal(requests.length,1)
+  assert.equal(requests[0].text,'Explain this')
+  assert.equal(requests[0].reply_to,undefined)
+  assert.deepEqual(requests[0].replies,[{target:{source_event_ref:{org:'demo',agent:'writer',generation:1,eventId:'mail:m1'},mail_id:'m1'},selection:selector}])
 })
 
 test('settled transcript prose, thoughts and JSON fields stage distinct source parts in the owning box',async t=>{
