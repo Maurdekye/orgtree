@@ -13,6 +13,8 @@ Advanced options contain initial folder grants, automatic connection to the loca
 
 The template picker offers Open templates folder and Reload. Invalid templates cannot be selected. Valid templates whose models are unavailable are dimmed and grouped, but remain selectable so their preview can be repaired. Expand the preview to inspect or change agent names, tiers, accounts, charters, seats, grants, and the top-level grant. Non-root entries can be omitted and restored. The preview also indicates an organization instruction file supplied by the template.
 
+Typing the organization name refreshes availability for that name while keeping the last confirmed list appearance and your selection in place. Rows change when a fresh availability result arrives; Reload still re-reads the templates folder.
+
 For a template coordinator, Send coordinator its first message now controls the initial kickoff. Leaving it off creates the organization without that message. The new-organization guide starts at hiring for Empty, or at the first-message step when the template already hired agents.
 
 Changing the name, folders, remote addresses, local-hub choice, or layout makes the form dirty. Closing then uses the native discard confirmation. Cancel returns a reused homepage to the homepage and closes a separately opened creation window. This is an unsaved form, not a durable draft after a crash.

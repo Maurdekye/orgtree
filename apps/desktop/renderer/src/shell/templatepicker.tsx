@@ -75,17 +75,17 @@ export function TemplatePicker({ choice, onChange, plan, onPlan, orgName, dirs }
   const [reload, setReload] = useState(0)
   const [recheck, setRecheck] = useState(0)
   const [listRecheck, setListRecheck] = useState(0)
-  const [listPending, setListPending] = useState(true)
   useEffect(() => {
     let live = true
     let again = 0
-    setListPending(true)
     // read afresh each time the picker opens (and on Reload): the folder is the list
+    // Name-scoped availability refreshes keep the last confirmed rows visible.
+    // Pending HTTP alone must not expand unavailable rows on every keystroke.
     listTemplates(orgName).then((r) => {
       if (!live) return
-      setTemplates(r.templates); setFolderError(r.folder_error ?? ''); setListError(''); setListPending(false)
+      setTemplates(r.templates); setFolderError(r.folder_error ?? ''); setListError('')
       if (r.loading) again = window.setTimeout(() => setListRecheck((n) => n + 1), 1000)
-    }).catch((e: Error) => { if (live) { setListError(e.message); setListPending(false) } })
+    }).catch((e: Error) => { if (live) setListError(e.message) })
     return () => { live = false; window.clearTimeout(again) }
   }, [reload, orgName, listRecheck])
   // the preview follows every choice; the name and folders matter too
@@ -144,7 +144,7 @@ export function TemplatePicker({ choice, onChange, plan, onPlan, orgName, dirs }
         const usable = !!t.id && t.problems.length === 0
         const desc = usable ? t.description?.trim() : t.problems[0]
         const selected = choice.id === t.id
-        const unavailable = usable && !listPending && !listError &&
+        const unavailable = usable && !listError &&
           (selected && currentPlan ? planUnusable : !!t.availability?.unusable && !t.availability.checking)
         const collapsed = unavailable && !selected
         return <button type="button" role="option" key={t.path} aria-selected={choice.id === t.id}

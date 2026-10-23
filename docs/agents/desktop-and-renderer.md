@@ -1,5 +1,16 @@
 # Desktop and renderer
 
+## Template availability while typing (2026-10-23)
+
+The Create form rechecks template availability when the name changes because
+accounts can be scoped to an organization. Keep the last confirmed row styling
+while that request is pending: clearing the unavailable/collapsed presentation
+made each keystroke expand and then collapse those rows. A returned availability
+result (including genuine sign-in checking) and Reload still update the list;
+stale responses cannot overwrite the current name's result. Selection and preview
+overrides persist. [verified: `shell/templatepicker.tsx`,
+`tests/template-name-refresh.test.tsx`; user 2026-10-23]
+
 ## First-use annotation placement (2026-10-23)
 
 The first hire-token note stays left of the entire token strip and user node;
