@@ -35,6 +35,8 @@ const sources=new Map(rustFiles(sourceRoot).map(file=>[path.relative(sourceRoot,
 // roots, never authority. A new exception requires a source audit and reason.
 const structural=new Map([
   ['domain/projects.rs','Project folder traversal follows physical ancestry.'],
+  ['domain/template_wire.rs','Template wire helpers describe physical layout placement, never reporting authority.'],
+  ['domain/template_scale_http_tests.rs','Audience-parity fixture attaches physical template roots beneath a project.'],
   ['feed/compute.rs','Archived chart roots preserve physical tree placement.'],
   ['feed/groups.rs','Organization chart grouping counts physical roots.'],
 ])

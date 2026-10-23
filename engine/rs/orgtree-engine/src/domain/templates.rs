@@ -579,7 +579,7 @@ fn checking_note(tier: &str) -> String {
 pub fn plan(t: &Template, choices: &Choices, av: &Avail, org_dirs: &[Value]) -> Result<(Vec<Planned>, Vec<String>), String> {
     let removed: HashSet<&str> = choices.removed.iter().map(String::as_str).collect();
     for r in &removed {
-        if t.agents.iter().any(|a| a.parent.is_none() && a.name == *r) {
+        if t.agents.iter().any(|a| super::template_wire::is_layout_root(a) && a.name == *r) {
             return Err(format!("{r} is the top of the layout and cannot be removed; choose Empty instead"));
         }
     }

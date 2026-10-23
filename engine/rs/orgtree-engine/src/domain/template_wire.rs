@@ -4,6 +4,10 @@ use serde::Deserialize;
 use serde_json::{value::RawValue, Value};
 use super::templates::{Slot, Template};
 
+/// A physical layout root, independent of agent reporting through projects.
+#[nolog]
+pub(super) fn is_layout_root(slot: &Slot) -> bool { slot.parent.is_none() }
+
 #[derive(Deserialize)]
 pub(crate) struct Wire {
     id: String, name: String,
