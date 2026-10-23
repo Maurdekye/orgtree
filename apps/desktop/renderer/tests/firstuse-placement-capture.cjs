@@ -43,6 +43,9 @@ app.whenReady().then(async()=>{
       records.push(record);fs.writeFileSync(out+'/geometry.json',JSON.stringify({records,screenshots},null,2))
       assert.equal(record.width,width);assert.equal(record.height,height)
       assert.equal(record.inViewport,true);assert.equal(record.overlap,false);assert.deepEqual(record.covered,[])
+      const endpoint=record.path.match(/L ([\d.-]+) ([\d.-]+)$/).slice(1).map(Number)
+      assert(Math.abs(endpoint[1]-(record.target.top+record.target.height/2))<1)
+      assert(Math.abs(endpoint[0]-(record.target.left-4))<1||Math.abs(endpoint[0]-(record.target.right+4))<1)
       assert.equal(record.tokens.some(token=>token.overlap),false)
       if(step==='token')assert.equal(record.tokens.filter(token=>!token.disabled).every(token=>token.hit),true)
       if(width===1920){

@@ -50,3 +50,14 @@ test('legacy placement beneath one token overlaps later rows, while the side not
   assert.equal(overlaps(legacy, group), true, 'the original overlap control must be real')
   assert.equal(overlaps(firstUsePlacement(target, group, { left:0,top:0,width:1920,height:1080 }, 90, 'left')!, group), false)
 })
+
+test('first-use side note shifts above the canvas toolbar in a short window', () => {
+  const target = { left:369,top:507,width:22,height:22 }
+  const group = { left:331,top:430,width:138,height:174 }
+  const toolbar = { left:12,top:530,width:300,height:50 }
+  const placement = firstUsePlacement(target, group, {left:0,top:0,width:800,height:600}, 90, 'left', [toolbar])!
+  assert.equal(placement.side, 'left')
+  assert.equal(overlaps(placement, group), false)
+  assert.equal(overlaps(placement, toolbar), false)
+  assert.equal(placement.top + placement.height <= toolbar.top - 6, true)
+})

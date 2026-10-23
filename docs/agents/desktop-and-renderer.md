@@ -6,7 +6,8 @@ The first hire-token note stays left of the entire token strip and user node;
 the name note stays right of the entire draft card. Measure the rendered note's
 height and the complete target group after transforms, rather than estimating
 clearance from one button or input. Narrow views fall back below/above the group,
-or yield if neither fits. Both notes stay within the canvas; the connector leaves
+or yield if neither fits. Side notes shift vertically clear of visible canvas
+controls, including the zoom toolbar. Both notes stay within the canvas; the connector leaves
 the corresponding note edge. Progress and hire-completion logic are unchanged.
 [verified: `canvas/firstuse.tsx`, `canvas/firstuseplacement.ts`; user 2026-10-23]
 

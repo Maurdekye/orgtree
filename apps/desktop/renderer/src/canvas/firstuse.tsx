@@ -126,9 +126,16 @@ export function FirstUseGuide({ slug, root, hidden = false }: {
         const bottom = Math.max(group.bottom, owner?.bottom ?? group.bottom)
         const view = host.getBoundingClientRect()
         const x = Math.max(0, view.left), y = Math.max(0, view.top)
+        const obstacles = Array.from(host.querySelectorAll<HTMLElement>('button,input,textarea,select,[role="button"]'))
+          .filter(el => {
+            const r = el.getBoundingClientRect()
+            if (!r.width || !r.height) return false
+            const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2)
+            return hit === el || !!(hit && el.contains(hit))
+          }).map(el => el.getBoundingClientRect())
         hint = firstUsePlacement(r, { left, top, width: right - left, height: bottom - top },
           { left: x, top: y, width: Math.min(window.innerWidth, view.right) - x, height: Math.min(window.innerHeight, view.bottom) - y },
-          card.current?.offsetHeight || 90, progress.step === 'token' ? 'left' : 'right')
+          card.current?.offsetHeight || 90, progress.step === 'token' ? 'left' : 'right', obstacles)
         if (!hint) next = null
       }
       if (next !== target) {

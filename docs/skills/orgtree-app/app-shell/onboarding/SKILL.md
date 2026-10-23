@@ -18,7 +18,8 @@ The guide follows visible controls and yields when a targeted control is obscure
 The hire-token note sits to the left of the complete token cluster. The name note
 sits to the right of the whole unfinished hire card. If that side has too little
 room, the note moves below or above the group, keeping the controls clear and the
-note inside the canvas. If no clear space remains, it waits until the view has room.
+note inside the canvas. Notes also move clear of visible canvas controls, such as
+the zoom toolbar. If no clear space remains, the guide waits until the view has room.
 
 ## See also
 
