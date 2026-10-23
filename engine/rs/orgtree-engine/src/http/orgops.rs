@@ -145,17 +145,7 @@ pub async fn create(State(e): State<Arc<Engine>>, Json(b): Json<CreateOrg>) -> A
     if let Some((template, planned)) = &planned {
         let pending = crate::orgs::provisional(id, uuid.to_string(), slug.clone(), name.clone());
         let kickoff = b.template.as_ref().is_some_and(|p| p.kickoff);
-        for p in planned {
-            for (index, req) in crate::domain::templates::creation_requests(p, kickoff).into_iter().enumerate() {
-                let out = ops::run_in_tx(&e, &pending, &tx, &Actor::User, &req, &mut fx)
-                    .await
-                    .map_err(|err| ApiError::from(err.context(format!("could not create {} from the template", p.name))))?;
-                if index == 0 {
-                    if p.slot.project() { projects.push(out["node"].clone()); }
-                    else { hired.push(out["node"].clone()); }
-                }
-            }
-        }
+        (hired, projects) = crate::domain::templates::create_nodes(&e, &pending, &tx, planned, kickoff, &mut fx).await?;
         let mut locations = Vec::new(); let mut after = 0_i64;
         loop {
             let page = tx.query("SELECT id,name,tier,scratch_dir FROM ot.agents WHERE org_id=$1 AND state='live' AND id>$2 ORDER BY id LIMIT 200", &[&id,&after]).await?;

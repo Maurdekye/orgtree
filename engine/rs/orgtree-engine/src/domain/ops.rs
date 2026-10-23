@@ -816,6 +816,16 @@ pub(crate) async fn run_in_tx(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &T
     Ok(out)
 }
 
+/// Batch callers suppress intermediate snapshots, then publish the same net
+/// inherited-audience notices with their other post-commit mailbox effects.
+#[logged]
+pub(crate) async fn record_audience_delta(tx: &Transaction<'_>, org_id: i64,
+                                        before: &super::audience_notices::AudienceSnapshot, fx: &mut Effects) -> Result<()> {
+    let after = super::audience_notices::snapshot(tx, org_id).await?;
+    fx.mailboxes.extend(super::audience_notices::record_delta_tx(tx, org_id, before, &after).await?);
+    Ok(())
+}
+
 /// Multi-step undo/gesture callers record one net audience delta at their
 /// transaction boundary, so an intermediate move cannot send a false notice.
 /// Every op's future is built through `boxed`, in a frame of its own: awaited

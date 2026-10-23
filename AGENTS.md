@@ -6,6 +6,8 @@ Ticket/presentation menu actions capture their owning composer before metadata r
 
 Template watchdog import stages paused without smoke or immediate effects, then arms eligible portable dogs after all rows exist. Never export runtime memo or credential references, including nested fire-action credentials; explicit audiences restore through grant_tx. See [template links](docs/rust-engine/template-links.md). [verified: `domain/template_links.rs`, `runtime/watchdogs.rs`, 2026-10-22]
 
+Template node creation records one net inherited-audience delta around all canonical node steps, before the unchanged explicit-grant restore phase. Keep notices in the transaction and publish Effects only after commit. See [template portability](docs/rust-engine/template-portability.md). [verified: `domain/templates.rs::create_nodes`, `http/orgops.rs::create`;2026-10-23]
+
 Recursive project fires must construct nested futures with `util::boxed(|| ...)`: `Box::pin(f())` still grows debug poll frames at every level, even with the depth-four cutoff. See [fire-action stack verification](docs/rust-engine/tool-cards.md#fire-actions). [verified: `domain/listeners.rs`, 2026-10-22]
 
 ## Read this first

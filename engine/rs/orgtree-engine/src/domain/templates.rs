@@ -769,6 +769,30 @@ pub fn creation_requests(p: &Planned, kickoff: bool) -> Vec<Value> {
     out
 }
 
+/// One inherited-audience boundary around the canonical template node steps.
+/// Explicit template grants still follow these steps through grant_tx; their
+/// notices and checks are unchanged. Nothing publishes Effects before commit.
+#[logged]
+pub(crate) async fn create_nodes(engine: &std::sync::Arc<Engine>, org: &std::sync::Arc<crate::orgs::OrgHandle>,
+                                tx: &tokio_postgres::Transaction<'_>, planned: &[Planned], kickoff: bool,
+                                fx: &mut super::ops::Effects) -> anyhow::Result<(Vec<Value>, Vec<Value>)> {
+    let before = super::audience_notices::snapshot(tx, org.id).await?;
+    let mut hired = Vec::new();
+    let mut projects = Vec::new();
+    for p in planned {
+        for (index, req) in creation_requests(p, kickoff).into_iter().enumerate() {
+            let out = super::ops::run_in_tx_without_audience_notices(engine, org, tx, &super::ops::Actor::User, &req, fx)
+                .await.map_err(|err| err.context(format!("could not create {} from the template", p.name)))?;
+            if index == 0 {
+                if p.slot.project() { projects.push(out["node"].clone()); }
+                else { hired.push(out["node"].clone()); }
+            }
+        }
+    }
+    super::ops::record_audience_delta(tx, org.id, &before, fx).await?;
+    Ok((hired, projects))
+}
+
 /// The preview the picker shows.
 #[logged]
 pub fn plan_json(t: &Template, planned: &[Planned], blocked: &[String]) -> Value {

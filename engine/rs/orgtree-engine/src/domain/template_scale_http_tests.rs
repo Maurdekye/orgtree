@@ -36,22 +36,88 @@ async fn create(State(e):State<Arc<Engine>>,Json(b):Json<Value>)->ApiResult<Json
     if let Some(expect)=pick.expect {
         if planned.len()!=expect.len() || planned.iter().any(|p|expect.get(&p.slot.name).map(String::as_str)!=p.tier.as_deref()){return Err(ApiError::conflict("preview moved"));}
     }
+    if std::env::var("ORGTREE_TEMPLATE_AUDIENCE_BATCH_MEASUREMENT").as_deref()==Ok("1") {
+        audience_batch_red_control(&e,&planned).await;
+    }
     let clock=std::time::Instant::now();let mut c=e.db.get().await?;let tx=c.transaction().await?;
     let uuid=uuid::Uuid::new_v4();let settings=template.settings.as_ref().map(|s|crate::http::settings::template_settings(&e,s)).transpose().map_err(ApiError::unprocessable)?.unwrap_or_default();
     let id:i64=tx.query_one("INSERT INTO ot.orgs(uuid,slug,name,settings) VALUES($1,$2,$3,$4) RETURNING id",&[&uuid,&slug,&name,&json!(settings)]).await?.get(0);
-    let org=crate::orgs::provisional(id,uuid.to_string(),slug.clone(),name.into());let mut effects=crate::domain::ops::Effects::default();let mut hired=Vec::new();let mut projects=Vec::new();
-    for p in &planned {
-        for (index,req) in creation_requests(p,false).iter().enumerate(){
-            let result=crate::domain::ops::run_in_tx(&e,&org,&tx,&crate::domain::ops::Actor::User,req,&mut effects).await.map_err(ApiError::from)?;
-            if index==0 { if p.slot.project(){projects.push(result["node"].clone());}else{hired.push(result["node"].clone());} }
-        }
-    }
+    let org=crate::orgs::provisional(id,uuid.to_string(),slug.clone(),name.into());let mut effects=crate::domain::ops::Effects::default();
+    let operations=planned.iter().map(|p|creation_requests(p,false).len()).sum::<usize>();
+    let (hired,projects)=create_nodes(&e,&org,&tx,&planned,false,&mut effects).await?;
     let links=crate::domain::template_links::plan(&template,&planned);
     assert!(links.dogs.is_empty()&&links.audiences.is_empty(),"timing input contains no external effects");
     tx.commit().await?;let create_seconds=clock.elapsed().as_secs_f64();
     e.orgs.insert(org);
     if let Some(md)=template.org_md {std::fs::create_dir_all(e.cfg.workspace_dir(&slug)).unwrap();std::fs::write(e.cfg.workspace_dir(&slug).join("org.md"),md).unwrap();}
-    Ok(Json(json!({"slug":slug,"hired":hired,"projects":projects,"measurement":{"create_seconds":create_seconds,"effects_applied":false}})))
+    Ok(Json(json!({"slug":slug,"hired":hired,"projects":projects,"measurement":{"create_seconds":create_seconds,"operations":operations,"seconds_per_op":create_seconds/operations as f64,"effects_applied":false}})))
+}
+
+/// The exact former production loop, bounded to 30 seconds and rolled back.
+/// This is an expected timing refusal, never a completed-create result.
+#[nolog]
+async fn audience_batch_red_control(e:&Arc<Engine>,planned:&[Planned]) {
+    let total:usize=planned.iter().map(|p|creation_requests(p,false).len()).sum();assert_eq!(total,1900);
+    let mut c=e.db.get().await.unwrap();let tx=c.transaction().await.unwrap();
+    let uuid=uuid::Uuid::new_v4();let slug=format!("audience-red-{uuid}");
+    let id:i64=tx.query_one("INSERT INTO ot.orgs(uuid,slug,name,settings) VALUES($1,$2,$2,'{\"max_top_grant\":0}') RETURNING id",&[&uuid,&slug]).await.unwrap().get(0);
+    let org=crate::orgs::provisional(id,uuid.to_string(),slug.clone(),slug);
+    let mut fx=crate::domain::ops::Effects::default();let mut completed=0usize;let clock=std::time::Instant::now();
+    let outcome=tokio::time::timeout(std::time::Duration::from_secs(30),async {
+        for p in planned {for req in creation_requests(p,false) {
+            crate::domain::ops::run_in_tx(e,&org,&tx,&crate::domain::ops::Actor::User,&req,&mut fx).await.unwrap();completed+=1;
+        }}
+    }).await;
+    let receipt=json!({"path":"former per-operation snapshots","budget_seconds":30,"seconds":clock.elapsed().as_secs_f64(),"completed_ops":completed,"total_ops":total,"timed_out":outcome.is_err(),"completed_create":false,"effects_applied":false});
+    tx.rollback().await.unwrap();
+    std::fs::write(std::path::Path::new(&std::env::var("ORGTREE_CLAIM_TEST_OUTPUT").unwrap()).join("audience-batch-red.json"),serde_json::to_vec_pretty(&receipt).unwrap()).unwrap();
+    eprintln!("AUDIENCE_BATCH_RED {receipt}");
+    assert!(outcome.is_err(),"old path no longer exceeds the deliberately bounded timing control: {receipt}");
+}
+
+/// Nonempty notice parity: direct user/extern grants, a project grant restored
+/// after the node batch, and members inheriting an already-held project grant.
+/// Savepoint rollback keeps identical org/node names and event payloads.
+#[nolog]
+async fn audience_batch_notice_parity(e:&Arc<Engine>) {
+    let mut c=e.db.get().await.unwrap();let tx=c.transaction().await.unwrap();
+    let uuid=uuid::Uuid::new_v4();let slug=format!("notice-parity-{uuid}");
+    let id:i64=tx.query_one("INSERT INTO ot.orgs(uuid,slug,name,settings) VALUES($1,$2,$2,'{\"max_top_grant\":0,\"org_inbox_enabled\":true}') RETURNING id",&[&uuid,&slug]).await.unwrap().get(0);
+    let org=crate::orgs::provisional(id,uuid.to_string(),slug.clone(),slug.clone());
+    let lead:i64=tx.query_one("INSERT INTO ot.agents(org_id,name,tier,kind,state,born,charter,grant_credits) VALUES($1,'lead','sol','agent','live','synthetic','Synthetic lead',1000) RETURNING id",&[&id]).await.unwrap().get(0);
+    tx.execute("INSERT INTO ot.agents(org_id,name,tier,kind,state,born,parent_id) VALUES($1,'team','project','project','live','synthetic',$2)",&[&id,&lead]).await.unwrap();
+    crate::domain::audiences::grant_tx(e,&*tx,&org,&crate::domain::ops::Actor::User,"team",Some("user"),"setup").await.unwrap();
+    tx.execute("DELETE FROM ot.mail WHERE org_id=$1",&[&id]).await.unwrap();
+    let template:Template=serde_json::from_value(json!({"id":"parity","name":"Parity","agents":[
+        {"name":"direct","tier":"sol","charter":{"text":"Synthetic member"},"audiences":["user"]},
+        {"name":"external","tier":"sol","charter":{"text":"Synthetic member"},"audiences":["extern"]},
+        {"name":"nested","tier":"project","slots":2,"peer_mail":true,"reports":[{"name":"deep","tier":"sol","charter":{"text":"Synthetic member"}}]}
+    ]})).unwrap();
+    let (mut planned,blocked)=plan(&template,&Choices::default(),&avail(e,&slug),&[]).unwrap();assert!(blocked.is_empty());
+    for p in &mut planned {if p.parent.is_none(){p.parent=Some("team".into());}}
+    let mut notices=Vec::new();
+    for batched in [false,true] {
+        tx.batch_execute("SAVEPOINT notice_path").await.unwrap();
+        let mut fx=crate::domain::ops::Effects::default();
+        if batched {create_nodes(e,&org,&tx,&planned,false,&mut fx).await.unwrap();}
+        else {for p in &planned {for req in creation_requests(p,false) {
+            crate::domain::ops::run_in_tx(e,&org,&tx,&crate::domain::ops::Actor::User,&req,&mut fx).await.unwrap();
+        }}}
+        // Same post-node restore phase as orgops::create, preserving its notices.
+        for (grantee,target) in [("nested","user"),("direct","external")] {
+            crate::domain::audiences::grant_tx(e,&*tx,&org,&crate::domain::ops::Actor::User,grantee,Some(target),"restored from template").await.unwrap();
+        }
+        let rows=tx.query("SELECT recipient_name,notice,body,ev FROM ot.mail WHERE org_id=$1 ORDER BY recipient_name,body",&[&id]).await.unwrap();
+        notices.push(rows.iter().map(|r|json!({"to":r.get::<_,String>(0),"notice":r.get::<_,bool>(1),"body":r.get::<_,String>(2),"ev":r.get::<_,Option<Value>>(3)})).collect::<Vec<_>>());
+        tx.batch_execute("ROLLBACK TO SAVEPOINT notice_path; RELEASE SAVEPOINT notice_path").await.unwrap();
+    }
+    assert_eq!(notices[0],notices[1],"persisted notices must match the former per-op path exactly");
+    assert!(notices[0].iter().any(|n|n["body"].as_str().unwrap().contains("through project @team")),"inherited notices must be exercised");
+    assert!(notices[0].iter().any(|n|n["body"].as_str().unwrap().contains("org inbox")),"extern notices must be exercised");
+    let receipt=json!({"per_op_notices":notices[0],"batched_notices":notices[1],"identical":true,"effects_applied":false});
+    std::fs::write(std::path::Path::new(&std::env::var("ORGTREE_CLAIM_TEST_OUTPUT").unwrap()).join("audience-batch-parity.json"),serde_json::to_vec_pretty(&receipt).unwrap()).unwrap();
+    eprintln!("AUDIENCE_BATCH_NOTICE_PARITY identical notices={}",notices[0].len());
+    tx.rollback().await.unwrap();
 }
 
 #[nolog]
@@ -73,6 +139,9 @@ async fn engine_and_desktop_depth_measurement() {
     Arc::get_mut(&mut engine).unwrap().db=deadpool_postgres::Pool::builder(manager).max_size(4).runtime(deadpool_postgres::Runtime::Tokio1).build().unwrap();
     let mut st=crate::providers::State::default();st.codex.connected=true;st.codex.installed=true;st.probed=true;
     engine.providers.state.store(Arc::new(st));
+    if std::env::var("ORGTREE_TEMPLATE_AUDIENCE_BATCH_MEASUREMENT").as_deref()==Ok("1") {
+        audience_batch_notice_parity(&engine).await;
+    }
     let app=axum::Router::new().route("/fixture/seed",axum::routing::post(seed)).route("/fixture/result/{slug}",axum::routing::get(result))
         .route("/api/templates",axum::routing::get(crate::http::templates::list))
         .route("/api/templates/resolve",axum::routing::post(crate::http::templates::resolve))

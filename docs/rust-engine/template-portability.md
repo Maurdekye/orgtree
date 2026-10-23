@@ -1,5 +1,12 @@
 # Portable nested templates
 
+Template node creation uses `templates::create_nodes`: one audience snapshot
+before the canonical node steps, `run_in_tx_without_audience_notices` for each
+step, then one snapshot/delta recorded with the other Effects. Explicit saved
+grants still restore after that boundary through unchanged `grant_tx`. This
+preserves notice semantics without two whole-org audience queries per node op;
+rollback includes the notices and mailbox Effects publish only after commit.
+
 Saved files remain version-1 nested `agents`/`reports` JSON. There is no node or
 tree-depth limit. The actual read, parse and write paths enforce a 16 MiB UTF-8
 file bound with a clear refusal. Save reads every live node with keyset paging,
@@ -72,3 +79,35 @@ template stack does not alter settlement or claim those deferred cases passed.
 Other author checks: focused Rust 49/49, typecheck, glossary coverage 9/9 and
 `cargo check` passed. The only check warning was the pre-existing unused HashMap
 import in `domain/tree.rs`. One updated offline Save dialog capture was inspected.
+
+## Audience batching follow-up
+
+The focused disposable fixture compared both transaction paths on the same
+small layout using savepoint rollback. All 12 persisted messages matched in
+recipient, notice flag, body and typed event: six audience notices (including
+project inheritance and direct user/extern grants) plus six lifecycle messages.
+The later explicit-grant restore phase was included unchanged.
+
+On the matched 1,000-node/20-level layout, the former per-operation path reached
+296 of 1,900 operations in 30.0013 seconds, then hit the deliberate control
+budget and rolled back. Batching alone on the requested base did not return
+within the 540-second HTTP fixture budget (which includes that 30-second
+control). This is an incomplete-create lower bound of about 510 seconds, not a
+completed duration or rate. A single active-query sample showed the old shared
+`settle_credits` frontier query with no lock wait. Settlement is unchanged here.
+
+The authorized private comparison added only settlement commits `d23d134` and
+`5db5d9a` over this batching change. The same 50 chains of 20 levels (100 agents,
+900 projects) completed all 1,900 canonical operations and committed in
+43.5736169 seconds: 0.02293348 seconds per operation. The actual desktop creation
+flow took 43.62663 seconds. Result checks retained all 1,000 nodes, 20 levels and
+the outer scope restriction. Save/preview took 0.07077/0.28744 seconds for the
+269,951-byte file. Warming, kickoff and other post-commit Effects stayed off as
+assigned. The comparison test passed 1/1; no settlement commits belong to this
+author patch. Full integrated deeper-create acceptance remains separate.
+
+The follow-up Rust test binary compiled; its notice assertion passed but its
+full timing run failed on that budget. `cargo check` passed in 32.66 seconds,
+renderer typecheck passed, and glossary coverage passed 9/9. Receipts preserve
+the failed timing as well as the successful checks; no completed-create claim
+is made from this run.

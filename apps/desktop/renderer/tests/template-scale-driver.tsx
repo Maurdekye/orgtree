@@ -47,7 +47,8 @@ const setName = (input: HTMLInputElement, value: string) => {
 }
 const measurements = []
 const previewOnly=process.env.ORGTREE_TEMPLATE_SCALE_PREVIEW_ONLY==='1'
-for (const [nodes, depth, near_cap] of [[1000,20,false],[1000,1000,false],[5000,5000,false],[12000,12000,true]] as const) {
+const cases = process.env.ORGTREE_TEMPLATE_AUDIENCE_BATCH_MEASUREMENT==='1' ? [[1000,20,false]] as const : [[1000,20,false],[1000,1000,false],[5000,5000,false],[12000,12000,true]] as const
+for (const [nodes, depth, near_cap] of cases) {
   console.log(`Starting desktop measurement nodes=${nodes} depth=${depth} near_cap=${near_cap}`)
   const seed = await fixture('/fixture/seed',{nodes,depth,near_cap})
   const source = await fixture('/fixture/result/' + seed.slug) as {name:string;parent:string|null;tier:string}[]
@@ -117,7 +118,7 @@ for (const [nodes, depth, near_cap] of [[1000,20,false],[1000,1000,false],[5000,
   for(const r of rows){assert.ok(!r.parent||depths.has(r.parent));depths.set(r.name,r.parent?depths.get(r.parent)!+1:0)}
   assert.equal(Math.max(...depths.values()),depth-1)
   for(const r of rows.filter(r=>r.tier!=='project'))assert.equal(r.scope.tools.bash,false,'outer scope remains binding')
-  const measured={nodes,depth,bytes,tree_seconds,save_seconds,save_http_seconds:saved!.seconds,save_json_seconds:saved!.json_seconds,preview_seconds,preview_http_seconds:preview!.seconds,create_seconds,canonical_create_seconds:made!.value.measurement.create_seconds,effects_applied:made!.value.measurement.effects_applied,result_nodes:rows.length,result_depth:Math.max(...depths.values())+1}
+  const measured={nodes,depth,bytes,tree_seconds,save_seconds,save_http_seconds:saved!.seconds,save_json_seconds:saved!.json_seconds,preview_seconds,preview_http_seconds:preview!.seconds,create_seconds,canonical_create_seconds:made!.value.measurement.create_seconds,operations:made!.value.measurement.operations,seconds_per_op:made!.value.measurement.seconds_per_op,effects_applied:made!.value.measurement.effects_applied,result_nodes:rows.length,result_depth:Math.max(...depths.values())+1}
   measurements.push(measured);console.log('DESKTOP_TEMPLATE_SCALE '+JSON.stringify(measured))
   fs.writeFileSync(path.join(output,'measurements.json'),JSON.stringify(measurements,null,2))
   await createView.unmount()
