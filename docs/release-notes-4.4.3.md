@@ -15,6 +15,10 @@ Orgtree 4.4.3 keeps an agent's unfinished reply visible when it is interrupted, 
 
 - **Send feedback such as "steering in mid-task" appears above the report and watchdog jump cards** in an agent's desk, between the conversation and those cards.
 
+## First run
+
+- **The last Getting started tip sits to the right of the message box**, so it no longer covers a file you have attached.
+
 ## Notes
 
 - The user documentation in this repository covers the changes in this release.
