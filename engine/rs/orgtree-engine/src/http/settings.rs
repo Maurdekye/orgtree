@@ -17,6 +17,8 @@ use crate::http::error::{ApiError, ApiResult};
 use crate::http::orgs::org;
 use crate::runtime::AgentMsg;
 
+mod charter_scan;
+
 /// Keys an org's settings document may hold (others are refused or inert).
 const ORG_KEYS: &[&str] = &[
     "max_top_grant", "default_top_grant", "compact_at", "default_tools", "default_visibility", "default_account",
@@ -841,23 +843,22 @@ fn user_charter_dir() -> PathBuf {
 }
 
 /// A charter preset's text by name: the user's copy first, then the bundled one.
-#[logged]
+#[nolog] // Returns private charter text.
 pub(crate) fn preset_content(name: &str) -> Option<String> {
     if !charter_name_ok(name) {
         return None;
     }
     let file = format!("{name}.md");
     let user = user_charter_dir().join(&file);
-    if user.is_file() {
-        if let Ok(c) = std::fs::read_to_string(&user) {
-            return Some(c);
-        }
+    if let Some(c) = charter_scan::read(&user) {
+        return Some(c);
     }
     BUNDLED.iter().find(|(f, _)| *f == file).map(|(_, c)| c.to_string())
 }
 
 fn title_of(file: &str) -> String {
-    file.trim_end_matches(".md").replace(['-', '_'], " ")
+    file.rsplit_once('.').filter(|(_, ext)| ext.eq_ignore_ascii_case("md"))
+        .map_or(file, |(stem, _)| stem).replace(['-', '_'], " ")
 }
 
 #[logged]
@@ -872,69 +873,39 @@ fn template_dirs(engine: &Engine) -> Vec<String> {
 }
 
 #[logged]
-fn scan_dir(dir: &FsPath) -> (Value, Vec<(String, PathBuf)>) {
-    let mut files = Vec::new();
-    let status = if !dir.exists() {
-        "missing"
-    } else if !dir.is_dir() {
-        "not_directory"
-    } else {
-        match std::fs::read_dir(dir) {
-            Ok(rd) => {
-                for ent in rd.flatten() {
-                    let p = ent.path();
-                    if p.extension().map(|x| x == "md").unwrap_or(false) && p.is_file() {
-                        files.push((ent.file_name().to_string_lossy().to_string(), p));
-                    }
-                }
-                "ok"
-            }
-            Err(_) => "unreadable",
-        }
-    };
-    files.sort();
-    (json!({ "path": dir.to_string_lossy(), "status": status, "count": files.len() }), files)
-}
-
-#[logged]
 pub async fn charters(State(e): State<Arc<Engine>>) -> ApiResult<Json<Value>> {
     let mut out = Vec::new();
     let user = user_charter_dir();
-    let (_, user_files) = scan_dir(&user);
-    let shadowed: Vec<String> = user_files.iter().map(|(f, _)| f.clone()).collect();
-    let entry = |file: &str, path: &FsPath, content: &str, source: &str, dir: Option<&FsPath>| {
-        let chars = content.chars().count();
-        let shown: String = content.chars().take(PRESET_MAX).collect();
-        let mut v = json!({ "name": title_of(file), "file": file, "path": path.to_string_lossy(), "content": shown,
-                            "chars": chars, "truncated": chars > PRESET_MAX, "source": source });
+    let (user_state, user_files) = charter_scan::scan(&user, true);
+    let shadowed: Vec<String> = user_files.iter().map(|r| r.file.clone()).collect();
+    let entry = |file: &str, path: &FsPath, text: &charter_scan::Text, source: &str, dir: Option<&FsPath>| {
+        let mut v = json!({ "name": title_of(file), "file": file, "path": path.to_string_lossy(), "content": text.shown,
+                            "chars": text.chars, "truncated": text.chars > PRESET_MAX, "source": source });
         if let Some(d) = dir {
             v["dir"] = json!(d.to_string_lossy());
         }
         v
     };
-    for (f, p) in &user_files {
-        if let Ok(c) = std::fs::read_to_string(p) {
-            out.push(entry(f, p, &c, "user", None));
-        }
+    for r in &user_files {
+        out.push(entry(&r.file, &r.path, r.text.as_ref().unwrap(), "user", None));
     }
     for (f, c) in BUNDLED {
         if !shadowed.iter().any(|s| s == f) {
-            out.push(entry(f, &PathBuf::from(format!("bundled/{f}")), c, "bundled", None));
+            let text = charter_scan::Text { shown: c.chars().take(PRESET_MAX).collect(), chars: c.chars().count() };
+            out.push(entry(f, &PathBuf::from(format!("bundled/{f}")), &text, "bundled", None));
         }
     }
     let mut states = Vec::new();
     for d in template_dirs(&e) {
         let dir = PathBuf::from(&d);
-        let (state, files) = scan_dir(&dir);
+        let (state, files) = charter_scan::scan(&dir, true);
         states.push(state);
-        for (f, p) in files {
-            if let Ok(c) = std::fs::read_to_string(&p) {
-                out.push(entry(&f, &p, &c, "external", Some(&dir)));
-            }
+        for r in files {
+            out.push(entry(&r.file, &r.path, r.text.as_ref().unwrap(), "external", Some(&dir)));
         }
     }
     let mut payload = json!({ "charters": out, "preset_max": PRESET_MAX, "user_dir": user.to_string_lossy(),
-                              "charter_long": CHARTER_LONG });
+                              "charter_long": CHARTER_LONG, "user_dir_state": user_state });
     if !states.is_empty() {
         payload["template_dirs"] = Value::Array(states);
     }
@@ -1030,10 +1001,11 @@ fn template_dirs_payload(engine: &Engine) -> Value {
     let mut states = Vec::new();
     let mut seen: std::collections::HashMap<String, Vec<Value>> = std::collections::HashMap::new();
     for d in &dirs {
-        let (state, files) = scan_dir(FsPath::new(d));
+        let (mut state, files) = charter_scan::scan(FsPath::new(d), false);
+        state["templates"] = json!(files.iter().map(|r| json!({ "name": title_of(&r.file), "file": r.file, "path": r.path.to_string_lossy() })).collect::<Vec<_>>());
         states.push(state);
-        for (f, p) in files {
-            seen.entry(title_of(&f)).or_default().push(json!({ "source": "external", "path": p.to_string_lossy() }));
+        for r in files {
+            seen.entry(title_of(&r.file)).or_default().push(json!({ "source": "external", "path": r.path.to_string_lossy() }));
         }
     }
     let duplicates: Vec<Value> = seen

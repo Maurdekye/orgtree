@@ -4,6 +4,22 @@
 
 Identity prefixes, tool cards, notes, globals, shared skills and glossary delivery.
 
+## Charter-folder safety (2026-10-23)
+
+Charter discovery and direct user-preset lookup share the read-only helper in
+`http/settings/charter_scan.rs`, separate from skill-bundle import. Refuse links,
+reparse points and offline/recall placeholders before opening; hold directory
+components throughout the scan (Windows handles deny delete sharing), and open
+leaves without following reparse points/symlinks. Check the 1,000,000-byte bound
+before content open and again on the handle; bounded reads detect later growth.
+Examine at most 500 Markdown candidates per folder, rejected ones included, and
+return the existing skip lists/listing flag. Listing-only calls read no bodies;
+content calls report decoding/read failures. Only successfully read user presets
+shadow bundled ones. Preserve the separate 100,000-character display bound and
+the signed uncapped directly entered agent charter behavior.
+[decided: user 2026-10-23, UI-D4 app fix for 4.4.4; verified:
+`http/settings.rs`, `http/settings/charter_scan.rs`]
+
 ## Claude tool-loading guidance (2026-10-23)
 
 The Claude identity distinguishes tools loaded up front from deferred tools and
