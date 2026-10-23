@@ -1518,7 +1518,12 @@ fn capped_result(text: &str) -> String {
 /// SAFE_START. Returns "" when the dog carries no actions. Args and
 /// result bodies are never logged.
 #[nolog]
-pub(crate) async fn run_fire_actions(engine: &Arc<Engine>, org_id: i64, owner: i64, owner_name: &str, uid: &str, name: &str, actions: &[Value]) -> String {
+pub(crate) fn run_fire_actions<'a>(engine: &'a Arc<Engine>, org_id: i64, owner: i64, owner_name: &'a str, uid: &'a str, name: &'a str, actions: &'a [Value]) -> std::pin::Pin<Box<dyn std::future::Future<Output=String> + Send + 'a>> {
+    crate::util::boxed(|| run_fire_actions_inner(engine,org_id,owner,owner_name,uid,name,actions))
+}
+
+#[nolog]
+async fn run_fire_actions_inner(engine: &Arc<Engine>, org_id: i64, owner: i64, owner_name: &str, uid: &str, name: &str, actions: &[Value]) -> String {
     if actions.is_empty() {
         return String::new();
     }
