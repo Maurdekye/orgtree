@@ -4,12 +4,12 @@ Orgtree 4.4.3 keeps an agent's unfinished reply visible when it is interrupted, 
 
 ## Agents and transcripts
 
-- **Interrupted replies stay on screen.** If an agent is stopped, halted or interrupted while it is writing, the text it had already written stays in its transcript, marked as an incomplete response. Where supported, a matching later native completion replaces that partial in place, including after an actor restart.
+- **Interrupted replies stay on screen.** If an agent is stopped, halted or interrupted while it is writing, the text it had already written stays in its transcript, marked as an incomplete response. Where the AI tool supports it, a later finished version of the same reply replaces it in place, also after a restart.
 - `orgtree_read_transcript` marks such replies as incomplete or interrupted.
 
 ## Projects
 
-- **A project broadcast reaches the project's members and stops there.** It goes to the agents directly in the project, and to agents in projects nested inside it, but no longer to those agents' own reports. The desktop and agent tool use the same membership boundary; the desktop keeps its 1,000-recipient cap.
+- **A project broadcast reaches the project's members and stops there.** It goes to the agents directly in the project, and to agents in projects nested inside it, but no longer to those agents' own reports. The desktop broadcast and the agents' project tool use the same rule; the desktop broadcast still reaches at most 1,000 recipients.
 
 ## Desk
 
