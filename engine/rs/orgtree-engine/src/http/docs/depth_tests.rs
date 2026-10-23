@@ -100,7 +100,7 @@ async fn deep_human_gallery_keeps_retained_identity_paging_and_cycle_safety() {
         c.client.execute("INSERT INTO ot.documents(uid,org_id,agent_id,node_name,title,body,format,bytes) VALUES($1,$2,$3,'old-leaf-name','Synthetic deep','','markdown',0)",&[&uid,&c.org.id,&c.leaf]).await.unwrap();
     }
     c.client.execute("UPDATE ot.agents SET name='renamed',state='archived' WHERE id=$1",&[&c.leaf]).await.unwrap();
-    let Json(page)=list_page(&c.client,&c.org,"root",Some(&members),0,2,None).await.unwrap();
+    let Json(page)=list_page(&c.client,&c.org,"root",Some(&members),0,2,None,false,false).await.unwrap();
     assert_eq!(page["total"],5);assert_eq!(page["documents"].as_array().unwrap().len(),2);assert_eq!(page["next_offset"],2);
     assert_eq!(page["documents"][0]["node"],"renamed");assert_eq!(page["documents"][0]["node_state"],"archived");
     assert_eq!(subtree_members(&c.client,&c.org,"root",false).await.unwrap(),Some(vec![c.root]));
