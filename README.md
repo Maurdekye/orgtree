@@ -165,12 +165,21 @@ This is meant for work that benefits from sustained investigation and several ro
 
 Orgtree is a power tool for people willing to direct and check that work. You still define the outcome, answer questions and judge the evidence. Begin with a small task and add coordination as the work needs it.
 
-## Learn more
+## Documentation
 
-- [Installation, providers and model servers](docs/getting-started.md).
-- [Shared memory, the glossary, developer teams and phone access](docs/collaborating.md).
-- [Updates, background operation, account fallback and privacy](docs/operating-orgtree.md).
-- [Development, packaging and contributions](docs/development.md).
+Finished **Orgtree School 1: Introduction**? Start with [After the tour](docs/getting-started.md#after-the-tour), then follow these guides from everyday work to larger teams and advanced setup. The video link will be added there when published.
+
+1. [Getting started](docs/getting-started.md) — [Install](docs/getting-started.md#install-orgtree), [connect one provider](docs/getting-started.md#connect-one-provider), [create an organization](docs/getting-started.md#create-your-first-organization), [hire an agent](docs/getting-started.md#hire-one-agent) and [give it a task](docs/getting-started.md#give-it-a-first-task).
+2. [Workspace](docs/workspace.md) — [Canvas navigation](docs/workspace.md#move-around), [switchboard and header](docs/workspace.md#use-the-switchboard-and-header), [pinned windows](docs/workspace.md#keep-useful-surfaces-open), [Attention](docs/workspace.md#triage-attention) and [reusable layouts](docs/workspace.md#reuse-a-layout).
+3. [Managing agents](docs/managing-agents.md) — [Roles and hiring](docs/managing-agents.md#choose-a-role-and-hire), [credits](docs/managing-agents.md#understand-seats-and-credits), [folders and tools](docs/managing-agents.md#give-the-agent-the-right-access), [models and accounts](docs/managing-agents.md#change-model-effort-or-account), [stopping and retirement](docs/managing-agents.md#stop-pause-or-finish-work).
+4. [Messages and work](docs/messages-and-work.md) — [Chat](docs/messages-and-work.md#continue-a-conversation), [mail and attachments](docs/messages-and-work.md#use-mail-and-the-user-inbox), [questions](docs/messages-and-work.md#answer-questions-and-permission-requests), [Docket](docs/messages-and-work.md#keep-work-in-the-docket) and [Presented documents](docs/messages-and-work.md#read-documents-in-presented).
+5. [Settings and usage](docs/settings-and-usage.md) — [Display](docs/settings-and-usage.md#make-the-workspace-comfortable), [notifications](docs/settings-and-usage.md#choose-notifications), [usage](docs/settings-and-usage.md#read-current-usage), [runtime limits](docs/settings-and-usage.md#tune-runtime-capacity-and-reminders), [organization defaults](docs/settings-and-usage.md#set-organization-defaults-deliberately) and [keyboard shortcuts](docs/settings-and-usage.md#keyboard-shortcuts).
+6. [Providers, models and tools](docs/providers-and-tools.md) — [Harnesses](docs/providers-and-tools.md#choose-a-harness-and-a-model), [multiple accounts and fallback](docs/providers-and-tools.md#manage-multiple-accounts), [OpenRouter](docs/providers-and-tools.md#offer-openrouter-models), [model servers](docs/providers-and-tools.md#language-model-servers), [MCP](docs/providers-and-tools.md#add-mcp-tools) and [skills](docs/providers-and-tools.md#share-skills-and-instructions).
+7. [Collaborating and Hubchat](docs/collaborating.md) — [Team roles](docs/collaborating.md#give-a-team-clear-responsibilities), [audiences](docs/collaborating.md#understand-who-can-message-whom), [shared memory](docs/collaborating.md#hierarchical-shared-memory), [Hubchat](docs/collaborating.md#connect-hubchat-and-the-mail-hub), [phone linking](docs/collaborating.md#link-your-phone) and [hub hosting](docs/collaborating.md#choose-a-hosting-arrangement).
+8. [Projects, queues and automation](docs/projects-and-watchdogs.md) — [Project desks](docs/projects-and-watchdogs.md#create-a-project-and-explain-its-purpose), [work queues](docs/projects-and-watchdogs.md#run-a-work-queue), [slots](docs/projects-and-watchdogs.md#share-limited-capacity-with-slots), [events](docs/projects-and-watchdogs.md#signal-a-group-with-events), [your queue jobs](docs/projects-and-watchdogs.md#join-the-mail-queue-yourself) and [watchdogs](docs/projects-and-watchdogs.md#ask-agents-to-wait-with-watchdogs).
+9. [Operating and troubleshooting](docs/operating-orgtree.md) — [Diagnose waiting work](docs/operating-orgtree.md#find-out-what-is-running), [updates/startup](docs/operating-orgtree.md#updates-and-background-operation), [freeze recovery](docs/operating-orgtree.md#recover-a-frozen-agent), [Windows sessions](docs/operating-orgtree.md#windows-sessions-and-administrator-rights), [diagnostics](docs/operating-orgtree.md#read-history-and-collect-diagnostics), [privacy](docs/operating-orgtree.md#data-and-privacy) and [advanced deployments](docs/operating-orgtree.md#advanced-deployments).
+
+Supplement: [Development and contributions](docs/development.md). Maintainers: [documentation source map and upkeep](docs/documentation-map.md).
 
 ## License
 
