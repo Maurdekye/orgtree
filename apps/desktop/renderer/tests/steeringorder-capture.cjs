@@ -11,7 +11,7 @@ module.exports = async page => {
   })
   await page.waitFor('.sendmode', { timeout: 5000 })
   const details = await page.eval(async () => {
-    await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(() => setTimeout(resolve, 150)))))
+    await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(() => setTimeout(resolve, 150))))
     const status = document.querySelector('.sendmode')
     const jump = document.querySelector('.desk-nav-chip[data-copy-agent-name="reviewer"]')
     const box = document.querySelector('fieldset textarea')

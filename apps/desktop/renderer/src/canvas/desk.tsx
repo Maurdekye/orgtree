@@ -4491,6 +4491,7 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
           pxc={pxc}
           maxTop={maxTop} />
       )}
+      {sendMode && <div className="sendmode dim">{sendMode}</div>}
       {/* F-01: subordinate chips at the BOTTOM, then this agent's own
           watchdogs (DeskReportRow) */}
       <DeskReportRow node={node} map={map} onJump={onJump} dogs={deskDogs} org={slug} />
@@ -4501,7 +4502,6 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
         onLocate={() => locateReply(r)} onRemove={() => setReplyTargets(replyTargets.filter(x => x !== r))}
         presentationTitle={r.docId?(node.documents??[]).find(d=>d.id===r.docId)?.title:undefined}/>) }
       {replyTargets.length > 1 && <button className="link" onClick={() => setReply(null)}>Cancel all replies</button>}
-      {sendMode && <div className="sendmode dim">{sendMode}</div>}
       {histUndelivered && <div className="dim composer-history-note" role="status">
         recalled from history - this message was never sent
       </div>}

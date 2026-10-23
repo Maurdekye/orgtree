@@ -12,6 +12,8 @@ Attach files with the paperclip or drag them into the composer. Remove a selecte
 
 The Enter preference determines whether Enter sends or adds a line. The send button remains available. At the first or last line, plain Up/Down can browse local composer history. While a turn runs, **Stop** interrupts the current response; Enter can still queue a message. Halt is a separate persistent stop.
 
+After sending, feedback such as **steering in mid-task** appears above the bottom jump cards. Those cards stay above the message box. The feedback describes the send outcome; it does not establish that the agent has finished acting on your message.
+
 The **Notice** control makes the next message passive: it waits for a later turn instead of waking the recipient. Use it for an FYI that can wait. A task requiring action needs an ordinary message. **DND** means an agent is holding non-urgent mail for the current turn; **DND next turn** is an idle armed hold. The desk-header button controls it, and clearing it releases held mail at supported delivery boundaries. When the orange urgency control is offered for active DND, it can bypass that hold for the next send. It does not convert an interrupted turn into completed work. [Managing agents](managing-agents.md#hold-mail-for-focused-work) explains the full lifecycle.
 
 ## Read the transcript

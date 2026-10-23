@@ -388,6 +388,15 @@ verified: `canvas/OrgCanvas.tsx`, `canvas/projectcard.tsx`, `canvas/projectheade
 
 These attributed records were moved from the root guide at `22daffd`; they retain the original substance, dates, verification limits and replacements. They are source evidence, not a declaration that every historical state is current. Read the signed decisions/current source before changing behavior. Inline source paths remain relative to the repository root; Markdown links were rebased. Add current detailed guidance here; preserve replaced records in history and update the coverage destination when moving one.
 
+## Desk send-feedback position
+
+The existing send-status row, including **steering in mid-task**, precedes the
+bottom report/watchdog jump cards in the shared agent desk. Keep it outside the
+transcript scroller and before `DeskReportRow`; retain the existing send-result
+selection, timers and clearing behavior. The jump cards remain above the composer.
+This is display ordering and adds no tool action. [decided: user 2026-10-23;
+verified: `canvas/desk.tsx`, `tests/steeringorder.test.tsx`]
+
 <a id="e-ce6c8f6006d5c62b"></a>
 
 ## Tray org lists reserve a scrollbar gutter only above ten orgs. Short lists
