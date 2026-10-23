@@ -20,6 +20,13 @@ The **Notice** control makes the next message passive: it waits for a later turn
 
 Chat contains delivered messages, thoughts when supplied, tool calls/results, event cards, attachments and pending messages. Expand a tool row to inspect its arguments and result. A spinner or a call being written is not a completed operation. A live command preview is output so far, not an exit result.
 
+When an earlier message from you is above the visible transcript, **↑ you**
+previews one message and jumps back to its delivered batch. If that batch
+contains several messages from you, the preview uses the last one. Automatic
+hire and other operation notices keep their event cards but do not replace
+your message in this preview. A history containing only those notices has no
+**↑ you** preview.
+
 An idle docket reminder can contain interactive ticket cards. Open them to inspect the actual scope and status; their reference menus use the same message-box routing as other tickets. A reminder is a nudge about unfinished work, not evidence that the item was assigned again or completed.
 
 Older transcript pages load as you scroll back. An error offers Retry; it is not proof that history ends there. Thoughts can contain supplied text, a measured duration, or a sealed/unsupported display. Missing text does not establish that the model did no reasoning.

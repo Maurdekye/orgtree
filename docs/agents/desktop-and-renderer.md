@@ -12,6 +12,19 @@ This is a display correction; move/reorder tool authority is unchanged.
 [decided: user 2026-10-23; verified: `canvas/{moveghost,OrgCanvas}.tsx`,
 `tests/{pendingmove,hiddenretiredbunch}.test.tsx`]
 
+## User-message jump previews (2026-10-23)
+
+`authoredUserLabel` requires a canonical user actor plus a communication variant
+(`ordinary.*`, `reply.*`, `answer.ask`, or `lifecycle.kickoff`). User-initiated
+operations also carry actor=user and engine_authored=false, so neither actor nor
+that flag alone establishes a written message. Retain only the last eligible
+summary in each delivered batch; do not join its event titles. Automatic-only
+batches return null and cannot replace an older real-message target. Keep the
+existing batch anchor, geometry, disclosure reveal and transcript cards intact.
+This changes a display/navigation label, with no new agent action or delivery
+authority. [verified: `events/segments.tsx`, `canvas/desk.tsx`,
+`tests/youpreview.test.tsx`; 2026-10-23]
+
 ## Desk lifecycle hover help (2026-10-23)
 
 Agent retire/dissolve and project dissolve use native button titles, like Halt

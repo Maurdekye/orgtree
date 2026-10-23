@@ -32,17 +32,22 @@ export { isSegments } from './wire'
 import { isSegments } from './wire'
 export function authoredUserLabel(segments: unknown, profile: EventProfile): string | null {
   if (!isSegments(segments, profile)) return null
-  const content: string[] = []
+  let label: string | null = null
   for (const segment of segments) if (segment.kind === 'mail') {
     for (const row of segment.rows) {
       const decoded = decodeEventRow(row, profile)
       if (decoded.kind === 'known' && isAuthoredUser(decoded.event)) {
-        const text = eventSummary(decoded.event)
-        content.push(text)
+        const event = decoded.event
+        // User-initiated operations also name the user as actor, even with
+        // engine_authored=false. Only communication supplies a "you" preview;
+        // lifecycle notifications keep their ordinary transcript cards.
+        if (event.variant.startsWith('ordinary.') || event.variant.startsWith('reply.')
+          || event.variant === 'answer.ask' || event.variant === 'lifecycle.kickoff')
+          label = eventSummary(event)
       }
     }
   }
-  return content.length ? content.join(' ').replace(/\s+/g, ' ').slice(0, 600) : null
+  return label === null ? null : label.replace(/\s+/g, ' ').slice(0, 600)
 }
 export function SegmentAttachments({ values, slug, nid }: { values?: unknown[]; slug: string; nid: string }) {
   const files = (values ?? []).filter(record)

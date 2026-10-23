@@ -6,11 +6,29 @@ import { decodeEventRow } from '../src/events/decode'
 import { DeskChat } from '../src/canvas/desk'
 import type { CanvasNode } from '../src/canvas/shared'
 import { refreshConvo, resetConvos } from '../src/convo'
-import { hiredRows, hireSegments, requestSegments, requestText } from './youpreview-fixture'
+import { hiredRows, hireSegments, mailRow, requestEvent, requestSegments, requestText } from './youpreview-fixture'
 
 test('hire notices attributed to the user do not become a repeated user preview', () => {
   assert.equal(hiredRows.every(row => decodeEventRow(row, 'operator').kind === 'known'), true)
   assert.equal(authoredUserLabel(hireSegments, 'operator'), null)
+})
+
+test('a mixed batch previews only its latest user-written communication', () => {
+  const segments = [...requestSegments, { kind: 'mail', rows: [hiredRows[0],
+    mailRow(requestEvent('Latest\n\nrequest'), 'request-2'), ...hiredRows.slice(1)] }]
+  assert.equal(authoredUserLabel(segments, 'operator'), 'Latest request')
+})
+
+test('user-written notices and replies remain eligible while system messages do not', () => {
+  const message = requestEvent('Quiet update')
+  assert.equal(authoredUserLabel([{ kind: 'mail', rows: [mailRow({ ...message,
+    variant: 'ordinary.notice' }, 'notice-1')] }], 'operator'), 'Quiet update')
+  const reply = { v: 1, variant: 'reply.document', actor: { kind: 'user', id: '@user' },
+    object: { kind: 'document', org: 'preview-fixture', id: 'doc-1', title: 'Checklist', node: 'qa-lead' },
+    body: 'Please revise the checklist.', engine_authored: false } as const
+  assert.equal(authoredUserLabel([{ kind: 'mail', rows: [mailRow(reply, 'reply-1')] }], 'operator'), reply.body)
+  assert.equal(authoredUserLabel([{ kind: 'mail', rows: [mailRow({ ...message,
+    actor: { kind: 'system', id: '@system' }, engine_authored: true }, 'system-1')] }], 'operator'), null)
 })
 
 test('desk preview retains the real user message before a four-hire notice batch', async t => {
@@ -38,4 +56,6 @@ test('desk preview retains the real user message before a four-hire notice batch
     op={async () => ({})} toast={() => {}} bare />, el => el)
   await inAct(async () => { await flush(3); fireResize(view!.el.querySelector('.msgs')!) })
   assert.equal(view.el.querySelector('.pinuser-t')?.textContent?.trim(), `↑ you: ${requestText}`)
+  assert.equal(view.el.querySelectorAll('[data-event-variant="lifecycle.hired"]').length, 4,
+    'all hire cards remain in the transcript')
 })

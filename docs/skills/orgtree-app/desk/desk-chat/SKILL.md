@@ -11,6 +11,14 @@ sits immediately left of speed where speed is available.
 
 # Desk Chat tab
 
+The **↑ you** chip previews the last user-written communication in the nearest
+earlier delivered batch above the visible transcript. Clicking it jumps back
+to that batch. Messages, replies, question answers and initial hire instructions
+can supply the preview; automatic lifecycle or policy notices cannot, even
+when their event actor is the user. A notice-only history has no chip. A batch
+contributes one preview, never a concatenation of event titles; its other
+messages and event cards remain in the transcript.
+
 Chat HTTP request/response bodies, including transcript text and thinking, are omitted from wire diagnostics with verbose logging off or on. Chat paths, paging queries and status remain logged; normal client transcript delivery is unchanged. This also covers rejected requests and unknown children of the chat endpoint.
 
 Clicking empty space anywhere in the message box, including beside its lower controls, focuses the text field. Buttons and pickers keep their own behavior. The same focus rule applies to project desks, Quick chat and reply boxes. Speed, effort and send/interrupt controls use the same 24px height as the bell and attachment controls.
