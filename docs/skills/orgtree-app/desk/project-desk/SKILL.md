@@ -36,14 +36,18 @@ Broadcast passes through live sub-projects and delivers to their live agent chil
 | --- | --- |
 | summary | Project Summary: Markdown when unfocused, editable text when clicked. Leaving the editor saves a change; Escape discards the edit. Retired projects show it read-only. |
 | mail | Project inbox, sent and listeners folders. Reading a project message does not claim or acknowledge its queue job. The separate project Mail window uses the same view. |
-| docket | Items owned by agents under this project, through nested projects. A project owns no items itself. |
-| presented | Only documents attributed to this project. The canvas card's document chips and desk-header chips show the same own-only scope (up to four recent documents). Descendant documents are available through Open → Presentations → Team presentations; unlike an agent gallery, the project tab has no Team checkbox. |
+| docket | Items owned by agents under this project, through nested projects. A project owns no items itself. Hidden when its current default list is empty, except while you are on it. |
+| presented | Documents attributed to this project, with the same Team checkbox as agent desks to include descendant presentations. Hidden when both scopes are empty; team-only content checks Team by default. Canvas/header document chips keep their own-only scope (up to four recent documents). |
 | team | The descendant Agents List. Appears while the node has live physical child nodes; its badge counts those children, including projects. |
 | slots | Appears while configured concurrency-slot capacity is greater than zero. |
 | dead letters | Appears while the project has open dead letters. |
 | events | Appears exactly while the project's **Project Events** setting is on (Project settings). It is off by default; an agent registering an event listener or listener watch switches it on, and only you or an agent above the project switch it off. Its badge counts armed event listeners. |
 
 The Summary is the project's standing team charter; policy and tool authority are documented in `orgtree-projects` and `orgtree-tool-project` (orgtree-working › team). For shared mail, docket, gallery and Team controls, follow the links below.
+
+Desk **Docket** and **Presented** tabs hide when neither the node nor its team has anything the tab would list under its default filters. A tab appears or disappears as content changes, but stays visible while you are on it; an empty tab disappears when you leave. Search and sorting do not hide tabs. The Docket check follows the existing list, including recently completed tickets during their one-hour window and attention exceptions. Show archived and Show backlogged include those groups when enabled. Presented starts with hired presenters; Show retired includes retired presenters.
+
+When only the team has content, entering the tab starts with **Team** checked and auto-select works in that team scope. A manual untick is remembered for this organization and node across visits/restarts until own content arrives. Own content keeps the ordinary own-node default. Live arrivals do not switch the scope or selection of a reader you are using. These rules apply to both agent desks and project Presented tabs. A project Docket already lists its subtree and keeps that scope without a Team checkbox.
 
 ## Mail > listeners: workers taking queue jobs
 

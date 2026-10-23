@@ -4,6 +4,12 @@
 
 Use **Chat** for a conversation, **Mail** to inspect correspondence, **Docket** for durable work records and **Presented** for documents you want to read. These views serve different purposes. Switching tabs does not stop an agent, and opening a record does not assign or complete its work.
 
+## Desk tabs with content
+
+Desk **Docket** and **Presented** tabs hide when neither the node nor its team has anything the tab would list under its default filters. A tab appears or disappears as content changes, but stays visible while you are on it; an empty tab disappears when you leave. Search and sorting do not hide tabs. The Docket check follows the existing list, including recently completed tickets during their one-hour window and attention exceptions. Show archived and Show backlogged include those groups when enabled. Presented starts with hired presenters; Show retired includes retired presenters.
+
+When only the team has content, entering the tab starts with **Team** checked and auto-select works in that team scope. A manual untick is remembered for this organization and node across visits/restarts until own content arrives. Own content keeps the ordinary own-node default. Live arrivals do not switch the scope or selection of a reader you are using. These rules apply to both agent desks and project Presented tabs. A project Docket already lists its subtree and keeps that scope without a Team checkbox.
+
 ## Continue a conversation
 
 Open an agent's desk and select **Chat**. Give the desired result, constraints and any decisions the agent should bring back. A charter is a standing role, so put changing task details in the message and the relevant docket item.

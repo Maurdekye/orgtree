@@ -1,5 +1,31 @@
 # Docket and presentations
 
+## Desk reader availability (2026-10-23)
+
+Desk **Docket** and **Presented** tabs hide when neither the node nor its team has anything the tab would list under its default filters. A tab appears or disappears as content changes, but stays visible while you are on it; an empty tab disappears when you leave. Search and sorting do not hide tabs. The Docket check follows the existing list, including recently completed tickets during their one-hour window and attention exceptions. Show archived and Show backlogged include those groups when enabled. Presented starts with hired presenters; Show retired includes retired presenters.
+
+When only the team has content, entering the tab starts with **Team** checked and auto-select works in that team scope. A manual untick is remembered for this organization and node across visits/restarts until own content arrives. Own content keeps the ordinary own-node default. Live arrivals do not switch the scope or selection of a reader you are using. These rules apply to both agent desks and project Presented tabs. A project Docket already lists its subtree and keeps that scope without a Team checkbox.
+
+`reader_availability.rs` returns four booleans from scoped EXISTS reads. It uses
+the same `PAGE_GROUP_SQL` as the docket page, canonical open ask tabs, owned-or-reviewed
+agent membership, and descendant-owned project/team membership. It never loads docket
+history, document bodies or an entire gallery. Document membership is by agent ID
+with the existing legacy name fallback; subtree traversal is cycle-safe. No migration.
+Desk presentation pages opt into `visible=true`; their rows, totals and opening/locate
+positions share dismissed/hired filters, so invisible history cannot produce a blank
+first page or a wrong opening position. Other reader callers keep their existing pages.
+
+`deskreaders.ts` owns the shared visibility and team defaults. It holds a settled
+scope while active and waits for the first availability answer before mounting a
+fresh reader, so an own-scope opening cannot race ahead of a team default. Manual
+team choices use the existing per-org/node desk memory and follow rename/reset.
+Header badge counts remain separate. These are user display/navigation preferences;
+existing docket and presentation read tools retain their authority and scope, with
+no new agent tool card, tool-prefix growth or user-viewed write by an agent.
+[decided: user 2026-10-23 m725412d6748e, m46f154fe793f; coordinator m6327d4ef662e;
+verified: `canvas/{deskreaders,desk,projectdesk,gallery}.tsx`, `http/reader_availability.rs`]
+
+
 ## Opening priority (2026-10-23)
 
 A fresh opening selects the topmost ticket with a manual attention flag, or the oldest unread/changed presentation by its current update/creation time. Otherwise it restores the last viewed eligible item for that organization and collection scope (org, node/project or team), then the topmost row, or nothing for an empty list. Closed tickets and dismissed documents do not win the remembered-item preference. The preference survives close/reopen and restart, respects current filters, and does not mark a document viewed on an agent's behalf.

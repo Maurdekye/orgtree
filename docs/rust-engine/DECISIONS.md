@@ -2011,3 +2011,14 @@ Complete cycle-safe traversal preserves folder clamps, org isolation, retained
 identities and document paging. Logo Set shares the presenter folder resolver.
 D4 replacement admission is unchanged, following the later USER mb1aa649788b2
 choice to keep the app's existing behavior. See [ancestor reads](ancestor-chain.md).
+
+
+**Desk reader tabs, USER 2026-10-23 (4.4.4):** hide Docket and Presented when
+their default filtered own/team scopes are empty, retaining a tab while being read.
+Team-only content checks Team on entering; manual untick persists per node until
+own content arrives. Live changes do not move an active reader. Project Docket
+keeps subtree scope; project Presented offers the same Team checkbox (user choice).
+Existing Docket list behavior, including the recently-done hour, is unchanged.
+Sources: m835c3becf438, me1a9510b895f, m725412d6748e, m46f154fe793f;
+coordinator scope correction m6327d4ef662e.
+See [availability contract](../agents/docket-and-presentations.md#desk-reader-availability-2026-10-23).

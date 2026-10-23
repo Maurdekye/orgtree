@@ -285,6 +285,11 @@ still resume, so the agents themselves remember).
 
 ## 10. User-facing differences — complete ledger
 
+Desk reader tabs (USER 2026-10-23, 4.4.4): empty Docket/Presented tabs hide
+outside their active reader; team-only content defaults to Team, including the
+project Presented checkbox. Existing docket row membership and recently-done
+window stay unchanged. See [availability](../agents/docket-and-presentations.md#desk-reader-availability-2026-10-23).
+
 Presentation depth (USER 2026-10-23, 4.4.4): presenter folder/membership checks,
 descendant project folders and human team galleries no longer stop at1,024
 levels. Complete traversal retains scope clamps, org boundaries and gallery

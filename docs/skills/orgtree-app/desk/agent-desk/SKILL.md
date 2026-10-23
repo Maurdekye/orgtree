@@ -16,6 +16,12 @@ Desk tab selections are remembered per organization and node across restarts. An
 
 Open an agent's desk from its name/card or desk navigation. A focused desk, a pinned canvas window and a detached window show the same agent identity and work tabs. Pinning fixes it in screen space; pop-out opens its window surface. These view choices are not agent lifecycle changes.
 
+## Empty desk tabs and team defaults
+
+Desk **Docket** and **Presented** tabs hide when neither the node nor its team has anything the tab would list under its default filters. A tab appears or disappears as content changes, but stays visible while you are on it; an empty tab disappears when you leave. Search and sorting do not hide tabs. The Docket check follows the existing list, including recently completed tickets during their one-hour window and attention exceptions. Show archived and Show backlogged include those groups when enabled. Presented starts with hired presenters; Show retired includes retired presenters.
+
+When only the team has content, entering the tab starts with **Team** checked and auto-select works in that team scope. A manual untick is remembered for this organization and node across visits/restarts until own content arrives. Own content keeps the ordinary own-node default. Live arrivals do not switch the scope or selection of a reader you are using. These rules apply to both agent desks and project Presented tabs. A project Docket already lists its subtree and keeps that scope without a Team checkbox.
+
 ## Badges
 
 A **badge** is a small marker, separate from the containing agent/zoom card
