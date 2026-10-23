@@ -94,6 +94,22 @@ question-answer paths — so its authority is the user's by construction
 present/send-file, self/session tools…) are not listed; calling one is an
 honest error. Outside standalone mode the routes answer 404.
 
+### User tool-card boundary (2026-10-23)
+
+User cards must reflect the actual user handlers, independently of agent
+authority and schemas. Shared chart/tier/hire/retire/docket descriptions name
+user authority. Mail exposes one recipient, body and optional passive delivery;
+inbox exposes only list/fetch/settings/configure fields; interrupt exposes node
+without queued/restart. Unsupported root/mail/action fields refuse before
+provider, database or runtime dispatch, including queued/restart set to false
+or null. Existing flat-mail and answer/work ID aliases remain accepted without
+advertising the agent-only options. Do not mix flat routing and metadata.
+
+Pure `tools::usermcp::tests` cover card isolation, pre-dispatch refusal and
+supported/compatibility inputs without starting an engine or database.
+USER 2026-10-23 chose the documented subset, not implementation of the missing
+agent options. [verified: `tools/usermcp.rs`; decided: user 2026-10-23]
+
 Not on the endpoint yet: message attachments and reply quoting, inbox
 `conversation`/`chunk`, tree ops beyond hire/retire (move, reorder,
 retool…), settings/credits/provider-account administration (all reachable

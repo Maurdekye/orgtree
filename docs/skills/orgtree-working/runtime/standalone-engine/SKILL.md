@@ -81,6 +81,14 @@ states the current organization; `tools/list` supplies its current cards.
 Agent-only tools such as status, ask, audiences, watchdogs, present/send-file
 and session controls are absent and refused if called.
 
+User tool cards describe this endpoint's supported fields and user authority.
+Unsupported fields refuse before an action, including `queued`/`restart` even
+when false or null. Mail supports only `metadata.to`, optional
+`metadata.notice` on message, and `body`; send-notice is always passive.
+Agent-mail kind, urgency, tags, options, attachments and reply-reference fields
+are not served here. Flat mail routing and the existing answer/work ID aliases
+remain compatibility inputs; do not mix flat routing with `metadata`.
+
 | Tool/action | User-endpoint differences and required fields |
 | --- | --- |
 | `orgtree_create_org` | Required nonblank `name` from which the slug is derived; optional `dirs` array of host folder paths. Connect to the returned org's endpoint to manage it. |
