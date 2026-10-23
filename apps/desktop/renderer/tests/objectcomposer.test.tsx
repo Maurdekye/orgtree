@@ -159,6 +159,14 @@ test('agent desk: ticket and presentation cards/links stage exact reply identiti
 test('project desk: presentation and ticket targets survive an ordinary send and a broadcast', async t => {
   const org = 'objects-project', { server, writes } = backend(t, org), member = node('member'), project = node('team', { kind: 'project', tier: 'project', children: [member] })
   server.workItems = [{ ...item, owner: { node: 'member', generation: 1 } }]
+  // A project's Docket is the member-owned subtree, not work owned by the
+  // project id. Match the page above instead of the single-agent fallback.
+  const availability = server.readerAvailability.bind(server)
+  server.readerAvailability = (nid, archived, backlogged, retired) => {
+    if (nid !== project.id) return availability(nid, archived, backlogged, retired)
+    const hasWork = server.workItems.some((row: WorkItem) => row.owner?.node === member.id)
+    return {work:{own:hasWork,team:hasWork},presented:{own:false,team:false}}
+  }
   member.parent = 'team'
   const tree = { slug: org, roots: [project], watchdogs: [], slot_leases: [] } as unknown as TreePayload
   const view = await mountView(<Wrapper org={org}><ProjectDesk node={project} slug={org} tree={tree}

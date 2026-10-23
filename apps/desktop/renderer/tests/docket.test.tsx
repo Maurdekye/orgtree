@@ -437,6 +437,11 @@ uiTest('an attention ticket opens at the bottom of the detail pane', async (moun
   })
   mockWorkItems([ordinary, attention])
   const { el, render } = await mount(docketModal())
+  assert.equal(rowFor(el, 'needs-attention').classList.contains('on'), true,
+    'the signed opening priority already selected the attention ticket')
+  await selectDocketRow(rowFor(el, 'ordinary'))
+  assert.equal(rowFor(el, 'ordinary').classList.contains('on'), true,
+    'establish the ordinary-ticket precondition before measuring the scroll transition')
   const detail = pane(el) as HTMLElement
   Object.defineProperty(detail, 'scrollHeight', { configurable: true, value: 900 })
   await flush()
@@ -444,6 +449,8 @@ uiTest('an attention ticket opens at the bottom of the detail pane', async (moun
 
   await inAct(() => rowFor(el, 'needs-attention').click())
   await flush()
+  assert.equal(rowFor(el, 'needs-attention').classList.contains('on'), true,
+    'the click now opens the attention ticket instead of clearing the reader')
   assert.equal(detail.scrollTop, 900, 'the attention reason and reply are in view')
 
   detail.scrollTop = 120

@@ -1,4 +1,5 @@
 import { FakeServer, flush, inAct, installFetch, mountView } from './harness'
+import { withReaderContent } from './readercontent.fixture'
 import test from 'node:test'
 import type { TestContext } from 'node:test'
 import assert from 'node:assert/strict'
@@ -19,10 +20,11 @@ const org = 'panel-proof', noop = () => {}, op = async () => ({})
 const rect = { x: 10, y: 10, w: 600, h: 400 }
 const panels = [['inbox', 'node-inbox'], ['docket', 'agent-docket'], ['presented', 'agent-gallery'], ['team', 'agent-team']] as const
 const refs = { world: { org }, onOpen: noop } as never
-function setup(t: TestContext) {
+function setup(t: TestContext, project?: boolean) {
   const oldFetch = globalThis.fetch
   installFetch(new FakeServer()); resetConvos(); localStorage.clear(); forgetModalPins(); forgetModalOpenCache()
-  const inner = globalThis.fetch
+  const inner = project === undefined ? globalThis.fetch : withReaderContent(globalThis.fetch,[
+    {id:'worker', ...(project ? {members:['report']} : {})}, {id:'report'}])
   globalThis.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
     if (/\/inbox$/.test(new URL(String(input), 'http://localhost').pathname))
       return Promise.resolve(new Response(JSON.stringify({ pending: [], delivered: [], sent: [], next_cursor: null }), { status: 200 }))
@@ -73,7 +75,7 @@ for (const kind of ['inbox', 'docket', 'gallery']) {
 
 for (const project of [false, true]) {
   test(`${project ? 'project' : 'agent'} desk tabs reveal matching detached panels and keep the local view`, async t => {
-    setup(t); const f = fixture(project)
+    setup(t, project); const f = fixture(project)
     const view = await mountView(project
       ? <ProjectDesk node={f.root} tree={f.tree} map={f.map} slug={org} op={op} toast={noop} refs={refs} />
       : <DeskChat node={f.root} map={f.map} slug={org} op={op} toast={noop} onJump={noop} bare />, el => el)
@@ -87,7 +89,7 @@ for (const project of [false, true]) {
     }
   })
   test(`${project ? 'project' : 'agent'} desk tabs raise matching pinned panels over a desk`, async t => {
-    setup(t); const f = fixture(project)
+    setup(t, project); const f = fixture(project)
     const view = await mountView(project
       ? <ProjectDesk node={f.root} tree={f.tree} map={f.map} slug={org} op={op} toast={noop} refs={refs} />
       : <DeskChat node={f.root} map={f.map} slug={org} op={op} toast={noop} onJump={noop} bare />, el => el)

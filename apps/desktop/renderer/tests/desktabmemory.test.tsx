@@ -28,6 +28,7 @@ import assert from 'node:assert/strict'
 import type { ReactElement } from 'react'
 import { FakeServer, flush, inAct, installFetch, mountView } from './harness'
 import { withoutMailTransfers } from './mailtransfers.fixture'
+import { withReaderContent } from './readercontent.fixture'
 import { DeskChat } from '../src/canvas/desk'
 import { ProjectDesk, ProjectInboxModal } from '../src/canvas/projectdesk'
 import { NodeInboxModal } from '../src/canvas/mail'
@@ -60,6 +61,8 @@ const project = (id: string, extra: Record<string, unknown> = {}): CanvasNode =>
   mail_pending: 0, mail_held: 0, last_status: null, occupancy: 0, context_window: 0, busy: false, activity: null, ...extra,
 } as unknown as CanvasNode)
 
+const populatedProject = (id: string) => project(id, { children: [agent(id+'-worker', {parent:id})] })
+
 const dog = (kind: Watchdog['kind'], owner: string, name: string, target: string): Watchdog =>
   ({ id: owner + '/' + name, owner, name, kind, target, interval_s: 5, state: 'armed',
     at: '2026-10-20T06:00:00.000Z', fired: 0, once: false, spent: false } as Watchdog)
@@ -73,11 +76,12 @@ const treeOf = (...roots: CanvasNode[]) =>
 const mapOf = (...nodes: CanvasNode[]) => new Map(nodes.map((n) => [n.id, n]))
 
 /** the engine, with every mailbox empty */
-function serve(t: TestContext) {
+function serve(t: TestContext, readerContent = false) {
   localStorage.clear(); resetConvos()
   const had = globalThis.fetch
   installFetch(new FakeServer())
-  const inner = globalThis.fetch
+  const inner = readerContent ? withReaderContent(globalThis.fetch,[{id:'writer'},{id:'other'},
+    ...['sync','alpha','beta'].map(id=>({id,members:[id+'-worker']}))]) : globalThis.fetch
   const json = (body: unknown) => Promise.resolve(new Response(JSON.stringify(body),
     { status: 200, headers: { 'Content-Type': 'application/json' } }))
   globalThis.fetch = withoutMailTransfers(((url: RequestInfo | URL, init?: RequestInit) => {
@@ -130,7 +134,7 @@ const pickFolder = (el: Element, name: string) => inAct(async () => {
 /* ─── §1 the agent desk ──────────────────────────────────────────────────── */
 
 test('§1a an agent desk reopens on the tab last picked on it', async (t) => {
-  const { mount } = serve(t)
+  const { mount } = serve(t, true)
   const writer = agent('writer')
   let desk = await mount(agentDesk(writer))
   assert.equal(on(desk.el), 'chat', 'a desk never visited opens on Chat')
@@ -150,7 +154,7 @@ test('§1a an agent desk reopens on the tab last picked on it', async (t) => {
 })
 
 test('§1b the memory is per organization and per node', async (t) => {
-  const { mount } = serve(t)
+  const { mount } = serve(t, true)
   const writer = agent('writer'), other = agent('other')
   let desk = await mount(agentDesk(writer, mapOf(writer, other)))
   await pick(desk.el, 'presented')
@@ -166,7 +170,7 @@ test('§1b the memory is per organization and per node', async (t) => {
 })
 
 test('§1c an open desk keeps its own tab when another host of it picks; the next opening takes the last pick', async (t) => {
-  const { mount } = serve(t)
+  const { mount } = serve(t, true)
   const writer = agent('writer')
   const both = await mount(<>
     <div data-host="a">{agentDesk(writer)}</div>
@@ -204,7 +208,7 @@ test('§1d a remembered Team tab without subordinates reopens on Chat, and a lat
 })
 
 test('§1e the memory is kept in localStorage, so a restart keeps it; an unknown value opens Chat', async (t) => {
-  const { mount } = serve(t)
+  const { mount } = serve(t, true)
   const writer = agent('writer')
   let desk = await mount(agentDesk(writer))
   await pick(desk.el, 'docket')
@@ -225,8 +229,8 @@ test('§1e the memory is kept in localStorage, so a restart keeps it; an unknown
 /* ─── §2 the project desk ────────────────────────────────────────────────── */
 
 test('§2a a project desk reopens on the tab last picked on it', async (t) => {
-  const { mount } = serve(t)
-  const sync = project('sync')
+  const { mount } = serve(t, true)
+  const sync = populatedProject('sync')
   let desk = await mount(projectDesk(sync))
   assert.equal(on(desk.el), 'desk', 'a project desk never visited opens on Summary')
   for (const tab of ['docket', 'listeners', 'inbox', 'presented', 'desk']) {
@@ -272,8 +276,8 @@ test('§2c an open tab that goes away gives way to Summary, which the desk keeps
 })
 
 test('§2d a host that switches projects opens each on its own remembered tab (the Attention panel)', async (t) => {
-  const { mount } = serve(t)
-  const alpha = project('alpha'), beta = project('beta')
+  const { mount } = serve(t, true)
+  const alpha = populatedProject('alpha'), beta = populatedProject('beta')
   const map = mapOf(alpha, beta), tree = treeOf(alpha, beta)
   const desk = await mount(projectDesk(alpha, map, tree))
   await pick(desk.el, 'docket')
@@ -289,8 +293,8 @@ test('§2d a host that switches projects opens each on its own remembered tab (t
 /* ─── §3 the project desk's Mail folders ─────────────────────────────────── */
 
 test('§3a the Mail tab reopens the folder last picked in its folder strip, from the tab strip and on a revisit', async (t) => {
-  const { mount } = serve(t)
-  const sync = project('sync')
+  const { mount } = serve(t, true)
+  const sync = populatedProject('sync')
   let desk = await mount(projectDesk(sync))
   await pick(desk.el, 'inbox')
   assert.equal(openFolder(desk.el), 'inbox', 'a Mail tab never visited opens its inbox folder')
@@ -331,8 +335,8 @@ test('§4a the agent desk\'s mailbox tab is called Mail; its route and folders a
   const { mount } = serve(t)
   const writer = agent('writer', { mail_pending: 2 })
   const desk = await mount(agentDesk(writer))
-  assert.deepEqual(labels(desk.el), ['chat', 'mail', 'docket', 'presented'])
-  assert.deepEqual(offered(desk.el), ['chat', 'inbox', 'docket', 'presented'], 'the tab ids (routes, pins) stay')
+  assert.deepEqual(labels(desk.el), ['chat', 'mail'], 'empty readers are not offered')
+  assert.deepEqual(offered(desk.el), ['chat', 'inbox'], 'the visible tab ids (routes, pins) stay')
   assert.equal(desk.el.querySelector('.cc-tabs button[data-tab="inbox"] .tab-count')?.textContent, '2', 'with its count')
   await pick(desk.el, 'inbox')
   assert.deepEqual(folders(desk.el), ['inbox', 'sent'], 'the folders inside keep their names')
@@ -342,7 +346,7 @@ test('§4b the project desk\'s mailbox tab is called Mail; its folders are uncha
   const { mount } = serve(t)
   const desk = await mount(projectDesk(project('sync')))
   const tabs = labels(desk.el)
-  assert.deepEqual(tabs.slice(0, 4), ['summary', 'mail', 'docket', 'presented'])
+  assert.deepEqual(tabs, ['summary', 'mail', 'events'], 'empty readers are not offered; the enabled event listener remains')
   assert.equal(tabs.includes('inbox'), false, 'no tab says inbox')
   assert.equal(offered(desk.el)[1], 'inbox', 'the tab id stays')
   await pick(desk.el, 'inbox')

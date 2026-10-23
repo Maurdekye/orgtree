@@ -4,19 +4,21 @@ import assert from 'node:assert/strict'
 import { DeskChat } from '../src/canvas/desk'
 import type { CanvasNode } from '../src/canvas/shared'
 import { resetConvos } from '../src/convo'
+import { withReaderContent } from './readercontent.fixture'
 
 const writer: CanvasNode = { id: 'writer', generation: 2, state: 'live', tier: 'haiku',
   children: [], seat: 1, grant: 0, free: 0, scope: { tools: {}, add_dirs: [] } }
 
 async function fixture(two = false) {
   localStorage.clear(); resetConvos()
+  const originalFetch = globalThis.fetch
   const server = new FakeServer()
   installFetch(server)
-  const originalFetch = globalThis.fetch
+  const readers = withReaderContent(globalThis.fetch,[{id:'writer'},{id:'other'}])
   const calls: string[] = [], warnings: string[] = []
   let accept: (() => void) | undefined, refuse: (() => void) | undefined
   globalThis.fetch = (url, init) => {
-    if (!String(url).endsWith('/message')) return originalFetch(url, init)
+    if (!String(url).endsWith('/message')) return readers(url, init)
     calls.push(JSON.parse(String(init?.body)).text)
     return new Promise<Response>((resolve, reject) => {
       accept = () => resolve(new Response(JSON.stringify({ queued: 0 }), {
