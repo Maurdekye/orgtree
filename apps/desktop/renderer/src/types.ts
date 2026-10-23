@@ -1131,6 +1131,8 @@ export interface ChatMessage {
   assistant_revision?: number
   assistant_order?: number
   assistant_state?: 'partial' | 'complete'
+  /** Retained unfinished text when its turn was interrupted or killed. */
+  interrupted?: boolean
   assistant_pending?: boolean
   assistant_materialized?: boolean
   /** stream frames only (supervisor.wire_reply_frame): `text` is just what

@@ -5367,7 +5367,8 @@ export const Msg = memo(function Msg({ m, slug, nid, onMailLink, onWorkLink, ref
       {text && <RefMdBody className="msgtext md" world={refs?.world}
         onOpen={refs?.onOpen} html={md(text, fb, m.role === 'assistant')} />}
       </>}
-      {m.assistant_state === 'partial' && <div className="dim small">partial response</div>}
+      {m.assistant_state === 'partial' && <div className="dim small incomplete-response" role="note">
+        {m.interrupted ? 'interrupted · incomplete response' : 'incomplete response'}</div>}
       {/* the display copy was capped server-side (steered-log per-row cap) —
           without this line the tail is just silently missing and the message
           reads as complete (user report 2026-08-17) */}
