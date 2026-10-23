@@ -34,6 +34,8 @@ mod claim_boundary_tests;
 mod credit_settlement;
 #[cfg(test)]
 mod credit_scale_tests;
+#[cfg(test)]
+mod broadcast_tests;
 
 /// Physical ancestry only: root-first rows and locks, never the reporting superior.
 #[logged]
