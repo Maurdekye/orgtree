@@ -61,8 +61,8 @@ the failed selection draft with its original recipient.
 
 The quote's **Nearby context** expands the saved surroundings. Activate the quote
 to check its current source; changed/unavailable sources keep the saved excerpt.
-Selecting across source boundaries or display-only text explains why the action
-is unavailable. Normal Copy and editable-field menus remain available.
+Selections across source boundaries do not offer the action. Display-only text
+that cannot be mapped exactly shows a disabled action with an explanation. Normal Copy and editable-field menus remain available.
 
 An agent can attach a verified passage to a reply, keeping its exact text and
 nearby context. The quote remains readable when its source is edited or removed;
