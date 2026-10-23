@@ -74,7 +74,7 @@ save displays an error. Suggest this for recognizable org identity in Hubchat.
 
 ## One footer Save, several independent actions
 
-Basic fields, Hire defaults and Policies are buffered together. Tab changes
+Basic fields, Hire defaults, Policies and Connections' external-inbox mode/multiple-holder fields are buffered together. Tab changes
 preserve these edits; close/reopen discards the local buffer. Unedited setting
 fields follow new server values. **Save** sends settings, a loaded editable
 org.md, and (only after editing Hire defaults) the hire-default requests.
@@ -87,7 +87,7 @@ buffer. Org.md has its own revision check and restart effects: read
 [orgtree-org-charter-md](../org-charter-md/SKILL.md), including when Save writes
 an already-loaded charter the user did not edit.
 
-Logo controls, Save as template, Connections, Autonomy and Accounts use their
+Logo controls, Save as template, Connections' hub memberships, Autonomy and Accounts use their
 own immediate actions. History only reads records. The footer does not defer
 those actions or undo them when the panel closes.
 

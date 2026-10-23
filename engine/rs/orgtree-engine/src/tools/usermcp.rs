@@ -253,7 +253,7 @@ async fn inbox(engine: &Arc<Engine>, org: &Arc<OrgHandle>, args: &Value) -> Resu
         }
         if action=="configure" {
             let mode=need_str(args,"mode")?;
-            crate::http::settings::save_org(axum::extract::State(engine.clone()),axum::extract::Path(org.slug.clone()),
+            let _ = crate::http::settings::save_org(axum::extract::State(engine.clone()),axum::extract::Path(org.slug.clone()),
                 axum::Json(serde_json::Map::from_iter([("org_inbox_mode".into(),json!(mode))]))).await.map_err(api)?;
         }
         let c=engine.db.get().await?;

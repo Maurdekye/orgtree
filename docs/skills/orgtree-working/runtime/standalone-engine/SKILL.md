@@ -81,7 +81,7 @@ and session controls are absent and refused if called.
 | --- | --- |
 | `orgtree_create_org` | Required nonblank `name` from which the slug is derived; optional `dirs` array of host folder paths. Connect to the returned org's endpoint to manage it. |
 | Message / send notice | `metadata.to` names one agent in this org (or a one-element array), with nonblank `body`. A notice is passive. Multiple recipients, outside mail, question-kind mail, attachments and `reply_to`/`replies` quoting are not supported here. |
-| Inbox | The user's own inbox, not an agent's. `action=list` is default, with `limit` default 50, clamped 1–200 separately for pending/delivered/sent lists. `fetch` accepts 1–20 `message_ids` from those lists; unknown IDs refuse the read. Conversation, chunk and other actions are not supported. |
+| Inbox | The user's own inbox for list/fetch. `action=list` is default, with `limit` default 50, clamped 1–200 separately for pending/delivered/sent lists. `fetch` accepts 1–20 `message_ids`; unknown IDs refuse. `action=settings` reads the org outside-inbox mode; `action=configure mode=normal\|dnd\|closed` changes it through the desktop policy path as the user. Those policy actions accept no other fields. Conversation, chunk and agent-only pull are not supported here. |
 | Hire / retire | User tree-operation validation and Undo recording apply. A hire with no parent/target is top-level; a superior hire requires `hire_type:superior` and `target` naming the insertion anchor. |
 | Work | Acts as the user on the org docket. Use the current tool card for fields; do not assume the agent's ownership/participant authority model. |
 | Interrupt | Required `node` agent. Stops its current turn; a runtime that does not answer within 60 seconds refuses. Agent queued/restart orchestration is not implemented here. |
@@ -97,7 +97,7 @@ Example JSON-RPC calls, sent to the appropriate authenticated endpoint:
 {"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"orgtree_message","arguments":{"metadata":{"to":"worker"},"body":"Please inspect the assigned item."}}}
 ```
 
-Move/reorder/retool, settings/credit/account administration and the other
+Move/reorder/retool, other settings/credit/account administration and the other
 unlisted actions remain outside this MCP subset; the authenticated HTTP API
 has its own operations. Tool errors return `isError` and explanatory text.
 The ordinary agent tool pages describe a different caller/transport and must

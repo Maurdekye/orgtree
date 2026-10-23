@@ -1721,6 +1721,8 @@ mod builder_stack_tests {
             let want=expected.as_array_mut().unwrap().iter_mut().find(|c|c["name"]==name).unwrap();
             let got=actual.iter().find(|c|c["name"]==name).unwrap();
             want["inputSchema"]["properties"]["fast_mode"]=got["inputSchema"]["properties"]["fast_mode"].clone();
+            // Approved native replacement switch already in the assigned base.
+            want["inputSchema"]["properties"]["tools"]["properties"]["orgtree_disabled"]=serde_json::json!({"type":"boolean","description":"Restore Orgtree-disabled native tools; fresh hire omission=false, rehire/retool omission preserves. Parent-clamped; does not change defaults or other permissions. See orgtree-agent-tools-tab."});
             assert_eq!(*want,*got,"{name}: differs beyond fast_mode");
             *want=got.clone();
         }
