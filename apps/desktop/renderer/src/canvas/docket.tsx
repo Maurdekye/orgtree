@@ -1976,7 +1976,7 @@ export function AgentDocketView({ slug, nid, mine, facts, toast, onFocusAgent,
       : openingWork(candidates,lastReaderItem(selectionScope),flaggedForUser)
     if(id) { setCollapsedCategories(new Set()); setSelId(id) }
   }, [selectionScope, mine, windowSections, selId, setSelId])
-  useEffect(() => { paging?.setFilter?.({ query, sort: sortMode }, selectionScope) }, [query, sortMode, paging?.setFilter])
+  useEffect(() => { paging?.setFilter?.({ query, sort: sortMode }) }, [query, sortMode, paging?.setFilter])
   const onSearchKey = (e: ReactKeyboardEvent<HTMLInputElement>) => {
     if (e.key === 'Escape') {
       if (!query) return
