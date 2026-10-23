@@ -15,7 +15,7 @@ Use to recover your own mail context, especially after a fresh session or compac
 
 ## Actions and parameters
 
-`action` is required. Each action accepts only its listed fields; a `node`, `agent`, `org` or `mailbox` argument is refused.
+`action` is required. Each action accepts only its listed fields; a `node`, `agent`, `org` or `mailbox` argument is refused. Org-inbox reads use the dedicated actions/flag below rather than an org name.
 
 | Action | Fields and defaults | Returned content |
 | --- | --- | --- |
@@ -61,6 +61,20 @@ Use fetched IDs with [orgtree_message](../tool-message/SKILL.md) for replies. A 
 ## Explicit reads during Do Not Disturb
 
 During DND, the same explicit content-read rule excludes returned held messages from the end-of-turn batch and changes sender status to read. `list` and `conversation` previews stay held and unread. Project mailbox inspection remains non-consuming. See [orgtree-do-not-disturb](../../runtime/do-not-disturb/SKILL.md).
+
+## Org Do not disturb: preview and extract
+
+These agent calls require the current **extern audience**, plus the usual messaging tool group. Fallback recipients and top-level agents do not gain read permission implicitly. Do not combine them with project/folder/status, peer, or own-mail fetch fields.
+
+| Call | Fields and result |
+| --- | --- |
+| `action=settings` | No other fields. Returns `mode=normal|dnd|closed`, `enabled`, and `can_configure=false`. Available to current holders even while Closed. |
+| `action=list org_inbox=true` | Optional integer `limit` 1–200 (default 50), `cursor`. Oldest held items first; 16,000-byte preview text budget. Previews do not consume. |
+| `action=pull` | Optional integer `limit` 1–20 (default 20). Atomically extracts the oldest held mail for the whole org. Returns consumed messages and `has_more`; repeat pull for more. |
+
+Pull returns up to 256 KiB of body content, each initial chunk at most 64 KiB at a UTF-8 boundary. Each item contains its new personal `message_id`, ordinary `delivery_id`, and original `org_message_id`. For cut bodies use ordinary `chunk` with that personal ID/handle or fetch the personal ID again. Full retained bodies and attachments stay available without duplicate holder delivery. Successful pulls enter the caller's transcript once through normal read receipts; previews and human viewing do not extract mail. Closed refuses list/pull and retains data.
+
+Agents cannot change the mode, including top-level agents and extern holders. A configure attempt refuses: **org inbox mode changes are user-only; ask your superior or the user**. Standalone **user** MCP supports `action=settings` and `action=configure mode=normal|dnd|closed`, through the desktop policy writer. Its authority comes from the user token, never an agent audience. Ordinary list/fetch there still read the user's personal inbox.
 
 ## See also
 

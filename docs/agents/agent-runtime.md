@@ -209,6 +209,20 @@ Original section: AGENTS.md — working on Orgtree. Source lines 1081–1090.
 Original section: AGENTS.md — working on Orgtree. Source lines 1092–1101.
 
 <!-- preserved:e-8c72fbf922e19b8e -->
+- Do Not Disturb is a durable per-turn flag controlled by self status.dnd.
+  Every harness gates ordinary mail before steering or interrupt; only urgent
+  bypasses. User-origin urgent mail may omit a reason; agent-origin urgency
+  requires current DND plus a nonblank reason. The armed user composer marks
+  its ! and message-box outline orange-red (#ff4500). Turn end and
+  recovery release unread mail in order within the prompt byte budget. Inbox
+  previews do not consume; explicit fetch/chunk reads held mail once. See
+  [DND](../../docs/skills/orgtree-working/runtime/do-not-disturb/SKILL.md).
+  [decided: user 2026-10-18 13:44–13:49Z; verified: `domain/{dnd,mail}.rs`,
+  `runtime/actor.rs`, migration 0033, `canvas/{dnd,desk,projectdesk}.tsx`]
+<!-- /preserved:e-8c72fbf922e19b8e -->
+
+Current agent DnD contract (2026-10-22, supersedes the preserved self-only description):
+
 - Do Not Disturb is a durable per-turn flag controlled by self status.dnd,
   runtime-authorized descendant node+dnd calls and the user's desk toggle.
   Idle targets arm dnd_next_turn; admission takes opening mail normally then
@@ -223,7 +237,6 @@ Original section: AGENTS.md — working on Orgtree. Source lines 1092–1101.
   [DND](../../docs/skills/orgtree-working/runtime/do-not-disturb/SKILL.md).
   [decided: user 2026-10-18 13:44–13:49Z; verified: `domain/{dnd,mail}.rs`,
   `runtime/actor.rs`, migration 0033, `canvas/{dnd,desk,projectdesk}.tsx`]
-<!-- /preserved:e-8c72fbf922e19b8e -->
 
 <a id="e-88be5b07d34995c5"></a>
 

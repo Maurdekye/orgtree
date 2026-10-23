@@ -64,7 +64,7 @@ pub const PROJECT_SETTINGS: &[&str] = &["mail_queue", "exclude_sender", "ack_tim
 pub const ORG_SETTINGS: &[&str] = &[
     "max_top_grant", "default_top_grant", "compact_at", "default_tools", "default_visibility", "permission_mode",
     "default_effort", "auto_resume", "auto_resume_compact", "auto_cheap_compact",
-    "org_inbox_enabled", "org_inbox_multi_holder", "account_fallback_default",
+    "org_inbox_enabled", "org_inbox_mode", "org_inbox_multi_holder", "account_fallback_default",
 ];
 
 /// Org settings that moved to App settings > Runtime. An older template may still carry them: they are accepted

@@ -1,42 +1,30 @@
 ---
 name: orgtree-org-policies-inbox
-description: Explain the org's outside-mail enable switch and multiple-holder policy.
+description: Explain three outside-inbox modes, the Hubchat warning and multiple-holder policy.
 ---
 
 Up: [orgtree-org-settings](../SKILL.md)
 
 # External org inbox policy
 
-**Org settings > Policies > External org inbox** holds two org boolean
-settings. Agents explain them; the user changes them with the shared footer
-Save in [orgtree-org-basic](../org-basic/SKILL.md).
+**Org settings > Connections > External org inbox** contains the outside-communication dropdown and multiple-holder switch. They use the panel's shared **Save** button. Connections is available without a hub identity.
 
-| Switch | Storage key | Default | Effect |
-| --- | --- | --- | --- |
-| allow outside communication through the org inbox | `org:org_inbox_enabled` | On | Off blocks communication to/from other orgs and mail-hub peers, hides the org-inbox node and makes outside-mail history unavailable. Same-org mail continues. |
-| allow multiple org-inbox audience holders | `org:org_inbox_multi_holder` | Off | Off gives one holder at a time; granting another holder moves the audience. On permits multiple holders. |
+| Mode | Storage | Effect |
+| --- | --- | --- |
+| Normal operations | org:org_inbox_mode=normal, legacy org:org_inbox_enabled=true | Default. Retains incoming outside mail and delivers agent copies through normal routing. |
+| Do not disturb | org:org_inbox_mode=dnd, legacy enabled=true | Accepts and retains outside mail without holder/fallback copies or agent wakes. Extern holders must extract it with orgtree_inbox action=pull. |
+| Closed off inbox | org:org_inbox_mode=closed, legacy enabled=false | Blocks new outside sends/receives and hides retained outside history/copies and the inbox node. Internal agent/user mail continues. |
 
-Disabling access is an isolation policy, not deletion of recorded outside mail.
-Turning it back on restores access under the org's current routing and audience
-rules. A disabled outside path refuses with **the organization's inbox is
-disabled; outside communication and its history are unavailable**. The org
-history browser omits its Organization mail collection while access is off.
+DnD shows: **Hubchat and other outside messages are kept but not read or delivered automatically. An agent must check the org inbox to receive them.** This includes the user's Hubchat messages; no sender is exempt. Already copied mail is not recalled; current turns continue. Authorized outgoing communication remains available in DnD.
 
-Turning multi-holder off while more than one live holder remains is refused:
-**revoke extra org-inbox holders before disabling multi-holder mode**. First
-choose the remaining holder and revoke the others, then save again. The
-setting does not silently select a survivor. Both switches reject values that
-are not booleans.
+Returning to Normal publishes unextracted mail once, oldest first, to current normal recipients within normal size/chunk budgets. Pulled items are not copied again. Human viewing/marking read does not extract a held item. Closed retains holds; reopening in DnD keeps them for pull, reopening in Normal releases them.
 
-Suggest disabling outside access when the user wants this org isolated from
-external peers. Suggest multi-holder when the user intends shared outside-mail
-handling and understands its routing. Audience eligibility, delivery/fallback
-and communication authority belong in `orgtree-org-inbox`
-(orgtree-working › mail); these toggles do not authorize arbitrary external
-senders to act for the user.
+Mode writes are **user-only**, through desktop HTTP settings or standalone user MCP orgtree_inbox action=configure mode=normal|dnd|closed. Current extern holders can read action=settings; agents cannot configure regardless of rank/audience. Ask a superior or the user. Invalid modes and conflicting mode/legacy boolean writes refuse. Legacy enable=true maps to Normal and false maps to Closed. Both keys remain org-local and portable through template settings.
+
+**allow multiple org-inbox audience holders** (org:org_inbox_multi_holder, default off) retains its boolean behavior. Turning it off with multiple live holders refuses: **revoke extra org-inbox holders before disabling multi-holder mode**. It never chooses a survivor silently.
 
 ## See also
 
-- `orgtree-org-inbox` (orgtree-working › mail).
-- [orgtree-org-connections](../../mailhub/org-connections/SKILL.md).
-- [orgtree-org-history](../org-history/SKILL.md).
+- orgtree-org-inbox and orgtree-tool-inbox (orgtree-working > mail): authority, routing, extraction and continuations.
+- [Connections](../../mailhub/org-connections/SKILL.md): identity and hub memberships.
+- [History](../org-history/SKILL.md): retained history.

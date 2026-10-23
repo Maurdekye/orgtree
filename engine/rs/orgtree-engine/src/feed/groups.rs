@@ -60,7 +60,7 @@ pub fn effective_settings(org_settings: &Value, app_defaults: &Map<String, Value
     let mut out = setting_defaults();
     let obj = out.as_object_mut().unwrap();
     for (k, v) in app_defaults {
-        if k == "org_inbox_enabled" { continue; }
+        if matches!(k.as_str(),"org_inbox_enabled"|"org_inbox_mode") { continue; }
         obj.insert(k.clone(), v.clone());
     }
     if let Some(s) = org_settings.as_object() {
@@ -77,6 +77,7 @@ pub fn effective_settings(org_settings: &Value, app_defaults: &Map<String, Value
     for k in RETIRED_SETTINGS {
         obj.remove(*k);
     }
+    obj.insert("org_inbox_mode".into(),json!(crate::domain::orginbox::mode(org_settings)));
     out
 }
 
@@ -267,7 +268,7 @@ pub async fn group(engine: &Engine, client: &Client, org: &Value, name: &str) ->
         }
         "org_inbox" => {
             if !crate::domain::orginbox::enabled(&org["settings"]) {
-                return Ok(json!({"org_inbox": {"enabled": false, "visible": false,
+                return Ok(json!({"org_inbox": {"enabled": false, "mode":"closed", "visible": false,
                     "entries": [], "total": 0, "unread": 0, "holders": [],
                     "multi_holder_enabled": settings["org_inbox_multi_holder"].as_bool().unwrap_or(false)}}));
             }
@@ -289,6 +290,7 @@ pub async fn group(engine: &Engine, client: &Client, org: &Value, name: &str) ->
             entries.reverse();
             let total: i64 = counts.get(0);
             json!({ "org_inbox": {
+                "mode": crate::domain::orginbox::mode(&org["settings"]),
                 "entries": entries,
                 "total": total,
                 "unread": counts.get::<_, i64>(1),

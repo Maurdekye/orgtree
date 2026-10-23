@@ -7,6 +7,15 @@ policy remain physical, per the user's explicit exceptions.
 
 # Orgtree 4 rewrite — the user's standing decisions
 
+**Org Do not disturb (USER 2026-10-23 06:32–06:36Z;4.4.2):** Connections has
+Normal operations / Do not disturb / Closed off inbox. DnD accepts outside
+mail without automatic agent reads, copies or wakes, including all Hubchat
+senders; show the warning explicitly. Coordinator 06:36–06:38Z: extern-holder
+pull consumes org-wide; Normal releases unextracted held mail once oldest
+first under existing budgets. Mode writes remain user-only via desktop and
+standalone user MCP, with agent read/pull authority unchanged. See
+[Org DnD](org-inbox-dnd.md).
+
 **Native replacement-tool category (user 2026-10-22 22:07Z, one switch 22:09Z; coordinator 22:14Z):** tools.orgtree_disabled is optional and default-off per agent, parent-clamped, with per-harness UI coverage and hire/retool/rehire/staff parity. Grants never change defaults/future hires. Claude's nine replacement denies and Codex/Muse native questions are covered; ExitPlanMode requires explicit approval through the same bounded authority-aware adapter. Muse observers/workflows/contributor mode and OpenCode build/plan/security policies are excluded; AGY restores nothing. See the [source contract](../agents/org-tree-and-tools.md#native-replacement-tools-2026-10-22).
 
 **Subordinate DnD (user 2026-10-22 22:14Z–22:16Z; 4.4.2):** agents can enable

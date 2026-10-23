@@ -12,8 +12,7 @@ one organization. Agents explain the controls and suggest changes; the user
 changes settings. For machine-wide defaults, use
 [orgtree-app-default-org-settings](../app-settings/app-default-org-settings/SKILL.md).
 
-The tabs are Basic, Hire defaults, Policies, Connections (when the org has a
-network identity), Autonomy, Accounts and History. The former `orgtype` tab is
+The tabs are Basic, Hire defaults, Policies, Connections, Autonomy, Accounts and History. The former `orgtype` tab is
 not rendered. Connections is documented in
 [orgtree-org-connections](../mailhub/org-connections/SKILL.md).
 
@@ -26,7 +25,7 @@ not rendered. Connections is documented in
 - [orgtree-org-hire-defaults-scope](org-hire-defaults-scope/SKILL.md): Hire defaults > visibility, file and command access, provider and account.
 - [orgtree-org-hire-defaults-tools](org-hire-defaults-tools/SKILL.md): Hire defaults > native tools, Orgtree tool groups and MCP servers.
 - [orgtree-org-policies-compaction](org-policies-compaction/SKILL.md): Policies > reset a session before a known-cold turn.
-- [orgtree-org-policies-inbox](org-policies-inbox/SKILL.md): Policies > outside communication through the org inbox.
+- [orgtree-org-policies-inbox](org-policies-inbox/SKILL.md): Connections > Normal, Do not disturb, Closed off inbox and multiple holders.
 - [orgtree-org-autonomy](org-autonomy/SKILL.md): Autonomy: automatic account switching and auto-resume of frozen agents.
 - [orgtree-org-accounts](org-accounts/SKILL.md): Accounts: which accounts this org may use.
 - [orgtree-org-history](org-history/SKILL.md): History: the org's history browser (read-only; not undo).

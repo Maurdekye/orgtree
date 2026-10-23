@@ -1,5 +1,13 @@
 # Mail and hub
 
+Org Do not disturb adds an org-local third inbox mode without changing Closed
+isolation. Inbound publication, pull and resumption share the org-row lock;
+never fan out or create fallback wakes while held. Viewer read state does not
+consume held mail. Mode changes remain user-only; extern holders can read/pull.
+See [storage, tools and evidence limits](../rust-engine/org-inbox-dnd.md).
+[decided: user/coordinator 2026-10-23; verified: `domain/orginbox.rs`,
+`tools/org_inbox.rs`, migration0055]
+
 [Repository startup guide](../../AGENTS.md) · [All topics and entries](README.md)
 
 Delivery, mentions, inboxes, outside authority, files, Hubchat and hub transport.

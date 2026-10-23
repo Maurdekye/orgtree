@@ -543,9 +543,10 @@ fn build_tool_transfers() -> Value {
 fn build_tool_inbox() -> Value {
     tool(
         "orgtree_inbox",
-        "Read own mail: list previews; fetch<=20 IDs; chunk long bodies. Recall conversation after fresh session/compaction before replying. Returned pending received content is consumed, even outside DND; previews are not. Received/project opens enter transcript once; sent history does not. Project reads never claim/ack. folder selects full history; omitted list waits only. Keep project/folder/status with cursors. See guide for handles and filters.",
+        "Read own mail: list previews, fetch<=20 IDs, chunk bodies, conversation recall. Fetch/chunk consume received content; previews do not. Project reads never claim/ack; keep project/folder/status with cursors. Org inbox: extern holders use settings, list org_inbox=true, or pull (consumes for the whole org). Mode writes are user-only. See guide for limits and continuations.",
         json!({
-            "action": { "type": "string", "enum": ["list", "fetch", "chunk", "conversation"] },
+            "action": { "type": "string", "enum": ["list", "fetch", "chunk", "conversation", "settings", "pull"] },
+            "org_inbox": {"type":"boolean","description":"list only: true previews held outside mail; current extern audience required; previews do not consume"},
             "project": { "type": "string", "description": "list/fetch/chunk: project name; current project reach required on every read" },
             "folder": {"type":"string","enum":["inbox","sent"],"description":"project reads: explicit folder selects full history; omitted list defaults waiting inbox"},
             "status": {"type":"string","enum":["waiting","delivered","claimed","acked","dead-letter"],"description":"project reads: optional queue stage filter; keep folder/status unchanged across cursor pages"},
@@ -1636,6 +1637,8 @@ mod builder_stack_tests {
                 want["inputSchema"]["properties"]["dnd"]=serde_json::json!({"type":"boolean","description":"Hold non-urgent mail; false releases now. Self: running turn; descendant: current or next turn"});
                 want["inputSchema"]["properties"]["node"]=serde_json::json!({"type":"string","description":"DnD target: self or descendant; requires dnd, omits status/summary. Descendants need runtime"});
                 want["inputSchema"]["required"]=serde_json::json!([]);
+            } else {
+                want["inputSchema"]["properties"]["action"]["enum"]=serde_json::json!(["list","fetch","chunk","conversation","settings","pull"]);
             }
         }
         for name in ["orgtree_message","orgtree_send_notice"] {
@@ -1649,7 +1652,7 @@ mod builder_stack_tests {
         }
         // Approved project tool parity: only these added/changed schema keys
         // differ from the earlier captured tool contract.
-        for (name,keys) in [("orgtree_inbox",vec!["project","folder","status"]),
+        for (name,keys) in [("orgtree_inbox",vec!["project","folder","status","org_inbox"]),
             ("orgtree_project",vec!["index","above","chunk_index","body_revision","urgent","urgent_reason","reply_to","replies"]),
             ("orgtree_message",vec!["reply_to","replies"])] {
             let want=expected.as_array_mut().unwrap().iter_mut().find(|c|c["name"]==name).unwrap();
@@ -1675,7 +1678,7 @@ mod builder_stack_tests {
             ("orgtree_work", "Manage docket items by slug; read guide before writing. Objective: problem/solution then scope. Updates claim ownership unless owner=current holder; supply progress lists or revision-checked keep/append. Add participants before assignment/review. Blocked/dropped need reasons. Review is agent review; ask(work_item) for user questions. Delete is permanent and restricted; prefer archive/drop.\nGuide: orgtree-tool-work."),
             ("orgtree_project", "Read/use projects above/below you; only ancestors/user change settings, name, order or purge mail. create needs name/index (parent defaults you); above wraps a node. settings reads; configure patches atomically. Broadcast obeys recipient authority; purge only unclaimed mail. Presentations support chunks. Claim via slot watchdog; slots lists holders/line; release_slot releases yours. Ancestors may force/unqueue. Dead letters: list/read/retry/drop; project.dead_letter alerts. fire_event fires; listeners lists listeners/watches. See guide for fields.\nGuide: orgtree-tool-project."),
             ("orgtree_watchdog", "Uncapped watchers; paged list. create: kind/target (usage defaults usage); command regex. command/stream smoke-run as you (cmd.exe or shell=bash). Ready once command/process/usage/slot/fair_queue returns effects/actions inline; else registers. Silence/event/listeners unchanged. usage checks cached levels then edges, no probes. fair_queue routes mail; slot grants lease. project_listener hears events; listener_watch counts listeners; fire_actions run tools. mqtt/websocket send uses live connection (MQTT: topic). configure sets connection health mail (default notice) without reconnect. Limits: guide.\nGuide: orgtree-tool-watchdog."),
-            ("orgtree_inbox", "Read own mail: list previews; fetch<=20 IDs; chunk long bodies. Recall conversation after fresh session/compaction before replying. Returned pending received content is consumed, even outside DND; previews are not. Received/project opens enter transcript once; sent history does not. Project reads never claim/ack. folder selects full history; omitted list waits only. Keep project/folder/status with cursors. See guide for handles and filters.\nGuide: orgtree-tool-inbox."),
+            ("orgtree_inbox", "Read own mail: list previews, fetch<=20 IDs, chunk bodies, conversation recall. Fetch/chunk consume received content; previews do not. Project reads never claim/ack; keep project/folder/status with cursors. Org inbox: extern holders use settings, list org_inbox=true, or pull (consumes for the whole org). Mode writes are user-only. See guide for limits and continuations.\nGuide: orgtree-tool-inbox."),
             ("orgtree_audience", "Manage directional audiences; requests grant nothing. request target/from managed project; grant from; deny requester; revoke grantee. Project grants reach direct live members, never nested; reverse needs its own grant. User contact does not add personal access while inherited; manual Acquire can. Project decisions go to nearest agent superior (user if none). External/org-inbox remains agent-only. Read guide for grant authority.\nGuide: orgtree-tool-audience."),
             ("orgtree_status", "Report own work status; done does not end turn. Or node+dnd only: self or descendant (descendants need runtime). Idle arms next turn. false clears any setter's hold and triggers native delivery now, without a count cap; size limits remain. Urgent bypasses; turn end clears DND.\nGuide: orgtree-tool-status."),
         ] {

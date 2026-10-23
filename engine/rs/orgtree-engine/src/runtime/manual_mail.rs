@@ -112,7 +112,7 @@ pub fn bind_fallback(cards:&HashMap<String,Value>,reads:&mut HashMap<String,Vec<
 pub fn output(name:&str,args:&Value,text:&str) -> Option<Value> {
     let (unwrapped_name, unwrapped_args) = trusted_call(name,args)?;
     let (name, args) = (unwrapped_name.as_str(), &unwrapped_args);
-    let inbox=name.rsplit("__").next()==Some("orgtree_inbox") && matches!(args["action"].as_str(),Some("fetch"|"chunk"));
+    let inbox=name.rsplit("__").next()==Some("orgtree_inbox") && matches!(args["action"].as_str(),Some("fetch"|"chunk"|"pull"));
     let inline=name.rsplit("__").next()==Some("orgtree_watchdog") && args["action"]=="create" && args["kind"]=="fair_queue";
     if !inbox && !inline {return None;}
     let body=serde_json::Deserializer::from_str(text).into_iter::<Value>().next()?.ok()?;

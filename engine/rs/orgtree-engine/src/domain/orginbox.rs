@@ -19,6 +19,33 @@ pub fn enabled(settings: &Value) -> bool {
     settings["org_inbox_enabled"].as_bool().unwrap_or(true)
 }
 
+/// Legacy off remains authoritative for every existing SQL visibility gate.
+#[nolog]
+pub fn mode(settings: &Value) -> &'static str {
+    if !enabled(settings) { "closed" }
+    else if settings["org_inbox_mode"] == "dnd" { "dnd" }
+    else { "normal" }
+}
+
+/// All policy writers keep the new enum and legacy isolation boolean in step.
+#[logged]
+pub fn normalize_patch(patch: &mut Map<String, Value>) -> Result<()> {
+    if let Some(value) = patch.get("org_inbox_mode") {
+        let Some(mode) = value.as_str().filter(|m| matches!(*m,"normal"|"dnd"|"closed")) else {
+            crate::refuse!(BadRequest,"org_inbox_mode must be normal, dnd or closed");
+        };
+        let on = mode != "closed";
+        if patch.get("org_inbox_enabled").is_some_and(|v| v.as_bool() != Some(on)) {
+            crate::refuse!(BadRequest,"org_inbox_mode conflicts with org_inbox_enabled");
+        }
+        patch.insert("org_inbox_enabled".into(), json!(on));
+    } else if let Some(value) = patch.get("org_inbox_enabled") {
+        let Some(on) = value.as_bool() else { crate::refuse!(BadRequest,"org_inbox_enabled must be true or false"); };
+        patch.insert("org_inbox_mode".into(), json!(if on {"normal"} else {"closed"}));
+    }
+    Ok(())
+}
+
 #[nolog]
 pub fn check(settings: &Value) -> Result<()> {
     if !enabled(settings) {
@@ -179,7 +206,6 @@ pub async fn send_extern(engine: &Arc<Engine>, org_id: i64, out: &Outgoing) -> R
         crate::refuse!(BadRequest, "@org:{slug} is this organization; write to the agent directly");
     }
     require_enabled(engine, dst.id).await?;
-    let route = ensure_holders(engine, dst.id, None).await?;
     let mut client = engine.db.get().await?;
     let attachments = Value::Array(out.attachments.clone());
     let out_uid = uid("x");
@@ -200,6 +226,7 @@ pub async fn send_extern(engine: &Arc<Engine>, org_id: i64, out: &Outgoing) -> R
     }).collect();
     let tx = client.transaction().await?;
     admit(&tx, &[org_id, dst.id]).await?;
+    // Preserve the canonical kind for a later pull or Normal-mode release.
     tx
         .execute(
             "WITH o AS (INSERT INTO ot.org_inbox (uid, org_id, dir, peer, body, by_name, state, state_at, attachments, reply_to, replies)
@@ -208,9 +235,9 @@ pub async fn send_extern(engine: &Arc<Engine>, org_id: i64, out: &Outgoing) -> R
             &[&out_uid, &org_id, &dst_peer, &out.body, &by, &attachments, &in_uid, &dst.id, &src_peer, &reply_here, &reply_there, &json!(replies_here), &json!(replies_there)],
         )
         .await?;
+    tx.execute("UPDATE ot.org_inbox SET kind=$2 WHERE uid=$1", &[&in_uid,&out.kind]).await?;
+    let (route, delivered, held, audience_changed) = publish_new(engine,&tx,dst.id,&in_uid).await?;
     let holders = &route.to;
-    let delivered = publish_copies(&tx, dst.id, holders, &src_peer, &out.body, &out.kind,
-        &attachments, &replies_there, None, None).await?;
     let mut mention_rows=[(org_id,out_uid.as_str()),(dst.id,in_uid.as_str())];
     mention_rows.sort_by_key(|row|row.0);
     for (org,id) in mention_rows {
@@ -221,20 +248,24 @@ pub async fn send_extern(engine: &Arc<Engine>, org_id: i64, out: &Outgoing) -> R
     // the spark rides from the sender to the mailbox here, and from the mailbox to each holder there
     changes::notify(engine, &src, vec![Change::OrgInbox, Change::Spark { from: out.from.spark(), to: "org_inbox".into() }]);
     changes::notify(engine, &dst, vec![Change::OrgInbox]);
+    if audience_changed { changes::notify(engine,&dst,vec![Change::Audiences,Change::Events]); }
     wake_copies(engine, dst.id, delivered);
-    if holders.is_empty() || route.waiting {
+    if !held && (holders.is_empty() || route.waiting) {
         if let Err(error) = super::runtime_notices::external_unroutable(engine,dst.id,&dst.slug,&src_peer,&out.body,holders).await {
             tracing::warn!(org_id = dst.id, %error, "outside mail committed; fallback notice failed");
         }
     }
-    let delivery = if holders.is_empty() {
+    let delivery = if held {
+        format!("Stored in {}'s org inbox under Do not disturb or its ordered release queue; no agent copy or wake. An extern-audience holder can pull it.",dst.slug)
+    } else if holders.is_empty() {
         format!("Stored in {}'s org inbox; it has no live agent to read it yet.", dst.slug)
     } else if route.waiting {
         format!("Delivered to {}'s org inbox and to {}; none of them can run now (halted or frozen), so it waits for them.", dst.slug, holders.join(", "))
     } else {
         format!("Delivered to {}'s org inbox and to {}.", dst.slug, holders.join(", "))
     };
-    Ok(Sent { dnd_held: false, transfer_ids: Vec::new(), uid: out_uid, to: dst_peer, recipient_state: "live".into(), delivery, deferred: holders.is_empty() || route.waiting })
+    resume_pending(engine,dst.id).await;
+    Ok(Sent { dnd_held: held, transfer_ids: Vec::new(), uid: out_uid, to: dst_peer, recipient_state: "live".into(), delivery, deferred: held || holders.is_empty() || route.waiting })
 }
 
 /// Effective live audience holders; newest grant wins in single-holder mode.
@@ -297,7 +328,17 @@ async fn ensure_holders(engine: &Arc<Engine>, org_id: i64, sender: Option<(i64, 
     let tx = client.transaction().await?;
     let raw: Value = tx.query_one("SELECT settings FROM ot.orgs WHERE id = $1 FOR UPDATE", &[&org_id]).await?.get(0);
     check(&raw)?;
-    let settings = crate::feed::groups::effective_settings(&raw, &engine.settings.defaults());
+    let (route, changed) = route_tx(&tx, org_id, sender, &raw, &engine.settings.defaults()).await?;
+    tx.commit().await?;
+    if changed { changes::notify_id(engine, org_id, vec![Change::Audiences, Change::OrgInbox, Change::Events]); }
+    Ok(route)
+}
+
+/// Resolve routing under the publication/policy lock, never from a stale mode.
+#[logged]
+async fn route_tx(tx: &tokio_postgres::Transaction<'_>, org_id:i64, sender:Option<(i64,&str)>, raw:&Value,
+    defaults:&Map<String,Value>) -> Result<(Route,bool)> {
+    let settings = crate::feed::groups::effective_settings(raw, defaults);
     let multi = settings["org_inbox_multi_holder"].as_bool().unwrap_or(false);
     let mut holders = live_holders(&*tx, org_id, multi).await?;
     let target = if let Some((id, name)) = sender {
@@ -337,9 +378,7 @@ async fn ensure_holders(engine: &Arc<Engine>, org_id: i64, sender: Option<(i64, 
             route.waiting = true;
         }
     }
-    tx.commit().await?;
-    if changed { changes::notify_id(engine, org_id, vec![Change::Audiences, Change::OrgInbox, Change::Events]); }
-    Ok(route)
+    Ok((route,changed))
 }
 
 /// Mail that arrived over the mail hub: stored once (keyed by its hub id),
@@ -367,10 +406,7 @@ pub async fn deliver_inbound(
 pub async fn deliver_inbound_replies(engine: &Arc<Engine>, org_id:i64, peer:&str, body:&str,
     attachments:Vec<Value>, net_id:&str, hub:&str, references:&[String]) -> Result<bool> {
     let Some(org) = engine.orgs.by_id(org_id) else { return Ok(false) };
-    // Resolve the route first, then commit the inbox row and every holder's
-    // mailbox copy together. A retry must never mistake half a fanout for a
-    // completed delivery. Wakes happen only after this short transaction.
-    let route = ensure_holders(engine, org_id, None).await?;
+    // The org row serializes mode changes, extraction and publication.
     let mut client = engine.db.get().await?;
     let mut quotes=Vec::new();
     for id in references.iter().take(super::replies::MAX_REPLIES) {
@@ -391,26 +427,91 @@ pub async fn deliver_inbound_replies(engine: &Arc<Engine>, org_id:i64, peer:&str
           &crate::util::pg_json_option(&stored).as_ref(), &json!(quotes)],
     ).await?;
     if n == 0 { return Ok(false); }
+    let (route, delivered, held, audience_changed) = publish_new(engine,&tx,org_id,&mention_mail_uid).await?;
     let holders = &route.to;
-    let delivered = publish_copies(&tx, org_id, holders, peer, body, "message",
-        &Value::Array(attachments), &quotes, Some(net_id), Some(hub)).await?;
     super::mention_navigation::record_org_mail(&*tx,org_id,&mention_mail_uid,body).await?;
     tx.commit().await?;
     drop(client);
     wake_copies(engine, org_id, delivered);
-    if holders.is_empty() || route.waiting {
+    if audience_changed { changes::notify(engine,&org,vec![Change::Audiences,Change::Events]); }
+    if !held && (holders.is_empty() || route.waiting) {
         if let Err(error) = super::runtime_notices::external_unroutable(engine,org_id,&org.slug,peer,body,holders).await {
             tracing::warn!(org_id, %error, "outside mail committed; fallback notice failed");
         }
     }
+    resume_pending(engine,org_id).await;
     Ok(true)
+}
+
+/// A held backlog also queues new Normal-mode arrivals, so none overtake it.
+#[logged]
+async fn publish_new(engine:&Engine,tx:&tokio_postgres::Transaction<'_>,org:i64,uid:&str)
+    -> Result<(Route,Vec<(i64,String,String,bool)>,bool,bool)> {
+    let raw:Value=tx.query_one("SELECT settings FROM ot.orgs WHERE id=$1",&[&org]).await?.get(0);
+    let backlog=tx.query_opt("SELECT 1 FROM ot.org_inbox WHERE org_id=$1 AND dnd_held LIMIT 1",&[&org]).await?.is_some();
+    if mode(&raw)=="dnd" || backlog {
+        tx.execute("UPDATE ot.org_inbox SET dnd_held=true WHERE uid=$1",&[&uid]).await?;
+        return Ok((Route{to:Vec::new(),waiting:false},Vec::new(),true,false));
+    }
+    let (route,changed)=route_tx(tx,org,None,&raw,&engine.settings.defaults()).await?;
+    let row:Value=tx.query_one("SELECT to_jsonb(i) FROM ot.org_inbox i WHERE uid=$1",&[&uid]).await?.get(0);
+    let copies=publish_row(tx,org,&route.to,&row).await?;
+    Ok((route,copies,false,changed))
+}
+
+#[logged]
+async fn publish_row(tx:&tokio_postgres::Transaction<'_>,org:i64,holders:&[String],row:&Value)
+    -> Result<Vec<(i64,String,String,bool)>> {
+    let quotes=super::replies::snapshots(row.get("reply_to"),row.get("replies"));
+    publish_copies(tx,org,holders,row["peer"].as_str().unwrap_or(""),row["body"].as_str().unwrap_or(""),
+        row["kind"].as_str().unwrap_or("message"),&row["attachments"],&quotes,
+        row["net_id"].as_str(),row["hub"].as_str()).await
+}
+
+/// One bounded transaction. Retained inactive history is never scanned.
+#[logged]
+pub async fn release_page(engine:&Arc<Engine>,org:i64) -> Result<usize> {
+    let mut c=engine.db.get().await?;
+    // Cheap indexed negative probe before taking the policy lock.
+    if c.query_opt("SELECT 1 FROM ot.org_inbox WHERE org_id=$1 AND dnd_held LIMIT 1",&[&org]).await?.is_none() {return Ok(0);}
+    let tx=c.transaction().await?;
+    let raw:Value=tx.query_one("SELECT settings FROM ot.orgs WHERE id=$1 FOR UPDATE",&[&org]).await?.get(0);
+    if mode(&raw)!="normal" {return Ok(0);}
+    let rows=tx.query("SELECT to_jsonb(i) FROM ot.org_inbox i WHERE org_id=$1 AND dnd_held ORDER BY id LIMIT 100 FOR UPDATE",&[&org]).await?;
+    if rows.is_empty() {return Ok(0);}
+    let (route,changed)=route_tx(&tx,org,None,&raw,&engine.settings.defaults()).await?;
+    if route.to.is_empty() {return Ok(0);}
+    let mut copies=Vec::new();
+    for row in &rows {
+        let row:Value=row.get(0);
+        copies.extend(publish_row(&tx,org,&route.to,&row).await?);
+        tx.execute("UPDATE ot.org_inbox SET dnd_held=false WHERE uid=$1",&[&row["uid"].as_str().unwrap()]).await?;
+    }
+    tx.commit().await?;
+    drop(c);
+    if changed {changes::notify_id(engine,org,vec![Change::Audiences,Change::Events]);}
+    wake_copies(engine,org,copies);
+    Ok(rows.len())
+}
+
+/// Save and inbound paths start the drain now. The normal runtime tick retries
+/// after a restart/failure; committed publication never gets reported as failed.
+#[logged]
+pub async fn resume_pending(engine:&Arc<Engine>,org:i64) {
+    loop {
+        match release_page(engine,org).await {
+            Ok(100)=>tokio::task::yield_now().await,
+            Ok(_)=>break,
+            Err(error)=>{tracing::warn!(org_id=org,%error,"org inbox release deferred to runtime recovery");break;}
+        }
+    }
 }
 
 /// Both local and hub delivery publish the retained row and holder copies in
 /// the same transaction; a setting change cannot split a fanout.
 #[allow(clippy::too_many_arguments)]
 #[logged]
-async fn publish_copies(tx: &tokio_postgres::Transaction<'_>, org_id: i64, holders: &[String],
+pub(crate) async fn publish_copies(tx: &tokio_postgres::Transaction<'_>, org_id: i64, holders: &[String],
     peer: &str, body: &str, kind: &str, attachments: &Value, quotes: &[Value],
     net_id: Option<&str>, hub: Option<&str>) -> Result<Vec<(i64, String, String, bool)>> {
     let mut delivered = Vec::new();
@@ -458,3 +559,33 @@ fn wake_copies(engine: &Arc<Engine>, org_id: i64, delivered: Vec<(i64, String, S
     }
     changes::notify_id(engine, org_id, ch);
  }
+
+#[cfg(test)]
+mod org_dnd_tests {
+    use super::*;
+    #[test] fn org_dnd_legacy_and_enum_modes_preserve_closed_isolation() {
+        assert_eq!(mode(&json!({})),"normal");
+        assert_eq!(mode(&json!({"org_inbox_enabled":false})),"closed");
+        assert_eq!(mode(&json!({"org_inbox_enabled":false,"org_inbox_mode":"dnd"})),"closed");
+        assert_eq!(mode(&json!({"org_inbox_enabled":true,"org_inbox_mode":"dnd"})),"dnd");
+        for (selected,on) in [("normal",true),("dnd",true),("closed",false)] {
+            let mut patch=json!({"org_inbox_mode":selected}).as_object().unwrap().clone();
+            normalize_patch(&mut patch).unwrap();
+            assert_eq!(patch["org_inbox_enabled"],on);
+            assert_eq!(mode(&Value::Object(patch)),selected);
+        }
+    }
+    #[test] fn org_dnd_legacy_writes_do_not_leave_a_stale_hold() {
+        for (on,want) in [(true,"normal"),(false,"closed")] {
+            let mut patch=json!({"org_inbox_enabled":on}).as_object().unwrap().clone();
+            normalize_patch(&mut patch).unwrap();assert_eq!(patch["org_inbox_mode"],want);
+        }
+        for v in [json!("quiet"),json!(false),Value::Null] {
+            assert!(normalize_patch(json!({"org_inbox_mode":v}).as_object_mut().unwrap()).is_err());
+        }
+        assert!(normalize_patch(json!({"org_inbox_mode":"dnd","org_inbox_enabled":false}).as_object_mut().unwrap()).is_err());
+        let app=json!({"org_inbox_mode":"dnd","org_inbox_enabled":false}).as_object().unwrap().clone();
+        let effective=crate::feed::groups::effective_settings(&json!({}),&app);
+        assert_eq!(effective["org_inbox_mode"],"normal");assert_eq!(effective["org_inbox_enabled"],true);
+    }
+}

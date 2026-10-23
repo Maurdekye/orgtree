@@ -11,6 +11,8 @@ This tab controls the selected organization's network identity and the hubs it c
 
 ## Address and secret
 
+The **External org inbox** group selects Normal operations, Do not disturb, or Closed off inbox and the multiple-holder policy. These fields use the shared **Save** button; hub membership actions still apply immediately. DnD warns that Hubchat and other outside mail is kept but is not read or delivered automatically, including the user's own messages. An agent must check the org inbox. See [inbox policy](../../org-settings/org-policies-inbox/SKILL.md) for extraction, resuming Normal and the user-only mode tool.
+
 The organization has a permanent public network address. **Copy address** copies it for peers. It is separate from a person's Hubchat identity and from a bare local org slug. The address is minted with its ownership secret; changing hub membership does not create a new identity.
 
 **Reveal secret…** reads the secret for the human settings view; **Copy** and **Hide** then appear. The secret proves address ownership. Losing it loses that identity, and a new secret cannot recover the same address. Keep a human backup if the address matters. Agents' tree/discovery projections omit the secret; do not ask an agent to obtain or publish it for routine connection setup.

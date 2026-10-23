@@ -611,6 +611,9 @@ pub(super) fn mail_chunk(body: &str, index: usize) -> Result<Value> {
 #[logged]
 pub async fn inbox(engine: &Arc<Engine>, caller: &Caller, args: &Value) -> Result<Done> {
     let action = need_str(args, "action")?;
+    if matches!(action,"pull"|"settings"|"configure") || args.get("org_inbox").is_some() {
+        return super::org_inbox::read(engine,caller,args).await;
+    }
     let allowed = match action {
         "list" => vec!["action", "cursor", "limit", "project", "folder", "status"], "fetch" => vec!["action", "message_ids", "project", "folder", "status"],
         "chunk" => vec!["action", "delivery_id", "message_id", "chunk_index", "project", "folder", "status"],

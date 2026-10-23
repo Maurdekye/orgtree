@@ -21,7 +21,7 @@ use crate::runtime::AgentMsg;
 const ORG_KEYS: &[&str] = &[
     "max_top_grant", "default_top_grant", "compact_at", "default_tools", "default_visibility", "default_account",
     "permission_mode", "default_effort", "auto_resume", "auto_resume_compact", "auto_cheap_compact",
-    "org_inbox_enabled", "org_inbox_multi_holder", "account_fallback_default", "headless", "disabled_accounts",
+    "org_inbox_enabled", "org_inbox_mode", "org_inbox_multi_holder", "account_fallback_default", "headless", "disabled_accounts",
     "quick_chat", "default_fast_mode",
 ];
 
@@ -134,6 +134,10 @@ async fn sweep_top_grants(
 fn checked(e: &Engine, org: Option<&str>, key: &str, v: &Value) -> ApiResult<Value> {
     let bad = |why: String| Err(ApiError::unprocessable(why));
     match key {
+        "org_inbox_mode" => match v.as_str() {
+            Some("normal"|"dnd"|"closed") => Ok(v.clone()),
+            _ => bad("org_inbox_mode must be normal, dnd or closed".into()),
+        },
         "default_fast_mode" => Ok(crate::providers::fast_mode::validate_defaults(&e.providers.state.load(),v)?),
         // Quick chat's starting choices in this org (set by a template)
         "quick_chat" => crate::domain::templates::quick_chat(v).map_err(ApiError::unprocessable),
@@ -232,6 +236,7 @@ pub fn template_settings(e: &Engine, m: &Map<String, Value>) -> Result<Map<Strin
             }
         }
     }
+    crate::domain::orginbox::normalize_patch(&mut out).map_err(|e|e.to_string())?;
     Ok(out)
 }
 
@@ -285,6 +290,7 @@ pub async fn save_org(State(e): State<Arc<Engine>>, Path(slug): Path<String>, Js
             other => return Err(ApiError::bad_request(format!("unknown setting {other}"))),
         }
     }
+    crate::domain::orginbox::normalize_patch(&mut patch)?;
     if let Some(acc) = patch.get("auto_cheap_compact") {
         // checked whole here; merged with the stored value below
         crate::settings::cheap_compact(acc, &Value::Null, true).map_err(ApiError::unprocessable)?;
@@ -385,6 +391,7 @@ pub async fn save_org(State(e): State<Arc<Engine>>, Path(slug): Path<String>, Js
     if patch.contains_key("org_inbox_enabled") {
         crate::net::kick(&e);
         changes::notify(&e, &o, vec![Change::OrgInbox, Change::Net]);
+        crate::domain::orginbox::resume_pending(&e,o.id).await;
     }
     changes::notify(&e, &o, vec![Change::Org, Change::Events]);
     if patch.contains_key("dirs") || patch.contains_key("permission_mode") {

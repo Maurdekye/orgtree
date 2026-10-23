@@ -74,6 +74,11 @@ fn cards(org_scoped: bool) -> Vec<Value> {
         .into_iter()
         .filter(|t| t["name"].as_str().map(|n| names.contains(&n)).unwrap_or(false))
         .collect();
+    if let Some(inbox)=out.iter_mut().find(|c|c["name"]=="orgtree_inbox") {
+        inbox["description"]=json!("Read the user's own inbox with list/fetch. settings reads the org outside-inbox mode; configure mode=normal|dnd|closed changes it as the user, through the desktop policy path. Agents cannot configure it.");
+        inbox["inputSchema"]["properties"]["action"]["enum"]=json!(["list","fetch","settings","configure"]);
+        inbox["inputSchema"]["properties"]["mode"]=json!({"type":"string","enum":["normal","dnd","closed"]});
+    }
     if names.contains(&"orgtree_create_org") {
         out.push(json!({
             "name": "orgtree_create_org",
@@ -241,6 +246,20 @@ async fn message(engine: &Arc<Engine>, org: &Arc<OrgHandle>, args: &Value, force
 #[logged]
 async fn inbox(engine: &Arc<Engine>, org: &Arc<OrgHandle>, args: &Value) -> Result<Done> {
     let action = args["action"].as_str().unwrap_or("list").trim();
+    if matches!(action,"settings"|"configure") {
+        let keys:&[&str]=if action=="configure" {&["action","mode"]} else {&["action"]};
+        if args.as_object().is_none_or(|a|a.keys().any(|k|!keys.contains(&k.as_str()))) {
+            crate::refuse!(BadRequest,"unexpected org inbox policy field");
+        }
+        if action=="configure" {
+            let mode=need_str(args,"mode")?;
+            crate::http::settings::save_org(axum::extract::State(engine.clone()),axum::extract::Path(org.slug.clone()),
+                axum::Json(serde_json::Map::from_iter([("org_inbox_mode".into(),json!(mode))]))).await.map_err(api)?;
+        }
+        let c=engine.db.get().await?;
+        let settings:Value=c.query_one("SELECT settings FROM ot.orgs WHERE id=$1",&[&org.id]).await?.get(0);
+        return Done::json(&json!({"mode":crate::domain::orginbox::mode(&settings),"enabled":crate::domain::orginbox::enabled(&settings),"can_configure":true}));
+    }
     let client = engine.db.get().await?;
     let (pending, read, sent) = crate::feed::compute::user_mail(&client, org.id).await?;
     drop(client);
@@ -343,6 +362,14 @@ async fn answer(engine: &Arc<Engine>, org: &Arc<OrgHandle>, args: &Value) -> Res
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test] fn org_dnd_mode_configure_is_only_on_the_user_card() {
+        let user=cards(true).into_iter().find(|c|c["name"]=="orgtree_inbox").unwrap();
+        let agent=defs::list().into_iter().find(|c|c["name"]=="orgtree_inbox").unwrap();
+        assert!(user["inputSchema"]["properties"]["action"]["enum"].as_array().unwrap().contains(&json!("configure")));
+        assert!(!agent["inputSchema"]["properties"]["action"]["enum"].as_array().unwrap().contains(&json!("configure")));
+        assert!(agent["inputSchema"]["properties"]["action"]["enum"].as_array().unwrap().contains(&json!("pull")));
+        assert_eq!(user["inputSchema"]["properties"]["mode"]["enum"],json!(["normal","dnd","closed"]));
+    }
 
     fn names(org_scoped: bool) -> Vec<String> {
         cards(org_scoped).iter().map(|c| c["name"].as_str().unwrap_or("").to_string()).collect()

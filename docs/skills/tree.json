@@ -116,7 +116,7 @@
    "writer": "org-sol",
    "status": "fixed"
   },
-{
+  {
    "path": "orgtree-working/team/tool-fast-defaults",
    "name": "orgtree-tool-fast-defaults",
    "level": 3,
@@ -3041,7 +3041,7 @@
    "covers": [
     "screen:quick-chat"
    ],
-     "purpose": "The quick chat box: hiring and starting a new agent, with the top-level eye and eligible Opus/Sol/Argon/Wonder defaults.",
+   "purpose": "The quick chat box: hiring and starting a new agent, with the top-level eye and eligible Opus/Sol/Argon/Wonder defaults.",
    "must_cover": [
     "superior/model/files popovers",
     "placement setting"
@@ -3816,8 +3816,8 @@
    "writer": "providers-sol",
    "status": "fixed",
    "components": [
-     "apps/desktop/renderer/src/canvas/agentdocket.tsx#AgentDocketModal",
-     "apps/desktop/renderer/src/canvas/slotspanel.tsx#ProjectSlotsModal",
+    "apps/desktop/renderer/src/canvas/agentdocket.tsx#AgentDocketModal",
+    "apps/desktop/renderer/src/canvas/slotspanel.tsx#ProjectSlotsModal",
     "apps/desktop/renderer/src/canvas/docket.tsx#DocketModal",
     "apps/desktop/renderer/src/canvas/docket.tsx#AgentDocketView",
     "apps/desktop/renderer/src/canvas/teamdocket.tsx#TeamDocketModal"
@@ -5442,15 +5442,21 @@
    "kind": "setting",
    "registered": false,
    "covers": [
+    "org:org_inbox_mode",
     "org:org_inbox_enabled",
     "org:org_inbox_multi_holder"
    ],
-   "purpose": "Policies > outside communication through the org inbox.",
+   "purpose": "Connections > Normal operations, Do not disturb, Closed off inbox and multiple holders.",
    "must_cover": [
-    "each switch"
+    "each mode",
+    "Hubchat warning",
+    "user-only mode writes",
+    "pull consumption and Normal resumption",
+    "multiple holders"
    ],
    "sources": [
-    "apps/desktop/renderer/src/App.tsx:3276-3280"
+    "apps/desktop/renderer/src/orginboxpolicy.tsx",
+    "engine/rs/orgtree-engine/src/domain/orginbox.rs"
    ],
    "see_also": [
     "org-inbox"
@@ -5459,18 +5465,25 @@
    "status": "fixed",
    "ui_labels": [
     {
-     "file": "apps/desktop/renderer/src/App.tsx",
-     "label": "allow outside communication through the org inbox"
+     "file": "apps/desktop/renderer/src/orginboxpolicy.tsx",
+     "label": "outside communication"
     },
     {
-     "file": "apps/desktop/renderer/src/App.tsx",
+     "file": "apps/desktop/renderer/src/orginboxpolicy.tsx",
      "label": "allow multiple org-inbox audience holders"
     }
    ],
    "key_sources": [
     {
-     "key": "org:org_inbox_enabled",
+     "key": "org:org_inbox_mode",
      "file": "apps/desktop/renderer/src/App.tsx",
+     "needles": [
+      "org_inbox_mode"
+     ]
+    },
+    {
+     "key": "org:org_inbox_enabled",
+     "file": "engine/rs/orgtree-engine/src/domain/orginbox.rs",
      "needles": [
       "org_inbox_enabled"
      ]

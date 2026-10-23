@@ -55,16 +55,19 @@ pub(super) async fn dispatch(e: &Arc<Engine>) -> Result<()> {
     let tx = c.transaction().await?;
     // Take org admission locks before job locks, and in the same ascending
     // order as local cross-org publication. The candidate read is bounded.
-    let candidates: Vec<i64> = tx.query("SELECT org_id FROM ot.net_transfer_failures WHERE notified_at IS NULL AND NOT EXISTS (SELECT 1 FROM ot.orgs inbox_org WHERE inbox_org.id=org_id AND inbox_org.settings->'org_inbox_enabled'='false'::jsonb) ORDER BY created_at,id LIMIT 16", &[])
+    let candidates: Vec<i64> = tx.query("SELECT f.org_id FROM ot.net_transfer_failures f WHERE notified_at IS NULL AND NOT EXISTS (SELECT 1 FROM ot.orgs inbox_org WHERE inbox_org.id=f.org_id AND (inbox_org.settings->'org_inbox_enabled'='false'::jsonb OR (f.detail->>'direction'='download' AND inbox_org.settings->>'org_inbox_mode'='dnd'))) ORDER BY created_at,id LIMIT 16", &[])
         .await?.iter().map(|r| r.get(0)).collect();
     let admitted: Vec<i64> = tx.query("SELECT id,settings FROM ot.orgs WHERE id=ANY($1) ORDER BY id FOR UPDATE", &[&candidates])
         .await?.iter().filter(|r| crate::domain::orginbox::enabled(&r.get::<_,Value>(1))).map(|r| r.get(0)).collect();
-    let rows = tx.query("SELECT id,org_id,detail FROM ot.net_transfer_failures WHERE org_id=ANY($1) AND notified_at IS NULL ORDER BY created_at,id LIMIT 16 FOR UPDATE SKIP LOCKED", &[&admitted]).await?;
+    let rows = tx.query("SELECT id,org_id,detail FROM ot.net_transfer_failures f WHERE org_id=ANY($1) AND notified_at IS NULL AND (detail->>'direction' IS DISTINCT FROM 'download' OR NOT EXISTS (SELECT 1 FROM ot.orgs o WHERE o.id=f.org_id AND o.settings->>'org_inbox_mode'='dnd')) ORDER BY created_at,id LIMIT 16 FOR UPDATE SKIP LOCKED", &[&admitted]).await?;
     let mut notices = Vec::new();
     for r in rows {
         let id: String = r.get(0);
         let org: i64 = r.get(1);
         let detail: Value = r.get(2);
+        // Incoming failure mail cannot become a wake bypass for Org DnD.
+        let settings:Value=tx.query_one("SELECT settings FROM ot.orgs WHERE id=$1",&[&org]).await?.get(0);
+        if detail["direction"]=="download" && crate::domain::orginbox::mode(&settings)=="dnd" {continue;}
         let body = if detail["direction"] == "local" {
             format!("Legacy local upload of {} failed: {}. Cleanup removes interrupted or expired partial uploads and retains completed uploads. For human hub mail, select the original file again in Hubchat.", detail["name"].as_str().unwrap_or("file"),detail["error"].as_str().unwrap_or("local upload interrupted"))
         } else { format!("Attachment {} for message {} ({}) failed: {}. Messages wait for every file. Inspect the current status of transfer {} and retry after correcting the cause{}.",

@@ -94,6 +94,9 @@ pub fn start(engine: &Arc<Engine>) {
 /// independent of the optional switches, as in the 3.x keeper.
 #[logged]
 async fn tick_org(engine: &Arc<Engine>, org: &Arc<OrgHandle>, sw: Switches) {
+    if let Err(e)=crate::domain::orginbox::release_page(engine,org.id).await {
+        tracing::warn!(org=%org.slug,%e,"org inbox release recovery failed; retry next pass");
+    }
     if let Err(e) = crate::domain::docket::recover_abandoned(engine, org).await {
         tracing::warn!(org = %org.slug, error = %format!("{e:#}"), "abandoned docket recovery failed; retry next pass");
     }
