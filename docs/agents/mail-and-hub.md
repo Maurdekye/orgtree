@@ -442,6 +442,12 @@ Original section: Orgtree 4.0.0 (Rust engine): read this first. Source lines 313
   `canvas/desk.tsx`; scope and proof: `docs/rust-engine/pending-mail-collapse.md`]
 <!-- /preserved:e-80925030192802f7 -->
 
+2026-10-23 update: every nonempty queue group now exposes Show/Hide. Six rows
+remains the automatic threshold until a manual choice; either choice survives
+count changes while the run is mounted. Run/desk/generation teardown resets it.
+The preserved entry above describes the original threshold contract. See
+[current disclosure behavior](../rust-engine/pending-mail-collapse.md).
+
 <a id="e-7985d55df47f12a0"></a>
 
 ## Bare mail recipients preserve 3.x precedence: internal agent, exact local
