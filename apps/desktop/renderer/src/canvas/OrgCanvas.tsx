@@ -5,7 +5,7 @@ import { projectBunchRotation, withProjectBunchRotation, type BunchRotation } fr
 import { CanvasBackground } from './canvasbackground'
 import { publishEpicCanvas } from '../epic/tap'
 import { fastModeSupported } from './fastmode'
-import { MoveGhost, moveGhostPosition } from './moveghost'
+import { MoveGhost, moveGhostOffset } from './moveghost'
 import { QueuedModelBadge } from './nextturn'
 import { CardNameRevealProvider } from './cardnamereveal'
 import { userGesture } from '../historyapi'
@@ -1453,12 +1453,15 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
   } | null>(null)     // {id, sx, sy, ox, oy, moved}
   const draggingId = nodeDrag.current?.moved ? nodeDrag.current.id : undefined
   const draggingInBunch = rearrangeBunches && !!nodeDrag.current?.inBunch
-  const moveGhost = useMemo(() => draggingId && !draggingInBunch ? moveGhostPosition(
+  const ghostOffset = useMemo(() => draggingId && !draggingInBunch ? moveGhostOffset(
     pendingBunch ? withProjectBunchRotation(tree, pendingBunch) : tree, pendingTargets,
     pendingOrders, draggingId, dropId, { draft, seats, pileFront, crowdPiles,
       hideRetired, shownRetired, chartLayout, inboxPxc, draftCredits, bunchProjects }) : undefined,
   [draggingId, draggingInBunch, dropId, tree, pendingTargets, pendingOrders, draft, seats, pileFront,
     crowdPiles, hideRetired, shownRetired, chartLayout, inboxPxc, draftCredits, bunchProjects, pendingBunch])
+  const ghostParent = dropId ? springs.current.get(dropId) ?? target.get(dropId) : undefined
+  const moveGhost = ghostOffset && ghostParent
+    ? { x: ghostParent.x + ghostOffset.x, y: ghostParent.y + ghostOffset.y } : undefined
   // Escape cancels the captured drag before any release can commit it.
   useEffect(() => {
     const cancel = (event: KeyboardEvent) => {

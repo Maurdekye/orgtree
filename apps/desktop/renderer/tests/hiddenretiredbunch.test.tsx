@@ -4,7 +4,7 @@ import { agent, project, chain, retired, bunchTree } from './projectbunch-fixtur
 import { canonPiles, pruneRetiredView, viewHidden, viewPiles, canvasTargets } from '../src/canvas/canvaslayout'
 import { flatten, layout, withDraftTree, withPendingMoves } from '../src/canvas/shared'
 import { projectBunches } from '../src/canvas/projectbunch'
-import { moveGhostPosition } from '../src/canvas/moveghost'
+import { moveGhostOffset } from '../src/canvas/moveghost'
 import type { CanvasNode } from '../src/canvas/shared'
 
 const rootOf = (nodes: ReturnType<typeof project>[]) => withDraftTree(bunchTree(nodes), null)
@@ -64,8 +64,10 @@ test('ordinary reparent landing ghosts use the same hidden-retiree bunch project
   const next = withPendingMoves(tree, new Map([['moving', 'project-3']]))
   const full = canonPiles(withDraftTree(next, null)), source = flatten(full, {})
   const root = pruneRetiredView(full, true, new Set()).root
-  const expected = canvasTargets(root, source, new Map(), 'row', tree, 1, undefined, true, true).get('moving')
-  const actual = moveGhostPosition(tree, new Map(), new Map(), 'moving', 'project-3', {
+  const targets = canvasTargets(root, source, new Map(), 'row', tree, 1, undefined, true, true)
+  const moved = targets.get('moving')!, superior = targets.get('project-3')!
+  const expected = { x: moved.x - superior.x, y: moved.y - superior.y }
+  const actual = moveGhostOffset(tree, new Map(), new Map(), 'moving', 'project-3', {
     draft: null, seats: {}, pileFront: {}, crowdPiles: false, hideRetired: true,
     shownRetired: new Set(), chartLayout: 'row', inboxPxc: 1, bunchProjects: true,
   })

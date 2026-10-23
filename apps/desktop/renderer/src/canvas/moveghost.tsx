@@ -17,9 +17,10 @@ export type MoveGhostOptions = {
   bunchProjects?: boolean
 }
 
-/** Apply the exact pending-state transition made by moveShown, then run the
- * same display/layout helpers that supply the animation's final targets. */
-export function moveGhostPosition(tree: TreePayload, moves: PendingMoves,
+/** Project moveShown's final layout, then return the moved node's offset
+ * from its new superior. The canvas anchors this to the superior's current
+ * spring position without rerunning the projection on animation frames. */
+export function moveGhostOffset(tree: TreePayload, moves: PendingMoves,
   orders: ReadonlyMap<string, PendingOrder>, id: string, drop: string | null,
   options: MoveGhostOptions): Pt | undefined {
   if (!drop || drop === DRAFT || drop === INBOX || id === USER || id === DRAFT) return undefined
@@ -38,7 +39,9 @@ export function moveGhostPosition(tree: TreePayload, moves: PendingMoves,
   const map = flatten(full, options.seats)
   const piles = viewPiles(root, options.pileFront, options.crowdPiles, options.hideRetired, options.shownRetired)
   const hidden = viewHidden(root, piles)
-  return canvasTargets(root, map, hidden, options.chartLayout, tree, options.inboxPxc, options.draftCredits, options.bunchProjects, options.hideRetired).get(id)
+  const targets = canvasTargets(root, map, hidden, options.chartLayout, tree, options.inboxPxc, options.draftCredits, options.bunchProjects, options.hideRetired)
+  const moved = targets.get(id), superior = targets.get(drop)
+  return moved && superior ? { x: moved.x - superior.x, y: moved.y - superior.y } : undefined
 }
 
 export function MoveGhost({ point, zoom }: { point: Pt; zoom: number }) {

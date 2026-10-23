@@ -437,13 +437,17 @@ for (const mode of ['row', 'circular'] as const) {
 }
 
 for (const mode of ['row', 'circular'] as const) for (const onto of ['b', USER]) {
-  test(`${mode}: reparent hover ghost matches final landing on ${onto}`, async t => {
+  test(`${mode}: reparent hover ghost anchors the landing offset to current ${onto}`, async t => {
     useFakeClock(); t.after(realClock)
     setChartLayout(mode); t.after(() => inAct(() => setChartLayout('row')))
-    const initial = before()
+    // Existing target reports make its branch grow on this move, so its
+    // final position differs from the position the user is hovering over.
+    const initial = tree([mkNode('boss', [mkNode('a', [mkNode('x', [mkNode('xk')])]),
+      mkNode('b', [mkNode('b1'), mkNode('b2')])])])
     const destination = onto === USER ? null : onto
     const confirmed = withPendingMoves(initial, new Map([['x', destination]]))
     const want = await settledAt(t, confirmed, 'x')
+    const parentAfter = await settledAt(t, confirmed, onto)
     const m = await mountCanvas(t, initial, () => new Promise(() => {}))
     const from = at(m.el, 'x'), to = at(m.el, onto)
     const start = client(m.el, { x: from.x + NODE_W / 2, y: from.y + NODE_H / 2 })
@@ -462,13 +466,15 @@ for (const mode of ['row', 'circular'] as const) for (const onto of ['b', USER])
     assert.equal(ghost.getAttribute('height'), String(NODE_H))
     assert.equal(ghost.getAttribute('pointer-events'), 'none')
     const preview = { x: Number(ghost.getAttribute('x')), y: Number(ghost.getAttribute('y')) }
-    assertAt(preview, want, 'hover predicts the confirmed tree, before any request')
+    const anchored = { x: to.x + want.x - parentAfter.x, y: to.y + want.y - parentAfter.y }
+    assertAt(preview, anchored, 'hover keeps the post-move offset from the current superior')
+    if (onto === 'b' && mode === 'row') assert.ok(!near(to, parentAfter), 'fixture moves the superior during relayout')
     assert.equal(m.ops.length, 0)
     await fire('pointerup', end)
     await flush(2)
     assert.equal(m.el.querySelector('[data-move-ghost]'), null, 'drop removes outline')
     await advance(3000, 50)
-    assertAt(at(m.el, 'x'), preview, 'animation ends at the ghost')
+    assertAt(at(m.el, 'x'), want, 'drop still lands at the actual post-move layout')
   })
 }
 

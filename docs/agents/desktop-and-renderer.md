@@ -1,5 +1,17 @@
 # Desktop and renderer
 
+## Move hover preview anchor (2026-10-23)
+
+The move ghost uses the projected moved-node offset from its new superior,
+anchored to the superior's current rendered spring position. Memoize the
+projection independently of animation frames; apply the current anchor on
+each render. The actual drop still uses the final projected layout, including
+any superior movement. Preserve row/circular, user-root, pending-order,
+hidden-retiree and project-bunch projections and invalid-hover clearing.
+This is a display correction; move/reorder tool authority is unchanged.
+[decided: user 2026-10-23; verified: `canvas/{moveghost,OrgCanvas}.tsx`,
+`tests/{pendingmove,hiddenretiredbunch}.test.tsx`]
+
 ## Template availability while typing (2026-10-23)
 
 The Create form rechecks template availability when the name changes because
