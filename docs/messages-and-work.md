@@ -83,8 +83,14 @@ In a live mail reply context, highlight text, right-click **Reply to selection**
 then enter your feedback in the existing reply box. Nothing sends until you
 press Send. Add several passages, remove one, or use **Cancel all selections**
 or Escape to clear the staged passages. Your draft text and recipient stay in
-place. A failed send restores the draft and excerpts; a changed recipient keeps
-the failed selection draft with its original recipient.
+place. A refused selected reply returns to an empty composer. If you have
+started a newer draft, that draft stays intact and the refused reply appears
+separately as **Reply not sent**. Expand it to read its original text,
+attachments and selected passages. **Restore reply** fills an empty composer
+without sending; send or clear the current draft first. Each refused reply is
+kept whole and separately, with at most eight passages in any restored reply.
+If the recipient changed, return to the original recipient to recover it.
+These saved replies last while this reply box remains open.
 
 A reply can include at most **eight selected passages**, each at most **4,096
 UTF-8 bytes**, with **48 KiB** of combined selection metadata. These limits apply

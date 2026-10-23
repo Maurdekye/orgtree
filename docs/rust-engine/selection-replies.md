@@ -72,9 +72,18 @@ the nearest concrete composer are fixed before focus/metadata work. Source diges
 checks run at staging and send. The selection context-menu override is explicit
 and limited to noneditable text; ordinary native menus remain unchanged.
 
-The mail reply box carries separate selected targets, keeps unrelated explicit
-whole-message targets, and restores failed selections/drafts under the original
-recipient key. Read quotes show their retained exact excerpt and nearby context;
+The mail reply box carries separate selected targets and keeps unrelated explicit
+whole-message targets. A refused selected reply auto-restores only into an empty
+composer; otherwise it retains the whole failed submission in a separate visible
+recovery entry under its original recipient key. Entries retain text, attachments,
+the explicit whole-message target and every original selection independently,
+including multiple out-of-order refusals. Restore is allowed only when text,
+selections, object target, attachments and upload staging are empty. Never merge
+and truncate a refused reply with a newer draft to fit the eight-selection limit.
+Recovery entries live only in the mounted reply box and count as unsaved panel
+content. [verified: `canvas/mail.tsx`, `tests/mailrecovery.test.tsx`;2026-10-23]
+
+Read quotes show their retained exact excerpt and nearby context;
 current source checks never replace that snapshot with newly edited text.
 Embedded docket sends merge an explicit object target with every staged selected
 passage, in either staging order, through the same plural target wire as mail

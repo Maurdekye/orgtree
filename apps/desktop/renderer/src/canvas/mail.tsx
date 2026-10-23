@@ -1,6 +1,6 @@
 import { ReplySelectionSurface } from './replyselection'
 import { useSelectionComposer } from './selectioncomposer'
-import { SelectionDrafts } from './selectionpreview'
+import { SelectionDrafts, SelectionReplyPreview } from './selectionpreview'
 import { appendSelection } from '../replySelection'
 import type { SelectionDraft, SelectionTarget } from '../replySelection'
 import { MentionLanding } from './mentionlanding'
@@ -1127,6 +1127,13 @@ export function MailReadPane({ cur, members, org, refs, mdBase, fileHref, sender
  *  the reply prose already says "reply to X…" about), so no new node-id
  *  prop is needed beyond `slug`, which callers did not previously have to
  *  pass because nothing here touched the API layer directly. */
+type FailedSelectionReply = {
+  id: number; key: string; target?: string; error: string
+  draft: string; selections: SelectionDraft[]
+  attached: { name: string; path: string; bytes: number }[]
+  object: ComposerObject | null
+}
+
 export function MailReplyBox({ target, slug, onSend, placeholder, sendDisabled = false, objectActions = false, selectionActions = false,
   toast, broadcast, sendLabel = 'reply', sendTitle, below }: {
   target?: string
@@ -1158,7 +1165,7 @@ export function MailReplyBox({ target, slug, onSend, placeholder, sendDisabled =
   const mentionCandidates = useOrgMentionCandidates(slug)
   const mentions = useAgentMentions({
     value: draft,
-    onChange: setDraft,
+    onChange: value => { currentDraft.current.draft = value; setDraft(value) },
     inputRef: taRef,
     candidates: mentionCandidates,
     disabled: sendDisabled,
@@ -1168,13 +1175,10 @@ export function MailReplyBox({ target, slug, onSend, placeholder, sendDisabled =
   const selectionRef=useRef(selections); selectionRef.current=selections
   const composerKey=`${slug}/${target}`
   const currentComposerKey=useRef(composerKey); currentComposerKey.current=composerKey
-  const failedSelectionDrafts=useRef(new Map<string,{draft:string;selections:SelectionDraft[];attached:{name:string;path:string;bytes:number}[];object:ComposerObject|null}>())
+  const [failedSelectionDrafts, setFailedSelectionDrafts] = useState<FailedSelectionReply[]>([])
   useEffect(() => {
-    const saved=failedSelectionDrafts.current.get(composerKey)
-    if (saved) {
-      failedSelectionDrafts.current.delete(composerKey)
-      setDraft(saved.draft);setAttached(saved.attached);setObjectReply(saved.object);setSelections(saved.selections)
-    } else setSelections([])
+    selectionRef.current = []
+    setSelections([])
   }, [composerKey])
   useSelectionComposer(taRef, { key:`${slug}/${target}`, disabled:sendDisabled || !target || !slug || !(objectActions || selectionActions),
     stage: selection => {
@@ -1184,13 +1188,16 @@ export function MailReplyBox({ target, slug, onSend, placeholder, sendDisabled =
   const [objectReply, setObjectReply] = useState<ComposerObject | null>(null)
   useEffect(() => { setObjectReply(null) }, [slug, target])
   useObjectComposer(taRef, { key: `${slug}/${target}`, mention: mentions.captureMention, down: mentions.noteRightClickDown,
-    disabled: sendDisabled || !target || !slug, reply: value => { setObjectReply(value); taRef.current?.focus({ preventScroll: true }) } }, objectActions ? 'mail' : 'nested')
+    disabled: sendDisabled || !target || !slug, reply: value => {
+      currentDraft.current.object = value
+      setObjectReply(value); taRef.current?.focus({ preventScroll: true })
+    } }, objectActions ? 'mail' : 'nested')
   const enterKey = useComposerEnter()
   // what happened to the last send, said in the box: `sending` from the click,
   // `sent` once the server accepted it, `failed` (with the reason) when it
-  // refused — the text is back in the box by then
+  // refused — restored into an empty box, or retained separately beside a newer draft
   const [sendState, setSendState] = useState<
-    { state: 'sending' | 'sent' } | { state: 'failed'; error: string } | null>(null)
+    { state: 'sending' | 'sent'; key: string } | { state: 'failed'; key: string; error: string; retained?: boolean } | null>(null)
   const sendSeq = useRef(0)
   const [attached, setAttached] = useState<{ name: string; path: string; bytes: number }[]>([])
   // PER-COMPOSER, never shared and never persisted (user 2026-09-17): opening
@@ -1202,8 +1209,27 @@ export function MailReplyBox({ target, slug, onSend, placeholder, sendDisabled =
   const fileRef = useRef<HTMLInputElement | null>(null)
   const attachable = Boolean(slug && target) && !sendDisabled
   const staging = useStaging((file, options) => slug && target ? uploadFile(slug, target, file, options.signal) : Promise.reject(Error('Choose a recipient first')),
-    (file, r) => setAttached(a => [...a, {name:file.name,path:r.path,bytes:r.bytes}]))
+    (file, r) => {
+      const attachment = { name: file.name, path: r.path, bytes: r.bytes }
+      currentDraft.current.attached = [...currentDraft.current.attached, attachment]
+      setAttached(a => [...a, attachment])
+    })
   const attach = staging.add
+  // Capture edits synchronously too: an HTTP refusal can resolve before React
+  // paints a newly staged object or completed upload.
+  const currentDraft = useRef({ draft, attached, object: objectReply, blocked: staging.blocked })
+  currentDraft.current = { draft, attached, object: objectReply, blocked: staging.blocked }
+  const occupied = () => Boolean(currentDraft.current.draft.length || currentDraft.current.attached.length
+    || currentDraft.current.object || selectionRef.current.length || currentDraft.current.blocked())
+  const restoreSelectionReply = (saved: FailedSelectionReply) => {
+    // Never replace a newer draft, including a selection/object/upload without text.
+    if (currentComposerKey.current !== saved.key || occupied()) return
+    selectionRef.current = saved.selections
+    setSelections(saved.selections); setDraft(saved.draft); setAttached(saved.attached); setObjectReply(saved.object)
+    setFailedSelectionDrafts(current => current.filter(entry => entry.id !== saved.id))
+    setSendState(null)
+    taRef.current?.focus({ preventScroll: true })
+  }
   const send = () => {
     const t = draft.trim()
     if ((!t && !attached.length) || sendDisabled || staging.blocked()) return
@@ -1219,13 +1245,15 @@ export function MailReplyBox({ target, slug, onSend, placeholder, sendDisabled =
     // text until the server answered, and the inbox's answer includes marking
     // the replied-to mail read, so a reply took about half a second to
     // register. Same principle as an answered card (point 31). A refused send
-    // puts the text and attachments back, so nothing typed is lost; if the
-    // user has typed more since, the refused text goes first.
+    // puts the text and attachments back. Selected replies stay separate when
+    // a newer draft exists; ordinary replies retain the historical text merge.
     const sentDraft = draft
     const sentAttached = attached
     const sentObjectReply = objectReply
     const sentSelections = selections
     const sentKey=composerKey
+    currentDraft.current = { draft: '', attached: [], object: null, blocked: staging.blocked }
+    selectionRef.current = []
     setSelections([])
     setObjectReply(null)
     setDraft(''); setAttached([]); staging.newDraft()
@@ -1234,27 +1262,43 @@ export function MailReplyBox({ target, slug, onSend, placeholder, sendDisabled =
       sentObjectReply ? composerTarget(sentObjectReply) : undefined, sentSelections.map(({target,selection}) => ({target,selection}))))
     if (res && typeof (res as Promise<unknown>).then === 'function') {
       const mine = ++sendSeq.current
-      setSendState({ state: 'sending' })
+      setSendState({ state: 'sending', key: sentKey })
       Promise.resolve(res)
         .then(() => {
           if (sendSeq.current === mine) {
-            setSendState({ state: 'sent' })
+            setSendState({ state: 'sent', key: sentKey })
             if (sendingBroadcast) setBroadcastArmed(false)
           }
         })
         .catch((e: unknown) => {
-          if (sentSelections.length && currentComposerKey.current!==sentKey) {
-            failedSelectionDrafts.current.set(sentKey,{draft:sentDraft,selections:sentSelections,attached:sentAttached,object:sentObjectReply})
-            toast?.([`Reply failed; the draft is retained for ${target}. Reopen that reply box to retry.`])
-            if(sendSeq.current===mine)setSendState({state:'failed',error:e instanceof Error?e.message:String(e)})
+          const error = e instanceof Error ? e.message : String(e)
+          if (sentSelections.length) {
+            const sameComposer = currentComposerKey.current === sentKey
+            const retained = !sameComposer || occupied()
+            if (retained) {
+              // Each refused submission keeps its own bounded selection list. Combining
+              // it with a newer draft would either discard content or exceed that bound.
+              setFailedSelectionDrafts(current => [...current, { id: mine, key: sentKey, target, error,
+                draft: sentDraft, selections: sentSelections, attached: sentAttached, object: sentObjectReply }])
+              if (!sameComposer) toast?.([`Reply not sent; saved for ${target}. Return to that reply box and use Restore reply.`])
+            } else {
+              currentDraft.current = { draft: sentDraft, attached: sentAttached, object: sentObjectReply, blocked: staging.blocked }
+              selectionRef.current = sentSelections
+              setSelections(sentSelections); setObjectReply(sentObjectReply); setDraft(sentDraft); setAttached(sentAttached)
+            }
+            if (sendSeq.current === mine) setSendState({ state: 'failed', key: sentKey, error, retained })
             return
           }
-          setSelections(current => [...sentSelections,...current].slice(0,8))
+          currentDraft.current = {
+            draft: currentDraft.current.draft.trim() ? sentDraft + '\n\n' + currentDraft.current.draft : sentDraft,
+            attached: [...sentAttached, ...currentDraft.current.attached],
+            object: currentDraft.current.object ?? sentObjectReply, blocked: staging.blocked,
+          }
           setObjectReply(current => current ?? sentObjectReply)
           setDraft((cur) => (cur.trim() ? sentDraft + '\n\n' + cur : sentDraft))
           setAttached((cur) => [...sentAttached, ...cur])
           if (sendSeq.current === mine) {
-            setSendState({ state: 'failed', error: e instanceof Error ? e.message : String(e) })
+            setSendState({ state: 'failed', key: sentKey, error })
           }
         })
     }
@@ -1283,7 +1327,7 @@ export function MailReplyBox({ target, slug, onSend, placeholder, sendDisabled =
       <div className={'mail-reply' + (noticeArmed ? ' notice-armed' : '') + (broadcastArmed ? ' broadcast-armed' : '')}
         onClick={focusComposerBackground}
         data-panel-draft={draft.length > 0 || attached.length > 0 || selections.length > 0 || staging.rows.length > 0
-          || sendState?.state === 'sending' || undefined}>
+          || sendState?.state === 'sending' || failedSelectionDrafts.length > 0 || undefined}>
         {/* the composer's left column, exactly as the desk composer builds it
             (b38d9d9): the notice toggle ABOVE the attach button, both in the
             same `.cc-btnstack`, the stack's bottom on the composer baseline.
@@ -1328,7 +1372,7 @@ export function MailReplyBox({ target, slug, onSend, placeholder, sendDisabled =
         <textarea ref={taRef} rows={2} value={draft}
           title={enterKey.hint}
           placeholder={placeholder ?? (target ? `reply to ${target}…` : 'reply…')}
-          onChange={(e) => { setDraft(e.target.value); mentions.syncCaret() }}
+          onChange={(e) => { currentDraft.current.draft = e.target.value; setDraft(e.target.value); mentions.syncCaret() }}
           onSelect={mentions.syncCaret}
           onClick={mentions.syncCaret}
           onKeyUp={mentions.syncCaret}
@@ -1373,15 +1417,29 @@ export function MailReplyBox({ target, slug, onSend, placeholder, sendDisabled =
           {sendLabel}
         </button>
       </div>
-      {sendState && (
+      {sendState && sendState.key === composerKey && (
         <div className={'mail-reply-state dim' + (sendState.state === 'failed' ? ' failed' : '')}
           role={sendState.state === 'failed' ? 'alert' : 'status'}>
           {sendState.state === 'failed'
-            ? `not sent: ${sendState.error} — your text is back in the box`
+            ? `not sent: ${sendState.error} — ${sendState.retained ? 'your newer draft is unchanged; the refused reply is saved separately below' : 'your text is back in the box'}`
             : `${sendState.state === 'sending' ? 'sending' : 'sent'}${target ? ` to ${target}` : ''}`
               + (sendState.state === 'sending' ? '…' : '')}
         </div>
       )}
+      {failedSelectionDrafts.filter(saved => saved.key === composerKey).map(saved => (
+        <details className="mail-reply-recovery" key={saved.id}>
+          <summary>Reply not sent{saved.target ? ` to ${saved.target}` : ''} — {saved.selections.length} selected {saved.selections.length === 1 ? 'passage' : 'passages'}</summary>
+          <p role="alert">{saved.error}</p>
+          <div style={{ whiteSpace: 'pre-wrap' }}>{saved.draft}</div>
+          {saved.attached.length > 0 && <ul>{saved.attached.map((file, index) => <li key={index}>{file.name} · {fmtBytes(file.bytes)}</li>)}</ul>}
+          {saved.object && <ObjectReplyDraft target={saved.object} />}
+          {saved.selections.map((selection, index) => <SelectionReplyPreview key={index}
+            target={selection.target} snapshot={selection.snapshot} />)}
+          <p className="dim">{occupied() ? 'Send or clear the current draft before restoring this reply.' : 'Restoring fills this box without sending.'}</p>
+          <button type="button" className="mail-reply-restore" disabled={occupied()}
+            onClick={() => restoreSelectionReply(saved)}>Restore reply</button>
+        </details>
+      ))}
       {below && <div className="mail-reply-below">{below}</div>}
     </>
   )

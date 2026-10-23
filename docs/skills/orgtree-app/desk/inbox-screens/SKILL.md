@@ -13,9 +13,16 @@ selection**. The shared menu also keeps **Copy selection**. The passage stages
 beside the owning reply box without sending, replacing its text, or changing
 the recipient. Several passages can be staged; remove one, **Cancel all
 selections**, or Escape in the composer clears them. Explicit whole-message
-reply targets can accompany selected passages. The draft and selections return
-on a refused send. If the recipient changed during that request, the failed
-selection draft stays with its original recipient for reopening/retry.
+reply targets can accompany selected passages. A refused selected reply returns
+to an empty composer. If you started a newer draft, its text, attachments and
+selections stay intact; the refused reply appears separately as **Reply not
+sent**, with its original text, attachments, whole-message target and all its
+selected passages. Expand it to inspect the retained content. **Restore reply**
+fills an empty composer without sending; send or clear the current draft first.
+Each refused reply is retained separately, so restoration never combines or
+truncates selections beyond the eight-passage limit. A changed recipient keeps
+the refused reply under its original recipient; return there to restore it.
+Recovery is local to this open reply box, not a persisted draft archive.
 
 Quotes retain exact source text (including Markdown syntax inside the selected
 range), nearby context and a source version. **Nearby context** expands the
