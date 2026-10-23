@@ -12,11 +12,13 @@ Attach files with the paperclip or drag them into the composer. Remove a selecte
 
 The Enter preference determines whether Enter sends or adds a line. The send button remains available. At the first or last line, plain Up/Down can browse local composer history. While a turn runs, **Stop** interrupts the current response; Enter can still queue a message. Halt is a separate persistent stop.
 
-The **Notice** control makes the next message passive: it waits for a later turn instead of waking the recipient. Use it for an FYI that can wait. A task requiring action needs an ordinary message. **DND** means an agent is holding non-urgent mail until its current turn ends. When the orange urgency control is offered, it can bypass that hold for the next send. It does not convert an interrupted turn into completed work.
+The **Notice** control makes the next message passive: it waits for a later turn instead of waking the recipient. Use it for an FYI that can wait. A task requiring action needs an ordinary message. **DND** means an agent is holding non-urgent mail for the current turn; **DND next turn** is an idle armed hold. The desk-header button controls it, and clearing it releases held mail at supported delivery boundaries. When the orange urgency control is offered for active DND, it can bypass that hold for the next send. It does not convert an interrupted turn into completed work. [Managing agents](managing-agents.md#hold-mail-for-focused-work) explains the full lifecycle.
 
 ## Read the transcript
 
 Chat contains delivered messages, thoughts when supplied, tool calls/results, event cards, attachments and pending messages. Expand a tool row to inspect its arguments and result. A spinner or a call being written is not a completed operation. A live command preview is output so far, not an exit result.
+
+An idle docket reminder can contain interactive ticket cards. Open them to inspect the actual scope and status; their reference menus use the same message-box routing as other tickets. A reminder is a nudge about unfinished work, not evidence that the item was assigned again or completed.
 
 Older transcript pages load as you scroll back. An error offers Retry; it is not proof that history ends there. Thoughts can contain supplied text, a measured duration, or a sealed/unsupported display. Missing text does not establish that the model did no reasoning.
 
@@ -24,17 +26,27 @@ Where retained, an Agent/Task tool row can expand a helper's transcript. Newly c
 
 File tool rows show the attempted path. An existing file can be opened or revealed; an unavailable path retains copy actions and its status explanation. Reading a tool result and checking the actual current file are different ways to verify an outcome.
 
+The I-beam mark with `t` or `kt` is a tool's observed text-output token estimate; `~` stays an estimate even after completion, and hover shows the full number. It differs from billed usage and context occupancy. A missing observation stays unknown. Live shell previews retain at most 32 KiB per tool and eight tools per agent, with an omission marker when clipped. Codex/Muse can supply live output; OpenCode does not currently emit shell progress snapshots, and Claude/Antigravity have no live shell preview here. Final results replace these transient previews.
+
 ## References, replies and formatting
 
 Type **@** for completion of agents, projects, available hub contacts and current/backlogged docket tickets. Search tickets by slug or title words. Tab or Enter completes the selected reference without sending. Archived tickets are omitted from completion.
 
-Inside an agent or project desk with a live message box, right-click an agent, project or ticket reference and choose **Mention** to insert it at the caret, or append it when the box was unfocused. It focuses the composer without sending. Other surfaces retain the menu appropriate to their context.
+Ticket and presentation cards/links offer **Mention** and **Reply** in every live message-box context: agent/project desks, mail reply panes and canvas content sharing Quick chat. Mention inserts the object's reference at the caret, or appends when unfocused. Reply stages that exact object while keeping your draft text. Neither sends. Agent/project links retain their Mention action too.
+
+The nearest enclosing composer owns the action. A canvas reference uses Quick chat only while it is live and no nearer desk/mail box owns the link. Standalone galleries and dockets keep their existing menus. The selected object does not change the composer's recipient to the ticket owner or presenter. Project broadcasts keep the reference. In a mail reply, remove the object annotation to return to its original mail context; a failed send restores the draft and selection. Quick chat first hires a new agent when you send, then delivers the object reference with its initial task.
 
 Use available **Reply** controls to prepare a message with its exact source reference. The composer shows that context; clear it, or use Escape, if you do not want the reply attached. Preparing a reply does not send it. A missing exact source can disable a reply rather than attach the wrong record.
 
 Markdown works across conversations, mail, work descriptions and presentations. Inline images use supported local paths or HTTP(S) links, with a link fallback when unavailable. Offline LaTeX math supports inline `\(...\)` and display `\[...\]`, as well as dollar delimiters when unambiguous. For numeric or uppercase formulas, prefer the explicit backslash delimiters. Code and escaped dollars remain literal, and malformed math remains visible as source.
 
 An agent deliberately writing a standalone @user in visible prose can request your attention. Code spans and code blocks stay literal. Native mention notifications and their click destinations follow your notification settings. In the main window, the glowing **@** button visits unobserved transcript mentions; mail mentions use Inbox/Attention. Seeing a mention and answering its associated question are separate actions.
+
+**Shift+F4** searches the retained mention navigation history across transcript, mail and docket sources, including seen entries. It opens the source and highlights the passage; later presses step backward. [Settings and usage](settings-and-usage.md#keyboard-shortcuts) explains its 4.4.2 history baseline and limits.
+
+### Image embedding limits
+
+The checked image route accepts PNG/JPEG/GIF/WebP up to 10 MiB, 16 million pixels and 8,192 pixels per dimension. It refuses unsafe local-link/device paths and private/LAN/loopback remote image destinations, even when you can reach them elsewhere. Public HTTP(S) redirects are rechecked. A rejected embed falls back to a link; that does not prove the file or URL is missing. These limits apply across Markdown reading surfaces, including mail and presentations.
 
 ## Use Mail and the user Inbox
 
@@ -59,6 +71,10 @@ Open question/request cards appear in the conversation, Inbox or Attention. Choo
 A batch can mix questions, credit decisions and scope requests. Decide or explicitly skip every tab before submitting. Credit requests allow a grant, denial or counteroffer within the shown limits. Scope requests name the specific folder, tool, MCP server or permission being requested.
 
 An **MCP permission** card can show required form fields or a link you open yourself. Accept, Decline or Cancel decides that request only; it is not a permanent grant of all server access. These requests expire after five minutes. A failed submit can be retried while still valid. Resolved, withdrawn, superseded and interrupted cards are history, not unanswered live questions.
+
+With the per-agent **Disabled by Orgtree** opt-in, supported native Claude/Codex/Muse questions can use private cards in these same surfaces. The heading names the harness. Choose options or answer in your own words, then submit; plan approval requires the explicit **Approve** choice, with none preselected. Decline, Cancel, expiry or process cancellation returns without approval. Each card decides only that request and grants no lasting scope.
+
+Native requests allow one to four questions and up to 16 options per question; a free-text answer is limited to 500 characters. Cards expire after five minutes. Oversized or unsupported requests are refused. Native questions without direct user reach are routed as ordinary question mail to the agent's superior instead. Granting the tool does not grant a direct audience. [Managing agents](managing-agents.md#opt-into-native-replacement-tools) describes the opt-in and its harness differences.
 
 ## Keep work in the Docket
 

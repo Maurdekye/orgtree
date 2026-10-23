@@ -16,7 +16,7 @@ Check **App settings > About** for desktop version and engine identity. The engi
 | Frozen | Read its actual usage, authentication, balance, connection or account-exclusion cause. |
 | Tool or folder refused | Effective scope and harness permissions; changing model alone adds no access. |
 | Project job never handled | Mail-queue listener state and delivery mode. Event listeners do not receive mailbox jobs. |
-| Outside mail pending | Connections, org-inbox policy, route/holder availability and attachment custody. |
+| Outside mail pending | Connections, Normal/DND/Closed inbox mode, route/holder availability and attachment custody. Org DND also holds your own Hubchat mail. |
 | Large conversation | Measured context, native/cheap compaction and any recorded overflow error. |
 
 Inspect current files/records before repeating a mutation after a timeout or lost response. It may have applied even though the acknowledgment did not arrive.
@@ -45,7 +45,9 @@ On an all-users Windows installation, **Run on boot** starts the background engi
 
 Read the freeze badge's reason, deadline and provenance. A quota limit, rejected login, exhausted balance and unavailable connection need different remedies. Old percentages after a reset can be unknown rather than fresh capacity.
 
-For a usage deadline, **Organization settings > Autonomy > auto-resume** permits recovery one minute after the reported reset. It is on by default unless saved defaults/policy differ. Unknown deadlines are not invented. Turning it off keeps the hold; turning it back on is rechecked without an engine restart. Authentication/balance failures do not become quota resets simply because a timestamp exists.
+For a usage deadline, **Organization settings > Autonomy > auto-resume** permits recovery one minute after the reported reset. It is on by default unless saved defaults/policy differ. A qualifying non-Muse quota refusal without a parseable future reset can use a one-hour fallback retry schedule; that is not a provider-confirmed reset or proof of fresh capacity. Muse keeps its typed quota reset authoritative. Turning auto-resume off keeps the hold; turning it back on is rechecked without an engine restart. Authentication/balance failures do not become quota resets simply because a timestamp exists.
+
+Reset evidence can include a duration, a timestamp or a clock in the CLI host's local zone. Unknown named zones are not guessed. Applicable fresh same-account usage evidence can extend a hold; stale or unrelated readings cannot manufacture recovery. Read the recorded deadline and reason rather than assuming all similar errors use one timer.
 
 **Resume frozen agents now** or a desk's unstick action explicitly clears the hold for retry. It creates no provider allowance and leaves other holds, such as Halt, in place. A provider can refuse again. **Continue on…**, where offered, selects an eligible same-provider account and releases the freeze together. A plain account settings edit is not the same recovery action.
 
@@ -83,7 +85,9 @@ The agent History tab contains retained events; Chat contains its conversation. 
 
 **Developer > Open logs folder** opens local logs without sending them anywhere. **Verbose engine logging** adds diagnostic detail and volume under the logging/redaction policy; it saves immediately unless a process environment override fixes it. Packaged builds default to normal logging. Review logs before sharing, especially paths, identifiers and third-party output.
 
-The **engine debug view** displays measured memory, socket backlog and docket traffic; its numbers alone do not diagnose a leak. The separate `/debug/freezes` view reads bounded browser-stall observations, with refresh/copy/clear controls. A UI frame gap is different from an agent usage freeze. The quiet area below Developer controls also reveals the optional EPIC Mode visual control; unticking hides it again.
+The **engine debug view** displays measured memory, socket backlog and docket traffic; its numbers alone do not diagnose a leak. The separate `/debug/freezes` view reads bounded browser-stall observations, with refresh/copy/clear controls. A UI frame gap is different from an agent usage freeze.
+
+The quiet area below Developer controls reveals optional **EPIC Mode**. While enabled, observed thinking, writing, tools, waiting and compaction add audiovisual activity layers and heat; this does not measure useful progress. The tray's **Mute EPIC sounds** appears while enabled, saves across restarts and applies to all windows/popouts. Muting leaves visuals and activity detection running; unmuting follows current activity without replaying missed sounds. Disabling EPIC stops its audiovisual effect.
 
 When [reporting a bug](https://github.com/Maurdekye/orgtree/issues), include app/engine identity, Windows version, reproducible steps, actual error and relevant redacted evidence. Say what was observed versus what you inferred. Do not publish keys, verification codes, private correspondence or personal paths.
 
@@ -104,6 +108,8 @@ The packaged desktop is the ordinary starting point. A standalone Rust engine ca
 Standalone mode requires an absolute data root and a token of at least 32 characters, generated into that root when none is configured. It binds loopback by default and requires authentication for API/socket/UI requests. An explicitly remote bind needs the intended private-network or proxy arrangement; the engine does not add TLS itself. Keep this deployment separate from a desktop's owned data root.
 
 It also exposes a **user MCP endpoint**: the app-wide endpoint finds/creates organizations, and the per-org endpoint provides a selected set of user actions for chart, mail, inbox, docket, hiring/retirement, interrupt and question answers. A compatible client sends authenticated Streamable HTTP requests. These act **as you**, not as a low-privilege agent. The endpoint is only available in standalone mode and does not yet cover attachments/reply quoting, all tree/settings/account operations or every agent tool. Consult the guide's current tool list and limits before connecting a client.
+
+The per-org user inbox tool also reads/configures the outside-inbox mode through its dedicated settings/configure actions. That user-token authority does not let an agent configure it. Requests are stateless, one JSON-RPC POST and one response; GET does not open a stream. User mail is one recipient with nonblank text, without outside-mail or attachment/reply-reference support in this subset. Use the dedicated [standalone reference](skills/orgtree-working/runtime/standalone-engine/SKILL.md) for endpoint/tool differences instead of applying agent-only contracts to a user client.
 
 Headless provider sign-in, named/revocable client tokens and desktop attachment to a standalone engine remain deferred. Install and sign into the host's provider tools separately, or configure supported key routes. Serving a renderer bundle is not a supported remote-browser management workflow in this feature. When no user is present, user-bound requests can be denied rather than silently answered by an agent.
 

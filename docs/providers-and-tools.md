@@ -23,7 +23,9 @@ Orgtree does not include model access. Your provider's subscription, API charges
 
 **Installed**, **signed in**, **active**, **allowed by this org** and **able to run this model now** are separate checks. The provider Enabled switch is app-wide; an account's Active switch is another gate; Organization settings > Accounts is a third. Turning one on does not bypass the others. Existing agents can remain visible on a model that is no longer offered for a new hire.
 
-For the default Codex login, sign in through Codex itself. A managed account's Sign in action targets its own profile. Some harnesses open a terminal and ask you to complete their login there: “terminal opened” is not verified sign-in. An unavailable authentication check is different from a confirmed signed-out result. Do not paste keys or verification codes into an agent conversation.
+The default Codex row offers **Sign in / Sign in again**, opening Codex's browser authorization with its default profile. A managed account's Sign in targets that row's profile. Complete the authorization yourself; browser-only clients have no native login bridge. Some other harnesses open a terminal and ask you to finish login there: “terminal opened” is not verified sign-in. An unavailable authentication check is different from a confirmed signed-out result. Do not paste keys or verification codes into an agent conversation.
+
+**Providers > Refresh** immediately requests ordinary discovery/sign-in checking instead of only reading the periodic snapshot. One check runs at a time; overlapping requests and results completed within the last two seconds are shared. After a sign-in, verification checks that provider without probing unrelated providers. Discovery is separate from **Usage** account refresh and does not perform model inference, switch accounts or authorize the browser for you. An authorized agent can request the same discovery through its tier-list refresh, while browser sign-in remains a human action.
 
 ## Choose a harness and a model
 
@@ -108,6 +110,8 @@ The inventory shows names, sources and transport. Equal definitions merge their 
 Grant discovered names through **Agent settings > Tools > MCP Servers**, or use org hire defaults for future agents. A superior must hold the server or a wildcard. **All registered servers** in hire defaults includes future registrations; an explicit checked list does not. Refresh alone changes neither grants nor every running agent's server connections. Changed startup configuration applies at the permitted process boundary.
 
 The shared Refresh independently updates MCP definitions, skills and global instructions. A partial success retains successful sources and names failures. A metadata count is not proof that a model loaded or used a tool. If a tool is absent, check discovery, alias, effective grant and destination authentication separately. Use a human MCP question card only for the specific request it describes.
+
+Claude can load less common Orgtree tool cards on demand. The agent's instructions explain exact-name ToolSearch discovery; a missing eager card is not proof the tool or its permission was removed. This does not change which tools you granted. Native question/plan replacements have a separate per-agent [Disabled by Orgtree opt-in](managing-agents.md#opt-into-native-replacement-tools).
 
 ## Share skills and instructions
 

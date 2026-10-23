@@ -24,7 +24,9 @@ An agent's context wheel describes conversation occupancy. It is separate from p
 
 The **Agents** list helps find agents in a large tree. Search rather than panning through every branch. Archived inclusion and the **Hide retired agents** display option control whether retired cards clutter the canvas; they do not rehire anyone. By default retired cards remain visible, marked **Archived**. When hidden, a retired badge/list lets you find them again.
 
-The list's **Active** filter means currently mid-turn, not merely reporting “working.” Dim ancestor rows can remain to show a matching agent's place in the tree. A desk's **Team** list uses the same controls within that subtree. A crowded-team stack or retired pile is only a display grouping: open its picker to bring another member forward. Hidden workers keep their identities, conversations and capacity. The retired pile's **Delete all** confirmation covers the entire pile, even with a name filter active; it is different from hiding the pile or choosing its front.
+The list's **Active** filter means currently mid-turn, not merely reporting “working.” Dim ancestor rows can remain to show a matching agent's place in the tree. A desk's **Team** list uses the same controls within that subtree. A crowded-team stack or retired pile is only a display grouping: open its picker to bring another member forward. With retired agents shown, two or more retired siblings form a counted pile once a representative has loaded, with the latest retiree normally in front; a single retiree has its own card. Hidden workers keep their identities, conversations and capacity. The retired pile's **Delete all** confirmation covers the entire pile, even with a name filter active; it is different from hiding the pile or choosing its front.
+
+The full tree preserves deeply nested project chains. Bunching or folding changes the display, rather than cutting off the reporting chain or the agents below it. In a Team tab, the badge counts immediate physical children, including projects, while the list covers descendants.
 
 ## Move around
 
@@ -54,6 +56,8 @@ The organization header provides:
 | Glowing @ button, when present | Visit the newest unobserved transcript mention and highlight its passage. Repeated clicks visit remaining mentions. Mail mentions use the inbox path. |
 | STOP ALL | Emergency organization-wide control; see [Operating and troubleshooting](operating-orgtree.md). |
 
+Use **Shift+F4** for the newest recorded user mention across transcripts, mail and tickets, including seen entries. Separate presses step backward without wrapping; a newer mention restarts from the newest. This is a different navigation path from the header's pending-transcript @ button. See [mention history and limits](settings-and-usage.md#keyboard-shortcuts).
+
 The footer reports activity, version and connection errors. Conditional chips can show recorded cost, a provider warning, hub delivery state or a headless session. Cost information may include unknown pricing; it is not your provider's invoice. Click the Hub chip to inspect Connections. A queued delivery count means delivery is outstanding.
 
 ## Keep useful surfaces open
@@ -76,16 +80,22 @@ Attention, inbox, work and presented-document details are covered in [Messages a
 
 After a team works well, use **Organization settings > Basic > Templates > Save as template**. Give it a name, review the include choices and save it. The result becomes a **Starting layout** when creating another organization. It saves the currently stored organization, not unsaved settings edits.
 
-Tree structure, names and tiers are included. Charters, credits, effort, tool settings, org instructions and Quick chat defaults have include choices. Accounts, machine-specific folders and standing-note copies need particular care when sharing. Mail, transcripts, docket items, watchdogs and audiences are not copied. Projects are saved as free containers, with their supported structural settings.
+Tree structure, names and tiers are included. Include choices cover charters/project Summary, credits, effort/fast mode/explicit OpenRouter harness pins, tools, org instructions, Quick chat defaults and portable org/project queue/event settings. Accounts, machine-specific folders and standing-note copies need particular care when sharing. Mail, transcripts, docket items and watchdog runtime history are not copied. Projects are saved as free containers.
 
-A saved file can still be reported unusable: template validation limits the total layout to 24 agent/project nodes and four levels, and another computer may lack its models or accounts. Inspect the creation preview, replace unavailable choices and review any note-copy warnings before starting work. A partial note-copy failure does not undo an organization already created. [Providers and tools](providers-and-tools.md) and [Collaboration](collaborating.md) cover portability and standing notes.
+**Include watchdogs** and **Include audiences** start on. The preview discloses each node's watchdog count and explicit contact grants, including user and outside-mail access. Renamed nodes remap their references; removed or outside endpoints are dropped with warnings. Audiences grant contact, not tools or files. Inspect these include choices before sharing or creating another organization.
+
+Machine-specific watchers are a separate off-by-default choice. They restore paused. Saved watcher credential fields and credential-file references are omitted, including in nested on-fire actions: affected actions are removed, and credential-dependent watchers remain paused with a reason and need recreation with credentials. Review command/message text too; arbitrary text can contain private data. Portable eligible watchers arm after every imported definition exists and can wake agents even when the first-message checkbox is off. Runtime output, clocks, queue positions and held leases are not restored. Per-watcher refusals can leave an already-created org with visible warnings. [Projects and automation](projects-and-watchdogs.md) explains the recreated watchers and their effects.
+
+A template has no fixed node-count or depth ceiling in 4.4.2, with a **16 MiB** UTF-8 file bound. The preview pages 100 nodes at a time and shows actual levels/parents with bounded visual indentation. Older readers retain their own limits. Another computer may lack models, supported speed or a pinned harness: correct the preview's unavailable choices before Create. Typing the org name keeps the last confirmed template rows and selection in place while availability refreshes; Reload re-reads template files.
+
+Standing-note copies remain opt-in and bounded: only the fixed shared/team/personal `AGENTS.md` files are copied, at most 16,000 UTF-8 bytes per file and 128,000 combined. Review their text before sharing. A partial note-copy failure does not undo an organization already created. [Providers and tools](providers-and-tools.md) and [Collaboration](collaborating.md) cover portability and standing notes.
 
 ## Details and limits
 
 - Narrow windows retain the canvas layout. Some mail/presentation readers use a list overlay and Quick chat gathers options into a dropdown; there is no separate mobile agent sheet in this release.
 - A confirmation dialog shows the action and counted targets. Read it before a bulk change. Cancel changes nothing; a successful operation can still contain per-target skips or failures.
 - Undo is available for supported recorded changes through its toast/history. It is not a universal rollback for commands, provider activity or external files. The retained **History** browser is for reading records, not undoing them.
-- Organization settings mix buffered fields and immediate actions. Basic, Hire defaults and Policies wait for the footer Save; logo, template, account and connection actions have their own saves. A failed multi-part save can leave some changes applied. Re-read before repeating it.
+- Organization settings mix buffered fields and immediate actions. Basic, Hire defaults, Policies and Connections' external-inbox mode/holder fields wait for the footer Save; logo, template, account and hub-membership actions have their own saves. A failed multi-part save can leave some changes applied. Re-read before repeating it.
 - If you encounter the legacy inline New organization form, **advanced…** holds initial extra folders and local/remote hub choices. **done** returns to that form without creating the org; the parent creation action submits them. Established organizations use their normal settings and Connections tabs.
 
 Continue with [Managing agents](managing-agents.md) to choose roles, credits and access before expanding the team.

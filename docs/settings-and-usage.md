@@ -9,7 +9,7 @@ Use settings to make ordinary work easier first: text size, Enter behavior and t
 | Where | What it controls | Saving |
 | --- | --- | --- |
 | App settings | Appearance, typing, runtime, notifications, providers and future-org defaults. | Most switches save immediately; default-org fields use their own Save. |
-| Organization settings | This org's instructions, hire defaults, policies, allowed accounts and connections. | Basic/Hire defaults/Policies share a footer Save; several other tabs/actions save immediately. |
+| Organization settings | This org's instructions, hire defaults, policies, allowed accounts and connections. | Basic/Hire defaults/Policies and Connections' inbox mode/holder policy share a footer Save; hub memberships and several other actions save immediately. |
 | Agent settings | This agent's role, model/account and scope. | Buffered tabs share Save; Rename, lifecycle actions and the credit slider act separately. |
 
 Do not close a form assuming every visible edit was saved. A failed multi-part save may have applied an earlier part. Check the current state before retrying. A setting read that failed can display a fallback; it is not authoritative evidence of your stored value.
@@ -17,6 +17,8 @@ Do not close a form assuming every visible edit was saved. A failed multi-part s
 ## Make the workspace comfortable
 
 **Display > Appearance** separates accent from contrast. Choose a provider-colored or custom accent, and a light/dark contrast scheme. Automatic appearance can follow an installed harness until you make an explicit choice. Agent color can follow the provider or the organization. These choices do not change an account, model or work state.
+
+The named presets are Claude Terracotta, Codex Teal, Antigravity Navy, Muse Eggshell, OpenRouter Lavender and LMS Gold, plus Custom. The former Orgtree Grey choice is retired: an explicitly saved old selection becomes **Custom #b6bdc8**, preserving its base RGB. An old unset/automatic preference keeps provider detection instead. No separate agent, organization or template theme field is introduced by that migration.
 
 **Canvas background** offers dots, grids, checkerboard, outlined tiles, None and Claude Waves, with an intensity saved per pattern. Lower intensity or None can make a busy canvas calmer. The animated background can pause or reduce work when hidden or under load.
 
@@ -59,6 +61,8 @@ Changing an account's allowed state is separate from reading its usage. **Organi
 ## Use usage history
 
 F3 opens **Usage history**. Choose 24 hours, 7, 30 or 90 days, then filter by provider, account, window or model scope. Each chart is one series, with its own percent or money units. Gaps are missing observations, not zero consumption; reset markers break the line.
+
+Readings separated by 30 minutes or more connect as a step: the earlier value stays horizontal until the later timestamp, then changes vertically. Hover within that gap shows the earlier observation, not a newly measured or interpolated value. The step does not mean the engine sampled throughout the gap.
 
 **Projected ahead** controls how much of the chart is a future pane. The dashed projection fits retained readings; it is not a promised exhaustion time. Increasing the future share crops older history rather than squeezing the entire period. CSV/JSONL exports contain the recorded points supplied for the chart, not the projection, and can reflect downsampling. An engine that was off cannot reconstruct readings it never observed.
 
@@ -103,7 +107,7 @@ The **Logo** picker accepts a static PNG/JPEG/WebP up to 5 MiB and 16 million pi
 - **Credit cost bubbling** is app-wide and controls your own hires separately from allocations/model upgrades. On raises intervening grants as needed within the top-level cap; Off requires the paying parent to have free capacity already. Agents remain bounded by their own allocation under their separate funding rules.
 - **Quick staff behavior** chooses request staffing, hire under the assignee or hire at top level. If the assignee is unavailable, the disclosed fallback can be immediate top-level staffing.
 - **Policies > Cache-protective cheap compaction** allows summarized fresh sessions before eligible known-cold turns, using measured occupancy. New orgs start on at 25%; existing saved choices remain. This is separate from ordinary context-size compaction and other recovery paths.
-- **Policies > External org inbox** can isolate the org from outside mail without deleting its history. Multiple inbox holders are off by default; revoke extra holders before disabling that mode.
+- **Connections > External org inbox** offers Normal operations, Do not disturb and Closed off inbox. Org DND keeps all outside mail, including your Hubchat messages, without automatic agent delivery; Closed blocks outside communication and hides retained history. These fields wait for Save. Multiple inbox holders are off by default; revoke extras before disabling that policy. See [outside inbox modes](collaborating.md#choose-an-outside-inbox-mode).
 - **Autonomy** controls same-provider account fallback (off by default), reset-time auto-resume (on by default) and **Resume frozen agents now**. These actions are immediate and do not create capacity; details are in [Providers](providers-and-tools.md) and [Operation](operating-orgtree.md).
 - **Charter documents/template folders** manage reusable text choices. Populate/Restore writes missing bundled choices without overwriting local files. Selecting a charter supplies text, not tools or audiences. External charter folders are distinct from installed skills and agent folder grants.
 - **History**, **About** and developer diagnostics are reference/recovery surfaces. [Operation](operating-orgtree.md) covers them; [Development](development.md) covers contributor tools.
@@ -116,6 +120,7 @@ The **Logo** picker accepts a static PNG/JPEG/WebP up to 5 MiB and 16 million pi
 | --- | --- |
 | F1 / F2 / F3 | Toggle App settings / Usage / Usage history. |
 | F4 | Toggle Canvas/Attention, or return to Canvas from an open panel. |
+| Shift+F4 | Jump to the newest recorded user mention across transcript, mail and docket sources; separate presses visit older entries without wrapping. |
 | F5 | Refresh the app view. |
 | F6 / F7 / F8 / F9 | Toggle current-org Inbox / Docket / Presentations / Settings. |
 | F10 | Open the STOP ALL guard; does not halt or release an already halted org. |
@@ -129,5 +134,9 @@ The **Logo** picker accepts a static PNG/JPEG/WebP up to 5 MiB and 16 million pi
 | Alt+Up/Down | Previous/next mail; in focused Docket/Presentations, previous/next eligible rendered item. |
 
 Lists, menus, settings tabs, effort and grant controls support keyboard navigation. Question batches use Alt+Left/Right between questions; Alt+Up/Down adjusts a credit offer. Docket/Presentation navigation skips filtered/folded items and clamps at the ends. Draft replies, answers and child editors can block navigation to protect unfinished input. Quick chat uses Enter to hire/send and Shift+Enter for a newline.
+
+Shift+F4 includes seen entries and resets to the newest if a newer mention arrives. It opens the desk/mail/ticket reader and highlights the mention. If a ticket edit removed the original text, a labelled recorded excerpt remains available. No history shows **No @user mentions yet**; reaching the oldest shows **No older @user mentions**, keeping the current view in place. Holding the key does not keep stepping.
+
+Its history starts at **4.4.2**, seeded from a bounded set of still-pending markers at upgrade. It keeps the newest **2,000 mentions per organization**, including seen entries recorded since then. Older handled history is not backfilled. The header's glowing @ button remains a separate route through unobserved transcript markers.
 
 The next guide covers [Providers, models and tools](providers-and-tools.md) once ordinary work is running reliably.

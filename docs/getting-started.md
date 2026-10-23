@@ -25,7 +25,7 @@ The published installer is for **64-bit Windows**. Windows builds are unsigned; 
 
 1. Open the [latest release](https://github.com/Maurdekye/orgtree/releases/latest).
 2. Download **`Orgtree-Setup-<version>.exe`** and run it. GitHub's source-code ZIP is for source, not installation.
-3. Open **Orgtree** from the Start menu. The first-run card lets you choose a theme and startup behavior, then create an organization.
+3. Open **Orgtree** from the Start menu. The centered Welcome card lets you choose a theme and startup behavior, then create an organization. Narrow windows keep side padding; shorter windows scroll to the remaining actions.
 
 The installer includes the desktop app, local engine and PostgreSQL database. You do not need to install Node.js, Rust or PostgreSQL to use the packaged app. A newer installation keeps your organization data. Model access and provider applications are set up separately.
 
@@ -35,7 +35,9 @@ The installer includes the desktop app, local engine and PostgreSQL database. Yo
 
 Install and sign into one supported harness using its own setup instructions. For example, use [Claude Code](https://code.claude.com/docs/en/setup) or the [Codex CLI](https://developers.openai.com/codex/cli). You only need the provider you intend to use now.
 
-Open **Orgtree menu > App settings > Providers** and check its installed and sign-in state. **Harnesses** lists installed tools, versions and installation links. A default Codex login is performed with Codex's own login command; a **Sign in** button on a separately added account is a different setup route. A provider refresh is not a substitute for completing its sign-in.
+Open **Orgtree menu > App settings > Providers** and check its installed and sign-in state. **Harnesses** lists installed tools, versions and installation links. The default Codex row offers **Sign in / Sign in again**, opening its browser authorization for the default profile. Complete that flow yourself; managed-account rows target their own profiles. Browser-only clients have no native sign-in bridge.
+
+**Refresh** requests a fresh ordinary provider/sign-in check. Overlapping requests and rapid repeats can share a result; this is different from refreshing account usage. Refresh does not complete browser authorization or prove that model inference works.
 
 <a id="language-servers"></a>
 
@@ -47,7 +49,7 @@ Orgtree does not include model access. Your subscription, API charges and provid
 
 On the welcome card, enter an **Organization name** and keep **Starting layout: Empty** to build the team yourself. Click **Create organization**. You can also create another organization later through the **Orgtree** menu.
 
-The new canvas starts with the **YOU** eye card. The first-use guide points at the actual hire and message controls. If you choose a starting layout that already hires agents, it begins with the first-message step instead. A layout is optional.
+The new canvas starts with the **YOU** eye card. The first-use guide points at the actual hire and message controls. Its hire-token note sits left of the token group and its name note right of the draft; they move above/below when space is tight and yield when no clear space remains. If you choose a starting layout that already hires agents, it begins with the first-message step instead. A layout is optional.
 
 ## Hire one agent
 
@@ -83,4 +85,4 @@ Use [Workspace](workspace.md) to move around and keep useful panels in view. The
 - **A grant or folder is refused:** read the current capacity or permission reason. Changing a label does not provide more credits or access.
 - **The agent stops:** distinguish a deliberate Halt, a provider-limit freeze and an error before choosing a recovery action. See [Operating and troubleshooting](operating-orgtree.md).
 
-These guides describe published 4.4.1 behavior. Model availability, subscriptions and external applications can change independently of Orgtree.
+These guides describe Orgtree 4.4.2. Model availability, subscriptions and external applications can change independently of Orgtree.

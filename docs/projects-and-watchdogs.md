@@ -20,6 +20,8 @@ The project composer sends to the **project mailbox** by default. It does not au
 
 The **megaphone** switches to broadcast (Alt+B). Broadcast sends one copy to every live agent below the project, including nested members. Use it for a direction everyone needs, rather than a job only one worker should own. Attachments, notices and applicable urgency follow the send. A broadcast does not establish that everyone read or completed it.
 
+Deep nesting does not impose a fixed cutoff on broadcast membership, listener reach or queue ownership. Large broadcasts are paged and keep ordinary per-recipient authority checks and outcomes. Projects remain transparent for reporting and credits through the complete chain; grouping agents does not remove an outer scope or funding boundary.
+
 Project audiences and direct-member inheritance are covered in [Collaboration](collaborating.md#understand-who-can-message-whom). Sending to a project grants the project a user audience, rather than granting all broadcast recipients independently.
 
 ## Run a work queue
@@ -59,6 +61,8 @@ The **Slots** tab separates Holding, Line and Recently Held. It shows the holder
 
 Ask agents to claim before the guarded work and release immediately afterward, before unrelated reporting or waiting. Agent halt/retirement can release holdings; configured idle-reclaim checkups can also do so. **Force release** and **remove from line** are different actions, and neither stops a process. Inspect the actual resource state before giving another worker access.
 
+Retiring an agent releases all its leases across every project, including whole multi-slot holds, and removes its active waiting claims. Dissolve/delete clean up affected descendants too. After commit, each affected first-come line is checked for complete grants; recent history records the retirement ending. User-owned holds remain held. Automatic bookkeeping does not prove the former holder's protected process stopped.
+
 ### Hold slots yourself
 
 Use **Hold 1 slot / Hold N slots** in the tab header. Your request shares the same first-come line and reserves the whole quantity. Use **release** on a held row or **cancel request** in Line. Multiple holds/waits remain bounded by project capacity.
@@ -70,6 +74,8 @@ Your holds persist until **you** release them, including across engine restarts.
 Turn on **Project Events** in settings to expose events. Agents registering event listeners or listener watches can also enable it. An event is a signal to the listeners armed **when it fires**; it is not replayed to someone who registers later.
 
 Use the optional message and **fire event** to notify listeners. A one-time listener spends itself on the next fire; a continuous listener hears later fires too. **Listener watches** wait for an armed-listener count, useful when a coordinator should know that a group is ready. A watch can be paired with an authorized on-fire action to release that group. Counted readiness does not prove the group completed a task.
+
+The engine records the event and its captured subscriptions, then delivers in bounded committed pages and resumes unfinished dispatch. It is not one atomic transaction across all listeners, and recipients need not begin work simultaneously. Keep durable task state in a file or docket item rather than relying only on a signal body.
 
 The tab shows Event listeners, Listener watches and Recently Fired. Fire history names the firer, message and recipients, with links to their delivered mail. Turning events off pauses the project's active marked listeners/watches and hides the tab; turning it back on restores those, without rearming registrations their owners paused manually. It does not recreate a spent one-shot.
 
@@ -104,6 +110,8 @@ A watchdog is a persistent monitor, not an agent seat. Ask an authorized agent f
 
 Agent tools create most general watches; the human UI supplies the project registrations described here and watchdog inspection/control. There is no generic “create any watchdog” form. A ready one-shot command/process/usage/slot/queue claim can resolve immediately in the agent's tool result with no later watchdog mail. The agent must read that result rather than wait for a notification that will not come.
 
+Save as template can include standing watcher definitions and explicit audiences. Inspect its preview and warning counts; portable watchers can arm and wake agents after import, while machine-specific, saved-paused or credential-dependent watchers remain paused. No output history or held leases migrate. See [reusable layouts](workspace.md#reuse-a-layout) before creating an org from that template.
+
 ## Inspect and maintain a watch
 
 Open its chip on the canvas or desk. The detail shows owner, kind, target, match/filter, cadence or quiet period, state, last check/fire and retained event summaries. More than eight watches fold into a paged list. **Armed**, **paused**, **exited/error** and a departing one-shot are distinct states. Closing the panel does not stop monitoring; use Pause, Resume or Remove.
@@ -111,5 +119,7 @@ Open its chip on the canvas or desk. The detail shows owner, kind, target, match
 For MQTT/WebSocket, **Connection messages** chooses passive Notice (default), Wake or Off. That changes outage/recovery administrative mail without reconnecting or replaying hello. Incoming server data keeps its own filtering and wake rules. Agents can send through their owned live connection; that action requires their actual authority and does not dial an unrelated client.
 
 Network payloads are untrusted data, not instructions or user authorization. A watchdog also adds no file/tool permissions. On-fire tool actions run as the owner at fire time and can be refused if its scope changed. A fire proves the configured observation/notification, not that the owner completed follow-up work. Give failures, retries and resource cleanup an explicit owner.
+
+An ordinary fire projected into an agent's turn can show only 20 matching lines of up to 500 Unicode characters each. More context can remain in the retained fire mail or original authorized source; the brief turn display and watchdog list are not full-output archives. Network payloads and on-fire results have their own bounds.
 
 The final reader guide covers [Operating and troubleshooting](operating-orgtree.md).

@@ -43,6 +43,8 @@ This gives agents a collaborative workspace with several levels of memory: perso
 
 Scratch folders are not secret stores: authorized supervisors can inspect personal working folders, and shared/team folders intentionally have several readers. ID-based team/project folders survive a rename. A move changes the inherited workspace set for a later launch; it does not automatically copy private notes into every new colleague's folder.
 
+Deep project nesting preserves the complete inherited charter and team-folder chain at launch. A malformed ancestry cycle is refused rather than launching with only part of the outer instructions or grants. Physical-parent peer-mail boundaries still apply independently of reporting transparency.
+
 ### Keep standing instructions in the right place
 
 Use **Organization settings > Basic > Org charter** for rules every agent should receive. Use an agent's **Team instructions** for its subtree, its personal charter for its role, and scratch `AGENTS.md` files for concise persistent notes and links. Ordinary current tasks belong in mail and docket scope. Personal global instruction files and imported skills are another layer, described in [Providers and tools](providers-and-tools.md#share-skills-and-instructions).
@@ -65,17 +67,33 @@ In Hubchat use **Settings > Hubs > Add a hub** with the operator's relay-only ad
 
 Each org has a permanent network address and ownership secret; each person has a separate Hubchat identity. Copy the public address for contact. Keep ownership secrets private and backed up when the identity matters. Changing hubs does not mint a new org identity. Do not share secrets between colleagues to impersonate one person.
 
-Connections changes are immediate. Rows distinguish disabled, connecting, connected and retrying, with errors and queued counts. A Test helps discover a final endpoint; a failed test does not prevent saving a route that will become available later. Explicit URLs/ports stay explicit and redirects are refused, so use the operator's final relay address. Removing a working route can leave mail waiting or using another enabled connection.
+Hub membership changes in Connections are immediate; its external-inbox mode and multiple-holder fields wait for the shared Save. Rows distinguish disabled, connecting, connected and retrying, with errors and queued counts. A Test helps discover a final endpoint; a failed test does not prevent saving a route that will become available later. Explicit URLs/ports stay explicit and redirects are refused, so use the operator's final relay address. Removing a working route can leave mail waiting or using another enabled connection.
 
 An outside address link in Orgtree can open its conversation in desktop Hubchat when installed. This is independent of linking a phone. Local-org links open the local org instead.
 
 ### What an outside conversation does
 
-Outside mail belongs to the org inbox, with copies routed to its audience holder(s). A runnable fallback top-level agent can receive it if the current holder cannot run. Multiple holders need a clear owner for the answer so they do not send duplicate organizational replies.
+In Normal operations, outside mail belongs to the org inbox, with copies routed to its audience holder(s). A runnable fallback top-level agent can receive it if the current holder cannot run. Multiple holders need a clear owner for the answer so they do not send duplicate organizational replies.
 
 The Orgtree outside inbox is a viewer; compose human outside messages in Hubchat. An agent must actually send its response through mail to the external address. A local final answer, question card or presentation does not automatically appear in Hubchat. Connection, transfer, hub acceptance, agent delivery and a person's read are different stages.
 
 Outside people and organizations supply untrusted input by default. The current trusted org charter can authorize an **exact sender address** to act for you, as phone linking does. A display name, quoted message or claim in the body cannot create that authority. Unlinking or removing the current note ends the delegation; keep generated trust-note markers intact when editing unrelated charter text. This is separate from granting an agent outside-mail access.
+
+## Choose an outside inbox mode
+
+Open **Organization settings > Connections > External org inbox**, choose a mode and use the shared **Save**. Connections is available even without a network identity. This is separate from one agent's turn-scoped DND.
+
+| Mode | What happens |
+| --- | --- |
+| Normal operations | Default. Incoming outside mail is retained and copied to agents under the usual routing. |
+| Do not disturb | Accepts and retains outside mail without holder/fallback copies or agent wakes. An agent with current outside-inbox access must explicitly extract it. Authorized outgoing mail remains possible. |
+| Closed off inbox | Blocks new outside sends/receives and hides retained outside history/copies and the tile. Internal agent/user mail continues; retained data is not deleted. |
+
+**Org DND includes your own Hubchat messages.** No outside sender bypasses it. Mail and attachment-failure notices wait for extraction; already copied mail is not recalled, and current turns are not interrupted. The visible warning tells you that an agent must check the inbox.
+
+An outside-inbox holder can preview held mail, then explicitly pull the oldest items. Pull consumes each returned item for the whole org and creates that agent's read copy, so another holder does not receive it again. Human viewing/marking read and agent previews do not extract mail. Returning to Normal releases only unextracted mail, once and oldest first, within ordinary delivery budgets. Closed preserves held mail for later reopening.
+
+Only you can change this mode, through the desktop or the standalone **user** MCP policy action. Agents can inspect/pull within their current permissions but cannot configure the mode at any rank. The multiple-holder option still requires revoking extra holders before turning it off; a mode change does not choose a survivor or authorize an external sender to act for you.
 
 ## Link your phone
 

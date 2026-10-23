@@ -59,11 +59,13 @@ device from **Settings > Devices > Link a device** rather than creating a new
 identity for yourself.
 
 Compose human hub mail in Hubchat. Keep using Orgtree to manage and message
-your own agents. In published Orgtree 4.4.1, the org inbox is a
+your own agents. In Orgtree 4.4.2, the org inbox is a
 [viewer](rust-engine/org-inbox-viewer.md), and
 [disabling the org inbox](rust-engine/org-inbox-isolation.md) prevents external
 mail from reaching that organization. Joining a hub does not override the
-organization's mail policy. The [user documentation](collaborating.md) covers
+organization's mail policy. Connections also offers Do not disturb, which keeps
+outside mail, including your own Hubchat messages, without automatic agent
+delivery until an authorized holder extracts it. The [user documentation](collaborating.md) covers
 current conversations, identity linking and built-in hosting.
 
 ## Individuals and small teams
