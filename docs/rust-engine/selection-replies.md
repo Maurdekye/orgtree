@@ -76,6 +76,10 @@ The mail reply box carries separate selected targets, keeps unrelated explicit
 whole-message targets, and restores failed selections/drafts under the original
 recipient key. Read quotes show their retained exact excerpt and nearby context;
 current source checks never replace that snapshot with newly edited text.
+Embedded docket sends merge an explicit object target with every staged selected
+passage, in either staging order, through the same plural target wire as mail
+and presentations. [verified: `canvas/docket.tsx`,
+`tests/objectcomposer.test.tsx`; 2026-10-23]
 
 The source-read tool is marked deferred via the existing per-card hint. This
 defers it only on harnesses that honor native tool-search/deferred loading; do

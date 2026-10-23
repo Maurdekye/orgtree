@@ -15,6 +15,10 @@ import { MailReadPane, MailReplyBox } from '../src/canvas/mail'
 import { QuickChat } from '../src/QuickChatBox'
 import { refreshConvo, resetConvos } from '../src/convo'
 import { objectReplyContext, replyWire, storeReplies, readReplies } from '../src/eventReply'
+import { AgentDocketView } from '../src/canvas/docket'
+import { captureSelectionComposer } from '../src/canvas/selectioncomposer'
+import { captureObjectActions } from '../src/canvas/composerobjects'
+import { selectionSnapshot } from '../src/replySelection'
 import { resetStaffingOptionsForTests } from '../src/canvas/staffingoptions'
 import type { CanvasNode } from '../src/canvas/shared'
 import type { TreePayload, WorkItem } from '../src/types'
@@ -80,6 +84,31 @@ const menuButtons = () => {
   return root ? [...root.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].filter(b => b.closest('[role="menu"]') === root) : []
 }
 const labels = () => menuButtons().map(b => b.textContent?.replace('▸', '').trim())
+
+for(const kind of ['document','work_item'] as const) for(const order of ['selection-first','object-first'] as const)
+test(`embedded docket sends both ${kind} object and selected passage (${order})`,async t=>{
+  const org=`mixed-docket-${kind}-${order}`,{writes}=backend(t,org)
+  const view=await mountView(<Wrapper org={org}><div className="desk-body"><AgentDocketView slug={org} nid="author" mine={[item]}
+    facts={new Map()} toast={noop} refs={{world:{org},onOpen:noop}}/></div></Wrapper>,el=>el)
+  t.after(()=>view.unmount());await settle()
+  const box=view.el.querySelector<HTMLTextAreaElement>('.mailer-read textarea')!
+  assert.equal(!!box,true,'actual docket reply box mounted in its desk scope')
+  const selector={part:'work_item.objective',projection:'source-v1' as const,unit:'unicode-scalar' as const,expected_sha256:'a'.repeat(64),start:0,end:6}
+  const selected={target:{kind:'work_item' as const,org,slug:item.slug},selection:selector}
+  const passage={...selected,snapshot:selectionSnapshot(item.objective,selector,1)}
+  const object={kind,org,id:kind==='document'?'plan':'another-ticket',title:'Referenced object'}
+  const stageSelection=()=>captureSelectionComposer(box)!(passage)
+  const stageObject=()=>captureObjectActions(box,'reference').reply!(object)
+  for(const stage of order==='selection-first'?[stageSelection,stageObject]:[stageObject,stageSelection])await inAct(stage)
+  assert.equal(view.el.querySelectorAll('.selection-excerpt').length,1)
+  assert.equal(!!view.el.querySelector('[aria-label="Replying to '+(kind==='document'?'presentation':'ticket')+'"]'),true)
+  await fill(box,'Explain both')
+  await inAct(async()=>{view.el.querySelector<HTMLButtonElement>('.mail-reply-send')!.click();await flush(10)})
+  const sent=writes.find(write=>write.url.endsWith('/nodes/author/message'))?.body
+  assert.equal(!!sent,true,'combined reply uses the real message adapter')
+  assert.deepEqual(sent!.targets,[kind==='document'?{kind,org,id:object.id}:{kind,org,slug:object.id},selected])
+  assert.equal(view.el.querySelectorAll('.selection-excerpt').length,0,'accepted send clears the sent selection')
+})
 async function choose(label: string) {
   const button = menuButtons().find(b => b.textContent?.trim() === label)
   assert.equal(!!button, true, `${label}: ${JSON.stringify(labels())}`)

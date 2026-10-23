@@ -3129,7 +3129,7 @@ function FullDocketPane({ slug, item, toast, asksById, onDismiss, close, onFocus
             onSend={(text, attachments, notice, _broadcast, objectTarget, selections) => {
               if (unavailable) return Promise.reject(new Error('Recipient unavailable'))
               setReplyBusy(true)
-              return (objectTarget ? sendLinkedReply(slug, replyTo, text, objectTarget, attachments, notice).then(r => ({ ...r, to: replyTo }))
+              return (objectTarget ? sendLinkedReply(slug, replyTo, text, selections?.length ? [objectTarget,...selections] : objectTarget, attachments, notice).then(r => ({ ...r, to: replyTo }))
                 : replyWorkItem(slug, item.slug, text, replyTo, attachments, notice, selections))
                 .then((r) => {
                   const sentTo = r.to ?? replyTo
