@@ -139,7 +139,10 @@ export function projectBroadcastRecipients(node: CanvasNode): CanvasNode[] {
     seen.add(child.id)
     if (child.state !== 'live') continue
     if (child.kind === 'project' || child.tier === 'project') {
-      for (let i = (child.children?.length ?? 0) - 1; i >= 0; i--) pending.push(child.children[i])
+      for (let i = (child.children?.length ?? 0) - 1; i >= 0; i--) {
+        const nested = child.children[i]
+        if (nested) pending.push(nested)
+      }
     } else recipients.push(child)
   }
   return recipients
