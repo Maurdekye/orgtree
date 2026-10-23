@@ -5,13 +5,13 @@ Orgtree 4.4.4 lets you reply to a highlighted passage, adds keyboard navigation 
 ## Messages and transcripts
 
 - **Reply to a highlighted passage.** Select part of a mail, a transcript (replies, visible thinking, tool calls and their output), a Markdown presentation or a ticket's text and reply to just that passage. Quoted passages survive later edits to the source. Agents can do the same through their tools.
-- **Codex agents keep their sealed thinking steps in history** as placeholders, as Claude agents already did, and `orgtree_read_transcript` now includes thinking for every AI tool.
+- **New Codex sealed thinking steps stay in history as placeholders**, as Claude agents already did. `orgtree_read_transcript` now includes any supplied readable thinking, up to 1,200 characters per row, and sealed markers across harnesses.
 - **Queued messages always have Show/Hide.** The queue of not-yet-delivered messages can be folded at any size; it still folds on its own at six or more.
 - The "↑ you" preview above the message box shows your last real message, not a run of "Agent hired" notices.
 
 ## Navigation and desks
 
-- **Shift+Alt keyboard navigation.** Shift+Alt+Up/Down/Left/Right move to the manager, the centre-most report and coworkers (wrapping); Shift+Alt+Space fits the whole org; Shift+Alt+Backspace goes back through earlier agents; Shift+Alt+S opens the switchboard. Alt+Left/Right switches desk tabs. Shift+F6 and Shift+F8 are replaced by these; Shift+F7 stays.
+- **Shift+Alt keyboard navigation.** Shift+Alt+Up/Down/Left/Right move to the visible parent, centre-most visible direct child and visible siblings (wrapping); projects are stops, and Up from a top-level node opens the switchboard. Shift+Alt+Space fits the whole org; Shift+Alt+Backspace goes back through earlier agents; Shift+Alt+S opens the switchboard. Alt+Left/Right switches desk tabs. Shift+F6 and Shift+F8 are replaced by these; Shift+F7 stays.
 - **Work and Presentations open on what needs you**: a ticket flagged for attention or the oldest unread presentation first, then the last one you viewed, then the top of the list.
 - **Empty desk tabs are hidden.** A desk's Presentations and Docket tabs appear only when there is something to show; if only the team has items, the tab opens with Team ticked. Project desks gain the Team checkbox and desk Presentations gain Show retired.
 - **Tooltips on Retire, Dissolve and Do Not Disturb** explain what each does.

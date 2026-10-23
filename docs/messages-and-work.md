@@ -86,6 +86,12 @@ or Escape to clear the staged passages. Your draft text and recipient stay in
 place. A failed send restores the draft and excerpts; a changed recipient keeps
 the failed selection draft with its original recipient.
 
+A reply can include at most **eight selected passages**, each at most **4,096
+UTF-8 bytes**, with **48 KiB** of combined selection metadata. These limits apply
+across mail, transcripts, Markdown presentations and docket fields. A longer
+passage must be shortened; the engine refuses oversized selections rather than
+silently cutting the quote.
+
 The quote's **Nearby context** expands the saved surroundings. Activate the quote
 to check its current source; changed/unavailable sources keep the saved excerpt.
 Selections across source boundaries do not offer the action. Display-only text

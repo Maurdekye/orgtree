@@ -74,4 +74,4 @@ For the agent-side publishing contract see `orgtree-tool-present` (orgtree-worki
 
 In a Markdown reader, highlight part of the title or body and choose **Reply to selection**. The nearest reader reply box keeps your draft and recipient. Stage several passages, inspect **Nearby context**, remove one or cancel all, then reply through the existing direct/project broadcast control. The engine rechecks the source digest before delivery. A later edit never changes the saved excerpt; opening a quote checks for its exact or uniquely relocated passage and otherwise reports **Source changed** or **Source unavailable**. Interactive HTML presentations do not support selection replies.
 
-The Working category documents matching agent access in **orgtree-read-reply-source** and selection wrappers in **orgtree-tool-message**.
+The shared [selection limits](../inbox-screens/SKILL.md#reply-to-selected-mail-text) also apply here. The Working category documents matching agent access in **orgtree-tool-read-reply-source** and selection wrappers in **orgtree-tool-message**.
