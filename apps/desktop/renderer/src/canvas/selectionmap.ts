@@ -103,7 +103,7 @@ function markdownUnits(source: string, doc: Document): Unit[] | null {
       emitLiteral(token.raw, pos)
     }
   }
-  walk(mathMarkdown.lexer(normalized.text, { gfm: true }) as unknown as Token[], 0, normalized.text.length)
+  walk(mathMarkdown.lexer(normalized.text) as unknown as Token[], 0, normalized.text.length)
   return valid ? out.map(unit => ({ ...unit, start: normalized.boundary[unit.start]!, end: normalized.boundary[unit.end]! })) : null
 }
 
