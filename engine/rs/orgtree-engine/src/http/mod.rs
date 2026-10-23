@@ -59,7 +59,6 @@ pub fn router(engine: Arc<Engine>) -> Router {
         .route("/api/desktop/phone/link", post(desktop::phone_link))
         .route("/api/desktop/phone/unlink", post(desktop::phone_unlink))
         .route("/api/desktop/phone/dismiss", post(desktop::phone_dismiss))
-        .route("/api/desktop/phone/settings", post(desktop::phone_settings))
         .route("/api/desktop/phone/tailscale-login", post(desktop::phone_tailscale_login))
         .route("/api/desktop/maintenance/ack", post(desktop::maintenance_ack))
         .route("/api/desktop/maintenance/failure", post(desktop::maintenance_failure))

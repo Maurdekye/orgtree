@@ -294,14 +294,18 @@ fn settings_path(engine: &Engine) -> PathBuf {
     engine.cfg.path("phone.json")
 }
 
-/// `<data>/phone.json`: keep-awake, the card's dismissal, the link record.
+/// `<data>/phone.json`: the card's dismissal and the link record.
 #[logged]
 pub fn settings(engine: &Engine) -> Value {
-    let v = std::fs::read_to_string(settings_path(engine)).ok().and_then(|t| serde_json::from_str::<Value>(&t).ok()).filter(Value::is_object);
-    let mut v = v.unwrap_or_else(|| json!({}));
-    if !v["keep_awake"].is_boolean() {
-        v["keep_awake"] = json!(true);
-    }
+    let text = std::fs::read_to_string(settings_path(engine)).ok();
+    parse_settings(text.as_deref())
+}
+
+#[nolog] // Pure settings normalization; no need to log retained link records twice.
+fn parse_settings(text: Option<&str>) -> Value {
+    let mut v = text.and_then(|t| serde_json::from_str::<Value>(t).ok()).filter(Value::is_object).unwrap_or_else(|| json!({}));
+    // Retired field: ignore every legacy value; the next ordinary save drops it.
+    v.as_object_mut().expect("object normalized above").remove("keep_awake");
     v
 }
 
@@ -481,7 +485,7 @@ fn encode_ps(script: &str) -> String {
 /// administrator prompt (apps/desktop/main/phonefirewall.ts): an engine the
 /// boot task started has no desktop to show that prompt on.
 #[logged]
-pub async fn turn_on(engine: &Arc<Engine>, scope: &str, keep_awake: Option<bool>) -> Result<Value, crate::http::error::ApiError> {
+pub async fn turn_on(engine: &Arc<Engine>, scope: &str) -> Result<Value, crate::http::error::ApiError> {
     use crate::http::error::ApiError;
     if scope != "tailnet" && scope != "lan" {
         return Err(ApiError::bad_request("scope must be tailnet or lan"));
@@ -490,9 +494,6 @@ pub async fn turn_on(engine: &Arc<Engine>, scope: &str, keep_awake: Option<bool>
         return Err(ApiError::conflict("Tailscale is not connected on this PC"));
     }
     engine.phone.rule.store(None);
-    if let Some(k) = keep_awake {
-        update_settings(engine, |v| v["keep_awake"] = json!(k)).map_err(|e| ApiError::internal(format!("could not save phone.json: {e}")))?;
-    }
     crate::mailhub::configure(engine, &json!({ "public_listener": true, "public_scope": scope })).await.map_err(ApiError::unprocessable)?;
     Ok(state(engine, None).await)
 }
@@ -1154,7 +1155,6 @@ pub async fn state(engine: &Arc<Engine>, org: Option<&str>) -> Value {
             "firewall_wanted": rule_remote(hub["public_scope"].as_str().unwrap_or("all")),
         },
         "hub": { "running": hub["status"]["running"], "healthy": hub["status"]["healthy"], "error": hub["error"] },
-        "keep_awake": settings["keep_awake"],
         "card": card,
         // the panel shows each warning only when it applies
         "warnings": {
@@ -1169,6 +1169,26 @@ pub async fn state(engine: &Arc<Engine>, org: Option<&str>) -> Value {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn retired_phone_preference_is_ignored_without_losing_link_or_card() {
+        for old in [json!(true), json!(false), json!("legacy"), Value::Null] {
+            let text = json!({"keep_awake":old,"dismissed":true,"link":{"address":"person.example"}}).to_string();
+            let current = parse_settings(Some(&text));
+            assert!(current.get("keep_awake").is_none());
+            assert_eq!(current["dismissed"], true);
+            assert_eq!(current["link"]["address"], "person.example");
+            assert!(!serde_json::to_string(&current).unwrap().contains("keep_awake"));
+        }
+    }
+
+    #[test]
+    fn retired_phone_preference_parser_keeps_missing_and_malformed_settings_safe() {
+        for text in [None, Some("invalid json"), Some("null"), Some("[]"), Some("true")] {
+            assert_eq!(parse_settings(text), json!({}));
+        }
+        assert_eq!(parse_settings(Some(r#"{"dismissed":false}"#)), json!({"dismissed":false}));
+    }
 
     #[test]
     fn connected() {

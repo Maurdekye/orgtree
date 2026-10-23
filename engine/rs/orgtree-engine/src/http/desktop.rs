@@ -146,12 +146,12 @@ pub struct PhoneQuery {
     org: Option<String>,
 }
 
-/// `POST /api/desktop/phone/access` `{scope: tailnet|lan, keep_awake?}`:
+/// `POST /api/desktop/phone/access` `{scope: tailnet|lan}`:
 /// "Turn on phone access" (one administrator prompt for the firewall rule).
 // the panel's state carries the live setup code: never logged
 #[nolog]
 pub async fn phone_access(State(e): State<Arc<Engine>>, Json(b): Json<Value>) -> crate::http::error::ApiResult<Json<Value>> {
-    crate::phone::turn_on(&e, b["scope"].as_str().unwrap_or(""), b["keep_awake"].as_bool()).await.map(Json)
+    crate::phone::turn_on(&e, b["scope"].as_str().unwrap_or("")).await.map(Json)
 }
 
 /// `POST /api/desktop/phone/code` `{org}`: a new setup code for that org
@@ -187,15 +187,4 @@ pub async fn phone_dismiss(State(e): State<Arc<Engine>>) -> crate::http::error::
 #[logged]
 pub async fn phone_tailscale_login() -> crate::http::error::ApiResult<Json<Value>> {
     crate::phone::tailscale_login().await.map(Json)
-}
-
-/// `POST /api/desktop/phone/settings` `{keep_awake}`: the panel's checkbox
-/// and the sleep warning's "Keep awake while plugged in".
-// the panel's state carries the live setup code: never logged
-#[nolog]
-pub async fn phone_settings(State(e): State<Arc<Engine>>, Json(b): Json<Value>) -> crate::http::error::ApiResult<Json<Value>> {
-    let Some(k) = b["keep_awake"].as_bool() else { return Err(crate::http::error::ApiError::bad_request("keep_awake must be true or false")) };
-    crate::phone::update_settings(&e, |v| v["keep_awake"] = serde_json::json!(k))
-        .map_err(|x| crate::http::error::ApiError::internal(format!("could not save phone.json: {x}")))?;
-    Ok(Json(crate::phone::state(&e, None).await))
 }

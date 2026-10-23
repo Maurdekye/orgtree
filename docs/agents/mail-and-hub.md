@@ -1,5 +1,15 @@
 # Mail and hub
 
+## Phone settings compatibility (2026-10-23)
+
+Phone settings parsing discards obsolete preference keys before exposing or
+saving retained card/link data. Unknown legacy values must not make startup
+fail, and reading alone does not rewrite the user's file. Phone access submits
+only its network scope; sleep warnings remain diagnostics. Keep the phone
+panel, desktop HTTP contract and glossary inventory in step when removing a
+setting. [decided: user 2026-10-23; verified: `phone.rs`, `http/desktop.rs`,
+`canvas/phonelink.tsx`]
+
 Org Do not disturb adds an org-local third inbox mode without changing Closed
 isolation. Inbound publication, pull and resumption share the org-row lock;
 never fan out or create fallback wakes while held. Viewer read state does not
