@@ -1,5 +1,16 @@
 # Projects and concurrency
 
+## Broadcast recipient boundary (2026-10-23)
+
+Both desktop and tool pass through live project children and stop after delivering
+to each live agent child. `projects::broadcast_members` owns both server paths;
+preserve desktop depth/sibling ordering and its 1000 cap, and tool ID paging with
+its upper-ID snapshot. The desktop preview/DnD list follows the same boundary;
+header totals and Halt all remain full-subtree operations. Ordinary mail admission,
+attachments, replies, urgency and audience behavior stay unchanged. See
+[project nodes](../rust-engine/PROJECT-NODES.md#placement-and-runtime-capabilities).
+[decided: user 2026-10-23, m7214fddbec4a, m24d383f0fe1b, mcc739e71d42b]
+
 ## Slots when agents leave the tree (2026-10-22)
 
 Retire, dissolve and delete capture every affected agent's active lease and

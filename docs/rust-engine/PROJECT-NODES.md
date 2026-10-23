@@ -20,13 +20,18 @@ self, unrelated branches and cross-org edges still grant no reach. This shared
 check covers broadcast, events, listeners, queues and slots at deeply nested
 projects. [verified: `domain/projects.rs::reaches`, 2026-10-22]
 
-Desktop broadcast membership traverses the full live project subtree before its
-existing 1000-recipient cap. The agent broadcast tool traverses full same-org
-membership in 100-row pages with its existing upper-ID snapshot; every recipient
-still goes through ordinary message admission. Fair-queue eligibility follows full same-org ancestry
+Broadcast membership passes through live project children, delivers to live agent
+children and stops at each agent. Reports below an agent, including projects and
+agents below that agent, are excluded (USER 2026-10-23 09:41–09:42Z; 4.4.3).
+Both desktop and tool use `projects::broadcast_members`. The desktop retains its
+nearest-first order and 1000-recipient cap; the tool keeps ID-ordered 100-row pages
+and its upper-ID snapshot. Every recipient still goes through ordinary message
+admission, attachments, urgency and reply checks. This supersedes the earlier
+full-subtree wording; project depth remains unbounded and cycles terminate.
+Fair-queue eligibility follows full same-org ancestry
 for owners above or below the project. Stable edge unions terminate corrupt cycles;
 the existing recipient ordering, halt/ACK rules and per-owner registration checks
-are unchanged. [verified: `domain/projects.rs::{members,hand_batch_in}`,
+are unchanged. [verified: `domain/projects.rs::{broadcast_members,members,hand_batch_in}`,
 `tools/treetools.rs::project_broadcast`, 2026-10-23]
 
 Movement, sibling reorder, rename, superior insertion and retirement operate on

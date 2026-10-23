@@ -1964,3 +1964,12 @@ checks, coalesce rapid clicks, and use only the ordinary periodic probes.
 Existing post-login `force_provider` checks stay scoped. Tool parity uses
 `orgtree_list_tiers {refresh:true}` with inspection+runtime; browser authorization
 remains a user action. See [provider refresh](../agents/providers-and-accounts.md#explicit-provider-refresh-and-default-codex-sign-in-2026-10-23).
+
+**Project broadcast recipients, USER 2026-10-23 09:41–09:42Z (4.4.3):**
+Broadcast walks through live project children. Each live agent child receives the
+message and stops the walk; its own reports, including projects beneath an agent,
+are excluded. The desktop megaphone and agent tool use the same rule. This refines
+2026-10-18's all-project-participants wording and supersedes the deep-tree notes'
+full-subtree description, without a depth cutoff. Ordinary per-recipient admission,
+attachments, replies, urgency and audience grants remain unchanged. Sources:
+m7214fddbec4a, m24d383f0fe1b, mcc739e71d42b. See [project nodes](PROJECT-NODES.md#placement-and-runtime-capabilities).

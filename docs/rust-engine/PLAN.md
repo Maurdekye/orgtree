@@ -285,6 +285,11 @@ still resume, so the agents themselves remember).
 
 ## 10. User-facing differences — complete ledger
 
+Project broadcast (USER2026-10-23,4.4.3): both megaphone and tool pass through
+live project children and stop at live agent recipients; reports below those
+agents are excluded. Mail admission and delivery metadata remain unchanged.
+See [project nodes](PROJECT-NODES.md#placement-and-runtime-capabilities).
+
 Providers refresh (USER2026-10-23,4.4.2): explicit Refresh bypasses the periodic
 snapshot through shared/coalesced ordinary discovery; default Codex login gains
 the existing Sign in flow. `orgtree_list_tiers {refresh:true}` mirrors refresh
