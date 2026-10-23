@@ -5,12 +5,14 @@
 // gives it a name and a description there. The description is the project's
 // standing charter: every agent under the project receives it.
 
-import { useEffect, useState } from 'react'
-import { CheckIcon, CloseIcon, FolderIcon } from '../icons'
+import { useEffect, useRef, useState } from 'react'
+import { CheckIcon, CloseIcon, FolderIcon, SettingsIcon } from '../icons'
 import { NODE_H, NODE_W } from './shared'
 import type { DraftState, Pt } from './shared'
-import type { OpRequest } from '../types'
+import type { OpRequest, ProjectPolicySettings } from '../types'
 import { normalizeUserEnteredName } from './nameinput'
+import { ModalOverPins, PinFrame } from './modalpin'
+import { DEFAULT_PROJECT_POLICY, ProjectPolicyFields } from './projectpolicy'
 
 /** a project draft's `tier`: projects have no model */
 export const PROJECT_DRAFT = 'project'
@@ -18,10 +20,11 @@ export const PROJECT_DRAFT = 'project'
 /** The ops that create the drafted project in its place: one create_project
  *  (under the draft's parent, at the top level, or above its anchor holding
  *  it), then for a side token the same reorder a side hire pins. */
-export function projectDraftSteps(draft: DraftState, typed: string, description: string): OpRequest[] {
+export function projectDraftSteps(draft: DraftState, typed: string, description: string, settings?: Partial<ProjectPolicySettings>): OpRequest[] {
   // spaces become hyphens, as in a hire's name (user 2026-10-17 19:22:46Z)
   const name = normalizeUserEnteredName(typed)
   const create: OpRequest = { op: 'create_project', name,
+    ...(settings ? { settings } : {}),
     ...(description.trim() ? { description: description.trim() } : {}),
     ...(draft.above ? { above: draft.above.anchor } : { parent: draft.parent ?? 'user' }) }
   const b = draft.beside
@@ -32,20 +35,27 @@ export function projectDraftSteps(draft: DraftState, typed: string, description:
 export function ProjectDraftNode({ pos, onConfirm, onCancel, pending = false }: {
   pos: Pt
   pending?: boolean
-  onConfirm: (name: string, description: string) => void
+  onConfirm: (name: string, description: string, settings?: ProjectPolicySettings) => void
   onCancel: () => void
 }) {
   const [name, setName] = useState('')
   const [description, setDescription] = useState('')
+  const [settings, setSettings] = useState<ProjectPolicySettings | null>(null)
+  const [settingsOpen, setSettingsOpen] = useState(false)
+  const gear = useRef<HTMLButtonElement>(null)
+  const closeSettings = () => { setSettingsOpen(false); gear.current?.focus({ preventScroll: true }) }
   useEffect(() => {
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape' && !e.defaultPrevented) onCancel() }
+    const onKey = (e: KeyboardEvent) => { if (!settingsOpen && e.key === 'Escape' && !e.defaultPrevented) onCancel() }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [onCancel])
+  }, [onCancel, settingsOpen])
   const named = name.trim().length > 0
-  const ok = named && !pending
-  const create = () => { if (ok) onConfirm(name.trim(), description.trim()) }
-  return (
+  const ok = named && !pending && !settingsOpen
+  const create = () => { if (ok) {
+    if (settings) onConfirm(name.trim(), description.trim(), settings)
+    else onConfirm(name.trim(), description.trim())
+  } }
+  return (<>
     <div className="sq draft project" style={{
       transform: `translate(${pos.x}px, ${pos.y}px)`, width: NODE_W, height: NODE_H,
     }} onPointerDown={(e) => e.stopPropagation()}>
@@ -68,6 +78,9 @@ export function ProjectDraftNode({ pos, onConfirm, onCancel, pending = false }: 
               }}
               onChange={(e) => setName(e.target.value)}
               onKeyDown={(e) => { if (e.key === 'Enter' && ok) create() }} />
+            <button ref={gear} className="df-gear" disabled={pending}
+              aria-label="Project settings" title="Project settings — applied when created"
+              onClick={() => setSettingsOpen(true)}><SettingsIcon fontSize="inherit" /></button>
           </div>
           <div className="df-charter-wrap">
             <textarea className="df-charter"
@@ -86,5 +99,24 @@ export function ProjectDraftNode({ pos, onConfirm, onCancel, pending = false }: 
         </div>
       </div>
     </div>
-  )
+    {settingsOpen && <DraftProjectSettings value={settings ?? DEFAULT_PROJECT_POLICY}
+      close={closeSettings} onSave={value => { setSettings(value); closeSettings() }} />}
+  </>)
+}
+
+function DraftProjectSettings({ value, onSave, close }: {
+  value: ProjectPolicySettings
+  onSave: (value: ProjectPolicySettings) => void
+  close: () => void
+}) {
+  const [settings, setSettings] = useState(value)
+  return <ModalOverPins><PinFrame kind="draft-project-settings" title="Draft project settings"
+    panel="settings cfg" close={close} pinnable={false}>
+    <section aria-label="Draft project settings">
+      <h3><SettingsIcon fontSize="inherit" /> Project settings <span className="dim">· applied when created</span></h3>
+      <ProjectPolicyFields value={settings} draft onChange={patch => setSettings(current => ({ ...current, ...patch }))} />
+      <div className="row"><button className="primary" onClick={() => onSave(settings)}>save</button>
+        <button onClick={close}>cancel</button></div>
+    </section>
+  </PinFrame></ModalOverPins>
 }

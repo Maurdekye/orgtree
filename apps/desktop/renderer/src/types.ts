@@ -2432,7 +2432,21 @@ export interface AudiencesPayload {
 
 // ---------------------------------------------------------------- requests
 // api.py Op — the ledger op envelope (POST /api/orgs/{slug}/ops)
+export interface ProjectPolicySettings {
+  peer_mail: boolean
+  mail_queue: 'ack' | 'round_robin'
+  exclude_sender: boolean
+  ack_timeout: boolean
+  max_attempts: number
+  ack_reminders: number
+  turn_end_reminder: boolean
+  slots: number
+  event_listeners: boolean
+}
+
 export interface OpRequest {
+  /** create_project: policy applied atomically with creation. */
+  settings?: Partial<ProjectPolicySettings>
   peer_mail?: boolean
   op: string
   /** Batch halt/unhalt: validated together before parallel actor control. */

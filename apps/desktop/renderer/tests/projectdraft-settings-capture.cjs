@@ -1,0 +1,38 @@
+const {app,BrowserWindow}=require('electron'),fs=require('node:fs'),path=require('node:path'),assert=require('node:assert/strict')
+const out=process.env.PROJECT_DRAFT_OUT,deps='E:/Libraries/Desktop/orgtree/node_modules'
+assert(/^C:[\\/]orgtree-build[\\/]epic-combo-sol[\\/]project-draft-green[\\/]capture$/i.test(out||''),'own output required')
+fs.mkdirSync(out,{recursive:true})
+const esbuild=require(path.join(deps,'esbuild'))
+esbuild.buildSync({entryPoints:['apps/desktop/renderer/tests/projectdraft-settings-visual.tsx'],bundle:true,format:'esm',platform:'browser',outfile:out+'/fixture.js',nodePaths:[deps],define:{'process.env.NODE_ENV':'"production"'}})
+esbuild.buildSync({stdin:{contents:'@import "./styles.css"; @import "./shell.css";',resolveDir:path.resolve('apps/desktop/renderer/src'),loader:'css'},bundle:true,outfile:out+'/fixture.css',loader:{'.woff2':'dataurl','.woff':'dataurl','.ttf':'dataurl','.svg':'dataurl','.png':'dataurl'}})
+fs.writeFileSync(out+'/fixture.html','<!doctype html><meta charset="utf-8"><link rel="stylesheet" href="fixture.css"><div id="root"></div><script type="module" src="fixture.js"></script>')
+for(const key of ['userData','sessionData','logs','crashDumps']){fs.mkdirSync(out+'/'+key,{recursive:true});app.setPath(key,out+'/'+key)}
+app.disableHardwareAcceleration()
+const settle='new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(()=>setTimeout(r,100))))'
+app.whenReady().then(async()=>{
+ const win=new BrowserWindow({width:1280,height:1000,useContentSize:true,show:false,webPreferences:{offscreen:true,contextIsolation:true,sandbox:true,nodeIntegration:false,backgroundThrottling:false}})
+ const errors=[];win.webContents.on('console-message',(_e,level,message)=>{if(level>=2)errors.push({level,message})})
+ try{
+  win.webContents.session.webRequest.onBeforeRequest((d,cb)=>cb({cancel:!/^(file:|data:)/.test(d.url)}))
+  await win.loadFile(out+'/fixture.html');await new Promise(r=>setTimeout(r,500))
+  await win.webContents.executeJavaScript("document.querySelector('.sq.user button.project-token').click()")
+  await new Promise(r=>setTimeout(r,1100))
+  await win.webContents.executeJavaScript(`(()=>{const el=document.querySelector('.df-name');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(el,'tutorial-project');el.dispatchEvent(new Event('input',{bubbles:true}));document.querySelector('.df-gear').click()})()`)
+  await win.webContents.executeJavaScript(settle)
+  await win.webContents.executeJavaScript(`(()=>{for(const [selector,value,proto,event] of [['[aria-label="Mail queue"]','ack',HTMLSelectElement,'change'],['[aria-label="Concurrency slots"]','4',HTMLInputElement,'input']]){const el=document.querySelector(selector);Object.getOwnPropertyDescriptor(proto.prototype,'value').set.call(el,value);el.dispatchEvent(new Event(event,{bubbles:true}))}document.querySelector('[aria-label="Subordinates may message each other"]').click();document.querySelector('[aria-label="Project Events"]').click()})()`)
+  await win.webContents.executeJavaScript(settle)
+  const before=await win.webContents.executeJavaScript(`(()=>{const d=document.querySelector('[aria-label="Draft project settings"]');return{requests:window.projectDraftRequests.length,slots:d.querySelector('[aria-label="Concurrency slots"]').value,queue:d.querySelector('[aria-label="Mail queue"]').value,peer:d.querySelector('[aria-label="Subordinates may message each other"]').checked,events:d.querySelector('[aria-label="Project Events"]').checked,scrollable:d.closest('.modal')?.scrollHeight>0}})()`)
+  assert.equal(before.requests,0);assert.equal(before.slots,'4');assert.equal(before.queue,'ack');assert.equal(before.peer,false);assert.equal(before.events,true)
+  fs.writeFileSync(out+'/project-draft-settings.png',(await win.webContents.capturePage()).toPNG())
+  await win.webContents.executeJavaScript("document.querySelector('[aria-label=\"Draft project settings\"] .row .primary').click()")
+  await win.webContents.executeJavaScript(settle)
+  const staged=await win.webContents.executeJavaScript('window.projectDraftRequests.length');assert.equal(staged,0)
+  await win.webContents.executeJavaScript("document.querySelector('.sq.draft .df-foot .primary').click()")
+  await win.webContents.executeJavaScript(settle)
+  const requests=await win.webContents.executeJavaScript('window.projectDraftRequests')
+  assert.equal(requests.length,1);assert.equal(requests[0].op,'create_project');assert.equal(requests[0].name,'tutorial-project')
+  assert.equal(requests[0].settings.slots,4);assert.equal(requests[0].settings.mail_queue,'ack');assert.equal(requests[0].settings.peer_mail,false);assert.equal(requests[0].settings.event_listeners,true)
+  fs.writeFileSync(out+'/checks.json',JSON.stringify({before,staged,requests,console:errors},null,2))
+  console.log('Synthetic OrgCanvas gear/save/create checks passed; one PNG captured')
+ }finally{win.destroy()}
+}).then(()=>app.exit(0),e=>{console.error(e.stack||e);app.exit(1)})

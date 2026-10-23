@@ -60,7 +60,9 @@ import { AgentHistoryView } from './historyview'
 import { AgentDirectoryProvider, nodeTierOf, TierChip } from './identity'
 import type { RefRoutes } from './reflinks'
 import { useRecordHistory } from '../recordpanelhooks'
-import { MAX_SLOTS, slotCount } from './slots'
+import { slotCount } from './slots'
+import { ProjectPolicyFields } from './projectpolicy'
+import type { ProjectPolicySettings } from '../types'
 import { eventListenersOn } from './listeners'
 import { getRetiredPage, useRetiredPages } from './retiredpages'
 
@@ -1207,13 +1209,6 @@ function ProjectConfig({node,map,tree,slug,op,toast,onScratchFolder,refs,onFocus
   const attempts = attemptsEdit ?? savedAttempts
   const reminders = remindersEdit ?? savedReminders
   const turnEnd = turnEndEdit ?? savedTurnEnd
-  // the ack timeout and max attempts ride the 20-minute checkup (user 08:11Z)
-  const [checkups, setCheckups] = useState<boolean | null>(null)
-  useEffect(() => {
-    let live = true
-    getRuntimeSettings().then((r) => { if (live) setCheckups(r.working_checkups_enabled !== false) }).catch(() => {})
-    return () => { live = false }
-  }, [])
   const live = node.state === 'live'
   const members = effectiveReports(node.children).some((c) => c.state !== 'archived')
   const save = async () => {
@@ -1228,7 +1223,7 @@ function ProjectConfig({node,map,tree,slug,op,toast,onScratchFolder,refs,onFocus
           ...(mode !== savedMode ? { mode } : {}), ...(exclude !== savedExclude ? { exclude_sender: exclude } : {}),
           ...(timeout !== savedTimeout ? { ack_timeout: timeout } : {}),
           ...(attempts !== savedAttempts ? { max_attempts: attempts } : {}),
-          ...(reminders !== savedReminders ? { ack_reminders: reminders } : {}),
+          ...(reminders !== savedReminders ? { ack_reminders: reminders }} : {}),
           ...(turnEnd !== savedTurnEnd ? { turn_end_reminder: turnEnd } : {}) })
       if (slots !== savedSlots) await op({ op: 'set_slots', node: node.id, capacity: slots })
       if (listenersOn !== savedListeners) await op({ op: 'set_event_listeners', node: node.id, enabled: listenersOn })
@@ -1267,47 +1262,15 @@ function ProjectConfig({node,map,tree,slug,op,toast,onScratchFolder,refs,onFocus
       <SetBlock label="Summary" hint="The standing charter of every agent under this project, nested projects included; it reaches a running agent at its next start.">
         <textarea rows={10} className="charterbox" aria-label="Project Summary" value={description}
           onChange={(e) => setDescription(e.target.value)} /></SetBlock>
-      <SetToggle label="Subordinates may message each other" checked={on} disabled={busy} onChange={setEdit}
-        hint="Off requires an audience between this project's direct agents and hides their peer connector lines. Changes apply immediately." />
-      <SetRow label="Mail queue" hint={mode === 'ack'
-        ? 'ACK works like a FIFO work queue: jobs in order, one per listener until it acks, with retries and dead letters.'
-        : 'Round-robin works like a load balancer: each job goes to the least recently woken listener.'}>
-        <select aria-label="Mail queue" value={mode} disabled={busy}
-          onChange={(e) => setModeEdit(e.target.value as 'ack' | 'round_robin')}>
-          <option value="round_robin">Round-robin</option>
-          <option value="ack">Ack mode</option>
-        </select>
-      </SetRow>
-      <SetToggle label="Never hand an agent its own mail" checked={exclude} disabled={busy} onChange={setExcludeEdit}
-        hint="On: mail an agent sends to the project goes to another watcher, and waits if the sender is the only one." />
-      <SetRow label="Concurrency slots" hint="One slot works like a shared lock (mutex); several slots work like a counting semaphore. 0 = no concurrency slots.">
-        <input type="number" aria-label="Concurrency slots" min={0} max={MAX_SLOTS} value={slots} disabled={busy}
-          onChange={(e) => setSlotsEdit(Math.max(0, Math.min(MAX_SLOTS, Math.floor(Number(e.target.value)) || 0)))} />
-      </SetRow>
-      <SetToggle label="Project Events" checked={listenersOn} disabled={busy} onChange={setListenersEdit}
-        hint="On: the desk shows the events tab and the project's event can be fired. Any agent above or below the project switches it on by registering a listener; only you or an agent above the project switch it off. Off disables every event listener and listener watch on the project and tells their owners; switching it on again re-arms them." />
-      {(mode === 'ack' || slots >= 1) && <section className="project-ack-settings" aria-label="Acknowledgement">
-        <h4>Acknowledgement</h4>
-        {mode === 'ack' && <SetToggle label="Remind an agent that ends its turn with an un-acked job" checked={turnEnd} disabled={busy}
-          onChange={setTurnEndEdit}
-          hint="Mail jobs only: when a listener's turn ends while it still holds an un-acked job, it gets ONE reminder turn right away naming the job: finish it and ack, or set status blocked with a reason. After that the 20-minute ack timeout applies. Not sent if it ended its turn blocked with a reason, or it is halted, frozen or out of usage. Slot leases use the checkup reminders below." />}
-        <SetToggle label="Ack timeout" checked={timeout} disabled={busy || checkups === false} onChange={setTimeoutEdit}
-          hint={checkups === false
-            ? 'Inactive for both mail jobs and slot leases: the 20-minute checkup ("check on working agents after 20 minutes" in Runtime settings) is off.'
-            : `Applies to un-acked mail jobs and idle slot leases. Their holder gets up to ${reminders} reminders, one per 20-minute checkup; at the next checkup, mail is reclaimed for retry or dead letters and a slot lease is released in full so waiting claims can proceed.`} />
-        <SetRow label="Max attempts" hint={checkups === false
-          ? 'Mail jobs only; inactive while the 20-minute checkup is off. Does not limit slot claims.'
-          : 'Mail jobs only: after this many hand-outs without an ack, a reclaimed job goes to the dead-letter list and you are told. Does not limit slot claims.'}>
-          <input type="number" aria-label="Max attempts" min={1} max={100} value={attempts} disabled={busy || checkups === false}
-            onChange={(e) => setAttemptsEdit(Math.max(1, Math.min(100, Number(e.target.value) || 1)))} />
-        </SetRow>
-        <SetRow label="Ack reminders" hint={checkups === false
-          ? 'Inactive for both mail jobs and slot leases while the 20-minute checkup is off.'
-          : 'Reminders per held mail job or slot lease before reclaim at the next 20-minute checkup, with Ack timeout on. A slot lease is released in full, even if it holds several slots. Default 3; from 1 to 10.'}>
-          <input type="number" aria-label="Ack reminders" min={1} max={10} value={reminders} disabled={busy || checkups === false}
-            onChange={(e) => setRemindersEdit(Math.max(1, Math.min(10, Math.floor(Number(e.target.value)) || 1)))} />
-        </SetRow>
-      </section>}
+      <ProjectPolicyFields value={{ peer_mail: on, mail_queue: mode, exclude_sender: exclude, slots, event_listeners: listenersOn,
+        turn_end_reminder: turnEnd, ack_timeout: timeout, max_attempts: attempts, ack_reminders: reminders }}
+        busy={busy} onChange={patch => {
+          const setters = { peer_mail: setEdit, mail_queue: setModeEdit, exclude_sender: setExcludeEdit, slots: setSlotsEdit, event_listeners: setListenersEdit, turn_end_reminder: setTurnEndEdit, ack_timeout: setTimeoutEdit, max_attempts: setAttemptsEdit, ack_reminders: setRemindersEdit }
+          for (const key of Object.keys(patch) as Array<keyof ProjectPolicySettings>) {
+            const set = setters[key] as (value: typeof patch[typeof key]) => void
+            set(patch[key])
+          }
+        }} />
     </SettingsTabPanel>
     {hasHistory && <SettingsTabPanel id="history" idBase={tabId} active={tab === 'history'}
       className="app-settings-panel agent-history-tab">

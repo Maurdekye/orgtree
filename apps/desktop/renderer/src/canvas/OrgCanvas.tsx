@@ -3886,14 +3886,14 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
       ? { parent, tier: PROJECT_DRAFT, project: true, above: { anchor: n.id } }
       : { parent, tier: PROJECT_DRAFT, project: true, beside: { anchor: n.id, side: ringSide(n, edge === 'l' ? 'left' : 'right') } })
   }
-  const confirmProjectDraft = (name: string, description: string) => {
+  const confirmProjectDraft = (name: string, description: string, settings?: import('../types').ProjectPolicySettings) => {
     if (!draft?.project || pendingProjectRef.current) return
     const request = { draft, slug }
     pendingProjectRef.current = request
     setPendingProject(request)
     const ownsDraft = () => pendingProjectRef.current === request
       && draftRef.current === request.draft && draftOrgRef.current === request.slug
-    const [create, reorder] = projectDraftSteps(draft, name, description)
+    const [create, reorder] = projectDraftSteps(draft, name, description, settings)
     op(create!)
       .then((r) => {
         const born = typeof r?.node === 'string' && r.node ? r.node : String(create!.name)
