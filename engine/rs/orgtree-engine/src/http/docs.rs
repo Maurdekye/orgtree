@@ -122,6 +122,8 @@ pub struct ListQuery {
     opening: Option<String>,
     #[serde(default)]
     hired: Option<String>,
+    #[serde(default)]
+    previous: String,
 }
 
 const OPENING_UNREAD_SQL: &str = "SELECT d.uid, d.id FROM ot.documents d LEFT JOIN ot.agents a ON a.id = d.agent_id
@@ -141,11 +143,18 @@ const OPENING_POSITION_SQL: &str = "SELECT count(*) FROM ot.documents d WHERE d.
 
 #[logged]
 async fn opening_target(client: &tokio_postgres::Client, org_id: i64, node: &str,
-    members: &Option<Vec<i64>>, hired: bool) -> ApiResult<Option<(String, i64)>> {
+    members: &Option<Vec<i64>>, hired: bool, previous: &str) -> ApiResult<Option<(String, i64)>> {
     let params: &[&(dyn tokio_postgres::types::ToSql + Sync)] = &[&org_id, &node, members, &hired];
     let row = match client.query_opt(OPENING_UNREAD_SQL, params).await? {
         Some(row) => Some(row),
-        None => client.query_opt(OPENING_NEWEST_SQL, params).await?,
+        None => {
+            // Identity lookup, scoped exactly like the list; no history prefix.
+            let prior = if previous.is_empty() || previous.len() > 512 { None } else {
+                let sql=OPENING_NEWEST_SQL.replace("ORDER BY d.at DESC, d.id DESC", "AND d.uid=$5 ORDER BY d.at DESC, d.id DESC");
+                client.query_opt(&sql,&[&org_id,&node,members,&hired,&previous]).await?
+            };
+            match prior { Some(row)=>Some(row), None=>client.query_opt(OPENING_NEWEST_SQL, params).await? }
+        },
     };
     let Some(row) = row else { return Ok(None) };
     let id: i64 = row.get(1);
@@ -164,7 +173,7 @@ pub async fn list(State(e): State<Arc<Engine>>, Path(slug): Path<String>, Query(
     let limit = if q.limit > 0 { q.limit.min(1000) } else { 60 };
     if q.locate.is_empty() && matches!(q.opening.as_deref(), Some("1" | "true")) {
         let target = opening_target(&client, o.id, &node, &members,
-            matches!(q.hired.as_deref(), Some("1" | "true"))).await?;
+            matches!(q.hired.as_deref(), Some("1" | "true")), &q.previous).await?;
         let offset = target.as_ref().map_or(0, |(_, position)| position / limit * limit);
         let Json(mut page) = list_page(&client, &o, &node, members.as_deref(), offset, limit, None).await?;
         page["opening_id"] = json!(target.as_ref().map(|(id, _)| id));
@@ -370,14 +379,14 @@ mod opening_tests {
             (5,'dismissed',1,1,'old-name','2026-01-01',NULL,true);
           CREATE INDEX documents_org ON ot.documents(org_id,id DESC);").await.unwrap();
         client.batch_execute(include_str!("../../migrations/0041_document_opening.sql")).await.unwrap();
-        assert_eq!(super::opening_target(&client,1,"",&None,true).await.unwrap(),Some(("changed".into(),3)));
-        assert_eq!(super::opening_target(&client,1,"renamed",&Some(vec![1]),false).await.unwrap(),Some(("changed".into(),2)));
-        assert_eq!(super::opening_target(&client,1,"retired",&Some(vec![2]),false).await.unwrap(),Some(("retired".into(),0)));
-        assert_eq!(super::opening_target(&client,99,"",&None,true).await.unwrap(),None);
+        assert_eq!(super::opening_target(&client,1,"",&None,true, "").await.unwrap(),Some(("changed".into(),3)));
+        assert_eq!(super::opening_target(&client,1,"renamed",&Some(vec![1]),false, "").await.unwrap(),Some(("changed".into(),2)));
+        assert_eq!(super::opening_target(&client,1,"retired",&Some(vec![2]),false, "").await.unwrap(),Some(("retired".into(),0)));
+        assert_eq!(super::opening_target(&client,99,"",&None,true, "").await.unwrap(),None);
         client.batch_execute("UPDATE ot.documents SET viewed_at=at;UPDATE ot.documents SET at='2026-10-20' WHERE uid='changed'").await.unwrap();
-        assert_eq!(super::opening_target(&client,1,"",&None,true).await.unwrap(),Some(("changed".into(),3)));
+        assert_eq!(super::opening_target(&client,1,"",&None,true, "").await.unwrap(),Some(("changed".into(),3)));
         client.batch_execute("UPDATE ot.documents SET viewed_at=at").await.unwrap();
-        assert_eq!(super::opening_target(&client,1,"",&None,true).await.unwrap(),Some(("changed".into(),3)));
+        assert_eq!(super::opening_target(&client,1,"",&None,true, "").await.unwrap(),Some(("changed".into(),3)));
         drop(client); task.await.unwrap();
     }
 }

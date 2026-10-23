@@ -656,6 +656,8 @@ pub struct PageQuery {
     #[serde(default)] pub team: String,
     #[serde(default)] pub attention: String,
     #[serde(default)] pub revision: String,
+    #[serde(default)] pub opening: String,
+    #[serde(default)] pub opening_last: String,
     pub at: Option<String>,
 }
 
@@ -758,6 +760,23 @@ pub async fn user_page(engine: &Engine, org: &OrgHandle, q: &PageQuery) -> Resul
                          ORDER BY {clock} DESC, slug DESC LIMIT 100 OFFSET $8");
     let rows = client.query(&sql, &[&org.id,&asked,&now,&agent,&owners,&terms,&group,&q.offset]).await?;
     let items: Vec<Value> = rows.iter().map(|r| list_row(&view(&item_of(r), &context, None))).collect();
+    // At most two extra identities, never a history-wide prefix: the first
+    // manual flag and the remembered row. The ordinary page/cursor stays intact.
+    let mut opening_rows=Vec::new();
+    if q.offset==0 && !q.opening.is_empty() {
+        if q.opening=="1" {
+            let sql=format!("{base} SELECT {COLS} FROM grouped WHERE group_name=$7 AND matches AND manual_attention IS NOT NULL ORDER BY {clock} DESC, slug DESC LIMIT 1");
+            for row in client.query(&sql,&[&org.id,&asked,&now,&agent,&owners,&terms,&group]).await? {
+                opening_rows.push(list_row(&view(&item_of(&row),&context,None)));
+            }
+        }
+        if !q.opening_last.is_empty() && q.opening_last.len()<=512 {
+            let sql=format!("{base} SELECT {COLS} FROM grouped WHERE group_name=$7 AND matches AND slug=$8 LIMIT 1");
+            for row in client.query(&sql,&[&org.id,&asked,&now,&agent,&owners,&terms,&group,&q.opening_last]).await? {
+                opening_rows.push(list_row(&view(&item_of(&row),&context,None)));
+            }
+        }
+    }
     let next = q.offset + items.len() as i64;
     let total = matched[group].as_i64().unwrap_or(0);
     // Do not publish a page assembled across a docket mutation. The caller
@@ -765,7 +784,7 @@ pub async fn user_page(engine: &Engine, org: &OrgHandle, q: &PageQuery) -> Resul
     if revision != format!("{}-{}", engine.boot.id, org.docket.load(std::sync::atomic::Ordering::Relaxed)) {
         return Ok(json!({"format":"orgtree.work-page/v1","reset":true}));
     }
-    Ok(json!({"format":"orgtree.work-page/v1","group":group,"rows":items,
+    Ok(json!({"format":"orgtree.work-page/v1","group":group,"rows":items,"opening_rows":opening_rows,
       "total":total,"totals":totals,"matched":matched,"assigned_count":assigned,
       "counts":{"active":active,"attention":attention,"archived":totals["archived"],"backlogged":totals["backlogged"]},
       "next_offset":if next < total {Some(next)} else {None}, "revision":revision,"at":iso(now)}))
