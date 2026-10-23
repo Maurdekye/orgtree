@@ -1000,7 +1000,7 @@ fn build_tool_audience() -> Value {
 fn build_tool_watchdog() -> Value {
     tool(
         "orgtree_watchdog",
-        "Uncapped watchers; paged list. create: kind/target (usage defaults usage); command regex. command/stream smoke-run as you (cmd.exe or shell=bash). Ready once command/process/usage/slot/fair_queue returns effects/actions inline; else registers. Silence/event/listeners unchanged. usage checks cached levels then edges, no probes. fair_queue routes mail; slot grants lease. project_listener hears events; listener_watch counts listeners; fire_actions run tools. mqtt/websocket send uses live connection (MQTT: topic). configure sets connection health mail (default notice) without reconnect. Limits: guide.",
+        "Proactively await builds, files, processes, mail/events or usage thresholds; never poll/sleep-wait. Uncapped; list paged. create: kind/target (usage defaults usage), command regex. command/stream smoke-run as you (cmd.exe or shell=bash). Ready once command/process/usage/slot/fair_queue: effects/actions inline; else registers. usage uses cached levels/edges, no probes. fair_queue routes mail; slot grants lease; project_listener: events; listener_watch: listener count; fire_actions run tools. mqtt/websocket send: live connection (MQTT: topic). configure: health mail (default notice), no reconnect.",
         json!({
             "action": { "type": "string", "enum": ["create", "list", "pause", "resume", "remove", "send", "configure"] },
             "cursor": {"type":"string","description":"list: next_cursor from the preceding page"},
@@ -1320,6 +1320,21 @@ mod startup_card_tests {
                 total += description.len();
             }
             assert!(total <= 12000,"description total {total}");
+        }
+    }
+
+    #[test]
+    fn startup_watchdog_guides_proactive_waits_and_keeps_hiring_eager() {
+        for shape in [MailShape::Split, MailShape::Flat] {
+            let cards = scoped_as(&json!({}), shape);
+            let dog = cards.iter().find(|c| c["name"] == "orgtree_watchdog").unwrap();
+            let description = dog["description"].as_str().unwrap();
+            for guidance in ["Proactively await", "builds", "files", "processes", "mail/events", "usage thresholds", "never poll/sleep-wait"] {
+                assert!(description.contains(guidance), "missing upfront guidance: {guidance}");
+            }
+            for name in ["orgtree_watchdog", "orgtree_staff", "orgtree_hire", "orgtree_rehire"] {
+                assert_eq!(cards.iter().find(|c| c["name"] == name).unwrap()["_meta"]["anthropic/alwaysLoad"], true, "eager {name}");
+            }
         }
     }
 
@@ -1677,7 +1692,7 @@ mod builder_stack_tests {
         for (name, description) in [
             ("orgtree_work", "Manage docket items by slug; read guide before writing. Objective: problem/solution then scope. Updates claim ownership unless owner=current holder; supply progress lists or revision-checked keep/append. Add participants before assignment/review. Blocked/dropped need reasons. Review is agent review; ask(work_item) for user questions. Delete is permanent and restricted; prefer archive/drop.\nGuide: orgtree-tool-work."),
             ("orgtree_project", "Read/use projects above/below you; only ancestors/user change settings, name, order or purge mail. create needs name/index (parent defaults you); above wraps a node. settings reads; configure patches atomically. Broadcast obeys recipient authority; purge only unclaimed mail. Presentations support chunks. Claim via slot watchdog; slots lists holders/line; release_slot releases yours. Ancestors may force/unqueue. Dead letters: list/read/retry/drop; project.dead_letter alerts. fire_event fires; listeners lists listeners/watches. See guide for fields.\nGuide: orgtree-tool-project."),
-            ("orgtree_watchdog", "Uncapped watchers; paged list. create: kind/target (usage defaults usage); command regex. command/stream smoke-run as you (cmd.exe or shell=bash). Ready once command/process/usage/slot/fair_queue returns effects/actions inline; else registers. Silence/event/listeners unchanged. usage checks cached levels then edges, no probes. fair_queue routes mail; slot grants lease. project_listener hears events; listener_watch counts listeners; fire_actions run tools. mqtt/websocket send uses live connection (MQTT: topic). configure sets connection health mail (default notice) without reconnect. Limits: guide.\nGuide: orgtree-tool-watchdog."),
+            ("orgtree_watchdog", "Proactively await builds, files, processes, mail/events or usage thresholds; never poll/sleep-wait. Uncapped; list paged. create: kind/target (usage defaults usage), command regex. command/stream smoke-run as you (cmd.exe or shell=bash). Ready once command/process/usage/slot/fair_queue: effects/actions inline; else registers. usage uses cached levels/edges, no probes. fair_queue routes mail; slot grants lease; project_listener: events; listener_watch: listener count; fire_actions run tools. mqtt/websocket send: live connection (MQTT: topic). configure: health mail (default notice), no reconnect.\nGuide: orgtree-tool-watchdog."),
             ("orgtree_inbox", "Read own mail: list previews, fetch<=20 IDs, chunk bodies, conversation recall. Fetch/chunk consume received content; previews do not. Project reads never claim/ack; keep project/folder/status with cursors. Org inbox: extern holders use settings, list org_inbox=true, or pull (consumes for the whole org). Mode writes are user-only. See guide for limits and continuations.\nGuide: orgtree-tool-inbox."),
             ("orgtree_audience", "Manage directional audiences; requests grant nothing. request target/from managed project; grant from; deny requester; revoke grantee. Project grants reach direct live members, never nested; reverse needs its own grant. User contact does not add personal access while inherited; manual Acquire can. Project decisions go to nearest agent superior (user if none). External/org-inbox remains agent-only. Read guide for grant authority.\nGuide: orgtree-tool-audience."),
             ("orgtree_status", "Report own work status; done does not end turn. Or node+dnd only: self or descendant (descendants need runtime). Idle arms next turn. false clears any setter's hold and triggers native delivery now, without a count cap; size limits remain. Urgent bypasses; turn end clears DND.\nGuide: orgtree-tool-status."),

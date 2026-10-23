@@ -14,6 +14,17 @@ identity applies at the next launch and changes its prompt prefix.
 [decided: user 2026-10-23, 4.4.2 accuracy fix; verified: runtime/identity.rs,
 tools/defs.rs, runtime/codex.rs]
 
+## Proactive watchdog discovery (2026-10-23)
+
+The always-loaded watchdog card leads with when to use it: builds, files,
+processes, mail/events and usage thresholds instead of polling or sleep-waiting.
+It retains kind-specific hints and the existing description caps. Staff, hire
+and rehire also stay eager wherever scope permits; no manager/worker classification or
+loading-policy change is introduced. Only card guidance changes at the next
+launch, with the corresponding prompt-prefix change.
+[decided: user 2026-10-23, proactive guidance and hiring-deferral withdrawal;
+verified: tools/defs.rs]
+
 ## Chat wire-log privacy (2026-10-21)
 
 Agent /api/orgs/{slug}/nodes/{nid}/chat bodies are omitted by the same

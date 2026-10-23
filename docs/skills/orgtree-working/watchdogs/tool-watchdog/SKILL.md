@@ -9,6 +9,18 @@ Up: [orgtree-watchdogs](../SKILL.md)
 
 For worked queue/slot/event/readiness/barrier protocols, open `orgtree-concurrency-primitives` (orgtree-workflows > collaboration-patterns). This page owns each watchdog kind, constraints and fire-time authority.
 
+## Use proactively when a wait becomes known
+
+Arm a watchdog instead of polling or sleep-waiting: build/file output can use a
+file or command condition, process completion a process watcher, project mail a
+fair queue, events an event/project listener, and cached usage a usage threshold.
+Use the kind that observes the real condition; a build permit still needs its
+project's slot claim. Prefer `once:true` for a finite wait, inspect smoke/inline
+results, then continue independent work or end the turn and let the fire wake
+you. When permitted by scope, the watchdog card stays loaded up front; so do
+staff/hire/rehire. This
+guidance changes no kind, permission, polling cadence or fire behavior.
+
 ## Call contract
 
 Create/list/pause/resume/remove/send/configure persistent watchers, with no per-agent or per-org number cap. Create requires kind/target (usage defaults target=usage); command requires regex. command/stream use YOUR authority and smoke-run at create: Windows defaults cmd.exe, or shell=bash. Read smoke output. once removes after a fire; always use it for deadlines. file matches new appends; process fires on observed UP->DOWN (a once dog already DOWN resolves inline). fair_queue delivers project mail to one watcher; slot (one-shot) claims a project concurrency slot, firing when granted. project_listener receives a project's fired events; listener_watch fires at a count of armed listeners. fire_actions run orgtree tool calls as you at fire time. usage watches cached account/window edges with accounts/windows/usage_events filters and threshold_percent; unknown is never zero, and staying above never repeats. mqtt subscribes to a topic filter (pattern) on an mqtt:// or mqtts:// broker; it needs your web tool, takes credentials as a file in your folders or inline (stored encrypted, never shown), and its mail tags payloads `(untrusted · see EXTERNAL)`. websocket connects to a ws:// or wss:// server (pattern = optional regex on text messages; hello, protocols and heartbeat; credentials as for mqtt; your web tool), and send writes a message on its live connection; MQTT send publishes to a required topic on its own connection. Event/count/silence semantics and catalog are in the guide. No added authority.
