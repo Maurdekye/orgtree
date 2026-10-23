@@ -3470,6 +3470,7 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
     const sentReply = reply
     const sentReplies = replyTargets
     const sentDraftKey=draftKey
+    const sentDraftText=text
     const armedNotice = isNoticeArmed(chatKey)
     if (armedNotice) setNoticeArmed(chatKey, false)
     setReply(null)
@@ -3546,7 +3547,11 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
       .catch((e: Error) => {
         failPending(slug, node.id, ghostId, e.message)
         if (sentReplies.some(r=>r.selection)) {
-          if(composerIdentity.current===sentDraftKey) {setText(previous=>previous || t); setReplyTargets(sentReplies); setAttached(attached)}
+          if(composerIdentity.current===sentDraftKey) {
+            const current=selectionRecovery.current
+            if(!current.text.trim()&&!current.replies.length&&!current.attached.length){setText(sentDraftText);setReplyTargets(sentReplies);setAttached(attached)}
+            else toast(['New draft kept. The failed message retains its original text and selected passages; use its Restore control to recover them.'])
+          }
           else {storeReplies(sentDraftKey,sentReplies);storeAttachments(sentDraftKey,attached);try{if(!localStorage.getItem(sentDraftKey))localStorage.setItem(sentDraftKey,t)}catch{/*best effort*/}}
         }
         toast([`error: ${e.message}`])
@@ -3571,6 +3576,7 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
       return value
     })
   }, [draftKey])
+  const selectionRecovery=useRef({text,replies:replyTargets,attached});selectionRecovery.current={text,replies:replyTargets,attached}
   const uploadIdentity = useRef({ draftKey, staleIdentity }); uploadIdentity.current = { draftKey, staleIdentity }
   const attach = (file: File) => {
     if (staleIdentity) return

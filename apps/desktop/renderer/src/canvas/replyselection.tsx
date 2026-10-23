@@ -35,10 +35,11 @@ export function ReplySelectionSurface({ source, children }: { source: SelectionS
     if (!stage) return
     const selectedText = selection.toString()
     const captured = source
-    const local = selectedSourceRange(anchor, captured.shown ?? captured.text, range, captured.format)
+    const tooLarge=utf8Size(captured.text)>1024*1024
+    const local = tooLarge ? null : selectedSourceRange(anchor, captured.shown ?? captured.text, range, captured.format)
     const mapped = local ? { start: local.start + (captured.offset ?? 0), end: local.end + (captured.offset ?? 0) } : null
     const excerpt = mapped ? [...captured.text].slice(mapped.start, mapped.end).join('') : ''
-    const why = !mapped ? 'This selection includes text that cannot be mapped exactly to one source part.'
+    const why = tooLarge ? 'This source part exceeds 1 MiB; choose a smaller retained field or JSON scalar.' : !mapped ? 'This selection includes text that cannot be mapped exactly to one source part.'
       : !excerpt || utf8Size(excerpt) > 4096 ? 'Select a passage of at most 4,096 UTF-8 bytes.' : undefined
     const opening = menu.open(event, [
       { label: 'Reply to selection', disabled: Boolean(why), title: why ?? 'Stage this exact passage in the owning reply box', onSelect: () => {
