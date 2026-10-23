@@ -8,6 +8,14 @@ that reader's candidate without re-running its initial selection choice.
 [verified: `canvas/useworkitems.ts`, `canvas/{docket,agentdocket}.tsx`,
 `tests/docketcontinuation.test.tsx`; 2026-10-23]
 
+## Bounded gallery location (2026-10-23)
+
+Explicit/continued `locate` reads return only the target's admitted page and
+actual offset, rather than the full history prefix. The sparse reader keeps
+its newest and target ranges and re-locates the target by identity on later
+polls. [verified: `http/docs.rs::gallery_locate_page`,
+`tests/presentationopening.test.tsx`; 2026-10-23]
+
 ## Desk reader availability (2026-10-23)
 
 Desk **Docket** and **Presented** tabs hide when neither the node nor its team has anything the tab would list under its default filters. A tab appears or disappears as content changes, but stays visible while you are on it; an empty tab disappears when you leave. Search and sorting do not hide tabs. The Docket check follows the existing list, including recently completed tickets during their one-hour window and attention exceptions. Show archived and Show backlogged include those groups when enabled. Presented starts with hired presenters; Show retired includes retired presenters.

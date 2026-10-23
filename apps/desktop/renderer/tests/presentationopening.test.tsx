@@ -2,6 +2,7 @@ import { advance, flush, inAct, mountView, realClock, useFakeClock } from './har
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { AgentGalleryView, DocGalleryModal } from '../src/canvas/gallery'
+import { rememberModalOpen, forgetModalOpen } from '../src/canvas/modalpin'
 
 const noop = () => {}
 const row = (id:string,at:string,viewed_at:string|null=null) => ({id,node:'synthetic',title:id,at,viewed_at,node_state:'live',evicted:false,format:'markdown'})
@@ -9,6 +10,40 @@ const data = () => [row('newest-read','2026-10-20T12:00:00Z','2026-10-20T12:00:0
   row('new-unread','2026-10-19T12:00:00Z'),row('old-changed','2026-10-18T12:00:00Z','2026-10-17T12:00:00Z'),
   row('oldest-read','2026-10-16T12:00:00Z','2026-10-16T12:00:00Z')]
 const ok = (value:unknown) => ({ok:true,status:200,headers:new Headers(),json:async()=>value}) as Response
+
+for(const surface of ['modal','agent','team'] as const) test(`${surface}: distant continuation keeps two bounded pages and reanchors its target after a poll`,async t=>{
+  useFakeClock();const prior=fetch,slug='continued-sparse-'+surface,target='doc-20000'
+  let arrivals=0
+  const requests:{offset:number;limit:number;locate:string}[]=[]
+  const make=(id:string)=>row(id,'2026-10-20T12:00:00Z','2026-10-20T12:00:00Z')
+  globalThis.fetch=(async input=>{
+    const url=new URL(String(input),'http://fixture'),id=url.pathname.match(/\/documents\/([^/]+)$/)?.[1]
+    if(id==='viewed')return ok({ok:true})
+    if(id)return ok({...make(id),body:'Body '+id})
+    if(!url.pathname.endsWith('/documents'))return ok({})
+    const q=url.searchParams,limit=Number(q.get('limit')??40),locate=q.get('locate')??''
+    assert.ok(limit<=200,'a sparse reader never asks for a history-sized response')
+    if(surface!=='modal')assert.equal(q.get('node'),'synthetic')
+    if(surface==='team')assert.equal(q.get('team'),'1')
+    const offset=locate?Math.floor((20000+arrivals)/limit)*limit:Number(q.get('offset')??0),total=20100+arrivals
+    const documents=Array.from({length:Math.min(limit,total-offset)},(_,i)=>make(offset+i<arrivals?'new-'+(offset+i):'doc-'+(offset+i-arrivals)))
+    requests.push({offset,limit,locate})
+    return ok({documents,total,offset,next_offset:offset+limit<total?offset+limit:null,...(locate?{located:locate}:{})})
+  })as typeof fetch
+  if(surface==='modal')rememberModalOpen('gallery',slug,{selection:target})
+  const view=await mountView(surface==='modal'?<DocGalleryModal slug={slug} toast={noop} close={noop}/>
+    :<AgentGalleryView slug={slug} nid="synthetic" toast={noop} continuedSelection={target} team={surface==='team'}/>,el=>el)
+  t.after(async()=>{await view.unmount();forgetModalOpen('gallery',slug);globalThis.fetch=prior;realClock()})
+  await inAct(async()=>{await flush(20)})
+  assert.match(view.el.querySelector('.mailer-read')?.textContent??'',/Body doc-20000/)
+  assert.equal(view.el.querySelectorAll('.doc-gallery-row').length,80,'newest and distant target pages only')
+  assert.ok(requests.some(r=>r.offset===20000&&r.limit===40&&r.locate===target))
+  arrivals=40;await advance(5001,5001)
+  assert.match(view.el.querySelector('.mailer-read')?.textContent??'',/Body doc-20000/,'poll retains the restored document')
+  assert.equal(view.el.querySelectorAll('.doc-gallery-row').length,80)
+  assert.ok(requests.some(r=>r.offset===20040&&r.limit===40&&r.locate===target),'poll re-locates the identity after new documents shift its offset')
+  assert.ok(requests.every(r=>r.limit<=200&&[0,20000,20040].includes(r.offset)),'no intervening history fetch')
+})
 
 test('opening waits for local viewed marks before asking the engine to choose unread',async t=>{
   const saved=fetch,slug='opening-sync-local'

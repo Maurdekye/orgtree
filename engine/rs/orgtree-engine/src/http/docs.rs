@@ -167,6 +167,12 @@ async fn opening_target(client: &tokio_postgres::Client, org_id: i64, node: &str
     Ok(Some((row.get(0), position)))
 }
 
+/// Locate reads one admitted page, including for distant restored readers.
+#[logged]
+fn gallery_locate_page(position: i64, limit: i64) -> (i64, i64) {
+    (position / limit * limit, limit)
+}
+
 /// The gallery: every card, newest first, metadata only.
 #[logged]
 pub async fn list(State(e): State<Arc<Engine>>, Path(slug): Path<String>, Query(q): Query<ListQuery>) -> ApiResult<Json<Value>> {
@@ -186,10 +192,10 @@ pub async fn list(State(e): State<Arc<Engine>>, Path(slug): Path<String>, Query(
         page["opening_position"] = json!(target.as_ref().map(|(_, position)| position));
         return Ok(Json(page));
     }
-    let mut offset = q.offset.max(0);
+    let offset = q.offset.max(0);
     let mut located = None;
     if !q.locate.is_empty() {
-        // grow the window until it holds the located card
+        // Return the target's page and real offset; the reader owns sparse ranges.
         let pos: Option<i64> = client
             .query_one(
                 "SELECT (SELECT count(*) FROM ot.documents d2 LEFT JOIN ot.agents a2 ON a2.id=d2.agent_id WHERE d2.org_id = $1 AND d2.id > d.id
@@ -204,10 +210,8 @@ pub async fn list(State(e): State<Arc<Engine>>, Path(slug): Path<String>, Query(
             .map(|r| r.get(0));
         if let Some(p) = pos {
             located = Some(q.locate.clone());
-            offset = 0;
-            if p >= limit {
-                return list_page(&client, &o, &node, members.as_deref(), 0, p + 1, located, q.visible, hired).await;
-            }
+            let (start, size) = gallery_locate_page(p, limit);
+            return list_page(&client, &o, &node, members.as_deref(), start, size, located, q.visible, hired).await;
         }
     }
     list_page(&client, &o, &node, members.as_deref(), offset, limit, located, q.visible, hired).await
@@ -369,6 +373,19 @@ pub async fn download(State(e): State<Arc<Engine>>, Path((slug, did)): Path<(Str
 
 #[cfg(test)]
 mod opening_tests {
+    #[test]
+    #[nolog]
+    fn gallery_locate_page_never_reads_the_history_prefix() {
+        for position in [0, 39, 40, 199, 20_000, 2_000_000] {
+            for limit in [1, 40, 200, 1000] {
+                let (offset, size) = super::gallery_locate_page(position, limit);
+                assert_eq!(size, limit, "a distant locate must retain the admitted page limit");
+                assert_eq!(offset, position / limit * limit);
+                assert!(offset <= position && position < offset + size);
+            }
+        }
+    }
+
     #[tokio::test]
     #[ignore = "requires an isolated ORGTREE_OPENING_TEST_PG fixture; never an ambient DB"]
     async fn oldest_unread_read_is_scoped_and_uses_modified_fallback() {
