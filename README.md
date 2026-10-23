@@ -144,18 +144,6 @@ Select any image to see it full size.
   </tr>
 </table>
 
-## How Orgtree works
-
-An agent combines a language model with tools that can act on a task: read a repository, change files, run commands or investigate a question. Orgtree runs these agents through supported harnesses such as Claude Code and Codex. You choose the models and accounts, give each agent a role, and decide which folders and tools it can use.
-
-An organization is the workspace around those agents. Start with one agent, describe a concrete result and follow its conversation. For a larger job, a coordinator can divide the work among specialists, collect their results and bring decisions back to you. Agents keep their desks and working files between turns, so the team can return to an unfinished task. Their charters carry standing instructions; shared notes and the work docket preserve the team's knowledge and progress.
-
-The tree makes responsibility visible. An agent can manage a team within the capacity and permissions you grant it. Projects group related agents and provide queues, slots and signals for coordinating parallel work. Mail lets agents hand off findings and ask for help, while you can open any desk, send direction, inspect tool calls and review the resulting files or presentations. Credits limit staffing capacity; provider subscriptions and API charges pay for model use separately.
-
-This is meant for work that benefits from sustained investigation and several roles: developing and maintaining software, researching a subject, reviewing a body of material, or producing documents through several rounds of work. A developer might put implementation, tests and review with different agents; a researcher might divide sources and ask a coordinator to assemble the findings. Individuals and teams can use it, with Hubchat and a shared mail hub connecting people and organizations across machines.
-
-Orgtree is a power tool for people willing to direct and check that work. You still define the outcome, answer questions and judge the evidence. Begin with a small task and add coordination as the work needs it.
-
 <a id="install"></a>
 <a id="language-servers"></a>
 
@@ -171,6 +159,18 @@ The [getting-started guide](docs/getting-started.md) covers installation, provid
 - [Shared memory, the glossary, developer teams and phone access](docs/collaborating.md).
 - [Updates, background operation, account fallback and privacy](docs/operating-orgtree.md).
 - [Development, packaging and contributions](docs/development.md).
+
+## How Orgtree works
+
+An agent combines a language model with tools that can act on a task: read a repository, change files, run commands or investigate a question. Orgtree runs these agents through supported harnesses such as Claude Code and Codex. You choose the models and accounts, give each agent a role, and decide which folders and tools it can use.
+
+An organization is the workspace around those agents. Start with one agent, describe a concrete result and follow its conversation. For a larger job, a coordinator can divide the work among specialists, collect their results and bring decisions back to you. Agents keep their desks and working files between turns, so the team can return to an unfinished task. Their charters carry standing instructions; shared notes and the work docket preserve the team's knowledge and progress.
+
+The tree makes responsibility visible. An agent can manage a team within the capacity and permissions you grant it. Projects group related agents and provide queues, slots and signals for coordinating parallel work. Mail lets agents hand off findings and ask for help, while you can open any desk, send direction, inspect tool calls and review the resulting files or presentations. Credits limit staffing capacity; provider subscriptions and API charges pay for model use separately.
+
+This is meant for work that benefits from sustained investigation and several roles: developing and maintaining software, researching a subject, reviewing a body of material, or producing documents through several rounds of work. A developer might put implementation, tests and review with different agents; a researcher might divide sources and ask a coordinator to assemble the findings. Individuals and teams can use it, with Hubchat and a shared mail hub connecting people and organizations across machines.
+
+Orgtree is a power tool for people willing to direct and check that work. You still define the outcome, answer questions and judge the evidence. Begin with a small task and add coordination as the work needs it.
 
 ## License
 
