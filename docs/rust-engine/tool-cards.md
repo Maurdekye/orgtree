@@ -188,3 +188,5 @@ frames. `debug-stack-first-turn.mjs` now also creates a project through the tool
 path, claims two slots, reads their status and releases them through it, and has a
 Codex turn's MCP call create a project, with no overflow line in stderr; the project
 create overflowed before the boxing.
+
+The fire-action dispatch future is also type-erased as `Pin<Box<dyn Future<Output=(bool,String)> + Send>>` at that same heap boundary. Listener/slot effects can dispatch tools recursively; retaining the concrete future recursively expands the compiler Send proof. Erasure retains the current task-local scope, timeout and awaited action order. It creates no detached task and does not increase the compiler recursion limit.
