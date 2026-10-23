@@ -55,14 +55,18 @@ pub async fn held(engine: &Engine, org_slug: &str, agent: i64) -> Result<Vec<Tea
     let client = engine.db.get().await?;
     let rows = client
         .query(
-            "WITH RECURSIVE chain(id, parent_id, depth) AS (
-               SELECT id, parent_id, 0 FROM ot.agents WHERE id = $1
-               UNION ALL SELECT a.id, a.parent_id, c.depth + 1 FROM ot.agents a JOIN chain c ON a.id = c.parent_id
-                WHERE c.depth < 1024)
-             SELECT c.id, a.name, a.kind = 'project' FROM chain c JOIN ot.agents a ON a.id = c.id ORDER BY c.depth",
+            "WITH RECURSIVE chain(id, parent_id, org_id) AS (
+               SELECT id,parent_id,org_id FROM ot.agents WHERE id=$1
+               UNION SELECT a.id,a.parent_id,a.org_id FROM ot.agents a JOIN chain c ON a.id=c.parent_id AND a.org_id=c.org_id),
+             levels(id,depth) AS (
+               SELECT $1::bigint,0 WHERE EXISTS (SELECT 1 FROM chain c WHERE NOT EXISTS (SELECT 1 FROM chain p WHERE p.id=c.parent_id))
+               UNION ALL SELECT p.id,l.depth+1 FROM levels l JOIN chain c ON c.id=l.id JOIN chain p ON p.id=c.parent_id)
+             SELECT c.id,a.name,a.kind='project' FROM chain c JOIN levels l ON l.id=c.id
+               JOIN ot.agents a ON a.id=c.id ORDER BY l.depth",
             &[&agent],
         )
         .await?;
+    if rows.is_empty() { crate::refuse!(Conflict,"agent ancestry is missing or cyclic; cannot grant team workspaces"); }
     let chain: Vec<(i64, String)> = rows.iter().map(|r| (r.get(0), r.get(1))).collect();
     let mut teams = workspaces(&engine.cfg.teams_dir(org_slug), &chain);
     for (t, r) in teams.iter_mut().zip(&rows) {

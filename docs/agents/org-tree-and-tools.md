@@ -1,5 +1,14 @@
 # Organization tree and tools
 
+## Full-depth launch inheritance (2026-10-23)
+
+Runtime launch scopes and charter cascades retain every ancestor, root first;
+team workspace grants retain the complete chain, nearest first. Stable same-org
+edges are read before ordering; a cyclic ancestry has no rooted path and refuses
+launch/workspace admission. Deep project wrappers cannot hide an outer agent's
+scope ceiling, charter or shared folder. [verified: `runtime/actor.rs`,
+`domain/teams.rs`; 2026-10-23]
+
 ## Full-depth descendant checks (2026-10-22)
 
 `tools::is_descendant` follows the complete parent chain in the target's

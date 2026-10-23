@@ -2050,14 +2050,18 @@ impl Actor {
             .await?;
         let chain = client
             .query(
-                "WITH RECURSIVE chain(id, parent_id, scope, depth) AS (
-                   SELECT id, parent_id, scope, 0 FROM ot.agents WHERE id = $1
-                   UNION ALL SELECT a.id, a.parent_id, a.scope, c.depth + 1 FROM ot.agents a JOIN chain c ON a.id = c.parent_id
-                    WHERE c.depth < 1024)
-                 SELECT c.scope, c.depth, a.name, a.team_charter, a.kind, a.charter FROM chain c JOIN ot.agents a ON a.id = c.id ORDER BY c.depth DESC",
+                "WITH RECURSIVE chain(id, parent_id, scope, org_id) AS (
+                   SELECT id, parent_id, scope, org_id FROM ot.agents WHERE id = $1
+                   UNION SELECT a.id, a.parent_id, a.scope, a.org_id FROM ot.agents a JOIN chain c ON a.id=c.parent_id AND a.org_id=c.org_id),
+                 levels(id, depth) AS (
+                   SELECT $1::bigint,0 WHERE EXISTS (SELECT 1 FROM chain c WHERE NOT EXISTS (SELECT 1 FROM chain p WHERE p.id=c.parent_id))
+                   UNION ALL SELECT p.id,l.depth+1 FROM levels l JOIN chain c ON c.id=l.id JOIN chain p ON p.id=c.parent_id)
+                 SELECT c.scope,l.depth,a.name,a.team_charter,a.kind,a.charter FROM chain c JOIN levels l ON l.id=c.id
+                   JOIN ot.agents a ON a.id=c.id ORDER BY l.depth DESC",
                 &[&self.id],
             )
             .await?;
+        if chain.is_empty() { crate::refuse!(Conflict,"agent ancestry contains a cycle; cannot build launch scope"); }
         drop(client);
         let org_settings: Value = r.get(17);
         let settings = crate::feed::groups::effective_settings(&org_settings, &self.engine.settings.defaults());
