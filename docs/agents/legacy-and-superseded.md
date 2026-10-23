@@ -2822,3 +2822,35 @@ Original section: Orgtree 4.0.0 (Rust engine): read this first. Source lines 400
   `test-baseline.mjs`, Python import provenance, `run-python-verification.py`,
   `source-audits.py`.
 <!-- /preserved:e-837c7011305e3f2e -->
+
+
+## Retired neutral theme contrast record (2026-10-23)
+
+The following signed historical palette includes the removed preset. Current six-preset contrast rules remain in the desktop topic; the legacy selected color migrates to Custom.
+
+<a id="e-00c835aac320ed06"></a>
+
+## On the light surfaces (contrast-light, contrast-solarized-light) every
+
+Original section: AGENTS.md — working on Orgtree. Source lines 2213–2230.
+
+<!-- preserved:e-00c835aac320ed06 -->
+- On the light surfaces (`contrast-light`, `contrast-solarized-light`) every
+  preset accent gets a deep same-family partner in a
+  `:root[data-visual-theme="<preset>"]` rule whose declarations are all
+  `!important`, because `applyTheme` sets the accent inline. The rule: the
+  preset's hue and saturation, darkened until every light surface, the hover
+  grey and the selected/urgent row washes read 4.6:1 or more; hover at three
+  quarters of that lightness; white ink. Orgtree Grey #4c5565, Claude #89391f,
+  Codex #035b46 (turned towards green to clear `--backlog`), Antigravity
+  #0045c7, OpenRouter #5f0bdf, LMS Gold #4d3a02, Muse #005680. The provider
+  colours (`--prov-*`) take the same partners there, so desks match the app,
+  and stay 31+ apart (CIE76). Charcoal and obsidian keep every original.
+  Pop-outs mirror `data-visual-theme` with the root classes and style, or
+  those rules miss them. The agents chips keep their ruled dark #313131
+  backing, so inside them each preset scopes its PALE accent back in, and the
+  chip its charcoal `--dim`, or a deep partner vanishes there (the spinner
+  drew 1.7:1); the effort bar is a light control on the light surfaces.
+  [decided: user 2026-10-18 15:34Z, 15:35Z; verified: `styles.css`,
+  `popout.tsx`, `tests/lightaccent.test.tsx`, 2026-10-18]
+<!-- /preserved:e-00c835aac320ed06 -->

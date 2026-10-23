@@ -1,4 +1,4 @@
-import { isVisualTheme } from '../../../packages/contracts/visual-theme'
+import { normalizeVisualTheme } from '../../../packages/contracts/visual-theme'
 import { sanitizeCanvasBackground } from '../../../packages/contracts/canvas-background'
 import { DEFAULT_CONTRAST, isContrastTheme } from '../../../packages/contracts/contrast-theme'
 import { isAgentColorSource } from '../../../packages/contracts/agent-colors'
@@ -10,7 +10,7 @@ import fs from 'node:fs'
 import type { DesktopPreferences, EngineReady } from '../../../packages/contracts/index'
 import type { DesktopIdentity } from './build-channel'
 
-export const DEFAULT_PREFERENCES: DesktopPreferences = { ...DEFAULT_NOTIFICATIONS, visualTheme: 'orgtree', contrastTheme: DEFAULT_CONTRAST, agentColorSource: 'provider', visualThemeExplicit: false, exitOnClose: false, startAtLogin: true, automaticUpdates: true, routineNotifications: false, onboarded: false, startupMode: 'restore', questionTarget: 'desk', activeAgentsOnly: false, quickChatActiveAgentsOnly: false, attentionDeskActiveAgentsOnly: false }
+export const DEFAULT_PREFERENCES: DesktopPreferences = { ...DEFAULT_NOTIFICATIONS, visualTheme: 'claude', contrastTheme: DEFAULT_CONTRAST, agentColorSource: 'provider', visualThemeExplicit: false, exitOnClose: false, startAtLogin: true, automaticUpdates: true, routineNotifications: false, onboarded: false, startupMode: 'restore', questionTarget: 'desk', activeAgentsOnly: false, quickChatActiveAgentsOnly: false, attentionDeskActiveAgentsOnly: false }
 export const TOKEN_HEADER = 'X-Orgtree-Desktop-Token'
 export const HARNESS_LINKS = Object.freeze({
   claude: 'https://code.claude.com/docs/en/setup',
@@ -25,8 +25,9 @@ export function preferencesPatch(value: unknown): Partial<DesktopPreferences> {
   const result: Partial<DesktopPreferences> = {}
   for (const [key, val] of Object.entries(value)) {
     if (key === 'visualTheme') {
-      if (!isVisualTheme(val)) throw new Error('Invalid visual theme')
-      result.visualTheme = val
+      const theme = normalizeVisualTheme(val, (value as Record<string, unknown>).visualThemeExplicit)
+      if (!theme) throw new Error('Invalid visual theme')
+      result.visualTheme = theme
     } else if (key === 'rainbowTheme') {
       const mode = val as DesktopPreferences['rainbowTheme']
       if (!mode || typeof mode.revealed !== 'boolean' || typeof mode.enabled !== 'boolean'

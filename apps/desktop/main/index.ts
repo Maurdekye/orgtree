@@ -365,8 +365,8 @@ else {
     // the same path while retaining their distinct identities.
     applyWindowIcon(window)
   })
-  const trayIconNames: Record<PresetVisualTheme | 'grey', string> = {
-    grey: 'orgtree-eye-tray-grey' + iconExt, orgtree: 'orgtree-eye-tray-orgtree' + iconExt,
+  const trayIconNames: Record<PresetVisualTheme | 'grey' | 'custom', string> = {
+    grey: 'orgtree-eye-tray-grey' + iconExt, custom: 'orgtree-eye-tray-custom' + iconExt,
     claude: 'orgtree-eye-tray-claude' + iconExt, codex: 'orgtree-eye-tray-codex' + iconExt,
     antigravity: 'orgtree-eye-tray-antigravity' + iconExt, openrouter: 'orgtree-eye-tray-openrouter' + iconExt,
     langserver: 'orgtree-eye-tray-langserver' + iconExt,
@@ -374,14 +374,12 @@ else {
   }
   const runtimeIconChoice = () => {
     const current = preferences?.get() as { visualTheme?: VisualTheme; visualThemeExplicit?: boolean } | undefined
-    // A neutral/unset preference follows the renderer's resolved provider.
-    // Older alpha settings with a non-neutral value remain explicit.
-    const explicit = current?.visualTheme &&
-      (current.visualTheme !== 'orgtree' || current.visualThemeExplicit === true)
-      ? current.visualTheme : undefined
+    // Unset preferences follow the renderer's resolved provider.
+    // Legacy selections are normalized by Preferences before this read.
+    const explicit = current?.visualThemeExplicit === true ? current.visualTheme : undefined
     const theme = effectiveTheme ?? explicit ?? 'claude'
     const ready = engine.status.state === 'ready'
-    const name = ready ? trayIconNames[isCustomTheme(theme) ? 'orgtree' : theme] : trayIconNames.grey
+    const name = ready ? trayIconNames[isCustomTheme(theme) ? 'custom' : theme] : trayIconNames.grey
     return { file: path.join(assetsPath, name), custom: ready && isCustomTheme(theme) ? theme.slice(7) : undefined }
   }
   const runtimeIcon = () => {
@@ -679,9 +677,7 @@ else {
     popup.on('closed', () => { if (trayPopup === popup) closeTrayPopup() })
     trayPopup = popup
     const currentTheme = preferences?.get() as { visualTheme?: VisualTheme; visualThemeExplicit?: boolean } | undefined
-    const explicitTheme = currentTheme?.visualTheme &&
-      (currentTheme.visualTheme !== 'orgtree' || currentTheme.visualThemeExplicit === true)
-      ? currentTheme.visualTheme : undefined
+    const explicitTheme = currentTheme?.visualThemeExplicit === true ? currentTheme.visualTheme : undefined
     const theme = effectiveTheme ?? explicitTheme ?? 'claude'
     try { await popup.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(trayListHtml(orderedRows, theme))) }
     catch { if (trayPopup === popup) closeTrayPopup(); return }

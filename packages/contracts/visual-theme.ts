@@ -4,7 +4,7 @@ export const PROVIDER_THEME_PRESETS = [
   ['muse', 'muse'], ['openrouter', 'openrouter'], ['langserver', 'langserver'],
 ] as const
 /** Appearance only: never use preset values as provider or route identities. */
-export const VISUAL_THEMES = ['orgtree', ...PROVIDER_THEME_PRESETS.map(([, theme]) => theme)] as const
+export const VISUAL_THEMES = PROVIDER_THEME_PRESETS.map(([, theme]) => theme)
 export type PresetVisualTheme = typeof VISUAL_THEMES[number]
 export type VisualTheme = PresetVisualTheme | `custom:#${string}`
 export const isCustomTheme = (value: unknown): value is `custom:#${string}` =>
@@ -14,7 +14,6 @@ export function isVisualTheme(value: unknown): value is VisualTheme {
 }
 
 export const THEME_ACCENTS: Record<PresetVisualTheme, string> = {
-  orgtree: '#b6bdc8',
   claude: '#d97757',
   codex: '#22c4bd',
   antigravity: '#75a5ff',
@@ -27,9 +26,17 @@ export const THEME_ACCENTS: Record<PresetVisualTheme, string> = {
 }
 
 export function themeAccent(theme?: VisualTheme | string | null): string {
+  theme = normalizeVisualTheme(theme) ?? theme
   if (typeof theme === 'string') {
     if (isCustomTheme(theme)) return theme.slice(7)
     if (theme in THEME_ACCENTS) return THEME_ACCENTS[theme as PresetVisualTheme]
   }
   return THEME_ACCENTS.claude
+}
+
+/** Compatibility input only; the retired id is never a selectable preset.
+ * false provenance was an unset placeholder, not a user selection. */
+export function normalizeVisualTheme(value: unknown, explicit?: unknown): VisualTheme | null {
+  if (value === 'orgtree') return explicit === false ? 'claude' : 'custom:#b6bdc8'
+  return isVisualTheme(value) ? value : null
 }

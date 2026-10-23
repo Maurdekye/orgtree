@@ -7,6 +7,13 @@ policy remain physical, per the user's explicit exceptions.
 
 # Orgtree 4 rewrite — the user's standing decisions
 
+**Remove Grey preset (USER2026-10-23;4.4.2):** selected legacy orgtree themes
+become Custom with exact base RGB(182,189,200). Coordinator preserves the old
+unset sentinel's explicit=false semantics as Claude+false/provider detection;
+true/missing markers become Custom+true. Remove menu/CSS/preset assets;
+Custom's renamed tint base and offline loading colors preserve their bytes.
+See [migration and source findings](removed-grey-theme.md).
+
 **Org Do not disturb (USER 2026-10-23 06:32–06:36Z;4.4.2):** Connections has
 Normal operations / Do not disturb / Closed off inbox. DnD accepts outside
 mail without automatic agent reads, copies or wakes, including all Hubchat

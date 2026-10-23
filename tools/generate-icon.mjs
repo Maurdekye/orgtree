@@ -12,7 +12,7 @@ const orange = [245, 130, 32]
 const pupil = [24, 35, 45]
 const trayColors = {
   grey: [127, 135, 148],
-  orgtree: [182, 189, 200],
+  custom: [182, 189, 200],
   claude: [217, 119, 87],
   codex: [34, 196, 189],
   antigravity: [117, 165, 255],
@@ -20,9 +20,9 @@ const trayColors = {
   langserver: [1, 3, 5].map(i => parseInt(THEME_ACCENTS.langserver.slice(i, i + 2), 16)),
   muse: [1, 3, 5].map(i => parseInt(THEME_ACCENTS.muse.slice(i, i + 2), 16)),
 }
-// Keep the loading mark grey while using the established Orgtree neutral as a
+// Keep the loading mark grey while using the established neutral as a
 // lighter iris, so the state remains legible against its outer grey shell.
-const loadingIris = trayColors.orgtree
+const loadingIris = [182, 189, 200]
 
 const eyePolygon = (() => {
   const points = []

@@ -285,6 +285,10 @@ still resume, so the agents themselves remember).
 
 ## 10. User-facing differences — complete ledger
 
+Grey preset removal (USER/coordinator2026-10-23,4.4.2): no selectable orgtree
+preset; explicit legacy choices migrate silently to Custom #b6bdc8, while the
+old unset sentinel keeps provider detection. See [migration](removed-grey-theme.md).
+
 Org Do not disturb (USER/coordinator 2026-10-23,4.4.2): Connections offers Normal,
 Do not disturb and Closed off inbox, with a visible Hubchat warning. DnD holds
 all outside senders without agent copies/wakes; extern holders pull org-wide.

@@ -541,7 +541,7 @@ provider-theme rule ([`v2-visual-themes.md`](../v2-visual-themes.md), with
 LMS Gold as the precedent in
 [`langserver-theme.md`](langserver-theme.md)). `THEME_ACCENTS.muse` is the one
 source for `#afe5ff`; the tray and window eye has a Muse variant
-(`orgtree-eye-tray-muse.ico`). It is CIE76 20.0 from Orgtree Grey, its nearest
+(`orgtree-eye-tray-muse.ico`). It was CIE76 20.0 from the retired neutral RGB(182,189,200), then its nearest
 preset (the precedent's floor is 18). Initial detection, which uses installed
 CLIs only, puts Muse after Claude, Codex and Antigravity, so it never changes
 the starting theme of a machine that has any of those. On the light surfaces

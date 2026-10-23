@@ -25,7 +25,7 @@ CIE76 Lab distance, using `deployreadycolor.test.tsx`'s measure and its floor of
 
 | Gold versus preset | ΔE |
 | --- | ---: |
-| Orgtree Grey | 78.16 |
+| Retired neutral RGB(182,189,200), historical comparison | 78.16 |
 | Claude Terracotta | 49.10 |
 | Codex Teal | 90.47 |
 | Antigravity Navy | 120.97 |

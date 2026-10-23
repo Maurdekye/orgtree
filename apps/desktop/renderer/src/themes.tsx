@@ -6,7 +6,7 @@ import { ContrastSetting } from './contrast'
 import { AgentColorSetting } from './agentcolors'
 import { applyRainbow, stopRainbow, startRainbowSync, watchRainbow, saveRainbow, hueGesture, RAINBOW_OFF } from './rainbow'
 import type { RainbowPreference } from './rainbow'
-import { isVisualTheme, isCustomTheme, VISUAL_THEMES, THEME_ACCENTS } from '../../../../packages/contracts/visual-theme'
+import { isVisualTheme, isCustomTheme, normalizeVisualTheme, VISUAL_THEMES, THEME_ACCENTS } from '../../../../packages/contracts/visual-theme'
 import type { VisualTheme, PresetVisualTheme } from '../../../../packages/contracts/visual-theme'
 
 type ProviderPayload = { providers?: Array<{ id?: unknown; status?: { installed?: unknown } }> }
@@ -14,7 +14,6 @@ type ProviderPayload = { providers?: Array<{ id?: unknown; status?: { installed?
 export const THEMES = {
   // Display names follow the user's exact wording (2026-09-10 and 2026-10-14); labels
   // only; the ids these keys ARE stay the stored/wire vocabulary
-  orgtree: { label: 'Orgtree Grey', accent: '#b6bdc8', hover: '#d0d5dd', soft: 'rgba(182,189,200,.16)' },
   claude: { label: 'Claude Terracotta', accent: '#d97757', hover: '#e99b81', soft: 'rgba(217,119,87,.16)' },
   codex: { label: 'Codex Teal', accent: '#22c4bd', hover: '#64ddd7', soft: 'rgba(34,196,189,.16)' },
   antigravity: { label: 'Antigravity Navy', accent: '#75a5ff', hover: '#a3c3ff', soft: 'rgba(117,165,255,.16)' },
@@ -47,7 +46,7 @@ export function customTheme(color: string) {
 
 export function applyTheme(value: unknown) {
   stopRainbow()
-  const selected = isVisualTheme(value) ? value : DEFAULT_THEME
+  const selected = normalizeVisualTheme(value) ?? DEFAULT_THEME
   const theme = isCustomTheme(selected) ? customTheme(selected.slice(7)) : THEMES[selected]
   document.documentElement.dataset.visualTheme = selected
   // The existing native-popout observer copies this root style, including
@@ -74,7 +73,17 @@ function notifyNative(bridge: ReturnType<typeof desktop>, theme: VisualTheme): v
 function explicitTheme(value: unknown): VisualTheme | null {
   if (!value || typeof value !== 'object') return null
   const p = value as { visualTheme?: unknown; visualThemeExplicit?: unknown }
-  return p.visualThemeExplicit === true && isVisualTheme(p.visualTheme) ? p.visualTheme : null
+  const theme = normalizeVisualTheme(p.visualTheme, p.visualThemeExplicit)
+  return p.visualThemeExplicit === true || (p.visualTheme === 'orgtree' && p.visualThemeExplicit === undefined) ? theme : null
+}
+
+/** Browser-only compatibility store. Native reads/writes normalize in policy. */
+function storedTheme(value: string | null): VisualTheme | null {
+  const theme = normalizeVisualTheme(value)
+  if (value === 'orgtree' && theme) {
+    try { localStorage.setItem(STORAGE_KEY, theme) } catch { /* still apply in private mode */ }
+  }
+  return theme
 }
 
 function resolveDefault(apply: (theme: VisualTheme) => void, stillCurrent: () => boolean): void {
@@ -93,7 +102,8 @@ export function startThemeSync(): () => void {
     let alive = true
     let stored: string | null = null
     try { stored = localStorage.getItem(STORAGE_KEY) } catch { /* private mode */ }
-    if (isVisualTheme(stored)) applyTheme(stored)
+    const saved = storedTheme(stored)
+    if (saved) applyTheme(saved)
     else {
       applyTheme(DEFAULT_THEME)
       resolveDefault(theme => {
@@ -102,7 +112,8 @@ export function startThemeSync(): () => void {
     }
     const sync = (e: StorageEvent) => {
       if (e.key !== STORAGE_KEY) return
-      if (isVisualTheme(e.newValue)) applyTheme(e.newValue)
+      const saved = storedTheme(e.newValue)
+      if (saved) applyTheme(saved)
       else {
         applyTheme(DEFAULT_THEME)
         resolveDefault(theme => {
@@ -176,7 +187,8 @@ export function ThemeSetting() {
     if (!bridge) {
       let stored: string | null = null
       try { stored = localStorage.getItem(STORAGE_KEY) } catch { /* private mode */ }
-      if (isVisualTheme(stored)) { explicitRef.current = stored; accept(stored) }
+      const saved = storedTheme(stored)
+      if (saved) { explicitRef.current = saved; accept(saved) }
       else { accept(DEFAULT_THEME); detect(revisionRef.current) }
       return () => { alive = false }
     }
