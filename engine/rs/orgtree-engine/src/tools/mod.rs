@@ -17,6 +17,8 @@ pub(crate) mod usage;
 mod logo;
 mod next_turn;
 pub(crate) mod result_timing;
+#[cfg(test)]
+mod caller_scope_tests;
 
 use std::sync::Arc;
 
@@ -289,16 +291,7 @@ async fn caller_tools(engine: &Engine, caller: &Caller) -> Result<Value> {
 
 #[logged]
 pub(super) async fn caller_tools_in<C: tokio_postgres::GenericClient + Sync>(client: &C, caller: &Caller) -> Result<Value> {
-    let rows = client.query(
-        "WITH RECURSIVE chain(id,parent_id,scope,kind) AS (
-           SELECT id,parent_id,scope,kind FROM ot.agents WHERE id=$1 AND org_id=$2
-           UNION SELECT a.id,a.parent_id,a.scope,a.kind FROM ot.agents a JOIN chain c ON a.id=c.parent_id
-             WHERE a.org_id=$2),
-         root_first(id,depth) AS (
-           SELECT id,0 FROM chain WHERE parent_id IS NULL
-           UNION ALL SELECT c.id,r.depth+1 FROM chain c JOIN root_first r ON c.parent_id=r.id)
-         SELECT c.scope,c.parent_id,r.depth,c.kind FROM chain c JOIN root_first r ON c.id=r.id
-         ORDER BY r.depth", &[&caller.agent_id, &caller.org_id]).await?;
+    let rows = crate::domain::projects::scope_ancestor_rows(client, caller.agent_id, caller.org_id).await?;
     let Some(top) = rows.first() else { crate::refuse!(Forbidden, "agent scope is unavailable"); };
     if top.get::<_, Option<i64>>(1).is_some() {
         crate::refuse!(Forbidden, "agent scope ancestry is incomplete");

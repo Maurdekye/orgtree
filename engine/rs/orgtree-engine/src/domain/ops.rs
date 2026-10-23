@@ -188,15 +188,7 @@ async fn chain(tx: &Transaction<'_>, id: i64) -> Result<Vec<Node>> {
     // without a quadratic path array or a hidden depth ceiling. A second walk
     // starts at the root: a cycle has no root and is refused below.
     let columns = NODE_COLS.split(", ").map(|c| format!("a.{c}")).collect::<Vec<_>>().join(", ");
-    let rows = tx.query(&format!(
-        "WITH RECURSIVE up(id,parent_id) AS (
-           SELECT id,parent_id FROM ot.agents WHERE id=$1
-           UNION SELECT a.id,a.parent_id FROM ot.agents a JOIN up u ON a.id=u.parent_id),
-         root_first(id,depth) AS (
-           SELECT id,0 FROM up WHERE parent_id IS NULL
-           UNION ALL SELECT u.id,r.depth+1 FROM up u JOIN root_first r ON u.parent_id=r.id)
-         SELECT {columns} FROM ot.agents a JOIN root_first r ON a.id=r.id
-         ORDER BY r.depth FOR UPDATE OF a"), &[&id]).await?;
+    let rows = super::projects::locked_ancestor_rows(tx, id, &columns).await?;
     if rows.is_empty() { refuse!(Conflict, "ancestor chain has a cycle or a missing root"); }
     Ok(rows.iter().map(node_of).collect())
 }

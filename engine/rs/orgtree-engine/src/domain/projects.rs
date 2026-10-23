@@ -35,6 +35,35 @@ mod credit_settlement;
 #[cfg(test)]
 mod credit_scale_tests;
 
+/// Physical ancestry only: root-first rows and locks, never the reporting superior.
+#[logged]
+pub(crate) async fn locked_ancestor_rows(tx: &tokio_postgres::Transaction<'_>, id: i64, columns: &str) -> Result<Vec<tokio_postgres::Row>> {
+    Ok(tx.query(&format!(
+        "WITH RECURSIVE up(id,parent_id) AS (
+           SELECT id,parent_id FROM ot.agents WHERE id=$1
+           UNION SELECT a.id,a.parent_id FROM ot.agents a JOIN up u ON a.id=u.parent_id),
+         root_first(id,depth) AS (
+           SELECT id,0 FROM up WHERE parent_id IS NULL
+           UNION ALL SELECT u.id,r.depth+1 FROM up u JOIN root_first r ON u.parent_id=r.id)
+         SELECT {columns} FROM ot.agents a JOIN root_first r ON a.id=r.id
+         ORDER BY r.depth FOR UPDATE OF a"), &[&id]).await?)
+}
+
+/// Physical scope-chain order only; the caller still skips projects and clamps tools.
+#[logged]
+pub(crate) async fn scope_ancestor_rows<C: GenericClient + Sync>(client: &C, agent_id: i64, org_id: i64) -> Result<Vec<tokio_postgres::Row>> {
+    Ok(client.query(
+        "WITH RECURSIVE chain(id,parent_id,scope,kind) AS (
+           SELECT id,parent_id,scope,kind FROM ot.agents WHERE id=$1 AND org_id=$2
+           UNION SELECT a.id,a.parent_id,a.scope,a.kind FROM ot.agents a JOIN chain c ON a.id=c.parent_id
+             WHERE a.org_id=$2),
+         root_first(id,depth) AS (
+           SELECT id,0 FROM chain WHERE parent_id IS NULL
+           UNION ALL SELECT c.id,r.depth+1 FROM chain c JOIN root_first r ON c.parent_id=r.id)
+         SELECT c.scope,c.parent_id,r.depth,c.kind FROM chain c JOIN root_first r ON c.id=r.id
+         ORDER BY r.depth", &[&agent_id, &org_id]).await?)
+}
+
 /// `ot.agents.kind` of a project node.
 pub const KIND: &str = "project";
 /// The `tier` a project row stores: a sentinel, never a catalog tier.

@@ -16,3 +16,9 @@ scope only at the outer root. The red parent returns 1,025 ancestors and loses
 that restriction. The green check also verifies every returned name in root-first
 order, retained tool/visibility/permission restrictions and cycle refusal.
 Measurements and focused-check receipt are recorded with the exact-SHA hand-in.
+
+Physical-root SQL lives in `domain/projects.rs::{locked_ancestor_rows,scope_ancestor_rows}`.
+The first keeps the same row-locking query used by `ops::chain`; the second keeps
+the ordered rows used by `tools::caller_tools_in`. Refusals and scope clamps stay
+with their callers. The reporting guard still scans both central caller modules;
+neither receives a file-wide structural exception.
