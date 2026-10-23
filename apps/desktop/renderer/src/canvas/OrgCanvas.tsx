@@ -1322,10 +1322,10 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
   // THE ORG SLOT LIES EXACTLY OVER THE VIEWPORT (user report 2026-09-29,
   // image-17). In the stage's flex column it used to sit BELOW the viewport,
   // so presenting the Attention view squeezed the canvas to a strip instead of
-  // hiding it. Offsets, not a client rect: the slot is the viewport's sibling,
-  // so both are placed against the same containing block, and whatever padding
-  // or drag margin the shell puts around the canvas is followed rather than
-  // restated here.
+  // hiding it. Both siblings use the same containing block. Preserve fractional
+  // bounds: integer offset sizes can round this overlay beyond the window at
+  // fractional display scales and make root scrollbars toggle every frame.
+  // Shell padding and drag margins are measured rather than restated here.
   const [slotBox, setSlotBox] = useState<{ x: number; y: number; w: number; h: number } | null>(null)
   // ⚠ A VALUE, NOT AN UPDATER (rig finding F1, 2026-10-07). While this
   // update waits at a lower priority, React re-applies it on every
@@ -1346,7 +1346,14 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
         viewportSizeRef.current = { w: rect.width, h: rect.height }
         setViewportSize(viewportSizeRef.current)
       }
-      const box = { x: el.offsetLeft, y: el.offsetTop, w: el.offsetWidth, h: el.offsetHeight }
+      const parent = el.offsetParent
+      const origin = parent?.getBoundingClientRect()
+      const parentStyle = parent && el.ownerDocument.defaultView?.getComputedStyle(parent)
+      const box = {
+        x: rect.left - (origin?.left ?? 0) - (parseFloat(parentStyle?.borderLeftWidth ?? '') || 0) + (parent?.scrollLeft ?? 0),
+        y: rect.top - (origin?.top ?? 0) - (parseFloat(parentStyle?.borderTopWidth ?? '') || 0) + (parent?.scrollTop ?? 0),
+        w: rect.width, h: rect.height,
+      }
       setSlotBox(prev => prev && prev.x === box.x && prev.y === box.y && prev.w === box.w
         && prev.h === box.h ? prev : box)
     }

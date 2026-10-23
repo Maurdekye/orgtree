@@ -8,6 +8,8 @@ Up: [orgtree-canvas](../SKILL.md)
 
 The canvas lays out the user root, agents, structural projects, reporting lines and related objects. It is a navigable projection of the org, not a free-positioning editor: changing the camera does not change who reports to whom. Use the agent list or a named jump when a card is outside the current view.
 
+The canvas fills the available organization window, including at fractional display scaling. Resize or maximize the window to make more room; the canvas pans and zooms rather than scrolling the whole page. Canvas and Attention share the same area.
+
 Drag the background with the primary button to pan. Middle-button drag pans from anywhere on the visible canvas, including a desk's header, transcript or composer, presentation cards, the org inbox tile and pinned frames. It moves the canvas camera, leaving the desk's scroll and a pinned frame's placement unchanged. It does not open a link or select text; left and right buttons keep their usual actions. A popped-out desk has no canvas to pan.
 
 The wheel over canvas space zooms about the cursor; over a modal, desk, agent tray or pinned window it stays a scrolling gesture. Move the pointer out of the desk before trying to zoom the canvas. Narrow windows retain this desktop layout; see [narrow layout](../../app-shell/mobile-layout/SKILL.md) before assuming a mobile sheet or touch-only navigation mode.

@@ -1,5 +1,17 @@
 # Desktop and renderer
 
+## Fractional canvas overlay bounds (2026-10-23)
+
+The always-mounted Attention `.org-slot` is an absolute sibling of the canvas
+viewport. Measure its fractional border box in the shared containing block,
+including that block's border and scroll offset. Integer `offsetWidth` and
+`offsetHeight` can round beyond the window edge at fractional display scaling,
+making root scrollbars alternate the canvas width and retrigger camera refocus.
+Keep the existing change guards and viewport observer; do not hide legitimate
+transcript or panel scrollbars to mask this loop. The isolated native fixture
+is `tests/scrollbar.capture.cjs` with `scrollbar.visual.tsx`.
+[decided: user 2026-10-23; verified: `canvas/OrgCanvas.tsx`]
+
 ## Move hover preview anchor (2026-10-23)
 
 The move ghost uses the projected moved-node offset from its new superior,
