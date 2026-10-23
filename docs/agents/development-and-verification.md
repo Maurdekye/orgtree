@@ -87,6 +87,16 @@ not execute; never count it as a product result.
 
 ## Renderer, capture and rig traps
 
+- **Mail-card parity compares content beneath transparent selection boundaries.**
+  `mailcard.fixture.ts` removes only pending chrome and checked
+  `selection-source` wrappers (`display: contents`, source marker, no extra
+  styling class). Keep all body markup, metadata, attachment rows and their
+  ordering in the exact comparison. The column oracle uses this normalized
+  tree; typed/legacy parity retains controls rejecting a layout-producing
+  wrapper, a missing selection marker and changed body text. Product rendering
+  and selection behavior are unchanged. [verified: `tests/pendcol.test.tsx`,
+  `tests/pending-style.test.tsx`, `canvas/replyselection.tsx`;2026-10-23]
+
 - **Scope click-away listener counts to the component lifecycle.** Import
   canvas modules before intercepting document listeners, then snapshot the
   mounted canvas's callback identities before opening the tray. Tray open and

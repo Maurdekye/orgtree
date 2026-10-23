@@ -1,6 +1,7 @@
 import { FakeServer, flush, installFetch, mountView, inAct } from './harness'
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import { mailCardContent } from './mailcard.fixture'
 import { DeskChat } from '../src/canvas/desk'
 import { resetConvos, addPending } from '../src/convo'
 import type { CanvasNode } from '../src/canvas/shared'
@@ -28,11 +29,10 @@ test('pending user, agent and notice cards retain their transcript styling and a
     assert.equal(pending[i].className,delivered[i].className)
     // React's accessibility IDs are unique per mounted instance. The pending
     // chrome (delivery receipt / retract ✕, riding the metadata strip since
-    // 2026-09-10) is the ONE declared difference — set aside before the
-    // byte-for-byte comparison, which must then hold exactly.
+    // 2026-09-10) and checked display:contents selection boundaries are set
+    // aside before the exact comparison of all card content and styling.
     const canonical = (el: Element) => {
-      const clone = el.cloneNode(true) as Element
-      for (const c of clone.querySelectorAll('.pend-tag, .pend-x, .ghost-acts')) c.remove()
+      const clone = mailCardContent(el)
       return clone.innerHTML.replace(/:r[0-9a-z]+:/g, ':react-id:')
     }
     assert.equal(canonical(pending[i]),canonical(delivered[i]))
@@ -74,8 +74,7 @@ test('typed and legacy pending and delivered mail all use the Message card', asy
   assert.ok(pend!.classList.contains('event-card'), 'pending keeps the Message card')
   assert.equal(pend!.className, done!.className)
   const canonical = (el: Element) => {
-    const clone = el.cloneNode(true) as Element
-    for (const c of clone.querySelectorAll('.pend-tag, .pend-x, .ghost-acts')) c.remove()
+    const clone = mailCardContent(el)
     // Transport provenance attributes differ; the card DOM and paint do not.
     for (const c of clone.querySelectorAll('[data-actor-kind]')) c.removeAttribute('data-actor-kind')
     for (const c of clone.querySelectorAll('strong[title^="Recorded mail kind:"]')) c.removeAttribute('title')
@@ -85,4 +84,19 @@ test('typed and legacy pending and delivered mail all use the Message card', asy
   assert.equal(control!.getAttribute('data-event-variant'), 'ordinary.message', 'typed positive control')
   assert.equal(canonical(pend!), canonical(done!))
   assert.equal(canonical(pend!), canonical(control!))
+  // Mutation controls on the real rendered card: transparent normalization
+  // must not excuse a layout box, missing selection boundary or changed text.
+  const changed = control!.cloneNode(true) as HTMLElement
+  const surface = changed.querySelector<HTMLElement>('.selection-source')
+  assert.ok(surface, 'typed delivery retains a selectable body')
+  surface.style.display = 'block'
+  assert.throws(() => canonical(changed), /selection wrapper must remain layout-transparent/)
+  surface.style.display = 'contents'
+  surface.removeAttribute('data-selection-source')
+  assert.throws(() => canonical(changed), /selection wrapper keeps its source marker/)
+  surface.setAttribute('data-selection-source', '')
+  const prose = changed.querySelector('.event-prose')
+  assert.ok(prose, 'typed body content exists')
+  prose.textContent = 'different body'
+  assert.notEqual(canonical(pend!), canonical(changed), 'body changes still break parity')
 })

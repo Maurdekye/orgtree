@@ -16,9 +16,9 @@
 // still the top-right spot, still never below the content.
 //
 // So the checkable properties are now:
-//   * the pending card and the delivered card are the SAME DOM, byte for
-//     byte, once the declared pending chrome (.pend-tag/.pend-x/.ghost-acts)
-//     is set aside — asserted per attachment combination, because a fix
+//   * the pending card and the delivered card have the SAME content DOM, byte
+//     for byte, once pending chrome and verified display:contents selection
+//     boundaries are set aside — asserted per attachment combination, because a fix
 //     checked only on one shape can still be wrong with two images, no
 //     text, or no image;
 //   * the delivered card itself keeps the column (body above ONE attachment
@@ -44,6 +44,7 @@ import {
 import test from 'node:test'
 import type { TestContext } from 'node:test'
 import assert from 'node:assert/strict'
+import { mailCardContent } from './mailcard.fixture'
 import { refreshConvo, resetConvos } from '../src/convo'
 import { DeskChat } from '../src/canvas/desk'
 import { closeLightbox } from '../src/canvas/lightbox'
@@ -131,13 +132,9 @@ const deliveredCard = (el: HTMLElement): Element => {
   return b!
 }
 
-/** the card minus the DECLARED pending chrome — the one thing allowed to
- *  differ, because it is metadata a settled row does not have */
-const strip = (el: Element): Element => {
-  const clone = el.cloneNode(true) as Element
-  for (const c of clone.querySelectorAll('.pend-tag, .pend-x, .ghost-acts')) c.remove()
-  return clone
-}
+// Normalize only pending metadata and checked, layout-transparent selection
+// boundaries. Text, classes, attachment contents and ordering remain exact.
+const strip = mailCardContent
 // React's accessibility IDs are unique per mounted instance.
 const canonical = (el: Element): string =>
   strip(el).innerHTML.replace(/:r[0-9a-z]+:/g, ':react-id:')
@@ -147,7 +144,7 @@ const canonical = (el: Element): string =>
 function assertParity(el: HTMLElement, want: { imgs: number; chips?: number }, label: string): void {
   const pend = pendCard(el), done = deliveredCard(el)
   assert.equal(canonical(pend), canonical(done),
-    `${label}: the queued card is byte-identical to the delivered one (chrome aside)`)
+    `${label}: queued and delivered content is byte-identical (chrome and transparent selection boundaries aside)`)
   const chips = want.chips ?? 0
   const rowEl = pend.querySelector('.attach-row')
   assert.equal(Boolean(rowEl), want.imgs + chips > 0,
@@ -233,7 +230,7 @@ domTest('§6 the DELIVERED card has the column shape — it is the target',
     await refreshConvo(SL, ND)
     const el = await mount(deskEl(node(ND), SL))
     await flush()
-    const card = deliveredCard(el)
+    const card = strip(deliveredCard(el))
     const head = card.querySelector(':scope > header.turn-mail-head')
     const body = card.querySelector(':scope > .event-fallback, :scope > .event-body, :scope > .turn-mail-preview')
     const rowEl = card.querySelector(':scope > .attach-row')
