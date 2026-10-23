@@ -65,8 +65,8 @@ pub async fn handle(engine: &Arc<Engine>, org: Option<&Arc<OrgHandle>>, msg: &Va
     res
 }
 
-/// The endpoint's tool cards: the agent cards for the shared names (same
-/// argument shapes), plus the two user-only tools.
+/// Reuse shared operation fields, but describe user authority and replace
+/// cards whose user handlers deliberately implement a smaller contract.
 #[logged]
 fn cards(org_scoped: bool) -> Vec<Value> {
     let names = if org_scoped { ORG_TOOLS } else { ORGLESS_TOOLS };
@@ -74,10 +74,43 @@ fn cards(org_scoped: bool) -> Vec<Value> {
         .into_iter()
         .filter(|t| t["name"].as_str().map(|n| names.contains(&n)).unwrap_or(false))
         .collect();
-    if let Some(inbox)=out.iter_mut().find(|c|c["name"]=="orgtree_inbox") {
-        inbox["description"]=json!("Read the user's own inbox with list/fetch. settings reads the org outside-inbox mode; configure mode=normal|dnd|closed changes it as the user, through the desktop policy path. Agents cannot configure it.");
-        inbox["inputSchema"]["properties"]["action"]["enum"]=json!(["list","fetch","settings","configure"]);
-        inbox["inputSchema"]["properties"]["mode"]=json!({"type":"string","enum":["normal","dnd","closed"]});
+    for card in &mut out {
+        match card["name"].as_str().unwrap_or("") {
+            "orgtree_message" | "orgtree_send_notice" => {
+                let notice = card["name"] == "orgtree_send_notice";
+                let mut metadata = json!({"to":{"anyOf":[{"type":"string"},
+                    {"type":"array","items":{"type":"string"},"minItems":1,"maxItems":1}],
+                    "description":"one agent in this organization"}});
+                if !notice {
+                    metadata["notice"] = json!({"type":"boolean","description":"passive mail; default false"});
+                }
+                *card = user_card(if notice { "orgtree_send_notice" } else { "orgtree_message" },
+                    if notice { "Send passive user mail to one agent in this org; wakes nobody. Metadata first, body last. Outside mail, question cards, attachments, reply quoting and other agent-mail options are unsupported." }
+                    else { "Send user mail to one agent in this org. Wakes unless metadata.notice=true. Metadata first, body last. Outside mail, question cards, attachments, reply quoting and other agent-mail options are unsupported." },
+                    json!({"metadata":{"type":"object","properties":metadata,"required":["to"],"additionalProperties":false},
+                        "body":{"type":"string"}}), &["metadata","body"]);
+            }
+            "orgtree_inbox" => *card = user_card("orgtree_inbox",
+                "Read the user's own inbox. list (default): limit 1–200 per pending/delivered/sent list, default50. fetch: 1–20 message_ids. settings reads the org outside-inbox mode; configure with mode normal|dnd|closed changes it as the user. Each action accepts only its own fields; no project/org-inbox pulls, chunk or conversation reads.",
+                json!({"action":{"type":"string","enum":["list","fetch","settings","configure"]},
+                    "limit":{"type":"integer","minimum":1,"maximum":200},
+                    "message_ids":{"type":"array","items":{"type":"string"},"minItems":1,"maxItems":20},
+                    "mode":{"type":"string","enum":["normal","dnd","closed"]}}), &[]),
+            "orgtree_interrupt" => *card = user_card("orgtree_interrupt",
+                "Stop the named agent's current turn as the user. No running turn returns interrupted=false. Waits up to60seconds for the runtime; queued/restart orchestration is unsupported and refused.",
+                json!({"node":{"type":"string"}}), &["node"]),
+            "orgtree_chart" => card["description"] = json!("Read this organization's chart as the user: tiers, credits, status and audiences. include_archived includes retired nodes; include_standing_charter defaults true."),
+            "orgtree_list_tiers" => card["description"] = json!("List available tiers and seat prices as the user. refresh=true requests coalesced provider discovery/sign-in checking; no agent permission group is required."),
+            "orgtree_list_orgs" => card["description"] = json!("List active local organizations and connected hub peers as the user; no agent audience is required to read this metadata."),
+            "orgtree_hire" => card["description"] = json!("Hire as the user, with ordinary credit/scope validation and Undo recording. No parent/target hires at top level. A superior insertion needs hire_type=superior and target. index is the zero-based live sibling position; ordinary hire needs explicit scope fields."),
+            "orgtree_retire" => card["description"] = json!("Retire the named agent as the user through the desktop's Undo-recorded tree operation. Its saved context remains available for rehire."),
+            "orgtree_work" => {
+                card["description"] = json!("Manage this organization's docket as the user: list/get, create/update, complete with accept, assign/handoff, participants/evidence, archive/supersede/move/delete. The user authority path applies; progress preservation, revision and status/reason validation remain in effect.");
+                card["inputSchema"]["properties"]["owner"]["description"] = json!("create/assign: named owner; update: retain the current owner when desired");
+                card["inputSchema"]["properties"]["target"]["description"] = json!("handoff: explicit target agent");
+            }
+            _ => {}
+        }
     }
     if names.contains(&"orgtree_create_org") {
         out.push(json!({
@@ -110,6 +143,65 @@ fn cards(org_scoped: bool) -> Vec<Value> {
         }));
     }
     out
+}
+
+#[logged]
+fn user_card(name: &str, description: &str, properties: Value, required: &[&str]) -> Value {
+    json!({"name":name,"description":description,"inputSchema":{"type":"object",
+        "properties":properties,"required":required,"additionalProperties":false}})
+}
+
+/// Reject unsupported options before any provider, database or runtime action.
+/// Keep the existing flat mail and identifier aliases as compatibility inputs.
+#[logged]
+fn validate_args(org_scoped: bool, name: &str, args: &Value) -> Result<()> {
+    let Some(card) = cards(org_scoped).into_iter().find(|c| c["name"] == name) else {
+        crate::refuse!(BadRequest, "{name} is not on this user MCP endpoint");
+    };
+    let properties = card["inputSchema"]["properties"].as_object().unwrap();
+    let mail = matches!(name, "orgtree_message" | "orgtree_send_notice");
+    let Some(object) = args.as_object() else {
+        crate::refuse!(BadRequest, "arguments must be a JSON object");
+    };
+    for key in object.keys() {
+        let alias = (mail && matches!(key.as_str(), "to" | "notice"))
+            || (name == "orgtree_answer" && matches!(key.as_str(), "id" | "question_id"))
+            || (name == "orgtree_work" && key == "id");
+        if !properties.contains_key(key) && !alias {
+            crate::refuse!(BadRequest, "{name}: unsupported user MCP field `{key}`");
+        }
+    }
+    if mail {
+        if args.get("metadata").is_some_and(|v| !v.is_object()) {
+            crate::refuse!(BadRequest, "metadata must be an object");
+        }
+        if args.get("metadata").is_some() && (args.get("to").is_some() || args.get("notice").is_some()) {
+            crate::refuse!(BadRequest, "do not mix metadata and flat mail routing");
+        }
+        let metadata = args.get("metadata").unwrap_or(args);
+        for key in metadata.as_object().unwrap().keys() {
+            if key != "to" && !(name == "orgtree_message" && key == "notice")
+                && !(args.get("metadata").is_none() && key == "body") {
+                crate::refuse!(BadRequest, "{name}: unsupported user mail field `{key}`");
+            }
+        }
+        if metadata.get("notice").is_some_and(|v| !v.is_boolean()) {
+            crate::refuse!(BadRequest, "notice must be true or false");
+        }
+    }
+    if name == "orgtree_inbox" {
+        let fields: &[&str] = match args["action"].as_str().unwrap_or("list").trim() {
+            "list" => &["action", "limit"],
+            "fetch" => &["action", "message_ids"],
+            "settings" => &["action"],
+            "configure" => &["action", "mode"],
+            other => crate::refuse!(BadRequest, "unsupported user inbox action {other:?}"),
+        };
+        if object.keys().any(|k| !fields.contains(&k.as_str())) {
+            crate::refuse!(BadRequest, "unexpected field for this user inbox action");
+        }
+    }
+    Ok(())
 }
 
 #[logged]
@@ -149,6 +241,7 @@ fn need_str<'a>(args: &'a Value, key: &str) -> Result<&'a str> {
 
 #[logged]
 async fn dispatch(engine: &Arc<Engine>, org: Option<&Arc<OrgHandle>>, name: &str, args: &Value) -> Result<Done> {
+    validate_args(org.is_some(), name, args)?;
     match name {
         "orgtree_list_tiers" => return super::orgview::list_tiers(engine, args).await,
         "orgtree_list_orgs" => return list_orgs(engine, org).await,
@@ -398,5 +491,75 @@ mod tests {
         sorted.sort();
         sorted.dedup();
         assert_eq!(sorted.len(), n.len(), "no duplicate cards");
+    }
+
+    #[test]
+    fn user_cards_do_not_advertise_agent_only_options() {
+        let user = cards(true);
+        let card = |name: &str| user.iter().find(|c| c["name"] == name).unwrap();
+        let interrupt = &card("orgtree_interrupt")["inputSchema"]["properties"];
+        assert_eq!(interrupt.as_object().unwrap().len(), 1);
+        assert!(interrupt.get("node").is_some());
+        for name in ["orgtree_message", "orgtree_send_notice"] {
+            let metadata = &card(name)["inputSchema"]["properties"]["metadata"];
+            assert_eq!(metadata["additionalProperties"], false);
+            assert_eq!(metadata["properties"]["to"]["anyOf"][1]["maxItems"], 1);
+            for unsupported in ["attachments", "replies", "reply_to", "urgent", "kind", "options", "tags"] {
+                assert!(metadata["properties"].get(unsupported).is_none(), "{name}: {unsupported}");
+            }
+        }
+        let inbox = &card("orgtree_inbox")["inputSchema"]["properties"];
+        for unsupported in ["project", "peer", "cursor", "org_inbox", "chunk_index"] {
+            assert!(inbox.get(unsupported).is_none(), "inbox: {unsupported}");
+        }
+        let agent = defs::list();
+        let agent_interrupt = agent.iter().find(|c| c["name"] == "orgtree_interrupt").unwrap();
+        assert!(agent_interrupt["inputSchema"]["properties"].get("restart").is_some());
+        let agent_mail = agent.iter().find(|c| c["name"] == "orgtree_message").unwrap();
+        assert!(agent_mail["inputSchema"]["properties"]["metadata"]["properties"].get("attachments").is_some());
+    }
+
+    #[test]
+    fn unsupported_user_arguments_refuse_before_dispatch() {
+        for flag in ["queued", "restart"] {
+            for value in [json!(true), json!(false), Value::Null] {
+                let mut args = json!({"node":"worker"});
+                args[flag] = value;
+                assert!(validate_args(true, "orgtree_interrupt", &args).is_err());
+            }
+        }
+        for field in ["attachments", "reply_to", "replies", "kind", "urgent", "urgent_reason", "options", "multiple", "tags"] {
+            let mut args = json!({"metadata":{"to":"worker"},"body":"task"});
+            args["metadata"][field] = json!([]);
+            assert!(validate_args(true, "orgtree_message", &args).is_err(), "{field}");
+            let mut flat = json!({"to":"worker","body":"task"});
+            flat[field] = json!([]);
+            assert!(validate_args(true, "orgtree_message", &flat).is_err(), "flat {field}");
+        }
+        for args in [json!({"action":"pull"}), json!({"project":"queue"}),
+            json!({"action":"fetch","message_ids":["m1"],"limit":1}),
+            json!({"action":"settings","mode":"closed"})] {
+            assert!(validate_args(true, "orgtree_inbox", &args).is_err());
+        }
+        assert!(validate_args(false, "orgtree_interrupt", &json!({"node":"worker"})).is_err());
+        assert!(validate_args(true, "orgtree_watchdog", &json!({})).is_err());
+    }
+
+    #[test]
+    fn supported_user_arguments_and_compatibility_aliases_remain() {
+        for (name, args) in [
+            ("orgtree_interrupt", json!({"node":"worker"})),
+            ("orgtree_message", json!({"metadata":{"to":"worker","notice":true},"body":"task"})),
+            ("orgtree_message", json!({"to":["worker"],"notice":false,"body":"task"})),
+            ("orgtree_send_notice", json!({"metadata":{"to":"worker"},"body":"task"})),
+            ("orgtree_inbox", json!({"limit":2})),
+            ("orgtree_inbox", json!({"action":"fetch","message_ids":["m1"]})),
+            ("orgtree_inbox", json!({"action":"configure","mode":"dnd"})),
+            ("orgtree_answer", json!({"question_id":"q1","dismiss":true})),
+            ("orgtree_work", json!({"action":"get","id":"task"})),
+        ] {
+            validate_args(true, name, &args).unwrap();
+        }
+        validate_args(false, "orgtree_list_tiers", &json!({"refresh":false})).unwrap();
     }
 }
