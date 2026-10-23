@@ -718,9 +718,9 @@ export function AccountsPanel({ toast, close, initialTab, target }: {
     setLangServerTiers(pushedProviders.providers.find(p => p.id === 'langserver')?.tiers)
     setDiscovering(false)
   }, [pushedProviders])
-  const loadProviders = () => {
+  const loadProviders = (force = false) => {
     setDiscovering(true)
-    return getProviders().then(p => {
+    return getProviders(force).then(p => {
       setProviders(p.providers)
       setLanes({ apikey_fallback: p.apikey_fallback,
                  subscription_inference: p.subscription_inference })
@@ -807,7 +807,7 @@ export function AccountsPanel({ toast, close, initialTab, target }: {
             aria-label="refresh provider status"
             title="refresh provider status"
             disabled={discovering}
-            onClick={() => { void loadProviders() }}
+            onClick={() => { void loadProviders(true) }}
           >
             <AutorenewIcon fontSize="inherit" className={discovering ? 'cc-spin' : undefined} />
             <span>{discovering ? 'refreshing…' : 'refresh'}</span>
@@ -854,7 +854,8 @@ export function AccountsPanel({ toast, close, initialTab, target }: {
         <AccountRegistrySection provider={p.id as AccountProvider} registry={registry} toast={toast}
           native={{ installed: p.status.installed, connected: p.status.connected, email: p.status.email,
             active: lanes.subscription_inference?.[p.id] === undefined ? undefined : lanes.subscription_inference[p.id] !== false,
-            busy, onActive: v => changeLane(setSubscriptionInferenceEnabled, p.id, v) }} />
+            busy, onActive: v => changeLane(setSubscriptionInferenceEnabled, p.id, v),
+            onRefresh: () => { void loadProviders(true) } }} />
         {/* THE MACHINE-WIDE FALLBACK CHOICE sits under the account list
             because it is a statement ABOUT these accounts: in what order they
             may serve a turn. Omitted when the backend does not publish the map

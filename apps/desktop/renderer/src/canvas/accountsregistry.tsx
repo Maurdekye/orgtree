@@ -220,6 +220,7 @@ export type NativeLogin = {
   active?: boolean
   busy: boolean
   onActive: (active: boolean) => void
+  onRefresh?: () => void
 }
 
 /** EVERY ACCOUNT HAS ITS OWN ACTIVE CHECKBOX (user 2026-10-06): the native
@@ -309,6 +310,8 @@ export function AccountRegistrySection({ provider, registry, toast, native }: {
         {nativeActive !== undefined && <ActiveBox active={nativeActive} disabled={native.busy}
           who={`signed-in ${LABELS[provider]} subscription`} onChange={native.onActive} />}
         {nativeActive === false && <div className="dim account-note">{INACTIVE_NOTE}</div>}
+        {provider === 'openai' && <ProviderSignIn provider="codex" connected={native.connected === true}
+          toast={toast} onRefresh={() => native.onRefresh?.()} />}
       </div>}
     {rows.map(row => {
       const login: LoginProvider | null = row.credential.kind === 'token' ? null

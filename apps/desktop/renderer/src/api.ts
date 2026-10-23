@@ -961,6 +961,7 @@ export const getHost = (): Promise<HostPayload> => req('/api/host')
 // machine's CLI install/connect state — App settings and all hire surfaces
 let providerSnapshot: ProvidersPayload | null = null
 let providerRequest: Promise<ProvidersPayload> | null = null
+let providerRefreshRequest: Promise<ProvidersPayload> | null = null
 let providerGeneration = 0
 /** Last successful observation for instant display while discovery refreshes. */
 export const peekProviders = (): ProvidersPayload | null => providerSnapshot
@@ -968,17 +969,23 @@ export function clearProviderDiscovery(): void {
   providerGeneration++
   providerSnapshot = null
   providerRequest = null
+  providerRefreshRequest = null
 }
-export function getProviders(): Promise<ProvidersPayload> {
-  if (providerRequest) return providerRequest
+export function getProviders(force = false): Promise<ProvidersPayload> {
+  if (providerRefreshRequest) return providerRefreshRequest
+  if (!force && providerRequest) return providerRequest
+  if (force) providerGeneration++
   const generation = providerGeneration
-  const request = req<ProvidersPayload>('/api/providers').then(payload => {
+  const request = req<ProvidersPayload>(force ? '/api/providers?force=true' : '/api/providers',
+    undefined, force ? 180_000 : undefined).then(payload => {
     if (generation === providerGeneration) providerSnapshot = payload
     return providerSnapshot ?? payload
   }).finally(() => {
     if (providerRequest === request) providerRequest = null
+    if (providerRefreshRequest === request) providerRefreshRequest = null
   })
-  providerRequest = request
+  if (force) providerRefreshRequest = request
+  else providerRequest = request
   return request
 }
 /** A model choice or the providers page opened: ask the engine to re-read
