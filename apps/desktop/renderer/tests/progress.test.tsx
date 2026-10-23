@@ -566,7 +566,7 @@ test('§4 DeskChat: the docket tab is the agent\'s OWN DOCKET, and the chip coun
   t.after(async () => { await view.unmount(); resetConvos(); realClock() })
   await flush()
   const tabs = [...view.el.querySelectorAll('.cc-tabs button')].map((b) => b.getAttribute('data-tab'))
-  assert.deepEqual(tabs, ['chat', 'inbox', 'docket', 'presented'])
+  assert.deepEqual(tabs, ['chat', 'inbox', 'docket'], 'empty Presented stays hidden; owned work keeps Docket')
   assert.equal(Boolean(view.el.querySelector('.docket-agent')), false,
     'the panel must not be open on the chat tab')
   // the header chip: it counts the assignment, and it is a way in
@@ -1082,6 +1082,7 @@ test('Presented desk tab lists the selected agent documents and opens markdown',
     <DeskChat node={node({ id: 'agent-empty', documents: [] })}
       map={new Map([['agent-empty', node({ id: 'agent-empty', documents: [] })]])}
       op={op} slug="prog" toast={noop} bare onJump={noop}
+      openPresentedRequest={1}
       onOpenDoc={(id) => { opened.push(id) }} />)
   await flush()
   await act(async () => {
@@ -1090,4 +1091,7 @@ test('Presented desk tab lists the selected agent documents and opens markdown',
     presented.click()
   })
   assert.match(view.el.querySelector('.desk-presented')?.textContent ?? '', /No presented documents/)
+  // An explicitly opened empty reader stays available until it is left.
+  await act(async () => { view.el.querySelector<HTMLButtonElement>('.cc-tabs [data-tab="chat"]')!.click() })
+  assert.equal(view.el.querySelector('.cc-tabs [data-tab="presented"]'), null, 'empty Presented hides after leaving it')
 })

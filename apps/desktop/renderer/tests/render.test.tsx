@@ -199,6 +199,16 @@ domTest('§6.6 a thousand rows render only one window',
 
 domTest('§6.7 rapid tab switching keeps the conversation',
   async ({ SL, ND, s, mount }) => {
+    // Exercise Docket switching with an actual owned ticket, not an empty tab.
+    s.workItems = [{ slug: 'switch-work', rev: 1, kind: 'code', title: 'Switch work', objective: 'Keep the conversation',
+      status: 'in_progress', blocked_reason: null, archived: false, archived_at: null,
+      owner: { node: ND, generation: 1 }, owner_current: true, owner_state: 'live', reviewer: null,
+      participants: [], created_by: { node: ND, generation: 1 }, at: '2026-10-23T09:00:00Z',
+      updated_at: '2026-10-23T09:00:00Z', docket_at: '2026-10-23T09:00:00Z',
+      done_so_far: [], working_on_next: [], last_updater: { node: ND, generation: 1 },
+      manual_attention: null, dismissals: [], questions: [], effective_attention: false,
+      attention_sources: [], acceptance: [], dependencies: [], evidence: [], delivery: null,
+      accepted: null, superseded_by: null, history: [] }]
     s.assistantMsg('the answer is 42')
     await refreshConvo(SL, ND)
     // the tab strip renders on every desk (switchboard panels mirror the

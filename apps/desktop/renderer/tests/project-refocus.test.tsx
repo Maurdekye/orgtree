@@ -28,7 +28,12 @@ async function pan(viewport:Element,x=28,y=18){
  await inAct(()=>viewport.dispatchEvent(pointer('pointerup',400+x,300+y)));await flush()
 }
 async function mounted(t:TestContext,pin=false){
- useFakeClock();installFetch(new FakeServer())
+ useFakeClock()
+ const server=new FakeServer()
+ // Refocus protects a selected reader, so give that reader a real presentation.
+ server.documents=[{id:'refocus-report',title:'Refocus report',format:'markdown',
+  node:'build',node_state:'live',at:'2026-10-23T09:00:00Z'}]
+ installFetch(server)
  localStorage.clear();if(pin)addPin('refocus','build',{x:40,y:40,w:650,h:550})
  const proto=window.HTMLElement.prototype
  const old=[proto.setPointerCapture,proto.releasePointerCapture,proto.hasPointerCapture]
@@ -126,12 +131,12 @@ test('canvas Focus and Agents List clicks reveal the same project popout',async 
 })
 test('generic opening refocuses the existing project modal and preserves its selected tab and draft',async t=>{
  const c=await mounted(t);await modalFromMenu(c.host);await tab('presented')
- const input=desk().querySelector<HTMLTextAreaElement>('textarea')!;assert.ok(input,'project composer')
+ const input=desk().querySelector<HTMLTextAreaElement>('.project-composer textarea')!;assert.ok(input,'project composer')
  await inAct(()=>{Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype,'value')!.set!.call(input,'Keep this draft');input.dispatchEvent(new window.Event('input',{bubbles:true}))})
  const before=camera(c.host);await c.jump()
  assert.equal(camera(c.host),before,'modal reveal leaves canvas alone')
  assert.equal(document.querySelectorAll('.project-desk').length,1,'one existing desk')
  assert.equal(desk().querySelector('.cc-tabs .on')?.getAttribute('data-tab'),'presented')
- assert.equal(desk().querySelector<HTMLTextAreaElement>('textarea')?.value,'Keep this draft')
+ assert.equal(desk().querySelector<HTMLTextAreaElement>('.project-composer textarea')?.value,'Keep this draft')
  assert.equal(document.activeElement===input,true,'reveal focuses the existing composer')
 })

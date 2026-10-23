@@ -309,7 +309,9 @@ test('G7 the docket badge counts the actionable tickets the agents under the pro
     ticket('stuck', 'dev1', { status: 'blocked', blocked_reason: 'waits' }), ticket('shipped', 'dev2', { status: 'done' }),
     ticket('old-claim', 'dev1', { owner_current: false })]
   // the engine reads `agent=<project>` as the team view rooted at the project
-  serve(t, (method, path, url) => method === 'GET' && path.endsWith('/work-items-page')
+  serve(t, (method, path, url) => method === 'GET' && path.endsWith('/nodes/website/reader-availability')
+    ? json({ work: { own: false, team: rows.length > 0 }, presented: { own: false, team: false } })
+    : method === 'GET' && path.endsWith('/work-items-page')
     ? json({ format: 'orgtree.work-page/v1', group: url.searchParams.get('group') ?? 'items',
       rows: (url.searchParams.get('group') ?? 'items') === 'items' ? rows : [], total: rows.length,
       totals: { items: rows.length, archived: 0, backlogged: 0 }, matched: { items: rows.length, archived: 0, backlogged: 0 },

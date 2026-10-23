@@ -73,16 +73,38 @@ type Fixture = typeof outlined
 
 function serve(t: TestContext) {
   const had = (globalThis as { fetch?: typeof fetch }).fetch
-  installFetch(new FakeServer())
+  const server = new FakeServer()
+  installFetch(server)
   t.after(() => { (globalThis as { fetch?: typeof fetch }).fetch = had })
+  return server
 }
 const treeOf = (f: Fixture) =>
   ({ slug: 'org', roots: [], watchdogs: f.dogs, slot_leases: f.leases } as unknown as TreePayload)
 const mapOf = (f: Fixture) =>
   new Map([[f.node.id, f.node], ...['sa', 'sb', 'boss'].map((id) => [id, agent(id)] as [string, CanvasNode])])
 
-async function desk(t: TestContext, f: Fixture) {
-  serve(t)
+async function desk(t: TestContext, f: Fixture, withWork = false) {
+  const server = serve(t)
+  if (withWork) {
+    server.workItems = [{
+      slug: 'header-work', rev: 1, kind: 'code', title: 'Header work', objective: 'Keep the header on a populated reader',
+      status: 'in_progress', blocked_reason: null, archived: false, archived_at: null,
+      owner: { node: 'sa', generation: 1 }, owner_current: true, owner_state: 'live', reviewer: null,
+      participants: [], created_by: { node: 'sa', generation: 1 }, at: '2026-10-23T09:00:00Z',
+      updated_at: '2026-10-23T09:00:00Z', docket_at: '2026-10-23T09:00:00Z',
+      done_so_far: [], working_on_next: [], last_updater: { node: 'sa', generation: 1 },
+      manual_attention: null, dismissals: [], questions: [], effective_attention: false,
+      attention_sources: [], acceptance: [], dependencies: [], evidence: [], delivery: null,
+      accepted: null, superseded_by: null, history: [],
+    }]
+    const ownAvailability = server.readerAvailability.bind(server)
+    server.readerAvailability = (nid, ...flags) => {
+      const result = ownAvailability(nid, ...flags)
+      if (nid === f.node.id) result.work.team = server.workItems.some((r: any) =>
+        f.node.children.some(child => child.id === r.owner?.node))
+      return result
+    }
+  }
   const jumps: string[] = []
   const view = await mountView(<ProjectDesk node={f.node} slug="org" tree={treeOf(f)} map={mapOf(f)}
     onJump={(id) => jumps.push(id)} op={() => Promise.resolve({} as OpResult)} toast={noop} refs={refs} />, (el) => el)
@@ -109,7 +131,7 @@ function stylesheet(t: TestContext) {
 /* ─── §1 one row ─────────────────────────────────────────────────────────── */
 
 test('§1 the listener, mail and slots cards share one header row and the ↑ superior link has the up row under it, on every tab', async (t) => {
-  const { view, jumps } = await desk(t, outlined)
+  const { view, jumps } = await desk(t, outlined, true)
   const head = view.el.querySelector('.cc-head')!
   const rows = [...head.querySelectorAll('.cc-head-meta')].filter((r) => r.parentElement === head)
   assert.equal(rows.length, 1, 'one meta row under the title row, not one row per card')
