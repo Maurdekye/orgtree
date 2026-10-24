@@ -29,7 +29,10 @@ test('read-only text menu copies its captured selection and selects the originat
   await open()
   const all = document.querySelector<HTMLButtonElement>('[aria-label="Select All"]')!
   assert.ok(all); assert.ok(all.querySelector('.ctxmenu-shortcut')?.textContent?.includes('A'))
-  await inAct(async () => { all.click(); await flush(5) })
+  await inAct(() => { all.click() })
+  // A real browser commits the discrete click before the deferred selection.
+  // Let React unmount the menu, then allow the window's timeout task to run.
+  await inAct(async () => { await new Promise(resolve => setTimeout(resolve, 10)) })
   assert.ok(selected.toString().includes('captured passage'))
   assert.equal(document.querySelector('.ctxmenu'), null)
   assert.equal(selected.toString().includes('Select All'), false)

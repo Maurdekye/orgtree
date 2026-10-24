@@ -79,7 +79,7 @@ export interface EditTarget {
  *     operation would do something;
  *   - a press with a LIVE SELECTION outside an editable field gets Copy and Select All.
  *     `nativeMenuPreferred` defers a selection to the native menu for the same
- *     reason it defers a field, so that deferral was dead in the same way. Only
+ *     reason it defers a field, so that deferral was dead in the same way.
  *     Select All is the ordinary document-wide command (USER 2026-10-24).
  *
  *  Anything else opens nothing, which leaves an ordinary right-click on the
@@ -100,7 +100,7 @@ export function editMenuTemplate(params: EditMenuParams, target: EditTarget): Me
     return [
       ...spelling,
       { label: 'Undo', accelerator: 'CmdOrCtrl+Z', registerAccelerator: false, enabled: Boolean(flags.canUndo), click: () => target.undo() },
-      { label: 'Redo', accelerator: process.platform === 'win32' ? 'Ctrl+Y' : 'CmdOrCtrl+Shift+Z', registerAccelerator: false, enabled: Boolean(flags.canRedo), click: () => target.redo() },
+      { label: 'Redo', accelerator: 'CmdOrCtrl+Shift+Z', ...(process.platform === 'win32' ? { accelerator: 'Ctrl+Y' } : {}), registerAccelerator: false, enabled: Boolean(flags.canRedo), click: () => target.redo() },
       { type: 'separator' },
       { label: 'Cut', accelerator: 'CmdOrCtrl+X', registerAccelerator: false, enabled: flags.canCut, click: () => target.cut() },
       { label: 'Copy', accelerator: 'CmdOrCtrl+C', registerAccelerator: false, enabled: flags.canCopy, click: () => target.copy() },
