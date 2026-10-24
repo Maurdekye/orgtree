@@ -339,7 +339,8 @@ reach remains. Coordinator default: true refuses user/outside routes, including
 bare resolution, per recipient. See [the mail contract](../agents/mail-and-hub.md#one-time-agent-mail-2026-10-24-445).
 
 New-hire position (USER 2026-10-23, 4.4.5): App settings > Display > Desk >
-New hires go selects End (default), Start or Centre for ordinary UI agent and
+New hires go selects End, Start or Centre (default when unset, USER 2026-10-24;
+valid saved choices kept) for ordinary UI agent and
 project creation. Centre is ceil(n/2) among live direct children, projects
 included. Existing nodes, side/above placement, moves and templates retain
 their order. No new tool; hire/staff explicit index is parity. See

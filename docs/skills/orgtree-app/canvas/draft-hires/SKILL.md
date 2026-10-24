@@ -6,8 +6,9 @@ Up: [orgtree-canvas](../SKILL.md)
 
 # From a hire chip to a seat
 
-App settings > Display > Desk > **New hires go** chooses End (default), Start or
-Centre for ordinary agents and projects, including root creation and hires under
+App settings > Display > Desk > **New hires go** chooses End, Start or
+Centre (default when unset); an explicitly saved choice is kept. This applies to
+ordinary agents and projects, including root creation and hires under
 projects. Centre inserts just after the middle of the live direct children,
 counting agents and projects, excluding retired nodes: A B [new] C for three;
 A B [new] C D for four. The draft previews that position in rows and circular

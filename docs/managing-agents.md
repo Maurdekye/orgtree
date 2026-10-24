@@ -12,8 +12,9 @@ An agent's **superior** is the nearest agent above it, skipping projects. Its **
 
 ## Choose a role and hire
 
-In **App settings > Display > Desk**, **New hires go** chooses **End** (default),
-**Start** or **Centre** for new agents and projects across your organizations.
+In **App settings > Display > Desk**, **New hires go** chooses **End**,
+**Start** or **Centre** (default when unset) for new agents and projects across
+your organizations. An explicitly saved choice is kept.
 Centre goes just after the middle of the existing live direct reports: with
 three, A B **[new]** C; with four, A B **[new]** C D. Projects count as reports;
 retired nodes and grandchildren do not. This applies to ordinary tokens/menus,

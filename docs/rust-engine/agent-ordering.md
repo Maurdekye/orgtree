@@ -2,8 +2,9 @@
 
 ## User creation position (2026-10-23, 4.4.5)
 
-USER m0d1975636f40 chooses an app Display preference, End (default), Start or
-Centre, for ordinary UI agent/project creation. Centre is ceil(n/2) over the
+USER m0d1975636f40 chooses an app Display preference, End, Start or Centre, for
+ordinary UI agent/project creation. USER 2026-10-24 mbb3df1e28668 changes its
+unset default from End to Centre, preserving every valid saved choice. Centre is ceil(n/2) over the
 locked live direct sibling set, including projects. The renderer submits
 `user_position` only for ordinary creations; admission resolves the ordinal and
 uses existing midpoint placement in the same transaction. Explicit

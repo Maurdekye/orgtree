@@ -44,7 +44,8 @@ usual dense spacing and arcs.
 
 Display > Desk > **New hires go** saves immediately to
 `ls:orgtree-new-hire-position` for this app profile, across its organizations and
-windows. Choices are End (default), Start and Centre. It selects the insertion
+windows. Choices are End, Start and Centre (default when unset). A saved choice is
+kept. It selects the insertion
 position of ordinary new agents AND projects; changing it never moves existing
 nodes. Centre goes just after the middle of the existing live direct children,
 counting agents and projects: A B [new] C for three; A B [new] C D for four.

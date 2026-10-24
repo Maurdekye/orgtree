@@ -64,17 +64,25 @@ test('explicit side and above draft placements override every app choice', () =>
   }
 })
 
-test('Display setting defaults to End, saves immediately and refreshes other subscribers/windows', async t => {
+test('Display setting defaults to Centre, preserves saved choices and refreshes subscribers/windows', async t => {
   localStorage.removeItem(NEW_HIRE_POSITION_KEY)
-  assert.equal(newHirePositionOf(), 'end')
+  assert.equal(newHirePositionOf(), 'centre')
+  assert.deepEqual(newHirePlacement(), { user_position: 'centre' })
   localStorage.setItem(NEW_HIRE_POSITION_KEY, 'unknown')
-  assert.equal(newHirePositionOf(), 'end')
+  assert.equal(newHirePositionOf(), 'centre')
+  for (const saved of ['end', 'start', 'centre'] as const) {
+    localStorage.setItem(NEW_HIRE_POSITION_KEY, saved)
+    assert.equal(newHirePositionOf(), saved, 'a valid stored choice is kept')
+  }
+  localStorage.removeItem(NEW_HIRE_POSITION_KEY)
   const v = await mountView(<><NewHirePositionSetting /><NewHirePositionSetting /></>, el => el)
   t.after(() => { v.unmount(); setNewHirePosition('end') })
   const controls = [...v.el.querySelectorAll<HTMLSelectElement>('select[aria-label="New hires go"]')]
-  await inAct(() => { controls[0]!.value = 'centre'; controls[0]!.dispatchEvent(new window.Event('change', { bubbles: true })) })
-  assert.equal(localStorage.getItem(NEW_HIRE_POSITION_KEY), 'centre')
   assert.deepEqual(controls.map(c => c.value), ['centre', 'centre'])
+  assert.equal(controls[0]!.selectedOptions[0]!.textContent, 'Centre (default)')
+  await inAct(() => { controls[0]!.value = 'end'; controls[0]!.dispatchEvent(new window.Event('change', { bubbles: true })) })
+  assert.equal(localStorage.getItem(NEW_HIRE_POSITION_KEY), 'end')
+  assert.deepEqual(controls.map(c => c.value), ['end', 'end'])
   await inAct(() => {
     localStorage.setItem(NEW_HIRE_POSITION_KEY, 'start')
     window.dispatchEvent(new window.StorageEvent('storage', { key: NEW_HIRE_POSITION_KEY, newValue: 'start' }))
@@ -120,7 +128,7 @@ test('immediate Staff carries the app choice while request Staff leaves the assi
 
 for (const history of [false, true]) for (const project of [false, true]) {
   test(`ordinary canvas ${project ? 'project' : 'hire'} sends centre, undo=${history}`, async t => {
-    useFakeClock(); localStorage.clear(); setNewHirePosition('centre'); resetConvos(); installFetch(new FakeServer())
+    useFakeClock(); localStorage.clear(); resetConvos(); installFetch(new FakeServer())
     const requests: OpRequest[] = [], before = globalThis.fetch
     const agent = { ...node('boss'), generation: 0, seat: 2, grant: 80, free: 80, turns: [], lineage: [], audiences_held: [],
       scope: { tools: {}, add_dirs: [], org_visibility: 'team' } }

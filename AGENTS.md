@@ -52,6 +52,10 @@ Rig live-root guards retain import-time `APPDATA`/home/data-override paths after
 
 ## Engine and desktop invariants
 
+- Unset **New hires go** defaults to Centre; preserve valid saved End/Start/Centre
+  choices. See [hire position](docs/agents/desktop-and-renderer.md#new-hire-position-2026-10-23).
+  [decided: user 2026-10-24; verified: `hireposition.ts`]
+
 - Limit fallback considers native Claude/Codex sign-ins even without registry
   rows, after registered subscriptions and before paid keys. Preserve native
   eligibility and fresh room checks; never retry the same physical login.

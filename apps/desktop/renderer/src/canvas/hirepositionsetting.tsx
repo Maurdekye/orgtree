@@ -17,9 +17,9 @@ export function NewHirePositionSetting() {
         const value = e.target.value
         setNewHirePosition(value === 'start' || value === 'centre' ? value : 'end')
       }}>
-      <option value="end">End (default)</option>
+      <option value="end">End</option>
       <option value="start">Start</option>
-      <option value="centre">Centre</option>
+      <option value="centre">Centre (default)</option>
     </select>
   </SetRow>
 }

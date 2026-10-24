@@ -2,13 +2,14 @@ import { useSyncExternalStore } from 'react'
 
 // USER 2026-10-23: app-wide Display preference, applied once at creation.
 // Existing nodes, explicit side/above positions and templates keep their order.
+// USER 2026-10-24: Centre is the unset default; keep every valid saved choice.
 export type NewHirePosition = 'end' | 'start' | 'centre'
 export const NEW_HIRE_POSITION_KEY = 'orgtree-new-hire-position'
 export function newHirePositionOf(): NewHirePosition {
   try {
     const value = localStorage.getItem(NEW_HIRE_POSITION_KEY)
-    return value === 'start' || value === 'centre' ? value : 'end'
-  } catch { return 'end' }
+    return value === 'end' || value === 'start' || value === 'centre' ? value : 'centre'
+  } catch { return 'centre' }
 }
 const listeners = new Set<() => void>()
 export function setNewHirePosition(position: NewHirePosition): void {

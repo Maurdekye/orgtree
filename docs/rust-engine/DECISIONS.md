@@ -13,7 +13,8 @@ without changing attention qualification, lifetime or taskbar placement.
 This supersedes the 2026-10-19 no-ring artwork. See [taskbar dot](taskbar-dot.md).
 
 **User creation position, USER 2026-10-23 19:12Z m0d1975636f40 (4.4.5):**
-App settings > Display > Desk > New hires go: End (default), Start or Centre.
+App settings > Display > Desk > New hires go: End, Start or Centre. USER 2026-10-24 21:27Z mbb3df1e28668
+changes the unset default from End to Centre; valid saved choices are kept.
 Ordinary user agent AND project creation follows it, including compact hire,
 Quick chat and immediate Staff. Centre is ceil(n/2), just after the old middle,
 counting live direct children including projects. Existing nodes, explicit

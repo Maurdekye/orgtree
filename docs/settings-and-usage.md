@@ -26,12 +26,12 @@ The named presets are Claude Terracotta, Codex Teal, Antigravity Navy, Muse Eggs
 
 **Display > Desk** includes:
 
-- **New hires go:** End (default), Start or Centre for ordinary new agents and
+- **New hires go:** End, Start or Centre (default when unset) for ordinary new agents and
   projects. Centre goes just after the middle of live direct reports, counting
   agents and projects: A B [new] C for three, A B [new] C D for four. This app-wide
   choice saves immediately for future UI creations, including Quick chat and
   immediate Staff. Existing nodes, side/above placement and templates keep
-  their order.
+  their order. An explicitly saved End, Start or Centre choice is kept.
 
 - **Open desk after manual hire:** On by default. Off keeps the current view
   after a canvas draft hire (including side/above) or Quick chat, without

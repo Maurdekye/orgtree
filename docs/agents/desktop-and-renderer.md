@@ -87,8 +87,9 @@ renderer view preference with no engine/tool field or per-frame layout work.
 
 USER m0d1975636f40: **New hires go** is an app Display preference, not an org
 default or a new agent tool. Renderer localStorage `orgtree-new-hire-position`
-stores end/start/centre, with End for missing/invalid values and storage-event
-updates across profile windows. Ordinary drafts/tokens/shared menus, compact
+stores end/start/centre, with Centre for missing/invalid values and storage-event
+updates across profile windows. USER 2026-10-24 mbb3df1e28668 replaces the End
+default with Centre; valid saved End/Start/Centre choices are kept. Ordinary drafts/tokens/shared menus, compact
 HireSheet, Quick chat, project drafts and immediate Staff submit the choice at
 creation time. Request Staff delegates unchanged. Agent hire/staff `index`
 supplies parity; no tool schema/prompt change is required.

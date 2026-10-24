@@ -176,7 +176,7 @@ test('with no history: Opus, the org default effort, top level; Enter hires, kic
     assert.ok(!send.disabled)
     await enter(box)
     assert.deepEqual(ops, [{ op: 'hire', name: 'write-release-notes', tier: 'opus', parent: null,
-      grant: 50, kickoff: 'Write the release notes for 4.2', kickoff_kind: 'message' }])
+      grant: 50, kickoff: 'Write the release notes for 4.2', kickoff_kind: 'message', user_position: 'centre' }])
     assert.ok(!('charter' in ops[0]!) && !('effort' in ops[0]!), 'no charter, effort follows the org')
     assert.ok(!('audiences' in ops[0]!), 'a top-level agent already writes to the user')
     assert.deepEqual(hired, ['write-release-notes'])
