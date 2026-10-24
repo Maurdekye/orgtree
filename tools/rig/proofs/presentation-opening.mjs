@@ -23,13 +23,17 @@ export default async function(rig){
  p.check('opening after mark chooses next changed document',changed.opening_id==='opening-4',changed)
  rig.exec(`UPDATE ot.documents SET viewed_at=at WHERE org_id=${org}`)
  const read=await rig.api('GET',route)
- p.check('all-read fallback uses replacement time rather than row identity',read.opening_id==='opening-4',read)
+ // USER md3fefbb66b7b, step3: otherwise open the topmost presentation.
+ // @item:orgtree/opening-the-work-docket-or-presentations-auto-se
+ // List order is id DESC: opening-130 is topmost. Replacement time only
+ // prioritizes unread changes (opening-4 above), never the all-read fallback.
+ p.check('all-read fallback uses the topmost list row, not replacement time',read.opening_id==='opening-130'&&read.documents[0]?.id==='opening-130'&&read.opening_position===0&&read.offset===0,read)
  // The renderer sees milliseconds, while PG stores microseconds. A legacy
  // viewed mark at wire precision must not become an invisible unread card.
  rig.exec(`UPDATE ot.documents SET at=at+interval '0.000456 seconds' WHERE uid='opening-3';
    UPDATE ot.documents SET viewed_at=date_trunc('milliseconds',at) WHERE org_id=${org}`)
  const precision=await rig.api('GET',route)
- p.check('all wire-precision read marks use newest fallback, not phantom unread',precision.opening_id==='opening-4',precision)
+ p.check('all wire-precision read marks use topmost fallback, not phantom unread',precision.opening_id==='opening-130'&&precision.documents[0]?.id==='opening-130'&&precision.opening_position===0&&precision.offset===0,precision)
  await rig.api('POST',`/api/orgs/${rig.org}/documents/viewed`,{marks:[{id:'opening-3',at:'2026-10-01T00:03:00.000Z'}]})
  // A new mark is canonical when the exact version was current at read time.
  rig.exec(`UPDATE ot.documents SET viewed_at=NULL WHERE uid='opening-3'`)
