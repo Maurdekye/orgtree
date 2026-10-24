@@ -12,7 +12,7 @@
 // advanced tab had to end with a note explaining where its save button was.
 //
 // These tests state the consolidation as properties rather than as pixels:
-// one overlay, one save, direct tab reach, nothing lost across a tab switch,
+// one overlay, direct tab reach, nothing lost across a tab switch,
 // and no orphaned launch flow.
 
 import { flush, inAct, mountView } from './harness'
@@ -187,7 +187,7 @@ test('①  ONE modal: a single overlay, no advanced disclosure, and every '
   } finally { await view.unmount(); delete g.fetch }
 })
 
-test('②  ONE save surface, on every tab — and none of the four "changes here '
+test('②  only the charter has a Save surface — and none of the four "changes here '
   + 'save with the panel\'s own save button" notes survive', async () => {
   const seen: { method: string; path: string; body: unknown }[] = []
   stubFetch(seen)
@@ -197,8 +197,9 @@ test('②  ONE save surface, on every tab — and none of the four "changes here
       'History']) {
       await open(view.el, label)
       const saves = [...view.el.querySelectorAll<HTMLButtonElement>('button')]
-        .filter((b) => b.textContent?.trim() === 'save')
-      assert.equal(saves.length, 1, `${label}: expected exactly one save`)
+        .filter((b) => b.textContent?.trim().toLowerCase() === 'save')
+      assert.equal(saves.length, 1, `${label}: only the mounted charter retains Save`)
+      assert.equal(saves[0]!.getAttribute('aria-label'), 'Save organization charter')
       // the nested modal's own dismissal is gone; cancel is the panel's
       assert.equal([...view.el.querySelectorAll<HTMLButtonElement>('button')]
         .filter((b) => b.textContent?.trim() === 'done').length, 0,
@@ -211,7 +212,7 @@ test('②  ONE save surface, on every tab — and none of the four "changes here
 })
 
 test('③  a tab switch is lossless: an edit made on one tab is still there '
-  + 'after visiting another, and rides the one save', async () => {
+  + 'after visiting another, and saves automatically', async () => {
   const seen: { method: string; path: string; body: unknown }[] = []
   stubFetch(seen)
   const { view, closed } = await mountOrg()
@@ -234,18 +235,12 @@ test('③  a tab switch is lossless: an edit made on one tab is still there '
     assert.equal(view.el.querySelector<HTMLInputElement>(
       'input[aria-label="Reset a session before a known-cold turn"]')!.checked, true)
 
-    // one save carries BOTH, from whichever tab you happen to be on
-    seen.length = 0
-    const save = [...view.el.querySelectorAll<HTMLButtonElement>('button')]
-      .find((b) => b.textContent?.trim() === 'save')!
-    await inAct(async () => { save.click(); await flush(12) })
-    const settings = seen.find((r) => r.method === 'POST'
-      && r.path === '/api/orgs/acme/settings')
-    assert.ok(settings, 'save did not POST the settings')
-    const body = settings!.body as Record<string, unknown>
-    assert.equal(body.max_top_grant, 77)
-    assert.equal((body.auto_cheap_compact as { enabled: boolean }).enabled, true)
-    assert.equal(closed.length, 1, 'a successful save closes the panel')
+    await inAct(async () => { await new Promise(r => setTimeout(r, 800)); await flush(12) })
+    const bodies = seen.filter(r => r.method === 'POST' && r.path === '/api/orgs/acme/settings').map(r => r.body as Record<string, unknown>)
+    assert.ok(bodies.some(body => body.max_top_grant === 77))
+    assert.ok(bodies.some(body => (body.auto_cheap_compact as { enabled?: boolean } | undefined)?.enabled === true))
+    assert.ok(bodies.every(body => !('org_dirs' in body)), 'unrelated edits never sweep folder grants')
+    assert.equal(closed.length, 0, 'automatic saves keep the panel open')
   } finally { await view.unmount(); delete g.fetch }
 })
 
@@ -256,23 +251,23 @@ test('⑤  credit cost bubbling is no per-org setting: it moved to App settings 
   try {
     await open(view.el, 'Policies')
     assert.doesNotMatch(view.el.textContent ?? '', /bubble their cost|Credit cost bubbling/)
-    const save = [...view.el.querySelectorAll<HTMLButtonElement>('button')]
-      .find((b) => b.textContent?.trim() === 'save')!
-    await inAct(async () => { save.click(); await flush(12) })
+    await inAct(async () => {
+      view.el.querySelector<HTMLInputElement>('input[aria-label="Reset a session before a known-cold turn"]')!.click()
+      await flush(12)
+    })
     const body = seen.find((r) => r.method === 'POST' && r.path === '/api/orgs/acme/settings')!.body as Record<string, unknown>
     assert.equal('cascade_hire' in body, false, 'the org save no longer sends cascade_hire')
     assert.equal('cascade_alloc' in body, false, 'the org save no longer sends cascade_alloc')
   } finally { await view.unmount(); delete g.fetch }
 })
 
-test('④  the tab set follows the org: an '
-  + 'org with no mail identity has no Connections tab', async () => {
+test('④  Connections still exposes inbox policy without a mail identity', async () => {
   const seen: { method: string; path: string; body: unknown }[] = []
   stubFetch(seen)
   let m = await mountOrg({ net: null })
   try {
     assert.deepEqual(tabs(m.view.el).map((t) => t.textContent?.trim()),
-      ['Basic', 'Hire defaults', 'Policies', 'Autonomy', 'Accounts', 'History'])
+      ['Basic', 'Hire defaults', 'Policies', 'Connections', 'Autonomy', 'Accounts', 'History'])
   } finally { await m.view.unmount() }
 
 })
@@ -292,10 +287,10 @@ test('legacy excluded fields cannot reintroduce disk or fallback controls', asyn
       assert.ok(active, label + ' panel is visible')
       assert.doesNotMatch(active.textContent!, /API[- ]key fallback|sandbox|virtual disk|permission ceiling|rollback backup/i)
     }
-    const save = [...view.el.querySelectorAll<HTMLButtonElement>('button')].find(b => b.textContent === 'save')!
-    await inAct(async () => { save.click(); await flush(10) })
+    await setField(view.el.querySelector<HTMLInputElement>('[aria-label="Top-level grant cap"]')!, '999')
+    await inAct(async () => { await new Promise(r => setTimeout(r, 800)); await flush(10) })
     const body = seen.find(r => r.path.endsWith('/settings') && r.method === 'POST')!.body as Record<string, unknown>
-    assert.equal(body.max_top_grant, 1000, 'ordinary settings still save')
+    assert.equal(body.max_top_grant, 999, 'ordinary settings save automatically')
     assert.equal(Object.keys(body).some(k => /sandbox|disk|^(?:api_fallback|fable_api_fallback)$/.test(k)), false)
   } finally { await view.unmount(); delete g.fetch }
 })
@@ -466,22 +461,16 @@ test('⑪  Hire defaults exposes live account options, updates selection, and pe
     await setField(sel, 'acct-claude-primary')
     assert.equal(sel.value, 'acct-claude-primary')
 
-    // save settings
-    seen.length = 0
-    const save = [...view.el.querySelectorAll<HTMLButtonElement>('button')]
-      .find((b) => b.textContent?.trim() === 'save')!
-    await inAct(async () => { save.click(); await flush(12) })
+    await inAct(async () => { await flush(12) })
 
-    const defaultsCall = seen.find((r) => r.method === 'POST' && r.path === '/api/orgs/acme/defaults')
+    const defaultsCall = seen.filter((r) => r.method === 'POST' && r.path === '/api/orgs/acme/defaults').at(-1)
     assert.ok(defaultsCall, 'defaults POST called')
     const defaultsBody = defaultsCall!.body as Record<string, unknown>
     assert.equal(defaultsBody.default_account, 'acct-claude-primary')
 
-    const settingsCall = seen.find((r) => r.method === 'POST' && r.path === '/api/orgs/acme/settings')
-    assert.ok(settingsCall, 'settings POST called')
-    const settingsBody = settingsCall!.body as Record<string, unknown>
-    assert.equal(settingsBody.default_account, 'acct-claude-primary')
-    assert.equal(closed.length, 1)
+    assert.equal(seen.some(r => r.method === 'POST' && r.path === '/api/orgs/acme/settings'), false,
+      'editing the account does not resend unrelated admin defaults')
+    assert.equal(closed.length, 0)
   } finally { await view.unmount(); delete g.fetch }
 })
 
@@ -520,12 +509,9 @@ test('⑫  Hire defaults handles multiple accounts across providers with limited
     })
     assert.equal(sel.value, 'openai/primary')
 
-    seen.length = 0
-    const save = [...view.el.querySelectorAll<HTMLButtonElement>('button')]
-      .find((b) => b.textContent?.trim() === 'save')!
-    await inAct(async () => { save.click(); await flush(12) })
+    await inAct(async () => { await flush(12) })
 
-    const defaultsCall = seen.find((r) => r.method === 'POST' && r.path === '/api/orgs/acme/defaults')
+    const defaultsCall = seen.filter((r) => r.method === 'POST' && r.path === '/api/orgs/acme/defaults').at(-1)
     assert.ok(defaultsCall, 'defaults POST called')
     const defaultsBody = defaultsCall!.body as Record<string, unknown>
     assert.equal(defaultsBody.default_account, '')
@@ -553,16 +539,13 @@ test('Settings selects and saves each canonical primary name with or without an 
         const providerSelect = view.el.querySelector<HTMLSelectElement>('select[aria-label="Provider for default account"]')!
         await setField(providerSelect, provider === 'claude' ? 'openai' : 'claude')
         await setField(providerSelect, provider)
-        seen.length = 0
-        const save = [...view.el.querySelectorAll<HTMLButtonElement>('button')]
-          .find((b) => b.textContent?.trim() === 'save')!
-        await inAct(async () => { save.click(); await flush(12) })
-        for (const endpoint of ['defaults', 'settings']) {
-          const request = seen.find((r) => r.method === 'POST' && r.path === `/api/orgs/acme/${endpoint}`)
+        await inAct(async () => { await flush(12) })
+        for (const endpoint of ['defaults']) {
+          const request = seen.filter((r) => r.method === 'POST' && r.path === `/api/orgs/acme/${endpoint}`).at(-1)
           assert.ok(request)
           assert.equal((request.body as Record<string, unknown>).default_account, name)
         }
-        assert.equal(closed.length, 1)
+        assert.equal(closed.length, 0)
       } finally { await view.unmount(); delete g.fetch }
     }
   }

@@ -9,7 +9,7 @@ Up: [orgtree-org-settings](../SKILL.md)
 
 **Org settings > Policies > Cache-protective cheap compaction** contains two
 org settings. Agents explain/suggest; the user changes them with the shared
-footer Save in [orgtree-org-basic](../org-basic/SKILL.md).
+automatic saving described in [orgtree-org-basic](../org-basic/SKILL.md).
 
 | Control | Key | Default | Range/effect |
 | --- | --- | --- | --- |

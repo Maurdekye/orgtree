@@ -29,9 +29,7 @@ test('Org DnD Connections exposes three modes, Hubchat warning, and saves the se
     await change('normal')
     assert.equal(!!view.el.querySelector('#org-inbox-dnd-warning'), false)
     await change('dnd')
-    const save = [...view.el.querySelectorAll<HTMLButtonElement>('button')].find(b => b.textContent?.trim().toLowerCase() === 'save')
-    assert.equal(!!save, true)
-    await inAct(async () => { save!.click(); await flush(10) })
+    await inAct(async () => { await flush(10) })
     assert.equal(writes.at(-1)?.org_inbox_mode, 'dnd')
     assert.equal('org_inbox_enabled' in (writes.at(-1) ?? {}), false)
   } finally { await view.unmount() }

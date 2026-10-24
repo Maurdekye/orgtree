@@ -38,8 +38,7 @@ test('fast defaults save explicit per-tier values and survive settings tab chang
     await inAct(async()=>{hire.click();await flush(2)})
     assert.equal(v.el.querySelector<HTMLInputElement>('[aria-label="New Sol hires start in fast mode"]')!.checked,false)
     assert.equal(v.el.querySelector<HTMLInputElement>('[aria-label="New Luna hires start in fast mode"]')!.checked,true)
-    const save=[...v.el.querySelectorAll<HTMLButtonElement>('button')].find(b=>b.textContent?.trim()==='save')!
-    await inAct(async()=>{save.click();await flush(5)})
+    await inAct(async()=>{await flush(5)})
     assert.deepEqual(posted.at(-1)?.default_fast_mode,{sol:false,luna:true})
   } finally {await v.unmount();globalThis.fetch=original}
 })

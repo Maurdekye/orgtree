@@ -12,6 +12,8 @@
 // App settings panel) has to import it, and importing from App.tsx would make
 // a cycle: App.tsx already imports AccountsPanel.
 import { useEffect, useState } from 'react'
+import { SettingsSaveStatus, settingNumber, useSettingsAutosave } from '../settingsautosave'
+import type { SettingsRequest } from '../types'
 import { getDefaults, saveDefaults } from '../api'
 import { SetGroup, SetRow, SetToggle } from '../canvas/settingskit'
 import { EffortBar } from '../canvas/effortbar'
@@ -28,12 +30,33 @@ import type { DefaultsPayload, ToastFn } from '../types'
 export function DefaultsForm({ toast, onDone }: {
   toast: ToastFn; onDone: () => void
 }) {
-  // Partial: the error fallback seeds {} and every read has its own default
   const [d, setD] = useState<Partial<DefaultsPayload> | null>(null)
-  useEffect(() => { getDefaults().then(setD).catch(() => setD({})) }, [])
-  if (d == null) return <div className="dim pad">Loading…</div>
-  const close = onDone
-  const set = (k: string, v: unknown) => setD({ ...d, [k]: v })
+  const [loadError, setLoadError] = useState<string | null>(null)
+  const [retry, setRetry] = useState(0)
+  useEffect(() => {
+    let live = true
+    getDefaults().then(value => { if (live) { setD(value); setLoadError(null) } })
+      .catch((e: Error) => { if (live) setLoadError(e.message) })
+    return () => { live = false }
+  }, [retry])
+  const server = { max_top_grant: d?.max_top_grant ?? 1000,
+    default_top_grant: d?.default_top_grant ?? 50, compact_at: Math.round((d?.compact_at ?? .8) * 100),
+    default_effort: d?.default_effort ?? '', auto_resume: !!d?.auto_resume }
+  const autosave = useSettingsAutosave('default-org-settings', server, async fields => {
+    const body = { ...fields } as SettingsRequest
+    if ('max_top_grant' in fields) body.max_top_grant = settingNumber(fields.max_top_grant, 1)
+    if ('default_top_grant' in fields) body.default_top_grant = settingNumber(fields.default_top_grant, 0)
+    if ('compact_at' in fields) body.compact_at = settingNumber(fields.compact_at, 50, 95)
+    const saved = await saveDefaults(body)
+    setD(saved)
+    return {}
+  }, toast)
+  if (d == null) return loadError ? <div role="alert">Unable to load default org settings: {loadError}
+    <button onClick={() => setRetry(n => n + 1)}>Retry</button></div> : <div className="dim pad">Loading…</div>
+  const close = () => { void autosave.queue.flush().then(ok => { if (ok) onDone() }) }
+  const value = autosave.value
+  const set = (key: keyof typeof server, next: unknown) => autosave.set<unknown>(key, value<unknown>(key, server[key]),
+    ['max_top_grant', 'default_top_grant', 'compact_at'].includes(key) ? 750 : 0)(next)
   return (
     <>
         {/* WHICH ORGS THIS APPLIES TO is the panel's most load-bearing
@@ -45,29 +68,29 @@ export function DefaultsForm({ toast, onDone }: {
         <SetGroup title="Credits">
           <SetRow label="Top-level grant cap">
             <input type="number" min="1" step="1" aria-label="Top-level grant cap"
-              value={d.max_top_grant ?? 1000}
-              onChange={(e) => set('max_top_grant', +e.target.value)} />
+              value={value<number | string>('max_top_grant', server.max_top_grant)}
+              onChange={(e) => set('max_top_grant', e.target.value)} />
           </SetRow>
           <SetRow label="Default top-level grant" hint="Pre-filled on new hires">
             <input type="number" min="0" step="1" aria-label="Default top-level grant"
-              value={d.default_top_grant ?? 50}
-              onChange={(e) => set('default_top_grant', +e.target.value)} />
+              value={value<number | string>('default_top_grant', server.default_top_grant)}
+              onChange={(e) => set('default_top_grant', e.target.value)} />
           </SetRow>
         </SetGroup>
         <SetGroup title="Agents">
           <SetRow label="Compaction threshold %" hint="50–95">
             <input type="number" min="50" max="95" step="1" aria-label="Compaction threshold %"
-              value={Math.round((d.compact_at ?? 0.8) * 100)}
-              onChange={(e) => set('compact_at', (+e.target.value || 80) / 100)} />
+              value={value<number | string>('compact_at', server.compact_at)}
+              onChange={(e) => set('compact_at', e.target.value)} />
           </SetRow>
           <SetRow label="Default thinking effort"
             hint="Agents without their own effort use the org default. If neither sets a level, high is the fallback before harness/model mapping.">
-            <EffortBar value={d.default_effort ?? ''} level="" inheritLabel="Default (high fallback)"
+            <EffortBar value={value('default_effort', server.default_effort)} level="" inheritLabel="Default (high fallback)"
               onSet={(v) => set('default_effort', v)} />
           </SetRow>
         </SetGroup>
         <SetGroup title="Usage limits">
-          <SetToggle label="Auto-resume usage-limit-frozen agents after the reset time" checked={!!d.auto_resume}
+          <SetToggle label="Auto-resume usage-limit-frozen agents after the reset time" checked={value('auto_resume', server.auto_resume)}
             hint="Resume agents automatically after their usage limit resets."
             onChange={next => set('auto_resume', next)} />
         </SetGroup>
@@ -75,21 +98,9 @@ export function DefaultsForm({ toast, onDone }: {
           These defaults apply only when creating an organization; existing
           organizations keep their own settings.
         </div>
-        <div className="row">
-          <button className="primary" onClick={() =>
-            saveDefaults({
-              max_top_grant: d.max_top_grant,
-              default_top_grant: d.default_top_grant,
-              compact_at: Math.round((d.compact_at ?? 0.8) * 100),
-              default_effort: d.default_effort ?? '',
-              auto_resume: !!d.auto_resume,
-            }).then(() => {
-              toast(['default org settings saved'])
-              close()
-            })
-              .catch((e: Error) => toast([`error: ${e.message}`]))}>save</button>
-          <button onClick={close}>cancel</button>
-        </div>
+        <SettingsSaveStatus status={autosave.status} retry={() => { void autosave.queue.flush(true) }} />
+        <div className="row"><button aria-label="Close default org settings" onClick={close}>Close</button></div>
+
     </>
   )
 }

@@ -7,7 +7,7 @@ Up: [orgtree-org-settings](../SKILL.md)
 
 # External org inbox policy
 
-**Org settings > Connections > External org inbox** contains the outside-communication dropdown and multiple-holder switch. They use the panel's shared **Save** button. Connections is available without a hub identity.
+**Org settings > Connections > External org inbox** contains the outside-communication dropdown and multiple-holder switch. They use the panel's automatic saving. Connections is available without a hub identity.
 
 | Mode | Storage | Effect |
 | --- | --- | --- |

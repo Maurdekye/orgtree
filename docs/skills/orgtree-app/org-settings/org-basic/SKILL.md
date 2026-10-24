@@ -1,6 +1,6 @@
 ---
 name: orgtree-org-basic
-description: Explain the org logo, credits, context threshold, effort and shared Save button.
+description: Explain the org logo, credits, context threshold, effort and automatic saving.
 ---
 
 Up: [orgtree-org-settings](../SKILL.md)
@@ -22,7 +22,7 @@ that agent's Open submenu.
 
 | Control | Key | Default | Effect and limits |
 | --- | --- | --- | --- |
-| Top-level grant cap | `org:max_top_grant` | 1,000 | Bounds increases to a top-level agent's grant. Lowering it preserves existing grants above the cap and returns a warning naming them. UI minimum 1, step 1; storage also supports 0 as uncapped, although this form omits a zero cap when saving. Negative values are ignored. |
+| Top-level grant cap | `org:max_top_grant` | 1,000 | Bounds increases to a top-level agent's grant. Lowering it preserves existing grants above the cap and returns a warning naming them. UI minimum 1, step 1; storage also supports 0 as uncapped, this form requires at least 1. Negative values are ignored. |
 | Default top-level grant | `org:default_top_grant` | 20 | Prefills a new top-level hire's grant. UI minimum 0, step 1. Changing it does not reallocate existing grants. Negative values are ignored. The UI fallback is 50 when the field is absent; that is not the engine default. |
 | Compaction threshold | `org:compact_at` | 80% | UI 50–95%, step 1; the endpoint refuses percentages outside that range. Stored as a percentage and exposed to the renderer as a fraction. Claude Code receives the automatic-compaction percentage at process start; Codex receives the corresponding context token limit. A running process retains its launch threshold until replaced. Antigravity has no corresponding threshold setting. |
 | Default thinking effort | `org:default_effort` | empty saved value | Agents without their own effort use the org default on subsequent turns. The menu offers Default (high fallback), low, medium, high, xhigh and max. The engine accepts the catalog's additional none/minimal names as well; unknown names are refused. |
@@ -72,24 +72,25 @@ selection. **Remove logo** clears the stored image immediately. The engine
 normalizes the crop to a bounded PNG; a failed read offers Retry, and a failed
 save displays an error. Suggest this for recognizable org identity in Hubchat.
 
-## One footer Save, several independent actions
+## Automatic saving and the charter exception
 
-Basic fields, Hire defaults, Policies and Connections' external-inbox mode/multiple-holder fields are buffered together. Tab changes
-preserve these edits; close/reopen discards the local buffer. Unedited setting
-fields follow new server values. **Save** sends settings, a loaded editable
-org.md, and (only after editing Hire defaults) the hire-default requests.
+Basic fields, Hire defaults, Policies and Connections' external-inbox controls
+save in place. Discrete choices commit immediately; text/numeric input waits
+about 750 ms after the last edit. Only the edited field is sent, requests run
+in order, and the menu stays open. Closing flushes pending ordinary edits;
+it does not undo completed writes. Failed fields show an inline error and
+Retry; returned warnings remain visible. Untouched fields follow server values.
 
-These requests are separate writes, run together, rather than one transaction.
-If one fails, another may already have succeeded; read the displayed error and
-reload/check current values before repeating. A successful save clears the
-edit buffer and closes the panel; **cancel** closes it without submitting the
-buffer. Org.md has its own revision check and restart effects: read
-[orgtree-org-charter-md](../org-charter-md/SKILL.md), including when Save writes
-an already-loaded charter the user did not edit.
+Org charter has its own explicit **Save**. Editing it, leaving the field or
+closing the panel never publishes it. Closing discards its unsaved text as
+before. A charter Save includes its read revision, and does nothing if unchanged.
+Read [orgtree-org-charter-md](../org-charter-md/SKILL.md) for restart and conflict effects.
 
-Logo controls, Save as template, Connections' hub memberships, Autonomy and Accounts use their
-own immediate actions. History only reads records. The footer does not defer
-those actions or undo them when the panel closes.
+Folder removal/RW-to-RO and permission-mode changes commit on the completed
+click; folder changes can revoke existing grants and mode changes can
+reconfigure agents. Ordinary unrelated edits never resend those fields.
+Logo crop, Save as template, Connections memberships, Autonomy and Accounts
+keep their own action controls. History remains read-only.
 
 ## See also
 

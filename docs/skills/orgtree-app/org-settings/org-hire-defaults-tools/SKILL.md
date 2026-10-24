@@ -9,8 +9,7 @@ Up: [orgtree-org-settings](../SKILL.md)
 
 The tool controls in **Org settings > Hire defaults > Scope** edit
 `org:default_tools` for future hires. They do not rewrite existing agents'
-saved tool grants. Agents explain/suggest; the user edits. They use the shared
-footer Save in [orgtree-org-basic](../org-basic/SKILL.md). Inherited effective
+saved tool grants. Agents explain/suggest; the user edits. They save automatically in place; see [orgtree-org-basic](../org-basic/SKILL.md). Inherited effective
 permissions still apply; see `orgtree-scope-and-permissions`
 (orgtree-working › team).
 

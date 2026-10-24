@@ -102,7 +102,7 @@ export function ProjectDraftNode({ pos, onConfirm, onCancel, pending = false }: 
       </div>
     </div>
     {settingsOpen && <DraftProjectSettings value={settings ?? DEFAULT_PROJECT_POLICY}
-      close={closeSettings} onSave={value => { setSettings(value); closeSettings() }} />}
+      close={closeSettings} onSave={setSettings} />}
   </>)
 }
 
@@ -111,14 +111,12 @@ function DraftProjectSettings({ value, onSave, close }: {
   onSave: (value: ProjectPolicySettings) => void
   close: () => void
 }) {
-  const [settings, setSettings] = useState(value)
   return <ModalOverPins><PinFrame kind="draft-project-settings" title="Draft project settings"
     panel="settings cfg" close={close} pinnable={false}>
     <section aria-label="Draft project settings">
       <h3><SettingsIcon fontSize="inherit" /> Project settings <span className="dim">· applied when created</span></h3>
-      <ProjectPolicyFields value={settings} draft onChange={patch => setSettings(current => ({ ...current, ...patch }))} />
-      <div className="row"><button className="primary" onClick={() => onSave(settings)}>save</button>
-        <button onClick={close}>cancel</button></div>
+      <ProjectPolicyFields value={value} draft onChange={patch => onSave({ ...value, ...patch })} />
+      <div className="row"><button aria-label="Close project draft settings" onClick={close}>Close</button></div>
     </section>
   </PinFrame></ModalOverPins>
 }

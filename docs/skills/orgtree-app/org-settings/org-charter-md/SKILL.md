@@ -28,14 +28,16 @@ user to edit the file on disk. The editor save endpoint refuses content over
 
 ## Save and cache effects
 
-This editor uses the panel's footer Save; see
-[orgtree-org-basic](../org-basic/SKILL.md) for the shared save flow. Whenever
-the charter loaded fully into an editable buffer, that Save submits it even
-if the user only edited another field. The endpoint writes the file and marks
-live agents for process reconfiguration before their next turn. A running turn
-is not an instantaneous restart barrier. The endpoint does this even for an
-unchanged submitted charter; do not equate process replacement with a proven
-provider cache miss. Changed delivered instructions change the cached prefix.
+The charter keeps its own explicit **Save**, unlike the automatic saving of
+other organization settings. Only changed, fully loaded text is submitted;
+ordinary settings edits never submit the charter. Blur and close do not save
+it, and closing discards unsaved charter text. Saves are serialized and errors
+and returned warnings are visible next to the editor.
+
+The endpoint writes the file and marks live agents for process reconfiguration
+before their next turn. A running turn is not an instantaneous restart barrier.
+Do not equate process replacement with a proven provider cache miss. Changed
+delivered instructions change the cached prefix.
 
 Save includes the revision read when the editor opened. If another writer,
 including Connect your phone, changed the file meanwhile, it refuses with

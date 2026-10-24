@@ -11,7 +11,7 @@ This tab controls the selected organization's network identity and the hubs it c
 
 ## Address and secret
 
-The **External org inbox** group selects Normal operations, Do not disturb, or Closed off inbox and the multiple-holder policy. These fields use the shared **Save** button; hub membership actions still apply immediately. DnD warns that Hubchat and other outside mail is kept but is not read or delivered automatically, including the user's own messages. An agent must check the org inbox. See [inbox policy](../../org-settings/org-policies-inbox/SKILL.md) for extraction, resuming Normal and the user-only mode tool.
+The **External org inbox** group selects Normal operations, Do not disturb, or Closed off inbox and the multiple-holder policy. These fields save immediately, as do hub membership actions. DnD warns that Hubchat and other outside mail is kept but is not read or delivered automatically, including the user's own messages. An agent must check the org inbox. See [inbox policy](../../org-settings/org-policies-inbox/SKILL.md) for extraction, resuming Normal and the user-only mode tool.
 
 The organization has a permanent public network address. **Copy address** copies it for peers. It is separate from a person's Hubchat identity and from a bare local org slug. The address is minted with its ownership secret; changing hub membership does not create a new identity.
 
@@ -23,7 +23,7 @@ The organization has a permanent public network address. **Copy address** copies
 
 Remote rows have an enabled toggle. Rows show Connected with hub version, Disabled, Connecting, or Retrying with the error; queued/stuck counts and a peer roster appear when available. Missing version is shown as unknown. Roster entries distinguish organizations, chats and persons and show online state. A connection being reachable does not imply that the target org's external-inbox policy permits mail.
 
-Adding, enabling, disabling or removing a connection applies immediately; these are not drafts waiting for the Basic tab's Save. Removing a working connection or one with queued outgoing mail asks for confirmation. Queued mail can move to another enabled connection or wait with no route. Removal does not erase the org's address/identity.
+Adding, enabling, disabling or removing a connection applies immediately; they do not wait for another submission. Removing a working connection or one with queued outgoing mail asks for confirmation. Queued mail can move to another enabled connection or wait with no route. Removal does not erase the org's address/identity.
 
 ## Add a mail hub
 

@@ -1565,3 +1565,7 @@ Original section: Shared skills and installed plugin imports (2026-10-15). Sourc
   [decided: user 2026-10-19; verified: `canvas/modalpin.tsx`,
   `canvas/tempdesk.tsx`, `tests/modalpin.test.tsx`, `tests/tempdesk.test.tsx`]
 <!-- /preserved:e-9446b240e55c6b00 -->
+
+## Settings auto-save (2026-10-24)
+
+Organization settings and both Defaults placements save dirty fields in order via `settingsautosave.tsx`; discrete changes commit immediately, numeric/text input debounces 750 ms, and Close flushes ordinary edits. Failed fields remain retryable with inline errors and returned warnings. Never resend untouched folder grants or charter text. Org charter retains explicit Save with read/truncation/revision guards; blur/close never publish it. Project draft policy is controlled by the owning draft and needs no Save. Live agent/project and service/credential/logo editors retain their existing submission controls. [decided: user 2026-10-24; verified: `App.tsx`, `shell/defaults.tsx`, `canvas/newproject.tsx`]

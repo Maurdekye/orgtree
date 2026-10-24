@@ -10,7 +10,7 @@ Up: [orgtree-org-settings](../SKILL.md)
 **Org settings > Hire defaults > Org folders** edits `org:org_dirs`: the
 folders this org's agents can use. The subtitle says, “Folders this org's
 agents can use. New hires get all of them by default.” Agents explain these
-controls; the user changes holdings. Folder edits use the shared footer Save
+controls; the user changes holdings. Folder edits save immediately on a completed click, as
 described in [orgtree-org-basic](../org-basic/SKILL.md).
 
 The engine's extra-folder default is an empty list, before app defaults or
@@ -39,7 +39,7 @@ The same tab's **Agent actions > dissolve all agents** is `action:retire-all`.
 It opens **dissolve ALL agents?** and acts only after **dissolve all** is chosen;
 cancelling closes the confirmation. It retires the organization's agents,
 keeps context for rehire, reports the number and freed credits, and closes the
-settings panel on success. It acts independently of the footer Save.
+settings panel on success. It acts independently of ordinary setting edits.
 The engine dissolves one top-level subtree per operation; an error partway
 through can leave earlier subtrees already retired. Inspect the chart before
 retrying rather than assuming the entire org action rolled back.

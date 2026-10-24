@@ -771,3 +771,5 @@ Each step lands as commits on `rust-engine`; I tell you when a step is usable.
 3. purely visual UI work (tidying settings menus and the like; never the canvas), on a separate
    branch `rust-engine-ui` stacked on `rust-engine`, so it can be dropped without touching
    anything else.
+
+Selected settings auto-save (USER 2026-10-24): project draft gear stages each change without Save; Organization settings and both Default org settings placements save dirty fields serially, discrete edits immediately and text/numeric edits after750ms. Org charter alone keeps explicit Save with revision checks, never blur/close publication. Live agent/project, Hosting, LM server, OpenRouter key and org logo submission controls stay explicit.

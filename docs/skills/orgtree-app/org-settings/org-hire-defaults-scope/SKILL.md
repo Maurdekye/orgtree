@@ -9,7 +9,7 @@ Up: [orgtree-org-settings](../SKILL.md)
 
 **Org settings > Hire defaults > Scope** supplies starting choices for future
 hires. Existing agents retain their own settings. The user changes these
-controls; agents explain and suggest. Edits join the footer Save described in
+controls; agents explain and suggest. Edits save automatically as described in
 [orgtree-org-basic](../org-basic/SKILL.md).
 
 | Control | Org key | Engine default | Choices |

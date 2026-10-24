@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import { inAct, mountView } from './harness'
 import { ProjectDraftNode, projectDraftSteps } from '../src/canvas/newproject'
 
-test('project draft gear stages policy, cancels edits, and submits it with creation', async t => {
+test('project draft gear stages each policy change immediately and submits it with creation', async t => {
   const calls: unknown[][] = []
   let cancelled = 0
   const view = await mountView(<ProjectDraftNode pos={{ x: 0, y: 0 }}
@@ -28,15 +28,17 @@ test('project draft gear stages policy, cancels edits, and submits it with creat
   // Use accessible switch names, as in the live project settings.
   await inAct(() => toggle('Subordinates may message each other').click())
   const button = (text: string) => [...dialog().querySelectorAll<HTMLButtonElement>('button')].find(b => b.textContent === text)!
-  await inAct(() => button('save').click())
+  assert.equal(button('save'), undefined, 'draft settings have no Save step')
+  assert.ok(dialog(), 'editing keeps the menu open')
+  await inAct(() => button('Close').click())
   assert.equal(dialog() == null, true)
   assert.equal(calls.length, 0, 'saving draft settings never creates a project')
   await inAct(() => gear!.click())
   assert.equal(document.querySelector<HTMLInputElement>('[aria-label="Concurrency slots"]')!.value, '4')
   await inAct(() => input('[aria-label="Concurrency slots"]', '8'))
-  await inAct(() => button('cancel').click())
+  await inAct(() => button('Close').click())
   await inAct(() => gear!.click())
-  assert.equal(document.querySelector<HTMLInputElement>('[aria-label="Concurrency slots"]')!.value, '4')
+  assert.equal(document.querySelector<HTMLInputElement>('[aria-label="Concurrency slots"]')!.value, '8')
   await inAct(() => window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })))
   assert.equal(cancelled, 0, 'Escape closes settings without discarding the draft')
   await inAct(() => view.el.querySelector<HTMLButtonElement>('.df-foot .primary')!.click())
@@ -44,7 +46,7 @@ test('project draft gear stages policy, cancels edits, and submits it with creat
   assert.equal(calls[0]![0], 'website')
   assert.equal(calls[0]![2] != null, true)
   const settings = calls[0]![2] as Record<string, unknown>
-  assert.equal(settings.slots, 4)
+  assert.equal(settings.slots, 8)
   assert.equal(settings.mail_queue, 'ack')
   assert.equal(settings.peer_mail, false)
   assert.deepEqual(projectDraftSteps({ parent: 'user', tier: 'project', project: true }, 'website', '', settings as never),

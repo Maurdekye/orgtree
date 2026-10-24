@@ -9,7 +9,7 @@ Up: [orgtree-org-settings](../SKILL.md)
 
 **Org settings > Accounts** chooses which account lanes this organization may
 use. Agents explain and suggest changes; the user toggles the rows. Each change
-saves **immediately**, independently of the footer Save.
+saves **immediately**, independently of ordinary setting edits.
 
 `org:disabled_accounts` stores the unchecked account IDs, not a list of checked
 ones. The default is no disabled IDs: all available accounts are allowed, and

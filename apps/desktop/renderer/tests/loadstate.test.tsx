@@ -109,7 +109,7 @@ test('org.md oversized read stays disabled and save does not write a partial cop
       await settle()
       assert.match(view.el.textContent ?? '', /partial copy cannot be saved/)
       const save = [...view.el.querySelectorAll<HTMLButtonElement>('button')]
-        .find((b) => b.textContent?.trim() === 'save')!
+        .find((b) => b.textContent?.trim().toLowerCase() === 'save')!
       await inAct(async () => { save.click(); await flush(10) })
       assert.equal(seen.some((x) => x.path.endsWith('/orgmd') && x.method === 'PUT'), false)
       assert.equal(view.el.querySelector<HTMLTextAreaElement>('[aria-label="org.md"]')!.disabled,
@@ -144,7 +144,7 @@ test('a normal full org.md buffer remains editable and saves the whole buffer',
       assert.equal(editor.disabled, false)
       await setText(editor, 'edited whole')
       const save = [...view.el.querySelectorAll<HTMLButtonElement>('button')]
-        .find((b) => b.textContent?.trim() === 'save')!
+        .find((b) => b.textContent?.trim().toLowerCase() === 'save')!
       await inAct(async () => { save.click(); await flush(10) })
       const put = seen.find((x) => x.method === 'PUT' && x.path.endsWith('/orgmd'))
       assert.ok(put, 'full org.md save did not send its PUT')

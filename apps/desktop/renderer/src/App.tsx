@@ -1,3 +1,5 @@
+import { SettingsSaveStatus, settingNumber, useSettingsAutosave } from './settingsautosave'
+import type { HireDefaultsRequest, SettingsRequest } from './types'
 import { useTaggedUserMail,useMailTagChoices } from './usemailtags'
 import { useHireAutoFocus } from './hirefocus'
 import { useInboxTagSelection,includeSelectedMail } from './inboxselection'
@@ -3160,7 +3162,7 @@ type OrgSettingsTab =
   | 'autonomy' | 'accounts' | 'history'
 
 // exported for tests/orgsettings.test.tsx — the consolidation is a claim
-// about THIS component's shape (one modal, one save, tabs not a nested
+// about THIS component's shape (one modal, tabs not a nested
 // modal), so the test has to be able to mount it directly
 export function SettingsPanel({ tree, toast, close, initialTab, target }: {
   tree: TreePayload
@@ -3174,21 +3176,50 @@ export function SettingsPanel({ tree, toast, close, initialTab, target }: {
   target?: SettingsTarget | null
 }) {
   const sharedScratch = scratchFolderAction(tree.slug, '', toast, 'shared')
-  // P3 — every field below used to be its own useState SEEDED FROM `tree`.
-  // useState(x) snapshots x once at mount and never looks again, so this panel
-  // held seventeen private copies of server values that could each go stale
-  // silently (the mechanism behind the user's "the charter looks empty"). Now
-  // there is ONE cell: the edits you have actually made. Everything else is
-  // derived from the prop on every render, so a value that changes anywhere
-  // else shows up here, and saving clears the buffer back to server truth.
-  const [edit, setEdit] = useState<Record<string, unknown>>({})
-  // takes the value THIS render derived, so an updater form still works
-  const set = <T,>(k: string, cur: T) => (v: T | ((prev: T) => T)) =>
-    setEdit((e) => ({ ...e,
-      [k]: typeof v === 'function' ? (v as (p: T) => T)(cur) : v }))
-  const val = <T,>(k: string, server: T): T =>
-    (k in edit ? edit[k] as T : server)
-  const clearEdits = () => setEdit({})
+  const srvTools = useMemo(() => orgDefaultTools(tree), [tree])
+  const srvDirs = useMemo(() => orgDirHoldings(tree), [tree])
+  const server = {
+    maxTop: tree.max_top_grant ?? 1000, defTop: tree.default_top_grant ?? 50,
+    compactAt: Math.round((tree.compact_at ?? .8) * 100), defEffort: tree.default_effort ?? '',
+    orgInboxMode: tree.org_inbox?.mode ?? (tree.org_inbox?.enabled === false ? 'closed' : 'normal'),
+    multiHolder: tree.org_inbox?.multi_holder_enabled === true,
+    accOn: tree.auto_cheap_compact?.enabled ?? true,
+    accOcc: Math.round((tree.auto_cheap_compact?.occ ?? .25) * 100),
+    'hire.tools': srvTools, 'hire.dirs': srvDirs,
+    'hire.vis': tree.default_visibility ?? 'full', 'hire.pm': tree.permission_mode ?? 'acceptEdits',
+    'hire.account': tree.default_account ?? '', 'hire.fast': tree.default_fast_mode ?? {},
+  }
+  const autosave = useSettingsAutosave(tree.slug, server, async fields => {
+    const admin: SettingsRequest = {}, defaults: HireDefaultsRequest = {}
+    for (const [key, value] of Object.entries(fields)) {
+      switch (key) {
+        case 'maxTop': admin.max_top_grant = settingNumber(value, 1); break
+        case 'defTop': admin.default_top_grant = settingNumber(value, 0); break
+        case 'compactAt': admin.compact_at = settingNumber(value, 50, 95); break
+        case 'defEffort': admin.default_effort = value as string; break
+        case 'orgInboxMode': admin.org_inbox_mode = value as OrgInboxMode; break
+        case 'multiHolder': admin.org_inbox_multi_holder = value as boolean; break
+        case 'accOn': admin.auto_cheap_compact = { ...admin.auto_cheap_compact, enabled: value as boolean }; break
+        case 'accOcc': admin.auto_cheap_compact = { ...admin.auto_cheap_compact, occ: settingNumber(value, 5, 95) / 100 }; break
+        case 'hire.dirs': admin.org_dirs = value as DirGrant[]; break
+        case 'hire.pm': admin.permission_mode = value as string; break
+        case 'hire.fast': admin.default_fast_mode = value as Record<string, boolean>; break
+        case 'hire.tools': defaults.default_tools = value as ToolGrant; break
+        case 'hire.vis': defaults.default_visibility = value as string; break
+        case 'hire.account': defaults.default_account = value as string; break
+      }
+    }
+    const warnings: string[] = []
+    // Keep the existing admin/open endpoint split, and never resend untouched
+    // org_dirs: that field sweeps existing grants even when its value is equal.
+    if (Object.keys(admin).length) warnings.push(...((await saveSettings(tree.slug, admin)).warnings ?? []))
+    if (Object.keys(defaults).length) warnings.push(...((await saveHireDefaults(tree.slug, defaults)).warnings ?? []))
+    return { warnings }
+  }, toast)
+  const val = autosave.value
+  const set = <T,>(key: string, previous: T) => autosave.set(key, previous,
+    ['maxTop', 'defTop', 'compactAt', 'accOcc'].includes(key) ? 750 : 0)
+  const closeSettings = () => { void autosave.queue.flush().then(ok => { if (ok) close() }) }
   const [orgMd, setOrgMd] = useState<string | null>(null)
   const [orgMdLoad, setOrgMdLoad] = useState<'pending' | 'error' | 'ready'>('pending')
   const [orgMdError, setOrgMdError] = useState<string | null>(null)
@@ -3199,7 +3230,7 @@ export function SettingsPanel({ tree, toast, close, initialTab, target }: {
   // D-222 (user ruling 2026-09-01, "consolidate settings into ONE modal"):
   // the advanced disclosure and the nested AdvancedOrgModal it opened are
   // gone from this panel. Its categories are now tabs of THIS modal, with
-  // "Basic" first — one surface, one Escape, one save button, and no
+  // "Basic" first — one surface, one Escape, and no
   // modal-over-a-modal. (AdvancedOrgModal itself stays for the create form,
   // which opens it from an inline form rather than from another modal.)
   const [tab, setTab, visited] = useVisitedTabs<OrgSettingsTab>(initialTab ?? (target?.tab as OrgSettingsTab | undefined) ?? 'basic')
@@ -3258,13 +3289,7 @@ export function SettingsPanel({ tree, toast, close, initialTab, target }: {
   const accOcc = val<number | string>('accOcc',
     Math.round(((acc?.occ ?? 0.25) as number) * 100))
   const setAccOcc = set('accOcc', accOcc)
-  // ── the Hire defaults tab (user 2026-09-11, was the eye's ⚙ modal).
-  // ⚠ EVERY KEY HERE IS PREFIXED `hire.`, and that prefix is load-bearing:
-  // `hireEdited` below asks whether ANY of them is in the buffer, so a field
-  // added to that tab later is covered by construction rather than by
-  // somebody remembering to extend a list. Do not give one of these an
-  // unprefixed key, and do not use this prefix for anything else.
-  const srvTools = useMemo(() => orgDefaultTools(tree), [tree])
+  // Hire defaults use the same dirty-field queue as the other tabs.
   const hireTools = val<ToolGrant>('hire.tools', srvTools)
   const setHireTools = set<ToolGrant>('hire.tools', hireTools)
   const hireVis = val('hire.vis', tree.default_visibility ?? 'full')
@@ -3275,15 +3300,8 @@ export function SettingsPanel({ tree, toast, close, initialTab, target }: {
   const setHireAccount = set<string>('hire.account', hireAccount)
   const hireFast = val<Record<string,boolean>>('hire.fast', tree.default_fast_mode ?? {})
   const setHireFast = set<Record<string,boolean>>('hire.fast', hireFast)
-  const srvDirs = useMemo(() => orgDirHoldings(tree), [tree])
   const hireDirs = val<DirGrant[]>('hire.dirs', srvDirs)
   const setHireDirs = set<DirGrant[]>('hire.dirs', hireDirs)
-  // Did the reader actually touch that tab? The save below skips its two
-  // writes when not. This is not cosmetic: `org_dirs` makes the server walk
-  // every node looking for grants to revoke or downgrade
-  // (api.py `_org_settings_locked`), and re-sending an unchanged holding
-  // list on every ordinary settings save would run that sweep for nothing.
-  const hireEdited = Object.keys(edit).some((k) => k.startsWith('hire.'))
   useEffect(() => {
     // null = not loaded: the textarea is disabled and save skips the write.
     // ☠ The catch used to set '' — an empty EDITABLE buffer — so a transient
@@ -3314,10 +3332,36 @@ export function SettingsPanel({ tree, toast, close, initialTab, target }: {
     })
     return () => { current = false }
   }, [tree.slug, orgMdRetry])
+  const [charterBusy, setCharterBusy] = useState(false)
+  const charterFlight = useRef(false)
+  const [charterError, setCharterError] = useState<string | null>(null)
+  const [charterWarnings, setCharterWarnings] = useState<string[]>([])
+  const charterScope = useRef(tree.slug)
+  charterScope.current = tree.slug
+  useEffect(() => { setCharterBusy(false); setCharterError(null); setCharterWarnings([]) }, [tree.slug])
+  const saveCharter = async () => {
+    if (charterFlight.current || orgMd == null || orgMd === orgMdMeta?.content) return
+    const slug = tree.slug, content = orgMd
+    charterFlight.current = true; setCharterBusy(true); setCharterError(null)
+    try {
+      const result = await putOrgMd(slug, content, orgMdMeta?.rev)
+      if (charterScope.current !== slug) return
+      setOrgMdMeta(m => m ? { ...m, ...result, content } : m)
+      setCharterWarnings(result.warnings ?? [])
+      toast(result.warnings?.length ? result.warnings : ['settings saved'])
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unable to save org.md'
+      if (charterScope.current === slug) setCharterError(message)
+      toast([`error: ${message}`])
+    } finally {
+      charterFlight.current = false
+      if (charterScope.current === slug) setCharterBusy(false)
+    }
+  }
   const orgTitle = <><OrgHeaderLogo slug={tree.slug} revision={tree.net?.picture_revision} />{tree.name} - Org settings</>
   return (
     <PinFrame kind="org-settings" title={`${tree.name} - Org settings`}
-      titleBar={orgTitle} panel="settings" close={close}>
+      titleBar={orgTitle} panel="settings" close={closeSettings}>
         <h3><SettingsIcon fontSize="inherit" /> {orgTitle}</h3>
         <SettingsTabs tabs={orgTabs} tab={tab} setTab={setTab} stripRef={stripRef}
           idBase="org-settings" label="Organization settings sections" />
@@ -3424,6 +3468,12 @@ export function SettingsPanel({ tree, toast, close, initialTab, target }: {
                 {' '}the delivery is what is cut.
               </div>
             )}
+            <button type="button" className="primary" aria-label="Save organization charter"
+              disabled={charterBusy || orgMd == null || orgMd === orgMdMeta?.content}
+              onClick={() => { void saveCharter() }}>Save</button>
+            {charterBusy && <div role="status">Saving org.md…</div>}
+            {charterError && <div role="alert">Unable to save org.md: {charterError}</div>}
+            {charterWarnings.map((warning, i) => <div role="status" key={i}>{warning}</div>)}
           </SetBlock>
         </SetGroup>
         <SaveTemplateSetting slug={tree.slug} orgName={tree.name} tree={tree} />
@@ -3510,65 +3560,8 @@ export function SettingsPanel({ tree, toast, close, initialTab, target }: {
             {visited('history') && <HistoryView slug={tree.slug} />}
           </SettingsTabPanel>
 
-        {/* ONE save button for the whole modal, on every tab — the panel's
-            single save surface, unchanged. It is now visible from whichever
-            tab you are on, which is what retires the four "changes here save
-            with the panel's own save button" notes the nested modal needed. */}
-        <div className="row">
-          <button className="primary" onClick={() => {
-            const jobs: Promise<{ warnings?: string[] }>[] = [
-              saveSettings(tree.slug,
-                { max_top_grant: +maxTop || undefined,
-                  default_top_grant: Number.isFinite(+defTop) ? +defTop : undefined,
-                  compact_at: Number.isFinite(+compactAt) ? +compactAt : undefined,
-                  default_effort: defEffort,
-                  org_inbox_mode: orgInboxMode,
-                  org_inbox_multi_holder: multiHolder,
-                  auto_cheap_compact: { enabled: accOn,
-                    occ: (+accOcc || 25) / 100 },
-                  // Hire defaults' ADMIN half, unchanged from the ⚙ panel:
-                  // the org's folder holdings and the born-with permission
-                  // mode ride /settings. Only
-                  // when that tab was actually edited — an unchanged
-                  // `org_dirs` still makes the server sweep every node.
-                  org_dirs: hireEdited ? hireDirs : undefined,
-                  permission_mode: hireEdited ? hirePm : undefined,
-                  default_account: hireEdited ? hireAccount : undefined,
-                  default_fast_mode: edit['hire.fast'] !== undefined ? hireFast : undefined }),
-              // pass the org.md warnings through rather than swallowing them:
-              // a save that delivers less than it stored has to SAY so, and
-              // this array is already how every other job reaches the toast
-              orgMd != null
-                ? putOrgMd(tree.slug, orgMd, orgMdMeta?.rev).then((r) => {
-                    // the next save is over this one
-                    setOrgMdMeta((m) => (m ? { ...m, rev: r.rev } : m))
-                    return { warnings: r.warnings }
-                  })
-                : Promise.resolve({}),
-            ]
-            // ...and its OPEN half stays on the separate
-            // /defaults endpoint rather than being folded into /settings.
-            // That split is the whole reason the ⚙ panel made two calls, and
-            // it survives the move (see `HireDefaultsTab`).
-            const hireJob: Promise<OpResult> = hireEdited
-              ? saveHireDefaults(tree.slug, { default_tools: hireTools,
-                                              default_visibility: hireVis,
-                                              default_account: hireAccount })
-              : Promise.resolve({})
-            Promise.all([Promise.all(jobs), hireJob]).then(([rs, hire]) => {
-              const lines = [
-                ...rs.flatMap((r) => r.warnings ?? []),
-                ...(hire.warnings ?? []),
-              ]
-              toast(lines.length ? lines : ['settings saved'])
-              // the edits are the server's now — drop the buffer so the panel
-              // reads from the tree again rather than from what was typed
-              clearEdits()
-              close()
-            }).catch((e: Error) => toast([`error: ${e.message}`]))
-          }}>save</button>
-          <button onClick={close}>cancel</button>
-        </div>
+        <SettingsSaveStatus status={autosave.status} retry={() => { void autosave.queue.flush(true) }} />
+        <div className="row"><button aria-label="Close organization settings" onClick={closeSettings}>Close</button></div>
     </PinFrame>
   )
 }

@@ -69,7 +69,7 @@ In Hubchat use **Settings > Hubs > Add a hub** with the operator's relay-only ad
 
 Each org has a permanent network address and ownership secret; each person has a separate Hubchat identity. Copy the public address for contact. Keep ownership secrets private and backed up when the identity matters. Changing hubs does not mint a new org identity. Do not share secrets between colleagues to impersonate one person.
 
-Hub membership changes in Connections are immediate; its external-inbox mode and multiple-holder fields wait for the shared Save. Rows distinguish disabled, connecting, connected and retrying, with errors and queued counts. A Test helps discover a final endpoint; a failed test does not prevent saving a route that will become available later. Explicit URLs/ports stay explicit and redirects are refused, so use the operator's final relay address. Removing a working route can leave mail waiting or using another enabled connection.
+Hub membership changes in Connections are immediate; its external-inbox mode and multiple-holder fields also save immediately. Rows distinguish disabled, connecting, connected and retrying, with errors and queued counts. A Test helps discover a final endpoint; a failed test does not prevent saving a route that will become available later. Explicit URLs/ports stay explicit and redirects are refused, so use the operator's final relay address. Removing a working route can leave mail waiting or using another enabled connection.
 
 An outside address link in Orgtree can open its conversation in desktop Hubchat when installed. This is independent of linking a phone. Local-org links open the local org instead.
 
@@ -83,7 +83,7 @@ Outside people and organizations supply untrusted input by default. The current 
 
 ## Choose an outside inbox mode
 
-Open **Organization settings > Connections > External org inbox**, choose a mode and use the shared **Save**. Connections is available even without a network identity. This is separate from one agent's turn-scoped DND.
+Open **Organization settings > Connections > External org inbox**, choose a mode; it saves immediately. Connections is available even without a network identity. This is separate from one agent's turn-scoped DND.
 
 | Mode | What happens |
 | --- | --- |
