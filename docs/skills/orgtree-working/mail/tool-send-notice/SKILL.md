@@ -41,7 +41,7 @@ For a live same-org agent, the notice is stored for its next turn. An already ru
 
 The no-wake guarantee does not extend to outside publication: the current `@org:`/`@net:` route does not propagate the passive flag to receiving holder copies. Do not promise that an external organization remains idle because a send used this tool. User mail also follows the ordinary user-inbox access gate.
 
-Lists deliver independently: inspect each outcome, since a permitted recipient can receive a notice while another is refused. Empty recipients, too many distinct recipients, blank body, missing reach/audience, disabled outside inbox and unavailable destinations use the ordinary message refusals. Nothing in this tool grants access or schedules a future rehire/unhalt.
+Lists deliver independently: inspect each outcome, since a permitted recipient can receive a notice while another is refused. Empty recipients, too many distinct recipients, blank body, missing reach/audience, disabled outside inbox and unavailable destinations use the ordinary message refusals. Ordinary contact with a deep descendant can grant the reply audience described above; `one_time:true` omits it. Nothing schedules a future rehire/unhalt.
 
 For status reports, [orgtree_status](../../runtime/tool-status/SKILL.md) is the dedicated tool; its done/blocked summary to a superior is also passive.
 
