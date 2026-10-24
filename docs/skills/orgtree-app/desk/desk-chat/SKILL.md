@@ -203,6 +203,14 @@ Tool and supplied-thought durations use seconds for short runs and minutes/secon
 
 ## Tool-output token counts
 
+Read / read_file / view_file counts describe the returned file text or slice,
+not the short read summary or the whole file's line total. They remain `~`
+estimates. Claude uses its native text-read result; Antigravity uses the exact
+completed step in its selected session; Muse uses retained output from that
+session and item. If retained text is unavailable, Antigravity/Muse omit the
+count. Large outputs use bounded sampling. No file is reopened to invent a
+historical count. This is display information and adds no tool action.
+
 The I-beam text-cursor mark beside a tool's timing labels is its observed
 text-output token count. Counts use `t` below 1,000 and `kt` from 1,000, rounded
 to one decimal where needed; hover and the accessible label give the full

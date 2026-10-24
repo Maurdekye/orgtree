@@ -497,6 +497,17 @@ Original section: AGENTS.md — working on Orgtree. Source lines 1648–1654.
 
 <a id="e-46b46bbac1e4ded8"></a>
 
+## File-read token estimates (2026-10-24, 4.4.5)
+
+Read counts use retained returned text before preview clipping: Claude's
+single matching native text result, Antigravity's bound completed native
+view-file step, and Muse's validated session/item stored-output pages. Do not
+count summary labels, re-read a source path or use the whole file's line total.
+Missing retained text stays unknown; estimates retain `~`. See the bounded
+sources and real-payload verification limits in
+[transcript tokens](../rust-engine/transcript-token-counts.md#file-reads-445-2026-10-24).
+[decided: user 2026-10-24; verified: `runtime/{token_counts,agy_thinking,actor}.rs`]
+
 ## Live token updates retain unchanged settled transcript row identities and
 
 Original section: AGENTS.md — working on Orgtree. Source lines 1698–1704.

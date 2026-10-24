@@ -5474,6 +5474,10 @@ impl Actor {
                     tracing::warn!(agent = %self.name, kind = %kind, status = ?item["status"], "Muse started a child run Orgtree switched off");
                 }
                 let (name, input) = muse_tool(item);
+                let stored_read=done && item["status"]=="completed" && token_counts::is_file_read(&name)
+                    && !self.turn.as_ref().is_some_and(|t|t.acp);
+                // Fetch retained bytes before acquiring a database client.
+                let read_sample=if stored_read {self.muse_read_sample(item).await} else {None};
                 let client = self.engine.db.get().await?;
                 let known = self.turn.as_ref().map(|t| t.tools.contains_key(&id)).unwrap_or(false);
                 if !known {
@@ -5516,7 +5520,8 @@ impl Actor {
                 }
                 let (text, failed) = muse_result(item);
                 let raw_output=token_counts::muse_output(item);
-                let output_tokens=self.output_estimate(&id,raw_output.as_deref()).await;
+                let output_tokens=if stored_read {self.read_output_estimate(&id,read_sample).await}
+                    else {self.output_estimate(&id,raw_output.as_deref()).await};
                 let update = {
                     let Some(t) = self.turn.as_mut() else { return Ok(()) };
                     if let Some(u) = item.get("usage").filter(|u| u.is_object()) {
@@ -6237,6 +6242,18 @@ impl Actor {
                 let info = &step["tool_info"];
                 let raw_params = info.get("parameters").cloned().unwrap_or_else(|| json!({}));
                 let (name, input) = convo::unwrap_tool_call(raw_name, &raw_params);
+                let retained_read=state=="DONE" && token_counts::is_file_read(&name);
+                let native_read=if retained_read {
+                    let bound=self.proc.as_ref().and_then(|p|match p {
+                        Proc::Agy(p)=>p.conversation.as_deref().filter(|s|step["conversation_id"].as_str()==Some(*s) && idx>=0)
+                            .zip(p.history_home.as_ref()).map(|(s,h)|(s.to_string(),h.clone())),
+                        _=>None,
+                    });
+                    if let Some((session,home))=bound {
+                        tokio::task::spawn_blocking(move ||super::agy_thinking::read_tool_output(&home,&session,idx))
+                            .await.ok().and_then(Result::ok).flatten()
+                    } else {None}
+                } else {None};
                 let client = self.engine.db.get().await?;
                 let known = self.turn.as_ref().map(|t| t.tools.contains_key(&id)).unwrap_or(false);
                 if !known {
@@ -6266,8 +6283,8 @@ impl Actor {
                         .map(|v| v.as_str().map(str::to_string).unwrap_or_else(|| v.to_string()))
                         .or_else(|| err.clone())
                         .unwrap_or_else(|| state.to_lowercase());
-                    let actual=["result","output","response"].iter().any(|k|info.get(*k).is_some_and(|v|!v.is_null())) || err.is_some();
-                    let output_tokens=self.output_estimate(&id,actual.then_some(result.as_str())).await;
+                    let raw_output=if retained_read {native_read} else {token_counts::agy_output(info)};
+                    let output_tokens=self.output_estimate(&id,raw_output.as_deref()).await;
                     let update = {
                         let Some(t) = self.turn.as_mut() else { return Ok(()) };
                         if let Some(e) = &err {
@@ -6838,7 +6855,10 @@ impl Actor {
     #[nolog]
     fn observe_output(&mut self, id: &str, text: &str, append: bool) {
         if let Some(t)=self.turn.as_mut().filter(|t|t.tools.contains_key(id)) {
-            t.token_metrics.output(id,text,append,Instant::now());
+            let muse_read=matches!(self.proc,Some(Proc::Muse(_))) && !t.acp && t.tools.get(id).and_then(|key|t.rows.get(key))
+                .and_then(|(_,row)|row["tools"].as_array()).and_then(|tools|tools.iter().find(|c|c["id"].as_str()==Some(id)))
+                .and_then(|tool|tool["name"].as_str()).is_some_and(token_counts::is_file_read);
+            if !muse_read {t.token_metrics.output(id,text,append,Instant::now());}
         }
         self.observe_shell_output(id,text,append);
     }
@@ -6860,6 +6880,27 @@ impl Actor {
         let sample=if self.turn.as_ref().is_some_and(|t|t.acp) { observed? }
             else {text.map(|text| {let mut sample=Sample::default();sample.replace(text);sample}).or(observed)?};
         token_counts::estimate(sample,harness).await
+    }
+
+    #[nolog]
+    async fn muse_read_sample(&self, item: &Value) -> Option<Sample> {
+        let (reference,bytes)=token_counts::muse_read_request(item)?;
+        let Some(Proc::Muse(p))=self.proc.as_ref() else {return None};
+        let item_id=item["itemId"].as_str()?;
+        let mut pages=Vec::new();
+        for (offset,len) in token_counts::muse_read_ranges(bytes) {
+            let page=p.request("item/readOutput",json!({"sessionId":p.session_id,"itemId":item_id,
+                "outputRef":reference,"offsetBytes":offset,"lengthBytes":len}),Duration::from_secs(3)).await.ok()?;
+            pages.push(page);
+        }
+        token_counts::muse_read_sample(bytes,&pages)
+    }
+
+    /// A failed retained read must not fall back to a short visible summary.
+    #[nolog]
+    async fn read_output_estimate(&mut self, id: &str, sample: Option<Sample>) -> Option<Value> {
+        if let Some(t)=self.turn.as_mut(){t.shell_output.remove(id,Instant::now());t.token_metrics.finish(id);}
+        token_counts::estimate(sample?,self.metrics_harness()).await
     }
 
     #[nolog]
@@ -7067,15 +7108,11 @@ impl Actor {
         for b in v.pointer("/message/content").and_then(Value::as_array).into_iter().flatten().filter(|b|b["type"]=="tool_result") {
             let Some(id)=b["tool_use_id"].as_str() else {continue};
             if !self.turn.as_ref().is_some_and(|t|t.tools.contains_key(id)) {continue;}
-            let content=&b["content"];
-            // Only an observed string/text block (including an empty one)
-            // supports a text estimate. Preview normalization also turns
-            // missing, malformed and non-text-only content into "".
-            let observed_text=content.is_string() || content.as_array().is_some_and(|blocks|
-                blocks.iter().any(|b|b["type"]=="text" && b["text"].is_string()));
-            if !observed_text {continue;}
-            let (text,_)=convo::tool_result_text(content);
-            if let Some(count)=self.output_estimate(id,Some(&text)).await {output_counts.insert(id.to_string(),count);}
+            let name=self.turn.as_ref().and_then(|t|t.tools.get(id).and_then(|key|t.rows.get(key)))
+                .and_then(|(_,row)|row["tools"].as_array()).and_then(|tools|tools.iter().find(|c|c["id"].as_str()==Some(id)))
+                .and_then(|chip|chip["name"].as_str()).unwrap_or("");
+            let text=token_counts::claude_output(v,b,name);
+            if let Some(count)=self.output_estimate(id,text.as_deref()).await {output_counts.insert(id.to_string(),count);}
         }
         let mut images: Vec<(String, Vec<(String, Vec<u8>)>)> = Vec::new();
         let updates: Vec<(i64, Value)> = {

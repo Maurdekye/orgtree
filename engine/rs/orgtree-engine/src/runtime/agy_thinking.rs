@@ -13,8 +13,30 @@ pub enum Skip {
     Payload,
 }
 
+/// The exact native step's model-facing file slice, never a current file read.
+/// AGY 1.4.5 descriptor: CortexStep.view_file=14, ViewFile.content=4.
+#[nolog]
+pub fn read_tool_output(home: &Path, session: &str, index: i64) -> Result<Option<String>, Skip> {
+    let Some(data)=read_payload(home,session,index)? else {return Ok(None)};
+    let Some(view)=field(&data,14)? else {return Ok(None)};
+    // A media-only result cannot be assigned a text count.
+    let Some(content)=field(view,4)? else {return Ok(None)};
+    Ok(Some(std::str::from_utf8(content).map_err(|_|Skip::Payload)?.into()))
+}
+
 #[nolog]
 pub fn read_history(home: &Path, session: &str, index: i64) -> Result<Option<String>, Skip> {
+    let Some(data)=read_payload(home,session,index)? else {return Ok(None)};
+    let Some(planner) = field(&data, 20)? else { return Ok(None); };
+    if scalar(planner, 5)?.unwrap_or(0) != 0 { return Ok(None); }
+    let Some(thought) = field(planner, 3)? else { return Ok(None); };
+    let text = std::str::from_utf8(thought).map_err(|_| Skip::Payload)?;
+    Ok((!text.trim().is_empty()).then(|| clip(text)))
+}
+
+/// Shared indexed read-only snapshot; content-bearing callers stay unlogged.
+#[nolog]
+fn read_payload(home: &Path, session: &str, index: i64) -> Result<Option<Vec<u8>>, Skip> {
     use rusqlite::{Connection, OpenFlags, OptionalExtension};
     if !valid_session(session) || index < 0 {
         return Err(Skip::Identity);
@@ -72,18 +94,7 @@ pub fn read_history(home: &Path, session: &str, index: i64) -> Result<Option<Str
         .map_err(read_error)?;
     drop(snapshot);
     drop(db);
-    let Some(planner) = field(&data, 20)? else {
-        return Ok(None);
-    };
-    // Neither raw_thinking nor signature fields are transcript content.
-    if scalar(planner, 5)?.unwrap_or(0) != 0 {
-        return Ok(None);
-    }
-    let Some(thought) = field(planner, 3)? else {
-        return Ok(None);
-    };
-    let text = std::str::from_utf8(thought).map_err(|_| Skip::Payload)?;
-    Ok((!text.trim().is_empty()).then(|| clip(text)))
+    Ok(Some(data))
 }
 
 #[nolog]

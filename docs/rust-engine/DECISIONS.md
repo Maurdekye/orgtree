@@ -581,6 +581,13 @@ matching ignores case, and chips use a stable normalized-name hue. Non-user
 routes refuse tags before attachments/transport; fan-out remains per recipient.
 No hub tags or legacy backfill. 4.4.0 only. See [mail tags](mail-tags.md).
 
+**Read-result tokens, USER 2026-10-24 (4.4.5):** read / read_file / view_file
+rows count the returned file contents or exact slice, rather than a short
+summary. Scope includes Claude Code, Antigravity and other applicable harnesses.
+Keep the existing estimated-count qualifier and bounded sampling; use retained
+native output, never a new source-file read or total-line extrapolation.
+See [the source contract](transcript-token-counts.md#file-reads-445-2026-10-24).
+
 **Transcript tokens and live occupancy, user 2026-10-17 13:00–13:05Z;
 coordinator 13:28Z:** show small-icon text-output estimates beside tool clocks,
 live where the harness streams, and provider thinking counts beside finished

@@ -56,6 +56,36 @@ exact model encoding. No private transcript text or identifiers are vendored.
 
 ## Harness boundaries
 
+### File reads (4.4.5, 2026-10-24)
+
+Read rows count the returned text slice rather than a short read summary. They
+use the same calibrated public BPE and `~` qualifier as other tool outputs;
+these are estimates of content tokens, not exact model receipts or billed usage.
+The file's total size and the tool's input arguments are not counted.
+
+Claude Code's native text-read result supplies `file.content`. It belongs only
+to the single matching root result in that envelope; parallel results and errors
+cannot borrow it. Antigravity uses the exact completed `view_file` step from
+the process's bound conversation and selected history home. The existing
+indexed, read-only snapshot, zero lock wait and 2 MiB step limit also apply to
+this read. Its native `CortexStep.view_file` (field 14), `content` (field 4)
+holds the retained slice; raw file paths are never reopened.
+
+Muse's `visibleOutput` is a bounded display surface. Completed native reads
+instead use the same session/item's available `outputRef` through
+`item/readOutput`. At most two read-only requests retain 64 KiB in total, with
+a three-second deadline each. Pages must match their requested byte ranges,
+length, encoding, media type and end marker. Outputs over 64 KiB use the same
+head/tail scaling as ordinary tool estimates. Missing, inaccessible or invalid
+retained output has no read-content count; it does not fall back to a summary.
+Muse read summaries also do not produce live output-token estimates.
+
+Codex's declared command/dynamic/MCP text and OpenCode ACP's original text
+content continue through their existing full-output observations. No adapter
+re-reads a source file, guesses a count from line totals or backfills history.
+Offline protocol fixtures establish these paths; real native read variants
+still require the release's hands-on verification.
+
 | Harness | Tool output | Thinking receipt |
 | --- | --- | --- |
 | Claude Code | Complete root `tool_result` text; child events stay private | Group response fragments by `message.id`; finalize at a later response/result boundary. Use optional `usage.output_tokens_details.thinking_tokens` only with one thought block |

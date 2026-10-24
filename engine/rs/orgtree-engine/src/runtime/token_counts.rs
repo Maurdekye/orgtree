@@ -98,6 +98,87 @@ pub fn apply(chip: &mut Value, count: Option<&Value>) {
     }
 }
 
+/// Text carried by a root Claude result, including an explicitly empty result.
+#[nolog]
+pub fn claude_output(event: &Value, block: &Value, name: &str) -> Option<String> {
+    // SDKUserMessage.tool_use_result belongs to the single matching result,
+    // not to every block in a parallel/malformed envelope.
+    if is_file_read(name) && block["is_error"]!=true {
+        let results:Vec<_>=event.pointer("/message/content").and_then(Value::as_array).into_iter().flatten()
+            .filter(|b|b["type"]=="tool_result").collect();
+        if results.len()==1 && block["tool_use_id"].as_str().is_some()
+            && results[0]["tool_use_id"]==block["tool_use_id"] && event["tool_use_result"]["type"]=="text" {
+            if let Some(text)=event.pointer("/tool_use_result/file/content").and_then(Value::as_str) {return Some(text.into());}
+        }
+    }
+    let content=&block["content"];
+    if let Some(text)=content.as_str() { return Some(text.into()); }
+    let blocks=content.as_array()?;
+    let mut observed=false;let mut text=String::new();
+    for b in blocks.iter().filter(|b|b["type"]=="text") {
+        observed|=b["text"].is_string();
+        if !text.is_empty(){text.push('\n');}
+        text.push_str(b["text"].as_str().unwrap_or(""));
+    }
+    observed.then_some(text)
+}
+
+#[nolog]
+pub fn agy_output(info: &Value) -> Option<String> {
+    ["result","output","response"].iter().find_map(|k|info.get(*k).filter(|v|!v.is_null()))
+        .map(|v|v.as_str().map(str::to_string).unwrap_or_else(||v.to_string()))
+        .or_else(||info.pointer("/error/message").and_then(Value::as_str).map(str::to_string))
+}
+
+/// Canonical native file-read names; never infer output from input paths.
+#[nolog]
+pub fn is_file_read(name: &str) -> bool {
+    matches!(name.rsplit([':', '.']).next().unwrap_or(name).to_ascii_lowercase().as_str(),"read"|"read_file"|"view_file")
+}
+
+#[nolog]
+pub fn muse_read_request(item: &Value) -> Option<(String,u64)> {
+    if item["kind"]!="toolCall" || !is_file_read(item["tool"].as_str()?) {return None;}
+    let r=&item["outputRef"];
+    let id=r["id"].as_str().filter(|s|!s.is_empty() && s.len()<=512)?;
+    (r["availability"]=="available").then(||Some((id.into(),r["byteLen"].as_u64()?))).flatten()
+}
+
+#[nolog]
+pub fn muse_read_ranges(bytes: u64) -> Vec<(u64,u64)> {
+    if bytes<=HALF as u64*2 {vec![(0,bytes)]}
+    else {vec![(0,HALF as u64),(bytes-HALF as u64,HALF as u64)]}
+}
+
+/// Validate stored-byte pages against the requested immutable output reference.
+/// No URI/path is opened. Bounded samples retain the full observed byte length.
+#[nolog]
+pub fn muse_read_sample(bytes: u64, pages: &[Value]) -> Option<Sample> {
+    let ranges=muse_read_ranges(bytes);
+    if pages.len()!=ranges.len() {return None;}
+    let mut windows=Vec::new();
+    for (page,(offset,len)) in pages.iter().zip(ranges) {
+        if page["offsetBytes"].as_u64()!=Some(offset) || page["byteLen"].as_u64()!=Some(len)
+            || !page["mediaType"].as_str()?.starts_with("text/") || page["eof"].as_bool()!=Some(offset+len==bytes) {return None;}
+        let content=page["content"].as_str()?;
+        if content.len()>HALF*3 {return None;}
+        let data=match page["encoding"].as_str()? {
+            "utf8"=>content.as_bytes().to_vec(),
+            "base64"=>base64::engine::general_purpose::STANDARD.decode(content).ok()?,
+            _=>return None,
+        };
+        if data.len() as u64!=len {return None;}windows.push(data);
+    }
+    let mut sample=Sample::default();
+    if windows.len()==1 {sample.replace(std::str::from_utf8(&windows[0]).ok()?);return Some(sample);}
+    // A byte-ranged sample may cut one UTF-8 scalar at either outer edge.
+    let head=&windows[0];let tail=&windows[1];
+    let head_end=(0..=3).find_map(|n|head.len().checked_sub(n).filter(|end|std::str::from_utf8(&head[..*end]).is_ok()))?;
+    let tail_start=(0..=3).find(|n|std::str::from_utf8(&tail[*n..]).is_ok())?;
+    sample.head=std::str::from_utf8(&head[..head_end]).ok()?.into();
+    sample.tail=std::str::from_utf8(&tail[tail_start..]).ok()?.into();sample.bytes=bytes;Some(sample)
+}
+
 /// Read provider output before any display clipping. Status/arguments are not output.
 #[nolog]
 pub fn codex_output(item: &Value) -> Option<String> {
@@ -319,5 +400,93 @@ mod tests {
         assert_eq!(codex_output(&json!({"type":"dynamicToolCall","contentItems":[{"type":"image","data":"synthetic"}]})),None);
         assert_eq!(muse_output(&json!({"kind":"toolCall","status":"completed","usage":{"outputTokens":9999}})),None);
         assert_eq!(muse_output(&json!({"kind":"toolCall","visibleOutput":""})),Some(String::new()));
+    }
+
+    #[test]
+    fn read_result_measurement_claude_uses_returned_slice_instead_of_summary() {
+        let content="hello world\n".repeat(4000);
+        let summary="Read 4000 lines.";
+        let block=json!({"type":"tool_result","tool_use_id":"read","content":summary});
+        let event=json!({"message":{"content":[block.clone()]},"tool_use_result":{"type":"text","file":{
+            "filePath":"synthetic-large.txt","content":content,"numLines":4000,"startLine":101,"totalLines":10000}}});
+        let before=claude_output(&event,&block,"Read").unwrap();
+        let e=encoder().unwrap();
+        println!("READ_MEASUREMENT {}",json!({"harness":"Claude","row":e.count(&before),"returned":e.count(&content),"bytes":content.len(),"estimated":true}));
+        assert!(before==content,"count the supplied slice; never re-read the path or totalLines");
+    }
+
+    #[test]
+    fn read_result_measurement_muse_fetches_declared_stored_output() {
+        let content="hello world\n".repeat(4000);
+        let item=json!({"itemId":"read","kind":"toolCall","tool":"read_file","visibleOutput":"Read 4000 lines.",
+            "outputRef":{"id":"stored-read","byteLen":content.len(),"availability":"available","mediaType":"text/plain"}});
+        let e=encoder().unwrap();
+        let request=muse_read_request(&item);
+        assert_eq!(request,Some(("stored-read".into(),content.len() as u64)));
+        let page=json!({"offsetBytes":0,"byteLen":content.len(),"content":content,"encoding":"utf8","mediaType":"text/plain","eof":true});
+        let sample=muse_read_sample(content.len() as u64,&[page]).unwrap();
+        println!("READ_MEASUREMENT {}",json!({"harness":"Muse","row":sample.count(),"returned":e.count(&content),"bytes":content.len(),"estimated":true}));
+        assert_eq!(sample.count(),e.count(&content));
+    }
+
+    #[test]
+    fn read_result_measurement_agy_uses_exact_native_step() {
+        let content="hello world\n".repeat(4000);
+        let info=json!({"result":"Read 4000 lines."});
+        let e=encoder().unwrap();
+        let root=std::env::temp_dir().join(format!("read-native-{}",std::process::id()));
+        let session="12345678-1234-4321-8765-123456789abc";
+        let dir=root.join(".gemini/antigravity-cli/conversations");std::fs::create_dir_all(&dir).unwrap();
+        let db=rusqlite::Connection::open(dir.join(format!("{session}.db"))).unwrap();
+        db.execute_batch("CREATE TABLE steps(idx INTEGER PRIMARY KEY,step_payload BLOB)").unwrap();
+        let bytes=|field:u8,s:&[u8]|{let mut v=vec![(field<<3)|2];let mut n=s.len();while n>=128{v.push((n as u8&127)|128);n>>=7;}v.push(n as u8);v.extend(s);v};
+        let payload=bytes(14,&bytes(4,content.as_bytes()));
+        db.execute("INSERT INTO steps VALUES (6,?1)",[payload]).unwrap();drop(db);
+        let observed=crate::runtime::agy_thinking::read_tool_output(&root,session,6).unwrap();
+        println!("READ_MEASUREMENT {}",json!({"harness":"Antigravity","row":e.count(observed.as_deref().unwrap_or(&agy_output(&info).unwrap())),"returned":e.count(&content),"bytes":content.len(),"estimated":true,"source":"synthetic native view_file field14/content4 fixture"}));
+        assert!(observed.as_deref()==Some(content.as_str()));
+        assert_eq!(crate::runtime::agy_thinking::read_tool_output(&root,session,5),Ok(None));
+        assert_eq!(crate::runtime::agy_thinking::read_tool_output(&root,"../wrong",6),Err(crate::runtime::agy_thinking::Skip::Identity));
+    }
+
+    #[test]
+    fn read_result_measurement_codex_and_acp_preserve_complete_text() {
+        let content="hello world\n".repeat(4000);
+        let e=encoder().unwrap();
+        let codex=codex_output(&json!({"type":"dynamicToolCall","tool":"read_file","contentItems":[{"type":"inputText","text":content}]})).unwrap();
+        let acp=json!({"content":[{"type":"content","content":{"type":"text","text":content}}]});
+        let acp_text=acp["content"].as_array().unwrap().iter().filter_map(|v|v.pointer("/content/text").and_then(Value::as_str)).collect::<Vec<_>>().join("\n");
+        for (harness,observed) in [("Codex",codex),("OpenCode ACP",acp_text)] {
+            println!("READ_MEASUREMENT {}",json!({"harness":harness,"row":e.count(&observed),"returned":e.count(&content),"bytes":content.len(),"estimated":true,"scope":"declared text-content fixture only"}));
+            assert_eq!(observed,content);
+        }
+    }
+
+    #[test]
+    fn claude_native_read_cannot_cross_parallel_calls_or_errors() {
+        let b=json!({"type":"tool_result","tool_use_id":"read","content":"summary"});
+        let mut event=json!({"message":{"content":[b.clone()]},"tool_use_result":{"type":"text","file":{"content":""}}});
+        assert_eq!(claude_output(&event,&b,"Read"),Some(String::new()));
+        assert_eq!(claude_output(&event,&b,"Bash"),Some("summary".into()));
+        let mut error=b.clone();error["is_error"]=json!(true);
+        assert_eq!(claude_output(&event,&error,"Read"),Some("summary".into()));
+        event["message"]["content"].as_array_mut().unwrap().push(json!({"type":"tool_result","tool_use_id":"other","content":"other slice"}));
+        assert_eq!(claude_output(&event,&b,"Read"),Some("summary".into()));
+        assert_eq!(claude_output(&json!({}),&json!({"content":[{"type":"image"}]}),"Read"),None);
+    }
+
+    #[test]
+    fn muse_pages_are_bounded_validated_and_never_include_ref_metadata() {
+        let bytes=120000;let ranges=muse_read_ranges(bytes);assert_eq!(ranges,vec![(0,32768),(87232,32768)]);
+        let pages:Vec<_>=ranges.iter().map(|(offset,len)|json!({"offsetBytes":offset,"byteLen":len,"content":"x".repeat(*len as usize),"encoding":"utf8","mediaType":"text/plain","eof":offset+len==bytes})).collect();
+        let sample=muse_read_sample(bytes,&pages).unwrap();assert!(sample.sampled());assert_eq!(sample.bytes,bytes);assert!(sample.head.len()+sample.tail.len()<=HALF*2);
+        for field in ["offsetBytes","byteLen","encoding","mediaType","eof"] {
+            let mut bad=pages.clone();bad[0][field]=Value::Null;assert!(muse_read_sample(bytes,&bad).is_none(),"{field}");
+        }
+        assert!(muse_read_sample(bytes,&pages[..1]).is_none());
+        assert!(muse_read_request(&json!({"kind":"toolCall","tool":"read_file","outputRef":{"id":"x","availability":"missing","byteLen":10}})).is_none());
+        let all="日".repeat(40000);let raw=all.as_bytes();
+        let unicode:Vec<_>=ranges.iter().map(|(offset,len)|json!({"offsetBytes":offset,"byteLen":len,"content":base64::engine::general_purpose::STANDARD.encode(&raw[*offset as usize..(*offset+*len) as usize]),"encoding":"base64","mediaType":"text/plain","eof":offset+len==bytes})).collect();
+        let sample=muse_read_sample(bytes,&unicode).unwrap();assert!(sample.count().unwrap()>0);assert!(sample.sampled());
     }
 }

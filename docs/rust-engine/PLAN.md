@@ -292,6 +292,10 @@ Existing activation, org allowance, sign-in, marks and fresh positive room gates
 remain; no switch to the same physical login. See
 [native fallback](../agents/providers-and-accounts.md#native-limit-fallback-2026-10-24).
 
+File-read token counts (USER 2026-10-24, 4.4.5): count the returned text slice
+instead of a read summary, retaining estimated labels and bounded sampling.
+See [transcript tokens](transcript-token-counts.md#file-reads-445-2026-10-24).
+
 Queued mail (USER 2026-10-24, 4.4.5): the arrow/count separator line itself
 toggles the group; remove the extra repeated count row while retaining its
 collapse defaults and manual choice. See [pending mail](pending-mail-collapse.md).
