@@ -1,0 +1,265 @@
+{
+ "about": "Every published Orgtree release (GitHub releases that are not pre-releases), newest first. Its notes are docs/release-notes-<version>.md, the GitHub release description. published_at: when GitHub published it. tagged_at: the time of the commit its tag names. Add a release here after publishing it (docs/ci-release.md).",
+ "releases": [
+  {
+   "version": "4.4.4",
+   "published_at": "2026-10-24T05:23:13Z",
+   "tagged_at": "2026-10-24T02:58:37Z"
+  },
+  {
+   "version": "4.4.3",
+   "published_at": "2026-10-23T15:29:30Z",
+   "tagged_at": "2026-10-23T13:05:20Z"
+  },
+  {
+   "version": "4.4.2",
+   "published_at": "2026-10-23T10:44:29Z",
+   "tagged_at": "2026-10-23T09:58:22Z"
+  },
+  {
+   "version": "4.4.1",
+   "published_at": "2026-10-23T06:05:33Z",
+   "tagged_at": "2026-10-22T22:14:08Z"
+  },
+  {
+   "version": "4.4.0",
+   "published_at": "2026-10-22T19:11:54Z",
+   "tagged_at": "2026-10-22T17:44:41Z"
+  },
+  {
+   "version": "4.3.3",
+   "published_at": "2026-10-19T13:52:36Z",
+   "tagged_at": "2026-10-19T12:52:27Z"
+  },
+  {
+   "version": "4.3.2",
+   "published_at": "2026-10-17T19:04:39Z",
+   "tagged_at": "2026-10-17T18:33:59Z"
+  },
+  {
+   "version": "4.3.1",
+   "published_at": "2026-10-16T19:59:57Z",
+   "tagged_at": "2026-10-16T19:27:05Z"
+  },
+  {
+   "version": "4.3.0",
+   "published_at": "2026-10-15T21:38:16Z",
+   "tagged_at": "2026-10-15T21:14:19Z"
+  },
+  {
+   "version": "4.2.0",
+   "published_at": "2026-10-11T22:14:51Z",
+   "tagged_at": "2026-10-11T21:51:26Z"
+  },
+  {
+   "version": "4.1.3",
+   "published_at": "2026-10-10T03:10:41Z",
+   "tagged_at": "2026-10-10T02:43:25Z"
+  },
+  {
+   "version": "4.1.2",
+   "published_at": "2026-10-10T02:19:44Z",
+   "tagged_at": "2026-10-10T01:54:03Z"
+  },
+  {
+   "version": "4.1.1",
+   "published_at": "2026-10-09T23:47:43Z",
+   "tagged_at": "2026-10-09T23:24:09Z"
+  },
+  {
+   "version": "4.1.0",
+   "published_at": "2026-10-09T22:20:22Z",
+   "tagged_at": "2026-10-09T21:42:54Z"
+  },
+  {
+   "version": "4.0.1",
+   "published_at": "2026-10-08T11:56:07Z",
+   "tagged_at": "2026-10-08T11:34:49Z"
+  },
+  {
+   "version": "4.0.0",
+   "published_at": "2026-10-07T21:31:43Z",
+   "tagged_at": "2026-10-07T21:13:03Z"
+  },
+  {
+   "version": "3.1.0",
+   "published_at": "2026-10-02T12:09:25Z",
+   "tagged_at": "2026-10-02T11:32:04Z"
+  },
+  {
+   "version": "3.0.9",
+   "published_at": "2026-10-01T15:53:02Z",
+   "tagged_at": "2026-10-01T15:40:43Z"
+  },
+  {
+   "version": "3.0.8",
+   "published_at": "2026-10-01T14:39:21Z",
+   "tagged_at": "2026-10-01T14:21:13Z"
+  },
+  {
+   "version": "3.0.7",
+   "published_at": "2026-10-01T14:23:42Z",
+   "tagged_at": "2026-10-01T14:08:42Z"
+  },
+  {
+   "version": "3.0.6",
+   "published_at": "2026-10-01T13:14:02Z",
+   "tagged_at": "2026-10-01T12:58:47Z"
+  },
+  {
+   "version": "3.0.5",
+   "published_at": "2026-10-01T12:52:43Z",
+   "tagged_at": "2026-10-01T12:40:10Z"
+  },
+  {
+   "version": "3.0.4",
+   "published_at": "2026-10-01T11:29:32Z",
+   "tagged_at": "2026-10-01T11:17:01Z"
+  },
+  {
+   "version": "3.0.3",
+   "published_at": "2026-10-01T10:26:26Z",
+   "tagged_at": "2026-10-01T10:13:06Z"
+  },
+  {
+   "version": "3.0.2",
+   "published_at": "2026-10-01T07:58:39Z",
+   "tagged_at": "2026-10-01T07:43:16Z"
+  },
+  {
+   "version": "3.0.1",
+   "published_at": "2026-10-01T01:18:19Z",
+   "tagged_at": "2026-10-01T01:04:41Z"
+  },
+  {
+   "version": "3.0.0",
+   "published_at": "2026-10-01T00:58:17Z",
+   "tagged_at": "2026-10-01T00:45:33Z"
+  },
+  {
+   "version": "2.1.14",
+   "published_at": "2026-09-30T09:14:33Z",
+   "tagged_at": "2026-09-30T08:21:17Z"
+  },
+  {
+   "version": "2.1.13",
+   "published_at": "2026-09-28T22:17:49Z",
+   "tagged_at": "2026-09-28T21:54:30Z"
+  },
+  {
+   "version": "2.1.12",
+   "published_at": "2026-09-22T19:45:08Z",
+   "tagged_at": "2026-09-22T19:27:45Z"
+  },
+  {
+   "version": "2.1.11",
+   "published_at": "2026-09-22T19:01:14Z",
+   "tagged_at": "2026-09-22T18:34:28Z"
+  },
+  {
+   "version": "2.1.10",
+   "published_at": "2026-09-21T17:02:57Z",
+   "tagged_at": "2026-09-21T16:49:24Z"
+  },
+  {
+   "version": "2.1.9",
+   "published_at": "2026-09-20T14:09:00Z",
+   "tagged_at": "2026-09-20T14:02:07Z"
+  },
+  {
+   "version": "2.1.8",
+   "published_at": "2026-09-18T11:05:03Z",
+   "tagged_at": "2026-09-18T10:59:22Z"
+  },
+  {
+   "version": "2.1.7",
+   "published_at": "2026-09-17T13:35:08Z",
+   "tagged_at": "2026-09-17T13:33:00Z"
+  },
+  {
+   "version": "2.1.6",
+   "published_at": "2026-09-16T15:56:54Z",
+   "tagged_at": "2026-09-16T15:51:41Z"
+  },
+  {
+   "version": "2.1.5",
+   "published_at": "2026-09-15T19:15:52Z",
+   "tagged_at": "2026-09-15T19:04:30Z"
+  },
+  {
+   "version": "2.1.4",
+   "published_at": "2026-09-14T12:54:47Z",
+   "tagged_at": "2026-09-14T12:40:43Z"
+  },
+  {
+   "version": "2.1.3",
+   "published_at": "2026-09-13T21:38:17Z",
+   "tagged_at": "2026-09-13T21:24:14Z"
+  },
+  {
+   "version": "2.1.2",
+   "published_at": "2026-09-13T07:07:12Z",
+   "tagged_at": "2026-09-13T06:43:21Z"
+  },
+  {
+   "version": "2.1.1",
+   "published_at": "2026-09-13T02:16:46Z",
+   "tagged_at": "2026-09-13T01:42:40Z"
+  },
+  {
+   "version": "2.1.0",
+   "published_at": "2026-09-12T17:32:10Z",
+   "tagged_at": "2026-09-12T17:13:32Z"
+  },
+  {
+   "version": "2.0.9",
+   "published_at": "2026-09-11T21:30:38Z",
+   "tagged_at": "2026-09-11T21:14:23Z"
+  },
+  {
+   "version": "2.0.8",
+   "published_at": "2026-09-11T18:53:43Z",
+   "tagged_at": "2026-09-11T18:41:41Z"
+  },
+  {
+   "version": "2.0.7",
+   "published_at": "2026-09-11T16:18:23Z",
+   "tagged_at": "2026-09-11T16:06:45Z"
+  },
+  {
+   "version": "2.0.6",
+   "published_at": "2026-09-11T10:59:56Z",
+   "tagged_at": "2026-09-11T10:54:47Z"
+  },
+  {
+   "version": "2.0.5",
+   "published_at": "2026-09-11T09:37:35Z",
+   "tagged_at": "2026-09-11T09:24:14Z"
+  },
+  {
+   "version": "2.0.4",
+   "published_at": "2026-09-11T00:47:34Z",
+   "tagged_at": "2026-09-11T00:41:01Z"
+  },
+  {
+   "version": "2.0.3",
+   "published_at": "2026-09-10T22:35:47Z",
+   "tagged_at": "2026-09-10T22:28:58Z"
+  },
+  {
+   "version": "2.0.2",
+   "published_at": "2026-09-10T22:17:27Z",
+   "tagged_at": "2026-09-10T22:09:30Z"
+  },
+  {
+   "version": "2.0.1",
+   "published_at": "2026-09-10T20:45:02Z",
+   "tagged_at": "2026-09-10T20:32:14Z"
+  },
+  {
+   "version": "2.0.0",
+   "published_at": "2026-09-10T20:06:40Z",
+   "tagged_at": "2026-09-10T19:49:59Z"
+  }
+ ]
+}

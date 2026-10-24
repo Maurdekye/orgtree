@@ -1,0 +1,1 @@
+The system tray right-click menu now shows update status and download percentage, and offers Update now when the download is ready. Checking, downloading and installing can all be handled from that menu.

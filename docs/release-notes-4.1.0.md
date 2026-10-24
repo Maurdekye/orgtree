@@ -9,7 +9,7 @@ Orgtree 4.1.0 lets you message your agents from your phone with Hubchat. It move
   - "Turn on phone access" asks once for administrator rights and adds a Windows firewall rule for the mail hub program only: for your Tailscale network, or for private networks on home Wi-Fi. Turning phone access off removes the rule.
   - In Hubchat, tap Scan setup code and scan the code the panel shows. A setup code works once, for 10 minutes, and a new code replaces the old one.
   - Linking records the trust in your organization's org.md. Unlinking restores org.md exactly as it was.
-  - The panel warns you when the PC may sleep or when your Tailscale key is about to expire.
+  - The panel can keep this PC awake while it's plugged in. It warns you when the PC may sleep or when your Tailscale key is about to expire.
 - **Mail hub v2.** The mail hub that Orgtree hosts is now a native program that keeps its mail in Orgtree's own database. It no longer needs Python.
   - At its first start it moves the previous hub's addresses, messages and attachments into its new database, and it keeps the old file. App settings › Mail hub shows what was moved.
   - Mail stays on the hub until its owners delete it, unless you choose a number of days.
