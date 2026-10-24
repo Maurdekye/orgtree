@@ -7,7 +7,7 @@ import {runDesktop} from '../../../../tools/rig/desktop.mjs'
 const here=path.dirname(fileURLToPath(import.meta.url))
 const [out,evidence,deps]=process.argv.slice(2,5).map(p=>path.resolve(p))
 const fixture=process.argv[5]??'dndcontrol'
-if(!['dndcontrol','orgdnd','greytheme','providerrefresh','steeringorder','desktooltips','phoneaccess','auditwording','youpreview','queuedfold'].includes(fixture)) throw new Error('Unknown capture fixture')
+if(!['dndcontrol','orgdnd','greytheme','providerrefresh','steeringorder','desktooltips','phoneaccess','auditwording','youpreview','queuedfold','selectionmenu'].includes(fixture)) throw new Error('Unknown capture fixture')
 if(!out||!evidence||!deps) throw new Error('Usage: dndcontrol-capture.mjs <output> <evidence> <existing node_modules>')
 mkdirSync(out,{recursive:true});mkdirSync(evidence,{recursive:true})
 const esbuild=createRequire(path.join(deps,'../package.json'))('esbuild')
