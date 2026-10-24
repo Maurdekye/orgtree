@@ -1,3 +1,4 @@
+import { orgNavigationTooltip } from '../shell/orgnavigationbindings'
 import { canonPiles, pruneRetiredView, viewPiles, viewHidden, canvasTargets } from './canvaslayout'
 import { hireAutoFocusOn } from '../hirefocus'
 import { projectBunches, projectBunchLink, projectBunchInsertion, type ProjectBunch } from './projectbunch'
@@ -3472,9 +3473,10 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
     const last = lastDesk ? map.get(lastDesk) : undefined
     const can = !!last && last.state !== 'archived'
     return [
-      { label: sentence(HUD_FIT), onSelect: hudFit },
-      { label: sentence(HUD_SWITCHBOARD), onSelect: hudSwitchboard },
+      { label: sentence(HUD_FIT), title: orgNavigationTooltip(HUD_FIT, 'fitOrg'), onSelect: hudFit },
+      { label: sentence(HUD_SWITCHBOARD), title: orgNavigationTooltip(HUD_SWITCHBOARD, 'switchboard'), onSelect: hudSwitchboard },
       { label: can ? `Focus last desk (${lastDesk})` : 'Focus last desk',
+        title: orgNavigationTooltip('Focus last desk', 'lastDesk'),
         onSelect: () => { if (can) centerOn(lastDesk!) }, disabled: !can },
     ]
   }
@@ -4818,7 +4820,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
           switchboard · full view · zoom in · zoom out */}
       {canvasMenu.node}
       <div ref={zoomHudRef} className="zoomhud" onPointerDown={(e) => e.stopPropagation()}>
-        <button className="hud-eye" title={HUD_SWITCHBOARD}
+        <button className="hud-eye" title={orgNavigationTooltip(HUD_SWITCHBOARD, 'switchboard')}
           onClick={hudSwitchboard}>
           <svg viewBox="0 0 48 26">
             <path d="M 2 13 C 13 2, 35 2, 46 13 C 35 24, 13 24, 2 13 Z" />
@@ -4826,7 +4828,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
             <circle className="pupil" cx="24" cy="13" r="2.6" />
           </svg>
         </button>
-        <button title={HUD_FIT} onClick={hudFit}><FullscreenIcon fontSize="inherit" /></button>
+        <button title={orgNavigationTooltip(HUD_FIT, 'fitOrg')} onClick={hudFit}><FullscreenIcon fontSize="inherit" /></button>
         <button title="zoom in" onClick={() => zoomStep(1.3)}><AddIcon fontSize="inherit" /></button>
         <button title="zoom out" onClick={() => zoomStep(1 / 1.3)}><RemoveIcon fontSize="inherit" /></button>
       </div>
@@ -4891,7 +4893,8 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
           /* inline because it is data: the window-to-region distance on this
              side, over the stylesheet's 6px (which is the unpinned value) */
           style={{ top: e.y, ...(e.side === 'l' ? { left: e.inset } : { right: e.inset }) }}
-          title={`jump to ${e.n.id}`}
+          data-org-navigation-action={e.side === 'l' ? 'previousNode' : 'nextNode'}
+          title={orgNavigationTooltip(`jump to ${e.n.id}`, e.side === 'l' ? 'previousNode' : 'nextNode')}
           onPointerDown={(ev) => ev.stopPropagation()}
           onClick={() => centerOn(e.n.id)}>
           {e.side === 'l' && <ChevronLeftIcon fontSize="inherit" />}

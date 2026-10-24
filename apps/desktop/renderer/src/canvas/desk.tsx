@@ -27,6 +27,7 @@ import { useRecordsEnabled } from '../recordpanelhooks'
 import { transcriptViewport } from '../transcriptViewport'
 import { centerTranscriptTarget } from './deskscroll'
 import { setButtonAgent } from '../buttoncolours'
+import { orgNavigationTooltip } from '../shell/orgnavigationbindings'
 import { agentNavProps, agentTooltipProps } from './agentnav'
 import { RetiredBadge } from './retiredbadge'
 import { objectNavProps } from './objectnav'
@@ -1863,8 +1864,10 @@ export function NavChip({ n, dir, onJump }:
   return <span className="desk-nav-entry">
     <button data-copy-agent-name={eye ? undefined : n.id}
         {...agentNavProps(eye ? undefined : n.id)} className={'desk-nav-chip' + (!eye && n.state !== 'live' ? ' dim' : '') + prov}
-        title={eye ? 'jump to the switchboard'
-          : `jump to ${n.id}${n.state !== 'live' ? ` (${n.state})` : ''}`}
+        data-org-navigation-action={eye ? 'switchboard' : dir === 'up' ? 'parentNode' : 'childNode'}
+        title={orgNavigationTooltip(eye ? 'jump to the switchboard'
+          : `jump to ${n.id}${n.state !== 'live' ? ` (${n.state})` : ''}`,
+          eye ? 'switchboard' : dir === 'up' ? 'parentNode' : 'childNode')}
         onClick={() => onJump(n.id)}>
         {dir === 'up' ? <ArrowUpIcon fontSize="inherit" /> : <ArrowDownIcon fontSize="inherit" />}
         {eye

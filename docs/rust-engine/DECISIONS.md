@@ -22,6 +22,14 @@ policy remain physical, per the user's explicit exceptions.
 
 # Orgtree 4 rewrite — the user's standing decisions
 
+**Windows Fit shortcut and tooltip hints (USER 2026-10-24 meeb3ea29d6f8,
+m2185e9c95aad, m437f0fabb8d9, m8f522c3882a2; 4.4.5):** keep Shift+Alt if
+the Windows menu can be cleanly blocked; otherwise all org-navigation chords
+move to Shift+Ctrl after conflict reporting. The native cancellable menu seam
+supports the clean-block path, so bindings stay unchanged. Relevant navigation
+controls disclose the final bindings from the shared catalog. See
+[Windows navigation](../agents/desktop-and-renderer.md#windows-shiftaltspace-and-navigation-tooltip-bindings-2026-10-24).
+
 **One-time agent mail, USER 2026-10-24 (4.4.5):** message tools can omit the
 automatic reply audience when contacting deep descendants and label the
 recipient's header so it knows not to reply. Coordinator clarification:

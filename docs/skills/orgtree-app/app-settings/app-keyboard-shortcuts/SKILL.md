@@ -68,9 +68,15 @@ History lasts for this window's session, retains up to 256 agent visits, skips
 agents no longer in the loaded tree, and is preserved by project/switchboard/fit
 visits. Shift+F6 and Shift+F8 are unbound; Shift+F7 remains the last-desk shortcut.
 
-Windows may intercept Alt+Shift for input-language switching or Alt+Space for the
-system menu before the app receives the chord. Orgtree changes no OS bindings.
-On macOS, Option-arrow selection/word movement and deletion remain with editors.
+On Windows, Shift+Alt+Space now cancels only its native system-menu request,
+then uses the ordinary renderer navigation guards. Plain Alt+Space and titlebar
+right-click keep the Windows menu. Each native Orgtree window, including a
+pop-out, keeps separate modifier state and clears it on blur; org actions keep
+their existing main-canvas scope. No global shortcut or OS setting is changed.
+Navigation controls show bindings from the same shortcut catalog. Jump-card
+tooltips describe parent, centre-most visible child and previous/next sibling
+navigation; they do not promise the chord jumps to every displayed card.
+Windows may still intercept Alt+Shift for input-language switching. On macOS, Option-arrow selection/word movement and deletion remain with editors.
 
 ## Focus-dependent bindings
 

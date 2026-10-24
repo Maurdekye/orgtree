@@ -1,5 +1,26 @@
 # Desktop and renderer
 
+## Windows Shift+Alt+Space and navigation tooltip bindings (2026-10-24)
+
+On Windows, Shift+Alt+Space now cancels only its native system-menu request,
+then uses the ordinary renderer navigation guards. Plain Alt+Space and titlebar
+right-click keep the Windows menu. Each native Orgtree window, including a
+pop-out, keeps separate modifier state and clears it on blur; org actions keep
+their existing main-canvas scope. No global shortcut or OS setting is changed.
+Navigation controls show bindings from the same shortcut catalog. Jump-card
+tooltips describe parent, centre-most visible child and previous/next sibling
+navigation; they do not promise the chord jumps to every displayed card.
+
+The main process observes WM_SYSCHAR Space with its Alt context, then cancels
+Electron system-context-menu only while that window holds Shift+Alt without
+Ctrl/Meta. Non-client/right-click messages cannot reuse the keyboard marker.
+Only an initial Space not already delivered to Chromium is forwarded; held-key
+repeats do not replay Fit. Main creation installs it on every BrowserWindow.
+Agent/project identity hover remains canonical, with the shared binding suffix
+only inside explicitly marked navigation controls (USER m8f522c3882a2).
+[verified: `main/shift-alt-space.ts`, `shell/orgnavigationbindings.ts`,
+`canvas/{agentnav,desk,OrgCanvas}.tsx`; user report meeb3ea29d6f8]
+
 ## Selection-menu viewport anchor (2026-10-24, 4.4.5)
 
 `useContextMenu` measures the pressed descendant when its anchor has

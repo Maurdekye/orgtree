@@ -180,8 +180,15 @@ with a pinned/Attention desk count; plain selection, hover and passing a desk
 during a glide do not. Overview/fit keeps the memory. The switchboard keeps its
 own origin without erasing it. Missing, retired or hidden remembered nodes keep
 the existing behavior. Shift+F7 still uses its separate last-agent memory.
-Windows may intercept Alt+Shift for input-language switching or Alt+Space for its
-system menu; the app changes no OS settings. On macOS, editors retain Option-arrow
+On Windows, Shift+Alt+Space now cancels only its native system-menu request,
+then uses the ordinary renderer navigation guards. Plain Alt+Space and titlebar
+right-click keep the Windows menu. Each native Orgtree window, including a
+pop-out, keeps separate modifier state and clears it on blur; org actions keep
+their existing main-canvas scope. No global shortcut or OS setting is changed.
+Navigation controls show bindings from the same shortcut catalog. Jump-card
+tooltips describe parent, centre-most visible child and previous/next sibling
+navigation; they do not promise the chord jumps to every displayed card.
+Windows may still intercept Alt+Shift for input-language switching. On macOS, editors retain Option-arrow
 word movement/selection and deletion.
 
 Shift+F4 includes seen entries and resets to the newest if a newer mention arrives. It opens the desk/mail/ticket reader and highlights the mention. If a ticket edit removed the original text, a labelled recorded excerpt remains available. No history shows **No @user mentions yet**; reaching the oldest shows **No older @user mentions**, keeping the current view in place. Holding the key does not keep stepping.

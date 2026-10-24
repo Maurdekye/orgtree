@@ -285,6 +285,12 @@ still resume, so the agents themselves remember).
 
 ## 10. User-facing differences — complete ledger
 
+Windows Fit shortcut (USER 2026-10-24, 4.4.5): keep Shift+Alt+Space and suppress
+only its native system-menu request in Orgtree windows. Plain Alt+Space stays
+native. Navigation controls show the shared catalog's bindings in their tooltips;
+editor ownership and main-canvas action scope remain. See
+[Windows navigation](../agents/desktop-and-renderer.md#windows-shiftaltspace-and-navigation-tooltip-bindings-2026-10-24).
+
 No-focused-desk navigation (USER 2026-10-24, 4.4.5): Shift+Alt arrows continue
 from the last live agent/project desk in this org when the current origin is
 empty and the remembered node is still in the visible layout. Overview/fit

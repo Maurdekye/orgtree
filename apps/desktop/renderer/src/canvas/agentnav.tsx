@@ -42,6 +42,7 @@
 // the nav lookup there is unconditional rather than gated on the surface
 // having passed no entries.
 
+import { orgNavigationTooltip, ORG_NAV_TOOLTIP } from '../shell/orgnavigationbindings'
 import { createContext, useContext, useEffect, useMemo, useRef } from 'react'
 import type { ReactNode } from 'react'
 import type { MenuEntry } from './contextmenu'
@@ -141,7 +142,8 @@ export function registerAgentNativeTooltipDocument(owner: Document,
       const firstLine = title.split('\n', 1)[0]!.trim()
       const needsName = anchor.hasAttribute(AGENT_TOOLTIP_NAME_FIRST_ATTR)
         && firstLine !== id && !firstLine.startsWith(id + ' ·')
-      anchor.title = needsName ? `${id}\n${title}` : title
+      anchor.title = orgNavigationTooltip(needsName ? `${id}\n${title}` : title,
+        anchor.closest(`[${ORG_NAV_TOOLTIP}]`)?.getAttribute(ORG_NAV_TOOLTIP))
     }
   }
   const clear = (event: Event) => {
