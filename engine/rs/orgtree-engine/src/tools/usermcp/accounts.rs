@@ -103,6 +103,8 @@ mod tests {
         tracing::info!("user MCP account positive log control");
         let engine=Engine::for_tests(std::env::temp_dir().join("orgtree-usermcp-account-synthetic"));
         let secret="SYNTHETIC_ACCOUNT_SECRET_CANARY_192e";
+        // Cover native tracing; the database fixture covers forwarded log records.
+        tracing::debug!(target:"tokio_postgres::query","synthetic SQL bind: {secret}");
         for args in [json!({"action":"enable","id":"synthetic","enabled":secret}),
             json!({"action":"add","provider":"openai","kind":"managed","key":secret}),
             json!({"action":"list","key":secret}),json!({"action":"claude_key_add","token":{secret:secret}})] {
