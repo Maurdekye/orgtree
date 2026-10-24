@@ -316,7 +316,13 @@ async fn api_not_found(req: Request) -> Response {
 /// carries this process's instance id (the renderer's restart detector) and
 /// the request's id. Each request is logged as its own request (decision 34):
 /// REQUEST and RESPONSE lines with masked bodies, and HEADERS when verbose.
-async fn guard(State(engine): State<Arc<Engine>>, req: Request, next: Next) -> Response {
+async fn guard(State(engine): State<Arc<Engine>>, mut req: Request, next: Next) -> Response {
+    // Preserve the legacy peer extension too: the separately authenticated
+    // credential bridge still checks ConnectInfo<SocketAddr> for loopback.
+    if let Some(peer) = req.extensions().get::<axum::extract::ConnectInfo<crate::client_tokens::transport::ClientInfo>>()
+        .map(|info| info.0.0.peer) {
+        req.extensions_mut().insert(axum::extract::ConnectInfo(peer));
+    }
     if crate::lsproxy::route(req.uri().path()) {
         return crate::lsproxy::dispatch(State(engine), req).await;
     }
