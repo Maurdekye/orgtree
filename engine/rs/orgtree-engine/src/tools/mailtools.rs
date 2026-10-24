@@ -804,6 +804,38 @@ mod tests {
     use super::*;
 
     #[test]
+    fn one_time_split_and_flat_metadata_are_equivalent() {
+        let flat=json!({"to":"worker","one_time":true,"body":"FYI"});
+        assert_eq!(flat_args(&json!({"metadata":{"to":"worker","one_time":true},"body":"FYI"})).unwrap(),flat_args(&flat).unwrap());
+        assert!(flat_args(&json!({"metadata":{"to":"worker"},"one_time":true,"body":"FYI"})).is_err());
+    }
+
+    #[test]
+    fn one_time_durable_marker_is_in_message_and_notice_headers() {
+        for notice in [false,true] {
+            for one_time in [false,true] {
+                let raw=json!({"uid":"m-one-time","sender":"manager","body":"Visible body","notice":notice,
+                    "extra":{"one_time":one_time}});
+                let m=crate::runtime::actor::mail_of(&raw);
+                for opening in [false,true] {
+                    let text=crate::runtime::envelope::mail_block(&[&m],&Default::default(),opening);
+                    assert_eq!(text.contains("ONE-TIME MESSAGE — do not reply; no reply audience was granted by this message"),one_time,"{text}");
+                    if one_time { assert!(text.find("ONE-TIME MESSAGE").unwrap()<text.find("Visible body").unwrap()); }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn one_time_header_survives_mail_by_reference() {
+        let m=crate::runtime::actor::mail_of(&json!({"uid":"m-large-one-time","sender":"manager",
+            "body":"x".repeat(crate::runtime::prompt::MAIL_INLINE_BYTES+1),"extra":{"one_time":true}}));
+        let text=crate::runtime::prompt::steer_text(&[m],&Default::default());
+        assert!(text.contains("MAIL BY REFERENCE"));
+        assert!(text.contains("ONE-TIME MESSAGE — do not reply; no reply audience was granted by this message"));
+    }
+
+    #[test]
     fn request_kind_is_preserved_and_unknown_kinds_refused() {
         assert_eq!(stored_kind("message"), Some("message"));
         assert_eq!(stored_kind("question"), Some("question"));
