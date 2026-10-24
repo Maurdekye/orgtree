@@ -241,6 +241,11 @@ Original section: AGENTS.md — working on Orgtree. Source lines 640–647.
 
 ## The persistent app-wide taskbar badge reads existing native app-feed attention
 
+Current artwork (USER 2026-10-24, 4.4.5): Windows matches Hubchat's red centre,
+light rim and antialiased edge, with no count. This supersedes the historical
+no-ring artwork below; attention qualification and lifecycle remain unchanged.
+See [current geometry and verification](../rust-engine/taskbar-dot.md).
+
 Original section: AGENTS.md — working on Orgtree. Source lines 656–683.
 
 <!-- preserved:e-5707ea246383c7ce -->

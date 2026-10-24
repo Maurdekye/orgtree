@@ -9,9 +9,14 @@ the notice's `attention` boolean independently of its toast kind. Badge and
 menu share `isTaskbarAttentionNotice`; no new counter or poll exists.
 Notification preferences govern interruptions and do not hide this indicator.
 
-Windows uses a standalone red circle with real alpha antialiasing and no white
-ring or grey halo (user 2026-10-19 17:10Z). Each physical raster is sampled
-separately at 100/125/150/175/200/250/300/400% DPI. Electron decodes straight-alpha
+Windows matches Hubchat's taskbar dot (user 2026-10-24, 4.4.5), replacing the
+2026-10-19 no-ring artwork: a red `#e5484d` centre with a light `#f2f2f2` rim,
+no number, centred in a transparent 16px overlay. The reference is Hubchat's
+`src-tauri/src/taskbar_dot.rs` at `66138d4`: radius 7, light pixels beyond
+radius 5.5, with linear outer alpha coverage. Windows supplies the overlay's
+taskbar position. The 16px raster matches the reference pixels; separately
+generated 100/125/150/175/200/250/300/400% DPI rasters retain its proportions.
+Electron decodes straight-alpha
 PNG representations; the raw bitmap helper uses premultiplied BGRA. The tray
 icon retains its existing artwork. New windows immediately receive current state. Focus does
 not clear it: the last qualifying item must resolve. An unchanged feed avoids

@@ -1,3 +1,8 @@
+**Taskbar dot appearance, USER 2026-10-24 07:11Z (4.4.5):** match Hubchat's
+Windows taskbar notification dot, including its red centre and light rim,
+without changing attention qualification, lifetime or taskbar placement.
+This supersedes the 2026-10-19 no-ring artwork. See [taskbar dot](taskbar-dot.md).
+
 **User creation position, USER 2026-10-23 19:12Z m0d1975636f40 (4.4.5):**
 App settings > Display > Desk > New hires go: End (default), Start or Centre.
 Ordinary user agent AND project creation follows it, including compact hire,

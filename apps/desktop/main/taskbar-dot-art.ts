@@ -1,34 +1,34 @@
 import { deflateSync } from 'node:zlib'
 
 const RED = [0xe5, 0x48, 0x4d] as const
+const RIM = [0xf2, 0xf2, 0xf2] as const
 const SCALES = [1, 1.25, 1.5, 1.75, 2, 2.5, 3, 4] as const
 
-/** A standalone circle, without the tray icon's intentional white rim.
- * Sample coverage at each physical resolution; PNG stores straight RGBA. */
+/** USER 2026-10-24: match Hubchat's taskbar dot, including its light rim.
+ * Hubchat taskbar_dot.rs at 66138d4 supplies the 16px geometry and coverage;
+ * keep that geometry proportional at each physical DPI. PNG is straight RGBA. */
 function rgba(size: number): Buffer {
   if (!Number.isInteger(size) || size < 8 || size > 256) throw new Error('Invalid taskbar dot size')
-  const pixels = Buffer.alloc(size * size * 4), samples = 8, center = size / 2, radius = size * 7 / 16
+  const pixels = Buffer.alloc(size * size * 4), scale = size / 16, center = size / 2, radius = 7 * scale
   for (let y = 0; y < size; y++) for (let x = 0; x < size; x++) {
-    let covered = 0
-    for (let sy = 0; sy < samples; sy++) for (let sx = 0; sx < samples; sx++) {
-      const dx = x + (sx + 0.5) / samples - center, dy = y + (sy + 0.5) / samples - center
-      if (dx * dx + dy * dy <= radius * radius) covered++
-    }
-    const at = (y * size + x) * 4, alpha = Math.round(255 * covered / (samples * samples))
-    if (alpha) { pixels[at] = RED[0]; pixels[at + 1] = RED[1]; pixels[at + 2] = RED[2]; pixels[at + 3] = alpha }
+    const distance = Math.hypot(x + 0.5 - center, y + 0.5 - center)
+    const alpha = Math.round(255 * Math.max(0, Math.min(1, radius + 0.5 - distance)))
+    const colour = distance > radius - 1.5 * scale ? RIM : RED
+    const at = (y * size + x) * 4
+    if (alpha) { pixels[at] = colour[0]; pixels[at + 1] = colour[1]; pixels[at + 2] = colour[2]; pixels[at + 3] = alpha }
   }
   return pixels
 }
 
 /** Electron's raw bitmap format is premultiplied BGRA. Transparent pixels
- * are zero; every partially covered pixel has the same unassociated red. */
+ * are zero; colour and coverage come from the same raster as the PNG. */
 export function taskbarDotBitmap(size = 16): Buffer {
   const pixels = rgba(size), bitmap = Buffer.alloc(pixels.length)
   for (let at = 0; at < pixels.length; at += 4) {
     const alpha = pixels[at + 3]
-    bitmap[at] = Math.round(RED[2] * alpha / 255)
-    bitmap[at + 1] = Math.round(RED[1] * alpha / 255)
-    bitmap[at + 2] = Math.round(RED[0] * alpha / 255)
+    bitmap[at] = Math.round(pixels[at + 2] * alpha / 255)
+    bitmap[at + 1] = Math.round(pixels[at + 1] * alpha / 255)
+    bitmap[at + 2] = Math.round(pixels[at] * alpha / 255)
     bitmap[at + 3] = alpha
   }
   return bitmap

@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import path from 'node:path'
 import {createRequire} from 'node:module'
+import {createHash} from 'node:crypto'
 import { testOutput } from './helpers/test-output.mjs'
 const require=createRequire(process.env.ORGTREE_TEST_DEPS||import.meta.url),{buildSync}=require('esbuild')
 const output=testOutput('ORGTREE_BADGE_TEST_ROOT','art-'),temp=output.directory
@@ -10,15 +11,29 @@ test.after(()=>output.cleanup())
 buildSync({entryPoints:['apps/desktop/main/taskbar-badge.ts'],outdir:temp,outExtension:{'.js':'.cjs'},bundle:true,platform:'node',format:'cjs'})
 const {taskbarDotBitmap,taskbarDotImage}=require(path.join(temp,'taskbar-badge.cjs'))
 
-test('the overlay contains only red premultiplied pixels with no white or grey rim',()=>{
- const bitmap=taskbarDotBitmap()
- let partial=0
- for(let at=0;at<bitmap.length;at+=4){
-  const alpha=bitmap[at+3]
-  assert.deepEqual([...bitmap.subarray(at,at+3)],[0x4d,0x48,0xe5].map(c=>Math.round(c*alpha/255)))
-  if(alpha>0&&alpha<255)partial++
+test('the 16px overlay matches Hubchat pixels including its light rim and edge coverage',()=>{
+ // Frozen reference: Maurdekye/orgtree-hubchat 66138d43cc2b527e17c8a69d3664a85af9540a64,
+ // src-tauri/src/taskbar_dot.rs (blob d816a3b630f9034d5e1ff28dd04461ea221596ae),
+ // converted from straight RGBA to Electron premultiplied BGRA.
+ assert.equal(createHash('sha256').update(taskbarDotBitmap()).digest('hex'),
+  '2424ec239e77210607f92272d5f60eac7325e8930b16a71b31855a931fcb6b08')
+})
+
+test('the red center and light rim stay premultiplied at every supplied DPI',()=>{
+ for(const size of [16,20,24,28,32,40,48,64]){
+  const bitmap=taskbarDotBitmap(size)
+  let partial=0,red=0,rim=0
+  for(let at=0;at<bitmap.length;at+=4){
+   const alpha=bitmap[at+3],pixel=[...bitmap.subarray(at,at+3)]
+   const isRed=pixel.every((c,i)=>c===Math.round([0x4d,0x48,0xe5][i]*alpha/255))
+   const isRim=pixel.every(c=>c===Math.round(0xf2*alpha/255))
+   assert.ok(isRed||isRim,'only the two reference colours, with alpha')
+   if(alpha===255&&isRed)red++
+   if(alpha===255&&isRim)rim++
+   if(alpha>0&&alpha<255)partial++
+  }
+  assert.ok(red>0&&rim>0&&partial>0,'center, opaque rim and antialiased edge are present')
  }
- assert.ok(partial>0,'the circle has true alpha coverage at its edge')
 })
 
 test('100 125 150 and 200 percent overlay rasters have their own physical resolution',()=>{

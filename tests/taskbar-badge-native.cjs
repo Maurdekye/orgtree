@@ -21,13 +21,15 @@ app.whenReady().then(async()=>{
       const size=16*scaleFactor,png=dot.toPNG({scaleFactor}),pixels=dot.toBitmap({scaleFactor})
       assert.equal(png.readUInt32BE(16),size);assert.equal(png.readUInt32BE(20),size)
       assert.equal(pixels.length,size*size*4)
-      let partial=0
+      const expected=taskbarDotBitmap(size)
+      let partial=0,rim=0
       for(let at=0;at<pixels.length;at+=4){
         const alpha=pixels[at+3]
-        for(const [channel,red] of [0x4d,0x48,0xe5].entries())assert.ok(Math.abs(pixels[at+channel]-Math.round(red*alpha/255))<=1,'native PNG decoding preserves premultiplied red without a halo')
+        for(let channel=0;channel<4;channel++)assert.ok(Math.abs(pixels[at+channel]-expected[at+channel])<=1,'native PNG decoding preserves the reference red, light rim and alpha')
+        if(alpha===255&&pixels[at]===0xf2&&pixels[at+1]===0xf2&&pixels[at+2]===0xf2)rim++
         if(alpha>0&&alpha<255)partial++
       }
-      assert.ok(partial>0)
+      assert.ok(partial>0&&rim>0)
       fs.writeFileSync(path.join(out,'dot-'+Math.round(100*scaleFactor)+'.png'),png)
       dpi.push({scaleFactor,size,url:'data:image/png;base64,'+png.toString('base64')})
     }

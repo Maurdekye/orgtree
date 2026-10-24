@@ -36,6 +36,9 @@ only for the same mention ID; a changed agent generation still blocks the jump.
 If the clicked source is unknown or unavailable after bounded history loading,
 the desk opens without centering another mention.
 
+On Windows, the taskbar attention dot matches Hubchat: a red centre with a
+light rim and no number. Its appearance does not change what needs attention.
+
 The persistent taskbar/dock attention dot is separate from these banner
 preferences. It follows unresolved questions, urgent mail, docket attention and
 plain user mentions; ordinary unread mail and standalone terminal failures do
