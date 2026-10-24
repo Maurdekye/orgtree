@@ -19,12 +19,12 @@ use crate::http::error::ApiError;
 use crate::http::orgs::org;
 use crate::orgs::OrgHandle;
 
-#[logged]
+#[nolog]
 pub async fn orgless(State(e): State<Arc<Engine>>, Json(body): Json<Value>) -> Response {
     run(e, None, body).await
 }
 
-#[logged]
+#[nolog]
 pub async fn per_org(State(e): State<Arc<Engine>>, Path(slug): Path<String>, Json(body): Json<Value>) -> Response {
     let o = match org(&e, &slug) {
         Ok(o) => o,
@@ -42,7 +42,7 @@ pub async fn no_stream(State(e): State<Arc<Engine>>) -> Response {
     (StatusCode::METHOD_NOT_ALLOWED, Json(json!({ "detail": "the user MCP endpoint is stateless: POST one JSON-RPC message per request" }))).into_response()
 }
 
-#[logged]
+#[nolog]
 async fn run(engine: Arc<Engine>, org: Option<&Arc<OrgHandle>>, body: Value) -> Response {
     if !engine.cfg.standalone {
         return ApiError::not_found("the user MCP endpoint runs in standalone mode").into_response();

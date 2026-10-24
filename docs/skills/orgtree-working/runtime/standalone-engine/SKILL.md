@@ -44,6 +44,36 @@ checks. The token authorizes user access to this engine, not a restricted
 agent identity. Remote access can use loopback with SSH/Tailscale or a chosen
 private listener; built-in TLS termination is not supplied.
 
+## Named client tokens
+
+The bootstrap/startup token remains a recovery key. All authenticated clients
+act as the user, including client-token administration. The standalone-only
+HTTP API is `GET/POST /api/standalone/clients` and
+`DELETE /api/standalone/clients/<id>`. POST takes `{"name":"My client"}` and
+returns `id`, `name`, `created_at` and a secret shown **once**. GET returns
+`{"clients":[{"id":"...","name":"...","created_at":"..."}]}` only.
+
+The orgless user MCP endpoint provides `orgtree_client_tokens`:
+
+| Action | Fields | Result |
+| --- | --- | --- |
+| `list` (default) | none | Active id/name/created_at only. |
+| `create` | `name` | New metadata plus one-time token. |
+| `revoke` | `id` | Removes the client and immediately drops all its open HTTP/WS/MCP connections. |
+
+Each action refuses unrelated fields. Names are trimmed, 1-100 characters,
+without control characters; duplicates are allowed and IDs disambiguate them.
+There are at most 128 active clients. Secrets contain 32 random bytes and only
+SHA-256 hashes are persisted, in `standalone-clients.json` (Unix mode 0600).
+An invalid saved registry refuses startup. Active clients survive restart;
+revoked clients remain invalid. Creation/revocation logs contain IDs, not secrets.
+
+Revoking the token you are using disconnects you; reconnect with another token
+or the bootstrap key. No response is promised on self-revoke (EOF is acceptable).
+A socket remembers every token authenticated on it; revoking any one closes
+that shared socket. Unrelated sockets stay open. The bootstrap key cannot be
+revoked by these operations. No expiry, rotation or desktop switch is supplied.
+
 The existing HTTP API manages organizations, settings, providers, mail and
 tree operations. Authenticated `/api/desktop/alive` reports readiness and
 `/api/desktop/shutdown` requests shutdown. Standalone does not watch a desktop

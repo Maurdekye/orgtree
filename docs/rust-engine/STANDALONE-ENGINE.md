@@ -169,12 +169,9 @@ No real provider login was performed in this source audit.
 `apps/desktop/main/providerlogin.ts`]
 
 ## Deferred (not in this slice)
-- **Per-client named/revocable tokens, an audit log and a desktop "Remote
-  control (MCP)" switch** (docket discussion 2026-10-13) build on the phase-1
-  token; the token file format (one token per line) leaves room.
-  USER 2026-10-24 approved named clients with immediate connection closure on
-  revocation and the bootstrap recovery key retained. All clients act as the
-  user. The desktop switch remains separate from the assigned packaging slice.
+- **A desktop "Remote control (MCP)" switch and a dedicated audit-log UI**
+  (docket discussion 2026-10-13) remain separate from standalone token
+  management. Named client tokens are implemented as described below.
 - **MCP extras:** USER 2026-10-24 approved tree operations
   (move/reorder/retool/rehire), question discovery/answering, and
   settings/credits/account administration. Their implementation follows the
@@ -271,3 +268,41 @@ Measured outside Docker using the same release engine built at source
 This verifies direct WSL Linux execution, not a generic Linux distribution
 matrix or real provider login/turn. No engine source changed for this proof.
 [verified: `pg.rs`, direct synthetic standalone run; 2026-10-24]
+
+### Named client tokens, 2026-10-24 (4.4.5)
+
+USER m786bcc0b3072: revocation must "Drop at once"; the bootstrap recovery key
+stays and every client acts as the user. Coordinator m73ae357a3860 approved
+self-revoke with no acknowledgement promise and tracking all credentials used
+on shared TCP sockets. These replace the earlier single-token-only boundary.
+
+- Standalone HTTP: `GET/POST /api/standalone/clients`,
+  `DELETE /api/standalone/clients/{id}`. User MCP parity is the orgless
+  `orgtree_client_tokens` list/create/revoke card. No agent identity, desktop
+  switch, expiry or rotation is introduced. All clients may administer clients.
+- Create needs a trimmed 1-100-character name without control characters;
+  duplicate names are allowed, UUIDs identify revocation. A secret is 32 OS
+  random bytes (64 hex characters), returned once. List returns only active
+  id/name/created_at; at most128 active records. The independent bootstrap key
+  is never included in, modified by or revocable through the registry.
+- `standalone-clients.json` stores versioned metadata and SHA-256 hashes only.
+  Writes use unique create-new 0600 temporary files, file fsync and atomic
+  replacement. Failed persistence does not accept a create/revoke; malformed
+  persisted state fails startup. A parent-directory fsync is attempted on Unix.
+- The standalone listener carries a cloned raw TCP shutdown handle through
+  ConnectInfo and upgrade. Authentication registers the socket before reading
+  the body. The registry mutex serializes registration and durable revocation;
+  removing a key shuts every live registered socket in both directions. It
+  cuts idle keepalive, partial requests/inflight MCP and upgraded WebSockets.
+  Any token used on a shared socket binds it to that key's future revocation;
+  unrelated sockets remain open. Ordinary serve/host use their prior listener
+  and bootstrap-header behavior.
+- Self-revoke includes the calling socket, so EOF may replace a200/MCP result.
+  Reconnect with another token or the bootstrap key. This is deliberate.
+- Secret-bearing helpers/MCP return boundaries are nolog; HTTP token-admin
+  and MCP bodies are omitted at the wire boundary, including unknown/rejected
+  token-admin descendants. Safe create/revoke log entries contain only IDs.
+
+[decided: user/coordinator 2026-10-24; verified: `client_tokens.rs`,
+`client_tokens/transport.rs`, `http/{mod,client_tokens,usermcp}.rs`,
+`tools/usermcp.rs`]

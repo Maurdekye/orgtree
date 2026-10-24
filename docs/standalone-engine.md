@@ -71,7 +71,36 @@ Send `Authorization: Bearer <token>` on every API or push-socket request. The
 existing `X-Orgtree-Desktop-Token` header is also accepted. Missing or wrong
 credentials return 403. An authenticated client acts as the user of the engine.
 
-Use `POST /api/mcp` to list or create organizations. Then connect to
+### Give each client its own token
+
+Keep the startup token as your bootstrap recovery key. Authenticated clients
+can create, list and revoke named client tokens through the engine-wide API:
+
+| Request | Result |
+| --- | --- |
+| `POST /api/standalone/clients` with `{"name":"My client"}` | New `id`, `name`, `created_at` and a `token` shown once. Save the token now. |
+| `GET /api/standalone/clients` | Active clients' `id`, `name` and `created_at`; no secrets or hashes. |
+| `DELETE /api/standalone/clients/<id>` | Revokes that client and immediately disconnects its HTTP, WebSocket and MCP connections. |
+
+The orgless MCP endpoint offers the same operations through
+`orgtree_client_tokens`, with `action: "list"` (default), `"create"` plus `name`,
+or `"revoke"` plus `id`. Every client has user authority, including token
+administration. The bootstrap key cannot be revoked through these operations.
+
+Revoking the token you are using disconnects you; reconnect with another token
+or the bootstrap key. A self-revoke may end with EOF instead of a response.
+If several tokens have authenticated on one shared TCP connection, revoking any
+of them closes that connection; unrelated connections stay open.
+
+Names contain 1-100 characters without control characters. Duplicate names are
+allowed; use the returned ID to revoke a specific client. At most 128 client
+tokens may be active. Each secret contains 32 random bytes. Only its SHA-256
+hash and public metadata are saved in `standalone-clients.json` (mode 0600 on
+Unix), alongside the existing data. Preserve this file across restarts. Revoked
+clients leave the active list. Expiry, rotation and a desktop token UI are not
+part of these operations.
+
+Use `POST /api/mcp` to manage client tokens and list or create organizations. Then connect to
 `POST /api/orgs/<slug>/mcp` to manage that organization. The transport is stateless
 Streamable HTTP; GET returns 405. Read its `tools/list` result for the supported
 tool cards. The initial set includes chart, user mail and inbox, docket,

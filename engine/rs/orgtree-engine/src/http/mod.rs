@@ -2,6 +2,7 @@
 //! push sockets, and the renderer bundle.
 
 pub mod accounts;
+pub mod client_tokens;
 pub mod asks;
 pub mod desktop;
 pub mod docs;
@@ -76,6 +77,8 @@ pub fn router(engine: Arc<Engine>) -> Router {
         // the user MCP endpoint (standalone mode; 404 otherwise)
         .route("/api/mcp", post(usermcp::orgless).get(usermcp::no_stream))
         .route("/api/orgs/{slug}/mcp", post(usermcp::per_org).get(usermcp::no_stream))
+        .route("/api/standalone/clients", get(client_tokens::list).post(client_tokens::create))
+        .route("/api/standalone/clients/{id}", delete(client_tokens::revoke))
         // organizations
         .route("/api/orgs", get(orgs::list).post(orgops::create))
         .route("/api/orgs/{slug}", get(orgs::tree).delete(orgops::delete))
@@ -327,6 +330,9 @@ async fn guard(State(engine): State<Arc<Engine>>, req: Request, next: Next) -> R
 /// Bodies the log never holds: private template traffic, uploads, downloads, UI, sockets.
 fn quiet_body(path: &str, headers: &axum::http::HeaderMap) -> bool {
     !path.starts_with("/api/")
+        // A newly created client secret is shown once; omit bodies even on
+        // rejected/unrecognized descendants, before auth or JSON parsing.
+        || path == "/api/standalone/clients" || path.starts_with("/api/standalone/clients/")
         // Template downloads contain copied private AGENTS.md text inside a
         // JSON string. Omit entire request/response bodies before auth and
         // extraction, including malformed requests and unknown child routes.
@@ -416,11 +422,16 @@ async fn guarded(engine: Arc<Engine>, req: Request, next: Next) -> Response {
         .extensions()
         .get::<ConnectInfo<std::net::SocketAddr>>()
         .map(|c| c.0.to_string())
+        .or_else(|| req.extensions().get::<ConnectInfo<crate::client_tokens::transport::ClientInfo>>()
+            .map(|c| c.0.0.peer.to_string()))
         .unwrap_or_else(|| "-".into());
     let method = req.method().clone();
     let path = req.uri().path().to_string();
     let target = request_target_for_log(&path, req.uri());
     let info = format!("{peer} {method} {target}");
+    // Register the connection before reading any request body. A revoked
+    // client's partial upload/inflight MCP call must be disconnected too.
+    let standalone_ok = !engine.cfg.standalone || standalone_token_ok(&engine, &req);
     let quiet = quiet_body(&path, req.headers());
     let headers: Option<serde_json::Map<String, serde_json::Value>> = crate::trace::verbose().then(|| {
         req.headers()
@@ -433,7 +444,7 @@ async fn guarded(engine: Arc<Engine>, req: Request, next: Next) -> Response {
             })
             .collect()
     });
-    let req = if quiet {
+    let req = if quiet || !standalone_ok {
         tracing::info!(target: "wire", "REQUEST  {info} | [body omitted]");
         req
     } else {
@@ -460,7 +471,7 @@ async fn guarded(engine: Arc<Engine>, req: Request, next: Next) -> Response {
     // open it (token_ok is false for an empty token). Other modes keep the
     // existing rule: /api/ only, and only when a launcher set a token.
     let denied = if engine.cfg.standalone {
-        !token_ok(&engine, &req)
+        !standalone_ok
     } else {
         req.uri().path().starts_with("/api/") && !engine.cfg.desktop_token.is_empty() && !token_ok(&engine, &req)
     };
@@ -513,6 +524,19 @@ fn request_target_for_log(path: &str, uri: &axum::http::Uri) -> String {
 
 fn token_ok(engine: &Engine, req: &Request) -> bool {
     token_ok_headers(&engine.cfg.desktop_token, engine.cfg.standalone, req.headers())
+}
+
+#[nolog]
+fn standalone_token_ok(engine: &Engine, req: &Request) -> bool {
+    use axum::extract::ConnectInfo;
+    use crate::client_tokens::transport::ClientInfo;
+    let connection = req.extensions().get::<ConnectInfo<ClientInfo>>().map(|info| &info.0.0);
+    if connection.is_some_and(|connection| connection.closed()) { return false; }
+    if token_ok_headers(&engine.cfg.desktop_token, true, req.headers()) { return true; }
+    let (Some(registry), Some(connection)) = (&engine.clients, connection) else { return false; };
+    [req.headers().get(TOKEN_HEADER).and_then(|value| value.to_str().ok()),
+     req.headers().get(axum::http::header::AUTHORIZATION).and_then(|value| value.to_str().ok()).and_then(|value| value.strip_prefix("Bearer "))]
+        .into_iter().flatten().any(|token| registry.authenticate(token, connection))
 }
 
 /// The token as the desktop sends it (`X-Orgtree-Desktop-Token`), in every

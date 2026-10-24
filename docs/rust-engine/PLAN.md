@@ -291,6 +291,12 @@ native. Navigation controls show the shared catalog's bindings in their tooltips
 editor ownership and main-canvas action scope remain. See
 [Windows navigation](../agents/desktop-and-renderer.md#windows-shiftaltspace-and-navigation-tooltip-bindings-2026-10-24).
 
+Standalone client tokens (USER/coordinator 2026-10-24, 4.4.5): named clients
+create/list/revoke over HTTP and orgless user MCP. Revocation immediately drops
+that client's open HTTP/WS/MCP sockets, including self-revoke without a response
+promise and shared sockets used by multiple keys. Bootstrap recovery is retained;
+all clients act as the user. See [the standalone contract](STANDALONE-ENGINE.md#named-client-tokens-2026-10-24-445).
+
 No-focused-desk navigation (USER 2026-10-24, 4.4.5): Shift+Alt arrows continue
 from the last live agent/project desk in this org when the current origin is
 empty and the remembered node is still in the visible layout. Overview/fit

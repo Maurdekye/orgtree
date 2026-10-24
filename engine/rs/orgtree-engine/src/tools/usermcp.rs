@@ -27,7 +27,7 @@ use crate::orgs::OrgHandle;
 
 /// Tools served without an org (`POST /api/mcp`): enough to find or create
 /// the org to manage.
-const ORGLESS_TOOLS: &[&str] = &["orgtree_list_orgs", "orgtree_list_tiers", "orgtree_create_org"];
+const ORGLESS_TOOLS: &[&str] = &["orgtree_list_orgs", "orgtree_list_tiers", "orgtree_create_org", "orgtree_client_tokens"];
 /// Tools served per org (`POST /api/orgs/{slug}/mcp`).
 const ORG_TOOLS: &[&str] = &[
     "orgtree_chart", "orgtree_list_orgs", "orgtree_list_tiers", "orgtree_message", "orgtree_send_notice",
@@ -37,7 +37,7 @@ const ORG_TOOLS: &[&str] = &[
 
 /// One JSON-RPC message from a remote MCP client → its response, the same
 /// handshake shapes the in-process agent MCP server answers.
-#[logged]
+#[nolog]
 pub async fn handle(engine: &Arc<Engine>, org: Option<&Arc<OrgHandle>>, msg: &Value) -> Value {
     let method = msg["method"].as_str().unwrap_or("");
     if method == "tools/call" {
@@ -142,6 +142,12 @@ fn cards(org_scoped: bool) -> Vec<Value> {
             }
         }));
     }
+    if names.contains(&"orgtree_client_tokens") {
+        out.push(user_card("orgtree_client_tokens",
+            "Manage named standalone client tokens as the user. list (default) returns active id/name/created_at only; create needs name (1-100 characters) and returns a random secret ONCE; revoke needs id and immediately drops every HTTP/WS/MCP socket used with that token. Self-revoke disconnects you without a response promise; reconnect with another token or bootstrap key. Shared sockets close when any token used there is revoked. Bootstrap cannot be revoked; at most 128 active clients.",
+            json!({"action":{"type":"string","enum":["list","create","revoke"]},
+                "name":{"type":"string","minLength":1,"maxLength":100},"id":{"type":"string"}}), &[]));
+    }
     for card in &mut out {
         card["inputSchema"]["additionalProperties"] = json!(false);
     }
@@ -207,7 +213,7 @@ fn validate_args(org_scoped: bool, name: &str, args: &Value) -> Result<()> {
     Ok(())
 }
 
-#[logged]
+#[nolog]
 async fn call(engine: &Arc<Engine>, org: Option<&Arc<OrgHandle>>, params: &Value) -> Value {
     let name = params["name"].as_str().unwrap_or("");
     let args = match params.get("arguments") {
@@ -242,13 +248,14 @@ fn need_str<'a>(args: &'a Value, key: &str) -> Result<&'a str> {
     }
 }
 
-#[logged]
+#[nolog]
 async fn dispatch(engine: &Arc<Engine>, org: Option<&Arc<OrgHandle>>, name: &str, args: &Value) -> Result<Done> {
     validate_args(org.is_some(), name, args)?;
     match name {
         "orgtree_list_tiers" => return super::orgview::list_tiers(engine, args).await,
         "orgtree_list_orgs" => return list_orgs(engine, org).await,
         "orgtree_create_org" => return create_org(engine, args).await,
+        "orgtree_client_tokens" => return Ok(Done { text: serde_json::to_string(&crate::http::client_tokens::manage(engine, args).map_err(api)?)?, card: None }),
         _ => {}
     }
     let Some(org) = org else {

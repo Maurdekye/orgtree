@@ -21,6 +21,7 @@ pub struct Boot {
 
 pub struct Engine {
     pub cfg: Config,
+    pub clients: Option<Arc<crate::client_tokens::Registry>>,
     pub db: Pool,
     pub boot: Boot,
     pub credentials: crate::credential_context::CredentialContext,
@@ -76,6 +77,7 @@ impl Engine {
             standalone: false, bind: std::net::IpAddr::from([127, 0, 0, 1]), port: None, standalone_generated_token: false };
         Arc::new(Engine {
             cfg,
+            clients: None,
             db,
             boot: Boot { id: "test".into(), pid: std::process::id(), started_at: Utc::now(), port: 0 },
             credentials: crate::credential_context::CredentialContext::for_tests(),

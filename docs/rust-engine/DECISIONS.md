@@ -1,3 +1,12 @@
+**Standalone client tokens, USER 2026-10-24 m786bcc0b3072 (4.4.5), coordinator edges m73ae357a3860:**
+Named tokens can be created/listed/revoked as the user. Revocation drops open
+HTTP/WS/MCP connections at once, including self-revoke with no response promise
+and any shared socket used by the revoked key. Bootstrap recovery remains;
+all clients have user authority. Secrets are32 random bytes, shown once and
+stored only as SHA-256 hashes; at most128 active clients, names1-100characters.
+HTTP and orgless user MCP expose the same operations. See
+[the standalone contract](STANDALONE-ENGINE.md#named-client-tokens-2026-10-24-445).
+
 **Taskbar dot appearance, USER 2026-10-24 07:11Z (4.4.5):** match Hubchat's
 Windows taskbar notification dot, including its red centre and light rim,
 without changing attention qualification, lifetime or taskbar placement.

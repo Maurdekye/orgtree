@@ -18,6 +18,7 @@ mod accounts;
 mod appfeed;
 mod bridge;
 mod changes;
+mod client_tokens;
 mod codex_kills;
 mod config;
 mod core_policy;
@@ -249,6 +250,7 @@ async fn run_with_cluster(
     let (core, core_inbox) = core_monitor::Core::channel();
     let engine = Arc::new(Engine {
         cfg: cfg.clone(),
+        clients: if cfg.standalone { Some(Arc::new(client_tokens::Registry::open(&cfg.data_root)?)) } else { None },
         db: pool,
         boot,
         credentials: credential_context::CredentialContext::new(),
@@ -377,9 +379,14 @@ async fn run_with_cluster(
     launch::ready(port, &cfg.data_root_id);
     runtime::watchdogs::events::machine(&engine,"engine.started",serde_json::json!({"commit":option_env!("ORGTREE_BUILD_COMMIT").unwrap_or("rust-engine"),"pid":engine.boot.pid}));
     tracing::info!(port, "engine ready");
-    axum::serve(listener, app.into_make_service_with_connect_info::<std::net::SocketAddr>())
-        .with_graceful_shutdown(async move { shutdown.cancelled().await })
-        .await?;
+    if cfg.standalone {
+        axum::serve(client_tokens::transport::ClientListener(listener),
+                    app.into_make_service_with_connect_info::<client_tokens::transport::ClientInfo>())
+            .with_graceful_shutdown(async move { shutdown.cancelled().await }).await?;
+    } else {
+        axum::serve(listener, app.into_make_service_with_connect_info::<std::net::SocketAddr>())
+            .with_graceful_shutdown(async move { shutdown.cancelled().await }).await?;
+    }
     tracing::info!("engine stopping");
     runtime::shutdown(&engine).await;
     mailhub::stop(&engine).await;
