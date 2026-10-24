@@ -2,9 +2,9 @@
 
 Read this file before working in this repository. It is the startup guide, not a landing log. Detailed rules, source references and the complete earlier notes live in the [topic index](docs/agents/README.md).
 
-Selection menus anchor on the pressed text element, not the zero-size source
-boundary. See [viewport anchoring](docs/agents/desktop-and-renderer.md#selection-menu-viewport-anchor-2026-10-24-445).
-[verified: `canvas/replyselection.tsx`; 2026-10-24]
+Menus on transparent boundaries measure the pressed text element for position,
+retaining their original identity anchor. See [viewport anchoring](docs/agents/desktop-and-renderer.md#selection-menu-viewport-anchor-2026-10-24-445).
+[verified: `canvas/contextmenu.tsx`; 2026-10-24]
 
 Standalone user MCP cards describe the user handler's supported fields, with pre-dispatch refusal of unsupported options; do not clone agent mail/interrupt capabilities into them. See [the user-endpoint contract](docs/rust-engine/STANDALONE-ENGINE.md#user-tool-card-boundary-2026-10-23). [decided: user 2026-10-23; verified: `tools/usermcp.rs`]
 

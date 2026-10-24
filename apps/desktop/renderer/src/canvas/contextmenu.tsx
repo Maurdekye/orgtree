@@ -455,7 +455,13 @@ export function useContextMenu(toast?: ToastFn): ContextMenuHandle {
     if (!list.some((x) => x !== 'sep')) return
     e.preventDefault()
     e.stopPropagation()
-    const r = el.getBoundingClientRect()
+    // Transparent boundaries still own identity/link lookup and dismissal,
+    // but have no layout box. Measure the pressed descendant for positioning
+    // only; replacing `el` would narrow canonical object-menu lookups.
+    const pressed = e.target as Element | null
+    const positionAnchor = doc.defaultView?.getComputedStyle(el).display === 'contents'
+      && pressed?.nodeType === 1 && el.contains(pressed) ? pressed : el
+    const r = positionAnchor.getBoundingClientRect()
     const measured = r.width > 0 || r.height > 0
     const inside = measured && e.clientX >= r.left && e.clientX <= r.right
       && e.clientY >= r.top && e.clientY <= r.bottom

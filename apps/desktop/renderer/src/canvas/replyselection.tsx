@@ -52,10 +52,7 @@ export function ReplySelectionSurface({ source, children }: { source: SelectionS
         }).catch(error => feedback?.([error instanceof Error ? error.message : String(error)]))
       } },
       { label: 'Copy selection', onSelect: () => { void copyToClipboard(anchor, selectedText).then(ok => feedback?.([ok ? 'copied the selection' : 'clipboard unavailable'])) } },
-    // The source boundary is display:contents, so its rect is always zero.
-    // Keep it for source/composer custody above; position the menu from the
-    // pressed text element in this document's viewport (also in popouts).
-    ], event.target as Element, { textSelection: true })
+    ], anchor, { textSelection: true })
     if (opening !== undefined) event.stopPropagation()
   }}>{children}</div>{menu.node}</SelectionTextContext.Provider>
 }

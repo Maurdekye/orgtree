@@ -5,6 +5,27 @@ import assert from 'node:assert/strict'
 import { CurrentOrg } from '../src/popout'
 import { MailReplyBox } from '../src/canvas/mail'
 import { ReplySelectionSurface } from '../src/canvas/replyselection'
+import { useContextMenu } from '../src/canvas/contextmenu'
+
+function ContentsLinkMenu() {
+  const menu = useContextMenu()
+  return <div style={{ display: 'contents' }} onContextMenu={event => menu.open(event, [])}>
+    <button data-copy-agent-name="writer"><span>writer</span></button>{menu.node}
+  </div>
+}
+
+test('contents geometry preserves the original scope for ancestor link identity', async t => {
+  document.getSelection()?.removeAllRanges()
+  const view = await mountView(<ContentsLinkMenu />, el => el)
+  t.after(() => view.unmount())
+  const pressed = view.el.querySelector('span')!
+  pressed.getBoundingClientRect = () => ({ x: 420, y: 180, left: 420, top: 180, right: 700, bottom: 230, width: 280, height: 50, toJSON() {} })
+  await inAct(async () => { pressed.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, button: 2, clientX: 460, clientY: 210 })); await flush(2) })
+  const menu = document.querySelector<HTMLElement>('.ctxmenu')!
+  assert.ok(menu, 'identity on the pressed element\'s parent remains in scope')
+  assert.equal(menu.querySelector('[role="menuitem"]')?.textContent, 'Copy mention')
+  assert.deepEqual({ x: parseFloat(menu.style.left), y: parseFloat(menu.style.top) }, { x: 460, y: 210 })
+})
 
 // Model the viewport boxes, not jsdom's layout (which is always zero). The
 // transparent source stays zero-sized in every placement, as in Chromium.

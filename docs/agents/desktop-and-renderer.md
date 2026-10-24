@@ -2,17 +2,17 @@
 
 ## Selection-menu viewport anchor (2026-10-24, 4.4.5)
 
-`ReplySelectionSurface` keeps its `display:contents` boundary for source mapping
-and composer custody, but passes the pressed text element to the shared context
-menu. A contents boundary has a zero rect: using it as the position anchor puts
-the menu at the viewport's top-left edge. Keep client coordinates and the menu
-portal in the pressed element's owner document; the shared menu already handles
-keyboard fallback and viewport clamping. `selectionmenu.test.tsx` stubs nonzero
-text boxes across canvas/floating/pinned geometry and another document, and the
-capture uses a real pinned `DeskChat`. The same rule applies to whole-event
+`useContextMenu` measures the pressed descendant when its anchor has
+`display:contents`. The original anchor still owns source/composer custody,
+canonical link lookups and dismissal. A contents boundary has a zero rect:
+using it for position puts the menu at the viewport's top-left edge. Keep client
+coordinates and the portal in the anchor's owner document; keyboard fallback
+and viewport clamping use the measured box. `selectionmenu.test.tsx` stubs
+nonzero text boxes across canvas/floating/pinned geometry and another document,
+and the capture uses a real pinned `DeskChat`. The same rule fixes whole-event
 Reply/Copy menus on transparent live/thought rows (`liveeventmenu.test.tsx`);
-ordinary boxed rows keep their existing anchor. This restores intended placement without
-changing the existing selection-reply actions or agent tool contract.
+ordinary boxed rows keep their existing anchor. This restores intended
+placement without changing selection-reply actions or the agent tool contract.
 
 ## Manual-hire desk focus (2026-10-24)
 
