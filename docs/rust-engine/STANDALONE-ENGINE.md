@@ -137,10 +137,20 @@ USER 2026-10-23 chose the documented subset, not implementation of the missing
 agent options. [verified: `tools/usermcp.rs`; decided: user 2026-10-23]
 
 Not on the endpoint yet: message attachments and reply quoting, inbox
-`conversation`/`chunk`, tree ops beyond hire/retire (move, reorder,
-retool…), settings/credits/provider-account administration (all reachable
+`conversation`/`chunk`, settings/provider-account administration (all reachable
 through the authenticated HTTP API), and a question-card list (ids arrive
 with the cards in the user's inbox and transcripts).
+
+### User tree MCP additions (2026-10-24)
+
+The org endpoint exposes move (including atomic batches), reorder, retool,
+rehire and reallocate over the existing desktop `Actor::User` operation paths.
+The argument adapter maps move arrays to `moves` and rehire targets to parent,
+as the agent adapter does, without inventing an agent caller. Recorded
+operations use the existing user Undo path. Shared cards retain their fields
+but describe user authority; agent cards and the Oct23 mail/interrupt refusals
+remain unchanged. Source-based red control at the base finds all five tree
+tools absent; focused mapping/card tests cover the new adapter.
 
 ## Provider sign-in: native CLI over SSH (2026-10-24)
 

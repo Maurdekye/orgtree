@@ -32,7 +32,8 @@ const ORGLESS_TOOLS: &[&str] = &["orgtree_list_orgs", "orgtree_list_tiers", "org
 const ORG_TOOLS: &[&str] = &[
     "orgtree_chart", "orgtree_list_orgs", "orgtree_list_tiers", "orgtree_message", "orgtree_send_notice",
     "orgtree_inbox", "orgtree_work", "orgtree_hire", "orgtree_retire", "orgtree_interrupt",
-    "orgtree_answer", "orgtree_create_org",
+    "orgtree_answer", "orgtree_create_org", "orgtree_move", "orgtree_reorder", "orgtree_retool",
+    "orgtree_rehire", "orgtree_reallocate",
 ];
 
 /// One JSON-RPC message from a remote MCP client → its response, the same
@@ -104,6 +105,11 @@ fn cards(org_scoped: bool) -> Vec<Value> {
             "orgtree_list_orgs" => card["description"] = json!("List active local organizations and connected hub peers as the user; no agent audience is required to read this metadata."),
             "orgtree_hire" => card["description"] = json!("Hire as the user, with ordinary credit/scope validation and Undo recording. No parent/target hires at top level. A superior insertion needs hire_type=superior and target. index is the zero-based live sibling position; ordinary hire needs explicit scope fields."),
             "orgtree_retire" => card["description"] = json!("Retire the named agent as the user through the desktop's Undo-recorded tree operation. Its saved context remains available for rehire."),
+            "orgtree_move" => card["description"] = json!("Move nodes in this organization as the user. Use node/new_parent or moves[{node,new_parent}]; a batch is atomic. Ordinary tree and credit validation and desktop Undo apply."),
+            "orgtree_reorder" => card["description"] = json!("Reorder a live node as the user: index is its zero-based final sibling position after removing it. Ordinary tree validation and desktop Undo apply."),
+            "orgtree_retool" => card["description"] = json!("Change a named agent's supplied scope or charter fields as the user. Unspecified fields stay unchanged; folder restrictions propagate to descendants. Ordinary scope validation and desktop Undo apply."),
+            "orgtree_rehire" => card["description"] = json!("Restore a retired node as the user. Omitted agent fields retain saved values; target/hire_type set placement and index is forbidden. Projects retain policy and reject agent overrides. Ordinary scope/credit validation and desktop Undo apply."),
+            "orgtree_reallocate" => card["description"] = json!("Adjust a named agent's grant as the user: positive delta grants, negative takes unused credits back. Ordinary caps, committed-credit checks and the user's credit-bubbling setting apply."),
             "orgtree_work" => {
                 card["description"] = json!("Manage this organization's docket as the user: list/get, create/update, complete with accept, assign/handoff, participants/evidence, archive/supersede/move/delete. The user authority path applies; progress preservation, revision and status/reason validation remain in effect.");
                 card["inputSchema"]["properties"]["owner"]["description"] = json!("create/assign: named owner; update: retain the current owner when desired");
@@ -269,6 +275,11 @@ async fn dispatch(engine: &Arc<Engine>, org: Option<&Arc<OrgHandle>>, name: &str
         "orgtree_work" => super::work_with(engine, org, &Who::User, args).await,
         "orgtree_hire" => tree_op(engine, org, "hire", args).await,
         "orgtree_retire" => tree_op(engine, org, "retire", args).await,
+        "orgtree_move" => tree_op(engine, org, "move", args).await,
+        "orgtree_reorder" => tree_op(engine, org, "reorder", args).await,
+        "orgtree_retool" => tree_op(engine, org, "retool", args).await,
+        "orgtree_rehire" => tree_op(engine, org, "rehire", args).await,
+        "orgtree_reallocate" => tree_op(engine, org, "reallocate", args).await,
         "orgtree_interrupt" => interrupt(engine, org, args).await,
         "orgtree_answer" => answer(engine, org, args).await,
         other => crate::refuse!(BadRequest, "{other} is not on the user MCP endpoint: these tools act as the user, and agent-only tools stay with agents"),
@@ -401,6 +412,18 @@ async fn inbox(engine: &Arc<Engine>, org: &Arc<OrgHandle>, args: &Value) -> Resu
 /// hire/retire take. No parent means the top level.
 #[logged]
 async fn tree_op(engine: &Arc<Engine>, org: &Arc<OrgHandle>, op: &str, args: &Value) -> Result<Done> {
+    let req = tree_request(op, args)?;
+    let op = req["op"].as_str().unwrap();
+    let out = if crate::domain::undo::RECORDED_OPS.contains(&op) {
+        crate::http::undo::single(engine, org, req).await.map_err(api)?
+    } else {
+        Box::pin(ops::run(engine, org, Actor::User, &req)).await?
+    };
+    Done::json(&out)
+}
+
+#[logged]
+fn tree_request(op: &str, args: &Value) -> Result<Value> {
     let mut req = if args.is_object() { args.clone() } else { json!({}) };
     req["op"] = json!(op);
     if op == "hire" {
@@ -414,12 +437,15 @@ async fn tree_op(engine: &Arc<Engine>, org: &Arc<OrgHandle>, op: &str, args: &Va
             req["parent"] = json!(t);
         }
     }
-    let out = if crate::domain::undo::RECORDED_OPS.contains(&op) {
-        crate::http::undo::single(engine, org, req).await.map_err(api)?
-    } else {
-        ops::run(engine, org, Actor::User, &req).await?
-    };
-    Done::json(&out)
+    if op == "rehire" {
+        if let Some(target) = args["target"].as_str() {
+            req["parent"] = json!(target);
+        }
+    }
+    if op == "move" && args["moves"].is_array() {
+        req["op"] = json!("moves");
+    }
+    Ok(req)
 }
 
 /// Stop an agent's current turn, as the user's desk button does.
@@ -465,6 +491,19 @@ async fn answer(engine: &Arc<Engine>, org: &Arc<OrgHandle>, args: &Value) -> Res
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn user_tree_cards_and_request_mapping() {
+        for name in ["orgtree_move", "orgtree_reorder", "orgtree_retool", "orgtree_rehire", "orgtree_reallocate"] {
+            assert!(names(true).iter().any(|n| n == name), "missing {name}");
+            assert!(!names(false).iter().any(|n| n == name));
+        }
+        assert_eq!(tree_request("move", &json!({"moves":[{"node":"a","new_parent":"b"}]})).unwrap()["op"], "moves");
+        assert_eq!(tree_request("move", &json!({"node":"a","new_parent":"b"})).unwrap()["op"], "move");
+        let rehire=tree_request("rehire", &json!({"node":"a","target":"b","hire_type":"superior"})).unwrap();
+        assert_eq!(rehire["parent"], "b");
+        assert_eq!(rehire["hire_type"], "superior");
+        assert!(validate_args(true,"orgtree_rehire",&json!({"node":"a","index":0})).is_err());
+    }
     #[test] fn org_dnd_mode_configure_is_only_on_the_user_card() {
         let user=cards(true).into_iter().find(|c|c["name"]=="orgtree_inbox").unwrap();
         let agent=defs::list().into_iter().find(|c|c["name"]=="orgtree_inbox").unwrap();

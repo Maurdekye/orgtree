@@ -171,6 +171,11 @@ remain compatibility inputs; do not mix flat routing with `metadata`.
 | Message / send notice | `metadata.to` names one agent in this org (or a one-element array), with nonblank `body`. A notice is passive. Multiple recipients, outside mail, question-kind mail, attachments and `reply_to`/`replies` quoting are not supported here. |
 | Inbox | The user's own inbox for list/fetch. `action=list` is default, with `limit` default 50, clamped 1–200 separately for pending/delivered/sent lists. `fetch` accepts 1–20 `message_ids`; unknown IDs refuse. `action=settings` reads the org outside-inbox mode; `action=configure mode=normal\|dnd\|closed` changes it through the desktop policy path as the user. Those policy actions accept no other fields. Conversation, chunk and agent-only pull are not supported here. |
 | Hire / retire | User tree-operation validation and Undo recording apply. A hire with no parent/target is top-level; a superior hire requires `hire_type:superior` and `target` naming the insertion anchor. |
+| `orgtree_move` | Organization endpoint only: `node`/`new_parent` or atomic `moves[{node,new_parent}]`. User tree validation and desktop Undo apply. |
+| `orgtree_reorder` | Organization endpoint only: `node` and zero-based final `index`, after removing the node. User tree validation and desktop Undo apply. |
+| `orgtree_retool` | Organization endpoint only: `node` plus supplied scope/charter fields; omitted fields stay. Folder restrictions propagate to descendants; existing user validation and Undo apply. |
+| `orgtree_rehire` | Organization endpoint only: required `node`; omitted agent fields retain saved values. `target` and `hire_type` set placement; `index` is refused. Projects retain policy and refuse agent overrides. Existing credit/scope validation and Undo apply. |
+| `orgtree_reallocate` | Organization endpoint only: `node`, signed `delta`; increases grant or takes unused credits back. User caps, committed-credit checks and credit-bubbling settings apply. |
 | Work | Acts as the user on the org docket. Use the current tool card for fields; do not assume the agent's ownership/participant authority model. |
 | Interrupt | Required `node` agent. Stops its current turn; a runtime that does not answer within 60 seconds refuses. Agent queued/restart orchestration is not implemented here. |
 | `orgtree_answer` | Required `ask` question-card ID; `answers` is positional, one object per question with `selected` option labels and/or `text`. `dismiss:true` dismisses instead. Return `rev` when supplied by the card. IDs come from the user's inbox/transcripts; there is no question-list action. |
@@ -185,7 +190,7 @@ Example JSON-RPC calls, sent to the appropriate authenticated endpoint:
 {"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"orgtree_message","arguments":{"metadata":{"to":"worker"},"body":"Please inspect the assigned item."}}}
 ```
 
-Move/reorder/retool, other settings/credit/account administration and the other
+Other settings/account administration and the other
 unlisted actions remain outside this MCP subset; the authenticated HTTP API
 has its own operations. Tool errors return `isError` and explanatory text.
 The ordinary agent tool pages describe a different caller/transport and must

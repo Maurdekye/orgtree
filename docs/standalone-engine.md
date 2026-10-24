@@ -110,6 +110,15 @@ hire/retire, interrupt and question answers. Agent-only tools and unlisted
 mail/interrupt options are refused. The existing HTTP API remains available for
 management actions outside this MCP subset.
 
+The organization endpoint also provides `orgtree_move`, `orgtree_reorder`,
+`orgtree_retool`, `orgtree_rehire` and `orgtree_reallocate`. Move accepts
+`node`/`new_parent` or an atomic `moves` array. Reorder takes a zero-based final
+`index`. Retool changes supplied scope/charter fields. Rehire restores saved
+context and uses `target`/`hire_type` for placement; it does not accept `index`.
+Reallocate applies a signed `delta` to an agent's grant. These use the desktop's
+user operations, including ordinary scope/credit limits, credit-bubbling settings
+and Undo where the desktop records it. Read each tool's current card for fields.
+
 Authenticated `GET /api/desktop/alive` checks readiness. Authenticated
 `POST /api/desktop/shutdown` requests clean shutdown; Unix SIGTERM, SIGINT and
 SIGHUP also use the clean shutdown path.
