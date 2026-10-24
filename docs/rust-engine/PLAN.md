@@ -291,6 +291,12 @@ empty and the remembered node is still in the visible layout. Overview/fit
 preserves memory; switchboard and Shift+F7 retain their existing behavior.
 See the [focus definition](../skills/orgtree-app/app-settings/app-keyboard-shortcuts/SKILL.md#organization-navigation).
 
+One-time agent mail (USER 2026-10-24, 4.4.5): message and notice tools accept
+`one_time`, false by default. True omits the automatic deep-descendant reply
+audience and marks the delivered header as one-time/do-not-reply. Existing
+reach remains. Coordinator default: true refuses user/outside routes, including
+bare resolution, per recipient. See [the mail contract](../agents/mail-and-hub.md#one-time-agent-mail-2026-10-24-445).
+
 New-hire position (USER 2026-10-23, 4.4.5): App settings > Display > Desk >
 New hires go selects End (default), Start or Centre for ordinary UI agent and
 project creation. Centre is ceil(n/2) among live direct children, projects

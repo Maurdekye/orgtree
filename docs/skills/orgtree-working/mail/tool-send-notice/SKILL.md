@@ -16,6 +16,7 @@ Required tool group: `messaging`, inherited through the ancestor chain. Top-leve
 | Parameter | Meaning |
 | --- | --- |
 | `metadata.to` | Required recipient string or list of up to ten distinct recipients on the split schema. |
+| `metadata.one_time` | Optional boolean, false by default. Same-org agent/project mail only: omit the automatic reply audience and label the delivered header as one-time, with a do-not-reply instruction. Existing access is kept. True refuses user/outside recipients, including bare-name resolution, per recipient in a list. Flat schemas use `one_time` beside `to`. |
 | `body` | Required notice text, outside metadata. Must be nonblank for this attachment-free schema. |
 
 Write metadata first, body last:
@@ -30,7 +31,9 @@ The Antigravity flat-schema equivalent is:
 {"to":"coordinator","body":"The reviewed draft is in the shared folder; this is an informational copy."}
 ```
 
-The exposed notice schema has only routing and body. For attachment, kind, reply or other message fields, use `orgtree_message` with `notice: true` and its documented parameters. That tool accepts `message`, `question`, and `request`; a request is displayed as a request and otherwise behaves like a message. Local agent attachments become authorized path references, while `user` and `@net:` attachments remain uploads. Reply references can accompany multiple recipients and are filtered to each recipient's conversation. `notice` is a delivery flag, not a mail kind.
+The exposed notice schema has routing, the one-time toggle and body. For attachment, kind, reply or other message fields, use `orgtree_message` with `notice: true` and its documented parameters. That tool accepts `message`, `question`, and `request`; a request is displayed as a request and otherwise behaves like a message. Local agent attachments become authorized path references, while `user` and `@net:` attachments remain uploads. Reply references can accompany multiple recipients and are filtered to each recipient's conversation. `notice` is a delivery flag, not a mail kind.
+
+Passive delivery alone does not suppress the usual reply grant to a deep descendant. Use `one_time:true` for that. The header remains visible even if the recipient already has reply access; see the [message contract](../tool-message/SKILL.md#recipient-reach-and-fan-out) for lifetime, header and replay details.
 
 ## Delivery and limits
 

@@ -17,6 +17,13 @@ policy remain physical, per the user's explicit exceptions.
 
 # Orgtree 4 rewrite — the user's standing decisions
 
+**One-time agent mail, USER 2026-10-24 (4.4.5):** message tools can omit the
+automatic reply audience when contacting deep descendants and label the
+recipient's header so it knows not to reply. Coordinator clarification:
+`one_time:false` default, message/notice parity, existing reach untouched and
+header shown regardless; true refuses user/outside routes per recipient,
+including bare resolution. See [one-time mail](../agents/mail-and-hub.md#one-time-agent-mail-2026-10-24-445).
+
 **Claude usage retry floor and backoff, coordinator 2026-10-23 (4.4.5):**
 An expired provider deadline never bypasses the shared 60-second per-key floor.
 Repeated HTTP 429s back off to a bounded 15 minutes, respecting longer normalized

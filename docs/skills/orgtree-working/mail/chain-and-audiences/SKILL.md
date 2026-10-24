@@ -11,6 +11,8 @@ Start with [ordinary recipient reach](../tool-message/SKILL.md): your nearest ag
 
 An audience opens a direction of communication; it does not move an agent or delegate folder, tool or decision authority. A granted route is useful when a specialist needs to talk directly to a reviewer outside its reporting line. Keep the task owner and superior informed according to the assignment rather than treating a new route as a change of responsibility.
 
+Ordinary message/notice contact from a distant superior can create a persistent personal reply audience. Both tools accept `one_time:true` to omit this grant and label the header with a do-not-reply instruction. It does not revoke existing reach; see [message semantics](../tool-message/SKILL.md#recipient-reach-and-fan-out).
+
 ## Peer-mail setting
 
 A visible physical peer may be unreachable when the actual common parent's [peer-mail switch](../../team/peer-mail/SKILL.md) is OFF. The rule affects only direct tree siblings, applies equally under a manager or project, and requires a directional audience. Audience requests remain allowed; a shared nearest agent superior may grant between those direct siblings. A manager's switch does not propagate to deeper levels or to separate physical project groups.

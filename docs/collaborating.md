@@ -18,6 +18,8 @@ For software work, a useful progression is rapid specification/feedback first, t
 
 Reporting reach, audiences, visibility and file permissions are separate. Agents normally communicate up their reporting route and down their teams. Direct siblings can mail one another when their parent's **Subordinates may message each other** switch is on. That switch is on by default, belongs to that parent and is not inherited by lower managers.
 
+An agent writing to a deep descendant normally gives that descendant a persistent audience to reply. Ask it to use `one_time:true` on its message or passive notice when you want a one-time handoff. The recipient's delivered header says not to reply and that this message granted no reply audience. Existing access remains available, including for peers and direct reports. The option supports same-org agents and project mailboxes; user and outside destinations refuse it when true. It is an agent-tool option; ordinary desktop mail is unchanged.
+
 Projects are transparent for reporting, but ordinary coworker mail uses the actual parent. Agents in different projects may therefore need an **audience** even when they report to the same agent superior. An audience is a directional permission to contact its grantor; the reverse needs its own grant. It does not make the recipient a manager or grant files/tools.
 
 The canvas and desk menus expose appropriate Acquire/Drop audience actions, and an agent can request a missing route. A request alone grants nothing. A user audience permits direct questions, mail and deliveries to you. Top-level agents have an intrinsic route; a lower specialist may need a grant or report through its coordinator.

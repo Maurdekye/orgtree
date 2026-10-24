@@ -22,6 +22,19 @@ See [storage, tools and evidence limits](../rust-engine/org-inbox-dnd.md).
 
 Delivery, mentions, inboxes, outside authority, files, Hubchat and hub transport.
 
+## One-time agent mail (2026-10-24, 4.4.5)
+
+`orgtree_message` and `orgtree_send_notice` accept optional `one_time:false`.
+True suppresses the existing deep-descendant reply grant, stores a separate mail
+marker and renders the one-time/do-not-reply header even when reply reach already
+exists. Keep it across project handoff, replay, reference and inbox content reads.
+Existing rights and ordinary false/omitted delivery stay unchanged. True refuses
+user/outside destinations after canonical recipient resolution, per recipient;
+no outside staging or publication is allowed for that copy. See the
+[message guide](../skills/orgtree-working/mail/tool-message/SKILL.md).
+[decided: user 2026-10-24; coordinator boundary clarification 2026-10-24;
+verified: `tools/mailtools.rs`, `domain/mail.rs`, `runtime/envelope.rs`]
+
 These attributed records were moved from the root guide at `22daffd`; they retain the original substance, dates, verification limits and replacements. They are source evidence, not a declaration that every historical state is current. Read the signed decisions/current source before changing behavior. Inline source paths remain relative to the repository root; Markdown links were rebased. Add current detailed guidance here; preserve replaced records in history and update the coverage destination when moving one.
 
 <a id="e-afee43810f9d96a8"></a>

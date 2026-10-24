@@ -31,6 +31,11 @@ Rig live-root guards retain import-time `APPDATA`/home/data-override paths after
 
 ## Engine and desktop invariants
 
+- One-time agent messages/notices suppress new reply-audience grants without
+  revoking existing reach; retain the independent header marker through all mail
+  readers. See [one-time mail](docs/agents/mail-and-hub.md#one-time-agent-mail-2026-10-24-445).
+  [decided: user/coordinator 2026-10-24; verified: `tools/mailtools.rs`, `domain/mail.rs`]
+
 - Working-only checkups skip docket preparation; reminder routing reads only
   the active work page's named identities and required deployment ancestry.
   Never preload unrelated retired reporting history. See [working checkups](docs/rust-engine/working-checkups.md).
