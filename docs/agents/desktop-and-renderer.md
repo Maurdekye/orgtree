@@ -150,8 +150,10 @@ dragging, keyboard behavior and the existing single commit unchanged.
 Every nonempty `PendingRun` exposes its native summary. The 2026-10-24 user
 refinement places its arrow and count in the separator line and removes the
 separate duplicated Show/Hide row; the accessible action label remains. The
-first ordinary run owns the global divider without changing its total count;
-later groups keep independent counts/controls. A nullable
+one undelivered group includes system cards and optimistic/failed sends. Current-turn
+mail stays normally visible above the live reply; neither is inside the disclosure.
+Idle chats put all undelivered mail in this one group. Actor `chat.busy` takes
+precedence over stale tree/row flags; native stage wins over legacy via. A nullable
 local choice distinguishes the untouched six-row automatic default from an
 explicit open/closed choice. Count-driven native toggle events must not become
 manual choices: compare the observed open state with the controlled value.
@@ -159,7 +161,7 @@ Explicit summary activation and reply-target reveals preserve their choice
 while the run is mounted. Existing run/desk/generation teardown resets it;
 never transfer a queue-group choice to delivered transcript rows. Keep card
 mounts, event deduplication, current/later positions, five-line body previews,
-system-notice bundles and optimistic/failed sends unchanged. This is local
+and delivered system-notice bundles unchanged. This is local
 display state, not a new agent tool operation. [decided: user 2026-10-23
 m4f228e48f792; verified: `canvas/{pendingrun,transcriptflow}.tsx`,
 `tests/{pendingrun,pendingtoggle}.test.tsx`]

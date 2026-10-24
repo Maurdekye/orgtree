@@ -6,19 +6,28 @@ For 4.4.4, the user chose an always-available queue-group toggle with the same
 automatic threshold (2026-10-23, m4f228e48f792).
 
 Shared `DeskChat` applies this to its embedded, modal and detached placements.
-Each existing run is separate: current-turn mail above the live response and
-waiting mail below it. The threshold and summary count the rows surviving the
-existing event deduplication pass. Ordinary messages, typed events and queued
-answer rows participate. Optimistic sends and failures remain outside, retaining
-their existing dismiss/restore controls. The global pending divider still counts
-all pending rows. MailList, Attention and delivered transcript content are unchanged.
+The user's 2026-10-24 21:36Z correction replaces independent current/later
+disclosures: current-turn mail appears normally above the live reply, and neither
+is collapsed. Only later undelivered mail sits below the reply under ONE
+separator/disclosure. While idle, all undelivered mail belongs to that one group.
+It includes system cards such as “Backend restarted”, ordinary/typed messages,
+queued answers and optimistic/failed sends with their dismiss/restore controls.
+The threshold and summary count these visible waiting rows after event deduplication,
+excluding current-turn input. MailList, Attention and delivered history retain
+their grouping; pending system cards no longer form separate system bundles.
+
+Current-turn membership requires the chat actor's `busy` snapshot, using the
+tree only before a chat snapshot exists. A halted/idle chat has no current-turn
+mail, even if old delivery flags remain. Native `stage:'turn'` is authoritative;
+legacy `via:'turn'` applies only without a stage, and both require `delivering`.
+This changes presentation, not durable delivery state or DnD.
 
 `PendingRun` uses native `details`/`summary`. Since the user's 2026-10-24
 19:35:03Z refinement, the arrow and count are in the separator line itself:
 `▾ N queued / undelivered` or `▸ N queued / undelivered`. There is no second
 count/Show/Hide row. Show/Hide remain the accessible action label and tooltip.
 Native disclosure provides keyboard operation and expanded semantics.
-Every nonempty run has a summary, including one queued message. Untouched runs
+Every nonempty queue has a summary, including one queued message. Untouched queues
 stay open below six rows and auto-collapse at six or more. A nullable local
 choice retains a manual Show or Hide through polling and count changes while
 that run stays mounted. Initial/count-driven native toggle events must not
@@ -31,17 +40,30 @@ space, not payload or DOM memory. Nothing is acknowledged, delivered or fetched 
 opening the group. Reply navigation opens a containing pending disclosure
 synchronously before scrolling to its target. Disclosure changes call the desk's existing pin/header recalculation: only a reader already following the bottom is pinned.
 
-The first ordinary group owns the existing global divider inside its summary,
-preserving that divider's total pending count. Subsequent ordinary groups keep
-their own count and independent native summary, styled as a separator line.
-A first system-notice group or an optimistic/failed-only queue retains the
-static global divider; those rows are not newly hidden in an ordinary group.
-`TranscriptFlow` suppresses its old separate boundary only when `PendingRun`
-owns it. Card keys, native toggle timing and nullable manual choice are unchanged.
+`TranscriptFlow` puts every waiting card under the same `PendingRun` summary.
+There is no static boundary for a leading system card and no extra queue label.
+Card keys, native toggle timing and nullable manual choice are unchanged.
 The shared `DeskChat` supplies this in desk, floating, pinned and popout bodies;
 no new mail operation or agent-tool action is introduced.
 
-## Verification
+## Cause and verification (2026-10-24)
+
+Measured before the correction: all four shared DeskChat configurations with
+`busy:false`, zero current-turn markers and two waiting rows (system restart,
+agent notice) rendered labels “2 queued / undelivered” and “1 queued / undelivered”.
+`TranscriptFlow` split system and ordinary entries inside the SAME later list;
+no stale current-turn group was needed. A separate synthetic stale-flags case
+also reproduced two labels because legacy classification ignored actor activity.
+Rust startup recovery already settles/requeues unsettled deliveries; this
+synthetic reproduction does not establish a recovery failure in the user's org.
+
+The focused controls cover idle placement parity, native/legacy current-turn
+markers, stale flags versus an idle actor snapshot, queue thresholds/manual
+choice, ghosts, delivery transitions, reply reveal and delivered system history.
+The isolated capture uses synthetic idle data and the real shared chat bodies;
+it does not exercise native popout chrome or live provider/delivery operations.
+
+## Historical verification (superseded grouping)
 
 For the 2026-10-23 change: three expected baseline failures, then eight focused
 `pendingrun`/`pendingtoggle` cases and TypeScript passed. The first focused run

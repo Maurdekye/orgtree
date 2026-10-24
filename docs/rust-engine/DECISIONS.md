@@ -1441,10 +1441,13 @@ All entries are dated 2026-10-06 unless stated otherwise.
     is historical and is not proof of the new recovery behavior.
 
 73. **Desk undelivered runs collapse at six or more rows** (user 2026-10-11 22:33Z,
-    mee853a883c0d, relayed by lead-astra). Apply independently to the shared desk's
-    current-turn input and later waiting mail after rendered-event deduplication.
-    Preserve their positions around the live response; optimistic/failed sends
-    stay visible. The local Show/Hide summary retains all cards/actions, and
+    mee853a883c0d, relayed by lead-astra). The user correction 2026-10-24 21:36Z
+    m44fba4147690 replaces independent current/later folds: current-turn input
+    and the live reply never collapse. Only later undelivered mail uses ONE
+    separator/group, including system cards and optimistic/failed sends. Idle
+    chats put all undelivered mail there; actor busy state guards current-turn
+    membership. Count surviving waiting rows after rendered-event deduplication.
+    The local Show/Hide summary retains all cards/actions, and
     reply navigation reveals its target before scrolling. No read/delivery side
     effects and no MailList/Attention changes. Details: `pending-mail-collapse.md`.
 

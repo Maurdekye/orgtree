@@ -1,19 +1,19 @@
 import type { ReactNode } from 'react'
 import { useMemo, useRef } from 'react'
 import type { ChatMessage, PendingMail } from '../types'
-import { SystemRuns, systemEntry, transcriptEntries, noticeMailKey } from '../events/systemruns'
+import { SystemRuns, transcriptEntries, noticeMailKey } from '../events/systemruns'
 import type { SystemEntry, TranscriptEntry } from '../events/systemruns'
 import { PendingRun } from './pendingrun'
 
 interface FlowEntry extends SystemEntry { content: ReactNode }
 
-/** Group presentation after the desk's existing ordering and deduplication.
- * Delivery carriers are not boundaries; actual live output is. Non-system
- * pending mail retains its independent six-row disclosure. */
+/** Delivered system notices retain their history grouping. Current-turn input
+ * and live output are always visible; all undelivered rows share one disclosure. */
 export function TranscriptFlow({ messages, now, later, live, hasLive, divider,
-  renderMessage, renderPending, onToggle }: {
+  waitingCount, pendingTail, renderMessage, renderPending, onToggle }: {
   messages: ChatMessage[]; now: PendingMail[]; later: PendingMail[]
   live: ReactNode; hasLive: boolean; divider: ReactNode
+  waitingCount: number; pendingTail: ReactNode
   renderMessage: (entry: TranscriptEntry) => ReactNode
   renderPending: (mail: PendingMail) => ReactNode
   onToggle: () => void
@@ -32,36 +32,12 @@ export function TranscriptFlow({ messages, now, later, live, hasLive, divider,
   const entries: FlowEntry[] = projected.map(entry => ({
     ...entry, content: renderMessage(entry),
   }))
-  let divided = false
-  const appendPending = (rows: PendingMail[], phase: string) => {
-    let ordinary: PendingMail[] = []
-    let ordinaryRun = 0
-    // An ordinary run owns the boundary inside its native summary. A system
-    // entry still gets the static boundary before its independently grouped card.
-    const append = (entry: FlowEntry, inlineDivider = false) => {
-      entries.push({ ...entry, content: <>{!divided && !inlineDivider && divider}{entry.content}</> })
-      divided = true
-    }
-    const flush = () => {
-      if (!ordinary.length) return
-      append({ key: `pending/${phase}/${ordinaryRun++}`,
-        system: false, label: '', content: <PendingRun count={ordinary.length} onToggle={onToggle}
-          divider={!divided ? divider : undefined}>
-          {ordinary.map(renderPending)}
-        </PendingRun> }, true)
-      ordinary = []
-    }
-    rows.forEach((mail, i) => {
-      const classification = systemEntry(mail)
-      if (!classification.system) { ordinary.push(mail); return }
-      flush()
-      append({ ...classification, key: noticeMailKey(mail) ?? `${phase}/${i}`,
-        content: renderPending(mail) })
-    })
-    flush()
-  }
-  appendPending(now, 'now')
+  now.forEach((mail, i) => entries.push({ key: noticeMailKey(mail) ?? `now/${i}`,
+    system: false, label: '', content: renderPending(mail) }))
   if (hasLive) entries.push({ key: 'live-tail', system: false, label: '', content: live })
-  appendPending(later, 'later')
+  if (waitingCount > 0) entries.push({ key: 'pending/undelivered', system: false, label: '',
+    content: <PendingRun count={waitingCount} divider={divider} onToggle={onToggle}>
+      {later.map(renderPending)}{pendingTail}
+    </PendingRun> })
   return <SystemRuns entries={entries} render={entry => entry.content} onToggle={onToggle} />
 }

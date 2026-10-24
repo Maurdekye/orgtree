@@ -117,9 +117,12 @@ you choose, fewer than six rows stay open and six or more collapse automatically
 the count uses rendered rows after deduplication. Your choice survives arrivals,
 polling and count changes while that group stays on screen. It resets when the
 group empties, the desk closes/reopens or the agent starts a new generation.
-Current-turn and later groups stay independent. Delivered messages display
-normally; their five-line body previews are unchanged. Optimistic or failed
-sends remain visible. A quote/reply navigation can reveal a folded target;
+There is one undelivered group, including system cards and optimistic/failed
+sends. During a turn it sits below the live reply; current-turn mail appears
+normally above the reply and neither is collapsed. When idle, all undelivered
+mail sits under that one separator. Its count excludes current-turn mail.
+Delivered messages display normally; their five-line body previews are unchanged.
+A quote/reply navigation can reveal a folded target;
 opening a disclosure is not a read/delivery acknowledgment.
 
 Event cards and reference links can open their exact related agent, mail, work item, watchdog or document when a route is available. Copy/reply menus use durable source identity; a missing exact source can disable a reply action rather than inventing a target.

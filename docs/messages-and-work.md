@@ -26,7 +26,12 @@ even after an upward gesture or after content folds. Resizing or expanding
 content refreshes this check. Returning to the tail resumes follow; hiding the
 card alone does not change follow or remove earlier history.
 
-Every queued-message group has **Show/Hide**, even when it contains one message.
+All undelivered mail shares one **Show/Hide** group, even for one message.
+This includes system cards such as “Backend restarted” and messages still
+sending or showing a send failure. During a turn, the group sits below the live
+reply. Mail in the current turn appears normally above the reply; both stay
+visible when you collapse the queue. While idle, all undelivered mail sits
+under the one separator. The count excludes mail already in the current turn.
 Click the arrow/count separator line itself to toggle the group; the count
 appears once, with no extra toggle row below it.
 Groups start open below six messages and close automatically at six or more.

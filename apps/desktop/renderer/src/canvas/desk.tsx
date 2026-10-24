@@ -3343,9 +3343,14 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
   const queuedAnswerRows = submittedHere.filter(e => !answerShown(e.askId))
     .map(e => queuedAnswerRow(e))
   const pendMail = rawPendMail.filter((m) => !askAnswerRow(m))
-  const pendNow = pendMail.filter((m) => m.delivering && m.via === 'turn')
-  const pendLater = [...pendMail.filter((m) => !(m.delivering && m.via === 'turn')),
-    ...queuedAnswerRows]
+  // The chat's actor snapshot wins over an older tree snapshot. An idle chat
+  // has no current turn, even if a row still carries an unsettled turn marker.
+  // Rust reports stage; via is the legacy equivalent, only when stage is absent.
+  const turnRunning = node.halt?.phase !== 'halted' && (chat?.busy ?? node.busy ?? false)
+  const currentTurnMail = (m: PendingMail) => turnRunning && m.delivering
+    && (m.stage === 'turn' || (!m.stage && m.via === 'turn'))
+  const pendNow = pendMail.filter(currentTurnMail)
+  const pendLater = [...pendMail.filter(m => !currentTurnMail(m)), ...queuedAnswerRows]
   // ONE renderer, two places (it is the same bubble; only its position says
   // something different) — the shared PendingMailRow, so the browser parity
   // probe measures exactly what this desk mounts.
@@ -3358,12 +3363,8 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
         .then(() => refresh(true))
         .catch((e: Error) => toast([`error: ${e.message}`]))} />
   )
-  // A single boundary marks the first visible queued/undelivered message in
-  // the existing transcript order. `pendNow` remains hoisted above the live
-  // answer for the turn it belongs to; the divider follows that established
-  // placement rather than changing message order. The same marker is reused
-  // for durable pending rows and optimistic ghosts, so a transition never
-  // leaves two dividers on screen.
+  // Only undelivered mail belongs under the disclosure. Current-turn input
+  // stays above its response as normal visible cards (user 2026-10-24 21:36Z).
   const pendingDivider = (waiting: number) => <span className="pending-divider" role="separator"
     aria-label={`${waiting} queued and undelivered ${waiting === 1 ? 'message' : 'messages'}`}>
     <span>{waiting} queued / undelivered</span>
@@ -3415,9 +3416,8 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
     : eventKey(r.native_event_id ?? r.event_id))
   const viewTransient = dedup.list(livePartials(transient, convo), (r) => eventKey(r.event_id))
   const viewPendLater = dedup.list(pendLater, (m) => eventKey(m.event_id))
-  // every entry the separator stands above: durable rows being delivered or
-  // still waiting, plus optimistic ghosts not yet confirmed
-  const pendWaiting = viewPendNow.length + viewPendLater.length + pending.length
+  // Every entry under the one separator: waiting durable rows and ghosts.
+  const pendWaiting = viewPendLater.length + pending.length
   // optimistic ghosts are deliberately NOT in this pass: they are client-minted
   // and carry no event id at all, so there is nothing here to compare them by.
   // ── WHAT THE OPERATOR HAS OPENED ───────────────────────────────────────
@@ -4301,6 +4301,18 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
           <TranscriptFlow key={`${slug}/${node.id}/${node.generation ?? 0}`} messages={viewMessages}
             now={viewPendNow} later={viewPendLater} renderPending={pendBubble}
             divider={pendingDivider(pendWaiting)}
+            waitingCount={pendWaiting}
+            pendingTail={pending.map(p => (
+              <PendingGhostRow key={'q' + p.id} p={p} slug={slug} nid={node.id}
+                world={deskRefs.world} onOpen={deskRefs.onOpen}
+                replyAvailable={replyAvailable} onLocateReply={locateReply}
+                // Ghosts have no durable id: quote their own local text.
+                onContext={e => openReply(e, {}, p.text)}
+                onRestore={p.failed && !text.trim()
+                  ? () => { setText(p.text); setReplyTargets(p.replies ?? (p.reply ? [p.reply] : [])); setAttached(p.attachments ?? []); dismissPending(slug, node.id, p.id) }
+                  : undefined}
+                onDismiss={() => dismissPending(slug, node.id, p.id)} />
+            ))}
             hasLive={viewLive.length > 0 || viewTransient.length > 0 || showTurnStarting}
             onToggle={() => { if (stickRef.current) pin(); calcPin() }}
             renderMessage={({ message: m, sourceIndex: i, first, key }) => {
@@ -4449,20 +4461,6 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
               A failed one also offers ↩ to put the text back in the composer,
               and only when the composer is empty — the user's typing is not
               ours to overwrite. */}
-          {viewPendNow.length === 0 && viewPendLater.length === 0
-            && pending.length > 0 && pendingDivider(pendWaiting)}
-          {pending.map((p) => (
-            <PendingGhostRow key={'q' + p.id} p={p} slug={slug} nid={node.id}
-              world={deskRefs.world} onOpen={deskRefs.onOpen}
-              replyAvailable={replyAvailable} onLocateReply={locateReply}
-              // a ghost has no durable id (nothing was filed), so its own
-              // text travels with the press — see `openReply`'s `local`
-              onContext={e => openReply(e, {}, p.text)}
-              onRestore={p.failed && !text.trim()
-                ? () => { setText(p.text); setReplyTargets(p.replies ?? (p.reply ? [p.reply] : [])); setAttached(p.attachments ?? []); dismissPending(slug, node.id, p.id) }
-                : undefined}
-              onDismiss={() => dismissPending(slug, node.id, p.id)} />
-          ))}
           {/* the turn's own failure is the LAST thing that happened, so it
               reads at the end of the stream. It used to render above the whole
               transcript, which put the newest event first (user bug

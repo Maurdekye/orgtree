@@ -5,6 +5,11 @@ Read this file before working in this repository. It is the startup guide, not a
 Text-edit and spelling menus use Chromium's context flags and the originating
 webContents/session, including popouts. See [text menus](docs/agents/desktop-and-renderer.md#text-editing-and-spelling-menus-2026-10-24-445).
 [verified: `main/editmenu.ts`, `canvas/contextmenu.tsx`; 2026-10-24]
+
+Only undelivered mail collapses under one queue separator, including system
+cards; current-turn input and the live reply stay visible. Actor activity guards
+current-turn membership. See [pending mail](docs/rust-engine/pending-mail-collapse.md).
+[decided: user 2026-10-24 21:36Z; verified: `canvas/{desk,transcriptflow}.tsx`]
 Spelling probes complete a typed word boundary before asserting native markers;
 see [the capture control](docs/agents/development-and-verification.md#renderer-capture-and-rig-traps).
 

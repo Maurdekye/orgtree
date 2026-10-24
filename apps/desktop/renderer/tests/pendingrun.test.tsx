@@ -60,18 +60,20 @@ test('five default visible; six default collapsed; all groups toggle and manual 
   assert.equal(!!view.el.querySelector('.pending-divider'), false)
 })
 
-test('current-turn and waiting runs stay on opposite sides of response; failed and optimistic sends stay outside', async t => {
+test('current-turn input stays visible above response; one waiting group includes failed and optimistic sends', async t => {
   resetConvos(); localStorage.clear()
   const slug = 'pending-run-order', s = new FakeServer(); fill(s, 6, 'now'); s.drain()
   s.liveRow('text', 'Live response'); fill(s, 6, 'later'); installFetch(s)
   const view = await mountView(desk(slug), el => el)
   t.after(async () => { await view.unmount(); resetConvos() })
   await refresh(slug)
-  const [now, later] = runs(view.el)
-  assert.ok(now && later)
-  assert.equal(now.open, false); assert.equal(later.open, false)
+  const [later] = runs(view.el)
+  assert.equal(runs(view.el).length, 1)
+  assert.equal(later.open, false)
+  const now = [...view.el.querySelectorAll('.pendrow')].filter(el => !el.closest('.pending-run'))
+  assert.equal(now.length, 6)
   const live = view.el.querySelector('.msg.live')!
-  assert.ok(now.compareDocumentPosition(live) & Node.DOCUMENT_POSITION_FOLLOWING)
+  assert.ok(now[5].compareDocumentPosition(live) & Node.DOCUMENT_POSITION_FOLLOWING)
   assert.ok(live.compareDocumentPosition(later) & Node.DOCUMENT_POSITION_FOLLOWING)
   await inAct(() => {
     addPending(slug, node.id, 'Still sending')
@@ -79,12 +81,14 @@ test('current-turn and waiting runs stay on opposite sides of response; failed a
     failPending(slug, node.id, failed, 'Network failure')
   })
   assert.equal(view.el.querySelectorAll('.pendghost').length, 2)
-  for (const ghost of view.el.querySelectorAll('.pendghost')) assert.equal(ghost.closest('details'), null)
+  for (const ghost of view.el.querySelectorAll('.pendghost')) assert.equal(ghost.closest('details') === later, true)
   assert.ok(view.el.querySelector('.pendghost.failed .ghost-acts button'))
-  assert.match(view.el.querySelector('.pending-divider')!.textContent!, /14 queued/)
-  await toggle(now)
-  assert.equal(later.open, false, 'disclosures are independent')
-  assert.deepEqual([...now.querySelectorAll('.pendrow')].map(el => el.getAttribute('data-reply-event')),
+  assert.match(view.el.querySelector('.pending-divider')!.textContent!, /8 queued/)
+  await toggle(later)
+  assert.equal(later.open, true)
+  assert.equal(now.every(el => !el.closest('details')), true, 'current-turn input is never folded')
+  assert.equal(live.closest('details') === null, true)
+  assert.deepEqual(now.map(el => el.getAttribute('data-reply-event')),
     Array.from({ length: 6 }, (_, i) => `event-now${i}`))
 })
 

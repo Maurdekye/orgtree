@@ -461,7 +461,11 @@ separate summary row introduced on 2026-10-23. Every nonempty queue group still
 exposes Show/Hide through that line and its accessible action label. Six rows
 remains the automatic threshold until a manual choice; either choice survives
 count changes while the run is mounted. Run/desk/generation teardown resets it.
-The preserved entry above describes the original threshold contract. See
+The preserved entry above describes the original threshold contract. The user's
+21:36Z correction replaces its independent current/later groups: current-turn
+mail and the live reply are always visible; only undelivered mail below the reply
+collapses. While idle, all undelivered mail shares one group, including system
+cards and optimistic/failed sends. The count excludes current-turn input. See
 [current disclosure behavior](../rust-engine/pending-mail-collapse.md).
 
 <a id="e-7985d55df47f12a0"></a>

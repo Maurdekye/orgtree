@@ -29,61 +29,64 @@ const delivered = (rows: PendingMail[], seq = 1): ChatMessage => ({ role: 'user'
   event_id: `envelope-${seq}`, text: 'Delivered envelope', segments: [{ kind: 'mail', rows:
     rows.map(({ delivering, via, stage, ...row }) => ({ ...row, id: row.id!, kind: row.kind! })) }] })
 
-test('two unsent system notices collapse immediately; singleton and append preserve mounted pending cards', async t => {
+test('unsent system notices use the one queue disclosure and its six-row threshold', async t => {
   resetConvos(); localStorage.clear()
   const slug = 'unsent-notice-threshold', s = new FakeServer()
   notice(s, 'a'); installFetch(s)
   const view = await mountView(desk(slug), el => el)
   t.after(async () => { await view.unmount(); resetConvos() })
   await refresh(slug)
-  const single = bundles(view.el)[0]!
-  assert.ok(single, 'pending notice uses the same system-run wrapper before delivery')
+  const single = view.el.querySelector<HTMLDetailsElement>('.pending-run')!
+  assert.ok(single, 'pending system notice belongs to the undelivered queue')
   assert.equal(single.open, true)
-  assert.equal(single.querySelector('summary')!.hidden, true)
+  assert.equal(single.querySelector('summary')!.hidden, false)
   const card = single.querySelector('.pendrow')
   notice(s, 'b'); await refresh(slug)
-  assert.equal(bundles(view.el)[0], single)
-  assert.equal(single.querySelector('.pendrow'), card)
+  assert.equal(view.el.querySelector('.pending-run') === single, true)
+  assert.equal(single.querySelector('.pendrow') === card, true)
+  assert.equal(single.open, true)
+  assert.match(single.querySelector('summary')!.textContent!, /2 queued/)
+  for (const id of ['c', 'd', 'e', 'f']) notice(s, id)
+  await refresh(slug)
   assert.equal(single.open, false)
-  assert.match(single.querySelector('summary')!.textContent!, /2 system notices/)
-  notice(s, 'c'); await refresh(slug)
-  assert.equal(single.open, false)
-  assert.equal(single.querySelectorAll('.pendrow').length, 3)
-  assert.equal(view.el.querySelector('.pending-run'), null, 'no outer six-mail fold hides the notice bundle')
+  assert.equal(single.querySelectorAll('.pendrow').length, 6)
+  assert.equal(bundles(view.el).length, 0, 'no separate system fold inside the queue')
   assert.equal(view.el.querySelectorAll('.pending-divider').length, 1)
 })
 
-test('partial and complete delivery retain one bundle and its explicit open/closed state', async t => {
+test('delivery leaves the queue without transferring its collapse choice to current or delivered mail', async t => {
   resetConvos(); localStorage.clear()
   const slug = 'unsent-notice-delivery', s = new FakeServer()
   const a = notice(s, 'a'), b = notice(s, 'b'), c = notice(s, 'c'); installFetch(s)
   const view = await mountView(desk(slug), el => el)
   t.after(async () => { await view.unmount(); resetConvos() })
   await refresh(slug)
-  const run = bundles(view.el)[0]!
+  const run = view.el.querySelector<HTMLDetailsElement>('.pending-run')!
   assert.ok(run, 'unsent run exists')
+  assert.equal(run.open, true)
+  await toggle(run)
   assert.equal(run.open, false)
   a.delivering = true; a.via = 'turn'; a.stage = 'turn'
+  s.busy = true
   await refresh(slug)
-  assert.equal(bundles(view.el).length, 1, 'delivery carriers alone do not break adjacency')
-  assert.equal(bundles(view.el)[0], run)
+  assert.equal(bundles(view.el).length, 0)
+  assert.equal(view.el.querySelector('.pending-run') === run, true)
+  assert.equal(view.el.querySelector('[data-mail-id="a"]')!.closest('details') === null, true)
   assert.equal(run.open, false)
-  await toggle(run)
-  assert.equal(run.open, true)
   s.messages = [delivered([a])]; s.pending_mail = [b, c]
   await refresh(slug)
   assert.equal(bundles(view.el).length, 1)
-  assert.equal(bundles(view.el)[0], run, 'stable mail identity across envelope replacement')
-  assert.equal(run.open, true)
+  assert.equal(view.el.querySelector('.pending-run') === run, true)
+  assert.equal(run.open, false, 'waiting choice survives partial delivery')
   assert.equal(run.querySelectorAll('.pendrow').length, 2)
-  assert.match(run.querySelector('summary')!.textContent!, /3 system notices/)
-  await toggle(run)
+  assert.match(run.querySelector('summary')!.textContent!, /2 queued/)
   s.messages = [delivered([a, b, c])]; s.pending_mail = []
   await refresh(slug)
-  assert.equal(bundles(view.el)[0], run)
-  assert.equal(run.open, false, 'completion does not reopen a deliberately collapsed bundle')
-  assert.equal(run.querySelectorAll('.pendrow').length, 0)
-  assert.equal(run.querySelectorAll('[data-mail-id]').length, 3)
+  assert.equal(view.el.querySelector('.pending-run') === null, true)
+  const history = bundles(view.el)[0]!
+  assert.equal(history.open, false, 'delivered system history retains its own default')
+  assert.equal(history.querySelectorAll('.pendrow').length, 0)
+  assert.equal(history.querySelectorAll('[data-mail-id]').length, 3)
   assert.equal(view.el.querySelector('.pending-divider'), null)
 })
 
@@ -104,38 +107,44 @@ test('authored passive mail and waking system requests stay outside system bundl
   assert.match(view.el.querySelector('.pending-run > summary')!.textContent!, /6 queued/)
 })
 
-test('live tool output and agent notice break pending system runs without changing their order', async t => {
+test('current-turn system cards and live tools stay outside the sole later queue', async t => {
   resetConvos(); localStorage.clear()
   const slug = 'unsent-notice-live', s = new FakeServer()
   for (const id of ['a', 'b']) Object.assign(notice(s, id), { delivering: true, via: 'turn' })
+  s.busy = true
   s.liveRow('tool', 'Actual tool boundary', 'tool-1')
   notice(s, 'c'); notice(s, 'd'); notice(s, 'peer', 'peer'); notice(s, 'e'); notice(s, 'f')
   installFetch(s)
   const view = await mountView(desk(slug), el => el)
   t.after(async () => { await view.unmount(); resetConvos() })
   await refresh(slug)
-  const runs = bundles(view.el)
-  assert.equal(runs.length, 3)
-  assert.ok(runs.every(run => !run.open))
+  assert.equal(bundles(view.el).length, 0)
+  const queue = view.el.querySelector<HTMLDetailsElement>('.pending-run')!
+  assert.equal(queue.open, true)
   const tool = view.el.querySelector('.msg.live.tools')!
-  assert.equal(tool.closest('.transcript-system-run'), null)
-  assert.ok(runs[0]!.compareDocumentPosition(tool) & Node.DOCUMENT_POSITION_FOLLOWING)
-  assert.ok(tool.compareDocumentPosition(runs[1]!) & Node.DOCUMENT_POSITION_FOLLOWING)
-  assert.equal(view.el.querySelector('[data-mail-id="peer"]')!.closest('.transcript-system-run'), null)
-  assert.deepEqual(runs.map(run => [...run.querySelectorAll('.pendrow')].map(row => row.getAttribute('data-reply-event'))),
-    [['event-a', 'event-b'], ['event-c', 'event-d'], ['event-e', 'event-f']])
+  assert.equal(tool.closest('details') === null, true)
+  const current = view.el.querySelector('[data-mail-id="b"]')!
+  assert.equal(current.closest('details') === null, true)
+  assert.ok(current.compareDocumentPosition(tool) & Node.DOCUMENT_POSITION_FOLLOWING)
+  assert.ok(tool.compareDocumentPosition(queue) & Node.DOCUMENT_POSITION_FOLLOWING)
+  assert.deepEqual([...queue.querySelectorAll('.pendrow')].map(row => row.getAttribute('data-reply-event')),
+    ['event-c', 'event-d', 'event-peer', 'event-e', 'event-f'])
+  await toggle(queue)
+  assert.equal(queue.open, false)
+  assert.equal(current.closest('details') === null && tool.closest('details') === null, true)
 })
 
-test('reply navigation reveals an unsent system bundle before scrolling without sending mail', async t => {
+test('reply navigation reveals a queue containing system mail before scrolling without sending mail', async t => {
   resetConvos(); localStorage.clear()
   const slug = 'unsent-notice-reply', s = new FakeServer()
-  notice(s, 'a'); notice(s, 'b'); installFetch(s)
+  for (const id of ['a', 'b', 'c', 'd', 'e', 'f']) notice(s, id)
+  installFetch(s)
   storeReply(draftKey(slug, node.id, 2), { org: slug, agent: node.id, generation: 2,
     eventId: 'event-a', quote: 'Notice a' })
   const view = await mountView(desk(slug), el => el)
   t.after(async () => { await view.unmount(); resetConvos() })
   await refresh(slug)
-  const run = bundles(view.el)[0]!
+  const run = view.el.querySelector<HTMLDetailsElement>('.pending-run')!
   assert.ok(run)
   assert.equal(run.open, false)
   let scrolls = 0

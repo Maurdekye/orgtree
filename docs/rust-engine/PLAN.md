@@ -303,7 +303,10 @@ See [transcript tokens](transcript-token-counts.md#file-reads-445-2026-10-24).
 
 Queued mail (USER 2026-10-24, 4.4.5): the arrow/count separator line itself
 toggles the group; remove the extra repeated count row while retaining its
-collapse defaults and manual choice. See [pending mail](pending-mail-collapse.md).
+collapse defaults and manual choice. The 21:36Z correction makes this ONE group
+for undelivered mail, system cards included; current-turn input and the live
+reply never collapse. Idle actor state overrides stale current-turn markers.
+See [pending mail](pending-mail-collapse.md).
 
 Standalone user MCP administration (USER/coordinator 2026-10-24, 4.4.5):
 tree move/reorder/retool/rehire and reallocate; paged pending questions with
