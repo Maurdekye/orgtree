@@ -236,8 +236,13 @@ const BODY_LAST: &str = "Write this LAST, after metadata: the message text";
 const MESSAGE_DESC: &str = "Send mail to superior, descendants, peers or audience grantors; user requires top-level/user audience, outside @org/@net requires org-inbox audience. Peers share a physical parent; OFF or other parents need audiences. Up to 10 recipients; inspect each outcome. Wakes unless notice=true. Replies arrive in later turns; never wait for them. Attachments to local agents are shared as authorized path references; user/@net receive uploaded copies; @org attachments unsupported. Reply references are filtered per conversation.";
 const MESSAGE_ORDER: &str = "Always write metadata (`to` and the other fields saying how it is sent) before body: metadata first, \
      body last.";
-const NOTICE_DESC: &str = "Store passive mail for the recipient's next turn; wakes nobody. Only routing and body are accepted; use orgtree_message with notice=true for attachments, kind or reply references.";
+const NOTICE_DESC: &str = "Store passive mail for the recipient's next turn; wakes nobody. Accepts to, one_time and body; use orgtree_message notice=true for attachments, kind or replies.";
 const NOTICE_ORDER: &str = "Always write metadata (`to`) before body: metadata first, body last.";
+
+#[nolog]
+fn one_time_schema() -> Value {
+    json!({"type":"boolean","description":"One-time; no reply audience. Guide."})
+}
 
 #[nolog]
 fn reply_identity_schema() -> Value {
@@ -343,6 +348,7 @@ fn message_meta() -> Value {
         "to": TO.clone(),
         "kind": { "type": "string", "enum": ["message", "question", "request"], "description": "request is displayed as a request and otherwise treated as a message" },
         "notice": { "type": "boolean", "description": "FYI only: stored, read at the recipient's next turn, wakes nobody" },
+        "one_time": one_time_schema(),
         "attachments": { "type": "array", "maxItems": 10, "items": { "type": "string" },
                          "description": "files to send, relative to your working folder or absolute; local agents receive authorized path references, `user` and `@net:` receive uploaded copies, and `@org:` attachments are unsupported" },
         "urgent": { "type": "boolean", "description": "Requires urgent_reason. User mail keeps its urgent inbox pulse. Agent mail: only while the recipient is currently in DND; bypasses DND, with normal notice/wake rules. Plural sends report refusals per recipient." },
@@ -384,7 +390,7 @@ fn mail_tools(shape: MailShape) -> [Value; 2] {
                 &format!("{NOTICE_DESC} {NOTICE_ORDER}"),
                 json!({
                     "metadata": { "type": "object", "description": META_FIRST, "required": ["to"],
-                                  "properties": { "to": TO.clone() } },
+                                  "properties": { "to": TO.clone(), "one_time": one_time_schema() } },
                     "body": { "type": "string", "description": BODY_LAST },
                 }),
                 &["metadata", "body"],
@@ -401,7 +407,7 @@ fn mail_tools(shape: MailShape) -> [Value; 2] {
             }
             [
                 tool("orgtree_message", MESSAGE_DESC, Value::Object(props), &["to", "body"]),
-                tool("orgtree_send_notice", NOTICE_DESC, json!({ "to": TO.clone(), "body": { "type": "string" } }), &["to", "body"]),
+                tool("orgtree_send_notice", NOTICE_DESC, json!({ "to": TO.clone(), "body": { "type": "string" }, "one_time": one_time_schema() }), &["to", "body"]),
             ]
         }
     }
@@ -1497,6 +1503,7 @@ mod mail_shape_tests {
                 "body": { "type": "string" },
                 "kind": { "type": "string", "enum": ["message", "question", "request"], "description": "request is displayed as a request and otherwise treated as a message" },
                 "notice": { "type": "boolean", "description": "FYI only: stored, read at the recipient's next turn, wakes nobody" },
+                "one_time": {"type":"boolean","description":"One-time; no reply audience. Guide."},
                 "attachments": { "type": "array", "maxItems": 10, "items": { "type": "string" },
                                  "description": "files to send, relative to your working folder or absolute; local agents receive authorized path references, `user` and `@net:` receive uploaded copies, and `@org:` attachments are unsupported" },
                 "urgent": { "type": "boolean", "description": "Requires urgent_reason. User mail keeps its urgent inbox pulse. Agent mail: only while the recipient is currently in DND; bypasses DND, with normal notice/wake rules. Plural sends report refusals per recipient." },
@@ -1516,7 +1523,7 @@ mod mail_shape_tests {
         let notice = json!({
             "name": "orgtree_send_notice",
             "description": format!("{NOTICE_DESC}\nGuide: orgtree-tool-send-notice."),
-            "inputSchema": { "type": "object", "properties": { "to": to, "body": { "type": "string" } }, "required": ["to", "body"] },
+            "inputSchema": { "type": "object", "properties": { "to": to, "body": { "type": "string" }, "one_time": {"type":"boolean","description":"One-time; no reply audience. Guide."} }, "required": ["to", "body"] },
             "_meta": { "anthropic/alwaysLoad": true },
         });
         let [m, n] = mail_tools(MailShape::Flat);
@@ -1744,7 +1751,11 @@ mod builder_stack_tests {
                 props["urgent"]["description"]=serde_json::json!("Requires urgent_reason. User mail keeps its urgent inbox pulse. Agent mail: only while the recipient is currently in DND; bypasses DND, with normal notice/wake rules. Plural sends report refusals per recipient.");
                 props["urgent_reason"]["description"]=serde_json::json!("one line explaining why this must interrupt now");
             }
+            // USER 2026-10-24: independent one-time marker, both mail tools.
+            props["one_time"]=serde_json::json!({"type":"boolean","description":"One-time; no reply audience. Guide."});
         }
+        expected.as_array_mut().unwrap().iter_mut().find(|c|c["name"]=="orgtree_send_notice").unwrap()["description"]=serde_json::json!(
+            "Store passive mail for the recipient's next turn; wakes nobody. Accepts to, one_time and body; use orgtree_message notice=true for attachments, kind or replies.\nGuide: orgtree-tool-send-notice.");
         // Approved project tool parity: only these added/changed schema keys
         // differ from the earlier captured tool contract.
         for (name,keys) in [("orgtree_inbox",vec!["project","folder","status","org_inbox"]),

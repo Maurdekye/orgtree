@@ -518,7 +518,7 @@ async fn hand_batch_in(tx: &impl GenericClient, org_id: i64, project: i64, limit
     let waiting = tx
         .query(
             "SELECT id, uid, sender, sender_agent_id, sender_generation, kind, notice, body, attachments, reply_to, ev,
-                    urgent, urgent_reason, net_id, net_hub, replies, client_op, extra->'taken_from'
+                    urgent, urgent_reason, net_id, net_hub, replies, client_op, extra->'taken_from', extra->'one_time'
                FROM ot.mail WHERE recipient_agent_id = $1 AND state = 'pending'
                  AND (NOT $2 OR EXISTS (SELECT 1 FROM unnest($3::bigint[]) AS o(id) WHERE sender_agent_id IS DISTINCT FROM o.id)
                       OR ($4 AND sender <> '@user'))
@@ -543,8 +543,9 @@ async fn hand_batch_in(tx: &impl GenericClient, org_id: i64, project: i64, limit
         let copy = uid("m");
         // since when this listener waited for it (its Waited on the desk)
         let waited_from = w.waiting_since();
-        let via = json!({ "via_project": { "id": project, "name": pname, "mail": mail_uid, "dog": w.uid, "ack": ack,
+        let mut via = json!({ "via_project": { "id": project, "name": pname, "mail": mail_uid, "dog": w.uid, "ack": ack,
                                             "waited_from": iso(waited_from) } });
+        if m.get::<_,Option<Value>>(18).is_some_and(|v|v==true) { via["one_time"]=json!(true); }
         // an agent's copy lands in its mailbox; the user's in their inbox
         // (recipient_kind 'user', named '@user', as mail to the user is stored)
         tx.execute(

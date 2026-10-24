@@ -52,6 +52,7 @@ struct Letter {
     body: String,
     kind: String,
     notice: bool,
+    one_time: bool,
     urgent_reason: Option<String>,
     attachments: Vec<Value>,
     reply: Option<Value>,
@@ -85,6 +86,7 @@ pub(super) async fn project_broadcast_to(engine:&Arc<Engine>,caller:&Caller,args
 async fn message_impl(engine:&Arc<Engine>,caller:&Caller,args:&Value,force_notice:bool,broadcast:bool)->Result<Done> {
     // the split shape {metadata, body} reads as the flat one from here on
     let args = &flat_args(args)?;
+    let one_time = one_time_arg(args)?;
     let tags=crate::domain::mail_tags::normalize(args.get("tags"))?;
     let list = match args.get("to") {
         Some(Value::Array(a)) => Some(recipients(a)?),
@@ -141,6 +143,7 @@ async fn message_impl(engine:&Arc<Engine>,caller:&Caller,args:&Value,force_notic
     let mut letter = Letter {
         tags, me, body, kind: kind.to_string(), urgent_reason, attachments, reply: None, replies: Vec::new(),
         notice: force_notice || args["notice"].as_bool().unwrap_or(false),
+        one_time,
     };
     let reply_to = args.get("reply_to").filter(|v| !v.is_null());
     let replies = args.get("replies").filter(|v| !v.is_null());
@@ -223,7 +226,16 @@ fn list_notes(letter: &Letter, list: &[String]) -> Vec<String> {
 }
 
 /// What a message tool's `metadata` may hold: every argument but `body`.
-const META_KEYS: &[&str] = &["to", "kind", "notice", "attachments", "urgent", "urgent_reason", "reply_to", "replies", "options", "multiple", "tags"];
+const META_KEYS: &[&str] = &["to", "kind", "notice", "one_time", "attachments", "urgent", "urgent_reason", "reply_to", "replies", "options", "multiple", "tags"];
+
+#[logged]
+fn one_time_arg(args: &Value) -> Result<bool> {
+    match args.get("one_time") {
+        None => Ok(false),
+        Some(Value::Bool(on)) => Ok(*on),
+        _ => crate::refuse!(BadRequest, "one_time must be true or false"),
+    }
+}
 
 /// The message tools' arguments as the handler reads them (user and
 /// coordinator 2026-10-13, docket show-agent-typing-in-hubchat-using-ordered-messa).
@@ -265,6 +277,7 @@ pub(crate) fn flat_args(args: &Value) -> Result<Value> {
 #[logged]
 pub(crate) fn typing_peers(meta: &Value) -> Option<Vec<String>> {
     let obj = meta.as_object()?;
+    if one_time_arg(meta).ok()? { return None; }
     if !crate::domain::mail_tags::normalize(obj.get("tags")).ok()?.is_empty() { return None; }
     if obj.keys().any(|k| !META_KEYS.contains(&k.as_str())) {
         return None;
@@ -429,6 +442,13 @@ async fn send_one(engine: &Arc<Engine>, letter: &Letter, to: &str, single: bool,
     out.tags = letter.tags.clone();
     out.kind = letter.kind.clone();
     out.notice = letter.notice;
+    out.set_one_time(letter.one_time);
+    if letter.one_time {
+        // Resolve before attachment snapshots or outside transport work. The
+        // domain admission path repeats this check after its own bare lookup.
+        out.to = mail::attachment_recipient(engine, me.org_id, to).await?;
+        mail::one_time_recipient(true, &out.to)?;
+    }
     let to_user = is_user(to);
     if !["org:","net:"].iter().any(|p|to.trim_start_matches('@').starts_with(p)) {
         if let Some(reason) = &letter.urgent_reason {
@@ -676,10 +696,10 @@ pub async fn inbox(engine: &Arc<Engine>, caller: &Caller, args: &Value) -> Resul
     };
     // mail you received or sent, and outside mail you sent from the org inbox
     // (what conversation lists; the same mail reply_to accepts)
-    let rows = client.query("SELECT uid, sender, kind, state, created_at, body, attachments, coalesce(recipient_agent_id = $1, false), recipient_name, reply_to, replies
+    let rows = client.query("SELECT uid, sender, kind, state, created_at, body, attachments, coalesce(recipient_agent_id = $1, false), recipient_name, reply_to, replies, extra->'one_time'
           FROM ot.mail WHERE ((ot.mail.sender NOT LIKE '@org:%' AND ot.mail.sender NOT LIKE '@net:%' AND COALESCE(ot.mail.ev->>'variant','') <> 'runtime.external_unroutable' AND ot.mail.extra->>'transfer_failure' IS NULL) OR NOT EXISTS (SELECT 1 FROM ot.orgs inbox_org WHERE inbox_org.id=ot.mail.org_id AND inbox_org.settings->'org_inbox_enabled'='false'::jsonb)) AND uid = ANY($2) AND (recipient_agent_id = $1 OR sender_agent_id = $1)
         UNION ALL
-        SELECT o.uid, coalesce(o.by_name, 'user'), o.kind, coalesce(o.state, 'queued'), o.at, o.body, o.attachments, false, o.peer, o.reply_to, o.replies
+        SELECT o.uid, coalesce(o.by_name, 'user'), o.kind, coalesce(o.state, 'queued'), o.at, o.body, o.attachments, false, o.peer, o.reply_to, o.replies, NULL::jsonb
           FROM ot.org_inbox o JOIN ot.agents a ON a.id = $1
          WHERE NOT EXISTS (SELECT 1 FROM ot.orgs inbox_org WHERE inbox_org.id=o.org_id AND inbox_org.settings->'org_inbox_enabled'='false'::jsonb) AND o.uid = ANY($2) AND o.org_id = a.org_id AND o.dir = 'out' AND o.by_name = a.name AND o.at >= a.created_at
         LIMIT 40", &[&me.id,&ids]).await?;
@@ -705,6 +725,7 @@ pub async fn inbox(engine: &Arc<Engine>, caller: &Caller, args: &Value) -> Resul
         let first=r.get::<_,Option<Value>>(9);
         if let Some(q)=first.as_ref() { item["reply_to"]=q.clone(); }
         item["replies"]=crate::domain::replies::value(first.as_ref(),Some(&r.get::<_,Value>(10)));
+        item["one_time"]=json!(r.get::<_,Option<Value>>(11).is_some_and(|v|v==true));
         if r.get::<_,bool>(7) {
             item["direction"] = json!("received");
             item["will_redeliver"] = json!(false);
@@ -804,6 +825,68 @@ mod tests {
     use super::*;
 
     #[test]
+    fn one_time_defaults_false_and_rejects_non_booleans() {
+        assert!(!one_time_arg(&json!({})).unwrap());
+        for on in [false,true] { assert_eq!(one_time_arg(&json!({"one_time":on})).unwrap(),on); }
+        for bad in [json!(null),json!("true"),json!(1),json!([])] {
+            assert!(one_time_arg(&json!({"one_time":bad})).unwrap_err().to_string().contains("one_time must be true or false"));
+        }
+    }
+
+    #[test]
+    fn one_time_suppresses_only_new_reply_grants() {
+        for notice in [false,true] {
+            let mut out=Outgoing::new(From::Agent{id:1,name:"manager".into(),generation:1},"deep","FYI");
+            out.notice=notice;
+            assert!(!out.one_time);
+            assert!(out.grant_reply_audience);
+            out.set_one_time(false);
+            assert!(out.grant_reply_audience);
+            out.set_one_time(true);
+            assert!(!out.grant_reply_audience);
+            assert!(out.one_time);
+            assert_eq!(out.notice,notice);
+            assert_eq!(out.body,"FYI");
+        }
+        let mut automatic=Outgoing::new(From::System,"worker","FYI");
+        automatic.grant_reply_audience=false;
+        automatic.set_one_time(false);
+        assert!(!automatic.grant_reply_audience);
+        assert!(!automatic.one_time,"internal no-grant sends are not one-time mail");
+    }
+
+    #[test]
+    fn one_time_external_and_user_recipients_refuse_without_affecting_ordinary_mail() {
+        for to in ["user","@user","@org:other","org:other","@net:peer.id","net:peer.id"] {
+            assert!(mail::one_time_recipient(true,to).is_err(),"{to}");
+            assert!(mail::one_time_recipient(false,to).is_ok(),"{to}");
+        }
+        for to in ["worker","@worker","project","peer"] { assert!(mail::one_time_recipient(true,to).is_ok()); }
+        assert!(typing_peers(&json!({"to":"@net:peer.id","one_time":true})).is_none());
+        assert!(typing_peers(&json!({"to":"@net:peer.id","one_time":false})).is_some());
+    }
+
+    #[test]
+    fn one_time_tools_have_optional_matching_split_and_flat_schemas() {
+        for shape in [super::super::defs::MailShape::Split,super::super::defs::MailShape::Flat] {
+            let cards=super::super::defs::scoped_as(&json!({}),shape);
+            for name in ["orgtree_message","orgtree_send_notice"] {
+                let card=cards.iter().find(|c|c["name"]==name).unwrap();
+                let schema=&card["inputSchema"];
+                let options=if shape==super::super::defs::MailShape::Split {&schema["properties"]["metadata"]} else {schema};
+                assert_eq!(options["properties"]["one_time"],json!({"type":"boolean","description":"One-time; no reply audience. Guide."}));
+                assert!(!options["required"].as_array().unwrap().contains(&json!("one_time")));
+                let mut before=schema.clone();
+                let props=if shape==super::super::defs::MailShape::Split {&mut before["properties"]["metadata"]["properties"]} else {&mut before["properties"]};
+                props.as_object_mut().unwrap().remove("one_time");
+                let cost=serde_json::to_vec(schema).unwrap().len()-serde_json::to_vec(&before).unwrap().len();
+                assert_eq!(cost,82);
+                println!("ONE_TIME_TOOL_COST {shape:?} {name} added_schema_bytes={cost}");
+            }
+        }
+    }
+
+    #[test]
     fn one_time_split_and_flat_metadata_are_equivalent() {
         let flat=json!({"to":"worker","one_time":true,"body":"FYI"});
         assert_eq!(flat_args(&json!({"metadata":{"to":"worker","one_time":true},"body":"FYI"})).unwrap(),flat_args(&flat).unwrap());
@@ -830,7 +913,8 @@ mod tests {
     fn one_time_header_survives_mail_by_reference() {
         let m=crate::runtime::actor::mail_of(&json!({"uid":"m-large-one-time","sender":"manager",
             "body":"x".repeat(crate::runtime::prompt::MAIL_INLINE_BYTES+1),"extra":{"one_time":true}}));
-        let text=crate::runtime::prompt::steer_text(&[m],&Default::default());
+        let text=crate::runtime::prompt::batch(&[m],"",&Default::default(),None,
+            crate::runtime::prompt::OTHER_INPUT_BYTES,true).unwrap().text;
         assert!(text.contains("MAIL BY REFERENCE"));
         assert!(text.contains("ONE-TIME MESSAGE — do not reply; no reply audience was granted by this message"));
     }
@@ -916,7 +1000,7 @@ mod tests {
             got.sort_keys();
             assert_eq!(got, want, "{v}");
         }
-        // a notice's metadata holds just `to`
+        // A notice without the optional one-time flag keeps its old shape.
         assert_eq!(flat_args(&json!({ "metadata": { "to": "bob" }, "body": "fyi" })).unwrap(), json!({ "body": "fyi", "to": "bob" }));
     }
 

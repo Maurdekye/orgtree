@@ -163,6 +163,7 @@ fn opencode_mail_uncertain_warning_survives_typed_events_and_reference_budget() 
         at: chrono::DateTime::from_timestamp(0, 0).unwrap(),
         attachments: json!([]),
         notice: false,
+        one_time: false,
         urgent: false,
         reply_to: json!(null),
         replies: json!([]),

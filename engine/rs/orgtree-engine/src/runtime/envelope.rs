@@ -706,6 +706,9 @@ pub fn mail_block(mail: &[&Mail], rels: &HashMap<String, String>, turn_start: bo
         if m.urgent {
             b.push_str(" · URGENT");
         }
+        if m.one_time {
+            b.push_str("\nONE-TIME MESSAGE — do not reply; no reply audience was granted by this message");
+        }
         for reply in crate::domain::replies::snapshots(Some(&m.reply_to),Some(&m.replies)) {
         if let Some(selection)=reply.get("selection").filter(|s|s["version"]==1) {
             let selector=&selection["selector"];

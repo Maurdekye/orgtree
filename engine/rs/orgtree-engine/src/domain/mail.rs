@@ -176,6 +176,8 @@ pub struct Outgoing {
     /// Automatic notices and project broadcasts use existing rights without
     /// granting a personal reply audience; user ancestor forwarding is separate.
     pub grant_reply_audience: bool,
+    /// Independent sender instruction; never infer it from an internal no-grant send.
+    pub one_time: bool,
     /// false: store the mail and leave the recipient's wake to the caller
     /// (an automatic reminder wakes an idle agent only, `runtime::wake_idle`)
     pub wake: bool,
@@ -201,9 +203,31 @@ impl Outgoing {
             net_id: None,
             net_hub: None,
             grant_reply_audience: true,
+            one_time: false,
             wake: true,
         }
     }
+
+    #[nolog]
+    pub fn set_one_time(&mut self, one_time: bool) {
+        self.one_time = one_time;
+        if one_time { self.grant_reply_audience = false; }
+    }
+
+    #[nolog]
+    fn delivery_extra(&self) -> Value {
+        if self.one_time { json!({"one_time":true}) } else { json!({}) }
+    }
+}
+
+/// Internal one-time delivery has no user or outside header/transport contract.
+#[logged]
+pub(crate) fn one_time_recipient(one_time: bool, to: &str) -> Result<()> {
+    let to = to.trim().trim_start_matches('@');
+    if one_time && (to == "user" || to.starts_with("org:") || to.starts_with("net:")) {
+        refuse!(BadRequest, "one_time supports same-org agents and projects only; user and outside recipients are not supported");
+    }
+    Ok(())
 }
 
 /// How a stored kind is shown (envelope headers, inbox lists): the kinds
@@ -266,6 +290,7 @@ pub(crate) async fn send_with_notices(engine: &Arc<Engine>, org_id: i64, mut out
         out.ev = Some(crate::events::ordinary(&out.from.name(), &out.kind, out.notice, &out.body));
     }
     let to = out.to.trim().trim_start_matches('@').to_string();
+    one_time_recipient(out.one_time, &to)?;
     if out.body.trim().is_empty() && out.attachments.is_empty() {
         refuse!(BadRequest, "a message needs a body");
     }
@@ -342,6 +367,7 @@ pub(crate) async fn send_with_notices(engine: &Arc<Engine>, org_id: i64, mut out
         .await?;
     let Some(target) = target else {
         if let Some(address) = bare_external(engine, out.to.trim())? {
+            one_time_recipient(out.one_time, &address)?;
             if out.urgent {refuse!(BadRequest,"urgent is only for the user or an agent currently in Do Not Disturb");}
             drop(client);
             out.to = address;
@@ -374,12 +400,12 @@ pub(crate) async fn send_with_notices(engine: &Arc<Engine>, org_id: i64, mut out
     tx
         .execute(
             "INSERT INTO ot.mail (uid, org_id, sender, sender_agent_id, sender_generation, recipient_kind, recipient_agent_id,
-                                  recipient_name, kind, notice, body, attachments, reply_to, ev, urgent, urgent_reason, client_op, state, net_id, net_hub, replies)
-             VALUES ($1, $2, $3, $4, $5, 'agent', $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, 'pending', $17, $18, $19)",
+                                  recipient_name, kind, notice, body, attachments, reply_to, ev, urgent, urgent_reason, client_op, state, net_id, net_hub, replies, extra)
+             VALUES ($1, $2, $3, $4, $5, 'agent', $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, 'pending', $17, $18, $19, $20)",
             &[
                 &mail_uid, &org_id, &sender_name, &sender_agent, &sender_gen, &target_id, &to, &out.kind, &out.notice,
                 &out.body, &Value::Array(out.attachments.clone()), &out.reply_to, &out.ev, &out.urgent,
-                &out.urgent_reason, &out.client_op, &out.net_id, &out.net_hub, &Value::Array(out.replies.clone()),
+                &out.urgent_reason, &out.client_op, &out.net_id, &out.net_hub, &Value::Array(out.replies.clone()), &out.delivery_extra(),
             ],
         )
         .await?;
@@ -461,11 +487,11 @@ async fn send_project(engine: &Arc<Engine>, org: &crate::orgs::OrgHandle, mut cl
                                   recipient_name, kind, notice, body, attachments, reply_to, ev, urgent, urgent_reason, client_op,
                                   state, read_at, delivered_at, replies, extra)
              VALUES ($1, $2, $3, $4, $5, 'agent', $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, 'read', now(), now(), $17,
-                     jsonb_build_object('ack_of', $18::text))",
+                     jsonb_build_object('ack_of', $18::text) || $19::jsonb)",
             &[
                 &mail_uid, &org.id, &out.from.name(), &sender_agent, &sender_gen, &project.id, &project.name, &out.kind, &out.notice,
                 &out.body, &Value::Array(out.attachments.clone()), &out.reply_to, &out.ev, &out.urgent, &out.urgent_reason,
-                &out.client_op, &Value::Array(out.replies.clone()), orig_uid,
+                &out.client_op, &Value::Array(out.replies.clone()), orig_uid, &out.delivery_extra(),
             ],
         )
         .await?;
@@ -500,12 +526,12 @@ async fn send_project(engine: &Arc<Engine>, org: &crate::orgs::OrgHandle, mut cl
     } else { (Vec::new(),Vec::new()) };
     tx.execute(
         "INSERT INTO ot.mail (uid, org_id, sender, sender_agent_id, sender_generation, recipient_kind, recipient_agent_id,
-                              recipient_name, kind, notice, body, attachments, reply_to, ev, urgent, urgent_reason, client_op, state, replies)
-         VALUES ($1, $2, $3, $4, $5, 'agent', $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, 'pending', $17)",
+                              recipient_name, kind, notice, body, attachments, reply_to, ev, urgent, urgent_reason, client_op, state, replies, extra)
+         VALUES ($1, $2, $3, $4, $5, 'agent', $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, 'pending', $17, $18)",
         &[
             &mail_uid, &org.id, &out.from.name(), &sender_agent, &sender_gen, &project.id, &project.name, &out.kind, &out.notice,
             &out.body, &Value::Array(out.attachments.clone()), &out.reply_to, &out.ev, &out.urgent, &out.urgent_reason,
-            &out.client_op, &Value::Array(out.replies.clone()),
+            &out.client_op, &Value::Array(out.replies.clone()), &out.delivery_extra(),
         ],
     )
     .await?;

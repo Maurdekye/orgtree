@@ -105,6 +105,7 @@ fn shown(raw: &Value, folder: &str) -> Value {
     ));
     entry["direction"] = json!(if folder == "sent" { "sent" } else { "received" });
     entry["to"] = raw["recipient_name"].clone();
+    entry["one_time"] = json!(raw["extra"]["one_time"].as_bool().unwrap_or(false));
     entry
 }
 
@@ -259,6 +260,15 @@ pub(super) async fn read(
 #[cfg(test)]
 mod project_agent_tool_tests {
     use super::*;
+
+    #[test]
+    fn one_time_project_history_keeps_marker_without_inferring_from_notice() {
+        for one_time in [false,true] {
+            let raw=json!({"uid":"m-one-time","body":"FYI","notice":true,"extra":{"one_time":one_time}});
+            assert_eq!(shown(&raw,"inbox")["one_time"],one_time);
+        }
+        assert_eq!(shown(&json!({"uid":"legacy","notice":true}),"inbox")["one_time"],false);
+    }
     #[test]
     fn project_tools_history_defaults_are_explicit_and_cursors_cannot_cross_scope() {
         assert_eq!(

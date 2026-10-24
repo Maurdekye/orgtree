@@ -8701,6 +8701,7 @@ pub(crate) fn mail_of(m: &Value) -> Mail {
         at: m["created_at"].as_str().and_then(crate::util::parse_ts).unwrap_or_else(Utc::now),
         attachments: m.get("attachments").cloned().unwrap_or(json!([])),
         notice: m["notice"].as_bool().unwrap_or(false),
+        one_time: m["extra"]["one_time"].as_bool().unwrap_or(false),
         urgent: m["urgent"].as_bool().unwrap_or(false),
         reply_to: m.get("reply_to").cloned().unwrap_or(Value::Null),
         replies: crate::domain::replies::value(m.get("reply_to"),m.get("replies")),
