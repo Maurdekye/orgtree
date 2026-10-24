@@ -2332,6 +2332,10 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
     )
     const onInnerObject = Boolean(innerObject && exact.contains(innerObject) && innerObject !== exact)
     ctxTarget.current = onInnerObject ? null : { id: event_id, el: exact }
+    // Live/thought rows use a display:contents event boundary. Keep that
+    // boundary for identity/highlighting, but measure the pressed text box.
+    const menuAnchor = e.currentTarget.ownerDocument.defaultView?.getComputedStyle(e.currentTarget).display === 'contents'
+      ? e.target as Element : e.currentTarget
     replyMenu.open(e, [{ label: 'Reply', disabled: !source || staleIdentity,
       title: source ? 'Reply to this exact chat event' : 'This event has no durable source reference yet',
       onSelect: () => { if (source) {
@@ -2377,7 +2381,7 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
           return
         }
         finish(copy)
-      } }])
+      } }], menuAnchor)
   }
   const sameReplyIdentity = useCallback((r: ReplyContext) => r.org === slug && r.agent === node.id
     && r.generation === (node.generation ?? 0), [slug, node.id, node.generation])
