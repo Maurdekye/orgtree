@@ -123,6 +123,16 @@ not execute; never count it as a product result.
 
 ## Renderer, capture and rig traps
 
+- **A capture fixture loads what main.tsx loads, at the width the app would.**
+  The app menu's dropdown and other v3 shell rules live in `shell.css`, which
+  `main.tsx` imports after `styles.css`; a fixture importing only `styles.css`
+  drew the menu as loose buttons. List-and-pane panels (Presentations, the
+  Changelog) collapse their list below 896 px (`NARROW_DOCS_WIDTH`): a 1000 px
+  offscreen window left about 884 px, so a capture meant to show the list uses
+  1024 px, Session 0's display width. Assert the list is expanded
+  (`.mailer:not(.narrow-list)`) as well as sized.
+  [verified: `tools/rig/desktop/changelog-visual.cjs`; 2026-10-24]
+
 - **Spelling probes include a typed word-boundary control.** On Windows Electron,
   CDP insertion of `mispellled synthetic` without a final boundary produced empty
   native spelling params at scale 1 and at text scale 0.625. With a final typed
