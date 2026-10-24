@@ -1,8 +1,12 @@
 // Desk tab memory captures (desks-remember-their-last-tab-and-the-inbox-tab-i):
 // an agent desk beside a project desk opened from remembered tabs, as after a
 // restart; then new picks, a full unmount and mount, and the project's mail
-// window, in dark and light. Offscreen and within Session 0's 1024x768
-// display; two animation frames and a pause before every capture (team notes,
+// window, in dark and light.
+// Run only in Session 0 or on a never-switched private desktop. Offscreen
+// inherits the launching turn session; use an isolated/empty clipboard, deny
+// clipboard permissions, and target owned windows with CDP/PostMessage only
+// (no OS input). Record child window SessionId and clipboard-denial state.
+// Wait two animation frames and a pause before every capture (team notes,
 // round 439).
 const { app, BrowserWindow } = require('electron')
 const fs = require('node:fs')

@@ -4,8 +4,12 @@
 // counted pile at the top level, under the big agent, under a project and
 // under a pile's front, and the single retiree's card), then on (the
 // retired-list tokens), then off again, each flip timed; then zoomed onto
-// the big pile. Dark and light. Offscreen and within Session 0's 1024x768
-// display; two animation frames and a pause before every capture (team
+// the big pile. Dark and light.
+// Run only in Session 0 or on a never-switched private desktop. Offscreen
+// inherits the launching turn session; use an isolated/empty clipboard, deny
+// clipboard permissions, and target owned windows with CDP/PostMessage only
+// (no OS input). Record child window SessionId and clipboard-denial state.
+// Wait two animation frames and a pause before every capture (team
 // notes, round 439).
 const { app, BrowserWindow } = require('electron')
 const fs = require('node:fs')

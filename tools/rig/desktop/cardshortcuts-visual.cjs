@@ -2,8 +2,12 @@
 // with Show agent card shortcuts on, a project's open desk with the pointer on
 // it (no shortcut row may be drawn over it), then the desk closed: the project
 // card and an agent card with a live report hovered at overview zoom, and the
-// project card below zoom 1. Dark and light. Offscreen and within Session 0's
-// 1024x768 display; two animation frames and a pause before every capture
+// project card below zoom 1. Dark and light.
+// Run only in Session 0 or on a never-switched private desktop. Offscreen
+// inherits the launching turn session; use an isolated/empty clipboard, deny
+// clipboard permissions, and target owned windows with CDP/PostMessage only
+// (no OS input). Record child window SessionId and clipboard-denial state.
+// Wait two animation frames and a pause before every capture
 // (team notes, round 439). The pointer is a real mouse move, so :hover is the
 // renderer's own.
 const { app, BrowserWindow } = require('electron')
