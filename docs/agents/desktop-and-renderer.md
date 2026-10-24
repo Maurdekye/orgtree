@@ -111,6 +111,16 @@ authority. [verified: `events/segments.tsx`, `canvas/desk.tsx`,
 
 ## Organization keyboard navigation (2026-10-23)
 
+Consecutive move recovery (2026-10-24, 4.4.5): a real-renderer 588019a control
+opens one desk then blocks moves 2-6 because its composer autofocuses. Preserve
+that autofocus/direct typing, but mark its provenance per document only during
+an accepted org-navigation sequence. Exact org chords may leave only that
+marked active composer; local tab shortcuts and other editors keep their guard.
+Pointerdown, non-navigation keys (including Tab), input/composition, window blur
+and main-listener teardown release the exception. Ordinary focus never grants it.
+[verified: `composerfocus.ts`, `shell/{appshortcuts,navigationkeys}.ts`,
+`canvas/{desk,projectdesk}.tsx`, `tests/navigationsequence.test.tsx`]
+
 Gesture recovery (2026-10-24, 4.4.5): `installNavigationKeys` reconciles a
 tracked pointer on captured pointermove/pointerover with buttons=0. A missed
 document pointerup without blur otherwise leaves navigation blocked indefinitely.

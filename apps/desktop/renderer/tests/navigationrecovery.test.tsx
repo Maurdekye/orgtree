@@ -3,6 +3,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { installAppShortcuts } from '../src/shell/appshortcuts'
 import { installNavigationKeys } from '../src/shell/navigationkeys'
+import { focusComposerAutomatically } from '../src/composerfocus'
 
 const pointer = (target: EventTarget, type: string, id: number, buttons: number, pointerType = 'mouse') => {
   const event = new window.Event(type, { bubbles: true })
@@ -102,4 +103,26 @@ test('detached documents own local navigation listeners without poisoning the ma
     assert.equal(local, 1)
     assert.equal(arrow(), true); assert.equal(main, 1)
   } finally { stopLocal(); child.window.close(); stopMain() }
+})
+
+test('only navigation-owned composer autofocus permits continuation; explicit interaction returns editor ownership', () => {
+  const stop = installAppShortcuts(window, () => ({ nextNode: () => {} }))
+  const editor = document.createElement('textarea'); document.body.append(editor)
+  try {
+    for (const release of ['typing', 'Tab', 'pointerdown', 'beforeinput', 'compositionstart', 'blur']) {
+      editor.blur()
+      assert.equal(arrow(), true)
+      focusComposerAutomatically(editor)
+      assert.equal(document.activeElement === editor, true, 'autofocus/direct typing is preserved')
+      assert.equal(arrow(editor), true, 'the next exact org chord can continue')
+      if (release === 'typing' || release === 'Tab') editor.dispatchEvent(new window.KeyboardEvent('keydown', {
+        key: release === 'typing' ? 'x' : 'Tab', bubbles: true, cancelable: true }))
+      else if (release === 'pointerdown') pointer(editor, 'pointerdown', 5, 0)
+      else if (release === 'blur') window.dispatchEvent(new window.Event('blur'))
+      else editor.dispatchEvent(new window.Event(release, { bubbles: true }))
+      assert.equal(arrow(editor), false, release + ' restores editor key ownership')
+    }
+    editor.blur(); focusComposerAutomatically(editor)
+    assert.equal(arrow(editor), false, 'ordinary desk autofocus does not create a navigation sequence')
+  } finally { editor.remove(); stop() }
 })

@@ -38,6 +38,12 @@ keys. Separate presses act once; holding a key does not repeat navigation.
 Navigation resumes after a pointer gesture ends. If its release happened
 outside the document, returning/moving that pointer with no buttons held
 clears its stale gesture guard; other active pointers still keep their keys.
+An org-navigation move may autofocus the destination's composer. Further org
+navigation chords continue from that automatically focused composer, so several
+desk moves can be made in a row while direct typing still works. Clicking,
+Tab or another non-navigation key, typing/input, composition, or window blur
+returns normal editor key ownership. Ordinary desk autofocus and intentionally
+focused editors retain their existing shortcut protection.
 
 | Key | Action |
 | --- | --- |

@@ -1,6 +1,6 @@
 import { effectiveReports } from './shared'
 import { Fragment } from 'react'
-import { focusComposerBackground } from '../composerfocus'
+import { focusComposerAutomatically, focusComposerBackground } from '../composerfocus'
 import { resizeComposer } from '../composerautosize'
 import { ShellOutputContext, LiveShellOutput } from '../shelloutput'
 import { DeskModelButton } from './deskmodel'
@@ -3654,7 +3654,7 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
     if (!el) return
     if (!bare && !compact && !el.dataset.f) {
       el.dataset.f = '1'
-      el.focus({ preventScroll: true })
+      focusComposerAutomatically(el)
     }
     if (typeof ResizeObserver === 'undefined') return
     let width = -1

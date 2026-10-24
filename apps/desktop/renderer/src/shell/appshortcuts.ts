@@ -1,6 +1,7 @@
 import { useLayoutEffect, useRef } from 'react'
 import type { OrgView } from '../attention/mode'
 import { installNavigationKeys } from './navigationkeys'
+import { beginKeyboardNavigation, endKeyboardNavigation, navigationAutofocusedEditor } from '../composerfocus'
 
 export type AppShortcutAction = 'settings' | 'usage' | 'usageHistory' | 'view'
   | 'refresh' | 'inbox' | 'docket' | 'presentations' | 'orgSettings' | 'unlatch' | 'halt'
@@ -69,7 +70,9 @@ export function matchAppShortcut(event: KeyboardEvent): AppShortcutAction | unde
  * native edit-context defaults. Function keys work while typing by explicit
  * user ruling; no toast-Undo editor exclusion applies here. */
 export function installAppShortcuts(win: Window, actions: () => AppShortcutActions): () => void {
+  const clearNavigationFocus = () => endKeyboardNavigation(win.document)
   const onKey = (event: KeyboardEvent) => {
+    if (!matchOrgNavigation(event) && event.key !== 'Alt' && event.key !== 'Shift') clearNavigationFocus()
     const action = matchAppShortcut(event)
     if (!action) return
     event.preventDefault()
@@ -77,14 +80,25 @@ export function installAppShortcuts(win: Window, actions: () => AppShortcutActio
     if (!event.repeat) actions()[action]?.()
   }
   win.addEventListener('keydown', onKey, true)
+  win.addEventListener('blur', clearNavigationFocus)
+  for (const type of ['pointerdown', 'beforeinput', 'compositionstart'])
+    win.document.addEventListener(type, clearNavigationFocus, true)
   const stopNavigation = installNavigationKeys(win.document, event => {
     const action = matchOrgNavigation(event)
     const run = action && actions()[action]
     if (!run) return
     event.preventDefault()
+    beginKeyboardNavigation(win.document)
     run()
-  })
-  return () => { win.removeEventListener('keydown', onKey, true); stopNavigation() }
+  }, event => matchOrgNavigation(event) ? navigationAutofocusedEditor(win.document) : null)
+  return () => {
+    win.removeEventListener('keydown', onKey, true)
+    win.removeEventListener('blur', clearNavigationFocus)
+    for (const type of ['pointerdown', 'beforeinput', 'compositionstart'])
+      win.document.removeEventListener(type, clearNavigationFocus, true)
+    clearNavigationFocus()
+    stopNavigation()
+  }
 }
 
 export function useAppShortcuts(actions: AppShortcutActions): void {

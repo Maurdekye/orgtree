@@ -47,7 +47,7 @@ import { ageClockNow, DeskReportRow, HeldAudienceChips, LastTurnAge, NavChip, su
 import { PresentationCard, recentDocumentChips } from './docs'
 import { DocIcon } from '../icons'
 import { subtreeAgents } from './bulkcompact'
-import { focusComposerBackground } from '../composerfocus'
+import { focusComposerAutomatically, focusComposerBackground } from '../composerfocus'
 import { AgentBatchHaltConfirm, AgentRetireConfirm } from './agentmenu'
 import { agentNavProps } from './agentnav'
 import { useAgentMentions, useDeskMentionScope, useOrgMentionCandidates } from './agentmentions'
@@ -416,7 +416,7 @@ function ProjectComposer({ node, slug, tree, map, toast, members, recipients, ba
     // does (G13); a window or another host's frame (bare) does not
     if (!bare && !el.dataset.f) {
       el.dataset.f = '1'
-      el.focus({ preventScroll: true })
+      focusComposerAutomatically(el)
     }
     if (typeof ResizeObserver === 'undefined') return
     let width = -1

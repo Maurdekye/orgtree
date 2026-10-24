@@ -3,18 +3,21 @@ const OWN_KEYS = 'input, textarea, select, [contenteditable]:not([contenteditabl
   + '[role="textbox"], [role="combobox"], [role="listbox"], [role="slider"], [role="spinbutton"], '
   + '.monaco-editor, .cm-editor, .CodeMirror'
 
-export function navigationBlocked(event: KeyboardEvent, owner?: Document): boolean {
+export function navigationBlocked(event: KeyboardEvent, owner?: Document, automaticEditor: Element | null = null): boolean {
   const target = event.target as Element | null
   const doc = target?.ownerDocument ?? owner
+  const targetEditor = target?.closest?.(OWN_KEYS)
+  const activeEditor = doc?.activeElement?.closest(OWN_KEYS)
   return event.defaultPrevented || event.repeat || event.isComposing || event.keyCode === 229
-    || !!target?.closest?.(OWN_KEYS)
-    || !!doc?.activeElement?.closest(OWN_KEYS)
+    || !!targetEditor && targetEditor !== automaticEditor
+    || !!activeEditor && activeEditor !== automaticEditor
     || !!doc?.querySelector('[aria-modal="true"], [role="dialog"]:not(.modalpin-win), '
       + '[role="menu"], .lb-overlay, .picker-overlay')
 }
 
 /** Bubble after local handlers; a pointer gesture keeps its ownership. */
-export function installNavigationKeys(doc: Document, onKey: (event: KeyboardEvent) => void): () => void {
+export function installNavigationKeys(doc: Document, onKey: (event: KeyboardEvent) => void,
+  automaticEditor?: (event: KeyboardEvent) => Element | null): () => void {
   const pointers = new Set<number>()
   const down = (event: PointerEvent) => { if (event.buttons) pointers.add(event.pointerId) }
   const up = (event: PointerEvent) => { pointers.delete(event.pointerId) }
@@ -23,7 +26,9 @@ export function installNavigationKeys(doc: Document, onKey: (event: KeyboardEven
   // never clear other live touches or a mouse that still has a button held.
   const released = (event: PointerEvent) => { if (event.buttons === 0) up(event) }
   const clear = () => pointers.clear()
-  const key = (event: KeyboardEvent) => { if (!pointers.size && !navigationBlocked(event, doc)) onKey(event) }
+  const key = (event: KeyboardEvent) => {
+    if (!pointers.size && !navigationBlocked(event, doc, automaticEditor?.(event))) onKey(event)
+  }
   doc.addEventListener('pointerdown', down, true)
   doc.addEventListener('pointerup', up, true)
   doc.addEventListener('pointercancel', up, true)

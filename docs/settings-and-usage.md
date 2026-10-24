@@ -169,6 +169,10 @@ the earlier child in an even centre tie. Agent history is per org and window
 session, keeps up to 256 visits and skips unavailable agents; project, switchboard
 and fit visits preserve it. Existing pinned/detached/Attention desk routing applies.
 Shift+F6 and Shift+F8 are unbound; Shift+F7 remains. Hold does not repeat a jump.
+When an org shortcut autofocuses the next desk's composer, further org chords
+can continue through that automatic focus. Direct typing still works; clicking,
+Tab/other keys, input/composition or window blur restores normal editor ownership.
+Ordinary desk autofocus and intentional editor focus stay protected.
 With no desk focused, Shift+Alt arrows continue from the last live agent or
 project desk focused in this org, provided it is still in the visible layout.
 Focus/jump intent, settled camera focus (manual pan/zoom included), and interaction
