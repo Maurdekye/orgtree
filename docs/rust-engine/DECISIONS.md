@@ -36,7 +36,11 @@ m2185e9c95aad, m437f0fabb8d9, m8f522c3882a2; 4.4.5):** keep Shift+Alt if
 the Windows menu can be cleanly blocked; otherwise all org-navigation chords
 move to Shift+Ctrl after conflict reporting. The native cancellable menu seam
 supports the clean-block path, so bindings stay unchanged. Relevant navigation
-controls disclose the final bindings from the shared catalog. See
+controls disclose the final bindings from the shared catalog. The later USER
+2026-10-24 m76d83710011c / me6e893c5863c refinement keeps hints only on
+commands that are not agent/project links: same-line parentheses, Unicode
+arrows and no action caption. Agent/project links restore ordinary identity
+hover; this supersedes the earlier all-controls hint requirement. See
 [Windows navigation](../agents/desktop-and-renderer.md#windows-shiftaltspace-and-navigation-tooltip-bindings-2026-10-24).
 
 **One-time agent mail, USER 2026-10-24 (4.4.5):** message tools can omit the

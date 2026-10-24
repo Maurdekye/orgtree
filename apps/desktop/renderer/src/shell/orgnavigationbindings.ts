@@ -1,7 +1,6 @@
 /** One binding catalog for matching, shortcut help and navigation tooltips. */
 export type OrgNavigationAction = 'parentNode' | 'childNode' | 'previousNode' | 'nextNode' | 'fitOrg' | 'previousAgent' | 'switchboard'
 export const LAST_DESK_KEY = 'Shift+F7'
-export const ORG_NAV_TOOLTIP = 'data-org-navigation-action'
 export const ORG_NAV_KEYS: { keys: string[]; action: string; id: OrgNavigationAction }[] = [
   { keys: ['Shift+Alt+ArrowUp'], action: 'Focus the visible parent; top-level nodes go to the switchboard', id: 'parentNode' },
   { keys: ['Shift+Alt+ArrowDown'], action: 'Focus the centre-most visible direct child', id: 'childNode' },
@@ -15,5 +14,6 @@ export const ORG_NAV_KEYS: { keys: string[]; action: string; id: OrgNavigationAc
 export function orgNavigationTooltip(title: string, action?: string | null): string {
   const row = action === 'lastDesk' ? { keys: [LAST_DESK_KEY], action: 'Focus the last desk' }
     : ORG_NAV_KEYS.find(row => row.id === action)
-  return row ? title + '\n' + row.keys.join(' / ') + ' — ' + row.action : title
+  const arrows: Record<string, string> = { ArrowLeft: '←', ArrowUp: '↑', ArrowRight: '→', ArrowDown: '↓' }
+  return row ? `${title} (${row.keys.join(' / ').replace(/Arrow(?:Left|Up|Right|Down)/g, key => arrows[key]!)})` : title
 }

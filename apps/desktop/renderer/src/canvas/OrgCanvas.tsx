@@ -4893,8 +4893,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
           /* inline because it is data: the window-to-region distance on this
              side, over the stylesheet's 6px (which is the unpinned value) */
           style={{ top: e.y, ...(e.side === 'l' ? { left: e.inset } : { right: e.inset }) }}
-          data-org-navigation-action={e.side === 'l' ? 'previousNode' : 'nextNode'}
-          title={orgNavigationTooltip(`jump to ${e.n.id}`, e.side === 'l' ? 'previousNode' : 'nextNode')}
+          title={`jump to ${e.n.id}`}
           onPointerDown={(ev) => ev.stopPropagation()}
           onClick={() => centerOn(e.n.id)}>
           {e.side === 'l' && <ChevronLeftIcon fontSize="inherit" />}

@@ -287,8 +287,9 @@ still resume, so the agents themselves remember).
 
 Windows Fit shortcut (USER 2026-10-24, 4.4.5): keep Shift+Alt+Space and suppress
 only its native system-menu request in Orgtree windows. Plain Alt+Space stays
-native. Navigation controls show the shared catalog's bindings in their tooltips;
-editor ownership and main-canvas action scope remain. See
+native. Command tooltips show same-line parenthesized bindings with Unicode
+arrows; agent/project links keep ordinary identity hover without hints (USER
+2026-10-24 refinement). Editor ownership and main-canvas scope remain. See
 [Windows navigation](../agents/desktop-and-renderer.md#windows-shiftaltspace-and-navigation-tooltip-bindings-2026-10-24).
 
 Standalone client tokens (USER/coordinator 2026-10-24, 4.4.5): named clients

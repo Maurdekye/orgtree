@@ -73,9 +73,11 @@ then uses the ordinary renderer navigation guards. Plain Alt+Space and titlebar
 right-click keep the Windows menu. Each native Orgtree window, including a
 pop-out, keeps separate modifier state and clears it on blur; org actions keep
 their existing main-canvas scope. No global shortcut or OS setting is changed.
-Navigation controls show bindings from the same shortcut catalog. Jump-card
-tooltips describe parent, centre-most visible child and previous/next sibling
-navigation; they do not promise the chord jumps to every displayed card.
+Navigation command tooltips show the shared binding in parentheses on the
+same line, without an action caption; arrow directions use ← ↑ → ↓. Agent and
+project links, including neighbour and superior/subordinate jump cards, keep
+their ordinary identity tooltips without shortcut hints. Switchboard commands
+and the generic Focus last desk command retain their hints.
 Windows may still intercept Alt+Shift for input-language switching. On macOS, Option-arrow selection/word movement and deletion remain with editors.
 
 ## Focus-dependent bindings

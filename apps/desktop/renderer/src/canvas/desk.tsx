@@ -1864,10 +1864,8 @@ export function NavChip({ n, dir, onJump }:
   return <span className="desk-nav-entry">
     <button data-copy-agent-name={eye ? undefined : n.id}
         {...agentNavProps(eye ? undefined : n.id)} className={'desk-nav-chip' + (!eye && n.state !== 'live' ? ' dim' : '') + prov}
-        data-org-navigation-action={eye ? 'switchboard' : dir === 'up' ? 'parentNode' : 'childNode'}
-        title={orgNavigationTooltip(eye ? 'jump to the switchboard'
-          : `jump to ${n.id}${n.state !== 'live' ? ` (${n.state})` : ''}`,
-          eye ? 'switchboard' : dir === 'up' ? 'parentNode' : 'childNode')}
+        title={eye ? orgNavigationTooltip('jump to the switchboard', 'switchboard')
+          : `jump to ${n.id}${n.state !== 'live' ? ` (${n.state})` : ''}`}
         onClick={() => onJump(n.id)}>
         {dir === 'up' ? <ArrowUpIcon fontSize="inherit" /> : <ArrowDownIcon fontSize="inherit" />}
         {eye
