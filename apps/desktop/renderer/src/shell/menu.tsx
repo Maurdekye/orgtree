@@ -23,7 +23,7 @@
 // text and losing the thing the list is for.
 import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from 'react'
 import type { RefObject } from 'react'
-import { DataUsageIcon, HomeIcon, MenuIcon, SettingsIcon, ShowChartIcon } from '../icons'
+import { ChangelogIcon, DataUsageIcon, HomeIcon, MenuIcon, SettingsIcon, ShowChartIcon } from '../icons'
 import { orgFreshnessNote } from '../orgstatus'
 import type { OrgFreshness } from '../orgstatus'
 import type { OrgListEntry } from '../types'
@@ -46,6 +46,8 @@ export interface OrgtreeMenuProps {
   onUsage: () => void
   /** the usage history panel, listed right under Usage (user 2026-10-09) */
   onUsageHistory?: () => void
+  /** the Changelog, directly below Usage history (user 2026-10-24 22:13:55Z) */
+  onChangelog?: () => void
   onAppSettings: () => void
   /** Main shell's keyboard route uses the existing submenu/open helpers. */
   shortcutRef?: RefObject<OrgtreeMenuActions | null>
@@ -83,7 +85,7 @@ interface SubPos { left: number; top: number; flip: boolean }
 
 export function OrgtreeMenu(props: OrgtreeMenuProps) {
   const { orgs, freshness, ageMs, error, currentOrg, isOpenElsewhere,
-    onOpenOrg, onNewWindow, onCreateOrg, onUsage, onUsageHistory, onAppSettings } = props
+    onOpenOrg, onNewWindow, onCreateOrg, onUsage, onUsageHistory, onChangelog, onAppSettings } = props
   const [open, setOpen] = useState(false)
   // THE ORGANIZATION LIST IS A SUBMENU (user 2026-09-29, image-21: "this open
   // organization should open a submenu to the right side, not expand a new
@@ -324,6 +326,13 @@ export function OrgtreeMenu(props: OrgtreeMenuProps) {
               onClick={() => run(onUsageHistory)}>
               <ShowChartIcon fontSize="inherit" />
               <span className="shell-menu-label">Usage history…</span>
+            </button>
+          )}
+          {onChangelog && (
+            <button type="button" role="menuitem" className="shell-menu-item"
+              onClick={() => run(onChangelog)}>
+              <ChangelogIcon fontSize="inherit" />
+              <span className="shell-menu-label">Changelog…</span>
             </button>
           )}
           {/* NO "About Orgtree" ENTRY (user 2026-09-29): it only opened App

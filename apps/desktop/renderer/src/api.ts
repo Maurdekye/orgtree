@@ -1387,6 +1387,34 @@ export interface UsageHistory {
 }
 export const getUsageHistory = (range: UsageHistoryRange): Promise<UsageHistory> =>
   req(`/api/usage/history?range=${range}`)
+// the Changelog (docket changelog-window-one-row-per-version-pinnable-po): one
+// row per published release, newest first, bundled into the engine at build
+// time; a version's notes are read when its row is opened
+export interface ChangelogRow {
+  version: string
+  /** its release date & time; null when the build does not know it */
+  released_at: string | null
+  /** this build, not a published release (a local alpha) */
+  unpublished: boolean
+  /** whether the row has notes to show */
+  notes: boolean
+}
+export interface ChangelogList {
+  /** the engine's own version */
+  running: string
+  /** which time a published row's date is: GitHub's publish time or its tag's commit */
+  time_source: 'published' | 'tagged'
+  releases: ChangelogRow[]
+}
+export interface ChangelogEntry extends Omit<ChangelogRow, 'notes'> {
+  /** whose notes these are: an unpublished build shows the release it leads to */
+  notes_version: string | null
+  /** Markdown; null when there are none */
+  notes: string | null
+}
+export const getChangelog = (): Promise<ChangelogList> => req('/api/changelog')
+export const getChangelogEntry = (version: string): Promise<ChangelogEntry> =>
+  req(`/api/changelog/${encodeURIComponent(version)}`)
 // ---- machine-local account routing (user redesign 2026-08-25) ----------
 // The primary row is the machine's own login; `keys` are pasted
 // `claude setup-token` fallbacks. NO token material in any response — a key

@@ -4660,6 +4660,13 @@ main.solo { width: 100%; }
 .gallery-showretired { font-size: 12.5px; color: var(--dim); cursor: pointer; }
 .gallery-showretired input { cursor: pointer; }
 
+/* the Changelog (changelog.tsx) is the Presentations panel's shape: where that
+   header keeps its checkbox, this one links to its setting (user 2026-10-24
+   22:14:57Z) */
+.changelog-setting-link { background: none; border: 0; padding: 0; font: inherit; font-size: 12.5px;
+  color: var(--agent-accent-text, var(--accent)); cursor: pointer; text-decoration: underline; }
+.changelog-modal .changelog-draft { font-size: 12px; margin-top: 2px; }
+
 /* an EVICTED card never flares, whoever presented it: there is no document
    to go and read, so it must not compete with the rows that have one. Placed
    after — and matched to — the .active rule so it wins on order, not by

@@ -3,6 +3,7 @@ import type { AccountProvider } from './accountsregistry'
 import { ThemeSetting } from '../themes'
 import { CanvasBackgroundSetting } from './canvasbgsetting'
 import { HireAutoFocusSetting, NewHirePositionSetting } from './hirepositionsetting'
+import { ChangelogAfterUpdateSetting } from '../changelog'
 import { setProjectBunchesOn, useProjectBunches, setProjectBunchRearrangeOn, useProjectBunchRearrange } from './projectbunchprefs'
 import { DesktopSettings, RunAsAdministratorSetting } from './desktopsettings'
 import { QuickStaffSetting } from './quickstaffsetting'
@@ -968,7 +969,7 @@ export function AccountsPanel({ toast, close, initialTab, target }: {
           </select>
         </SetRow>
       </SetGroup>
-      <SetGroup title="Startup"><StartupWindowsSetting /><StartupView /></SetGroup>
+      <SetGroup title="Startup"><StartupWindowsSetting /><StartupView /><ChangelogAfterUpdateSetting /></SetGroup>
     </SettingsTabPanel>
     <SettingsTabPanel id="defaults" idBase="app-settings" active={tab === 'defaults'}>
       <DefaultsForm toast={toast} onDone={close} />

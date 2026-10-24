@@ -103,6 +103,7 @@ import { primaryEmail, usageIdentity } from './accountidentity'
 import { onAppValue, useAppRead, useAppReadout } from './appfeed'
 import { groupByProvider } from './usagegroups'
 import { UsageHistoryModal } from './usagehistory'
+import { ChangelogModal, changelogAfterUpdateOn } from './changelog'
 import { bumpLive, onLiveBump } from './livebus'
 import { applyPrimedAsks, onPrimeAsk, useAskPrimer } from './askprime'
 import { newSync, onBase, onFrame, resetSync } from './treesync'
@@ -519,6 +520,13 @@ export default function App() {
   const usageHistoryOpen = useScopedOpen(slug)
   const showUsageHistory = usageHistoryOpen.open
   const setShowUsageHistory = usageHistoryOpen.set
+  // the Changelog (docket changelog-window-one-row-per-version-pinnable-po):
+  // app-wide like Usage history, below it in the menu, and scoped and pinned
+  // the same way. Every opening is a request for the latest version.
+  const changelogOpen = useScopedOpen(slug)
+  const showChangelog = changelogOpen.open
+  const setShowChangelog = changelogOpen.set
+  const [changelogOpening, setChangelogOpening] = useState(0)
 
   // the documents gallery (user request 2026-09-03): every presented card,
   // org-wide, one place. It reads in its OWN right-hand pane (the mail
@@ -543,6 +551,7 @@ export default function App() {
   // marker never writes
   usePersistedModalOpen('usage', slug, showUsage)
   usePersistedModalOpen('usage-history', slug, showUsageHistory)
+  usePersistedModalOpen('changelog', slug, showChangelog)
   // Every panel button shares the open/close rule for local pins (user
   // 2026-10-18 16:42Z); detached panels retain their focus path.
   const toggleSurface = useCallback((kind: string, open: boolean,
@@ -552,6 +561,28 @@ export default function App() {
     toggleSurface('usage', showUsage, setShowUsage), [toggleSurface, showUsage])
   const toggleUsageHistory = useCallback(() =>
     toggleSurface('usage-history', showUsageHistory, setShowUsageHistory), [toggleSurface, showUsageHistory])
+  // opens it, or raises it where it already is: on the latest version either way
+  const openChangelog = useCallback(() => {
+    setChangelogOpening((n) => n + 1)
+    toggleSurface('changelog', showChangelog, setShowChangelog, true)
+  }, [toggleSurface, showChangelog, setShowChangelog])
+  // THE FIRST LAUNCH AFTER AN UPDATE (main/changelog-launch.ts): native tells
+  // the first window that asks, once. It opens the Changelog unless the user
+  // turned that off (App settings › Display › Startup); a fresh install, a
+  // later window and a later launch hear nothing.
+  const [changelogAfterUpdate, setChangelogAfterUpdate] = useState(false)
+  useEffect(() => {
+    let live = true
+    desktop()?.takeChangelogAfterUpdate?.()
+      .then((news) => { if (live && news && changelogAfterUpdateOn()) setChangelogAfterUpdate(true) })
+      .catch(() => { /* an older shell, or none: nothing to open */ })
+    return () => { live = false }
+  }, [])
+  useEffect(() => {
+    if (!changelogAfterUpdate) return
+    setChangelogAfterUpdate(false)
+    openChangelog()
+  }, [changelogAfterUpdate, openChangelog])
   usePersistedModalOpen('defaults', null, showDefaults)
   usePersistedModalOpen('app-settings', slug, showAccounts)
   usePersistedModalOpen('org-settings', slug, showSettings)
@@ -679,6 +710,7 @@ export default function App() {
   useEffect(() => {
     usageOpen.setIn(null, (isModalPinned('usage') && readModalOpen(null).some(r => r.kind === 'usage')) || restoreWindowKind('usage', null))
     usageHistoryOpen.setIn(null, (isModalPinned('usage-history') && readModalOpen(null).some(r => r.kind === 'usage-history')) || restoreWindowKind('usage-history', null))
+    changelogOpen.setIn(null, (isModalPinned('changelog') && readModalOpen(null).some(r => r.kind === 'changelog')) || restoreWindowKind('changelog', null))
     appSettingsOpen.setIn(null, (isModalPinned('app-settings') && readModalOpen(null).some(r => r.kind === 'app-settings')) || restoreWindowKind('app-settings', null))
     setShowDefaults((isModalPinned('defaults') && readModalOpen(null).some(r => r.kind === 'defaults')) || restoreWindowKind('defaults', null))
   }, [])
@@ -703,6 +735,7 @@ export default function App() {
     const pinnedKind = (kind: string) => pinned.some(r => r.kind === kind && isModalPinned(kind, slug))
     usageOpen.setIn(slug, pinnedKind('usage') || restoreWindowKind('usage', slug))
     usageHistoryOpen.setIn(slug, pinnedKind('usage-history') || restoreWindowKind('usage-history', slug))
+    changelogOpen.setIn(slug, pinnedKind('changelog') || restoreWindowKind('changelog', slug))
     appSettingsOpen.setIn(slug, pinnedKind('app-settings') || restoreWindowKind('app-settings', slug))
     settingsOpen.setIn(slug, pinnedKind('org-settings') || restoreWindowKind('org-settings', slug))
     setShowInbox(pinnedKind('inbox') || restoreWindowKind('inbox', slug))
@@ -1417,7 +1450,7 @@ export default function App() {
       }
     }
     setViewMode('canvas')
-    setShowAccounts(false); setShowDefaults(false); setShowUsage(false); setShowUsageHistory(false)
+    setShowAccounts(false); setShowDefaults(false); setShowUsage(false); setShowUsageHistory(false); setShowChangelog(false)
     setShowSettings(false); setShowGallery(false); setShowDocket(false); setShowInbox(false)
     if (target.kind === 'agent' && target.node && target.mention_id) {
       requestMentionHighlight(org, target.node, target.mention_id, target.event_id)
@@ -1460,6 +1493,7 @@ export default function App() {
           { kind: 'defaults', open: showDefaults, close: () => setShowDefaults(false), org: null },
           { kind: 'usage', open: showUsage, close: () => setShowUsage(false), org: slug },
           { kind: 'usage-history', open: showUsageHistory, close: () => setShowUsageHistory(false), org: slug },
+          { kind: 'changelog', open: showChangelog, close: () => setShowChangelog(false), org: slug },
           { kind: 'inbox', open: showInbox, close: () => setShowInbox(false), org: slug },
           { kind: 'docket', open: showDocket, close: () => setShowDocket(false), org: slug },
           { kind: 'gallery', open: showGallery, close: () => setShowGallery(false), org: slug },
@@ -1522,6 +1556,7 @@ export default function App() {
       onOpenOrg={openOrgFromShell} onNewWindow={newWindow} onCreateOrg={createWindow}
       onUsage={() => toggleSurface('usage', showUsage, setShowUsage, true)}
       onUsageHistory={() => toggleSurface('usage-history', showUsageHistory, setShowUsageHistory, true)}
+      onChangelog={openChangelog}
       isOpenElsewhere={openElsewhere}
       onOrgListOpen={setMenuOrgsOpen}
       onAppSettings={() => toggleSurface('app-settings', showAccounts, setShowAccounts, true)} shortcutRef={mainMenu} />
@@ -2069,6 +2104,9 @@ export default function App() {
       )}
       {showUsageHistory && (
         <UsageHistoryModal org={slug} close={() => setShowUsageHistory(false)} />
+      )}
+      {showChangelog && (
+        <ChangelogModal opening={changelogOpening} close={() => setShowChangelog(false)} />
       )}
       {showGallery && slug && (
         <DocGalleryModal slug={slug} toast={toast}
