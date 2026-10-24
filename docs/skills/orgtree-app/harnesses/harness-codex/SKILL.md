@@ -16,6 +16,14 @@ Mail uses native `turn/steer` with `expectedTurnId`. Failed steering leaves mail
 
 ## Information and timing
 
+New completed reasoning items show the ordinary Claude-style thought duration,
+including sealed reasoning. A valid native `startedAtMs` / `completedAtMs` pair
+wins; otherwise Orgtree measures the observed interval between matching item
+start/completion events. Missing starts and historical rows without timing stay
+unknown. This is item-lifecycle time, not a whole-turn or model-internal estimate.
+Thoughts remain expandable only when readable content was supplied; tool writing
+time below remains a separate, unsupported signal.
+
 Agent text and reasoning text/summary deltas stream independently. Completed message/reasoning items become durable transcript rows. Tool `item/started` and `item/completed` produce engine-observed start/end timestamps and completed output/error previews. This adapter does not expose Claude-style partial argument-writing telemetry, so tool writing time is unknown rather than zero. Native command timing fields are not automatically the chip's observed interval. Command-output deltas now feed a bounded, ephemeral live shell tail, separate from saved result previews; this is not a complete terminal recording. Source audited at `32bb414`, 2026-10-20: [`runtime/shell_output.rs:1`](https://github.com/Maurdekye/orgtree/blob/32bb4144e0337a3c425e71515863a3412bf77987/engine/rs/orgtree-engine/src/runtime/shell_output.rs#L1).
 
 `thread/tokenUsage/updated` carries thread totals and last-request figures. Orgtree differences cumulative totals for per-turn input/cached/output accounting and uses the last prompt for occupancy. `account/rateLimits/updated`, model reroutes and terminal errors are separate signals; a retryable error need not end the turn. Only the running turn's completion ends its record.

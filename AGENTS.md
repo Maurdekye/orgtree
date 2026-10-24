@@ -76,6 +76,8 @@ Rig live-root guards retain import-time `APPDATA`/home/data-override paths after
   Keep
   Codex tool chips visible in the ordinary row form. See [thinking history](docs/rust-engine/codex-thinking-history.md).
   [verified: `runtime/codex_thinking.rs`, `tools/orgview.rs`; 2026-10-23]
+  New Codex thoughts retain native-pair or observed item-boundary durations;
+  missing starts/history stay unknown. [decided: user 2026-10-24; verified: `runtime/codex_thinking/timing.rs`]
 
 - Preserve nonblank streamed text before taking a turn; native-identity receipts
   reconcile late completions in place. Thinking is separate. See [unfinished

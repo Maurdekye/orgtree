@@ -1987,6 +1987,11 @@ All entries are dated 2026-10-06 unless stated otherwise.
   otherwise use the computed block duration. A whole-turn runtime is not a
   thinking duration. See [Claude thought timing](claude-thinking-time.md).
 
+- 2026-10-24 17:59:47Z, USER: Codex thoughts show times with Claude's existing
+  UI. Use actual reasoning-item boundaries; never fabricate timing. Valid native
+  lifecycle timestamps take priority over observed boundary elapsed time;
+  missing starts/history remain unknown. See [Codex thought timing](codex-thinking-history.md#reasoning-item-duration-2026-10-24-445).
+
 - 2026-10-22 13:01Z/13:02:30Z, USER: network watchdog connection_messages
   notice (default), wake or off is a 4.4.0 freeze exception. Coordinator filled
   the definition gap 13:03:54Z: all connection mail is administrative, replacing

@@ -51,6 +51,12 @@ An idle docket reminder can contain interactive ticket cards. Open them to inspe
 
 Older transcript pages load as you scroll back. An error offers Retry; it is not proof that history ends there. Thoughts can contain supplied text, a measured duration, or a sealed/unsupported display. Missing text does not establish that the model did no reasoning.
 
+New Codex thoughts retain their measured item duration, using the same display
+as Claude, including sealed thoughts. Native start/end timestamps take priority;
+otherwise matching observed boundaries supply the time. Missing starts and old
+rows without timing stay unknown. Open a readable thought to inspect its supplied
+text; a sealed thought cannot reveal text the harness did not provide.
+
 Where retained, an Agent/Task tool row can expand a helper's transcript. Newly captured Claude helpers can stream their text and tool activity within the parent call. Older calls and other harnesses explain when no helper transcript is available. This nested view is bounded and does not run a helper merely because you open it.
 
 File tool rows show the attempted path. An existing file can be opened or revealed; an unavailable path retains copy actions and its status explanation. Reading a tool result and checking the actual current file are different ways to verify an outcome.

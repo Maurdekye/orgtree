@@ -4,7 +4,8 @@ Completed Codex reasoning items without readable summary/content now append a
 normal assistant row with empty response/thinking text and `thinking_sealed:
 true`. The existing desk renderer displays its sealed thought placeholder.
 Readable native summaries keep the existing 20,000-character storage bound.
-Ciphertext, fabricated reasoning, duration and token counts are not added.
+Ciphertext, fabricated reasoning, duration and token counts are not added by
+the row constructor. Measured lifecycle timing is attached separately below.
 This records new completed items; there is no historical sealed-row backfill.
 
 The actor reuses the native item's row sequence for repeated completion receipts
@@ -33,3 +34,32 @@ inside Done/MCP/legacy results are omitted when they contain thinking, including
 nested encodings. Log-only decoding has size/depth bounds and fails closed.
 Actual tool replies remain intact, with ordinary call/return diagnostics kept.
 The captured-trace regression exercises Done.json and logged outer wrappers.
+
+## Reasoning item duration (2026-10-24, 4.4.5)
+
+New Codex reasoning rows use the same thought disclosure and seconds formatter
+as Claude. The installed Codex 0.160.0 protocol schema supplies `threadId`,
+`turnId`, `item.id`, and outer `startedAtMs` / `completedAtMs` Unix milliseconds
+on reasoning item start/completion notifications. A valid pair takes precedence;
+when those timestamps are absent or invalid, the observed monotonic interval
+between the matching native boundaries is used. This measures the reported item
+lifecycle, not unavailable model-internal computation or a whole turn.
+
+The actor observes each boundary before diagnostic/database awaits. Timing is
+private to one turn, limited to 1,024 native item IDs (512 bytes each), and
+validated against the current process's thread and admitted turn. Duplicate
+starts cannot restart a clock; the first completion freezes its duration.
+A completion without a start remains unknown, including after a later replayed
+start. Different item types/IDs/threads/turns cannot donate time. There is no
+historical inference or backfill from row timestamps or token counts.
+
+The existing ordinary row retains `think_secs`, including measured zero, after
+JSON storage/reload, sealed-to-readable upgrades and attached tool updates.
+Readable thoughts remain expandable; sealed thoughts retain the existing
+placeholder. Unknown time keeps the existing unknown-time presentation.
+No new tool/action is introduced. The actor, row and timing helpers are unlogged;
+the clock holds identity and timing metadata only, never reasoning content.
+
+Verification uses recorded notification shapes and actual product modules with
+a deterministic clock, plus the ordinary renderer. Protocol schema inspection
+is not a real-provider turn or hands-on acceptance proof.

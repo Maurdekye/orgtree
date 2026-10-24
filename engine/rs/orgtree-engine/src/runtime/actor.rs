@@ -425,6 +425,7 @@ struct Turn {
     thinking_order: Option<u64>,
     tool_writing: super::toolwriting::ToolWriting,
     claude_thinking: super::claude_thinking::Timing,
+    codex_thinking: super::codex_thinking::Timing,
     compact: bool,
     /// A successful native compaction this turn invalidates its earlier peak.
     cli_compacted: bool,
@@ -546,6 +547,7 @@ impl Turn {
             thinking_order: None,
             tool_writing: super::toolwriting::ToolWriting::default(),
             claude_thinking: Default::default(),
+            codex_thinking: Default::default(),
             compact,
             cli_compacted: false,
             cards: HashMap::new(),
@@ -5100,8 +5102,8 @@ impl Actor {
                     self.compact_close("done", Value::Null).await?;
                 }
             }
-            "item/started" => self.on_codex_item(&p["item"], false).await?,
-            "item/completed" => self.on_codex_item(&p["item"], true).await?,
+            "item/started" => self.on_codex_item(p, false).await?,
+            "item/completed" => self.on_codex_item(p, true).await?,
             "turn/plan/updated" => self.on_codex_plan(p).await?,
             "model/rerouted" => {
                 if let Some(t) = self.turn.as_mut() {
@@ -6358,7 +6360,8 @@ impl Actor {
 
     /// A Codex item started or completed: text rows, thoughts and tool chips.
     #[nolog]
-    async fn on_codex_item(&mut self, item: &Value, completed: bool) -> Result<()> {
+    async fn on_codex_item(&mut self, params: &Value, completed: bool) -> Result<()> {
+        let item=&params["item"];
         if completed && matches!(item["type"].as_str(),Some("agentMessage"|"plan"))
             && self.complete_retained("codex",item["id"].as_str().unwrap_or(""),&[item["text"].as_str().unwrap_or("").to_string()]).await?.is_some() { return Ok(()); }
         if self.turn.is_none() {
@@ -6366,6 +6369,13 @@ impl Actor {
         }
         let typ = item["type"].as_str().unwrap_or("");
         let id = item["id"].as_str().unwrap_or("").to_string();
+        // Observe the boundary before runner diagnostics or database awaits.
+        let think_secs=if typ=="reasoning" {
+            match (self.turn.as_mut(),self.proc.as_ref()) {
+                (Some(t),Some(Proc::Codex(p)))=>t.codex_turn.as_deref().and_then(|turn|t.codex_thinking.observe(params,completed,&p.session_id,turn,Instant::now())),
+                _=>None,
+            }
+        } else {None};
         if let Some(t) = self.turn.as_mut() {
             t.activity = true;
         }
@@ -6415,7 +6425,7 @@ impl Actor {
                     return Ok(());
                 }
                 let previous=self.turn.as_ref().and_then(|t|t.rows.get(&id).cloned());
-                let row=super::codex_thinking::row(item,previous.as_ref().map(|(_,r)|r.clone()),&now_iso());
+                let row=super::codex_thinking::timed_row(item,previous.as_ref().map(|(_,r)|r.clone()),&now_iso(),think_secs);
                 let client = self.engine.db.get().await?;
                 let seq=if let Some((seq,_))=previous {
                     self.convo.update(&client,seq,row.clone()).await?;seq
