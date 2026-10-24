@@ -77,6 +77,23 @@ An agent deliberately writing a standalone @user in visible prose can request yo
 
 The checked image route accepts PNG/JPEG/GIF/WebP up to 10 MiB, 16 million pixels and 8,192 pixels per dimension. It refuses unsafe local-link/device paths and private/LAN/loopback remote image destinations, even when you can reach them elsewhere. Public HTTP(S) redirects are rechecked. A rejected embed falls back to a link; that does not prove the file or URL is missing. These limits apply across Markdown reading surfaces, including mail and presentations.
 
+## Text editing menus
+
+Right-click editable text for **Undo**, **Redo**, **Cut**, **Copy**, **Paste**,
+**Delete** and **Select All**. Commands are disabled when the field cannot use
+them; Cut and Delete require a selection. Rich editable text also offers
+**Paste as plain text**. Shortcut hints follow the platform convention.
+
+When the default Electron/OS spellchecker identifies a misspelled word under
+the pointer, its spelling suggestions replace that word and **Add to dictionary**
+adds it to the current session's spelling dictionary. Suggestions depend on the
+default spelling language; Orgtree does not choose another language here.
+
+Selected read-only text offers **Copy** and **Select All**. Exact-passage menus
+retain **Reply to selection** alongside those commands. Select All selects text
+in the current document; it does not edit it or send a message. These menus stay
+with their originating canvas, floating, pinned or popped-out reading surface.
+
 ## Replies to an exact passage
 
 In a live mail reply context, highlight text, right-click **Reply to selection**,

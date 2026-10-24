@@ -187,9 +187,14 @@ export function shortcutGroups(enter: EnterKeyBehavior = 'send'): ShortcutGroup[
         note: 'Escape cancels', sources: [R('canvas/creditgrant.tsx')] },
     ] },
     { title: 'Text fields', items: [
+      { keys: ['Mod+Z'], action: 'Undo text editing', sources: ['main/editmenu.ts'] },
+      { keys: ['Ctrl+Y', 'Mod+Shift+Z'], action: 'Redo text editing', sources: ['main/editmenu.ts'] },
       { keys: ['Mod+X', 'Mod+C', 'Mod+V'], action: 'Cut, copy, paste',
         note: 'also on the right-click menu', sources: ['main/editmenu.ts'] },
       { keys: ['Mod+A'], action: 'Select all', sources: ['main/editmenu.ts'] },
+      { keys: ['Mod+Shift+V', 'Mod+Alt+Shift+V'], action: 'Paste as plain text',
+        note: 'rich editable text; platform convention', sources: ['main/editmenu.ts'] },
+      { keys: ['Delete'], action: 'Delete selected text', sources: ['main/editmenu.ts'] },
     ] },
   ]
 }

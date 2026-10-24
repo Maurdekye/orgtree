@@ -9,7 +9,9 @@ Up: [orgtree-desk](../SKILL.md)
 ## Reply to selected mail text
 
 In a live mail reply context, highlight a passage and right-click **Reply to
-selection**. The shared menu also keeps **Copy selection**. The passage stages
+selection**. The shared menu also offers **Copy** and **Select All**, with
+platform shortcut hints. Copy uses the selected text; Select All selects text
+in the current document without editing it. The passage stages
 beside the owning reply box without sending, replacing its text, or changing
 the recipient. Several passages can be staged; remove one, **Cancel all
 selections**, or Escape in the composer clears them. Explicit whole-message

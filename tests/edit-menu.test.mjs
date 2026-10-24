@@ -206,6 +206,12 @@ function fakeWindow({ url = 'http://127.0.0.1:1/index.html' } = {}) {
       copy() { this.calls.push('copy') },
       paste() { this.calls.push('paste') },
       selectAll() { this.calls.push('selectAll') },
+      undo() { this.calls.push('undo') },
+      redo() { this.calls.push('redo') },
+      delete() { this.calls.push('delete') },
+      pasteAndMatchStyle() { this.calls.push('plainPaste') },
+      replaceMisspelling(word) { this.calls.push(['replace', word]) },
+      session: { addWordToSpellCheckerDictionary(word) { window.webContents.calls.push(['dictionary', word]) } },
     },
     rightClick(params, x = 30, y = 40) { fire(contentsListeners, 'context-menu', {}, { ...params, x, y }) },
     createChild(child) { fire(contentsListeners, 'did-create-window', child, { frameName: 'popout', options: {} }) },
@@ -253,6 +259,14 @@ test('a window destroyed between the press and the menu pops nothing', () => {
   popups()
   window.rightClick(EDITABLE_SELECTED)
   assert.equal(popups().length, 0)
+})
+
+test('native spellcheck commands retain the originating session and word', () => {
+  const window = fakeWindow(); attachEditMenu(window); popups()
+  window.rightClick({ ...EDITABLE_SELECTED, misspelledWord: 'mispeling', dictionarySuggestions: ['misspelling'] })
+  const menu = popups()[0].template
+  item(menu, 'misspelling').click(); item(menu, 'Add to dictionary').click()
+  assert.deepEqual(window.webContents.calls, [['replace', 'misspelling'], ['dictionary', 'mispeling']])
 })
 
 // THROUGHOUT THE APP. The user asked for every textbox, and the app's textboxes

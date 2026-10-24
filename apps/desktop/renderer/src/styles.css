@@ -8672,6 +8672,7 @@ html.mobile .popout-button { display: none; }
   background: var(--panel-2); color: var(--ink-strong); outline: none;
 }
 .ctxmenu-item:disabled { color: var(--dim); cursor: default; background: none; }
+.ctxmenu-shortcut { float: right; margin-left: 24px; color: var(--dim); font: inherit; }
 .ctxmenu-item.danger { color: var(--danger-ink); }
 .ctxmenu-item.danger:hover, .ctxmenu-item.danger:focus { color: var(--bad); }
 .ctxmenu-item.warning { color: var(--warn); }

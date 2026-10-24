@@ -103,9 +103,12 @@ import { OBJECT_NAV_ATTR, OBJECT_ID_ATTR, OBJECT_ORG_ATTR, objectNavElementAt, u
 import { useEsc } from './shared'
 import type { ToastFn } from '../types'
 import { localFileLinkAt, localFileMenu } from './localfile'
+import { isMacPlatform, keyCaps } from '../shortcuts'
 
 export interface MenuItem {
   label: string
+  /** Informational platform shortcut; the focused editor retains its keys. */
+  shortcut?: string
   onSelect: () => void
   disabled?: boolean
   /** Submenu parents can be expanded even when selecting the parent is unavailable. */
@@ -203,6 +206,23 @@ function objectCopyEntry(object: Element, toast?: ToastFn): MenuItem {
         : 'could not copy — clipboard unavailable',
     ]))
   } }
+}
+
+/** Read-only text commands, shared with exact-passage menus. Capture Copy's
+ * text before menu focus; Select All follows the native document-wide command. */
+export function textSelectionMenuEntries(anchor: Element, text: string, toast?: ToastFn): MenuEntry[] {
+  const doc = anchor.ownerDocument
+  const mac = isMacPlatform(doc.defaultView?.navigator)
+  const hint = (key: string) => keyCaps(key, mac).join(mac ? '' : '+')
+  return [
+    { label: 'Copy', shortcut: hint('Mod+C'), onSelect: () => {
+      void copyToClipboard(anchor, text).then(ok => toast?.([ok ? 'copied the selection' : 'clipboard unavailable']))
+    } },
+    { label: 'Select All', shortcut: hint('Mod+A'), onSelect: () => {
+      // Wait for the menu to unmount so its own labels are not selected.
+      doc.defaultView?.setTimeout(() => { if (doc.body) doc.getSelection()?.selectAllChildren(doc.body) }, 0)
+    } },
+  ]
 }
 
 export function openFallbackObjectMenu(e: ReactMouseEvent, menu: ContextMenuHandle): void {
@@ -712,6 +732,7 @@ function NestedMenuItem({ entry, close, expanded, expand, collapse, within }: {
   }, [expanded, entry.children])
   return <div className="ctxmenu-branch" onMouseEnter={expand} onMouseLeave={collapse}>
     <button ref={button} type="button" role="menuitem" tabIndex={-1}
+      aria-label={entry.shortcut ? entry.label : undefined}
       className={'ctxmenu-item' + (entry.danger ? ' danger' : entry.warning ? ' warning' : '')}
       {...agentTooltipProps(entry.agentTooltipId, true)}
       disabled={entry.disabled} aria-disabled={entry.actionDisabled || entry.disabled || undefined}
@@ -732,7 +753,7 @@ function NestedMenuItem({ entry, close, expanded, expand, collapse, within }: {
         }
       }}
       onClick={e => { e.stopPropagation(); if (entry.submenuOnly) { expand(); return }; if (entry.actionDisabled) return; close(); entry.onSelect() }}>
-      {entry.label}{entry.children && <span aria-hidden="true"> ▸</span>}
+      {entry.label}{entry.shortcut && <span className="ctxmenu-shortcut" aria-hidden="true">{entry.shortcut}</span>}{entry.children && <span aria-hidden="true"> ▸</span>}
     </button>
     {expanded && entry.children && <div ref={submenu} className="ctxmenu ctxmenu-submenu" role="menu"
       aria-label={entry.label} style={{ left: pos.x, top: pos.y }}

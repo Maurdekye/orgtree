@@ -285,6 +285,11 @@ still resume, so the agents themselves remember).
 
 ## 10. User-facing differences — complete ledger
 
+Text context menus (USER 2026-10-24, 4.4.5): default spelling suggestions and
+Add to dictionary in editable text, standard edit commands and platform hints;
+read-only selections retain Reply to selection with Copy/Select All. Commands
+stay in their originating window/session. See [the user guide](../messages-and-work.md#text-editing-menus).
+
 Windows Fit shortcut (USER 2026-10-24, 4.4.5): keep Shift+Alt+Space and suppress
 only its native system-menu request in Orgtree windows. Plain Alt+Space stays
 native. Command tooltips show same-line parenthesized bindings with Unicode

@@ -60,7 +60,7 @@ for (const placement of ['canvas', 'floating', 'pinned', 'popout'] as const) {
       const menu = doc.querySelector<HTMLElement>('.ctxmenu')!
       assert.ok(menu)
       assert.equal(menu.parentElement, doc.body, 'portal stays in the originating document')
-      assert.deepEqual([...menu.querySelectorAll('[role="menuitem"]')].map(el => el.textContent), ['Reply to selection', 'Copy selection'])
+      assert.deepEqual([...menu.querySelectorAll('[role="menuitem"]')].map(el => el.getAttribute('aria-label') ?? el.textContent), ['Reply to selection', 'Copy', 'Select All'])
       return { x: parseFloat(menu.style.left), y: parseFloat(menu.style.top) }
     }
     assert.deepEqual(await open(460, 210), { x: 460, y: 210 }, 'pointer must not fall back to the zero-size source wrapper')

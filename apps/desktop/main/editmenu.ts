@@ -40,7 +40,13 @@ import { Menu, type BrowserWindow, type MenuItemConstructorOptions } from 'elect
 export interface EditMenuParams {
   isEditable: boolean
   selectionText: string
+  misspelledWord?: string
+  dictionarySuggestions?: string[]
   editFlags: {
+    canUndo?: boolean
+    canRedo?: boolean
+    canDelete?: boolean
+    canEditRichly?: boolean
     canCut: boolean
     canCopy: boolean
     canPaste: boolean
@@ -48,15 +54,21 @@ export interface EditMenuParams {
   }
 }
 
-/** The four operations, taken from the webContents the press came from rather
+/** Editing operations, taken from the webContents the press came from rather
  *  than from a menu `role`. A role acts on whatever window Electron considers
  *  focused; a popout menu must act on the popout that was clicked in, and this
  *  is how it is said explicitly instead of assumed. */
 export interface EditTarget {
+  undo(): void
+  redo(): void
   cut(): void
   copy(): void
   paste(): void
+  pasteAndMatchStyle(): void
+  delete(): void
   selectAll(): void
+  replaceMisspelling(word: string): void
+  addWordToDictionary(word: string): void
 }
 
 /** The menu for one press, or `null` for no menu at all.
@@ -65,11 +77,10 @@ export interface EditTarget {
  *   - an EDITABLE field gets the full set. Every entry is present so the menu
  *     has a stable shape, and each is enabled only where Chromium says the
  *     operation would do something;
- *   - a press with a LIVE SELECTION outside an editable field gets Copy alone.
+ *   - a press with a LIVE SELECTION outside an editable field gets Copy and Select All.
  *     `nativeMenuPreferred` defers a selection to the native menu for the same
  *     reason it defers a field, so that deferral was dead in the same way. Only
- *     Copy: Select All on a non-editable document selects the whole page, which
- *     is not a thing anyone right-clicked a paragraph to ask for.
+ *     Select All is the ordinary document-wide command (USER 2026-10-24).
  *
  *  Anything else opens nothing, which leaves an ordinary right-click on the
  *  canvas, a card or a desk row exactly as it is today — those surfaces have
@@ -77,10 +88,25 @@ export interface EditTarget {
 export function editMenuTemplate(params: EditMenuParams, target: EditTarget): MenuItemConstructorOptions[] | null {
   const flags = params.editFlags
   if (params.isEditable) {
+    const word = params.misspelledWord
+    const spelling: MenuItemConstructorOptions[] = word ? [
+      ...(params.dictionarySuggestions ?? []).map(suggestion => ({
+        // Native menu labels interpret ampersands as mnemonics.
+        label: suggestion.replace(/&/g, '&&'), click: () => target.replaceMisspelling(suggestion),
+      })),
+      { label: 'Add to dictionary', click: () => target.addWordToDictionary(word) },
+      { type: 'separator' },
+    ] : []
     return [
+      ...spelling,
+      { label: 'Undo', accelerator: 'CmdOrCtrl+Z', registerAccelerator: false, enabled: Boolean(flags.canUndo), click: () => target.undo() },
+      { label: 'Redo', accelerator: process.platform === 'win32' ? 'Ctrl+Y' : 'CmdOrCtrl+Shift+Z', registerAccelerator: false, enabled: Boolean(flags.canRedo), click: () => target.redo() },
+      { type: 'separator' },
       { label: 'Cut', accelerator: 'CmdOrCtrl+X', registerAccelerator: false, enabled: flags.canCut, click: () => target.cut() },
       { label: 'Copy', accelerator: 'CmdOrCtrl+C', registerAccelerator: false, enabled: flags.canCopy, click: () => target.copy() },
       { label: 'Paste', accelerator: 'CmdOrCtrl+V', registerAccelerator: false, enabled: flags.canPaste, click: () => target.paste() },
+      ...(flags.canEditRichly ? [{ label: 'Paste as plain text', accelerator: process.platform === 'darwin' ? 'Alt+Shift+Cmd+V' : 'CmdOrCtrl+Shift+V', registerAccelerator: false, enabled: flags.canPaste, click: () => target.pasteAndMatchStyle() }] : []),
+      { label: 'Delete', accelerator: 'Delete', registerAccelerator: false, enabled: Boolean(flags.canDelete && params.selectionText), click: () => target.delete() },
       { type: 'separator' },
       { label: 'Select All', accelerator: 'CmdOrCtrl+A', registerAccelerator: false, enabled: flags.canSelectAll, click: () => target.selectAll() },
     ]
@@ -88,6 +114,7 @@ export function editMenuTemplate(params: EditMenuParams, target: EditTarget): Me
   if (params.selectionText) {
     return [
       { label: 'Copy', accelerator: 'CmdOrCtrl+C', registerAccelerator: false, enabled: flags.canCopy, click: () => target.copy() },
+      { label: 'Select All', accelerator: 'CmdOrCtrl+A', registerAccelerator: false, enabled: flags.canSelectAll, click: () => target.selectAll() },
     ]
   }
   return null
@@ -109,7 +136,13 @@ export function editMenuTemplate(params: EditMenuParams, target: EditTarget): Me
 export function attachEditMenu(window: BrowserWindow): void {
   const contents = window.webContents
   contents.on('context-menu', (_event, params) => {
-    const template = editMenuTemplate(params, contents)
+    const template = editMenuTemplate(params, {
+      undo: () => contents.undo(), redo: () => contents.redo(),
+      cut: () => contents.cut(), copy: () => contents.copy(), paste: () => contents.paste(),
+      pasteAndMatchStyle: () => contents.pasteAndMatchStyle(), delete: () => contents.delete(), selectAll: () => contents.selectAll(),
+      replaceMisspelling: word => contents.replaceMisspelling(word),
+      addWordToDictionary: word => { contents.session.addWordToSpellCheckerDictionary(word) },
+    })
     if (!template || window.isDestroyed()) return
     Menu.buildFromTemplate(template).popup({ window, x: params.x, y: params.y })
   })

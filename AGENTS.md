@@ -2,6 +2,10 @@
 
 Read this file before working in this repository. It is the startup guide, not a landing log. Detailed rules, source references and the complete earlier notes live in the [topic index](docs/agents/README.md).
 
+Text-edit and spelling menus use Chromium's context flags and the originating
+webContents/session, including popouts. See [text menus](docs/agents/desktop-and-renderer.md#text-editing-and-spelling-menus-2026-10-24-445).
+[verified: `main/editmenu.ts`, `canvas/contextmenu.tsx`; 2026-10-24]
+
 Menus on transparent boundaries measure the pressed text element for position,
 retaining their original identity anchor. See [viewport anchoring](docs/agents/desktop-and-renderer.md#selection-menu-viewport-anchor-2026-10-24-445).
 [verified: `canvas/contextmenu.tsx`; 2026-10-24]

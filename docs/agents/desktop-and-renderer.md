@@ -1,5 +1,19 @@
 # Desktop and renderer
 
+## Text editing and spelling menus (2026-10-24, 4.4.5)
+
+Native `editmenu.ts` uses Chromium's edit flags, pointed misspelling and
+suggestions. Commands and dictionary additions target the originating
+webContents/session; never use a globally focused window or recompute clipboard
+availability in the renderer. Undo/Redo/Delete extend the existing edit menu;
+Paste as plain text is offered for rich editing only. Read-only selections have
+Copy/Select All, including the custom exact-passage menu which keeps Reply to
+selection. Custom Copy captures text before menu focus, and document-wide Select
+All waits until the menu has unmounted. Default spelling language is unchanged.
+The displayed shortcuts are editor conventions, not new global bindings.
+See [native menu tests](../../tests/edit-menu.test.mjs), renderer
+`texteditmenu.test.tsx`, and the [user guide](../messages-and-work.md#text-editing-menus).
+
 ## Windows Shift+Alt+Space and navigation tooltip bindings (2026-10-24)
 
 On Windows, Shift+Alt+Space now cancels only its native system-menu request,

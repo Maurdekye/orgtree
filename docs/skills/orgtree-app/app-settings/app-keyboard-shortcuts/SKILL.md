@@ -101,7 +101,17 @@ Windows may still intercept Alt+Shift for input-language switching. On macOS, Op
 | Settings tabs | Arrows/Home/End changes the active tab. |
 | Effort control | Left/Right/Home/End changes the level; vertical arrows mirror horizontal ones. Backspace/Delete clears an explicitly set effort. |
 | Credit grant | Left/Right/Home/End adjusts the grant; vertical arrows mirror horizontal ones. Esc cancels the edit. |
-| Text fields | Mod+X/C/V cuts/copies/pastes; Mod+A selects all. Enter saves participating single-line fields. |
+| Text fields | Mod+Z undoes text edits; Ctrl+Y on Windows or Mod+Shift+Z redoes. Mod+X/C/V cuts/copies/pastes; Mod+A selects all; Delete removes selected text. Rich editors offer Paste as plain text (Ctrl+Shift+V, or Option+Shift+Command+V on macOS). Enter saves participating single-line fields. |
+
+Editable text context menus show the corresponding platform shortcut hints,
+including disabled commands when Chromium reports they are unavailable. A
+misspelled word offers the default Electron/OS spelling suggestions and **Add
+to dictionary**; replacing a suggestion or adding the word uses the window and
+session that received the press. There is no separate language selector here.
+Read-only selections offer **Copy** and **Select All**; exact-passage menus keep
+**Reply to selection**. These are local text-editing/clipboard actions, with no
+new agent tool or message send. Agents use their existing file/edit tools and
+the selection read/send contracts when working with equivalent source content.
 | Standard widgets | Enter/Space activates focused button-like items. Tab moves focus, remains inside modal dialogs, or leaves/closes menus. Up/Down/Page Up/Page Down/Home/End/Space scrolls a conversation when focus allows native scrolling. |
 
 Undo is durable action history and can require confirmation; it is distinct from editing text. See [orgtree-toasts-and-undo](../../app-shell/toasts-and-undo/SKILL.md) for its scope and the resulting state changes. The source catalog is `shortcuts.ts` plus `shell/appshortcuts.ts`; if a newly added binding differs, use that source and update this page in the same landing.

@@ -6,7 +6,7 @@ import { selectionSnapshot, utf8Size } from '../replySelection'
 import type { SourceIdentity, SourcePart } from '../replySelection'
 import { captureSelectionComposer } from './selectioncomposer'
 import { selectedSourceRange } from './selectionmap'
-import { copyToClipboard, useContextMenu, useCopyFeedback } from './contextmenu'
+import { textSelectionMenuEntries, useContextMenu, useCopyFeedback } from './contextmenu'
 
 export type SelectionSource = { org: string; target: SourceIdentity; part: SourcePart; text: string; format?: 'markdown' | 'plain'; offset?: number; shown?: string; partial?:boolean }
 
@@ -51,7 +51,7 @@ export function ReplySelectionSurface({ source, children }: { source: SelectionS
           stage({ target: captured.target, selection: selector, snapshot: selectionSnapshot(captured.text, selector, current.revision) })
         }).catch(error => feedback?.([error instanceof Error ? error.message : String(error)]))
       } },
-      { label: 'Copy selection', onSelect: () => { void copyToClipboard(anchor, selectedText).then(ok => feedback?.([ok ? 'copied the selection' : 'clipboard unavailable'])) } },
+      ...textSelectionMenuEntries(anchor, selectedText, feedback),
     ], anchor, { textSelection: true })
     if (opening !== undefined) event.stopPropagation()
   }}>{children}</div>{menu.node}</SelectionTextContext.Provider>

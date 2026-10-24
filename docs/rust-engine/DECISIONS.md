@@ -31,6 +31,14 @@ policy remain physical, per the user's explicit exceptions.
 
 # Orgtree 4 rewrite — the user's standing decisions
 
+**Text context menus, USER 2026-10-24 m43ff979b165c (4.4.5):** editable text
+offers default Electron/OS spelling suggestions and Add to dictionary, plus
+Undo/Redo/Cut/Copy/Paste/Delete/Select All, with Paste as plain text for rich
+editing. Commands follow field/selection availability and platform shortcut
+hints. Read-only selections gain Copy/Select All while retaining Reply to
+selection; originating-window pointer placement stays. No new spelling-language
+setting. See [text menus](../agents/desktop-and-renderer.md#text-editing-and-spelling-menus-2026-10-24-445).
+
 **Windows Fit shortcut and tooltip hints (USER 2026-10-24 meeb3ea29d6f8,
 m2185e9c95aad, m437f0fabb8d9, m8f522c3882a2; 4.4.5):** keep Shift+Alt if
 the Windows menu can be cleanly blocked; otherwise all org-navigation chords
