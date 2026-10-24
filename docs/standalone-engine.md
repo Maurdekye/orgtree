@@ -16,6 +16,12 @@ ORGTREE_P03_PG_BIN=/usr/lib/postgresql/17/bin \
 orgtree-engine standalone
 ```
 
+Current migrations need PostgreSQL 16 or later. The database data directory
+needs Unix ownership and restrictive permissions. On WSL, keep the data root
+on the Linux filesystem; a Windows-mounted drive without Unix metadata cannot
+retain PostgreSQL's required permissions. Engine and database binaries may
+remain on that mounted drive.
+
 The first start initializes the database and creates `standalone-token` in the
 data directory, mode 0600 on Unix. It prints that token to stderr once. Later
 starts reuse it. Alternatively supply `ORGTREE_STANDALONE_TOKEN`, at least 32
@@ -55,8 +61,9 @@ release optimization.
 Synthetic Linux/amd64 image checks verify fresh database setup, authenticated
 HTTP/WebSocket/MCP access, restart persistence and clean shutdown, including
 HTTP/MCP access through the host's loopback port. That verification uses fake
-CLIs and empty profiles. Direct Linux host execution and real provider browser
-login/turns remain separate, unverified steps.
+CLIs and empty profiles. A separate direct Ubuntu 24.04 WSL run with PostgreSQL
+16.2 passed the same startup, authentication, persistence and shutdown checks
+outside Docker. Real provider browser login and turns remain unverified.
 
 ## Connect through MCP or HTTP
 

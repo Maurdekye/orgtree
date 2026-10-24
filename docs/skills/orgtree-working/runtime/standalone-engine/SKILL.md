@@ -65,9 +65,13 @@ installed in a derived image; host installations/logins are not automatically
 visible in the container. Synthetic Linux/amd64 image checks verify fresh
 database initialization, HTTP/WebSocket/MCP authentication, restart persistence,
 embedded glossary and clean shutdown; a separate spotcheck verifies actual host
-loopback publication. Direct Linux host execution and real provider sign-in or
-turns remain unverified. Use `docs/rust-engine/STANDALONE-ENGINE.md` in the
-development checkout for those source and verification boundaries.
+loopback publication. A separate direct Ubuntu 24.04 WSL proof with PostgreSQL
+16.2 passes startup, authentication, persistence and clean shutdown outside
+Docker. PostgreSQL data needs restrictive Unix ownership/permissions: on WSL,
+use the Linux filesystem when the Windows-mounted drive lacks Unix metadata;
+the binaries may remain on that drive. Real provider sign-in and turns remain
+unverified. Use `docs/rust-engine/STANDALONE-ENGINE.md` in the development
+checkout for those source and verification boundaries.
 
 ## Provider login over SSH
 

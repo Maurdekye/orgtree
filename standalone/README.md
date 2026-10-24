@@ -13,6 +13,13 @@ Direct:
 ORGTREE_DATA=/srv/orgtree/data orgtree-engine standalone
 ```
 
+Provide PostgreSQL 16 or later, using `ORGTREE_P03_PG_BIN` when its binaries
+are not bundled beside the engine. On WSL, use a Linux-filesystem data root
+if the Windows-mounted drive lacks Unix metadata; PostgreSQL needs restrictive
+Unix ownership and permissions. Direct Ubuntu 24.04 WSL execution with
+PostgreSQL 16.2 has passed synthetic startup, HTTP/WebSocket/MCP, persistence
+and clean-shutdown checks. Real provider login remains unverified.
+
 Docker (from the repository root):
 
 ```sh

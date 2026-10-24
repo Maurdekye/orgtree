@@ -68,8 +68,8 @@ Docker: `standalone/Dockerfile` + `standalone/docker-compose.yml` provide a
 multi-stage Rust build; the runtime image carries PostgreSQL, binds
 `0.0.0.0` **inside** the container with the compose file publishing to
 `127.0.0.1` only, `/data` volume, token from the environment. The image build
-and synthetic Linux/amd64 runtime are verified below; direct Linux and real
-provider sign-in remain separate proofs.
+and synthetic Linux/amd64 runtime are verified below, along with a separate
+direct Ubuntu WSL run. Real provider sign-in remains unverified.
 
 ### Packaging input repair (2026-10-24, 4.4.5)
 
@@ -207,8 +207,8 @@ No real provider login was performed in this source audit.
   org-less and per-org `tools/list` shapes, `orgtree_create_org` visible to
   the HTTP API right after, `orgtree_chart`, `orgtree_work` list,
   `orgtree_inbox` list, and an honest `isError` mailing a nonexistent agent.
-- Unverified: a direct Linux host run and any real provider sign-in/turn on a
-  headless host. Docker Linux execution does not stand in for those proofs.
+- Unverified: any real provider sign-in/turn on a headless host. The direct
+  Linux proof below is a separate WSL run, not a container result.
 
 ### Docker verification, 2026-10-24
 
@@ -236,3 +236,38 @@ The verified image digest is
 `sha256:c4764a4785b29ba6e2d77560cc209b79a2e57deae958fc4dea71bff5d3e35524`.
 These are synthetic packaging/API proofs, not a provider authentication test or
 a published image.
+
+### Direct Ubuntu WSL verification, 2026-10-24
+
+Measured outside Docker using the same release engine built at source
+`d5766054287f4acad867d8f4227b3223bdd26935`, binary SHA256
+`8f1a359c5af29b5ce7390403e85bd269ce0a3421c153ff26696dd7e9e4c49fe7`:
+
+- Ubuntu 24.04, x86_64, WSL2 kernel 6.6.87.2, glibc 2.39, uid 1000.
+  PostgreSQL 16.2 (`16.2-1ubuntu4`) server/client/libpq packages were extracted
+  into an owned output tree; no root, system install, mount or distro
+  configuration change was needed. Other runtime dependencies were already
+  present. The cached 16.11 update-package URLs returned 404; the available
+  base packages were used only for this isolated synthetic check.
+- **40/40** checks pass: fresh database/migrations, generated 0600 token,
+  HTTP/UI/WebSocket/MCP authentication, user org/chart/work/inbox, deliberate
+  unsupported interrupt-field refusal, embedded glossary, restart persistence,
+  API and SIGTERM clean exits, token absence from diagnostics, two database
+  stops and removal of the temporary database and HOME.
+- The direct process ran in a 6 GiB systemd user scope with an unprivileged
+  network namespace: only loopback, no external IPv4 route. Namespace-local
+  setup capabilities were dropped before launching the engine. Only fake
+  provider CLIs and a minimal environment with an empty home were supplied.
+- The mounted Windows output drive lacked Unix metadata: a chmod 0700 probe
+  still read 0777. PostgreSQL data therefore used a fresh native Linux 0700
+  temporary directory, removed after logs/results were copied out. Binaries
+  remained on the Windows-mounted drive. This is an operator prerequisite,
+  not an Orgtree mount-management feature.
+- Two fixture failures preceded the passing run: loopback setup initially
+  lacked namespace capabilities; then a sysfs interface check observed the
+  host's existing mount. Socket enumeration and the process's route table
+  verify the actual namespace. Partial runs are not counted as passes.
+
+This verifies direct WSL Linux execution, not a generic Linux distribution
+matrix or real provider login/turn. No engine source changed for this proof.
+[verified: `pg.rs`, direct synthetic standalone run; 2026-10-24]
