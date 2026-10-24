@@ -27,7 +27,7 @@ and `orgtree-projects` (orgtree-working › team) for queue/slot/listener mechan
 These are separate operations, not one atomic save; check current state after
 a partial failure. Verified 2026-10-21: `canvas/modals.tsx::ProjectConfig`.
 
-The header offers **Open scratch folder** and, when the desktop supports team scratch folders, **Open team scratch folder**. These actions open the folders in the OS file explorer and follow the same live-or-archived availability rule as the agent menu. They do not change the agent's folder grants. The desk has no Files tab; use the same native folder action there. Quick chat's attachment picker and agent `read_scratch` tool are separate features.
+The header offers **Open scratch folder** and, when the desktop supports team scratch folders, **Open team scratch folder**. These actions open the folders in the OS file explorer and follow the same live-or-archived availability rule as the agent menu. They do not change the agent's folder grants. The desk's Files tab lists retained download cards and updates live; use the native folder action to browse scratch files. Quick chat's attachment picker and agent `read_scratch` tool are separate features.
 
 ## Save and Cancel
 

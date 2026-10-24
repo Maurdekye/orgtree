@@ -3,6 +3,8 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { AgentFilesView } from '../src/canvas/files'
 import { bumpLive, flushLive, onLiveBump } from '../src/livebus'
+import { RecordFeed } from '../src/recordfeed'
+import { OrgRecordContext } from '../src/recordsession'
 
 const response = (value: unknown) => new Response(JSON.stringify(value), { headers: { 'Content-Type':'application/json' } })
 const file = (id: string, name: string) => ({ delivery_id:id,name,path:`C:/snapshot/${id}/${name}`,bytes:4096,note:'Original delivery snapshot',at:'2026-10-23T08:00:00Z' })
@@ -12,6 +14,62 @@ const liveBump = async () => inAct(async () => {
     bumpLive();flushLive()
   })
   await flush()
+})
+
+test('record file arrivals without a live bump append and preserve both mounted readers', async () => {
+  const feed = new RecordFeed({ snapshot: async () => { throw Error('unexpected baseline') },
+    catchup: async () => { throw Error('unexpected catchup') }, project: records => records,
+    publish: () => {}, error: error => { throw error } })
+  const cursor = { org_uuid: 'fixture-id', incarnation: 'one', rev: 1 }
+  feed.receive({ type: 'record_snapshot', cursor, records: [] })
+  let newest = [file('f3','release.zip'),file('f2','preview.png'),file('f1','old.log')]
+  let reads = 0, bumps = 0, opened = false, unmounted = false
+  const openings: (() => void)[] = []
+  const off = onLiveBump(() => { ++bumps })
+  globalThis.fetch = (async () => {
+    ++reads
+    const page = () => response({node:'maker',files:newest,next_cursor:null})
+    return opened ? page() : new Promise<Response>(resolve=>openings.push(()=>resolve(page())))
+  }) as typeof fetch
+  const view = await mountView(<OrgRecordContext.Provider value={{slug:'fixture',session:feed}}>
+    <AgentFilesView slug="fixture" nid="maker" /><AgentFilesView slug="fixture" nid="maker" />
+  </OrgRecordContext.Provider>,el=>el)
+  const hosts = [...view.el.querySelectorAll<HTMLDivElement>('.agent-files-scroll')]
+  const positions = hosts.map(() => ({top:0}))
+  hosts.forEach((host,index) => Object.defineProperties(host, {
+    scrollHeight:{get:()=>host.querySelectorAll('li').length*40},clientHeight:{get:()=>40},
+    scrollTop:{get:()=>positions[index].top,set:value=>{positions[index].top=Math.max(0,Math.min(value,host.scrollHeight-40))}},
+  }))
+  const ids = (host: HTMLElement) => [...host.querySelectorAll('li')].map(row=>row.dataset.deliveryId)
+  try {
+    await inAct(async()=>{opened=true;openings.forEach(release=>release());await flush(2)})
+    assert.equal(reads,2,'one opening read per mounted reader')
+    await inAct(async()=>{hosts[0].scrollTop=0;hosts[0].dispatchEvent(new window.Event('scroll'));await flush()})
+    assert.equal(hosts[1].scrollTop,80)
+    newest = [file('f4','live.zip'),...newest]
+    await inAct(async()=>{
+      feed.receive({type:'record_changes',...cursor,from:1,to:2,
+        upserts:[{entity:'org',id:'events_count',body:{events_count:1}}],tombstones:[]})
+      await flush(3)
+    })
+    assert.deepEqual(ids(hosts[0]),['f1','f2','f3','f4'],'record commit appends without bumpLive')
+    assert.deepEqual(ids(hosts[1]),['f1','f2','f3','f4'])
+    assert.equal(hosts[0].scrollTop,0,'older reader is not yanked')
+    assert.equal(hosts[1].scrollTop,120,'bottom reader follows')
+    assert.equal(bumps,0,'record path never needs a global live bump')
+    assert.equal(reads,4)
+    const socket = feed.socketOpened(()=>{})
+    await inAct(async()=>{
+      feed.receiveSocket({type:'agent_runtime',...cursor,epoch:'host',seq:1,full:true,
+        agents:{'7':{epoch:'host',seq:1,busy:true}}},socket)
+      await flush(2)
+    })
+    assert.equal(feed.getSnapshot()?.runtime.get('7')?.busy,true,'runtime publication actually ran')
+    assert.equal(reads,4,'runtime-only publication does not read files again')
+    await view.unmount();unmounted=true
+    await inAct(async()=>{feed.receive({type:'record_changes',...cursor,from:2,to:3,upserts:[],tombstones:[]});await flush(2)})
+    assert.equal(reads,4,'unmounted readers release record listeners')
+  } finally {off();if(!unmounted)await view.unmount();feed.dispose()}
 })
 
 test('compact files open at the bottom, prepend older history and follow new files only at bottom', async () => {

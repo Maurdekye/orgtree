@@ -23,6 +23,10 @@ older pages automatically, retaining a visible-row anchor. Live pages merge
 without discarding older rows; the view follows new arrivals only at the bottom.
 A live bump during a request queues a refresh; multi-page arrival bursts catch
 up to the retained history before merging. Refresh resets to the latest page.
+Mounted Files readers also observe the accepted org record cursor: record-mode
+WebSocket commits bypass the legacy live bump. These commits merge the newest
+file page in place, including in popouts; runtime-only publications do not read
+files again. Use actual record commits without bumpLive in regression fixtures.
 The API/tool retain their newest-first paging contract. Older metadata does not
 imply externally removed bytes exist. Project placement is unchanged.
 [decided: user 2026-10-24 m07dbc1323f5b, me76bad5e5bc4; verified:

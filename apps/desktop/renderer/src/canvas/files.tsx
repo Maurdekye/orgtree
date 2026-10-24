@@ -1,12 +1,14 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { fileUrl, getDeliveredFiles, type DeliveredFile, type DeliveredFilesPage } from '../api'
 import { onLiveBump } from '../livebus'
+import { useOrgRecordCursor } from '../recordsession'
 import { DownloadIcon } from '../icons'
 import { fmtBytes, isImg } from './img'
 import { openLightbox } from './lightbox'
 
 /** Bounded retained deliveries; the API is newest-first, the list reads upwards. */
 export function AgentFilesView({ slug, nid }: { slug: string; nid: string }) {
+  const cursor = useOrgRecordCursor(slug)
   const [page, setPage] = useState<DeliveredFilesPage | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
@@ -56,6 +58,7 @@ export function AgentFilesView({ slug, nid }: { slug: string; nid: string }) {
       }
     }
   }, [slug, nid])
+  const recordRead = useRef({ load, cursor })
   useLayoutEffect(() => {
     const host = scroller.current, position = restore.current
     restore.current = null
@@ -73,6 +76,13 @@ export function AgentFilesView({ slug, nid }: { slug: string; nid: string }) {
     const off = onLiveBump(() => { void load('live') })
     return () => { ++identity.current; off() }
   }, [load])
+  useEffect(() => {
+    const previous = recordRead.current
+    recordRead.current = { load, cursor }
+    // Record-mode WS commits intentionally bypass the legacy live bump. Keep
+    // the mounted history and scroll ownership; runtime-only frames keep R.
+    if (cursor && previous.load === load && previous.cursor !== cursor) void load('live')
+  }, [load, cursor])
   return <section className="agent-files" aria-label={`${nid}'s files`}>
     <div className="agent-files-head"><span className="dim">Delivered files</span>
       <button disabled={busy} onClick={() => void load()}>Refresh</button></div>

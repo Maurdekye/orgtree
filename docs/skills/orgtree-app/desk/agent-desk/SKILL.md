@@ -135,8 +135,9 @@ hover precision, thinking receipts and missing observations.
   time and Download; images also have View. Hover the filename for its note.
   Downloads use the original snapshot. Scroll up to load older files
   automatically, keeping the visible file in place. New files append below;
-  the list follows them only while you are at the bottom. Refresh returns
-  to the newest page and scrolls to the bottom.
+  the list follows them only while you are at the bottom. New deliveries update
+  live in both canvas desks and popped-out desks, without pressing Refresh.
+  Refresh returns to the newest page and scrolls to the bottom.
   Agents use orgtree_files (orgtree-working > inspection) for the same list.
 - [Team](../../canvas/agents-list/SKILL.md): the same Agents List restricted to this node and all descendants, including its Filter, Active and archived controls. Project desks offer Team as well.
 

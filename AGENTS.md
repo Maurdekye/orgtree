@@ -50,6 +50,11 @@ Rig live-root guards retain import-time `APPDATA`/home/data-override paths after
 
 ## Engine and desktop invariants
 
+- Files readers merge accepted org-record commits as well as legacy live bumps;
+  runtime-only publications keep their cursor. Keep record-without-bump controls
+  for mounted readers. See [Files](docs/rust-engine/agent-files.md).
+  [verified: `canvas/files.tsx`, `tests/files.test.tsx`; 2026-10-24]
+
 - Credential brokers retain ordered20/25/30second lookup/pipe/request bounds and kill/reap timed-out lookup children; local gh help/version skips auth. Keep fixed codes, native fallback and decision94 caching unchanged. See [bridge deadlines](docs/rust-engine/credential-bridge.md#bounded-lookup-deadlines-2026-10-24). [verified: `credential_{bridge,broker,deadlines}.rs`, `main/credential-bridge.ts`;2026-10-24]
 
 - New-hire preferences (version/session/peer mail/cold-turn override) are stored atomically before warm/start; version-specific effort/speed checks use the staged pin and selected Muse login. Creation tools expose them; restoration retains saved preferences. See [hire preferences](docs/agents/engine-and-storage.md#hire-preferences-2026-10-24). [verified: `domain/ops.rs`, `providers/fast_mode.rs`; 2026-10-24]

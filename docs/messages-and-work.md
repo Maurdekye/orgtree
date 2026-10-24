@@ -232,7 +232,8 @@ deliveries appear too when Orgtree still has their records.
 The newest file is at the bottom, where the tab opens. Scroll up to load
 older files automatically; the visible file stays in place as rows appear
 above it. Incoming files append at the bottom and stay out of your way while
-you read older rows. When you are at the bottom, the list follows new files.
+you read older rows. This updates live in both the canvas desk and a popped-out
+desk. When you are at the bottom, the list follows new files without a refresh.
 **Refresh** returns to the newest page and scrolls to the bottom.
 
 Click a filename or its download icon for the original delivered copy.
