@@ -76,12 +76,20 @@ export default async function (rig) {
   const fwDir = path.join(rig.data, 'rig-home', 'rig-firewall')
   fs.mkdirSync(fwDir, { recursive: true })
   const rule = v => v === null ? fs.rmSync(path.join(fwDir, 'rule.txt'), { force: true }) : fs.writeFileSync(path.join(fwDir, 'rule.txt'), v)
+  // Retiring the power preference means turning access on need not create this
+  // file. Missing is empty; malformed settings and other I/O errors still fail.
+  const settingsFile = () => {
+    try { return JSON.parse(fs.readFileSync(path.join(rig.data, 'phone.json'), 'utf8')) }
+    catch (e) { if (e.code === 'ENOENT') return {}; throw e }
+  }
   const turnOn = (body) => rig.api('POST', '/api/desktop/phone/access', body).then(v => ({ ok: true, v }), e => ({ ok: false, e: String(e.message || e) }))
   const doorAnswers = async (host) => {
     try { const r = await fetch(`http://${host}:7371/healthz`, { signal: AbortSignal.timeout(3000) }); return r.status } catch { return 0 }
   }
   s = await phone()
-  p.check('A0 at first: the door is closed, no firewall rule', s.access?.state === 'A0' && !s.access.door && !s.access.firewall && s.keep_awake === true, s.access)
+  const initialHosting = await rig.api('GET', '/api/desktop/hub')
+  p.check('A0 at first: the door is closed, no firewall rule', s.access?.state === 'A0' && s.access.door === null
+    && s.access.firewall === null && initialHosting.public_listener === false, { access: s.access, public_listener: initialHosting.public_listener })
 
   status({ BackendState: 'NeedsLogin', Self: { HostName: 'home-pc', TailscaleIPs: [] } })
   await sleep(2200)
@@ -91,14 +99,15 @@ export default async function (rig) {
   status(running())
   await sleep(2200)
   rule('100.64.0.0/10,fd7a:115c:a1e0::/48')
-  r = await turnOn({ scope: 'tailnet', keep_awake: false })
+  r = await turnOn({ scope: 'tailnet' })
   s = r.v || {}
   const hosting = JSON.parse(fs.readFileSync(path.join(rig.data, 'mailhub-hosting.json'), 'utf8'))
   p.check('A1 for the Tailscale network, the door bound to the 100.x address only', r.ok && s.access?.state === 'A1'
     && s.access.scope === 'tailnet' && s.access.door === '127.0.0.2' && hosting.public_listener === true && hosting.public_scope === 'tailnet', { r, hosting })
   p.check('the rule read back is the one this scope wants', s.access?.firewall === '100.64.0.0/10,fd7a:115c:a1e0::/48'
     && s.access.firewall_wanted === s.access.firewall, s.access)
-  p.check('keep-awake saved as chosen', JSON.parse(fs.readFileSync(path.join(rig.data, 'phone.json'), 'utf8')).keep_awake === false)
+  p.check('retired power preference is absent from the panel and retained settings', !Object.hasOwn(s, 'keep_awake')
+    && !Object.hasOwn(settingsFile(), 'keep_awake'))
   p.check('the door answers on the Tailscale address and not on 127.0.0.1', (await doorAnswers('127.0.0.2')) > 0 && (await doorAnswers('127.0.0.1')) === 0)
 
   // a Tailscale that does not answer is no reading at all: nothing restarts
@@ -143,7 +152,6 @@ export default async function (rig) {
   const org = rig.org
   const q = s => s.replace(/'/g, "''")
   const tryApi = (method, route, body) => rig.api(method, route, body).then(v => ({ ok: true, v }), e => ({ ok: false, e: String(e.message || e) }))
-  const settingsFile = () => JSON.parse(fs.readFileSync(path.join(rig.data, 'phone.json'), 'utf8'))
   const orgState = () => rig.api('GET', `/api/desktop/phone?org=${encodeURIComponent(org)}`)
   r = await tryApi('POST', '/api/desktop/phone/code', { org })
   p.check('no setup code while the org is not on this computer\'s hub', !r.ok && /isn't connected to this computer's mail hub/.test(r.e), r)
