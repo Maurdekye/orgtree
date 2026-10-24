@@ -13,12 +13,12 @@ module.exports = async page => {
     const menu = document.querySelector('.ctxmenu'), menuRect = menu.getBoundingClientRect(), sourceRect = source.getBoundingClientRect()
     return { point, menu: { x: menuRect.x, y: menuRect.y, width: menuRect.width, height: menuRect.height },
       source: { width: sourceRect.width, height: sourceRect.height }, selected: selected.toString(),
-      entries: [...menu.querySelectorAll('[role="menuitem"]')].map(el => el.textContent),
+      entries: [...menu.querySelectorAll('[role="menuitem"]')].map(el => el.getAttribute('aria-label') ?? el.textContent),
       origin: menu.parentElement === document.body, viewport: { width: innerWidth, height: innerHeight } }
   })
   if (details.source.width || details.source.height || !details.origin || details.point.x < 500
     || details.menu.x !== details.point.x || details.menu.y !== details.point.y
     || details.menu.x + details.menu.width > details.viewport.width || details.menu.y + details.menu.height > details.viewport.height
-    || details.entries.join('|') !== 'Reply to selection|Copy selection') throw new Error(JSON.stringify(details))
+    || details.entries.join('|') !== 'Reply to selection|Copy|Select All') throw new Error(JSON.stringify(details))
   return { details, screenshots: [await page.screenshot('selection-menu-pinned-at-pointer')] }
 }
