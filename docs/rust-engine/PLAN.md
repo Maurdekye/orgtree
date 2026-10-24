@@ -285,6 +285,13 @@ still resume, so the agents themselves remember).
 
 ## 10. User-facing differences — complete ledger
 
+Native account fallback (coordinator-approved bug fix, 2026-10-24, 4.4.5):
+opted-in limit fallback considers native Claude/Codex sign-ins without requiring
+ambient registry rows, after registered subscriptions and before paid keys.
+Existing activation, org allowance, sign-in, marks and fresh positive room gates
+remain; no switch to the same physical login. See
+[native fallback](../agents/providers-and-accounts.md#native-limit-fallback-2026-10-24).
+
 Queued mail (USER 2026-10-24, 4.4.5): the arrow/count separator line itself
 toggles the group; remove the extra repeated count row while retaining its
 collapse defaults and manual choice. See [pending mail](pending-mail-collapse.md).

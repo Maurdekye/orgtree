@@ -17,6 +17,8 @@ use crate::util::{iso, parse_ts};
 
 mod continuation;
 pub use continuation::primary_tiers;
+#[cfg(test)]
+mod native_fallback_tests;
 
 /// Seconds past the stated reset before an automatic wake (clock skew).
 pub const WAKE_GRACE_S: i64 = 60;
@@ -276,11 +278,26 @@ pub async fn recover(engine: &Arc<Engine>) {
 /// Another account of `provider` this agent could continue on, honoring the
 /// API-key fallback and subscription switches: subscriptions first, then
 /// metered keys. `version` is the seat's pinned model version (`muse_pin`).
-/// `own_login`: a limit move, which may also take Muse's own login (see
-/// `muse_primary_takes`); the org account-list move keeps its own order.
+/// `own_login`: a limit move may also take a native Claude/Codex/Muse login;
+/// the org account-list move keeps its own order.
 #[logged]
 pub async fn pick_fallback(engine: &Engine, tier: &str, version: Option<&str>, current: Option<&str>, org_slug: &str,
     own_login: bool) -> Option<String> {
+    let provider = crate::providers::catalog::provider_of(tier);
+    pick_fallback_with_native(engine, tier, version, current, org_slug, own_login, async {
+        match provider {
+            crate::providers::catalog::CLAUDE => crate::usage::claude(engine, None, false).await,
+            crate::providers::catalog::OPENAI => crate::usage::codex(engine, &crate::org_accounts::primary(provider), None, false).await,
+            _ => json!({"available":false}),
+        }
+    }).await
+}
+
+// The public boundary logs the selection inputs. Inject only native usage I/O
+// so synthetic tests exercise this entire selector without credentials/probes.
+#[nolog]
+async fn pick_fallback_with_native(engine: &Engine, tier: &str, version: Option<&str>, current: Option<&str>, org_slug: &str,
+    own_login: bool, native_read: impl std::future::Future<Output = Value>) -> Option<String> {
     let provider = crate::providers::catalog::provider_of(tier);
     let view = engine.accounts.view();
     let subs = engine.settings.subscription_inference(provider);
@@ -308,12 +325,33 @@ pub async fn pick_fallback(engine: &Engine, tier: &str, version: Option<&str>, c
         }
         tracing::info!(account = %a.id, tier, "account fallback: no eligible proven room on this login");
     }
-    // Muse's own login: Claude's or Codex's own login is a candidate above as
-    // an ambient registry row (its default home registered), but a Muse login
-    // is two roots Muse lays out itself and is never a row. So for an agent on
-    // a registered Muse login (never one already on its own login), it is
-    // asked here: after the registered subscriptions, before any key, under
-    // the same subscription switch, with proven room (lead 2026-10-13 06:50Z)
+    // Native Claude/Codex sign-ins need not have an ambient registry row.
+    // Only a limit move off a different physical login may consider one;
+    // aliases of the current native login are not a new destination.
+    let current_native = match crate::accounts::choice(current) {
+        crate::accounts::Choice::Account(id) => view.get(&id).is_some_and(|a|
+            !a.is_apikey() && (a.ambient || a.config_dir.is_none())),
+        _ => true,
+    };
+    if own_login && subs && !current_native
+        && matches!(provider, crate::providers::catalog::CLAUDE | crate::providers::catalog::OPENAI)
+    {
+        let primary = crate::org_accounts::primary(provider);
+        // Do not probe a disabled, disallowed or already-refused destination.
+        // Recheck after the bounded read: it can observe fresh auth/quota facts.
+        if continuation::resolve(engine, org_slug, tier, &primary).is_ok() {
+            match tokio::time::timeout(FALLBACK_READ, native_read).await {
+                Ok(reading) if reading["available"] == true && crate::usage::has_room(engine, None, tier)
+                    && continuation::resolve(engine, org_slug, tier, &primary).is_ok() => return Some(primary),
+                Err(_) => tracing::info!(account = %primary, tier, "account fallback: native usage read timed out; no proven room"),
+                _ => tracing::info!(account = %primary, tier, "account fallback: no eligible proven room on the native login"),
+            }
+        } else {
+            tracing::info!(account = %primary, tier, "account fallback: native login is not eligible");
+        }
+    }
+    // Muse's own login has no registry row and additionally needs its exact
+    // model catalog. Its existing order and gates remain unchanged.
     if own_login && provider == crate::providers::catalog::MUSE && current.is_some() && subs
         && muse_primary_takes(engine, tier, version, org_slug, true).await
     {

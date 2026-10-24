@@ -531,6 +531,14 @@ impl Usage {
         self.cache.pin().insert(key.to_string(), Cached { at: Instant::now(), data: data.clone() });
     }
 
+    /// Synthetic cache-only fixtures; never performs provider or file I/O.
+    #[cfg(test)]
+    #[nolog]
+    pub(crate) fn put_for_tests(&self, key: &str, data: &Value, age: Duration) {
+        self.put(key, data);
+        self.cache.pin().insert(key.to_string(), Cached { at: Instant::now() - age, data: data.clone() });
+    }
+
     /// Store a reading dated when the provider observed it, not when it
     /// reached us: a cached observation is never re-dated as fresh, and an
     /// older one never replaces a newer reading. Muse's wall-clock date is

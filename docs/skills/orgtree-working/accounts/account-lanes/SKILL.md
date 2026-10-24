@@ -26,7 +26,9 @@ Balance when placing authorized new work. A standing binding or team staffing ru
 
 ## Fallback is separate
 
-Per-agent account fallback is opt-in. A qualifying limit can try another permitted account of the same provider. Registered subscriptions precede metered keys; a provider's API-key fallback switch must permit paid keys. Automatic subscription fallback requires affirmative room in needed windows; missing, stale or timed-out observations are insufficient. Muse additionally checks the destination's own model/version catalog; its native login can follow registered subscriptions.
+Per-agent account fallback is opt-in. A qualifying limit can try another permitted account of the same provider. Registered subscriptions come first, then native Claude/Codex sign-ins even without account-registry rows, then metered keys. The native stage only moves off a different physical login; it does not switch an agent already using that native login back to an alias. A provider's API-key fallback switch must permit paid keys. Muse additionally checks the destination's own model/version catalog; its native login can follow registered subscriptions.
+
+Automatic subscription fallback needs fresh affirmative room and the destination's ordinary activation, org allowance, sign-in, reauthentication and applicable quota/mark checks. A native usage read has a five-second bound; unknown, stale, unavailable or timed-out observations are insufficient. Claude needs session and ordinary weekly, plus Fable's scoped weekly for Fable. Codex uses its nonempty reported ordinary unnamed plan windows; a weekly-only report can qualify without an additional five-hour row. Every applicable reported window must be below 100%, inactive and reset in the future. These window requirements are unchanged by adding native candidates.
 
 Changing an org's allowed accounts is a separate next-turn eligibility gate: a disallowed binding must move to an allowed destination or wait frozen. Account removal likewise reassigns or freezes affected bindings; it is consequential, not a display-only cleanup.
 

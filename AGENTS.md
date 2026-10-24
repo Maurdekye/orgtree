@@ -52,6 +52,12 @@ Rig live-root guards retain import-time `APPDATA`/home/data-override paths after
 
 ## Engine and desktop invariants
 
+- Limit fallback considers native Claude/Codex sign-ins even without registry
+  rows, after registered subscriptions and before paid keys. Preserve native
+  eligibility and fresh room checks; never retry the same physical login.
+  See [native fallback](docs/agents/providers-and-accounts.md#native-limit-fallback-2026-10-24).
+  [verified: `runtime/freeze.rs`, `freeze/continuation.rs`; 2026-10-24]
+
 - Files readers merge accepted org-record commits as well as legacy live bumps;
   runtime-only publications keep their cursor. Keep record-without-bump controls
   for mounted readers. See [Files](docs/rust-engine/agent-files.md).

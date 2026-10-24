@@ -41,7 +41,7 @@ The freeze can retain the request refused before it received an answer. Recovery
 
 Clearing a mark and releasing a seat's freeze are separate. An account may retain another applicable mark, and an apparently resumed seat may still be halted. Do not repeatedly clear/retry a still-exhausted provider. Authentication requires sign-in repair and a balance failure requires its stated billing remedy; neither is proven fixed by removing a local record.
 
-Automatic account fallback is governed by [account lanes](../account-lanes/SKILL.md), not by blanket permission to switch providers or bill a key. For the user's auto-resume control, see `orgtree-org-autonomy` (orgtree-app › org-settings).
+Automatic account fallback is governed by [account lanes](../account-lanes/SKILL.md), not by blanket permission to switch providers or bill a key. At a qualifying turn-end quota freeze, the engine reloads the agent's fallback setting and tries eligible destinations after settling the turn. Native Claude/Codex logins can follow registered subscriptions even without registry rows; existing native-login, org, quota and fresh-room gates still apply. With no eligible destination the agent stays frozen and retains its reset/manual-recovery paths. For the user's auto-resume control, see `orgtree-org-autonomy` (orgtree-app › org-settings).
 
 ## See also
 

@@ -180,7 +180,8 @@ pub(super) fn muse_offered(engine: &Engine, tier: &str, version: Option<&str>, t
     }
 }
 
-/// The UI may offer primary explicitly; automatic fallback remains registry-only.
+/// Native choices the UI may offer explicitly. Limit fallback separately
+/// requires fresh proven room and its provider-specific candidate order.
 #[nolog]
 pub fn primary_tiers(engine: &Engine, org: &str) -> std::collections::HashSet<String> {
     catalog::TIERS

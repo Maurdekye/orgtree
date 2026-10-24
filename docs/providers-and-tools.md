@@ -68,6 +68,8 @@ Removing a registered account is consequential: bindings/defaults can move to an
 
 **Organization settings > Autonomy > automatically switch accounts after a usage limit** is off by default. An agent can inherit or override it. Eligible same-provider subscription profiles need verified capacity; Muse also needs entitlement to the exact model. A successful fallback retains the new binding. It does not rebalance a running agent continuously or switch to a different provider.
 
+Fallback tries registered subscriptions first, then the user's native Claude or Codex sign-in, then any permitted paid keys. Native sign-ins do not need an extra account-registry entry. They must be active, signed in, allowed in the org and free of applicable limits or sign-in failures, with fresh positive room. Claude needs session and weekly readings (plus Fable's scoped weekly for Fable); Codex checks the ordinary plan windows it reports, so a valid weekly-only report can qualify. Unknown, stale or timed-out readings do not prove room. If no destination qualifies, the agent stays frozen for reset or manual recovery.
+
 **Fall back to API-key accounts** is a separate app-wide provider opt-in, also off by default. It permits paid failover only with the other fallback and eligibility checks satisfied. Adding an active key alone does not turn it on. Native subscription Active and each registered account's Active are separate controls.
 
 Account changes alter the account/cache namespace. Codex and Muse start new sessions on fallback; an interrupted task continues through the recorded replay/handoff. Neither a saved binding nor clearing a freeze proves the provider now has room. [Operating and troubleshooting](operating-orgtree.md) covers reset-time resume and manual recovery.

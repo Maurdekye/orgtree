@@ -1,5 +1,26 @@
 # Providers and accounts
 
+## Native limit fallback (2026-10-24)
+
+An opted-in quota fallback searches registered subscriptions, then native
+Claude/Codex sign-ins, then permitted metered keys. A native login need not
+have an ambient account-registry row. This stage is only for a limit move
+off another physical login; org account-list reassignment keeps its existing
+order, and native aliases cannot become a move back to the same login.
+Muse retains its existing native-model catalog checks and ordering.
+
+The native stage checks `continuation::resolve` before its existing five-second
+usage-read budget and again afterward, plus `usage::has_room`. Provider/native
+activation, org allowance, installed/signed-in state, recent reauthentication
+failures, alias marks/full windows and fresh positive room remain gates.
+Unknown, stale, unavailable or timed-out evidence cannot establish room.
+Claude needs session and ordinary weekly (and Fable's scoped weekly for Fable);
+Codex checks its nonempty reported ordinary unnamed plan windows, so an eligible
+weekly-only report can prove room. All applicable reported windows must be below
+100%, inactive and have future resets. This fixes omitted native candidates,
+without changing the window requirements, billing opt-ins or ongoing placement.
+[verified: `runtime/freeze.rs`, `freeze/continuation.rs`, `usage.rs`; 2026-10-24]
+
 [Repository startup guide](../../AGENTS.md) · [All topics and entries](README.md)
 
 Harnesses, model/effort offers, account binding, credentials, usage and inference routes.
