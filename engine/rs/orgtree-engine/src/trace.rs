@@ -898,8 +898,10 @@ pub struct EngineLayer {
 /// request (its credential headers and query), and rumqttc's errors can
 /// carry a broker's packet (docs/rust-engine/websocket-watchdogs.md,
 /// mqtt-watchdogs.md). The watchdogs log their connections' states instead.
+/// tokio_postgres::query prints bound SQL parameters, including stored keys;
+/// query values never become diagnostics even under an explicit debug filter.
 fn silenced(target: &str) -> bool {
-    ["tungstenite", "tokio_tungstenite", "rumqttc"]
+    ["tungstenite", "tokio_tungstenite", "rumqttc", "tokio_postgres::query"]
         .iter()
         .any(|c| target.strip_prefix(c).is_some_and(|rest| rest.is_empty() || rest.starts_with("::")))
 }

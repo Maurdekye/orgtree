@@ -198,6 +198,13 @@ all MCP bodies. Invalid types never include submitted values in their errors.
 Normal binding reconciliation and provider checks remain in the handlers;
 real network/provider auth is outside the synthetic verification scope.
 
+The engine formatter suppresses `tokio_postgres::query` records, whether native
+tracing or forwarded `log` events, under every log-filter override. Its debug
+records print raw SQL bind parameters, including account keys. The default
+`tokio_postgres=warn` filter alone is not a private-input boundary. The synthetic
+database proof checks stored-key canaries with the formatter's unfiltered
+capture and a positive engine-log control.
+
 New user-MCP handler futures are constructed with `util::boxed(|| handler(...))`
 at the adapter boundaries, including the recorded tree path. The synthetic
 database proof is split into separate tree/questions/settings/accounts helpers

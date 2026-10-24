@@ -4,6 +4,12 @@
 
 Actors, bounded reads, transactions, migrations, logging and data contracts.
 
+The engine log formatter always drops `tokio_postgres::query` records, including
+forwarded `log` events. Their debug output includes raw SQL bind parameters and
+can expose account secrets; the default warn filter alone is insufficient when
+an operator overrides `ORGTREE_LOG`. See the [standalone account boundary](../rust-engine/STANDALONE-ENGINE.md#user-account-mcp-additions-2026-10-24).
+[verified: `trace.rs`, synthetic user-MCP database canary; 2026-10-24]
+
 Dead-letter feed/list totals use transactionally maintained per-recipient
 open/dropped counts; partial recipient/id indexes serve the matching page
 predicates. Completed/dropped mail history is retained without slowing default

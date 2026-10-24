@@ -176,6 +176,10 @@ body-omitted MCP boundaries and never echoed. Identity/key changes retain the
 desktop's provider checks and can contact the provider. Native CLI/browser login
 remains a separate SSH step; account creation does not complete it.
 
+Database-driver query logs are omitted even with a debug/trace log override,
+because their SQL parameter dumps can contain stored account keys. Engine
+operation diagnostics remain available.
+
 Authenticated `GET /api/desktop/alive` checks readiness. Authenticated
 `POST /api/desktop/shutdown` requests clean shutdown; Unix SIGTERM, SIGINT and
 SIGHUP also use the clean shutdown path.

@@ -213,6 +213,10 @@ Native browser login remains separate; identity/key changes may contact the
 provider. Secrets are accepted only through private MCP boundaries, never echoed
 or logged. `list` exposes account metadata and profile paths, not stored keys.
 
+The formatter also omits `tokio_postgres::query` records under debug/trace log
+overrides: SQL parameter dumps can contain stored keys. Ordinary engine
+operation diagnostics remain available.
+
 | Action | Fields / behavior |
 | --- | --- |
 | list (default) | Optional org filter. |
