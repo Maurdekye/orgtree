@@ -54,6 +54,10 @@ Restarting interrupts running agent turns. The old engine stops gracefully first
 
 The desktop preference switches do not rewrite agent instructions by themselves. An engine restart can replace local processes; process replacement alone proves neither a provider cache hit nor a miss. Explain the restart's interruption before suggesting immediate application.
 
+## Git and GitHub credentials in Session 0
+
+The signed-in desktop or helper relays git HTTPS and GitHub CLI credentials to isolated agent processes without moving the engine. A lookup can take up to 20 seconds; its pipe and engine request have 25/30-second bounds. `[gh-timeout]` reports an unfinished lookup, not proof of a missing login. The command then tries GitHub CLI's native sign-in path. Local `gh --version` and help skip credential lookup. API/network commands still use the bridge, with explicit tokens retaining precedence. No new credential caching is added; general Windows vault access remains isolated. For diagnosis, report elapsed time and the fixed error code without tokens or tool stderr.
+
 ## See also
 
 - [orgtree-tray-and-windows](../../app-shell/tray-and-windows/SKILL.md).

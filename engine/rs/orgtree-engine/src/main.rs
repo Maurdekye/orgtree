@@ -30,6 +30,7 @@ mod core_diagnostics;
 mod core_recovery;
 mod credential_context;
 mod credential_bridge;
+mod credential_deadlines;
 mod domain;
 mod engine;
 mod events;

@@ -9,6 +9,8 @@ import os from 'node:os'
 import { TOKEN_HEADER } from './policy'
 
 const MAX = 65536
+const LOOKUP_TIMEOUT_MS = 20000
+const PIPE_TIMEOUT_MS = 25000
 const safe = (value: unknown): value is string => typeof value === 'string' && value.length <= 4096 && !/[\x00-\x1f\x7f]/.test(value)
 const hostOK = (value: unknown): value is string => typeof value === 'string' && /^[a-z0-9][a-z0-9.:-]{0,252}$/i.test(value)
 
@@ -33,7 +35,7 @@ function executable(name: string, env: NodeJS.ProcessEnv): string | undefined {
 class LookupFailure extends Error { constructor(readonly code: string) { super(code) } }
 function run(tool: string, exe: string, args: string[], input: string, env: NodeJS.ProcessEnv): Promise<string> {
   return new Promise((resolve, reject) => {
-    const child = execFile(exe, args, {cwd: os.homedir(), env, windowsHide: true, timeout: 6000, maxBuffer: MAX, encoding: 'utf8'},
+    const child = execFile(exe, args, {cwd: os.homedir(), env, windowsHide: true, timeout: LOOKUP_TIMEOUT_MS, maxBuffer: MAX, encoding: 'utf8'},
       (error, stdout) => {
         if (!error) return resolve(stdout)
         const e = error as NodeJS.ErrnoException & {killed?: boolean; code?: string | number}
@@ -81,7 +83,7 @@ export class CredentialBridge {
       if (this.active >= 16) {socket.end("orgtree-credential-busy\n", () => socket.destroy());return}
       this.active++
       socket.on('close', () => {this.active--})
-      socket.setTimeout(8000, () => socket.destroy())
+      socket.setTimeout(PIPE_TIMEOUT_MS, () => socket.destroy())
       let raw=Buffer.alloc(0), handled=false
       socket.on('data', chunk => {
         if (handled) return

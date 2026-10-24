@@ -567,7 +567,7 @@ pub fn route(path: &str) -> bool {
 /// Entire route, including auth failures, bypasses generic body/header tracing.
 #[nolog]
 pub async fn dispatch(State(engine): State<Arc<Engine>>, req: Request) -> Response {
-    let result = tokio::time::timeout(Duration::from_secs(10), handle(&engine, req))
+    let result = tokio::time::timeout(crate::credential_deadlines::REQUEST, handle(&engine, req))
         .await
         .unwrap_or(Err(Fail::Busy));
     match result {
@@ -1250,6 +1250,10 @@ async fn cli_async(kind: &str, args: &[String]) -> Result<u8, ()> {
     } else {
         None
     };
+    // Local diagnostics need neither a repository-origin probe nor credentials.
+    if kind == "gh" && gh_local_diagnostic(args) {
+        return run_gh(gh_command(real.as_ref().ok_or(())?, args, "GH_TOKEN", &[], true)?).await;
+    }
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     let mut host = std::env::var("GH_HOST").unwrap_or_else(|_| "github.com".into());
     let mut path = String::new();
@@ -1345,6 +1349,11 @@ async fn cli_async(kind: &str, args: &[String]) -> Result<u8, ()> {
         return Ok(0);
     }
     let native = gh_command(&real.ok_or(())?, args, token_env, &answer, explicit)?;
+    run_gh(native).await
+}
+
+#[nolog]
+async fn run_gh(native: std::process::Command) -> Result<u8, ()> {
     let mut cmd = tokio::process::Command::from(native);
     #[cfg(windows)]
     {
@@ -1376,7 +1385,7 @@ async fn lookup(kind: &str, host: &str, path: &str, username: &str) -> Vec<u8> {
             let client = reqwest::Client::builder()
                 .no_proxy()
                 .redirect(reqwest::redirect::Policy::none())
-                .timeout(Duration::from_secs(10))
+                .timeout(crate::credential_deadlines::REQUEST)
                 .build()
                 .map_err(|_| MISCONFIGURED.to_string())?;
             let response = client
@@ -1505,6 +1514,28 @@ pub fn cleanup_adapters(engine: &Engine) {
             }
         }
         let _ = std::fs::remove_dir(dir);
+    }
+}
+
+#[nolog]
+fn gh_local_diagnostic(args: &[String]) -> bool {
+    (args.len() == 1 && matches!(args[0].as_str(), "--version" | "version"))
+        || args.first().is_some_and(|arg| arg == "help")
+        || args.iter().take_while(|arg| arg.as_str() != "--")
+            .any(|arg| matches!(arg.as_str(), "--help" | "-h"))
+}
+
+#[cfg(test)]
+mod local_diagnostic_tests {
+    #[test]
+    #[nolog]
+    fn credential_deadline_local_gh_diagnostics_do_not_need_authentication() {
+        for args in [vec!["--version"], vec!["version"], vec!["--help"], vec!["help", "api"], vec!["api", "--help"]] {
+            assert!(super::gh_local_diagnostic(&args.into_iter().map(String::from).collect::<Vec<_>>()));
+        }
+        for args in [vec!["api", "rate_limit"], vec!["auth", "token"], vec!["api", "--", "--help"], vec!["api", "--field", "value=--help"]] {
+            assert!(!super::gh_local_diagnostic(&args.into_iter().map(String::from).collect::<Vec<_>>()));
+        }
     }
 }
 

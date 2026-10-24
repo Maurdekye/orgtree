@@ -26,6 +26,9 @@ extern crate orgtree_logged;
 
 use std::process::ExitCode;
 
+#[allow(dead_code)] // Shared with the engine/adapter, which consumes REQUEST.
+mod credential_deadlines;
+
 #[cfg(windows)]
 #[path = "credential_broker_host.rs"]
 mod codex_host;
@@ -612,7 +615,7 @@ mod win {
                 Err(_) => return None,
             })
         };
-        if let Ok(Some(mut out)) = tokio::time::timeout(Duration::from_secs(8), work).await {
+        if let Ok(Some(mut out)) = tokio::time::timeout(crate::credential_deadlines::PIPE, work).await {
             let _ = client.write_all(&out).await;
             let _ = client.flush().await;
             out.fill(0);
@@ -749,11 +752,17 @@ mod win {
             .find(|p| p.is_absolute() && p.is_file())
     }
 
-    /// Run a lookup tool with no window, six seconds at most, 64 KiB of
+    /// Run a lookup tool with no window, twenty seconds at most, 64 KiB of
     /// output at most. Failures are fixed codes; tool output never leaves.
     #[nolog]
     async fn exec(tool: &str, exe: &Path, args: &[&str], input: &str, env: &[(String, String)]) -> Result<Vec<u8>, String> {
-        let home = std::env::var_os("USERPROFILE").map(PathBuf::from).unwrap_or_else(std::env::temp_dir);
+        exec_with_timeout(tool, exe, args, input, env, crate::credential_deadlines::LOOKUP).await
+    }
+
+    #[nolog]
+    async fn exec_with_timeout(tool: &str, exe: &Path, args: &[&str], input: &str, env: &[(String, String)], timeout: Duration) -> Result<Vec<u8>, String> {
+        let home = env.iter().find(|(key, _)| key.eq_ignore_ascii_case("USERPROFILE"))
+            .map(|(_, value)| PathBuf::from(value)).unwrap_or_else(std::env::temp_dir);
         let mut child = tokio::process::Command::new(exe)
             .args(args)
             .env_clear()
@@ -789,9 +798,12 @@ mod win {
                 None => Err(format!("{tool}-failed")),
             }
         };
-        match tokio::time::timeout(Duration::from_secs(6), work).await {
+        match tokio::time::timeout(timeout, work).await {
             Ok(r) => r,
-            Err(_) => Err(format!("{tool}-timeout")),
+            Err(_) => {
+                let _ = child.kill().await;
+                Err(format!("{tool}-timeout"))
+            }
         }
     }
 
@@ -799,6 +811,43 @@ mod win {
     mod tests {
         use super::{instance_name, leaves_on, registration};
         use std::path::Path;
+
+        #[nolog]
+        fn synthetic_lookup_env(mode: &str) -> Vec<(String, String)> {
+            let mut env = vec![("USERPROFILE".into(), std::env::temp_dir().to_string_lossy().into_owned()),
+                ("ORGTREE_SYNTHETIC_LOOKUP_CHILD".into(), mode.into())];
+            if let Ok(root) = std::env::var("SystemRoot") { env.push(("SystemRoot".into(), root)); }
+            env
+        }
+
+        #[test]
+        #[nolog]
+        fn credential_deadline_child_fixture() {
+            match std::env::var("ORGTREE_SYNTHETIC_LOOKUP_CHILD").as_deref() {
+                Ok("late") => { std::thread::sleep(std::time::Duration::from_millis(6500)); println!("synthetic-lookup-complete"); }
+                Ok("timeout") => std::thread::sleep(std::time::Duration::from_secs(60)),
+                _ => {}
+            }
+        }
+
+        #[tokio::test]
+        #[nolog]
+        async fn credential_deadline_native_broker_accepts_late_valid_child() {
+            let env = synthetic_lookup_env("late");
+            let out = super::exec("gh", &std::env::current_exe().unwrap(),
+                &["--exact", "win::tests::credential_deadline_child_fixture", "--nocapture"], "", &env).await.unwrap();
+            assert!(String::from_utf8_lossy(&out).contains("synthetic-lookup-complete"));
+        }
+
+        #[tokio::test]
+        #[nolog]
+        async fn credential_deadline_native_broker_reaps_timed_out_child() {
+            let env = synthetic_lookup_env("timeout");
+            let answer = super::exec_with_timeout("gh", &std::env::current_exe().unwrap(),
+                &["--exact", "win::tests::credential_deadline_child_fixture", "--nocapture"], "", &env,
+                std::time::Duration::from_millis(100)).await;
+            assert_eq!(answer, Err("gh-timeout".into()));
+        }
 
         /// Invariant 7: the engine hosts agents only through a helper with its
         /// own administrator rights, so the helper says which it has, and one

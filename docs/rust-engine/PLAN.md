@@ -735,6 +735,8 @@ Selected settings auto-save (USER 2026-10-24): project draft gear stages each ch
 
 Draft settings parity (USER 2026-10-24): shared Charter/Model/Scope/Tools controls and credit editor, local immediate retention through close/reopen, complete atomic hire payload; existing-agent-only actions hidden before hire. See docs/agents/desktop-and-renderer.md and draft-hires glossary.
 
+Credential lookup deadlines (coordinator2026-10-24): both signed-in brokers allow20s lookup/25s pipe/30s engine-adapter requests; local gh version/help bypass credentials. Fixed error codes, native fallback, slots/size/auth and decision94 caching stay unchanged. See credential-bridge.md.
+
 ## 11. Decisions I need from you
 
 1. **New schema + one-time import** (recommended), rather than running on the 3.2 per-org schema.

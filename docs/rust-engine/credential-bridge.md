@@ -29,9 +29,9 @@ commands ask signed-in Electron main for the user's configured credentials.
   Secret-bearing functions use nolog, no secret structures derive Serialize or
   Debug, and no credential is stored in Orgtree files or databases. The endpoint
   allows 16 concurrent requests, waits at most two seconds for a slot, bounds
-  bodies/results to 64 KiB and the whole request to ten seconds. Windows pipe
+  bodies/results to 64 KiB and the whole request to thirty seconds. Windows pipe
   opens retry ERROR_PIPE_BUSY every 25 ms for at most one second. Busy exhaustion
-  and the desktop's explicit saturation response never withdraw broker readiness. Broker commands have six-second timeouts and no interactive
+  and the desktop's explicit saturation response never withdraw broker readiness. Broker commands have twenty-second timeouts and no interactive
   credential prompts. Failures never echo tool stderr or credential bytes.
 - Git gets a native `GIT_ASKPASS` executable alias and process-local
   `credential.sanitizePrompt=true`; no helper reset or gitconfig edit. All existing
@@ -64,6 +64,12 @@ commands ask signed-in Electron main for the user's configured credentials.
   the next startup. PATH is changed only when a real gh executable exists.
   Malformed or >=128 inherited GIT_CONFIG_COUNT values are left untouched;
   Git bridging is skipped instead of overwriting the user's entries.
+
+## Bounded lookup deadlines (2026-10-24)
+
+Both signed-in brokers allow 20 seconds for the real git/gh lookup, 25 seconds for the authenticated pipe request, and 30 seconds for the engine/adapter request, retaining 16 slots and 64 KiB bounds. A slow but valid credential lookup can outlive the former six-second child cutoff without being killed by an earlier transport deadline. Timed-out lookup children are killed and reaped; failures retain fixed secret-free codes and native fallback. A timeout means the lookup did not finish, not proof that the user is signed out.
+
+Local `gh --version`, `gh --help`, command help and `gh help` run the real executable without a repository probe or credential request. Network/API commands still use the bridge and explicit-token precedence. This adds no credential cache and does not broaden decision 94's existing memory-only cache. Live installed verification follows the next authorized build; synthetic success/timeout tests do not establish live keyring latency.
 
 ## Availability and limits
 

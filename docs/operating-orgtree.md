@@ -21,6 +21,10 @@ Check **App settings > About** for desktop version and engine identity. The engi
 
 Inspect current files/records before repeating a mutation after a timeout or lost response. It may have applied even though the acknowledgment did not arrive.
 
+## GitHub CLI from a Session 0 agent
+
+Orgtree asks its signed-in desktop or helper for credentials when an isolated agent runs a GitHub CLI network command. The lookup is bounded at 20 seconds, with 25 seconds for the pipe and 30 seconds for the full request. A `gh-timeout` means that lookup did not finish; it does not establish that you are logged out. GitHub CLI then tries its native sign-in. `gh --version` and help run locally without asking for credentials. Explicit token settings keep precedence, and this adds no credential caching. Include the elapsed time and fixed error code when reporting a problem; never send a token or secret-bearing output.
+
 ## Automatic checkups and reminders
 
 Automatic checkups and docket reminders scan agents and unfinished work in
