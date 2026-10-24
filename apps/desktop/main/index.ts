@@ -1,4 +1,5 @@
 import { CredentialBridge } from './credential-bridge'
+import { installShiftAltSpace } from './shift-alt-space'
 import { CoreLifecycle } from './core-lifecycle'
 import { recordCoreControlFailure } from './core-exit-log'
 import { agentScratchAgentsFileExists, openAgentScratchAgentsFile, openAgentScratchFolder } from './scratch-folder'
@@ -359,6 +360,7 @@ else {
   // Explorer's taskbar group reads shell properties separately from WM_SETICON.
   // Use a real unpacked file and explicit relaunch identity for every window.
   app.on('browser-window-created', (_event, window) => {
+    installShiftAltSpace(window)
     // Development has a real source-tree .ico and its own AppUserModelID too;
     // leaving it to Electron's default identity makes Windows show the generic
     // Electron/document icon. Keep release and development shell metadata on
