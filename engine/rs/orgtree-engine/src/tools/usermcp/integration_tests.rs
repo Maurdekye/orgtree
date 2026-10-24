@@ -94,7 +94,9 @@ async fn question_group(engine:&Arc<Engine>,org:&Arc<OrgHandle>)->Result<()> {
     crate::domain::asks::request_credits(engine,org,&a,6.0,"Synthetic credit request").await?;
     let cards=invoke(engine,Some(org),"orgtree_questions",json!({})).await?;
     assert_eq!(cards["questions"].as_array().unwrap().len(),1);
-    assert_eq!(cards["questions"][0]["kind"],"credit");
+    assert_eq!(cards["questions"][0]["tabs"].as_array().unwrap().len(),1);
+    assert_eq!(cards["questions"][0]["tabs"][0]["kind"],"credits");
+    assert_eq!(cards["questions"][0]["tabs"][0]["new"],6.0);
     let credit=cards["questions"][0]["id"].clone();
     invoke(engine,Some(org),"orgtree_questions",json!({"action":"credit","id":credit,"decision":"approve","granted":6,"dry":true})).await?;
     invoke(engine,Some(org),"orgtree_questions",json!({"action":"credit","id":credit,"decision":"approve","granted":6})).await?;
