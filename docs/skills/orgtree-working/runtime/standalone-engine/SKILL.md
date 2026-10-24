@@ -62,8 +62,11 @@ BuildKit retains compiler caches and accepts explicit compiler-profile build
 arguments for constrained machines; those do not change API authorization.
 Provider CLIs must be
 installed in a derived image; host installations/logins are not automatically
-visible in the container. The initial source slice did not verify Docker/Linux deployment or a real
-headless provider turn. Use `docs/rust-engine/STANDALONE-ENGINE.md` in the
+visible in the container. Synthetic Linux/amd64 image checks verify fresh
+database initialization, HTTP/WebSocket/MCP authentication, restart persistence,
+embedded glossary and clean shutdown; a separate spotcheck verifies actual host
+loopback publication. Direct Linux host execution and real provider sign-in or
+turns remain unverified. Use `docs/rust-engine/STANDALONE-ENGINE.md` in the
 development checkout for those source and verification boundaries.
 
 ## Provider login over SSH

@@ -52,6 +52,12 @@ limit, the Dockerfile accepts explicit release optimization/LTO/codegen override
 see the [packaging notes](../standalone/README.md). The defaults retain normal
 release optimization.
 
+Synthetic Linux/amd64 image checks verify fresh database setup, authenticated
+HTTP/WebSocket/MCP access, restart persistence and clean shutdown, including
+HTTP/MCP access through the host's loopback port. That verification uses fake
+CLIs and empty profiles. Direct Linux host execution and real provider browser
+login/turns remain separate, unverified steps.
+
 ## Connect through MCP or HTTP
 
 Send `Authorization: Bearer <token>` on every API or push-socket request. The

@@ -67,8 +67,9 @@ curl -H "Authorization: Bearer <token>" http://127.0.0.1:<port from the ready li
 Docker: `standalone/Dockerfile` + `standalone/docker-compose.yml` provide a
 multi-stage Rust build; the runtime image carries PostgreSQL, binds
 `0.0.0.0` **inside** the container with the compose file publishing to
-`127.0.0.1` only, `/data` volume, token from the environment. Not yet
-image-built in this slice; see Verification.
+`127.0.0.1` only, `/data` volume, token from the environment. The image build
+and synthetic Linux/amd64 runtime are verified below; direct Linux and real
+provider sign-in remain separate proofs.
 
 ### Packaging input repair (2026-10-24, 4.4.5)
 
@@ -206,5 +207,32 @@ No real provider login was performed in this source audit.
   org-less and per-org `tools/list` shapes, `orgtree_create_org` visible to
   the HTTP API right after, `orgtree_chart`, `orgtree_work` list,
   `orgtree_inbox` list, and an honest `isError` mailing a nonexistent agent.
-- Unverified in this slice: the Docker image build/run, a Linux run, and any
-  real provider turn on a headless host.
+- Unverified: a direct Linux host run and any real provider sign-in/turn on a
+  headless host. Docker Linux execution does not stand in for those proofs.
+
+### Docker verification, 2026-10-24
+
+Measured at source `d5766054287f4acad867d8f4227b3223bdd26935`:
+
+- Linux/amd64 image builds with PostgreSQL 17 and runs as an ordinary user.
+  The checked build used release opt-level 1, no LTO, 256 codegen units,
+  debug info off and one Cargo job under a 6 GiB builder limit. A previous
+  normal opt-level 3/thin-LTO attempt was OOM-killed at that same limit.
+- The focused offline image check passes **33/33**: fresh-volume migrations,
+  generated token and mode 0600, HTTP/UI/socket auth gates, user MCP org
+  creation/chart/docket/inbox, unsupported interrupt-field refusal, embedded
+  glossary, persisted organization/token/port, API and SIGTERM exits, database
+  stop records and token absence from engine diagnostics. Only fake CLIs and
+  synthetic profiles were supplied.
+- A separate **5/5** spotcheck on the normal Docker bridge verifies actual
+  host-loopback HTTP/MCP access, unauthenticated refusal and clean API shutdown.
+  It used a fresh synthetic profile, fake CLIs and disabled external DNS.
+- The original PG15 image failed migration 0040 before readiness; PG17 repairs
+  that measured startup failure. The first offline-client adapter serialized
+  HTTP statuses as strings; its corrected numeric contract is asserted before
+  comparison. Failed/partial attempts are not counted as passing runs.
+
+The verified image digest is
+`sha256:c4764a4785b29ba6e2d77560cc209b79a2e57deae958fc4dea71bff5d3e35524`.
+These are synthetic packaging/API proofs, not a provider authentication test or
+a published image.
