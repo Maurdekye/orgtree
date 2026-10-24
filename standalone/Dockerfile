@@ -18,10 +18,19 @@ COPY engine/docs/templates engine/docs/templates
 COPY docs/skills docs/skills
 ARG CARGO_BUILD_JOBS=1
 ARG ORGTREE_BUILD_COMMIT=unknown
-RUN ORGTREE_RELEASE_BUILD=1 ORGTREE_BUILD_COMMIT="$ORGTREE_BUILD_COMMIT" \
+ARG CARGO_PROFILE_RELEASE_OPT_LEVEL=3
+ARG CARGO_PROFILE_RELEASE_LTO=thin
+ARG CARGO_PROFILE_RELEASE_CODEGEN_UNITS=16
+RUN --mount=type=cache,target=/src/engine/rs/target \
+    --mount=type=cache,target=/usr/local/cargo/registry \
+    ORGTREE_RELEASE_BUILD=1 ORGTREE_BUILD_COMMIT="$ORGTREE_BUILD_COMMIT" \
     CARGO_PROFILE_RELEASE_DEBUG=0 CARGO_INCREMENTAL=0 \
+    CARGO_PROFILE_RELEASE_OPT_LEVEL="$CARGO_PROFILE_RELEASE_OPT_LEVEL" \
+    CARGO_PROFILE_RELEASE_LTO="$CARGO_PROFILE_RELEASE_LTO" \
+    CARGO_PROFILE_RELEASE_CODEGEN_UNITS="$CARGO_PROFILE_RELEASE_CODEGEN_UNITS" \
     cargo build --locked --release --jobs "$CARGO_BUILD_JOBS" \
-    --manifest-path engine/rs/Cargo.toml -p orgtree-engine --bin orgtree-engine
+    --manifest-path engine/rs/Cargo.toml -p orgtree-engine --bin orgtree-engine \
+ && cp engine/rs/target/release/orgtree-engine /orgtree-engine
 
 FROM debian:bookworm-slim
 # PostgreSQL refuses to run as root, and the engine starts it as its own
@@ -31,7 +40,7 @@ RUN apt-get update \
  && rm -rf /var/lib/apt/lists/* \
  && useradd --create-home --shell /usr/sbin/nologin orgtree \
  && mkdir -p /data && chown orgtree:orgtree /data
-COPY --from=build /src/engine/rs/target/release/orgtree-engine /usr/local/bin/orgtree-engine
+COPY --from=build /orgtree-engine /usr/local/bin/orgtree-engine
 USER orgtree
 ENV ORGTREE_DATA=/data \
     ORGTREE_P03_PG_BIN=/usr/lib/postgresql/15/bin \

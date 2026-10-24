@@ -46,6 +46,11 @@ Provider CLIs are separate: install them in a derived image and make their
 executables available in the engine's PATH. A CLI installed or signed in on the
 Docker host is not automatically available in the container.
 
+BuildKit retains compiler caches. If compilation exceeds a build machine's memory
+limit, the Dockerfile accepts explicit release optimization/LTO/codegen overrides;
+see the [packaging notes](../standalone/README.md). The defaults retain normal
+release optimization.
+
 ## Connect through MCP or HTTP
 
 Send `Authorization: Bearer <token>` on every API or push-socket request. The

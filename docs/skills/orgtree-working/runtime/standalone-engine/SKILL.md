@@ -56,7 +56,10 @@ not equivalent to the mandatory-authenticated standalone mode.
 Repository Docker assets use one persistent `/data` volume, bind inside the
 container and publish to host loopback in the supplied compose file. The
 build embeds the glossary, charters and templates, with an allowlisted build
-context excluding generated targets/dependencies. Provider CLIs must be
+context excluding generated targets/dependencies.
+BuildKit retains compiler caches and accepts explicit compiler-profile build
+arguments for constrained machines; those do not change API authorization.
+Provider CLIs must be
 installed in a derived image; host installations/logins are not automatically
 visible in the container. The initial source slice did not verify Docker/Linux deployment or a real
 headless provider turn. Use `docs/rust-engine/STANDALONE-ENGINE.md` in the

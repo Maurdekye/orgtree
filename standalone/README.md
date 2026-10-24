@@ -30,3 +30,11 @@ generated targets and dependencies. Cargo uses the checked-in lockfile. Provider
 CLIs are installed separately in a derived image; host installations and logins
 are not automatically available inside the container. Keep account profiles in
 the persistent `/data` volume.
+
+The Dockerfile uses BuildKit cache mounts. For a memory-constrained build, its
+`CARGO_PROFILE_RELEASE_OPT_LEVEL`, `CARGO_PROFILE_RELEASE_LTO` and
+`CARGO_PROFILE_RELEASE_CODEGEN_UNITS` arguments can override the normal release
+defaults (3, thin and 16). This affects compiler optimization, not authentication
+or persistence. For example, pass `--build-arg CARGO_PROFILE_RELEASE_OPT_LEVEL=1
+--build-arg CARGO_PROFILE_RELEASE_LTO=false
+--build-arg CARGO_PROFILE_RELEASE_CODEGEN_UNITS=256` to `docker build`.

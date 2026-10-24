@@ -80,6 +80,9 @@ assets fails compilation. The Dockerfile-specific context allowlist includes
 all three and excludes unrelated files, targets and installed dependencies.
 The recipe uses the checked-in Cargo lockfile, accepts `CARGO_BUILD_JOBS` and
 `ORGTREE_BUILD_COMMIT` build arguments, and omits release debug information.
+BuildKit cache mounts retain compiler/registry work across failed builds. Release
+optimization, LTO and codegen-unit build arguments default to the workspace's
+release settings and can be lowered explicitly on constrained build machines.
 This is source-checked; Docker/Linux execution evidence is recorded separately.
 [verified: `standalone/Dockerfile`, `orgtree-engine/build.rs`,
 `domain/templates.rs`, `http/settings.rs`; 2026-10-24]
