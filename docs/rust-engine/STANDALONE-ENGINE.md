@@ -1,12 +1,11 @@
 # Standalone Orgtree engine
 
-The engine is already its own program (`orgtree-engine serve`, its own
-PostgreSQL cluster, its own HTTP/WebSocket API on 127.0.0.1). What was missing
-for a supported headless run: a token is optional today (an empty
-`ORGTREE_V2_TOKEN` serves `/api/*` unauthenticated), the bind address and port
-cannot be chosen, a fresh data root may not create its cluster, and there is
-no packaging. This is the design for closing that gap in phases; phases 1
-and 2 below are implemented, the rest is deferred and named as such.
+The supported standalone engine has its own PostgreSQL cluster, mandatory
+authentication, configurable bind/port, HTTP/WebSocket APIs, user MCP and
+Docker packaging. Direct Ubuntu WSL and container execution are verified
+below. Named clients supplement the bootstrap recovery key. The phase notes
+retain the original implementation sequence; the Deferred section names the
+remaining scope. Ordinary `serve`/`host` behavior remains separate.
 
 ## Phase 1 (this slice): `orgtree-engine standalone`
 
@@ -306,3 +305,22 @@ on shared TCP sockets. These replace the earlier single-token-only boundary.
 [decided: user/coordinator 2026-10-24; verified: `client_tokens.rs`,
 `client_tokens/transport.rs`, `http/{mod,client_tokens,usermcp}.rs`,
 `tools/usermcp.rs`]
+
+Focused Linux verification at `738cbb03b9515a309ed015447c1297ed5f663073`:
+`cargo test --release -p orgtree-engine --bin orgtree-engine client_tokens::`
+passes **3/3** (1,201 unrelated tests filtered out). Actual router, middleware,
+TCP keepalive and upgraded WebSockets run over a database-free synthetic
+Engine fixture. They cover idle HTTP, partial MCP body, shared socket and
+self-revoke closure; unrelated-client survival; restart validity; HTTP/MCP
+administration; hash-only persistence; Unix0600; active limit and malformed
+saved-state refusal. A controlled build omitting raw socket shutdown fails
+with all four socket-drop observations false. The corrected source passes.
+
+Compilation used one job, a6GiB builder limit, engine package opt0 and
+dependencies opt1/noLTO/debug0/256codegen units. The first fixture dropped its
+unserviced app-feed inbox too early; retaining the inbox keeps its real
+WebSocket open without database work. The first green command then reused the
+red Cargo artifact due to Docker-layer source timestamps; forcing a fresh
+transport-source timestamp caused an actual recompile and the passing run.
+Those partial attempts are not passing evidence. This slice has a Linux
+compile/socket proof, not a newly packaged build or real-provider test.
