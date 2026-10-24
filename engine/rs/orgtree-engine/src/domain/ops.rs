@@ -243,6 +243,18 @@ mod fast_tools_tests {
     use super::*;
 
     #[test]
+    fn draft_hire_keeps_prelaunch_preferences() {
+        let caps = OrgCaps { max_top: 100., cascade_hire: true, cascade_alloc: true,
+            settings: json!({}) };
+        let requested = json!({"tier":"sol","model_version":"6","peer_mail":false,
+            "session":"session0","auto_cheap_compact":{"enabled":false,"occ":0.4}});
+        let stored = hire_scope(&caps, &requested);
+        for field in ["model_version", "peer_mail", "session", "auto_cheap_compact"] {
+            assert_eq!(stored[field], requested[field], "draft creation dropped {field}");
+        }
+    }
+
+    #[test]
     fn fast_tools_hire_explicit_false_overrides_tier_default() {
         let caps = OrgCaps { max_top: 100., cascade_hire: true, cascade_alloc: true,
             settings: json!({"default_fast_mode":{"sol":true,"luna":false}}) };
@@ -1142,7 +1154,94 @@ fn hire_scope(caps: &OrgCaps, req: &Value) -> Value {
     if let Some(b) = req.get("account_fallback").and_then(Value::as_bool) {
         out["account_fallback"] = json!(b);
     }
+    for key in ["model_version", "session", "peer_mail", "auto_cheap_compact"] {
+        if let Some(value) = req.get(key) { out[key] = value.clone(); }
+    }
     scope::normalize(&out)
+}
+
+/// Pure validation of preferences staged before a node exists. The final hire
+/// INSERT stores this same scope, including superior-insertion hires.
+#[nolog]
+fn normalize_hire_preferences(tier: &str, sc: &mut Value) -> Result<()> {
+    if let Some(value) = sc.get("model_version").cloned() {
+        let Some(version) = value.as_str() else { refuse!(BadRequest, "model_version must be a string") };
+        if version.is_empty() {
+            sc.as_object_mut().unwrap().remove("model_version");
+        } else {
+            if catalog::antigravity_claude(tier) {
+                refuse!(BadRequest, "Antigravity Claude tiers are fixed at 5.5 and have no version choice");
+            }
+            if !catalog::is_muse(tier) && !catalog::is_openrouter(tier) && !catalog::is_langserver(tier) {
+                if let Some(model) = catalog::tier(tier) {
+                    if !model.versions.iter().any(|(key, _)| *key == version) {
+                        refuse!(BadRequest, "{tier} does not offer model version {version}");
+                    }
+                }
+            }
+        }
+    }
+    if sc.get("peer_mail").is_some_and(|v| !v.is_boolean()) {
+        refuse!(BadRequest, "peer_mail must be a boolean");
+    }
+    if let Some(value) = sc.get("session").cloned() {
+        let preference = match crate::runtime::session_host::parse_pref(&value) {
+            Ok(pref) => crate::runtime::session_host::pref_value(&pref),
+            Err(why) => refuse!(BadRequest, "{why}"),
+        };
+        if preference.is_null() { sc.as_object_mut().unwrap().remove("session"); }
+        else { sc["session"] = preference; }
+    }
+    if let Some(value) = sc.get("auto_cheap_compact").cloned() {
+        match crate::settings::cheap_compact(&value, &Value::Null, false) {
+            Ok(Some(keep)) => sc["auto_cheap_compact"] = keep,
+            Ok(None) => { sc.as_object_mut().unwrap().remove("auto_cheap_compact"); }
+            Err(why) => refuse!(BadRequest, "{why}"),
+        }
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod draft_hire_preference_tests {
+    use super::*;
+
+    #[test]
+    fn draft_hire_preferences_normalize_without_permission_changes() {
+        let mut sc = json!({"tools":{"bash":false},"permission_mode":"plan","org_visibility":"self",
+            "model_version":"6","session":"remote,console","peer_mail":false,
+            "auto_cheap_compact":{"enabled":false,"occ":2.0}});
+        normalize_hire_preferences("sol", &mut sc).unwrap();
+        assert_eq!(sc["model_version"], "6");
+        assert_eq!(sc["session"], json!(["remote","console"]));
+        assert_eq!(sc["auto_cheap_compact"], json!({"enabled":false,"occ":0.95}));
+        assert_eq!(sc["tools"], json!({"bash":false}));
+        assert_eq!(sc["permission_mode"], "plan");
+        assert_eq!(sc["org_visibility"], "self");
+        assert_eq!(scope::normalize(&sc)["peer_mail"], false);
+        assert_eq!(scope::clamp(&sc, &scope::org_ceiling(&json!([])))["session"], sc["session"]);
+    }
+
+    #[test]
+    fn draft_hire_preferences_omission_and_explicit_inheritance() {
+        for req in [json!({}),json!({"model_version":"","session":"signed-in","auto_cheap_compact":{}})] {
+            let mut sc = req;
+            normalize_hire_preferences("sol", &mut sc).unwrap();
+            assert_eq!(sc, json!({}));
+        }
+    }
+
+    #[test]
+    fn draft_hire_preferences_refuse_malformed_inputs_and_unoffered_static_versions() {
+        for req in [json!({"peer_mail":"false"}), json!({"peer_mail":null}),
+            json!({"session":"elsewhere"}),json!({"session":["remote",3]}),
+            json!({"model_version":3}),json!({"model_version":"unknown"}),
+            json!({"auto_cheap_compact":false}),json!({"auto_cheap_compact":{"enabled":"false"}})] {
+            let mut sc = req.clone();
+            assert!(normalize_hire_preferences("sol", &mut sc).is_err(), "{req}");
+        }
+        assert!(normalize_hire_preferences("agy-sonnet", &mut json!({"model_version":"5.5"})).is_err());
+    }
 }
 
 /// A self-hired parent may narrow fallback, never enable what its caller lacks.
@@ -1288,9 +1387,11 @@ async fn hire(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transaction<'_>, 
     if !engine.settings.provider_enabled(provider) {
         refuse!(Conflict, "{}", catalog::turned_off(provider));
     }
-    // a Muse seat's level is judged with its login below
+    // A non-Muse seat uses the exact staged version, before funding changes.
+    // Muse validation waits for its selected login below.
     if let Some(e) = str_arg(req, "effort").filter(|_| !catalog::is_muse(&tier)) {
-        crate::providers::check_effort(engine, &tier, e)?;
+        crate::providers::check_effort_on(engine, &tier,
+            req["model_version"].as_str().filter(|v| !v.is_empty()), None, e)?;
     }
     let grant = req["grant"].as_f64().unwrap_or(0.0);
     if grant < 0.0 {
@@ -1404,6 +1505,7 @@ async fn hire(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transaction<'_>, 
         warnings = hire_scope_rules(tx, actor, parent.as_ref(), &caps, req, &mut sc).await?;
         sc
     };
+    normalize_hire_preferences(&tier, &mut sc)?;
     sc["fast_mode"] = json!(crate::providers::fast_mode::hire_enabled(
         &engine.providers.state.load(), &tier, req, &caps.settings)?);
     // An omitted choice uses only a valid compatible org default, never the
@@ -1440,10 +1542,10 @@ async fn hire(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transaction<'_>, 
     // best allowed, or the user's own) must offer the model, and its level
     // must be one that model names there
     if catalog::is_muse(&tier) {
-        muse_admit(engine, &tier, None, account.as_deref())?;
+        muse_admit(engine, &tier, pinned(&sc), account.as_deref())?;
         if let Some(e) = str_arg(req, "effort") {
             let view = engine.accounts.view();
-            crate::providers::check_effort_on(engine, &tier, None, account.as_deref().and_then(|id| view.get(id)), e)?;
+            crate::providers::check_effort_on(engine, &tier, pinned(&sc), account.as_deref().and_then(|id| view.get(id)), e)?;
         }
     }
     // A user/internal hire without placement keeps the historical append rule,
@@ -1736,6 +1838,9 @@ async fn restore_project(org: &Arc<OrgHandle>, tx: &Transaction<'_>, actor: &Act
 
 #[logged]
 async fn rehire(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transaction<'_>, actor: &Actor, req: &Value, fx: &mut Effects) -> Result<Value> {
+    for key in ["model_version", "session", "peer_mail", "auto_cheap_compact"] {
+        if req.get(key).is_some() { refuse!(BadRequest, "{key} is a new-hire option; restoration keeps its saved preference"); }
+    }
     if req.get("index").is_some() {
         refuse!(BadRequest, "index places a new hire; rehire retains existing placement. Use reorder after restoration");
     }

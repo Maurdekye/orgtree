@@ -100,3 +100,7 @@ Original section: Architecture. Source lines 4313–4320.
   [verified: `orgdb/lifecycle.py`, `orgdb/names.py`, `pg-custodian/src/backup.rs`;
   decided: step-6 addendum section 5; 2026-10-05]
 <!-- /preserved:e-50cc1d4e5597f3d3 -->
+
+## Hire preferences (2026-10-24)
+
+`domain/ops.rs` carries `model_version`, `session`, `peer_mail` and `auto_cheap_compact` into the same scope inserted for a new hire, including superior insertion. These node-local preferences do not override its four inherited permission fields. Validate before insertion/warm: session kinds through `session_host`, cold-turn fields through `settings::cheap_compact`, model pins and selected-login Muse admission, and effort/speed against the pin. Hire/staff creation contracts expose these optional fields; restoration refuses creation-only overrides and retains saved preferences.

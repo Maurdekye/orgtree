@@ -30,11 +30,15 @@ The schema requires the complete ordinary-hire scope: `add_dirs`, `org_visibilit
 | `add_dirs` | Ordinary hire requires a whole starting list of `{path, mode}` folders; `[]` is valid, mode `ro` or `rw` (omitted mode normalizes to `rw`). Each folder must fit the new parent's effective grants. |
 | `tools` | Ordinary hire requires explicit `bash`, `web`, `edit`, `subagents` booleans and `mcp` server list. Optional `orgtree` group booleans restrict the engine tools. Missing groups remain enabled, subject to inherited ceilings. |
 | `org_visibility` | Required for ordinary hire: `self`, `team`, `subtree`, `full`, no broader than the future parent's. |
-| `permission_mode` | Optional `default`, `acceptEdits`, `bypassPermissions`; omitted uses the org's effective default. Effective rights remain ancestor-clamped. |
+| `permission_mode` | Optional `plan` (read only), `default`, `acceptEdits`, `bypassPermissions`; omitted uses the org's effective default. Effective rights remain ancestor-clamped. |
 | `effort` | Optional level offered by that harness/model/login; vocabulary `none`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max`; `""` inherits. A vocabulary entry is not universal model support. |
 | `account` | Optional provider account id. Omitted uses a valid compatible org default/normal placement, never the parent's account. Explicit `primary` selects the tier's ambient provider login; unknown, incompatible or org-excluded choices are refused. OpenRouter hires without a named key are placed on an eligible key and bound. |
 | `account_fallback` | Optional per-agent opt-in to another eligible account of the same provider at a usage limit; omission leaves the org default applicable. |
 | `clear_account_fallback` | Shared scope-schema field; a new hire has no stored override to clear. Omit it and use omission to inherit. |
+| `model_version` | New hire only: an offered version key; empty/omitted uses the current default. Static unoffered keys refuse. Antigravity Claude tiers have no version choice. Muse pins must be offered by the selected login; effort and fast mode are checked against the selected version. |
+| `session` | New hire only: `signed-in` (default), `session0`, `console`, `remote`, or an ordered list such as `["remote","console"]`; comma-separated kinds also work. Session 0 remains the fallback; this preference does not create a Windows session. |
+| `peer_mail` | New hire only: whether this agent's direct reports may message each other without separate audiences; omitted is true. This controls its report boundary, not its own reach to peers. |
+| `auto_cheap_compact` | New hire only: `{enabled, occ}` cold-turn compaction override; `occ` is a fraction kept within 0.05–0.95. Omitted/empty object inherits org policy. This does not change ordinary size compaction. |
 | `team_charter` | Optional standing instructions for this agent's team. |
 | `harness` | For OpenRouter, explicit `claude-code`, `codex-cli` or `opencode` pins this seat; omitted follows its key's harness. A selected harness must be installed. Other providers use their native route. |
 | `audiences` | Optional array, at most 64 string targets; grants are checked under ordinary audience authority before kickoff. A failure rolls back the composite. |

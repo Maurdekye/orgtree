@@ -472,6 +472,21 @@ fn seat_scope_props(dirs: &str) -> Value {
         "description": "grant these audiences before kickoff" } }))
 }
 
+/// Creation-only preferences: restoration retains its already-saved values.
+#[logged]
+fn new_hire_scope_props(dirs: &str) -> Value {
+    merge(seat_scope_props(dirs), json!({
+        "permission_mode": { "type": "string", "enum": ["plan", "default", "acceptEdits", "bypassPermissions"] },
+        "model_version": { "type": "string", "description": "New hire only: offered version key; empty uses latest" },
+        "session": { "type": ["string", "array"], "items": { "type": "string" }, "minItems": 1,
+            "description": "New hire only: Windows session preference; Guide" },
+        "peer_mail": { "type": "boolean", "description": "New hire only: allow its direct reports to message each other" },
+        "auto_cheap_compact": { "type": "object", "additionalProperties": false, "properties": {
+            "enabled": { "type": "boolean" }, "occ": { "type": "number", "minimum": 0.05, "maximum": 0.95 } },
+            "description": "New hire only: cold-turn override; empty inherits" }
+    }))
+}
+
 #[logged]
 fn merge(mut a: Value, b: Value) -> Value {
     if let (Some(ao), Some(bo)) = (a.as_object_mut(), b.as_object()) {
@@ -891,7 +906,7 @@ mod files_tab_tests {
 fn build_tool_hire() -> Value {
     tool(
         "orgtree_hire",
-        "Hire a report (target in your team) or insert a superior. index is zero-based among live siblings, 0..count, excluding a superior's target. Seat+grant must fit; above yourself spends your free credits with fixed external budget. Ordinary hire needs explicit scope; superior insertion inherits its target's scope. kickoff sends first mail.",
+        "Hire within your team or insert a superior. index: zero-based live siblings 0..count, excluding insertion target. Seat+grant must fit; self-parent spends your free credits, external budget fixed. Insertion inherits scope. kickoff sends first mail.",
         merge(
             json!({
                 "name": { "type": "string" }, "tier": { "type": "string" }, "grant": { "type": "integer" },
@@ -903,7 +918,7 @@ fn build_tool_hire() -> Value {
                              "description": "OpenRouter tiers only: pins this seat to the harness; omitted, it follows its key's harness" },
                 "kickoff_kind": { "type": "string", "enum": KINDS }, "work_item": { "type": "string" },
             }),
-            seat_scope_props(DIRS_HIRE),
+            new_hire_scope_props(DIRS_HIRE),
         ),
         &["name", "tier", "grant", "charter", "index"],
     )
@@ -1236,7 +1251,7 @@ fn build_tool_staff() -> Value {
                     "harness": { "type": "string", "enum": ["claude-code", "codex-cli", "opencode"],
                                  "description": "OpenRouter tiers only: pins this seat to the harness; omitted, it follows its key's harness" },
                     "kickoff_kind": { "type": "string", "enum": KINDS } }),
-            seat_scope_props(DIRS_HIRE),
+            new_hire_scope_props(DIRS_HIRE),
         ),
         &[],
     )
@@ -1823,6 +1838,7 @@ mod builder_stack_tests {
         // Approved node-placement contracts (bfa9369) and their concise wording.
         // Keep the captured required-field text and guide; schemas/order stay guarded.
         for (name, description) in [
+            ("orgtree_hire", "Hire within your team or insert a superior. index: zero-based live siblings 0..count, excluding insertion target. Seat+grant must fit; self-parent spends your free credits, external budget fixed. Insertion inherits scope. kickoff sends first mail."),
             ("orgtree_interrupt", "Interrupt yourself, or a descendant with runtime permission. restart wakes one turn by placement rules. queued: Claude/AGY held hooks; Codex/Muse/ACP completion notices may cut the next step off early. Background work blocks queued/restart. Inspect interrupt status."),
             ("orgtree_halt", "Halt descendant agents until unhalt: stop processes, keep waiting mail and suppress wakes."),
             ("orgtree_unhalt", "Unhalt descendant agents; waiting mail may start their next turn."),
@@ -1859,6 +1875,21 @@ mod builder_stack_tests {
             want["inputSchema"]["properties"]["fast_mode"]=got["inputSchema"]["properties"]["fast_mode"].clone();
             // Approved native replacement switch already in the assigned base.
             want["inputSchema"]["properties"]["tools"]["properties"]["orgtree_disabled"]=serde_json::json!({"type":"boolean","description":"Restore Orgtree-disabled native tools; fresh hire omission=false, rehire/retool omission preserves. Parent-clamped; does not change defaults or other permissions. See orgtree-agent-tools-tab."});
+            if matches!(name, "orgtree_hire" | "orgtree_staff") {
+                let fields = serde_json::json!({
+        "permission_mode": { "type": "string", "enum": ["plan", "default", "acceptEdits", "bypassPermissions"] },
+        "model_version": { "type": "string", "description": "New hire only: offered version key; empty uses latest" },
+        "session": { "type": ["string", "array"], "items": { "type": "string" }, "minItems": 1,
+            "description": "New hire only: Windows session preference; Guide" },
+        "peer_mail": { "type": "boolean", "description": "New hire only: allow its direct reports to message each other" },
+        "auto_cheap_compact": { "type": "object", "additionalProperties": false, "properties": {
+            "enabled": { "type": "boolean" }, "occ": { "type": "number", "minimum": 0.05, "maximum": 0.95 } },
+            "description": "New hire only: cold-turn override; empty inherits" }
+    });
+                for (key, schema) in fields.as_object().unwrap() {
+                    want["inputSchema"]["properties"][key] = schema.clone();
+                }
+            }
             assert_eq!(*want,*got,"{name}: differs beyond fast_mode");
             *want=got.clone();
         }
@@ -1904,8 +1935,33 @@ mod builder_stack_tests {
         let message=cards.iter_mut().find(|c|c["name"]=="orgtree_message").unwrap();
         message["inputSchema"]["properties"]["metadata"]["properties"]["reply_to"]["anyOf"]=super::reply_target_schema()["anyOf"].clone();
         message["inputSchema"]["properties"]["metadata"]["properties"]["replies"]["items"]=super::reply_target_schema();
+        // The assigned base f4ae0d7 adds the independently covered file-list
+        // card immediately before scratch. Keep the older fixture intact.
+        assert!(!expected.as_array().unwrap().iter().any(|c| c["name"] == "orgtree_files"));
+        let at = expected.as_array().unwrap().iter().position(|c| c["name"] == "orgtree_read_scratch").unwrap();
+        expected.as_array_mut().unwrap().insert(at, super::build_tool_files());
         assert!(serde_json::to_vec(&super::all()).unwrap() == serde_json::to_vec(&expected).unwrap(),
             "all() JSON differs from the pre-split capture beyond the approved project-presentation description");
+    }
+
+    #[test]
+    fn draft_hire_preferences_are_available_only_on_creation_contracts() {
+        let cards = super::all();
+        for name in ["orgtree_hire", "orgtree_staff"] {
+            let card = cards.iter().find(|card| card["name"] == name).unwrap();
+            let props = &card["inputSchema"]["properties"];
+            assert_eq!(props["model_version"]["type"], "string");
+            assert_eq!(props["peer_mail"]["type"], "boolean");
+            assert!(props["permission_mode"]["enum"].as_array().unwrap().contains(&serde_json::json!("plan")));
+            assert_eq!(props["session"]["type"], serde_json::json!(["string","array"]));
+            assert_eq!(props["auto_cheap_compact"]["properties"]["enabled"]["type"], "boolean");
+        }
+        for name in ["orgtree_rehire", "orgtree_retool"] {
+            let card = cards.iter().find(|card| card["name"] == name).unwrap();
+            for field in ["model_version", "peer_mail", "session", "auto_cheap_compact"] {
+                assert!(card["inputSchema"]["properties"].get(field).is_none(), "{name}/{field}");
+            }
+        }
     }
 }
 

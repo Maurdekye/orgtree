@@ -729,6 +729,8 @@ DECISIONS 69). A hire's and a rehire's `add_dirs` still set the whole list. The
 retool result lists the folders added, changed and removed, the agents beneath
 whose folders a narrowing clamped, and the agents above that a deep grant raised.
 
+New-hire settings parity (USER 2026-10-24): creation stores staged model_version/session/peer_mail/auto_cheap_compact atomically; hire/staff creation tools accept them, restoration keeps saved preferences. Version-specific speed/effort uses the staged pin, and Muse uses its selected login. Superior insertion still inherits only its four permission fields.
+
 ## 11. Decisions I need from you
 
 1. **New schema + one-time import** (recommended), rather than running on the 3.2 per-org schema.

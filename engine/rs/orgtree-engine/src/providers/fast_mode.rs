@@ -48,9 +48,10 @@ pub fn validate_defaults(st: &State, value: &Value) -> anyhow::Result<Value> {
 /// Explicit hire values are validated; a stale default never forces an unsupported model.
 #[nolog]
 pub fn hire_enabled(st: &State, tier: &str, req: &Value, settings: &Value) -> anyhow::Result<bool> {
+    let version = req["model_version"].as_str().filter(|v| !v.is_empty());
     match req.get("fast_mode") {
-        Some(value) => validate(st,tier,None,value),
-        None => Ok(settings["default_fast_mode"][tier].as_bool().unwrap_or(false) && supported(st,tier,None)),
+        Some(value) => validate(st,tier,version,value),
+        None => Ok(settings["default_fast_mode"][tier].as_bool().unwrap_or(false) && supported(st,tier,version)),
     }
 }
 
@@ -74,6 +75,17 @@ pub fn advertised_tier(row: &Value) -> Option<String> {
 mod tests {
     use super::*;
     use serde_json::json;
+    #[test]
+    fn draft_hire_speed_uses_the_selected_version() {
+        let mut st = State::default();
+        st.codex_fast_modes.insert("gpt-6.1-sol".into(), "priority".into());
+        let settings = serde_json::json!({"default_fast_mode":{"sol":true}});
+        assert!(hire_enabled(&st,"sol",&serde_json::json!({"model_version":"6.1","fast_mode":true}),&settings).unwrap());
+        assert!(hire_enabled(&st,"sol",&serde_json::json!({"model_version":"6","fast_mode":true}),&settings).is_err());
+        assert!(!hire_enabled(&st,"sol",&serde_json::json!({"model_version":"6"}),&settings).unwrap());
+        assert!(!hire_enabled(&st,"sol",&serde_json::json!({"model_version":"6","fast_mode":false}),&settings).unwrap());
+    }
+
     #[test]
     fn fast_tools_hire_validation_and_stale_defaults() {
         let mut st=State::default();

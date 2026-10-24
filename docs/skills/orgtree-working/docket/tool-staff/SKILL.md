@@ -54,13 +54,19 @@ The schema follows the selected operation: a new seat needs `name`, `tier`, `gra
 | `add_dirs` | Required ordinary new-hire whole starting list; supplied rehire list **replaces**, despite the shared hire-oriented schema wording. Entries path and mode ro/rw, omitted mode rw; [] valid. |
 | `tools` | Ordinary new hire explicitly states bash/web/edit/subagents and mcp. On rehire supplied keys merge; optional orgtree group booleans restrict own tools. |
 | `org_visibility` | Required ordinary new hire: self/team/subtree/full; optional rehire override. Must fit effective rights. |
-| `permission_mode` | default/acceptEdits/bypassPermissions; omitted new hire uses org default, omitted rehire retains stored mode. |
+| `permission_mode` | New hires also accept plan (Read only); default/acceptEdits/bypassPermissions; omitted new hire uses org default, omitted rehire retains stored mode. |
 | `effort` | A level offered by the selected model/harness/login; empty inherits. Vocabulary none/minimal/low/medium/high/xhigh/max does not guarantee support by every model. |
 | `account` | Compatible org-allowed account id, primary for provider's own login. Omitted new hire uses valid org default/placement, omitted rehire retains binding. |
 | `account_fallback`, `clear_account_fallback` | Set per-agent same-provider fallback; true clear removes stored override on rehire and takes precedence. A new self-parent cannot enable fallback the caller lacked. |
+| `model_version` | New hire only: an offered version key; empty/omitted uses the current default. Static unoffered keys refuse. Antigravity Claude tiers have no version choice. Muse pins must be offered by the selected login; effort and fast mode are checked against the selected version. |
+| `session` | New hire only: `signed-in` (default), `session0`, `console`, `remote`, or an ordered list such as `["remote","console"]`; comma-separated kinds also work. Session 0 remains the fallback; this preference does not create a Windows session. |
+| `peer_mail` | New hire only: whether this agent's direct reports may message each other without separate audiences; omitted is true. This controls its report boundary, not its own reach to peers. |
+| `auto_cheap_compact` | New hire only: `{enabled, occ}` cold-turn compaction override; `occ` is a fraction kept within 0.05–0.95. Omitted/empty object inherits org policy. This does not change ordinary size compaction. |
 | `team_charter` | Optional nonblank standing instructions for the staffed seat's whole team. |
 | `audiences` | At most 64 string targets, checked/granted before kickoff under ordinary audience authority. |
 | `kickoff`, `kickoff_kind` | Optional first task and message default/question kind; legacy kinds normalize to message. Assignment mail already starts the owner. |
+
+The four creation-only preferences above are refused when restoring a seat; restoration retains its saved values.
 
 For superior insertion omit add_dirs/tools/org_visibility/permission_mode: target effective scope is inherited. New self-parent insertion can be top-level; ordinary placement cannot create a peer of the caller and restored superior placement retains its existing restrictions. Parent work item and target agent name are separate identities.
 
