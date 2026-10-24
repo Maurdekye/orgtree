@@ -7,6 +7,7 @@ import { spawnSync } from 'node:child_process'
 import { Proof } from '../proof.mjs'
 import { TOKEN_HEADER, Rig } from '../lib.mjs'
 import { runDesktop } from '../desktop.mjs'
+import { assertCanonicalAncestorQuery, lockedAncestorRowsQuery } from './deep-project-nesting-queries.mjs'
 
 const depth = Number(process.env.DEEP_NESTING_DEPTH ?? 32)
 if (![32, 128, 512, 2048].includes(depth)) throw Error('Explicit approved depth required')
@@ -98,15 +99,13 @@ export default async function (rig) {
     record('record snapshot retains all projects and agents', agents.length === depth + 7
       && agents.some(r => r.body?.id === 'leaf') && agents.some(r => r.body?.id === last), { got: agents.length, expected: depth + 7 })
     phase = 'cheap source-chain and superior measurement'
-    const opsSource = fs.readFileSync(path.join(import.meta.dirname, '../../../engine/rs/orgtree-engine/src/domain/ops.rs'), 'utf8')
-    const chainSource = opsSource.slice(opsSource.indexOf('async fn chain('))
-    const chainSql = chainSource.match(/"(WITH RECURSIVE[\s\S]*?)"/)
-    if (!chainSql) throw Error('Source chain query seam changed; recheck instrument')
-    const measuredSql = chainSql[1].replace('SELECT {columns}', 'SELECT a.id').replaceAll('$1', String(row('leaf').id))
+    const projectsSource = fs.readFileSync(path.join(import.meta.dirname, '../../../engine/rs/orgtree-engine/src/domain/projects.rs'), 'utf8')
+    assertCanonicalAncestorQuery(projectsSource)
+    const measuredSql = lockedAncestorRowsQuery(row('leaf').id)
     p.file('source-chain-query.sql', measuredSql)
     const chainRows = rig.sql(measuredSql)
     record('source chain query reaches the real root before locking', chainRows.length === depth + 2 && chainRows[0]?.id === boss,
-      { count: chainRows.length, expected: depth + 2, first: chainRows[0], root: boss, source: 'domain/ops.rs::chain query only; per-row locks not replayed' })
+      { count: chainRows.length, expected: depth + 2, first: chainRows[0], root: boss, source: 'projects::locked_ancestor_rows query with id projection and row locks' })
     const superior = rig.one(`SELECT ot.superior_of(${row('leaf').id}) AS ordinary,ot.live_superior_of(${row('leaf').id}) AS live`)
     record('transparent projects resolve the actual agent superior', superior.ordinary === boss && superior.live === boss, superior)
     const launchSource=fs.readFileSync(path.join(import.meta.dirname,'../../../engine/rs/orgtree-engine/src/runtime/actor.rs'),'utf8')
