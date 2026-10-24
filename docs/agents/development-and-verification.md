@@ -28,6 +28,30 @@ Read them before each assigned phase; if a required source or tool is inaccessib
 ask the coordinator for that input. Project visibility and mail audiences do not
 grant Summary-policy authority. A source-only/docs assignment stays source-only.
 
+## Test-window session and clipboard isolation (2026-10-24)
+
+Every test, rig, capture or fixture window runs only in Session 0 or on a
+never-switched private desktop, never on the user's signed-in desktop. A hidden
+or offscreen window launched from a turn inherits that turn's session, normally
+the signed-in session (for example, Session 3; IDs vary); a temporary
+profile/data root does not change that. Do not use a signed-in-session scheduled
+task for testing.
+
+For Session 0, call `orgtree_session({use: 0})`, end the current turn without
+children, then verify `this_session: 0` in the next turn before launch. Measure
+the child window process's PID and SessionId before interaction. Use an isolated,
+initially empty clipboard, deny clipboard permissions and block native clipboard
+bridges/paste paths from the real clipboard; never read, write or clear the user's
+clipboard. Input is CDP/PostMessage to owned test windows only, with no OS input.
+Every capture receipt records the child PID/SessionId, private desktop when used,
+and the clipboard-denial state. A missing historical field remains unknown.
+
+This replaces signed-in-session probe advice and any assumption that hidden
+captures automatically run in Session 0. If a required native assertion cannot
+run on the isolated route, report it as unverified and ask the coordinator.
+See the [full isolation procedure](../skills/orgtree-working/runtime/session-0-ui-testing/SKILL.md).
+[decided: coordinator 2026-10-24, test-window isolation]
+
 ## GL/SVG parity cameras
 
 The GL wire parity fixture compares two separate canvas mounts. Restore the
@@ -88,8 +112,9 @@ unchanged. [verified: `tests/helpers/test-output.mjs`; 2026-10-22]
 `.ttf`, `.woff` and `.woff2` assets as data URLs because the disposable loopback
 server serves only fixture JS and CSS. Keep the full stylesheet, native header
 structure and every restored/maximized edge hit-test and inset-header mutation
-assertion. Run `node --test tests/window-controls-edge.test.mjs` in a signed-in
-session under the current build permit/containment, with `TEMP`/`TMP` inside the
+assertion. Run `node --test tests/window-controls-edge.test.mjs` only on the
+[isolated route](#test-window-session-and-clipboard-isolation-2026-10-24) under
+the current build permit/containment, with `TEMP`/`TMP` inside the
 assigned output scope. A font-loader setup failure means native hit-testing did
 not execute; never count it as a product result.
 [verified: `tools/test-window-controls-edge-native.mjs`,
@@ -400,8 +425,10 @@ verification phase and build-project permits still govern what may be run.
   `requestAnimationFrame`s plus a short delay before every `capturePage()`.
   Prefer that API to `invalidate()` plus the offscreen `paint` event; passing
   DOM probes can accompany a PNG one state behind. Session 0 was measured at
-  1024×768: keep fixtures around 1000×700 unless the current session's actual
-  display permits more. A signed-in session has different limits.
+  1024×768: keep fixtures around 1000×700 unless the measured isolated display
+  permits more. Hidden/offscreen windows still inherit the
+  launching turn's session; follow the current [isolation rule](#test-window-session-and-clipboard-isolation-2026-10-24),
+  not the user's signed-in display.
   [decided: coordinator 2026-10-21; measured: @rig-opus 2026-10-14 round 439]
 - **Mount the whole canvas through its flex stage.** Use
   `.app > main.solo > .canvas-stage > OrgCanvas`, as in

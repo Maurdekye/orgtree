@@ -9,17 +9,26 @@ Up: [orgtree-runtime](../SKILL.md)
 
 In Windows Session 0 there is no interactive desktop. An agent process may run there, but it cannot see or drive the user's desktop: tray popups are refused, UI Automation and `EnumWindows` see no user windows, `GetCursorPos` fails with 1459, `SendInput` sends zero, and click-to-visible timings are meaningless. A visible GUI launch from Session 0 does not prove the user's desktop UI works.
 
-## Check before UI work
+## Isolate every test window
 
-Check `(Get-Process -Id $PID).SessionId` in PowerShell or call [`orgtree-tool-session`](../tool-session/SKILL.md). `orgtree_session` reports where this turn and the next turn run; a user signing in during this turn does not move the current turn. When assigning UI work, state the session constraint and whether the test has an interactive desktop.
+Every test, rig, capture or fixture that opens an Orgtree, Electron or browser window must run in **Session 0 or on a never-switched private desktop**, isolated from the user's signed-in desktop. Never launch test windows in the user's signed-in session through an interactive scheduled task. A temporary profile or data root does not isolate the Windows desktop or clipboard.
 
-## Patterns that work from Session 0
+A hidden or offscreen window launched directly from a turn runs in **that turn's session**. Agent turns normally run in the user's signed-in session when available (for example, Session 3; session IDs vary). Neither `show: false` nor `offscreen: true` moves a window to Session 0.
 
-- **Post window messages with a positive control.** To test a native window's message handler, post the relevant message to a known test window and assert an observable state change. Include a positive control that proves the same message path and assertion can succeed. `PostMessage` returning success alone does not prove the window handled the message.
-- **Use hidden or offscreen Electron captures for renderer visuals.** DOM checks can pass while the saved image is stale or empty. Before every `capturePage()`, wait for two `requestAnimationFrame` callbacks and a short delay, then inspect the captured image. Session 0's display is 1024×768 and Windows clamps native windows to it; keep fixtures within about 1000×700. An offscreen page's `window.open` child may never paint; create that child as a hidden ordinary window from `setWindowOpenHandler` when it needs a capture.
-- **Use a one-off interactive scheduled task for native desktop behavior.** Set its principal to the signed-in user's interactive logon, launch the app from that task, and give Electron a temporary `userData` directory. This runs in the user's session without reusing live app data or colliding with the session-0 instance. Remove the task when the probe ends.
+1. Read `orgtree_session({})` and check `(Get-Process -Id $PID).SessionId` in PowerShell before launching. To use Session 0, call `orgtree_session({use: 0})`, end the current turn with no children running, and verify `this_session: 0` in the next turn. Selecting the next session does not move the current turn. If that placement is unavailable, stop and ask the coordinator for an isolated route.
+2. Verify the actual child window process PID and Windows `SessionId` before interacting with it. For a private desktop, verify it stays private and is never switched onto the user's desktop. State the session/desktop constraint when assigning UI work.
+3. Use an isolated, initially empty clipboard and deny clipboard permissions before loading the fixture. Never read, write or clear the user's real clipboard. Deny renderer clipboard requests and prevent native clipboard bridges/paste paths from reaching the real clipboard; a fresh Electron profile alone does not do this.
+4. Use only CDP or `PostMessage` directed to your own test windows. No OS input, global keystrokes, `SendInput` or automation of the user's windows. If a native assertion cannot run through the isolated route, report it as unverified and ask the coordinator; do not switch to the signed-in desktop.
 
-Do not use UI Automation, `EnumWindows`, cursor APIs, `SendInput`, tray-popup assertions, or click-to-visible timing from Session 0; those tests cannot observe the user's desktop. If an assertion requires a real user-visible window, run it in the signed-in session through the scheduled-task route.
+## Capture evidence and limits
+
+Every capture receipt must record the child window's PID and measured Windows **SessionId**, the private-desktop identity when used, and the **clipboard-denial state** (including whether renderer and native clipboard paths are blocked or isolated). Record unknown or failed checks honestly; the engine's Session 0 startup notice, parent placement, hidden-window flags or a temporary profile are not child-window isolation evidence. Do not claim isolation from an older receipt that omitted these fields.
+
+- **Post window messages with a positive control.** To test a native window's message handler, post only to a known owned test window and assert an observable state change. Include a positive control proving the same message path and assertion can succeed. `PostMessage` returning success alone does not prove the window handled the message.
+- **Capture after paint.** Before every `capturePage()`, wait for two `requestAnimationFrame` callbacks and a short delay, then inspect the image. DOM checks can pass while the saved PNG is stale or empty.
+- **Measure the isolated display.** Session 0 was measured at 1024×768 and Windows can clamp native windows to that size; keep fixtures around 1000×700 unless the isolated route's measured display permits more. An offscreen page's `window.open` child may never paint; create it as a hidden ordinary window through `setWindowOpenHandler` when it needs a capture, under the same isolation rules.
+
+Session 0 cannot prove the user's native desktop, tray popups or click-to-visible timing. Its missing interactive desktop is a limitation to report, not permission to test in the user's session.
 
 ## See also
 

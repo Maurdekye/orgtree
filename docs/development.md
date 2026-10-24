@@ -22,6 +22,23 @@ With those prerequisites ready, build a Windows installer with `npm run package:
 
 Current Rust-engine notes: [plan](rust-engine/PLAN.md), [decisions](rust-engine/DECISIONS.md), [event watchdogs](rust-engine/event-watchdogs.md) and [credential bridge](rust-engine/credential-bridge.md). Earlier design references remain available for the [engine boundary](engine-contract.md), [onboarding and charter presets](v2-onboarding.md), [themes](v2-visual-themes.md) and [history retention](v2-history-retention.md); check current source before applying their older implementation details. Consult the [release notes](https://github.com/Maurdekye/orgtree/releases) for published changes.
 
+## Isolate test windows
+
+A hidden or offscreen Electron/browser window runs in its launching process's
+Windows session; it does not move to Session 0. Agent turns normally use the
+signed-in session when available. A separate profile/data folder does not
+isolate the desktop or clipboard.
+
+Run test, rig, capture and fixture windows only in Session 0 or on a
+never-switched private desktop. For an agent test turn, select
+`orgtree_session({use: 0})` and start the next turn before launching. Verify
+the child window's actual SessionId, use an isolated/empty clipboard and deny
+clipboard permissions, including native clipboard paths. Never use the user's
+real clipboard or signed-in desktop for tests, even through an interactive
+scheduled task. Input must use CDP/PostMessage to owned windows, with no OS input.
+Each capture receipt records the child window PID/SessionId and clipboard-denial
+state. See the [complete isolation procedure](skills/orgtree-working/runtime/session-0-ui-testing/SKILL.md).
+
 ## Feedback and contributions
 
 [Open an issue](https://github.com/Maurdekye/orgtree/issues) for a bug or feature request. For a bug, include your Orgtree version, Windows version, the steps that reproduce it and the error text or a screenshot. Remove tokens, authorization codes and other private information before posting.

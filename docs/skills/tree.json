@@ -1763,12 +1763,17 @@
     "check current session before UI work",
     "posted window messages with a positive control",
     "hidden/offscreen Electron capture timing and size constraints",
-    "one-off interactive scheduled-task route with temporary userData",
+    "hidden/offscreen child windows inherit the launching turn session, normally the signed-in session",
+    "Session 0 via use=0 and a new turn, or a never-switched private desktop; never a signed-in scheduled-task test",
+    "isolated empty clipboard, clipboard permissions denied and no real clipboard access",
+    "CDP/PostMessage only to owned windows, no OS input",
+    "capture receipts record child window PID/SessionId and clipboard-denial state",
     "name the session constraint when assigning UI work"
    ],
    "sources": [
     "_shared/feedback-4.3.1.md §5.1",
-    "docs/rust-engine/test-rig.md:347-371",
+    "docs/rust-engine/test-rig.md#desktop-smoke",
+    "docs/agents/development-and-verification.md#test-window-session-and-clipboard-isolation-2026-10-24",
     "tools/rig/proofs/session-query.mjs",
     "tools/rig/proofs/credential-broker.mjs"
    ],

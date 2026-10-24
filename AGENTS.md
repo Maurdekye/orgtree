@@ -29,6 +29,8 @@ Providers Refresh and post-login verification share serialized ordinary discover
 
 For operating-policy ownership and stale inherited-checkout guidance, use the [current rule-home map](docs/agents/development-and-verification.md#current-operating-rule-homes). Keep mutable local limits and the current phase in their designated shared/team/project home. [decided: user 2026-10-22, operating-rule reconciliation]
 
+Before launching any test/rig/capture/fixture window, follow [session and clipboard isolation](docs/agents/development-and-verification.md#test-window-session-and-clipboard-isolation-2026-10-24): Session 0 or a never-switched private desktop, never the user's signed-in desktop or real clipboard. [decided: coordinator 2026-10-24]
+
 Before renderer or desktop-main tests, visual captures or rig proofs, read the [test and capture traps](docs/agents/development-and-verification.md#renderer-capture-and-rig-traps): reduce DOM assertions to scalars, run main's own closures rather than one handler's text, wait for paint, and verify the PNG and the engine log being measured. [decided: coordinator 2026-10-21, standing-note relocation; main closures verified 2026-10-22: `tests/run-as-administrator.test.mjs`]
 
 Rig live-root guards retain import-time `APPDATA`/home/data-override paths after fixture environment replacement; fixture/keeper allowlists carry validated `RIG_PROTECTED_ROOTS` across fresh imports without narrowing the captured set. Set original overrides before importing the rig. See [rig isolation](docs/rust-engine/test-rig.md). [verified: `tools/rig/{lib,broker-synthetic}.mjs`, `tools/rig/tests/live-roots.test.mjs`; 2026-10-22]

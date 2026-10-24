@@ -1,8 +1,12 @@
 // Ticket Mention captures (mention-entry-on-ticket-cards-in-transcripts-ins):
 // in an agent desk, the transcript's ticket chip right-clicked (the shared
 // ticket menu, Mention first), the message box after Mention, and the @ list
-// with tickets beside agents. Dark and light. Offscreen and within Session 0's
-// 1024x768 display; two animation frames and a pause before every capture.
+// with tickets beside agents. Dark and light. Offscreen does not select Session 0;
+// the window inherits the launching turn's session. Run only in Session 0 or on a
+// never-switched private desktop, with isolated/empty clipboard, clipboard
+// permissions denied and owned-window CDP/PostMessage only (no OS input). Record
+// child window SessionId and clipboard-denial state in every capture receipt.
+// Wait two animation frames and a pause before every capture.
 // The menu is opened with the events the renderer reads (pointerdown on the
 // right button, then contextmenu), at the chip's centre.
 const { app, BrowserWindow } = require('electron')

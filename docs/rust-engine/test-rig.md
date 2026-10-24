@@ -160,6 +160,9 @@ approval check, whose failure was also measured on v4.4.0.
 
 ## What keeps it safe
 
+Window-launching runs also require [desktop/clipboard isolation](#desktop-smoke),
+independently of the fake data, credentials and profile protections below.
+
 Completion synchronization: a DB `ended_at` is ledger completion, which can
 precede the actor's published idle state. A proof that changes a session-bound
 account must also observe that same live seat's published `busy:false` (or its
@@ -423,6 +426,22 @@ run the same proof on it to show the "before".
 
 ## Desktop smoke
 
+Before any test/rig/capture/fixture window starts, follow the
+[session and clipboard isolation procedure](../skills/orgtree-working/runtime/session-0-ui-testing/SKILL.md):
+Session 0 or a never-switched private desktop only, never the user's signed-in
+desktop or an interactive scheduled task there. Hidden/offscreen windows inherit
+the launching turn's session, normally the signed-in session (for example, Session 3;
+IDs vary). For Session 0, select `orgtree_session({use: 0})`,
+end that turn, and verify the next turn is in Session 0 before launching.
+Verify the actual child window process SessionId before interaction. Use an
+isolated/empty clipboard, deny clipboard permissions and prevent native clipboard
+paths from reaching the real clipboard. CDP/PostMessage may target only owned
+windows; no OS input. Every capture receipt records the child window PID/SessionId
+and clipboard-denial state, plus private-desktop identity when applicable.
+A fresh profile and fake engine do not provide desktop or clipboard isolation.
+These are required launch/evidence checks, not a claim that existing runners
+enforce them automatically. [decided: coordinator 2026-10-24, test-window isolation]
+
 `rig desktop <page-script.cjs> ['<json args>'] [--preset short|tall|wide|WxH]` (or
 `runDesktop(rig, script, { preset, args, out })` from `tools/rig/desktop.mjs`) starts
 `electron.exe` where it is installed (this worktree's, the main checkout's or the integration
@@ -448,9 +467,11 @@ unminified React with source maps, so a crash names its component).
 What it cannot test, and does not pretend to: the desktop main process (tray, pop-out windows,
 native menus, window controls, notifications, the preload bridge: the renderer runs as it does in
 a plain browser); native `<select>` popups and OS drag and drop (Chromium draws them outside the
-page); real Windows DPI. Agents run in session 0, whose display is 1024x768 and Windows clamps
-windows to it, so viewport presets are a CDP device-metrics override (what layout, events and
-screenshots see), not a native window size.
+page); real Windows DPI. Do not assume agents run in Session 0: check the turn
+and child window placement as required above. Session 0 was measured at 1024x768
+and Windows can clamp native windows to it. Viewport presets are a CDP
+device-metrics override (what layout, events and screenshots see), not proof of
+native window size or session isolation.
 
 ## Legacy stores for importer runs
 
