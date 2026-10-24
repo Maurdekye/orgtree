@@ -566,23 +566,6 @@ export default function App() {
     setChangelogOpening((n) => n + 1)
     toggleSurface('changelog', showChangelog, setShowChangelog, true)
   }, [toggleSurface, showChangelog, setShowChangelog])
-  // THE FIRST LAUNCH AFTER AN UPDATE (main/changelog-launch.ts): native tells
-  // the first window that asks, once. It opens the Changelog unless the user
-  // turned that off (App settings › Display › Startup); a fresh install, a
-  // later window and a later launch hear nothing.
-  const [changelogAfterUpdate, setChangelogAfterUpdate] = useState(false)
-  useEffect(() => {
-    let live = true
-    desktop()?.takeChangelogAfterUpdate?.()
-      .then((news) => { if (live && news && changelogAfterUpdateOn()) setChangelogAfterUpdate(true) })
-      .catch(() => { /* an older shell, or none: nothing to open */ })
-    return () => { live = false }
-  }, [])
-  useEffect(() => {
-    if (!changelogAfterUpdate) return
-    setChangelogAfterUpdate(false)
-    openChangelog()
-  }, [changelogAfterUpdate, openChangelog])
   usePersistedModalOpen('defaults', null, showDefaults)
   usePersistedModalOpen('app-settings', slug, showAccounts)
   usePersistedModalOpen('org-settings', slug, showSettings)
@@ -748,6 +731,31 @@ export default function App() {
     // about one restoration.
     setMissedPanels(skippedPanels(restoredWindows(slug), flatNodes(tree)))
   }, [tree, slug])
+  // THE FIRST LAUNCH AFTER AN UPDATE (main/changelog-launch.ts): native tells
+  // the first window that asks, once. That window opens the Changelog unless
+  // the user turned it off (App settings › Display › Startup); a fresh
+  // install, a later window and a later launch hear nothing.
+  // ⚠ ASKED AFTER THIS WINDOW'S RESTORATION ABOVE, NEVER BEFORE IT. An
+  // organization window restores its panels when its tree arrives, and
+  // restoring writes every panel's open state: it would shut a Changelog
+  // opened before it. Home's restoration ran at mount. Asking only then also
+  // keeps the news for another window when this one never gets its tree.
+  const [changelogAfterUpdate, setChangelogAfterUpdate] = useState(false)
+  const changelogAsked = useRef(false)
+  const changelogLive = useRef(true)
+  useEffect(() => { changelogLive.current = true; return () => { changelogLive.current = false } }, [])
+  useEffect(() => {
+    if (changelogAsked.current || (slug !== null && restoredOrg.current !== slug)) return
+    changelogAsked.current = true
+    desktop()?.takeChangelogAfterUpdate?.()
+      .then((news) => { if (changelogLive.current && news && changelogAfterUpdateOn()) setChangelogAfterUpdate(true) })
+      .catch(() => { /* an older shell, or none: nothing to open */ })
+  }, [slug, tree])
+  useEffect(() => {
+    if (!changelogAfterUpdate) return
+    setChangelogAfterUpdate(false)
+    openChangelog()
+  }, [changelogAfterUpdate, openChangelog])
   useEffect(() => {
     if (!nativeTarget || !tree || tree.slug !== nativeTarget.org || slug !== nativeTarget.org) return
     if (nativeTarget.focusDesk && nativeTarget.agent) {
