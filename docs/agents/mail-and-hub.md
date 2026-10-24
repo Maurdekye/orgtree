@@ -455,7 +455,10 @@ Original section: Orgtree 4.0.0 (Rust engine): read this first. Source lines 313
   `canvas/desk.tsx`; scope and proof: `docs/rust-engine/pending-mail-collapse.md`]
 <!-- /preserved:e-80925030192802f7 -->
 
-2026-10-23 update: every nonempty queue group now exposes Show/Hide. Six rows
+2026-10-24 refinement: the arrow/count separator line itself is the native
+Show/Hide toggle, with no duplicate count row underneath. This replaces the
+separate summary row introduced on 2026-10-23. Every nonempty queue group still
+exposes Show/Hide through that line and its accessible action label. Six rows
 remains the automatic threshold until a manual choice; either choice survives
 count changes while the run is mounted. Run/desk/generation teardown resets it.
 The preserved entry above describes the original threshold contract. See

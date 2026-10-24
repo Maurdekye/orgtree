@@ -3,8 +3,8 @@ import type { ReactNode } from 'react'
 
 /** A local disclosure only: callers supply rows AFTER their normal dedup pass.
  * Keep cards mounted so their own folds, reply anchors and actions survive. */
-export function PendingRun({ count, children, onToggle }: {
-  count: number; children: ReactNode; onToggle: () => void
+export function PendingRun({ count, children, onToggle, divider }: {
+  count: number; children: ReactNode; onToggle: () => void; divider?: ReactNode
 }) {
   // null follows the six-row default. An explicit choice wins until this
   // visible run unmounts, including when its count crosses the threshold.
@@ -18,8 +18,9 @@ export function PendingRun({ count, children, onToggle }: {
       if (e.currentTarget.open !== expanded) setChoice(e.currentTarget.open)
       onToggle()
     }}>
-    <summary>
-      {count} queued / undelivered — {expanded ? 'Hide' : 'Show'}
+    <summary aria-label={`${expanded ? 'Hide' : 'Show'} ${count} queued / undelivered`}
+      title={`${expanded ? 'Hide' : 'Show'} queued messages`}>
+      {divider ?? <span className="pending-run-label"><span>{count} queued / undelivered</span></span>}
     </summary>
     <div className="pending-run-rows">{children}</div>
   </details>

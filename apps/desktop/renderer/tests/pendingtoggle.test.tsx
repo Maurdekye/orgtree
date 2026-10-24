@@ -20,6 +20,30 @@ const add = (server: FakeServer, count: number) => {
   for (let i = 0; i < count; i++) server.postMail(`Queued message ${server.pending_mail.length + 1}`)
 }
 
+for (const placement of ['desk', 'floating', 'pinned', 'popout'] as const) {
+  test(`${placement}: the queued separator itself is the only disclosure row`, async t => {
+    resetConvos(); localStorage.clear()
+    const slug = `pending-separator-${placement}`, server = new FakeServer(); add(server, 1); installFetch(server)
+    // These placements share DeskChat; detached hosts use its bare body and
+    // a floating desk borrows the conversation rather than taking ownership.
+    const view = await mountView(<DeskChat node={node} map={new Map([[node.id, node]])}
+      slug={slug} op={async () => ({})} toast={() => {}} bare={placement !== 'desk'}
+      borrow={placement === 'floating'} />, el => el)
+    t.after(async () => { await view.unmount(); resetConvos() })
+    await refresh(slug)
+    const run = runIn(view.el), summary = run.querySelector('summary')!
+    const divider = view.el.querySelector('.pending-divider')!
+    assert.equal(summary.contains(divider), true, 'the separator is inside the native toggle')
+    assert.equal(view.el.querySelectorAll('.pending-divider').length, 1)
+    assert.equal((view.el.textContent!.match(/1 queued \/ undelivered/g) ?? []).length, 1, 'the count is not repeated')
+    assert.doesNotMatch(summary.textContent!, /— (Show|Hide)/)
+    const card = run.querySelector('.pendrow')
+    await toggle(run); assert.equal(run.open, false)
+    await toggle(run); assert.equal(run.open, true)
+    assert.equal(run.querySelector('.pendrow'), card, 'cards survive both toggles')
+  })
+}
+
 test('one queued message always offers a visible toggle and keeps a manual collapse across updates', async t => {
   resetConvos(); localStorage.clear()
   const slug = 'pending-toggle-one', server = new FakeServer(); add(server, 1); installFetch(server)
@@ -29,7 +53,8 @@ test('one queued message always offers a visible toggle and keeps a manual colla
   const run = runIn(view.el), summary = run.querySelector('summary')!
   assert.equal(summary.hidden, false)
   assert.equal(run.open, true)
-  assert.match(summary.textContent!, /1 queued \/ undelivered — Hide/)
+  assert.match(summary.textContent!, /1 queued \/ undelivered/)
+  assert.match(summary.getAttribute('aria-label')!, /^Hide 1 queued/)
   await toggle(run)
   assert.equal(run.open, false)
   await refresh(slug)

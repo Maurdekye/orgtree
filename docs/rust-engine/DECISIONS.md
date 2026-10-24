@@ -1440,6 +1440,12 @@ All entries are dated 2026-10-06 unless stated otherwise.
     reply navigation reveals its target before scrolling. No read/delivery side
     effects and no MailList/Attention changes. Details: `pending-mail-collapse.md`.
 
+    User refinement 2026-10-24 19:35:03Z: put the dropdown arrow and toggle in
+    the queued/undelivered separator itself, removing the extra repeated count
+    row. Preserve counts, native disclosure timing and local collapse choices
+    in every shared chat placement. Show/Hide remains accessible, not an extra
+    visible row. See `pending-mail-collapse.md`.
+
 74. **Agents can read usage on demand and optionally refresh one account**
     (user 2026-10-11 22:35Z, mf9c7f431147b, relayed by lead-astra). Saved cache
     is the default. Optional fresh refresh is rate limited, needs inherited

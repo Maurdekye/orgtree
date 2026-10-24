@@ -2421,15 +2421,22 @@ button.cc-name:focus-visible {
 .turn-mail-toggle:focus-visible { opacity: 1; }
 .turn-mail-tail { margin-top: 1px; }
 .msg.sys { align-self: center; color: var(--dim); font-size: 10px; background: none; }
-.pending-divider {
+.pending-divider, .pending-run-label {
   align-self: stretch; display: flex; align-items: center; gap: 8px;
   color: var(--dim); font-size: 10px; line-height: 1; white-space: nowrap;
 }
-.pending-divider::before, .pending-divider::after {
+.pending-divider::before, .pending-divider::after,
+.pending-run-label::before, .pending-run-label::after {
   content: ''; flex: 1; border-top: 1px solid var(--line-soft);
 }
 .pending-run { align-self: stretch; min-width: 0; }
-.pending-run > summary { cursor: pointer; color: var(--dim); font-size: 11px; }
+.pending-run > summary { cursor: pointer; color: var(--dim); font-size: 11px; list-style: none; }
+.pending-run > summary::-webkit-details-marker { display: none; }
+.pending-run > summary::marker { content: ''; }
+.pending-run > summary > .pending-divider > span::before,
+.pending-run > summary > .pending-run-label > span::before { content: '▸ '; }
+.pending-run[open] > summary > .pending-divider > span::before,
+.pending-run[open] > summary > .pending-run-label > span::before { content: '▾ '; }
 .pending-run > summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .pending-run-rows { display: flex; flex-direction: column; gap: 7px; }
 .pending-run[open] > summary:not([hidden]) { margin-bottom: 6px; }

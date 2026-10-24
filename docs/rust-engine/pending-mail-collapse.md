@@ -13,8 +13,11 @@ answer rows participate. Optimistic sends and failures remain outside, retaining
 their existing dismiss/restore controls. The global pending divider still counts
 all pending rows. MailList, Attention and delivered transcript content are unchanged.
 
-`PendingRun` uses native `details`/`summary`: `N queued / undelivered — Show` and
-`— Hide`. Native disclosure provides keyboard operation and expanded semantics.
+`PendingRun` uses native `details`/`summary`. Since the user's 2026-10-24
+19:35:03Z refinement, the arrow and count are in the separator line itself:
+`▾ N queued / undelivered` or `▸ N queued / undelivered`. There is no second
+count/Show/Hide row. Show/Hide remain the accessible action label and tooltip.
+Native disclosure provides keyboard operation and expanded semantics.
 Every nonempty run has a summary, including one queued message. Untouched runs
 stay open below six rows and auto-collapse at six or more. A nullable local
 choice retains a manual Show or Hide through polling and count changes while
@@ -27,6 +30,16 @@ folds, reply anchors, attachment links and retraction controls. This saves verti
 space, not payload or DOM memory. Nothing is acknowledged, delivered or fetched by
 opening the group. Reply navigation opens a containing pending disclosure
 synchronously before scrolling to its target. Disclosure changes call the desk's existing pin/header recalculation: only a reader already following the bottom is pinned.
+
+The first ordinary group owns the existing global divider inside its summary,
+preserving that divider's total pending count. Subsequent ordinary groups keep
+their own count and independent native summary, styled as a separator line.
+A first system-notice group or an optimistic/failed-only queue retains the
+static global divider; those rows are not newly hidden in an ordinary group.
+`TranscriptFlow` suppresses its old separate boundary only when `PendingRun`
+owns it. Card keys, native toggle timing and nullable manual choice are unchanged.
+The shared `DeskChat` supplies this in desk, floating, pinned and popout bodies;
+no new mail operation or agent-tool action is introduced.
 
 ## Verification
 

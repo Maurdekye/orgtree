@@ -3364,10 +3364,10 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
   // placement rather than changing message order. The same marker is reused
   // for durable pending rows and optimistic ghosts, so a transition never
   // leaves two dividers on screen.
-  const pendingDivider = (waiting: number) => <div className="pending-divider" role="separator"
+  const pendingDivider = (waiting: number) => <span className="pending-divider" role="separator"
     aria-label={`${waiting} queued and undelivered ${waiting === 1 ? 'message' : 'messages'}`}>
     <span>{waiting} queued / undelivered</span>
-  </div>
+  </span>
   // ── THE RENDER-BOUNDARY DUPLICATE GUARD ────────────────────────────────
   // (user request 2026-09-11: "intermittent double messages persist" — a
   // FINAL guard against a second rendered event with the same id, wanted

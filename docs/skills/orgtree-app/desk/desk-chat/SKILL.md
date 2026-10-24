@@ -110,7 +110,9 @@ keep “a moment”. No historical time is invented from a message timestamp.
 A tool chip distinguishes call-writing from execution and can expand to show arguments/result. Completed tool behavior is not inferred from the spinner alone. Successful docket status-change chips can show captured old → new states; failure/no-op or missing historical before-state does not invent one. Thoughts can expose supplied reasoning or only elapsed duration; absence of text is not evidence the model did not think.
 
 Pending/undelivered cards sit separately from delivered conversation. Every
-nonempty queue group has a Show/Hide toggle, including a single message. Until
+nonempty queue group has a Show/Hide toggle in its arrow/count separator line,
+including a single message. Click that line to toggle; there is no extra
+duplicated count row below it. Until
 you choose, fewer than six rows stay open and six or more collapse automatically;
 the count uses rendered rows after deduplication. Your choice survives arrivals,
 polling and count changes while that group stays on screen. It resets when the

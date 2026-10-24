@@ -36,16 +36,19 @@ export function TranscriptFlow({ messages, now, later, live, hasLive, divider,
   const appendPending = (rows: PendingMail[], phase: string) => {
     let ordinary: PendingMail[] = []
     let ordinaryRun = 0
-    const append = (entry: FlowEntry) => {
-      entries.push({ ...entry, content: <>{!divided && divider}{entry.content}</> })
+    // An ordinary run owns the boundary inside its native summary. A system
+    // entry still gets the static boundary before its independently grouped card.
+    const append = (entry: FlowEntry, inlineDivider = false) => {
+      entries.push({ ...entry, content: <>{!divided && !inlineDivider && divider}{entry.content}</> })
       divided = true
     }
     const flush = () => {
       if (!ordinary.length) return
       append({ key: `pending/${phase}/${ordinaryRun++}`,
-        system: false, label: '', content: <PendingRun count={ordinary.length} onToggle={onToggle}>
+        system: false, label: '', content: <PendingRun count={ordinary.length} onToggle={onToggle}
+          divider={!divided ? divider : undefined}>
           {ordinary.map(renderPending)}
-        </PendingRun> })
+        </PendingRun> }, true)
       ordinary = []
     }
     rows.forEach((mail, i) => {

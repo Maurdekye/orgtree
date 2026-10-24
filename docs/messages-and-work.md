@@ -27,6 +27,8 @@ content refreshes this check. Returning to the tail resumes follow; hiding the
 card alone does not change follow or remove earlier history.
 
 Every queued-message group has **Show/Hide**, even when it contains one message.
+Click the arrow/count separator line itself to toggle the group; the count
+appears once, with no extra toggle row below it.
 Groups start open below six messages and close automatically at six or more.
 Clicking Show or Hide keeps your choice as messages arrive or leave that group.
 The choice resets when the group empties, you close/reopen the desk or the agent

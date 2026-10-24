@@ -139,7 +139,11 @@ dragging, keyboard behavior and the existing single commit unchanged.
 
 ## Queue-group disclosure defaults (2026-10-23)
 
-Every nonempty `PendingRun` exposes its native Show/Hide summary. A nullable
+Every nonempty `PendingRun` exposes its native summary. The 2026-10-24 user
+refinement places its arrow and count in the separator line and removes the
+separate duplicated Show/Hide row; the accessible action label remains. The
+first ordinary run owns the global divider without changing its total count;
+later groups keep independent counts/controls. A nullable
 local choice distinguishes the untouched six-row automatic default from an
 explicit open/closed choice. Count-driven native toggle events must not become
 manual choices: compare the observed open state with the controlled value.
