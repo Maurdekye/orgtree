@@ -1,4 +1,5 @@
 import { useTaggedUserMail,useMailTagChoices } from './usemailtags'
+import { useHireAutoFocus } from './hirefocus'
 import { useInboxTagSelection,includeSelectedMail } from './inboxselection'
 import { useMailboxHistory } from './usemailhistory'
 import { useOpenCommit } from './opentiming'
@@ -560,6 +561,7 @@ export default function App() {
   // Quick chat: the agent it just hired, focused once the tree carries it
   // (the canvas cannot centre on a card it has not laid out yet)
   const [quickFocus, setQuickFocus] = useState<string | null>(null)
+  const hireAutoFocus = useHireAutoFocus()
   // the canvas fills this with the Agents List, for Quick chat's superior picker
   const agentList = useRef<AgentListSource | null>(null)
   // App settings › Display › Quick chat position: the header (default), the
@@ -567,10 +569,11 @@ export default function App() {
   const quickAt = useQuickChatPosition()
   useEffect(() => {
     if (!quickFocus || !tree) return
+    if (!hireAutoFocus) { setQuickFocus(null); return }
     if (!flatNodes(tree).has(quickFocus)) return
     setFocusAgent(quickFocus)
     setQuickFocus(null)
-  }, [quickFocus, tree])
+  }, [quickFocus, tree, hireAutoFocus])
   const [galleryJump, setGalleryJump] = useState<{ id: string; seq: number } | null>(null)
   // a `@mail:` reference clicked in the docket. The docket owns no mailbox;
   // the canvas owns the router that knows which of the three a pointer belongs

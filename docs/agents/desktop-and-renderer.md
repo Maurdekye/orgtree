@@ -1,5 +1,18 @@
 # Desktop and renderer
 
+## Manual-hire desk focus (2026-10-24)
+
+The default-on app preference `orgtree-hire-auto-focus` gates automatic
+completion focus only. Draft success, placement seeds, first-use progression,
+undo and model/superior memory remain unconditional. Read it when arming and
+consuming the queued draft reveal and when Quick chat completes; the shell
+also cancels pending Quick chat focus when disabled before tree arrival.
+Do not gate explicit navigation or draft editing. Project creation, compact
+HireSheet and immediate Staff currently request no automatic focus. This is a
+renderer view preference with no engine/tool field or per-frame layout work.
+[decided: user m64582ef89f52, coordinator m07cd1a99908f; verified:
+`hirefocus.ts`, `canvas/OrgCanvas.tsx`, `QuickChatBox.tsx`, `App.tsx`]
+
 ## New-hire position (2026-10-23)
 
 USER m0d1975636f40: **New hires go** is an app Display preference, not an org

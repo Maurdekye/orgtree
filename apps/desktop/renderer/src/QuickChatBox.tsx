@@ -1,4 +1,5 @@
 import { focusComposerBackground } from './composerfocus'
+import { hireAutoFocusOn } from './hirefocus'
 // QuickChatBox.tsx — the footer's Quick chat box (docket
 // `quick-prompt-hire-kick-off-and-focus-an-agent-fr`): type a message, press
 // Enter, and a new agent is hired under the chosen superior with the chosen
@@ -313,7 +314,7 @@ export function QuickChat({ slug, tree, op, toast, onHired, agentList, label = '
         if (carry.length || objectReply) await sendWithFiles(born, message, carry)
         remember(superior)
         setText(''); setFiles([]); setObjectReply(null)
-        onHired(born)
+        if (hireAutoFocusOn()) onHired(born)
         return
       }
     } finally { setBusy(false) }

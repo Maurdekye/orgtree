@@ -12,6 +12,7 @@ Display > Desk saves immediately to renderer localStorage for this profile, shar
 | Control | Storage | Default | Effect |
 | --- | --- | --- | --- |
 | org chart layout | `ls:orgtree-chart-layout` | row | Row places teams in rows by depth; circular places the top-level node centrally and teams behind parents in rings. |
+| Open desk after manual hire | `ls:orgtree-hire-auto-focus` | On | Off keeps the current camera when a canvas hire or Quick chat finishes, without opening the new desk. |
 | bunch consecutive projects | `ls:orgtree-project-bunches` | On | Each uninterrupted column of two or more projects forms a tightly packed round bunch, with a snaking order and short curves in the normal hierarchy-edge style. An agent or split ends that bunch; another direct project run can bunch below it. Sibling projects stay separate. Off restores ordinary columns. |
 | rearrange projects in a bunch | `ls:orgtree-project-bunch-rearrange` | Off | Enables insertion points and project-order changes when dragging inside a bunch. Off keeps ordinary whole-subtree dragging and reparenting everywhere. Changes update open windows; it only has an effect when bunching is on. |
 | desk text size | `ls:orgtree-desk-dpi` | 100% | Minus/plus changes by 25 percentage points, bounded 75–250%; reset restores 100%. Scales desks, cards and canvas text, while settings panels keep their own sizing. |
@@ -54,6 +55,18 @@ In circular view the same sibling order places the new node within its team's
 arc; Centre is a list position, not a fixed screen angle. Explicit side/above
 tokens, moves and template order retain their placement. Agent hire/staff tools
 keep their required explicit `index`; no new tool is needed for this user choice.
+
+## Open desk after manual hire
+
+**Open desk after manual hire**, next to New hires go, is an app-profile view
+preference shared across its organizations and windows. It defaults On. Off
+suppresses the automatic desk focus after canvas draft hires, including side
+and above, and Quick chat. It also cancels a queued reveal that has not run yet.
+Turning On later does not open a completed hire. Creating or editing the draft,
+placement, undo, kickoff and closing a successful draft keep their behavior.
+Explicitly opening an agent remains available. Projects, the compact HireSheet
+and immediate Staff do not automatically focus today and keep that behavior.
+No agent tool is needed for this view preference.
 
 ## See also
 

@@ -1,4 +1,5 @@
 import { canonPiles, pruneRetiredView, viewPiles, viewHidden, canvasTargets } from './canvaslayout'
+import { hireAutoFocusOn } from '../hirefocus'
 import { projectBunches, projectBunchLink, projectBunchInsertion, type ProjectBunch } from './projectbunch'
 import { projectBunchesOn, useProjectBunches, projectBunchRearrangeOn, useProjectBunchRearrange } from './projectbunchprefs'
 import { projectBunchRotation, withProjectBunchRotation, type BunchRotation } from './projectbunchmove'
@@ -1959,7 +1960,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
         // either reads correctly there; only one of them does under a rig
         // whose rAF hands out a mocked `Date.now()`, and a bound that expires
         // instantly under test is a feature no test can reach.)
-        if (performance.now() - hd.at > 10000) hireDeskRef.current = null
+        if (!hireAutoFocusOn() || performance.now() - hd.at > 10000) hireDeskRef.current = null
         else if (sheetGate()) {
           // the sheet IS the desk here (D-123/D-125) and needs no camera —
           // only a node the tree already knows about
@@ -4080,7 +4081,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
         // hires made in THIS browser only. An agent hiring its own subordinate
         // arrives by the same broadcast, and yanking the camera across the org
         // for something the user did not initiate is a different feature.
-        if (typeof born === 'string' && born) {
+        if (typeof born === 'string' && born && hireAutoFocusOn()) {
           hireDeskRef.current = { id: born, at: performance.now() }
         }
         // F-03: pin the ordering the side chip promised. Best-effort — the

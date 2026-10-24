@@ -31,6 +31,12 @@ The named presets are Claude Terracotta, Codex Teal, Antigravity Navy, Muse Eggs
   immediate Staff. Existing nodes, side/above placement and templates keep
   their order.
 
+- **Open desk after manual hire:** On by default. Off keeps the current view
+  after a canvas draft hire (including side/above) or Quick chat, without
+  opening the new desk. Creating the agent, placement, undo and kickoff stay
+  the same. Projects, the compact hire sheet and immediate Staff already have
+  no automatic desk jump. This saves immediately for the app profile and is
+  shared across its organizations and windows; explicit navigation still works.
 - Row or circular chart layout, desk text size (75–250%), crowded-team stacks and hiding retired agents.
 - Bunching consecutive projects, and a separate opt-in to rearrange projects inside a bunch. Bunching alone changes drawing; rearranging changes tree order.
 - Card shortcut buttons, folding long jump-card rows, pin snapping, overlap fading and keeping corner controls inside the area left by pins.

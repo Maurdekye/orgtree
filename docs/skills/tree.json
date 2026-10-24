@@ -4593,6 +4593,7 @@
    "covers": [
     "ls:orgtree-chart-layout",
     "ls:orgtree-new-hire-position",
+    "ls:orgtree-hire-auto-focus",
     "ls:orgtree-desk-dpi",
     "ls:orgtree-crowd-piles",
     "ls:orgtree-hide-retired",
@@ -4650,6 +4651,10 @@
      "label": "New hires go"
     },
     {
+     "file": "apps/desktop/renderer/src/canvas/hirepositionsetting.tsx",
+     "label": "Open desk after manual hire"
+    },
+    {
      "file": "apps/desktop/renderer/src/canvas/accounts.tsx",
      "label": "hide retired agents"
     },
@@ -4687,6 +4692,13 @@
      "file": "apps/desktop/renderer/src/hireposition.ts",
      "needles": [
       "orgtree-new-hire-position"
+     ]
+    },
+    {
+     "key": "ls:orgtree-hire-auto-focus",
+     "file": "apps/desktop/renderer/src/hirefocus.ts",
+     "needles": [
+      "orgtree-hire-auto-focus"
      ]
     },
     {

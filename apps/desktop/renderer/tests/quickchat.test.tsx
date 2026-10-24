@@ -22,6 +22,26 @@ import { AgentNavProvider, useProvideAgentNav } from '../src/canvas/agentnav'
 import { ObjectMenuBoundary } from '../src/canvas/contextmenu'
 
 const noop = () => {}
+
+for (const disableWhilePending of [false, true]) test(`Off suppresses Quick chat focus but still hires and starts the agent, pending=${disableWhilePending}`, async () => {
+  localStorage.clear(); providers(['claude'])
+  localStorage.setItem('orgtree-hire-auto-focus', disableWhilePending ? '1' : '0')
+  const ops: OpRequest[] = [], focused: string[] = []
+  let resolve!: (value: { node: string }) => void
+  const pending = new Promise<{ node: string }>(yes => { resolve = yes })
+  const view = await mountView(<QuickChat slug="org" tree={tree} toast={noop}
+    op={async body => { ops.push(body); return pending }} onHired={id => focused.push(id)} />, el => el)
+  try {
+    await inAct(async () => { await flush(8) })
+    const box = view.el.querySelector<HTMLInputElement>('.quickchat-input')!
+    await type(box, 'Write release notes'); await enter(box)
+    assert.equal(ops.length, 1); assert.equal(ops[0]!.kickoff, 'Write release notes')
+    localStorage.setItem('orgtree-hire-auto-focus', '0')
+    await inAct(async () => { resolve({ node: 'write-release-notes' }); await flush(8) })
+    assert.deepEqual(focused, []); assert.equal(box.value, '')
+    assert.equal(readQuickChat('org').tier, 'opus', 'the successful manual choice is still remembered')
+  } finally { await view.unmount(); localStorage.clear() }
+})
 const node = (id: string, state = 'live', children: unknown[] = [], tier = 'sonnet') =>
   ({ id, state, children, parent: null, tier })
 const tree = {

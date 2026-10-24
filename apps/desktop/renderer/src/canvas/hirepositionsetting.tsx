@@ -1,5 +1,12 @@
 import { setNewHirePosition, useNewHirePosition } from '../hireposition'
-import { SetRow } from './settingskit'
+import { setHireAutoFocusOn, useHireAutoFocus } from '../hirefocus'
+import { SetRow, SetToggle } from './settingskit'
+
+export function HireAutoFocusSetting() {
+  const on = useHireAutoFocus()
+  return <SetToggle label="Open desk after manual hire" checked={on} onChange={setHireAutoFocusOn}
+    hint="Automatically open the new agent's desk after a canvas hire or Quick chat. Turn off to keep your current view." />
+}
 
 export function NewHirePositionSetting() {
   const position = useNewHirePosition()
