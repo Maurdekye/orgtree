@@ -1755,7 +1755,7 @@ mod builder_stack_tests {
             props["one_time"]=serde_json::json!({"type":"boolean","description":"One-time; no reply audience. Guide."});
         }
         expected.as_array_mut().unwrap().iter_mut().find(|c|c["name"]=="orgtree_send_notice").unwrap()["description"]=serde_json::json!(
-            "Store passive mail for the recipient's next turn; wakes nobody. Accepts to, one_time and body; use orgtree_message notice=true for attachments, kind or replies.\nGuide: orgtree-tool-send-notice.");
+            "Store passive mail for the recipient's next turn; wakes nobody. Accepts to, one_time and body; use orgtree_message notice=true for attachments, kind or replies. Always write metadata (`to`) before body: metadata first, body last.\nGuide: orgtree-tool-send-notice.");
         // Approved project tool parity: only these added/changed schema keys
         // differ from the earlier captured tool contract.
         for (name,keys) in [("orgtree_inbox",vec!["project","folder","status","org_inbox"]),
