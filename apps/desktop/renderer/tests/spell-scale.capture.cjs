@@ -13,10 +13,16 @@ const clipboardCalls = [], dictionaryCalls = [], popups = []
 for (const key of Object.keys(clipboard)) if (typeof clipboard[key] === 'function') {
   Object.defineProperty(clipboard, key, { value: () => { clipboardCalls.push(key); return key === 'availableFormats' ? [] : key === 'has' ? false : '' } })
 }
-Menu.buildFromTemplate = template => ({ popup: options => popups.push({ template, x: options.x, y: options.y, window: options.window.id }) })
+const buildMenu = Menu.buildFromTemplate.bind(Menu)
+Menu.buildFromTemplate = template => {
+  const menu = buildMenu(template)
+  menu.popup = options => popups.push({ template, x: options.x, y: options.y, window: options.window.id })
+  return menu
+}
 fs.writeFileSync(path.join(out, 'index.html'), '<!doctype html><html lang="en"><meta charset="utf-8"><link rel="stylesheet" href="probe.css"><div id="root"></div><script src="probe.js"></script></html>')
 const delay = ms => new Promise(resolve => setTimeout(resolve, ms))
 app.whenReady().then(async () => {
+  console.log('Isolated Electron ready, PID ' + process.pid)
   const isolated = session.fromPartition('scaled-spelling-' + process.pid)
   isolated.setPermissionCheckHandler(() => false)
   isolated.setPermissionRequestHandler((_wc, _permission, done) => done(false))
@@ -24,9 +30,11 @@ app.whenReady().then(async () => {
   const win = new BrowserWindow({ width: 1000, height: 700, show: false, frame: false,
     webPreferences: { offscreen: true, backgroundThrottling: false, contextIsolation: true, sandbox: true, nodeIntegration: false, session: isolated } })
   const wc = win.webContents
+  console.log('Owned window created')
   wc.setWindowOpenHandler(() => ({ action: 'deny' }))
   for (const method of ['cut', 'copy', 'paste', 'pasteAndMatchStyle']) wc[method] = () => { throw Error('Clipboard command forbidden in spelling capture') }
   require(path.join(out, 'editmenu.cjs')).attachEditMenu(win)
+  console.log('Production menu attached')
   wc.debugger.attach('1.3')
   async function contextMenu(point) {
     const event = new Promise((resolve, reject) => {
@@ -38,7 +46,7 @@ app.whenReady().then(async () => {
     return { params: await event, popup: popups.at(-1) }
   }
   try {
-    await win.loadFile(path.join(out, 'index.html'))
+    await Promise.race([win.loadFile(path.join(out, 'index.html')), delay(10000).then(() => { throw Error('Fixture load timeout') })])
     console.log('Loaded isolated canvas fixture')
     await wc.executeJavaScript(`new Promise((resolve,reject)=>{const deadline=Date.now()+5000;function ready(){const el=document.querySelector('.sq.desk textarea');if(el&&el.getBoundingClientRect().height>0)return resolve();if(Date.now()>deadline)return reject(Error('Real canvas composer missing'));setTimeout(ready,25)}ready()})`)
     const geometry = await wc.executeJavaScript(`(() => {const el=document.querySelector('.sq.desk textarea');el.focus();const r=el.getBoundingClientRect(),s=getComputedStyle(el),sx=r.width/el.offsetWidth,sy=r.height/el.offsetHeight;return {rect:r.toJSON(),scaleX:sx,scaleY:sy,x:r.x+(parseFloat(s.paddingLeft)+24)*sx,y:r.y+(parseFloat(s.paddingTop)+parseFloat(s.lineHeight)/2)*sy}})()`)
