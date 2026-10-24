@@ -163,6 +163,13 @@ cards. Private input boundaries, validation and error serialization are
 `#[nolog]`; answers bypass logged `Done::json`. The response never echoes native
 form input. No agent ask/answer authority was added.
 
+The user card's positional `{selected,text}` answer objects are adapted to the
+existing desktop string/list values before dispatch, including the whole-batch
+handler. Ordinary answers check the card's question count and retain the user
+handler's revision checks. The earlier direct forwarding of `answers` did not
+match the ordinary handler's `selected` input; the focused synthetic test now
+exercises selected labels and free text through the real user endpoint.
+
 ### User settings MCP additions (2026-10-24)
 
 `orgtree_settings` exposes existing org/default/runtime/provider settings as

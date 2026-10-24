@@ -138,7 +138,7 @@ mod tests {
             "requestedSchema":{"type":"object","properties":{"note":{"type":"string"}},"required":["note"]}});
         let stop=tokio_util::sync::CancellationToken::new();
         let mut pending=Box::pin(crate::runtime::elicitation::native_request(&engine,&caller,&form,&stop));
-        assert!(futures_util::poll!(&mut pending).is_pending());
+        assert!(futures::poll!(&mut pending).is_pending());
         let id=engine.elicitations.cards(org.id)[0]["id"].as_str().unwrap().to_string();
         let get=super::super::handle(&engine,Some(&org),&json!({"id":1,"method":"tools/call","params":{"name":"orgtree_questions","arguments":{"action":"get","id":id}}})).await;
         assert_ne!(get["result"]["isError"],true);
