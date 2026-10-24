@@ -47,13 +47,7 @@ pub(super) async fn run(engine: &Arc<Engine>, org: &Arc<OrgHandle>, args: &Value
         "get" => {
             only(args, &["action","id"])?;
             let id = need_str(args,"id")?;
-            if let Some(card) = engine.elicitations.cards(org.id).into_iter().find(|c| c["id"]==id) { card }
-            else {
-                let client=engine.db.get().await?;
-                let row=client.query_opt("SELECT to_jsonb(k), a.name FROM ot.asks k JOIN ot.agents a ON a.id=k.agent_id WHERE k.org_id=$1 AND k.uid=$2 AND k.status='open'", &[&org.id,&id]).await?;
-                let Some(row)=row else { crate::refuse!(NotFound,"no open request with that id in this organization"); };
-                crate::domain::tree::ask_card(&row.get::<_,Value>(0), &row.get::<_,String>(1))
-            }
+            open_card(engine,org,id).await?
         }
         "credit" => {
             only(args, &["action","id","decision","granted","rev","dry"])?;
@@ -72,11 +66,43 @@ pub(super) async fn run(engine: &Arc<Engine>, org: &Arc<OrgHandle>, args: &Value
             }
             let mut body=json!({});
             for key in ["revs","answers","credits","scope"] { if let Some(v)=args.get(key) { body[key]=v.clone(); } }
+            if args.get("answers").is_some() { body["answers"]=json!(answer_values(&args["answers"],true)?); }
             crate::http::asks::batch(State(engine.clone()),Path((org.slug.clone(),node.to_string())),Json(body)).await.map_err(api)?.0
         }
         _ => crate::refuse!(BadRequest,"unsupported user question action"),
     };
     Ok(Done{text:serde_json::to_string(&value)?,card:None})
+}
+
+#[nolog]
+pub(super) async fn open_card(engine:&Arc<Engine>,org:&Arc<OrgHandle>,id:&str)->Result<Value> {
+    if let Some(card)=engine.elicitations.cards(org.id).into_iter().find(|c|c["id"]==id) { return Ok(card); }
+    let client=engine.db.get().await?;
+    let row=client.query_opt("SELECT to_jsonb(k), a.name FROM ot.asks k JOIN ot.agents a ON a.id=k.agent_id WHERE k.org_id=$1 AND k.uid=$2 AND k.status='open'", &[&org.id,&id]).await?;
+    let Some(row)=row else { crate::refuse!(NotFound,"no open request with that id in this organization"); };
+    Ok(crate::domain::tree::ask_card(&row.get::<_,Value>(0), &row.get::<_,String>(1)))
+}
+
+/// Adapt the user card's positional objects to the desktop's string/list values.
+#[nolog]
+pub(super) fn answer_values(value:&Value,allow_skip:bool)->Result<Vec<Value>> {
+    let answers=value.as_array().ok_or_else(||anyhow::anyhow!("answers must be positional objects"))?;
+    answers.iter().map(|answer| {
+        if answer.is_null() && allow_skip { return Ok(Value::Null); }
+        only(answer,&["selected","text"])?;
+        let mut selected:Vec<String>=match answer.get("selected") {
+            None=>Vec::new(),
+            Some(Value::Array(a)) if a.iter().all(Value::is_string)=>a.iter().filter_map(Value::as_str).map(str::to_string).collect(),
+            _=>crate::refuse!(BadRequest,"selected must contain option labels"),
+        };
+        if let Some(text)=answer.get("text") {
+            let text=text.as_str().ok_or_else(||anyhow::anyhow!("answer text must be a string"))?;
+            if !text.trim().is_empty() { selected.push(text.to_string()); }
+        }
+        if selected.iter().all(|s|s.trim().is_empty()) {
+            if allow_skip { Ok(Value::Null) } else { crate::refuse!(BadRequest,"every question needs an answer"); }
+        } else { Ok(json!(selected)) }
+    }).collect()
 }
 
 #[nolog]

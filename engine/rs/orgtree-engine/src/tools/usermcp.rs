@@ -28,6 +28,8 @@ use crate::orgs::OrgHandle;
 mod questions;
 mod settings;
 mod accounts;
+#[cfg(test)]
+mod integration_tests;
 
 /// Tools served without an org (`POST /api/mcp`): enough to find or create
 /// the org to manage.
@@ -289,8 +291,8 @@ async fn dispatch(engine: &Arc<Engine>, org: Option<&Arc<OrgHandle>>, name: &str
         "orgtree_list_orgs" => return list_orgs(engine, org).await,
         "orgtree_create_org" => return create_org(engine, args).await,
         "orgtree_client_tokens" => return Ok(Done { text: serde_json::to_string(&crate::http::client_tokens::manage(engine, args).map_err(api)?)?, card: None }),
-        "orgtree_settings" => return settings::run(engine, org, args).await,
-        "orgtree_accounts" => return accounts::run(engine, args).await,
+        "orgtree_settings" => return crate::util::boxed(||settings::run(engine, org, args)).await,
+        "orgtree_accounts" => return crate::util::boxed(||accounts::run(engine, args)).await,
         _ => {}
     }
     let Some(org) = org else {
@@ -311,7 +313,7 @@ async fn dispatch(engine: &Arc<Engine>, org: Option<&Arc<OrgHandle>>, name: &str
         "orgtree_reallocate" => tree_op(engine, org, "reallocate", args).await,
         "orgtree_interrupt" => interrupt(engine, org, args).await,
         "orgtree_answer" => answer(engine, org, args).await,
-        "orgtree_questions" => questions::run(engine, org, args).await,
+        "orgtree_questions" => crate::util::boxed(||questions::run(engine, org, args)).await,
         other => crate::refuse!(BadRequest, "{other} is not on the user MCP endpoint: these tools act as the user, and agent-only tools stay with agents"),
     }
 }
@@ -447,7 +449,7 @@ async fn tree_op(engine: &Arc<Engine>, org: &Arc<OrgHandle>, op: &str, args: &Va
     let out = if crate::domain::undo::RECORDED_OPS.contains(&op) {
         crate::http::undo::single(engine, org, req).await.map_err(api)?
     } else {
-        Box::pin(ops::run(engine, org, Actor::User, &req)).await?
+        crate::util::boxed(||ops::run(engine, org, Actor::User, &req)).await?
     };
     Done::json(&out)
 }
@@ -519,6 +521,14 @@ async fn answer(engine: &Arc<Engine>, org: &Arc<OrgHandle>, args: &Value) -> Res
         if !args[key].is_null() {
             body[key] = args[key].clone();
         }
+    }
+    if !aid.starts_with("elicitation-") && args.get("answers").is_some() {
+        let answers=questions::answer_values(&args["answers"],false)?;
+        let card=questions::open_card(engine,org,aid).await?;
+        let count=card["questions"].as_array().map_or(1,Vec::len);
+        if answers.len()!=count { crate::refuse!(BadRequest,"send one answer per question"); }
+        body["selected"]=if count==1 { answers.into_iter().next().unwrap() } else { json!(answers) };
+        body.as_object_mut().unwrap().remove("answers");
     }
     let out = crate::http::asks::answer(axum::extract::State(engine.clone()),
         axum::extract::Path((org.slug.clone(), aid.to_string())), axum::Json(body)).await.map_err(api)?;
