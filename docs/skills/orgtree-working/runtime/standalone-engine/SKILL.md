@@ -184,6 +184,12 @@ remain compatibility inputs; do not mix flat routing with `metadata`.
 | `orgtree_questions batch` | `node`, the card's `revs`, and every present part: positional `answers` (null explicitly skips), `credits` with exactly one of `granted`, `deny:true`, `skip:true`, and `scope` with approve/deny/skip per item. Existing user whole-request/revision/scope/credit validation applies. |
 | `orgtree_settings` | Required `scope:org\|defaults\|runtime\|provider`; `action:get` default, or configure plus `settings` object. Org scope requires org endpoint; global scopes work on either and affect every org. Get accepts no write fields. Org read returns stored/effective settings; configure uses org_dirs and compact_at percent 50-95. App defaults retain desktop compact_at fractions. Existing user handlers validate values. Runtime includes credit_bubble_hire_enabled/credit_bubble_alloc_enabled. Provider get reads cached discovery; configure needs provider plus exactly one boolean enabled/apikey_fallback/subscription_inference in settings. No generic API passthrough. |
 
+Ordinary open request cards use `kind:"batch"` with `tabs`, even for one question
+or a credit-only request. Inspect tab kinds and request parts to choose the
+answer/credit/batch action; the outer kind alone does not require several
+decisions. Native permission forms retain their own card shape. Discover IDs
+from the cards, never from a domain submission's human-readable receipt.
+
 Example JSON-RPC calls, sent to the appropriate authenticated endpoint:
 
 ```json

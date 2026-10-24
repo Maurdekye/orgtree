@@ -42,7 +42,9 @@ async fn synthetic_user_mcp_groups_and_native_profile_glue() {
         let secret="SYNTHETIC_STORED_KEY_CANARY_2d17";
         let log=capture.finish().await;
         assert!(log.contains("synthetic user MCP database positive log control"));
-        assert!(!log.contains(secret),"stored key leaked to verbose diagnostics");
+        let leaks:Vec<_>=log.lines().filter(|line|line.contains(secret))
+            .map(|line|line.replace(secret,"[synthetic key omitted]")).collect();
+        assert!(leaks.is_empty(),"stored key leaked to verbose diagnostics: {}",leaks.join("\n"));
         println!("SYNTHETIC_USER_MCP_GROUPS: tree/question/settings/accounts positive paths, private logs and fake Claude/Codex profile identities verified");
         Ok(())
     }.await;

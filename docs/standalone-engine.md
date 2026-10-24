@@ -125,6 +125,11 @@ and maximum 200; pass that cursor to continue. `get` takes an `id`. This is a
 live view of open cards, including questions, credits, scope requests and native
 permission forms. Resolved cards are omitted; reread a card if it was amended.
 
+Ordinary open cards use `kind:"batch"` and a `tabs` list, including a single
+question or credit request. Inspect the tab kinds and request parts to choose
+the answer or credit action; `kind` alone does not mean several decisions are
+required. Native permission forms retain their own card shape.
+
 `orgtree_answer` answers ordinary question cards with `ask`, positional `answers`
 and the card's `rev`, or `dismiss:true`. For an elicitation card, pass `ask`,
 `action: "accept"`, `"decline"` or `"cancel"`; accepted forms also need typed

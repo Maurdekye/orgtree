@@ -163,6 +163,12 @@ cards. Private input boundaries, validation and error serialization are
 `#[nolog]`; answers bypass logged `Done::json`. The response never echoes native
 form input. No agent ask/answer authority was added.
 
+The shared `ask_card` projection normalizes ordinary open cards to
+`kind:"batch"` with `tabs`, including question-only and credit-only requests.
+Their tab kinds/parts determine the applicable decision; native elicitation
+cards keep their own shape. Domain submission functions return prose receipts,
+so the synthetic fixture obtains request IDs from MCP discovery.
+
 The user card's positional `{selected,text}` answer objects are adapted to the
 existing desktop string/list values before dispatch, including the whole-batch
 handler. Ordinary answers check the card's question count and retain the user
