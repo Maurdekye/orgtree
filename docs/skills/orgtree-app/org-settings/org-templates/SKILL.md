@@ -19,7 +19,7 @@ appears in the creation picker's list. Tree, names and tiers are always included
 
 | Include choice | Initially checked | Content |
 | --- | --- | --- |
-| Charters, team charters and project Summary | Yes | Agent instructions, team instructions and project Summary. |
+| Charters, team charters and project summary | Yes | Agent instructions, team instructions and project Summary. |
 | Credits | Yes | Each agent's spare credits. |
 | Effort, fast mode and harness pin | Yes | Saved effort and explicit fast-mode booleans, plus explicitly pinned OpenRouter harnesses. An unpinned harness stamp is not exported. |
 | Tool switches, visibility and permission mode | Yes | Saved scope controls. |

@@ -69,7 +69,7 @@ for(const history of [false,true])for(const surface of ['settings','desk'] as co
  try{
   if(surface==='settings'){
    if(kind!=='account'){
-    assert.equal(document.querySelector<HTMLSelectElement>('select[aria-label="model tier"]')?.value,'luna','show queued choice so choosing current fires change')
+    assert.equal(document.querySelector<HTMLSelectElement>('select[aria-label="Model tier"]')?.value,'luna','show queued choice so choosing current fires change')
     await choose('model tier','sol')
    }
    if(kind!=='model'){

@@ -63,7 +63,7 @@ export function OrgAccountsTab({ slug, toast }: { slug: string; toast: ToastFn }
   }
 
   if (error) return <div className="uh-error">accounts unavailable: {error}</div>
-  if (!lanes) return <div className="dim">loading…</div>
+  if (!lanes) return <div className="dim">Loading…</div>
   return (
     <div className="org-accounts">
       <div className="dim hub-hint">
@@ -82,7 +82,7 @@ export function OrgAccountsTab({ slug, toast }: { slug: string; toast: ToastFn }
                 disabled={busy || (!l.allowed && l.enabled === false)}
                 hint={<>{l.label === l.id ? null : l.id}
                   {l.enabled === false && <>{l.label === l.id ? '' : ' · '}
-                    {l.disabled_reason || 'turned off in App settings › Providers'}.
+                    {l.disabled_reason || 'Turned off in App settings › Providers'}.
                     {' '}Enable it in Providers before allowing it here.</>}
                 </>}
                 onChange={(next) => set(l.id, next)} />

@@ -37,13 +37,13 @@ export function TemplateDocumentsSetting() {
       .finally(() => setOpenBusy(false))
   }
   return <SetGroup title="Organization templates"
-    note="starting layouts for a new organization, in ~/.orgtree/templates">
-    <SetRow label="restore default templates"
+    note="Starting layouts for a new organization, in ~/.orgtree/templates">
+    <SetRow label="Restore default templates"
       hint="Writes back the built-in templates (devteam (claude), devteam (codex), devteam (muse), devteam (antigravity), Heavy dev shop) missing from your templates folder, including ones you deleted. Files you already have are never changed.">
       <button onClick={run} disabled={busy}>
         {busy ? 'restoring…' : 'restore'}
       </button>
-      <button onClick={openFolder} disabled={openBusy} aria-label="open templates folder" title="open templates folder">
+      <button onClick={openFolder} disabled={openBusy} aria-label="Open templates folder" title="Open templates folder">
         {openBusy ? 'opening…' : 'open folder'}
       </button>
     </SetRow>
@@ -52,8 +52,8 @@ export function TemplateDocumentsSetting() {
     {result && !error && (
       <p className="dim">
         {result.created.length
-          ? `restored ${result.created.length} template${result.created.length === 1 ? '' : 's'}`
-          : 'nothing missing'}
+          ? `Restored ${result.created.length} template${result.created.length === 1 ? '' : 's'}`
+          : 'Nothing missing'}
         {result.existing.length ? ` · ${result.existing.length} already present and untouched` : ''}
         {` · ${result.dir}`}
       </p>
@@ -64,7 +64,7 @@ export function TemplateDocumentsSetting() {
 /** The groups "Save as template" offers. The tree, names and tiers are
  *  always saved; accounts and folders belong to this computer and start off. */
 const GROUPS: { key: keyof TemplateInclude; label: string; hint?: string }[] = [
-  { key: 'charters', label: 'Charters, team charters and project Summary' },
+  { key: 'charters', label: 'Charters, team charters and project summary' },
   { key: 'credits', label: 'Credits', hint: "each agent's spare credits" },
   { key: 'effort', label: 'Effort, fast mode and harness pin' },
   { key: 'tools', label: 'Tool switches, visibility and permission mode' },
@@ -192,7 +192,7 @@ export function SaveTemplateModal({ slug, orgName, tree, close }: { slug: string
 export function SaveTemplateSetting({ slug, orgName, tree }: { slug: string; orgName: string; tree?: TreePayload }) {
   const [open, setOpen] = useState(false)
   return <SetGroup title="Templates" note="~/.orgtree/templates">
-    <SetRow label="save as template"
+    <SetRow label="Save as template"
       hint="Saves this organization's agents (tree, names and tiers, plus what you choose) as a starting layout for new organizations.">
       <button onClick={() => setOpen(true)}>save as template…</button>
     </SetRow>

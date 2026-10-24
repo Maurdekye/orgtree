@@ -80,7 +80,7 @@ async function openDeveloper(t: TestContext): Promise<MountedView<HTMLElement>> 
 }
 
 const panel = (el: HTMLElement) => el.querySelector<HTMLElement>('#app-settings-panel-developer')
-const epicSwitch = (el: HTMLElement) => el.querySelector<HTMLInputElement>('[role="switch"][aria-label="EPIC Mode"]')
+const epicSwitch = (el: HTMLElement) => el.querySelector<HTMLInputElement>('[role="switch"][aria-label="EPIC mode"]')
 const row = (input: HTMLInputElement) => input.closest('.set-row') as HTMLElement
 
 async function click(input: HTMLInputElement) {
@@ -111,7 +111,7 @@ test('off: unchecked, unrevealed, with no hint, no state word and no hairline ab
   const r = row(input!)
   assert.equal(r.classList.contains('epic-switch'), true)
   assert.equal(r.classList.contains('on'), false, 'not revealed while off')
-  assert.equal(r.textContent, 'EPIC Mode', 'the row says only its name: no hint, no on/off word')
+  assert.equal(r.textContent, 'EPIC mode', 'the row says only its name: no hint, no on/off word')
   assert.equal(r.previousElementSibling?.classList.contains('set-row') ?? false, false,
     'a .set-row right after another draws a hairline (.set-row + .set-row), which would give it away')
   assert.equal(bridge.writes.length, 0, 'showing the switch writes nothing')

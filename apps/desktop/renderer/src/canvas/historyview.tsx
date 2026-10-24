@@ -28,8 +28,8 @@ export function AgentHistoryView({ slug, nid, refs, history }: {
   return (
     <div className="msgs" ref={history.ref} onFocusCapture={history.onFocus}>
       {history.error ? <div className="dim pad" role="alert">Could not load history. <button onClick={history.retry}>Retry</button></div>
-        : items == null && <div className="dim pad">loading…</div>}
-      {items?.length === 0 && <div className="dim pad">nothing recorded yet</div>}
+        : items == null && <div className="dim pad">Loading…</div>}
+      {items?.length === 0 && <div className="dim pad">Nothing recorded yet</div>}
       {items?.map((it, i) => {
         const text = String(it.detail.gist ?? it.detail.text ?? Object.entries(it.detail)
           .filter(([k]) => k !== 'gist').map(([k, v]) => `${k}=${v}`).join(' · '))

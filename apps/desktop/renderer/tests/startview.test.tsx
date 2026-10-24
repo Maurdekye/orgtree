@@ -357,9 +357,9 @@ async function openDisplay() {
   await inAct(async () => { tab.click() })
   const panel = view.el.querySelector<HTMLElement>('#app-settings-panel-display')!
   const select = panel.querySelector<HTMLSelectElement>(
-    'select[aria-label="open an org at"]')!
+    'select[aria-label="Open an org at"]')!
   const toggle = panel.querySelector<HTMLInputElement>(
-    'input[aria-label="play the starting zoom"]')!
+    'input[aria-label="Play the starting zoom"]')!
   assert.ok(select, 'no startup-view select in Display')
   assert.ok(toggle, 'no starting-zoom toggle in Display')
   return { view, panel, select, toggle }
@@ -402,7 +402,7 @@ test('§10 Display → Startup: the select and toggle write the browser-local '
     assert.equal(localStorage.getItem('orgtree-start-view'), 'remember')
     assert.equal(s.toggle.disabled, true,
       'the toggle stayed live under "where I left off", which ignores it')
-    assert.match(s.panel.textContent ?? '', /not used by/)
+    assert.match(s.panel.textContent ?? '', /Not used by/)
     // the choice the toggle held is KEPT, not reset, so leaving 'remember'
     // brings it back as it was
     assert.equal(localStorage.getItem('orgtree-start-zoom'), '0')

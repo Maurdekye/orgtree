@@ -13,8 +13,8 @@ footer Save in [orgtree-org-basic](../org-basic/SKILL.md).
 
 | Control | Key | Default | Range/effect |
 | --- | --- | --- | --- |
-| reset a session before a known-cold turn | `org:auto_cheap_compact.enabled` | On for new orgs | Allows a fresh session with a summary before an eligible turn whose cache forecast is known cold. |
-| at or above a context occupancy of | `org:auto_cheap_compact.occ` | 25% | Shown while enabled; UI 5–95%, step 5. Stored as fraction 0.05–0.95. The endpoint clamps numeric values to this interval, refuses a non-number, and refuses a non-boolean enabled value. |
+| Reset a session before a known-cold turn | `org:auto_cheap_compact.enabled` | On for new orgs | Allows a fresh session with a summary before an eligible turn whose cache forecast is known cold. |
+| At or above a context occupancy of | `org:auto_cheap_compact.occ` | 25% | Shown while enabled; UI 5–95%, step 5. Stored as fraction 0.05–0.95. The endpoint clamps numeric values to this interval, refuses a non-number, and refuses a non-boolean enabled value. |
 
 New organizations and fresh installations default to On at 25%. An explicitly
 saved app default still wins, and explicit template settings override it.

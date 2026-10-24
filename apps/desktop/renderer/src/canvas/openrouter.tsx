@@ -206,8 +206,8 @@ export function OpenRouterSection({ provider, headRight, toast, pickerOpen,
           {headRight}
         </span>
       </div>
-      {err && <div className="dim acct-prov-note">could not read OpenRouter state: {err}</div>}
-      {!doc && !err && <div className="dim acct-prov-note">reading OpenRouter state…</div>}
+      {err && <div className="dim acct-prov-note">Could not read OpenRouter state: {err}</div>}
+      {!doc && !err && <div className="dim acct-prov-note">Reading OpenRouter state…</div>}
 
       {doc && addingKey && <OpenRouterKeyDialog title={anyKey ? 'Add another OpenRouter key' : 'Add OpenRouter key'} keyRequired
         initialName="" harness={harness && keyHarness(harness, harness.stored)}
@@ -311,17 +311,17 @@ export function ModelPicker({ doc, busy, onToggle, onClose }: {
             shows, here as editable chips — card, label, ✕. Order is the
             user's own (the doc's), so a chip stays where it was. */}
         <BrowserSelected busy={busy}
-          empty="nothing selected yet — search below and select the models that can be hired"
-          removeVerb="deselect"
-          removeTitle="deselect — it can no longer be hired; agents already on it keep running"
+          empty="Nothing selected yet — search below and select the models that can be hired"
+          removeVerb="Deselect"
+          removeTitle="Deselect — it can no longer be hired; agents already on it keep running"
           chips={doc.tiers.map((t) => {
             const label = t.label ?? modelLabel(t.model)
             return { key: t.tier, letter: t.letter, color: t.color ?? '#9aa0a6', accent: t.accent, label,
               title: tierTitle(t), onRemove: () => onToggle({ id: t.model, name: t.name ?? label }, false) }
           })} />
         <input ref={inputRef} className="orr-search" type="search"
-          placeholder="search the catalog — name, vendor, id…"
-          aria-label="search OpenRouter models"
+          placeholder="Search the catalog — name, vendor, id…"
+          aria-label="Search OpenRouter models"
           value={q} onChange={(e) => { setQ(e.target.value); setOffset(0) }} />
         {/* ordering controls (user spec 2026-09-04): a sort dropdown, and a
             group-by-provider checkbox PERPENDICULAR to it — grouping makes
@@ -329,8 +329,8 @@ export function ModelPicker({ doc, busy, onToggle, onClose }: {
             secondary one, so the two compose instead of competing. */}
         <div className="orr-sortbar">
           <label>
-            <span className="dim">sort</span>
-            <select value={sort} aria-label="sort the catalog"
+            <span className="dim">Sort</span>
+            <select value={sort} aria-label="Sort the catalog"
               onChange={(e) => {
                 const s = e.target.value as OpenRouterSort
                 setSort(s); setOffset(0)
@@ -347,14 +347,14 @@ export function ModelPicker({ doc, busy, onToggle, onClose }: {
           </label>
           {sort !== 'relevance' && (
             <button type="button" className="orr-dir"
-              title={`showing ${DIR_LABEL[sort][order]} — click to reverse`}
-              aria-label={`sort direction: ${DIR_LABEL[sort][order]}`}
+              title={`Showing ${DIR_LABEL[sort][order]} — click to reverse`}
+              aria-label={`Sort direction: ${DIR_LABEL[sort][order]}`}
               onClick={() => { setOrder(order === 'asc' ? 'desc' : 'asc'); setOffset(0) }}>
               {order === 'asc' ? '↑' : '↓'} {DIR_LABEL[sort][order]}
             </button>
           )}
         </div>
-        <SetToggle label="group by provider" checked={grouped}
+        <SetToggle label="Group by provider" checked={grouped}
           hint="Show models under a heading for each provider."
           onChange={next => { setGrouped(next); setOffset(0) }} />
         {/* ⚠ an explicit sort DISPLACES the id-over-name relevance ranking.
@@ -362,7 +362,7 @@ export function ModelPicker({ doc, busy, onToggle, onClose }: {
             typed — and the way back is one click, not a puzzle. */}
         {page?.relevance_displaced && (
           <div className="orr-note dim">
-            ordered by {SORT_LABEL[page.sort]}, not by how well rows match “{page.query}”
+            Ordered by {SORT_LABEL[page.sort]}, not by how well rows match “{page.query}”
             {' '}<button type="button" className="linkish"
               onClick={() => { setSort('relevance'); setOffset(0) }}>
               sort by best match</button>
@@ -371,12 +371,12 @@ export function ModelPicker({ doc, busy, onToggle, onClose }: {
         {/* costs nothing to say, and it turns "we added a sort" into "we
             labelled the order you already had" */}
         {page && sort === 'recency' && order === 'desc' && !page.relevance_displaced && (
-          <div className="orr-note dim">newest first — the catalog's own order</div>
+          <div className="orr-note dim">Newest first — the catalog's own order</div>
         )}
         {err && <div className="ask-warn">could not read the catalog: {err}</div>}
         <div className="orr-list">
-          {!page && !err && <div className="dim">reading the catalog…</div>}
-          {page && !page.items.length && <div className="dim">no models match</div>}
+          {!page && !err && <div className="dim">Reading the catalog…</div>}
+          {page && !page.items.length && <div className="dim">No models match</div>}
           {page?.items.map((m, i) => {
             const on = selected.has(m.id)
             // a group heading is drawn when the vendor changes. At the TOP of

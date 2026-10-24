@@ -14,7 +14,7 @@ Select it to open the desk. Click the Summary to edit; leaving the editor saves 
 
 The desk's common tabs are Summary, Mail, Docket, Presented and, while it has live members, Team. Docket lists items owned by agents below it; the project is not itself an item owner. Presented shows documents attributed to the project; **Team presentations** adds its agents' documents. Settings controls project policies, and History appears when records exist.
 
-Slots appears when capacity is positive, events while **Project Events** is on, and Dead letters while open dead-letter jobs exist. A project's desk can be pinned or popped out like an agent desk, retaining its own selected tab and mail folder.
+Slots appears when capacity is positive, events while **Project events** is on, and Dead letters while open dead-letter jobs exist. A project's desk can be pinned or popped out like an agent desk, retaining its own selected tab and mail folder.
 
 ## Choose mailbox delivery or broadcast
 
@@ -83,7 +83,7 @@ Your holds persist until **you** release them, including across engine restarts.
 
 ## Signal a group with events
 
-Turn on **Project Events** in settings to expose events. Agents registering event listeners or listener watches can also enable it. An event is a signal to the listeners armed **when it fires**; it is not replayed to someone who registers later.
+Turn on **Project events** in settings to expose events. Agents registering event listeners or listener watches can also enable it. An event is a signal to the listeners armed **when it fires**; it is not replayed to someone who registers later.
 
 Use the optional message and **fire event** to notify listeners. A one-time listener spends itself on the next fire; a continuous listener hears later fires too. **Listener watches** wait for an armed-listener count, useful when a coordinator should know that a group is ready. A watch can be paired with an authorized on-fire action to release that group. Counted readiness does not prove the group completed a task.
 

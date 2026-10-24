@@ -37,9 +37,9 @@ export const setModalOverlap = (setting: ModalOverlapSetting): void =>
 export function ModalOverlapSettings() {
   const setting = useModalOverlap()
   return <>
-    <SetToggle label="fade pinned desks and modals over expanded desks" checked={setting.enabled}
+    <SetToggle label="Fade pinned desks and modals over expanded desks" checked={setting.enabled}
       onChange={enabled => setModalOverlap({ ...setting, enabled })} />
-    <SetRow label="overlap opacity">
+    <SetRow label="Overlap opacity">
       <input aria-label="Overlap opacity" type="range" min="0.2" max="0.9" step="0.05" value={setting.opacity}
         disabled={!setting.enabled}
         onChange={e => setModalOverlap({ ...setting, opacity: Number(e.target.value) })} />

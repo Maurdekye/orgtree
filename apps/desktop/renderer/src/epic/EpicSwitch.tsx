@@ -1,11 +1,11 @@
-/* Settings › Developer › the row below all the others: EPIC Mode's switch.
+/* Settings › Developer › the row below all the others: EPIC mode's switch.
 
    The user's own design (2026-10-14 23:42Z, follow-ups 23:43Z): the switch is
    ALWAYS rendered, but while it is off and not hovered the checkbox and its
    label are drawn in nothing but the background, so the row cannot be told
    apart from the empty panel under it. Hovering gives a subtle highlight that
    says only "something here is clickable". Clicking checks the box, which
-   becomes an ordinary visible checkbox, and the label "EPIC Mode" turns the
+   becomes an ordinary visible checkbox, and the label "EPIC mode" turns the
    theme accent. Unticking makes it invisible again. There is deliberately no
    hint text, no on/off word, no volume control and no warning.
 
@@ -20,10 +20,10 @@ export function EpicModeSwitch() {
   return (
     <label className={'set-row epic-switch' + (on ? ' on' : '')}>
       <span className="set-lead">
-        <input type="checkbox" role="switch" aria-label="EPIC Mode" checked={on}
+        <input type="checkbox" role="switch" aria-label="EPIC mode" checked={on}
           onChange={e => { void setEpicMode(e.target.checked) }} />
       </span>
-      <span className="set-label epic-switch-label">EPIC Mode</span>
+      <span className="set-label epic-switch-label">EPIC mode</span>
     </label>
   )
 }

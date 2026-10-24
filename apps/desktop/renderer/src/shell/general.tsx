@@ -83,9 +83,9 @@ export function useAppVersion(): string | null {
 
 const STARTUP_CHOICES: { id: OrgStartupMode; label: string; hint: string }[] = [
   { id: 'restore', label: 'restore previous windows (default)',
-    hint: 'reopen your previous organization windows in their saved positions' },
+    hint: 'Reopen your previous organization windows in their saved positions' },
   { id: 'homepage', label: 'start at homepage',
-    hint: 'open a fresh homepage window when you launch Orgtree' },
+    hint: 'Open a fresh homepage window when you launch Orgtree' },
 ]
 
 /** On startup: restore the previous organization windows, or open one fresh
@@ -104,7 +104,7 @@ export function StartupWindowsSetting() {
   if (!nativeWindows()) return null
   const mode = startupMode(prefs)
   return (
-    <SetRow label="on startup"
+    <SetRow label="On startup"
       hint={STARTUP_CHOICES.find((c) => c.id === mode)?.hint}>
       <select aria-label="On startup" value={mode}
         onChange={(e) => { void save({ startupMode: e.target.value as OrgStartupMode }) }}>
@@ -131,12 +131,12 @@ export function AboutSection({ appVersion }: { appVersion: string | null }) {
   return (
     <SetGroup title="About">
       {appVersion && <SetRow label="Orgtree">{appVersion}</SetRow>}
-      {engine && <SetRow label="engine"
-        hint={`started ${fmtFull(build!.started_at)}`}>
+      {engine && <SetRow label="Engine"
+        hint={`Started ${fmtFull(build!.started_at)}`}>
         <span className="mono">{engine}</span></SetRow>}
-      {!appVersion && !engine && <SetRow label="version unknown" />}
+      {!appVersion && !engine && <SetRow label="Version unknown" />}
       <UpdateCheckRow appVersion={appVersion} />
-      <SetRow label="source">
+      <SetRow label="Source">
         <a className="gh-link" href="https://github.com/Maurdekye/orgtree"
           target="_blank" rel="noreferrer">Orgtree on GitHub</a>
       </SetRow>

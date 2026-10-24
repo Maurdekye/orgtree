@@ -14,19 +14,19 @@ export function DirList({ dirs, onChange }: {
         <div className="dirrow" key={i}>
           <input placeholder="E:\path\to\existing\folder" value={d}
             onChange={(e) => onChange(dirs.map((x, j) => (j === i ? e.target.value : x)))} />
-          <button type="button" className="iconbtn" title="browse for a folder"
+          <button type="button" className="iconbtn" title="Browse for a folder"
             onClick={() => pickFolder().then((r) => {
               const p = r.path
               if (p) onChange(dirs.map((x, j) => (j === i ? p : x)))
             }).catch(() => {})}><FolderIcon fontSize="inherit" /></button>
-          <button type="button" className="iconbtn" title="remove folder"
+          <button type="button" className="iconbtn" title="Remove folder"
             onClick={() => onChange(dirs.filter((_, j) => j !== i))}><CloseIcon fontSize="inherit" /></button>
         </div>
       ))}
       <div className="dirrow">
         <button type="button" className="addrow"
           onClick={() => onChange([...dirs, ''])}>+ add folder</button>
-        <button type="button" className="addrow" title="browse for a folder to add"
+        <button type="button" className="addrow" title="Browse for a folder to add"
           onClick={() => pickFolder().then((r) => {
             const p = r.path
             if (p) onChange([...dirs, p])

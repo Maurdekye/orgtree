@@ -44,7 +44,7 @@ module.exports = async page => {
     await page.click('button[title^="add a model server"]')
     await inspect(`language-add-${width}-${contrast}`)
     await page.press('Escape')
-    await page.click('button[title="edit this server"]')
+    await page.click('button[title="Edit this server"]')
     await inspect(`language-edit-${width}-${contrast}`)
     await page.press('Escape')
   }

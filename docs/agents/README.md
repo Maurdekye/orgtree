@@ -313,7 +313,7 @@ The token figure is an explicitly labeled characters/4 heuristic; byte and line 
 | [e-f76fd81794788f25](development-and-verification.md#e-f76fd81794788f25) | Orgtree 4.0.0 (Rust engine): read this first | Orgtree 4.0.0 (Rust engine): read this first |
 | [e-c824b3c327871cc1](mail-and-hub.md#e-c824b3c327871cc1) | Orgtree 4.0.0 (Rust engine): read this first | Lifecycle invalidations read mailbox/history bodies only for ready matching |
 | [e-88ad49b77a7c3f85](org-tree-and-tools.md#e-88ad49b77a7c3f85) | Orgtree 4.0.0 (Rust engine): read this first | Retired pile pickers own lightweight 50-row cursor pages, with server-side |
-| [e-8e3ffb71b7e07772](desktop-and-renderer.md#e-8e3ffb71b7e07772) | Orgtree 4.0.0 (Rust engine): read this first | With "hide retired agents" off the canvas draws a retired pile only from |
+| [e-8e3ffb71b7e07772](desktop-and-renderer.md#e-8e3ffb71b7e07772) | Orgtree 4.0.0 (Rust engine): read this first | With "Hide retired agents" off the canvas draws a retired pile only from |
 | [e-0507dbafa88eea64](agent-runtime.md#e-0507dbafa88eea64) | Orgtree 4.0.0 (Rust engine): read this first | Native Claude/Codex context overflow gets one durable cheap-reset retry; |
 | [e-832693868628f9c0](projects-and-concurrency.md#e-832693868628f9c0) | Orgtree 4.0.0 (Rust engine): read this first | New-org presets with no offered slot (including fallbacks) are dimmed and |
 | [e-3060dce792c23ed5](desktop-and-renderer.md#e-3060dce792c23ed5) | Orgtree 4.0.0 (Rust engine): read this first | Quick chat's superior picker puts its selectable top level eye row |

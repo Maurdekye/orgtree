@@ -40,8 +40,8 @@ export const useEngineDebug = (): boolean => useSyncExternalStore(subscribe, eng
 export function EngineDebugToggle() {
   const on = useEngineDebug()
   return (
-    <SetToggle label="show the engine debug view" checked={on} onChange={setEngineDebugOn}
-      hint={'a live panel with each window’s websocket backlog, the engine’s '
+    <SetToggle label="Show the engine debug view" checked={on} onChange={setEngineDebugOn}
+      hint={'A live panel with each window’s websocket backlog, the engine’s '
         + 'memory and the docket list’s traffic, refreshed every second'} />
   )
 }

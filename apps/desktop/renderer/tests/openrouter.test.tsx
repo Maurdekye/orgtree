@@ -217,7 +217,7 @@ test('§2 the favorites row\'s "+" opens the picker; search, select and deselect
     assert.ok(first.querySelector('.orr-card')?.textContent === 'C', 'monogram card letter')
     // search narrows
     const search = view.el.querySelector<HTMLInputElement>(
-      'input[aria-label="search OpenRouter models"]')!
+      'input[aria-label="Search OpenRouter models"]')!
     await inAct(async () => {
       const setter = Object.getOwnPropertyDescriptor(
         Object.getPrototypeOf(search), 'value')!.set!

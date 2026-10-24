@@ -319,14 +319,14 @@ function DeskTextSize() {
     setDeskDpi(clamped)
   }
   return (
-    <SetRow label="desk text size"
-      hint={'scales agent desks, cards and canvas type. '
+    <SetRow label="Desk text size"
+      hint={'Scales agent desks, cards and canvas type. '
         + 'Panels like this one keep their own size.'}>
-      <button aria-label="smaller desk text" onClick={() => apply(dpi - 0.25)}
+      <button aria-label="Smaller desk text" onClick={() => apply(dpi - 0.25)}
         disabled={dpi <= 0.75}>−</button>
       <span className="set-value" aria-live="polite">
         {Math.round(dpi * 100)}%</span>
-      <button aria-label="larger desk text" onClick={() => apply(dpi + 0.25)}
+      <button aria-label="Larger desk text" onClick={() => apply(dpi + 0.25)}
         disabled={dpi >= 2.5}>+</button>
       <button onClick={() => apply(1)} disabled={dpi === 1}>reset</button>
     </SetRow>
@@ -335,32 +335,32 @@ function DeskTextSize() {
 
 export function ProjectBunchSetting() {
   const on = useProjectBunches()
-  return <SetToggle label="bunch consecutive projects" checked={on}
+  return <SetToggle label="Bunch consecutive projects" checked={on}
     onChange={setProjectBunchesOn}
-    hint="pack direct project columns into a round, ordered bunch; splits and agents start separate bunches" />
+    hint="Pack direct project columns into a round, ordered bunch; splits and agents start separate bunches" />
 }
 export function ProjectBunchRearrangeSetting() {
   const on = useProjectBunchRearrange()
-  return <SetToggle label="rearrange projects in a bunch" checked={on}
+  return <SetToggle label="Rearrange projects in a bunch" checked={on}
     onChange={setProjectBunchRearrangeOn}
-    hint="drag within a bunch to change project order; off keeps ordinary subtree dragging" />
+    hint="Drag within a bunch to change project order; off keeps ordinary subtree dragging" />
 }
 
 function CrowdStackToggle() {
   const on = useCrowdPiles()
   return (
-    <SetToggle label="collapse crowded teams into one stack" checked={on}
+    <SetToggle label="Collapse crowded teams into one stack" checked={on}
       onChange={setCrowdPilesOn}
-      hint={'a team with more than 8 active agents draws as a single '
+      hint={'A team with more than 8 active agents draws as a single '
         + 'stack instead of 8+ separate cards'} />
   )
 }
 
 function AgentShortcutsToggle() {
   const on = useAgentShortcuts()
-  return <SetToggle label="show agent card shortcuts" checked={on}
+  return <SetToggle label="Show agent card shortcuts" checked={on}
     onChange={setAgentShortcutsOn}
-    hint="show action buttons beneath agent names on canvas cards" />
+    hint="Show action buttons beneath agent names on canvas cards" />
 }
 
 /* user 2026-09-30: Terra is "a legacy option", hidden by default. Off, no hire
@@ -370,9 +370,9 @@ function ShowLegacyModelsToggle() {
   const on = useShowLegacyModels()
   return (
     <SetGroup title="Legacy models">
-      <SetToggle label="show legacy models (Terra, Gemini Pro)" checked={on}
+      <SetToggle label="Show legacy models (Terra, Gemini Pro)" checked={on}
         onChange={setShowLegacyModelsOn}
-        hint={'off: hire and model choices, and the model tier lists, leave Terra and Gemini Pro out. '
+        hint={'Off: hire and model choices, and the model tier lists, leave Terra and Gemini Pro out. '
           + 'Agents already on them keep running and show their model either way.'} />
     </SetGroup>
   )
@@ -385,25 +385,25 @@ function JumpFoldToggle() {
   const on = useJumpFold()
   return <SetToggle label="Collapse many jump cards on desks" checked={on}
     onChange={setJumpFoldOn}
-    hint={'a desk with more than 16 jump cards (reports and watchdogs) shows '
+    hint={'A desk with more than 16 jump cards (reports and watchdogs) shows '
       + 'them behind one counted button; off, every card is always shown'} />
 }
 
 function PinSnapToggle() {
   const on = usePinSnap()
-  return <SetToggle label="snap pinned panels to edges" checked={on}
+  return <SetToggle label="Snap pinned panels to edges" checked={on}
     onChange={setPinSnapOn}
-    hint={'dragging or resizing a pinned panel snaps it to the window edges '
+    hint={'Dragging or resizing a pinned panel snaps it to the window edges '
       + 'and beside other pinned panels; off, it goes exactly where you put it'} />
 }
 
 export function ChartLayoutSetting() {
   const mode = useChartLayout()
   return (
-    <SetRow label="org chart layout"
+    <SetRow label="Org chart layout"
       hint={mode === 'circular'
-        ? 'the top-level node sits at the centre; each team fans out behind its parent and each level is a further ring'
-        : 'agents sit in a row under the top-level node, one row per level'}>
+        ? 'The top-level node sits at the centre; each team fans out behind its parent and each level is a further ring'
+        : 'Agents sit in a row under the top-level node, one row per level'}>
       <select aria-label="Org chart layout" value={mode}
         onChange={e => setChartLayout(e.target.value === 'circular' ? 'circular' : 'row')}>
         <option value="row">row (default)</option>
@@ -416,9 +416,9 @@ export function ChartLayoutSetting() {
 function HideRetiredToggle() {
   const on = useHideRetired()
   return (
-    <SetToggle label="hide retired agents" checked={on}
+    <SetToggle label="Hide retired agents" checked={on}
       onChange={setHideRetiredOn}
-      hint={'retired agents leave the canvas and agent lists; reach them '
+      hint={'Retired agents leave the canvas and agent lists; reach them '
         + 'through the "N retired" token on their old team, or the '
         + 'switchboard’s archived rows'} />
   )
@@ -430,17 +430,17 @@ function HideRetiredToggle() {
    inert (disabled, hint rewritten) rather than by vanishing: a control that
    disappears reads as a bug, one that explains itself reads as a rule. */
 const START_VIEW_OPTIONS: [StartView, string][] = [
-  ['org', 'the full org'],
-  ['switchboard', 'the switchboard'],
-  ['remember', 'where I left off'],
+  ['org', 'The full org'],
+  ['switchboard', 'The switchboard'],
+  ['remember', 'Where I left off'],
 ]
 /* WHERE QUICK CHAT SITS (user 2026-10-10 19:23Z; Top by default, 19:24Z).
    App-wide and live in every window; the hint says what each choice means,
    including that None leaves the Attention view with no new-chat box. */
 const QUICK_CHAT_POSITIONS: [QuickChatPosition, string, string][] = [
-  ['top', 'Top', 'in the window header, centred — the empty header around it still drags the window'],
-  ['bottom', 'Bottom', 'in the footer status strip, centred — the header stays empty for dragging the window'],
-  ['none', 'None', 'hidden everywhere — the Attention view then has no box for starting a new chat'],
+  ['top', 'Top', 'In the window header, centred — the empty header around it still drags the window'],
+  ['bottom', 'Bottom', 'In the footer status strip, centred — the header stays empty for dragging the window'],
+  ['none', 'None', 'Hidden everywhere — the Attention view then has no box for starting a new chat'],
 ]
 function QuickChatPositionSetting() {
   const at = useQuickChatPosition()
@@ -460,26 +460,26 @@ function StartupView() {
   const remember = mode === 'remember'
   return (
     <>
-      <SetRow label="open an org at"
+      <SetRow label="Open an org at"
         hint={remember
-          ? 'the camera comes back exactly where it was in that org. A brand-new '
+          ? 'The camera comes back exactly where it was in that org. A brand-new '
             + 'org, with nowhere to come back to, plays the starting zoom once.'
           : mode === 'switchboard'
-            ? 'straight to the eye’s desk, every agent in one row'
-            : 'the whole tree, fitted to the window'}>
-        <select aria-label="open an org at" value={mode}
+            ? 'Straight to the eye’s desk, every agent in one row'
+            : 'The whole tree, fitted to the window'}>
+        <select aria-label="Open an org at" value={mode}
           onChange={(e) => setStartView(e.target.value as StartView)}>
           {START_VIEW_OPTIONS.map(([v, label]) =>
             <option key={v} value={v}>{label}</option>)}
         </select>
       </SetRow>
-      <SetToggle label="play the starting zoom" checked={zoom}
+      <SetToggle label="Play the starting zoom" checked={zoom}
         disabled={remember}
-        title={remember ? 'not used by “where I left off”' : undefined}
+        title={remember ? 'Not used by “Where I left off”' : undefined}
         onChange={setStartZoomOn}
         hint={remember
-          ? 'not used by “where I left off” — a restored view never glides'
-          : 'wakes on the eye, then glides out to the org (or in to the switchboard)'} />
+          ? 'Not used by “Where I left off” — a restored view never glides'
+          : 'Wakes on the eye, then glides out to the org (or in to the switchboard)'} />
     </>
   )
 }
@@ -588,7 +588,7 @@ export function ProviderSignIn({ provider, connected, toast, onRefresh,
   if (phase === 'awaiting_code' && supportsCode) {
     return (
       <div className="acct-claude-login">
-        <input className="acct-claude-code" placeholder="verification code"
+        <input className="acct-claude-code" placeholder="Verification code"
           aria-label={`${label} verification code`} value={code}
           onChange={(e) => setCode(e.target.value)}
           onKeyDown={(e) => { if (e.key === 'Enter') submit() }}
@@ -651,14 +651,14 @@ export function TurnLimitSetting({ runtime, busy, onSave }: {
   const valid = Number.isInteger(n) && n >= 1 && n <= 512
   const slots = runtime?.turn_slots
   const commit = () => { if (valid && n !== live) onSave(n) }
-  return <SetRow label="most agent turns running at once" field="max_concurrent_turns"
+  return <SetRow label="Most agent turns running at once" field="max_concurrent_turns"
     hint={'Default 16, shared by every organization on this machine. Extra '
       + 'turns wait their turn: first come, first served within an '
       + 'organization, and taking turns across organizations. A change applies '
       + 'at once; lowering it lets running turns finish.'
       + (slots ? ` Now: ${slots.held} running, ${slots.waiting} waiting.` : '')}>
     <input id="app-settings-max-concurrent-turns" type="number" min={1} max={512}
-      aria-label="most agent turns running at once" value={draft}
+      aria-label="Most agent turns running at once" value={draft}
       aria-invalid={!valid} disabled={busy}
       onChange={e => setDraft(e.target.value)} onBlur={commit}
       onKeyDown={e => { if (e.key === 'Enter') commit() }} />
@@ -805,8 +805,8 @@ export function AccountsPanel({ toast, close, initialTab, target }: {
           <button
             type="button"
             className="acct-secondary-btn acct-refresh-btn"
-            aria-label="refresh provider status"
-            title="refresh provider status"
+            aria-label="Refresh provider status"
+            title="Refresh provider status"
             disabled={discovering}
             onClick={() => { void loadProviders(true) }}
           >
@@ -865,7 +865,7 @@ export function AccountsPanel({ toast, close, initialTab, target }: {
             at all — an old build has no such lane, which is not the same as
             having it off. */}
         {lanes.apikey_fallback?.[p.id] !== undefined && hasEnabledKeyAccount(p.id) &&
-          <SetToggle label={`fall back to ${p.label} API-key accounts`}
+          <SetToggle label={`Fall back to ${p.label} API-key accounts`}
             checked={lanes.apikey_fallback[p.id] === true}
             disabled={busy}
             onChange={v => changeLane(setApikeyFallbackEnabled, p.id, v)}
@@ -890,13 +890,13 @@ export function AccountsPanel({ toast, close, initialTab, target }: {
       <CharterTemplateDirsSetting />
       <TemplateDocumentsSetting />
       <SetGroup title="Antigravity models">
-        <SetToggle label="enable Claude Sonnet 5.5 and Opus 5.5 through Antigravity"
+        <SetToggle label="Enable Claude Sonnet 5.5 and Opus 5.5 through Antigravity"
           checked={runtime?.antigravity_claude_enabled === true}
           disabled={!runtime || busy} onChange={v => changeRuntime(setAntigravityClaudeEnabled, v)}
           hint="Uses your Antigravity account and its Claude and GPT model limits." />
       </SetGroup>
       <SetGroup title="Agent processes">
-        <SetToggle label="keep agent processes warm" checked={runtime?.warming_enabled !== false}
+        <SetToggle label="Keep agent processes warm" checked={runtime?.warming_enabled !== false}
           disabled={!runtime || busy} onChange={v => changeRuntime(setWarmingEnabled, v)}
           hint={'Every live agent’s CLI starts with Orgtree and on hire, and stays ready between turns '
             + '(at most 64 idle at once, the longest idle closed first; warming pauses when the machine is '
@@ -909,29 +909,29 @@ export function AccountsPanel({ toast, close, initialTab, target }: {
             .catch((e: Error) => { setError(e.message); toast([e.message]) })
             .finally(() => setBusy(false))
         }} />
-        <SetToggle label="check on working agents after 20 minutes" checked={runtime?.working_checkups_enabled !== false}
+        <SetToggle label="Check on working agents after 20 minutes" checked={runtime?.working_checkups_enabled !== false}
           disabled={!runtime || busy} onChange={v => changeRuntime(setWorkingCheckupsEnabled, v)} />
-        <SetToggle label="wait until the MCP tool surface is ready" checked={runtime?.wait_for_mcp_tools_enabled === true}
+        <SetToggle label="Wait until the MCP tool surface is ready" checked={runtime?.wait_for_mcp_tools_enabled === true}
           disabled={!runtime || busy} onChange={v => changeRuntime(setWaitForMcpToolsEnabled, v)} />
-        <SetToggle label="remind idle agents about unfinished docket items" checked={runtime?.idle_docket_reminders_enabled === true}
+        <SetToggle label="Remind idle agents about unfinished docket items" checked={runtime?.idle_docket_reminders_enabled === true}
           disabled={!runtime || busy} onChange={v => changeRuntime(setIdleDocketRemindersEnabled, v)} />
-        <SetToggle label="also remind about blocked items when every ticket is blocked" checked={runtime?.blocked_docket_reminders_enabled === true}
+        <SetToggle label="Also remind about blocked items when every ticket is blocked" checked={runtime?.blocked_docket_reminders_enabled === true}
           disabled={!runtime || busy} onChange={v => changeRuntime(setBlockedDocketRemindersEnabled, v)} />
       </SetGroup>
       <SetGroup title="Projects">
-        <SetToggle label="wake an agent to listen for project mail" checked={runtime?.project_listener_wake_enabled !== false}
+        <SetToggle label="Wake an agent to listen for project mail" checked={runtime?.project_listener_wake_enabled !== false}
           disabled={!runtime || busy} onChange={v => changeRuntime(setProjectListenerWake, v)}
           hint={'When you write to a project and no agent watches it with a fair_queue watchdog, one agent '
             + 'directly under it (an idle one first) is woken and asked to arm one. Off: the mail waits in '
             + 'the project’s mailbox until someone arms one.'} />
       </SetGroup>
       <SetGroup title="Credit cost bubbling">
-        <SetToggle label="your hires bubble their cost up the chain" checked={runtime?.credit_bubble_hire_enabled !== false}
+        <SetToggle label="Your hires bubble their cost up the chain" checked={runtime?.credit_bubble_hire_enabled !== false}
           disabled={!runtime || busy} onChange={v => changeRuntime(setCreditBubbleHire, v)}
           hint={'Applies to hires and re-hires you make, in every organization. On: ancestor grants are raised when a '
             + 'hire needs more credits. Off: the hire’s superior must hold the free credits itself. '
             + 'Agents always bubble their cost, up to their own allocation.'} />
-        <SetToggle label="your allocations & model upgrades bubble their cost up the chain" checked={runtime?.credit_bubble_alloc_enabled !== false}
+        <SetToggle label="Your allocations & model upgrades bubble their cost up the chain" checked={runtime?.credit_bubble_alloc_enabled !== false}
           disabled={!runtime || busy} onChange={v => changeRuntime(setCreditBubbleAlloc, v)}
           hint={'Applies to allocations and model upgrades you make, in every organization. On: ancestor grants are raised '
             + 'when one needs more credits. Off: limited to the superior’s own free credits. '
@@ -977,7 +977,7 @@ export function AccountsPanel({ toast, close, initialTab, target }: {
       <SetGroup title="Debug">
         <EngineDebugToggle />
         {runtime?.verbose_logging !== undefined &&
-          <SetToggle label="verbose engine logging"
+          <SetToggle label="Verbose engine logging"
             checked={runtime.verbose_logging}
             disabled={busy || runtime.verbose_logging_pinned === true}
             onChange={next => changeRuntime(setVerboseLogging, next)}

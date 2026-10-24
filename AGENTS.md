@@ -20,6 +20,10 @@ Template node creation records one net inherited-audience delta around all canon
 
 Recursive project fires must construct nested futures with `util::boxed(|| ...)`: `Box::pin(f())` still grows debug poll frames at every level, even with the depth-four cutoff. See [fire-action stack verification](docs/rust-engine/tool-cards.md#fire-actions). [verified: `domain/listeners.rs`, 2026-10-22]
 
+## Setting text case
+
+Every setting name, description/help text and settings section header uses sentence case: capitalize the first word and retain proper nouns, product names, acronyms and literal identifiers (Orgtree, Claude Code, Codex, Hubchat, MCP, org.md). Apply this to new and changed settings and keep quoted glossary/user-documentation labels aligned. [decided: user 2026-10-24, settings capitalization]
+
 ## Read this first
 
 Providers Refresh and post-login verification share serialized ordinary discovery; the default Codex row reuses the native sign-in flow. Tool refresh requires inspection + runtime. See [provider refresh](docs/agents/providers-and-accounts.md#explicit-provider-refresh-and-default-codex-sign-in-2026-10-23). [verified: `providers/status_refresh.rs`, `canvas/accountsregistry.tsx`;2026-10-23]

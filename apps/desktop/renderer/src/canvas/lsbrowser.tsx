@@ -120,7 +120,7 @@ export function LangServerBrowser({ title, live, models, missing, picked, minCon
       panel="settings orr-picker ls-browser" close={onClose} pinnable={false}>
       <h3>{title}
         <span className="dim"> · {offered.length} offered{live ? ' · each change is saved at once' : ''}</span></h3>
-      <BrowserSelected busy={busy} label="offered models"
+      <BrowserSelected busy={busy} label="Offered models"
         empty="nothing offered yet: search below and offer the models that can be hired"
         removeVerb="withdraw"
         removeTitle="withdraw: it can no longer be hired; agents already on it keep running"
@@ -130,13 +130,13 @@ export function LangServerBrowser({ title, live, models, missing, picked, minCon
           onRemove: () => onPick(id, null),
         }))} />
       <input ref={inputRef} className="orr-search" type="search"
-        placeholder="search the models: name, family, size…"
-        aria-label="search the server's models"
+        placeholder="Search the models: name, family, size…"
+        aria-label="Search the server's models"
         value={q} onChange={(e) => { setQ(e.target.value); reset() }} />
       <div className="orr-sortbar ls-filters">
         <label>
-          <span className="dim">sort</span>
-          <select value={sort} aria-label="sort the models"
+          <span className="dim">Sort</span>
+          <select value={sort} aria-label="Sort the models"
             onChange={(e) => {
               const s = e.target.value as Sort
               setSort(s); reset()
@@ -149,15 +149,15 @@ export function LangServerBrowser({ title, live, models, missing, picked, minCon
           </select>
         </label>
         <button type="button" className="orr-dir"
-          title={`showing ${DIR_LABEL[sort][order]}: click to reverse`}
-          aria-label={`sort direction: ${DIR_LABEL[sort][order]}`}
+          title={`Showing ${DIR_LABEL[sort][order]}: click to reverse`}
+          aria-label={`Sort direction: ${DIR_LABEL[sort][order]}`}
           onClick={() => { setOrder(order === 'asc' ? 'desc' : 'asc'); reset() }}>
           {order === 'asc' ? '↑' : '↓'} {DIR_LABEL[sort][order]}
         </button>
         {has.context && (
           <label>
-            <span className="dim">trained for</span>
-            <select value={minCtx} aria-label="trained window at least"
+            <span className="dim">Trained for</span>
+            <select value={minCtx} aria-label="Trained window at least"
               onChange={(e) => { setMinCtx(Number(e.target.value)); reset() }}>
               <option value={0}>any window</option>
               {CONTEXT_STEPS.map((c) => <option key={c} value={c}>{fmtTokens(c)} or more</option>)}
@@ -166,8 +166,8 @@ export function LangServerBrowser({ title, live, models, missing, picked, minCon
         )}
         {has.size && (
           <label>
-            <span className="dim">size</span>
-            <select value={maxSize} aria-label="size at most"
+            <span className="dim">Size</span>
+            <select value={maxSize} aria-label="Size at most"
               onChange={(e) => { setMaxSize(Number(e.target.value)); reset() }}>
               <option value={0}>any size</option>
               {SIZE_STEPS.map((b) => <option key={b} value={b}>up to {fmtBytes(b)}</option>)}
@@ -176,16 +176,16 @@ export function LangServerBrowser({ title, live, models, missing, picked, minCon
         )}
         {has.tools && (
           <label className="ls-check">
-            <input type="checkbox" checked={tools} aria-label="tool use only"
+            <input type="checkbox" checked={tools} aria-label="Tool use only"
               onChange={(e) => { setTools(e.target.checked); reset() }} />
-            tool use
+            Tool use
           </label>
         )}
         {has.thinking && (
           <label className="ls-check">
-            <input type="checkbox" checked={thinking} aria-label="thinking only"
+            <input type="checkbox" checked={thinking} aria-label="Thinking only"
               onChange={(e) => { setThinking(e.target.checked); reset() }} />
-            thinking
+            Thinking
           </label>
         )}
       </div>
@@ -197,9 +197,9 @@ export function LangServerBrowser({ title, live, models, missing, picked, minCon
         </div>
       )}
       <div className="orr-list">
-        {reading && !all.length && <div className="dim">asking the server…</div>}
-        {!reading && !error && !all.length && <div className="dim">the server lists no models</div>}
-        {all.length > 0 && !rows.length && <div className="dim">no models match</div>}
+        {reading && !all.length && <div className="dim">Asking the server…</div>}
+        {!reading && !error && !all.length && <div className="dim">The server lists no models</div>}
+        {all.length > 0 && !rows.length && <div className="dim">No models match</div>}
         {page.map((r) => {
           const on = r.id in picked
           const w = picked[r.id]
@@ -210,7 +210,7 @@ export function LangServerBrowser({ title, live, models, missing, picked, minCon
               <span className="orr-name">
                 <b className="mono">{r.id}</b>
                 <span className="dim" title={r.m ? probeFacts(r.m) : undefined}>
-                  {r.m ? probeFacts(r.m) || 'the server says nothing more about it' : 'the server no longer lists it'}</span>
+                  {r.m ? probeFacts(r.m) || 'The server says nothing more about it' : 'The server no longer lists it'}</span>
                 {mismatch && <span className="ask-warn ls-mismatch">{mismatch}</span>}
               </span>
               {on && w != null
@@ -219,7 +219,7 @@ export function LangServerBrowser({ title, live, models, missing, picked, minCon
                 : <span />}
               <button type="button" className="ls-offer" aria-pressed={on}
                 disabled={busy || (!on && !r.m)}
-                title={on ? 'withdraw: it can no longer be hired; agents already on it keep running' : 'offer this model to new hires'}
+                title={on ? 'Withdraw: it can no longer be hired; agents already on it keep running' : 'Offer this model to new hires'}
                 onClick={() => onPick(r.id, on ? null : startWindow(r.m!, defaultContext))}>
                 {on ? '✓ offered' : 'offer'}</button>
               {r.m && variant?.(r.m)}
@@ -258,7 +258,7 @@ function WindowInput({ id, value, min, busy, live, onChange }: {
         onChange={(e) => (live ? setTyped(e.target.value) : onChange(tokens(e.target.value)))}
         onBlur={live ? send : undefined}
         onKeyDown={live ? (e) => { if (e.key === 'Enter') send() } : undefined} />
-      <span className="dim">tokens</span>
+      <span className="dim">Tokens</span>
       {shown < min && <span className="ask-warn"
         title={`An agent's own prompt takes about 35K tokens, so it needs a window of at least ${fmtTokens(min)} to work`}>
         too small for an agent</span>}

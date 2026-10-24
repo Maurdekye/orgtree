@@ -34,7 +34,7 @@ These control tools built into the harness, such as Claude Code or Codex. Helper
 | Watchdogs | `watchdogs` | Persistent watchers. Command watchers also need Run commands. |
 | Runtime and accounts | `runtime` | Interrupt/halt/resume, continuation and account marks. |
 | User questions and delivery | `user` | Questions, documents, files and requests for scope/credits. |
-| Organization Logo | `logo` | Immediately set/remove this org's Logo, with logging and user undo history. |
+| Organization logo | `logo` | Immediately set/remove this org's Logo, with logging and user undo history. |
 
 Disabled groups remove their tool definitions and corresponding engine-owned instructions. Status reporting remains available even with every group off. Staffing a work item needs both Docket work and Team management. A fresh usage refresh additionally needs Runtime and accounts; the saved read belongs to Organization reading. These are capability gates alongside the tools' normal target/audience/ownership checks, not permission to contact the user or modify any agent.
 

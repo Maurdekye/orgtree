@@ -8,7 +8,7 @@ Up: [orgtree-harnesses](../SKILL.md)
 
 App settings → Harnesses is a compact inventory, not a provider-login page. It reads the same engine registry that validates harness choices.
 
-Rows show harness name, installed/missing state and discovered version; an installed entry with no usable version says “version unknown.” Missing entries get an install link when supplied. OpenRouter/Language model server tags indicate compatibility and are independent of installation. Listing the page reuses cached discovery versions rather than launching CLIs to obtain them.
+Rows show harness name, installed/missing state and discovered version; an installed entry with no usable version says “Version unknown.” Missing entries get an install link when supplied. OpenRouter/Language model server tags indicate compatibility and are independent of installation. Listing the page reuses cached discovery versions rather than launching CLIs to obtain them.
 
 Only compatible installed harnesses can be selected. A saved missing choice is retained as an unavailable value, so launch can explain the error rather than silently changing harness. OpenCode installation additionally needs the negotiated ACP entrypoint.
 

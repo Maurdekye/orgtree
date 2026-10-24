@@ -59,19 +59,19 @@ export function CreditBarStats({seat, cur, grant = cur, committed, delta = 0, dr
               {grant !== baseline && <span className={grant < baseline ? 'n-down' : 'dim'}>
                 {' '}({grant > baseline ? '+' : ''}{fmtCredits(grant - baseline)})</span>}
             </div>
-            <div className="dim">now <b>{fmtCredits(baseline)}</b></div>
+            <div className="dim">Now <b>{fmtCredits(baseline)}</b></div>
           </>
         ) : draftMode ? (
           <>
             <div>grant <b className="n-fill">{fmtCredits(grant)}</b></div>
-            <div className="dim">seat <b className="n-seat">{fmtCredits(seat)}</b></div>
+            <div className="dim">Seat <b className="n-seat">{fmtCredits(seat)}</b></div>
           </>
         ) : (
           <>
             <div>grant <b className="n-fill">{fmtCredits(cur)}</b>{delta !== 0 && <span className="dim"> ({delta > 0 ? '+' : ''}{fmtCredits(delta)})</span>}</div>
             <div>alloc <b className="n-fill">{fmtCredits(committed)}</b></div>
             <div>free <b className="n-free">{fmtCredits(cur - committed)}</b></div>
-            <div className="dim">seat <b className="n-seat">{fmtCredits(seat)}</b></div>
+            <div className="dim">Seat <b className="n-seat">{fmtCredits(seat)}</b></div>
           </>
         )}
       </div>

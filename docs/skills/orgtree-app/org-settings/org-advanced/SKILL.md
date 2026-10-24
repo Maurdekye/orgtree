@@ -18,9 +18,9 @@ The modal title uses the typed org name, or **new organization**, followed by
 
 | Tab | Fields | Initial value |
 | --- | --- | --- |
-| General | **also grant existing folders**, using editable path rows, folder browsing, add and remove controls | No extra folders. |
-| Mail hub | **connect to this computer's mail hub** | On. |
-| Mail hub | **remote mail hubs**, with editable address rows, remove buttons and **+ add a remote mail hub address** | No remote addresses; adding a row starts it empty. |
+| General | **Also grant existing folders**, using editable path rows, folder browsing, add and remove controls | No extra folders. |
+| Mail hub | **Connect to this computer's mail hub** | On. |
+| Mail hub | **Remote mail hubs**, with editable address rows, remove buttons and **+ add a remote mail hub address** | No remote addresses; adding a row starts it empty. |
 
 Opening advanced probes the local hub and reports checking, detected hub name,
 or **not running right now — the org will connect when it starts**. Detection

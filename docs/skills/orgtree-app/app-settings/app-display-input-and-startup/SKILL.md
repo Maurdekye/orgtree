@@ -13,9 +13,9 @@ These Display controls describe how the user interacts with the app. Agents expl
 | --- | --- | --- | --- |
 | Quick chat position | `ls:orgtree-quickchat-position` | top | Top centers it in the header; Bottom in the footer strip; None hides it everywhere, leaving Attention without its new-chat box. |
 | Enter key | `rt:enter_key_behavior`, app runtime settings | send | Send message uses Enter or Ctrl/Command+Enter to send, Shift+Enter for a newline. Insert new line uses Enter for a newline and Ctrl/Command+Enter to send. |
-| on startup | `np:startupMode`, native preferences | restore | Restore previous windows in saved positions, or open a fresh homepage. This control is absent when the shell cannot provide multi-window startup. |
-| open an org at | `ls:orgtree-start-view` | org | The full org fitted to the window, the switchboard, or where I left off. |
-| play the starting zoom | `ls:orgtree-start-zoom` | On | Animates the initial view; disabled for where I left off because a restored camera does not glide. A brand-new org with no saved camera plays the starting zoom once. |
+| On startup | `np:startupMode`, native preferences | restore | Restore previous windows in saved positions, or open a fresh homepage. This control is absent when the shell cannot provide multi-window startup. |
+| Open an org at | `ls:orgtree-start-view` | org | The full org fitted to the window, the switchboard, or where I left off. |
+| Play the starting zoom | `ls:orgtree-start-zoom` | On | Animates the initial view; disabled for where I left off because a restored camera does not glide. A brand-new org with no saved camera plays the starting zoom once. |
 
 Quick chat placement and canvas-view choices are browser-local preferences. Native startupMode governs desktop windows; it is different from Run on boot, which controls whether Orgtree starts automatically at all. A canvas destination is not an engine start mode. See [desktop startup](../app-runtime-desktop/SKILL.md).
 

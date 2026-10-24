@@ -169,10 +169,10 @@ const save = async () => {
 
 test('§3 the gear: an Project Events switch, off by default; switching it on and saving sends one set_event_listeners', async (t) => {
   const { ops } = await gear(t, project())
-  const sw = document.querySelector<HTMLInputElement>('input[aria-label="Project Events"]')
+  const sw = document.querySelector<HTMLInputElement>('input[aria-label="Project events"]')
   assert.ok(sw, 'an Project Events switch')
   assert.equal(sw!.checked, false, 'off by default')
-  const hint = row('Project Events')?.textContent ?? ''
+  const hint = row("Project events")?.textContent ?? ''
   assert.match(hint, /events tab/, 'the hint says it controls the tab')
   assert.match(hint, /registering a listener/, 'and that agents switch it on by registering one')
   assert.match(hint, /Off disables every event listener and listener watch on the project/, 'and what off does')
@@ -183,7 +183,7 @@ test('§3 the gear: an Project Events switch, off by default; switching it on an
 
 test('§3 a project whose setting is on shows it on; switching it off and saving sends enabled false, nothing else', async (t) => {
   const { ops } = await gear(t, project({ event_listeners: true }))
-  const sw = document.querySelector<HTMLInputElement>('input[aria-label="Project Events"]')
+  const sw = document.querySelector<HTMLInputElement>('input[aria-label="Project events"]')
   assert.ok(sw, 'an Project Events switch')
   assert.equal(sw!.checked, true)
   await save()

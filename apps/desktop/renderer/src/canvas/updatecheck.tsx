@@ -49,7 +49,7 @@ export function UpdateCheckRow({ appVersion }: { appVersion: string | null }) {
   }
   const text = failure ? `Could not check for updates: ${failure}`
     : checking ? 'Checking…' : status ? describeCheck(status, appVersion) ?? undefined : undefined
-  return <SetRow label="updates" hint={text}>
+  return <SetRow label="Updates" hint={text}>
     <button type="button" onClick={check} disabled={checking}>
       {checking ? 'Checking…' : 'Check for updates'}
     </button>

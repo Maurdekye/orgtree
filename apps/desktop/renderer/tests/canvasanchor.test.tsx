@@ -117,7 +117,7 @@ test('§3c the Settings toggle shows the effective value and flips it', async (t
   const view = await mountView(<CanvasAnchorSettings />, el => el)
   t.after(() => view.unmount())
   const box = () => view.el.querySelector(
-    'input[aria-label="keep canvas controls inside the area pins leave free"]') as HTMLInputElement | null
+    'input[aria-label="Keep canvas controls inside the area pins leave free"]') as HTMLInputElement | null
   assert.ok(box(), 'the toggle renders under its unchanged label')
   assert.equal(box()!.checked, true, 'unset: the Settings UI shows on')
 

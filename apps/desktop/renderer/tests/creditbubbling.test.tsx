@@ -8,8 +8,8 @@ import { DefaultsPanel } from '../src/App'
 // where the two switches govern only the USER's own actions; agents always bubble (USER 2026-10-22 14:30Z).
 
 const g = globalThis as unknown as Record<string, unknown>
-const HIRE = 'your hires bubble their cost up the chain'
-const ALLOC = 'your allocations & model upgrades bubble their cost up the chain'
+const HIRE = "Your hires bubble their cost up the chain"
+const ALLOC = "Your allocations & model upgrades bubble their cost up the chain"
 
 function service(initial: { hire?: boolean; alloc?: boolean } = {}) {
   const state = { credit_bubble_hire_enabled: initial.hire, credit_bubble_alloc_enabled: initial.alloc }

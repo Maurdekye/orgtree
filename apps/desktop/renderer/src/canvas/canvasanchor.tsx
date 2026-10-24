@@ -124,7 +124,7 @@ export const freeInsets = (
 /** Browser-local control for where the canvas's own controls anchor. */
 export function CanvasAnchorSettings() {
   const setting = useCanvasAnchor()
-  return <SetToggle label="keep canvas controls inside the area pins leave free"
+  return <SetToggle label="Keep canvas controls inside the area pins leave free"
     checked={setting.enabled}
     onChange={enabled => setCanvasAnchor({ enabled })} />
 }

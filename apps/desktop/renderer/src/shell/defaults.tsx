@@ -31,7 +31,7 @@ export function DefaultsForm({ toast, onDone }: {
   // Partial: the error fallback seeds {} and every read has its own default
   const [d, setD] = useState<Partial<DefaultsPayload> | null>(null)
   useEffect(() => { getDefaults().then(setD).catch(() => setD({})) }, [])
-  if (d == null) return <div className="dim pad">loading…</div>
+  if (d == null) return <div className="dim pad">Loading…</div>
   const close = onDone
   const set = (k: string, v: unknown) => setD({ ...d, [k]: v })
   return (
@@ -40,34 +40,34 @@ export function DefaultsForm({ toast, onDone }: {
             sentence, and it used to live inside the h3 — where a pinned window
             hides it along with the duplicated heading. Outside it, visible in
             both modes (Astra 2026-09-06). */}
-        <div className="dim modalpin-subtitle">applied to every NEW
+        <div className="dim modalpin-subtitle">Applied to every new
           organization</div>
         <SetGroup title="Credits">
-          <SetRow label="top-level grant cap">
-            <input type="number" min="1" step="1" aria-label="top-level grant cap"
+          <SetRow label="Top-level grant cap">
+            <input type="number" min="1" step="1" aria-label="Top-level grant cap"
               value={d.max_top_grant ?? 1000}
               onChange={(e) => set('max_top_grant', +e.target.value)} />
           </SetRow>
-          <SetRow label="default top-level grant" hint="pre-filled on new hires">
-            <input type="number" min="0" step="1" aria-label="default top-level grant"
+          <SetRow label="Default top-level grant" hint="Pre-filled on new hires">
+            <input type="number" min="0" step="1" aria-label="Default top-level grant"
               value={d.default_top_grant ?? 50}
               onChange={(e) => set('default_top_grant', +e.target.value)} />
           </SetRow>
         </SetGroup>
         <SetGroup title="Agents">
-          <SetRow label="compaction threshold %" hint="50–95">
-            <input type="number" min="50" max="95" step="1" aria-label="compaction threshold %"
+          <SetRow label="Compaction threshold %" hint="50–95">
+            <input type="number" min="50" max="95" step="1" aria-label="Compaction threshold %"
               value={Math.round((d.compact_at ?? 0.8) * 100)}
               onChange={(e) => set('compact_at', (+e.target.value || 80) / 100)} />
           </SetRow>
-          <SetRow label="default thinking effort"
+          <SetRow label="Default thinking effort"
             hint="Agents without their own effort use the org default. If neither sets a level, high is the fallback before harness/model mapping.">
             <EffortBar value={d.default_effort ?? ''} level="" inheritLabel="Default (high fallback)"
               onSet={(v) => set('default_effort', v)} />
           </SetRow>
         </SetGroup>
         <SetGroup title="Usage limits">
-          <SetToggle label="auto-resume usage-limit-frozen agents after the reset time" checked={!!d.auto_resume}
+          <SetToggle label="Auto-resume usage-limit-frozen agents after the reset time" checked={!!d.auto_resume}
             hint="Resume agents automatically after their usage limit resets."
             onChange={next => set('auto_resume', next)} />
         </SetGroup>

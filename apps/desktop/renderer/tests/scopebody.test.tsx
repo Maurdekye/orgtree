@@ -195,7 +195,7 @@ test('Logo group defaults on and an explicit off is saved in the inherited tool 
   t.after(async () => { realClock() })
   const sent = scopeBodies()
   const el = await mount()
-  const box = el.querySelector<HTMLInputElement>('input[aria-label="Organization Logo"]')
+  const box = el.querySelector<HTMLInputElement>('input[aria-label="Organization logo"]')
   assert.equal(box?.checked === true, true, 'Logo group must exist and default on')
   assert.equal(box?.disabled === false, true)
   const { act } = await import('react')
@@ -215,7 +215,7 @@ test('Logo group cannot exceed the superior grant', async (t: TestContext) => {
   child.parent = parent.id
   child.scope!.tools.orgtree = { logo: true }
   const el = await mount(child, [parent])
-  const box = el.querySelector<HTMLInputElement>('input[aria-label="Organization Logo"]')
+  const box = el.querySelector<HTMLInputElement>('input[aria-label="Organization logo"]')
   assert.equal(box?.checked === false, true, 'Logo group must reflect inherited denial')
   assert.equal(box?.disabled === true, true, 'inherited denial must disable the switch')
 })

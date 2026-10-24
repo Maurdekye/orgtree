@@ -71,7 +71,7 @@ export function HarnessesSection({ active }: { active: boolean }) {
   return <SetGroup title="Harnesses">
     <p className="dim harness-intro">Tags show where else a harness can be used.</p>
     {err && <div className="ask-warn" role="alert">could not read the harnesses: {err}</div>}
-    {!doc && !err && <div className="dim">reading the harnesses…</div>}
+    {!doc && !err && <div className="dim">Reading the harnesses…</div>}
     {doc && <div className="harness-list" role="list">
       {doc.harnesses.map((h) => <div className="harness-entry" role="listitem" key={h.id} data-harness={h.id}>
         <div className="harness-head">
@@ -86,7 +86,7 @@ export function HarnessesSection({ active }: { active: boolean }) {
             && <span className="harness-tag">Language model server</span>}
         </span>
         <span className="harness-detail">
-          {h.installed ? <span className="dim harness-version">{h.version?.trim() || 'version unknown'}</span>
+          {h.installed ? <span className="dim harness-version">{h.version?.trim() || 'Version unknown'}</span>
             : h.install_url && <a href={h.install_url} target="_blank" rel="noreferrer">How to install</a>}
         </span>
       </div>)}

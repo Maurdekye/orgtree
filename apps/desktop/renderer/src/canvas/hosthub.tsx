@@ -128,7 +128,7 @@ export function HostHub({ active = true }: { active?: boolean } = {}) {
       <fieldset disabled={busy} style={{ border: 0, padding: 0, margin: 0 }}>
         <SetGroup title="Hosting">
           <SetRow label="Hub name" hint="Shown to everyone who connects, and on the hub's own mail page.">
-            <input aria-label="Mail hub name" value={config.name} placeholder="this computer's name"
+            <input aria-label="Mail hub name" value={config.name} placeholder="This computer's name"
               onChange={e => setConfig({ ...config, name: e.target.value })} />
           </SetRow>
           <SetRow label="Maximum attachment size (MiB)"
@@ -148,7 +148,7 @@ export function HostHub({ active = true }: { active?: boolean } = {}) {
               <option value="0.0.0.0">This computer and the local network</option>
             </select>
           </SetRow>
-          {exposed && <SetBlock><p className="ask-warn">Anyone who can reach the hub can read ALL mail on its page — that page is the operator view and has no login. Share it only on a network where every machine is trusted. The hub does not provide TLS; put a reverse proxy in front if you need encryption.</p></SetBlock>}
+          {exposed && <SetBlock><p className="ask-warn">Anyone who can reach the hub can read all mail on its page — that page is the operator view and has no login. Share it only on a network where every machine is trusted. The hub does not provide TLS; put a reverse proxy in front if you need encryption.</p></SetBlock>}
         </SetGroup>
         <SetGroup title="Retention">
           <SetRow label="Keep mail"

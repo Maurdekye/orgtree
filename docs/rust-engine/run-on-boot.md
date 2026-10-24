@@ -70,7 +70,7 @@ first-run setup and in the tray. The tray item mirrors the setting.
   PowerShell has failed, the non-elevated launcher reads the value and
   passes back only a message under its own nonce (base64 UTF-8, so localized
   Windows text survives). The desktop then says `Changing the setting
-  failed: <message>.` or `Changing "run on boot" failed: <message>.`, and
+  failed: <message>.` or `Changing "Run on boot" failed: <message>.`, and
   the exit code only when there is no message. Never a temp file: an
   elevated write to a path the user, and so every agent, can write could be
   redirected by a link planted there.
@@ -206,7 +206,7 @@ who="<agent>" reason="the user's Windows session ended" status="..."` line.
   time while the user is signed in; turns start in Session 0 until it does`,
   and the agent moves down, told so.
 - **Warm CLIs** (docket `after-an-engine-restart-codex-clis-and-their-mcp`;
-  invariants 3 and 5): warming (App settings' "keep agent processes warm")
+  invariants 3 and 5): warming (App settings' "Keep agent processes warm")
   starts a CLI where the agent's next turn would run, and waits for the
   helper exactly as a turn start does (`Actor::start_ahead`,
   `session_settle`); so does a start by hand from the desk's process mark

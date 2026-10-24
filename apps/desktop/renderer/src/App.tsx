@@ -2564,7 +2564,7 @@ export function NewOrg({ onCreate }: {
         netAuto, netHubs.map((s) => s.trim()).filter(Boolean))
       reset()
     }}>
-      <input autoFocus placeholder="organization name" value={name}
+      <input autoFocus placeholder="Organization name" value={name}
         onChange={(e) => setName(e.target.value)} required />
       {/* F-07: the disclosure now OPENS the shared advanced modal instead of
           unfolding inline — same summary line (the at-a-glance state the form
@@ -2579,30 +2579,30 @@ export function NewOrg({ onCreate }: {
           ].filter(Boolean).join(' · ')}</span>)}
       </button>
       {advanced && (
-        <AdvancedOrgModal title={name.trim() || 'new organization'}
+        <AdvancedOrgModal title={name.trim() || 'New organization'}
           close={() => setAdvanced(false)}
           tabs={[
             { label: 'General', content: (
               <>
-                <div className="field-label">also grant existing folders</div>
+                <div className="field-label">Also grant existing folders</div>
                 <DirList dirs={dirs} onChange={setDirs} />
               </>
             ) },
             { label: 'Mail hub', content: (
               <>
-                <SetToggle label="connect to this computer's mail hub" checked={netAuto}
+                <SetToggle label="Connect to this computer's mail hub" checked={netAuto}
                   hint="Let peers mail this organization and start its agents."
-                  title="being listed means peers can mail this org (and thereby spend its credits) — refusable here, at creation"
+                  title="Being listed means peers can mail this org (and thereby spend its credits) — refusable here, at creation"
                   onChange={setNetAuto} />
                 {<div className="dim hub-hint">
-                  {hubSeen == null ? 'checking for a local hub…'
+                  {hubSeen == null ? 'Checking for a local hub…'
                     : hubSeen.ok
-                      ? `detected: ${hubSeen.name || 'unnamed hub'}`
-                      : 'not running right now — the org will connect when it starts'}
+                      ? `Detected: ${hubSeen.name || 'unnamed hub'}`
+                      : 'Not running right now — the org will connect when it starts'}
                 </div>}
                 {(
                   <>
-                    <div className="field-label adv-sep">remote mail hubs</div>
+                    <div className="field-label adv-sep">Remote mail hubs</div>
                     {netHubs.map((h, i) => (
                       <div className="row" key={i}>
                         <input style={{ flex: 1 }} placeholder="http://host:7370"
@@ -2615,7 +2615,7 @@ export function NewOrg({ onCreate }: {
                     ))}
                     <button type="button" onClick={() => setNetHubs((l) => [...l, ''])}>
                       + add a remote mail hub address</button>
-                    <div className="dim hub-hint">names are discovered on
+                    <div className="dim hub-hint">Names are discovered on
                       connect — only the address is typed</div>
                   </>
                 )}
@@ -2656,11 +2656,11 @@ function AutonomyTab({ tree, toast }: {
           and the manual ▶ that left the chrome keeps a seat here so bulk
           resume still exists. Per-card badges still say who is frozen. */}
       <div className="field-label">Usage-limit freezes</div>
-      <SetToggle label="automatically switch accounts after a usage limit" checked={!!tree.account_fallback_default}
+      <SetToggle label="Automatically switch accounts after a usage limit" checked={!!tree.account_fallback_default}
         hint="Default for this org; each agent can override it. Uses another account with capacity for the same lane and keeps that account."
         onChange={next => save({ account_fallback_default: next },
           next ? 'account fallback default ON' : 'account fallback default off')} />
-      <SetToggle label="auto-resume frozen agents when the usage limit resets" checked={!!tree.auto_resume}
+      <SetToggle label="Auto-resume frozen agents when the usage limit resets" checked={!!tree.auto_resume}
         hint="Resume all frozen agents one minute after the reported reset time."
         onChange={next => save({ auto_resume: next }, next ? 'auto-resume ON' : 'auto-resume off')} />
       {(() => {
@@ -2674,10 +2674,10 @@ function AutonomyTab({ tree, toast }: {
                 <PlayIcon fontSize="inherit" /> resume {frozen.length} frozen agent{frozen.length === 1 ? '' : 's'} now
               </button>
             </div>
-          : <div className="dim hub-hint">no agents are frozen right now</div>
+          : <div className="dim hub-hint">No agents are frozen right now</div>
       })()}
       <div className="dim" style={{ fontSize: '11.5px' }}>
-        autonomy changes apply immediately
+        Autonomy changes apply immediately
       </div>
     </>
   )
@@ -3337,35 +3337,35 @@ export function SettingsPanel({ tree, toast, close, initialTab, target }: {
           </SetRow>
         </SetGroup>}
         <SetGroup title="Credits">
-          <SetRow label="top-level grant cap"
-            hint="the largest grant any top-level agent may hold">
+          <SetRow label="Top-level grant cap"
+            hint="The largest grant any top-level agent may hold">
             <input type="number" min="1" step="1" value={maxTop}
-              aria-label="top-level grant cap"
+              aria-label="Top-level grant cap"
               onChange={(e) => setMaxTop(e.target.value)} />
           </SetRow>
-          <SetRow label="default top-level grant"
-            hint="pre-filled on new hires">
+          <SetRow label="Default top-level grant"
+            hint="Pre-filled on new hires">
             <input type="number" min="0" step="1" value={defTop}
-              aria-label="default top-level grant"
+              aria-label="Default top-level grant"
               onChange={(e) => setDefTop(e.target.value)} />
           </SetRow>
         </SetGroup>
         <SetGroup title="Agent defaults">
-          <SetRow label="compaction threshold"
+          <SetRow label="Compaction threshold"
             hint="50–95%. The agent's CLI compacts its context when it passes this (Claude Code and Codex agents; a running process keeps its old value until it restarts).">
             <input type="number" min="50" max="95" step="1" value={compactAt}
-              aria-label="compaction threshold percent"
+              aria-label="Compaction threshold percent"
               onChange={(e) => setCompactAt(e.target.value)} />
             <span className="dim">%</span>
           </SetRow>
           {/* default effort (user req 2026-08-01, visible inherit): agents
               without their own effort follow this LIVE — changing it here
               reaches every unset agent's next turn, no rehire */}
-          <SetRow label="default thinking effort"
+          <SetRow label="Default thinking effort"
             hint={'Agents without their own effort inherit this setting for their next turn; '
               + 'no rehire is needed. If neither sets a level, high is the fallback '
               + 'before harness/model mapping.'}>
-            <select value={defEffort} aria-label="default thinking effort"
+            <select value={defEffort} aria-label="Default thinking effort"
               onChange={(e) => setDefEffort(e.target.value)}>
               <option value="">Default (high fallback)</option>
               <option value="low">low</option>
@@ -3377,7 +3377,7 @@ export function SettingsPanel({ tree, toast, close, initialTab, target }: {
           </SetRow>
         </SetGroup>
         <SetGroup title="Org charter" note="org.md">
-          <SetBlock hint={"carried in the managed system prompt of EVERY "
+          <SetBlock hint={"Carried in the managed system prompt of every "
             + "agent in this org, on every provider — Claude, Codex and "
             + "Antigravity alike — and read as a standing directive from "
             + "you. It is delivered at session start, so saving restarts "
@@ -3451,7 +3451,7 @@ export function SettingsPanel({ tree, toast, close, initialTab, target }: {
           active={tab === 'policies'}>
           {visited('policies') && (<>
             <SetGroup title="Cache-protective cheap compaction">
-              <SetToggle label="reset a session before a known-cold turn" field="cheap-compact"
+              <SetToggle label="Reset a session before a known-cold turn" field="cheap-compact"
                 checked={accOn} onChange={setAccOn}
                 hint={'On by default for new organizations; existing organizations keep their setting. '
                   + 'Agents can override in their own ⚙. '
@@ -3464,9 +3464,9 @@ export function SettingsPanel({ tree, toast, close, initialTab, target }: {
                   + 'mismatch is cold immediately; unknown forecasts never '
                   + 'auto-compact.'} />
               {accOn && (
-                <SetRow label="at or above a context occupancy of">
+                <SetRow label="At or above a context occupancy of">
                   <input type="number" min="5" max="95" step="5" value={accOcc}
-                    aria-label="cheap compaction context occupancy percent"
+                    aria-label="Cheap compaction context occupancy percent"
                     onChange={(e) => setAccOcc(e.target.value)} />
                   <span className="dim">%</span>
                 </SetRow>

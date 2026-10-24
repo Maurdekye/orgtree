@@ -43,7 +43,7 @@ groups default to enabled; all eight start enabled in effective scope.
 | Watchdogs | `watchdogs` | Persistent watchers; command watchers also require Run commands. |
 | Runtime and accounts | `runtime` | Interrupt, halt/resume, account changes and capacity marks. |
 | User questions and delivery | `user` | Questions, presentations, files, scope and credit requests. |
-| Organization Logo | `logo` | Set/remove the org's Logo immediately, logged and undoable. |
+| Organization logo | `logo` | Set/remove the org's Logo immediately, logged and undoable. |
 
 Disabling a group removes its tools and instructions from the agent; status
 reporting remains available. The endpoint refuses unknown group names or

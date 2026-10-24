@@ -22,7 +22,7 @@ skipped with the saved-window availability warning. Older 4.4 alpha desk records
 without a generation reopen only while the same id is a live project; the next
 save records its generation.
 
-With **show agent card shortcuts** on, the project card's hover row opens its docket, mail, presented, team and slots windows, and its desk on the events tab. Team, slots and events appear only while the desk offers those tabs (see the table below). The row hides while the desk is open on the canvas or its pinned placeholder holds the card.
+With **Show agent card shortcuts** on, the project card's hover row opens its docket, mail, presented, team and slots windows, and its desk on the events tab. Team, slots and events appear only while the desk offers those tabs (see the table below). The row hides while the desk is open on the canvas or its pinned placeholder holds the card.
 
 The header shows active/hired agents through nested projects, activity age, settings and the available team lifecycle controls. Header cards open the mail queue, event listeners or slots; held audiences appear alongside them. Superior jump cards stay below the header, and member jump cards above the composer, on every tab. Project jump cards show the same spinning arrows as agent jump cards whenever any live agent below the destination project is mid-turn, at any depth; they stop when all are idle. The composer sends to the project mailbox by default; its megaphone broadcasts to live agents under the project. Notice, attachments and reply previews work as on an agent desk. Projects have no model, effort, account or credit controls.
 
@@ -41,7 +41,7 @@ Broadcast passes through live sub-projects and delivers to their live agent chil
 | team | The descendant Agents List. Appears while the node has live physical child nodes; its badge counts those children, including projects. |
 | slots | Appears while configured concurrency-slot capacity is greater than zero. |
 | dead letters | Appears while the project has open dead letters. |
-| events | Appears exactly while the project's **Project Events** setting is on (Project settings). It is off by default; an agent registering an event listener or listener watch switches it on, and only you or an agent above the project switch it off. Its badge counts armed event listeners. |
+| events | Appears exactly while the project's **Project events** setting is on (Project settings). It is off by default; an agent registering an event listener or listener watch switches it on, and only you or an agent above the project switch it off. Its badge counts armed event listeners. |
 
 The Summary is the project's standing team charter; policy and tool authority are documented in `orgtree-projects` and `orgtree-tool-project` (orgtree-working › team). For shared mail, docket, gallery and Team controls, follow the links below.
 

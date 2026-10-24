@@ -139,7 +139,7 @@ export function AgentColorSetting() {
     } finally { if (alive.current) setBusy(false) }
   }
   return <>
-    <SetToggle label="organization theme color for agents" checked={source === 'organization'} disabled={!ready || busy}
+    <SetToggle label="Organization theme color for agents" checked={source === 'organization'} disabled={!ready || busy}
       onChange={value => void change(value ? 'organization' : 'provider')}
       hint={source === 'organization' ? 'Organization theme color: agents follow the selected visual theme.' : 'Provider colors: each agent keeps its provider color.'} />
     {error && <p role="alert">{error}</p>}

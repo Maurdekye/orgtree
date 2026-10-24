@@ -80,7 +80,7 @@ app.whenReady().then(async () => {
   try {
     for (const theme of ['charcoal', 'light', 'solarized-light', 'obsidian-black']) {
       await win.loadURL(`${url}/fixture.html?scene=switch&n=${++loads}`)
-      await waitFor(`!!document.querySelector('.epic-switch input[aria-label="EPIC Mode"]')`, 'the EPIC switch')
+      await waitFor(`!!document.querySelector('.epic-switch input[aria-label="EPIC mode"]')`, 'the EPIC switch')
       await js(`window.__contrast(${JSON.stringify(theme)}); true`)
       await sleep(80)
       const info = await js(`(() => {

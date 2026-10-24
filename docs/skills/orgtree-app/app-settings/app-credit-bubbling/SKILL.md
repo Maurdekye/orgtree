@@ -16,8 +16,8 @@ there earlier is ignored.
 
 | Switch | Storage | Your operations |
 | --- | --- | --- |
-| your hires bubble their cost up the chain | `rt:credit_bubble_hire_enabled` | Hire and re-hire funding. |
-| your allocations & model upgrades bubble their cost up the chain | `rt:credit_bubble_alloc_enabled` | Grant increases and model/seat upgrades, including swaps that need more capacity. |
+| Your hires bubble their cost up the chain | `rt:credit_bubble_hire_enabled` | Hire and re-hire funding. |
+| Your allocations & model upgrades bubble their cost up the chain | `rt:credit_bubble_alloc_enabled` | Grant increases and model/seat upgrades, including swaps that need more capacity. |
 
 **On** lets the grants between the paying parent and the chain above rise just
 enough to fund the operation, as far as the top-level grant cap allows. **Off**

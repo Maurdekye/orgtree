@@ -42,13 +42,13 @@ export function CharterDocumentsSetting() {
       .finally(() => setOpenBusy(false))
   }
   return <SetGroup title="Charter documents"
-    note="editable presets for the hire form, in ~/.orgtree/charters">
-    <SetRow label="populate missing documents"
+    note="Editable presets for the hire form, in ~/.orgtree/charters">
+    <SetRow label="Populate missing documents"
       hint="Copies the bundled charter presets into your charter folder. Files you already have are never changed.">
       <button onClick={run} disabled={busy}>
         {busy ? 'populating…' : 'populate'}
       </button>
-      <button onClick={openFolder} disabled={openBusy} aria-label="open charter folder" title="open charter folder">
+      <button onClick={openFolder} disabled={openBusy} aria-label="Open charter folder" title="Open charter folder">
         {openBusy ? 'opening…' : 'open folder'}
       </button>
     </SetRow>
@@ -57,8 +57,8 @@ export function CharterDocumentsSetting() {
     {result && !error && (
       <p className="dim">
         {result.created.length
-          ? `created ${result.created.length} document${result.created.length === 1 ? '' : 's'}`
-          : 'nothing to create'}
+          ? `Created ${result.created.length} document${result.created.length === 1 ? '' : 's'}`
+          : 'Nothing to create'}
         {result.existing.length ? ` · ${result.existing.length} already present and untouched` : ''}
         {` · ${result.dir}`}
       </p>
@@ -128,16 +128,16 @@ export function CharterTemplateDirsSetting() {
   }
   const state = (path: string) => data?.directories.find(d => d.path === path)
   return <SetGroup title="Charter template folders"
-    note="read-only folders of .md templates for the hire form">
+    note="Read-only folders of .md templates for the hire form">
     <SetBlock hint={'Every .md file directly inside a listed folder is offered in the '
       + 'hire form’s charter presets. Orgtree only reads these folders: it never '
       + 'creates, changes or copies anything in them, and templates with the same '
       + 'name in different places are all offered, labelled by folder. Links, junctions '
       + 'and cloud-sync placeholder files (such as OneDrive files not kept on this '
       + 'device) are treated as links and not read.'}>
-      <div className="dirlist" aria-label="charter template folders">
-        {data === null && !error && <p className="dim">loading…</p>}
-        {data !== null && dirs.length === 0 && <p className="dim">no folders listed</p>}
+      <div className="dirlist" aria-label="Charter template folders">
+        {data === null && !error && <p className="dim">Loading…</p>}
+        {data !== null && dirs.length === 0 && <p className="dim">No folders listed</p>}
         {dirs.map(path => {
           const d = state(path)
           const notes = d ? dirNotes(d) : []
@@ -150,7 +150,7 @@ export function CharterTemplateDirsSetting() {
                   : DIR_STATUS[d.status]) : ''}
               </span>
               <button type="button" className="iconbtn" disabled={busy}
-                aria-label={`remove ${path}`} title="remove from the list (the folder itself is untouched)"
+                aria-label={`Remove ${path}`} title="Remove from the list (the folder itself is untouched)"
                 onClick={() => save(dirs.filter(x => x !== path))}><CloseIcon fontSize="inherit" /></button>
             </div>
             {d?.error && d.status !== 'ok' && <p className="dim mono">{d.error}</p>}
@@ -158,12 +158,12 @@ export function CharterTemplateDirsSetting() {
           </div>
         })}
         <div className="dirrow">
-          <input placeholder="add an absolute folder path" aria-label="add a charter template folder"
+          <input placeholder="Add an absolute folder path" aria-label="Add a charter template folder"
             value={newPath} disabled={busy || data === null}
             onChange={e => setNewPath(e.target.value)}
             onKeyDown={e => { if (e.key === 'Enter') add(newPath) }} />
-          <button type="button" className="iconbtn" title="browse for a folder"
-            aria-label="browse for a charter template folder" disabled={busy || data === null}
+          <button type="button" className="iconbtn" title="Browse for a folder"
+            aria-label="Browse for a charter template folder" disabled={busy || data === null}
             onClick={() => { void pickFolder().then(r => { if (r.path) add(r.path) }).catch(() => {}) }}>
             <FolderIcon fontSize="inherit" /></button>
           <button type="button" className="addrow" disabled={busy || data === null || !newPath.trim()}
@@ -172,7 +172,7 @@ export function CharterTemplateDirsSetting() {
       </div>
       {data && data.duplicates.length > 0 && (
         <p className="dim">
-          {'same name in more than one place (all are offered): '
+          {'Same name in more than one place (all are offered): '
             + data.duplicates.map(d => `${d.name} ×${d.locations.length}`).join(', ')}
         </p>
       )}

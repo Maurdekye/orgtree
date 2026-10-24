@@ -681,7 +681,7 @@ See [`helper-transcripts.md`](helper-transcripts.md).
 | I2b | Org settings: account fallback default, org-inbox multi-holder, network hubs and autoconnect | Kept |
 | I2c | Org settings: cheap-compact before auto-resume, headless | Inert |
 | I3 | Runtime: max concurrent turns, turn time limits | Kept |
-| I4 | Runtime: "keep agents warm" | "keep agent processes warm" works as in 3.x (B4, decision 42); off = close each CLI after its turn. Changed (user 2026-10-14, decision 77): with warming off (or switched off), a Claude Code process or Muse host running background work stays open until that work is over and its result has reached the agent, then closes; 3.x kept such a Claude turn open until the CLI exited instead. See `background-work.md` |
+| I4 | Runtime: "keep agents warm" | "Keep agent processes warm" works as in 3.x (B4, decision 42); off = close each CLI after its turn. Changed (user 2026-10-14, decision 77): with warming off (or switched off), a Claude Code process or Muse host running background work stays open until that work is over and its result has reached the agent, then closes; 3.x kept such a Claude turn open until the CLI exited instead. See `background-work.md` |
 | I5 | Runtime: wait for MCP tools | Kept (see B3) |
 | I5b | Runtime: git periodic fetch, working checkups, idle docket reminders, blocked docket reminders, include account selection when requesting staffing | Inert |
 | I6 | Charters (presets, user folder, external template folders), org.md, hire defaults, app defaults | Kept |

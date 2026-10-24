@@ -35,7 +35,7 @@ test('compact registry rows show only name, state, cached version and compatibil
       assert.ok(el.textContent?.includes(h.name))
       assert.match(el.textContent ?? '', h.installed ? / · installed/ : / · not installed/)
       assert.equal(el.querySelector('.harness-version')?.textContent ?? null,
-        h.installed ? h.version || 'version unknown' : null)
+        h.installed ? h.version || "Version unknown" : null)
     }
   } finally { await view.unmount(); delete g.fetch }
 })
@@ -66,7 +66,7 @@ test('compatibility tags follow selectable registry provider IDs, including futu
 test('blank or absent versions stay unknown and absent install URLs add no dead link', async () => {
   const view = await mount([row('blank', { version: '  ' }), row('absent', { installed: false, install_url: null })])
   try {
-    assert.equal(view.el.querySelector('.harness-version')?.textContent, 'version unknown')
+    assert.equal(view.el.querySelector('.harness-version')?.textContent, "Version unknown")
     assert.equal(view.el.querySelectorAll('a').length, 0)
   } finally { await view.unmount(); delete g.fetch }
 })

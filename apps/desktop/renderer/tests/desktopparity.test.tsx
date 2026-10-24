@@ -36,7 +36,7 @@ test('desktop settings retain providers and runtime while excluding registry and
     await inAct(async () => { runtime.click() })
     // Quick Staffing has its own switch before the process-warming control.
     const toggle = view.el.querySelector<HTMLInputElement>(
-      '#app-settings-panel-runtime input[role="switch"][aria-label="keep agent processes warm"]')!
+      '#app-settings-panel-runtime input[role="switch"][aria-label="Keep agent processes warm"]')!
     assert.ok(toggle.checked)
     await inAct(async () => { toggle.click(); await flush(10) })
     assert.equal(toggle.checked, false, 'real runtime toggle uses and adopts server response')

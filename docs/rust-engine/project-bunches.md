@@ -8,12 +8,12 @@ ends a run; independent runs above and below it bunch separately. Singletons and
 side-by-side projects retain the ordinary layout. Parent-to-child lines connect
 the projects in actual order, using the ordinary superior/subordinate edge style.
 
-Display > Desk > **bunch consecutive projects** defaults on. Its profile-local
+Display > Desk > **Bunch consecutive projects** defaults on. Its profile-local
 `orgtree-project-bunches` preference updates existing windows through the same-tab
 subscription and storage events; off uses the original layout. It does not
 change organization structure or any project setting.
 
-Display > Desk > **rearrange projects in a bunch** is a separate, default-off
+Display > Desk > **Rearrange projects in a bunch** is a separate, default-off
 setting (user 2026-10-20 09:15 UTC). The profile-local
 `orgtree-project-bunch-rearrange` key uses the same same-tab subscription and
 cross-window storage events. Off keeps ordinary whole-subtree dragging and

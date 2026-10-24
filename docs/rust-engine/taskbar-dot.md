@@ -59,7 +59,7 @@ notice ID, encoded as one validated argument. Cold and second-instance clicks
 use a held event delivered to the org's window and revalidate the live item.
 
 **App settings > Runtime > Notifications > open questions** selects **focus
-the agent desk** (default) or **open questions as mail**. Desk focus first
+the agent desk** (default) or **Open questions as mail**. Desk focus first
 raises an existing pin or separate desk window, otherwise uses the normal
 desk focus destination. Mail goes to the exact inbox row; tickets open their
 ticket; mentions focus their author. Banner preferences do not gate clicks.

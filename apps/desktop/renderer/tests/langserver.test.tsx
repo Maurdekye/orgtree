@@ -172,25 +172,25 @@ test('§2 ✎ opens a draft: Cancel drops it and sends nothing; Save sends only 
   const toasts: string[][] = []
   const view = await mountSection(toasts)
   try {
-    const edit = () => view.el.querySelector<HTMLButtonElement>('.ls-server-row button[title="edit this server"]')
+    const edit = () => view.el.querySelector<HTMLButtonElement>('.ls-server-row button[title="Edit this server"]')
     await click(edit())
     const form = document.querySelector('.ls-edit')!
     assert.ok(form, 'the draft form opens')
     assert.ok(form.closest('[role="dialog"][aria-label="Configure Ollama"]'))
     assert.equal(view.el.contains(form), false, 'configuration is outside the Providers section')
-    for (const l of ['server name', 'server address', 'agents at once', 'seat price', 'API key']) {
+    for (const l of ['Server name', 'Server address', 'Agents at once', 'Seat price', 'API key']) {
       assert.ok(form.querySelector(`input[aria-label="${l}"]`), `the form has ${l}`)
     }
-    assert.ok(form.textContent?.includes('offer this server’s models to new hires'), 'the offer toggle')
-    await typeInto(form.querySelector<HTMLInputElement>('input[aria-label="seat price"]')!, '2')
-    await typeInto(form.querySelector<HTMLInputElement>('input[aria-label="agents at once"]')!, '3')
-    assert.ok(form.textContent?.includes('unsaved changes'))
+    assert.ok(form.textContent?.includes("Offer this server’s models to new hires"), 'the offer toggle')
+    await typeInto(form.querySelector<HTMLInputElement>('input[aria-label="Seat price"]')!, '2')
+    await typeInto(form.querySelector<HTMLInputElement>('input[aria-label="Agents at once"]')!, '3')
+    assert.ok(form.textContent?.includes('Unsaved changes'))
     await click([...form.querySelectorAll('button')].find((b) => b.textContent === 'Cancel'))
     assert.equal(document.querySelector('.ls-edit'), null, 'Cancel closes the draft')
     assert.equal(seen.filter((r) => r.method === 'PATCH').length, 0, 'Cancel sends nothing')
     assert.ok([...view.el.querySelectorAll('.acct-provenance span')].some((s) => s.textContent === 'seat 1'), 'the summary keeps seat 1')
     await click(edit())
-    await typeInto(document.querySelector<HTMLInputElement>('.ls-edit input[aria-label="seat price"]')!, '2')
+    await typeInto(document.querySelector<HTMLInputElement>('.ls-edit input[aria-label="Seat price"]')!, '2')
     await click([...document.querySelectorAll('.ls-edit button')].find((b) => b.textContent === 'Save'))
     const patches = seen.filter((r) => r.method === 'PATCH')
     assert.equal(patches.length, 1, 'one PATCH')
@@ -207,7 +207,7 @@ test('§3 the browser holds 302 models: offered ones pinned first, 25 a page, se
   stubFetch(seen)
   const view = await mountSection([])
   try {
-    await click(view.el.querySelector('.ls-server-row button[title="edit this server"]'))
+    await click(view.el.querySelector('.ls-server-row button[title="Edit this server"]'))
     await click(document.querySelector('.ls-edit .ls-favs'))
     const dialog = document.querySelector('[aria-label="Language model server model selection"]')!
     assert.ok(dialog, 'the browser opens')
@@ -226,13 +226,13 @@ test('§3 the browser holds 302 models: offered ones pinned first, 25 a page, se
     assert.deepEqual(names(), Array.from({ length: 10 }, (_, i) => `model-29${i}:7b`))
     assert.equal(dialog.querySelector('.ls-count')?.textContent, '10 of 302 models match')
     await typeInto(search, '')
-    await click(dialog.querySelector('input[aria-label="thinking only"]'))
+    await click(dialog.querySelector('input[aria-label="Thinking only"]'))
     assert.ok(names().every((n) => n === LATEST || n === V64 || Number(n!.slice(6, 9)) % 3 === 0), 'thinking models only')
-    await choose(dialog.querySelector<HTMLSelectElement>('select[aria-label="trained window at least"]')!, '262144')
+    await choose(dialog.querySelector<HTMLSelectElement>('select[aria-label="Trained window at least"]')!, '262144')
     assert.ok(names().length > 2 && names().every((n) => n === LATEST || n === V64 || Number(n!.slice(6, 9)) % 12 === 3),
       'and trained for 256K (thinking: every 3rd, 256K: every 4th from 3)')
-    await click(dialog.querySelector('input[aria-label="thinking only"]'))
-    await choose(dialog.querySelector<HTMLSelectElement>('select[aria-label="trained window at least"]')!, '0')
+    await click(dialog.querySelector('input[aria-label="Thinking only"]'))
+    await choose(dialog.querySelector<HTMLSelectElement>('select[aria-label="Trained window at least"]')!, '0')
     // offer one, withdraw one: only the draft changes
     const rowOf = (id: string) => [...dialog.querySelectorAll('.orr-row')].find((r) => r.querySelector('b')?.textContent === id)
     await click(rowOf('model-000:7b')?.querySelector('button.ls-offer'))
@@ -391,12 +391,12 @@ test('add dialog: adding a server opens a separate dialog; Cancel discards and S
     await click(add())
     assert.ok(dialog())
     assert.equal(view.el.querySelector('.ls-add'), null, 'no inline form remains')
-    await typeInto(dialog()!.querySelector<HTMLInputElement>('input[aria-label="server address"]')!, 'http://discard.test')
+    await typeInto(dialog()!.querySelector<HTMLInputElement>('input[aria-label="Server address"]')!, 'http://discard.test')
     await click([...dialog()!.querySelectorAll('button')].find(b => b.textContent === 'Cancel'))
     assert.equal(dialog(), null)
     assert.equal(seen.filter(r => r.path === '/api/langservers' && r.method === 'POST').length, 0)
     await click(add())
-    assert.equal(dialog()!.querySelector<HTMLInputElement>('input[aria-label="server address"]')!.value, 'http://127.0.0.1:11434')
+    assert.equal(dialog()!.querySelector<HTMLInputElement>('input[aria-label="Server address"]')!.value, 'http://127.0.0.1:11434')
     await click([...dialog()!.querySelectorAll('button')].find(b => b.textContent === 'Add server'))
     assert.equal(dialog(), null, 'successful add closes only the dialog')
     assert.deepEqual(seen.find(r => r.path === '/api/langservers' && r.method === 'POST')?.body,
@@ -414,13 +414,13 @@ test('nested dialogs: Escape closes the model picker before the edit dialog and 
     await flush(3)
   })
   try {
-    await click(view.el.querySelector('.ls-server-row button[title="edit this server"]'))
-    await typeInto(document.querySelector<HTMLInputElement>('.ls-edit input[aria-label="seat price"]')!, '7')
+    await click(view.el.querySelector('.ls-server-row button[title="Edit this server"]'))
+    await typeInto(document.querySelector<HTMLInputElement>('.ls-edit input[aria-label="Seat price"]')!, '7')
     await click(document.querySelector('.ls-edit .ls-favs'))
     assert.ok(document.querySelector('[aria-label="Language model server model selection"]'))
     await escape()
     assert.equal(document.querySelector('[aria-label="Language model server model selection"]'), null)
-    assert.equal(document.querySelector<HTMLInputElement>('.ls-edit input[aria-label="seat price"]')!.value, '7')
+    assert.equal(document.querySelector<HTMLInputElement>('.ls-edit input[aria-label="Seat price"]')!.value, '7')
     await escape()
     assert.equal(document.querySelector('.provider-dialog'), null)
     assert.equal(seen.filter(r => r.method === 'PATCH').length, 0)
@@ -438,8 +438,8 @@ test('save lifecycle: a pending save cannot be dismissed; a rejected save keeps 
   const toasts: string[][] = []
   const view = await mountSection(toasts)
   try {
-    await click(view.el.querySelector('.ls-server-row button[title="edit this server"]'))
-    await typeInto(document.querySelector<HTMLInputElement>('.ls-edit input[aria-label="seat price"]')!, '7')
+    await click(view.el.querySelector('.ls-server-row button[title="Edit this server"]'))
+    await typeInto(document.querySelector<HTMLInputElement>('.ls-edit input[aria-label="Seat price"]')!, '7')
     await click([...document.querySelectorAll('.ls-edit button')].find(b => b.textContent === 'Save'))
     assert.ok(rejectSave)
     await inAct(async () => {
@@ -449,7 +449,7 @@ test('save lifecycle: a pending save cannot be dismissed; a rejected save keeps 
     assert.ok(document.querySelector('.ls-edit'), 'in-flight save keeps dialog open')
     assert.ok([...document.querySelectorAll<HTMLButtonElement>('.ls-edit button')].find(b => b.textContent === 'Cancel')!.disabled)
     await inAct(async () => { rejectSave!(new Error('synthetic save failure')); await flush(8) })
-    assert.equal(document.querySelector<HTMLInputElement>('.ls-edit input[aria-label="seat price"]')!.value, '7')
+    assert.equal(document.querySelector<HTMLInputElement>('.ls-edit input[aria-label="Seat price"]')!.value, '7')
     assert.ok(toasts.flat().some(t => t.includes('synthetic save failure')))
   } finally { await view.unmount(); delete g.fetch }
 })
@@ -530,7 +530,7 @@ test('add dialog harness: installed first, a separator, the not-installed one gr
   try {
     await click(view.el.querySelector('button[title^="add a model server"]'))
     const dialog = document.querySelector('[role="dialog"][aria-label="Add language model server"]')!
-    const sel = dialog.querySelector<HTMLSelectElement>('select[aria-label="harness"]')!
+    const sel = dialog.querySelector<HTMLSelectElement>('select[aria-label="Harness"]')!
     const opts = [...sel.querySelectorAll('option')]
     assert.deepEqual(opts.map((o) => o.value), ['codex-cli', HARNESS_SEPARATOR, 'claude-code'])
     assert.deepEqual(opts.map((o) => o.disabled), [false, true, true], 'only the installed one can be chosen')

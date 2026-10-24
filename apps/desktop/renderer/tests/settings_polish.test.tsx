@@ -218,8 +218,8 @@ test('Display tab: section headers Appearance, Desk, Startup omit "saved on this
 
     // Assert key controls remain functional
     assert.ok(panel.querySelector('select[aria-label="Visual theme"]'), 'Visual theme control remains')
-    assert.ok(panel.querySelector('input[aria-label="collapse crowded teams into one stack"]'), 'Desk crowd control remains')
-    assert.ok(panel.querySelector('select[aria-label="open an org at"]'), 'Startup view control remains')
+    assert.ok(panel.querySelector('input[aria-label="Collapse crowded teams into one stack"]'), 'Desk crowd control remains')
+    assert.ok(panel.querySelector('select[aria-label="Open an org at"]'), 'Startup view control remains')
   } finally {
     await view.unmount()
     delete g.fetch

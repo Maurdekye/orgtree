@@ -51,7 +51,7 @@ test('the price sorts read "cheapest first" / "most expensive first", never "dea
     t.after(async () => { await view.unmount(); delete g.fetch })
     await inAct(async () => { await flush(10) })
 
-    const select = view.el.querySelector<HTMLSelectElement>('select[aria-label="sort the catalog"]')!
+    const select = view.el.querySelector<HTMLSelectElement>('select[aria-label="Sort the catalog"]')!
     assert.ok(select, 'the sort dropdown is rendered')
     const dir = () => view.el.querySelector<HTMLButtonElement>('.orr-dir')
     const read = () => {

@@ -22,13 +22,13 @@ module.exports = async page => {
   for (const scene of ['two', 'three', 'five', 'seven', 'eight', 'twelve', 'twenty', 'two-off', 'three-off', 'siblings', 'split',
     'agent-break', 'circular', 'far', 'insert-project', 'insert-agent', 'insert-split', 'reorder', 'settings']) {
     await page.goto('/?scene=' + scene)
-    await page.waitFor(scene === 'settings' ? 'input[aria-label="bunch consecutive projects"]' : '.sq.project')
+    await page.waitFor(scene === 'settings' ? 'input[aria-label="Bunch consecutive projects"]' : '.sq.project')
     await page.eval(async () => { await new Promise(resolve => setTimeout(resolve, 1500)) })
     if (scene.startsWith('insert-')) {
       await page.eval(() => document.querySelector('#insert').click())
       await page.eval(async () => { await new Promise(resolve => setTimeout(resolve, 1200)) })
     }
-    if (scene === 'settings') await page.eval(() => document.querySelector('input[aria-label="bunch consecutive projects"]').scrollIntoView({ block: 'center' }))
+    if (scene === 'settings') await page.eval(() => document.querySelector('input[aria-label="Bunch consecutive projects"]').scrollIntoView({ block: 'center' }))
     if (scene === 'reorder') {
       await page.eval(async () => {
         const card = document.querySelector('[data-copy-agent-name="project-1"]')

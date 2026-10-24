@@ -450,7 +450,7 @@ export function McpCurrentServers({ servers, details = [] }: {
           : 'currently registered:'}
       </span>
       {servers.length > 0 && (
-        <div className="hire-mcp-tags" role="list" aria-label="currently registered MCP servers">
+        <div className="hire-mcp-tags" role="list" aria-label="Currently registered MCP servers">
           {servers.map((s) => (
             <span key={s} className="chip mono" role="listitem">
               <McpServerLabel name={s} details={details} />
@@ -558,20 +558,20 @@ export function HireDefaultsTab({ tree, slug, toast, close,
               <div className="dirrow">
                 <span className="chip mono grow">{tree.workspace}</span>
                 <span className="modebtn rw"
-                  title="the org workspace — permanent, always read/write">RW</span>
+                  title="The org workspace — permanent, always read/write">RW</span>
               </div>
             )}
             {dirs.map((d, i) => (
               <div className="dirrow" key={d.path}>
                 <span className="chip mono grow">{d.path}</span>
                 <button type="button" className={'modebtn ' + d.mode}
-                  title="toggle read/write vs read-only"
+                  title="Toggle read/write vs read-only"
                   onClick={() => setDirs(dirs.map((x, j) =>
                     j === i ? { ...x, mode: x.mode === 'rw' ? 'ro' : 'rw' } : x))}>
                   {d.mode === 'rw' ? 'RW' : 'RO'}
                 </button>
                 <button type="button" className="iconbtn"
-                  title="remove from the org (revokes everywhere)"
+                  title="Remove from the org (revokes everywhere)"
                   onClick={() => setDirs(dirs.filter((_, j) => j !== i))}><CloseIcon fontSize="inherit" /></button>
               </div>
             ))}
@@ -579,7 +579,7 @@ export function HireDefaultsTab({ tree, slug, toast, close,
               <input placeholder="Add a folder path"
                 aria-label="Add a folder path"
                 value={newPath} onChange={(e) => setNewPath(e.target.value)} />
-              <button type="button" className="iconbtn" title="browse for a folder"
+              <button type="button" className="iconbtn" title="Browse for a folder"
                 onClick={() => pickFolder().then((r) => {
                   if (r.path) setDirs([...dirs, { path: r.path, mode: 'rw' }])
                 }).catch(() => {})}><FolderIcon fontSize="inherit" /></button>
@@ -632,21 +632,21 @@ export function HireDefaultsTab({ tree, slug, toast, close,
             : "Uses each hire's default account; existing agents keep theirs."}>
           <AccountSelect rows={acctRows} provider={selectedProvider} value={account ?? ''}
             host={hostIdentity} eligible={orgAllowed} ineligibleNote="not used by this org"
-            label="default provider account for new hires" onChange={(value) => setAccount?.(value)} />
+            label="Default provider account for new hires" onChange={(value) => setAccount?.(value)} />
           {account && <button type="button" onClick={() => setAccount?.('')}>Use machine default</button>}
         </SetRow>
-        <SetBlock label="Native Tools" hint={NATIVE_TOOLS_HINT}>
+        <SetBlock label="Native tools" hint={NATIVE_TOOLS_HINT}>
           {TOOL_LABELS.map(([k, label, hint]) => (
             <SetToggle key={k} label={label} hint={hint} checked={!!tools[k]}
               onChange={next => setTools({ ...tools, [k]: next })} />
           ))}
         </SetBlock>
-        <SetBlock label="Orgtree Tools" hint={ORGTREE_TOOLS_HINT}>
+        <SetBlock label="Orgtree tools" hint={ORGTREE_TOOLS_HINT}>
           <OrgtreeGroupToggles value={tools.orgtree} onChange={orgtree => setTools({ ...tools, orgtree })} />
         </SetBlock>
-        <SetBlock label="MCP Servers" hint={MCP_SERVERS_HINT}>
+        <SetBlock label="MCP servers" hint={MCP_SERVERS_HINT}>
           <McpRefresh onRead={(names, details) => { setServers(names); setMcpDetails(details) }} />
-          <SetToggle label="all registered MCP servers"
+          <SetToggle label="All registered MCP servers"
             labelContent="All registered servers (current and future)" checked={allMcp}
             onChange={next => setTools({ ...tools, mcp: next ? ['*'] : [...servers] })} />
           {allMcp && (
@@ -664,7 +664,7 @@ export function HireDefaultsTab({ tree, slug, toast, close,
       {/* portaled out: a confirmation nested in a pinned panel is trapped in
           that panel's stacking context — see ModalOverPins */}
       {asking && (
-        <ModalOverPins><ConfirmModal title="dissolve ALL agents?"
+        <ModalOverPins><ConfirmModal title="Dissolve all agents?"
           body="Every agent in the entire org is retired at once. Context is kept; rehire brings any of them back."
           confirmLabel="dissolve all"
           onConfirm={() => dissolveAll(slug)
@@ -821,7 +821,7 @@ export function DraftScopeModal({ draft, map, tree, scope, onSave, close, accoun
             <div className="dirrow" key={d.path}>
               <span className="chip mono grow">{d.path}</span>
               <button type="button" className={'modebtn ' + d.mode}
-                title="toggle read/write vs read-only"
+                title="Toggle read/write vs read-only"
                 onClick={() => setDirs(dirs.map((x, j) =>
                   j === i ? { ...x, mode: x.mode === 'rw' ? 'ro' : 'rw' } : x))}>
                 {d.mode === 'rw' ? 'RW' : 'RO'}
@@ -834,7 +834,7 @@ export function DraftScopeModal({ draft, map, tree, scope, onSave, close, accoun
           <div className="dirrow">
             <input placeholder="Add a folder path"
               value={newPath} onChange={(e) => setNewPath(e.target.value)} />
-            <button type="button" className="iconbtn" title="browse for a folder"
+            <button type="button" className="iconbtn" title="Browse for a folder"
               onClick={() => pickFolder().then((r) => {
                 if (r.path) setDirs([...dirs, { path: r.path, mode: 'rw' }])
               }).catch(() => {})}><FolderIcon fontSize="inherit" /></button>
@@ -877,7 +877,7 @@ export function DraftScopeModal({ draft, map, tree, scope, onSave, close, accoun
         }}>Use machine default</button>}
         {museWhy && <p className="set-hint muse-unoffered" role="note">{museWhy}; choose a Muse login that offers it.</p>}
         {!superior && <>
-        <SetGroup title="Native Tools">
+        <SetGroup title="Native tools">
         <p className="set-hint">{NATIVE_TOOLS_HINT}</p>
         {TOOL_LABELS.map(([k, label, hint]) => (
           <SetToggle key={k} label={label} hint={hint} checked={!!tools[k]}
@@ -887,14 +887,14 @@ export function DraftScopeModal({ draft, map, tree, scope, onSave, close, accoun
           harness={providerOf(draft.tier)}
           onChange={orgtree_disabled => setTools({ ...tools, orgtree_disabled })} />
         </SetGroup>
-        <SetGroup title="Orgtree Tools">
+        <SetGroup title="Orgtree tools">
         <p className="set-hint">{ORGTREE_TOOLS_HINT}</p>
         <OrgtreeGroupToggles value={tools.orgtree} onChange={orgtree => setTools({ ...tools, orgtree })} />
         </SetGroup>
-        <SetGroup title="MCP Servers">
+        <SetGroup title="MCP servers">
         <McpRefresh onRead={(names, details) => { setServers(names); setMcpDetails(details) }} />
         <p className="set-hint">{MCP_SERVERS_HINT}</p>
-        <SetToggle label="all registered MCP servers" labelContent="All registered servers (current and future)" checked={allMcp}
+        <SetToggle label="All registered MCP servers" labelContent="All registered servers (current and future)" checked={allMcp}
           onChange={next => setTools({ ...tools, mcp: next ? ['*'] : [...servers] })} />
         {!allMcp && <McpChecklist servers={servers} details={mcpDetails}
           checked={(s) => tools.mcp.includes(s)}
@@ -1076,7 +1076,7 @@ const ORGTREE_GROUPS: ReadonlyArray<readonly [OrgtreeToolGroup, string, string]>
   ['watchdogs', 'Watchdogs', 'Create and manage persistent watchers. Command watchers also need Run commands.'],
   ['runtime', 'Runtime and accounts', 'Interrupt, halt or resume agents, change their account and inspect capacity marks.'],
   ['user', 'User questions and delivery', 'Ask questions, present documents, send files and request more scope or credits.'],
-  ['logo', 'Organization Logo', 'Set or remove the organization Logo immediately, with logging and undo history.'],
+  ['logo', 'Organization logo', 'Set or remove the organization logo immediately, with logging and undo history.'],
 ]
 
 function OrgtreeGroupToggles({ value, ceiling, onChange }: {
@@ -1293,11 +1293,11 @@ function ProjectConfig({node,map,tree,slug,op,toast,onScratchFolder,refs,onFocus
     <div className="row"><button className="primary" disabled={busy} onClick={() => { void save() }}>save</button>
       <button onClick={close}>cancel</button></div>
     {asking && <ModalOverPins>
-      {asking === 'retire' && <ConfirmModal title={`retire project ${node.id}?`}
+      {asking === 'retire' && <ConfirmModal title={`Retire project ${node.id}?`}
         body="It leaves the tree with its folder, mailbox and presentations kept; restore brings it back where it was."
         confirmLabel="retire" onConfirm={() => op({ op: 'retire', node: node.id }).then(close).catch(() => {})}
         close={() => setAsking(null)} />}
-      {asking === 'dissolve' && <ConfirmModal title={`dissolve ${node.id}?`}
+      {asking === 'dissolve' && <ConfirmModal title={`Dissolve ${node.id}?`}
         body="Every agent under it is retired with it. Context is kept; rehire brings each back."
         confirmLabel="dissolve" onConfirm={() => op({ op: 'dissolve', node: node.id }).then(close).catch(() => {})}
         close={() => setAsking(null)} />}
@@ -1717,7 +1717,7 @@ function AgentConfig({ node, map, tree, slug, op, toast, claudeProvider, codexPr
           hint="Off requires an audience between this manager's direct agents and hides their peer connector lines. Changes apply immediately." />
         </SettingsTabPanel>
         <SettingsTabPanel id="model" idBase={tabId} active={tab === 'model'}>
-        <SetRow label="Model" hint="Choose its model; switching providers starts a new conversation."><select className="model-switch" aria-label="model tier" title={modelChoiceTitle(model, unavailable(model))}
+        <SetRow label="Model" hint="Choose its model; switching providers starts a new conversation."><select className="model-switch" aria-label="Model tier" title={modelChoiceTitle(model, unavailable(model))}
           value={model} onChange={(e) => {
             const next = e.target.value
             if (next === node.tier && node.pending_switch && providerOf(next) !== providerOf(model)) setAcct(node.account ?? '')
@@ -1799,7 +1799,7 @@ function AgentConfig({ node, map, tree, slug, op, toast, claudeProvider, codexPr
           <>
             <SetBlock label="Current session" hint="The model and tools reported by the running agent.">
             <div className="initblock dim">
-              <div>model {initInfo.model ?? '?'} · {initInfo.permissionMode ?? '?'}
+              <div>Model {initInfo.model ?? '?'} · {initInfo.permissionMode ?? '?'}
                 {' · '}{initInfo.tools ?? '?'} tools</div>
               {(initInfo.mcp_servers ?? []).map((s) => (
                 <div key={s.name}>
@@ -1850,12 +1850,12 @@ function AgentConfig({ node, map, tree, slug, op, toast, claudeProvider, codexPr
             <div className="dirrow" key={d.path}>
               <span className="chip mono grow">{d.path}</span>
               <button type="button" className={'modebtn ' + d.mode}
-                title="toggle read/write vs read-only"
+                title="Toggle read/write vs read-only"
                 onClick={() => setDirs(dirs.map((x, j) =>
                   j === i ? { ...x, mode: x.mode === 'rw' ? 'ro' : 'rw' } : x))}>
                 {d.mode === 'rw' ? 'RW' : 'RO'}
               </button>
-              <button type="button" className="iconbtn" title="revoke"
+              <button type="button" className="iconbtn" title="Revoke"
                 onClick={() => setDirs(dirs.filter((_, j) => j !== i))}><CloseIcon fontSize="inherit" /></button>
             </div>
           ))}
@@ -1879,7 +1879,7 @@ function AgentConfig({ node, map, tree, slug, op, toast, claudeProvider, codexPr
           <div className="dirrow">
               <input type="text" placeholder="Add a folder path"
               value={newPath} onChange={(e) => setNewPath(e.target.value)} />
-            <button type="button" className="iconbtn" title="browse for a folder"
+            <button type="button" className="iconbtn" title="Browse for a folder"
               onClick={() => pickFolder().then((r) => {
                 if (r.path) setDirs([...dirs, { path: r.path, mode: 'rw' }])
               }).catch(() => {})}><FolderIcon fontSize="inherit" /></button>
@@ -1892,7 +1892,7 @@ function AgentConfig({ node, map, tree, slug, op, toast, claudeProvider, codexPr
         </SetBlock>
         </SettingsTabPanel>
         <SettingsTabPanel id="tools" idBase={tabId} active={tab === 'tools'}>
-        <SetGroup title="Native Tools">
+        <SetGroup title="Native tools">
         <p className="set-hint">{NATIVE_TOOLS_HINT}</p>
         {TOOL_LABELS.map(([k, label, hint]) => (
           <SetToggle key={k} label={label} checked={Boolean(tools[k] && parentHolds(k))}
@@ -1905,13 +1905,13 @@ function AgentConfig({ node, map, tree, slug, op, toast, claudeProvider, codexPr
           onChange={orgtree_disabled => setTools({ ...tools, orgtree_disabled })} />
         </SetGroup>
 
-        <SetGroup title="Orgtree Tools">
+        <SetGroup title="Orgtree tools">
           <p className="set-hint">{ORGTREE_TOOLS_HINT}</p>
           <OrgtreeGroupToggles value={tools.orgtree} ceiling={parentTools?.orgtree}
             onChange={orgtree => setTools({ ...tools, orgtree })} />
         </SetGroup>
 
-        <SetGroup title="MCP Servers">
+        <SetGroup title="MCP servers">
         <McpRefresh onRead={(names, details) => { setServers(names); setMcpDetails(details) }} />
         <p className="set-hint">{MCP_SERVERS_HINT} Changes restart this agent.</p>
         {servers.length === 0 && <div className="hint">No MCP servers registered.</div>}
@@ -1967,8 +1967,8 @@ function AgentConfig({ node, map, tree, slug, op, toast, claudeProvider, codexPr
       {asking === 'crossprovider' && (
         <ConfirmModal
           title={midTurn
-            ? `queue ${node.id}'s switch to ${tierLabel(model)}?`
-            : `move ${node.id} from ${PROVIDER_LABEL[providerOf(node.tier ?? '')]} to ${PROVIDER_LABEL[providerOf(model)]}?`}
+            ? `Queue ${node.id}'s switch to ${tierLabel(model)}?`
+            : `Move ${node.id} from ${PROVIDER_LABEL[providerOf(node.tier ?? '')]} to ${PROVIDER_LABEL[providerOf(model)]}?`}
           // names what is SPENT and what SURVIVES. Only naming the loss reads
           // as more destructive than it is, and someone would avoid a switch
           // they should make. D-234: a busy node's dialog leads with the
@@ -1988,7 +1988,7 @@ function AgentConfig({ node, map, tree, slug, op, toast, claudeProvider, codexPr
           close={() => setAsking(null)} />
       )}
       {asking === 'retire' && (
-        <ConfirmModal title={`retire ${node.id}?`}
+        <ConfirmModal title={`Retire ${node.id}?`}
           body={`It stops working and frees ${fmtCredits((node.seat ?? 0) + (node.grant ?? 0))} credit(s) back to its superior. Its context is KEPT — rehire brings it back exactly as it was.`}
           confirmLabel="retire"
           onConfirm={() => op({ op: 'retire', node: node.id })
@@ -1996,14 +1996,14 @@ function AgentConfig({ node, map, tree, slug, op, toast, claudeProvider, codexPr
           close={() => setAsking(null)} />
       )}
       {asking === 'dissolve' && (
-        <ConfirmModal title={`dissolve ${node.id}?`}
+        <ConfirmModal title={`Dissolve ${node.id}?`}
           body="Its entire suborganization is retired with it. Context is kept; rehire brings nodes back."
           confirmLabel="dissolve"
           onConfirm={() => op({ op: 'dissolve', node: node.id }).then(close).catch(() => {})}
           close={() => setAsking(null)} />
       )}
       {asking === 'rescind' && (
-        <ConfirmModal title={`rescind ${node.id}?`}
+        <ConfirmModal title={`Rescind ${node.id}?`}
           body={isTopLevel(node, map)
             ? 'Retire this agent and its subtree. There is no superior grant to reduce. Context is kept.'
             : `Retired (subtree included), AND its superior's grant shrinks by the ${fmtCredits((node.seat ?? 0) + (node.grant ?? 0))}-credit stake — the freed headroom does not return. Rehiring this seat later needs new capacity granted from above. Context is kept.`}
@@ -2063,7 +2063,7 @@ export function DeleteNodeConfirm({ node, tree, slug, onConfirm, close }: {
         {resolved?.error && <button onClick={() => setAttempt(value => value + 1)}>retry</button>}</div>
     </div>
   </div>
-  return <ConfirmModal title={`permanently delete ${node.id}?`}
+  return <ConfirmModal title={`Permanently delete ${node.id}?`}
     body={'Erased from the organization — seats, records, mail and lineage'
       + (resolved.count ? `, plus ${resolved.count} descendant(s)` : '')
       + (resolved.gens ? ` and ${resolved.gens} prior generation(s)` : '')

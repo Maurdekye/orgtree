@@ -11,19 +11,19 @@ Display > Desk saves immediately to renderer localStorage for this profile, shar
 
 | Control | Storage | Default | Effect |
 | --- | --- | --- | --- |
-| org chart layout | `ls:orgtree-chart-layout` | row | Row places teams in rows by depth; circular places the top-level node centrally and teams behind parents in rings. |
+| Org chart layout | `ls:orgtree-chart-layout` | row | Row places teams in rows by depth; circular places the top-level node centrally and teams behind parents in rings. |
 | Open desk after manual hire | `ls:orgtree-hire-auto-focus` | On | Off keeps the current camera when a canvas hire or Quick chat finishes, without opening the new desk. |
-| bunch consecutive projects | `ls:orgtree-project-bunches` | On | Each uninterrupted column of two or more projects forms a tightly packed round bunch, with a snaking order and short curves in the normal hierarchy-edge style. An agent or split ends that bunch; another direct project run can bunch below it. Sibling projects stay separate. Off restores ordinary columns. |
-| rearrange projects in a bunch | `ls:orgtree-project-bunch-rearrange` | Off | Enables insertion points and project-order changes when dragging inside a bunch. Off keeps ordinary whole-subtree dragging and reparenting everywhere. Changes update open windows; it only has an effect when bunching is on. |
-| desk text size | `ls:orgtree-desk-dpi` | 100% | Minus/plus changes by 25 percentage points, bounded 75–250%; reset restores 100%. Scales desks, cards and canvas text, while settings panels keep their own sizing. |
-| collapse crowded teams into one stack | `ls:orgtree-crowd-piles` | Off | Teams with more than eight active agents can draw as a counted stack. See the piles screen for opening one. |
-| hide retired agents | `ls:orgtree-hide-retired` | Off | On removes retired agents from ordinary canvas/lists; retired tokens and archived switchboard rows remain routes to them. Off shows siblings as a counted retired pile once a retired representative is loaded (latest retiree by default), or one card for a single retiree. It does not delete records. See [piles](../../canvas/piles/SKILL.md). |
-| show agent card shortcuts | `ls:orgtree-agent-shortcuts` | Off | Shows action buttons below names on canvas cards. |
-| fade pinned desks and modals over expanded desks | `ls:orgtree-modal-overlap-fade`, enabled | Off | Enables the overlap treatment for pinned windows. |
-| overlap opacity | Same stored object's opacity | 70% | Range 20–90%, steps 5%; disabled while overlap fading is Off. |
-| snap pinned panels to edges | `ls:orgtree-pin-snap` | On | Drag/resize snaps at window edges or beside pinned panels; Off leaves the chosen position. |
+| Bunch consecutive projects | `ls:orgtree-project-bunches` | On | Each uninterrupted column of two or more projects forms a tightly packed round bunch, with a snaking order and short curves in the normal hierarchy-edge style. An agent or split ends that bunch; another direct project run can bunch below it. Sibling projects stay separate. Off restores ordinary columns. |
+| Rearrange projects in a bunch | `ls:orgtree-project-bunch-rearrange` | Off | Enables insertion points and project-order changes when dragging inside a bunch. Off keeps ordinary whole-subtree dragging and reparenting everywhere. Changes update open windows; it only has an effect when bunching is on. |
+| Desk text size | `ls:orgtree-desk-dpi` | 100% | Minus/plus changes by 25 percentage points, bounded 75–250%; reset restores 100%. Scales desks, cards and canvas text, while settings panels keep their own sizing. |
+| Collapse crowded teams into one stack | `ls:orgtree-crowd-piles` | Off | Teams with more than eight active agents can draw as a counted stack. See the piles screen for opening one. |
+| Hide retired agents | `ls:orgtree-hide-retired` | Off | On removes retired agents from ordinary canvas/lists; retired tokens and archived switchboard rows remain routes to them. Off shows siblings as a counted retired pile once a retired representative is loaded (latest retiree by default), or one card for a single retiree. It does not delete records. See [piles](../../canvas/piles/SKILL.md). |
+| Show agent card shortcuts | `ls:orgtree-agent-shortcuts` | Off | Shows action buttons below names on canvas cards. |
+| Fade pinned desks and modals over expanded desks | `ls:orgtree-modal-overlap-fade`, enabled | Off | Enables the overlap treatment for pinned windows. |
+| Overlap opacity | Same stored object's opacity | 70% | Range 20–90%, steps 5%; disabled while overlap fading is Off. |
+| Snap pinned panels to edges | `ls:orgtree-pin-snap` | On | Drag/resize snaps at window edges or beside pinned panels; Off leaves the chosen position. |
 | Collapse many jump cards on desks | `ls:orgtree-jump-fold` | On | More than sixteen report/watchdog jump cards fold behind a counted control; Off shows them separately. |
-| keep canvas controls inside the area pins leave free | `ls:orgtree-canvas-anchor-bounded` | On | Changes the available rectangle used to anchor canvas corner controls, preserving their corner/offset relationships. |
+| Keep canvas controls inside the area pins leave free | `ls:orgtree-canvas-anchor-bounded` | On | Changes the available rectangle used to anchor canvas corner controls, preserving their corner/offset relationships. |
 
 Suggest larger desk text for legibility, stacks/folding for crowded teams, or a different chart layout for navigating the current organization. Explain that hidden or stacked seats still exist and retain their capacity and work. Suggest snapping/overlap/anchor changes for window arrangement rather than as a way to stop an agent.
 

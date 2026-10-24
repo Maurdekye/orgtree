@@ -6,7 +6,7 @@ module.exports = async page => {
     const row = document.querySelector('.native-login')
     const button = row.querySelector('.acct-claude-login button')
     const rect = button.getBoundingClientRect()
-    return {row:row.textContent,button:button.textContent,refresh:!!document.querySelector('[aria-label="refresh provider status"]'),
+    return {row:row.textContent,button:button.textContent,refresh:!!document.querySelector('[aria-label="Refresh provider status"]'),
       box:{x:rect.x,y:rect.y,width:rect.width,height:rect.height},viewport:{width:innerWidth,height:innerHeight}}
   })
   if(details.button!=='Sign in'||!details.refresh||details.box.width<=0||details.box.x<0

@@ -89,7 +89,7 @@ Temporary helper agents are different from persistent Orgtree hires. A discovere
 
 ### Opt into native replacement tools
 
-**Native Tools > Disabled by Orgtree** is an opt-in to tools Orgtree normally replaces with its own coordination. It defaults **off** for ordinary new hires and is absent from org hire defaults. Turning it on waits for Save and the next launch boundary, within ancestor permission ceilings; granting it to a manager does not turn it on for future hires.
+**Native tools > Disabled by Orgtree** is an opt-in to tools Orgtree normally replaces with its own coordination. It defaults **off** for ordinary new hires and is absent from org hire defaults. Turning it on waits for Save and the next launch boundary, within ancestor permission ceilings; granting it to a manager does not turn it on for future hires.
 
 The hint describes the chosen harness's coverage. Claude can restore native questions, plan-mode and scheduling/monitor tools. Codex and Muse can restore supported native user-input questions. Antigravity and OpenCode currently restore nothing through this switch; their existing scope/security policies remain. Muse reminder observers, proactive workflows and contributor mode remain off. Other folder/tool grants still apply.
 

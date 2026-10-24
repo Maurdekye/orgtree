@@ -56,6 +56,6 @@ test('default Codex row uses native sign-in and Providers refresh forces discove
   assert.deepEqual(logins, [['codex', undefined]], 'default profile reuses existing native flow')
   assert.equal(calls.filter(url => url === '/api/providers?force=true').length, 0,
     'completed native login already verified its provider; do not probe unrelated providers again')
-  await inAct(async () => { view.el.querySelector<HTMLButtonElement>('[aria-label="refresh provider status"]')!.click(); await flush(5) })
+  await inAct(async () => { view.el.querySelector<HTMLButtonElement>('[aria-label="Refresh provider status"]')!.click(); await flush(5) })
   assert.equal(calls.filter(url => url === '/api/providers?force=true').length, 1)
 })

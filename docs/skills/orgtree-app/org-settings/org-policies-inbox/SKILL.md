@@ -21,7 +21,7 @@ Returning to Normal publishes unextracted mail once, oldest first, to current no
 
 Mode writes are **user-only**, through desktop HTTP settings or standalone user MCP orgtree_inbox action=configure mode=normal|dnd|closed. Current extern holders can read action=settings; agents cannot configure regardless of rank/audience. Ask a superior or the user. Invalid modes and conflicting mode/legacy boolean writes refuse. Legacy enable=true maps to Normal and false maps to Closed. Both keys remain org-local and portable through template settings.
 
-**allow multiple org-inbox audience holders** (org:org_inbox_multi_holder, default off) retains its boolean behavior. Turning it off with multiple live holders refuses: **revoke extra org-inbox holders before disabling multi-holder mode**. It never chooses a survivor silently.
+**Allow multiple org-inbox audience holders** (org:org_inbox_multi_holder, default off) retains its boolean behavior. Turning it off with multiple live holders refuses: **revoke extra org-inbox holders before disabling multi-holder mode**. It never chooses a survivor silently.
 
 ## See also
 

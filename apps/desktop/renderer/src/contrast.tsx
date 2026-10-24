@@ -90,7 +90,7 @@ export function ContrastSetting() {
     } finally { if (alive.current) setBusy(false) }
   }
   return <>
-    <SetRow label="contrast color" hint="Choose the brightness of backgrounds and text independently of the visual theme.">
+    <SetRow label="Contrast color" hint="Choose the brightness of backgrounds and text independently of the visual theme.">
       <select aria-label="Contrast color" value={theme} disabled={!ready || busy} onChange={e => void change(e.target.value)}>
         {CONTRAST_THEMES.map(id => <option key={id} value={id}>{CONTRAST_LABELS[id]}</option>)}
       </select>

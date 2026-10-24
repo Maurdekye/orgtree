@@ -86,7 +86,7 @@ export function Connections({ tree, toast, adding, setAdding }: {
         {address && <button type="button" onClick={() => copy(address, 'Organization address copied')}>Copy address</button>}
       </SetRow>
       <SetRow label={secret ? <span className="mono-sm">{secret}</span> : 'Secret'}
-        hint="The secret IS the address's ownership — losing it loses the address; nobody can restore it. It never reaches an agent. Keep a copy somewhere safe if this organization's address matters to you.">
+        hint="The secret is the address's ownership — losing it loses the address; nobody can restore it. It never reaches an agent. Keep a copy somewhere safe if this organization's address matters to you.">
         {!secret && <button type="button" disabled={!address} onClick={() => {
           getOrgNet(tree.slug)
             .then(r => setSecret(r.identity?.secret || '(none)'))
@@ -99,7 +99,7 @@ export function Connections({ tree, toast, adding, setAdding }: {
       </SetRow>
     </SetGroup>
     <SetGroup title="This computer's mail hub">
-      <SetToggle label="connect to this computer's mail hub" disabled={busy}
+      <SetToggle label="Connect to this computer's mail hub" disabled={busy}
         checked={hubs.some(h => h.id === 'local')}
         onChange={next => { void apply({ net_autoconnect: next }, next ? "Connected to this computer's mail hub" : "Disconnected from this computer's mail hub") }}
         hint="Being connected means peers can mail this organization (and thereby start its agents). Read and send correspondence in Mail." />
@@ -117,7 +117,7 @@ export function Connections({ tree, toast, adding, setAdding }: {
           {h.queued > 0 && <span>{h.queued} queued</span>}
           {h.id !== 'local' && <button title="Remove connection" disabled={busy} onClick={() => remove(h)}><CloseIcon fontSize="inherit" /></button>}
         </SetRow>
-        {h.id !== 'local' && <SetToggle label="connection enabled" checked={h.enabled} disabled={busy}
+        {h.id !== 'local' && <SetToggle label="Connection enabled" checked={h.enabled} disabled={busy}
           hint="Connect to this hub to send and receive mail."
           onChange={next => { void apply({ net_hubs: settings.map(x => x.id === h.id ? { ...x, enabled: next } : x) }, 'Connection updated') }} />}
         {(h.stuck ?? 0) > 0 && <SetBlock><p className="oi-stuck" title={h.stuck_err}>⚠ {h.stuck} failing — {h.stuck_err}</p></SetBlock>}

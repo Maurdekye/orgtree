@@ -13,7 +13,7 @@ import { NOTIFICATION_OPTIONS, notificationPreferences } from '../../../../../pa
  *  (docket option-to-run-the-background-engine-in-the-user-s). Where Orgtree
  *  cannot start at boot (a per-user installation, macOS, Linux) it reads "run
  *  on sign-in" (coordinator ruling A). */
-export const startupLabel = (kind: StartupKind) => (kind === 'boot' ? 'run on boot' : 'run on sign-in')
+export const startupLabel = (kind: StartupKind) => (kind === 'boot' ? 'Run on boot' : 'Run on sign-in')
 export const startupHint = (kind: StartupKind) => (kind === 'boot'
   ? "Start Orgtree's background engine when the computer starts, before anyone signs in. While you are signed in, "
     + 'agents run in your session, with your desktop and apps. Off: nothing of Orgtree runs until you open it. '
@@ -75,14 +75,14 @@ export function DesktopSettings() {
     <SetToggle label={startupLabel(kind)} checked={prefs?.startAtLogin ?? true}
       disabled={!prefs || busy} onChange={startAtLogin => put({ startAtLogin })}
       hint={startupHint(kind)} />
-    <SetToggle label="exit when the last window closes" checked={prefs?.exitOnClose ?? false}
+    <SetToggle label="Exit when the last window closes" checked={prefs?.exitOnClose ?? false}
       disabled={!prefs || busy} onChange={exitOnClose => put({ exitOnClose })}
       hint="Closing the main window keeps your other windows open." />
     {/* Disabled where it cannot do anything: if Orgtree cannot write to its own
       * program directory, the installer needs an approval nobody is present to
       * give, so no update will ever install unattended and the switch is just
       * misleading. "Update now" still works, which is what the hint points at. */}
-    <SetToggle label="automatic updates" checked={prefs?.automaticUpdates ?? true}
+    <SetToggle label="Automatic updates" checked={prefs?.automaticUpdates ?? true}
       disabled={!prefs || busy || capability?.unattendedInstall === false}
       onChange={automaticUpdates => put({ automaticUpdates })}
       title={capability?.unattendedInstall === false ? 'Unattended installation is unavailable for this installation.' : undefined}
@@ -91,8 +91,8 @@ export function DesktopSettings() {
         : 'Check, download and install updates when idle. Turn off to update manually; a download already started may finish.'} />
   </SetGroup>
   <SetGroup title="Notifications">
-    <SetRow label="open questions" hint="Choose what a question in the taskbar menu opens. An existing pinned or popped-out desk is brought to the front.">
-      <select aria-label="open questions" value={prefs?.questionTarget ?? 'desk'} disabled={!prefs || busy}
+    <SetRow label="Open questions" hint="Choose what a question in the taskbar menu opens. An existing pinned or popped-out desk is brought to the front.">
+      <select aria-label="Open questions" value={prefs?.questionTarget ?? 'desk'} disabled={!prefs || busy}
         onChange={e => put({ questionTarget: e.target.value === 'mail' ? 'mail' : 'desk' })}>
         <option value="desk">focus the agent desk</option>
         <option value="mail">open questions as mail</option>

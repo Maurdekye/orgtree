@@ -73,7 +73,7 @@ for (const history of [false, true]) {
 
   test(`one settings save orders model switch before target speed; history=${history}`, async t => {
     const h = await settings(t, history, 'sonnet')
-    const select = h.v.el.querySelector<HTMLSelectElement>('[aria-label="model tier"]')!
+    const select = h.v.el.querySelector<HTMLSelectElement>('[aria-label="Model tier"]')!
     await inAct(async () => { select.value = 'opus'; select.dispatchEvent(new Event('change', { bubbles: true })); await flush(3) })
     const checkbox = h.v.el.querySelector<HTMLInputElement>('input[aria-label="Fast mode"]')
     assert.equal(!!checkbox, true)

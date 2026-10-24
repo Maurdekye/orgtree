@@ -93,7 +93,7 @@ function VariantButton({ model, busy, onCreate }: {
         onClick={() => { setWorking(true); void onCreate().finally(() => setWorking(false)) }}>
         {working ? 'creating…' : 'Create a 64K version of this model'}</button>
       <span className="dim">
-        adds <span className="mono">{variantName(model)}</span> to your Ollama: the same model with its own
+        Adds <span className="mono">{variantName(model)}</span> to your Ollama: the same model with its own
         64K window, nothing downloaded</span>
     </div>
   )
@@ -179,13 +179,13 @@ export function LanguageServerSection({ provider, headRight, toast, onChanged }:
         <span className="set-head-right">
           <button type="button" className="acct-secondary-btn" disabled={busy || adding || !doc?.presets.length}
             aria-haspopup="dialog"
-            title="add a model server: Ollama, LM Studio, llama.cpp, vLLM or a custom one"
+            title="Add a model server: Ollama, LM Studio, llama.cpp, vLLM or a custom one"
             onClick={() => setAdding(true)}>Add server</button>
           {headRight}
         </span>
       </div>
-      {err && <div className="dim acct-prov-note">could not read the language model servers: {err}</div>}
-      {!doc && !err && <div className="dim acct-prov-note">reading language model servers…</div>}
+      {err && <div className="dim acct-prov-note">Could not read the language model servers: {err}</div>}
+      {!doc && !err && <div className="dim acct-prov-note">Reading language model servers…</div>}
       {doc && doc.servers.length === 0 && !adding && (
         <p className="dim acct-prov-note">
           Run agents on models served from this machine or your network: Ollama, LM Studio,
@@ -350,17 +350,17 @@ function AddServerForm({ doc, busy, toast, onCancel, onAdd }: {
 
   return (
     <ProviderDialog title="Add language model server" busy={busy} close={onCancel}>
-    <div className="ls-add" role="group" aria-label="add a language model server">
+    <div className="ls-add" role="group" aria-label="Add a language model server">
       <SetRow label="Server"
         hint={preset?.note}>
-        <select aria-label="kind of server" value={presetId} disabled={busy}
+        <select aria-label="Kind of server" value={presetId} disabled={busy}
           onChange={(e) => choosePreset(e.target.value as LangServerPreset['id'])}>
           {doc.presets.map((p) => <option key={p.id} value={p.id}>{p.label}</option>)}
         </select>
       </SetRow>
       <SetRow label="Address"
         hint={custom ? 'The server’s base address, e.g. https://models.example.net' : undefined}>
-        <input type="text" aria-label="server address" spellCheck={false} value={address}
+        <input type="text" aria-label="Server address" spellCheck={false} value={address}
           placeholder="http://127.0.0.1:11434" disabled={busy}
           onChange={(e) => { setAddress(e.target.value); setProbe(null); setBrowsing(false) }} />
       </SetRow>
@@ -379,7 +379,7 @@ function AddServerForm({ doc, busy, toast, onCancel, onAdd }: {
         : <SetRow label="Harness"
             hint={preset?.harnesses.find((h) => h.id === harness && !h.available)?.why
               || 'The CLI that drives this server’s agents. It stays with the server.'}>
-            <select aria-label="harness" value={harness} disabled={busy}
+            <select aria-label="Harness" value={harness} disabled={busy}
               onChange={(e) => setHarness(e.target.value)}>
               {/* every supported harness, installed first, the others greyed
                   out and disabled (user 2026-10-13 22:20Z) */}
@@ -390,7 +390,7 @@ function AddServerForm({ doc, busy, toast, onCancel, onAdd }: {
       <HarnessesLink />
       {custom && <>
         <SetRow label="Base path" hint="Added to the address, e.g. v1 or api/anthropic. Leave empty if the address already ends there.">
-          <input type="text" aria-label="base path" spellCheck={false} value={basePath} disabled={busy}
+          <input type="text" aria-label="Base path" spellCheck={false} value={basePath} disabled={busy}
             onChange={(e) => { setBasePath(e.target.value); setProbe(null) }} />
         </SetRow>
         <SetRow label="API key" hint="Optional. Stored on this machine and never shown again.">
@@ -398,25 +398,25 @@ function AddServerForm({ doc, busy, toast, onCancel, onAdd }: {
             disabled={busy} onChange={(e) => setKey(e.target.value)} />
         </SetRow>
         <SetRow label="Model ids" hint="As the server names them, separated by spaces or commas (or find them below).">
-          <input type="text" aria-label="model ids" spellCheck={false} value={typed} disabled={busy}
+          <input type="text" aria-label="Model ids" spellCheck={false} value={typed} disabled={busy}
             onChange={(e) => setTyped(e.target.value)} />
         </SetRow>
         <SetRow label="Context size" hint="Tokens. Must match what the server runs the models with.">
-          <input type="number" aria-label="context size" min={1024} step={1024} value={ctxSize} disabled={busy}
+          <input type="number" aria-label="Context size" min={1024} step={1024} value={ctxSize} disabled={busy}
             onChange={(e) => setCtxSize(Math.max(0, Number(e.target.value) || 0))} />
         </SetRow>
       </>}
       <SetRow label="Agents at once"
         hint="How many agents may run a turn on this server at the same time; the others wait. One GPU serves only a few.">
-        <input type="number" aria-label="agents at once" min={1} max={64} value={maxAgents} disabled={busy}
+        <input type="number" aria-label="Agents at once" min={1} max={64} value={maxAgents} disabled={busy}
           onChange={(e) => setMaxAgents(clampAgents(Number(e.target.value)))} />
       </SetRow>
       <SetRow label="Seat price" hint={seatHint(doc)}>
-        <input type="number" aria-label="seat price" min={0} max={doc.max_seat} step={0.5} value={seat} disabled={busy}
+        <input type="number" aria-label="Seat price" min={0} max={doc.max_seat} step={0.5} value={seat} disabled={busy}
           onChange={(e) => setSeat(clampSeat(Number(e.target.value), doc))} />
       </SetRow>
       <SetRow label="Name" hint="How this server is named in menus (optional).">
-        <input type="text" aria-label="server name" value={label} placeholder={preset?.label} disabled={busy}
+        <input type="text" aria-label="Server name" value={label} placeholder={preset?.label} disabled={busy}
           onChange={(e) => setLabel(e.target.value)} />
       </SetRow>
       <div className="ls-find">
@@ -428,12 +428,12 @@ function AddServerForm({ doc, busy, toast, onCancel, onAdd }: {
         {probe?.reachable && <span className="dim">
           {probe.models.length
             ? `${probe.models.length} model${probe.models.length === 1 ? '' : 's'} on the server${probe.version ? ` · version ${String(probe.version)}` : ''}`
-            : 'the server lists no models'}
+            : 'The server lists no models'}
         </span>}
       </div>
       {probe?.reachable && probe.note && <p className="dim acct-prov-note">{probe.note}</p>}
       {probe?.reachable && probe.models.length > 0 && (
-        <ModelChips ids={Object.keys(picked)} windows={picked} label="models to offer"
+        <ModelChips ids={Object.keys(picked)} windows={picked} label="Models to offer"
           open={browsing} onOpen={() => setBrowsing(true)}
           hint={Object.keys(picked).length
             ? `${Object.keys(picked).length} to offer · click to change`
@@ -442,7 +442,7 @@ function AddServerForm({ doc, busy, toast, onCancel, onAdd }: {
       <MismatchLines items={mismatches} />
       <div className="ls-actions">
         <button type="button" className="acct-secondary-btn" disabled={busy || !address.trim() || !harnessOk}
-          title={harnessOk ? 'add this server' : 'no installed harness can drive this kind of server'}
+          title={harnessOk ? 'Add this server' : 'No installed harness can drive this kind of server'}
           onClick={submit}>Add server</button>
         <button type="button" className="acct-secondary-btn" disabled={busy} onClick={onCancel}>Cancel</button>
         {!models.length && <span className="dim">No model picked yet: you can find and offer models later.</span>}
@@ -660,14 +660,14 @@ function ServerCard({ server: s, doc, busy, toast, run }: {
               </span>
             </span>
             <button type="button" className="acct-btn" disabled={busy || checking}
-              title="ask the server whether it answers, and the windows it runs the offered models with (loads no model)"
+              title="Ask the server whether it answers, and the windows it runs the offered models with (loads no model)"
               onClick={checkNow}><AutorenewIcon fontSize="inherit" className={checking ? 'cc-spin' : undefined} /></button>
             <button type="button" className={'acct-btn' + (draft ? ' on' : '')} disabled={busy}
-              aria-haspopup="dialog" aria-pressed={!!draft} title={draft ? 'close without saving' : 'edit this server'}
+              aria-haspopup="dialog" aria-pressed={!!draft} title={draft ? 'Close without saving' : 'Edit this server'}
               onClick={() => (draft ? cancel() : startEdit())}>
               <EditIcon fontSize="inherit" /></button>
             <button type="button" className="acct-btn acct-del" disabled={busy}
-              title={'remove this server — agents hired on its models stay, and their next turn says the model is '
+              title={'Remove this server — agents hired on its models stay, and their next turn says the model is '
                 + 'gone until they are switched to another tier'}
               onClick={() => { void run(removeLangServer(s.id), `removed ${s.label}`, (d) => d) }}>
               <DeleteIcon fontSize="inherit" /></button>
@@ -708,56 +708,56 @@ function ServerCard({ server: s, doc, busy, toast, run }: {
               + 'Browse the server’s models: search, filters, the window agents are told; each change is saved at once',
             open: browsing, onClick: openBrowser,
           } : undefined}
-          hint={chipIds.length ? '' : said ? (said.length || more ? '' : 'the server lists no models') : 'no model offered yet'} />
+          hint={chipIds.length ? '' : said ? (said.length || more ? '' : 'The server lists no models') : 'No model offered yet'} />
       )}
       {!draft && <MismatchLines items={mismatches} />}
       {draft && (
         <ProviderDialog title={`Configure ${s.label}`} busy={busy} close={cancel}>
-        <div className="ls-add ls-edit" role="group" aria-label={`edit ${s.label}`}>
+        <div className="ls-add ls-edit" role="group" aria-label={`Edit ${s.label}`}>
           <SetRow label="Name">
-            <input type="text" aria-label="server name" value={draft.label} disabled={busy}
+            <input type="text" aria-label="Server name" value={draft.label} disabled={busy}
               onChange={(e) => edit({ label: e.target.value })} />
           </SetRow>
           <SetRow label="Address">
-            <input type="text" aria-label="server address" spellCheck={false} value={draft.address} disabled={busy}
+            <input type="text" aria-label="Server address" spellCheck={false} value={draft.address} disabled={busy}
               onChange={(e) => edit({ address: e.target.value })} />
           </SetRow>
           {s.preset === 'custom' && <SetRow label="Base path">
-            <input type="text" aria-label="base path" spellCheck={false} value={draft.basePath} disabled={busy}
+            <input type="text" aria-label="Base path" spellCheck={false} value={draft.basePath} disabled={busy}
               onChange={(e) => edit({ basePath: e.target.value })} />
           </SetRow>}
-          <SetToggle label="offer this server’s models to new hires" checked={draft.enabled} disabled={busy}
+          <SetToggle label="Offer this server’s models to new hires" checked={draft.enabled} disabled={busy}
             hint="Off: nothing new is hired on it, and its agents wait until it is back on."
             onChange={(v) => edit({ enabled: v })} />
           <SetRow label="Agents at once" hint="Turns beyond this wait for one to finish.">
-            <input type="number" aria-label="agents at once" min={1} max={64} value={draft.maxAgents} disabled={busy}
+            <input type="number" aria-label="Agents at once" min={1} max={64} value={draft.maxAgents} disabled={busy}
               onChange={(e) => edit({ maxAgents: clampAgents(Number(e.target.value)) })} />
           </SetRow>
           <SetRow label="Seat price" hint={seatHint(doc)}>
-            <input type="number" aria-label="seat price" min={0} max={doc.max_seat} step={0.5} value={draft.seat}
+            <input type="number" aria-label="Seat price" min={0} max={doc.max_seat} step={0.5} value={draft.seat}
               disabled={busy} onChange={(e) => edit({ seat: clampSeat(Number(e.target.value), doc) })} />
           </SetRow>
           <SetRow label="API key"
             hint={s.key_set ? 'A key is stored (never shown). Paste a new one to replace it.' : 'Optional: only for servers that ask for one.'}>
             <input type="password" aria-label="API key" autoComplete="off" spellCheck={false} value={draft.key}
-              placeholder={s.key_set ? 'stored' : 'none'} disabled={busy || draft.forgetKey}
+              placeholder={s.key_set ? 'Stored' : 'None'} disabled={busy || draft.forgetKey}
               onChange={(e) => edit({ key: e.target.value })} />
             {s.key_set && <label className="ls-check">
               <input type="checkbox" checked={draft.forgetKey} disabled={busy}
-                onChange={(e) => edit({ forgetKey: e.target.checked, key: '' })} /> forget it</label>}
+                onChange={(e) => edit({ forgetKey: e.target.checked, key: '' })} /> Forget it</label>}
           </SetRow>
           <div className="ls-edit-models">
             <div className="acct-provider-tier-title">Models</div>
-            <ModelChips ids={Object.keys(draft.picked)} windows={draft.picked} label={`choose ${s.label}'s models`}
+            <ModelChips ids={Object.keys(draft.picked)} windows={draft.picked} label={`Choose ${s.label}'s models`}
               open={browsing} onOpen={openBrowser}
-              hint={Object.keys(draft.picked).length ? 'click to change' : '+ choose the models to offer'} />
+              hint={Object.keys(draft.picked).length ? 'Click to change' : '+ choose the models to offer'} />
           </div>
           <div className="ls-actions">
             <button type="button" className="acct-secondary-btn"
               disabled={busy || !draft.label.trim() || !draft.address.trim()} onClick={() => { void save() }}>Save</button>
             <button type="button" className="acct-secondary-btn" disabled={busy} onClick={cancel}>Cancel</button>
             {(Object.keys(changes(draft)).length > 0 || !!draft.key.trim() || draft.forgetKey)
-              && <span className="dim">unsaved changes</span>}
+              && <span className="dim">Unsaved changes</span>}
           </div>
         </div>
         </ProviderDialog>

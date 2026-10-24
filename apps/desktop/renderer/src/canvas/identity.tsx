@@ -175,7 +175,7 @@ export function AgentName({
           did not navigate, so the expanded scope does not reach it. */}
       <button type="button" data-copy-agent-name={id} {...agentNavProps(id)}
         className={'cc-name cc-name-jump' + extra}
-        title={nativeTitle ? why ?? `focus ${id}'s desk` : undefined}
+        title={nativeTitle ? why ?? `Focus ${id}'s desk` : undefined}
         onMouseDown={(e) => { if (e.button !== 0) e.stopPropagation() }}
         onClick={(e) => { e.stopPropagation(); onFocus(id, e) }}>
         {label}

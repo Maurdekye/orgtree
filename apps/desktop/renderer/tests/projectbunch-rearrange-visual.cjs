@@ -7,16 +7,16 @@ module.exports = async page => {
   })
   const capture = async name => { await settle(); screenshots.push(await page.screenshot(name)) }
   await page.goto('/?scene=settings')
-  await page.waitFor('input[aria-label="rearrange projects in a bunch"]')
+  await page.waitFor('input[aria-label="Rearrange projects in a bunch"]')
   details.settings = await page.eval(() => {
-    const on = document.querySelector('input[aria-label="bunch consecutive projects"]')
-    const reorder = document.querySelector('input[aria-label="rearrange projects in a bunch"]')
+    const on = document.querySelector('input[aria-label="Bunch consecutive projects"]')
+    const reorder = document.querySelector('input[aria-label="Rearrange projects in a bunch"]')
     reorder.scrollIntoView({ block: 'center' })
     return { bunching: on.checked, rearranging: reorder.checked }
   })
   if (!details.settings.bunching || details.settings.rearranging) throw new Error('Wrong default settings')
   await capture('bunch-rearrange-setting-default')
-  await page.eval(() => document.querySelector('input[aria-label="rearrange projects in a bunch"]').click())
+  await page.eval(() => document.querySelector('input[aria-label="Rearrange projects in a bunch"]').click())
   details.optIn = await page.eval(() => localStorage.getItem('orgtree-project-bunch-rearrange'))
   if (details.optIn !== '1') throw new Error('App setting did not persist opt-in')
   await capture('bunch-rearrange-setting-on')

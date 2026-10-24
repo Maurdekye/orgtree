@@ -244,7 +244,7 @@ export function ThemeSetting() {
     if (color) void change(`custom:${color}`)
   }
   return <SetGroup title="Appearance">
-    <SetRow label="visual theme" hint="Choose an accent for the desk. Provider badges and work status keep their own colors.">
+    <SetRow label="Visual theme" hint="Choose an accent for the desk. Provider badges and work status keep their own colors.">
       <select aria-label="Visual theme" value={isCustomTheme(theme) ? 'custom' : theme} disabled={!ready || busy} onChange={e => {
         clearTimeout(colorSave.current); pendingColor.current = null
         void change(e.target.value === 'custom' ? `custom:${customColor}` : e.target.value)
@@ -253,7 +253,7 @@ export function ThemeSetting() {
         <option value="custom">Custom</option>
       </select>
     </SetRow>
-    {isCustomTheme(theme) && <SetRow label="custom color">
+    {isCustomTheme(theme) && <SetRow label="Custom color">
       <input type="color" aria-label="Custom theme color" value={customColor}
         disabled={!ready} onBlur={() => commitColor.current()} onInput={e => {
           if (!rainbow.revealed && !revealPending.current && gesture.current(e.currentTarget.value, performance.now())) {

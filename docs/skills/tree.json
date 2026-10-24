@@ -858,7 +858,7 @@
     },
     {
      "file": "apps/desktop/renderer/src/canvas/projectpolicy.tsx",
-     "label": "Project Events"
+     "label": "Project events"
     }
    ]
   },
@@ -4017,11 +4017,11 @@
    "ui_labels": [
     {
      "file": "apps/desktop/renderer/src/canvas/desktopsettings.tsx",
-     "label": "exit when the last window closes"
+     "label": "Exit when the last window closes"
     },
     {
      "file": "apps/desktop/renderer/src/canvas/desktopsettings.tsx",
-     "label": "automatic updates"
+     "label": "Automatic updates"
     },
     {
      "file": "apps/desktop/renderer/src/canvas/desktopsettings.tsx",
@@ -4029,7 +4029,7 @@
     },
     {
      "file": "apps/desktop/renderer/src/canvas/onboarding.tsx",
-     "label": "exit when the last window closes"
+     "label": "Exit when the last window closes"
     }
    ],
    "key_sources": [
@@ -4150,7 +4150,7 @@
     },
     {
      "file": "apps/desktop/renderer/src/canvas/desktopsettings.tsx",
-     "label": "open questions"
+     "label": "Open questions"
     }
    ],
    "key_sources": [
@@ -4365,31 +4365,31 @@
    "ui_labels": [
     {
      "file": "apps/desktop/renderer/src/canvas/accounts.tsx",
-     "label": "most agent turns running at once"
+     "label": "Most agent turns running at once"
     },
     {
      "file": "apps/desktop/renderer/src/canvas/accounts.tsx",
-     "label": "keep agent processes warm"
+     "label": "Keep agent processes warm"
     },
     {
      "file": "apps/desktop/renderer/src/canvas/accounts.tsx",
-     "label": "check on working agents after 20 minutes"
+     "label": "Check on working agents after 20 minutes"
     },
     {
      "file": "apps/desktop/renderer/src/canvas/accounts.tsx",
-     "label": "wait until the MCP tool surface is ready"
+     "label": "Wait until the MCP tool surface is ready"
     },
     {
      "file": "apps/desktop/renderer/src/canvas/accounts.tsx",
-     "label": "remind idle agents about unfinished docket items"
+     "label": "Remind idle agents about unfinished docket items"
     },
     {
      "file": "apps/desktop/renderer/src/canvas/accounts.tsx",
-     "label": "also remind about blocked items when every ticket is blocked"
+     "label": "Also remind about blocked items when every ticket is blocked"
     },
     {
      "file": "apps/desktop/renderer/src/canvas/accounts.tsx",
-     "label": "wake an agent to listen for project mail"
+     "label": "Wake an agent to listen for project mail"
     }
    ],
    "key_sources": [
@@ -4464,11 +4464,11 @@
    "ui_labels": [
     {
      "file": "apps/desktop/renderer/src/canvas/accounts.tsx",
-     "label": "your hires bubble their cost up the chain"
+     "label": "Your hires bubble their cost up the chain"
     },
     {
      "file": "apps/desktop/renderer/src/canvas/accounts.tsx",
-     "label": "your allocations & model upgrades bubble their cost up the chain"
+     "label": "Your allocations & model upgrades bubble their cost up the chain"
     }
    ],
    "key_sources": [
@@ -4515,11 +4515,11 @@
    "ui_labels": [
     {
      "file": "apps/desktop/renderer/src/canvas/chartersettings.tsx",
-     "label": "populate missing documents"
+     "label": "Populate missing documents"
     },
     {
      "file": "apps/desktop/renderer/src/canvas/templates.tsx",
-     "label": "restore default templates"
+     "label": "Restore default templates"
     }
    ],
    "key_sources": [
@@ -4562,27 +4562,27 @@
    "ui_labels": [
     {
      "file": "apps/desktop/renderer/src/agentcolors.tsx",
-     "label": "organization theme color for agents"
+     "label": "Organization theme color for agents"
     },
     {
      "file": "apps/desktop/renderer/src/canvas/canvasbgsetting.tsx",
-     "label": "background"
+     "label": "Background"
     },
     {
      "file": "apps/desktop/renderer/src/canvas/canvasbgsetting.tsx",
-     "label": "intensity"
+     "label": "Intensity"
     },
     {
      "file": "apps/desktop/renderer/src/contrast.tsx",
-     "label": "contrast color"
+     "label": "Contrast color"
     },
     {
      "file": "apps/desktop/renderer/src/themes.tsx",
-     "label": "visual theme"
+     "label": "Visual theme"
     },
     {
      "file": "apps/desktop/renderer/src/themes.tsx",
-     "label": "custom color"
+     "label": "Custom color"
     },
     {
      "file": "apps/desktop/renderer/src/themes.tsx",
@@ -4661,15 +4661,15 @@
    "ui_labels": [
     {
      "file": "apps/desktop/renderer/src/canvas/accounts.tsx",
-     "label": "desk text size"
+     "label": "Desk text size"
     },
     {
      "file": "apps/desktop/renderer/src/canvas/accounts.tsx",
-     "label": "collapse crowded teams into one stack"
+     "label": "Collapse crowded teams into one stack"
     },
     {
      "file": "apps/desktop/renderer/src/canvas/accounts.tsx",
-     "label": "show agent card shortcuts"
+     "label": "Show agent card shortcuts"
     },
     {
      "file": "apps/desktop/renderer/src/canvas/accounts.tsx",
@@ -4677,11 +4677,11 @@
     },
     {
      "file": "apps/desktop/renderer/src/canvas/accounts.tsx",
-     "label": "snap pinned panels to edges"
+     "label": "Snap pinned panels to edges"
     },
     {
      "file": "apps/desktop/renderer/src/canvas/accounts.tsx",
-     "label": "org chart layout"
+     "label": "Org chart layout"
     },
     {
      "file": "apps/desktop/renderer/src/canvas/hirepositionsetting.tsx",
@@ -4693,27 +4693,27 @@
     },
     {
      "file": "apps/desktop/renderer/src/canvas/accounts.tsx",
-     "label": "hide retired agents"
+     "label": "Hide retired agents"
     },
     {
      "file": "apps/desktop/renderer/src/canvas/canvasanchor.tsx",
-     "label": "keep canvas controls inside the area pins leave free"
+     "label": "Keep canvas controls inside the area pins leave free"
     },
     {
      "file": "apps/desktop/renderer/src/canvas/pinoverlap.tsx",
-     "label": "fade pinned desks and modals over expanded desks"
+     "label": "Fade pinned desks and modals over expanded desks"
     },
     {
      "file": "apps/desktop/renderer/src/canvas/pinoverlap.tsx",
-     "label": "overlap opacity"
+     "label": "Overlap opacity"
     },
     {
      "file": "apps/desktop/renderer/src/canvas/accounts.tsx",
-     "label": "bunch consecutive projects"
+     "label": "Bunch consecutive projects"
     },
     {
      "file": "apps/desktop/renderer/src/canvas/accounts.tsx",
-     "label": "rearrange projects in a bunch"
+     "label": "Rearrange projects in a bunch"
     }
    ],
    "key_sources": [
@@ -4846,11 +4846,11 @@
     },
     {
      "file": "apps/desktop/renderer/src/canvas/accounts.tsx",
-     "label": "open an org at"
+     "label": "Open an org at"
     },
     {
      "file": "apps/desktop/renderer/src/canvas/accounts.tsx",
-     "label": "play the starting zoom"
+     "label": "Play the starting zoom"
     },
     {
      "file": "apps/desktop/renderer/src/canvas/accounts.tsx",
@@ -4858,7 +4858,7 @@
     },
     {
      "file": "apps/desktop/renderer/src/shell/general.tsx",
-     "label": "on startup"
+     "label": "On startup"
     }
    ],
    "key_sources": [
@@ -4931,23 +4931,23 @@
    "ui_labels": [
     {
      "file": "apps/desktop/renderer/src/shell/defaults.tsx",
-     "label": "top-level grant cap"
+     "label": "Top-level grant cap"
     },
     {
      "file": "apps/desktop/renderer/src/shell/defaults.tsx",
-     "label": "default top-level grant"
+     "label": "Default top-level grant"
     },
     {
      "file": "apps/desktop/renderer/src/shell/defaults.tsx",
-     "label": "compaction threshold %"
+     "label": "Compaction threshold %"
     },
     {
      "file": "apps/desktop/renderer/src/shell/defaults.tsx",
-     "label": "default thinking effort"
+     "label": "Default thinking effort"
     },
     {
      "file": "apps/desktop/renderer/src/shell/defaults.tsx",
-     "label": "auto-resume usage-limit-frozen agents after the reset time"
+     "label": "Auto-resume usage-limit-frozen agents after the reset time"
     }
    ],
    "key_sources": [
@@ -5020,11 +5020,11 @@
    "ui_labels": [
     {
      "file": "apps/desktop/renderer/src/canvas/accounts.tsx",
-     "label": "verbose engine logging"
+     "label": "Verbose engine logging"
     },
     {
      "file": "apps/desktop/renderer/src/canvas/enginedebug.tsx",
-     "label": "show the engine debug view"
+     "label": "Show the engine debug view"
     }
    ],
    "key_sources": [
@@ -5099,7 +5099,7 @@
    "ui_labels": [
     {
      "file": "apps/desktop/renderer/src/canvas/updatecheck.tsx",
-     "label": "updates"
+     "label": "Updates"
     },
     {
      "file": "apps/desktop/renderer/src/shell/general.tsx",
@@ -5107,15 +5107,15 @@
     },
     {
      "file": "apps/desktop/renderer/src/shell/general.tsx",
-     "label": "engine"
+     "label": "Engine"
     },
     {
      "file": "apps/desktop/renderer/src/shell/general.tsx",
-     "label": "version unknown"
+     "label": "Version unknown"
     },
     {
      "file": "apps/desktop/renderer/src/shell/general.tsx",
-     "label": "source"
+     "label": "Source"
     }
    ]
   },
@@ -5182,19 +5182,19 @@
     },
     {
      "file": "apps/desktop/renderer/src/App.tsx",
-     "label": "top-level grant cap"
+     "label": "Top-level grant cap"
     },
     {
      "file": "apps/desktop/renderer/src/App.tsx",
-     "label": "default top-level grant"
+     "label": "Default top-level grant"
     },
     {
      "file": "apps/desktop/renderer/src/App.tsx",
-     "label": "compaction threshold"
+     "label": "Compaction threshold"
     },
     {
      "file": "apps/desktop/renderer/src/App.tsx",
-     "label": "default thinking effort"
+     "label": "Default thinking effort"
     }
    ],
    "key_sources": [
@@ -5296,7 +5296,7 @@
    "ui_labels": [
     {
      "file": "apps/desktop/renderer/src/canvas/templates.tsx",
-     "label": "save as template"
+     "label": "Save as template"
     }
    ]
   },
@@ -5425,19 +5425,19 @@
    "ui_labels": [
     {
      "file": "apps/desktop/renderer/src/canvas/modals.tsx",
-     "label": "Native Tools"
+     "label": "Native tools"
     },
     {
      "file": "apps/desktop/renderer/src/canvas/modals.tsx",
-     "label": "Orgtree Tools"
+     "label": "Orgtree tools"
     },
     {
      "file": "apps/desktop/renderer/src/canvas/modals.tsx",
-     "label": "MCP Servers"
+     "label": "MCP servers"
     },
     {
      "file": "apps/desktop/renderer/src/canvas/modals.tsx",
-     "label": "all registered MCP servers"
+     "label": "All registered MCP servers"
     }
    ],
    "key_sources": [
@@ -5503,11 +5503,11 @@
    "ui_labels": [
     {
      "file": "apps/desktop/renderer/src/App.tsx",
-     "label": "reset a session before a known-cold turn"
+     "label": "Reset a session before a known-cold turn"
     },
     {
      "file": "apps/desktop/renderer/src/App.tsx",
-     "label": "at or above a context occupancy of"
+     "label": "At or above a context occupancy of"
     }
    ],
    "key_sources": [
@@ -5560,11 +5560,11 @@
    "ui_labels": [
     {
      "file": "apps/desktop/renderer/src/orginboxpolicy.tsx",
-     "label": "outside communication"
+     "label": "Outside communication"
     },
     {
      "file": "apps/desktop/renderer/src/orginboxpolicy.tsx",
-     "label": "allow multiple org-inbox audience holders"
+     "label": "Allow multiple org-inbox audience holders"
     }
    ],
    "key_sources": [
@@ -5617,11 +5617,11 @@
    "ui_labels": [
     {
      "file": "apps/desktop/renderer/src/App.tsx",
-     "label": "automatically switch accounts after a usage limit"
+     "label": "Automatically switch accounts after a usage limit"
     },
     {
      "file": "apps/desktop/renderer/src/App.tsx",
-     "label": "auto-resume frozen agents when the usage limit resets"
+     "label": "Auto-resume frozen agents when the usage limit resets"
     }
    ],
    "key_sources": [
@@ -6272,7 +6272,7 @@
     },
     {
      "file": "apps/desktop/renderer/src/canvas/modals.tsx",
-     "label": "all registered MCP servers"
+     "label": "All registered MCP servers"
     },
     {
      "file": "apps/desktop/renderer/src/canvas/modals.tsx",
@@ -6304,7 +6304,7 @@
     },
     {
      "file": "apps/desktop/renderer/src/canvas/modals.tsx",
-     "label": "Organization Logo"
+     "label": "Organization logo"
     }
    ],
    "key_sources": [
@@ -6393,7 +6393,7 @@
    "ui_labels": [
     {
      "file": "apps/desktop/renderer/src/canvas/accounts.tsx",
-     "label": "show legacy models (Terra, Gemini Pro)"
+     "label": "Show legacy models (Terra, Gemini Pro)"
     }
    ],
    "key_sources": [
@@ -6511,7 +6511,7 @@
     {
      "file": "apps/desktop/renderer/src/canvas/accounts.tsx",
      "component": "AccountsPanel",
-     "label": "`fall back to ${p.label} API-key accounts`"
+      "label": "`Fall back to ${p.label} API-key accounts`"
     }
    ]
   },
@@ -6549,7 +6549,7 @@
    "ui_labels": [
     {
      "file": "apps/desktop/renderer/src/canvas/openrouter.tsx",
-     "label": "group by provider"
+     "label": "Group by provider"
     }
    ],
    "ui_dynamic_labels": [
@@ -6630,7 +6630,7 @@
     },
     {
      "file": "apps/desktop/renderer/src/canvas/langserver.tsx",
-     "label": "offer this server’s models to new hires"
+     "label": "Offer this server’s models to new hires"
     }
    ],
    "ui_dynamic_labels": [
@@ -6945,7 +6945,7 @@
    "ui_labels": [
     {
      "file": "apps/desktop/renderer/src/canvas/accounts.tsx",
-     "label": "enable Claude Sonnet 5.5 and Opus 5.5 through Antigravity"
+     "label": "Enable Claude Sonnet 5.5 and Opus 5.5 through Antigravity"
     }
    ],
    "key_sources": [
@@ -7234,11 +7234,11 @@
    "ui_labels": [
     {
      "file": "apps/desktop/renderer/src/App.tsx",
-     "label": "connect to this computer's mail hub"
+     "label": "Connect to this computer's mail hub"
     },
     {
      "file": "apps/desktop/renderer/src/canvas/connections.tsx",
-     "label": "connect to this computer's mail hub"
+     "label": "Connect to this computer's mail hub"
     },
     {
      "file": "apps/desktop/renderer/src/canvas/connections.tsx",
@@ -7246,7 +7246,7 @@
     },
     {
      "file": "apps/desktop/renderer/src/canvas/connections.tsx",
-     "label": "connection enabled"
+     "label": "Connection enabled"
     },
     {
      "file": "apps/desktop/renderer/src/canvas/connections.tsx",

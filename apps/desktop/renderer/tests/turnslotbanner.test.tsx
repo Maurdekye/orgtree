@@ -87,7 +87,7 @@ test('§3 the setting shows the live limit and saves a valid new one', async () 
     <TurnLimitSetting runtime={runtime} busy={false} onSave={n => saved.push(n)} />,
     (el) => el)
   const input = () => view.el.querySelector<HTMLInputElement>(
-    'input[aria-label="most agent turns running at once"]')!
+    'input[aria-label="Most agent turns running at once"]')!
   const type = async (value: string) => inAct(() => {
     const set = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')!.set!
     set.call(input(), value)

@@ -946,7 +946,7 @@ export const museEffortLevels = (tier: string, version: string | null | undefine
 export const museUnofferedWhy = (tier: string, version: string | null | undefined, account: string | null | undefined,
   logins: MuseLoginDoc[] = museLoginDocs): string | null => {
   const login = museLogin(account, logins)
-  const who = museLoginKey(account) ? `the Muse account ${museLoginKey(account)}` : 'the signed-in Muse login'
+  const who = museLoginKey(account) ? `the Muse account ${museLoginKey(account)}` : 'The signed-in Muse login'
   if (!login) return null
   if (login.state === 'signed_out') return `${who} is signed out`
   if (login.state !== 'ready') return null

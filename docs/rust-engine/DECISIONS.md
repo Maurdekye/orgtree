@@ -915,7 +915,7 @@ All entries are dated 2026-10-06 unless stated otherwise.
       line, and the settings written at startup. REQUEST and RESPONSE lines, warnings and errors
       are written either way.
     - Off by default in packaged builds; on by default in every local development build.
-    - Implementation: a runtime switch (App settings › Developer › "verbose engine logging"),
+    - Implementation: a runtime switch (App settings › Developer › "Verbose engine logging"),
       applied at once, rather than a compile-time flag; with it off, a logged method costs one
       atomic load. Packaged builds are compiled with `ORGTREE_RELEASE_BUILD` set, and
       `ORGTREE_LOG_VERBOSE=0|1` fixes the switch for one run.

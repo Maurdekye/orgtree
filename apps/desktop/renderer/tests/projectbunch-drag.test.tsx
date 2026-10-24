@@ -320,7 +320,7 @@ test('the app setting and cross-window storage events change rearranging on a mo
   const settings = await mountView(<AccountsPanel initialTab="display" toast={() => {}} close={() => {}} />, el => el)
   t.after(() => settings.unmount())
   await flush(8)
-  const toggle = settings.el.querySelector<HTMLInputElement>('input[aria-label="rearrange projects in a bunch"]')
+  const toggle = settings.el.querySelector<HTMLInputElement>('input[aria-label="Rearrange projects in a bunch"]')
   assert.ok(!!toggle, 'app setting exists')
   const preview = async (enabled: boolean) => {
     await drag(view.el, 'project-1', endPoint(view.el, 'project-3', 'project-2'), true, async () => {

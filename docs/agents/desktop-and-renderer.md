@@ -1170,7 +1170,7 @@ Original section: AGENTS.md — working on Orgtree. Source lines 2691–2699.
 
 <a id="e-8e3ffb71b7e07772"></a>
 
-## With "hide retired agents" off the canvas draws a retired pile only from
+## With "Hide retired agents" off the canvas draws a retired pile only from
 
 Original section: Orgtree 4.0.0 (Rust engine): read this first. Source lines 2759–2775.
 

@@ -149,7 +149,7 @@ test('settings list: shows folder states, adds and removes paths, surfaces refus
     assert.match(text(), /missing — the folder does not exist/)
     assert.match(text(), /linked files not read: evil\.md/)
     assert.match(text(), /reviewer ×2/)
-    const input = view.el.querySelector<HTMLInputElement>('[aria-label="add a charter template folder"]')!
+    const input = view.el.querySelector<HTMLInputElement>('[aria-label="Add a charter template folder"]')!
     await inAct(async () => {
       const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')!.set!
       setter.call(input, '  F:\\more  ')

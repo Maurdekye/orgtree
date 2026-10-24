@@ -304,11 +304,11 @@ export function AccountRegistrySection({ provider, registry, toast, native }: {
         <div className="account-identity">
           <span className={'account-swatch swatch-' + provider} aria-hidden="true" style={{ background: COLORS[provider] }} />
           <strong>{accountIdentity('default', native.email)}</strong>
-          <span className="dim">signed-in subscription · {native.connected === true ? 'Signed in'
+          <span className="dim">Signed-in subscription · {native.connected === true ? 'Signed in'
             : native.connected === false ? 'Sign-in required' : 'Sign-in not verified'}</span>
         </div>
         {nativeActive !== undefined && <ActiveBox active={nativeActive} disabled={native.busy}
-          who={`signed-in ${LABELS[provider]} subscription`} onChange={native.onActive} />}
+          who={`Signed-in ${LABELS[provider]} subscription`} onChange={native.onActive} />}
         {nativeActive === false && <div className="dim account-note">{INACTIVE_NOTE}</div>}
         {provider === 'openai' && <ProviderSignIn provider="codex" connected={native.connected === true}
           toast={toast} onRefresh={() => native.onRefresh?.()} />}
@@ -324,7 +324,7 @@ export function AccountRegistrySection({ provider, registry, toast, native }: {
         <div className="account-identity">
           <span className={'account-swatch swatch-' + provider} aria-hidden="true" style={{ background: accountTint(COLORS[provider], row.tint_ordinal) }} />
           <strong>{who}</strong>
-          <span className="dim">{row.ambient ? 'signed-in subscription · ' : ''}{signInText(row.standing.auth)}</span>
+          <span className="dim">{row.ambient ? 'Signed-in subscription · ' : ''}{signInText(row.standing.auth)}</span>
         </div>
         {active !== undefined && (row.ambient
           ? <ActiveBox active={active} disabled={!native || native.busy} who={who} onChange={v => native?.onActive(v)} />

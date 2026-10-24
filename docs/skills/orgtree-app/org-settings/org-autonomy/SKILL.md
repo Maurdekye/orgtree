@@ -13,8 +13,8 @@ Save. Agents explain and suggest; the user changes them.
 
 | Control | Storage key | Engine default | Effect |
 | --- | --- | --- | --- |
-| automatically switch accounts after a usage limit | `org:account_fallback_default` | Off | Org default for automatic fallback. Each agent can override on/off or inherit. Another eligible account in the same provider lane may be selected and retained. |
-| auto-resume frozen agents when the usage limit resets | `org:auto_resume` | On | Allows scheduled usage-limit resumes one minute after the reported reset. |
+| Automatically switch accounts after a usage limit | `org:account_fallback_default` | Off | Org default for automatic fallback. Each agent can override on/off or inherit. Another eligible account in the same provider lane may be selected and retained. |
+| Auto-resume frozen agents when the usage limit resets | `org:auto_resume` | On | Allows scheduled usage-limit resumes one minute after the reported reset. |
 
 These defaults apply in the absence of app/org overrides. In particular,
 the UI uses false when an auto-resume field is missing, but the engine default

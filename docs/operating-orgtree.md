@@ -110,7 +110,7 @@ The agent History tab contains retained events; Chat contains its conversation. 
 
 The **engine debug view** displays measured memory, socket backlog and docket traffic; its numbers alone do not diagnose a leak. The separate `/debug/freezes` view reads bounded browser-stall observations, with refresh/copy/clear controls. A UI frame gap is different from an agent usage freeze.
 
-The quiet area below Developer controls reveals optional **EPIC Mode**. While enabled, observed thinking, writing, tools, waiting and compaction add audiovisual activity layers and heat; this does not measure useful progress. The tray's **Mute EPIC sounds** appears while enabled, saves across restarts and applies to all windows/popouts. Muting leaves visuals and activity detection running; unmuting follows current activity without replaying missed sounds. Disabling EPIC stops its audiovisual effect.
+The quiet area below Developer controls reveals optional **EPIC mode**. While enabled, observed thinking, writing, tools, waiting and compaction add audiovisual activity layers and heat; this does not measure useful progress. The tray's **Mute EPIC sounds** appears while enabled, saves across restarts and applies to all windows/popouts. Muting leaves visuals and activity detection running; unmuting follows current activity without replaying missed sounds. Disabling EPIC stops its audiovisual effect.
 
 When [reporting a bug](https://github.com/Maurdekye/orgtree/issues), include app/engine identity, Windows version, reproducible steps, actual error and relevant redacted evidence. Say what was observed versus what you inferred. Do not publish keys, verification codes, private correspondence or personal paths.
 

@@ -845,7 +845,7 @@ Session 0: `runtime/{muse,actor}.rs`, `providers/mod.rs` (`muse.session0`),
 the renderer's `canvas/accounts.tsx` and `types.ts` with test `musesession0`,
 the fake's `--disable-sandbox`, `proofs/muse-session0{,-real}.mjs`.
 Background commands: `runtime/{actor,muse}.rs`; the fake's `finish_ms`
-background steps and Muse's delivery turns, `proofs/muse-bg-result{,-real}.mjs`.
+Background steps and Muse's delivery turns, `proofs/muse-bg-result{,-real}.mjs`.
 Approvals in stages and the todo chip: `runtime/muse.rs` (`Asked`, `decision`,
 `next_stage`, `stage_open`), `runtime/actor.rs` (`muse_todos_on_call`,
 `newest_call`, `muse_todo_chip`); the fake's `stages` approvals and

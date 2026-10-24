@@ -143,7 +143,7 @@ test('History loads inside Settings and the Autonomy toggle saves auto-resume', 
     assert.equal(view.el.querySelectorAll('.overlay').length, 1)
     await open(view.el, 'Autonomy')
     const label = [...view.el.querySelectorAll('label')].find(el =>
-      el.textContent?.includes('auto-resume frozen agents when the usage limit resets'))
+      el.textContent?.includes("Auto-resume frozen agents when the usage limit resets"))
     const input = label?.querySelector<HTMLInputElement>('input[type="checkbox"]')
     assert.ok(input, 'the setting is accessible in Autonomy')
     assert.equal(input.checked, false)
@@ -218,21 +218,21 @@ test('③  a tab switch is lossless: an edit made on one tab is still there '
   try {
     // edit on Basic
     await setField(view.el.querySelector<HTMLInputElement>(
-      'input[aria-label="top-level grant cap"]')!, '77')
+      'input[aria-label="Top-level grant cap"]')!, '77')
 
     // edit on Policies (the Fable policies were dropped with the feature, DECISIONS 31): flip a switch
     await open(view.el, 'Policies')
-    await inAct(async () => { view.el.querySelector<HTMLInputElement>('input[aria-label="reset a session before a known-cold turn"]')!.click() })
+    await inAct(async () => { view.el.querySelector<HTMLInputElement>('input[aria-label="Reset a session before a known-cold turn"]')!.click() })
 
     // wander, then come back — both edits survive, because the panels are
     // hidden rather than unmounted
     await open(view.el, 'Autonomy')
     await open(view.el, 'Basic')
     assert.equal(view.el.querySelector<HTMLInputElement>(
-      'input[aria-label="top-level grant cap"]')!.value, '77')
+      'input[aria-label="Top-level grant cap"]')!.value, '77')
     await open(view.el, 'Policies')
     assert.equal(view.el.querySelector<HTMLInputElement>(
-      'input[aria-label="reset a session before a known-cold turn"]')!.checked, true)
+      'input[aria-label="Reset a session before a known-cold turn"]')!.checked, true)
 
     // one save carries BOTH, from whichever tab you happen to be on
     seen.length = 0
@@ -309,7 +309,7 @@ test('account fallback org default starts off and toggles independently of auto-
   t.after(async () => { await view.unmount(); g.fetch = old })
   await open(view.el, 'Autonomy')
   const label = [...view.el.querySelectorAll('label')].find(x =>
-    x.textContent?.includes('automatically switch accounts after a usage limit'))!
+    x.textContent?.includes("Automatically switch accounts after a usage limit"))!
   assert.ok(label)
   const box = label.querySelector<HTMLInputElement>('input')!
   assert.equal(box.checked, false)
@@ -329,7 +329,7 @@ test('⑦  Hire defaults displays current registered MCP servers while wildcard 
     await inAct(async () => { await flush(20) })
 
     // Checkbox is checked by default
-    const allBox = view.el.querySelector<HTMLInputElement>('input[aria-label="all registered MCP servers"]')
+    const allBox = view.el.querySelector<HTMLInputElement>('input[aria-label="All registered MCP servers"]')
     assert.ok(allBox, 'all registered MCP servers checkbox found')
     assert.equal(allBox.checked, true)
 
@@ -432,7 +432,7 @@ test('⑩  Hire defaults offers canonical primary accounts even when no accounts
     await inAct(async () => { await flush(20) })
 
     const sel = view.el.querySelector<HTMLSelectElement>(
-      'select[aria-label="default provider account for new hires"]')
+      'select[aria-label="Default provider account for new hires"]')
     assert.ok(sel, 'account selector found')
     assert.equal(sel.value, 'claude/primary')
     const opts = [...sel.querySelectorAll('option')]
@@ -454,7 +454,7 @@ test('⑪  Hire defaults exposes live account options, updates selection, and pe
     await inAct(async () => { await flush(20) })
 
     const sel = view.el.querySelector<HTMLSelectElement>(
-      'select[aria-label="default provider account for new hires"]')
+      'select[aria-label="Default provider account for new hires"]')
     assert.ok(sel, 'account selector found')
     assert.equal(sel.value, 'claude/primary')
     const opts = [...sel.querySelectorAll('option')]
@@ -499,7 +499,7 @@ test('⑫  Hire defaults handles multiple accounts across providers with limited
     await inAct(async () => { await flush(20) })
 
     const sel = view.el.querySelector<HTMLSelectElement>(
-      'select[aria-label="default provider account for new hires"]')
+      'select[aria-label="Default provider account for new hires"]')
     assert.ok(sel, 'account selector found')
     // Pre-filled with tree.default_account
     assert.equal(sel.value, 'acct-claude-2')
@@ -544,7 +544,7 @@ test('Settings selects and saves each canonical primary name with or without an 
         await open(view.el, 'Hire defaults')
         await inAct(async () => { await flush(10) })
         const sel = view.el.querySelector<HTMLSelectElement>(
-          'select[aria-label="default provider account for new hires"]')!
+          'select[aria-label="Default provider account for new hires"]')!
         const options = [...sel.options].filter((o) => o.value === name)
         assert.equal(options.length, 1, `${name} is shown exactly once`)
         assert.equal(options[0].textContent, 'default · email unavailable')

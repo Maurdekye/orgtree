@@ -13,9 +13,9 @@ The Keyboard shortcuts settings tab is a reference, not a key-rebinding editor. 
 
 | Key | Main-window action |
 | --- | --- |
-| F1 | Toggle app Settings. |
-| F2 | Toggle Usage. |
-| F3 | Toggle Usage History. |
+| F1 | Toggle app settings. |
+| F2 | Toggle usage. |
+| F3 | Toggle usage history. |
 | F4 | Toggle Canvas/Attention; return to Canvas from an open panel. |
 | Shift+F4 | Go to the newest recorded @user mention in the current org, across agent transcripts, mail and tickets. Separate presses step backward, including seen mentions; no wrap. A newer mention resets the position. |
 | F5 | Refresh app view, using the header button's action. |
@@ -23,7 +23,7 @@ The Keyboard shortcuts settings tab is a reference, not a key-rebinding editor. 
 | F7 | Toggle the current org Docket. |
 | F8 | Toggle the current org Presentations. |
 | F9 | Toggle the current org Settings. |
-| F10 | Unlatch Halt all; this neither halts agents nor releases an org that is halted. |
+| F10 | Unlatch halt all; this neither halts agents nor releases an org that is halted. |
 | Shift+F10 | Halt all immediately, whether armed or not. |
 | Shift+F1 | Open a new Homepage window. |
 | Shift+F2 | Toggle the app menu focused on Open organization. |

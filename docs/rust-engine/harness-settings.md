@@ -8,7 +8,7 @@ Language model server tags, with at most one short explanatory line.
 projects `version` from each existing `providers::State` CLI discovery record.
 All five discovery lanes already record versions; no new discovery commands,
 processes, sign-in checks or Antigravity invocations are added. Missing or blank
-versions display **version unknown** for installed harnesses. Missing harnesses
+versions display **Version unknown** for installed harnesses. Missing harnesses
 display one **How to install** link when the registry supplies a URL, with no
 version. Muse's official install URL matches the existing tray/README link.
 

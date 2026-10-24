@@ -517,7 +517,7 @@ test('§3 the ⚙ panel became a tab: every control it had is reachable there, '
   // the four controls the ⚙ panel carried, plus its danger row
   assert.ok(panel.querySelector('select[aria-label="Visible agents"]'))
   assert.ok(panel.querySelector('select[aria-label="File and command access"]'))
-  assert.ok(panel.querySelector('input[aria-label="all registered MCP servers"]'))
+  assert.ok(panel.querySelector('input[aria-label="All registered MCP servers"]'))
   assert.ok(panel.querySelector('.dirlist'), 'folder access did not come across')
   assert.ok([...panel.querySelectorAll('button')]
     .some((b) => b.textContent?.trim() === 'dissolve all agents'),

@@ -173,8 +173,8 @@ test('§7 a toggle names itself to a screen reader without reading out its own '
     // switches (user 2026-10-22 14:30Z) are also part of Runtime.
     assert.equal(rows.length, 11)
     assert.ok(rows.some(row => row.querySelector('input[aria-label="Suggest agents to give feedback to Orgtree"]')))
-    assert.ok(rows.some(row => row.querySelector('input[aria-label="your hires bubble their cost up the chain"]')))
-    assert.ok(rows.some(row => row.querySelector('input[aria-label="your allocations & model upgrades bubble their cost up the chain"]')))
+    assert.ok(rows.some(row => row.querySelector('input[aria-label="Your hires bubble their cost up the chain"]')))
+    assert.ok(rows.some(row => row.querySelector('input[aria-label="Your allocations & model upgrades bubble their cost up the chain"]')))
     for (const row of rows) {
       const box = row.querySelector<HTMLInputElement>('.set-lead input')!
       const name = box.getAttribute('aria-label')
@@ -189,7 +189,7 @@ test('§7 a toggle names itself to a screen reader without reading out its own '
     }
     // …and it still tracks through a real flip that goes to the server
     const warming = panel.querySelector<HTMLInputElement>(
-      'input[role="switch"][aria-label="keep agent processes warm"]')!
+      'input[role="switch"][aria-label="Keep agent processes warm"]')!
     assert.equal(warming.checked, true)
     await inAct(async () => { warming.click(); await flush(10) })
     assert.equal(warming.checked, false)

@@ -44,7 +44,7 @@ test('question destination is visible with banners off, defaults to desk and sav
  const view=await mountView(<DesktopSettings/>,el=>el)
  try{
   await inAct(async()=>{await flush(12)})
-  const select=view.el.querySelector<HTMLSelectElement>('select[aria-label="open questions"]')
+  const select=view.el.querySelector<HTMLSelectElement>('select[aria-label="Open questions"]')
   assert.ok(select,'question destination control exists');assert.equal(select.disabled,false);assert.equal(select.value,'desk')
   assert.deepEqual([...select.options].map(o=>o.textContent),['focus the agent desk','open questions as mail'])
   await inAct(async()=>{select.value='mail';select.dispatchEvent(new window.Event('change',{bubbles:true}));await flush(12)})

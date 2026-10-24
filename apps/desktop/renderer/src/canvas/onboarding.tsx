@@ -155,7 +155,7 @@ export function Onboarding({ children, windowControls }: {
       <SetToggle label={startupLabel(kind)} checked={prefs?.startAtLogin ?? true}
         disabled={!prefs || busy} onChange={startAtLogin => put({ startAtLogin })}
         hint={startupHint(kind)} />
-      <SetToggle label="exit when the last window closes" checked={prefs?.exitOnClose ?? false}
+      <SetToggle label="Exit when the last window closes" checked={prefs?.exitOnClose ?? false}
         disabled={!prefs || busy} onChange={exitOnClose => put({ exitOnClose })}
         hint="Off keeps agents running in the tray when the window closes." />
 

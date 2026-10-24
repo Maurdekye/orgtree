@@ -63,7 +63,7 @@ module.exports=async page=>{
     await dismiss({selector:'.prov-openrouter button',text:'Add another OpenRouter key'},'openrouter-add-'+size+'-'+theme)
     await dismiss('button[title^="rename this key"]','openrouter-settings-'+size+'-'+theme)
     await dismiss('button[title^="add a model server"]','language-add-'+size+'-'+theme)
-    await dismiss('button[title="edit this server"]','language-edit-'+size+'-'+theme)
+    await dismiss('button[title="Edit this server"]','language-edit-'+size+'-'+theme)
   }
   return results
 }

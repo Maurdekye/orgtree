@@ -15,7 +15,7 @@ Project **Save** applies only changed fields. Mail queue defaults to Round-robin
 Ack mode admits up to each listener's configured batch of unacknowledged jobs
 (default one). **Never hand an agent its
 own mail** defaults Off. **Concurrency slots** is a count (0 disables them);
-**Project Events** defaults Off and controls the desk's **events** tab and event
+**Project events** defaults Off and controls the desk's **events** tab and event
 firing. Turning listeners Off pauses the project's marked listener/watch dogs;
 turning On re-arms them. The conditional Acknowledgement group shares Ack timeout
 and Ack reminders across mail jobs and slot leases; Max attempts and the turn-end

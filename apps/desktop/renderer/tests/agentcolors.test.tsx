@@ -17,7 +17,7 @@ const prefs = (agentColorSource: NativePreferences['agentColorSource'] = 'provid
   agentColorSource, visualTheme:'custom:#8435cf', visualThemeExplicit:true, contrastTheme:'charcoal',
   startAtLogin:true, exitOnClose:false, automaticUpdates:true, routineNotifications:false, onboarded:true,
 })
-const toggle = (el: Element) => el.querySelector<HTMLInputElement>('[aria-label="organization theme color for agents"]')!
+const toggle = (el: Element) => el.querySelector<HTMLInputElement>('[aria-label="Organization theme color for agents"]')!
 const override = () => document.documentElement.classList.contains('agent-colors-organization')
 async function click(el: HTMLInputElement) { await inAct(async () => { el.click(); await flush() }) }
 function stylesheet() { const style = document.createElement('style'); style.textContent = css; document.head.appendChild(style); return () => style.remove() }

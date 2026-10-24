@@ -16,14 +16,14 @@ export function CanvasBackgroundSetting() {
   const pref = useCanvasBackground()
   const intensity = pref.intensities[pref.theme] ?? DEFAULT_CANVAS_INTENSITIES[pref.theme] ?? 1
   return <SetGroup title="Canvas background">
-    <SetRow label="background"
+    <SetRow label="Background"
       hint="Drawn behind the organization canvas. Grids and tiles pan and zoom with the canvas like a floor; the dot grid keeps its gentle parallax.">
       <select aria-label="Canvas background" value={pref.theme}
         onChange={e => setCanvasBackgroundTheme(e.target.value as CanvasBackgroundTheme)}>
         {CANVAS_BACKGROUNDS.map(id => <option key={id} value={id}>{CANVAS_BACKGROUND_LABELS[id]}</option>)}
       </select>
     </SetRow>
-    <SetRow label="intensity"
+    <SetRow label="Intensity"
       hint="How strongly this background shows. Each background remembers its own intensity.">
       <input aria-label="Background intensity" type="range" min="0" max="1" step="0.05"
         value={intensity}

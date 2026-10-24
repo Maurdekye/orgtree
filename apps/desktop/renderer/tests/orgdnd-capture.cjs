@@ -4,7 +4,7 @@ module.exports = async page => {
   await page.waitFor('#org-inbox-dnd-warning', { timeout: 5000 })
   const details = await page.eval(async () => {
     await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(() => setTimeout(resolve, 150))))
-    const select = document.querySelector('select[aria-label="org inbox mode"]')
+    const select = document.querySelector('select[aria-label="Org inbox mode"]')
     const warning = document.querySelector('#org-inbox-dnd-warning')
     const r = warning.getBoundingClientRect()
     return { mode: select.value, options: [...select.options].map(o => o.text), warning: warning.textContent,

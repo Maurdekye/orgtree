@@ -227,7 +227,7 @@ test('§1 stable accessible tabs navigate by key without swapping identity',
       assert.equal(last.hasAttribute('hidden'), false)
       // the engine debug view's toggle lives here, and is off by default
       const dbg = last.querySelector<HTMLInputElement>(
-        'input[role="switch"][aria-label="show the engine debug view"]')
+        'input[role="switch"][aria-label="Show the engine debug view"]')
       assert.ok(dbg, 'Developer has no engine debug toggle')
       assert.equal(dbg!.checked, false)
     } finally { await view.unmount(); delete g.fetch }
@@ -340,17 +340,17 @@ test('§3 Display owns both browser-local controls, with durable values and no '
     await inAct(async () => { displayTab.click() })
     const panel = view.el.querySelector<HTMLElement>('#app-settings-panel-display')!
     assert.equal(panel.querySelectorAll('.hint').length, 0)
-    assert.match(panel.textContent ?? '', /desk text size/)
+    assert.match(panel.textContent ?? '', /Desk text size/)
     // D-222 renamed the crowd toggle: the LABEL is now the short imperative
     // and the 8-agent threshold moved into the row's hint, where the rest of
     // the settings surface puts its qualifying prose.
-    assert.match(panel.textContent ?? '', /collapse crowded teams into one stack/)
+    assert.match(panel.textContent ?? '', /Collapse crowded teams into one stack/)
     assert.match(panel.textContent ?? '',
       /more than 8 active agents draws as a single stack/)
     const plus = [...panel.querySelectorAll<HTMLButtonElement>('button')]
       .find((b) => b.textContent === '+')!
     await inAct(async () => { plus.click() })
-    const crowd = panel.querySelector<HTMLInputElement>('input[aria-label="collapse crowded teams into one stack"]')!
+    const crowd = panel.querySelector<HTMLInputElement>('input[aria-label="Collapse crowded teams into one stack"]')!
     await inAct(async () => { crowd.click() })
     assert.equal(localStorage.getItem('orgtree-desk-dpi'), '1.25')
     assert.equal(document.documentElement.style.getPropertyValue('--desk-dpi'), '1.25')
@@ -366,7 +366,7 @@ test('§3 Display owns both browser-local controls, with durable values and no '
     await inAct(async () => { displayTab.click() })
     const panel = view.el.querySelector<HTMLElement>('#app-settings-panel-display')!
     assert.match(panel.textContent ?? '', /125%/)
-    assert.equal(panel.querySelector<HTMLInputElement>('input[aria-label="collapse crowded teams into one stack"]')!.checked,
+    assert.equal(panel.querySelector<HTMLInputElement>('input[aria-label="Collapse crowded teams into one stack"]')!.checked,
       true)
   } finally {
     await view.unmount(); delete g.fetch; localStorage.clear()
@@ -384,7 +384,7 @@ test('§3b Display: "snap pinned panels to edges" is on by default and stays '
     await inAct(async () => { displayTab.click() })
     const panel = view.el.querySelector<HTMLElement>('#app-settings-panel-display')!
     const sw = panel.querySelector<HTMLInputElement>(
-      'input[aria-label="snap pinned panels to edges"]')!
+      'input[aria-label="Snap pinned panels to edges"]')!
     return { view, panel, sw }
   }
   let v = await open()
@@ -444,7 +444,7 @@ test('§4 Runtime reads and writes both machine-wide lifecycle controls', async 
       .find((b) => b.textContent?.includes('Runtime'))!
     await inAct(async () => { runtime.click() })
     const sw = view.el.querySelector<HTMLInputElement>(
-      'input[aria-label="keep agent processes warm"]')!
+      'input[aria-label="Keep agent processes warm"]')!
     assert.equal(sw.checked, true, 'missing warm.flag defaults on')
     await inAct(async () => { sw.click(); await flush(10) })
     assert.equal(sw.checked, false)
@@ -453,7 +453,7 @@ test('§4 Runtime reads and writes both machine-wide lifecycle controls', async 
       body: { enabled: false },
     })
     const checkup = view.el.querySelector<HTMLInputElement>(
-      'input[aria-label="check on working agents after 20 minutes"]')!
+      'input[aria-label="Check on working agents after 20 minutes"]')!
     assert.equal(checkup.checked, true, 'checkups default on')
     await inAct(async () => { checkup.click(); await flush(10) })
     assert.equal(checkup.checked, false)
@@ -464,7 +464,7 @@ test('§4 Runtime reads and writes both machine-wide lifecycle controls', async 
       body: { working_checkups_enabled: false },
     })
     const readiness = view.el.querySelector<HTMLInputElement>(
-      'input[aria-label="wait until the MCP tool surface is ready"]')!
+      'input[aria-label="Wait until the MCP tool surface is ready"]')!
     assert.equal(readiness.checked, false, 'MCP readiness defaults off')
     await inAct(async () => { readiness.click(); await flush(10) })
     assert.equal(readiness.checked, true)
@@ -487,7 +487,7 @@ test('§4b the blocked-docket-reminder option is present, defaults off, and '
       .find((b) => b.textContent?.includes('Runtime'))!
     await inAct(async () => { runtime.click() })
     const blocked = view.el.querySelector<HTMLInputElement>(
-      'input[aria-label="also remind about blocked items when every ticket is blocked"]')
+      'input[aria-label="Also remind about blocked items when every ticket is blocked"]')
     assert.ok(blocked, 'the option has no control the user can reach')
     // DEFAULT OFF is the whole point of shipping it behind a toggle: the user
     // asked for it off until its long-term implications are known.

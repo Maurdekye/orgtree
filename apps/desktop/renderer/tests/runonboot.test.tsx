@@ -25,9 +25,9 @@ const SIGNIN = /Start Orgtree quietly in the system tray when you sign in/
 const BOOT = /when the computer starts, before anyone signs in\. While you are signed in, agents run in your session/
 
 for (const [kind, label, hint, other] of [
-  ['boot', 'run on boot', BOOT, SIGNIN],
-  ['signin', 'run on sign-in', SIGNIN, BOOT],
-  [undefined, 'run on boot', BOOT, SIGNIN], // a desktop that does not say
+  ['boot', 'Run on boot', BOOT, SIGNIN],
+  ['signin', "Run on sign-in", SIGNIN, BOOT],
+  [undefined, 'Run on boot', BOOT, SIGNIN], // a desktop that does not say
 ] as const) {
   test(`Settings name the one startup switch for what starts: ${kind ?? 'unsaid'}`, async () => {
     native(kind)
@@ -47,7 +47,7 @@ for (const [kind, label, hint, other] of [
 }
 
 test('first-run setup shows the same switch', async () => {
-  for (const [kind, label] of [['boot', 'run on boot'], ['signin', 'run on sign-in']] as const) {
+  for (const [kind, label] of [['boot', 'Run on boot'], ['signin', "Run on sign-in"]] as const) {
     native(kind)
     const v = await mountView(<Onboarding><div /></Onboarding>, el => el)
     try {

@@ -104,7 +104,7 @@ export function OpenRouterKeyDialog({ title, keyRequired, initialName, harness, 
     <div className="provider-key-form">
       <label htmlFor="openrouter-key-name">Name (optional)</label>
       <input type="text" id="openrouter-key-name" maxLength={80} autoComplete="off"
-        placeholder="e.g. team budget" aria-label="OpenRouter key name"
+        placeholder="E.g. team budget" aria-label="OpenRouter key name"
         value={name} disabled={busy} onChange={(e) => setName(e.target.value)}
         onKeyDown={(e) => { if (e.key === 'Enter') submit() }} />
       {harness && <>
@@ -130,7 +130,7 @@ export function OpenRouterKeyDialog({ title, keyRequired, initialName, harness, 
       </>}
       <label htmlFor="openrouter-key-secret">{keyRequired ? 'API key' : 'Replace the API key (optional)'}</label>
       <input type="password" id="openrouter-key-secret" autoComplete="off" spellCheck={false}
-        placeholder={keyRequired ? 'paste an OpenRouter API key (sk-or-…)' : 'leave empty to keep the current key'}
+        placeholder={keyRequired ? 'Paste an OpenRouter API key (sk-or-…)' : 'Leave empty to keep the current key'}
         aria-label="OpenRouter API key" value={key} disabled={busy}
         onChange={(e) => setKey(e.target.value)}
         onKeyDown={(e) => { if (e.key === 'Enter') submit() }} />
@@ -165,13 +165,13 @@ export function OpenRouterKeys({ doc, busy, run }: { doc: OpenRouterDoc; busy: b
             {h && k.harness && <span className={k.harness_installed === false ? 'ask-warn-inline' : 'dim'}>
               {' · '}{harnessName(h.harnesses, k.harness)}{k.harness_installed === false ? ' (not installed)' : ''}</span>}
           </span>
-          <button className="acct-btn" title="re-check every key and its credit standing at openrouter.ai"
+          <button className="acct-btn" title="Re-check every key and its credit standing at openrouter.ai"
             disabled={busy} onClick={() => run(getOpenRouter(true), '')}>
             <AutorenewIcon fontSize="inherit" /></button>
-          <button className="acct-btn" title="rename this key, choose its harness or replace it" disabled={busy}
+          <button className="acct-btn" title="Rename this key, choose its harness or replace it" disabled={busy}
             aria-haspopup="dialog" onClick={() => setEditing(k)}><EditIcon fontSize="inherit" /></button>
           <button className="acct-btn acct-del"
-            title="remove this key — each agent on it moves to another OpenRouter key it may run on, or waits until one is added"
+            title="Remove this key — each agent on it moves to another OpenRouter key it may run on, or waits until one is added"
             disabled={busy} onClick={() => run(removeOpenRouterKey(k.id), `${k.name} removed`)}>
             <DeleteIcon fontSize="inherit" /></button>
         </div>
