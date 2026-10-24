@@ -45,8 +45,9 @@ app.whenReady().then(async () => {
   const denied = []
   session.defaultSession.setPermissionRequestHandler((_wc, permission, callback) => { denied.push(permission); callback(false) })
   session.defaultSession.setPermissionCheckHandler(() => false)
-  // wider than the list's collapse threshold (canvas/narrowlist.tsx NARROW_DOCS_WIDTH, 896), within Session 0's 1024x768
-  const win = new BrowserWindow({ width: 1000, height: 700, show: false, useContentSize: true,
+  // the list column collapses below 896 px of list-and-pane (canvas/narrowlist.tsx NARROW_DOCS_WIDTH), which a 1000 px
+  // window leaves at about 884; 1024 x 700 keeps it open and stays within Session 0's 1024 x 768 display
+  const win = new BrowserWindow({ width: 1024, height: 700, show: false, useContentSize: true,
     webPreferences: { offscreen: true, backgroundThrottling: false, contextIsolation: true, sandbox: true, nodeIntegration: false } })
   win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
   win.webContents.session.webRequest.onBeforeRequest((details, done) =>
