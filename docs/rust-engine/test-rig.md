@@ -160,6 +160,17 @@ approval check, whose failure was also measured on v4.4.0.
 
 ## What keeps it safe
 
+Completion synchronization: a DB `ended_at` is ledger completion, which can
+precede the actor's published idle state. A proof that changes a session-bound
+account must also observe that same live seat's published `busy:false` (or its
+canonical `turn.finished`) before asserting an after-turn operation. Keep the
+DB guard and a bounded wait; never hide a refusal with blind DELETE retries
+or a fixed sleep. `muse-r4-removal.mjs` uses the node detail's published view,
+checks the seat identity, live state and cleared `inflight_at`, then performs
+its single second removal. A timeout records a failed synchronization check.
+[verified: `tools/rig/proofs/muse-r4-removal.mjs`, `http/mailbox.rs::detail`,
+`domain/account_removal.rs`; 2026-10-24]
+
 The `credential-broker.mjs` proof prepares compiled offline `git.exe` and
 `gh.exe` fixtures before the engine starts. Both the engine and its interactive
 broker receive an allowlisted environment with scratch HOME/USERPROFILE and empty

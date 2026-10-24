@@ -262,9 +262,22 @@ export default async function (rig) {
   const refused = await del(X16)
   const kept = !gone(X16) && row('z1').account === X16 && row('z2').account === X16
     && !rig.one(`SELECT 1 AS x FROM ot.events WHERE op = 'account_removed' AND detail->>'removed_account' = '${X16}'`)
+  const z2Id = row('z2').id
   await interrupt('z2')
-  await rig.waitFor(() => rig.sql(`SELECT 1 FROM ot.turns t JOIN ot.agents a ON a.id = t.agent_id
-    WHERE a.name = 'z2' AND t.ended_at IS NULL`).length === 0, { what: 'z2 idle', timeout: 30000 })
+  // DB ended_at precedes the actor's published busy=false. Read the same
+  // published view as account removal, for this live seat, before one retry.
+  const idle = await rig.waitFor(async () => {
+    const detail = await rig.api('GET', `/api/orgs/${rig.org}/nodes/z2/detail`)
+    const ended = rig.sql(`SELECT 1 FROM ot.turns t JOIN ot.agents a ON a.id = t.agent_id
+    WHERE a.name = 'z2' AND t.ended_at IS NULL`).length === 0
+    return detail?.id === 'z2' && detail.ord === z2Id && detail.state === 'live'
+      && detail.busy === false && detail.inflight_at === null && ended
+      ? { id: detail.id, ord: detail.ord, state: detail.state, busy: detail.busy, inflight_at: detail.inflight_at, ended } : null
+  }, { what: 'z2 published runtime idle and DB turn ended', timeout: 30000 }).catch(error => {
+    p.check('z2 published runtime idle before the after-turn removal', false, { error: error.message })
+    throw error
+  })
+  p.file('z2-idle.json', idle)
   const again = await del(X16)
   p.check('atomic: a removal refused for a bound seat mid-turn changes nothing (the login, both bindings, no event); after the turn it moves both',
     z1.ok && z2.ok && !refused.ok && refused.status === 409 && /running a turn/.test(refused.detail ?? '') && kept

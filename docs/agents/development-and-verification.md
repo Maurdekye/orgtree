@@ -98,6 +98,14 @@ not execute; never count it as a product result.
 
 ## Renderer, capture and rig traps
 
+- The Muse removal proof waits for both DB turn completion and the same live
+  seat's published runtime idle before its single after-turn DELETE. DB-only
+  completion can race the finalizer's busy publication. Preserve all ten
+  atomicity/removal checks, and record synchronization timeout as FAIL rather
+  than treating nine earlier passes as a completed proof. See
+  [completion synchronization](../rust-engine/test-rig.md#what-keeps-it-safe).
+  [verified: `tools/rig/proofs/muse-r4-removal.mjs`; 2026-10-24]
+
 - **Mail-card parity compares content beneath transparent selection boundaries.**
   `mailcard.fixture.ts` removes only pending chrome and checked
   `selection-source` wrappers (`display: contents`, source marker, no extra
