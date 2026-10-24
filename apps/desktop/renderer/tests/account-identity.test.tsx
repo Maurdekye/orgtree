@@ -1,4 +1,5 @@
 import { flush, inAct, mountView } from './harness'
+import { closeDraftSettings } from './draftclose.fixture'
 import test from 'node:test'
 import { legacyAppBackend } from './appfeed-fixture'
 import assert from 'node:assert/strict'
@@ -67,10 +68,7 @@ test('New Hire uses immutable IDs and emails, and recomputes single/multiple acc
     account = select(view.el)
     assert.equal(account.disabled, false)
     assert.equal(account.value, 'claude/primary')
-    await inAct(async () => {
-      const apply = document.body.querySelector<HTMLButtonElement>('.settings [aria-label="Close draft settings"]')!
-      apply.click()
-    })
+    await closeDraftSettings(document.querySelector('.settings'))
     assert.equal(saved.at(-1)?.account, 'claude/primary')
   } finally { await view.unmount() }
 })
@@ -84,7 +82,7 @@ test('a sole primary with no email is visible and disabled without changing an o
     const account = select(view.el)
     assert.deepEqual(options(account), [['claude/primary', 'default · email unavailable']])
     assert.equal(account.disabled, true)
-    await inAct(async () => { document.body.querySelector<HTMLButtonElement>('.settings [aria-label="Close draft settings"]')!.click() })
+    await closeDraftSettings(document.querySelector('.settings'))
     assert.equal('account' in saved[0], false)
   } finally { await view.unmount() }
 })

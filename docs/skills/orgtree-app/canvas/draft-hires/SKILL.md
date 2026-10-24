@@ -60,6 +60,11 @@ Default-setting details belong to [Hire defaults: scope](../../org-settings/org-
 
 ## Draft settings tabs
 
+Agent and project draft settings have no bottom Close button. Use Close in the
+frame's title-bar menu, Escape or clicking outside to dismiss them; staged
+changes remain. Project draft settings fit their content height and scroll
+when taller than the available window.
+
 The gear uses the same settings controls as an agent's gear. Charter edits the name, instructions, team instructions and direct-report peer mail; editing compiled instructions converts selected charter presets into editable text. Model chooses the tier, an offered version, thinking effort, supported fast mode, account, fallback and when to start a fresh conversation. Scope edits the credit grant, visible agents, file/command access, desktop session and folders. Tools edits native permissions, Orgtree groups and MCP grants. All tabs keep their edits while switching, closing or reopening. Model changes clear the old version and speed override and preserve independent fields.
 
 History, current session, queued model switches, scratch-folder actions and retire/restore/delete controls are hidden until an agent exists. Superior drafts still inherit folders, tools, visibility and file access from their insertion target; the remaining preferences and credits can be staged. The final Hire carries the complete proposal atomically, including with undo history enabled. No draft edit retools a live agent. Tool parity is the corresponding fields of `orgtree_hire` and new-seat `orgtree_staff`; see `orgtree-tool-hire` and `orgtree-tool-staff` (orgtree-working).

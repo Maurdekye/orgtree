@@ -1,4 +1,5 @@
 import { advance, FakeServer, flush, installFetch, mountView, realClock, useFakeClock } from './harness'
+import { closeDraftSettings } from './draftclose.fixture'
 import { act } from 'react'
 import test from 'node:test'
 import assert from 'node:assert/strict'
@@ -95,7 +96,7 @@ test('draft model picker', { timeout: 30000 }, async t => {
     const visibility = document.querySelector('select[aria-label="Visible agents"]') as HTMLSelectElement
     assert.ok(visibility)
     await act(async () => { visibility.value = 'self'; visibility.dispatchEvent(new Event('change', { bubbles: true })); await flush() })
-    await click(document.querySelector('.settings [aria-label="Close draft settings"]'))
+    await closeDraftSettings(document.querySelector('.settings'))
     await click(v.el.querySelector('.df-head button.tier'))
     await click(menuItem('sol'))
     await click(v.el.querySelector('.df-foot button.primary'))

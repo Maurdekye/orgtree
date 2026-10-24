@@ -112,11 +112,10 @@ function DraftProjectSettings({ value, onSave, close }: {
   close: () => void
 }) {
   return <ModalOverPins><PinFrame kind="draft-project-settings" title="Draft project settings"
-    panel="settings cfg" close={close} pinnable={false}>
+    panel="settings cfg draft-project-settings" close={close} pinnable={false}>
     <section aria-label="Draft project settings">
       <h3><SettingsIcon fontSize="inherit" /> Project settings <span className="dim">· applied when created</span></h3>
       <ProjectPolicyFields value={value} draft onChange={patch => onSave({ ...value, ...patch })} />
-      <div className="row"><button aria-label="Close project draft settings" onClick={close}>Close</button></div>
     </section>
   </PinFrame></ModalOverPins>
 }

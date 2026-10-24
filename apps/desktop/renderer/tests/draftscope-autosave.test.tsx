@@ -1,4 +1,5 @@
 import { FakeServer, flush, inAct, installFetch, mountView, realClock, useFakeClock } from './harness'
+import { closeDraftSettings } from './draftclose.fixture'
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { useState } from 'react'
@@ -44,13 +45,13 @@ test('draft gear persists each change without Apply, stays open, and reopens the
   assert.equal(staged?.scope?.org_visibility, 'self')
   assert.equal(staged?.scope?.tools.orgtree_disabled, true, 'later edits preserve earlier choices')
   assert.equal(hired.length, 0, 'staging never creates a seat')
-  await click(panel().querySelector('[aria-label="Close draft settings"]'))
+  await closeDraftSettings(panel())
   assert.equal(document.querySelector('.settings') === null, true)
   assert.equal(cancelled, 0, 'closing settings does not cancel the hire draft')
   await click(view.el.querySelector('.df-gear'))
   assert.equal(panel().querySelector<HTMLInputElement>('[aria-label="Disabled by Orgtree"]')!.checked, true)
   assert.equal(panel().querySelector<HTMLSelectElement>('[aria-label="Visible agents"]')!.value, 'self')
-  await click(panel().querySelector('[aria-label="Close draft settings"]'))
+  await closeDraftSettings(panel())
   await click(view.el.querySelector('.df-foot button.primary'))
   assert.equal(hired.length, 1)
   assert.equal(hired[0]?.tools.orgtree_disabled, true)

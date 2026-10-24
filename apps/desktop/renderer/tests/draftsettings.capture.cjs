@@ -95,7 +95,7 @@ app.whenReady().then(async () => {
         clipboard:{ initiallyEmptyStub:true,nativeBridgesStubbed:true,permissionsDenied:true,pasteBlocked:true }, input:'executeJavaScript on owned synthetic window only', geometry, image:png.getSize() })
       console.log('CAPTURE', name, JSON.stringify({ viewport:geometry.viewport, rows:geometry.rows.length, groups:geometry.groups.length, image:png.getSize() }))
     }
-    await win.webContents.executeJavaScript(`document.querySelector('.draft-scope [aria-label="Close draft settings"]').click()`)
+    await require('./draftclose.capture-helper.cjs')(win, '.draft-scope', settle)
     await win.webContents.executeJavaScript(settle)
     assert.equal(await win.webContents.executeJavaScript("document.querySelector('.draft-scope') === null"), true)
     await win.webContents.executeJavaScript("document.querySelector('.df-gear').click()")

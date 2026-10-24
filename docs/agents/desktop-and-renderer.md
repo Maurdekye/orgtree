@@ -16,6 +16,13 @@ See [native menu tests](../../tests/edit-menu.test.mjs), renderer
 
 ## Draft permission edits (2026-10-24)
 
+Agent/project draft settings omit footer Close buttons; retain the existing
+PinFrame title-bar Close menu, Escape and outside-dismiss paths. Project drafts
+use a dedicated panel class with natural height and an 88vh scrolling cap, without
+changing live-project or agent settings dimensions. Existing close-interaction
+fixtures drive the title-bar menu. [decided: user2026-10-24; verified:
+`canvas/{modals,newproject}.tsx`, `styles.css`]
+
 `DraftScopeModal` publishes its local proposal to the owning `DraftNode` after
 each change, without closing the panel or creating an agent. Closing retains
 the proposal; final Hire alone submits it. Keep callback identity out of the

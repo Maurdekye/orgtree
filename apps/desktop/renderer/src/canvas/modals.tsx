@@ -940,7 +940,6 @@ export function DraftScopeModal({ draft, map, tree, scope, onSave, close, accoun
       <div className="hint">Grants clamp to what the parent holds (№30) — anything beyond its capability is trimmed at hire with a warning.</div>
       </>}
     </SettingsTabPanel>
-    <div className="row"><button onClick={close} aria-label="Close draft settings">Close</button></div>
   </PinFrame></ModalOverPins>
 }
 // ------------------------------------------------------------ node ⚙ config

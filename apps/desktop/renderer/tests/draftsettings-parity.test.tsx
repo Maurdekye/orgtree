@@ -1,4 +1,5 @@
 import { advance, FakeServer, flush, inAct, installFetch, mountView, realClock, useFakeClock } from './harness'
+import { closeDraftSettings } from './draftclose.fixture'
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { OrgCanvas } from '../src/canvas/OrgCanvas'
@@ -77,13 +78,13 @@ for (const history of [false, true]) test(`draft settings tabs persist all prefe
   await click(panel().querySelector('[aria-label="Disabled by Orgtree"]'))
   assert.equal(operations.length, 0, 'draft edits never mutate a live agent')
   assert.equal([...panel().querySelectorAll('button')].some(b => /^(save|apply)$/i.test(b.textContent?.trim() ?? '')), false)
-  await click(panel().querySelector('[aria-label="Close draft settings"]'))
+  await closeDraftSettings(panel())
   await click(view.el.querySelector('.df-gear'))
   assert.equal((row('Instructions').querySelector('textarea') as HTMLTextAreaElement).value, 'Standing task')
   assert.equal((row('Team instructions').querySelector('textarea') as HTMLTextAreaElement).value, 'Shared task')
   assert.equal(panel().querySelector('[aria-label="Desktop session"]')?.getAttribute('value') ?? (panel().querySelector('[aria-label="Desktop session"]') as HTMLSelectElement).value, 'session0')
   assert.equal((panel().querySelector('[aria-label="Disabled by Orgtree"]') as HTMLInputElement).checked, true)
-  await click(panel().querySelector('[aria-label="Close draft settings"]'))
+  await closeDraftSettings(panel())
   await click(view.el.querySelector('.df-foot button.primary'))
   assert.equal(operations.length, 1)
   const hire = operations[0]!

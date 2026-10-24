@@ -1,0 +1,66 @@
+const {app,BrowserWindow,clipboard,Menu}=require('electron')
+const fs=require('node:fs'),path=require('node:path'),assert=require('node:assert/strict')
+const {execFileSync}=require('node:child_process')
+const closeFrame=require('./draftclose.capture-helper.cjs')
+const out=path.resolve(process.argv[2])
+assert(/^C:[\\/]orgtree-build[\\/]native-tools-sol[\\/]draft-close[\\/]capture-[a-z0-9-]+$/i.test(out),'own output required')
+const sessionId=pid=>Number(execFileSync('powershell',['-NoProfile','-Command',`(Get-Process -Id ${pid}).SessionId`],{encoding:'utf8',windowsHide:true}).trim())
+assert.equal(sessionId(process.pid),0,'Session 0 required before any test window')
+fs.mkdirSync(out,{recursive:true})
+for(const key of ['userData','sessionData','logs','crashDumps']){const dir=path.join(out,key);fs.mkdirSync(dir,{recursive:true});app.setPath(key,dir)}
+const clipboardCalls=[]
+for(const key of new Set([...Object.keys(clipboard),'readText','writeText','clear','readHTML','writeHTML','readRTF','readImage','readBuffer','writeBuffer','readFindText','writeFindText','availableFormats','readBookmark','writeBookmark','write'])){
+  if(typeof clipboard[key]==='function')clipboard[key]=()=>{clipboardCalls.push(key);return key==='availableFormats'?[]:key.startsWith('read')?'':undefined}
+}
+assert.equal(clipboard.readText(),'')
+Menu.setApplicationMenu(null);app.disableHardwareAcceleration()
+const settle='new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(()=>setTimeout(resolve,100))))'
+app.whenReady().then(async()=>{
+  const esbuild=require('E:/Libraries/Desktop/orgtree/node_modules/esbuild')
+  try{
+    esbuild.buildSync({entryPoints:['apps/desktop/renderer/tests/draftclose.visual.tsx'],bundle:true,jsx:'automatic',platform:'browser',format:'esm',outfile:path.join(out,'fixture.js'),nodePaths:['E:/Libraries/Desktop/orgtree/node_modules'],define:{'process.env.NODE_ENV':'"production"'}})
+    esbuild.buildSync({stdin:{contents:'@import "./styles.css"; @import "./shell.css";',resolveDir:path.resolve('apps/desktop/renderer/src'),loader:'css'},bundle:true,outfile:path.join(out,'fixture.css'),nodePaths:['E:/Libraries/Desktop/orgtree/node_modules'],loader:{'.woff2':'dataurl','.woff':'dataurl','.ttf':'dataurl','.svg':'dataurl','.png':'dataurl'}})
+  }finally{esbuild.stop()}
+  fs.writeFileSync(path.join(out,'index.html'),`<!doctype html><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src data:; img-src data:; connect-src 'none'"><link rel="stylesheet" href="fixture.css"><div id="root"></div><script type="module" src="fixture.js"></script>`)
+  const win=new BrowserWindow({width:1080,height:1000,useContentSize:true,show:false,webPreferences:{offscreen:true,contextIsolation:true,sandbox:true,nodeIntegration:false,backgroundThrottling:false}})
+  const session=win.webContents.session
+  session.setPermissionRequestHandler((_wc,_p,cb)=>cb(false));session.setPermissionCheckHandler(()=>false)
+  session.webRequest.onBeforeRequest((details,cb)=>cb({cancel:!/^(file:|data:)/.test(details.url)}))
+  win.webContents.setWindowOpenHandler(()=>({action:'deny'}))
+  win.webContents.on('before-input-event',(event,input)=>{if((input.control||input.meta)&&/^[cvx]$/i.test(input.key)||input.shift&&input.key==='Insert')event.preventDefault()})
+  const errors=[];win.webContents.on('console-message',(_event,level,message)=>{if(level>=2)errors.push(message)})
+  const js=code=>win.webContents.executeJavaScript(code)
+  try{
+    await win.loadFile(path.join(out,'index.html'));await js(settle)
+    const rendererPid=win.webContents.getOSProcessId();assert.equal(sessionId(rendererPid),0)
+    await js("document.querySelector('.df-gear').click()");await js(settle)
+    assert.equal(await js("document.querySelector('[aria-label=\"Close draft settings\"]')===null"),true)
+    await js("document.querySelector('.draft-scope [role=\"tab\"][id$=\"tools\"]').click()");await js(settle)
+    await js("document.querySelector('[aria-label=\"Disabled by Orgtree\"]').click()");await js(settle)
+    await closeFrame(win,'.draft-scope',settle)
+    assert.equal(await js("document.querySelector('.draft-scope')===null"),true)
+    await js("document.querySelector('.df-gear').click()");await js(settle)
+    assert.equal(await js("document.querySelector('[aria-label=\"Disabled by Orgtree\"]').checked"),true)
+    await closeFrame(win,'.draft-scope',settle)
+    await js("window.setDraftKind('project')");await js(settle)
+    await js("document.querySelector('.df-gear').click()");await js(settle)
+    assert.equal(await js("document.querySelector('[aria-label=\"Close project draft settings\"]')===null"),true)
+    const measure=`(() => {const p=document.querySelector('.draft-project-settings'),r=p.getBoundingClientRect();return{height:r.height,width:r.width,top:r.top,bottom:r.bottom,viewport:innerHeight,clientHeight:p.clientHeight,scrollHeight:p.scrollHeight,overflowY:getComputedStyle(p).overflowY}})()`
+    const normal=await js(measure)
+    assert(normal.width>0&&normal.height>0,'real layout required')
+    assert(normal.height<normal.viewport*.88-10,'short policy fits content instead of filling window')
+    assert(normal.scrollHeight<=normal.clientHeight+1,'content fits at normal height')
+    const png=await win.webContents.capturePage();fs.writeFileSync(path.join(out,'project-draft-fit.png'),png.toPNG())
+    win.setContentSize(1080,300);await js(settle)
+    const short=await js(measure)
+    assert(short.height<=short.viewport*.88+2,'viewport cap retained')
+    assert(short.scrollHeight>short.clientHeight,'short window scrolls')
+    await js("document.querySelector('.draft-project-settings').scrollTop=10000");await js(settle)
+    assert(await js("document.querySelector('.draft-project-settings').scrollTop>0"))
+    await closeFrame(win,'.draft-project-settings',settle)
+    assert.equal(await js("document.querySelector('.draft-project-settings')===null"),true)
+    assert.deepEqual(errors,[])
+    fs.writeFileSync(path.join(out,'receipt.json'),JSON.stringify({mainPid:process.pid,mainSessionId:sessionId(process.pid),rendererPid,rendererSessionId:sessionId(rendererPid),clipboard:{emptyStub:true,nativeBridgesBlocked:true,permissionsDenied:true,pasteBlocked:true,calls:clipboardCalls},input:'owned executeJavaScript only',agentCloseAndRetention:true,projectClose:true,normal,short,image:png.getSize(),errors},null,2))
+    console.log('CAPTURE',JSON.stringify({normal,short,image:png.getSize()}))
+  }finally{win.destroy()}
+}).then(()=>app.exit(0),error=>{console.error(error.stack||error);app.exit(1)})

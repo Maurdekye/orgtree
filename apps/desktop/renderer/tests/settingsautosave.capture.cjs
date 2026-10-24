@@ -73,7 +73,7 @@ app.whenReady().then(async () => {
         await win.webContents.executeJavaScript(settle)
         await input('[aria-label="Concurrency slots"]','4')
         await input('[aria-label="Mail queue"]','ack')
-        await win.webContents.executeJavaScript("document.querySelector('[aria-label=\"Close project draft settings\"]').click()")
+    await require('./draftclose.capture-helper.cjs')(win, '.draft-project-settings', settle)
         await win.webContents.executeJavaScript(settle)
         await win.webContents.executeJavaScript("document.querySelector('.df-gear').click()")
         await win.webContents.executeJavaScript(settle)

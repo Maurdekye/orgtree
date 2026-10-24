@@ -1,4 +1,5 @@
 import { FakeServer, flush, inAct, installFetch, mountView } from './harness'
+import { closeDraftSettings } from './draftclose.fixture'
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { grantLimits, hireGrantMax } from '../src/canvas/creditgrant'
@@ -170,9 +171,7 @@ for(const top of [false,true]) test(`draft scope inherits from ${top?'org':'agen
   const view=await mountView(<DraftScopeModal draft={{parent:'placement',tier:'sol'}} map={map} tree={tree as TreePayload}
     scope={null} onSave={s=>{saved=s}} close={()=>{}} accounts={[]} />,el=>el)
   t.after(()=>view.unmount());await flush(4)
-  const save=document.querySelector<HTMLButtonElement>('.settings [aria-label="Close draft settings"]')
-  assert.ok(save,'production draft settings can be closed after automatic save')
-  await inAct(()=>save.click())
+  await closeDraftSettings(document.querySelector('.settings'))
   assert.deepEqual(saved?.add_dirs,[{path:top?'C:/org':'C:/boss',mode:top?'rw':'ro'}])
   assert.equal(saved?.tools.bash,top)
 })
