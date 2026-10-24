@@ -14,7 +14,6 @@ for (const placement of ['canvas', 'floating', 'pinned', 'popout'] as const) {
     if (frame) document.body.append(frame)
     const doc = frame?.contentDocument ?? document
     const win = doc.defaultView!
-    t.after(() => frame?.remove())
     const content = <CurrentOrg.Provider value="demo"><div className="mailer-read" style={placement === 'canvas' ? { transform: 'translate(80px,40px) scale(.7)' } : undefined}>
       <ReplySelectionSurface source={{ org: 'demo', target: { kind: 'mail', org: 'demo', id: 'm1' }, part: { part: 'mail.body' }, text: 'one passage two' }}>
         <p tabIndex={0}>one <strong>passage</strong> two</p>
@@ -22,7 +21,7 @@ for (const placement of ['canvas', 'floating', 'pinned', 'popout'] as const) {
       <MailReplyBox slug="demo" target="writer" objectActions onSend={() => {}} />
     </div></CurrentOrg.Provider>
     const view = await mountView(frame ? createPortal(content, doc.body) : content, el => el)
-    t.after(() => view.unmount())
+    t.after(async () => { await view.unmount(); frame?.remove() })
     const source = doc.querySelector<HTMLElement>('.selection-source')!
     const text = source.querySelector<HTMLElement>('strong')!
     assert.equal(source.style.display, 'contents')

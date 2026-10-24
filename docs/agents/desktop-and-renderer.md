@@ -1,5 +1,17 @@
 # Desktop and renderer
 
+## Selection-menu viewport anchor (2026-10-24, 4.4.5)
+
+`ReplySelectionSurface` keeps its `display:contents` boundary for source mapping
+and composer custody, but passes the pressed text element to the shared context
+menu. A contents boundary has a zero rect: using it as the position anchor puts
+the menu at the viewport's top-left edge. Keep client coordinates and the menu
+portal in the pressed element's owner document; the shared menu already handles
+keyboard fallback and viewport clamping. `selectionmenu.test.tsx` stubs nonzero
+text boxes across canvas/floating/pinned geometry and another document, and the
+capture uses a real pinned `DeskChat`. This restores intended placement without
+changing the existing selection-reply actions or agent tool contract.
+
 ## Manual-hire desk focus (2026-10-24)
 
 The default-on app preference `orgtree-hire-auto-focus` gates automatic

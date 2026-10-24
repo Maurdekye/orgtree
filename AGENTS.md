@@ -2,6 +2,10 @@
 
 Read this file before working in this repository. It is the startup guide, not a landing log. Detailed rules, source references and the complete earlier notes live in the [topic index](docs/agents/README.md).
 
+Selection menus anchor on the pressed text element, not the zero-size source
+boundary. See [viewport anchoring](docs/agents/desktop-and-renderer.md#selection-menu-viewport-anchor-2026-10-24-445).
+[verified: `canvas/replyselection.tsx`; 2026-10-24]
+
 Standalone user MCP cards describe the user handler's supported fields, with pre-dispatch refusal of unsupported options; do not clone agent mail/interrupt capabilities into them. See [the user-endpoint contract](docs/rust-engine/STANDALONE-ENGINE.md#user-tool-card-boundary-2026-10-23). [decided: user 2026-10-23; verified: `tools/usermcp.rs`]
 
 Ticket/presentation menu actions capture their owning composer before metadata reads; Quick chat owns only its canvas content. See [composer ownership](docs/agents/docket-and-presentations.md#object-actions-belong-to-a-composer-2026-10-22). [verified: `canvas/composerobjects.tsx`; 2026-10-22]
