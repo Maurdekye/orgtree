@@ -12,6 +12,8 @@ import { ChangelogModal } from '../src/changelog'
 import { OrgtreeMenu } from '../src/shell/menu'
 import type { ChangelogEntry, ChangelogRow } from '../src/api'
 import '../src/styles.css'
+// the v3 shell's own sheet, loaded after styles.css as main.tsx loads it: the app menu's dropdown lives there
+import '../src/shell.css'
 // the repo's own notes for 4.4.4, 4.4.3 and 4.4.2, put in by tools/rig/changelog-visual.mjs
 declare const __CHANGELOG_NOTES__: string
 

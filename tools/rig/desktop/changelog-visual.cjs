@@ -45,7 +45,8 @@ app.whenReady().then(async () => {
   const denied = []
   session.defaultSession.setPermissionRequestHandler((_wc, permission, callback) => { denied.push(permission); callback(false) })
   session.defaultSession.setPermissionCheckHandler(() => false)
-  const win = new BrowserWindow({ width: 900, height: 640, show: false, useContentSize: true,
+  // wider than the list's collapse threshold (canvas/narrowlist.tsx NARROW_DOCS_WIDTH, 896), within Session 0's 1024x768
+  const win = new BrowserWindow({ width: 1000, height: 700, show: false, useContentSize: true,
     webPreferences: { offscreen: true, backgroundThrottling: false, contextIsolation: true, sandbox: true, nodeIntegration: false } })
   win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
   win.webContents.session.webRequest.onBeforeRequest((details, done) =>
@@ -72,7 +73,10 @@ app.whenReady().then(async () => {
         on:r.classList.contains('on'),unpublished:r.classList.contains('unpublished'),box:box(r)})),
       meta:m.querySelector('.mailer-read .doc-pane-meta-row')?.textContent,draft:m.querySelector('.changelog-draft')?.textContent??null,
       heading:m.querySelector('.mailer-read .changelog-notes h1')?.textContent??null,
-      empty:m.querySelector('.mailer-read .dim.pad')?.textContent??null,pane:box(m.querySelector('.mailer-read'))}})()`
+      empty:m.querySelector('.mailer-read .dim.pad')?.textContent??null,pane:box(m.querySelector('.mailer-read')),
+      narrow:!!m.querySelector('.mailer.narrow-list'),list:box(m.querySelector('.mailer-list')),
+      listShown:(()=>{const l=m.querySelector('.mailer-list');if(!l)return false;const s=getComputedStyle(l);
+        return s.visibility!=='hidden'&&s.display!=='none'&&!l.closest('[inert]')})()}})()`
   const clipboardProbe = `(async()=>{let read='allowed';try{await navigator.clipboard.readText()}catch(e){read='refused: '+e.name}
     let write='allowed';try{await navigator.clipboard.writeText('x')}catch(e){write='refused: '+e.name}
     return {read,write,execPaste:document.execCommand('paste'),execCopy:document.execCommand('copy')}})()`
@@ -114,14 +118,16 @@ app.whenReady().then(async () => {
     const sized = (b) => !!b && b.w > 0 && b.h > 0
     const passed = checks.every(({ latest, older, alpha, menu }) => {
       const at = menu.findIndex(m => m.label === 'Changelog…')
+      const stacked = menu.every((m, i) => i === 0 || m.y > menu[i - 1].y)
       return latest.title === 'Changelog' && latest.link === 'Open after updates: On' && sized(latest.linkBox)
+        && [latest, older, alpha].every(s => !s.narrow && s.listShown && sized(s.list))
         && latest.rows[0].version === '4.4.4' && latest.rows[0].on && latest.rows.every(r => /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/.test(r.time) && sized(r.box))
         && latest.rows.map(r => r.version).join() === '4.4.4,4.4.3,4.4.2,4.4.1,4.4.0,4.3.3,4.3.2'
         && /^4\.4\.4/.test(latest.meta) && /Orgtree 4\.4\.4/.test(latest.heading) && sized(latest.pane)
         && older.rows.find(r => r.on)?.version === '4.4.3' && /Orgtree 4\.4\.3/.test(older.heading)
         && alpha.rows[0].version === '4.4.5-alpha.4' && alpha.rows[0].on && alpha.rows[0].unpublished
         && /Unpublished build/.test(alpha.meta) && /written when it is released/.test(alpha.empty)
-        && at > 0 && menu[at - 1].label === 'Usage history…' && menu[at].y > menu[at - 1].y && menu[at].h > 0
+        && at > 0 && menu[at - 1].label === 'Usage history…' && stacked && menu[at].h > 0
     }) && receipt.clipboard.page.read.startsWith('refused') && receipt.clipboard.page.write.startsWith('refused')
       && receipt.clipboard.page.execPaste === false && receipt.clipboard.page.execCopy === false
     fs.writeFileSync(path.join(out, 'result.json'), JSON.stringify({ passed, receipt, denied, checks }, null, 2))
