@@ -56,7 +56,7 @@ pub(super) async fn run(engine: &Arc<Engine>, org: &Arc<OrgHandle>, args: &Value
             if !["approve","deny"].contains(&decision) { crate::refuse!(BadRequest,"decision must be approve or deny"); }
             let mut body=json!({"id":id,"action":decision});
             for key in ["granted","rev","dry"] { if let Some(v)=args.get(key) { body[key]=v.clone(); } }
-            crate::http::asks::credit(State(engine.clone()),Path(org.slug.clone()),Json(body)).await.map_err(api)?.0
+            crate::util::boxed(||crate::http::asks::credit(State(engine.clone()),Path(org.slug.clone()),Json(body))).await.map_err(api)?.0
         }
         "batch" => {
             only(args, &["action","node","revs","answers","credits","scope"])?;
@@ -67,7 +67,7 @@ pub(super) async fn run(engine: &Arc<Engine>, org: &Arc<OrgHandle>, args: &Value
             let mut body=json!({});
             for key in ["revs","answers","credits","scope"] { if let Some(v)=args.get(key) { body[key]=v.clone(); } }
             if args.get("answers").is_some() { body["answers"]=json!(answer_values(&args["answers"],true)?); }
-            crate::http::asks::batch(State(engine.clone()),Path((org.slug.clone(),node.to_string())),Json(body)).await.map_err(api)?.0
+            crate::util::boxed(||crate::http::asks::batch(State(engine.clone()),Path((org.slug.clone(),node.to_string())),Json(body))).await.map_err(api)?.0
         }
         _ => crate::refuse!(BadRequest,"unsupported user question action"),
     };

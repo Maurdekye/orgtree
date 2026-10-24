@@ -192,6 +192,14 @@ all MCP bodies. Invalid types never include submitted values in their errors.
 Normal binding reconciliation and provider checks remain in the handlers;
 real network/provider auth is outside the synthetic verification scope.
 
+New user-MCP handler futures are constructed with `util::boxed(|| handler(...))`
+at the adapter boundaries, including the recorded tree path. The synthetic
+database proof is split into separate tree/questions/settings/accounts helpers
+with the same construction boundary, so a combined fixture does not accumulate
+every group's large future on a test/runtime thread's stack. An initial focused
+attempt at65aa1f6 aborted with stack overflow; temporary PostgreSQL/HOME/data
+cleanup succeeded. That attempt is not a passing verification result.
+
 ## Provider sign-in: native CLI over SSH (2026-10-24)
 
 USER 2026-10-24 chose separately installed provider CLIs and their native

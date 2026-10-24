@@ -304,13 +304,13 @@ async fn dispatch(engine: &Arc<Engine>, org: Option<&Arc<OrgHandle>>, name: &str
         "orgtree_send_notice" => message(engine, org, args, true).await,
         "orgtree_inbox" => inbox(engine, org, args).await,
         "orgtree_work" => super::work_with(engine, org, &Who::User, args).await,
-        "orgtree_hire" => tree_op(engine, org, "hire", args).await,
-        "orgtree_retire" => tree_op(engine, org, "retire", args).await,
-        "orgtree_move" => tree_op(engine, org, "move", args).await,
-        "orgtree_reorder" => tree_op(engine, org, "reorder", args).await,
-        "orgtree_retool" => tree_op(engine, org, "retool", args).await,
-        "orgtree_rehire" => tree_op(engine, org, "rehire", args).await,
-        "orgtree_reallocate" => tree_op(engine, org, "reallocate", args).await,
+        "orgtree_hire" => crate::util::boxed(||tree_op(engine, org, "hire", args)).await,
+        "orgtree_retire" => crate::util::boxed(||tree_op(engine, org, "retire", args)).await,
+        "orgtree_move" => crate::util::boxed(||tree_op(engine, org, "move", args)).await,
+        "orgtree_reorder" => crate::util::boxed(||tree_op(engine, org, "reorder", args)).await,
+        "orgtree_retool" => crate::util::boxed(||tree_op(engine, org, "retool", args)).await,
+        "orgtree_rehire" => crate::util::boxed(||tree_op(engine, org, "rehire", args)).await,
+        "orgtree_reallocate" => crate::util::boxed(||tree_op(engine, org, "reallocate", args)).await,
         "orgtree_interrupt" => interrupt(engine, org, args).await,
         "orgtree_answer" => answer(engine, org, args).await,
         "orgtree_questions" => crate::util::boxed(||questions::run(engine, org, args)).await,
@@ -447,7 +447,7 @@ async fn tree_op(engine: &Arc<Engine>, org: &Arc<OrgHandle>, op: &str, args: &Va
     let req = tree_request(op, args)?;
     let op = req["op"].as_str().unwrap();
     let out = if crate::domain::undo::RECORDED_OPS.contains(&op) {
-        crate::http::undo::single(engine, org, req).await.map_err(api)?
+        crate::util::boxed(||crate::http::undo::single(engine, org, req)).await.map_err(api)?
     } else {
         crate::util::boxed(||ops::run(engine, org, Actor::User, &req)).await?
     };

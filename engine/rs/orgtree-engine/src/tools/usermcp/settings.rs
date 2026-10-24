@@ -19,6 +19,7 @@ pub(super) async fn run(engine: &Arc<Engine>, org: Option<&Arc<OrgHandle>>, args
     if action=="get" { questions::only(args,&["scope","action"])?; }
     else if scope=="provider" { questions::only(args,&["scope","action","settings","provider"])?; }
     else { questions::only(args,&["scope","action","settings"])?; }
+    let patch=if action=="configure" { settings(args)? } else { Default::default() };
     let state=State(engine.clone());
     let value=match (scope,action) {
         ("org","get") => {
@@ -29,22 +30,22 @@ pub(super) async fn run(engine: &Arc<Engine>, org: Option<&Arc<OrgHandle>>, args
         }
         ("org","configure") => {
             let org=org.ok_or_else(||anyhow::anyhow!("scope org requires /api/orgs/<slug>/mcp"))?;
-            crate::http::settings::save_org(state,Path(org.slug.clone()),Json(settings(args)?)).await.map_err(api)?.0
+            crate::util::boxed(||crate::http::settings::save_org(state,Path(org.slug.clone()),Json(patch))).await.map_err(api)?.0
         }
-        ("defaults","get") => crate::http::settings::get_defaults(state).await.map_err(api)?.0,
-        ("defaults","configure") => crate::http::settings::save_defaults(state,Json(settings(args)?)).await.map_err(api)?.0,
-        ("runtime","get") => crate::http::settings::get_runtime(state).await.map_err(api)?.0,
-        ("runtime","configure") => crate::http::settings::put_runtime(state,Json(settings(args)?)).await.map_err(api)?.0,
-        ("provider","get") => crate::http::settings::get_providers(state,Query(Default::default())).await.map_err(api)?.0,
+        ("defaults","get") => crate::util::boxed(||crate::http::settings::get_defaults(state)).await.map_err(api)?.0,
+        ("defaults","configure") => crate::util::boxed(||crate::http::settings::save_defaults(state,Json(patch))).await.map_err(api)?.0,
+        ("runtime","get") => crate::util::boxed(||crate::http::settings::get_runtime(state)).await.map_err(api)?.0,
+        ("runtime","configure") => crate::util::boxed(||crate::http::settings::put_runtime(state,Json(patch))).await.map_err(api)?.0,
+        ("provider","get") => crate::util::boxed(||crate::http::settings::get_providers(state,Query(Default::default()))).await.map_err(api)?.0,
         ("provider","configure") => {
             let provider=need_str(args,"provider")?.to_string();
             let settings=settings(args)?;
             let (key,enabled)=provider_switch(&settings)?;
             let body:crate::http::settings::Enabled=serde_json::from_value(json!({"enabled":enabled}))?;
             match key {
-                "enabled" => crate::http::settings::provider_enabled(state,Path(provider),Json(body)).await.map_err(api)?.0,
-                "apikey_fallback" => crate::http::settings::provider_apikey_fallback(state,Path(provider),Json(body)).await.map_err(api)?.0,
-                _ => crate::http::settings::provider_subscription_inference(state,Path(provider),Json(body)).await.map_err(api)?.0,
+                "enabled" => crate::util::boxed(||crate::http::settings::provider_enabled(state,Path(provider),Json(body))).await.map_err(api)?.0,
+                "apikey_fallback" => crate::util::boxed(||crate::http::settings::provider_apikey_fallback(state,Path(provider),Json(body))).await.map_err(api)?.0,
+                _ => crate::util::boxed(||crate::http::settings::provider_subscription_inference(state,Path(provider),Json(body))).await.map_err(api)?.0,
             }
         }
         _ => crate::refuse!(BadRequest,"unsupported user settings scope"),

@@ -29,7 +29,10 @@ pub(super) async fn run(engine:&Arc<Engine>,args:&Value)->Result<Done> {
     let state=State(engine.clone());
     let id=||need_str(args,"id").map(str::to_string);
     let value=match args["action"].as_str().unwrap_or("list") {
-        "list" => http::list(state,Query(input::<http::OrgQuery>(args,&["action","org"])?)).await.map_err(api)?.0,
+        "list" => {
+            let query=input::<http::OrgQuery>(args,&["action","org"])?;
+            crate::util::boxed(||http::list(state,Query(query))).await.map_err(api)?.0
+        }
         "add" => {
             let kind=need_str(args,"kind")?;
             let fields:&[&str]=match kind {
@@ -38,29 +41,53 @@ pub(super) async fn run(engine:&Arc<Engine>,args:&Value)->Result<Done> {
                 "apikey"=>&["action","provider","kind","key"],
                 _=>crate::refuse!(BadRequest,"kind must be managed, imported or apikey"),
             };
-            http::add(state,Json(input::<http::AddAccount>(args,fields)?)).await.map_err(api)?.0
+            let body=input::<http::AddAccount>(args,fields)?;
+            crate::util::boxed(||http::add(state,Json(body))).await.map_err(api)?.0
         }
         "remove" => {
             questions::only(args,&["action","id"])?;
-            http::remove(state,Path(id()?)).await.map_err(api)?.0
+            let id=id()?;
+            crate::util::boxed(||http::remove(state,Path(id))).await.map_err(api)?.0
         }
-        "enable" => http::set_enabled(state,Path(id()?),Json(input::<http::EnabledBody>(args,&["action","id","enabled"])?)).await.map_err(api)?.0,
+        "enable" => {
+            let (id,body)=(id()?,input::<http::EnabledBody>(args,&["action","id","enabled"])?);
+            crate::util::boxed(||http::set_enabled(state,Path(id),Json(body))).await.map_err(api)?.0
+        }
         "identity" => {
             questions::only(args,&["action","id"])?;
-            http::identity(state,Path(id()?)).await.map_err(api)?.0
+            let id=id()?;
+            crate::util::boxed(||http::identity(state,Path(id))).await.map_err(api)?.0
         }
         "marks" => {
             questions::only(args,&["action","id"])?;
-            http::marks(state,Path(id()?)).await.map_err(api)?.0
+            let id=id()?;
+            crate::util::boxed(||http::marks(state,Path(id))).await.map_err(api)?.0
         }
-        "clear_marks" => http::clear_marks(state,Path(id()?),Some(Json(input::<http::ClearMarks>(args,&["action","id","source","pool","expected","companion_expected","reason"])?))).await.map_err(api)?.0,
-        "claude_key_add" => http::add_key(state,Json(input::<http::AddKey>(args,&["action","token","mint_config_dir"])?)).await.map_err(api)?.0,
-        "order" => http::order(state,Json(input::<http::KeyOrder>(args,&["action","keys"])?)).await.map_err(api)?.0,
-        "openrouter_key_add" => http::openrouter_key_add(state,Json(input::<http::AddKeyBody>(args,&["action","key","label","harness"])?)).await.map_err(api)?.0,
-        "openrouter_key_update" => http::openrouter_key_update(state,Path(id()?),Json(input::<http::UpdateKeyBody>(args,&["action","id","key","label","harness"])?)).await.map_err(api)?.0,
+        "clear_marks" => {
+            let id=id()?;
+            let body=input::<http::ClearMarks>(args,&["action","id","source","pool","expected","companion_expected","reason"])?;
+            crate::util::boxed(||http::clear_marks(state,Path(id),Some(Json(body)))).await.map_err(api)?.0
+        }
+        "claude_key_add" => {
+            let body=input::<http::AddKey>(args,&["action","token","mint_config_dir"])?;
+            crate::util::boxed(||http::add_key(state,Json(body))).await.map_err(api)?.0
+        }
+        "order" => {
+            let body=input::<http::KeyOrder>(args,&["action","keys"])?;
+            crate::util::boxed(||http::order(state,Json(body))).await.map_err(api)?.0
+        }
+        "openrouter_key_add" => {
+            let body=input::<http::AddKeyBody>(args,&["action","key","label","harness"])?;
+            crate::util::boxed(||http::openrouter_key_add(state,Json(body))).await.map_err(api)?.0
+        }
+        "openrouter_key_update" => {
+            let (id,body)=(id()?,input::<http::UpdateKeyBody>(args,&["action","id","key","label","harness"])?);
+            crate::util::boxed(||http::openrouter_key_update(state,Path(id),Json(body))).await.map_err(api)?.0
+        }
         "openrouter_key_remove" => {
             questions::only(args,&["action","id"])?;
-            http::openrouter_key_remove(state,Path(id()?)).await.map_err(api)?.0
+            let id=id()?;
+            crate::util::boxed(||http::openrouter_key_remove(state,Path(id))).await.map_err(api)?.0
         }
         _ => crate::refuse!(BadRequest,"unsupported user account action"),
     };
