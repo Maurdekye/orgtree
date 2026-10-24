@@ -20,8 +20,8 @@ import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { build } from 'esbuild'
 import { createRequire } from 'node:module'
+const { build } = createRequire(process.env.ORGTREE_TEST_DEPS || import.meta.url)('esbuild')
 
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'orgtree-editmenu-'))
 // 'electron' is stubbed rather than bundled: outside an Electron process the
@@ -84,21 +84,65 @@ const PLAIN_TEXT = {
 function recordingTarget() {
   const calls = []
   return { calls, cut: () => calls.push('cut'), copy: () => calls.push('copy'),
-    paste: () => calls.push('paste'), selectAll: () => calls.push('selectAll') }
+    paste: () => calls.push('paste'), selectAll: () => calls.push('selectAll'),
+    undo: () => calls.push('undo'), redo: () => calls.push('redo'), delete: () => calls.push('delete'),
+    pasteAndMatchStyle: () => calls.push('plainPaste'), replaceMisspelling: word => calls.push(['replace', word]),
+    addWordToDictionary: word => calls.push(['dictionary', word]) }
 }
+const EDIT_ACTIONS = ['Undo', 'Redo', 'Cut', 'Copy', 'Paste', 'Delete', 'Select All']
 const labels = template => template.filter(e => e.type !== 'separator').map(e => e.label)
 const item = (template, label) => template.find(e => e.label === label)
 
-test('an editable field offers cut, copy, paste and select all', () => {
+test('spelling suggestions replace the pointed word and Add to dictionary uses the same target', () => {
+  const target = recordingTarget()
+  const params = { ...EDITABLE_SELECTED, misspelledWord: 'mispeling', dictionarySuggestions: ['misspelling', 'mis&spelling'] }
+  const menu = editMenuTemplate(params, target)
+  assert.deepEqual(labels(menu).slice(0, 3), ['misspelling', 'mis&&spelling', 'Add to dictionary'])
+  item(menu, 'misspelling').click(); item(menu, 'mis&&spelling').click(); item(menu, 'Add to dictionary').click()
+  assert.deepEqual(target.calls, [['replace', 'misspelling'], ['replace', 'mis&spelling'], ['dictionary', 'mispeling']])
+})
+
+test('spelling commands require an editable misspelling and dictionary remains available without suggestions', () => {
+  const target = recordingTarget()
+  assert.equal(labels(editMenuTemplate(EDITABLE_SELECTED, target)).includes('Add to dictionary'), false)
+  assert.equal(labels(editMenuTemplate({ ...PLAIN_TEXT_SELECTED, misspelledWord: 'mispeling', dictionarySuggestions: ['misspelling'] }, target)).includes('Add to dictionary'), false)
+  assert.equal(labels(editMenuTemplate({ ...EDITABLE_SELECTED, misspelledWord: 'mispeling', dictionarySuggestions: [] }, target))[0], 'Add to dictionary')
+})
+
+test('undo redo delete and plain paste use Chromium flags; delete also requires a selected range', () => {
+  for (const enabled of [false, true]) {
+    const params = { ...EDITABLE_SELECTED, editFlags: { ...EDITABLE_SELECTED.editFlags, canUndo: enabled, canRedo: enabled, canDelete: enabled, canEditRichly: true, canPaste: enabled } }
+    const menu = editMenuTemplate(params, recordingTarget())
+    for (const label of ['Undo', 'Redo', 'Delete', 'Paste as plain text']) assert.equal(item(menu, label).enabled, enabled, label)
+  }
+  const noSelection = { ...EDITABLE_SELECTED, selectionText: '', editFlags: { ...EDITABLE_SELECTED.editFlags, canDelete: true } }
+  assert.equal(item(editMenuTemplate(noSelection, recordingTarget()), 'Delete').enabled, false)
+  assert.equal(labels(editMenuTemplate(EDITABLE_SELECTED, recordingTarget())).includes('Paste as plain text'), false)
+  const rich = { ...EDITABLE_SELECTED, editFlags: { ...EDITABLE_SELECTED.editFlags, canEditRichly: true } }
+  const target = recordingTarget(); item(editMenuTemplate(rich, target), 'Paste as plain text').click()
+  assert.deepEqual(target.calls, ['plainPaste'])
+})
+
+test('edit shortcuts are display hints and never register application-wide accelerators', () => {
+  const menu = editMenuTemplate({ ...EDITABLE_SELECTED, editFlags: { ...EDITABLE_SELECTED.editFlags, canEditRichly: true } }, recordingTarget())
+  for (const entry of menu.filter(e => e.type !== 'separator')) {
+    assert.equal(entry.registerAccelerator, false)
+    assert.equal(typeof entry.accelerator, 'string')
+  }
+  assert.equal(item(menu, 'Undo').accelerator, 'CmdOrCtrl+Z')
+  assert.equal(item(menu, 'Redo').accelerator, process.platform === 'win32' ? 'Ctrl+Y' : 'CmdOrCtrl+Shift+Z')
+})
+
+test('an editable field offers the standard editing commands', () => {
   const template = editMenuTemplate(EDITABLE_SELECTED, recordingTarget())
-  assert.deepEqual(labels(template), ['Cut', 'Copy', 'Paste', 'Select All'])
+  assert.deepEqual(labels(template), EDIT_ACTIONS)
 })
 
 test('every entry runs its own operation on the webContents that was pressed', () => {
   const target = recordingTarget()
   const template = editMenuTemplate(EDITABLE_SELECTED, target)
-  for (const label of ['Cut', 'Copy', 'Paste', 'Select All']) item(template, label).click()
-  assert.deepEqual(target.calls, ['cut', 'copy', 'paste', 'selectAll'])
+  for (const label of EDIT_ACTIONS) item(template, label).click()
+  assert.deepEqual(target.calls, ['undo', 'redo', 'cut', 'copy', 'paste', 'delete', 'selectAll'])
 })
 
 // THE GATES. Each is asserted against the flag shape Chromium really reports,
@@ -129,9 +173,9 @@ test('a readonly or disabled input offers neither cut nor paste', () => {
   assert.equal(editMenuTemplate(READONLY_INPUT, recordingTarget()), null)
 })
 
-test('a selection outside an editable field offers copy and nothing else', () => {
+test('a selection outside an editable field offers copy and select all only', () => {
   const template = editMenuTemplate(PLAIN_TEXT_SELECTED, recordingTarget())
-  assert.deepEqual(labels(template), ['Copy'])
+  assert.deepEqual(labels(template), ['Copy', 'Select All'])
   assert.equal(item(template, 'Copy').enabled, true)
 })
 
@@ -182,7 +226,7 @@ test('a right-click in a field pops the menu in that window at the pressed point
   // this window's own viewport, and converting them is what breaks mixed DPI.
   assert.equal(raised[0].x, 137)
   assert.equal(raised[0].y, 219)
-  assert.deepEqual(labels(raised[0].template), ['Cut', 'Copy', 'Paste', 'Select All'])
+  assert.deepEqual(labels(raised[0].template), EDIT_ACTIONS)
 })
 
 test('the menu acts on the webContents of the window that was pressed', () => {
