@@ -5,10 +5,10 @@
  "counts": {
   "categories": 3,
   "sections": 19,
-  "leaves": 183,
+  "leaves": 184,
   "tools": 48,
   "concepts": 56,
-  "total": 205
+  "total": 206
  },
  "leaves_per_writer": {
   "org-sol": 33,
@@ -28,7 +28,8 @@
   "compaction-cmds-sol": 1,
   "epic-combo-sol": 1,
   "helper-transcript-sol": 1,
-  "template-dogs-sol": 1
+  "template-dogs-sol": 1,
+  "desk-parity-opus": 1
  },
  "nodes": [
   {
@@ -2944,6 +2945,7 @@
     "homepage",
     "create-organization",
     "org-header-and-menu",
+    "changelog",
     "kill-switch",
     "status-bar",
     "quick-chat",
@@ -3050,6 +3052,39 @@
    "status": "fixed",
    "components": [
     "apps/desktop/renderer/src/shell/menu.tsx#OrgtreeMenu"
+   ]
+  },
+  {
+   "path": "orgtree-app/app-shell/changelog",
+   "name": "orgtree-changelog",
+   "level": 3,
+   "kind": "screen",
+   "registered": false,
+   "covers": [
+    "screen:changelog"
+   ],
+   "purpose": "The Changelog panel: one row per release with its date, time and notes, its opening after an update, and the same notes for agents.",
+   "must_cover": [
+    "rows, their order and their date and time",
+    "when it opens on its own and when it does not",
+    "the header link and its setting",
+    "unpublished builds",
+    "where agents read the same notes"
+   ],
+   "sources": [
+    "apps/desktop/renderer/src/changelog.tsx",
+    "apps/desktop/main/changelog-launch.ts",
+    "engine/rs/orgtree-engine/src/changelog.rs",
+    "docs/releases.json"
+   ],
+   "see_also": [
+    "org-header-and-menu",
+    "app-display-input-and-startup"
+   ],
+   "writer": "desk-parity-opus",
+   "status": "fixed",
+   "components": [
+    "apps/desktop/renderer/src/changelog.tsx#ChangelogModal"
    ]
   },
   {
@@ -4817,7 +4852,8 @@
     "rt:enter_key_behavior",
     "np:startupMode",
     "ls:orgtree-start-view",
-    "ls:orgtree-start-zoom"
+    "ls:orgtree-start-zoom",
+    "ls:orgtree-changelog-after-update"
    ],
    "purpose": "Display > quick chat position, Enter key, and Startup behavior.",
    "must_cover": [
@@ -4826,10 +4862,12 @@
    "sources": [
     "apps/desktop/renderer/src/canvas/accounts.tsx:430-458",
     "apps/desktop/renderer/src/canvas/accounts.tsx:903",
-    "apps/desktop/renderer/src/shell/general.tsx:107"
+    "apps/desktop/renderer/src/shell/general.tsx:107",
+    "apps/desktop/renderer/src/changelog.tsx"
    ],
    "see_also": [
-    "quick-chat"
+    "quick-chat",
+    "changelog"
    ],
    "writer": "skills-docs-sol",
    "status": "fixed",
@@ -4853,6 +4891,10 @@
     {
      "file": "apps/desktop/renderer/src/shell/general.tsx",
      "label": "On startup"
+    },
+    {
+     "file": "apps/desktop/renderer/src/changelog.tsx",
+     "label": "Open changelog after updates"
     }
    ],
    "key_sources": [
@@ -4889,6 +4931,13 @@
      "file": "apps/desktop/renderer/src/canvas/shared.ts",
      "needles": [
       "orgtree-start-zoom"
+     ]
+    },
+    {
+     "key": "ls:orgtree-changelog-after-update",
+     "file": "apps/desktop/renderer/src/changelog.tsx",
+     "needles": [
+      "orgtree-changelog-after-update"
      ]
     }
    ]

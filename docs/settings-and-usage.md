@@ -43,7 +43,7 @@ The named presets are Claude Terracotta, Codex Teal, Antigravity Navy, Muse Eggs
 - Bunching consecutive projects, and a separate opt-in to rearrange projects inside a bunch. Bunching alone changes drawing; rearranging changes tree order.
 - Card shortcut buttons, folding long jump-card rows, pin snapping, overlap fading and keeping corner controls inside the area left by pins.
 
-**Display > Typing/startup** chooses Enter-to-send or Enter-to-newline, Quick chat at the top/bottom or hidden, restored windows versus a fresh homepage, and the initial organization view. Quick chat has its own Enter-to-hire behavior. Window restoration is different from starting the background engine at boot.
+**Display > Typing/startup** chooses Enter-to-send or Enter-to-newline, Quick chat at the top/bottom or hidden, restored windows versus a fresh homepage, the initial organization view, and whether the Changelog opens after an update (**Open changelog after updates**, on by default). Quick chat has its own Enter-to-hire behavior. Window restoration is different from starting the background engine at boot.
 
 These presentation preferences do not change agent prompts. Some are stored per desktop/browser profile, so a second machine need not share them.
 

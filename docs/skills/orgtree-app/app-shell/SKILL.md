@@ -14,6 +14,7 @@ The app's frame: windows, homepage, header and menus, status bar, quick chat, tr
 - [orgtree-homepage](homepage/SKILL.md): The homepage window: the org list, phone card and create button.
 - [orgtree-create-organization](create-organization/SKILL.md): Creating an organization: name, folders, layout and template.
 - [orgtree-org-header-and-menu](org-header-and-menu/SKILL.md): The org window header and the Orgtree app menu: view toggle, Inbox, Work, Presentations, Org settings, and the menu items.
+- [orgtree-changelog](changelog/SKILL.md): The Changelog panel: every release's date, time and notes, opened from the app menu and after an update.
 - [orgtree-kill-switch](kill-switch/SKILL.md): STOP ALL: arming, latching an org-wide halt, and releasing it.
 - [orgtree-status-bar](status-bar/SKILL.md): The bottom status bar chips: active agents, hub, audit, connectivity.
 - [orgtree-quick-chat](quick-chat/SKILL.md): The quick chat box: hiring and starting a new agent from the window chrome.

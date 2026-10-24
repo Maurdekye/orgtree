@@ -12,7 +12,7 @@ and native-login verification limits are recorded in that guide (2026-10-24).
 ## Baseline and evidence
 
 - **Measured (static):** these guides describe **4.4.2**, checked against integration source `b095f2f0920fcd4bcf560d2f4f3dbbbae9bf2d74` and its glossary. The release delta was derived from `git log v4.4.1..b095f2f` and glossary diffs, including corrected descriptions of existing behavior. The earlier main guide set at `70d0e8b` supplies the unchanged learning order and overview.
-- **Measured (static):** the table below maps all 89 app-reference leaves to reader guides. A mapped leaf is a coverage pointer, not a claim that every control was clicked in a live app.
+- **Measured (static):** the table below maps all 90 app-reference leaves to reader guides. A mapped leaf is a coverage pointer, not a claim that every control was clicked in a live app.
 - **Inferred (editorial):** the gradual learning order and task-first grouping give readers an approachable entry point: harnesses, organization, canvas, hire tokens, first message, desk tabs, agent management, projects and larger-team navigation. Later guides expand those concepts and add advanced setup.
 
 ## Keep both references current
@@ -72,6 +72,7 @@ When behavior changes, check common paths, limits, defaults, refusal/recovery te
 | Glossary source | User guide |
 | --- | --- |
 | [attention-view](skills/orgtree-app/app-shell/attention-view/SKILL.md) | [workspace](workspace.md) |
+| [changelog](skills/orgtree-app/app-shell/changelog/SKILL.md) | [operating-orgtree — see what changed in an update](operating-orgtree.md#see-what-changed-in-an-update) |
 | [confirm-dialogs](skills/orgtree-app/app-shell/confirm-dialogs/SKILL.md) | [workspace](workspace.md) |
 | [crash-and-restart](skills/orgtree-app/app-shell/crash-and-restart/SKILL.md) | [operating-orgtree — restart only when needed](operating-orgtree.md#restart-only-when-needed) |
 | [create-organization](skills/orgtree-app/app-shell/create-organization/SKILL.md) | [getting-started — create your first organization](getting-started.md#create-your-first-organization) |

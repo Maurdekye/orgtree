@@ -139,6 +139,24 @@ gh release edit vX -R Maurdekye/orgtree --draft=false --prerelease --latest=fals
 
 Publishing starts the **verify-release** workflow. It downloads every public asset as an installed app would and checks it against `SHA256SUMS.txt`, the updater feeds (`latest.yml` and, from the first release that has it, `latest-linux.yml` with its embedded blockmap) and the tag, and it checks that GitHub's "latest" release is the right one. A red run means: roll back (below). To check a release again: `gh workflow run verify-release.yml -f tag=<tag>`.
 
+### Add it to the Changelog
+
+The in-app Changelog lists the releases in `docs/releases.json` and shows each one's
+`docs/release-notes-X.md`, which is its GitHub description. After publishing a
+stable release, add it at the top of `docs/releases.json` in the next commit on
+the development line, with both of its times in UTC:
+
+```
+{ "version": "X", "published_at": "<gh release view vX --json publishedAt>", "tagged_at": "<git log -1 --format=%cI vX, in UTC>" }
+```
+
+Until then the release's own build shows its row with its build commit's time.
+`tests/release-list.test.mjs` fails once a newer version is in development and a
+released notes file is still missing from the list. If you edit a published
+release's description on GitHub, make the same edit in its notes file: the
+Changelog shows the file (2026-10-24: 4.2.0, 4.1.0 and 2.1.0 had been edited only
+on GitHub, and were synced back).
+
 ## Rolling back
 
 - **Before publishing**: delete the draft and the tag, fix, and tag again.

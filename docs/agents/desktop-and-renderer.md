@@ -1590,3 +1590,16 @@ Original section: Shared skills and installed plugin imports (2026-10-15). Sourc
 ## Settings auto-save (2026-10-24)
 
 Organization settings and both Defaults placements save dirty fields in order via `settingsautosave.tsx`; discrete changes commit immediately, numeric/text input debounces 750 ms, and Close flushes ordinary edits. Failed fields remain retryable with inline errors and returned warnings. Never resend untouched folder grants or charter text. Org charter retains explicit Save with read/truncation/revision guards; blur/close never publish it. Project draft policy is controlled by the owning draft and needs no Save. Live agent/project and service/credential/logo editors retain their existing submission controls. [decided: user 2026-10-24; verified: `App.tsx`, `shell/defaults.tsx`, `canvas/newproject.tsx`]
+
+## The Changelog panel (2026-10-24, 4.4.5)
+
+`changelog.tsx` has the Presentations panel's shape: the gallery frame, the
+`.mailpane` list and reading pane, the row classes and `usePanelSteps`. Rows are
+the engine's: version plus release date & time (`fmtStamp` in a row, `fmtFull`
+in the pane), newest first. The latest is selected on every opening: the
+`opening` request from the menu, the after-update opening and a restored pin.
+It is app-wide like Usage history (`useScopedOpen`, pinned per organization,
+centred at home), and its header link opens App settings › Display at
+`changelog_after_update`. Data and the after-update rule:
+[startup and release](startup-and-release.md#the-changelog-and-the-first-launch-after-an-update-2026-10-24-445).
+[decided: user 2026-10-24 22:13:55Z–22:17:14Z; verified: `changelog.tsx`, `App.tsx`, `shell/menu.tsx`]

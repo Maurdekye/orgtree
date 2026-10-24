@@ -335,3 +335,35 @@ Original section: Shared skills and installed plugin imports (2026-10-15). Sourc
   [verified: `runtime/actor.rs`; regression: `tools/rig/proofs/skills-idle.mjs`;
   2026-10-15]
 <!-- /preserved:e-2a08a4d882f0c3b9 -->
+
+## The Changelog and the first launch after an update (2026-10-24, 4.4.5)
+
+Docket changelog-window-one-row-per-version-pinnable-po. The engine bundles every
+`docs/release-notes-<x.y.z>.md` and `docs/releases.json` at build time (build.rs
+`release_notes`, `crate::changelog`): one row per published release, newest
+first, and one more for the engine's own version when no published release is it,
+dated by the commit `ORGTREE_BUILD_COMMIT` names and `unpublished` for a
+pre-release. `TIME_SOURCE` picks which time a published row shows: `tagged_at`,
+the commit its tag names, or GitHub's `published_at`. The panel reads
+`GET /api/changelog` and `/api/changelog/{version}`; agents read the same notes
+as glossary files beside orgtree-app › app-shell › changelog
+(`providers::skills::builtin`), so there is no Changelog tool.
+
+Each notes file is its GitHub release description (release.yml `--notes-file`).
+The 52 releases published before the panel were synced from GitHub on
+2026-10-24: three differed (edited on GitHub after publishing) and twelve had no
+file. Edit the file, not only the GitHub release. After publishing, add the
+release to `docs/releases.json` ([release guide](../ci-release.md#add-it-to-the-changelog));
+`tests/release-list.test.mjs` and the engine's `changelog` tests check the list
+against the notes.
+
+`main/changelog-launch.ts` keeps the last version run in
+`userData/changelog-seen.json`. No record and no earlier update-log.json entry
+(read before this run's own `startup` line) is a fresh install: it records the
+version and opens nothing. A newer version than the record, or no record after
+earlier runs, tells the first window once (`desktop:changelog-after-update`) and
+records only then, so a background start keeps it for a later window. The same
+version or a downgrade opens nothing. The renderer opens the panel unless
+`ls:orgtree-changelog-after-update` is off.
+[decided: user 2026-10-24 22:13:55Z–22:17:14Z; verified: `changelog.rs`, `build.rs`,
+`main/changelog-launch.ts`, `changelog.tsx`]

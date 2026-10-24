@@ -64,6 +64,12 @@ The tray also provides organization navigation and controls for startup and **Ex
 
 On an all-users Windows installation, **Run on boot** starts the background engine in Windows Session 0. A sign-in helper runs agent turns in your signed-in session when available; at sign-out, interrupted work resumes in Session 0. On per-user installations, the startup control is **Run on sign-in**. Turning automatic startup off prevents future automatic starts; it does not stop an engine already running or prevent an explicit start or recovery. See the [desktop runtime reference](skills/orgtree-app/app-settings/app-runtime-desktop/SKILL.md).
 
+### See what changed in an update
+
+The **Changelog** lists every published release, newest first, with its release date and time and what changed in it: the same text as the release on GitHub, built into the app so it works offline. Open it from the Orgtree menu with **Changelog…**, below **Usage history…**. The newest version is selected whenever it opens; select an older one to read it. In an organization window you can pin it or pop it out like other panels.
+
+The first time Orgtree starts after an update, the Changelog opens by itself on the new version. A fresh install never opens it. To stop it opening, turn off **App settings > Display > Startup > Open changelog after updates**; the link in the Changelog's header goes straight there. A local test build that is not a published release shows itself at the top as an **Unpublished build**.
+
 <a id="account-fallback"></a>
 
 ## Recover a frozen agent
