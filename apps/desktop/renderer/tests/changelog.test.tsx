@@ -100,6 +100,11 @@ test('§1 one row per version, newest first, with its version and its local rele
 })
 
 test('§2 it is the Presentations panel shape, with its Alt+arrow steps', async () => {
+  // jsdom has no scrollIntoView; a step scrolls the newly selected row into view
+  const proto = window.HTMLElement.prototype
+  const oldScroll = proto.scrollIntoView
+  const scrolled: string[] = []
+  proto.scrollIntoView = function (this: HTMLElement) { scrolled.push(this.dataset.version ?? '') }
   const { f, view } = await panel()
   try {
     const frame = view.el.querySelector('.settings.gallery-modal.changelog-modal')
@@ -119,7 +124,8 @@ test('§2 it is the Presentations panel shape, with its Alt+arrow steps', async 
     assert.equal(selected(view.el), '4.4.3')
     await step('ArrowUp')
     assert.equal(selected(view.el), '4.4.4')
-  } finally { await view.unmount(); f.restore() }
+    assert.deepEqual(scrolled, ['4.4.4', '4.4.3', '4.4.4'], 'each step brings its row into view')
+  } finally { await view.unmount(); f.restore(); proto.scrollIntoView = oldScroll }
 })
 
 test('§3 an unpublished build is its own row, with the draft it leads to or a line saying none yet', async () => {
