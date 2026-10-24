@@ -179,6 +179,8 @@ Start with [After the tour](docs/getting-started.md#after-the-tour), then follow
 8. [Projects, queues and automation](docs/projects-and-watchdogs.md) — [Project desks](docs/projects-and-watchdogs.md#create-a-project-and-explain-its-purpose), [work queues](docs/projects-and-watchdogs.md#run-a-work-queue), [slots](docs/projects-and-watchdogs.md#share-limited-capacity-with-slots), [events](docs/projects-and-watchdogs.md#signal-a-group-with-events), [your queue jobs](docs/projects-and-watchdogs.md#join-the-mail-queue-yourself) and [watchdogs](docs/projects-and-watchdogs.md#ask-agents-to-wait-with-watchdogs).
 9. [Operating and troubleshooting](docs/operating-orgtree.md) — [Diagnose waiting work](docs/operating-orgtree.md#find-out-what-is-running), [updates/startup](docs/operating-orgtree.md#updates-and-background-operation), [freeze recovery](docs/operating-orgtree.md#recover-a-frozen-agent), [Windows sessions](docs/operating-orgtree.md#windows-sessions-and-administrator-rights), [diagnostics](docs/operating-orgtree.md#read-history-and-collect-diagnostics), [privacy](docs/operating-orgtree.md#data-and-privacy) and [advanced deployments](docs/operating-orgtree.md#advanced-deployments).
 
+10. [Standalone engine](docs/standalone-engine.md) — Direct or Docker operation, authenticated HTTP/MCP and provider login over SSH.
+
 Supplement: [Development and contributions](docs/development.md). Maintainers: [documentation source map and upkeep](docs/documentation-map.md).
 
 ## License

@@ -1,4 +1,4 @@
-# Standalone Orgtree engine (4.4.0)
+# Standalone Orgtree engine
 
 The engine is already its own program (`orgtree-engine serve`, its own
 PostgreSQL cluster, its own HTTP/WebSocket API on 127.0.0.1). What was missing
@@ -64,11 +64,25 @@ $env:ORGTREE_DATA = "D:\orgtree-standalone\data"
 curl -H "Authorization: Bearer <token>" http://127.0.0.1:<port from the ready line>/api/desktop/alive
 ```
 
-Docker: `standalone/Dockerfile` + `standalone/docker-compose.yml` ship in
-this slice (multi-stage Rust build; runtime image carries PostgreSQL, binds
+Docker: `standalone/Dockerfile` + `standalone/docker-compose.yml` provide a
+multi-stage Rust build; the runtime image carries PostgreSQL, binds
 `0.0.0.0` **inside** the container with the compose file publishing to
-`127.0.0.1` only, `/data` volume, token from the environment). Not yet
+`127.0.0.1` only, `/data` volume, token from the environment. Not yet
 image-built in this slice; see Verification.
+
+### Packaging input repair (2026-10-24, 4.4.5)
+
+The Docker build needs `engine/docs/charters`, `engine/docs/templates` and
+`docs/skills` as well as the two Rust crates. The first two are compile-time
+`include_str!` inputs; `build.rs` embeds the full glossary from the third.
+Omitting the glossary can silently embed an empty library; omitting the other
+assets fails compilation. The Dockerfile-specific context allowlist includes
+all three and excludes unrelated files, targets and installed dependencies.
+The recipe uses the checked-in Cargo lockfile, accepts `CARGO_BUILD_JOBS` and
+`ORGTREE_BUILD_COMMIT` build arguments, and omits release debug information.
+This is source-checked; Docker/Linux execution evidence is recorded separately.
+[verified: `standalone/Dockerfile`, `orgtree-engine/build.rs`,
+`domain/templates.rs`, `http/settings.rs`; 2026-10-24]
 
 ## Phase 2 (this slice): the user MCP endpoint
 
@@ -116,13 +130,42 @@ retool…), settings/credits/provider-account administration (all reachable
 through the authenticated HTTP API), and a question-card list (ids arrive
 with the cards in the user's inbox and transcripts).
 
+## Provider sign-in: native CLI over SSH (2026-10-24)
+
+USER 2026-10-24 chose separately installed provider CLIs and their native
+browser login over SSH, without an Orgtree device-code service. See the
+[operator guide](../standalone-engine.md#sign-in-to-provider-clis-over-ssh)
+for commands and the distinction between source evidence and untested native
+browser completion.
+
+Default Claude/Codex use the engine Unix user's `~/.claude`/`~/.codex`, not
+arbitrary profile environment inherited by an SSH session. Registered accounts
+launch against their stored `config_dir`. Existing HTTP account creation
+returns `credential.path`; login must use that directory with
+`CLAUDE_CONFIG_DIR`/`CODEX_HOME`. Existing folder import and per-account identity
+refresh already adopt/check Claude/Codex logins; no new login protocol is needed.
+Codex identity currently requires `auth.json`, so file credential storage is
+needed if the native CLI would otherwise choose keyring-only storage. Muse
+managed profiles need both `<profile>/config` and `<profile>/data` XDG roots;
+Muse imports remain refused. Antigravity's Linux headless/keyring behavior is
+unverified. Docker host logins are not container logins: install CLIs in a
+derived image and use `/data` profiles so the compose volume persists them.
+No real provider login was performed in this source audit.
+[decided: user 2026-10-24; verified: `providers/mod.rs`,
+`providers/muse_models.rs`, `http/accounts.rs`, `runtime/actor.rs`,
+`apps/desktop/main/providerlogin.ts`]
+
 ## Deferred (not in this slice)
-- **Headless provider sign-in (phase 3).** Device-code or pasted-token flows.
-  Until then a standalone host needs its provider CLIs installed and signed
-  in by hand (or API-key/OpenRouter accounts added through the API).
 - **Per-client named/revocable tokens, an audit log and a desktop "Remote
   control (MCP)" switch** (docket discussion 2026-10-13) build on the phase-1
   token; the token file format (one token per line) leaves room.
+  USER 2026-10-24 approved named clients with immediate connection closure on
+  revocation and the bootstrap recovery key retained. All clients act as the
+  user. The desktop switch remains separate from the assigned packaging slice.
+- **MCP extras:** USER 2026-10-24 approved tree operations
+  (move/reorder/retool/rehire), question discovery/answering, and
+  settings/credits/account administration. Their implementation follows the
+  Docker/Linux slice; the 2026-10-23 mail/interrupt refusals remain in force.
 - **Desktop attaching to a standalone engine** (same or different machine)
   is out of scope for phase 1; attachment still runs through the boot host.
   The renderer bundle, if served, is reachable by any token holder, but no

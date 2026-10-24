@@ -2,7 +2,12 @@
 
 [Documentation](../README.md#documentation)
 
-This is a maintenance record, outside the numbered reader path. The nine guides adapt the glossary for people: task instructions, visible controls, consequences and recovery. Agent tool schemas and internal implementation protocols remain in the glossary.
+This is a maintenance record, outside the numbered reader path. The reader guides adapt the glossary for people: task instructions, visible controls, consequences and recovery. Agent tool schemas and internal implementation protocols remain in the glossary.
+
+The [standalone engine guide](standalone-engine.md) additionally maps
+`orgtree-working > runtime > standalone-engine`: direct/Docker setup,
+authenticated user MCP and native provider login over SSH. Its source evidence
+and native-login verification limits are recorded in that guide (2026-10-24).
 
 ## Baseline and evidence
 

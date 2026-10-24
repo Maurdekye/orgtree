@@ -11,7 +11,17 @@ WORKDIR /src
 COPY engine/rs/Cargo.toml engine/rs/Cargo.lock engine/rs/
 COPY engine/rs/orgtree-logged engine/rs/orgtree-logged
 COPY engine/rs/orgtree-engine engine/rs/orgtree-engine
-RUN cargo build --release --manifest-path engine/rs/Cargo.toml -p orgtree-engine --bin orgtree-engine
+# Rust embeds templates/charters with include_str!, and build.rs embeds the
+# complete glossary. These are build inputs even though no UI is bundled.
+COPY engine/docs/charters engine/docs/charters
+COPY engine/docs/templates engine/docs/templates
+COPY docs/skills docs/skills
+ARG CARGO_BUILD_JOBS=1
+ARG ORGTREE_BUILD_COMMIT=unknown
+RUN ORGTREE_RELEASE_BUILD=1 ORGTREE_BUILD_COMMIT="$ORGTREE_BUILD_COMMIT" \
+    CARGO_PROFILE_RELEASE_DEBUG=0 CARGO_INCREMENTAL=0 \
+    cargo build --locked --release --jobs "$CARGO_BUILD_JOBS" \
+    --manifest-path engine/rs/Cargo.toml -p orgtree-engine --bin orgtree-engine
 
 FROM debian:bookworm-slim
 # PostgreSQL refuses to run as root, and the engine starts it as its own

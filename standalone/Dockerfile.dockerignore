@@ -1,0 +1,24 @@
+# Dockerfile-specific allowlist, relative to the repository-root context.
+# Keep worktrees, credentials, dependencies and generated targets out.
+**
+!engine/
+!engine/rs/
+!engine/rs/Cargo.toml
+!engine/rs/Cargo.lock
+!engine/rs/orgtree-engine/
+!engine/rs/orgtree-engine/**
+!engine/rs/orgtree-logged/
+!engine/rs/orgtree-logged/**
+!engine/docs/
+!engine/docs/charters/
+!engine/docs/charters/**
+!engine/docs/templates/
+!engine/docs/templates/**
+!docs/
+!docs/skills/
+!docs/skills/**
+**/target
+**/node_modules
+**/.git
+**/.cargo
+**/.claude

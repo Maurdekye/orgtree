@@ -11,8 +11,8 @@ Up: [orgtree-runtime](../SKILL.md)
 It owns its PostgreSQL cluster, scratch and settings in one persistent data
 root. Provider CLIs still need installation and sign-in on that host, or an
 API-key/OpenRouter account configured through the authenticated API. This mode
-does not supply a headless sign-in flow, desktop attachment or a supported
-browser UI.
+uses the providers' native login flows over SSH, rather than an Orgtree login
+service. Desktop attachment and a browser UI are unsupported.
 
 ## Start and stop
 
@@ -55,9 +55,43 @@ not equivalent to the mandatory-authenticated standalone mode.
 
 Repository Docker assets use one persistent `/data` volume, bind inside the
 container and publish to host loopback in the supplied compose file. The
-initial source slice did not verify Docker/Linux deployment or a real
+build embeds the glossary, charters and templates, with an allowlisted build
+context excluding generated targets/dependencies. Provider CLIs must be
+installed in a derived image; host installations/logins are not automatically
+visible in the container. The initial source slice did not verify Docker/Linux deployment or a real
 headless provider turn. Use `docs/rust-engine/STANDALONE-ENGINE.md` in the
 development checkout for those source and verification boundaries.
+
+## Provider login over SSH
+
+Run each provider's own login on the server as the engine's Unix user; open its
+authorization URL in your local browser. Default Claude/Codex use that user's
+`~/.claude`/`~/.codex`. A managed or imported account instead uses its stored
+profile directory: get `credential.path` from the authenticated HTTP account
+response and run login with that same directory. A default login does not
+sign in every managed profile.
+
+Claude uses `env CLAUDE_CONFIG_DIR='<profile>' claude auth login --claudeai`
+and a browser URL plus code pasted back into the SSH terminal. Codex uses
+`CODEX_HOME=<profile>` with its native login: a supported device-auth option,
+or its browser callback with that port forwarded through SSH. The current
+Orgtree identity reader requires the profile's `auth.json`; a keyring-only
+Codex login is not detected. Muse managed login uses both
+`XDG_CONFIG_HOME=<profile>/config` and `XDG_DATA_HOME=<profile>/data` with
+`muse login`, without an inherited `META_API_KEY`. Muse folder import is refused.
+
+Existing authenticated `POST /api/accounts` supports managed rows and
+Claude/Codex imported folders. `GET /api/accounts/<id>/identity` refreshes a
+registered row after login. For the default profile, force the provider read
+with `GET /api/providers?force=true&force_provider=claude` (or `openai`). These
+HTTP routes have user authority; they are not yet MCP tools in this subset.
+
+In Docker, login must run inside the derived container as its user. Keep the
+account profiles under `/data`; the supplied compose file does not persist
+`/home/orgtree`. Antigravity's Linux headless/keyring login is unverified.
+Source inspection establishes the profile matching, not successful native
+browser completion. The checkout's `docs/standalone-engine.md` gives the
+operator recipes and their current verification limits.
 
 ## User MCP endpoint
 
