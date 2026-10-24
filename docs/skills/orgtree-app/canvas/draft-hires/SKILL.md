@@ -60,8 +60,8 @@ Default-setting details belong to [Hire defaults: scope](../../org-settings/org-
 
 ## Draft settings tabs
 
-Agent and project draft settings have no bottom Close button. Use Close in the
-frame's title-bar menu, Escape or clicking outside to dismiss them; staged
+Agent and project draft settings have no bottom Close button. Use the X in the
+top-right header, Escape or clicking outside to dismiss them; staged
 changes remain. Project draft settings fit their content height and scroll
 when taller than the available window.
 

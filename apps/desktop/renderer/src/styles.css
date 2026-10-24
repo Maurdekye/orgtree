@@ -4470,6 +4470,9 @@ main.solo { width: 100%; }
 .settings.cfg:not(.modalpin-win):not(.modalpin-detached) > .modalpin-bar {
   position: absolute; top: var(--panel-pad-y); right: var(--panel-pad-x); margin: 0;
 }
+/* Drafts have no footer action: their shared header X stays visible on mobile too. */
+.settings.cfg > .modalpin-bar.modal-close { display: flex; }
+.draft-scope > h3, .draft-project-settings > section > h3 { padding-right: 28px; }
 /* ...over the header row, which ends in its folder buttons: keep them clear of
    the bar's pop-out and pin (user 2026-10-18 07:24Z) */
 .settings.cfg:not(.modalpin-win):not(.modalpin-detached) > .agent-settings-header { padding-right: 64px; }

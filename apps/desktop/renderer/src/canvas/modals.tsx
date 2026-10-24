@@ -837,7 +837,7 @@ export function DraftScopeModal({ draft, map, tree, scope, onSave, close, accoun
   }), [base, dirs, tools, vis, effort, modelVersion, teamCharter, peerMail, pm, sess,
     accountFallback, supportsFastMode, fastOverride, accMode, accOcc, acctTouched, selectedAccount])
   useEffect(() => { saveDraft.current(proposal) }, [proposal])
-  return <ModalOverPins><PinFrame kind="draft-scope" title="Draft settings" panel="settings cfg draft-scope" close={close} pinnable={false}>
+  return <ModalOverPins><PinFrame kind="draft-scope" title="Draft settings" panel="settings cfg draft-scope" close={close} pinnable={false} closeInModal>
     <h3><SettingsIcon fontSize="inherit" /> Draft settings</h3>
     <p className="set-hint">Changes are saved to this draft immediately and applied with the hire.</p>
     {onName && <SetRow label="Name"><input aria-label="Agent name" value={name ?? ''} onChange={e => onName(e.target.value)} /></SetRow>}

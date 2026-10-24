@@ -34,7 +34,7 @@ Hover the intended superior's card and choose a hire token. The dashed draft let
 The draft gear has **Charter**, **Model**, **Scope** and **Tools** tabs like an existing agent. Set team instructions and peer mail, version and effort, speed when supported, account/fallback, fresh-conversation policy, credits, file access, desktop session, folders and tools before hiring. Closing or switching tabs keeps each edit. Editing instructions in the gear turns selected presets into editable text. Superior drafts inherit their target?s folders, tools, visibility and file access. History, current session, queued model switches, scratch actions and lifecycle controls appear only after hire.
 
 Agent and project draft settings omit the bottom Close button. Dismiss them
-through **Close** in the title-bar menu, Escape or clicking outside; your staged
+through the **X** in the top-right header, Escape or clicking outside; your staged
 edits remain. The project draft settings fit their content and scroll when the
 window is too short to show it all.
 

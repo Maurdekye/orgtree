@@ -743,6 +743,8 @@ export interface PinFrameProps {
   /** Use the shared title/action row in the centered modal too. Its caller
    * omits a separate content heading, so pin/unpin keeps one stable header. */
   titleInModal?: boolean
+  /** Keep the shared X reachable when a centered dialog has no footer action. */
+  closeInModal?: boolean
   /** A DESK'S TITLE BAR (user 2026-10-18 11:14Z, the project desk): the bar
    *  is the surface's title bar centred and pinned, as the agent temporary
    *  desk's (tempdesk.tsx). Centred it carries the title, but no close
@@ -799,7 +801,7 @@ export function PinFrame(props: PinFrameProps) {
     <PinFrameInner {...props} orgScope={scope} panelRef={panelRef} /></MovableSurface>
 }
 
-function PinFrameInner({ kind, title, titleBar, deskTitle = false, titleInModal = false, pinElsewhere, panel, close, children, headerActions,
+function PinFrameInner({ kind, title, titleBar, deskTitle = false, titleInModal = false, closeInModal = false, pinElsewhere, panel, close, children, headerActions,
   onEsc, backdropClose = true, onPanelClick, pinnable = true, inline = false, dialogLabel, restore, orgScope, panelRef }: PinFrameProps & { orgScope: string | null; panelRef: RefObject<HTMLDivElement | null> }) {
   const pin = useModalPin(kind, orgScope)
   const surface = useSurface()
@@ -1065,6 +1067,7 @@ function PinFrameInner({ kind, title, titleBar, deskTitle = false, titleInModal 
         {/* a desk popped out is its own header row, as a popped-out agent
             desk (user 2026-10-18 11:47Z): no title strip above it */}
         {!(deskTitle && ownWindow) && <div className={'modalpin-bar' + (pinned ? ' on' : '') + (ownWindow ? ' detached' : '')
+          + (closeInModal ? ' modal-close' : '')
           + (deskTitle && !pinned && !ownWindow ? ' desk-title' : '')}
           data-copy-agent-name={restore?.agent}
           title={pinned
@@ -1107,7 +1110,7 @@ function PinFrameInner({ kind, title, titleBar, deskTitle = false, titleInModal 
             {pinned ? <PushPinIcon fontSize="inherit" />
               : <PushPinOutlinedIcon fontSize="inherit" />}
           </button>}
-          {pinned && (
+          {(pinned || (closeInModal && !ownWindow)) && (
             <button type="button" className="modalpin-btn modalpin-x" title="close"
               aria-label="close this window"
               onPointerDown={(e) => e.stopPropagation()}

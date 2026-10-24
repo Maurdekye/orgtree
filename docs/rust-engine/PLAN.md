@@ -286,7 +286,8 @@ still resume, so the agents themselves remember).
 ## 10. User-facing differences — complete ledger
 
 Draft settings (USER2026-10-24): agent/project drafts omit the footer Close
-button, retaining existing frame-menu and dismissal paths. Project draft settings
+button and show the shared X in the header, retaining Escape and outside-dismiss
+paths. Project draft settings
 fit content height with viewport-bounded scrolling. Staged edits remain on close.
 See [draft edits](../agents/desktop-and-renderer.md#draft-permission-edits-2026-10-24).
 

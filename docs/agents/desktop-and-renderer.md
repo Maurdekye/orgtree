@@ -16,12 +16,15 @@ See [native menu tests](../../tests/edit-menu.test.mjs), renderer
 
 ## Draft permission edits (2026-10-24)
 
-Agent/project draft settings omit footer Close buttons; retain the existing
-PinFrame title-bar Close menu, Escape and outside-dismiss paths. Project drafts
+Agent/project draft settings omit footer Close buttons and opt into PinFrame's
+visible header X (`closeInModal`), retaining Escape and outside-dismiss paths. The
+unpinned non-pinnable bar otherwise has no children and measures zero: dispatching
+a contextmenu event to it is not a pointer interaction. Capture checks require
+nonzero on-screen X geometry, hit-testing and a trusted CDP pointer click. Project drafts
 use a dedicated panel class with natural height and an 88vh scrolling cap, without
 changing live-project or agent settings dimensions. Existing close-interaction
-fixtures drive the title-bar menu. [decided: user2026-10-24; verified:
-`canvas/{modals,newproject}.tsx`, `styles.css`]
+fixtures drive the header X. [decided: user2026-10-24; verified:
+`canvas/{modalpin,modals,newproject}.tsx`, `styles.css`]
 
 `DraftScopeModal` publishes its local proposal to the owning `DraftNode` after
 each change, without closing the panel or creating an agent. Closing retains
