@@ -22,7 +22,7 @@ app.whenReady().then(async () => {
   isolated.setPermissionRequestHandler((_wc, _permission, done) => done(false))
   isolated.addWordToSpellCheckerDictionary = word => { dictionaryCalls.push(word); return true }
   const win = new BrowserWindow({ width: 1000, height: 700, show: false, frame: false,
-    webPreferences: { offscreen: true, contextIsolation: true, sandbox: true, nodeIntegration: false, session: isolated } })
+    webPreferences: { offscreen: true, backgroundThrottling: false, contextIsolation: true, sandbox: true, nodeIntegration: false, session: isolated } })
   const wc = win.webContents
   wc.setWindowOpenHandler(() => ({ action: 'deny' }))
   for (const method of ['cut', 'copy', 'paste', 'pasteAndMatchStyle']) wc[method] = () => { throw Error('Clipboard command forbidden in spelling capture') }
@@ -39,6 +39,7 @@ app.whenReady().then(async () => {
   }
   try {
     await win.loadFile(path.join(out, 'index.html'))
+    console.log('Loaded isolated canvas fixture')
     await wc.executeJavaScript(`new Promise((resolve,reject)=>{const deadline=Date.now()+5000;function ready(){const el=document.querySelector('.sq.desk textarea');if(el&&el.getBoundingClientRect().height>0)return resolve();if(Date.now()>deadline)return reject(Error('Real canvas composer missing'));setTimeout(ready,25)}ready()})`)
     const geometry = await wc.executeJavaScript(`(() => {const el=document.querySelector('.sq.desk textarea');el.focus();const r=el.getBoundingClientRect(),s=getComputedStyle(el),sx=r.width/el.offsetWidth,sy=r.height/el.offsetHeight;return {rect:r.toJSON(),scaleX:sx,scaleY:sy,x:r.x+(parseFloat(s.paddingLeft)+24)*sx,y:r.y+(parseFloat(s.paddingTop)+parseFloat(s.lineHeight)/2)*sy}})()`)
     assert(geometry.scaleX > .6 && geometry.scaleX < .65 && geometry.rect.height > 0, 'Real scaled layout required')
@@ -46,6 +47,7 @@ app.whenReady().then(async () => {
     await wc.debugger.sendCommand('Input.insertText', { text: 'mispellled synthetic' })
     await delay(1500)
     const control = await contextMenu(geometry)
+    console.log('No-boundary native event: ' + JSON.stringify(control.params))
     assert.equal(control.params.word, '', 'Control must reproduce missing spelling markers')
     assert(!control.popup.template.some(item => item.label === 'Add to dictionary'))
     // CDP key events, ending with a boundary; never assign a DOM field value.
@@ -57,6 +59,7 @@ app.whenReady().then(async () => {
     }
     await delay(1500)
     const positive = await contextMenu(geometry)
+    console.log('Typed-boundary native event: ' + JSON.stringify(positive.params))
     assert.equal(positive.params.word, 'mispellled')
     assert(positive.params.suggestions.includes('misspelled'), 'Real OS suggestion required')
     assert.equal(positive.popup.window, win.id)
@@ -64,6 +67,7 @@ app.whenReady().then(async () => {
     const model = positive.popup.template.map(({ label, type, accelerator, enabled }) => ({ label, type, accelerator, enabled }))
     await wc.executeJavaScript(`(() => {const panel=document.createElement('aside');panel.style.cssText='position:absolute;left:670px;top:65px;width:300px;font:13px Segoe UI;color:#ddd';const title=document.createElement('p');title.textContent='Real native event menu preview (native popup is outside capturePage)';panel.append(title);for(const item of ${JSON.stringify(model)}){const row=document.createElement(item.type==='separator'?'hr':'div');row.style.cssText='padding:4px 8px;background:#333';row.textContent=item.label||'';panel.append(row)}document.body.append(panel)})()`)
     await wc.executeJavaScript(`new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(()=>setTimeout(resolve,150))))`)
+    console.log('Paint settled; capturing')
     fs.writeFileSync(path.join(out, 'scaled-spelling.png'), (await wc.capturePage()).toPNG())
     positive.popup.template.find(item => item.label === 'Add to dictionary').click()
     assert.deepEqual(dictionaryCalls, ['mispellled'])
