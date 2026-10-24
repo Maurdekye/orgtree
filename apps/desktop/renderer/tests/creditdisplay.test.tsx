@@ -32,7 +32,7 @@ test('CreditBar renders fractional grant, allocation, free and seat values clean
       assert.match(text, /grant\s*0\.3/, 'grant should display the quantized total')
       assert.match(text, /alloc\s*0\.2/, 'allocation should display the fractional value')
       assert.match(text, /free\s*0\.1/, 'free should display the fractional remainder')
-      assert.match(text, /seat\s*0\.2/, 'seat should display the fractional seat')
+      assert.match(text, /Seat\s*0\.2/, 'seat should display the fractional seat')
       assert.doesNotMatch(text, /000000000|999999999/, 'binary floating-point tail leaked into the UI')
     } finally {
       await view.unmount()
@@ -50,7 +50,7 @@ test('CreditBar formats counter-offer arithmetic as well as stored values',
       const text = view.el.querySelector('.cbar-tip')?.textContent ?? ''
       assert.match(text, /offer\s*0\.3\s*\(\+0\.2\)/,
         'counter-offer delta should not expose binary arithmetic')
-      assert.match(text, /now\s*0\.1/, 'counter-offer baseline should remain readable')
+      assert.match(text, /Now\s*0\.1/, 'counter-offer baseline should remain readable')
     } finally {
       await view.unmount()
     }

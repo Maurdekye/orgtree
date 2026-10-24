@@ -731,6 +731,10 @@ whose folders a narrowing clamped, and the agents above that a deep grant raised
 
 New-hire settings parity (USER 2026-10-24): creation stores staged model_version/session/peer_mail/auto_cheap_compact atomically; hire/staff creation tools accept them, restoration keeps saved preferences. Version-specific speed/effort uses the staged pin, and Muse uses its selected login. Superior insertion still inherits only its four permission fields.
 
+Selected settings auto-save (USER 2026-10-24): project draft gear stages each change without Save; Organization settings and both Default org settings placements save dirty fields serially, discrete edits immediately and text/numeric edits after750ms. Org charter alone keeps explicit Save with revision checks, never blur/close publication. Live agent/project, Hosting, LM server, OpenRouter key and org logo submission controls stay explicit.
+
+Draft settings parity (USER 2026-10-24): shared Charter/Model/Scope/Tools controls and credit editor, local immediate retention through close/reopen, complete atomic hire payload; existing-agent-only actions hidden before hire. See docs/agents/desktop-and-renderer.md and draft-hires glossary.
+
 ## 11. Decisions I need from you
 
 1. **New schema + one-time import** (recommended), rather than running on the 3.2 per-org schema.
@@ -773,5 +777,3 @@ Each step lands as commits on `rust-engine`; I tell you when a step is usable.
 3. purely visual UI work (tidying settings menus and the like; never the canvas), on a separate
    branch `rust-engine-ui` stacked on `rust-engine`, so it can be dropped without touching
    anything else.
-
-Selected settings auto-save (USER 2026-10-24): project draft gear stages each change without Save; Organization settings and both Default org settings placements save dirty fields serially, discrete edits immediately and text/numeric edits after750ms. Org charter alone keeps explicit Save with revision checks, never blur/close publication. Live agent/project, Hosting, LM server, OpenRouter key and org logo submission controls stay explicit.

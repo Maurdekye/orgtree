@@ -4029,17 +4029,16 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
          // pre-hire permissions (user spec): staged in the draft's modal,
          // applied atomically WITH the hire — effort included (review: the
          // old post-hire /scope call's failure was swallowed silently)
-         ...(scope ? { // Superior insertion inherits scope from its anchor at
-                       // admission. Never submit overrides, even from a retained
-                       // draft snapshot; effort/account remain independent.
-                       ...(!draft!.above ? { add_dirs: scope.add_dirs, tools: scope.tools,
-                         org_visibility: scope.org_visibility } : {}),
-                       effort: scope.effort || undefined,
-                       // item 12: the draft's "Prefer reserve" box (luna
-                       // only; omitted = the default, reserve first)
-                       ...(scope.prefer_reserve === undefined ? {}
-                         : { prefer_reserve: scope.prefer_reserve }),
-                       ...(scope.account !== undefined ? { account: scope.account } : {}) } : {}) }
+         ...(scope ? {
+           ...(!draft!.above ? { add_dirs: scope.add_dirs, tools: scope.tools,
+             org_visibility: scope.org_visibility, permission_mode: scope.permission_mode } : {}),
+           effort: scope.effort || undefined, team_charter: scope.team_charter,
+           model_version: scope.model_version, session: scope.session, peer_mail: scope.peer_mail,
+           account_fallback: scope.account_fallback, fast_mode: scope.fast_mode,
+           auto_cheap_compact: scope.auto_cheap_compact,
+           ...(scope.prefer_reserve === undefined ? {} : { prefer_reserve: scope.prefer_reserve }),
+           ...(scope.account !== undefined ? { account: scope.account } : {}),
+         } : {}) }
     const steps: Record<string, unknown>[] = [{ ...hireBody }]
     if (draft?.above) {
       steps[0]!.hire_type = 'superior'; steps[0]!.target = draft.above.anchor

@@ -45,6 +45,20 @@ type Gesture = { from: number; value: number; raw: number; scale: number; pointe
 export function CreditGrant({ node, map, tree, op }: {
   node: CanvasNode; map: Map<string, CanvasNode>; tree: TreePayload; op: OpFn
 }) {
+  return <CreditGrantControl value={node.grant ?? 0} limits={grantLimits(node, map, tree)}
+    seat={node.seat ?? 0} segments={creditSegments(node.children)}
+    onCommit={async next => {
+      const result = await op({ op: 'reallocate', node: node.id, delta: next - (node.grant ?? 0) }, { quiet: true })
+      return typeof result.grant === 'number' ? result.grant : next
+    }} />
+}
+
+/** Shared editor; a draft commits locally, while a live node reallocates. */
+export function CreditGrantControl({ value: server, limits, seat, segments = [], onCommit }: {
+  value: number; limits: { min: number; max: number; unavailable?: boolean }; seat: number
+  segments?: { seat: number; grant: number }[]
+  onCommit: (value: number) => number | void | Promise<number | void>
+}) {
   const label = useId()
   const track = useRef<HTMLDivElement>(null)
   const gesture = useRef<Gesture | null>(null)
@@ -55,7 +69,6 @@ export function CreditGrant({ node, map, tree, op }: {
   const [pending, setPending] = useState(false)
   const [error, setError] = useState('')
   const [accepted, setAccepted] = useState<{ from: number; value: number } | null>(null)
-  const server = node.grant ?? 0
   useEffect(() => { if (accepted && accepted.from !== server) setAccepted(null) }, [server, accepted])
   useEffect(() => {
     const el = track.current!
@@ -64,10 +77,8 @@ export function CreditGrant({ node, map, tree, op }: {
     return () => observer.disconnect()
   }, [])
   const grant = accepted?.from === server ? accepted.value : server
-  const limits = grantLimits(node, map, tree)
   const min = Math.ceil(limits.min - 1e-9), max = Math.floor(limits.max + 1e-9)
   const disabled = pending || limits.unavailable || min > max || (min === max && grant === min)
-  const seat = node.seat ?? 0
   const baseScale = Math.min(Math.max(grant, max), Math.max(4, grant * 2))
   const value = draft?.value ?? grant
   const scale = Math.max(value, draft?.scale ?? baseScale)
@@ -119,8 +130,8 @@ export function CreditGrant({ node, map, tree, op }: {
     if (next === grant || min > max || limits.unavailable) { setDraft(null); return }
     saving.current = true; setPending(true); setError('')
     try {
-      const result = await op({ op: 'reallocate', node: node.id, delta: next - grant }, { quiet: true })
-      setAccepted({ from: server, value: typeof result.grant === 'number' ? result.grant : next })
+      const result = await onCommit(next)
+      setAccepted({ from: server, value: typeof result === 'number' ? result : next })
     } catch (e) { setError(e instanceof Error ? e.message : String(e)) }
     finally { saving.current = false; setPending(false); setDraft(null) }
   }
@@ -165,7 +176,7 @@ export function CreditGrant({ node, map, tree, op }: {
         }} onBlur={() => { if (gesture.current?.pointer === undefined) void commit() }}>
         <div className="cbar" style={{height: length, transform: `translateX(${length}px) rotate(90deg)`, background: creditBarBackground(pxc)}}>
           <CreditBarPaint seat={seat} cur={value} committed={limits.min} pxc={pxc}
-            segments={creditSegments(node.children)} />
+            segments={segments} />
         </div>
       </div>
     </div>

@@ -1135,6 +1135,7 @@ export function DraftNode({ pos, draft, map, seats, maxTop, defaultTop,
     else setLocalScope(next)
   }
   const [permsOpen, setPermsOpen] = useState(false)
+  const [settingsTab, setSettingsTab] = useState<'charter' | 'model' | 'scope' | 'tools'>('charter')
   const [modelAnchor, setModelAnchor] = useState<HTMLElement | null>(null)
   const modelButton = useRef<HTMLButtonElement | null>(null)
   const closeModelPicker = () => {
@@ -1161,6 +1162,8 @@ export function DraftNode({ pos, draft, map, seats, maxTop, defaultTop,
         next.effort = ranked.filter(l => EFFORT_LEVELS.indexOf(l) <= EFFORT_LEVELS.indexOf(next.effort!)).at(-1)
           ?? ranked[0] ?? ''
       }
+      delete next.model_version
+      delete next.fast_mode
       if (tier !== 'luna') delete next.prefer_reserve
       return next
     })
@@ -1279,7 +1282,7 @@ export function DraftNode({ pos, draft, map, seats, maxTop, defaultTop,
               onChange={(e) => setName(e.target.value)}
               onKeyDown={(e) => { if (e.key === 'Enter' && ok) hire() }} />
             <button className="df-gear" disabled={pending}
-              title="permissions — folders, tools, MCP, visibility (applied with the hire)"
+              title="Draft settings — applied with the hire"
               onClick={() => setPermsOpen(true)}>
               <SettingsIcon fontSize="inherit" /></button>
           </div>
@@ -1362,7 +1365,11 @@ export function DraftNode({ pos, draft, map, seats, maxTop, defaultTop,
         </div>
       </div>
       {permsOpen && (
-        <DraftScopeModal draft={draft} map={map} tree={tree} scope={scope}
+        <DraftScopeModal key={draft.tier} draft={draft} map={map} tree={tree} scope={scope}
+          tab={settingsTab} onTab={setSettingsTab} name={name} onName={setName} charter={finalCharter()}
+          onCharter={value => { setChosen([]); setCharter(value) }}
+          grant={grant} onGrant={setGrant} maxGrant={max} seat={seats[draft.tier] ?? 0}
+          hires={hires} onTierChange={onTierChange ? chooseModel : undefined}
           onSave={setScope}
           close={() => setPermsOpen(false)} />
       )}

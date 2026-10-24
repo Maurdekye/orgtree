@@ -1408,6 +1408,15 @@ export interface DraftState {
 /** the staged pre-hire permissions (DraftScopeModal → confirmDraft); also
  *  the shape of the would-inherit prefill, whose tools may lack mcp */
 export interface DraftScope {
+  team_charter?: string
+  permission_mode?: string
+  model_version?: string
+  session?: string | string[]
+  peer_mail?: boolean
+  account_fallback?: boolean
+  fast_mode?: boolean
+  auto_cheap_compact?: { enabled?: boolean; occ?: number }
+
   add_dirs: DirGrant[]
   tools: Partial<ToolGrant>
   org_visibility: string

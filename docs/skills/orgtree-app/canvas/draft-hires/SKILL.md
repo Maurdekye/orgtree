@@ -40,7 +40,7 @@ The dashed draft says uninitialized because no live seat exists yet. It shows th
 | Name | Starts empty; the first chosen charter preset can fill an empty name, still editable. |
 | Charter presets | Named source files shown as removable cards; the entire file (heading, introduction and separator included) is prepended to manual charter text only when finalized, in pick order. Loading errors have Retry; a bounded preset warns how much was omitted. A preset changes text only, not placement or permissions. |
 | Grant bar | The draft's allocation editor. Opening grant comes from draft/org defaults, not a universal fixed number. It is bounded by the org cap or available parent room when hire cascade is off. |
-| Permission gear | Opens Draft permissions; each change is stored in the draft immediately and the menu stays open. Close or Escape keeps those choices. Only Hire creates a seat. |
+| Permission gear | Opens Draft settings with Charter, Model, Scope and Tools tabs, including the credit editor. Each change is stored in the draft immediately and the menu stays open. Close or Escape keeps those choices. Only Hire creates a seat. |
 | Hire / Cancel | Submit the proposed seat, or abandon the draft. Escape cancels; submission can still fail the engine's current checks. After Hire the draft stays where it is, greyed, its tag reading HIRING…, and takes no input until the new card arrives; the card then takes its exact place without moving. The camera walks to its desk unless Display > Desk > Open desk after manual hire is Off (On by default). Off keeps the completion camera, including side/above hires; the draft still closes. A refused hire returns the draft to normal with its fields kept, and says why. |
 
 ## Draft permissions
@@ -53,9 +53,15 @@ Effort choices follow the chosen tier and, for Muse, the selected login's model 
 
 There is no Apply button. Closing the menu keeps its current choices; only final Hire creates the seat. Live-agent settings retain their explicit Save action because they can retool or restart an existing agent. The final engine operation supplies the placement and chosen scope as a human action. For agent-side explicit fields, funding and kickoff, see `orgtree-tool-hire` (orgtree-working › team) and `orgtree-hiring` (orgtree-working › team). Do not infer that creating a seat starts a task: task/assignment mail is a separate concern.
 
-Changing the model keeps staged folders, tools and visibility. An account belonging to another provider, or excluded by the target model's known staffing offers, returns to automatic placement. A known unsupported effort maps to the highest supported level at or below it, otherwise the lowest; models with no effort setting inherit. Open Draft permissions to choose again. Final Hire still validates current accounts, model support and credits.
+Changing the model keeps staged folders, tools and visibility. An account belonging to another provider, or excluded by the target model's known staffing offers, returns to automatic placement. A known unsupported effort maps to the highest supported level at or below it, otherwise the lowest; models with no effort setting inherit. Open Draft settings to choose again. Final Hire still validates current accounts, model support and credits.
 
 Default-setting details belong to [Hire defaults: scope](../../org-settings/org-hire-defaults-scope/SKILL.md), [folders](../../org-settings/org-hire-defaults-folders/SKILL.md) and [tools](../../org-settings/org-hire-defaults-tools/SKILL.md), rather than a copied price/default table here.
+
+## Draft settings tabs
+
+The gear uses the same settings controls as an agent's gear. Charter edits the name, instructions, team instructions and direct-report peer mail; editing compiled instructions converts selected charter presets into editable text. Model chooses the tier, an offered version, thinking effort, supported fast mode, account, fallback and when to start a fresh conversation. Scope edits the credit grant, visible agents, file/command access, desktop session and folders. Tools edits native permissions, Orgtree groups and MCP grants. All tabs keep their edits while switching, closing or reopening. Model changes clear the old version and speed override and preserve independent fields.
+
+History, current session, queued model switches, scratch-folder actions and retire/restore/delete controls are hidden until an agent exists. Superior drafts still inherit folders, tools, visibility and file access from their insertion target; the remaining preferences and credits can be staged. The final Hire carries the complete proposal atomically, including with undo history enabled. No draft edit retools a live agent. Tool parity is the corresponding fields of `orgtree_hire` and new-seat `orgtree_staff`; see `orgtree-tool-hire` and `orgtree-tool-staff` (orgtree-working).
 
 ## Liaison preset placement
 

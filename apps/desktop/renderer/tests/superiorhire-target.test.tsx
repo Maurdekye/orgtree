@@ -74,7 +74,7 @@ test('superior fixture rejects every forbidden scope field but accepts effort/ac
 })
 
 for (const target of ['boss', 'worker']) for (const history of [true, false]) {
-  for (const choice of ['apply', 'effort', 'account']) {
+  for (const choice of ['apply', 'effort', 'account', 'preferences']) {
     test(`superior ${target}, history=${history}: gear ${choice} preserves inherited scope and allowed choices`, async t => {
       const c = await setup(t, history)
       await click(c.card(target).querySelector('.hsof.side-t button.t-sol'))
@@ -93,6 +93,15 @@ for (const target of ['boss', 'worker']) for (const history of [true, false]) {
         assert.ok(select, 'account remains editable')
         await inAct(() => { select.value = 'openai-test'; select.dispatchEvent(new Event('change', { bubbles: true })) })
       }
+      if (choice === 'preferences') {
+        await inAct(() => {
+          const version = panel.querySelector<HTMLSelectElement>('[aria-label="Model version"]')!
+          version.value = '6.1'; version.dispatchEvent(new Event('change', { bubbles: true }))
+          const session = panel.querySelector<HTMLSelectElement>('[aria-label="Desktop session"]')!
+          session.value = 'session0'; session.dispatchEvent(new Event('change', { bubbles: true }))
+          panel.querySelector<HTMLInputElement>('[aria-label="Subordinates may message each other"]')!.click()
+        })
+      }
       await click(panel.querySelector('[aria-label="Close draft settings"]'))
       await c.submit()
       assert.deepEqual(c.refused, [], 'the request passes the engine inheritance contract')
@@ -103,6 +112,7 @@ for (const target of ['boss', 'worker']) for (const history of [true, false]) {
       for (const key of inheritedFields) assert.equal(body[key], undefined, `${key} is inherited at hire`)
       if (choice === 'effort') assert.equal(body.effort, 'low')
       if (choice === 'account') assert.equal(body.account, 'openai-test')
+      if (choice === 'preferences') { assert.equal(body.model_version, '6.1'); assert.equal(body.session, 'session0'); assert.equal(body.peer_mail, false) }
     })
   }
 }

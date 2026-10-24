@@ -3487,13 +3487,7 @@
     "apps/desktop/renderer/src/canvas/modals.tsx#DraftScopeModal",
     "apps/desktop/renderer/src/canvas/OrgCanvas.tsx#HireSheet"
    ],
-   "ui_dynamic_labels": [
-    {
-     "file": "apps/desktop/renderer/src/canvas/modals.tsx",
-     "component": "DraftScopeModal",
-     "label": "label"
-    }
-   ]
+   "ui_dynamic_labels": []
   },
   {
    "path": "orgtree-app/canvas/org-inbox-tile",
@@ -6335,7 +6329,7 @@
    "ui_dynamic_labels": [
     {
      "file": "apps/desktop/renderer/src/canvas/modals.tsx",
-     "component": "AgentConfig",
+     "component": "AgentNativeTools",
      "label": "label"
     },
     {
@@ -6511,7 +6505,7 @@
     {
      "file": "apps/desktop/renderer/src/canvas/accounts.tsx",
      "component": "AccountsPanel",
-      "label": "`Fall back to ${p.label} API-key accounts`"
+     "label": "`Fall back to ${p.label} API-key accounts`"
     }
    ]
   },

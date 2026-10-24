@@ -21,7 +21,14 @@ each change, without closing the panel or creating an agent. Closing retains
 the proposal; final Hire alone submits it. Keep callback identity out of the
 publish effect to avoid an update loop. Draft rows and section groups keep
 their natural height in the fixed-height scrolling panel. Existing live-agent
-settings retain their explicit Save path.
+settings retain their explicit Save path. The draft shares Charter/Model/Scope/Tools tabs,
+charter, fallback, compaction, native-tool and credit-editor presentation with live settings.
+`CreditGrantControl` accepts a local commit callback; never mount `NodeConfig` against a fake node.
+DraftNode owns identity, compiled instructions, grant and tab; the scope snapshot owns other preferences.
+Model changes remount the snapshot after clearing version/speed and sanitizing account/effort.
+`confirmDraft` forwards every independent preference in both direct and undo hires, omitting
+all four inherited permission fields for superior insertion. History/session telemetry,
+queued switches, scratch and lifecycle actions require a persisted agent.
 [decided: user m2dbdd9edf6d6; verified: `canvas/{modals,cards}.tsx`, `styles.css`]
 
 ## Windows Shift+Alt+Space and navigation tooltip bindings (2026-10-24)

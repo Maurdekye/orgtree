@@ -38,8 +38,8 @@ import {
   CloseIcon, DeleteIcon, FolderIcon, LayersIcon, SettingsIcon,
 } from '../icons'
 import { agentNavProps, agentTooltipProps } from './agentnav'
-import { ago, ALL_PRESENT, antigravityTierOffer, bySeatDesc, anyTierSeat, codexTierOffer, CODEX_TIERS, ANTIGRAVITY_TIERS, MUSE_TIERS, museEffortLevels, museOffersOn, museTierOffer, museUnofferedWhy, fmtCredits, hireOf, isLangServerTier, isOpenRouterTier, langserverTierIds, modelChoiceLabel, modelChoiceTitle, MODEL_VERSIONS, optInLegacyHidden, openrouterTierIds, orderAntigravityTiers, pileOrder, PROVIDER_LABEL, providerOf, stateLabel, TIER_LETTER, tierLabel, TIERS, tierShown, USER, useEsc, useShowLegacyModels } from './shared'
-import type { ProviderPresence } from './shared'
+import { hireTierChoices, ago, ALL_PRESENT, antigravityTierOffer, bySeatDesc, anyTierSeat, codexTierOffer, CODEX_TIERS, ANTIGRAVITY_TIERS, MUSE_TIERS, museEffortLevels, museOffersOn, museTierOffer, museUnofferedWhy, fmtCredits, hireOf, isLangServerTier, isOpenRouterTier, langserverTierIds, modelChoiceLabel, modelChoiceTitle, MODEL_VERSIONS, optInLegacyHidden, openrouterTierIds, orderAntigravityTiers, pileOrder, PROVIDER_LABEL, providerOf, stateLabel, TIER_LETTER, tierLabel, TIERS, tierShown, USER, useEsc, useShowLegacyModels } from './shared'
+import type { HireProviders, ProviderPresence } from './shared'
 import type { CanvasNode, DraftScope, DraftState, OpFn, Pile } from './shared'
 import { ModalOverPins, PinFrame } from './modalpin'
 import { instanceKind } from '../modalkinds'
@@ -55,7 +55,7 @@ import type { AccountChoicePayload, AccountChoiceRow, HostIdentity } from '../ac
 import { registryProviderName } from '../registrylabels'
 import { EFFORT_CHANGE_HELP } from './effort'
 import { EffortBar } from './effortbar'
-import { CreditGrant } from './creditgrant'
+import { CreditGrant, CreditGrantControl } from './creditgrant'
 import { AgentHistoryView } from './historyview'
 import { AgentDirectoryProvider, nodeTierOf, TierChip } from './identity'
 import type { RefRoutes } from './reflinks'
@@ -679,7 +679,10 @@ export function HireDefaultsTab({ tree, slug, toast, close,
 // ⚙ panel — folders with RW/RO, tool switches, MCP grants, org visibility —
 // but staged locally and applied WITH the hire, so nothing needs adjusting
 // after the agent exists. Prefilled from what the hire would inherit anyway.
+export type DraftSettingsTab = 'charter' | 'model' | 'scope' | 'tools'
 interface DraftScopeModalProps {
+  tab?: DraftSettingsTab
+  onTab?: (tab: DraftSettingsTab) => void
   draft: DraftState
   map: Map<string, CanvasNode>
   tree: TreePayload
@@ -687,9 +690,21 @@ interface DraftScopeModalProps {
   onSave: (scope: DraftScope) => void
   close: () => void
   accounts?: AccountChoiceRow[]
+  name?: string
+  onName?: (value: string) => void
+  charter?: string
+  onCharter?: (value: string) => void
+  grant?: number
+  onGrant?: (value: number) => void
+  maxGrant?: number
+  seat?: number
+  hires?: HireProviders
+  onTierChange?: (tier: string) => void
 }
 
-export function DraftScopeModal({ draft, map, tree, scope, onSave, close, accounts: propAccounts }: DraftScopeModalProps) {
+export function DraftScopeModal({ draft, map, tree, scope, onSave, close, accounts: propAccounts,
+  name, onName, charter = '', onCharter, grant = 0, onGrant, maxGrant = grant, seat = 0,
+  hires = {}, onTierChange, tab: chosenTab, onTab }: DraftScopeModalProps) {
   const parent = agentSuperior(draft, map)
   const superior = draft.above?.anchor
   const scopeSource = superior ? map.get(superior) : parent
@@ -702,7 +717,7 @@ export function DraftScopeModal({ draft, map, tree, scope, onSave, close, accoun
     org_visibility: scopeSource?.scope?.org_visibility
       ?? tree.default_visibility ?? 'full',
   })
-  const base = scope ?? inherited()
+  const base = useRef(scope ?? inherited()).current
   // ⚠ These four ARE useState-from-a-prop and are deliberately left that way.
   // This modal stages permissions for an agent that DOES NOT EXIST YET: `base`
   // is a one-time proposal (what the hire would inherit), not a live server
@@ -714,6 +729,15 @@ export function DraftScopeModal({ draft, map, tree, scope, onSave, close, accoun
     { ...base.tools, mcp: [...(base.tools.mcp ?? [])] })
   const [vis, setVis] = useState(base.org_visibility)
   const [effort, setEffort] = useState(base.effort ?? '')
+  const [modelVersion, setModelVersion] = useState(base.model_version ?? '')
+  const [teamCharter, setTeamCharter] = useState(base.team_charter ?? '')
+  const [peerMail, setPeerMail] = useState(base.peer_mail ?? true)
+  const [pm, setPm] = useState(base.permission_mode ?? scopeSource?.scope?.permission_mode ?? tree.permission_mode ?? 'acceptEdits')
+  const [sess, setSess] = useState(Array.isArray(base.session) ? base.session.join(',') : base.session ?? 'signed-in')
+  const [accountFallback, setAccountFallback] = useState(base.account_fallback === undefined ? '' : base.account_fallback ? 'on' : 'off')
+  const [fastOverride, setFastOverride] = useState(base.fast_mode)
+  const [accMode, setAccMode] = useState(base.auto_cheap_compact?.enabled === undefined ? '' : base.auto_cheap_compact.enabled ? 'on' : 'off')
+  const [accOcc, setAccOcc] = useState<number | string>(Math.round((base.auto_cheap_compact?.occ ?? tree.auto_cheap_compact?.occ ?? .25) * 100))
   const [newPath, setNewPath] = useState('')
   const [servers, setServers] = useState<string[]>([])
   const [mcpDetails, setMcpDetails] = useState<McpServerInfo[]>([])
@@ -784,7 +808,7 @@ export function DraftScopeModal({ draft, map, tree, scope, onSave, close, accoun
   }, [acctTouched, base.account, defaultAccountMatches, orgAccount, museAuto])
   // a Muse seat's levels and model are the login it lands on (its own catalog)
   const museTier = MUSE_TIERS.includes(draft.tier)
-  const museWhy = museTier ? museUnofferedWhy(draft.tier, null, selectedAccount || null) : null
+  const museWhy = museTier ? museUnofferedWhy(draft.tier, modelVersion || null, selectedAccount || null) : null
 
   useEffect(() => {
     getMcpServers().then((r) => {
@@ -793,29 +817,73 @@ export function DraftScopeModal({ draft, map, tree, scope, onSave, close, accoun
     }).catch(() => {})
   }, [])
   const allMcp = tools.mcp.includes('*')
-  // Only the local hire proposal changes here; no agent or server write exists
-  // until Hire. Keep callback identity out of the effect to avoid a save loop
-  // when DraftNode publishes the updated proposal back through `scope`.
+  const tabId = useId()
+  const [localTab, setLocalTab] = useState<DraftSettingsTab>('charter')
+  const tab = chosenTab ?? localTab
+  const setTab = onTab ?? setLocalTab
+  const versions = MODEL_VERSIONS[draft.tier] ?? []
+  const supportsFastMode = useFastMode(draft.tier, modelVersion)
+  const choices = hireTierChoices(hires)
   const saveDraft = useRef(onSave)
   saveDraft.current = onSave
-  const proposal = useMemo(() => ({ add_dirs: dirs, tools, org_visibility: vis,
-    ...(effort ? { effort } : {}),
-    ...(acctTouched || selectedAccount ? { account: selectedAccount } : {}) }),
-  [dirs, tools, vis, effort, acctTouched, selectedAccount])
+  const proposal = useMemo((): DraftScope => ({
+    ...base, add_dirs: dirs, tools, org_visibility: vis, effort,
+    model_version: modelVersion, team_charter: teamCharter, peer_mail: peerMail,
+    permission_mode: pm, session: sess.includes(',') ? sess.split(',') : sess,
+    account_fallback: accountFallback === '' ? undefined : accountFallback === 'on',
+    fast_mode: supportsFastMode ? fastOverride : undefined,
+    auto_cheap_compact: accMode === '' ? {} : { enabled: accMode === 'on', occ: Math.max(5, Math.min(95, +accOcc || 25)) / 100 },
+    ...(acctTouched || selectedAccount ? { account: selectedAccount } : {}),
+  }), [base, dirs, tools, vis, effort, modelVersion, teamCharter, peerMail, pm, sess,
+    accountFallback, supportsFastMode, fastOverride, accMode, accOcc, acctTouched, selectedAccount])
   useEffect(() => { saveDraft.current(proposal) }, [proposal])
-  // portal to <body>: the draft card lives inside the world transform, where
-  // position:fixed would resolve against the SCALED ancestor (giant modal)
-  return (
-    <ModalOverPins><PinFrame kind="draft-scope" title="Draft permissions" panel="settings draft-scope" close={close} pinnable={false}>
-        <h3><SettingsIcon fontSize="inherit" /> Permissions <span className="dim">
-          · applied with the hire</span></h3>
-        {superior ? <div className="draft-scope-inherited" role="note">
-          <div className="field-label">Inherited permissions</div>
-          <p className="set-hint">Folders, tools, visible agents and file access are inherited from{' '}
-            <span className="mono">{superior}</span> when hired. These permissions cannot be changed here.</p>
-        </div> : <>
-        <div className="field-label">Folders</div>
-        <p className="set-hint">{FOLDERS_HINT}</p>
+  return <ModalOverPins><PinFrame kind="draft-scope" title="Draft settings" panel="settings cfg draft-scope" close={close} pinnable={false}>
+    <h3><SettingsIcon fontSize="inherit" /> Draft settings</h3>
+    <p className="set-hint">Changes are saved to this draft immediately and applied with the hire.</p>
+    {onName && <SetRow label="Name"><input aria-label="Agent name" value={name ?? ''} onChange={e => onName(e.target.value)} /></SetRow>}
+    <SettingsTabs tabs={NODE_CONFIG_TABS} tab={tab} setTab={setTab} idBase={tabId} label="Draft settings" />
+    <SettingsTabPanel id="charter" idBase={tabId} active={tab === 'charter'}>
+      <AgentCharterFields charter={charter} setCharter={onCharter} teamCharter={teamCharter}
+        setTeamCharter={setTeamCharter} peerMail={peerMail} setPeerMail={setPeerMail} />
+    </SettingsTabPanel>
+    <SettingsTabPanel id="model" idBase={tabId} active={tab === 'model'}>
+      <SetRow label="Model" hint="Choose its model; switching providers starts a new conversation."><select aria-label="Model tier"
+        value={draft.tier} disabled={!onTierChange} onChange={e => onTierChange?.(e.target.value)}>
+        {!choices.some(c => c.tier === draft.tier) && <option value={draft.tier}>{tierLabel(draft.tier)}</option>}
+        {choices.map(c => <option key={c.tier} value={c.tier} disabled={c.offer !== 'offer' && c.tier !== draft.tier}
+          title={modelChoiceTitle(c.tier, c.offer === 'offer' ? null : c.reason)}>{modelChoiceLabel(c.tier, tree.tiers?.[c.tier], c.offer === 'offer' ? null : c.reason)}</option>)}
+      </select></SetRow>
+      {versions.length > 1 && <SetRow label="Model version" hint="Choose a specific version or use the latest."><select aria-label="Model version" value={modelVersion}
+        onChange={e => setModelVersion(e.target.value)}><option value="">{`latest (${versions[0]})`}</option>
+        {versions.map(v => <option key={v} value={v}>{`${tierLabel(draft.tier)} ${v}`}</option>)}
+      </select></SetRow>}
+      <SetRow label="Thinking effort" hint="Choose how much effort the model spends reasoning."><EffortBar value={effort}
+        level={tree.default_effort || tree.effort_default || 'high'} levels={museTier ? museEffortLevels(draft.tier, modelVersion || null, selectedAccount || null) : tierEffortLevels(tree.slug, draft.tier)}
+        inheritLabel="Organization default" title={EFFORT_CHANGE_HELP} onSet={setEffort} /></SetRow>
+      {supportsFastMode && <SetToggle label="Fast mode" checked={fastOverride ?? tree.default_fast_mode?.[draft.tier] ?? false}
+        hint={FAST_MODE_HELP} onChange={setFastOverride} />}
+      <SetRow label="Account" hint="Choose the signed-in account this agent uses."><AccountSelect rows={acctRows} provider={targetProvider} value={selectedAccount} host={hostIdentity}
+        eligible={peekStaffingOptions(tree.slug)?.tiers.find(t => t.tier === draft.tier)?.accounts.map(a => a.value)}
+        onChange={value => { setAcct(value); setAcctTouched(true) }} /></SetRow>
+      {selectedAccount && <button type="button" onClick={() => { setAcct(''); setAcctTouched(true) }}>Use machine default</button>}
+      {museWhy && <p className="set-hint muse-unoffered" role="note">{museWhy}; choose a Muse login that offers it.</p>}
+      <AccountFallbackField provider={targetProvider} value={accountFallback} defaultOn={tree.account_fallback_default}
+        onChange={setAccountFallback} />
+      <FreshConversationFields mode={accMode} setMode={setAccMode} occ={accOcc} setOcc={setAccOcc} />
+    </SettingsTabPanel>
+    <SettingsTabPanel id="scope" idBase={tabId} active={tab === 'scope'}>
+      {onGrant && <CreditGrantControl value={grant} seat={seat} limits={{ min: 0, max: maxGrant }} onCommit={onGrant} />}
+      {superior ? <div className="draft-scope-inherited" role="note">
+        <div className="field-label">Inherited permissions</div>
+        <p className="set-hint">Folders, tools, visible agents and file access are inherited from <span className="mono">{superior}</span> when hired. These permissions cannot be changed here.</p>
+      </div> : <>
+      <SetRow label="Visible agents" hint={VISIBLE_AGENTS_HINT}><select aria-label="Visible agents" value={vis} onChange={e => setVis(e.target.value)}>
+        {VIS_OPTIONS.map(([v, label]) => <option key={v} value={v}>{label}</option>)}
+      </select></SetRow>
+      <SetRow label="File and command access" hint={FILE_ACCESS_HINT}><select aria-label="File and command access" value={pm} onChange={e => setPm(e.target.value)}>
+        {PERMISSION_OPTIONS.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+      </select></SetRow>
+        <SetBlock label="Folders" hint={FOLDERS_HINT}>
         <div className="dirlist">
           {dirs.map((d, i) => (
             <div className="dirrow" key={d.path}>
@@ -846,51 +914,16 @@ export function DraftScopeModal({ draft, map, tree, scope, onSave, close, accoun
             }}>Add</button>
           </div>
         </div>
-        <div className="field-label">Visible agents</div>
-        <p className="set-hint">{VISIBLE_AGENTS_HINT}</p>
-        <select aria-label="Visible agents" value={vis} onChange={(e) => setVis(e.target.value)}>
-          {VIS_OPTIONS.map(([v, label]) => <option key={v} value={v}>{label}</option>)}
-        </select>
-        </>}
-        <div className="field-label">Thinking effort</div>
-        <p className="set-hint">Choose how much effort the model spends reasoning.</p>
-        <EffortBar value={effort} level={tree.default_effort || tree.effort_default || 'high'}
-          levels={museTier ? museEffortLevels(draft.tier, null, selectedAccount || null) : tierEffortLevels(tree.slug, draft.tier)}
-          inheritLabel="inherit — org default" title={EFFORT_CHANGE_HELP} onSet={setEffort} />
-        <div className="field-label">Account</div>
-        <p className="set-hint">Choose the signed-in account this agent uses.</p>
-        {/* ⚠ ELIGIBLE ACCOUNTS ONLY (user ruling 2026-09-15), read from the
-            staffing availability that was warmed when the org loaded — this
-            selector starts no load of its own. `peek` and not an await: if the
-            answer is not in yet the full list is shown and the hire refuses on
-            its own terms, which is the honest fallback. */}
-        <AccountSelect rows={acctRows} provider={targetProvider} value={selectedAccount}
-          host={hostIdentity}
-          eligible={peekStaffingOptions(tree.slug)?.tiers
-            .find(t => t.tier === draft.tier)?.accounts.map(a => a.value)}
-          onChange={(value) => {
-            setAcct(value)
-            setAcctTouched(true)
-          }} />
-        {selectedAccount && <button type="button" onClick={() => {
-          setAcct(''); setAcctTouched(true)
-        }}>Use machine default</button>}
-        {museWhy && <p className="set-hint muse-unoffered" role="note">{museWhy}; choose a Muse login that offers it.</p>}
-        {!superior && <>
-        <SetGroup title="Native tools">
-        <p className="set-hint">{NATIVE_TOOLS_HINT}</p>
-        {TOOL_LABELS.map(([k, label, hint]) => (
-          <SetToggle key={k} label={label} hint={hint} checked={!!tools[k]}
-            onChange={next => setTools({ ...tools, [k]: next })} />
-        ))}
-        <NativeReplacementToggle checked={tools.orgtree_disabled === true}
-          harness={providerOf(draft.tier)}
-          onChange={orgtree_disabled => setTools({ ...tools, orgtree_disabled })} />
-        </SetGroup>
-        <SetGroup title="Orgtree tools">
-        <p className="set-hint">{ORGTREE_TOOLS_HINT}</p>
-        <OrgtreeGroupToggles value={tools.orgtree} onChange={orgtree => setTools({ ...tools, orgtree })} />
-        </SetGroup>
+        </SetBlock>
+
+      </>}
+      <SetRow label="Desktop session" hint={SESSION_HINT}><select aria-label="Desktop session" value={sess} onChange={e => setSess(e.target.value)}>
+        {sessionOptions(sess).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+      </select></SetRow>
+    </SettingsTabPanel>
+    <SettingsTabPanel id="tools" idBase={tabId} active={tab === 'tools'}>
+      {superior ? <p className="set-hint">Tools are inherited from <span className="mono">{superior}</span> when hired.</p> : <>
+      <AgentNativeTools tools={tools} setTools={setTools} parentTools={parent?.scope?.tools} harness={targetProvider} />
         <SetGroup title="MCP servers">
         <McpRefresh onRead={(names, details) => { setServers(names); setMcpDetails(details) }} />
         <p className="set-hint">{MCP_SERVERS_HINT}</p>
@@ -903,16 +936,12 @@ export function DraftScopeModal({ draft, map, tree, scope, onSave, close, accoun
             mcp: on ? [...tools.mcp, s] : tools.mcp.filter((x) => x !== s),
           })} />}
         </SetGroup>
-        <div className="hint">
-          Grants clamp to what the parent holds (№30) — anything beyond its
-          capability is trimmed at hire with a warning.
-        </div>
-        </>}
-        <div className="row">
-          <button onClick={close} aria-label="Close draft settings">Close</button>
-        </div>
-    </PinFrame></ModalOverPins>
-  )
+
+      <div className="hint">Grants clamp to what the parent holds (№30) — anything beyond its capability is trimmed at hire with a warning.</div>
+      </>}
+    </SettingsTabPanel>
+    <div className="row"><button onClick={close} aria-label="Close draft settings">Close</button></div>
+  </PinFrame></ModalOverPins>
 }
 // ------------------------------------------------------------ node ⚙ config
 // MCP server checklist shared by the org / per-agent / pre-hire scope panels.
@@ -1556,8 +1585,6 @@ function AgentConfig({ node, map, tree, slug, op, toast, claudeProvider, codexPr
     ? (parentNode.scope?.add_dirs ?? [])
     : (tree.dirs ?? []).map((d) => ({ ...d }))   // org holdings carry modes now
   const addable = parentDirs.filter((pd) => !dirs.some((d) => d.path === pd.path))
-  const parentHolds = (k: 'bash' | 'web' | 'edit' | 'subagents') =>
-    parentTools == null || parentTools[k] !== false
   // "*" = every registered server, present and future
   const parentHoldsMcp = (s: string) => parentTools == null
     || (parentTools.mcp ?? []).includes('*') || (parentTools.mcp ?? []).includes(s)
@@ -1708,13 +1735,8 @@ function AgentConfig({ node, map, tree, slug, op, toast, claudeProvider, codexPr
         {/* Keep every panel mounted: switching tabs preserves all draft fields.
             The shared save below still applies edits from every tab together. */}
         <SettingsTabPanel id="charter" idBase={tabId} active={tab === 'charter'}>
-        <SetBlock label="Instructions" hint="What this agent should do; changes restart its process."><textarea rows={10} className="charterbox" value={charter}
-          onChange={(e) => setCharter(e.target.value)} /></SetBlock>
-        <SetBlock label="Team instructions" hint="Shared instructions for this agent and its team; changes restart their processes."><textarea rows={10} className="charterbox" value={teamCharter}
-          onChange={(e) => setTeamCharter(e.target.value)} /></SetBlock>
-        <SetToggle label="Subordinates may message each other"
-          checked={peerMail} onChange={setPeerMail}
-          hint="Off requires an audience between this manager's direct agents and hides their peer connector lines. Changes apply immediately." />
+        <AgentCharterFields charter={charter} setCharter={setCharter} teamCharter={teamCharter}
+          setTeamCharter={setTeamCharter} peerMail={peerMail} setPeerMail={setPeerMail} />
         </SettingsTabPanel>
         <SettingsTabPanel id="model" idBase={tabId} active={tab === 'model'}>
         <SetRow label="Model" hint="Choose its model; switching providers starts a new conversation."><select className="model-switch" aria-label="Model tier" title={modelChoiceTitle(model, unavailable(model))}
@@ -1778,22 +1800,9 @@ function AgentConfig({ node, map, tree, slug, op, toast, claudeProvider, codexPr
         {museWhy && <p className="set-hint muse-unoffered" role="note">{museWhy}; choose a Muse login that offers it.</p>}
           </>
         )}
-        <SetRow label="Switch accounts when limited" hint={!['claude', 'openai', 'muse'].includes(providerOf(model)) ? 'This provider does not support automatic account switching.' : providerOf(model) === 'openai' ? 'Use another account when limited; switching Codex accounts starts a new conversation.' : providerOf(model) === 'muse' ? 'Use another Muse account that offers this model and has room when limited; it continues on a new Muse session.' : 'Use another account with room when this one reaches its limit.'}><select aria-label="Automatic account fallback" value={accountFallback}
-          disabled={!['claude', 'openai', 'muse'].includes(providerOf(model))}
-          onChange={(e) => setEdit((old) => ({ ...old, accountFallback: e.target.value }))}>
-          <option value="">Org default ({tree.account_fallback_default ? 'on' : 'off'})</option>
-          <option value="on">On</option>
-          <option value="off">Off</option>
-        </select></SetRow>
-
-        <SetRow label="Start fresh when needed" field="cheap-compact" hint="Start a new conversation with a summary when reusing the old one would cost more."><select value={accMode} onChange={(e) => setAccMode(e.target.value)}>
-          <option value="">Organization default</option>
-          <option value="on">On</option>
-          <option value="off">Off</option>
-        </select></SetRow>
-        {accMode === 'on' && <SetRow label="Conversation size" hint="Start fresh once the conversation reaches this share of its limit."><label><input type="number" min="5" max="95" step="5"
- value={accOcc}
-            onChange={(e) => setAccOcc(e.target.value)} />%</label></SetRow>}
+        <AccountFallbackField provider={providerOf(model)} value={accountFallback} defaultOn={tree.account_fallback_default}
+          onChange={value => setEdit(old => ({ ...old, accountFallback: value }))} />
+        <FreshConversationFields mode={accMode} setMode={setAccMode} occ={accOcc} setOcc={setAccOcc} />
 
         {initInfo && (
           <>
@@ -1892,24 +1901,8 @@ function AgentConfig({ node, map, tree, slug, op, toast, claudeProvider, codexPr
         </SetBlock>
         </SettingsTabPanel>
         <SettingsTabPanel id="tools" idBase={tabId} active={tab === 'tools'}>
-        <SetGroup title="Native tools">
-        <p className="set-hint">{NATIVE_TOOLS_HINT}</p>
-        {TOOL_LABELS.map(([k, label, hint]) => (
-          <SetToggle key={k} label={label} checked={Boolean(tools[k] && parentHolds(k))}
-            disabled={!parentHolds(k)} hint={!parentHolds(k) ? `${hint} The superior does not have this permission.` : hint}
-            onChange={checked => setTools({ ...tools, [k]: checked })} />
-        ))}
-        <NativeReplacementToggle checked={tools.orgtree_disabled === true && (parentTools == null || parentTools.orgtree_disabled === true)}
-          disabled={parentTools != null && parentTools.orgtree_disabled !== true}
-          harness={node.native_tool_harness ?? providerOf(model)}
-          onChange={orgtree_disabled => setTools({ ...tools, orgtree_disabled })} />
-        </SetGroup>
-
-        <SetGroup title="Orgtree tools">
-          <p className="set-hint">{ORGTREE_TOOLS_HINT}</p>
-          <OrgtreeGroupToggles value={tools.orgtree} ceiling={parentTools?.orgtree}
-            onChange={orgtree => setTools({ ...tools, orgtree })} />
-        </SetGroup>
+        <AgentNativeTools tools={tools} setTools={setTools} parentTools={parentTools}
+          harness={node.native_tool_harness ?? providerOf(model)} />
 
         <SetGroup title="MCP servers">
         <McpRefresh onRead={(names, details) => { setServers(names); setMcpDetails(details) }} />
@@ -2226,3 +2219,70 @@ export function PilePicker({ pile, map, onPick, close, op, toast, ready = true, 
     </div></ModalOverPins>
   )
 }
+
+function AgentCharterFields({ charter, setCharter, teamCharter, setTeamCharter, peerMail, setPeerMail }: {
+  charter: string; setCharter?: (value: string) => void; teamCharter: string; setTeamCharter: (value: string) => void
+  peerMail: boolean; setPeerMail: (value: boolean) => void
+}) { return <>
+        <SetBlock label="Instructions" hint="What this agent should do; changes restart its process."><textarea rows={10} className="charterbox" value={charter}
+          disabled={!setCharter} onChange={(e) => setCharter?.(e.target.value)} /></SetBlock>
+        <SetBlock label="Team instructions" hint="Shared instructions for this agent and its team; changes restart their processes."><textarea rows={10} className="charterbox" value={teamCharter}
+          onChange={(e) => setTeamCharter(e.target.value)} /></SetBlock>
+        <SetToggle label="Subordinates may message each other"
+          checked={peerMail} onChange={setPeerMail}
+          hint="Off requires an audience between this manager's direct agents and hides their peer connector lines. Changes apply immediately." />
+</> }
+
+function AccountFallbackField({ provider, value, defaultOn, onChange }: {
+  provider: string; value: string; defaultOn?: boolean; onChange: (value: string) => void
+}) { return <>
+        <SetRow label="Switch accounts when limited" hint={!['claude', 'openai', 'muse'].includes(provider) ? 'This provider does not support automatic account switching.' : provider === 'openai' ? 'Use another account when limited; switching Codex accounts starts a new conversation.' : provider === 'muse' ? 'Use another Muse account that offers this model and has room when limited; it continues on a new Muse session.' : 'Use another account with room when this one reaches its limit.'}><select aria-label="Automatic account fallback" value={value}
+          disabled={!['claude', 'openai', 'muse'].includes(provider)}
+          onChange={(e) => onChange(e.target.value)}>
+          <option value="">Org default ({defaultOn ? 'on' : 'off'})</option>
+          <option value="on">On</option>
+          <option value="off">Off</option>
+        </select></SetRow>
+
+</> }
+
+function FreshConversationFields({ mode, setMode, occ, setOcc }: {
+  mode: string; setMode: (value: string) => void; occ: number | string; setOcc: (value: string) => void
+}) { return <>
+        <SetRow label="Start fresh when needed" field="cheap-compact" hint="Start a new conversation with a summary when reusing the old one would cost more."><select value={mode} onChange={(e) => setMode(e.target.value)}>
+          <option value="">Organization default</option>
+          <option value="on">On</option>
+          <option value="off">Off</option>
+        </select></SetRow>
+        {mode === 'on' && <SetRow label="Conversation size" hint="Start fresh once the conversation reaches this share of its limit."><label><input type="number" min="5" max="95" step="5"
+ value={occ}
+            onChange={(e) => setOcc(e.target.value)} />%</label></SetRow>}
+
+</> }
+
+function AgentNativeTools<T extends Partial<ToolGrant> & { mcp: string[] }>({ tools, setTools, parentTools, harness }: {
+  tools: T; setTools: (value: T) => void
+  parentTools?: Partial<ToolGrant> | null; harness: string
+}) {
+  const parentHolds = (k: 'bash' | 'web' | 'edit' | 'subagents') => parentTools == null || parentTools[k] !== false
+  return <>
+        <SetGroup title="Native tools">
+        <p className="set-hint">{NATIVE_TOOLS_HINT}</p>
+        {TOOL_LABELS.map(([k, label, hint]) => (
+          <SetToggle key={k} label={label} checked={Boolean(tools[k] && parentHolds(k))}
+            disabled={!parentHolds(k)} hint={!parentHolds(k) ? `${hint} The superior does not have this permission.` : hint}
+            onChange={checked => setTools({ ...tools, [k]: checked })} />
+        ))}
+        <NativeReplacementToggle checked={tools.orgtree_disabled === true && (parentTools == null || parentTools.orgtree_disabled === true)}
+          disabled={parentTools != null && parentTools.orgtree_disabled !== true}
+          harness={harness}
+          onChange={orgtree_disabled => setTools({ ...tools, orgtree_disabled })} />
+        </SetGroup>
+
+        <SetGroup title="Orgtree tools">
+          <p className="set-hint">{ORGTREE_TOOLS_HINT}</p>
+          <OrgtreeGroupToggles value={tools.orgtree} ceiling={parentTools?.orgtree}
+            onChange={orgtree => setTools({ ...tools, orgtree })} />
+        </SetGroup>
+
+</> }

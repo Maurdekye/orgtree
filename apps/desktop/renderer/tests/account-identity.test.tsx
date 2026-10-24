@@ -101,7 +101,7 @@ test('Agent Default changes provider independently of a disabled sole-account dr
   }
   const view = await mountView(<Defaults />, el => el)
   try {
-    const label = 'default provider account for new hires'
+    const label = 'Default provider account for new hires'
     assert.equal(select(view.el, label).selectedOptions[0].textContent, `claude-4 · ${email}`)
     await choose(select(view.el, 'Provider for default account'), 'openai')
     assert.equal(select(view.el, label).disabled, true)
@@ -124,10 +124,10 @@ test('Agent Settings resets an incompatible account when its provider changes in
   try {
     await inAct(async () => { await flush(8) })
     assert.equal(select(view.el).selectedOptions[0].textContent, `claude-4 · ${email}`)
-    await choose(select(view.el, 'model tier'), 'luna')
+    await choose(select(view.el, 'Model tier'), 'luna')
     assert.equal(select(view.el).disabled, true)
     assert.equal(select(view.el).value, 'openai/primary')
-    await choose(select(view.el, 'model tier'), 'opus')
+    await choose(select(view.el, 'Model tier'), 'opus')
     assert.equal(select(view.el).disabled, false)
     assert.equal(select(view.el).value, 'claude/primary')
   } finally { await view.unmount() }
