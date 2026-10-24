@@ -112,7 +112,7 @@ test('draft modal pre-selects matching org default account', async (t: TestConte
   assert.ok(sel)
   assert.equal(sel!.value, 'openai-1', 'matching org default must be pre-selected')
 
-  const apply = [...body.querySelectorAll<HTMLButtonElement>('button')].find((b) => b.textContent === 'apply')!
+  const apply = body.querySelector<HTMLButtonElement>('.settings [aria-label="Close draft settings"]')!
   const { act } = await import('react')
   await act(async () => { apply.click() })
 
@@ -137,7 +137,7 @@ test('draft displays and saves the canonical primary name for a legacy default b
   assert.equal(select.value, 'openai/primary')
   assert.equal(select.selectedOptions[0].textContent, 'default · email unavailable')
   assert.equal(select.disabled, true)
-  const apply = [...body.querySelectorAll<HTMLButtonElement>('button')].find((b) => b.textContent === 'apply')!
+  const apply = body.querySelector<HTMLButtonElement>('.settings [aria-label="Close draft settings"]')!
   const { act } = await import('react')
   await act(async () => { apply.click() })
   assert.equal(saved.at(-1)?.account, 'openai/primary')
@@ -158,7 +158,7 @@ test('draft selects an inherited canonical primary default without a registry ro
   const body = document.body as unknown as HTMLElement
   const select = body.querySelector<HTMLSelectElement>('select[aria-label="Account"]')!
   assert.equal(select.value, 'openai/primary')
-  const apply = [...body.querySelectorAll<HTMLButtonElement>('button')].find((b) => b.textContent === 'apply')!
+  const apply = body.querySelector<HTMLButtonElement>('.settings [aria-label="Close draft settings"]')!
   const { act } = await import('react')
   await act(async () => { apply.click() })
   assert.equal(saved.at(-1)?.account, 'openai/primary')
@@ -183,7 +183,7 @@ test('draft modal ignores incompatible org default account and starts unbound', 
   assert.ok(sel)
   assert.equal(sel!.value, 'openai/primary', 'unbound displays the selected provider default')
 
-  const apply = [...body.querySelectorAll<HTMLButtonElement>('button')].find((b) => b.textContent === 'apply')!
+  const apply = body.querySelector<HTMLButtonElement>('.settings [aria-label="Close draft settings"]')!
   const { act } = await import('react')
   await act(async () => { apply.click() })
 
@@ -205,7 +205,7 @@ test('explicitly changing account in draft modal saves selection, including unbo
 
   const body = document.body as unknown as HTMLElement
   const sel = body.querySelector<HTMLSelectElement>('select[aria-label="Account"]')!
-  const apply = [...body.querySelectorAll<HTMLButtonElement>('button')].find((b) => b.textContent === 'apply')!
+  const apply = body.querySelector<HTMLButtonElement>('.settings [aria-label="Close draft settings"]')!
   const { act } = await import('react')
 
   // Switch to openai-2

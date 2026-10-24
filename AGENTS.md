@@ -41,6 +41,8 @@ Rig live-root guards retain import-time `APPDATA`/home/data-override paths after
 
 ## Engine and desktop invariants
 
+- Draft permission changes persist locally without closing; final Hire alone creates the seat. Keep the publish callback stable across draft updates and let wrapped rows scroll at natural height. See [draft edits](docs/agents/desktop-and-renderer.md#draft-permission-edits-2026-10-24). [verified: `canvas/{modals,cards}.tsx`, `styles.css`; 2026-10-24]
+
 - One-time agent messages/notices suppress new reply-audience grants without
   revoking existing reach; retain the independent header marker through all mail
   readers. See [one-time mail](docs/agents/mail-and-hub.md#one-time-agent-mail-2026-10-24-445).

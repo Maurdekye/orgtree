@@ -50,7 +50,7 @@ test('late project success preserves replacement agent name, charter and staged 
   const select = document.querySelector<HTMLSelectElement>('select[aria-label="Visible agents"]')!
   const chosen = [...select.options].find(o => o.value !== select.value)!.value
   await inAct(() => { select.value = chosen; select.dispatchEvent(new Event('change', { bubbles: true })) })
-  await click([...document.querySelectorAll('button')].find(b => b.textContent === 'apply')!)
+  await click(document.querySelector('.settings [aria-label="Close draft settings"]')!)
   await inAct(async () => { c.requests[0]!.resolve({ node: 'project-a' }); await flush() })
   assert.equal(c.name()?.value, 'agent-b')
   assert.equal(c.summary()?.value, 'Unsaved charter B')

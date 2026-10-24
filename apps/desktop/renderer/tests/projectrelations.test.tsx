@@ -170,8 +170,8 @@ for(const top of [false,true]) test(`draft scope inherits from ${top?'org':'agen
   const view=await mountView(<DraftScopeModal draft={{parent:'placement',tier:'sol'}} map={map} tree={tree as TreePayload}
     scope={null} onSave={s=>{saved=s}} close={()=>{}} accounts={[]} />,el=>el)
   t.after(()=>view.unmount());await flush(4)
-  const save=[...document.querySelectorAll('button')].find(b=>b.textContent?.trim()==='apply')
-  assert.ok(save,'production scope Apply exists')
+  const save=document.querySelector<HTMLButtonElement>('.settings [aria-label="Close draft settings"]')
+  assert.ok(save,'production draft settings can be closed after automatic save')
   await inAct(()=>save.click())
   assert.deepEqual(saved?.add_dirs,[{path:top?'C:/org':'C:/boss',mode:top?'rw':'ro'}])
   assert.equal(saved?.tools.bash,top)

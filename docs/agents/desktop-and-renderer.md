@@ -14,6 +14,16 @@ The displayed shortcuts are editor conventions, not new global bindings.
 See [native menu tests](../../tests/edit-menu.test.mjs), renderer
 `texteditmenu.test.tsx`, and the [user guide](../messages-and-work.md#text-editing-menus).
 
+## Draft permission edits (2026-10-24)
+
+`DraftScopeModal` publishes its local proposal to the owning `DraftNode` after
+each change, without closing the panel or creating an agent. Closing retains
+the proposal; final Hire alone submits it. Keep callback identity out of the
+publish effect to avoid an update loop. Draft rows and section groups keep
+their natural height in the fixed-height scrolling panel. Existing live-agent
+settings retain their explicit Save path.
+[decided: user m2dbdd9edf6d6; verified: `canvas/{modals,cards}.tsx`, `styles.css`]
+
 ## Windows Shift+Alt+Space and navigation tooltip bindings (2026-10-24)
 
 On Windows, Shift+Alt+Space now cancels only its native system-menu request,

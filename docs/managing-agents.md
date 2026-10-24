@@ -28,7 +28,7 @@ closes. Side and above hires follow the same choice. You can open the new
 agent yourself whenever you want. Creating projects, the compact hire sheet
 and immediate Staff keep their existing behavior without an automatic jump.
 
-Hover the intended superior's card and choose a hire token. The dashed draft lets you set a name, model, grant, charter and permissions before **Hire**. A charter describes the standing role; a message gives the immediate task. Applying the draft's permission gear stages its choices and does not hire by itself.
+Hover the intended superior's card and choose a hire token. The dashed draft lets you set a name, model, grant, charter and permissions before **Hire**. A charter describes the standing role; a message gives the immediate task. Each change in the draft's permission gear is saved to the draft immediately while the menu stays open. Closing it keeps those choices; only **Hire** creates the agent. Live-agent settings still require **Save** for changes that can retool or restart an agent.
 
 For a research task, a useful charter might ask for sourced findings and explicit uncertainty. For a developer, name the repository, scope of changes and expected verification. Avoid copying the same long policy into every charter: put a team-wide rule in team instructions and an organization-wide rule in org instructions.
 

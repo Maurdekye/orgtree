@@ -93,7 +93,7 @@ for (const target of ['boss', 'worker']) for (const history of [true, false]) {
         assert.ok(select, 'account remains editable')
         await inAct(() => { select.value = 'openai-test'; select.dispatchEvent(new Event('change', { bubbles: true })) })
       }
-      await click([...panel.querySelectorAll('button')].find(el => el.textContent === 'apply'))
+      await click(panel.querySelector('[aria-label="Close draft settings"]'))
       await c.submit()
       assert.deepEqual(c.refused, [], 'the request passes the engine inheritance contract')
       assert.equal(c.accepted.length, 1, 'one successful atomic hire')
@@ -131,7 +131,7 @@ test('subordinate gear keeps editable scope and submits its staged grants', asyn
   const visibility = document.body.querySelector<HTMLSelectElement>('select[aria-label="Visible agents"]')!
   assert.ok(visibility)
   await inAct(() => { visibility.value = 'subtree'; visibility.dispatchEvent(new Event('change', { bubbles: true })) })
-  await click([...document.body.querySelectorAll('button')].find(el => el.textContent === 'apply'))
+  await click(document.body.querySelector('.settings [aria-label="Close draft settings"]'))
   await c.submit()
   assert.equal(c.accepted.length, 1)
   assert.deepEqual(c.accepted[0].add_dirs, [{ path: 'D:/synthetic/boss', mode: 'ro' }])

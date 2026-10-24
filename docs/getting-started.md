@@ -56,7 +56,7 @@ The new canvas starts with the **YOU** eye card. The first-use guide points at t
 1. Hover the **YOU** card to show hire tokens, grouped by provider. Each token represents a model you can currently use.
 2. Click a token. The dashed **uninitialized** draft is a proposal, not an agent already running.
 3. Give the agent a name. Optionally select a charter preset or write a short role, such as “Investigate this repository and explain its structure.”
-4. Open the permission gear and choose the folders and tools needed for this task. Apply those draft choices, then click **Hire**.
+4. Open the permission gear and choose the folders and tools needed for this task. Changes are saved to the draft immediately; close the gear menu, then click **Hire**.
 
 The new card takes the draft's place and its desk opens. Seat prices use organizational credits; they are not dollar prices or token balances. Disabled choices explain their current restriction. If a hire is refused, read the reason and correct the saved draft rather than repeatedly clicking Hire.
 

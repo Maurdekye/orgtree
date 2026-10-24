@@ -793,10 +793,20 @@ export function DraftScopeModal({ draft, map, tree, scope, onSave, close, accoun
     }).catch(() => {})
   }, [])
   const allMcp = tools.mcp.includes('*')
+  // Only the local hire proposal changes here; no agent or server write exists
+  // until Hire. Keep callback identity out of the effect to avoid a save loop
+  // when DraftNode publishes the updated proposal back through `scope`.
+  const saveDraft = useRef(onSave)
+  saveDraft.current = onSave
+  const proposal = useMemo(() => ({ add_dirs: dirs, tools, org_visibility: vis,
+    ...(effort ? { effort } : {}),
+    ...(acctTouched || selectedAccount ? { account: selectedAccount } : {}) }),
+  [dirs, tools, vis, effort, acctTouched, selectedAccount])
+  useEffect(() => { saveDraft.current(proposal) }, [proposal])
   // portal to <body>: the draft card lives inside the world transform, where
   // position:fixed would resolve against the SCALED ancestor (giant modal)
   return (
-    <ModalOverPins><PinFrame kind="draft-scope" title="Draft permissions" panel="settings" close={close} pinnable={false}>
+    <ModalOverPins><PinFrame kind="draft-scope" title="Draft permissions" panel="settings draft-scope" close={close} pinnable={false}>
         <h3><SettingsIcon fontSize="inherit" /> Permissions <span className="dim">
           · applied with the hire</span></h3>
         {superior ? <div className="draft-scope-inherited" role="note">
@@ -867,7 +877,7 @@ export function DraftScopeModal({ draft, map, tree, scope, onSave, close, accoun
         }}>Use machine default</button>}
         {museWhy && <p className="set-hint muse-unoffered" role="note">{museWhy}; choose a Muse login that offers it.</p>}
         {!superior && <>
-        <div className="field-label">Native Tools</div>
+        <SetGroup title="Native Tools">
         <p className="set-hint">{NATIVE_TOOLS_HINT}</p>
         {TOOL_LABELS.map(([k, label, hint]) => (
           <SetToggle key={k} label={label} hint={hint} checked={!!tools[k]}
@@ -876,10 +886,12 @@ export function DraftScopeModal({ draft, map, tree, scope, onSave, close, accoun
         <NativeReplacementToggle checked={tools.orgtree_disabled === true}
           harness={providerOf(draft.tier)}
           onChange={orgtree_disabled => setTools({ ...tools, orgtree_disabled })} />
-        <div className="field-label">Orgtree Tools</div>
+        </SetGroup>
+        <SetGroup title="Orgtree Tools">
         <p className="set-hint">{ORGTREE_TOOLS_HINT}</p>
         <OrgtreeGroupToggles value={tools.orgtree} onChange={orgtree => setTools({ ...tools, orgtree })} />
-        <div className="field-label">MCP Servers</div>
+        </SetGroup>
+        <SetGroup title="MCP Servers">
         <McpRefresh onRead={(names, details) => { setServers(names); setMcpDetails(details) }} />
         <p className="set-hint">{MCP_SERVERS_HINT}</p>
         <SetToggle label="all registered MCP servers" labelContent="All registered servers (current and future)" checked={allMcp}
@@ -890,17 +902,14 @@ export function DraftScopeModal({ draft, map, tree, scope, onSave, close, accoun
             ...tools,
             mcp: on ? [...tools.mcp, s] : tools.mcp.filter((x) => x !== s),
           })} />}
+        </SetGroup>
         <div className="hint">
           Grants clamp to what the parent holds (№30) — anything beyond its
           capability is trimmed at hire with a warning.
         </div>
         </>}
         <div className="row">
-          <button className="primary" onClick={() =>
-            onSave({ add_dirs: dirs, tools, org_visibility: vis,
-              ...(effort ? { effort } : {}),
-              ...(acctTouched || selectedAccount ? { account: selectedAccount } : {}) })}>apply</button>
-          <button onClick={close}>cancel</button>
+          <button onClick={close} aria-label="Close draft settings">Close</button>
         </div>
     </PinFrame></ModalOverPins>
   )

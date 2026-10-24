@@ -95,7 +95,7 @@ test('draft model picker', { timeout: 30000 }, async t => {
     const visibility = document.querySelector('select[aria-label="Visible agents"]') as HTMLSelectElement
     assert.ok(visibility)
     await act(async () => { visibility.value = 'self'; visibility.dispatchEvent(new Event('change', { bubbles: true })); await flush() })
-    await click([...document.querySelectorAll('button')].find(b => b.textContent === 'apply') ?? null)
+    await click(document.querySelector('.settings [aria-label="Close draft settings"]'))
     await click(v.el.querySelector('.df-head button.tier'))
     await click(menuItem('sol'))
     await click(v.el.querySelector('.df-foot button.primary'))

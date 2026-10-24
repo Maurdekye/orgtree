@@ -4449,6 +4449,9 @@ main.solo { width: 100%; }
 .settings.cfg { width: min(880px, 94vw); --panel-pad-y: var(--panel-pad-x); }
 /* Tab content scrolls; it must not compress the shared header's rows. */
 .settings.cfg > * { flex-shrink: 0; }
+/* Draft permissions scroll at their natural row height, like agent settings.
+   Flex shrinking otherwise lets long descriptions paint over the next section. */
+.settings.draft-scope > * { flex-shrink: 0; }
 .settings.cfg > h3 { display: flex; }
 .settings.cfg > .agent-settings-header { align-items: center; gap: 12px; }
 .settings.cfg .agent-settings-header-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-left: auto; }

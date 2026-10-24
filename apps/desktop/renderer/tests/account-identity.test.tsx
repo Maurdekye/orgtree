@@ -68,7 +68,7 @@ test('New Hire uses immutable IDs and emails, and recomputes single/multiple acc
     assert.equal(account.disabled, false)
     assert.equal(account.value, 'claude/primary')
     await inAct(async () => {
-      const apply = [...document.body.querySelectorAll('button')].find(b => b.textContent === 'apply')!
+      const apply = document.body.querySelector<HTMLButtonElement>('.settings [aria-label="Close draft settings"]')!
       apply.click()
     })
     assert.equal(saved.at(-1)?.account, 'claude/primary')
@@ -84,7 +84,7 @@ test('a sole primary with no email is visible and disabled without changing an o
     const account = select(view.el)
     assert.deepEqual(options(account), [['claude/primary', 'default · email unavailable']])
     assert.equal(account.disabled, true)
-    await inAct(async () => { [...document.body.querySelectorAll('button')].find(b => b.textContent === 'apply')!.click() })
+    await inAct(async () => { document.body.querySelector<HTMLButtonElement>('.settings [aria-label="Close draft settings"]')!.click() })
     assert.equal('account' in saved[0], false)
   } finally { await view.unmount() }
 })

@@ -1363,7 +1363,7 @@ export function DraftNode({ pos, draft, map, seats, maxTop, defaultTop,
       </div>
       {permsOpen && (
         <DraftScopeModal draft={draft} map={map} tree={tree} scope={scope}
-          onSave={(s) => { setScope(s); setPermsOpen(false) }}
+          onSave={setScope}
           close={() => setPermsOpen(false)} />
       )}
       {modelAnchor && <PickerPopover anchor={modelAnchor} onClose={closeModelPicker} kind="model"
