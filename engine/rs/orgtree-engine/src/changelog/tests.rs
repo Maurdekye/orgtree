@@ -110,5 +110,9 @@ fn this_build_bundles_every_published_release_and_no_pre_release_draft() {
         assert!(notes(v).is_some_and(|n| n.starts_with('#') || n.starts_with("Orgtree")), "{v}");
     }
     // the build the engine is has its row, whatever version this checkout is at
-    assert!(rows.iter().any(|r| r.version == RUNNING));
+    let own = rows.iter().find(|r| r.version == RUNNING).expect("this build's own row");
+    // a stamped build (ORGTREE_BUILD_COMMIT) dates an unlisted own row by its commit (build.rs)
+    if option_env!("ORGTREE_BUILD_COMMIT").is_some() && own.unpublished {
+        assert!(BUILD_TIME.is_some() && own.released_at == time(BUILD_TIME), "{BUILD_TIME:?} {own:?}");
+    }
 }
