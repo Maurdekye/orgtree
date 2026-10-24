@@ -27,10 +27,66 @@ const NAMED = new Set(['Escape', 'Enter', 'Tab', ' ', 'Backspace', 'Delete', 'Ho
 const norm = (k: string) => k.length === 1 ? k.toLowerCase() : k
 const isKey = (k: string) => NAMED.has(k) || /^[a-z0-9]$/i.test(k)
 
+/** A declaration body, without treating brackets in strings/comments as syntax. */
+function delimited(text: string, start: number, open: string, close: string): string | undefined {
+  let depth = 0, quote = ''
+  for (let i = start; i < text.length; ++i) {
+    const char = text[i]!
+    if (quote) { if (char === '\\') ++i; else if (char === quote) quote = ''; continue }
+    if (char === '"' || char === "'" || char === '`') { quote = char; continue }
+    if (text.startsWith('//', i)) { const end = text.indexOf('\n', i); if (end < 0) return; i = end; continue }
+    if (text.startsWith('/*', i)) { const end = text.indexOf('*/', i + 2); if (end < 0) return; i = end + 1; continue }
+    if (char === open) ++depth
+    else if (char === close && --depth === 0) return text.slice(start, i + 1)
+  }
+}
+
+/** Attribute an imported table to its actual matcher, not to its data module. */
+function importedKeyTables(text: string, readImport: (module: string) => string | undefined): string[] {
+  const tables: string[] = []
+  for (const imported of text.matchAll(/import\s*\{([^}]*)\}\s*from\s*['"]([^'"]+)['"]/g)) {
+    for (const binding of imported[1]!.split(',')) {
+      const names = /^\s*(\w+)(?:\s+as\s+(\w+))?\s*$/.exec(binding)
+      if (!names) continue
+      const local = names[2] ?? names[1]!
+      if (!new RegExp(`\\b${local}\\.find\\(\\s*(\\w+)\\s*=>\\s*\\1\\.keys\\.includes\\(`).test(text)) continue
+      const source = readImport(imported[2]!)
+      if (!source) continue
+      const declaration = new RegExp(`\\bexport\\s+const\\s+${names[1]}\\b[^=]*=\\s*\\[`).exec(source)
+      if (!declaration) continue
+      const table = delimited(source, declaration.index + declaration[0].lastIndexOf('['), '[', ']')
+      if (table) tables.push(table)
+    }
+  }
+  return tables
+}
+
+/** Passive modifier/replay bookkeeping is not another keyboard command.
+ * Match the observer statements narrowly; real actions in those files still scan. */
+function withoutKeyObservers(text: string): string {
+  const observer = /\bconst\s+(\w+)\s*=\s*\([^)]*,\s*(\w+)\s*:\s*Input\s*\)\s*=>\s*\{/.exec(text)
+  if (observer && new RegExp(`\\.webContents\\.on\\(\\s*['"]before-input-event['"]\\s*,\\s*${observer[1]}\\s*\\)`).test(text)) {
+    const start = observer.index + observer[0].lastIndexOf('{')
+    const body = delimited(text, start, '{', '}')
+    if (body) {
+      const key = observer[2]!
+      const release = new RegExp(`if\\s*\\(\\s*${key}\\.key\\s*===\\s*(['"])(Shift|Alt|Control|Meta)\\1\\s*\\)\\s*(shift|alt|control|meta)\\s*=\\s*false(?=\\s*(?:;|\\n|$))`, 'g')
+      const delivered = new RegExp(`if\\s*\\(\\s*${key}\\.code\\s*===\\s*['"]Space['"]\\s*\\|\\|\\s*${key}\\.key\\s*===\\s*['"] ['"]\\s*\\)\\s*delivered\\s*=\\s*${key}\\.type\\s*===\\s*['"]keyDown['"](?=\\s*(?:;|\\n|$))`, 'g')
+      const comparisons = body.replace(release, (all, _quote: string, modifier: string, state: string) =>
+        modifier.toLowerCase() === state ? '' : all).replace(delivered, '')
+      text = text.slice(0, start) + comparisons + text.slice(start + body.length)
+    }
+  }
+  if (/\bconst\s+clearNavigationFocus\s*=\s*\(\)\s*=>\s*endKeyboardNavigation\(/.test(text))
+    text = text.replace(/if\s*\(\s*!matchOrgNavigation\((\w+)\)\s*&&\s*\1\.key\s*!==\s*['"]Alt['"]\s*&&\s*\1\.key\s*!==\s*['"]Shift['"]\s*\)\s*clearNavigationFocus\(\)/g, '')
+  return text
+}
+
 /** The keys one file binds: what its keyboard handlers compare against. */
-function scanKeys(text: string): Set<string> {
+function scanKeys(text: string, importedTables: string[] = []): Set<string> {
+  text = withoutKeyObservers(text)
   const found = new Set<string>()
-  const add = (k: string) => { if (isKey(k)) found.add(norm(k)) }
+  const add = (k: string) => { if (k === 'Space') k = ' '; if (isKey(k)) found.add(norm(k)) }
   // e.key === 'Escape', input.key !== 'Enter', event.key == 'n'
   for (const m of text.matchAll(/\.key\s*[!=]==?\s*(['"])(.*?)\1/g)) add(m[2]!)
   // event.key.toLowerCase() !== 'z'
@@ -46,8 +102,9 @@ function scanKeys(text: string): Set<string> {
   for (const m of text.matchAll(/accelerator:\s*(['"])(.*?)\1/g)) add(m[2]!.split('+').pop()!)
   // a key table its own matcher reads: { keys: ['F1', 'Shift+F10'] } beside `.keys.includes(`
   if (/\.keys\.includes\(/.test(text))
-    for (const m of text.matchAll(/keys:\s*\[([^\]]*)\]/g))
-      for (const s of m[1]!.matchAll(/(['"])(.*?)\1/g)) add(s[2]!.split('+').pop()!)
+    for (const table of [text, ...importedTables])
+      for (const m of table.matchAll(/keys:\s*\[([^\]]*)\]/g))
+        for (const s of m[1]!.matchAll(/(['"])(.*?)\1/g)) add(s[2]!.split('+').pop()!)
   // letter typeahead: any printable key
   if (/\.key\.length\s*!==\s*1/.test(text)) found.add(TYPEAHEAD)
   return found
@@ -82,7 +139,16 @@ function scanAll(): Map<string, Set<string>> {
   const classifier = scanKeys(readFileSync(path.join(DESKTOP, 'renderer/src/undokeys.ts'), 'utf8'))
   for (const f of sourceFiles()) {
     const text = readFileSync(path.join(DESKTOP, f), 'utf8')
-    const keys = new Set([...scanKeys(text), ...historyBindingKeys(text, classifier)])
+    const tables = importedKeyTables(text, module => {
+      if (!module.startsWith('.')) return
+      const absolute = path.resolve(DESKTOP, path.dirname(f), module)
+      if (!absolute.startsWith(DESKTOP + path.sep)) return
+      const file = ['.ts', '.tsx'].map(ext => absolute + ext).find(file => {
+        try { return statSync(file).isFile() } catch { return false }
+      })
+      return file ? readFileSync(file, 'utf8') : undefined
+    })
+    const keys = new Set([...scanKeys(text, tables), ...historyBindingKeys(text, classifier)])
     if (keys.size) out.set(f, keys)
   }
   return out
@@ -168,6 +234,52 @@ test('the scan reaches the real bindings (not a vacuous pass)', () => {
   assert.ok(scan.get('main/editmenu.ts')?.has('c'), 'edit menu accelerator')
   assert.ok(scan.get('main/index.ts')?.has('Escape'), 'tray pop-up Escape')
   assert.ok(scan.get('renderer/src/canvas/docket.tsx')?.has(TYPEAHEAD), 'recipient typeahead')
+  const navigation = scan.get('renderer/src/shell/appshortcuts.ts')!
+  for (const key of ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Backspace', ' ', 's'])
+    assert.ok(navigation.has(key), `imported navigation binding ${JSON.stringify(key)}`)
+  assert.equal(navigation.has('Alt') || navigation.has('Shift'), false, 'focus bookkeeping is not a modifier command')
+  assert.equal(scan.has('renderer/src/shell/orgnavigationbindings.ts'), false, 'data is attributed to its consuming matcher')
+  assert.equal(scan.has('main/shift-alt-space.ts'), false, 'native state observation does not add standalone modifier/Space commands')
+})
+
+test('imported tables need the named export, import and matching table read', () => {
+  const table = `export const T: { keys: string[]; action: string }[] = [
+    // [ an unmatched bracket in a comment
+    { keys: ['Shift+ArrowUp', 'Shift+Alt+Space'], action: 'a ] in a string' },
+  ]
+  export const UNUSED = [{ keys: ['F12'] }]`
+  const binder = `import { T as NAV } from './keys';
+    NAV.find(row => row.keys.includes(key))`
+  const tables = (text: string, source = table) => importedKeyTables(text, module => module === './keys' ? source : undefined)
+  assert.deepEqual([...scanKeys(binder, tables(binder))].sort(), [' ', 'ArrowUp'])
+  assert.deepEqual([...scanKeys(table)], [], 'an unused declaration is not a binding')
+  for (const broken of [binder.replace('T as NAV', 'OTHER as NAV'),
+    binder.replace('./keys', './missing'), binder.replace('NAV.find', 'OTHER.find'),
+    binder.replace('row.keys.includes', 'row.labels.includes'), binder.replace("import { T as NAV } from './keys';", '')])
+    assert.deepEqual([...scanKeys(broken, tables(broken))], [], broken)
+  assert.deepEqual(tables(binder, table.replace('\n  ]', '')), [], 'incomplete declarations do not borrow a later table')
+})
+
+test('native observations are excluded narrowly while real modifier/Space actions remain', () => {
+  const observer = `const input = (_event: Electron.Event, key: Input) => {
+    if (key.type === 'keyUp') {
+      if (key.key === 'Shift') shift = false
+      if (key.key === 'Alt') alt = false
+      if (key.key === 'Control') control = false
+      if (key.key === 'Meta') meta = false
+    }
+    if (key.code === 'Space' || key.key === ' ') delivered = key.type === 'keyDown'
+    if (key.key === 'q') runCommand()
+  }
+  window.webContents.on('before-input-event', input)`
+  assert.deepEqual([...scanKeys(observer)], ['q'])
+  assert.deepEqual([...scanKeys(observer.replace('shift = false', 'runCommand()'))].sort(), ['Shift', 'q'])
+  assert.deepEqual([...scanKeys(observer.replace("delivered = key.type === 'keyDown'", 'runCommand()'))].sort(), [' ', 'q'])
+  const guard = `const clearNavigationFocus = () => endKeyboardNavigation(win.document)
+    if (!matchOrgNavigation(event) && event.key !== 'Alt' && event.key !== 'Shift') clearNavigationFocus()`
+  assert.deepEqual([...scanKeys(guard)], [])
+  assert.deepEqual([...scanKeys(guard.replace('clearNavigationFocus()', 'runCommand()'))].sort(), ['Alt', 'Shift'])
+  assert.deepEqual([...scanKeys(`if (event.key === 'Shift') runCommand(); if (event.key === ' ') fit()`)].sort(), [' ', 'Shift'])
 })
 
 test('every key the app binds is in the list, under the file that binds it', () => {
@@ -197,6 +309,11 @@ test('red control: a binding whose entry is removed is reported', () => {
   assert.ok(unlisted(scan, entries).some(m => m.startsWith('renderer/src/canvas/desk.tsx: "n"')))
   const ghost: Shortcut = { keys: ['Mod+K'], action: 'ghost', sources: ['renderer/src/toasts.tsx'] }
   assert.ok(stale(scan, [ghost]).some(m => m.includes('Mod+K')))
+  const noParent = allEntries().filter(e => !e.keys.includes('Shift+Alt+ArrowUp'))
+  assert.ok(unlisted(scan, noParent).includes('renderer/src/shell/appshortcuts.ts: "ArrowUp"'))
+  assert.ok(stale(scan, [{ keys: ['Shift+Alt+ArrowUp'], action: 'wrong source',
+    sources: ['renderer/src/shell/orgnavigationbindings.ts'] }]).length > 0,
+  'a data-module citation cannot replace the real binding source')
 })
 
 test('composer rows follow the Enter key setting', () => {

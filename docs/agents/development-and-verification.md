@@ -123,6 +123,17 @@ not execute; never count it as a product result.
 
 ## Renderer, capture and rig traps
 
+- **Shortcut inventory follows a consumed imported key table.** The test scanner
+  attributes a named exported table to the importing `.find(row =>
+  row.keys.includes(...))` matcher, not its data-only module; Space normalizes
+  to the event's literal space. Native modifier-release/replay bookkeeping and
+  navigation-focus bookkeeping are excluded by their exact observer statements,
+  without excluding whole files or modifier keys. Keep controls for missing
+  imports/exports/table reads, real commands added beside observers, removed
+  navigation catalog rows and wrong source attribution. No catalog or runtime
+  behavior changes are needed for a scanner repair. [verified:
+  `tests/shortcuts.test.tsx`; 2026-10-24]
+
 - The Muse removal proof waits for both DB turn completion and the same live
   seat's published runtime idle before its single after-turn DELETE. DB-only
   completion can race the finalizer's busy publication. Preserve all ten
