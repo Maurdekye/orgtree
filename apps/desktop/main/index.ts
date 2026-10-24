@@ -42,6 +42,7 @@ import { NOTIFICATION_OPTIONS } from '../../../packages/contracts/notifications'
 import { MaintenanceController } from './maintenance'
 import { awaitInstallerProof, bounded, checkForUpdatesViaEvents, installerLogTail, installDirectoryWritable, installDownloadedUpdate, MANUAL_UPGRADE_URL, pendingUpdateHold, prepareAndHandOff, refreshTrayUpdateMenu, sanitizeUpdateDetail, uninstallRegistryGuid, updateAttemptFailed, updateFailureDialogOptions, updateFailureToReport, UPDATE_DEADLINES, UpdateController, UpdateLog, updateLogger, updateReplacementInFlight, updateWatchdogMs } from './updater'
 import type { InstallableUpdater, UpdateStatus } from './updater'
+import { CHANGELOG_SEEN_FILE, ChangelogLaunch } from './changelog-launch'
 import { appImagePath, appImageRelaunch, appImageRelaunchEnv, replaceAppImage } from './appimage-update'
 import { buildPermitsUpdateFixture, confineExecutorToLoopback, prepareUpdateFixture, privateFeedDecision, UPDATE_FEED_ENV, UPDATE_FIXTURE_ENV } from './update-fixture'
 import type { PreparedFixture } from './update-fixture'
@@ -228,6 +229,11 @@ else {
   // by default, which a packaged Windows GUI process discards. Stages and
   // errors are written here instead, sanitized, beside the other desktop state.
   const updateLog = new UpdateLog(path.join(app.getPath('userData'), 'update-log.json'))
+  // The Changelog after an update (main/changelog-launch.ts). Decided BEFORE
+  // this run's own 'startup' line is written, so the log speaks only of
+  // earlier runs: none at all is a fresh install.
+  const changelogLaunch = new ChangelogLaunch(path.join(app.getPath('userData'), CHANGELOG_SEEN_FILE),
+    app.getVersion(), updateLog.all().length > 0)
   // An installer-requested shutdown and whatever started the application again
   // are two halves of one event, and the log recorded neither. This is the
   // second half: the entry that says how this run began, written next to the
@@ -1900,6 +1906,7 @@ else {
     rebuildTray()
     handleApp('desktop:status', () => engine.status)
     handleApp('desktop:app-version', () => app.getVersion())
+    handleApp('desktop:changelog-after-update', () => changelogLaunch.take())
     handleApp('desktop:install-update', () => requestUpdateInstall())
     handle('desktop:window-state', caller => windowState(caller))
     handle('desktop:window-controls-state', caller => windowControlsState(caller))

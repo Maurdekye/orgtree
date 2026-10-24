@@ -47,6 +47,7 @@ if (process.isMainFrame && expectedOrigin && location.origin === expectedOrigin 
     getMaintenanceStatus: () => ipcRenderer.invoke('desktop:maintenance-status'),
     takePendingWindowEvents: () => ipcRenderer.invoke('desktop:take-pending-events', documentToken),
     getAppVersion: () => ipcRenderer.invoke('desktop:app-version'),
+    takeChangelogAfterUpdate: () => ipcRenderer.invoke('desktop:changelog-after-update'),
     installUpdate: () => ipcRenderer.invoke('desktop:install-update'),
     getStatus: () => ipcRenderer.invoke('desktop:status'),
     getWindowState: () => ipcRenderer.invoke('desktop:window-state'),
