@@ -163,6 +163,17 @@ cards. Private input boundaries, validation and error serialization are
 `#[nolog]`; answers bypass logged `Done::json`. The response never echoes native
 form input. No agent ask/answer authority was added.
 
+### User settings MCP additions (2026-10-24)
+
+`orgtree_settings` exposes existing org/default/runtime/provider settings as
+the user. Mutations call the desktop handlers without new authority or generic
+RPC dispatch. Org reads use the existing effective-settings projection over
+one org row. Defaults retain the desktop fraction convention for compact_at;
+org writes use percent. Provider writes change one existing boolean switch per
+call, with no partial multi-switch submit. Runtime settings retain the existing
+user credit-bubbling controls. Global scopes work on either MCP endpoint; org
+scope requires an organization. Oct23 mail/interrupt refusals remain intact.
+
 ## Provider sign-in: native CLI over SSH (2026-10-24)
 
 USER 2026-10-24 chose separately installed provider CLIs and their native

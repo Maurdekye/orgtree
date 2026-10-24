@@ -26,16 +26,17 @@ use crate::http::error::ApiError;
 use crate::orgs::OrgHandle;
 
 mod questions;
+mod settings;
 
 /// Tools served without an org (`POST /api/mcp`): enough to find or create
 /// the org to manage.
-const ORGLESS_TOOLS: &[&str] = &["orgtree_list_orgs", "orgtree_list_tiers", "orgtree_create_org", "orgtree_client_tokens"];
+const ORGLESS_TOOLS: &[&str] = &["orgtree_list_orgs", "orgtree_list_tiers", "orgtree_create_org", "orgtree_client_tokens", "orgtree_settings"];
 /// Tools served per org (`POST /api/orgs/{slug}/mcp`).
 const ORG_TOOLS: &[&str] = &[
     "orgtree_chart", "orgtree_list_orgs", "orgtree_list_tiers", "orgtree_message", "orgtree_send_notice",
     "orgtree_inbox", "orgtree_work", "orgtree_hire", "orgtree_retire", "orgtree_interrupt",
     "orgtree_answer", "orgtree_create_org", "orgtree_move", "orgtree_reorder", "orgtree_retool",
-    "orgtree_rehire", "orgtree_reallocate", "orgtree_questions",
+    "orgtree_rehire", "orgtree_reallocate", "orgtree_questions", "orgtree_settings",
 ];
 
 /// One JSON-RPC message from a remote MCP client → its response, the same
@@ -155,6 +156,9 @@ fn cards(org_scoped: bool) -> Vec<Value> {
     if names.contains(&"orgtree_questions") {
         out.push(questions::card());
     }
+    if names.contains(&"orgtree_settings") {
+        out.push(settings::card());
+    }
     if names.contains(&"orgtree_client_tokens") {
         out.push(user_card("orgtree_client_tokens",
             "Manage named standalone client tokens as the user. list (default) returns active id/name/created_at only; create needs name (1-100 characters) and returns a random secret ONCE; revoke needs id and immediately drops every HTTP/WS/MCP socket used with that token. Self-revoke disconnects you without a response promise; reconnect with another token or bootstrap key. Shared sockets close when any token used there is revoked. Bootstrap cannot be revoked; at most 128 active clients.",
@@ -269,6 +273,7 @@ async fn dispatch(engine: &Arc<Engine>, org: Option<&Arc<OrgHandle>>, name: &str
         "orgtree_list_orgs" => return list_orgs(engine, org).await,
         "orgtree_create_org" => return create_org(engine, args).await,
         "orgtree_client_tokens" => return Ok(Done { text: serde_json::to_string(&crate::http::client_tokens::manage(engine, args).map_err(api)?)?, card: None }),
+        "orgtree_settings" => return settings::run(engine, org, args).await,
         _ => {}
     }
     let Some(org) = org else {

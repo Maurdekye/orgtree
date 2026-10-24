@@ -139,6 +139,18 @@ of `granted`, `deny:true` or `skip:true`, and one `approve`/`deny`/`skip` per
 `scope` item. Include decisions for every part the card contains. Existing
 desktop revision, credit and scope validation applies.
 
+`orgtree_settings` reads (`action:"get"`, default) or changes
+(`action:"configure"`, plus a `settings` object) the existing desktop settings.
+Choose `scope:"org"` on an organization endpoint, or engine-wide `defaults`,
+`runtime` or `provider` on either endpoint. Organization reads return `stored`
+and `effective`; writes use `org_dirs` for folder grants and `compact_at` as
+50-95 percent. App defaults retain the desktop API's fraction convention for
+`compact_at`. Runtime settings include the user's credit-bubbling switches.
+Provider reads use cached discovery; to configure, supply `provider` and one
+boolean switch in `settings`: `enabled`, `apikey_fallback` or
+`subscription_inference`. Configure one provider switch per call. Global
+changes affect all organizations; existing desktop value checks apply.
+
 Authenticated `GET /api/desktop/alive` checks readiness. Authenticated
 `POST /api/desktop/shutdown` requests clean shutdown; Unix SIGTERM, SIGINT and
 SIGHUP also use the clean shutdown path.
