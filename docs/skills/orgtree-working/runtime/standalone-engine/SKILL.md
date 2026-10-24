@@ -53,7 +53,8 @@ These standalone-only environment settings do not configure ordinary `serve`
 or `host`. In particular, an ordinary serve process with no desktop token is
 not equivalent to the mandatory-authenticated standalone mode.
 
-Repository Docker assets use one persistent `/data` volume, bind inside the
+Current migrations require PostgreSQL 16 or later; the Docker runtime includes
+PostgreSQL 17. Repository Docker assets use one persistent `/data` volume, bind inside the
 container and publish to host loopback in the supplied compose file. The
 build embeds the glossary, charters and templates, with an allowlisted build
 context excluding generated targets/dependencies.

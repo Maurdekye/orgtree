@@ -87,6 +87,15 @@ This is source-checked; Docker/Linux execution evidence is recorded separately.
 [verified: `standalone/Dockerfile`, `orgtree-engine/build.rs`,
 `domain/templates.rs`, `http/settings.rs`; 2026-10-24]
 
+The image runtime uses PostgreSQL 17 on Debian trixie. Fresh-volume verification
+found the old PostgreSQL 15 runtime cannot execute migration 0040, which uses
+`pg_input_is_valid` (PostgreSQL 16+). The Debian bookworm Rust build remains
+compatible with the newer runtime. The image revision label identifies packaging
+separately from the engine's embedded build-commit field, allowing a runtime-only
+recipe repair to reuse an unchanged compiled engine.
+[verified: `migrations/0040_project_history.sql`, `standalone/Dockerfile`;
+2026-10-24]
+
 ## Phase 2 (this slice): the user MCP endpoint
 
 User ruling 2026-10-16 20:40Z: remote MCP acts **as the user**. In

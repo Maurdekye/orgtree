@@ -32,18 +32,20 @@ RUN --mount=type=cache,target=/src/engine/rs/target \
     --manifest-path engine/rs/Cargo.toml -p orgtree-engine --bin orgtree-engine \
  && cp engine/rs/target/release/orgtree-engine /orgtree-engine
 
-FROM debian:bookworm-slim
+FROM debian:trixie-slim
 # PostgreSQL refuses to run as root, and the engine starts it as its own
 # child, so the whole image runs as an unprivileged user.
 RUN apt-get update \
- && apt-get install -y --no-install-recommends postgresql-15 ca-certificates git \
+ && apt-get install -y --no-install-recommends postgresql-17 ca-certificates git \
  && rm -rf /var/lib/apt/lists/* \
  && useradd --create-home --shell /usr/sbin/nologin orgtree \
  && mkdir -p /data && chown orgtree:orgtree /data
 COPY --from=build /orgtree-engine /usr/local/bin/orgtree-engine
+ARG ORGTREE_IMAGE_REVISION=unknown
+LABEL org.opencontainers.image.revision="$ORGTREE_IMAGE_REVISION"
 USER orgtree
 ENV ORGTREE_DATA=/data \
-    ORGTREE_P03_PG_BIN=/usr/lib/postgresql/15/bin \
+    ORGTREE_P03_PG_BIN=/usr/lib/postgresql/17/bin \
     ORGTREE_BIND=0.0.0.0 \
     ORGTREE_PORT=7430
 VOLUME ["/data"]

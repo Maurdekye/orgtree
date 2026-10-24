@@ -12,7 +12,7 @@ user, with an absolute writable data directory and the PostgreSQL binary directo
 
 ```sh
 ORGTREE_DATA=/srv/orgtree/data \
-ORGTREE_P03_PG_BIN=/usr/lib/postgresql/15/bin \
+ORGTREE_P03_PG_BIN=/usr/lib/postgresql/17/bin \
 orgtree-engine standalone
 ```
 
@@ -35,7 +35,8 @@ docker build -f standalone/Dockerfile -t orgtree-engine-standalone .
 docker compose -f standalone/docker-compose.yml up -d
 ```
 
-The image runs as the unprivileged `orgtree` user and includes PostgreSQL. Compose
+The image runs as the unprivileged `orgtree` user and includes PostgreSQL 17. The
+current engine migrations require PostgreSQL 16 or later. Compose
 publishes port 7430 on host loopback only and stores the data root in a named
 volume mounted at `/data`. With no configured token, read its first-start stderr
 in the container log. Keep the volume when replacing the container.
