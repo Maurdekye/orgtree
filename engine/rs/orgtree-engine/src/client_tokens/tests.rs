@@ -25,6 +25,9 @@ struct Server {
     address: std::net::SocketAddr,
     engine: Arc<crate::engine::Engine>,
     task: tokio::task::JoinHandle<()>,
+    // Keep queued Open messages (and their output senders) alive without
+    // starting the database-backed feed actor in this isolated transport test.
+    _feed: crate::appfeed::AppFeedInbox,
 }
 impl Server {
     async fn start(root: &Root) -> Self {
@@ -33,6 +36,8 @@ impl Server {
         e.cfg.standalone = true;
         e.cfg.desktop_token = BOOTSTRAP.into();
         e.clients = Some(Arc::new(Registry::open(&root.0).unwrap()));
+        let (app_feed, feed) = crate::appfeed::AppFeed::new();
+        e.app = app_feed;
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let address = listener.local_addr().unwrap();
         let app = crate::http::router(engine.clone());
@@ -41,7 +46,7 @@ impl Server {
             axum::serve(transport::ClientListener(listener), app.into_make_service_with_connect_info::<transport::ClientInfo>())
                 .with_graceful_shutdown(stop.cancelled_owned()).await.unwrap();
         });
-        Self { address, engine, task }
+        Self { address, engine, task, _feed: feed }
     }
     async fn request(&self, method: &str, path: &str, token: &str, value: Option<Value>) -> (u16, Value) {
         let mut stream = TcpStream::connect(self.address).await.unwrap();
@@ -114,14 +119,17 @@ async fn revoke_drops_idle_http_websocket_inflight_mcp_and_shared_socket_only() 
     assert_eq!(response(&mut websocket).await.0, 101);
     let mut inflight = TcpStream::connect(server.address).await.unwrap();
     inflight.write_all(format!("POST /api/mcp HTTP/1.1\r\nHost: localhost\r\nAuthorization: Bearer {a_token}\r\nContent-Type: application/json\r\nContent-Length: 9999\r\n\r\n{{").as_bytes()).await.unwrap();
-    tokio::time::timeout(Duration::from_secs(2), async {
+    let mut last_admitted = 0;
+    let admitted = tokio::time::timeout(Duration::from_secs(2), async {
         loop {
             let admitted = server.engine.clients.as_ref().unwrap().clients.lock().unwrap().iter()
                 .find(|c| c.record.id == a["id"]).unwrap().connections.iter().filter(|weak| weak.strong_count() != 0).count();
+            last_admitted = admitted;
             if admitted == 4 { break; }
             tokio::task::yield_now().await;
         }
-    }).await.unwrap();
+    }).await;
+    assert!(admitted.is_ok(), "expected4 live admitted sockets before revocation, got{last_admitted}");
     let (status, _) = server.request("DELETE", &format!("/api/standalone/clients/{}", a["id"].as_str().unwrap()), BOOTSTRAP, None).await;
     assert_eq!(status, 200);
     let dropped = (disconnected(&mut idle).await, disconnected(&mut websocket).await,
