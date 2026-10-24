@@ -138,8 +138,7 @@ agent options. [verified: `tools/usermcp.rs`; decided: user 2026-10-23]
 
 Not on the endpoint yet: message attachments and reply quoting, inbox
 `conversation`/`chunk`, settings/provider-account administration (all reachable
-through the authenticated HTTP API), and a question-card list (ids arrive
-with the cards in the user's inbox and transcripts).
+through the authenticated HTTP API).
 
 ### User tree MCP additions (2026-10-24)
 
@@ -151,6 +150,18 @@ operations use the existing user Undo path. Shared cards retain their fields
 but describe user authority; agent cards and the Oct23 mail/interrupt refusals
 remain unchanged. Source-based red control at the base finds all five tree
 tools absent; focused mapping/card tests cover the new adapter.
+
+### User question MCP additions (2026-10-24)
+
+`orgtree_questions` lists/gets open cards through the existing `ask_card`
+projection and ephemeral elicitation registry. Keyed per-org SQL filters open
+requests, limits reads to page size plus one, and merges the bounded native
+registry. ID cursors paginate a live view, not a durable snapshot. Credit and
+batch actions call existing authenticated-user handlers. `orgtree_answer`
+now uses the desktop answer handler for both ordinary and native permission
+cards. Private input boundaries, validation and error serialization are
+`#[nolog]`; answers bypass logged `Done::json`. The response never echoes native
+form input. No agent ask/answer authority was added.
 
 ## Provider sign-in: native CLI over SSH (2026-10-24)
 

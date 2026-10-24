@@ -178,7 +178,10 @@ remain compatibility inputs; do not mix flat routing with `metadata`.
 | `orgtree_reallocate` | Organization endpoint only: `node`, signed `delta`; increases grant or takes unused credits back. User caps, committed-credit checks and credit-bubbling settings apply. |
 | Work | Acts as the user on the org docket. Use the current tool card for fields; do not assume the agent's ownership/participant authority model. |
 | Interrupt | Required `node` agent. Stops its current turn; a runtime that does not answer within 60 seconds refuses. Agent queued/restart orchestration is not implemented here. |
-| `orgtree_answer` | Required `ask` question-card ID; `answers` is positional, one object per question with `selected` option labels and/or `text`. `dismiss:true` dismisses instead. Return `rev` when supplied by the card. IDs come from the user's inbox/transcripts; there is no question-list action. |
+| `orgtree_answer` | Required `ask` question-card ID (discover with `orgtree_questions`); ordinary `answers` is positional, one object per question with `selected` option labels and/or `text`, or `dismiss:true`. Return `rev` from the card. Native elicitation cards instead take `action:accept\|decline\|cancel` and typed `content` for accepted forms; private submitted content is not echoed. Fields from the wrong kind of answer are refused. |
+| `orgtree_questions list/get` | Org endpoint only. `list` defaults to 50, accepts `limit` 1-200 and the previous `next_cursor` as `cursor`; returns `questions` and nullable `next_cursor`. Open cards only, ordered by ID, including native permission forms. Live pagination may change as cards arrive/resolve; reread amended cards. `get` requires open-card `id` in this org. |
+| `orgtree_questions credit` | Credit-only card: `id`, `decision:approve\|deny`, optional `granted` TOTAL, `rev`, `dry:true` preview. Existing user credit validation applies. Mixed requests require batch. |
+| `orgtree_questions batch` | `node`, the card's `revs`, and every present part: positional `answers` (null explicitly skips), `credits` with exactly one of `granted`, `deny:true`, `skip:true`, and `scope` with approve/deny/skip per item. Existing user whole-request/revision/scope/credit validation applies. |
 
 Example JSON-RPC calls, sent to the appropriate authenticated endpoint:
 

@@ -25,6 +25,8 @@ use crate::engine::Engine;
 use crate::http::error::ApiError;
 use crate::orgs::OrgHandle;
 
+mod questions;
+
 /// Tools served without an org (`POST /api/mcp`): enough to find or create
 /// the org to manage.
 const ORGLESS_TOOLS: &[&str] = &["orgtree_list_orgs", "orgtree_list_tiers", "orgtree_create_org", "orgtree_client_tokens"];
@@ -33,7 +35,7 @@ const ORG_TOOLS: &[&str] = &[
     "orgtree_chart", "orgtree_list_orgs", "orgtree_list_tiers", "orgtree_message", "orgtree_send_notice",
     "orgtree_inbox", "orgtree_work", "orgtree_hire", "orgtree_retire", "orgtree_interrupt",
     "orgtree_answer", "orgtree_create_org", "orgtree_move", "orgtree_reorder", "orgtree_retool",
-    "orgtree_rehire", "orgtree_reallocate",
+    "orgtree_rehire", "orgtree_reallocate", "orgtree_questions",
 ];
 
 /// One JSON-RPC message from a remote MCP client → its response, the same
@@ -135,18 +137,23 @@ fn cards(org_scoped: bool) -> Vec<Value> {
     if names.contains(&"orgtree_answer") {
         out.push(json!({
             "name": "orgtree_answer",
-            "description": "Answer one open question card an agent asked the user, as the user. `ask` is the question's id (question cards arrive in the user's inbox and agent transcripts); `answers` is one entry per question, positionally: {selected: [chosen option labels], text: free text}. `dismiss: true` dismisses instead of answering. Pass `rev` back when the card shows one.",
+            "description": "Answer an open question as the user; discover IDs with orgtree_questions. Ordinary cards take positional answers [{selected:[option labels],text:free text}], or dismiss:true, and the card's rev. Elicitation cards instead take action accept|decline|cancel and content for an accepted form. Submitted private form content is not echoed. Mixed question/credit/scope requests use orgtree_questions batch.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
                     "ask": { "type": "string" },
                     "answers": { "type": "array", "items": { "type": "object" } },
                     "dismiss": { "type": "boolean" },
-                    "rev": { "type": "integer" }
+                    "rev": { "type": "integer" },
+                    "action": { "type": "string", "enum": ["accept", "decline", "cancel"] },
+                    "content": { "type": "object" }
                 },
                 "required": ["ask"]
             }
         }));
+    }
+    if names.contains(&"orgtree_questions") {
+        out.push(questions::card());
     }
     if names.contains(&"orgtree_client_tokens") {
         out.push(user_card("orgtree_client_tokens",
@@ -168,7 +175,7 @@ fn user_card(name: &str, description: &str, properties: Value, required: &[&str]
 
 /// Reject unsupported options before any provider, database or runtime action.
 /// Keep the existing flat mail and identifier aliases as compatibility inputs.
-#[logged]
+#[nolog] // Account secrets and elicitation content must not enter argument logs.
 fn validate_args(org_scoped: bool, name: &str, args: &Value) -> Result<()> {
     let Some(card) = cards(org_scoped).into_iter().find(|c| c["name"] == name) else {
         crate::refuse!(BadRequest, "{name} is not on this user MCP endpoint");
@@ -241,12 +248,12 @@ async fn call(engine: &Arc<Engine>, org: Option<&Arc<OrgHandle>>, params: &Value
     }
 }
 
-#[logged]
+#[nolog]
 fn api(e: ApiError) -> anyhow::Error {
     anyhow::anyhow!(e.detail)
 }
 
-#[logged]
+#[nolog]
 fn need_str<'a>(args: &'a Value, key: &str) -> Result<&'a str> {
     match args[key].as_str().map(str::trim).filter(|s| !s.is_empty()) {
         Some(s) => Ok(s),
@@ -282,6 +289,7 @@ async fn dispatch(engine: &Arc<Engine>, org: Option<&Arc<OrgHandle>>, name: &str
         "orgtree_reallocate" => tree_op(engine, org, "reallocate", args).await,
         "orgtree_interrupt" => interrupt(engine, org, args).await,
         "orgtree_answer" => answer(engine, org, args).await,
+        "orgtree_questions" => questions::run(engine, org, args).await,
         other => crate::refuse!(BadRequest, "{other} is not on the user MCP endpoint: these tools act as the user, and agent-only tools stay with agents"),
     }
 }
@@ -467,7 +475,7 @@ async fn interrupt(engine: &Arc<Engine>, org: &Arc<OrgHandle>, args: &Value) -> 
 }
 
 /// Answer (or dismiss) an open question card, as the user.
-#[logged]
+#[nolog] // Native permission forms can contain private user input.
 async fn answer(engine: &Arc<Engine>, org: &Arc<OrgHandle>, args: &Value) -> Result<Done> {
     let aid = args["ask"]
         .as_str()
@@ -478,14 +486,21 @@ async fn answer(engine: &Arc<Engine>, org: &Arc<OrgHandle>, args: &Value) -> Res
     let Some(aid) = aid else {
         crate::refuse!(BadRequest, "`ask` is required: the question card's id");
     };
+    let fields: &[&str] = if aid.starts_with("elicitation-") {
+        &["ask", "question_id", "id", "action", "content"]
+    } else {
+        &["ask", "question_id", "id", "answers", "dismiss", "rev"]
+    };
+    questions::only(args, fields)?;
     let mut body = json!({});
-    for key in ["answers", "dismiss", "rev"] {
+    for key in ["answers", "dismiss", "rev", "action", "content"] {
         if !args[key].is_null() {
             body[key] = args[key].clone();
         }
     }
-    let out = crate::domain::asks::answer(engine, org, aid, &body).await?;
-    Done::json(&out)
+    let out = crate::http::asks::answer(axum::extract::State(engine.clone()),
+        axum::extract::Path((org.slug.clone(), aid.to_string())), axum::Json(body)).await.map_err(api)?;
+    Ok(Done { text: serde_json::to_string(&out.0)?, card: None })
 }
 
 #[cfg(test)]

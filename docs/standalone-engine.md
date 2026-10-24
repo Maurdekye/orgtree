@@ -119,6 +119,26 @@ Reallocate applies a signed `delta` to an agent's grant. These use the desktop's
 user operations, including ordinary scope/credit limits, credit-bubbling settings
 and Undo where the desktop records it. Read each tool's current card for fields.
 
+Use `orgtree_questions` on the organization endpoint to discover pending user
+requests: `list` returns `questions` and `next_cursor`, with `limit` default 50
+and maximum 200; pass that cursor to continue. `get` takes an `id`. This is a
+live view of open cards, including questions, credits, scope requests and native
+permission forms. Resolved cards are omitted; reread a card if it was amended.
+
+`orgtree_answer` answers ordinary question cards with `ask`, positional `answers`
+and the card's `rev`, or `dismiss:true`. For an elicitation card, pass `ask`,
+`action: "accept"`, `"decline"` or `"cancel"`; accepted forms also need typed
+`content`. Private submitted form values are delivered to the waiting request
+and are not echoed in the answer response.
+
+For credit-only cards use `orgtree_questions action:"credit"`, `id`,
+`decision:"approve"` or `"deny"`, optional `granted` total, `rev` and `dry:true`
+for preview. For combined requests use `action:"batch"`, `node`, the card's
+`revs`, positional `answers` (null explicitly skips), `credits` containing one
+of `granted`, `deny:true` or `skip:true`, and one `approve`/`deny`/`skip` per
+`scope` item. Include decisions for every part the card contains. Existing
+desktop revision, credit and scope validation applies.
+
 Authenticated `GET /api/desktop/alive` checks readiness. Authenticated
 `POST /api/desktop/shutdown` requests clean shutdown; Unix SIGTERM, SIGINT and
 SIGHUP also use the clean shutdown path.
