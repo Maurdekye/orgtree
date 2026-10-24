@@ -279,14 +279,22 @@ export default async function (rig) {
   const paged = await rig.api('GET', `/api/orgs/${rig.org}/documents?node=site&team=1&limit=1`)
   p.check('it pages: one card, the full total, a next offset', (paged.documents ?? []).length === 1 && paged.total === gallery.total
     && paged.next_offset === 1, { n: (paged.documents ?? []).length, total: paged.total, next: paged.next_offset })
-  // locate within the project's own list: the window grows to hold the card,
-  // and its index counts the project's subtree, not the org
+  // Approved R2 (7841195/6965190): locate returns an aligned bounded page
+  // and real offset, never the history prefix. Position is scoped to this
+  // project's subtree, not the org; retain the target inside that page.
   const uiSketch = rig.sql(`SELECT uid FROM ot.documents WHERE title = 'UI sketch'`)[0]?.uid
   const oldest = (gallery.documents ?? []).at(-1)
   const located = await rig.api('GET', `/api/orgs/${rig.org}/documents?node=site&team=1&limit=1&locate=${oldest?.id}`)
-  p.check('locate finds a card down the project\'s list and widens the window to it', !!oldest && gallery.total > 1 && located.located === oldest.id
-    && (located.documents ?? []).length === gallery.total && (located.documents ?? []).at(-1)?.id === oldest?.id,
-    { located: located.located, n: (located.documents ?? []).length, total: gallery.total })
+  const locateLimit = 1
+  const locatedPosition = (gallery.documents ?? []).findIndex(d => d.id === oldest?.id)
+  const expectedOffset = Math.floor(locatedPosition / locateLimit) * locateLimit
+  p.check('locate finds a card in its aligned bounded project page without a prefix', !!oldest && gallery.total > 1 && locatedPosition > 0
+    && located.located === oldest.id && located.total === gallery.total
+    && located.offset === expectedOffset && located.offset > 0 && located.offset % locateLimit === 0
+    && (located.documents ?? []).length <= locateLimit
+    && (located.documents ?? []).findIndex(d => d.id === oldest.id) === locatedPosition - located.offset,
+    { located: located.located, n: (located.documents ?? []).length, total: located.total,
+      offset: located.offset, expectedOffset, locatedPosition, limit: locateLimit })
   const newest = await rig.api('GET', `/api/orgs/${rig.org}/documents?node=site&team=1&limit=1&locate=${uiSketch}`)
   p.check('locate of the newest subtree card needs no wider window', newest.located === uiSketch
     && (newest.documents ?? []).length === 1 && newest.documents[0].id === uiSketch, { n: (newest.documents ?? []).length })
