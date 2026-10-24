@@ -17,6 +17,7 @@ mod account_marks;
 mod accounts;
 mod appfeed;
 mod bridge;
+mod changelog;
 mod changes;
 mod client_tokens;
 mod codex_kills;

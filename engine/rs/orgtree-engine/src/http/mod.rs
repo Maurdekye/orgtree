@@ -2,6 +2,7 @@
 //! push sockets, and the renderer bundle.
 
 pub mod accounts;
+pub mod changelog;
 pub mod client_tokens;
 pub mod asks;
 pub mod desktop;
@@ -144,6 +145,9 @@ pub fn router(engine: Arc<Engine>) -> Router {
         .route("/api/usage", get(accounts::usage_claude))
         .route("/api/usage/peek", get(accounts::peek_claude))
         .route("/api/usage/history", get(accounts::usage_history))
+        // the Changelog panel (docket changelog-window-one-row-per-version-pinnable-po)
+        .route("/api/changelog", get(changelog::list))
+        .route("/api/changelog/{version}", get(changelog::one))
         .route("/api/codex/usage", get(accounts::usage_codex))
         .route("/api/codex/usage/peek", get(accounts::peek_codex))
         .route("/api/antigravity/usage", get(accounts::usage_agy))

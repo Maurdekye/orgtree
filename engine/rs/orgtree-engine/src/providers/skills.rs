@@ -742,6 +742,13 @@ fn builtin() -> Vec<Bundle> {
                 .insert(PathBuf::from(relative), bytes.to_vec());
         }
     }
+    // the Changelog's notes, beside its glossary page in orgtree-app (agent
+    // parity with the panel: crate::changelog::glossary_files)
+    if let Some(app) = groups.get_mut("orgtree-app") {
+        for (relative, bytes) in crate::changelog::glossary_files() {
+            app.insert(PathBuf::from(relative), bytes);
+        }
+    }
     groups
         .into_iter()
         .filter_map(|(name, files)| bundle_from_files(files, "orgtree", &name))

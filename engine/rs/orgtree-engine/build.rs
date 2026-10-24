@@ -42,4 +42,73 @@ fn main() {
         source,
     )
     .unwrap();
+
+    let repo = PathBuf::from(std::env::var_os("CARGO_MANIFEST_DIR").unwrap()).join("../../..");
+    std::fs::write(
+        PathBuf::from(std::env::var_os("OUT_DIR").unwrap()).join("release_notes.rs"),
+        release_notes(&repo.join("docs")),
+    )
+    .unwrap();
+    println!("cargo:rerun-if-env-changed=ORGTREE_BUILD_COMMIT");
+    if let Some(time) = build_commit_time(&repo) {
+        println!("cargo:rustc-env=ORGTREE_BUILD_COMMIT_TIME={time}");
+    }
+}
+
+/// The Changelog's notes (docket changelog-window-one-row-per-version-pinnable-po):
+/// every `docs/release-notes-<x.y.z>.md`. Each is that GitHub release's own
+/// description (release.yml publishes the file with `--notes-file`), so the
+/// panel and the glossary carry what was published, offline. Pre-release drafts
+/// (`-RC1`, `-beta.4`) stay out. Each file is watched, and so is
+/// `docs/releases.json`; a notes file added since is bundled at the next
+/// stamped build (`ORGTREE_BUILD_COMMIT` changes) or version bump.
+fn release_notes(docs: &Path) -> String {
+    println!("cargo:rerun-if-changed={}", docs.join("releases.json").display());
+    let mut found: Vec<(Vec<u64>, String, PathBuf)> = Vec::new();
+    for entry in std::fs::read_dir(docs).into_iter().flatten().flatten() {
+        let name = entry.file_name().to_string_lossy().into_owned();
+        let Some(version) = name
+            .strip_prefix("release-notes-")
+            .and_then(|n| n.strip_suffix(".md"))
+        else {
+            continue;
+        };
+        let parts: Option<Vec<u64>> = version.split('.').map(|p| p.parse().ok()).collect();
+        let Some(parts) = parts.filter(|p| p.len() == 3) else {
+            continue;
+        };
+        println!("cargo:rerun-if-changed={}", entry.path().display());
+        found.push((parts, version.to_string(), entry.path()));
+    }
+    found.sort();
+    let mut source = String::from("pub const RELEASE_NOTES: &[(&str, &[u8])] = &[\n");
+    for (_, version, path) in found.iter().rev() {
+        source.push_str(&format!(
+            "({version:?}, include_bytes!({:?})),\n",
+            path.to_string_lossy()
+        ));
+    }
+    source.push_str("];\n");
+    source
+}
+
+/// When the stamped build's commit (`ORGTREE_BUILD_COMMIT`, which packaged
+/// builds set) was made: the release date & time of the engine's own row while
+/// `docs/releases.json` does not list it, as for a local alpha. A build without
+/// a stamp, or without git, has none.
+fn build_commit_time(repo: &Path) -> Option<String> {
+    let commit = std::env::var("ORGTREE_BUILD_COMMIT").ok()?;
+    let commit = commit.trim();
+    if commit.is_empty() || commit.starts_with('-') {
+        return None;
+    }
+    let out = std::process::Command::new("git")
+        .arg("-C")
+        .arg(repo)
+        .args(["show", "-s", "--format=%cI", commit])
+        .output()
+        .ok()?;
+    let time = String::from_utf8(out.stdout).ok()?;
+    let time = time.trim();
+    (out.status.success() && !time.is_empty()).then(|| time.to_string())
 }
