@@ -229,10 +229,9 @@ No real provider login was performed in this source audit.
 - **A desktop "Remote control (MCP)" switch and a dedicated audit-log UI**
   (docket discussion 2026-10-13) remain separate from standalone token
   management. Named client tokens are implemented as described below.
-- **MCP extras:** USER 2026-10-24 approved tree operations
-  (move/reorder/retool/rehire), question discovery/answering, and
-  settings/credits/account administration. Their implementation follows the
-  Docker/Linux slice; the 2026-10-23 mail/interrupt refusals remain in force.
+- The approved tree, question and settings/credits/account MCP groups are
+  implemented above. Other unlisted tools remain outside this endpoint; the
+  2026-10-23 mail/interrupt refusals remain in force.
 - **Desktop attaching to a standalone engine** (same or different machine)
   is out of scope for phase 1; attachment still runs through the boot host.
   The renderer bundle, if served, is reachable by any token holder, but no

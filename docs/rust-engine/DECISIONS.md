@@ -2117,3 +2117,15 @@ count; selection, hover and intermediate glides do not. Overview/fit preserves
 memory; switchboard remains its own origin. Removed, retired or hidden remembered
 nodes preserve current behavior. Shift+F7 retains its separate last-agent memory.
 See the [keyboard glossary](../skills/orgtree-app/app-settings/app-keyboard-shortcuts/SKILL.md#organization-navigation).
+
+**Standalone user MCP administration, USER/coordinator 2026-10-24 (4.4.5):**
+Every authenticated standalone client acts as the user. Expose the approved
+three groups through existing user handlers: tree move/reorder/retool/rehire
+and reallocate; pending questions/native forms and credit/batch decisions;
+organization/default/runtime/provider settings and engine-wide account admin.
+No generic HTTP/RPC passthrough or new agent authority path. Keep Oct23 mail
+and interrupt refusals. Private form/key inputs and error/result serialization
+are nolog/body-omitted and never echoed. Browser login stays in separately
+installed native CLIs over SSH, directed at the stored account profile; no
+Orgtree device-code service or real-provider test is introduced.
+See [standalone contracts](STANDALONE-ENGINE.md#user-tree-mcp-additions-2026-10-24).

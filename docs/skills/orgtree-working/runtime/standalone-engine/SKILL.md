@@ -174,7 +174,7 @@ remain compatibility inputs; do not mix flat routing with `metadata`.
 | `orgtree_move` | Organization endpoint only: `node`/`new_parent` or atomic `moves[{node,new_parent}]`. User tree validation and desktop Undo apply. |
 | `orgtree_reorder` | Organization endpoint only: `node` and zero-based final `index`, after removing the node. User tree validation and desktop Undo apply. |
 | `orgtree_retool` | Organization endpoint only: `node` plus supplied scope/charter fields; omitted fields stay. Folder restrictions propagate to descendants; existing user validation and Undo apply. |
-| `orgtree_rehire` | Organization endpoint only: required `node`; omitted agent fields retain saved values. `target` and `hire_type` set placement; `index` is refused. Projects retain policy and refuse agent overrides. Existing credit/scope validation and Undo apply. |
+| `orgtree_rehire` | Organization endpoint only: required `node`; omitted agent fields retain saved values. `target` and `hire_type` set placement; `index` is refused. Projects retain policy and refuse agent overrides. Existing user credit/scope validation applies; restoration is not an Undo-recorded operation. |
 | `orgtree_reallocate` | Organization endpoint only: `node`, signed `delta`; increases grant or takes unused credits back. User caps, committed-credit checks and credit-bubbling settings apply. |
 | Work | Acts as the user on the org docket. Use the current tool card for fields; do not assume the agent's ownership/participant authority model. |
 | Interrupt | Required `node` agent. Stops its current turn; a runtime that does not answer within 60 seconds refuses. Agent queued/restart orchestration is not implemented here. |

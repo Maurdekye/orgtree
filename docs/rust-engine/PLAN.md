@@ -289,6 +289,14 @@ Queued mail (USER 2026-10-24, 4.4.5): the arrow/count separator line itself
 toggles the group; remove the extra repeated count row while retaining its
 collapse defaults and manual choice. See [pending mail](pending-mail-collapse.md).
 
+Standalone user MCP administration (USER/coordinator 2026-10-24, 4.4.5):
+tree move/reorder/retool/rehire and reallocate; paged pending questions with
+ordinary/native answers, credit and batch decisions; organization/default/runtime/
+provider settings and engine-wide account administration. Existing user handlers
+and validation remain authoritative; secret inputs use private boundaries and
+are not echoed. No new UI or generic RPC passthrough; Oct23 mail/interrupt
+refusals stay. See [standalone contracts](STANDALONE-ENGINE.md#user-tree-mcp-additions-2026-10-24).
+
 Text context menus (USER 2026-10-24, 4.4.5): default spelling suggestions and
 Add to dictionary in editable text, standard edit commands and platform hints;
 read-only selections retain Reply to selection with Copy/Select All. Commands
