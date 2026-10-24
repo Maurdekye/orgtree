@@ -5,6 +5,8 @@ Read this file before working in this repository. It is the startup guide, not a
 Text-edit and spelling menus use Chromium's context flags and the originating
 webContents/session, including popouts. See [text menus](docs/agents/desktop-and-renderer.md#text-editing-and-spelling-menus-2026-10-24-445).
 [verified: `main/editmenu.ts`, `canvas/contextmenu.tsx`; 2026-10-24]
+Spelling probes complete a typed word boundary before asserting native markers;
+see [the capture control](docs/agents/development-and-verification.md#renderer-capture-and-rig-traps).
 
 Muse thought durations use matching native reasoning item start/completion
 boundaries, never a whole-turn duration or an item update as a start. Missing

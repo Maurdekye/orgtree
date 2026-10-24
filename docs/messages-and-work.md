@@ -101,7 +101,9 @@ them; Cut and Delete require a selection. Rich editable text also offers
 When the default Electron/OS spellchecker identifies a misspelled word under
 the pointer, its spelling suggestions replace that word and **Add to dictionary**
 adds it to the current session's spelling dictionary. Suggestions depend on the
-default spelling language; Orgtree does not choose another language here.
+default spelling language and the browser's completed spelling checks; they may
+be absent before the browser checks the entered word. Orgtree does not choose
+another language here.
 
 Selected read-only text offers **Copy** and **Select All**. Exact-passage menus
 retain **Reply to selection** alongside those commands. Select All selects text

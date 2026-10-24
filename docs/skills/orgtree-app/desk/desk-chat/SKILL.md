@@ -250,7 +250,9 @@ Select a passage in a retained transcript row, then right-click **Reply to selec
 The selection menu also has **Copy** and **Select All**, with platform shortcut
 hints; Select All selects the current document's text. Editable composers use
 the native text menu: spelling suggestions and **Add to dictionary** for an
-identified misspelling, Undo/Redo, Cut/Copy/Paste, Delete and Select All. Rich
+identified misspelling, Undo/Redo, Cut/Copy/Paste, Delete and Select All. Spelling
+entries follow completed browser/OS spelling checks; they may be absent before
+the browser checks the entered word. Rich
 editors also offer Paste as plain text. Availability follows the current field
 and selection. See App settings > Keyboard shortcuts for the detailed text-menu
 commands. Menus stay at the pointer in their originating window.

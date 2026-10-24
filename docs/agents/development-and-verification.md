@@ -123,6 +123,21 @@ not execute; never count it as a product result.
 
 ## Renderer, capture and rig traps
 
+- **Spelling probes include a typed word-boundary control.** On Windows Electron,
+  CDP insertion of `mispellled synthetic` without a final boundary produced empty
+  native spelling params at scale 1 and at text scale 0.625. With a final typed
+  space, the real canvas NodeSquare/DeskChat returned `mispellled` and suggested
+  `misspelled`; the production replacement callback corrected the real field.
+  Do not diagnose CSS hit-testing from the empty-input control alone. Check the
+  actual native event and complete a word boundary before asserting suggestions.
+  WebFrame spelling APIs returned false/empty even alongside successful Windows
+  native spelling params, so they are not a verified fallback here. Keep dictionary
+  additions stubbed and clipboard paths denied. The native-template preview in
+  `spell-scale.capture.cjs` is not native popup layout proof. Menu instrumentation
+  must retain real Electron Menu objects (intercept only `popup`); replacing
+  `buildFromTemplate` with plain objects stalled default-app startup.
+  [verified: `tests/spell-scale-ui.tsx`, `tests/spell-scale.capture.cjs`; 2026-10-24]
+
 - **Shortcut inventory follows a consumed imported key table.** The test scanner
   attributes a named exported table to the importing `.find(row =>
   row.keys.includes(...))` matcher, not its data-only module; Space normalizes
