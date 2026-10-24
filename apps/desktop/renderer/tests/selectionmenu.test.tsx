@@ -31,6 +31,8 @@ for (const placement of ['canvas', 'floating', 'pinned', 'popout'] as const) {
     range.selectNodeContents(text); selected.removeAllRanges(); selected.addRange(range)
     t.after(() => selected.removeAllRanges())
     const open = async (x: number, y: number) => {
+      // Opening a menu moves focus; each later gesture makes a fresh selection.
+      selected.removeAllRanges(); selected.addRange(range)
       const event = new (win as unknown as typeof window).MouseEvent('contextmenu', { bubbles: true, cancelable: true, button: 2, clientX: x, clientY: y })
       await inAct(async () => { text.dispatchEvent(event); await flush(2) })
       assert.equal(event.defaultPrevented, true)
