@@ -451,6 +451,7 @@ struct Turn {
     rate_limit: Option<Value>,
     /// Muse: the kind of each open item, by item id (deltas name only the id)
     muse_items: HashMap<String, String>,
+    muse_thinking: super::muse_thinking::Timing,
     /// Muse: the turn's tool calls in flight, by item id (MSP: a tool
     /// call's item id is its task id)
     muse_tools: HashMap<String, MuseTool>,
@@ -561,6 +562,7 @@ impl Turn {
             muse_quota: None,
             rate_limit: None,
             muse_items: HashMap::new(),
+            muse_thinking: Default::default(),
             muse_tools: HashMap::new(),
             acp_items: HashMap::new(),
             acp: false,
@@ -3759,7 +3761,8 @@ impl Actor {
                 let output=item["content"].as_array().map(|a|a.iter().filter_map(|v|v.pointer("/content/text").and_then(Value::as_str)).collect::<Vec<_>>().join("\n")).unwrap_or_default();
                 let display=json!({"itemId":id,"callId":id,"kind":"toolCall","tool":name,"args":item["rawInput"].to_string(),
                     "visibleOutput":output,"status":if done {status} else {"inProgress"}});
-                self.on_muse_item(&display,done).await?;
+                // ACP reuses tool rendering only; it supplies no Muse clock.
+                self.on_muse_item(&json!({"item":display}),done,false).await?;
                 // Genuine ACP content is a replacement snapshot; input/status alone is not output.
                 if !done {if let Some(output)=live_output {self.observe_shell_output(id,&output,false);}}
             },
@@ -5188,7 +5191,7 @@ impl Actor {
                 } else if item["kind"] == "compaction" {
                     self.on_muse_compaction(item).await?;
                 } else if of_ours(&item["turnId"]) {
-                    self.on_muse_item(item, done).await?;
+                    self.on_muse_item(p, done, method=="item/started").await?;
                 } else if done && item["kind"]=="agentMessage" {
                     self.complete_retained("muse",item["itemId"].as_str().unwrap_or(""),&[item["text"].as_str().unwrap_or("").to_string()]).await?;
                 } else if done && item["itemId"].as_str().is_some_and(|i| self.muse_bg.contains_key(i)) {
@@ -5360,7 +5363,9 @@ impl Actor {
     /// rows, thoughts, tool chips, and the child runs a session starts (a
     /// subagent the scope does not allow is stopped at once; a reminder
     /// child is recorded, its usage kept apart from the turn's).
-    async fn on_muse_item(&mut self, item: &Value, done: bool) -> Result<()> {
+    #[nolog]
+    async fn on_muse_item(&mut self, params: &Value, done: bool, started: bool) -> Result<()> {
+        let item=&params["item"];
         if done && item["kind"]=="agentMessage"
             && self.complete_retained("muse",item["itemId"].as_str().unwrap_or(""),&[item["text"].as_str().unwrap_or("").to_string()]).await?.is_some() { return Ok(()); }
         if self.turn.is_none() {
@@ -5368,6 +5373,14 @@ impl Actor {
         }
         let kind = item["kind"].as_str().unwrap_or("").to_string();
         let id = item["itemId"].as_str().unwrap_or("").to_string();
+        // Only the actual native start may begin a clock. An in-progress
+        // item/updated is not a start; observe ends before diagnostic/DB waits.
+        let think_secs=if kind=="reasoning" {
+            match (self.turn.as_mut(),self.proc.as_ref()) {
+                (Some(t),Some(Proc::Muse(p)))=>t.codex_turn.as_deref().and_then(|turn|t.muse_thinking.observe(params,started,done,&p.session_id,turn,Instant::now())),
+                _=>None,
+            }
+        } else {None};
         // a settled tool call Orgtree stopped: the silence limit it passed
         let mut stopped_after: Option<u64> = None;
         if let Some(t) = self.turn.as_mut() {
@@ -5418,6 +5431,7 @@ impl Actor {
             }
             "reasoning" => {
                 if !done {
+                    if !started {return Ok(());}
                     if let Some(t) = self.turn.as_mut() {
                         t.thinking.clear();
                         t.thinking_order = None;
@@ -5432,13 +5446,11 @@ impl Actor {
                     .or_else(|| item["text"].as_str().map(|s| vec![s.to_string()]))
                     .unwrap_or_default();
                 let body = parts.join("\n");
-                if body.trim().is_empty() {
-                    return Ok(());
-                }
-                let row = json!({ "role": "assistant", "text": "", "thinking": convo::clip(&body, 20_000).0, "tools": [],
-                                  "ts": now_iso(), "assistant_id": id });
+                let previous=self.turn.as_ref().and_then(|t|t.rows.get(&id).cloned());
+                let row=super::muse_thinking::row(&id,convo::clip(&body,20_000).0,previous.as_ref().map(|(_,r)|r.clone()),&now_iso(),think_secs);
                 let client = self.engine.db.get().await?;
-                let seq = self.convo.append(&client, row.clone()).await?;
+                let seq=if let Some((seq,_))=previous {self.convo.update(&client,seq,row.clone()).await?;seq}
+                    else {self.convo.append(&client,row.clone()).await?};
                 drop(client);
                 if let Some(t) = self.turn.as_mut() {
                     t.rows.insert(id.clone(), (seq, row));

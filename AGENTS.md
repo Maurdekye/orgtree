@@ -6,6 +6,11 @@ Text-edit and spelling menus use Chromium's context flags and the originating
 webContents/session, including popouts. See [text menus](docs/agents/desktop-and-renderer.md#text-editing-and-spelling-menus-2026-10-24-445).
 [verified: `main/editmenu.ts`, `canvas/contextmenu.tsx`; 2026-10-24]
 
+Muse thought durations use matching native reasoning item start/completion
+boundaries, never a whole-turn duration or an item update as a start. Missing
+starts stay unknown. See [Muse thought timing](docs/rust-engine/muse-thinking-time.md).
+[decided: user 2026-10-24; verified: `runtime/muse_thinking.rs`, `runtime/actor.rs`]
+
 Menus on transparent boundaries measure the pressed text element for position,
 retaining their original identity anchor. See [viewport anchoring](docs/agents/desktop-and-renderer.md#selection-menu-viewport-anchor-2026-10-24-445).
 [verified: `canvas/contextmenu.tsx`; 2026-10-24]

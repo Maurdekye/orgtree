@@ -18,6 +18,14 @@ Shell commands can move into the background. Orgtree follows their items beyond 
 
 ## Information and timing
 
+Completed reasoning uses the same thought-duration display as Claude, including
+sealed thoughts. Orgtree measures the monotonic interval between Muse's own
+matching `item/started` and completion for the same session, turn and item.
+`item/updated` cannot invent a start; duplicates cannot extend the interval.
+Missing starts and historical rows without timing remain unknown. This measures
+the reported item lifecycle, not hidden model computation or the whole turn.
+Readable text and measured duration survive transcript reloads independently.
+
 MSP text and reasoning deltas stream; completed message/reasoning items become durable rows. Tool items start/update/complete, carrying inputs, output/status and background transitions. The chip's start/end timestamps are observed by the engine. No partial argument-writing phase is exposed here, so writing time is unknown. A native turn `durationMs` is not every tool's execution duration.
 
 `session/tokenUsage` reports each model completion. Orgtree separates cached input from counted-once prompt tokens, accumulates output/cache writes, and keeps the last prompt as occupancy; a final turn aggregate can replace those totals. Child-run usage is retained separately, not added twice. `session/contextUsage`, `usage/changed`, retry notices and typed quota/auth errors carry different evidence. Quota can name `resetsAtMs`; a generic error is not a quota deadline.

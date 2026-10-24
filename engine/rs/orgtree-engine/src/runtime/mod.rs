@@ -30,6 +30,7 @@ pub mod keepalive;
 pub mod live_usage;
 pub mod manual_mail;
 pub mod muse;
+pub mod muse_thinking;
 pub mod next_turn;
 pub mod opencode;
 pub mod opencode_mail;

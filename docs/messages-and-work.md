@@ -63,6 +63,12 @@ File tool rows show the attempted path. An existing file can be opened or reveal
 
 The I-beam mark with `t` or `kt` is a tool's observed text-output token estimate; `~` stays an estimate even after completion, and hover shows the full number. It differs from billed usage and context occupancy. A missing observation stays unknown. Live shell previews retain at most 32 KiB per tool and eight tools per agent, with an omission marker when clipped. Codex/Muse can supply live output; OpenCode does not currently emit shell progress snapshots, and Claude/Antigravity have no live shell preview here. Final results replace these transient previews.
 
+New Muse thoughts also retain the measured interval between Muse's reported
+reasoning item start and completion, with the same thought display as Claude.
+The duration survives reopening the chat. Missing starts and older rows without
+timing stay unknown; a sealed thought can show its duration without exposing
+text. This is the reported item interval, not the whole turn's runtime.
+
 ## References, replies and formatting
 
 Type **@** for completion of agents, projects, available hub contacts and current/backlogged docket tickets. Search tickets by slug or title words. Tab or Enter completes the selected reference without sending. Archived tickets are omitted from completion.

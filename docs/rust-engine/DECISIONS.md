@@ -497,6 +497,13 @@ harness, falling back to `started_at` only for open or legacy rows without an
 end. Active clocks stay on `inflight_at`; ordinary Antigravity hook mail does
 not start a new turn. See [turn clocks](turn-completion-clock.md).
 
+**Muse thought timing, user 2026-10-24 18:09:52Z:** include Muse in thought-time
+parity with Claude, using only its own reasoning item boundaries. Missing starts
+stay unknown; no turn-runtime estimate or live Muse turn is authorized for this
+change. Observe matching session/turn/item start and completion monotonically,
+freeze duplicates and persist the duration in the ordinary thought row. See
+[Muse thought timing](muse-thinking-time.md).
+
 **Antigravity thinking, user 2026-10-17 17:10Z:** show the thinking stored in
 AGY's native local history after each completed step, before its response, using
 the existing collapsed thinking rendering. Live thinking requires upstream AGY
