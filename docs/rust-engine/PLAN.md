@@ -285,6 +285,12 @@ still resume, so the agents themselves remember).
 
 ## 10. User-facing differences — complete ledger
 
+No-focused-desk navigation (USER 2026-10-24, 4.4.5): Shift+Alt arrows continue
+from the last live agent/project desk in this org when the current origin is
+empty and the remembered node is still in the visible layout. Overview/fit
+preserves memory; switchboard and Shift+F7 retain their existing behavior.
+See the [focus definition](../skills/orgtree-app/app-settings/app-keyboard-shortcuts/SKILL.md#organization-navigation).
+
 New-hire position (USER 2026-10-23, 4.4.5): App settings > Display > Desk >
 New hires go selects End (default), Start or Centre for ordinary UI agent and
 project creation. Centre is ceil(n/2) among live direct children, projects

@@ -84,6 +84,15 @@ authority. [verified: `events/segments.tsx`, `canvas/desk.tsx`,
 
 ## Organization keyboard navigation (2026-10-23)
 
+4.4.5 refinement (USER 2026-10-24, coordinator-approved focus definition):
+Shift+Alt arrows fall back only from an empty origin to the last live, visible
+agent/project desk per org. Explicit focus/jump intent, settled camera focus
+(including manual pan/zoom), and pinned/Attention interaction record visits;
+selection, hover and intermediate camera glides do not. Fit preserves the visit;
+switchboard remains its own origin. Keep this memory separate from agent history
+and Shift+F7. Validate remembered node liveness and layout visibility on every use.
+[verified: `canvas/OrgCanvas.tsx`, `canvas/keyboardnavigation.ts`, `tests/lastdesknavigation.test.tsx`]
+
 `shell/appshortcuts.ts` owns the main-window Shift+Alt navigation table;
 `canvas/keyboardnavigation.ts` uses visible physical placement, including project
 stops, and bounded per-org session agent history. Route every jump through

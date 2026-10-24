@@ -160,6 +160,13 @@ the earlier child in an even centre tie. Agent history is per org and window
 session, keeps up to 256 visits and skips unavailable agents; project, switchboard
 and fit visits preserve it. Existing pinned/detached/Attention desk routing applies.
 Shift+F6 and Shift+F8 are unbound; Shift+F7 remains. Hold does not repeat a jump.
+With no desk focused, Shift+Alt arrows continue from the last live agent or
+project desk focused in this org, provided it is still in the visible layout.
+Focus/jump intent, settled camera focus (manual pan/zoom included), and interaction
+with a pinned/Attention desk count; plain selection, hover and passing a desk
+during a glide do not. Overview/fit keeps the memory. The switchboard keeps its
+own origin without erasing it. Missing, retired or hidden remembered nodes keep
+the existing behavior. Shift+F7 still uses its separate last-agent memory.
 Windows may intercept Alt+Shift for input-language switching or Alt+Space for its
 system menu; the app changes no OS settings. On macOS, editors retain Option-arrow
 word movement/selection and deletion.

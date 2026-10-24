@@ -27,7 +27,7 @@ import { moveDeskMemory } from './desktabs'
 import { treePresence, sweepAbsentDrafts, sweepAbsentPreferences } from '../treepresence'
 import { treeSelections } from '../treeselection'
 import { buttonAgentOf, onButtonAgent, setButtonAgent } from '../buttoncolours'
-import { agentFocusHistory, orgNavigationTarget, type OrgDirection } from './keyboardnavigation'
+import { agentFocusHistory, NavigationDeskMemory, orgNavigationTarget, type OrgDirection } from './keyboardnavigation'
 import { retiredFronts, savedTreeSelection } from './treeselection'
 import type { TreeBrowse } from '../treeview'
 import { DeskHosts, revealExistingDesk, useDeskActionsNow } from './deskhosts'
@@ -1376,6 +1376,9 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
   const animBusyRef = useRef(false)  // a camera animation owns the view
   const focusRef = useRef<string | null>(null)   // №25: the desk the camera rides with
   const keyboardDestination = useRef<string | null>(null)
+  const navigationDesks = useRef(new NavigationDeskMemory())
+  const publishingCameraFocus = useRef(false)
+  const navigationCamera = useRef<{ org: string; id: string | null } | null>(null)
   useEffect(() => {
     keyboardDestination.current = null
     const clear = () => { keyboardDestination.current = null }
@@ -2300,6 +2303,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
     canvas = false) => {
     keyboardDestination.current = id
     const destination = mapRef.current.get(id)
+    navigationDesks.current.record(slug, destination)
     if (destination?.tier && destination.kind !== 'project' && !destination.isBearerOf
         && destination.state !== 'draft') agentFocusHistory(slug).record(id)
     // ⚠ ONLY A NUMBER IS A ZOOM, AND ONLY `true` MEANS THE CANVAS. An agent
@@ -2961,6 +2965,10 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
     eyePressRef.current = false
     projectPressRef.current = null
     panRef.current = null
+    if (!animBusyRef.current && !worldHiddenRef.current) {
+      const id = focusRef.current
+      navigationDesks.current.record(slug, id ? mapRef.current.get(id) : undefined)
+    }
   }
 
   // DeskHosts owns desks beside the viewport in React, then MovableSurface
@@ -3401,8 +3409,19 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
   const camId = pinnedFocusId ?? focusId
   const camDesk = camId && map.get(camId)?.tier ? camId : null
   useEffect(() => {
+    // Animated intermediate desks are not visits. Overview preserves memory.
+    if (worldHidden || animBusyRef.current || panRef.current) return
+    const previous = navigationCamera.current
+    if (previous?.org === slug && previous.id === camId) return
+    navigationCamera.current = { org: slug, id: camId }
+    navigationDesks.current.record(slug, camId ? mapRef.current.get(camId) : undefined)
+  }, [slug, worldHidden, camId, view])
+  useEffect(() => {
     if (worldHidden) return // the Attention desk owns focus while it is shown
-    setButtonAgent(slug, camDesk)
+    // The shared publication also runs while a glide passes another desk.
+    publishingCameraFocus.current = true
+    try { setButtonAgent(slug, camDesk) }
+    finally { publishingCameraFocus.current = false }
   }, [slug, worldHidden, camDesk])
   // THE CANVAS'S OWN MENU (user 2026-10-01): a right-click on EMPTY canvas
   // offers the nav cluster's two camera moves, through the very handlers the
@@ -3440,6 +3459,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
       if (keyboardDestination.current && camIntent.current?.kind === 'focus'
           && id !== keyboardDestination.current) return
       const node = mapRef.current.get(id)
+      if (!publishingCameraFocus.current) navigationDesks.current.record(slug, node)
       if (node?.tier && node.kind !== 'project' && !node.isBearerOf && node.state !== 'draft')
         agentFocusHistory(slug).record(id)
     }
@@ -3465,7 +3485,8 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
       '[aria-modal="true"], [role="dialog"]:not(.modalpin-win), [role="menu"]')
     const navigate = (direction: OrgDirection) => () => {
       if (!allowed()) return
-      const current = keyboardDestination.current ?? buttonAgentOf(slug) ?? focusRef.current
+      const current = navigationDesks.current.origin(slug,
+        keyboardDestination.current ?? buttonAgentOf(slug) ?? focusRef.current, map, target, hidden)
       const next = orgNavigationTarget(direction, current, map, target, hidden, chartLayout === 'circular')
       if (next && next !== current) centerOn(next)
     }

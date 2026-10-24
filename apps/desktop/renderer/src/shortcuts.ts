@@ -71,7 +71,7 @@ export function shortcutGroups(enter: EnterKeyBehavior = 'send'): ShortcutGroup[
         note: id === 'switchboard' ? 'Physical S key, including Hebrew layouts.'
           : id === 'fitOrg' ? 'Windows may reserve Alt+Shift / Alt+Space. No OS setting is changed.'
           : id === 'previousAgent' ? 'Session history per org, up to 256 visits; skips unavailable agents.'
-          : 'Projects are stops. Outside editors, dropdowns, sliders, IME composition, dialogs and menus.' })) },
+            : 'Projects are stops. With no focused desk, continue from the last live visible agent/project desk in this org. Outside editors, dropdowns, sliders, IME composition, dialogs and menus.' })) },
     { title: 'Desk tabs', items: [
       { keys: ['Alt+ArrowLeft', 'Alt+ArrowRight'], action: 'Previous or next displayed desk tab, wrapping',
         note: 'agent and project desks; question cards keep their own Alt arrows; outside editors and widgets',

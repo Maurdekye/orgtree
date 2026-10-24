@@ -2040,3 +2040,12 @@ Existing Docket list behavior, including the recently-done hour, is unchanged.
 Sources: m835c3becf438, me1a9510b895f, m725412d6748e, m46f154fe793f;
 coordinator scope correction m6327d4ef662e.
 See [availability contract](../agents/docket-and-presentations.md#desk-reader-availability-2026-10-23).
+
+**Last desk navigation, USER 2026-10-24 (4.4.5):** when no desk is focused,
+Shift+Alt arrows continue from the last live, visible agent/project desk in the
+current org. Coordinator-approved definition: explicit focus/jump intent, settled
+camera focus (manual pan/zoom included), and pinned/Attention desk interaction
+count; selection, hover and intermediate glides do not. Overview/fit preserves
+memory; switchboard remains its own origin. Removed, retired or hidden remembered
+nodes preserve current behavior. Shift+F7 retains its separate last-agent memory.
+See the [keyboard glossary](../skills/orgtree-app/app-settings/app-keyboard-shortcuts/SKILL.md#organization-navigation).

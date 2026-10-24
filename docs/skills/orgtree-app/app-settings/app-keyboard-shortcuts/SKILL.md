@@ -47,6 +47,14 @@ keys. Separate presses act once; holding a key does not repeat navigation.
 
 No available target leaves the view unchanged. Navigation uses the existing
 desk destination: pinned/detached desks are revealed; Attention selects its desk.
+When no desk is focused, Shift+Alt arrows start from the last live agent or
+project desk focused in this org, if it still exists in the visible layout.
+A focus/jump intent, settled camera focus (including manual pan/zoom), or an
+interaction with a pinned/Attention desk counts. Selection, hover and desks
+passed during a glide do not. Overview/fit keeps this memory. The switchboard
+remains its own origin and does not erase the remembered desk. A missing,
+retired or hidden remembered node leaves the existing behavior unchanged.
+This memory is separate from Shift+F7's last-agent shortcut.
 History lasts for this window's session, retains up to 256 agent visits, skips
 agents no longer in the loaded tree, and is preserved by project/switchboard/fit
 visits. Shift+F6 and Shift+F8 are unbound; Shift+F7 remains the last-desk shortcut.

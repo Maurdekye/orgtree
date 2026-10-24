@@ -3,6 +3,22 @@ import type { CanvasNode, Pt } from './shared'
 
 export type OrgDirection = 'up' | 'down' | 'previous' | 'next'
 
+/** One last desk per org, separate from the agent-only Backspace/F7 history. */
+export class NavigationDeskMemory {
+  private desks = new Map<string, string>()
+  record(org: string, node: CanvasNode | undefined): void {
+    if (node && node.state === 'live' && !node.isBearerOf
+        && (node.kind === 'project' || node.tier)) this.desks.set(org, node.id)
+  }
+  origin(org: string, current: string | null, map: Map<string, CanvasNode>,
+    positions: Map<string, Pt>, hidden: { has(id: string): boolean }): string | null {
+    if (current) return current
+    const id = this.desks.get(org), node = id ? map.get(id) : undefined
+    return id && node?.state === 'live' && !node.isBearerOf
+      && positions.has(id) && !hidden.has(id) ? id : current
+  }
+}
+
 /** Physical visible placement: projects are stops, lineage/drafts are not. */
 export function orgNavigationTarget(direction: OrgDirection, current: string | null,
   map: Map<string, CanvasNode>, positions: Map<string, Pt>, hidden: { has(id: string): boolean }, circular: boolean): string | null {
