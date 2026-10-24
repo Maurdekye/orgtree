@@ -40,7 +40,8 @@ Authentication is mandatory in standalone mode. Ordinary HTTP API, UI-bundle
 and push-socket requests need `Authorization: Bearer <token>` or
 `X-Orgtree-Desktop-Token: <token>`; missing/wrong credentials return 403.
 The language-server proxy and credential bridge retain their separate secret
-checks. The token authorizes user access to this engine, not a restricted
+checks; the credential bridge still requires a loopback peer. Named client
+tokens do not replace either capability. The token authorizes user access to this engine, not a restricted
 agent identity. Remote access can use loopback with SSH/Tailscale or a chosen
 private listener; built-in TLS termination is not supplied.
 

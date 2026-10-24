@@ -70,6 +70,8 @@ outside Docker. Real provider browser login and turns remain unverified.
 Send `Authorization: Bearer <token>` on every API or push-socket request. The
 existing `X-Orgtree-Desktop-Token` header is also accepted. Missing or wrong
 credentials return 403. An authenticated client acts as the user of the engine.
+The language-server proxy and local-only credential bridge retain their
+separate capability checks; named client tokens do not replace those secrets.
 
 ### Give each client its own token
 

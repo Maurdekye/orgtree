@@ -301,6 +301,11 @@ on shared TCP sockets. These replace the earlier single-token-only boundary.
 - Secret-bearing helpers/MCP return boundaries are nolog; HTTP token-admin
   and MCP bodies are omitted at the wire boundary, including unknown/rejected
   token-admin descendants. Safe create/revoke log entries contain only IDs.
+- The guard also preserves `ConnectInfo<SocketAddr>` from the trusted client
+  connection before the existing credential/language-server bypasses. The
+  credential bridge's local-only peer and separate secret checks are unchanged;
+  a named user token cannot replace that capability. [verified: `http/mod.rs`,
+  `credential_bridge.rs`;2026-10-24]
 
 [decided: user/coordinator 2026-10-24; verified: `client_tokens.rs`,
 `client_tokens/transport.rs`, `http/{mod,client_tokens,usermcp}.rs`,

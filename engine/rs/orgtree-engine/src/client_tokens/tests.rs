@@ -196,3 +196,31 @@ fn registry_is_hash_only_bounded_and_refuses_malformed_state() {
     std::fs::write(root.0.join(FILE), bad.to_string()).unwrap();
     assert!(Registry::open(&root.0).is_err());
 }
+
+#[tokio::test]
+async fn standalone_peer_extension_preserves_separately_authenticated_local_bridge() {
+    let root = Root::new();
+    let server = Server::start(&root).await;
+    // Releasing an absent synthetic broker returns "released" without opening
+    // a Windows pipe, inspecting another process or registering credentials.
+    let body = json!({"pipe":r"\\.\pipe\orgtree-credentials-synthetic-peer",
+        "secret":"1".repeat(64),"pid":std::process::id(),"release":true}).to_string();
+    for (key, expected) in [(BOOTSTRAP, 200), ("wrong", 503)] {
+        let mut stream = TcpStream::connect(server.address).await.unwrap();
+        stream.write_all(format!("POST /api/desktop/credential-bridge HTTP/1.1\r\nHost: localhost\r\nX-Orgtree-Desktop-Token: {key}\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{body}", body.len()).as_bytes()).await.unwrap();
+        let (status, bytes) = response(&mut stream).await;
+        assert_eq!(status, expected, "standalone local bridge release requires legacy peer extension");
+        if status == 200 { assert_eq!(bytes, b"released"); }
+        else { assert!(String::from_utf8_lossy(&bytes).contains("[denied]")); }
+    }
+    let named = server.create("no credential capability").await;
+    let key = named["token"].as_str().unwrap();
+    let mut stream = TcpStream::connect(server.address).await.unwrap();
+    stream.write_all(format!("POST /api/desktop/credential-bridge HTTP/1.1\r\nHost: localhost\r\nX-Orgtree-Desktop-Token: {key}\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{body}", body.len()).as_bytes()).await.unwrap();
+    assert_eq!(response(&mut stream).await.0, 503, "named user token must not replace bridge capability");
+    let mut remote = axum::http::Request::builder().method("POST").uri("/api/desktop/credential-bridge")
+        .header(crate::http::TOKEN_HEADER, BOOTSTRAP).body(axum::body::Body::from(body)).unwrap();
+    remote.extensions_mut().insert(axum::extract::ConnectInfo(std::net::SocketAddr::from(([203, 0, 113, 1], 12345))));
+    let denied = crate::credential_bridge::dispatch(axum::extract::State(server.engine.clone()), remote).await;
+    assert_eq!(denied.status(), axum::http::StatusCode::SERVICE_UNAVAILABLE, "non-loopback peer must remain refused");
+}
