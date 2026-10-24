@@ -329,3 +329,14 @@ red Cargo artifact due to Docker-layer source timestamps; forcing a fresh
 transport-source timestamp caused an actual recompile and the passing run.
 Those partial attempts are not passing evidence. This slice has a Linux
 compile/socket proof, not a newly packaged build or real-provider test.
+
+The peer-extension follow-up is separately verified at
+`bf747991b515e7d1541687164d21c90fe26e1d31`, based on integrated `cbb3013`.
+Removing only the legacy peer insertion makes the bridge reject a legitimate
+loopback synthetic release with503 instead of200 (one expected red failure).
+Restored source passes **4/4** focused client-token tests, including that
+bridge case, wrong-secret/named-token refusal and a synthetic non-loopback
+peer refusal. The release targets an absent synthetic broker; no pipe,
+provider, real credential or running broker is touched. Fresh Linux compile
+passes under the same6GiB/job1 limits. Windows compilation remains a separate
+combined-build check.
