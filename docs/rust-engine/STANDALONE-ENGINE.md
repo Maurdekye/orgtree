@@ -136,9 +136,9 @@ supported/compatibility inputs without starting an engine or database.
 USER 2026-10-23 chose the documented subset, not implementation of the missing
 agent options. [verified: `tools/usermcp.rs`; decided: user 2026-10-23]
 
-Not on the endpoint yet: message attachments and reply quoting, inbox
-`conversation`/`chunk`, settings/provider-account administration (all reachable
-through the authenticated HTTP API).
+Not on the endpoint: message attachments and reply quoting, inbox
+`conversation`/`chunk`, and other unlisted actions. Their existing HTTP contracts
+do not widen the smaller Oct23 user mail/interrupt tool cards.
 
 ### User tree MCP additions (2026-10-24)
 
@@ -173,6 +173,17 @@ org writes use percent. Provider writes change one existing boolean switch per
 call, with no partial multi-switch submit. Runtime settings retain the existing
 user credit-bubbling controls. Global scopes work on either MCP endpoint; org
 scope requires an organization. Oct23 mail/interrupt refusals remain intact.
+
+### User account MCP additions (2026-10-24)
+
+`orgtree_accounts` provides engine-wide registry list/add/remove/enable/identity,
+exact mark inspect/clear, native Claude setup-token addition/fallback order and
+OpenRouter key add/update/remove through existing user handlers. There is no
+HTTP/RPC passthrough or new authority path. Account arguments, typed decoding,
+errors and serialized MCP responses remain nolog; wire logging already omits
+all MCP bodies. Invalid types never include submitted values in their errors.
+Normal binding reconciliation and provider checks remain in the handlers;
+real network/provider auth is outside the synthetic verification scope.
 
 ## Provider sign-in: native CLI over SSH (2026-10-24)
 

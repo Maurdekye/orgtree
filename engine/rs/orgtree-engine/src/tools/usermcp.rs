@@ -27,16 +27,17 @@ use crate::orgs::OrgHandle;
 
 mod questions;
 mod settings;
+mod accounts;
 
 /// Tools served without an org (`POST /api/mcp`): enough to find or create
 /// the org to manage.
-const ORGLESS_TOOLS: &[&str] = &["orgtree_list_orgs", "orgtree_list_tiers", "orgtree_create_org", "orgtree_client_tokens", "orgtree_settings"];
+const ORGLESS_TOOLS: &[&str] = &["orgtree_list_orgs", "orgtree_list_tiers", "orgtree_create_org", "orgtree_client_tokens", "orgtree_settings", "orgtree_accounts"];
 /// Tools served per org (`POST /api/orgs/{slug}/mcp`).
 const ORG_TOOLS: &[&str] = &[
     "orgtree_chart", "orgtree_list_orgs", "orgtree_list_tiers", "orgtree_message", "orgtree_send_notice",
     "orgtree_inbox", "orgtree_work", "orgtree_hire", "orgtree_retire", "orgtree_interrupt",
     "orgtree_answer", "orgtree_create_org", "orgtree_move", "orgtree_reorder", "orgtree_retool",
-    "orgtree_rehire", "orgtree_reallocate", "orgtree_questions", "orgtree_settings",
+    "orgtree_rehire", "orgtree_reallocate", "orgtree_questions", "orgtree_settings", "orgtree_accounts",
 ];
 
 /// One JSON-RPC message from a remote MCP client → its response, the same
@@ -159,6 +160,9 @@ fn cards(org_scoped: bool) -> Vec<Value> {
     if names.contains(&"orgtree_settings") {
         out.push(settings::card());
     }
+    if names.contains(&"orgtree_accounts") {
+        out.push(accounts::card());
+    }
     if names.contains(&"orgtree_client_tokens") {
         out.push(user_card("orgtree_client_tokens",
             "Manage named standalone client tokens as the user. list (default) returns active id/name/created_at only; create needs name (1-100 characters) and returns a random secret ONCE; revoke needs id and immediately drops every HTTP/WS/MCP socket used with that token. Self-revoke disconnects you without a response promise; reconnect with another token or bootstrap key. Shared sockets close when any token used there is revoked. Bootstrap cannot be revoked; at most 128 active clients.",
@@ -195,6 +199,18 @@ fn validate_args(org_scoped: bool, name: &str, args: &Value) -> Result<()> {
             || (name == "orgtree_work" && key == "id");
         if !properties.contains_key(key) && !alias {
             crate::refuse!(BadRequest, "{name}: unsupported user MCP field `{key}`");
+        }
+        if let Some(schema) = properties.get(key) {
+            let value=&object[key];
+            let typed=match schema["type"].as_str() {
+                Some("string")=>value.is_string(), Some("object")=>value.is_object(),
+                Some("array")=>value.is_array(), Some("boolean")=>value.is_boolean(),
+                Some("integer")=>value.is_i64() || value.is_u64(), Some("number")=>value.is_number(),
+                _=>true,
+            };
+            if !typed || schema["enum"].as_array().is_some_and(|choices|!choices.contains(value)) {
+                crate::refuse!(BadRequest,"invalid value type or choice for user MCP field `{key}`");
+            }
         }
     }
     if mail {
@@ -274,6 +290,7 @@ async fn dispatch(engine: &Arc<Engine>, org: Option<&Arc<OrgHandle>>, name: &str
         "orgtree_create_org" => return create_org(engine, args).await,
         "orgtree_client_tokens" => return Ok(Done { text: serde_json::to_string(&crate::http::client_tokens::manage(engine, args).map_err(api)?)?, card: None }),
         "orgtree_settings" => return settings::run(engine, org, args).await,
+        "orgtree_accounts" => return accounts::run(engine, args).await,
         _ => {}
     }
     let Some(org) = org else {

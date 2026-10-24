@@ -126,7 +126,7 @@ Existing authenticated `POST /api/accounts` supports managed rows and
 Claude/Codex imported folders. `GET /api/accounts/<id>/identity` refreshes a
 registered row after login. For the default profile, force the provider read
 with `GET /api/providers?force=true&force_provider=claude` (or `openai`). These
-HTTP routes have user authority; they are not yet MCP tools in this subset.
+HTTP routes have user authority; `orgtree_accounts` also exposes add/list/identity.
 
 In Docker, login must run inside the derived container as its user. Keep the
 account profiles under `/data`; the supplied compose file does not persist
@@ -147,8 +147,8 @@ The routes return 404 outside standalone mode and require the same token:
 
 | Endpoint | Served tools |
 | --- | --- |
-| `POST /api/mcp` | `orgtree_list_orgs`, `orgtree_list_tiers`, `orgtree_create_org`. |
-| `POST /api/orgs/{slug}/mcp` | The three above, plus `orgtree_chart`, `orgtree_message`, `orgtree_send_notice`, `orgtree_inbox`, `orgtree_work`, `orgtree_hire`, `orgtree_retire`, `orgtree_interrupt`, `orgtree_answer`. |
+| `POST /api/mcp` | `orgtree_list_orgs`, `orgtree_list_tiers`, `orgtree_create_org`, `orgtree_client_tokens`, `orgtree_settings`, `orgtree_accounts`. |
+| `POST /api/orgs/{slug}/mcp` | Orgless tools except client tokens, plus `orgtree_chart`, `orgtree_message`, `orgtree_send_notice`, `orgtree_inbox`, `orgtree_work`, `orgtree_hire`, `orgtree_retire`, `orgtree_interrupt`, `orgtree_answer`, `orgtree_move`, `orgtree_reorder`, `orgtree_retool`, `orgtree_rehire`, `orgtree_reallocate`, `orgtree_questions`. |
 
 Calls act **as the user**, using the desktop's user-operation paths. This is
 not the agent dispatcher with an invented caller. Agent audience and
@@ -194,11 +194,33 @@ Example JSON-RPC calls, sent to the appropriate authenticated endpoint:
 {"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"orgtree_message","arguments":{"metadata":{"to":"worker"},"body":"Please inspect the assigned item."}}}
 ```
 
-Other settings/account administration and the other
-unlisted actions remain outside this MCP subset; the authenticated HTTP API
+Other unlisted actions remain outside this MCP subset; the authenticated HTTP API
 has its own operations. Tool errors return `isError` and explanatory text.
 The ordinary agent tool pages describe a different caller/transport and must
 not be used to infer extra user-MCP capabilities.
+
+### Account administration
+
+`orgtree_accounts` works on either endpoint and has engine-wide user authority.
+Each action refuses unrelated fields and uses the existing desktop handler.
+Native browser login remains separate; identity/key changes may contact the
+provider. Secrets are accepted only through private MCP boundaries, never echoed
+or logged. `list` exposes account metadata and profile paths, not stored keys.
+
+| Action | Fields / behavior |
+| --- | --- |
+| list (default) | Optional org filter. |
+| add | provider claude/openai/google/muse; kind managed, imported plus path, or apikey plus key. Muse imported folders are refused. |
+| remove | id; normal user binding reconciliation. |
+| enable | id, enabled boolean; normal admission/wake behavior. |
+| identity | id; reread the registered profile using current user checks. |
+| marks | id; inspect exact capacity-mark values before clearing. |
+| clear_marks | id, source registry, pool, exact expected and reason; companion_expected where required. Changed marks write nothing; clearing adds no capacity and resumes no frozen agent. |
+| claude_key_add | token from native setup-token; optional mint_config_dir. |
+| order | keys array of account IDs in fallback order. |
+| openrouter_key_add | key; optional label and harness. |
+| openrouter_key_update | id; supplied key/label/harness. |
+| openrouter_key_remove | id. |
 
 ## See also
 

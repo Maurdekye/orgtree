@@ -151,6 +151,26 @@ boolean switch in `settings`: `enabled`, `apikey_fallback` or
 `subscription_inference`. Configure one provider switch per call. Global
 changes affect all organizations; existing desktop value checks apply.
 
+`orgtree_accounts` manages the engine-wide registry on either endpoint:
+
+| Action | Fields |
+| --- | --- |
+| `list` (default) | Optional `org` filter. Account metadata and stored profile paths, without secrets. |
+| `add` | `provider` (`claude`, `openai`, `google`, `muse`) and `kind`: `managed`, `imported` plus `path`, or `apikey` plus `key`. Muse import is refused. |
+| `remove` / `identity` / `marks` | `id`. Removal uses existing binding reconciliation; identity rereads that profile; marks reads standing capacity marks. |
+| `enable` | `id`, boolean `enabled`. Existing turns finish; the existing user handler governs future admission and wakes. |
+| `clear_marks` | `id`, `source:"registry"`, exact `expected`, `pool`, `reason`, and `companion_expected` when required. Changed marks write nothing; clearing adds no capacity and resumes no frozen agent. |
+| `claude_key_add` | Native `setup-token` output in `token`, optional `mint_config_dir`. |
+| `order` | `keys`: account IDs in fallback order. |
+| `openrouter_key_add` | `key`, optional `label` and `harness`. |
+| `openrouter_key_update` | `id`, supplied `key`/`label`/`harness`. |
+| `openrouter_key_remove` | `id`. |
+
+Actions refuse unrelated fields. Credentials are accepted through private,
+body-omitted MCP boundaries and never echoed. Identity/key changes retain the
+desktop's provider checks and can contact the provider. Native CLI/browser login
+remains a separate SSH step; account creation does not complete it.
+
 Authenticated `GET /api/desktop/alive` checks readiness. Authenticated
 `POST /api/desktop/shutdown` requests clean shutdown; Unix SIGTERM, SIGINT and
 SIGHUP also use the clean shutdown path.
