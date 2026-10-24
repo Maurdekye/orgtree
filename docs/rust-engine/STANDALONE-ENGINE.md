@@ -256,6 +256,44 @@ No real provider login was performed in this source audit.
 
 ## Test plan / verification (phases 1–2)
 
+### User MCP groups and native-profile glue, 2026-10-24
+
+Measured at `32682df99cd5e2da4597ecb7e95f6fb7dde5de1c`, based on `08f59c8`:
+the focused `tools::usermcp::` selection passes **13/13** in 4.62 seconds,
+with 1,221 unrelated tests filtered out and no ignored tests skipped. The
+opt-in database fixture uses PostgreSQL 16.2 and dispatches through the real
+user-MCP handlers. It exercises tree moves/batches/reorder/retool/rehire/credits,
+paged discovery, ordinary selected/free-text answers, credit preview/approval,
+mixed decisions, org/default/runtime/provider settings and account lifecycle.
+Separate focused cases check native-form correlation, endpoint/card boundaries,
+unsupported-field refusals and private-input diagnostics with positive controls.
+
+Fake provider login writes native Claude/Codex files only into the managed
+profile returned by account creation. Identity changes from unauthenticated to
+the expected synthetic identity; the default profile stays untouched. This
+verifies profile adoption, not a real CLI/browser sign-in, Muse/Antigravity
+login, provider key validation or OpenRouter network-backed mutations.
+
+The Linux test binary's SHA256 is
+`b01fd8ca2dbfcd23b9423e1863e1d6fa575712a0e113b5d439ebfd3c31287ec5`.
+Compilation took 153 seconds with six inherited warnings, one Cargo job,
+engine opt0/dependencies opt1, no LTO, no debug info and 256 codegen units.
+Both build and run were bounded to 6 GiB. The run used uid1000, an empty
+native0700 temporary HOME/data root, fake CLIs, no capabilities and a
+loopback-only network namespace with no external route. PostgreSQL stopped
+without fallback; the temporary root and owned scope were removed.
+
+Earlier attempts are retained as failures: a combined future overflowed its
+stack before the frame-construction correction; two fixture assumptions used
+prose receipts as IDs and raw credit kind instead of normalized tabs. A final
+12/13 run exposed real `tokio_postgres::query` debug parameter dumps containing
+stored keys. The formatter now drops that target for native tracing and
+forwarded log records, with unfiltered canary captures and engine-log positive
+controls passing. These are focused Linux dispatch/profile proofs, not a new
+packaged image, Windows compile or full-suite verdict.
+
+### Earlier startup and transport checks
+
 - Unit (pure helpers, `config.rs`, `http/mod.rs`, `tools/usermcp.rs`): token
   resolution (environment valid/short, file generate + reuse), bind/port
   parsing, Bearer accepted only in standalone mode, header token in both

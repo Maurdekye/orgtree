@@ -234,6 +234,11 @@ operation diagnostics remain available.
 
 ## See also
 
+Focused synthetic Linux verification passes 13/13 user-MCP tests, including
+real database-backed user operations, private-form/log controls and fake
+Claude/Codex managed-profile adoption. Real CLI/browser sign-in, Muse/Antigravity
+login and provider-network key operations are not established by that proof.
+
 - [orgtree-user](../../user/SKILL.md)
 - [orgtree-turns-and-wakes](../turns-and-wakes/SKILL.md)
 - `orgtree-app-runtime-desktop` (orgtree-app › app-settings) for the desktop installation's separate startup controls.

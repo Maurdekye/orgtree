@@ -269,3 +269,8 @@ row. For the default profile use `GET /api/providers?force=true&force_provider=c
 (or `openai`). Refresh reads the profile; it does not perform the browser login.
 The native SSH/browser recipes above are source-based guidance, not evidence
 of a completed real provider sign-in.
+
+Synthetic Linux checks verified Claude/Codex managed-profile adoption: fake
+login files in the returned profile changed its detected identity without
+changing the default profile. The focused MCP group checks also passed. Real
+browser sign-in and provider-network account/key operations remain unverified.
