@@ -194,19 +194,21 @@ Closing a reader leaves the document in its collection. **Dismiss** is a separat
 ## Find files an agent delivered
 
 Open an agent's desk and select **Files**, beside **Presented**. This tab
-collects the download cards that agent has sent, newest first. You can see the
-filename, size, delivery time and note without searching its conversation.
-Earlier deliveries appear too when Orgtree still has their records.
+shows a compact row for each retained delivery, with filename, size, time and
+a download action. Hover a filename to read its delivery note. Earlier
+deliveries appear too when Orgtree still has their records.
 
-Click a file card to download its original delivered copy. Image cards also
-open in the image viewer. Editing the agent's source file later does not
-change that delivered copy. If its saved copy was removed outside Orgtree,
-the card can remain listed while its download fails.
+The newest file is at the bottom, where the tab opens. Scroll up to load
+older files automatically; the visible file stays in place as rows appear
+above it. Incoming files append at the bottom and stay out of your way while
+you read older rows. When you are at the bottom, the list follows new files.
+**Refresh** returns to the newest page and scrolls to the bottom.
 
-Use **Load older files** to browse earlier deliveries. **Refresh** returns to
-the newest page. The list refreshes with activity while showing its newest
-page; browsing older pages keeps your place until you refresh. Renaming or
-retiring an agent does not change which retained deliveries belong to it.
+Click a filename or its download icon for the original delivered copy.
+Pictures also have **View** to open the image viewer. Editing the agent's
+source file later does not change the delivered copy. If its saved copy was
+removed outside Orgtree, the row can remain while its download fails.
+Renaming or retiring an agent does not change its retained deliveries.
 
 Files contains local download cards, including delivered pictures, archives,
 logs and exports. Readable reports stay in **Presented**. Mail attachments and

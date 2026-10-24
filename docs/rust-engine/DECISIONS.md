@@ -69,7 +69,10 @@ the feature. Exclude interactive HTML and persistent threads. See
 tab collects each agent's presented download cards. Include retained earlier
 deliveries, newest first, with filename, size, time, note and snapshot download.
 Provide agent listing parity. Originally assigned after 4.4.2; USER 2026-10-23
-15:13:25Z moved it to 4.4.5.
+15:13:25Z moved it to 4.4.5. USER 2026-10-24 m07dbc1323f5b / me76bad5e5bc4
+supersedes the newest-first card presentation: compact rows, newest at the
+bottom, opening at the bottom, automatic scroll-up paging, and incoming rows
+that follow only when the reader is already at the bottom.
 See [agent files](agent-files.md).
 
 **Remove Grey preset (USER2026-10-23;4.4.2):** selected legacy orgtree themes

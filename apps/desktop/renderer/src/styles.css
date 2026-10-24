@@ -6431,12 +6431,16 @@ svg.MuiSvgIcon-root {
 .diffpre .dplus { color: var(--ok); background: color-mix(in srgb, var(--ok) 10%, transparent); }
 .diffpre .dminus { color: var(--bad); background: color-mix(in srgb, var(--bad) 10%, transparent); }
 .diffpre .dhunk { color: var(--dim); opacity: .85; margin-top: 3px; }
-.agent-files { padding: 14px; overflow: auto; min-width: 0; flex: 1; }
-.agent-files-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
-.agent-files-list { list-style: none; padding: 0; margin: 16px 0; display: flex; flex-direction: column; gap: 16px; }
-.agent-files-list li { min-width: 0; }
-.agent-files-list time { display: block; font-size: 11px; margin-bottom: 5px; }
-.agent-files-list .filecard { max-width: 100%; }
+.agent-files { padding: 8px 12px; min-width: 0; min-height: 0; flex: 1; display: flex; flex-direction: column; }
+.agent-files-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding-bottom: 6px; }
+.agent-files-scroll { overflow: auto; overflow-anchor: none; min-height: 0; flex: 1; }
+.agent-files-loading { position: sticky; top: 0; margin: 0; height: 0; font-size: 11px; z-index: 1; }
+.agent-files-list { list-style: none; padding: 0; margin: 0; }
+.agent-files-list li { min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr) auto auto 38px 24px; align-items: center; gap: 8px; min-height: 32px; border-bottom: 1px solid rgba(128,128,128,.16); }
+.agent-file-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.agent-file-size, .agent-files-list time { font-size: 11px; white-space: nowrap; }
+.agent-file-view { grid-column: 4; font-size: 11px; padding: 2px 4px; }
+.agent-file-download { grid-column: 5; display: flex; justify-content: center; }
 
 /* files flow BACK (user spec 2026-07-31): orgtree_send_file renders as a
    download card in the chat; inline images retain their own download link */

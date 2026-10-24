@@ -71,7 +71,10 @@ keeps the named row and never re-arms opening. No migration is required.
 
 Download-card history uses ot.deliveries, independently of documents and hub
 transfers. Keep the bounded per-agent reader and existing immutable snapshots;
-never recover this list by scanning transcripts. See [agent files](../rust-engine/agent-files.md).
+never recover this list by scanning transcripts. The Files tab uses compact rows,
+newest at the bottom, with anchored scroll-up paging and live append that follows
+only a reader already at the bottom (USER 2026-10-24). See
+[agent files](../rust-engine/agent-files.md).
 [decided: user 2026-10-23, release after 4.4.2; verified: domain/deliveries.rs]
 
 ## Object actions belong to a composer (2026-10-22)

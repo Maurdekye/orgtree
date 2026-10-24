@@ -16,9 +16,16 @@ does not read a transcript, touch snapshots or mutate delivery state. File
 downloads retain existing snapshot-path authorization. Hub transfer jobs are
 separate and intentionally excluded.
 
-The agent desk Files tab shows name, size, delivery time and note with the
-existing file download/image behavior. Pages load on demand; refresh begins at
-the newest page. Older metadata does not imply externally removed bytes exist.
-Project presentations and their existing placement are unchanged.
+The agent desk Files tab uses compact rows in chronological display order:
+newest at the bottom, opening there, with name, size, time, snapshot Download
+and image View. The filename hover retains the delivery note. Scroll-up loads
+older pages automatically, retaining a visible-row anchor. Live pages merge
+without discarding older rows; the view follows new arrivals only at the bottom.
+A live bump during a request queues a refresh; multi-page arrival bursts catch
+up to the retained history before merging. Refresh resets to the latest page.
+The API/tool retain their newest-first paging contract. Older metadata does not
+imply externally removed bytes exist. Project placement is unchanged.
+[decided: user 2026-10-24 m07dbc1323f5b, me76bad5e5bc4; verified:
+canvas/files.tsx, tests/files.test.tsx]
 
 [verified: domain/deliveries.rs, tools/orgview.rs, http/docs.rs; 2026-10-23]

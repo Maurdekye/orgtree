@@ -4,7 +4,7 @@ import { DownloadIcon } from '../icons'
 import { fmtBytes, ImgCardCaption, isImg } from './img'
 import { openLightbox } from './lightbox'
 
-/** One download-card renderer for transcript deliveries and retained Files. */
+/** Download-card renderer for transcript deliveries; Files uses compact rows. */
 export function SentFileCard({ slug, nid, file, eventId, quote }: {
   slug: string; nid: string; file: Pick<MailAttachment, 'name' | 'path' | 'bytes'> & { note?: string | null }
   eventId?: string; quote?: string
