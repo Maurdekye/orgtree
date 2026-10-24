@@ -39,7 +39,7 @@ export function AdvancedOrgModal({ title, close, children, tabs }: {
         )}
         {tabs ? tabs[Math.min(tab, tabs.length - 1)]?.content : children}
         <div className="row">
-          <button className="primary" type="button" onClick={close}>done</button>
+          <button className="primary" type="button" onClick={close}>Done</button>
         </div>
     </PinFrame>
   )

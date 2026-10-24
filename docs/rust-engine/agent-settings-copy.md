@@ -1,18 +1,18 @@
 # Agent settings and hire-default copy
 
 User requests, 2026-10-11 17:35–17:39Z: explain native harness tools, use
-MCP Servers for the final section, move Credit Grant into Scope, put all three
+MCP servers for the final section, move Credit Grant into Scope, put all three
 tool sections last, and align equivalent labels/descriptions with Hire Defaults.
 
 Superseding layout request, 2026-10-11 19:46Z: agent settings has a **Tools**
-tab immediately after **Scope**. Native Tools, Orgtree Tools and MCP Servers
+tab immediately after **Scope**. Native tools, Orgtree tools and MCP servers
 move there in their existing order. Scope keeps Credit Grant, Visible agents,
 File and command access, then the folder list last. Hire Defaults and draft
 permissions keep their existing form/tab structure and shared wording.
 
 Shared copy in renderer `canvas/modals.tsx` covers agent settings, org Hire
 Defaults and draft permissions. Equivalent fields use Folders, Visible agents,
-File and command access, Account, Native Tools, Orgtree Tools and MCP Servers.
+File and command access, Account, Native tools, Orgtree tools and MCP servers.
 Visibility and permission options share labels while retaining their saved values.
 Agent-only model/session controls have no Hire Defaults equivalent. Hire Defaults'
 Provider chooses the default account's provider, not an agent model. Future-hire
@@ -20,7 +20,7 @@ scope notes and existing org folder revocation/downgrade effects remain explicit
 Agent actions retains individual actions in settings and organization-wide retirement
 in Hire Defaults. The latter appears before scope controls so tool sections are last.
 
-Native Tools explains: “Tools built into the agent's native harness, such as Claude
+Native tools explains: “Tools built into the agent's native harness, such as Claude
 Code, Codex or Antigravity.” Each toggle has its own subtitle:
 
 | Toggle | Subtitle |

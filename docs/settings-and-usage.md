@@ -1,6 +1,6 @@
-#Settings use sentence case for names, descriptions/help text and section headings. Proper nouns, product names, acronyms and literal identifiers keep their spelling (for example Claude Code, Codex, Hubchat, MCP and `org.md`).
+# Settings, usage and shortcuts
 
- Settings, usage and shortcuts
+Settings use sentence case for names, descriptions/help text, section headings and settings-screen buttons. Proper nouns, product names, acronyms and literal identifiers keep their spelling (for example Claude Code, Codex, Hubchat, MCP and `org.md`).
 
 [Documentation](../README.md#documentation) · [Previous: Messages and work](messages-and-work.md) · [Next: Providers, models and tools](providers-and-tools.md)
 

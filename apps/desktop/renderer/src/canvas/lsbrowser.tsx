@@ -221,7 +221,7 @@ export function LangServerBrowser({ title, live, models, missing, picked, minCon
                 disabled={busy || (!on && !r.m)}
                 title={on ? 'Withdraw: it can no longer be hired; agents already on it keep running' : 'Offer this model to new hires'}
                 onClick={() => onPick(r.id, on ? null : startWindow(r.m!, defaultContext))}>
-                {on ? '✓ offered' : 'offer'}</button>
+                {on ? '✓ Offered' : 'Offer'}</button>
               {r.m && variant?.(r.m)}
             </div>
           )

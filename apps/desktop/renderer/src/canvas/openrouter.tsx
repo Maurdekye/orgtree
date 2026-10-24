@@ -232,8 +232,8 @@ export function OpenRouterSection({ provider, headRight, toast, pickerOpen,
             }
           })}
           more={{
-            text: favorites.length ? undefined : 'pick the models that can be hired',
-            title: 'search the OpenRouter catalog for more models that can be hired',
+            text: favorites.length ? undefined : 'Pick the models that can be hired',
+            title: 'Search the OpenRouter catalog for more models that can be hired',
             open: pickerOpen, onClick: () => setPickerOpen(true),
           }} />
       )}
@@ -365,7 +365,7 @@ export function ModelPicker({ doc, busy, onToggle, onClose }: {
             Ordered by {SORT_LABEL[page.sort]}, not by how well rows match “{page.query}”
             {' '}<button type="button" className="linkish"
               onClick={() => { setSort('relevance'); setOffset(0) }}>
-              sort by best match</button>
+              Sort by best match</button>
           </div>
         )}
         {/* costs nothing to say, and it turns "we added a sort" into "we

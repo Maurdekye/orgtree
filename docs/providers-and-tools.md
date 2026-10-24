@@ -122,7 +122,7 @@ Configure an external MCP server in an installed harness's own user configuratio
 
 The inventory shows names, sources and transport. Equal definitions merge their source labels; different definitions with the same name receive aliases. Select the alias shown instead of guessing a suffix. Native OAuth/private settings are not automatically portable, so a remote server may need authentication in the destination harness.
 
-Grant discovered names through **Agent settings > Tools > MCP Servers**, or use org hire defaults for future agents. A superior must hold the server or a wildcard. **All registered servers** in hire defaults includes future registrations; an explicit checked list does not. Refresh alone changes neither grants nor every running agent's server connections. Changed startup configuration applies at the permitted process boundary.
+Grant discovered names through **Agent settings > Tools > MCP servers**, or use org hire defaults for future agents. A superior must hold the server or a wildcard. **All registered servers** in hire defaults includes future registrations; an explicit checked list does not. Refresh alone changes neither grants nor every running agent's server connections. Changed startup configuration applies at the permitted process boundary.
 
 The shared Refresh independently updates MCP definitions, skills and global instructions. A partial success retains successful sources and names failures. A metadata count is not proof that a model loaded or used a tool. If a tool is absent, check discovery, alias, effective grant and destination authentication separately. Use a human MCP question card only for the specific request it describes.
 

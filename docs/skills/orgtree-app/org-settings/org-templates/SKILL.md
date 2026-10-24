@@ -7,7 +7,7 @@ Up: [orgtree-org-settings](../SKILL.md)
 
 # Save as template
 
-**Org settings > Basic > Templates > save as template…** opens
+**Org settings > Basic > Templates > Save as template…** opens
 `action:save-as-template`. It saves this org's live agent layout into a JSON
 file in `~/.orgtree/templates`, independently of ordinary setting edits. It reads the
 current stored org, not unsaved edits in the settings panel. Agents suggest
@@ -57,7 +57,7 @@ has no node-count or tree-depth limit and reports other layout problems. A saved
 is not proof that its model/account choices can run on a different computer.
 
 After saving, the dialog shows filename, agent count and path, with **Download**,
-**open templates folder** and **close**. The file is offered under Starting
+**Open templates folder** and **Close**. The file is offered under Starting
 layout when creating an org. Suggest this for reusing a known team structure;
 leave machine-specific groups off for portable layouts.
 

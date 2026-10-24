@@ -2573,7 +2573,7 @@ export function NewOrg({ onCreate }: {
           must not lose), one modal shape shared with the ⚙ settings panel */}
       <button type="button" className="disclosure" aria-expanded={advanced}
         onClick={() => setAdvanced(true)}>
-        <ChevronRightIcon fontSize="inherit" /> advanced…
+        <ChevronRightIcon fontSize="inherit" /> Advanced…
         {(dirs.length > 0 || netAuto || netHubs.length > 0) && (
           <span className="dim adv-sum"> · {[
             dirs.length ? `${dirs.length} folder${dirs.length > 1 ? 's' : ''}` : '',
@@ -2616,7 +2616,7 @@ export function NewOrg({ onCreate }: {
                       </div>
                     ))}
                     <button type="button" onClick={() => setNetHubs((l) => [...l, ''])}>
-                      + add a remote mail hub address</button>
+                      + Add a remote mail hub address</button>
                     <div className="dim hub-hint">Names are discovered on
                       connect — only the address is typed</div>
                   </>
@@ -2626,8 +2626,8 @@ export function NewOrg({ onCreate }: {
           ]} />
       )}
       <div className="row">
-        <button type="submit" className="primary">create</button>
-        <button type="button" onClick={reset}>cancel</button>
+        <button type="submit" className="primary">Create</button>
+        <button type="button" onClick={reset}>Cancel</button>
       </div>
     </form>
   )
@@ -2673,7 +2673,7 @@ function AutonomyTab({ tree, toast }: {
                 onClick={() => resumeFrozen(tree.slug)
                   .then((r) => toast([`resumed ${r.resumed.length} agent(s)`]))
                   .catch((e: Error) => toast([`error: ${e.message}`]))}>
-                <PlayIcon fontSize="inherit" /> resume {frozen.length} frozen agent{frozen.length === 1 ? '' : 's'} now
+                <PlayIcon fontSize="inherit" /> Resume {frozen.length} frozen agent{frozen.length === 1 ? '' : 's'} now
               </button>
             </div>
           : <div className="dim hub-hint">No agents are frozen right now</div>

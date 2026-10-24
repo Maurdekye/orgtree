@@ -7,11 +7,11 @@ Up: [orgtree-agent-settings](../SKILL.md)
 
 # Tools tab
 
-These are per-agent scope settings: `node:tools`, `node:tools.orgtree` and `node:tools.mcp`. The tab has Native Tools, Orgtree Tools and MCP Servers, in that order. Agents explain or suggest grants; they do not change settings themselves.
+These are per-agent scope settings: `node:tools`, `node:tools.orgtree` and `node:tools.mcp`. The tab has Native tools, Orgtree tools and MCP servers, in that order. Agents explain or suggest grants; they do not change settings themselves.
 
 The field starts from the agent's configured tools. Missing bash/web/edit/subagents switches normalize on; missing `orgtree_disabled` normalizes off, missing Orgtree groups normalize on, and a missing MCP list normalizes to empty. Those normalization defaults are bounded by the superior's effective scope; they do not authorize an unavailable capability. Tool changes wait for Save; see [orgtree-agent-config](../agent-config/SKILL.md) for process and cache effects.
 
-## Native Tools
+## Native tools
 
 | Toggle | Key | Purpose |
 |---|---|---|
@@ -23,7 +23,7 @@ The field starts from the agent's configured tools. Missing bash/web/edit/subage
 
 These control tools built into the harness, such as Claude Code or Codex. Helper agents are distinct from persistent Orgtree hires. A native switch is disabled if the superior lacks it, and the hint says why. A checkmark is not a promise the chosen harness implements every possible tool; enforcement and availability depend on that harness. Folder grants and file/command permission mode also apply.
 
-## Orgtree Tools
+## Orgtree tools
 
 | Group label | `tools.orgtree` key | Purpose |
 |---|---|---|
@@ -56,7 +56,7 @@ the same ceiling as other groups. Enabled agents at any depth need neither a use
 an org-inbox audience to change their own org's Logo. Details and file/crop limits:
 `orgtree-tool-org-logo` (orgtree-working › team).
 
-## MCP Servers
+## MCP servers
 
 The list shows registered external servers, with imported harness sources and transport where known. No servers produces **No MCP servers registered**. A server is selectable only if the superior holds that server or the `*` wildcard. A checked row means it is selected and within that ceiling; a disabled row explains the superior's missing permission.
 

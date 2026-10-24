@@ -46,10 +46,10 @@ export function CharterDocumentsSetting() {
     <SetRow label="Populate missing documents"
       hint="Copies the bundled charter presets into your charter folder. Files you already have are never changed.">
       <button onClick={run} disabled={busy}>
-        {busy ? 'populating…' : 'populate'}
+        {busy ? 'Populating…' : 'Populate'}
       </button>
       <button onClick={openFolder} disabled={openBusy} aria-label="Open charter folder" title="Open charter folder">
-        {openBusy ? 'opening…' : 'open folder'}
+        {openBusy ? 'Opening…' : 'Open folder'}
       </button>
     </SetRow>
     {error && <p role="alert">Charter documents were not populated: {error} — press again to retry.</p>}
@@ -167,7 +167,7 @@ export function CharterTemplateDirsSetting() {
             onClick={() => { void pickFolder().then(r => { if (r.path) add(r.path) }).catch(() => {}) }}>
             <FolderIcon fontSize="inherit" /></button>
           <button type="button" className="addrow" disabled={busy || data === null || !newPath.trim()}
-            onClick={() => add(newPath)}>add</button>
+            onClick={() => add(newPath)}>Add</button>
         </div>
       </div>
       {data && data.duplicates.length > 0 && (

@@ -7,7 +7,7 @@ Up: [orgtree-app](../SKILL.md)
 
 # App settings
 
-Every setting name, description/help text and section heading uses sentence case. Preserve proper nouns, product names, acronyms and literal identifiers such as org.md.
+Every setting name, description/help text, section heading and settings-screen button label uses sentence case. Preserve proper nouns, product names, acronyms and literal identifiers such as org.md.
 Open the Orgtree menu and choose App settings. These controls apply across organizations on this machine; defaults for new organizations seed later creations. Open the individual leaf for its save behavior, defaults and application timing. Agents explain and suggest changes; the user operates the controls.
 
 ## Pin, pop out and open at a section

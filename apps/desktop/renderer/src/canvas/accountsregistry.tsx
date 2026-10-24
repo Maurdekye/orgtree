@@ -85,7 +85,7 @@ function AccountMarks({ row, toast }: { row: AccountRow; toast: ToastFn }) {
       {poolLabel(m.pool)} limited until {new Date(m.until * 1000).toLocaleString()} (in {spanText(m.remaining_s)})
       {' · '}{m.provenance === 'inferred' ? 'inferred' : m.provenance === 'observed' ? 'observed' : 'provenance not recorded'}
       {m.age_s !== null ? ` · recorded ${spanText(m.age_s)} ago` : ''}
-      {' '}<button onClick={() => setConfirm(m)}>clear…</button>
+      {' '}<button onClick={() => setConfirm(m)}>Clear…</button>
     </p>)}
     {confirm && <ClearMarkDialog row={row} mark={confirm} toast={toast} reload={load}
       close={() => setConfirm(null)} />}
@@ -335,7 +335,7 @@ export function AccountRegistrySection({ provider, registry, toast, native }: {
           {login && <ProviderSignIn provider={login} connected={row.standing.auth === 'authenticated'} toast={toast}
             profileDir={row.credential.default_config ? undefined : row.credential.path} accountId={row.id}
             onRefresh={() => { void refresh(row) }} />}
-          <button disabled={busy !== null} onClick={() => { void refresh(row) }}>refresh</button>
+          <button disabled={busy !== null} onClick={() => { void refresh(row) }}>Refresh</button>
           {/* ⚠ NO LONGER DISABLED BY ITS BINDINGS (user ticket 2026-09-21).
               Requiring every agent to be reassigned by hand first made this
               control unusable — the bindings to clear included archived
@@ -348,7 +348,7 @@ export function AccountRegistrySection({ provider, registry, toast, native }: {
                   ? `Remove this account and move its ${row.bound.length} agent(s) to a Muse login that offers their model (the default account first); one no login can run waits frozen`
                   : `Remove this account and move its ${row.bound.length} agent(s) to the ${LABELS[provider]} default account`
                 : 'Remove this account'}
-            onClick={() => { void remove(row) }}>remove</button>
+            onClick={() => { void remove(row) }}>Remove</button>
         </div>
         <AccountMarks row={row} toast={toast} />
         {row.origin_org && <div className="dim">Available only to {row.origin_org}</div>}

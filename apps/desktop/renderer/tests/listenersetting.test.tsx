@@ -163,7 +163,7 @@ async function gear(t: TestContext, nd: CanvasNode) {
   return { view, ops }
 }
 const save = async () => {
-  const b = [...document.querySelectorAll('button')].find((x) => x.textContent === 'save')!
+  const b = [...document.querySelectorAll('button')].find((x) => x.textContent === 'Save')!
   await inAct(async () => { b.click(); await flush(4) })
 }
 

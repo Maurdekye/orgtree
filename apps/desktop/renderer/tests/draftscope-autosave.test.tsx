@@ -38,7 +38,7 @@ test('draft gear persists each change without Apply, stays open, and reopens the
   await click(panel().querySelector('[aria-label="Disabled by Orgtree"]'))
   assert.equal(staged?.scope?.tools.orgtree_disabled, true, 'change reaches the owning draft immediately')
   assert.equal(document.querySelector('.settings') !== null, true, 'saving keeps the menu open')
-  assert.equal([...panel().querySelectorAll('button')].some(b => b.textContent === 'apply'), false)
+  assert.equal([...panel().querySelectorAll('button')].some(b => /^(?:apply|save)$/i.test(b.textContent?.trim() ?? '')), false)
   const visibility = panel().querySelector<HTMLSelectElement>('[aria-label="Visible agents"]')!
   await inAct(async () => { visibility.value = 'self'; visibility.dispatchEvent(new Event('change', { bubbles: true })); await flush() })
   assert.equal(staged?.scope?.org_visibility, 'self')

@@ -91,7 +91,7 @@ function VariantButton({ model, busy, onCreate }: {
     <div className="ls-variant">
       <button type="button" className="acct-secondary-btn" disabled={busy || working}
         onClick={() => { setWorking(true); void onCreate().finally(() => setWorking(false)) }}>
-        {working ? 'creating…' : 'Create a 64K version of this model'}</button>
+        {working ? 'Creating…' : 'Create a 64K version of this model'}</button>
       <span className="dim">
         Adds <span className="mono">{variantName(model)}</span> to your Ollama: the same model with its own
         64K window, nothing downloaded</span>
@@ -422,7 +422,7 @@ function AddServerForm({ doc, busy, toast, onCancel, onAdd }: {
       <div className="ls-find">
         <button type="button" className="acct-secondary-btn" disabled={busy || probing || !address.trim()}
           onClick={findModels}>
-          {probing ? 'asking the server…' : probe ? 'ask again' : 'Find models'}
+          {probing ? 'Asking the server…' : probe ? 'Ask again' : 'Find models'}
         </button>
         {probe && !probe.reachable && <span className="ask-warn">{probe.error}</span>}
         {probe?.reachable && <span className="dim">
@@ -750,7 +750,7 @@ function ServerCard({ server: s, doc, busy, toast, run }: {
             <div className="acct-provider-tier-title">Models</div>
             <ModelChips ids={Object.keys(draft.picked)} windows={draft.picked} label={`Choose ${s.label}'s models`}
               open={browsing} onOpen={openBrowser}
-              hint={Object.keys(draft.picked).length ? 'Click to change' : '+ choose the models to offer'} />
+              hint={Object.keys(draft.picked).length ? 'Click to change' : '+ Choose the models to offer'} />
           </div>
           <div className="ls-actions">
             <button type="button" className="acct-secondary-btn"

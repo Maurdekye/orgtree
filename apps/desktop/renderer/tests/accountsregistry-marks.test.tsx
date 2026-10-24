@@ -87,13 +87,13 @@ test('an account row lists its mark with pool, reset, provenance and age', async
   assert.match(text, /Haiku\/Sonnet\/Opus limited until/)
   assert.match(text, /observed/)
   assert.match(text, /recorded 10m ago/)
-  assert.ok(button(rowFor('claude-4'), 'clear…'))
-  assert.equal(button(rowFor('claude-0'), 'clear…'), undefined, 'no mark, no control')
+  assert.ok(button(rowFor('claude-4'), 'Clear…'))
+  assert.equal(button(rowFor('claude-0'), 'Clear…'), undefined, 'no mark, no control')
 })
 
 test('the dialog names the exact mark and warns; cancel sends nothing', async t => {
   const { posts } = await setup(t)
-  await click(button(rowFor('claude-4'), 'clear…'))
+  await click(button(rowFor('claude-4'), 'Clear…'))
   const d = dialog()!
   assert.ok(d, 'confirmation opened')
   assert.match(d.textContent!, /claude-4/)
@@ -109,7 +109,7 @@ test('the dialog names the exact mark and warns; cancel sends nothing', async t 
 
 test('confirm posts the mark exactly as shown and reports the clear', async t => {
   const { posts, notices } = await setup(t)
-  await click(button(rowFor('claude-4'), 'clear…'))
+  await click(button(rowFor('claude-4'), 'Clear…'))
   await click(button(dialog()!, /^Clear Haiku\/Sonnet\/Opus mark on claude-4$/))
   assert.equal(posts.length, 1)
   const shown = mark(NOW + 7200)
@@ -119,12 +119,12 @@ test('confirm posts the mark exactly as shown and reports the clear', async t =>
   assert.equal(posts[0].body.pool, 'pooled')
   assert.equal(dialog(), null)
   assert.match(notices.flat().join(' '), /mark cleared\. Frozen agents still need to be resumed/)
-  assert.equal(button(rowFor('claude-4'), 'clear…'), undefined, 'list re-read after the clear')
+  assert.equal(button(rowFor('claude-4'), 'Clear…'), undefined, 'list re-read after the clear')
 })
 
 test('a mark that changed meanwhile is not cleared; the dialog shows it and asks again', async t => {
   const { posts } = await setup(t, { changeOnFirstClear: true })
-  await click(button(rowFor('claude-4'), 'clear…'))
+  await click(button(rowFor('claude-4'), 'Clear…'))
   await click(button(dialog()!, /^Clear /))
   const d = dialog()!
   assert.ok(d, 'dialog stays open')

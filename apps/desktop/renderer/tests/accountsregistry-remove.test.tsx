@@ -69,7 +69,7 @@ const lane = () => document.querySelector('.prov-claude')!.closest('.acct-provid
 const rowFor = (id: string) => [...lane().querySelectorAll('.account-row')]
   .find(r => r.textContent?.includes(id))
 const removeIn = (root: ParentNode) =>
-  [...root.querySelectorAll('button')].find(b => b.textContent === 'remove')!
+  [...root.querySelectorAll('button')].find(b => b.textContent === 'Remove')!
 
 test('remove is live on an account with bound agents and says what will move', async t => {
   await setup(t)

@@ -221,7 +221,7 @@ test('§3 the browser holds 302 models: offered ones pinned first, 25 a page, se
     assert.equal(dialog.querySelector('.ls-count')?.textContent, '302 models on the server')
     // the plain model's row says what Ollama really runs it with
     assert.ok(dialog.querySelector('.orr-row .ls-mismatch')?.textContent?.includes('the server runs it with 4K'))
-    const search = dialog.querySelector<HTMLInputElement>('input[aria-label="search the server\'s models"]')!
+    const search = dialog.querySelector<HTMLInputElement>('input[aria-label="Search the server\'s models"]')!
     await typeInto(search, 'model-29')
     assert.deepEqual(names(), Array.from({ length: 10 }, (_, i) => `model-29${i}:7b`))
     assert.equal(dialog.querySelector('.ls-count')?.textContent, '10 of 302 models match')
@@ -245,7 +245,7 @@ test('§3 the browser holds 302 models: offered ones pinned first, 25 a page, se
     await click(dialog.querySelector(`.orr-selected button[aria-label="withdraw ${LATEST}"]`))
     assert.equal(h3(), 'Models on Ollama · 2 offered')
     assert.equal(seen.filter((r) => r.method === 'PATCH').length, 0, 'nothing is sent from the browser')
-    await click([...dialog.querySelectorAll('.orr-pager button')].find((b) => b.textContent === 'done'))
+    await click([...dialog.querySelectorAll('.orr-pager button')].find((b) => b.textContent === 'Done'))
     await click([...document.querySelectorAll('.ls-edit button')].find((b) => b.textContent === 'Save'))
     const patch = seen.find((r) => r.method === 'PATCH')
     assert.deepEqual(patch?.body, { models: [{ id: LATEST, offered: false }, { id: 'model-000:7b', offered: true, context: 32768 }] })
@@ -373,7 +373,7 @@ test('§8 "+" opens the browser saving at once: an offer when clicked, a window 
     assert.deepEqual(patches()[2], { models: [{ id: 'model-000:7b', offered: true, context: 131072 }] }, 'leaving the field sends it')
     await click(dialog.querySelector(`.orr-selected button[aria-label="withdraw ${LATEST}"]`))
     assert.deepEqual(patches()[3], { models: [{ id: LATEST, offered: false }] })
-    await click([...dialog.querySelectorAll('.orr-pager button')].find((b) => b.textContent === 'done'))
+    await click([...dialog.querySelectorAll('.orr-pager button')].find((b) => b.textContent === 'Done'))
     assert.equal(document.querySelector('[aria-label="Language model server model selection"]'), null, 'done closes it')
     assert.deepEqual(pressed(view.el), [['model-000:7b', 'true'], [LATEST, 'false'], [V64, 'true']], 'the card follows')
   } finally { await view.unmount(); delete g.fetch }
@@ -384,7 +384,7 @@ test('add dialog: adding a server opens a separate dialog; Cancel discards and S
   const seen: Seen[] = []
   stubFetch(seen)
   const view = await mountSection([])
-  const add = () => view.el.querySelector('button[title^="add a model server"]')
+  const add = () => view.el.querySelector('button[title^="Add a model server"]')
   const dialog = () => document.querySelector('[role="dialog"][aria-label="Add language model server"]')
   try {
     assert.equal(dialog(), null)
@@ -528,7 +528,7 @@ test('add dialog harness: installed first, a separator, the not-installed one gr
   ] })
   const view = await mountSection([])
   try {
-    await click(view.el.querySelector('button[title^="add a model server"]'))
+    await click(view.el.querySelector('button[title^="Add a model server"]'))
     const dialog = document.querySelector('[role="dialog"][aria-label="Add language model server"]')!
     const sel = dialog.querySelector<HTMLSelectElement>('select[aria-label="Harness"]')!
     const opts = [...sel.querySelectorAll('option')]

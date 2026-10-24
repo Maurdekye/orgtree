@@ -25,12 +25,12 @@ export function DirList({ dirs, onChange }: {
       ))}
       <div className="dirrow">
         <button type="button" className="addrow"
-          onClick={() => onChange([...dirs, ''])}>+ add folder</button>
+          onClick={() => onChange([...dirs, ''])}>+ Add folder</button>
         <button type="button" className="addrow" title="Browse for a folder to add"
           onClick={() => pickFolder().then((r) => {
             const p = r.path
             if (p) onChange([...dirs, p])
-          }).catch(() => {})}><FolderIcon fontSize="inherit" /> browse</button>
+          }).catch(() => {})}><FolderIcon fontSize="inherit" /> Browse</button>
       </div>
     </div>
   )

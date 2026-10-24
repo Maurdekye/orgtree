@@ -76,4 +76,4 @@ Every hire strip also has a **project token**: a square with a folder icon in th
 
 ## Native replacement-tool exception
 
-Fresh ordinary drafts always start Disabled by Orgtree off, even when the parent holds it. The optional tools.orgtree_disabled boolean requires an explicit selection in Native Tools and remains parent-clamped. Its hint lists coverage for the selected harness, or the per-harness summary before a custom route is resolved. Superior-insertion drafts retain their existing inherited, non-editable scope.
+Fresh ordinary drafts always start Disabled by Orgtree off, even when the parent holds it. The optional tools.orgtree_disabled boolean requires an explicit selection in Native tools and remains parent-clamped. Its hint lists coverage for the selected harness, or the per-harness summary before a custom route is resolved. Superior-insertion drafts retain their existing inherited, non-editable scope.

@@ -328,7 +328,7 @@ function DeskTextSize() {
         {Math.round(dpi * 100)}%</span>
       <button aria-label="Larger desk text" onClick={() => apply(dpi + 0.25)}
         disabled={dpi >= 2.5}>+</button>
-      <button onClick={() => apply(1)} disabled={dpi === 1}>reset</button>
+      <button onClick={() => apply(1)} disabled={dpi === 1}>Reset</button>
     </SetRow>
   )
 }
@@ -795,7 +795,7 @@ export function AccountsPanel({ toast, close, initialTab, target }: {
       <AboutSection appVersion={appVersion} />
     </SettingsTabPanel>
     <SettingsTabPanel id="providers" idBase="app-settings" active={tab === 'providers'}>
-      {registry.error && <p className="ask-warn" role="alert">Could not load the account list: {registry.error} <button onClick={() => { void registry.reload() }}>retry</button></p>}
+      {registry.error && <p className="ask-warn" role="alert">Could not load the account list: {registry.error} <button onClick={() => { void registry.reload() }}>Retry</button></p>}
       {!providers && !error && <p className="dim">Detecting harnesses…</p>}
       {providers && (
         <div className="acct-providers-bar" role="status">
@@ -811,7 +811,7 @@ export function AccountsPanel({ toast, close, initialTab, target }: {
             onClick={() => { void loadProviders(true) }}
           >
             <AutorenewIcon fontSize="inherit" className={discovering ? 'cc-spin' : undefined} />
-            <span>{discovering ? 'refreshing…' : 'refresh'}</span>
+            <span>{discovering ? 'Refreshing…' : 'Refresh'}</span>
           </button>
         </div>
       )}

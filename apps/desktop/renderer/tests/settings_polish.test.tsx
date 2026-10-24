@@ -41,9 +41,9 @@ test('Charter documents setting: layout, open folder action, and error states', 
   try {
     const buttons = view.el.querySelectorAll<HTMLButtonElement>('button')
     assert.equal(buttons.length, 2, 'two buttons rendered in charter settings row')
-    assert.match(buttons[0]!.textContent ?? '', /populate/, 'first button is populate for compatibility')
-    assert.match(buttons[1]!.textContent ?? '', /open folder/, 'second button is open folder')
-    assert.equal(buttons[1]!.getAttribute('aria-label'), 'open charter folder')
+    assert.match(buttons[0]!.textContent ?? '', /Populate/, 'first button is populate for compatibility')
+    assert.match(buttons[1]!.textContent ?? '', /Open folder/, 'second button is open folder')
+    assert.equal(buttons[1]!.getAttribute('aria-label'), 'Open charter folder')
 
     // Test successful open
     await inAct(async () => {
@@ -160,9 +160,9 @@ test('Providers tab: compact refresh bar, secondary button styling, and discover
     const refreshBtn = bar.querySelector<HTMLButtonElement>('.acct-refresh-btn')
     assert.ok(refreshBtn, 'refresh button exists in providers bar')
     assert.ok(refreshBtn.classList.contains('acct-secondary-btn'), 'refresh button uses acct-secondary-btn styling')
-    assert.equal(refreshBtn.getAttribute('aria-label'), 'refresh provider status')
-    assert.equal(refreshBtn.getAttribute('title'), 'refresh provider status')
-    assert.match(refreshBtn.textContent ?? '', /refresh/)
+    assert.equal(refreshBtn.getAttribute('aria-label'), 'Refresh provider status')
+    assert.equal(refreshBtn.getAttribute('title'), 'Refresh provider status')
+    assert.match(refreshBtn.textContent ?? '', /Refresh/)
 
     // Click refresh
     const prevCalls = loadProvidersCalls

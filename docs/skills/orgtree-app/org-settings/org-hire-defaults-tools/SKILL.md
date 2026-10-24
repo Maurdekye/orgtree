@@ -13,7 +13,7 @@ saved tool grants. Agents explain/suggest; the user edits. They save automatical
 permissions still apply; see `orgtree-scope-and-permissions`
 (orgtree-working › team).
 
-## Native Tools
+## Native tools
 
 The four engine defaults are true:
 
@@ -28,7 +28,7 @@ These grant the capabilities the selected harness exposes; a toggle is not a
 promise that every harness implements the same native tools. Suggest disabling
 capabilities that future agents do not need.
 
-## Orgtree Tools
+## Orgtree tools
 
 `org:default_tools.orgtree` contains the following boolean groups. Missing
 groups default to enabled; all eight start enabled in effective scope.
@@ -49,7 +49,7 @@ reporting remains available. The endpoint refuses unknown group names or
 non-boolean group values. Suggest groups according to the future agent's task,
 remembering combined prerequisites such as staffing.
 
-## MCP Servers
+## MCP servers
 
 `org:default_tools.mcp` is a list of registered external server names. The
 engine default is **empty**: no external servers. The UI's wildcard fallback

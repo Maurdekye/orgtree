@@ -544,7 +544,7 @@ export function HireDefaultsTab({ tree, slug, toast, close,
         <SetBlock hint="Retire all agents in this organization. Context is kept; rehire restores any of them.">
           <div className="row">
             <button className="danger" onClick={() => setAsking(true)}>
-              dissolve all agents</button>
+              Dissolve all agents</button>
           </div>
         </SetBlock>
       </SetGroup>
@@ -588,7 +588,7 @@ export function HireDefaultsTab({ tree, slug, toast, close,
                   setDirs([...dirs, { path: newPath.trim(), mode: 'rw' }])
                   setNewPath('')
                 }
-              }}>add</button>
+              }}>Add</button>
             </div>
           </div>
         </SetBlock>
@@ -666,7 +666,7 @@ export function HireDefaultsTab({ tree, slug, toast, close,
       {asking && (
         <ModalOverPins><ConfirmModal title="Dissolve all agents?"
           body="Every agent in the entire org is retired at once. Context is kept; rehire brings any of them back."
-          confirmLabel="dissolve all"
+          confirmLabel="Dissolve all"
           onConfirm={() => dissolveAll(slug)
             .then((r) => { toast([`dissolved ${r.nodes} node(s), freed ${fmtCredits(r.freed)} credits`]); close() })
             .catch((e: Error) => toast([`error: ${e.message}`]))}
@@ -843,7 +843,7 @@ export function DraftScopeModal({ draft, map, tree, scope, onSave, close, accoun
                 setDirs([...dirs, { path: newPath.trim(), mode: 'rw' }])
                 setNewPath('')
               }
-            }}>add</button>
+            }}>Add</button>
           </div>
         </div>
         <div className="field-label">Visible agents</div>
@@ -1253,16 +1253,16 @@ function ProjectConfig({node,map,tree,slug,op,toast,onScratchFolder,refs,onFocus
           onChange={(e) => setName(e.target.value)} />
         {name !== node.id && <button onClick={() => op({ op: 'rename', node: node.id, name })
           .then((r) => { toast([`renamed ${node.id} → ${String(r?.node ?? name)}`]); close() })
-          .catch((e: Error) => toast([`error: ${e.message}`]))}>rename</button>}
+          .catch((e: Error) => toast([`error: ${e.message}`]))}>Rename</button>}
       </span>
     </SetRow>
     <SetRow label="Project actions" hint="Retire or restore the project; agents under it are retired with it and keep their context.">
       <span className="agent-identity-row">
-        {live && !members && <button className="danger" onClick={() => setAsking('retire')}>retire project</button>}
-        {live && members && <button className="danger" onClick={() => setAsking('dissolve')}>dissolve</button>}
+        {live && !members && <button className="danger" onClick={() => setAsking('retire')}>Retire project</button>}
+        {live && members && <button className="danger" onClick={() => setAsking('dissolve')}>Dissolve</button>}
         {node.state === 'archived' && <button className="primary" onClick={() =>
-          op({ op: 'rehire', node: node.id }).then(close).catch(() => {})}>restore</button>}
-        <button className="danger delete" onClick={() => setAsking('delete')}><DeleteIcon fontSize="inherit" /> delete permanently</button>
+          op({ op: 'rehire', node: node.id }).then(close).catch(() => {})}>Restore</button>}
+        <button className="danger delete" onClick={() => setAsking('delete')}><DeleteIcon fontSize="inherit" /> Delete permanently</button>
       </span>
     </SetRow>
     <SettingsTabs tabs={[{ id: 'project' as const, label: 'Project' }, ...(hasHistory ? [{ id: 'history' as const, label: 'History' }] : [])]}
@@ -1290,16 +1290,16 @@ function ProjectConfig({node,map,tree,slug,op,toast,onScratchFolder,refs,onFocus
         <AgentHistoryView slug={slug} nid={node.id} refs={refs} history={history} />
       </AgentDirectoryProvider>
     </SettingsTabPanel>}
-    <div className="row"><button className="primary" disabled={busy} onClick={() => { void save() }}>save</button>
-      <button onClick={close}>cancel</button></div>
+    <div className="row"><button className="primary" disabled={busy} onClick={() => { void save() }}>Save</button>
+      <button onClick={close}>Cancel</button></div>
     {asking && <ModalOverPins>
       {asking === 'retire' && <ConfirmModal title={`Retire project ${node.id}?`}
         body="It leaves the tree with its folder, mailbox and presentations kept; restore brings it back where it was."
-        confirmLabel="retire" onConfirm={() => op({ op: 'retire', node: node.id }).then(close).catch(() => {})}
+        confirmLabel="Retire" onConfirm={() => op({ op: 'retire', node: node.id }).then(close).catch(() => {})}
         close={() => setAsking(null)} />}
       {asking === 'dissolve' && <ConfirmModal title={`Dissolve ${node.id}?`}
         body="Every agent under it is retired with it. Context is kept; rehire brings each back."
-        confirmLabel="dissolve" onConfirm={() => op({ op: 'dissolve', node: node.id }).then(close).catch(() => {})}
+        confirmLabel="Dissolve" onConfirm={() => op({ op: 'dissolve', node: node.id }).then(close).catch(() => {})}
         close={() => setAsking(null)} />}
       {asking === 'delete' && <DeleteNodeConfirm node={node} tree={tree} slug={slug}
         onConfirm={() => op({ op: 'delete', node: node.id }).then(close).catch(() => {})}
@@ -1671,7 +1671,7 @@ function AgentConfig({ node, map, tree, slug, op, toast, claudeProvider, codexPr
                     close()
                   })
                   .catch((e: Error) => toast([`error: ${e.message}`]))}>
-                rename</button>
+                Rename</button>
             )}
           </span></SetRow>
         )}
@@ -1679,22 +1679,22 @@ function AgentConfig({ node, map, tree, slug, op, toast, claudeProvider, codexPr
         <SetRow label="Agent actions" hint="Retire, restore, or permanently remove this agent."><span className="agent-identity-row">
           {node.state === 'live' &&
             <button className="danger" onClick={() => setAsking('rescind')}>
-              rescind · {fmtCredits((node.seat ?? 0) + (node.grant ?? 0))}</button>}
+              Rescind · {fmtCredits((node.seat ?? 0) + (node.grant ?? 0))}</button>}
           {/* retire asks too (user bug 2026-08-09) — it sat as the one
               seat-freeing action firing straight off the click, beside a
               dissolve button that asks */}
           {node.state === 'live' && !effectiveReports(node.children).some((c) => c.state !== 'archived') &&
             <button className="danger" onClick={() => setAsking('retire')}>
-              retire · {fmtCredits(node.seat! + node.grant!)}</button>}
+              Retire · {fmtCredits(node.seat! + node.grant!)}</button>}
           {node.state === 'live' && effectiveReports(node.children).some((c) => c.state !== 'archived') &&
             <button className="danger" onClick={() => setAsking('dissolve')}>
-              dissolve subtree · {fmtCredits(node.seat! + node.grant!)}</button>}
+              Dissolve subtree · {fmtCredits(node.seat! + node.grant!)}</button>}
           {node.state === 'archived' &&
             <button className="primary" onClick={() =>
               op({ op: 'rehire', node: node.id }).then(close).catch(() => {})}>
-              rehire (context intact)</button>}
+              Rehire (context intact)</button>}
           <button className="danger delete"
-            onClick={() => setAsking('delete')}><DeleteIcon fontSize="inherit" /> delete permanently</button>
+            onClick={() => setAsking('delete')}><DeleteIcon fontSize="inherit" /> Delete permanently</button>
         </span></SetRow>
 
         {/* Cache disclosure (user request 2026-09-04). ONE note for the
@@ -1885,7 +1885,7 @@ function AgentConfig({ node, map, tree, slug, op, toast, claudeProvider, codexPr
               }).catch(() => {})}><FolderIcon fontSize="inherit" /></button>
             <button type="button" className="addrow" onClick={() => {
               if (newPath.trim()) { setDirs([...dirs, { path: newPath.trim(), mode: 'rw' }]); setNewPath('') }
-            }}>add</button>
+            }}>Add</button>
           </div>
         </div>
 
@@ -1957,8 +1957,8 @@ function AgentConfig({ node, map, tree, slug, op, toast, claudeProvider, codexPr
             // must leave the agent exactly as it was, and a half-applied save
             // (scope written, model refused) would be worse than no dialog.
             // A within-provider switch stays a plain one-click save.
-            (asksFirst ? setAsking('crossprovider') : doSave())}>save</button>
-          <button onClick={close}>cancel</button>
+            (asksFirst ? setAsking('crossprovider') : doSave())}>Save</button>
+          <button onClick={close}>Cancel</button>
         </div>
       {/* every confirmation this panel raises is portaled out of it: nested in
           a pinned panel they would be trapped in its stacking context — see
@@ -1982,15 +1982,15 @@ function AgentConfig({ node, map, tree, slug, op, toast, claudeProvider, codexPr
               ? `${node.id} is running on ${PROVIDER_LABEL[providerOf(node.tier ?? '')]} and ${tierLabel(model)} runs on ${PROVIDER_LABEL[providerOf(model)]}. Its conversation CANNOT move between providers, so ${midTurn ? 'when the switch applies it' : 'it'} will be reset from its next turn and it will not remember this conversation. The conversation is not lost: its current self is archived in place as the knowledge bearer ${node.id}@${node.generation ?? 0} — readable from the lineage panel, and rehireable there on ${PROVIDER_LABEL[providerOf(node.tier ?? '')]} to consult it. Its scratch files, breadcrumbs.md and mail all survive, and it is told to read them to pick up where it left off.`
               : '')}
           confirmLabel={midTurn
-            ? `queue the switch to ${tierLabel(model)}`
-            : `switch to ${tierLabel(model)} and reset the conversation`}
+            ? `Queue the switch to ${tierLabel(model)}`
+            : `Switch to ${tierLabel(model)} and reset the conversation`}
           onConfirm={doSave}
           close={() => setAsking(null)} />
       )}
       {asking === 'retire' && (
         <ConfirmModal title={`Retire ${node.id}?`}
           body={`It stops working and frees ${fmtCredits((node.seat ?? 0) + (node.grant ?? 0))} credit(s) back to its superior. Its context is KEPT — rehire brings it back exactly as it was.`}
-          confirmLabel="retire"
+          confirmLabel="Retire"
           onConfirm={() => op({ op: 'retire', node: node.id })
             .then(r => { if (r.history_entry) toast([`${node.id} retired`], historyUndo(slug, r)); close() }).catch(() => {})}
           close={() => setAsking(null)} />
@@ -1998,7 +1998,7 @@ function AgentConfig({ node, map, tree, slug, op, toast, claudeProvider, codexPr
       {asking === 'dissolve' && (
         <ConfirmModal title={`Dissolve ${node.id}?`}
           body="Its entire suborganization is retired with it. Context is kept; rehire brings nodes back."
-          confirmLabel="dissolve"
+          confirmLabel="Dissolve"
           onConfirm={() => op({ op: 'dissolve', node: node.id }).then(close).catch(() => {})}
           close={() => setAsking(null)} />
       )}
@@ -2007,7 +2007,7 @@ function AgentConfig({ node, map, tree, slug, op, toast, claudeProvider, codexPr
           body={isTopLevel(node, map)
             ? 'Retire this agent and its subtree. There is no superior grant to reduce. Context is kept.'
             : `Retired (subtree included), AND its superior's grant shrinks by the ${fmtCredits((node.seat ?? 0) + (node.grant ?? 0))}-credit stake — the freed headroom does not return. Rehiring this seat later needs new capacity granted from above. Context is kept.`}
-          confirmLabel="rescind"
+          confirmLabel="Rescind"
           onConfirm={() => op({ op: 'rescind', node: node.id })
             .then(close).catch(() => {})}
           close={() => setAsking(null)} />
@@ -2059,8 +2059,8 @@ export function DeleteNodeConfirm({ node, tree, slug, onConfirm, close }: {
     <div className="settings content-height" role="dialog" aria-label="Read deletion scope"
       onClick={event => event.stopPropagation()}>
       <div role={resolved?.error ? 'alert' : 'status'}>{resolved?.error ?? 'Loading full deletion scope…'}</div>
-      <div className="row"><button onClick={close}>cancel</button>
-        {resolved?.error && <button onClick={() => setAttempt(value => value + 1)}>retry</button>}</div>
+      <div className="row"><button onClick={close}>Cancel</button>
+        {resolved?.error && <button onClick={() => setAttempt(value => value + 1)}>Retry</button>}</div>
     </div>
   </div>
   return <ConfirmModal title={`Permanently delete ${node.id}?`}
@@ -2068,7 +2068,7 @@ export function DeleteNodeConfirm({ node, tree, slug, onConfirm, close }: {
       + (resolved.count ? `, plus ${resolved.count} descendant(s)` : '')
       + (resolved.gens ? ` and ${resolved.gens} prior generation(s)` : '')
       + '. Session transcripts remain on disk. This cannot be undone.'}
-    confirmLabel="delete permanently" onConfirm={onConfirm} close={close} />
+    confirmLabel="Delete permanently" onConfirm={onConfirm} close={close} />
 }
 
 type DescendantTree = { children: readonly DescendantTree[] }

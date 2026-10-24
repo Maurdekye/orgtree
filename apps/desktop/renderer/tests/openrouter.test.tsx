@@ -160,8 +160,8 @@ test('§1 no key: the section offers key entry and nothing else; adding one '
     }
     const btns = [...row.querySelectorAll<HTMLButtonElement>('.acct-main > .acct-btn')]
     assert.deepEqual(btns.map((b) => b.title.split(' — ')[0]), [
-      're-check every key and its credit standing at openrouter.ai',
-      'rename this key, choose its harness or replace it', 'remove this key'])
+      'Re-check every key and its credit standing at openrouter.ai',
+      'Rename this key, choose its harness or replace it', 'Remove this key'])
     // ⚠ `.acct-btn` is a 27px ICON button: a word in it spills out of the box
     // and over its neighbours (the 2026-09-02 overlap). Icons only, ever.
     for (const b of view.el.querySelectorAll('.acct-btn')) {
@@ -287,7 +287,7 @@ test('§2b the SELECTED list on the modal (user ask 2026-09-03): every favorite 
     assert.deepEqual(chips().map((c) => c.querySelector('.orr-card')?.textContent), ['C', 'K'])
     const xs = [...view.el.querySelectorAll<HTMLButtonElement>('.orr-selected .orr-sel-x')]
     assert.deepEqual(xs.map((b) => b.getAttribute('aria-label')),
-      ['deselect claude-sonnet-5', 'deselect kimi-k3'])
+      ['Deselect claude-sonnet-5', 'Deselect kimi-k3'])
     for (const b of xs) {
       assert.equal(b.textContent?.trim(), '', 'icon only in the small button')
       assert.ok(b.querySelector('svg'))
@@ -318,13 +318,13 @@ test('§2b the SELECTED list on the modal (user ask 2026-09-03): every favorite 
     assert.ok(view.el.querySelector('[role="dialog"] h3')?.textContent?.includes('1 selected'))
 
     // 2 · deselect from the LIST: the ✕ on kimi, never searched for
-    const x = view.el.querySelector<HTMLButtonElement>('.orr-sel-x[aria-label="deselect kimi-k3"]')!
+    const x = view.el.querySelector<HTMLButtonElement>('.orr-sel-x[aria-label="Deselect kimi-k3"]')!
     await inAct(async () => { x.click() })
     await until(() => chips().length === 0, 'the ✕ to land')
     assert.deepEqual(seen.filter((r) => r.path === '/api/openrouter/favorites').at(-1)?.body,
       { id: 'moonshotai/kimi-k3', selected: false })
     assert.deepEqual(chips(), [], 'the list is empty')
-    assert.ok(view.el.querySelector('.orr-selected .dim')?.textContent?.includes('nothing selected yet'),
+    assert.ok(view.el.querySelector('.orr-selected .dim')?.textContent?.includes('Nothing selected yet'),
       'the empty state says so')
     assert.deepEqual(rows().map(isOn), [false, false, false], "kimi's search row reads deselected")
     assert.equal(view.el.querySelectorAll('.orr-favs .orr-tog.on').length, 0)
@@ -544,7 +544,7 @@ test('key dialog Cancel and Escape discard unsaved secrets without changing the 
   stubFetch(seen, { keySet: true })
   const view = await mountSection({ open: false })
   try {
-    const edit = view.el.querySelector<HTMLButtonElement>('button[title^="rename this key"]')!
+    const edit = view.el.querySelector<HTMLButtonElement>('button[title^="Rename this key"]')!
     await inAct(async () => { edit.click(); await flush(3) })
     const dialog = document.querySelector('[role="dialog"][aria-label="Edit sk-or-v1-abc…xyz"]')!
     assert.ok(dialog)

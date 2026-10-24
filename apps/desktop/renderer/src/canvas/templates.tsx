@@ -41,10 +41,10 @@ export function TemplateDocumentsSetting() {
     <SetRow label="Restore default templates"
       hint="Writes back the built-in templates (devteam (claude), devteam (codex), devteam (muse), devteam (antigravity), Heavy dev shop) missing from your templates folder, including ones you deleted. Files you already have are never changed.">
       <button onClick={run} disabled={busy}>
-        {busy ? 'restoring…' : 'restore'}
+        {busy ? 'Restoring…' : 'Restore'}
       </button>
       <button onClick={openFolder} disabled={openBusy} aria-label="Open templates folder" title="Open templates folder">
-        {openBusy ? 'opening…' : 'open folder'}
+        {openBusy ? 'Opening…' : 'Open folder'}
       </button>
     </SetRow>
     {error && <p role="alert">Templates were not restored: {error} — press again to retry.</p>}
@@ -168,7 +168,7 @@ export function SaveTemplateModal({ slug, orgName, tree, close }: { slug: string
               ? <button className="primary" disabled={busy} onClick={() => save(true)}>Replace it</button>
               : <button className="primary" disabled={busy || !name.trim()} onClick={() => save(false)}>
                 {busy ? 'Saving…' : 'Save template'}</button>}
-            <button onClick={close}>cancel</button>
+            <button onClick={close}>Cancel</button>
           </div>
         </>) : (<>
           <p>Saved <b>{saved.file}</b> with {saved.agents} agent{saved.agents === 1 ? '' : 's'} to your templates
@@ -181,7 +181,7 @@ export function SaveTemplateModal({ slug, orgName, tree, close }: { slug: string
           <div className="row">
             <button className="primary" onClick={(e) => downloadTemplate(e.currentTarget.ownerDocument, saved)}>
               Download {saved.file}</button>
-            <button onClick={() => { void openTemplatesFolder() }}>open templates folder</button>
+            <button onClick={() => { void openTemplatesFolder() }}>Open templates folder</button>
           </div>
         </>)}
       </div>
@@ -194,7 +194,7 @@ export function SaveTemplateSetting({ slug, orgName, tree }: { slug: string; org
   return <SetGroup title="Templates" note="~/.orgtree/templates">
     <SetRow label="Save as template"
       hint="Saves this organization's agents (tree, names and tiers, plus what you choose) as a starting layout for new organizations.">
-      <button onClick={() => setOpen(true)}>save as template…</button>
+      <button onClick={() => setOpen(true)}>Save as template…</button>
     </SetRow>
     {open && <SaveTemplateModal slug={slug} orgName={orgName} tree={tree} close={() => setOpen(false)} />}
   </SetGroup>

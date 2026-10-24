@@ -5270,7 +5270,7 @@
    "covers": [
     "action:save-as-template"
    ],
-   "purpose": "Basic > save as template: what a template includes.",
+   "purpose": "Basic > Save as template: what a template includes.",
    "must_cover": [
     "include options",
     "Heavy dev shop seats, coordinator user audience and generic inherited practices",

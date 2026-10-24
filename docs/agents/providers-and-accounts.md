@@ -983,6 +983,8 @@ Original section: Orgtree 4.0.0 (Rust engine): read this first. Source lines 315
 
 Original section: Orgtree 4.0.0 (Rust engine): read this first. Source lines 3194–3207.
 
+Current setting titles (user 2026-10-24): **Native tools**, **Orgtree tools** and **MCP servers**. The preserved 2026-10-11 excerpt below retains its historical spelling; current setting names follow the sentence-case rule in AGENTS.md.
+
 <!-- preserved:e-3a7085d66f9ee1d1 -->
 - Agent settings calls the built-in harness permissions **Native Tools**, explains
   their Claude Code/Codex/Antigravity origin, and gives every native toggle a

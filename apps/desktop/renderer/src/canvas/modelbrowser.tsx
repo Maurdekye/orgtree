@@ -6,7 +6,7 @@
 //   ModelCard        the monogram card: letter on colour
 //   ToggleChips      a provider card's models as chips a click switches
 //   BrowserSelected  the chosen models as chips, each with a ✕
-//   BrowserPager     ‹ prev · next › · "1–25 of 300" · done
+//   BrowserPager     ‹ Prev · next › · "1–25 of 300" · done
 
 import type { CSSProperties } from 'react'
 import { CloseIcon } from '../icons'
@@ -155,11 +155,11 @@ export function BrowserPager({ offset, size, shown, total, onOffset, onDone }: {
   return (
     <div className="orr-pager">
       <button disabled={offset === 0} onClick={() => onOffset(Math.max(0, offset - size))}>
-        ‹ prev</button>
+        ‹ Prev</button>
       <button disabled={shown == null || to >= total} onClick={() => onOffset(offset + size)}>
-        next ›</button>
+        Next ›</button>
       <span className="dim">{total ? `${from}–${to} of ${total}` : ''}</span>
-      <button className="primary" type="button" onClick={onDone}>done</button>
+      <button className="primary" type="button" onClick={onDone}>Done</button>
     </div>
   )
 }
