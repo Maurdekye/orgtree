@@ -18,11 +18,17 @@ export function installNavigationKeys(doc: Document, onKey: (event: KeyboardEven
   const pointers = new Set<number>()
   const down = (event: PointerEvent) => { if (event.buttons) pointers.add(event.pointerId) }
   const up = (event: PointerEvent) => { pointers.delete(event.pointerId) }
+  // A release outside this document can miss pointerup without a window blur.
+  // Reconcile only that pointer when the browser next observes it released;
+  // never clear other live touches or a mouse that still has a button held.
+  const released = (event: PointerEvent) => { if (event.buttons === 0) up(event) }
   const clear = () => pointers.clear()
   const key = (event: KeyboardEvent) => { if (!pointers.size && !navigationBlocked(event, doc)) onKey(event) }
   doc.addEventListener('pointerdown', down, true)
   doc.addEventListener('pointerup', up, true)
   doc.addEventListener('pointercancel', up, true)
+  doc.addEventListener('pointermove', released, true)
+  doc.addEventListener('pointerover', released, true)
   doc.defaultView?.addEventListener('blur', clear)
   const host = doc.defaultView ?? doc
   host.addEventListener('keydown', key as EventListener)
@@ -30,6 +36,8 @@ export function installNavigationKeys(doc: Document, onKey: (event: KeyboardEven
     doc.removeEventListener('pointerdown', down, true)
     doc.removeEventListener('pointerup', up, true)
     doc.removeEventListener('pointercancel', up, true)
+    doc.removeEventListener('pointermove', released, true)
+    doc.removeEventListener('pointerover', released, true)
     doc.defaultView?.removeEventListener('blur', clear)
     host.removeEventListener('keydown', key as EventListener)
   }

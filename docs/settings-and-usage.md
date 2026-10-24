@@ -160,6 +160,9 @@ Lists, menus, settings tabs, effort and grant controls support keyboard navigati
 
 The new org and desk-tab shortcuts defer to text fields, code editors, dropdowns,
 sliders, IME composition, open dialogs/menus and pointer gestures. Org shortcuts
+resume when a pointer gesture ends; if its release was outside the document,
+returning or moving that pointer with no buttons held restores navigation.
+Other active pointers still block it. Org shortcuts
 act in the main org window; tab cycling also works in detached desks and blocks
 browser back/forward when it acts. A missing target does nothing. Down chooses
 the earlier child in an even centre tie. Agent history is per org and window

@@ -111,6 +111,14 @@ authority. [verified: `events/segments.tsx`, `canvas/desk.tsx`,
 
 ## Organization keyboard navigation (2026-10-23)
 
+Gesture recovery (2026-10-24, 4.4.5): `installNavigationKeys` reconciles a
+tracked pointer on captured pointermove/pointerover with buttons=0. A missed
+document pointerup without blur otherwise leaves navigation blocked indefinitely.
+Remove only the observed pointer; retain other live touches and held-button
+drags. Blur/cancel/up and listener teardown retain their existing cleanup.
+Measured at the browser-event contract; no claim that this is every reported
+intermittent stop. [verified: `shell/navigationkeys.ts`, `tests/navigationrecovery.test.tsx`]
+
 4.4.5 refinement (USER 2026-10-24, coordinator-approved focus definition):
 Shift+Alt arrows fall back only from an empty origin to the last live, visible
 agent/project desk per org. Explicit focus/jump intent, settled camera focus

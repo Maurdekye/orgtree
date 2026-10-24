@@ -35,6 +35,9 @@ The Keyboard shortcuts settings tab is a reference, not a key-rebinding editor. 
 In the main org window, use these outside text fields, code editors, dropdowns,
 sliders and IME composition. Open dialogs, menus and pointer gestures keep their
 keys. Separate presses act once; holding a key does not repeat navigation.
+Navigation resumes after a pointer gesture ends. If its release happened
+outside the document, returning/moving that pointer with no buttons held
+clears its stale gesture guard; other active pointers still keep their keys.
 
 | Key | Action |
 | --- | --- |
