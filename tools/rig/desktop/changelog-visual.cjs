@@ -1,7 +1,8 @@
 // Changelog captures (changelog-window-one-row-per-version-pinnable-po): the
-// panel on the latest release with its real notes, an older release selected,
-// a local alpha's unpublished row on top, and the app menu with Changelog below
-// Usage history. Dark and light.
+// panel on the latest release with its real notes and GitHub publish times, an
+// older release selected, the header's "Show this every time" checkbox cleared
+// by a CDP pointer click, and the app menu with Changelog below Usage history.
+// Dark and light.
 //
 // ISOLATION (docs/agents/development-and-verification.md, test-window session
 // and clipboard isolation): an offscreen window inherits the launching turn's
@@ -9,9 +10,10 @@
 // runs in Session 0 (ORGTREE_CAPTURE_PRIVATE_DESKTOP=1 names a never-switched
 // private desktop instead). Every permission request and check is denied, the
 // clipboard among them; the page replaces its clipboard APIs as well
-// (tests/changelog.visual.tsx). Input is executeJavaScript in the owned window
-// only, never OS input. The receipt in result.json records the window
-// process's PID and session and the clipboard denial.
+// (tests/changelog.visual.tsx). Input is executeJavaScript and CDP
+// Input.dispatchMouseEvent in the owned window only, never OS input. The
+// receipt in result.json records the window process's PID and session and the
+// clipboard denial.
 // Wait two animation frames and a pause before every capture.
 const { app, BrowserWindow, session } = require('electron')
 const { execFileSync } = require('node:child_process')
@@ -68,16 +70,39 @@ app.whenReady().then(async () => {
   const panelState = `(()=>{const m=document.querySelector('.changelog-modal');if(!m)return null;
     const box=(el)=>{if(!el)return null;const r=el.getBoundingClientRect();return {x:Math.round(r.left),y:Math.round(r.top),w:Math.round(r.width),h:Math.round(r.height)}};
     const rows=[...m.querySelectorAll('.changelog-row')];
-    return {title:m.querySelector('.gallery-head h3')?.textContent.trim(),link:m.querySelector('.changelog-setting-link')?.textContent,
-      linkBox:box(m.querySelector('.changelog-setting-link')),
+    const every=m.querySelector('.gallery-head > label.checkline.gallery-showretired.changelog-every-time');
+    const tick=every?.querySelector('input[type=checkbox]');
+    const at=(el)=>{if(!el)return false;const r=el.getBoundingClientRect();return el.contains(document.elementFromPoint(r.left+r.width/2,r.top+r.height/2))};
+    const v=window.changelogVisual;
+    return {title:m.querySelector('.gallery-head h3')?.textContent.trim(),
+      every:every?{text:every.textContent.trim(),checked:!!tick?.checked,label:box(every),input:box(tick),hit:at(tick),
+        h3:box(m.querySelector('.gallery-head h3'))}:null,
+      stored:localStorage.getItem('orgtree-changelog-after-update'),link:!!m.querySelector('.changelog-setting-link'),
+      listed:v.listed.map(r=>r.version),published:v.listed.map(r=>v.stamp(r.published_at)),tagged:v.listed.map(r=>v.stamp(r.tagged_at)),
       rows:rows.map(r=>({version:r.querySelector('.mfrom')?.textContent,time:r.querySelector('.mtime')?.textContent,
-        on:r.classList.contains('on'),unpublished:r.classList.contains('unpublished'),box:box(r)})),
-      meta:m.querySelector('.mailer-read .doc-pane-meta-row')?.textContent,draft:m.querySelector('.changelog-draft')?.textContent??null,
+        on:r.classList.contains('on'),box:box(r)})),
+      meta:m.querySelector('.mailer-read .doc-pane-meta-row')?.textContent,
       heading:m.querySelector('.mailer-read .changelog-notes h1')?.textContent??null,
       empty:m.querySelector('.mailer-read .dim.pad')?.textContent??null,pane:box(m.querySelector('.mailer-read')),
       narrow:!!m.querySelector('.mailer.narrow-list'),list:box(m.querySelector('.mailer-list')),
       listShown:(()=>{const l=m.querySelector('.mailer-list');if(!l)return false;const s=getComputedStyle(l);
         return s.visibility!=='hidden'&&s.display!=='none'&&!l.closest('[inert]')})()}})()`
+  /** a real Chromium pointer click on the header checkbox: CDP into this window, never OS input */
+  const clickEveryTime = async () => {
+    const target = await js(`(()=>{const i=document.querySelector('.changelog-modal .changelog-every-time input');
+      const r=i.getBoundingClientRect();window.__everyTimeTrusted=null;
+      i.addEventListener('click',e=>{window.__everyTimeTrusted=e.isTrusted},{once:true});
+      return {x:r.left+r.width/2,y:r.top+r.height/2}})()`)
+    const debug = win.webContents.debugger
+    debug.attach('1.3')
+    try {
+      for (const type of ['mouseMoved', 'mousePressed', 'mouseReleased']) {
+        await debug.sendCommand('Input.dispatchMouseEvent', { type, x: target.x, y: target.y,
+          ...(type === 'mouseMoved' ? {} : { button: 'left', clickCount: 1 }) })
+      }
+    } finally { debug.detach() }
+    return { ...target, input: 'CDP Input.dispatchMouseEvent', trusted: await js('window.__everyTimeTrusted') }
+  }
   const clipboardProbe = `(async()=>{let read='allowed';try{await navigator.clipboard.readText()}catch(e){read='refused: '+e.name}
     let write='allowed';try{await navigator.clipboard.writeText('x')}catch(e){write='refused: '+e.name}
     return {read,write,execPaste:document.execCommand('paste'),execCopy:document.execCommand('copy')}})()`
@@ -92,7 +117,7 @@ app.whenReady().then(async () => {
       const theme = light ? 'light' : 'dark'
       await js(`window.changelogVisual.contrast(${light})`)
       // 1. a fresh opening: the latest release, its real notes
-      await js(`window.changelogVisual.open('release')`)
+      await js(`window.changelogVisual.open()`)
       await wait(`()=>document.querySelector('.changelog-modal .changelog-notes h1')`, 'the latest notes')
       const latest = await js(panelState)
       await shot(`${theme}-latest`)
@@ -101,11 +126,11 @@ app.whenReady().then(async () => {
       await wait(`()=>/4\\.4\\.3/.test(document.querySelector('.changelog-modal .changelog-notes h1')?.textContent||'')`, '4.4.3 notes')
       const older = await js(panelState)
       await shot(`${theme}-older`)
-      // 3. a local alpha: its own row on top, open
-      await js(`window.changelogVisual.open('alpha')`)
-      await wait(`()=>document.querySelector('.changelog-row.on.unpublished')&&/written when/.test(document.querySelector('.changelog-modal .mailer-read')?.textContent||'')`, 'the alpha row open')
-      const alpha = await js(panelState)
-      await shot(`${theme}-alpha`)
+      // 3. the header's "Show this every time" cleared by a pointer click: the setting itself, in place
+      const click = await clickEveryTime()
+      await wait(`()=>!document.querySelector('.changelog-modal .changelog-every-time input').checked`, 'the checkbox cleared')
+      const unticked = { ...(await js(panelState)), click }
+      await shot(`${theme}-unticked`)
       // 4. the app menu, open
       await js(`window.changelogVisual.menu()`)
       await wait(`()=>document.querySelector('.shell-menu-button')`, 'the menu button')
@@ -114,20 +139,25 @@ app.whenReady().then(async () => {
       const menu = await js(`[...document.querySelectorAll('.shell-menu-item .shell-menu-label')].map(e=>{const r=e.getBoundingClientRect();return {label:e.textContent,y:Math.round(r.top),h:Math.round(r.height)}})`)
       await shot(`${theme}-menu`)
       await js(`document.querySelector('.shell-menu-button').click()`)
-      checks.push({ theme, latest, older, alpha, menu })
+      checks.push({ theme, latest, older, unticked, menu })
     }
     const sized = (b) => !!b && b.w > 0 && b.h > 0
-    const passed = checks.every(({ latest, older, alpha, menu }) => {
+    // inline: the checkbox line shares the title's line, to its right
+    const inline = (e) => !!e && sized(e.label) && sized(e.input) && e.hit && e.label.x >= e.h3.x + e.h3.w
+      && e.label.y < e.h3.y + e.h3.h && e.label.y + e.label.h > e.h3.y
+    const passed = checks.every(({ latest, older, unticked, menu }) => {
       const at = menu.findIndex(m => m.label === 'Changelog…')
       const stacked = menu.every((m, i) => i === 0 || m.y > menu[i - 1].y)
-      return latest.title === 'Changelog' && latest.link === 'Open after updates: On' && sized(latest.linkBox)
-        && [latest, older, alpha].every(s => !s.narrow && s.listShown && sized(s.list))
+      return latest.title === 'Changelog' && !latest.link
+        && latest.every?.text === 'Show this every time' && latest.every.checked && inline(latest.every)
+        && [latest, older, unticked].every(s => !s.narrow && s.listShown && sized(s.list))
         && latest.rows[0].version === '4.4.4' && latest.rows[0].on && latest.rows.every(r => /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/.test(r.time) && sized(r.box))
-        && latest.rows.map(r => r.version).join() === '4.4.4,4.4.3,4.4.2,4.4.1,4.4.0,4.3.3,4.3.2'
+        && latest.rows.map(r => r.version).join() === latest.listed.join() && latest.listed[0] === '4.4.4'
+        && latest.rows.every((r, i) => r.time === latest.published[i]) && latest.published[0] !== latest.tagged[0]
         && /^4\.4\.4/.test(latest.meta) && /Orgtree 4\.4\.4/.test(latest.heading) && sized(latest.pane)
         && older.rows.find(r => r.on)?.version === '4.4.3' && /Orgtree 4\.4\.3/.test(older.heading)
-        && alpha.rows[0].version === '4.4.5-alpha.4' && alpha.rows[0].on && alpha.rows[0].unpublished
-        && /Unpublished build/.test(alpha.meta) && /written when it is released/.test(alpha.empty)
+        && unticked.click.trusted === true && unticked.every?.checked === false && unticked.stored === '0'
+        && unticked.title === 'Changelog' && unticked.rows.find(r => r.on)?.version === '4.4.3'
         && at > 0 && menu[at - 1].label === 'Usage history…' && stacked && menu[at].h > 0
     }) && receipt.clipboard.page.read.startsWith('refused') && receipt.clipboard.page.write.startsWith('refused')
       && receipt.clipboard.page.execPaste === false && receipt.clipboard.page.execCopy === false

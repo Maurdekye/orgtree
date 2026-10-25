@@ -23,10 +23,13 @@ const deps = path.resolve(args['deps-root'] ?? path.join(repo, 'node_modules'))
 const esbuild = createRequire(import.meta.url)(path.join(deps, 'esbuild'))
 const notes = Object.fromEntries(['4.4.4', '4.4.3', '4.4.2'].map((v) =>
   [v, fs.readFileSync(path.join(repo, 'docs', `release-notes-${v}.md`), 'utf8')]))
+// the newest seven published releases, with both of their times
+const releases = JSON.parse(fs.readFileSync(path.join(repo, 'docs', 'releases.json'), 'utf8')).releases.slice(0, 7)
 try {
   await esbuild.build({ entryPoints: [path.join(repo, 'apps/desktop/renderer/tests/changelog.visual.tsx')],
     outfile: path.join(out, 'fixture.js'), bundle: true, format: 'iife', jsx: 'automatic', nodePaths: [deps],
-    define: { __CHANGELOG_NOTES__: JSON.stringify(JSON.stringify(notes)) },
+    define: { __CHANGELOG_NOTES__: JSON.stringify(JSON.stringify(notes)),
+      __CHANGELOG_RELEASES__: JSON.stringify(JSON.stringify(releases)) },
     loader: { '.png': 'file', '.svg': 'file', '.jpg': 'file', '.woff': 'file', '.woff2': 'file', '.ttf': 'file' } })
 } finally { esbuild.stop() }
 fs.writeFileSync(path.join(out, 'index.html'), '<!doctype html><meta charset="utf-8"><link rel="stylesheet" href="fixture.css"><div id="root"></div><script src="fixture.js"></script>')
