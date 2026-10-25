@@ -11,11 +11,13 @@ WORKDIR /src
 COPY engine/rs/Cargo.toml engine/rs/Cargo.lock engine/rs/
 COPY engine/rs/orgtree-logged engine/rs/orgtree-logged
 COPY engine/rs/orgtree-engine engine/rs/orgtree-engine
-# Rust embeds templates/charters with include_str!, and build.rs embeds the
-# complete glossary. These are build inputs even though no UI is bundled.
+# Rust embeds templates/charters and the Changelog's release list with
+# include_str!, and build.rs embeds the complete glossary and each stable
+# release's notes. These are build inputs even though no UI is bundled.
 COPY engine/docs/charters engine/docs/charters
 COPY engine/docs/templates engine/docs/templates
 COPY docs/skills docs/skills
+COPY docs/releases.json docs/release-notes-*.md docs/
 ARG CARGO_BUILD_JOBS=1
 ARG ORGTREE_BUILD_COMMIT=unknown
 ARG CARGO_PROFILE_RELEASE_OPT_LEVEL=3

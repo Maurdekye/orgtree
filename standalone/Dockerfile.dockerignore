@@ -17,6 +17,10 @@
 !docs/
 !docs/skills/
 !docs/skills/**
+# The Changelog: the release list and stable releases' notes, not drafts.
+!docs/releases.json
+!docs/release-notes-*.md
+docs/release-notes-*-*.md
 **/target
 **/node_modules
 **/.git
