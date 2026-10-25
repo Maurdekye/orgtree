@@ -14,7 +14,9 @@
 //    window or launch) opens nothing. §2 is its positive control.
 // §5 from the menu it opens on the latest version every time, whatever was
 //    read before.
-// §6 its header links to the setting: App settings opens on Display, at it.
+// §6 its header checkbox "Show this every time" is the same setting as App
+//    settings › Display › Startup › "Open changelog after updates" (USER
+//    2026-10-25 09:09:02Z), switched in place: the panel stays open.
 //
 // The whole App in an organization window, on a stubbed engine and a fake
 // native bridge. Run:  node apps/desktop/renderer/tests/run.mjs changelogopen
@@ -25,16 +27,18 @@ import App from '../src/App'
 import { OrgtreeMenu } from '../src/shell/menu'
 import { forgetAttentionMode } from '../src/attention/mode'
 import { forgetModalOpenCache, forgetModalPins } from '../src/canvas/modalpin'
+import { openAppSettings } from '../src/canvas/settingskit'
 import { legacyAppBackend } from './appfeed-fixture'
 import { installBridge, removeBridge } from './shellbridge'
 
+// published releases only, at GitHub's publish times (USER 2026-10-25 09:01:38Z)
 const RELEASES = [
-  { version: '4.4.5', released_at: '2026-10-26T09:30:00Z', unpublished: false, notes: true },
-  { version: '4.4.4', released_at: '2026-10-24T02:58:37Z', unpublished: false, notes: true },
-  { version: '4.4.3', released_at: '2026-10-23T13:05:20Z', unpublished: false, notes: true },
+  { version: '4.4.5', released_at: '2026-10-26T09:30:00Z', notes: true },
+  { version: '4.4.4', released_at: '2026-10-24T05:23:13Z', notes: true },
+  { version: '4.4.3', released_at: '2026-10-23T15:29:30Z', notes: true },
 ]
 const entry = (version: string) => ({ ...RELEASES.find((r) => r.version === version)!,
-  notes_version: version, notes: `# Orgtree ${version}\n\nWhat changed in ${version}.\n` })
+  notes: `# Orgtree ${version}\n\nWhat changed in ${version}.\n` })
 
 interface Launch { news: { from: string | null; to: string } | null; autoOpen?: boolean }
 
@@ -67,7 +71,7 @@ async function withApp(launch: Launch, run: (h: {
   globals.fetch = legacyAppBackend(async input => {
     const path = new URL(String(input), window.location.origin).pathname
     reads.push(path)
-    if (path === '/api/changelog') return json({ running: '4.4.5', time_source: 'tagged', releases: RELEASES })
+    if (path === '/api/changelog') return json({ running: '4.4.5', time_source: 'published', releases: RELEASES })
     const one = /^\/api\/changelog\/(.+)$/.exec(path)
     if (one) return json(entry(decodeURIComponent(one[1]!)))
     if (path.endsWith('/foreground-tree')) return json({ kind: 'compatibility' }, 409)
@@ -188,18 +192,26 @@ test('§5 from the menu it opens on the latest version every time', async () => 
   })
 })
 
-test('§6 the header link opens App settings on Display, at "Open changelog after updates"', async () => {
+test('§6 the header checkbox "Show this every time" is the App settings row "Open changelog after updates"', async () => {
   await withApp({ news: { from: '4.4.4', to: '4.4.5' } }, async ({ settle }) => {
     await settle()
-    const link = document.querySelector<HTMLButtonElement>('.changelog-modal .changelog-setting-link')
-    assert.ok(link, 'the header has the link')
-    assert.equal(link.textContent, 'Open after updates: On')
-    await inAct(() => { link.click() })
+    const box = document.querySelector<HTMLInputElement>(
+      '.changelog-modal .gallery-head .changelog-every-time input[type="checkbox"]')
+    assert.ok(box, 'the header has the checkbox')
+    assert.equal(box.closest('label')?.textContent?.trim(), 'Show this every time')
+    assert.equal(box.checked, true, 'on by default')
+    await inAct(() => { box.click() })
+    await settle()
+    assert.equal(localStorage.getItem('orgtree-changelog-after-update'), '0', 'switched off in the header')
+    assert.ok(panelOpen(), 'in place: the Changelog stays open')
+    assert.equal(document.querySelector('[data-settings-field="changelog_after_update"]'), null, 'App settings stays shut')
+    // App settings shows the same setting, off
+    await inAct(() => { openAppSettings('display', 'changelog_after_update') })
     await settle()
     await inAct(async () => { advance(400); await flush(20) })
     const row = document.querySelector<HTMLElement>('[role="tabpanel"]:not([hidden]) [data-settings-field="changelog_after_update"]')
     assert.ok(row, 'App settings shows the Display tab with the setting')
     assert.match(row.textContent ?? '', /Open changelog after updates/)
-    assert.equal(row.querySelector<HTMLInputElement>('input[type="checkbox"]')?.checked, true, 'on by default')
+    assert.equal(row.querySelector<HTMLInputElement>('input[type="checkbox"]')?.checked, false, 'off, as the header set it')
   })
 })

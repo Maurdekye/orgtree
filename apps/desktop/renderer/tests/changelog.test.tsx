@@ -9,10 +9,13 @@
 // §2 it is the Presentations panel's shape (22:13:55Z "structured identically
 //    to the presentations panel"): the same frame, header, list and pane
 //    classes, and the same Alt+arrow steps between rows.
-// §3 an unpublished build is its own row, with the draft it leads to or a line
-//    saying its notes come with the release.
-// §4 the header link names the setting's state and asks App settings to open at
-//    it (22:14:57Z "a link to that option on the changelog panel's header").
+// §3 a release without notes says so, and no row speaks of an unpublished
+//    build (USER 2026-10-25 09:01:38Z "Published only": the engine lists
+//    published releases only, crate::changelog).
+// §4 the header's inline checkbox "Show this every time" switches the
+//    after-update setting itself (USER 2026-10-25 09:09:02Z: 'change the
+//    message on the changelog to "Show this every time" and make the checkbox
+//    inline as well'), in the Presentations header's own checkbox line.
 // §5 the setting: sentence case, on by default, remembered.
 // §6 a new opening request shows the latest again.
 //
@@ -29,17 +32,16 @@ import { OPEN_APP_SETTINGS_EVENT } from '../src/canvas/settingskit'
 import { fmtFull, fmtStamp } from '../src/timefmt'
 import type { ChangelogEntry, ChangelogRow } from '../src/api'
 
+// GitHub's publish times (docs/releases.json published_at)
 const ROWS: ChangelogRow[] = [
-  { version: '4.4.5-alpha.3', released_at: '2026-10-24T15:20:40Z', unpublished: true, notes: true },
-  { version: '4.4.4', released_at: '2026-10-24T02:58:37Z', unpublished: false, notes: true },
-  { version: '4.4.3', released_at: '2026-10-23T13:05:20Z', unpublished: false, notes: true },
-  { version: '2.0.0', released_at: '2026-09-10T20:06:40Z', unpublished: false, notes: true },
+  { version: '4.4.4', released_at: '2026-10-24T05:23:13Z', notes: true },
+  { version: '4.4.3', released_at: '2026-10-23T15:29:30Z', notes: true },
+  { version: '2.0.0', released_at: '2026-09-10T20:15:41Z', notes: false },
 ]
 const ENTRIES: Record<string, ChangelogEntry> = {
-  '4.4.5-alpha.3': { ...ROWS[0]!, notes_version: '4.4.5', notes: '# Orgtree 4.4.5\n\nDraft of the next release.\n' },
-  '4.4.4': { ...ROWS[1]!, notes_version: '4.4.4', notes: '# Orgtree 4.4.4\n\nReply to a highlighted passage.\n' },
-  '4.4.3': { ...ROWS[2]!, notes_version: '4.4.3', notes: '# Orgtree 4.4.3\n\nThe tutorial update.\n' },
-  '2.0.0': { ...ROWS[3]!, notes_version: '2.0.0', notes: 'Orgtree 2.0.0 is the stable desktop release.\n' },
+  '4.4.4': { ...ROWS[0]!, notes: '# Orgtree 4.4.4\n\nReply to a highlighted passage.\n' },
+  '4.4.3': { ...ROWS[1]!, notes: '# Orgtree 4.4.3\n\nThe tutorial update.\n' },
+  '2.0.0': { ...ROWS[2]!, notes: null },
 }
 
 function stub(rows: ChangelogRow[] = ROWS, entries: Record<string, ChangelogEntry> = ENTRIES) {
@@ -51,7 +53,7 @@ function stub(rows: ChangelogRow[] = ROWS, entries: Record<string, ChangelogEntr
   g.fetch = ((input: RequestInfo | URL) => {
     const path = new URL(String(input), 'http://engine.test').pathname
     seen.push(path)
-    if (path === '/api/changelog') return json({ running: rows[0]?.version ?? '', time_source: 'tagged', releases: rows })
+    if (path === '/api/changelog') return json({ running: '4.4.5-alpha.6', time_source: 'published', releases: rows })
     const one = /^\/api\/changelog\/(.+)$/.exec(path)
     const hit = one && entries[decodeURIComponent(one[1]!)]
     return hit ? json(hit) : json({ detail: 'no Changelog row' }, 404)
@@ -80,22 +82,23 @@ const pane = (el: HTMLElement) => el.querySelector('.mailer-read')?.textContent 
 test('§1 one row per version, newest first, with its version and its local release date & time', async () => {
   const { f, view } = await panel()
   try {
-    assert.deepEqual(rows(view.el).map((r) => r.dataset.version), ['4.4.5-alpha.3', '4.4.4', '4.4.3', '2.0.0'])
+    assert.deepEqual(rows(view.el).map((r) => r.dataset.version), ['4.4.4', '4.4.3', '2.0.0'])
     for (const [i, r] of rows(view.el).entries()) {
       assert.equal(r.querySelector('.mfrom')?.textContent, ROWS[i]!.version)
       assert.equal(r.querySelector('.mtime')?.textContent, fmtStamp(ROWS[i]!.released_at))
       assert.match(r.querySelector('.mtime')?.textContent ?? '', /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/, 'date and time, local')
     }
-    assert.equal(selected(view.el), '4.4.5-alpha.3', 'the latest is open')
+    assert.equal(selected(view.el), '4.4.4', 'the latest is open')
+    assert.match(pane(view.el), /Reply to a highlighted passage/)
     // the pane: its version and its full date & time above the notes
     await inAct(async () => { rows(view.el)[1]!.click(); await flush(8) })
-    assert.equal(selected(view.el), '4.4.4')
+    assert.equal(selected(view.el), '4.4.3')
     const meta = view.el.querySelector('.mailer-read .doc-pane-meta-row')?.textContent ?? ''
-    assert.match(meta, /4\.4\.4/)
-    assert.ok(meta.includes(fmtFull('2026-10-24T02:58:37Z')), meta)
-    assert.match(pane(view.el), /Reply to a highlighted passage/)
+    assert.match(meta, /4\.4\.3/)
+    assert.ok(meta.includes(fmtFull('2026-10-23T15:29:30Z')), meta)
+    assert.match(pane(view.el), /The tutorial update/)
     assert.ok(view.el.querySelector('.mailer-read .changelog-notes h1'), 'the notes are rendered Markdown')
-    assert.ok(f.seen.includes('/api/changelog/4.4.4'), f.seen.join(','))
+    assert.ok(f.seen.includes('/api/changelog/4.4.3'), f.seen.join(','))
   } finally { await view.unmount(); f.restore() }
 })
 
@@ -119,46 +122,51 @@ test('§2 it is the Presentations panel shape, with its Alt+arrow steps', async 
       await flush(8)
     })
     await step('ArrowDown')
-    assert.equal(selected(view.el), '4.4.4')
-    await step('ArrowDown')
     assert.equal(selected(view.el), '4.4.3')
+    await step('ArrowDown')
+    assert.equal(selected(view.el), '2.0.0')
     await step('ArrowUp')
-    assert.equal(selected(view.el), '4.4.4')
-    assert.deepEqual(scrolled, ['4.4.4', '4.4.3', '4.4.4'], 'each step brings its row into view')
+    assert.equal(selected(view.el), '4.4.3')
+    assert.deepEqual(scrolled, ['4.4.3', '2.0.0', '4.4.3'], 'each step brings its row into view')
   } finally { await view.unmount(); f.restore(); proto.scrollIntoView = oldScroll }
 })
 
-test('§3 an unpublished build is its own row, with the draft it leads to or a line saying none yet', async () => {
+test('§3 a release without notes says so, and no row speaks of an unpublished build', async () => {
   const { f, view } = await panel()
   try {
-    const top = rows(view.el)[0]!
-    assert.ok(top.classList.contains('unpublished'))
-    assert.match(top.textContent ?? '', /Unpublished build/)
-    assert.match(pane(view.el), /Unpublished build/)
-    assert.match(pane(view.el), /Draft notes for 4\.4\.5/)
-    assert.match(pane(view.el), /Draft of the next release/)
-    assert.ok(!/Unpublished build/.test(rows(view.el)[1]!.textContent ?? ''), 'a published row says nothing of the kind')
+    await inAct(async () => { rows(view.el)[2]!.click(); await flush(8) })
+    assert.equal(selected(view.el), '2.0.0')
+    assert.match(pane(view.el), /No release notes\./)
+    assert.ok(!/Unpublished|Draft notes|written when/.test(view.el.textContent ?? ''), view.el.textContent ?? '')
+    assert.ok(rows(view.el).every((r) => !r.classList.contains('unpublished')))
   } finally { await view.unmount(); f.restore() }
-  const bare = { ...ENTRIES, '4.4.5-alpha.3': { ...ENTRIES['4.4.5-alpha.3']!, notes_version: null, notes: null } }
-  const second = await panel(0, ROWS, bare)
-  try {
-    assert.match(pane(second.view.el), /Release notes for 4\.4\.5 are written when it is released\./)
-  } finally { await second.view.unmount(); second.f.restore() }
 })
 
-test('§4 the header link names the setting state and opens App settings at it', async () => {
+test('§4 the header checkbox "Show this every time" switches the setting itself, inline', async () => {
   const { f, view } = await panel()
   const asks: unknown[] = []
   const hear = (e: Event) => asks.push((e as CustomEvent).detail)
   window.addEventListener(OPEN_APP_SETTINGS_EVENT, hear)
   try {
-    const link = view.el.querySelector<HTMLButtonElement>('.gallery-head .changelog-setting-link')!
-    assert.equal(link.textContent, 'Open after updates: On')
-    await inAct(() => { link.click() })
-    assert.deepEqual(asks, [{ tab: 'display', focus: CHANGELOG_AFTER_UPDATE_FIELD }])
-    assert.equal(CHANGELOG_AFTER_UPDATE_FIELD, 'changelog_after_update')
+    const head = view.el.querySelector<HTMLElement>('.changelog-modal .gallery-head')!
+    // the Presentations header's own checkbox line (canvas/gallery.tsx, "Show retired agents")
+    const line = head.querySelector<HTMLLabelElement>(':scope > label.checkline.gallery-showretired.changelog-every-time')
+    assert.ok(line, head.innerHTML)
+    assert.equal(line.textContent?.trim(), 'Show this every time')
+    assert.equal(head.querySelector('.changelog-setting-link'), null, 'no link to App settings any more')
+    const box = line.querySelector<HTMLInputElement>('input[type="checkbox"]')!
+    assert.equal(box.checked, true, 'on by default')
+    await inAct(() => { box.click() })
+    assert.equal(localStorage.getItem(CHANGELOG_AFTER_UPDATE_KEY), '0')
+    assert.equal(changelogAfterUpdateOn(), false)
+    assert.equal(box.checked, false)
+    await inAct(() => { box.click() })
+    assert.equal(changelogAfterUpdateOn(), true)
+    assert.equal(box.checked, true)
+    assert.deepEqual(asks, [], 'App settings stays shut')
+    // it follows the same setting switched in App settings › Display › Startup
     await inAct(async () => { setChangelogAfterUpdateOn(false); await flush(4) })
-    assert.equal(link.textContent, 'Open after updates: Off', 'it follows the setting')
+    assert.equal(box.checked, false)
   } finally { window.removeEventListener(OPEN_APP_SETTINGS_EVENT, hear); await view.unmount(); f.restore() }
 })
 
@@ -168,8 +176,9 @@ test('§5 the setting: sentence case, on by default, remembered off and on', asy
   const view = await mountView(<ChangelogAfterUpdateSetting />, (el) => el)
   try {
     const row = view.el.querySelector<HTMLElement>(`[data-settings-field="${CHANGELOG_AFTER_UPDATE_FIELD}"]`)!
-    assert.ok(row, 'the row names its field for the header link')
+    assert.ok(row, 'the row names its field')
     assert.match(row.textContent ?? '', /^Open changelog after updates/)
+    assert.match(row.textContent ?? '', /an update that brings a newer published release/, 'the hint says when it opens')
     const box = row.querySelector<HTMLInputElement>('input[type="checkbox"]')!
     assert.equal(box.checked, true)
     await inAct(() => { box.click() })
@@ -185,11 +194,11 @@ test('§6 a new opening request shows the latest again', async () => {
   const { f, view, reopen } = await panel(1)
   try {
     await inAct(async () => { rows(view.el)[2]!.click(); await flush(8) })
-    assert.equal(selected(view.el), '4.4.3')
+    assert.equal(selected(view.el), '2.0.0')
     await reopen(1)
-    assert.equal(selected(view.el), '4.4.3', 'the same request changes nothing')
+    assert.equal(selected(view.el), '2.0.0', 'the same request changes nothing')
     await reopen(2)
-    assert.equal(selected(view.el), '4.4.5-alpha.3')
+    assert.equal(selected(view.el), '4.4.4')
   } finally { await view.unmount(); f.restore() }
 })
 
