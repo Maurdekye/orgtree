@@ -6,6 +6,7 @@ import { SentFileCard } from '../src/canvas/filecard'
 import { MediaCard, MEDIA_MAX_BYTES, mediaHref } from '../src/canvas/media'
 import { MailReadPane } from '../src/canvas/mail'
 import { navigationBlocked } from '../src/shell/navigationkeys'
+import { SegmentAttachments } from '../src/events/segments'
 
 const href = '/api/orgs/synthetic/nodes/agent/file?path=clip.webm'
 function mediaMocks(t: import('node:test').TestContext) {
@@ -104,5 +105,18 @@ test('message attachments share video and audio cards without adding a composer 
   assert.equal(v.el.querySelectorAll('.mediacard').length, 2)
   assert.equal(v.el.querySelectorAll('video,audio').length, 2)
   assert.equal(v.el.querySelectorAll('video[src],audio[src]').length, 0)
+  assert.ok(v.el.textContent?.includes('missing.mp4'))
+})
+
+test('transcript segment attachments cover every approved container and preserve missing/image/download rows', async t => {
+  const names = ['clip.mp4','clip.webm','sound.mp3','sound.wav','sound.ogg','sound.m4a','sound.aac','sound.flac','image.png','archive.zip']
+  const v = await mountView(<SegmentAttachments slug="synthetic" nid="agent" values={[...names.map(name => ({name,path:name,bytes:20})),{name:'missing.mp4'}]} />, el => el)
+  t.after(() => v.unmount())
+  assert.equal(v.el.querySelectorAll('.mediacard').length, 8)
+  assert.equal(v.el.querySelectorAll('video').length, 2)
+  assert.equal(v.el.querySelectorAll('audio').length, 6)
+  assert.equal(v.el.querySelectorAll('video[src],audio[src]').length, 0)
+  assert.equal(v.el.querySelectorAll('img').length, 1)
+  assert.ok(v.el.querySelector('a[download="archive.zip"]'))
   assert.ok(v.el.textContent?.includes('missing.mp4'))
 })

@@ -17,6 +17,7 @@ import type { RefWorld, ResolvedRef } from '../canvas/reflinks'
 import { md } from '../canvas/shared'
 import { fileBase, fileUrl } from '../api'
 import { AttachThumb, fmtBytes, isImg } from '../canvas/img'
+import { MediaCard, mediaFormat } from '../canvas/media'
 import { DownloadIcon } from '../icons'
 import { fmtFull } from '../timefmt'
 import type { ReplyContext } from '../eventReply'
@@ -55,10 +56,12 @@ export function SegmentAttachments({ values, slug, nid }: { values?: unknown[]; 
   return <div className="attach-row">{files.map((file, i) => {
     const path = typeof file.path === 'string' ? file.path : null
     const name = typeof file.name === 'string' ? file.name : path?.split('/').pop() ?? 'File'
-    const meta = typeof file.bytes === 'number' && Number.isFinite(file.bytes) ? fmtBytes(file.bytes) : undefined
+    const bytes = typeof file.bytes === 'number' && Number.isFinite(file.bytes) ? file.bytes : undefined
+    const meta = bytes !== undefined ? fmtBytes(bytes) : undefined
     if (!path) return <span key={i} className="attach-chip">{name}</span>
     const href = fileUrl(slug, nid, path)
-    return isImg(name) ? <AttachThumb key={i} href={href} name={name} meta={meta} />
+    return mediaFormat(name) ? <MediaCard key={i} href={href} name={name} bytes={bytes} />
+      : isImg(name) ? <AttachThumb key={i} href={href} name={name} meta={meta} />
       : <a key={i} className="attach-chip" href={href} download={name}><DownloadIcon fontSize="inherit" /> {name}<span className="dim">{meta}</span></a>
   })}</div>
 }
