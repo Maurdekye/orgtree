@@ -151,6 +151,24 @@ export default async function (rig) {
   const mt2 = await rig.waitTurns('mia', 2, { timeout: 30000 }).catch(() => rig.turns('mia'))
   p.check('B on again: the waiting mail runs on B', mt2.length === 2 && !mt2[1].error
     && same(log('mia', 'start').at(-1)?.codex_home, homeB), { turns: mt2.length, home: log('mia', 'start').at(-1)?.codex_home })
+  // Ledger completion precedes inflight clearing and the published idle view.
+  // Wait for all bound seats before the single session-boundary DELETE.
+  const removalSeats = ['mia', 'ned', 'ola'].map(name => ({ name, id: rig.agentRow(name)?.id }))
+  const removalIdle = await rig.waitFor(async () => {
+    const states = await Promise.all(removalSeats.map(async ({ name, id }) => {
+      const detail = await rig.api('GET', `/api/orgs/${rig.org}/nodes/${name}/detail`)
+      const turns = rig.turns(name)
+      const ended = turns.length > 0 && !turns.some(t => !t.ended_at)
+      return Number.isInteger(id) && id > 0 && detail?.id === name && detail.ord === id && detail.state === 'live'
+        && detail.busy === false && detail.inflight_at === null && ended
+        ? { name, ord: detail.ord, state: detail.state, busy: detail.busy, inflight_at: detail.inflight_at, ended } : null
+    }))
+    return states.every(Boolean) ? states : null
+  }, { what: 'B-bound seats published idle and DB turns ended', timeout: 30000 }).catch(error => {
+    p.check('B removal: bound seats reach published idle before DELETE', false, { error: error.message })
+    throw error
+  })
+  p.file('account-removal-idle.json', removalIdle)
   const removed = await rig.api('DELETE', `/api/accounts/${B}`).then(r => r, e => ({ error: e.message }))
   p.note('removing B', JSON.stringify(removed).slice(0, 800))
   p.check('B removed: mia, ned and ola are back on the primary', ['mia', 'ned', 'ola'].every(n => !seat(n)?.account),

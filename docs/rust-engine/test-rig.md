@@ -223,6 +223,15 @@ failed check; timeout diagnostics retain the turn row. Keep all 27 runtime
 checks (28 source call sites in conditional branches) and quota/retry/pin controls.
 [verified: `tools/rig/proofs/agy-lane.mjs`, `runtime/actor.rs::end_turn`; 2026-10-25]
 
+Session-boundary removal synchronization: `codex-accounts.mjs` waits up to
+30 seconds for all three expected live bound seats to have `busy:false`, cleared
+`inflight_at` and no unfinished ledger turns. The detail endpoint reads the same
+published actor view as account removal; ledger completion alone is too early.
+Retain all 22 original checks and the single DELETE. Timeout records a named
+failure before any DELETE; a lawful 409 is retained without a mutation retry.
+[verified: `tools/rig/proofs/codex-accounts.mjs`, `http/mailbox.rs::detail`,
+`domain/account_removal.rs`, `runtime/actor.rs::end_turn`; 2026-10-25]
+
 The `credential-broker.mjs` proof prepares compiled offline `git.exe` and
 `gh.exe` fixtures before the engine starts. Both the engine and its interactive
 broker receive an allowlisted environment with scratch HOME/USERPROFILE and empty

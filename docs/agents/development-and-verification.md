@@ -340,6 +340,14 @@ not execute; never count it as a product result.
   model, not a new runtime trace. Missing/non-limit outcomes remain failures;
   do not replace the freeze assertion with ledger completion or a fixed sleep.
 
+- `codex-accounts.mjs` account-removal controls replay its actual boundary wait
+  and single DELETE through `Rig.waitFor`:
+  `node --test tools/rig/tests/codex-removal-boundary.test.mjs`.
+  `CODEX_REMOVAL_PROOF_REF` selects a predecessor red control; optional
+  `CODEX_REMOVAL_PACKET` supplies the retained original 409. Virtual-clock states
+  model the ledger/runtime gap, not a new engine run. Missing or mismatched seats
+  fail before DELETE; preserve lawful busy refusals without mutation retries.
+
 - All labeled seed waits use `SEED_SETTLE_TIMEOUT` from `tools/rig/seed-settle.mjs`:
   120 seconds for the existing 60-second helper grace plus a 60-second execution
   budget. Local `settle`/`quiet` calls pass it explicitly, preserving non-seed
