@@ -356,6 +356,14 @@ not execute; never count it as a product result.
   original scroll checks and the unchanged driver; replay starts no engine or UI
   and cannot establish a functional jump pass. See [sample synchronization](../rust-engine/test-rig.md#what-keeps-it-safe).
 
+- `muse-tool-silence.mjs` first-scenario controls replay the actual batch block
+  with `Rig.waitTurns`/`Rig.waitFor`: `node --test tools/rig/tests/muse-silence-first-turn.test.mjs`.
+  `MUSE_SILENCE_PROOF_REF` selects its predecessor red control. The five waits
+  share one 120-second helper-grace-plus-execution deadline; later waits cannot
+  renew it. Preserve all 13 checks, four-second silence and ten-second ceiling.
+  Virtual-clock controls cover late/prompt completion, missing/unfinished rows,
+  SQL errors and durable failure; they are not a full Muse runtime verdict.
+
 - All labeled seed waits use `SEED_SETTLE_TIMEOUT` from `tools/rig/seed-settle.mjs`:
   120 seconds for the existing 60-second helper grace plus a 60-second execution
   budget. Local `settle`/`quiet` calls pass it explicitly, preserving non-seed

@@ -76,7 +76,24 @@ export default async function (rig) {
     for (const [name, mark] of [['tia', 'PROOF-TOOL'], ['sol', 'PROOF-SILENT'], ['tom', 'PROOF-TWO'], ['ida', 'PROOF-STUCK'], ['bea', 'PROOF-BG']]) {
       await rig.userMail(name, `${mark}: go.`)
     }
-    for (const name of ['tia', 'sol', 'tom', 'ida', 'bea']) await rig.waitTurns(name, 1, { timeout: 60000 })
+    // The first scenario turns may still spend 60 s in the existing helper
+    // grace. Share one grace + execution budget across the whole batch;
+    // the actual 4 s silence limit and later 10 s ceiling are unchanged.
+    const firstTurnsStarted = Date.now()
+    const firstTurns = {}
+    let waitingFor
+    try {
+      for (const name of ['tia', 'sol', 'tom', 'ida', 'bea']) {
+        waitingFor = name
+        firstTurns[name] = await rig.waitTurns(name, 1,
+          { timeout: Math.max(1, 120000 - (Date.now() - firstTurnsStarted)) })
+      }
+      p.file('first-turns.json', { elapsedMs: Date.now() - firstTurnsStarted, turns: firstTurns })
+    } catch (e) {
+      p.check('Muse silence scenarios finish within helper grace and execution allowance', false,
+        { waitingFor, elapsedMs: Date.now() - firstTurnsStarted, turns: firstTurns, error: e.message })
+      throw e
+    }
 
     // ---------------------------------------------------------------- tia
     const [tt] = rig.turns('tia')

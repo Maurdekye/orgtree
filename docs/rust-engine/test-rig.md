@@ -202,6 +202,18 @@ not part of this repair.
 Window-launching runs also require [desktop/clipboard isolation](#desktop-smoke),
 independently of the fake data, credentials and profile protections below.
 
+Muse tool-silence first-scenario waits share one 120-second batch deadline:
+the existing 60-second helper grace plus the original 60-second execution
+allowance. An empty seed-turn query can finish before a new hire reaches helper
+placement; seed waiting alone does not prove that grace is over. Preserve all
+13 original checks, the actual four-second silence setting, ten-second ceiling,
+scenarios, placement and later ceiling-case wait. Save the completed first-turn
+rows, and record a named FAIL before the remaining checks if the batch times out.
+This fixture budget does not change the product's conditional helper grace;
+normal signed-out/explicit-Session-0/available-helper bypasses remain intact.
+[verified: `tools/rig/proofs/muse-tool-silence.mjs`, `runtime/actor.rs::session_settle`,
+`runtime/session_host.rs::turn_waits_for_helper`; 2026-10-25]
+
 Completion synchronization: a DB `ended_at` is ledger completion, which can
 precede the actor's published idle state. A proof that changes a session-bound
 account must also observe that same live seat's published `busy:false` (or its
