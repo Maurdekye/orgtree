@@ -3063,12 +3063,12 @@
    "covers": [
     "screen:changelog"
    ],
-   "purpose": "The Changelog panel: one row per release with its date, time and notes, its opening after an update, and the same notes for agents.",
+   "purpose": "The Changelog panel: one row per published release with its date, time and notes, its opening after an update, and the same notes for agents.",
    "must_cover": [
     "rows, their order and their date and time",
     "when it opens on its own and when it does not",
-    "the header link and its setting",
-    "unpublished builds",
+    "the header checkbox and its setting",
+    "published releases only",
     "where agents read the same notes"
    ],
    "sources": [

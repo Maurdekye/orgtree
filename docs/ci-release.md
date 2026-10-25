@@ -141,8 +141,9 @@ Publishing starts the **verify-release** workflow. It downloads every public ass
 
 ### Add it to the Changelog
 
-The in-app Changelog lists the releases in `docs/releases.json` and shows each one's
-`docs/release-notes-X.md`, which is its GitHub description. After publishing a
+The in-app Changelog lists the releases in `docs/releases.json`, dated by
+`published_at`, and shows each one's `docs/release-notes-X.md`, which is its
+GitHub description. After publishing a
 stable release, add it at the top of `docs/releases.json` in the next commit on
 the development line, with both of its times in UTC:
 
@@ -150,7 +151,9 @@ the development line, with both of its times in UTC:
 { "version": "X", "published_at": "<gh release view vX --json publishedAt>", "tagged_at": "<git log -1 --format=%cI vX, in UTC>" }
 ```
 
-Until then the release's own build shows its row with its build commit's time.
+Until then the release's own build shows its row with its build commit's time,
+and the desktop counts it as the newest release listed (the Changelog opens on it
+after the update).
 `tests/release-list.test.mjs` fails once a newer version is in development and a
 released notes file is still missing from the list. If you edit a published
 release's description on GitHub, make the same edit in its notes file: the

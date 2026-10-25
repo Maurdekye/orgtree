@@ -16,7 +16,7 @@ These Display controls describe how the user interacts with the app. Agents expl
 | On startup | `np:startupMode`, native preferences | restore | Restore previous windows in saved positions, or open a fresh homepage. This control is absent when the shell cannot provide multi-window startup. |
 | Open an org at | `ls:orgtree-start-view` | org | The full org fitted to the window, the switchboard, or where I left off. |
 | Play the starting zoom | `ls:orgtree-start-zoom` | On | Animates the initial view; disabled for where I left off because a restored camera does not glide. A brand-new org with no saved camera plays the starting zoom once. |
-| Open changelog after updates | `ls:orgtree-changelog-after-update` | On | The first start after an update opens the Changelog on the new version in the first window; a fresh install never does. Off keeps it shut; the app menu still opens it. The Changelog's header links here. |
+| Open changelog after updates | `ls:orgtree-changelog-after-update` | On | The first start after an update that brings a newer published release opens the Changelog on that release in the first window; a fresh install never does, nor does an update that lists no newer release. Off keeps it shut; the app menu still opens it. The Changelog's header checkbox **Show this every time** is the same setting. |
 
 Quick chat placement and canvas-view choices are browser-local preferences. Native startupMode governs desktop windows; it is different from Run on boot, which controls whether Orgtree starts automatically at all. A canvas destination is not an engine start mode. See [desktop startup](../app-runtime-desktop/SKILL.md).
 

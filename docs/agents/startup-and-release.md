@@ -341,10 +341,11 @@ Original section: Shared skills and installed plugin imports (2026-10-15). Sourc
 Docket changelog-window-one-row-per-version-pinnable-po. The engine bundles every
 `docs/release-notes-<x.y.z>.md` and `docs/releases.json` at build time (build.rs
 `release_notes`, `crate::changelog`): one row per published release, newest
-first, and one more for the engine's own version when no published release is it,
-dated by the commit `ORGTREE_BUILD_COMMIT` names and `unpublished` for a
-pre-release. `TIME_SOURCE` picks which time a published row shows: `tagged_at`,
-the commit its tag names, or GitHub's `published_at`. The panel reads
+first, dated by GitHub's `published_at` (`TIME_SOURCE`; user 2026-10-25
+09:01:38Z "GitHub publish time"). Published releases only ("Published only"): a
+pre-release build has no row of its own, which replaced its Unpublished build
+row; a release build, which its own list cannot have yet, lists itself, dated by
+the commit `ORGTREE_BUILD_COMMIT` names. The panel reads
 `GET /api/changelog` and `/api/changelog/{version}`; agents read the same notes
 as glossary files beside orgtree-app › app-shell › changelog
 (`providers::skills::builtin`), so there is no Changelog tool.
@@ -357,13 +358,18 @@ release to `docs/releases.json` ([release guide](../ci-release.md#add-it-to-the-
 `tests/release-list.test.mjs` and the engine's `changelog` tests check the list
 against the notes.
 
-`main/changelog-launch.ts` keeps the last version run in
-`userData/changelog-seen.json`. No record and no earlier update-log.json entry
-(read before this run's own `startup` line) is a fresh install: it records the
-version and opens nothing. A newer version than the record, or no record after
+`main/changelog-launch.ts` keeps in `userData/changelog-seen.json` the newest
+release the Changelog has listed, not the version run (coordinator
+m4455f7a604f2): `newestListed` over the same `docs/releases.json`
+(`main/index.ts` imports it; esbuild inlines it) and the running version, the
+engine's top row. No record and no earlier update-log.json entry (read before
+this run's own `startup` line) is a fresh install: it records that release and
+opens nothing. A newer listed release than the record, or no record after
 earlier runs, tells the first window once (`desktop:changelog-after-update`) and
-records only then, so a background start keeps it for a later window. The same
-version or a downgrade opens nothing. The renderer opens the panel unless
-`ls:orgtree-changelog-after-update` is off.
-[decided: user 2026-10-24 22:13:55Z–22:17:14Z; verified: `changelog.rs`, `build.rs`,
-`main/changelog-launch.ts`, `changelog.tsx`]
+records it only then, so a background start keeps it for a later window. The
+record is never lowered: the same release, a downgrade and going back up open
+nothing, and so does an alpha-to-alpha update that lists no newly published
+release. 4.4.5-alpha.5 recorded the version it ran, which compares the same way.
+The renderer opens the panel unless `ls:orgtree-changelog-after-update` is off.
+[decided: user 2026-10-24 22:13:55Z–22:17:14Z, 2026-10-25 09:01:38Z; verified:
+`changelog.rs`, `build.rs`, `main/changelog-launch.ts`, `changelog.tsx`]
