@@ -160,6 +160,21 @@ approval check, whose failure was also measured on v4.4.0.
 
 ## What keeps it safe
 
+The startup-switch driver and label oracle use the current `Run on boot` case.
+Keep all seven original check names/order and the boot-kind, removed-label,
+no-engine-choice and hint predicates; a driver timeout does not execute the later
+ON/declined/OFF operations. The actual planted bridge remains synthetic, omits
+native-window identity members and makes exactly two `startAtLogin:false`
+requests: declined-On with the permission message, then accepted-Off with the
+message cleared. Never replace it with real native preferences, startup tasks
+or UAC. Preserve all three screenshots and waits.
+`node --test tools/rig/tests/run-on-startup.test.mjs` executes the actual bridge,
+driver and seven-check proof against a synthetic settings surface, including a
+separate current-label control and missing-control/state/hint/write negatives.
+It opens no window or engine and changes no OS setting; functional acceptance
+still needs the assigned isolated renderer proof.
+[verified: `tools/rig/{desktop,proofs}/run-on-startup.*`; 2026-10-25]
+
 The focused-retire driver targets the current exact Fit button title,
 `fit the whole org (Shift+Alt+Space)`, at both the initial and final Fit samples.
 The shortcut suffix comes from `orgNavigationTooltip(HUD_FIT, 'fitOrg')`; the old

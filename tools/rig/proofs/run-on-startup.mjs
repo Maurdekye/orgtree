@@ -25,7 +25,7 @@ export default async function (rig) {
   const v = r.value ?? {}
   p.check('the desk script ran', r.ok !== false, { error: r.error, out: r.out })
   p.check('the switch reads "run on boot", and nothing still says "run on startup" or "start at login"',
-    v.before?.label === 'run on boot' && v.before?.oldLabel === false, v.before?.label)
+    v.before?.label === 'Run on boot' && v.before?.oldLabel === false, v.before?.label)
   p.check('the "engine starts" choice is gone', v.before?.engineChoice === false, v.before?.engineChoice)
   p.check('its hint says what on and off mean', /before anyone signs in\. While you are signed in, agents run in your session/.test(v.before?.hint ?? '')
     && /Off: nothing of Orgtree runs until you open it/.test(v.before?.hint ?? '')

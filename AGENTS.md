@@ -72,6 +72,10 @@ Focused-retire probes match the Fit tooltip's shortcut hint at both camera
 samples; retain visible Focus and the retire-other negative. See [Fit controls](docs/rust-engine/test-rig.md#what-keeps-it-safe).
 [verified: `tools/rig/desktop/retire-focused-fit.cjs`; 2026-10-25]
 
+Startup-switch probes use Run on boot in selectors and the label oracle, with
+the synthetic bridge retaining decline/accept and exact-write guards. See [startup controls](docs/rust-engine/test-rig.md#what-keeps-it-safe).
+[verified: `tools/rig/{desktop,proofs}/run-on-startup.*`; 2026-10-25]
+
 ## Setting text case
 
 Every setting name, description/help text, settings section header and settings-screen button label uses sentence case: capitalize the first word and retain proper nouns, product names, acronyms and literal identifiers (Orgtree, Claude Code, Codex, Hubchat, MCP, org.md). Apply this to new and changed settings and keep quoted glossary/user-documentation labels aligned. [decided: user 2026-10-24, settings capitalization]
