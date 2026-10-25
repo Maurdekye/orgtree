@@ -18,12 +18,21 @@
 //    inline as well'), in the Presentations header's own checkbox line.
 // §5 the setting: sentence case, on by default, remembered.
 // §6 a new opening request shows the latest again.
+// §7–§9 the list (USER 2026-10-25 10:14:15Z m8d297c7ec920, on alpha.6: "narrow
+//    the list significantly, bolden and increase the size of the verison
+//    number, put the timestamp on a new line left-aligned"): a narrow column of
+//    its own (§7), each version bold and larger (§8), and its date & time alone
+//    on the line below, at the left (§9). These read styles.css as jsdom
+//    applies it (its cascade, without layout); the capture
+//    (tools/rig/changelog-visual.mjs) measures the drawn rows.
 //
 // Run:  node apps/desktop/renderer/tests/run.mjs changelog
 import { flush, inAct, mountView } from './harness'
 import test from 'node:test'
 import { useState } from 'react'
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
+import path from 'node:path'
 import {
   CHANGELOG_AFTER_UPDATE_FIELD, CHANGELOG_AFTER_UPDATE_KEY, ChangelogAfterUpdateSetting, ChangelogModal,
   changelogAfterUpdateOn, setChangelogAfterUpdateOn,
@@ -31,6 +40,10 @@ import {
 import { OPEN_APP_SETTINGS_EVENT } from '../src/canvas/settingskit'
 import { fmtFull, fmtStamp } from '../src/timefmt'
 import type { ChangelogEntry, ChangelogRow } from '../src/api'
+
+declare const __SRC_DIR__: string
+const css = readFileSync(path.join(__SRC_DIR__, 'styles.css'), 'utf8')
+function stylesheet() { const style = document.createElement('style'); style.textContent = css; document.head.appendChild(style); return () => style.remove() }
 
 // GitHub's publish times (docs/releases.json published_at)
 const ROWS: ChangelogRow[] = [
@@ -200,6 +213,57 @@ test('§6 a new opening request shows the latest again', async () => {
     await reopen(2)
     assert.equal(selected(view.el), '4.4.4')
   } finally { await view.unmount(); f.restore() }
+})
+
+test('§7 the version list is a narrow column of its own, not the Presentations panel\'s third', async () => {
+  const unstyle = stylesheet()
+  const { f, view } = await panel()
+  try {
+    const list = view.el.querySelector<HTMLElement>('.changelog-modal .mailpane .mailer-list')!
+    const s = window.getComputedStyle(list)
+    // the gallery's 33.333333% drew it about 390 px wide in the user's alpha.6 window
+    assert.match(s.width, /^\d+(\.\d+)?px$/, `a fixed width, not a share of the panel: "${s.width}"`)
+    assert.ok(Number.parseFloat(s.width) <= 160, `narrow: ${s.width}`)
+    assert.equal(s.maxWidth, s.width, 'a wider panel does not widen it')
+  } finally { await view.unmount(); f.restore(); unstyle() }
+})
+
+test('§8 each version is bold and larger than its row\'s other text', async () => {
+  const unstyle = stylesheet()
+  const { f, view } = await panel()
+  try {
+    for (const r of rows(view.el)) {
+      const version = r.querySelector<HTMLElement>('.l1 .mfrom')!
+      const v = window.getComputedStyle(version)
+      assert.ok(v.fontWeight === 'bold' || Number(v.fontWeight) >= 700, `bold: "${v.fontWeight}"`)
+      // the row's lines are 11 px, as the version was
+      const line = window.getComputedStyle(r.querySelector<HTMLElement>('.l1')!)
+      assert.equal(line.fontSize, '11px')
+      assert.ok(Number.parseFloat(v.fontSize) >= 14, `larger than the 11 px it was: "${v.fontSize}"`)
+    }
+  } finally { await view.unmount(); f.restore(); unstyle() }
+})
+
+test('§9 its release date & time is alone on the line below the version, at the left', async () => {
+  const unstyle = stylesheet()
+  const { f, view } = await panel()
+  try {
+    for (const [i, r] of rows(view.el).entries()) {
+      const lines = [...r.children] as HTMLElement[]
+      assert.deepEqual(lines.map((l) => l.className), ['l1', 'l2'], 'two lines: the version, then its time')
+      assert.equal(lines[0]!.textContent, ROWS[i]!.version, 'the version alone on the first')
+      const time = lines[1]!.querySelector<HTMLElement>(':scope > .mtime')
+      assert.equal(time?.textContent, fmtStamp(ROWS[i]!.released_at))
+      assert.equal(lines[1]!.textContent, time?.textContent, 'the time alone on the second')
+      // nothing pushes it right: it starts where the version starts
+      const s = window.getComputedStyle(lines[1]!)
+      assert.ok(!/^(flex-end|end|right|center|space-between|space-around|space-evenly)$/.test(s.justifyContent), s.justifyContent)
+      assert.ok(!/^(right|end|center)$/.test(s.textAlign), s.textAlign)
+      assert.notEqual(window.getComputedStyle(time!).marginLeft, 'auto')
+      // the same mono face it had beside the version (`.mailrow .l1`), not the gallery line's inherited one
+      assert.match(s.fontFamily, /var\(--mono\)|Consolas/, s.fontFamily)
+    }
+  } finally { await view.unmount(); f.restore(); unstyle() }
 })
 
 test('a list that cannot be read says so and can be asked again', async () => {
