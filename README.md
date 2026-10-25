@@ -14,6 +14,8 @@ It is a substantial tool, with a learning curve to match. You will need to learn
 
 **[Download the latest Windows installer](https://github.com/Maurdekye/orgtree/releases/latest)** | [Release notes](https://github.com/Maurdekye/orgtree/releases) | [Report an issue](https://github.com/Maurdekye/orgtree/issues)
 
+Watch [Orgtree School 1: Introduction](https://youtu.be/c2SF2xMG0uk) (8:43) for a guided tour of Orgtree's workspace and agent workflow.
+
 ## What sets it apart
 
 Orgtree puts the controls for a whole organization around your agent harnesses. These are the tools for dividing the job, managing capacity and keeping the work moving.

@@ -2,6 +2,8 @@
 
 [Documentation](../README.md#documentation) · [Next: Workspace](workspace.md)
 
+Watch [Orgtree School 1: Introduction](https://youtu.be/c2SF2xMG0uk) (8:43) for a guided tour of Orgtree's workspace and agent workflow.
+
 ## After the tour
 
 After a first look at Orgtree, use these guides to put the basics to work on a real task: connect a harness, create an organization, hire an agent and talk in its desk. You do not need to configure a large organization to begin.

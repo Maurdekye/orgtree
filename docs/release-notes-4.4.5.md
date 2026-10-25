@@ -2,6 +2,8 @@
 
 Orgtree 4.4.5 adds an offline Changelog and an agent Files tab, makes hiring and settings easier to use, improves navigation and text editing, and expands what you can manage through the standalone engine.
 
+Watch [Orgtree School 1: Introduction](https://youtu.be/c2SF2xMG0uk) (8:43) for a guided tour of Orgtree's workspace and agent workflow.
+
 ## Navigation and desktop
 
 - **A Changelog inside the app.** Open **Changelog…** from the Orgtree menu to read every published release's notes offline. A narrow list shows versions in bold with their release date and time below; select one to read its notes. The panel can be pinned or popped out in an organization window.

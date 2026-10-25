@@ -7,6 +7,8 @@ Up: [orgtree-app-shell](../SKILL.md)
 
 # First run
 
+Watch [Orgtree School 1: Introduction](https://youtu.be/c2SF2xMG0uk) (8:43) for a guided tour of Orgtree's workspace and agent workflow.
+
 Homepage onboarding appears when preferences have loaded, onboarding is not complete, and the known organization list is empty. An existing or imported organization suppresses it. The flow introduces appearance, Run on boot (Run on sign-in where Orgtree cannot start at boot), and Exit on close, then organization creation. Those choices use the same native preferences as App settings.
 
 The Welcome to Orgtree card is horizontally centered below the Home header, using the same page container as the other management screens. Narrow windows keep side padding, and shorter windows scroll to the create, skip and finish actions.
