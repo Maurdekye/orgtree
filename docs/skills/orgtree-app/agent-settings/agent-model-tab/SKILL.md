@@ -59,6 +59,10 @@ The control uses the model's offered effort levels rather than offering every le
 
 Effort can affect reasoning time and usage. Suggest a lower offered level for routine work or a higher level when the task's difficulty warrants it, while respecting existing staffing choices. Do not infer a model switch is needed solely to change effort.
 
+Hovering over the effort bar previews a level's label without changing the
+setting. Clicking or dragging commits on release; the hover preview clears then
+so the label returns to the chosen or inherited level.
+
 After a saved effective effort change, supported running Claude turns can receive the new level through the control channel. Other cases report next-turn delivery; Muse takes the new level on its next turn. A `sent` result means the request reached the CLI, not proof the model applied it. An unchanged effective level sends nothing.
 
 The full form is a structural save and can replace processes, so it does not promise the narrower behavior of an effort-only action; see [the form's save behavior](../agent-config/SKILL.md). An effort-only control change by itself does not invalidate an unchanged prompt prefix.

@@ -31,7 +31,7 @@ and immediate Staff keep their existing behavior without an automatic jump.
 
 Hover the intended superior's card and choose a hire token. The dashed draft lets you set a name, model, grant, charter and permissions before **Hire**. Project drafts also retain each gear-menu change immediately; only **Create** creates the project. Agents can include a model-version pin, desktop-session preference, direct-report mail policy and cold-turn compaction override in the original hire request. Restoring a seat keeps these saved preferences. A charter describes the standing role; a message gives the immediate task. Each change in the draft's permission gear is saved to the draft immediately while the menu stays open. Closing it keeps those choices; only **Hire** creates the agent. Live-agent settings still require **Save** for changes that can retool or restart an agent.
 
-The draft gear has **Charter**, **Model**, **Scope** and **Tools** tabs like an existing agent. Set team instructions and peer mail, version and effort, speed when supported, account/fallback, fresh-conversation policy, credits, file access, desktop session, folders and tools before hiring. Closing or switching tabs keeps each edit. Editing instructions in the gear turns selected presets into editable text. Superior drafts inherit their target?s folders, tools, visibility and file access. History, current session, queued model switches, scratch actions and lifecycle controls appear only after hire.
+The draft gear has **Charter**, **Model**, **Scope** and **Tools** tabs like an existing agent. Set team instructions and peer mail, version and effort, speed when supported, account/fallback, fresh-conversation policy, credits, file access, desktop session, folders and tools before hiring. Closing or switching tabs keeps each edit. Editing instructions in the gear turns selected presets into editable text. Superior drafts inherit their target's folders, tools, visibility and file access. History, current session, queued model switches, scratch actions and lifecycle controls appear only after hire.
 
 Agent and project draft settings omit the bottom Close button. Dismiss them
 through the **X** in the top-right header, Escape or clicking outside; your staged
@@ -122,6 +122,10 @@ Busy model/account changes queue for the turn boundary. The next-turn badges sho
 Cross-provider switches start a fresh session with a handoff summary. Scratch files, mail and saved history remain with the agent, but they are not a promise of identical conversation context or a cache hit. Switching a model-server route between different harnesses also needs a fresh session. A more expensive seat must fit the available credit allocation.
 
 **Thinking effort** chooses among the model's offered levels. Inheritance uses the organization's effective level; unsupported saved levels are mapped to a supported launch level. Higher effort can affect time and usage. Some supported running Claude turns can receive an effort update; other changes apply next turn. A sent control request does not prove the provider applied it.
+
+Hovering over the effort bar previews a level's label without changing the
+setting. A click or drag commits on release, when the preview clears and the
+label returns to the chosen or inherited level.
 
 **Fast mode** is separate from effort. Where supported, the lightning button saves a next-turn speed preference immediately. It can use more provider allowance. The serving fast badge and a queued next-turn fast badge describe different times. Unsupported routes hide or refuse the option. Hire defaults affect new hires and Quick chat, not existing agents or rehires.
 
