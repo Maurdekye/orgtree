@@ -160,6 +160,16 @@ approval check, whose failure was also measured on v4.4.0.
 
 ## What keeps it safe
 
+`agy-auth-wake.mjs` attributes global auth runtime calls through the PID and
+the same run/org's fake-CLI start record, agent log and exact agent working
+directory. A delayed runtime is excluded from the signed-out agent's check only
+when it has one positively known other owner. A rejected-agent runtime, missing
+start, wrong cwd/org/mode or conflicting owner still fails. Keep the raw global
+calls, the attribution packet, all ten check names and the one-check/no-runtime
+expectation; the separate no-inference-turn guard remains unchanged. Retained
+packet replay verifies attribution, not a full runtime proof pass.
+[verified: `tools/rig/proofs/agy-auth-wake.mjs`; 2026-10-25]
+
 `account-windows.mjs` allows 120 seconds for its existing seed-turn completion
 predicate: a synthetic Session 0 run may first spend 60 seconds in the engine's
 sign-in-helper grace, then needs the ordinary 60-second seed execution allowance.

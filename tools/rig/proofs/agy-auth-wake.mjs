@@ -4,6 +4,30 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { Proof } from '../proof.mjs'
 
+// The auth-call stream is global. Ignore a late runtime only when its PID is
+// positively and unambiguously owned by another agent in this same run/org.
+export function attributeAuthRuntimes(calls, starts, { data, org, rejected }) {
+  const canonical = value => {
+    if (typeof value !== 'string' || !path.isAbsolute(value)) return null
+    const resolved = path.resolve(value)
+    return process.platform === 'win32' ? resolved.toLowerCase() : resolved
+  }
+  const runtimes = calls.filter(c => c.kind === 'runtime').map(call => {
+    const matches = Number.isSafeInteger(call.pid) && call.pid > 0
+      ? starts.filter(s => s.entry?.kind === 'start' && s.entry.pid === call.pid) : []
+    const valid = matches.filter(({ agent, entry }) =>
+      typeof agent === 'string' && /^[\w.-]+$/.test(agent) && agent !== '.' && agent !== '..' &&
+      entry.mode === 'agy' && entry.org === org &&
+      (entry.agent === undefined || entry.agent === agent) &&
+      canonical(entry.cwd) === canonical(path.join(data, 'scratch', org, agent)))
+    const owners = [...new Set(valid.map(s => s.agent))]
+    const owner = matches.length > 0 && valid.length === matches.length && owners.length === 1 ? owners[0] : null
+    return { call, owner, blocking: owner === null || owner === rejected,
+      reason: owner === null ? 'unknown or conflicting PID/cwd/agent' : owner === rejected ? 'rejected agent runtime' : 'positively owned by another agent' }
+  })
+  return { runtimes, blocking: runtimes.filter(r => r.blocking) }
+}
+
 export default async function (rig) {
   const p = new Proof('agy-auth-wake')
   await rig.waitFor(async () => !(await rig.api('GET', '/api/providers')).checking,
@@ -73,8 +97,17 @@ export default async function (rig) {
     { what: 'signed-out admission hold', timeout: 5000 })
   await new Promise(resolve => setTimeout(resolve, 1200))
   const rejected = calls().slice(rejectedMark)
+  const logDir = path.join(rig.fakeDir, 'log')
+  const starts = (fs.existsSync(logDir) ? fs.readdirSync(logDir, { withFileTypes: true }) : [])
+    .filter(file => file.isFile() && file.name.endsWith('.jsonl'))
+    .flatMap(file => {
+      const agent = file.name.slice(0, -6)
+      return rig.fakeLog(agent).map(entry => ({ agent, entry }))
+    })
+  const attribution = attributeAuthRuntimes(rejected, starts, { data: rig.data, org: rig.org, rejected: 'auth-reject' })
+  p.file('signed-out-runtime-attribution.json', attribution)
   p.check('signed-out wake runs one check and no runtime',
-    rejected.filter(c => c.kind === 'check').length === 1 && !rejected.some(c => c.kind === 'runtime'), rejected)
+    rejected.filter(c => c.kind === 'check').length === 1 && attribution.blocking.length === 0, { calls: rejected, ...attribution })
   p.check('signed-out wake creates no inference turn', rig.turns('auth-reject').length === 0)
   p.file('guard-calls.json', calls())
   p.keep(rig, { agents: ['auth-retry', 'auth-metadata', 'auth-reject'], grep: /agy|Agy|Antigravity/ })

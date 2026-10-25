@@ -32,6 +32,10 @@ Template node creation records one net inherited-audience delta around all canon
 
 Recursive project fires must construct nested futures with `util::boxed(|| ...)`: `Box::pin(f())` still grows debug poll frames at every level, even with the depth-four cutoff. See [fire-action stack verification](docs/rust-engine/tool-cards.md#fire-actions). [verified: `domain/listeners.rs`, 2026-10-22]
 
+AGY auth proof runtime counts use positively correlated PID/cwd/agent ownership;
+unknown owners still fail. See [rig attribution](docs/rust-engine/test-rig.md#what-keeps-it-safe).
+[verified: `tools/rig/proofs/agy-auth-wake.mjs`; 2026-10-25]
+
 ## Setting text case
 
 Every setting name, description/help text, settings section header and settings-screen button label uses sentence case: capitalize the first word and retain proper nouns, product names, acronyms and literal identifiers (Orgtree, Claude Code, Codex, Hubchat, MCP, org.md). Apply this to new and changed settings and keep quoted glossary/user-documentation labels aligned. [decided: user 2026-10-24, settings capitalization]

@@ -326,6 +326,13 @@ not execute; never count it as a product result.
   select another author's executable or bypass admission to reuse a rig.
   [verified: `domain/native_fixture.rs`, `tools/rig/proofs/project-claim-boundary.mjs`; 2026-10-22]
 
+- `agy-auth-wake.mjs` signed-out attribution controls replay its actual final
+  check: `node --test tools/rig/tests/agy-auth-attribution.test.mjs`.
+  `AGY_AUTH_WAKE_PROOF_REF` selects a predecessor red control;
+  `AGY_AUTH_WAKE_PACKET` supplies a retained measured packet. Known other-owner
+  runtimes may interleave; rejected or unknown owners still fail. Preserve all
+  ten runtime checks and raw calls; replay is not a full runtime proof pass.
+
 - `account-windows.mjs` seed settling has a 120-second bound: the existing
   60-second helper grace plus the normal 60-second seed execution budget.
   `node --test tools/rig/tests/account-windows-seed.test.mjs` exercises its
