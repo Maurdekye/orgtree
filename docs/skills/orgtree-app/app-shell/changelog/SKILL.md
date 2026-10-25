@@ -7,9 +7,9 @@ Up: [orgtree-app-shell](../SKILL.md)
 
 # Changelog
 
-The Changelog lists every published Orgtree release, newest first, with what changed in it. Open it from the Orgtree application menu with **Changelog…**, directly below **Usage history…** ([orgtree-org-header-and-menu](../org-header-and-menu/SKILL.md)). It has the Presentations panel's layout: versions on the left, the selected version's notes on the right. In an organization window it pins and pops out like the other panels; at home it is a centred panel.
+The Changelog lists every published Orgtree release, newest first, with what changed in it. Open it from the Orgtree application menu with **Changelog…**, directly below **Usage history…** ([orgtree-org-header-and-menu](../org-header-and-menu/SKILL.md)). It has the Presentations panel's layout: a narrow list of versions on the left, the selected version's notes on the right. In an organization window it pins and pops out like the other panels; at home it is a centred panel.
 
-- **Rows.** Each row is one published release: its version and its release date and time, in local time. The newest is at the top, and it is the one open every time the panel opens: from the menu, on its own after an update, or as a pinned panel restored at startup. Select another row to read it; Alt+Up and Alt+Down step between rows.
+- **Rows.** Each row is one published release: its version in bold and, on the line below, its release date and time, in local time. The newest is at the top, and it is the one open every time the panel opens: from the menu, on its own after an update, or as a pinned panel restored at startup. Select another row to read it; Alt+Up and Alt+Down step between rows.
 - **Release date and time.** When GitHub published the release. A release is built before GitHub publishes it, so a release's own build, until a later build lists it, dates its own row by the commit it was built from (4.4.4's was made at 02:58 UTC; GitHub published it at 05:23 UTC).
 - **Notes.** A release's notes are its GitHub release description, built into the app, so the panel works offline and needs no network.
 - **Published releases only.** A build that is not a published release, such as a local alpha, has no row of its own: it lists the releases published before it was built.

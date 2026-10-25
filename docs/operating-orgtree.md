@@ -66,7 +66,7 @@ On an all-users Windows installation, **Run on boot** starts the background engi
 
 ### See what changed in an update
 
-The **Changelog** lists every published release, newest first, with its release date and time and what changed in it: the same text as the release on GitHub, built into the app so it works offline. Open it from the Orgtree menu with **Changelog…**, below **Usage history…**. The newest version is selected whenever it opens; select an older one to read it. In an organization window you can pin it or pop it out like other panels.
+The **Changelog** lists every published release, newest first, with its release date and time and what changed in it: the same text as the release on GitHub, built into the app so it works offline. The versions are a narrow list down the left, each in bold with its release date and time below it. Open it from the Orgtree menu with **Changelog…**, below **Usage history…**. The newest version is selected whenever it opens; select an older one to read it. In an organization window you can pin it or pop it out like other panels.
 
 The first time Orgtree starts after an update that brings a newer published release, the Changelog opens by itself on that release. A fresh install never opens it, and neither does an update between test builds that brings no newly published release. To stop it opening, clear **Show this every time** in the Changelog's header, or turn off **App settings > Display > Startup > Open changelog after updates**: they are the same setting. Each release's date and time is when it was published on GitHub. A local test build that is not a published release lists only the releases published before it.
 
