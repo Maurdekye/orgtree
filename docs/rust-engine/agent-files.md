@@ -45,3 +45,6 @@ The image viewer captures Escape in its own document, ahead of a detached
 surface's bubbling boundary; matching cleanup prevents a stale key listener.
 One Escape closes the viewer without closing its desk or another document.
 [verified: canvas/{files,filedownload,lightbox}.tsx/ts; tests/filespopout.test.tsx]
+
+The image viewer's download link uses the same authenticated download path,
+256 MiB limit and visible failure handling, including in a separate window.

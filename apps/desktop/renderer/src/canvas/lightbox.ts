@@ -1,3 +1,4 @@
+import { downloadFile } from './filedownload'
 import { initiatingDocument } from '../windowlife'
 // canvas/lightbox.ts — the full-size image viewer (user spec 2026-08-25:
 // images flow both ways — agents present them, users attach them — and every
@@ -36,7 +37,19 @@ export function openLightbox(src: string, opts: { name?: string; download?: stri
     dl.href = opts.download
     dl.setAttribute('download', opts.name ?? '')
     dl.textContent = 'download'
+    const error = ownerDocument.createElement('span')
+    error.setAttribute('role', 'alert')
+    let busy = false
+    dl.addEventListener('click', event => {
+      event.preventDefault(); event.stopPropagation()
+      if (busy) return
+      busy = true; dl.setAttribute('aria-disabled', 'true'); error.textContent = ''
+      void downloadFile(ownerDocument, opts.download!, opts.name ?? 'image')
+        .catch((e: Error) => { error.textContent = e.message })
+        .finally(() => { busy = false; dl.removeAttribute('aria-disabled') })
+    })
     bar.appendChild(dl)
+    bar.appendChild(error)
   }
   const x = ownerDocument.createElement('button')
   x.className = 'lb-x'

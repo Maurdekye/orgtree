@@ -89,3 +89,6 @@ snapshot, including from a desk in a separate window. Downloads are limited to
 256 MiB; a failed download shows an error beside its link. View opens an image
 in that window. Escape closes the image viewer and leaves the desk open; the
 Close button and backdrop also close the viewer.
+
+The image viewer's download link uses the same authenticated download path,
+256 MiB limit and visible failure handling, including in a separate window.
