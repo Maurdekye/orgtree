@@ -107,13 +107,15 @@ notes empty. The build stage copies both. The allowlist gives each its own
 exception and keeps out the pre-release drafts (`release-notes-*-*.md`), which
 `build.rs` skips.
 
-Measured with Docker Desktop 29.6.2 (BuildKit 0.31.2), by exporting a
-`FROM scratch` stage with the same COPY lines plus `COPY . /context/`: a
+Measured at 950ac8a with Docker Desktop 29.6.2 (BuildKit 0.31.2), by exporting
+a `FROM scratch` stage with the same COPY lines plus `COPY . /context/`: a
 directory exception such as `!docs/` re-includes everything under it. The
-context therefore carries all of `engine/` and `docs/` except targets and
-dependencies (1487 files) for a 655-file build stage; only copied files reach
-the image. Patternmatcher's newer per-path rule (buildx#850) would re-include
-only the folder, which is why each input also has its own exception.
+context held all of `engine/` and `docs/` except targets and dependencies
+(1526 files), `docs/releases.json` and every note among them, while the
+602-file build stage had neither: only copied files reach the image, and the
+COPY was what was missing. Patternmatcher's newer per-path rule (buildx#850)
+would re-include only the folder, which is why each input also has its own
+exception.
 `tests/standalone-docker-context.test.mjs` applies the allowlist and the
 build stage's COPY lines to the tracked files under both rules. It reproduces
 the measured context and stage file for file, and requires the stage to hold
