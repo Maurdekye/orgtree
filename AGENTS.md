@@ -57,6 +57,13 @@ Rig live-root guards retain import-time `APPDATA`/home/data-override paths after
 
 ## Engine and desktop invariants
 
+- Every file the engine compile reads outside its crates (an `include_str!` path
+  or a `build.rs` input such as `docs/releases.json`) is copied by
+  `standalone/Dockerfile` and has its own exception in its allowlist;
+  `tests/standalone-docker-context.test.mjs` checks both. See
+  [Changelog build inputs](docs/rust-engine/STANDALONE-ENGINE.md#changelog-build-inputs-2026-10-25-445).
+  [verified: `standalone/Dockerfile`, `orgtree-engine/build.rs`; 2026-10-25]
+
 - Live credit edits subtract the control's accepted grant, not stale tree state;
   draft commits remain absolute. See [draft edits](docs/agents/desktop-and-renderer.md#draft-permission-edits-2026-10-24).
   [verified: `canvas/creditgrant.tsx`; 2026-10-25]

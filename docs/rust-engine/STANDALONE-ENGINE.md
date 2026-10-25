@@ -77,7 +77,9 @@ The Docker build needs `engine/docs/charters`, `engine/docs/templates` and
 `include_str!` inputs; `build.rs` embeds the full glossary from the third.
 Omitting the glossary can silently embed an empty library; omitting the other
 assets fails compilation. The Dockerfile-specific context allowlist includes
-all three and excludes unrelated files, targets and installed dependencies.
+all three and excludes targets and installed dependencies; it does not keep out
+the rest of `engine/` and `docs/` (measured 2026-10-25, see
+[Changelog build inputs](#changelog-build-inputs-2026-10-25-445)).
 The recipe uses the checked-in Cargo lockfile, accepts `CARGO_BUILD_JOBS` and
 `ORGTREE_BUILD_COMMIT` build arguments, and omits release debug information.
 BuildKit cache mounts retain compiler/registry work across failed builds. Release
@@ -95,6 +97,35 @@ separately from the engine's embedded build-commit field, allowing a runtime-onl
 recipe repair to reuse an unchanged compiled engine.
 [verified: `migrations/0040_project_history.sql`, `standalone/Dockerfile`;
 2026-10-24]
+
+### Changelog build inputs (2026-10-25, 4.4.5)
+
+The Changelog adds two inputs: `changelog.rs` embeds `docs/releases.json` with
+`include_str!`, so omitting it fails compilation, and `build.rs` embeds every
+stable `docs/release-notes-<x.y.z>.md`, so omitting them silently leaves the
+notes empty. The build stage copies both. The allowlist gives each its own
+exception and keeps out the pre-release drafts (`release-notes-*-*.md`), which
+`build.rs` skips.
+
+Measured with Docker Desktop 29.6.2 (BuildKit 0.31.2), by exporting a
+`FROM scratch` stage with the same COPY lines plus `COPY . /context/`: a
+directory exception such as `!docs/` re-includes everything under it. The
+context therefore carries all of `engine/` and `docs/` except targets and
+dependencies (1487 files) for a 655-file build stage; only copied files reach
+the image. Patternmatcher's newer per-path rule (buildx#850) would re-include
+only the folder, which is why each input also has its own exception.
+`tests/standalone-docker-context.test.mjs` applies the allowlist and the
+build stage's COPY lines to the tracked files under both rules. It reproduces
+the measured context and stage file for file, and requires the stage to hold
+every compile input (workspace members, Cargo manifest and lockfile, each
+`include_str!`/`include_bytes!` path and the `build.rs` inputs) and nothing
+else. A new input outside the crates needs a COPY line and an exception.
+
+The context excludes `.git`, so `build.rs` cannot read a stamped commit's
+time: a release image's own Changelog row, which `docs/releases.json` does not
+list yet, has no release time. No CI workflow builds this image.
+[verified: `standalone/Dockerfile`, `orgtree-engine/build.rs`,
+`src/changelog.rs`, BuildKit 0.31.2 context export; 2026-10-25]
 
 ## Phase 2 (this slice): the user MCP endpoint
 

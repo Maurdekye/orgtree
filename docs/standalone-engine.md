@@ -47,8 +47,9 @@ publishes port 7430 on host loopback only and stores the data root in a named
 volume mounted at `/data`. With no configured token, read its first-start stderr
 in the container log. Keep the volume when replacing the container.
 
-The build includes embedded glossary pages, charters and templates. Its context
-allowlist excludes unrelated checkout files, dependency installs and build targets.
+The build includes embedded glossary pages, charters, templates and the
+Changelog's release list and notes. Its context allowlist excludes dependency
+installs, build targets and the checkout outside the engine and docs folders.
 Provider CLIs are separate: install them in a derived image and make their
 executables available in the engine's PATH. A CLI installed or signed in on the
 Docker host is not automatically available in the container.

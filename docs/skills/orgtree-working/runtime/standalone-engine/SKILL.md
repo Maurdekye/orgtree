@@ -87,8 +87,9 @@ not equivalent to the mandatory-authenticated standalone mode.
 Current migrations require PostgreSQL 16 or later; the Docker runtime includes
 PostgreSQL 17. Repository Docker assets use one persistent `/data` volume, bind inside the
 container and publish to host loopback in the supplied compose file. The
-build embeds the glossary, charters and templates, with an allowlisted build
-context excluding generated targets/dependencies.
+build embeds the glossary, charters, templates and the Changelog's release list
+and notes, with an allowlisted build context excluding generated
+targets/dependencies.
 BuildKit retains compiler caches and accepts explicit compiler-profile build
 arguments for constrained machines; those do not change API authorization.
 Provider CLIs must be

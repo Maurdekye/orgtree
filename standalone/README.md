@@ -31,8 +31,9 @@ cd standalone && ORGTREE_STANDALONE_TOKEN=<32+ chars> docker compose up -d
 First run with no token configured generates one into
 `<data>/standalone-token` and prints it to stderr (the container log) once.
 
-The build embeds the glossary, charters and organization templates; its
-Dockerfile-specific context allowlist includes those source inputs and excludes
+The build embeds the glossary, charters, organization templates and the
+Changelog's release list and notes; its Dockerfile-specific context allowlist
+includes those source inputs and excludes
 generated targets and dependencies. Cargo uses the checked-in lockfile. Provider
 CLIs are installed separately in a derived image; host installations and logins
 are not automatically available inside the container. Keep account profiles in
