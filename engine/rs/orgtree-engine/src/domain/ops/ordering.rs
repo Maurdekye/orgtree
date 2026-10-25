@@ -82,7 +82,10 @@ pub(super) fn position(req: &Value, list: &[Sibling], required: bool) -> Result<
 #[logged]
 pub(super) fn creation_position(req: &Value, list: &[Sibling], required: bool) -> Result<(usize, bool)> {
     let pos = position(req, list, required)?;
-    let append = req.get("index").is_none() && req.get("before").is_none() && req.get("after").is_none();
+    // Match position(): nullable legacy anchors are omitted, not explicit placement.
+    let append = req.get("index").is_none()
+        && req.get("before").filter(|v| !v.is_null()).is_none()
+        && req.get("after").filter(|v| !v.is_null()).is_none();
     if required || !append || req.get("above").filter(|v| !v.is_null()).is_some() || req["hire_type"] == "superior" {
         return Ok((pos, append));
     }
@@ -136,6 +139,52 @@ mod hire_position_tests {
             assert!(midpoint(&list, at).is_some());
             assert_eq!(creation_position(&json!({"user_position":"end"}), &list, false).unwrap(), (n, true));
         }
+    }
+
+    #[test]
+    fn hire_position_null_anchors_follow_user_choice() {
+        let list = siblings(3);
+        for anchors in [json!({"before":null}), json!({"after":null}), json!({"before":null,"after":null})] {
+            for (choice, expected) in [("centre", (2, false)), ("start", (0, false)), ("end", (3, true))] {
+                let mut req = anchors.clone();
+                req["user_position"] = json!(choice);
+                assert_eq!(creation_position(&req, &list, false).unwrap(), expected, "{req}");
+            }
+            assert_eq!(creation_position(&anchors, &list, false).unwrap(), (3, true));
+        }
+    }
+
+    #[test]
+    fn hire_position_null_anchors_preserve_explicit_and_superior_precedence() {
+        let list = siblings(3);
+        for required in [false, true] {
+            let req = json!({"index":1,"before":null,"after":null,"user_position":"centre"});
+            assert_eq!(creation_position(&req, &list, required).unwrap(), (1, false));
+        }
+        for (req, expected) in [
+            (json!({"before":"n1","after":null,"user_position":"start"}), (1, false)),
+            (json!({"after":"n1","before":null,"user_position":"start"}), (2, false)),
+            (json!({"above":"anchor","before":null,"user_position":"centre"}), (3, true)),
+            (json!({"hire_type":"superior","after":null,"user_position":"centre"}), (3, true)),
+        ] {
+            assert_eq!(creation_position(&req, &list, false).unwrap(), expected, "{req}");
+        }
+    }
+
+    #[test]
+    fn hire_position_null_anchors_keep_index_and_anchor_validation_strict() {
+        let list = siblings(3);
+        for req in [
+            json!({"index":null,"before":null,"user_position":"centre"}),
+            json!({"index":4,"after":null,"user_position":"centre"}),
+            json!({"before":false,"after":null,"user_position":"centre"}),
+            json!({"before":"missing","after":null,"user_position":"centre"}),
+            json!({"before":"n1","after":"n2","user_position":"centre"}),
+            json!({"index":1,"before":"n2","after":null,"user_position":"centre"}),
+        ] {
+            assert!(creation_position(&req, &list, false).is_err(), "{req}");
+        }
+        assert!(creation_position(&json!({"before":null,"user_position":"centre"}), &list, true).is_err());
     }
 
     #[test]

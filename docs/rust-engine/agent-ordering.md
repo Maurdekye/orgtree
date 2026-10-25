@@ -14,6 +14,12 @@ nodes. No new tool or org setting: agent hire/staff still require explicit index
 Immediate Staff forwards the choice and includes it in retry identity; request
 Staff delegates without a placement choice.
 
+Nullable legacy `before`/`after` fields are omitted for creation as well as
+explicit placement: they do not suppress the app's Centre/Start choice. An
+explicit `index` (including a malformed null index), a real anchor or superior
+insertion retains its validation and precedence. Both agent and project user
+creation use this rule. [verified: `domain/ops/ordering.rs`; 2026-10-25]
+
 ## Explicit agent placement
 
 2026-10-11. User request mb137ddaf7c1d and explicit-value correction

@@ -56,6 +56,8 @@ In circular view the same sibling order places the new node within its team's
 arc; Centre is a list position, not a fixed screen angle. Explicit side/above
 tokens, moves and template order retain their placement. Agent hire/staff tools
 keep their required explicit `index`; no new tool is needed for this user choice.
+Nullable before/after request fields mean no anchor, so they do not override
+this preference for ordinary agent or project creation.
 
 ## Open desk after manual hire
 

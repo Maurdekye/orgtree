@@ -32,6 +32,7 @@ The named presets are Claude Terracotta, Codex Teal, Antigravity Navy, Muse Eggs
   choice saves immediately for future UI creations, including Quick chat and
   immediate Staff. Existing nodes, side/above placement and templates keep
   their order. An explicitly saved End, Start or Centre choice is kept.
+  A null before/after anchor in a creation request also follows this choice.
 
 - **Open desk after manual hire:** On by default. Off keeps the current view
   after a canvas draft hire (including side/above) or Quick chat, without

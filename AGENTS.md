@@ -63,7 +63,10 @@ Rig live-root guards retain import-time `APPDATA`/home/data-override paths after
 
 - Unset **New hires go** defaults to Centre; preserve valid saved End/Start/Centre
   choices. See [hire position](docs/agents/desktop-and-renderer.md#new-hire-position-2026-10-23).
-  [decided: user 2026-10-24; verified: `hireposition.ts`]
+  Null before/after anchors are omitted for agent/project creation; explicit
+  indices, real anchors and superior placement retain precedence. See
+  [creation ordering](docs/rust-engine/agent-ordering.md).
+  [decided: user 2026-10-24; verified: `hireposition.ts`, `domain/ops/ordering.rs`; 2026-10-25]
 
 - Limit fallback considers native Claude/Codex sign-ins even without registry
   rows, after registered subscriptions and before paid keys. Preserve native
