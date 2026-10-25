@@ -16,9 +16,11 @@ import { fileURLToPath } from 'node:url'
 
 const root = fileURLToPath(new URL('..', import.meta.url))
 const read = file => fs.readFileSync(path.join(root, file), 'utf8')
-const tracked = execFileSync('git', ['ls-files', '-z'], { cwd: root, encoding: 'utf8', maxBuffer: 64 << 20 })
+// The tracked files; a submodule (engine/mailhub) is a folder, not a file.
+const tracked = execFileSync('git', ['ls-files', '-z', '--stage'], { cwd: root, encoding: 'utf8', maxBuffer: 64 << 20 })
   .split('\0')
-  .filter(Boolean)
+  .filter(entry => entry && !entry.startsWith('160000 '))
+  .map(entry => entry.slice(entry.indexOf('\t') + 1))
 
 // A path pattern as a regular expression: `*` and `?` stay within one path
 // segment and, in a .dockerignore pattern, `**` spans any number of them.
@@ -51,16 +53,21 @@ function ignorePatterns(text) {
     })
 }
 
-// Whether a file is in the build context. BuildKit's walker gives each path
-// its parent directory's verdict, then the last pattern matching the path
-// itself decides: `!docs/` re-includes the folder, but each file under it that
-// the leading `**` excludes needs an exception of its own.
-function inContext(patterns, file) {
-  let excluded = false
+// Whether a file is in the build context: the last pattern matching it
+// decides. BuildKit 0.31 (Docker Desktop 29.6, measured 2026-10-25) also
+// counts a pattern that matches one of the file's directories, so `!docs/`
+// re-includes all of docs/; patternmatcher's newer per-path rule (buildx#850)
+// counts only the path itself, starting from its directory's verdict, so each
+// file under `!docs/` that the leading `**` excludes needs its own exception.
+// The allowlist has to work under both.
+function inContext(patterns, file, directories) {
   const parts = file.split('/')
-  for (let depth = 1; depth <= parts.length; depth++) {
-    const at = parts.slice(0, depth).join('/')
-    for (const { exception, re } of patterns) if (re.test(at)) excluded = !exception
+  const paths = parts.map((_, i) => parts.slice(0, i + 1).join('/'))
+  let excluded = false
+  if (directories) {
+    for (const { exception, re } of patterns) if (paths.some(at => re.test(at))) excluded = !exception
+  } else {
+    for (const at of paths) for (const { exception, re } of patterns) if (re.test(at)) excluded = !exception
   }
   return !excluded
 }
@@ -125,22 +132,29 @@ function compileInputs(files) {
   return inputs
 }
 
-const context = tracked.filter(file => inContext(ignorePatterns(read('standalone/Dockerfile.dockerignore')), file))
-const { stage, missing } = buildStage(read('standalone/Dockerfile'), context)
+const patterns = ignorePatterns(read('standalone/Dockerfile.dockerignore'))
 const inputs = compileInputs(tracked)
+const stages = [
+  ['directory exceptions cover their contents (BuildKit 0.31)', true],
+  ['each path needs its own exception', false],
+].map(([rule, directories]) => ({
+  rule,
+  ...buildStage(read('standalone/Dockerfile'), tracked.filter(file => inContext(patterns, file, directories))),
+}))
+const each = check => assert.deepEqual(stages.map(check), stages.map(({ rule }) => ({ rule, files: [] })))
 
 test('every COPY source of the standalone build stage is in its context', () => {
-  assert.ok(stage.size > 0, 'standalone/Dockerfile has a stage named build')
-  assert.deepEqual(missing, [])
+  assert.ok(stages.every(({ stage }) => stage.size > 0), 'standalone/Dockerfile has a stage named build')
+  each(({ rule, missing }) => ({ rule, files: missing }))
 })
 
 test('the standalone build stage holds every file the engine compile reads', () => {
-  // A new one is copied in standalone/Dockerfile's build stage and allowed in
-  // standalone/Dockerfile.dockerignore.
-  assert.deepEqual([...inputs].filter(file => stage.get(file) !== file).sort(), [])
+  // A new one is copied in standalone/Dockerfile's build stage and allowed,
+  // under its own path, in standalone/Dockerfile.dockerignore.
+  each(({ rule, stage }) => ({ rule, files: [...inputs].filter(file => stage.get(file) !== file).sort() }))
 })
 
 test('the standalone build stage holds nothing the engine compile does not read', () => {
   // Pre-release notes (build.rs skips them) and the other docs stay out.
-  assert.deepEqual([...stage.keys()].filter(file => !inputs.has(file)).sort(), [])
+  each(({ rule, stage }) => ({ rule, files: [...stage.keys()].filter(file => !inputs.has(file)).sort() }))
 })
