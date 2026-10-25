@@ -160,6 +160,19 @@ approval check, whose failure was also measured on v4.4.0.
 
 ## What keeps it safe
 
+The focused-retire driver targets the current exact Fit button title,
+`fit the whole org (Shift+Alt+Space)`, at both the initial and final Fit samples.
+The shortcut suffix comes from `orgNavigationTooltip(HUD_FIT, 'fitOrg')`; the old
+bare-title selector cannot find it. Keep the visible Focus action, actual camera
+settling/comparisons, retire-other negative, dissolve-own positive and all three
+screenshots. The proof retains its four original check names/order/predicates;
+a failed driver records one failure with three camera checks unexecuted, never
+three passes. `node --test tools/rig/tests/retire-focused-fit.test.mjs` replays the
+actual driver and proof with synthetic matrices, missing Fit/Focus and wrong
+zoom/position controls. It opens no window or engine and retires no real agent;
+functional acceptance still requires the assigned isolated renderer recheck.
+[verified: `tools/rig/{desktop,proofs}/retire-focused-fit.*`; 2026-10-25]
+
 The provider-chip driver matches `Done` in both the language-server browser and
 the OpenRouter picker. Keep the exact text match, original centre-hit wait,
 timeouts, screenshots and all 16 checks in `provider-chips.mjs`; missing controls
