@@ -31,7 +31,8 @@ insertion target when undo history is enabled or disabled; the new superior
 and its existing report are placed together in one operation. The new
 superior keeps that agent's sibling position, and the agent's whole subtree
 moves below it; neighbouring siblings stay in order, including with Centre
-as the ordinary-hire default. The compact
+as the ordinary-hire default. Imported agents sharing the same saved order
+also keep their existing relative positions. The compact
 hire sheet's superior placement follows the same rule. Superior hiring stays
 on the hire strips or placement form; the shared context menu offers
 subordinate hiring, rather than adding a superior-menu action.

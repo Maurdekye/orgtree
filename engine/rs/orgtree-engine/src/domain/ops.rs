@@ -1456,7 +1456,7 @@ async fn hire(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transaction<'_>, 
         }
     } else { parent.clone() };
     let mut siblings = ordering::siblings(tx, org.id, placement_parent.as_ref().map(|p| p.id), anchor.as_ref().map(|a| a.id)).await?;
-    let (mut index, append) = ordering::creation_position(req, &siblings, agent)?;
+    let (mut index, mut append) = ordering::creation_position(req, &siblings, agent)?;
     // A UI above insertion replaces its anchor's slot, just like a project
     // wrapper. Appending instead disagrees with the draft and its retained
     // birth position whenever the anchor has a following sibling (Centre
@@ -1465,8 +1465,14 @@ async fn hire(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transaction<'_>, 
     let anchor_order: Option<f64> = if append && !self_parent {
         if let Some(a) = &anchor {
             let order = tx.query_one("SELECT sibling_order FROM ot.agents WHERE id = $1", &[&a.id]).await?.get(0);
-            index = siblings.iter().filter(|s| s.order < order).count();
-            Some(order)
+            index = siblings.iter().filter(|s| s.order < order || (s.order == order && s.id < a.id)).count();
+            if siblings.iter().any(|s| s.order == order) {
+                // Imports can retain equal ordinals. A newer manager id would
+                // sort after those peers, so use the original full rank and
+                // canonical midpoint/normalization rather than copying a tie.
+                append = false;
+                None
+            } else { Some(order) }
         } else { None }
     } else { None };
     // a superior inserted above `anchor` also carries the anchor's stake

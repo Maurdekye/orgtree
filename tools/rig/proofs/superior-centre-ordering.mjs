@@ -40,5 +40,24 @@ export default async function (rig) {
   p.check('an explicit index still selects the superior position', explicit.index === 0 && order('lead')[0] === 'explicit-manager' && same(order('explicit-manager'), ['tester']))
   const project = await rig.op({ op: 'create_project', name: 'design-project', above: 'designer' })
   p.check('project-above retains the same ordinal replacement semantics', order('lead')[1] === 'design-project' && same(order('design-project'), ['designer']), project)
+  // Imported sibling ordinals may tie (including the legacy default zero).
+  // Synthetic fixture data only; the actual hire still uses the real domain op.
+  for (const [rank, tiedOrder] of [[0, 1.75], [1, 0], [2, 0]]) {
+    const parent = 'ties-' + rank, names = ['a','b','c','d'].map(n => parent + '-' + n)
+    await hire(parent)
+    for (const name of names) await hire(name, parent)
+    const anchorName = names[rank], managerName = parent + '-manager', child = parent + '-child'
+    await hire(child, anchorName)
+    rig.exec(`UPDATE ot.agents SET sibling_order=CASE WHEN name='${names[3]}' THEN 2 ELSE ${tiedOrder} END
+      WHERE org_id=${org} AND name IN (${names.map(n => "'" + n + "'").join(',')})`)
+    const expected = [...names]; expected[rank] = managerName
+    const result = await hire(managerName, parent, { above: anchorName })
+    const actual = order(parent), after = rows(), managerOrder = after.find(n => n.name === managerName).sibling_order
+    p.check('tied anchor rank ' + rank + ' keeps SQL rank and reports its true index',
+      same(actual, expected) && result.index === rank && !after.some(n => names.includes(n.name) && n.name !== anchorName && n.sibling_order === managerOrder),
+      { rank, tiedOrder, expected, actual, resultIndex: result.index, managerOrder })
+    p.check('tied anchor rank ' + rank + ' carries the complete subtree',
+      same(order(managerName), [anchorName]) && same(order(anchorName), [child]))
+  }
   return p.summary()
 }

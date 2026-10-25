@@ -100,7 +100,9 @@ renderer view preference with no engine/tool field or per-frame layout work.
 ## Superior insertion retains the anchor slot (2026-10-25)
 
 Canvas above hires omit ordinary user_position. Admission must retain the
-anchor's sibling ordinal when no explicit position was requested, matching
+anchor's sibling ordinal when no explicit position was requested. Imported
+ties retain the full ordinal/numeric-id rank through canonical placement and
+same-transaction normalization when needed. This matches
 withDraftTree's wrapper and OrgCanvas's retained birth position. Appending a
 mid-row superior instead overlays its following sibling until a tree change;
 Centre makes this case common. Keep agent-tool explicit index and self-parent

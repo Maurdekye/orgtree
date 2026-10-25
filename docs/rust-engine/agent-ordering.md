@@ -23,8 +23,12 @@ creation use this rule. [verified: `domain/ops/ordering.rs`; 2026-10-25]
 ## Canvas superior insertion (2026-10-25, 4.4.5)
 
 A user superior hire with no explicit index/before/after takes the anchor's
-stored sibling ordinal and reports its original index. Its existing subtree
-moves below the new manager; neighbouring siblings keep their ordinals. This
+stored sibling ordinal and reports its original index. If remaining siblings
+share that ordinal (for example after import), preserve the anchor's full
+(sibling_order, numeric id) rank and allocate a non-colliding midpoint through
+canonical placement; exhausted/tied gaps normalize and publish the changed
+sibling rows in the same transaction. Its existing subtree
+moves below the new manager; neighbouring siblings keep their relative order. This
 matches the above-draft projection and project-above creation, including when
 Centre creation has put the anchor before another sibling. Previously the
 engine appended that manager, while the canvas retained its draft position:
