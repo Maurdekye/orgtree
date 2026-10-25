@@ -160,6 +160,20 @@ approval check, whose failure was also measured on v4.4.0.
 
 ## What keeps it safe
 
+Cold-reset settings synchronization: `cold-reset-default.mjs` retains all 13
+checks. Its desktop stage opens/closes untouched Org settings and reads the
+effective ON/25% default; dirty-only auto-save does not promise an explicit
+stored value for an untouched field. It then edits OFF and ON with Sentence-case
+selectors, waiting up to 15 seconds for each effective API value before the next
+edit. OFF must hide occupancy and persist OFF/25%; ON must show 25% and persist
+ON/25%, including the proof's final SQL read. No Save/Cancel button or toast is
+used as write completion. The other eight backend/default/occupancy/session
+checks are unchanged. `node --test tools/rig/tests/cold-reset-autosave.test.mjs`
+replays the actual driver and five UI assertions with delayed/missing/wrong
+synthetic writes; it starts no windows, engine or database and does not replace
+the full rig proof. [verified: `tools/rig/{desktop/cold-reset-default.cjs,proofs/cold-reset-default.mjs}`;
+2026-10-25]
+
 `agy-auth-wake.mjs` attributes global auth runtime calls through the PID and
 the same run/org's fake-CLI start record, agent log and exact agent working
 directory. A delayed runtime is excluded from the signed-out agent's check only

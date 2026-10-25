@@ -11,9 +11,10 @@
 //   handoff; jon's resumes his session.
 //   An org occupancy of 40% then reaches ivy's override (3.x merged an
 //   override key by key over the org's setting).
-//   With --ui, a second org with no setting: its Org settings panel saved
-//   untouched stores the reset explicitly ({enabled: true, occ: 0.25}). The
-//   driver checks initial ON/25%, OFF with the occupancy hidden, then ON/25%.
+//   With --ui, a second org with no setting: untouched Org settings retain
+//   the effective ON/25% default (dirty-only auto-save, user 2026-10-24).
+//   The driver checks initial ON/25%, OFF with occupancy hidden, then ON/25%,
+//   observing each edit's persisted value before advancing.
 // Run: node tools/rig/rig.mjs run tools/rig/proofs/cold-reset-default.mjs [--ui <bundle>]
 
 import { SEED_SETTLE_TIMEOUT } from '../seed-settle.mjs'
@@ -104,11 +105,15 @@ export default async function (rig) {
       { org: fresh, out: path.join(p.dir, 'desk'), timeout: 120000 })
     p.check('the desk script ran', r.ok, r.ok ? undefined : r)
     const f1 = stored(fresh)
-    p.check('a fresh org\'s Org settings panel saved untouched stores the reset explicitly, at the default',
-      f0?.has === false && f1?.has === true && same(f1.acc, { enabled: true, occ: 0.25 }), { before: f0, after: f1 })
+    p.check('a fresh org\'s untouched Org settings retain the effective ON/25% default',
+      f0?.has === false && same(r.value?.untouched, { enabled: true, occ: 0.25 }),
+      { before: f0, untouched: r.value?.untouched })
     p.check('the reopened panel starts ON at 25%', r.value?.before?.on === true && r.value?.before?.occ === '25', r.value?.before)
-    p.check('explicit OFF hides the occupancy field', r.value?.off?.on === false && r.value?.off?.occ === null, r.value?.off)
-    p.check('switched on, the panel shows 25%', r.value?.shown === '25', r.value)
+    p.check('explicit OFF hides the occupancy field',
+      r.value?.off?.on === false && r.value?.off?.occ === null && same(r.value?.off?.saved, { enabled: false, occ: 0.25 }), r.value?.off)
+    p.check('switched on, the panel shows 25%',
+      r.value?.shown === '25' && same(r.value?.savedOn, { enabled: true, occ: 0.25 })
+        && f1?.has === true && same(f1.acc, { enabled: true, occ: 0.25 }), { ...r.value, stored: f1 })
   } else {
     p.note('no --ui bundle: the Org settings panel checks were skipped')
   }
