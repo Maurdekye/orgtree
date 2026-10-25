@@ -160,6 +160,21 @@ approval check, whose failure was also measured on v4.4.0.
 
 ## What keeps it safe
 
+New-hire account layout: `new-agent-account.cjs` uses the current
+`Default provider account for new hires` and `File and command access` selectors.
+The latter replaces the obsolete `permission mode for new agents` label; the
+permission control is still present and its geometry must still be measured.
+Each run restores machine default, observes persisted state, selects the other
+account, waits for its auto-save, measures, then restores machine default before
+Close. A prior run's saved account must not become the next run's baseline.
+All six charcoal/light x1366/760/440 variants and every original predicate in
+`new-agent-account.mjs` remain unchanged; missing neighbouring controls still
+fail. `node --test tools/rig/tests/new-agent-account-autosave.test.mjs` replays
+the actual driver/proof with delayed writes and invalid geometry; its synthetic
+rectangles verify the instrument, not real layout. Functional approval still
+needs the isolated renderer proof. [verified: `tools/rig/desktop/new-agent-account.cjs`;
+2026-10-25]
+
 Cold-reset settings synchronization: `cold-reset-default.mjs` retains all 13
 checks. Its desktop stage opens/closes untouched Org settings and reads the
 effective ON/25% default; dirty-only auto-save does not promise an explicit

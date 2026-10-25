@@ -54,6 +54,11 @@ as well as ledger completion; keep the lawful busy refusal. See
 [removal synchronization](docs/rust-engine/test-rig.md#what-keeps-it-safe).
 [verified: `tools/rig/proofs/codex-accounts.mjs`, `domain/account_removal.rs`; 2026-10-25]
 
+New-hire layout proofs reset and observe auto-saved account state between
+variants; use the current permission label without dropping its geometry guard.
+See [layout synchronization](docs/rust-engine/test-rig.md#what-keeps-it-safe).
+[verified: `tools/rig/desktop/new-agent-account.cjs`; 2026-10-25]
+
 ## Setting text case
 
 Every setting name, description/help text, settings section header and settings-screen button label uses sentence case: capitalize the first word and retain proper nouns, product names, acronyms and literal identifiers (Orgtree, Claude Code, Codex, Hubchat, MCP, org.md). Apply this to new and changed settings and keep quoted glossary/user-documentation labels aligned. [decided: user 2026-10-24, settings capitalization]
