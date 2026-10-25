@@ -4,10 +4,10 @@ module.exports = async (page, { args }) => {
   await page.waitFor('[data-copy-agent-name="boss"]', { timeout: 30000 })
   await page.sleep(1500)
   await page.eval(() => window.dispatchEvent(new window.CustomEvent('orgtree:open-app-settings', { detail: { tab: 'runtime' } })))
-  await page.waitFor({ selector: 'button', text: '^restore$', regex: true, scroll: true }, { timeout: 20000 })
+  await page.waitFor({ selector: 'button', text: '^Restore$', regex: true, scroll: true }, { timeout: 20000 })
   await page.sleep(800)
   await page.screenshot(`${args.shot}-before`)
-  await page.click({ selector: 'button', text: '^restore$', regex: true, scroll: true })
+  await page.click({ selector: 'button', text: '^Restore$', regex: true, scroll: true })
   await page.sleep(1500)
   await page.screenshot(`${args.shot}-generated`)
   return page.eval(() => {

@@ -5,10 +5,10 @@ module.exports = async (page, { args }) => {
   await page.waitFor('[data-copy-agent-name="boss"]', { timeout: 30000 })
   await page.sleep(1500)
   await page.click('button[title="Settings"]')
-  await page.waitFor({ selector: 'button', text: '^save as template…$', regex: true, scroll: true }, { timeout: 20000 })
+  await page.waitFor({ selector: 'button', text: '^Save as template…$', regex: true, scroll: true }, { timeout: 20000 })
   await page.sleep(600)
   await page.screenshot(`${args.shot}-settings`)
-  await page.click({ selector: 'button', text: '^save as template…$', regex: true, scroll: true })
+  await page.click({ selector: 'button', text: '^Save as template…$', regex: true, scroll: true })
   await page.waitFor('#save-template-name')
   await page.eval((name) => {
     const el = document.querySelector('#save-template-name')

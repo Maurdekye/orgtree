@@ -146,7 +146,7 @@ export default async function (rig) {
   const shotApp = await runDesktop(rig, desk('org-templates-app.cjs'), { preset: 'tall', out: path.join(p.dir, 'desktop-app'), args: { shot: 'app-settings-templates' } })
   p.check('desktop: App settings → Runtime shows Organization templates beside Charter documents, and restore writes back the two deleted defaults',
     shotApp.ok && ['devteam-claude.json', 'devteam-codex.json'].every((f) => fs.existsSync(path.join(tpDir, f)))
-      && /restored 2 templates/.test(shotApp.value?.snippet ?? ''), shotApp.value ?? shotApp.error)
+      && /Restored 2 templates/.test(shotApp.value?.snippet ?? ''), shotApp.value ?? shotApp.error)
   const pop = await rig.api('POST', '/api/templates/populate')
   p.check('restoring again changes nothing (all five default files already present, including Heavy dev shop)', pop.created.length === 0
     && pop.existing.length === 5 && pop.existing.includes('devteam-antigravity.json'), pop)

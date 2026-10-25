@@ -160,6 +160,19 @@ approval check, whose failure was also measured on v4.4.0.
 
 ## What keeps it safe
 
+The organization-template create bridge explicitly returns a null Promise for
+`takeChangelogAfterUpdate`: a fresh synthetic profile has no post-update notice.
+Keep synchronous subscription cleanup and the strict unknown-member refusal.
+Save/Restore drivers and the restore-result predicate follow the current
+Sentence-case text; retain all 22 original proof names, order and functional
+guards, including both deleted-default files and subsequent 0-created/5-existing
+idempotency. `node --test tools/rig/tests/org-templates-drivers.test.mjs` replays
+the actual bridge, drivers and restore predicates with missing-control/file,
+wrong-count and unknown-member controls. It starts no window or engine and does
+not establish a full organization-template runtime verdict.
+[verified: `tools/rig/{desktop/org-templates-{create,save,app}.cjs,proofs/org-templates.mjs}`;
+2026-10-25]
+
 The org-account picker stage is read-only: use the current
 `Default provider account for new hires` selector without adding an auto-save
 transition. `org-accounts.mjs` keeps all 24 original checks and the existing
