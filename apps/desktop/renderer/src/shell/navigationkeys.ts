@@ -1,5 +1,5 @@
 /** Navigation yields to editors, widget keys, composition and open overlays. */
-const OWN_KEYS = 'input, textarea, select, [contenteditable]:not([contenteditable="false"]), '
+const OWN_KEYS = 'input, textarea, select, audio, video, [contenteditable]:not([contenteditable="false"]), '
   + '[role="textbox"], [role="combobox"], [role="listbox"], [role="slider"], [role="spinbutton"], '
   + '.monaco-editor, .cm-editor, .CodeMirror'
 

@@ -1082,7 +1082,9 @@ export function MailReadPane({ cur, members, org, refs, mdBase, fileHref, sender
           {cur.attachments!.map((a) => {
             const href = (a.path && fileHref?.(a.path, cur)) || ''
             const name = a.name ?? a.path ?? 'file'
-            return href && isImg(name)
+            return href && mediaFormat(name)
+              ? <MediaCard key={a.path} href={href} name={name} bytes={a.bytes} />
+              : href && isImg(name)
               ? <AttachThumb key={a.path} href={href} name={name}
                   meta={a.bytes != null ? `${Math.round(a.bytes / 1024)} KB` : undefined} />
               : href
@@ -2270,3 +2272,4 @@ function NetSection({ net }: { net?: TreePayload['net'] }) {
     </div>
   )
 }
+import { MediaCard, mediaFormat } from './media'

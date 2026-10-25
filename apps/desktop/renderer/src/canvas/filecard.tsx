@@ -3,6 +3,7 @@ import { fileUrl } from '../api'
 import { DownloadIcon } from '../icons'
 import { fmtBytes, ImgCardCaption, isImg } from './img'
 import { openLightbox } from './lightbox'
+import { MediaCard, mediaFormat } from './media'
 
 /** Download-card renderer for transcript deliveries; Files uses compact rows. */
 export function SentFileCard({ slug, nid, file, eventId, quote }: {
@@ -11,7 +12,8 @@ export function SentFileCard({ slug, nid, file, eventId, quote }: {
 }) {
   const href = fileUrl(slug, nid, file.path!)
   const reply = { 'data-reply-event': eventId ?? '', 'data-reply-quote': quote ?? '' }
-  return isImg(file.name) ? <div className="filecard imgcard" {...reply}>
+  return mediaFormat(file.name) ? <div {...reply}><MediaCard href={href} name={file.name ?? 'file'} bytes={file.bytes} note={file.note} /></div>
+    : isImg(file.name) ? <div className="filecard imgcard" {...reply}>
     <img className="imgcard-img" src={href} alt={file.name ?? ''} loading="lazy"
       title={`${file.name} — click to view`}
       onClick={() => openLightbox(href, { name: file.name, download: href })} />
