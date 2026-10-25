@@ -566,7 +566,7 @@ test('§4 DeskChat: the docket tab is the agent\'s OWN DOCKET, and the chip coun
   t.after(async () => { await view.unmount(); resetConvos(); realClock() })
   await flush()
   const tabs = [...view.el.querySelectorAll('.cc-tabs button')].map((b) => b.getAttribute('data-tab'))
-  assert.deepEqual(tabs, ['chat', 'inbox', 'docket'], 'empty Presented stays hidden; owned work keeps Docket')
+  assert.deepEqual(tabs, ['chat', 'inbox', 'docket', 'files'], 'empty Presented stays hidden; owned work keeps Docket; Files is always offered')
   assert.equal(Boolean(view.el.querySelector('.docket-agent')), false,
     'the panel must not be open on the chat tab')
   // the header chip: it counts the assignment, and it is a way in

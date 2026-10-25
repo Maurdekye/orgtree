@@ -420,7 +420,7 @@ uiTest('§6 a fully covered canvas leaves the camera exactly where it is',
     assert.deepEqual(cam(host), panned,
       'with no free space at all the camera must stay where the user left it')
     // the fit button too: no room to fit the org, so it stays put as well
-    const fit = host.querySelector(`button[title="${HUD_FIT}"]`) as HTMLButtonElement | null
+    const fit = host.querySelector(`button[title="${HUD_FIT} (Shift+Alt+Space)"]`) as HTMLButtonElement | null
     assert.ok(fit, 'the fit button rendered')
     await inAct(() => { fit.click() })
     await flush()

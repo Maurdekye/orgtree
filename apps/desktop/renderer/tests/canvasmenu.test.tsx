@@ -17,6 +17,7 @@ import { HUD_FIT, HUD_SWITCHBOARD, OrgCanvas, resetCanvasSessionForTests } from 
 import { addPin, forgetPins } from '../src/canvas/pins'
 import { pinSurfaceKey, readPinSurfaces, updatePinSurface, removePinSurface } from '../src/canvas/pinspace'
 import { installAppShortcuts } from '../src/shell/appshortcuts'
+import { orgNavigationTooltip } from '../src/shell/orgnavigationbindings'
 import type { CanvasShortcutActions } from '../src/shell/appshortcuts'
 import { resetConvos } from '../src/convo'
 import { getReaderAvailability } from '../src/api'
@@ -111,8 +112,9 @@ async function clickCard(el: Element) {
 }
 const openDesk = (host: HTMLElement) => host.querySelector('.sq.desk:not(.user)')?.getAttribute('data-first-use-agent') ?? null
 const hud = (host: HTMLElement, title: string) => {
-  const b = host.querySelector<HTMLButtonElement>(`.zoomhud button[title="${title}"]`)
-  assert.ok(b, `no HUD button "${title}"`)
+  const label = orgNavigationTooltip(title, title === HUD_FIT ? 'fitOrg' : title === HUD_SWITCHBOARD ? 'switchboard' : null)
+  const b = host.querySelector<HTMLButtonElement>(`.zoomhud button[title="${label}"]`)
+  assert.ok(b, `no HUD button "${label}"`)
   return b!
 }
 async function press(b: HTMLButtonElement) { await inAct(() => { b.click() }); await flush(); await advance(1600) }
@@ -371,10 +373,10 @@ uiTest('right-click on an agent card keeps the card\'s own menu, without the can
 
 test('one handler each: the buttons and the menu entries call the same functions', () => {
   const src = readFileSync(path.join(__SRC_DIR__, 'canvas', 'OrgCanvas.tsx'), 'utf8').split('\r\n').join('\n')
-  assert.match(src, /title=\{HUD_SWITCHBOARD\}\n\s*onClick=\{hudSwitchboard\}/, 'eye button')
-  assert.match(src, /title=\{HUD_FIT\} onClick=\{hudFit\}/, 'fit button')
-  assert.match(src, /label: sentence\(HUD_FIT\), onSelect: hudFit/, 'fit entry')
-  assert.match(src, /label: sentence\(HUD_SWITCHBOARD\), onSelect: hudSwitchboard/, 'switchboard entry')
+  assert.match(src, /title=\{orgNavigationTooltip\(HUD_SWITCHBOARD, 'switchboard'\)\}\n\s*onClick=\{hudSwitchboard\}/, 'eye button')
+  assert.match(src, /title=\{orgNavigationTooltip\(HUD_FIT, 'fitOrg'\)\} onClick=\{hudFit\}/, 'fit button')
+  assert.match(src, /label: sentence\(HUD_FIT\), title: orgNavigationTooltip\(HUD_FIT, 'fitOrg'\), onSelect: hudFit/, 'fit entry')
+  assert.match(src, /label: sentence\(HUD_SWITCHBOARD\), title: orgNavigationTooltip\(HUD_SWITCHBOARD, 'switchboard'\), onSelect: hudSwitchboard/, 'switchboard entry')
 })
 
 

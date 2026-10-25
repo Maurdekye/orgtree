@@ -26,7 +26,7 @@ test('history renders typed status and preserves legacy and unsupported content'
   assert.match(view.el.querySelector('.event-fallback')!.textContent!,/Unknown format retained/)
 })
 
-test('desk tab row no longer offers Files or History',async t=>{
+test('desk tab row offers delivered Files while History stays in agent settings',async t=>{
   useFakeClock(); installFetch(new FakeServer()); const old=globalThis.fetch
   const worker:CanvasNode={id:'worker',generation:1,state:'live',tier:'haiku',children:[],seat:1,grant:0,free:0,scope:{tools:{},add_dirs:[]}}
   const view=await mountView(<DeskChat node={worker} map={new Map([[worker.id,worker]])}
@@ -36,5 +36,5 @@ test('desk tab row no longer offers Files or History',async t=>{
   const deskTabs = [...view.el.querySelectorAll<HTMLButtonElement>('.cc-tabs button')]
     .map(button => button.textContent?.trim())
   assert.equal(deskTabs.includes('history'), false, 'History moved to agent settings')
-  assert.equal(deskTabs.includes('files'), false, 'scratch browsing moved to the OS file explorer')
+  assert.equal(deskTabs.includes('files'), true, 'retained download cards have their own Files tab')
 })

@@ -2,7 +2,8 @@ import { FakeServer, advance, inAct, installFetch, mountView, realClock, useFake
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { useState } from 'react'
-import { OrgCanvas } from '../src/canvas/OrgCanvas'
+import { HUD_FIT, OrgCanvas } from '../src/canvas/OrgCanvas'
+import { orgNavigationTooltip } from '../src/shell/orgnavigationbindings'
 import { updatePinSurface, removePinSurface, pinSurfaceKey } from '../src/canvas/pinspace'
 import { resetConvos } from '../src/convo'
 import type { TreePayload } from '../src/types'
@@ -46,7 +47,7 @@ test('fit whole org includes the latest inbox headroom and every child after the
     await inAct(() => { showInbox() })
     await advance(2500)
     for (const card of positions(v.el)) assert.ok(card.bottom <= rect.height, 'startup layout update stays fitted: ' + JSON.stringify(card))
-    const fit = v.el.querySelector<HTMLButtonElement>('button[title="fit the whole org"]')!
+    const fit = v.el.querySelector<HTMLButtonElement>(`button[title="${orgNavigationTooltip(HUD_FIT, 'fitOrg')}"]`)!
     assert.ok(fit)
     await inAct(() => { fit.click() })
     await advance(2500)
