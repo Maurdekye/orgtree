@@ -16,6 +16,7 @@
 //     outcome. Run it twice: verbose (the rig's default) and `--quiet-log`.
 // Run: node tools/rig/rig.mjs run tools/rig/proofs/muse-r1.mjs [--quiet-log]
 
+import { SEED_SETTLE_TIMEOUT } from '../seed-settle.mjs'
 import crypto from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
@@ -40,7 +41,7 @@ export default async function (rig) {
       { name: 'r5', match: 'PROOF-R5', once: true, steps: [write(path.join(C, 'c5.txt')), { text: 'Tried C.' }] },
     ] },
   }, default: { turns: [{ name: 'default', steps: [{ text: 'OK.' }] }] } })
-  await rig.waitFor(() => rig.sql('SELECT 1 FROM ot.turns WHERE ended_at IS NULL').length === 0, { what: 'seed turns to settle', timeout: 60000 })
+  await rig.waitFor(() => rig.sql('SELECT 1 FROM ot.turns WHERE ended_at IS NULL').length === 0, { what: 'seed turns to settle', timeout: SEED_SETTLE_TIMEOUT })
   await rig.waitFor(async () => (await rig.api('GET', '/api/providers'))?.providers?.find((x) => x.id === 'muse' && x.muse?.catalog),
     { what: 'Muse discovery', timeout: 60000 })
   const log = (agent, kind) => rig.fakeLog(agent).filter((l) => !kind || l.kind === kind)

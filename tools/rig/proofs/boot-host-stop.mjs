@@ -25,6 +25,7 @@
 //   terminated.
 // Run: node tools/rig/rig.mjs run tools/rig/proofs/boot-host-stop.mjs
 
+import { SEED_SETTLE_TIMEOUT } from '../seed-settle.mjs'
 import { spawn, spawnSync } from 'node:child_process'
 import fs from 'node:fs'
 import path from 'node:path'
@@ -48,7 +49,7 @@ export default async function (rig) {
     agents: Object.fromEntries(AGENTS.map(name => [name, { turns: [{ name: 'hang', match: 'HOST-HANG', steps: [{ text: 'On it.' }, { hang: true }] }] }])),
     default: { turns: [{ name: 'default', steps: [{ text: 'OK.' }] }] },
   })
-  await rig.waitFor(() => rig.sql('SELECT 1 FROM ot.turns WHERE ended_at IS NULL').length === 0, { what: 'seed turns to settle', timeout: 60000 })
+  await rig.waitFor(() => rig.sql('SELECT 1 FROM ot.turns WHERE ended_at IS NULL').length === 0, { what: 'seed turns to settle', timeout: SEED_SETTLE_TIMEOUT })
   await rig.op({ op: 'hire', name: 'ada', parent: 'boss', tier: 'opus', title: 'Claude subject' })
   await rig.op({ op: 'hire', name: 'lu', parent: 'boss', tier: 'luna', title: 'Codex subject' })
 

@@ -12,6 +12,7 @@
 //                sender gets no "still unread" notice, even past the threshold.
 // Run: node tools/rig/rig.mjs run tools/rig/proofs/background-and-mail.mjs
 
+import { SEED_SETTLE_TIMEOUT } from '../seed-settle.mjs'
 import { Proof } from '../proof.mjs'
 
 // the "still unread" threshold, shortened from the engine's 10 min
@@ -52,7 +53,7 @@ export default async function (rig) {
     },
     default: { turns: [{ name: 'default', steps: [{ text: 'OK.' }] }] },
   })
-  await rig.waitFor(() => rig.sql(`SELECT 1 FROM ot.turns WHERE ended_at IS NULL`).length === 0, { what: 'seed turns to settle', timeout: 60000 })
+  await rig.waitFor(() => rig.sql(`SELECT 1 FROM ot.turns WHERE ended_at IS NULL`).length === 0, { what: 'seed turns to settle', timeout: SEED_SETTLE_TIMEOUT })
   const mailTo = (agent, like) => rig.sql(`SELECT m.uid, m.sender, m.notice, m.state, m.body FROM ot.mail m JOIN ot.agents a ON a.id = m.recipient_agent_id
                                             WHERE a.name = '${agent}' AND m.body LIKE '${like.replace(/'/g, "''")}' ORDER BY m.id`)
 

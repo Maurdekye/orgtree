@@ -11,6 +11,7 @@
 // the frozen icon far out; the Providers row and the Usage card are Muse's.
 // Run: node tools/rig/rig.mjs run tools/rig/proofs/muse-visual.mjs --ui <bundle>
 
+import { SEED_SETTLE_TIMEOUT } from '../seed-settle.mjs'
 import fs from 'node:fs'
 import path from 'node:path'
 import { Proof } from '../proof.mjs'
@@ -31,7 +32,7 @@ export default async function (rig) {
       { quota: { resetsAtMs: Date.now() + 2 * 3600 * 1000 } }] }] },
   }, default: { turns: [{ steps: [{ text: 'OK.' }] }] } })
   await rig.waitFor(() => rig.sql('SELECT 1 FROM ot.turns WHERE ended_at IS NULL').length === 0,
-    { what: 'seed turns to settle', timeout: 60000 })
+    { what: 'seed turns to settle', timeout: SEED_SETTLE_TIMEOUT })
   // the account's own catalog offers all three Muse tiers
   const levels = ['minimal', 'low', 'medium', 'high', 'xhigh', 'max']
   fs.writeFileSync(path.join(rig.fakeDir, 'muse-catalog.json'), JSON.stringify({ source: 'providerCatalog', models: [

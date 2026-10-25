@@ -25,6 +25,7 @@
 // Run: node tools/rig/rig.mjs run tools/rig/proofs/presence.mjs --hub <orgtree-mailhub.exe> [--before]
 //   --before: a hub older than v2.0.3; the times and last_seen are reported, not judged
 
+import { SEED_SETTLE_TIMEOUT } from '../seed-settle.mjs'
 import crypto from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
@@ -67,7 +68,7 @@ export default async function (rig, { flags }) {
   const before = !!flags.before
   const p = new Proof(before ? 'presence-before' : 'presence')
   rig.scenario({ default: { turns: [{ steps: [{ text: 'OK.' }] }] } })
-  await rig.waitFor(() => rig.sql('SELECT 1 FROM ot.turns WHERE ended_at IS NULL').length === 0, { what: 'seed turns to settle', timeout: 90000 })
+  await rig.waitFor(() => rig.sql('SELECT 1 FROM ot.turns WHERE ended_at IS NULL').length === 0, { what: 'seed turns to settle', timeout: SEED_SETTLE_TIMEOUT })
   const A = rig.org
   const hub = rig.hubUrl
   const call = async (method, route, auth, body, timeoutMs = 90000) => {

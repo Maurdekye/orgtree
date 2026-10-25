@@ -2,6 +2,7 @@
 //   rest -> hover between dots previews the level -> press at the left and drag right -> release sets it
 // Run: ORGTREE_RIG_UI=<bundle> node tools/rig/rig.mjs run tools/rig/proofs/effort-bar.mjs --ui <bundle>
 
+import { SEED_SETTLE_TIMEOUT } from '../seed-settle.mjs'
 import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -14,7 +15,7 @@ const here = path.dirname(fileURLToPath(import.meta.url))
 export default async function (rig) {
   const p = new Proof('effort-bar')
   rig.scenario({ default: { turns: [{ name: 'default', steps: [{ text: 'OK.' }] }] } })
-  await rig.waitFor(() => rig.sql(`SELECT 1 FROM ot.turns WHERE ended_at IS NULL`).length === 0, { what: 'seed turns to settle', timeout: 60000 })
+  await rig.waitFor(() => rig.sql(`SELECT 1 FROM ot.turns WHERE ended_at IS NULL`).length === 0, { what: 'seed turns to settle', timeout: SEED_SETTLE_TIMEOUT })
   await rig.op({ op: 'hire', name: 'eve', parent: 'boss', tier: 'sonnet', title: 'Effort agent' })
   if (process.env.ORGTREE_RIG_UI) {
     const evidence = path.join(rigHome(), 'evidence', 'effort-bar-' + Date.now())

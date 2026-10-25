@@ -7,6 +7,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { execFileSync } from 'node:child_process'
 import { Rig } from '../lib.mjs'
+import { SEED_SETTLE_TIMEOUT } from '../seed-settle.mjs'
 
 const repo = fileURLToPath(new URL('../../../', import.meta.url))
 const file = 'tools/rig/proofs/account-windows.mjs'
@@ -17,7 +18,7 @@ const start = source.indexOf('  await rig.waitFor(', source.indexOf('  rig.scena
 const end = source.indexOf('\n\n  // ---------------------------------------------------------------- logins and readings', start)
 assert(start >= 0 && end > start, 'isolate only the real seed wait before account assertions')
 const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor
-const seedWait = new AsyncFunction('rig', source.slice(start, end))
+const seedWait = new AsyncFunction('rig', 'SEED_SETTLE_TIMEOUT', source.slice(start, end))
 const flush = () => new Promise(resolve => setImmediate(resolve))
 
 async function run(t, open) {
@@ -37,7 +38,7 @@ async function run(t, open) {
     },
   }
   let settled = false, error = null
-  seedWait(rig).then(() => { settled = true }, e => { error = e; settled = true })
+  seedWait(rig, SEED_SETTLE_TIMEOUT).then(() => { settled = true }, e => { error = e; settled = true })
   await flush()
   while (!settled && Date.now() <= 120000) {
     t.mock.timers.tick(500)

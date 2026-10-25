@@ -8,6 +8,7 @@
 // The desktop part opens each desk offscreen and saves a screenshot of the card.
 // Run: node tools/rig/rig.mjs run tools/rig/proofs/answered-card.mjs   (with ORGTREE_RIG_UI=<bundle> for the screenshots)
 
+import { SEED_SETTLE_TIMEOUT } from '../seed-settle.mjs'
 import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -33,7 +34,7 @@ export default async function (rig) {
     fay: ask({ question: 'What should we call the release?' }),
     dee: ask({ question: 'Delete the old branch?', options: ['Yes', 'No'] }),
   }, default: { turns: [{ name: 'default', steps: [{ text: 'OK.' }] }] } })
-  await rig.waitFor(() => rig.sql(`SELECT 1 FROM ot.turns WHERE ended_at IS NULL`).length === 0, { what: 'seed turns to settle', timeout: 60000 })
+  await rig.waitFor(() => rig.sql(`SELECT 1 FROM ot.turns WHERE ended_at IS NULL`).length === 0, { what: 'seed turns to settle', timeout: SEED_SETTLE_TIMEOUT })
   const names = ['sia', 'mel', 'bea', 'cy', 'fay', 'dee']
   for (const name of names) {
     await rig.op({ op: 'hire', name, parent: 'boss', tier: 'haiku', title: 'Question agent' })

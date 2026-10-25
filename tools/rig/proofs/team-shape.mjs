@@ -9,6 +9,7 @@
 //   for bandwidth.
 // Run: node tools/rig/rig.mjs run tools/rig/proofs/team-shape.mjs
 
+import { SEED_SETTLE_TIMEOUT } from '../seed-settle.mjs'
 import fs from 'node:fs'
 
 import { Proof } from '../proof.mjs'
@@ -19,7 +20,7 @@ const RULE = 'KEEP A TEAM FLAT BY DEFAULT. Subdivide it (put a manager between y
 export default async function (rig) {
   const p = new Proof('team-shape')
   rig.scenario({ default: { turns: [{ name: 'default', steps: [{ text: 'OK.' }] }] } })
-  await rig.waitFor(() => rig.sql('SELECT 1 FROM ot.turns WHERE ended_at IS NULL').length === 0, { what: 'seed turns to settle', timeout: 60000 })
+  await rig.waitFor(() => rig.sql('SELECT 1 FROM ot.turns WHERE ended_at IS NULL').length === 0, { what: 'seed turns to settle', timeout: SEED_SETTLE_TIMEOUT })
   await rig.op({ op: 'hire', name: 'wren', parent: 'boss', tier: 'haiku', title: 'New report' })
   for (const name of ['wren', 'boss']) {
     const done = rig.turns(name).length

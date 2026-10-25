@@ -1,5 +1,6 @@
 // Scratch engine/fake CLI only. Existing rig hub seam uses the production
 // payload builder and inbound publication, without a real hub or paid CLI.
+import { SEED_SETTLE_TIMEOUT } from '../seed-settle.mjs'
 import { Proof } from '../proof.mjs';
 export async function setup() {
   return {recover:true,fixture:{org:{name:'Multi reply proof'},agents:[{name:'writer',tier:'luna',grant:4}],scenario:{default:{turns:[{steps:[{text:'OK.'}]}]}}}};
@@ -8,7 +9,7 @@ export default async function(rig) {
   const p=new Proof('multi-replies');
   const sqlQuote=s=>String(s).replaceAll("'","''");
   const hub=(op,args={})=>rig.api('POST','/api/rig/hub-mail',{org:rig.org,op,...args});
-  await rig.waitFor(()=>rig.sql('SELECT 1 FROM ot.turns WHERE ended_at IS NULL').length===0,{what:'seed settle',timeout:60000});
+  await rig.waitFor(()=>rig.sql('SELECT 1 FROM ot.turns WHERE ended_at IS NULL').length===0,{what:'seed settle',timeout:SEED_SETTLE_TIMEOUT});
   await rig.userMail('writer','FIRST source',{notice:true});await rig.userMail('writer','SECOND source',{notice:true});
   const ids=rig.sql("SELECT uid FROM ot.mail WHERE body IN ('FIRST source','SECOND source') ORDER BY id").map(r=>r.uid);
   const reply=await rig.tool('writer','orgtree_message',{metadata:{to:'user',reply_to:ids[0],replies:ids},body:'Both answered'});

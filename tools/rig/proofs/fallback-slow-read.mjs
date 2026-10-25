@@ -6,6 +6,7 @@
 //   5 s and counts as no proven room, and he moves to F.
 // Run: node tools/rig/rig.mjs run tools/rig/proofs/fallback-slow-read.mjs
 
+import { SEED_SETTLE_TIMEOUT } from '../seed-settle.mjs'
 import fs from 'node:fs'
 import path from 'node:path'
 
@@ -33,7 +34,7 @@ export default async function (rig) {
     ] }] } },
     default: { turns: [{ name: 'default', steps: [{ text: 'OK.' }] }] },
   })
-  await rig.waitFor(() => rig.sql(`SELECT 1 FROM ot.turns WHERE ended_at IS NULL`).length === 0, { what: 'seed turns to settle', timeout: 60000 })
+  await rig.waitFor(() => rig.sql(`SELECT 1 FROM ot.turns WHERE ended_at IS NULL`).length === 0, { what: 'seed turns to settle', timeout: SEED_SETTLE_TIMEOUT })
   const usageDir = path.join(rig.data, 'rig-home', 'rig-usage')
   fs.mkdirSync(usageDir, { recursive: true })
   fs.writeFileSync(path.join(usageDir, 'claude@claude-s.json'), JSON.stringify(room({ rig_delay_ms: 20000 })))

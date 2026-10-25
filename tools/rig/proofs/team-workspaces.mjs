@@ -15,6 +15,7 @@
 //   zed (another org): holds none of this org's.
 // Run: node tools/rig/rig.mjs run tools/rig/proofs/team-workspaces.mjs
 
+import { SEED_SETTLE_TIMEOUT } from '../seed-settle.mjs'
 import fs from 'node:fs'
 import path from 'node:path'
 
@@ -45,7 +46,7 @@ export function teamNotesBlockOrder(prompt, files) {
 export default async function (rig) {
   const p = new Proof('team-workspaces')
   rig.scenario({ default: { turns: [{ name: 'default', steps: [{ text: 'OK.' }] }] } })
-  await rig.waitFor(() => rig.sql('SELECT 1 FROM ot.turns WHERE ended_at IS NULL').length === 0, { what: 'seed turns to settle', timeout: 60000 })
+  await rig.waitFor(() => rig.sql('SELECT 1 FROM ot.turns WHERE ended_at IS NULL').length === 0, { what: 'seed turns to settle', timeout: SEED_SETTLE_TIMEOUT })
   const ORG = rig.org
   const other = (await rig.api('POST', '/api/orgs', { name: 'Other Org', dirs: [], net_autoconnect: false })).slug
   const team = name => path.join(rig.data, 'scratch', ORG, '_teams', String(rig.agentRow(name)?.id))

@@ -23,6 +23,7 @@
 //         read-only profile, and a write approval denied (a denial booked).
 // Run: node tools/rig/rig.mjs run tools/rig/proofs/muse-lane.mjs
 
+import { SEED_SETTLE_TIMEOUT } from '../seed-settle.mjs'
 import fs from 'node:fs'
 import path from 'node:path'
 import { Proof } from '../proof.mjs'
@@ -79,7 +80,7 @@ export default async function (rig) {
     },
     default: { turns: [{ name: 'default', steps: [{ text: 'OK.' }] }] },
   })
-  await rig.waitFor(() => rig.sql(`SELECT 1 FROM ot.turns WHERE ended_at IS NULL`).length === 0, { what: 'seed turns to settle', timeout: 60000 })
+  await rig.waitFor(() => rig.sql(`SELECT 1 FROM ot.turns WHERE ended_at IS NULL`).length === 0, { what: 'seed turns to settle', timeout: SEED_SETTLE_TIMEOUT })
 
   // ---------------------------------------------------------------- discovery
   const muse = await rig.waitFor(async () => {

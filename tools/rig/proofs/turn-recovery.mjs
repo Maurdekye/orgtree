@@ -5,6 +5,7 @@
 //          time ("credential rejected") → its superior alice is told once.
 // Run: node tools/rig/rig.mjs run tools/rig/proofs/turn-recovery.mjs
 
+import { SEED_SETTLE_TIMEOUT } from '../seed-settle.mjs'
 import path from 'node:path'
 
 import { runDesktop } from '../desktop.mjs'
@@ -37,7 +38,7 @@ export default async function (rig) {
     default: { turns: [{ name: 'default', steps: [{ text: 'OK.' }] }] },
   })
   // alice's docket assignment from the fixture may still be running: let it settle
-  await rig.waitFor(() => rig.sql(`SELECT 1 FROM ot.turns WHERE ended_at IS NULL`).length === 0, { what: 'seed turns to settle', timeout: 60000 })
+  await rig.waitFor(() => rig.sql(`SELECT 1 FROM ot.turns WHERE ended_at IS NULL`).length === 0, { what: 'seed turns to settle', timeout: SEED_SETTLE_TIMEOUT })
 
   // ---------------------------------------------------------------- carol: exit mid-turn
   const t0 = Date.now()

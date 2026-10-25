@@ -17,6 +17,7 @@
 //   standing listeners are for top-level agents).
 // Run: node tools/rig/rig.mjs run tools/rig/proofs/cli-environment.mjs
 
+import { SEED_SETTLE_TIMEOUT } from '../seed-settle.mjs'
 import fs from 'node:fs'
 import path from 'node:path'
 
@@ -29,7 +30,7 @@ export default async function (rig) {
   const global = JSON.parse(fs.readFileSync(cfg, 'utf8'))
   global.cachedGrowthBookFeatures = { ...(global.cachedGrowthBookFeatures ?? {}), tengu_cobalt_ridge: true }
   fs.writeFileSync(cfg, JSON.stringify(global))
-  await rig.waitFor(() => rig.sql('SELECT 1 FROM ot.turns WHERE ended_at IS NULL').length === 0, { what: 'seed turns to settle', timeout: 60000 })
+  await rig.waitFor(() => rig.sql('SELECT 1 FROM ot.turns WHERE ended_at IS NULL').length === 0, { what: 'seed turns to settle', timeout: SEED_SETTLE_TIMEOUT })
   await rig.op({ op: 'hire', name: 'quiet', parent: 'boss', tier: 'haiku', title: 'No terminal', tools: { bash: false } })
   const starts = name => rig.fakeLog(name).filter(l => l.kind === 'start')
   const inits = name => rig.fakeLog(name).filter(l => l.kind === 'send' && l.line?.type === 'system' && l.line?.subtype === 'init')

@@ -3,6 +3,7 @@
 //   and disappears when the agent takes them. alice is halted so mail waits.
 // Run: node tools/rig/rig.mjs run tools/rig/proofs/queue-count.mjs --ui <bundle>
 
+import { SEED_SETTLE_TIMEOUT } from '../seed-settle.mjs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -12,7 +13,7 @@ import { Proof } from '../proof.mjs'
 export default async function (rig) {
   const p = new Proof('queue-count')
   rig.scenario({ default: { turns: [{ name: 'default', steps: [{ text: 'OK.' }] }] } })
-  await rig.waitFor(() => rig.sql('SELECT 1 FROM ot.turns WHERE ended_at IS NULL').length === 0, { what: 'seed turns', timeout: 60000 })
+  await rig.waitFor(() => rig.sql('SELECT 1 FROM ot.turns WHERE ended_at IS NULL').length === 0, { what: 'seed turns', timeout: SEED_SETTLE_TIMEOUT })
   await rig.op({ op: 'halt', nodes: ['alice'] })
   await rig.userMail('alice', 'WAITING one')
   const ui = await runDesktop(rig, fileURLToPath(new URL('../desktop/queue-count.cjs', import.meta.url)),

@@ -24,6 +24,7 @@
 //     him and accepted for nia, who may also attach the file to mail.
 // Run: node tools/rig/rig.mjs run tools/rig/proofs/org-shared-notes.mjs
 
+import { SEED_SETTLE_TIMEOUT } from '../seed-settle.mjs'
 import fs from 'node:fs'
 import path from 'node:path'
 
@@ -39,7 +40,7 @@ const INITIAL_NOTES = '# Shared standing notes for this organization\n'
 export default async function (rig) {
   const p = new Proof('org-shared-notes')
   rig.scenario({ default: { turns: [{ name: 'default', steps: [{ text: 'OK.' }] }] } })
-  await rig.waitFor(() => rig.sql('SELECT 1 FROM ot.turns WHERE ended_at IS NULL').length === 0, { what: 'seed turns to settle', timeout: 60000 })
+  await rig.waitFor(() => rig.sql('SELECT 1 FROM ot.turns WHERE ended_at IS NULL').length === 0, { what: 'seed turns to settle', timeout: SEED_SETTLE_TIMEOUT })
   const ORG = rig.org
   const other = (await rig.api('POST', '/api/orgs', { name: 'Other Org', dirs: [], net_autoconnect: false })).slug
   const freshDir = path.join(rig.data, 'scratch', other, '_shared')

@@ -1,3 +1,4 @@
+import { SEED_SETTLE_TIMEOUT } from '../seed-settle.mjs'
 import { Proof } from '../proof.mjs'
 
 export function setup() {
@@ -27,7 +28,7 @@ const cases = [
 export default async function (rig) {
   const p = new Proof('token-result-observations')
   await rig.waitFor(() => !rig.sql('SELECT 1 FROM ot.turns WHERE ended_at IS NULL').length,
-    { what: 'seed turn settled', timeout: 30000 })
+    { what: 'seed turn settled', timeout: SEED_SETTLE_TIMEOUT })
   const assistant = (id, content) => ({ raw: { type: 'assistant', parent_tool_use_id: null,
     message: { id, role: 'assistant', content, usage: { input_tokens: 20, output_tokens: 10 } } } })
   const ids = cases.map(c => 'observation-' + c.id)

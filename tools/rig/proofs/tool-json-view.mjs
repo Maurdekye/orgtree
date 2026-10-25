@@ -4,6 +4,7 @@
 //   unchanged. Needs --ui.
 // Run: node tools/rig/rig.mjs run tools/rig/proofs/tool-json-view.mjs --ui <bundle>
 
+import { SEED_SETTLE_TIMEOUT } from '../seed-settle.mjs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -24,7 +25,7 @@ export default async function (rig) {
     ] },
     { name: 'default', steps: [{ text: 'OK.' }] },
   ] } })
-  await rig.waitFor(() => rig.sql('SELECT 1 FROM ot.turns WHERE ended_at IS NULL').length === 0, { what: 'seed turns', timeout: 60000 })
+  await rig.waitFor(() => rig.sql('SELECT 1 FROM ot.turns WHERE ended_at IS NULL').length === 0, { what: 'seed turns', timeout: SEED_SETTLE_TIMEOUT })
   await rig.userMail('alice', 'PROOF-JSON: run the tools.')
   await rig.waitFor(() => {
     const t = rig.turns('alice'); return t.length && t.every(x => x.ended_at) ? t : null

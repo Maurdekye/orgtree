@@ -16,6 +16,7 @@
 //   backs the next off. No keepalive while working checkups are on.
 // Run: node tools/rig/rig.mjs run tools/rig/proofs/cache-keeper.mjs
 
+import { SEED_SETTLE_TIMEOUT } from '../seed-settle.mjs'
 import fs from 'node:fs'
 import path from 'node:path'
 
@@ -50,7 +51,7 @@ export default async function (rig) {
   })
   const runtime = body => rig.api('PUT', '/api/app-settings/runtime', body)
   await runtime({ working_checkups_enabled: false, idle_docket_reminders_enabled: false })
-  await rig.waitFor(() => rig.sql(`SELECT 1 FROM ot.turns WHERE ended_at IS NULL`).length === 0, { what: 'seed turns to settle', timeout: 60000 })
+  await rig.waitFor(() => rig.sql(`SELECT 1 FROM ot.turns WHERE ended_at IS NULL`).length === 0, { what: 'seed turns to settle', timeout: SEED_SETTLE_TIMEOUT })
   const K = (await rig.api('POST', '/api/accounts', { provider: 'claude', kind: 'apikey', key: 'sk-ant-api03-rig-not-a-real-key' })).id
   const hire = (name, extra = {}) => rig.op({ op: 'hire', name, parent: 'boss', tier: 'haiku', title: 'Keeper agent', ...extra })
   await hire('kay'); await hire('ann', { account: K }); await hire('ida'); await hire('hal'); await hire('cod', { tier: 'luna' })

@@ -1,3 +1,4 @@
+import { SEED_SETTLE_TIMEOUT } from '../seed-settle.mjs'
 import fs from 'node:fs'
 import { createHash } from 'node:crypto'
 import { Proof } from '../proof.mjs'
@@ -6,7 +7,7 @@ export default async function (rig) {
   const p = new Proof('shell-error-output')
   p.note('engine provenance', { engine: rig.run.engineSource,
     sha256: createHash('sha256').update(fs.readFileSync(rig.run.engineSource)).digest('hex') })
-  await rig.waitFor(() => rig.sql('SELECT 1 FROM ot.turns WHERE ended_at IS NULL').length === 0, { what: 'seed idle' })
+  await rig.waitFor(() => rig.sql('SELECT 1 FROM ot.turns WHERE ended_at IS NULL').length === 0, { what: 'seed idle', timeout: SEED_SETTLE_TIMEOUT })
   const long = 'FIRST\n' + 'synthetic error\n'.repeat(500) + 'LONG_END_MARKER'
   const huge = 'x'.repeat(1024 * 1024 - 1) + 'éOVER_CAP_MARKER'
   const calls = [['long', 'Bash'], ['huge', 'PowerShell'], ['ok', 'Bash'], ['other', 'Read']]

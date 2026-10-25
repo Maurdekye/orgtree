@@ -34,6 +34,7 @@
 //   set ORGTREE_RIG_HOME=%LOCALAPPDATA%\orgtree-rig-broker
 //   node tools/rig/rig.mjs run tools/rig/proofs/session-choice.mjs
 
+import { SEED_SETTLE_TIMEOUT } from '../seed-settle.mjs'
 import fs from 'node:fs'
 import path from 'node:path'
 
@@ -150,7 +151,7 @@ export default async function (rig) {
       { name: 'eve', tier: 'haiku', charter: 'You wait for the sign-in.' },
     ] })
     await rig.api('POST', `/api/orgs/${rig.org}/nodes/dee/scope`, { session: 'session0' })
-    await quiet('seeding to settle')
+    await quiet('seeding to settle', SEED_SETTLE_TIMEOUT)
     // ---- 0. before sign-in, in Session 0
     stand('core-rig-signed-out', 'debug rig WTS input only')
     await turn('cal', 'PROOF-WORK')

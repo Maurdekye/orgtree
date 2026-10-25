@@ -26,6 +26,7 @@
 //            from hub.log
 // Run: node tools/rig/rig.mjs run tools/rig/proofs/mailhub-upgrade.mjs --from <older orgtree-mailhub.exe> [--to <newer orgtree-mailhub.exe>]
 
+import { SEED_SETTLE_TIMEOUT } from '../seed-settle.mjs'
 import { spawnSync } from 'node:child_process'
 import crypto from 'node:crypto'
 import fs from 'node:fs'
@@ -54,9 +55,9 @@ export default async function (rig, { flags }) {
   const [oldV, newV] = [versionOf(OLD), versionOf(NEW)]
   p.note(`from ${oldV} (${OLD}) to ${newV} (${NEW})`)
   rig.scenario({ default: { turns: [{ steps: [{ text: 'OK.' }] }] } })
-  const settle = (what = 'turns to settle') => rig.waitFor(() => rig.sql('SELECT 1 FROM ot.turns WHERE ended_at IS NULL').length === 0,
-    { what, timeout: 90000 })
-  await settle('seed turns to settle')
+  const settle = (what = 'turns to settle', timeout = 90000) => rig.waitFor(() => rig.sql('SELECT 1 FROM ot.turns WHERE ended_at IS NULL').length === 0,
+    { what, timeout })
+  await settle('seed turns to settle', SEED_SETTLE_TIMEOUT)
   const A = rig.org
   const hub = rig.hubUrl
   const q = s => s.replace(/'/g, "''")

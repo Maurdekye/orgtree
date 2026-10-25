@@ -22,6 +22,7 @@
 //      no entry data in any answer or in the feed record
 // RED controls: the tree differs before each undo (so a restored match is
 // meaningful), and every conflict check is made against a real change.
+import { SEED_SETTLE_TIMEOUT } from '../seed-settle.mjs'
 import fs from 'node:fs'
 import path from 'node:path'
 
@@ -31,7 +32,7 @@ export default async function (rig) {
   const p = new Proof('undo-history')
   rig.scenario({ default: { turns: [{ name: 'default', steps: [{ text: 'OK.' }] }] } })
   await rig.waitFor(() => rig.sql('SELECT 1 FROM ot.turns WHERE ended_at IS NULL').length === 0,
-    { what: 'seed turns settle', timeout: 60000 })
+    { what: 'seed turns settle', timeout: SEED_SETTLE_TIMEOUT })
   const org = rig.org
   const orgId = rig.one(`SELECT id FROM ot.orgs WHERE slug='${org}'`).id
   const api = (method, route, body) => rig.api(method, route, body)

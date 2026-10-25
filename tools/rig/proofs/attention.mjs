@@ -12,12 +12,13 @@
 //   reply sent as a notice wakes nobody.
 // Run: node tools/rig/rig.mjs run tools/rig/proofs/attention.mjs
 
+import { SEED_SETTLE_TIMEOUT } from '../seed-settle.mjs'
 import { Proof } from '../proof.mjs'
 
 export default async function (rig) {
   const p = new Proof('attention')
   rig.scenario({ default: { turns: [{ name: 'default', steps: [{ text: 'OK.' }] }] } })
-  await rig.waitFor(() => rig.sql(`SELECT 1 FROM ot.turns WHERE ended_at IS NULL`).length === 0, { what: 'seed turns to settle', timeout: 60000 })
+  await rig.waitFor(() => rig.sql(`SELECT 1 FROM ot.turns WHERE ended_at IS NULL`).length === 0, { what: 'seed turns to settle', timeout: SEED_SETTLE_TIMEOUT })
   const slug = rig.one(`SELECT slug FROM ot.work_items WHERE title = 'Rig smoke item'`).slug
   const id = name => rig.agentRow(name).id
   const work = (who, args) => rig.tool(who, 'orgtree_work', { slug, ...args })

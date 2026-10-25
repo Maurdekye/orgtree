@@ -24,6 +24,7 @@
 //   set ORGTREE_RIG_HOME=%LOCALAPPDATA%\orgtree-rig-broker
 //   node tools/rig/rig.mjs run tools/rig/proofs/session-query.mjs
 
+import { SEED_SETTLE_TIMEOUT } from '../seed-settle.mjs'
 import fs from 'node:fs'
 import path from 'node:path'
 
@@ -103,7 +104,7 @@ export default async function (rig) {
       { name: 'ann', tier: 'haiku', charter: 'You prove a Claude seat can ask where it runs.' },
       { name: 'flo', tier: 'flash', charter: 'You prove an Antigravity seat can ask where it runs.' },
     ] })
-    await quiet('seeding to settle')
+    await quiet('seeding to settle', SEED_SETTLE_TIMEOUT)
 
     // ---- 1. not signed in, no helper
     signOut()

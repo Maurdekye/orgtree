@@ -13,6 +13,7 @@
 //        `allow_local_prefix` (a rule that would persist).
 // Run: node tools/rig/rig.mjs run tools/rig/proofs/muse-refusal.mjs
 
+import { SEED_SETTLE_TIMEOUT } from '../seed-settle.mjs'
 import { Proof } from '../proof.mjs'
 
 const AGENTS = ['rex', 'sam', 'sal']
@@ -35,7 +36,7 @@ export default async function (rig) {
     },
     default: { turns: [{ name: 'default', steps: [{ text: 'OK.' }] }] },
   })
-  await rig.waitFor(() => rig.sql('SELECT 1 FROM ot.turns WHERE ended_at IS NULL').length === 0, { what: 'seed turns to settle', timeout: 60000 })
+  await rig.waitFor(() => rig.sql('SELECT 1 FROM ot.turns WHERE ended_at IS NULL').length === 0, { what: 'seed turns to settle', timeout: SEED_SETTLE_TIMEOUT })
   await rig.waitFor(async () => (await rig.api('GET', '/api/providers'))?.providers?.find((x) => x.id === 'muse' && x.muse?.catalog),
     { what: 'Muse discovery', timeout: 60000 })
   await rig.op({ op: 'hire', name: 'rex', parent: 'boss', tier: 'wonder', title: 'Muse refusal agent' })

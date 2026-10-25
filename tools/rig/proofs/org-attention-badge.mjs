@@ -7,6 +7,7 @@
 //   lowers the number live. Needs --ui.
 // Run: node tools/rig/rig.mjs run tools/rig/proofs/org-attention-badge.mjs --ui <bundle>
 
+import { SEED_SETTLE_TIMEOUT } from '../seed-settle.mjs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -16,7 +17,7 @@ import { Proof } from '../proof.mjs'
 export default async function (rig) {
   const p = new Proof('org-attention-badge')
   rig.scenario({ default: { turns: [{ name: 'default', steps: [{ text: 'OK.' }] }] } })
-  await rig.waitFor(() => rig.sql('SELECT 1 FROM ot.turns WHERE ended_at IS NULL').length === 0, { what: 'seed turns', timeout: 60000 })
+  await rig.waitFor(() => rig.sql('SELECT 1 FROM ot.turns WHERE ended_at IS NULL').length === 0, { what: 'seed turns', timeout: SEED_SETTLE_TIMEOUT })
   const calm = (await rig.api('POST', '/api/orgs', { name: 'Calm Org', dirs: [], net_autoconnect: false })).slug
   const counts = async () => Object.fromEntries((await rig.api('GET', '/api/orgs')).map(o => [o.slug, o.attention]))
   const before = await counts()

@@ -1,4 +1,5 @@
 // Run: node tools/rig/rig.mjs run tools/rig/proofs/frozen-display.mjs --recover --ui <bundle>
+import { SEED_SETTLE_TIMEOUT } from '../seed-settle.mjs'
 import path from 'node:path'
 import { Proof } from '../proof.mjs'
 import { runDesktop } from '../desktop.mjs'
@@ -19,7 +20,7 @@ export default async function (rig) {
     kim: { turns: [limited(reset)] }, hana: { turns: [limited(reset + 7200)] },
   }, default: { turns: [{ steps: [{ text: 'OK.' }] }] } })
   await rig.waitFor(() => rig.sql('SELECT 1 FROM ot.turns WHERE ended_at IS NULL').length === 0,
-    { what: 'seed turns to settle', timeout: 60000 })
+    { what: 'seed turns to settle', timeout: SEED_SETTLE_TIMEOUT })
   for (const name of ['kim', 'hana']) {
     await rig.op({ op: 'hire', parent: 'boss', name, tier: 'luna', account_fallback: false })
     await rig.userMail(name, 'PROOF-FREEZE: preserve this request.')

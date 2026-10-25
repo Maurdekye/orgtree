@@ -21,6 +21,7 @@
 //   a project placed above an agent holds it; the agent above pays the same
 // Run: node tools/rig/rig.mjs run tools/rig/proofs/project-nodes.mjs
 
+import { SEED_SETTLE_TIMEOUT } from '../seed-settle.mjs'
 import fs from 'node:fs'
 import path from 'node:path'
 
@@ -34,7 +35,7 @@ export default async function (rig) {
   const p = new Proof('project-nodes')
   rig.scenario({ default: { turns: [{ name: 'default', steps: [{ text: 'OK.' }] }] } })
   await rig.waitFor(() => rig.sql(`SELECT 1 FROM ot.turns WHERE ended_at IS NULL`).length === 0,
-    { what: 'seed turns to settle', timeout: 60000 })
+    { what: 'seed turns to settle', timeout: SEED_SETTLE_TIMEOUT })
   const said = r => (r?.ok ? JSON.stringify(r.json ?? r.text) : String(r?.text)).slice(0, 300)
   const opTry = body => rig.op(body).then(v => ({ ok: true, v }), e => ({ ok: false, error: e.message }))
   const row = name => rig.agentRow(name)

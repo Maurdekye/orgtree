@@ -16,6 +16,7 @@
 //   ORGTREE_RIG_HOME=C:/orgtree-build/<you>/rig ORGTREE_RIG_ENGINE=<debug orgtree-engine.exe>
 //   node tools/rig/rig.mjs run tools/rig/proofs/debug-stack-first-turn.mjs
 
+import { SEED_SETTLE_TIMEOUT } from '../seed-settle.mjs'
 import fs from 'node:fs'
 import path from 'node:path'
 import { Proof } from '../proof.mjs'
@@ -35,7 +36,7 @@ export default async function (rig) {
   p.check('the engine has the default stack: RUST_MIN_STACK is not set', !process.env.RUST_MIN_STACK, process.env.RUST_MIN_STACK ?? null)
   rig.scenario({ default: { turns: [{ name: 'default', steps: [{ text: 'OK.' }] }] } })
   await rig.waitFor(() => overflowed() || rig.sql(`SELECT 1 FROM ot.turns WHERE ended_at IS NULL`).length === 0,
-    { what: 'seed turns to settle', timeout: 60000 }).catch(() => {})
+    { what: 'seed turns to settle', timeout: SEED_SETTLE_TIMEOUT }).catch(() => {})
   for (const [name, harness] of [['boss', 'Codex'], ['cleo', 'Claude']]) {
     if (overflowed()) break
     const before = rig.turns(name).filter(t => t.ended_at).length

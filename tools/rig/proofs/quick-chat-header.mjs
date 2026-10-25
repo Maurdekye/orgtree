@@ -8,6 +8,7 @@
 //   alphabetical order.
 // Run: node tools/rig/rig.mjs run tools/rig/proofs/quick-chat-header.mjs --ui <bundle>
 
+import { SEED_SETTLE_TIMEOUT } from '../seed-settle.mjs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -20,7 +21,7 @@ const WIDTHS = ['1920x1080', '1280x800', '760x700']
 export default async function (rig) {
   const p = new Proof('quick-chat-header')
   await rig.waitFor(() => rig.sql('SELECT 1 FROM ot.turns WHERE ended_at IS NULL').length === 0,
-    { what: 'seed turns to settle', timeout: 60000 })
+    { what: 'seed turns to settle', timeout: SEED_SETTLE_TIMEOUT })
   // top-level and nested agents whose names sort differently from where they sit
   await rig.op({ op: 'hire', name: 'zulu', parent: null, tier: 'haiku', grant: 0 })
   await rig.op({ op: 'hire', name: 'able', parent: 'boss', tier: 'haiku', grant: 0 })

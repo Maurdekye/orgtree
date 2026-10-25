@@ -1,5 +1,6 @@
 // Proof: at far zoom the hover name label of a card with a long agent name shows the whole name.
 // Run: node tools/rig/rig.mjs run tools/rig/proofs/hover-name.mjs --ui <bundle>
+import { SEED_SETTLE_TIMEOUT } from '../seed-settle.mjs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -10,7 +11,7 @@ export default async function (rig) {
   const p = new Proof('hover-name')
   const name = 'localserver-research-sonnet'
   rig.scenario({ default: { turns: [{ name: 'default', steps: [{ text: 'OK.' }] }] } })
-  await rig.waitFor(() => rig.sql('SELECT 1 FROM ot.turns WHERE ended_at IS NULL').length === 0, { what: 'seed turns', timeout: 60000 })
+  await rig.waitFor(() => rig.sql('SELECT 1 FROM ot.turns WHERE ended_at IS NULL').length === 0, { what: 'seed turns', timeout: SEED_SETTLE_TIMEOUT })
   await rig.op({ op: 'hire', name, parent: 'boss', tier: 'sonnet', title: 'Long name' })
   await rig.waitFor(() => rig.sql('SELECT 1 FROM ot.turns WHERE ended_at IS NULL').length === 0, { what: 'hire turn', timeout: 60000 })
   const ui = await runDesktop(rig, fileURLToPath(new URL('../desktop/hover-name.cjs', import.meta.url)),

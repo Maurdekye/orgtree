@@ -1,3 +1,4 @@
+import { SEED_SETTLE_TIMEOUT } from '../seed-settle.mjs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { runDesktop } from '../desktop.mjs'
@@ -13,7 +14,7 @@ export async function setup() {
 
 export default async function (rig) {
   await rig.waitFor(() => rig.sql('SELECT 1 FROM ot.turns WHERE ended_at IS NULL').length === 0,
-    { what: 'seed turn complete', timeout: 60000 })
+    { what: 'seed turn complete', timeout: SEED_SETTLE_TIMEOUT })
   for (let n = 1; n <= 3; n++) {
     const r = await rig.tool('rhea', 'orgtree_present', { title: `Report ${n}`, body: `# Report ${n}\n\nUnique report body ${n}.` })
     if (!r.ok) throw Error(r.text)

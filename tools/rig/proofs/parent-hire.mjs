@@ -1,3 +1,4 @@
+import { SEED_SETTLE_TIMEOUT } from '../seed-settle.mjs'
 import { Proof } from '../proof.mjs'
 import { spawn } from 'node:child_process'
 import path from 'node:path'
@@ -6,7 +7,7 @@ import fs from 'node:fs'
 export default async function (rig) {
   const p = new Proof('parent-hire')
   rig.scenario({ default: { turns: [{ name: 'default', steps: [{ text: 'OK.' }] }] } })
-  await rig.waitFor(() => rig.sql(`SELECT 1 FROM ot.turns WHERE ended_at IS NULL`).length === 0, { timeout: 60000, what: 'seed turns' })
+  await rig.waitFor(() => rig.sql(`SELECT 1 FROM ot.turns WHERE ended_at IS NULL`).length === 0, { timeout: SEED_SETTLE_TIMEOUT, what: 'seed turns' })
   const ORG = `(SELECT id FROM ot.orgs WHERE slug='${rig.org}' AND state='active')`
   const ledger = () => Object.fromEntries(rig.sql(`SELECT a.id,a.name,a.parent_id,a.state,a.seat::float8 AS seat,a.grant_credits::float8 AS grant,a.sibling_order::float8 AS ord,a.scope,a.account,
     a.grant_credits::float8-coalesce((SELECT sum(c.seat+c.grant_credits) FROM ot.agents c WHERE c.parent_id=a.id AND c.state='live'),0)::float8 AS free

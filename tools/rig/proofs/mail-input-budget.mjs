@@ -1,6 +1,7 @@
 // All data and CLIs are synthetic. Use the candidate fake CLI on BOTH engines:
 // it enforces Codex's observed 1,048,576-character field limit and supplies safe
 // input-size receipts for Muse/ACP. No real mailbox, profiles or provider calls.
+import { SEED_SETTLE_TIMEOUT } from '../seed-settle.mjs'
 import fs from 'node:fs'
 import path from 'node:path'
 import crypto from 'node:crypto'
@@ -21,7 +22,7 @@ export default async function (rig) {
       steps: [{ start_error: 'Input exceeds the maximum length of 1048576 characters' }] }] },
   }, default: { turns: [{ name: 'ok', steps: [{ text: 'OK.' }] }] } })
   await rig.waitFor(() => !rig.sql('SELECT 1 FROM ot.turns WHERE ended_at IS NULL').length,
-    { what: 'seed turns settle', timeout: 60000 })
+    { what: 'seed turns settle', timeout: SEED_SETTLE_TIMEOUT })
   await rig.waitFor(async () => !(await rig.api('GET', '/api/providers')).checking, { what: 'discovery', timeout: 30000 })
   await rig.api('PUT', '/api/openrouter/keys/openrouter-1', { harness: 'opencode' })
   const id = n => rig.agentRow(n).id

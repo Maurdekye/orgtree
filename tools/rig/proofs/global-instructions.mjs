@@ -1,6 +1,7 @@
 // Global user notes are startup context, independent of an agent's harness.
 // Run against the unchanged base before the fix, then the exact candidate.
 // Uses ONLY rig-home fixtures; neither imports nor edits the real user profile.
+import { SEED_SETTLE_TIMEOUT } from '../seed-settle.mjs'
 import fs from 'node:fs'
 import path from 'node:path'
 import { Proof } from '../proof.mjs'
@@ -30,7 +31,7 @@ export default async function (rig) {
     default: { turns: [{ name: 'default', steps: [{ text: 'OK.' }] }] },
   })
   await rig.waitFor(() => rig.sql('SELECT 1 FROM ot.turns WHERE ended_at IS NULL').length === 0,
-    { what: 'seed turns settled', timeout: 60000 })
+    { what: 'seed turns settled', timeout: SEED_SETTLE_TIMEOUT })
   await rig.op({ op: 'hire', name: 'globalnotes', parent: 'boss', tier: 'haiku', title: 'Global instruction proof' })
   const starts = () => rig.fakeLog('globalnotes').filter(row => row.kind === 'start')
   const turn = async text => {

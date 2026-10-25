@@ -14,6 +14,7 @@
 //     login is offered max (control).
 // Run: node tools/rig/rig.mjs run tools/rig/proofs/muse-ui-logins.mjs --ui <bundle>
 
+import { SEED_SETTLE_TIMEOUT } from '../seed-settle.mjs'
 import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -35,7 +36,7 @@ export default async function (rig) {
     return p.summary()
   }
   rig.scenario({ agents: {}, default: { turns: [{ name: 'default', steps: [{ text: 'OK.' }] }] } })
-  await rig.waitFor(() => rig.sql('SELECT 1 FROM ot.turns WHERE ended_at IS NULL').length === 0, { what: 'seed turns to settle', timeout: 60000 })
+  await rig.waitFor(() => rig.sql('SELECT 1 FROM ot.turns WHERE ended_at IS NULL').length === 0, { what: 'seed turns to settle', timeout: SEED_SETTLE_TIMEOUT })
   await rig.waitFor(async () => (await rig.api('GET', '/api/providers'))?.providers?.find((x) => x.id === 'muse' && x.muse?.catalog),
     { what: 'Muse discovery', timeout: 60000 })
   const refresh = () => rig.api('GET', '/api/muse/usage?force=true')

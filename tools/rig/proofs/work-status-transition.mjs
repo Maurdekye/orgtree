@@ -1,5 +1,6 @@
 // Actual orgtree_work MCP mutations, persisted chips and a fresh /chat read.
 // Fake Claude + disposable synthetic DB only; no real providers or live data.
+import { SEED_SETTLE_TIMEOUT } from '../seed-settle.mjs'
 import { Proof } from '../proof.mjs'
 import { nativeToolText } from '../native-tool-result.mjs'
 
@@ -8,7 +9,7 @@ export default async function (rig) {
   let phase = 'fixture setup'
   try {
   await rig.waitFor(() => rig.sql('SELECT 1 FROM ot.turns WHERE ended_at IS NULL').length === 0,
-    { what: 'seed turns idle', timeout: 60000 })
+    { what: 'seed turns idle', timeout: SEED_SETTLE_TIMEOUT })
   const slug = 'rig-status-transition', by = 'rig-status-replacement'
   const progress = { done_so_far: ['Synthetic progress'], working_on_next: [] }
   const step = (id, action, args = {}) => ({ id, tool: 'orgtree_work', args: { action, slug, ...args } })

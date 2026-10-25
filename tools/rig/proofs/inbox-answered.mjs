@@ -5,6 +5,7 @@
 //   cy:  two questions answered through the question route
 // Run: ORGTREE_RIG_UI=<bundle> node tools/rig/rig.mjs run tools/rig/proofs/inbox-answered.mjs --ui <bundle>
 
+import { SEED_SETTLE_TIMEOUT } from '../seed-settle.mjs'
 import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -25,7 +26,7 @@ export default async function (rig) {
     fay: ask({ question: 'What should we call the release?' }),
     cy: ask({ questions: [{ question: 'Proceed with plan B?', options: ['Yes', 'No'] }, { question: 'Pick a size', header: 'Size', options: ['Small', 'Large'] }] }),
   }, default: { turns: [{ name: 'default', steps: [{ text: 'OK.' }] }] } })
-  await rig.waitFor(() => rig.sql(`SELECT 1 FROM ot.turns WHERE ended_at IS NULL`).length === 0, { what: 'seed turns to settle', timeout: 60000 })
+  await rig.waitFor(() => rig.sql(`SELECT 1 FROM ot.turns WHERE ended_at IS NULL`).length === 0, { what: 'seed turns to settle', timeout: SEED_SETTLE_TIMEOUT })
   const names = ['sia', 'bat', 'fay', 'cy']
   for (const name of names) {
     await rig.op({ op: 'hire', name, parent: 'boss', tier: 'haiku', title: 'Question agent' })

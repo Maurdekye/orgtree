@@ -9,6 +9,7 @@
 //   5. mail to halted carol waits; no turn starts
 // Run: node tools/rig/rig.mjs run tools/rig/proofs/batch-halt.mjs
 
+import { SEED_SETTLE_TIMEOUT } from '../seed-settle.mjs'
 import path from 'node:path'
 
 import { runDesktop } from '../desktop.mjs'
@@ -23,7 +24,7 @@ export default async function (rig) {
     agents: { carol: { turns: [{ name: 'long', match: 'PROOF-LONG', once: true, steps: [{ text: 'Working a long time.' }, { sleep_ms: 120000 }, { text: 'done' }] }] } },
     default: { turns: [{ steps: [{ text: 'OK.' }] }] },
   })
-  await rig.waitFor(() => rig.sql(`SELECT 1 FROM ot.turns WHERE ended_at IS NULL`).length === 0, { what: 'seed turns to settle', timeout: 60000 })
+  await rig.waitFor(() => rig.sql(`SELECT 1 FROM ot.turns WHERE ended_at IS NULL`).length === 0, { what: 'seed turns to settle', timeout: SEED_SETTLE_TIMEOUT })
   const halted = () => Object.fromEntries(rig.sql(`SELECT a.name, a.halt->>'phase' AS phase FROM ot.agents a JOIN ot.orgs o ON o.id = a.org_id
                                                     WHERE o.slug = '${rig.org}' AND a.state = 'live' ORDER BY a.id`).map(r => [r.name, r.phase]))
   const act = async (args, preset = 'short') => {

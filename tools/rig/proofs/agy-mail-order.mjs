@@ -2,6 +2,7 @@
 // Raw tool events deliberately allow a completion across a mail boundary;
 // they execute no shell command. The existing agy-lane proof covers tool hooks.
 // Run: node tools/rig/rig.mjs run tools/rig/proofs/agy-mail-order.mjs
+import { SEED_SETTLE_TIMEOUT } from '../seed-settle.mjs'
 import { Proof } from '../proof.mjs'
 
 const tool = (index, state, result) => ({ raw: {
@@ -23,7 +24,7 @@ export default async function (rig) {
     tool(103, 'ACTIVE'), tool(103, 'DONE', 'after second mail'),
   ] }] } }, default: { turns: [{ steps: [{ text: 'OK.' }] }] } })
   await rig.waitFor(() => rig.sql('SELECT 1 FROM ot.turns WHERE ended_at IS NULL').length === 0,
-    { what: 'seed turns to settle', timeout: 60000 })
+    { what: 'seed turns to settle', timeout: SEED_SETTLE_TIMEOUT })
   await rig.op({ op: 'hire', name, parent: 'boss', tier: 'flash', title: 'Mail ordering proof' })
   const id = rig.agentRow(name).id
   const before = rig.one(`SELECT coalesce(max(seq), 0) AS seq FROM ot.convo WHERE agent_id = ${id}`).seq

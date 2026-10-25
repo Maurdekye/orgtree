@@ -14,6 +14,7 @@
 //   5. boss may interrupt ann, but cannot restart an idle report.
 //   node tools/rig/rig.mjs run tools/rig/proofs/self-interrupt.mjs
 
+import { SEED_SETTLE_TIMEOUT } from '../seed-settle.mjs'
 import { seed } from '../fixture.mjs'
 import { Proof } from '../proof.mjs'
 
@@ -65,7 +66,7 @@ export default async function (rig) {
     { name: 'cal', tier: 'haiku', charter: 'You have no Orgtree tool groups.' },
   ] })
   await rig.api('POST', `/api/orgs/${rig.org}/nodes/cal/scope`, { tools: { orgtree: OFF } })
-  await quiet('seeding to settle')
+  await quiet('seeding to settle', SEED_SETTLE_TIMEOUT)
 
   // ---- 1. restart
   let before = rig.turns('ann').length

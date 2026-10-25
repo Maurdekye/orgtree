@@ -1,3 +1,4 @@
+import { SEED_SETTLE_TIMEOUT } from '../seed-settle.mjs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { runDesktop } from '../desktop.mjs'
@@ -11,7 +12,7 @@ export async function setup() {
 
 export default async function (rig) {
   await rig.waitFor(() => rig.sql('SELECT 1 FROM ot.turns WHERE ended_at IS NULL').length === 0,
-    { what: 'seed turn complete', timeout: 60000 })
+    { what: 'seed turn complete', timeout: SEED_SETTLE_TIMEOUT })
   const evidence = path.join(rigHome(), 'evidence', 'rainbow-popout-' + Date.now())
   const result = await runDesktop(rig,
     path.join(path.dirname(fileURLToPath(import.meta.url)), '../desktop/rainbow-popout.cjs'),

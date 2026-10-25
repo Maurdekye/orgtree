@@ -4,12 +4,13 @@
 // A retool replaces the idle agent's process through the close path.
 //   node tools/rig/rig.mjs run tools/rig/proofs/claude-close.mjs
 
+import { SEED_SETTLE_TIMEOUT } from '../seed-settle.mjs'
 import { Proof } from '../proof.mjs'
 
 export default async function (rig) {
   const p = new Proof('claude-close')
   rig.scenario({ default: { turns: [{ name: 'default', steps: [{ text: 'OK.' }] }] } })
-  await rig.waitFor(() => rig.sql(`SELECT 1 FROM ot.turns WHERE ended_at IS NULL`).length === 0, { what: 'seed turns to settle', timeout: 60000 })
+  await rig.waitFor(() => rig.sql(`SELECT 1 FROM ot.turns WHERE ended_at IS NULL`).length === 0, { what: 'seed turns to settle', timeout: SEED_SETTLE_TIMEOUT })
   await rig.op({ op: 'hire', name: 'cleo', parent: 'boss', tier: 'haiku', title: 'Close subject' })
   await rig.userMail('cleo', 'Say OK.')
   await rig.waitTurns('cleo', 1)

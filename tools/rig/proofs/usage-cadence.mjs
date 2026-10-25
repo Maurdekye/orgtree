@@ -2,6 +2,7 @@
 // call log (rig-usage/calls.log: one line per reading asked for, written by
 // the canned-reading stand-in for a probe). Phase 1: no window open. Phase 2:
 // a window holds the app feed open. 3.x kept a window's readings a minute old.
+import { SEED_SETTLE_TIMEOUT } from '../seed-settle.mjs'
 import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -20,7 +21,7 @@ const sleep = ms => new Promise(r => setTimeout(r, ms))
 
 export default async function (rig) {
   await rig.waitFor(() => rig.sql('SELECT 1 FROM ot.turns WHERE ended_at IS NULL').length === 0,
-    { what: 'seed turn complete', timeout: 60000 })
+    { what: 'seed turn complete', timeout: SEED_SETTLE_TIMEOUT })
   const dir = path.join(rig.data, 'rig-home', 'rig-usage')
   fs.mkdirSync(dir, { recursive: true })
   const future = new Date(Date.now() + 3 * 3600e3).toISOString()

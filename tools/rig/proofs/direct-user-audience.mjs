@@ -1,9 +1,10 @@
-﻿import { Proof } from '../proof.mjs'
+﻿import { SEED_SETTLE_TIMEOUT } from '../seed-settle.mjs'
+import { Proof } from '../proof.mjs'
 
 // Production HTTP mail/command routes, real authorization tools, fake providers only.
 export default async function (rig) {
   const p = new Proof('direct-user-audience')
-  await rig.waitFor(() => rig.sql('SELECT 1 FROM ot.turns WHERE ended_at IS NULL').length === 0, { what: 'seed turns idle' })
+  await rig.waitFor(() => rig.sql('SELECT 1 FROM ot.turns WHERE ended_at IS NULL').length === 0, { what: 'seed turns idle', timeout: SEED_SETTLE_TIMEOUT })
   const oid = rig.one(`SELECT id FROM ot.orgs WHERE slug='${rig.org}'`).id
   const id = n => rig.agentRow(n).id
   const grants = n => rig.sql(`SELECT * FROM ot.audiences WHERE org_id=${oid} AND grantee='${n}' AND grantor='@user' AND revoked_at IS NULL AND NOT paused`)

@@ -1,5 +1,6 @@
 // Checked physical-login auth evidence consumed by the real usage tool route.
 // Canned provider results, disposable data and fake CLIs only.
+import { SEED_SETTLE_TIMEOUT } from '../seed-settle.mjs'
 import fs from 'node:fs'
 import path from 'node:path'
 import { Proof } from '../proof.mjs'
@@ -10,7 +11,7 @@ const sleep = ms => new Promise(resolve => setTimeout(resolve, ms))
 export default async function (rig) {
   const p = new Proof('usage-query-auth')
   await rig.waitFor(() => rig.sql('SELECT 1 FROM ot.turns WHERE ended_at IS NULL').length === 0,
-    { what: 'seed turn settled', timeout: 60000 })
+    { what: 'seed turn settled', timeout: SEED_SETTLE_TIMEOUT })
   const dir = path.join(rig.data, 'rig-home', 'rig-usage')
   fs.mkdirSync(dir, { recursive: true })
   await rig.waitFor(() => fs.existsSync(path.join(dir, 'calls.log'))

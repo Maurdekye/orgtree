@@ -170,15 +170,19 @@ expectation; the separate no-inference-turn guard remains unchanged. Retained
 packet replay verifies attribution, not a full runtime proof pass.
 [verified: `tools/rig/proofs/agy-auth-wake.mjs`; 2026-10-25]
 
-`account-windows.mjs` allows 120 seconds for its existing seed-turn completion
-predicate: a synthetic Session 0 run may first spend 60 seconds in the engine's
-sign-in-helper grace, then needs the ordinary 60-second seed execution allowance.
-Keep the placement settings and account-window negatives unchanged. This is a
-single bounded wait, not a fixed sleep or a retry of a timed-out seed. Its
-deterministic controls exercise the actual wait closure and `Rig.waitFor`,
-including prompt completion, late completion, a stuck turn and persistent SQL
-failure. The engine's helper grace and fallback behavior are unchanged.
-[verified: `tools/rig/proofs/account-windows.mjs`, `runtime/actor.rs::session_settle`,
+Seed waits share `SEED_SETTLE_TIMEOUT` from `tools/rig/seed-settle.mjs`: 120 seconds
+for their existing completion predicates. A synthetic Session 0 run may first
+spend 60 seconds in the engine's sign-in-helper grace, then needs the ordinary
+60-second seed execution allowance. Pass the budget explicitly to local
+`settle`/`quiet` helpers; their non-seed defaults stay unchanged. Keep placement
+settings and all functional negatives unchanged. This is a single bounded wait,
+not a fixed sleep or a retry. Deterministic controls exercise actual proof
+closures and `Rig.waitFor`, including late and prompt completion, stuck turns,
+SQL refusal and the original account-window controls. The engine's grace and
+fallback behavior are unchanged. The cost remains about 60 seconds of helper
+grace per affected synthetic run; a faster rig placement is a future follow-up,
+not part of this repair.
+[verified: `tools/rig/seed-settle.mjs`, `runtime/actor.rs::session_settle`,
 `runtime/session_host.rs::SETTLE_MS`; 2026-10-25]
 
 Window-launching runs also require [desktop/clipboard isolation](#desktop-smoke),

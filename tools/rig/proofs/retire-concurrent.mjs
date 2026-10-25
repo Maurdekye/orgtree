@@ -21,6 +21,7 @@
 //
 // Fake CLIs only, warming on (`warming`: a safe start warms nothing). Run:
 //   node tools/rig/rig.mjs run tools/rig/proofs/retire-concurrent.mjs
+import { SEED_SETTLE_TIMEOUT } from '../seed-settle.mjs'
 import { Proof } from '../proof.mjs'
 import { alive } from '../lib.mjs'
 
@@ -54,7 +55,7 @@ const ms = stamp => Date.parse(stamp.replace(' ', 'T'))
 export default async function (rig) {
   const p = new Proof('retire-concurrent')
   await rig.waitFor(() => rig.sql('SELECT 1 FROM ot.turns WHERE ended_at IS NULL').length === 0,
-    { what: 'seed turns settle', timeout: 60000 })
+    { what: 'seed turns settle', timeout: SEED_SETTLE_TIMEOUT })
   // a restart warms the workers' CLIs, as the live team's were warm
   const fromRestart = rig.engineLog().length
   await rig.restart()

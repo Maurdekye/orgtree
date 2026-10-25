@@ -19,6 +19,7 @@
 //      its wake waiting, and runs it once when unhalted; s3 gets no mail.
 // Run: node tools/rig/rig.mjs run tools/rig/proofs/muse-held-replay.mjs
 
+import { SEED_SETTLE_TIMEOUT } from '../seed-settle.mjs'
 import fs from 'node:fs'
 import path from 'node:path'
 import { spawn } from 'node:child_process'
@@ -39,7 +40,7 @@ export default async function (rig) {
     { name: 'given back', match: GIVEN_BACK, steps: [{ text: 'Picking the held request up again.' }] },
     { name: 'wall', match: 'PROOF-WALL', once: true, steps: [{ text: 'Trying.' }, { quota: { resetsAtMs: resetMs } }] },
   ] }])), default: { turns: [{ name: 'default', steps: [{ text: 'OK.' }] }] } })
-  await rig.waitFor(() => rig.sql('SELECT 1 FROM ot.turns WHERE ended_at IS NULL').length === 0, { what: 'seed turns to settle', timeout: 60000 })
+  await rig.waitFor(() => rig.sql('SELECT 1 FROM ot.turns WHERE ended_at IS NULL').length === 0, { what: 'seed turns to settle', timeout: SEED_SETTLE_TIMEOUT })
   await rig.waitFor(async () => (await rig.api('GET', '/api/providers'))?.providers?.find((x) => x.id === 'muse' && x.muse?.catalog),
     { what: 'Muse discovery', timeout: 60000 })
 

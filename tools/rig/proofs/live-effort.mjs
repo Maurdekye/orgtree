@@ -23,6 +23,7 @@
 //   low with the toast "sent to the running agent".
 // Run: node tools/rig/rig.mjs run tools/rig/proofs/live-effort.mjs [--ui <bundle>]
 
+import { SEED_SETTLE_TIMEOUT } from '../seed-settle.mjs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -46,7 +47,7 @@ export default async function (rig) {
     },
     default: { turns: [{ name: 'default', steps: [{ text: 'OK.' }] }] },
   })
-  await rig.waitFor(() => rig.sql('SELECT 1 FROM ot.turns WHERE ended_at IS NULL').length === 0, { what: 'seed turns to settle', timeout: 60000 })
+  await rig.waitFor(() => rig.sql('SELECT 1 FROM ot.turns WHERE ended_at IS NULL').length === 0, { what: 'seed turns to settle', timeout: SEED_SETTLE_TIMEOUT })
   await rig.api('POST', `/api/orgs/${rig.org}/settings`, { default_effort: 'medium' })
   await rig.op({ op: 'hire', name: 'ada', parent: 'boss', tier: 'opus', title: 'Effort subject', grant: 1 })
   await rig.op({ op: 'hire', name: 'kid', parent: 'ada', tier: 'haiku', title: 'Bystander' })

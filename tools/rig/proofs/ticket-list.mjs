@@ -18,6 +18,7 @@
 //   with the orgtree_work call that lists them all.
 // Run: node tools/rig/rig.mjs run tools/rig/proofs/ticket-list.mjs
 
+import { SEED_SETTLE_TIMEOUT } from '../seed-settle.mjs'
 import fs from 'node:fs'
 
 import { Proof } from '../proof.mjs'
@@ -28,7 +29,7 @@ const HEAD = 'Your live docket items, as this session starts'
 export default async function (rig) {
   const p = new Proof('ticket-list')
   rig.scenario({ default: { turns: [{ name: 'default', steps: [{ text: 'OK.' }] }] } })
-  await rig.waitFor(() => rig.sql('SELECT 1 FROM ot.turns WHERE ended_at IS NULL').length === 0, { what: 'seed turns to settle', timeout: 60000 })
+  await rig.waitFor(() => rig.sql('SELECT 1 FROM ot.turns WHERE ended_at IS NULL').length === 0, { what: 'seed turns to settle', timeout: SEED_SETTLE_TIMEOUT })
   await rig.op({ op: 'hire', name: 'tara', parent: 'boss', tier: 'haiku', title: 'Ticket holder' })
   await rig.op({ op: 'hire', name: 'vic', parent: 'boss', tier: 'haiku', title: 'Busy ticket holder' })
   const idle = name => rig.turns(name).every(t => t.ended_at)

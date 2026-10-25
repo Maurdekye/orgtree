@@ -19,6 +19,7 @@
 //   Every message is in A's org inbox.
 // Run: node tools/rig/rig.mjs run tools/rig/proofs/org-inbox-unavailable.mjs
 
+import { SEED_SETTLE_TIMEOUT } from '../seed-settle.mjs'
 import { Proof } from '../proof.mjs'
 
 const LIMIT = "You've hit your usage limit. Upgrade to Pro (https://chatgpt.com/explore/pro) or try again later."
@@ -36,7 +37,7 @@ export default async function (rig) {
     },
     default: { turns: [{ name: 'default', steps: [{ text: 'OK.' }] }] },
   })
-  await rig.waitFor(() => rig.sql('SELECT 1 FROM ot.turns WHERE ended_at IS NULL').length === 0, { what: 'seed turns to settle', timeout: 60000 })
+  await rig.waitFor(() => rig.sql('SELECT 1 FROM ot.turns WHERE ended_at IS NULL').length === 0, { what: 'seed turns to settle', timeout: SEED_SETTLE_TIMEOUT })
   const A = rig.org
   await rig.op({ op: 'hire', name: 'fay', parent: 'boss', tier: 'luna', title: 'Codex holder' })
   await rig.op({ op: 'hire', name: 'dan', parent: 'boss', tier: 'haiku', title: 'Second holder' })

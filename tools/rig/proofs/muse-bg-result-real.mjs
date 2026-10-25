@@ -17,6 +17,7 @@
 // The two predicates are exported, to be re-applied to a run's recorded
 // observations (observed.json, Muse's session log) without new turns.
 
+import { SEED_SETTLE_TIMEOUT } from '../seed-settle.mjs'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -82,7 +83,7 @@ export default async function (rig) {
   const p = new Proof('muse-bg-result-real')
   if (!rig.run.realMuse) throw new Error('run this proof with --real-muse <muse-bin-*.exe>')
   const mark = `BG-REAL-${Date.now() % 100000}`
-  await rig.waitFor(() => rig.sql('SELECT 1 FROM ot.turns WHERE ended_at IS NULL').length === 0, { what: 'seed turns to settle', timeout: 60000 })
+  await rig.waitFor(() => rig.sql('SELECT 1 FROM ot.turns WHERE ended_at IS NULL').length === 0, { what: 'seed turns to settle', timeout: SEED_SETTLE_TIMEOUT })
   const muse = await rig.waitFor(async () => (await rig.api('GET', '/api/providers'))?.providers?.find((x) => x.id === 'muse' && x.muse?.catalog),
     { what: 'Muse discovery', timeout: 120000 })
   const spark = (muse.tiers ?? []).find((t) => t.tier === 'spark')

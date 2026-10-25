@@ -17,6 +17,7 @@
 //   superior told; purge retracts waiting mail only
 // Run: node tools/rig/rig.mjs run tools/rig/proofs/project-queue.mjs
 
+import { SEED_SETTLE_TIMEOUT } from '../seed-settle.mjs'
 import { Proof } from '../proof.mjs'
 
 export async function setup() {
@@ -26,9 +27,9 @@ export async function setup() {
 export default async function (rig) {
   const p = new Proof('project-queue')
   rig.scenario({ default: { turns: [{ name: 'default', steps: [{ text: 'OK.' }] }] } })
-  const settle = what => rig.waitFor(() => rig.sql(`SELECT 1 FROM ot.turns WHERE ended_at IS NULL`).length === 0,
-    { what, timeout: 60000 }).catch(() => {})
-  await settle('seed turns to settle')
+  const settle = (what, timeout = 60000) => rig.waitFor(() => rig.sql(`SELECT 1 FROM ot.turns WHERE ended_at IS NULL`).length === 0,
+    { what, timeout }).catch(() => {})
+  await settle('seed turns to settle', SEED_SETTLE_TIMEOUT)
   const said = r => (r?.ok ? JSON.stringify(r.json ?? r.text) : String(r?.text)).slice(0, 300)
   const opTry = body => rig.op(body).then(v => ({ ok: true, v }), e => ({ ok: false, error: e.message }))
   const node = name => rig.one(`SELECT id, name, kind, scope, state, halt FROM ot.agents

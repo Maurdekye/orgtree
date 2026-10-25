@@ -28,6 +28,7 @@
 //            recent correspondents newest first
 // Run: node tools/rig/rig.mjs run tools/rig/proofs/conversation-recall.mjs [--hub <orgtree-mailhub.exe>]
 
+import { SEED_SETTLE_TIMEOUT } from '../seed-settle.mjs'
 import fs from 'node:fs'
 import path from 'node:path'
 
@@ -41,9 +42,9 @@ export async function setup(flags) {
 export default async function (rig) {
   const p = new Proof('conversation-recall')
   rig.scenario({ default: { turns: [{ name: 'default', steps: [{ text: 'OK.' }] }] } })
-  const settle = (what = 'turns to settle') => rig.waitFor(() => rig.sql('SELECT 1 FROM ot.turns WHERE ended_at IS NULL').length === 0,
-    { what, timeout: 90000 })
-  await settle('seed turns to settle')
+  const settle = (what = 'turns to settle', timeout = 90000) => rig.waitFor(() => rig.sql('SELECT 1 FROM ot.turns WHERE ended_at IS NULL').length === 0,
+    { what, timeout })
+  await settle('seed turns to settle', SEED_SETTLE_TIMEOUT)
   const A = rig.org
   const q = s => s.replace(/'/g, "''")
   const id = name => rig.agentRow(name).id

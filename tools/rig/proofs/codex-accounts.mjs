@@ -14,6 +14,7 @@
 //        thread, so her next turn starts a fresh one with the handoff note.
 // Run: node tools/rig/rig.mjs run tools/rig/proofs/codex-accounts.mjs
 
+import { SEED_SETTLE_TIMEOUT } from '../seed-settle.mjs'
 import fs from 'node:fs'
 import path from 'node:path'
 
@@ -51,7 +52,7 @@ export default async function (rig) {
     agents: { ned: { turns: [limited('PROOF-LIMIT')] }, ola: { turns: [limited('PROOF-LIMIT')] } },
     default: { turns: [{ name: 'default', steps: [{ text: 'OK.' }] }] },
   })
-  await rig.waitFor(() => rig.sql(`SELECT 1 FROM ot.turns WHERE ended_at IS NULL`).length === 0, { what: 'seed turns to settle', timeout: 60000 })
+  await rig.waitFor(() => rig.sql(`SELECT 1 FROM ot.turns WHERE ended_at IS NULL`).length === 0, { what: 'seed turns to settle', timeout: SEED_SETTLE_TIMEOUT })
 
   // ---------------------------------------------------------------- the accounts
   const homeA = path.join(rig.data, 'rig-home', '.codex')

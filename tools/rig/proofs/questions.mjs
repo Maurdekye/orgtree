@@ -26,6 +26,7 @@
 //       refused, and a batch answer needs exactly one answer per tab.
 // Run: node tools/rig/rig.mjs run tools/rig/proofs/questions.mjs
 
+import { SEED_SETTLE_TIMEOUT } from '../seed-settle.mjs'
 import { Proof } from '../proof.mjs'
 
 const Q_COLOUR = 'Which colour should the button be?'
@@ -59,7 +60,7 @@ export default async function (rig) {
     default: { turns: [{ name: 'default', steps: [{ text: 'OK.' }] }] },
   })
   rig.scenario(scenario(''))
-  await rig.waitFor(() => rig.sql(`SELECT 1 FROM ot.turns WHERE ended_at IS NULL`).length === 0, { what: 'seed turns to settle', timeout: 60000 })
+  await rig.waitFor(() => rig.sql(`SELECT 1 FROM ot.turns WHERE ended_at IS NULL`).length === 0, { what: 'seed turns to settle', timeout: SEED_SETTLE_TIMEOUT })
   for (const name of agents) await rig.op({ op: 'hire', name, parent: 'boss', tier: 'haiku', title: 'Question agent' })
   for (const name of agents.filter(n => n !== 'ned')) {
     await rig.api('POST', `/api/orgs/${rig.org}/audiences`, { action: 'grant', node: name, reason: 'proof: may ask the user' })

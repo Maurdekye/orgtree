@@ -17,6 +17,7 @@
 //          turn.
 // Run: node tools/rig/rig.mjs run tools/rig/proofs/turn-failures.mjs
 
+import { SEED_SETTLE_TIMEOUT } from '../seed-settle.mjs'
 import { Proof } from '../proof.mjs'
 
 const LIMIT = "You've hit your usage limit. Upgrade to Pro (https://chatgpt.com/explore/pro) or try again later."
@@ -48,7 +49,7 @@ export default async function (rig) {
     default: { turns: [{ name: 'default', steps: [{ text: 'OK.' }] }] },
   })
   rig.scenario(scenario(Math.floor(Date.now() / 1000) + 7200))
-  await rig.waitFor(() => rig.sql(`SELECT 1 FROM ot.turns WHERE ended_at IS NULL`).length === 0, { what: 'seed turns to settle', timeout: 60000 })
+  await rig.waitFor(() => rig.sql(`SELECT 1 FROM ot.turns WHERE ended_at IS NULL`).length === 0, { what: 'seed turns to settle', timeout: SEED_SETTLE_TIMEOUT })
   for (const name of ['kim', 'hana', 'ivy', 'lee', 'quinn', 'rex']) await rig.op({ op: 'hire', name, parent: 'boss', tier: 'luna', title: 'Codex rig agent' })
   const log = (agent, kind) => rig.fakeLog(agent).filter(l => !kind || l.kind === kind)
   const boss = rig.agentRow('boss').id

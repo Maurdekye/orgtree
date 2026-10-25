@@ -26,6 +26,7 @@
 //        result reaches it; its next turn starts a fresh process (the edit).
 // Run: node tools/rig/rig.mjs run tools/rig/proofs/bg-keep-open.mjs
 
+import { SEED_SETTLE_TIMEOUT } from '../seed-settle.mjs'
 import fs from 'node:fs'
 import path from 'node:path'
 import { Proof } from '../proof.mjs'
@@ -77,7 +78,7 @@ export default async function (rig) {
     default: { turns: [{ name: 'default', steps: [{ text: 'OK.' }] }] },
   })
   const runtime = (body) => rig.api('PUT', '/api/app-settings/runtime', body)
-  await rig.waitFor(() => rig.sql('SELECT 1 FROM ot.turns WHERE ended_at IS NULL').length === 0, { what: 'seed turns to settle', timeout: 60000 })
+  await rig.waitFor(() => rig.sql('SELECT 1 FROM ot.turns WHERE ended_at IS NULL').length === 0, { what: 'seed turns to settle', timeout: SEED_SETTLE_TIMEOUT })
   await rig.waitFor(async () => (await rig.api('GET', '/api/providers'))?.providers?.find((x) => x.id === 'muse' && x.muse?.catalog),
     { what: 'Muse discovery', timeout: 60000 })
   for (const name of CLAUDE) await rig.op({ op: 'hire', name, parent: 'boss', tier: 'haiku', title: 'Keep-open agent' })

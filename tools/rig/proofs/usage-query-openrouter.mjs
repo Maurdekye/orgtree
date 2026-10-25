@@ -1,6 +1,7 @@
 // Usage-query composition only: actual tool, two key lanes (every key's lane
 // is its id, user 2026-10-14), canned metadata checks and fake CLIs. No real
 // provider or inference.
+import { SEED_SETTLE_TIMEOUT } from '../seed-settle.mjs'
 import fs from 'node:fs'
 import path from 'node:path'
 import { Proof } from '../proof.mjs'
@@ -13,7 +14,7 @@ export async function setup() {
 export default async function (rig) {
   const p = new Proof('usage-query-openrouter')
   await rig.waitFor(() => rig.sql('SELECT 1 FROM ot.turns WHERE ended_at IS NULL').length === 0,
-    { what: 'seed turns settled', timeout: 60000 })
+    { what: 'seed turns settled', timeout: SEED_SETTLE_TIMEOUT })
   const dir = path.join(rig.data, 'rig-home', 'rig-usage')
   const marker = 'USAGE-OR-PRIVATE-FIELD-73159'
   const old = new Date(Date.now() - 1800e3).toISOString()

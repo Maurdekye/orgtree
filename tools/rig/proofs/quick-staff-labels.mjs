@@ -3,6 +3,7 @@
 // Antigravity Claude tiers enabled and an OpenRouter model favourited.
 // Run: node tools/rig/rig.mjs run tools/rig/proofs/quick-staff-labels.mjs
 // (set ORGTREE_RIG_UI to a built renderer to compare before and after)
+import { SEED_SETTLE_TIMEOUT } from '../seed-settle.mjs'
 import fs from 'node:fs'
 import path from 'node:path'
 import { runDesktop } from '../desktop.mjs'
@@ -27,7 +28,7 @@ export async function setup() {
 }
 
 export default async function (rig) {
-  await rig.waitFor(() => rig.sql('SELECT 1 FROM ot.turns WHERE ended_at IS NULL').length === 0, { what: 'seed turns', timeout: 60000 })
+  await rig.waitFor(() => rig.sql('SELECT 1 FROM ot.turns WHERE ended_at IS NULL').length === 0, { what: 'seed turns', timeout: SEED_SETTLE_TIMEOUT })
   await rig.api('PUT', '/api/app-settings/runtime', { antigravity_claude_enabled: true })
   const out = path.join(rigHome(), 'evidence', 'quick-staff-labels-' + Date.now())
   const r = await runDesktop(rig, path.join(RIG_DIR, 'desktop', 'quick-staff-menu.cjs'), { preset: 'tall', out, timeout: 90000 })

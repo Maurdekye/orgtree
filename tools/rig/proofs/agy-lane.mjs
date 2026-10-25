@@ -23,6 +23,7 @@
 //   max:  init names another model than the pinned one: the turn is refused.
 // Run: node tools/rig/rig.mjs run tools/rig/proofs/agy-lane.mjs
 
+import { SEED_SETTLE_TIMEOUT } from '../seed-settle.mjs'
 import { Proof } from '../proof.mjs'
 
 const AGENTS = ['gia', 'hal', 'ivo', 'jen', 'kai', 'lia', 'max', 'nia', 'ora', 'pia']
@@ -67,7 +68,7 @@ export default async function (rig) {
     },
     default: { turns: [{ name: 'default', steps: [{ text: 'OK.' }] }] },
   })
-  await rig.waitFor(() => rig.sql(`SELECT 1 FROM ot.turns WHERE ended_at IS NULL`).length === 0, { what: 'seed turns to settle', timeout: 60000 })
+  await rig.waitFor(() => rig.sql(`SELECT 1 FROM ot.turns WHERE ended_at IS NULL`).length === 0, { what: 'seed turns to settle', timeout: SEED_SETTLE_TIMEOUT })
 
   const prov = await rig.api('GET', '/api/providers')
   const agy = (prov?.providers ?? []).find(x => x.id === 'google')

@@ -1,3 +1,4 @@
+import { SEED_SETTLE_TIMEOUT } from '../seed-settle.mjs'
 import fs from 'node:fs';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
@@ -10,7 +11,7 @@ export default async function(rig) {
  const evidence=p.dir;
  let phase='fixture setup';
  try {
- await rig.waitFor(()=>rig.sql('SELECT 1 FROM ot.turns WHERE ended_at IS NULL').length===0,{what:'seed turn done',timeout:60000});
+ await rig.waitFor(()=>rig.sql('SELECT 1 FROM ot.turns WHERE ended_at IS NULL').length===0,{what:'seed turn done',timeout:SEED_SETTLE_TIMEOUT});
  const add=async(n)=>{
   const home=path.join(rig.data,'rig-home','codex-'+n);fs.mkdirSync(home,{recursive:true});
   const enc=x=>Buffer.from(JSON.stringify(x)).toString('base64url');

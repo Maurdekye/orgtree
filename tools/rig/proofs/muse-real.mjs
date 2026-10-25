@@ -17,6 +17,7 @@
 //         settings.json is byte-identical before and after.
 // Run: node tools/rig/rig.mjs run tools/rig/proofs/muse-real.mjs --real-muse <muse-bin-*.exe>
 
+import { SEED_SETTLE_TIMEOUT } from '../seed-settle.mjs'
 import crypto from 'node:crypto'
 import fs from 'node:fs'
 import os from 'node:os'
@@ -87,7 +88,7 @@ export default async function (rig) {
   const before = settingsFingerprint()
   p.file('settings-before.json', before)
   await rig.waitFor(() => rig.sql('SELECT 1 FROM ot.turns WHERE ended_at IS NULL').length === 0,
-    { what: 'seed turns to settle', timeout: 60000 })
+    { what: 'seed turns to settle', timeout: SEED_SETTLE_TIMEOUT })
 
   // ---------------------------------------------------------------- discovery
   await rig.api('GET', '/api/muse/usage?force=true')

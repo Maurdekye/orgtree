@@ -1,6 +1,7 @@
 // Proof: an OpenRouter favourite's hire token shows its own letter (M for
 // mimo-v2.6-pro), not the provider's R.
 // Run: node tools/rig/rig.mjs run tools/rig/proofs/or-token-letter.mjs
+import { SEED_SETTLE_TIMEOUT } from '../seed-settle.mjs'
 import fs from 'node:fs'
 import path from 'node:path'
 import { runDesktop } from '../desktop.mjs'
@@ -23,7 +24,7 @@ export async function setup() {
 }
 
 export default async function (rig) {
-  await rig.waitFor(() => rig.sql('SELECT 1 FROM ot.turns WHERE ended_at IS NULL').length === 0, { what: 'seed turns', timeout: 60000 })
+  await rig.waitFor(() => rig.sql('SELECT 1 FROM ot.turns WHERE ended_at IS NULL').length === 0, { what: 'seed turns', timeout: SEED_SETTLE_TIMEOUT })
   const out = path.join(rigHome(), 'evidence', 'or-token-letter-' + Date.now())
   const r = await runDesktop(rig, path.join(RIG_DIR, 'desktop', 'hire-tokens.cjs'), { preset: 'tall', out, timeout: 90000 })
   console.log(JSON.stringify(r.value ?? r, null, 1), '\n', out)

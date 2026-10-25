@@ -1,3 +1,4 @@
+import { SEED_SETTLE_TIMEOUT } from '../seed-settle.mjs'
 import { Proof } from '../proof.mjs'
 
 export async function setup() {
@@ -9,7 +10,7 @@ export async function setup() {
 export default async function (rig) {
   const p = new Proof('token-metrics')
   await rig.waitFor(() => rig.sql('SELECT 1 FROM ot.turns WHERE ended_at IS NULL').length === 0,
-    { what: 'seed turn settles', timeout: 30000 })
+    { what: 'seed turn settles', timeout: SEED_SETTLE_TIMEOUT })
   const usage = { input_tokens: 12, cache_read_input_tokens: 28, cache_creation_input_tokens: 4,
     output_tokens: 20, output_tokens_details: { thinking_tokens: 7 } }
   const assistant = (id, content, counts = usage, parent_tool_use_id = null) => ({ raw: {

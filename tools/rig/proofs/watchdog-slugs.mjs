@@ -16,6 +16,7 @@
 //   after an engine restart the dogs are armed again and fire
 // Run: node tools/rig/rig.mjs run tools/rig/proofs/watchdog-slugs.mjs
 
+import { SEED_SETTLE_TIMEOUT } from '../seed-settle.mjs'
 import fs from 'node:fs'
 import path from 'node:path'
 import { isDeepStrictEqual } from 'node:util'
@@ -64,7 +65,7 @@ async function feedDogs(rig, ready, ms = 10000) {
 export default async function (rig) {
   const p = new Proof('watchdog-slugs')
   rig.scenario({ default: { turns: [{ name: 'default', steps: [{ text: 'OK.' }] }] } })
-  await rig.waitFor(() => rig.sql(`SELECT 1 FROM ot.turns WHERE ended_at IS NULL`).length === 0, { what: 'seed turns to settle', timeout: 60000 })
+  await rig.waitFor(() => rig.sql(`SELECT 1 FROM ot.turns WHERE ended_at IS NULL`).length === 0, { what: 'seed turns to settle', timeout: SEED_SETTLE_TIMEOUT })
   await rig.op({ op: 'hire', name: 'wes', parent: 'boss', tier: 'haiku', title: 'Watchdog owner' })
   await rig.op({ op: 'hire', name: 'kid', parent: 'wes', tier: 'haiku', title: 'Report with dogs of its own' })
   const org = rig.one(`SELECT id FROM ot.orgs WHERE slug = '${rig.org}' AND state = 'active'`).id

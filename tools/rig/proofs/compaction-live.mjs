@@ -14,6 +14,7 @@
 //     row is "interrupted" (it must not stay running forever).
 // Run: node tools/rig/rig.mjs run tools/rig/proofs/compaction-live.mjs
 
+import { SEED_SETTLE_TIMEOUT } from '../seed-settle.mjs'
 import { Proof } from '../proof.mjs'
 
 export async function setup() {
@@ -52,7 +53,7 @@ export default async function (rig) {
     },
     default: { turns: [{ name: 'default', steps: [{ text: 'OK.' }] }] },
   })
-  await rig.waitFor(() => rig.sql(`SELECT 1 FROM ot.turns WHERE ended_at IS NULL`).length === 0, { what: 'seed turns to settle', timeout: 60000 })
+  await rig.waitFor(() => rig.sql(`SELECT 1 FROM ot.turns WHERE ended_at IS NULL`).length === 0, { what: 'seed turns to settle', timeout: SEED_SETTLE_TIMEOUT })
   for (const [name, tier] of [['cal', 'haiku'], ['cat', 'haiku'], ['cox', 'luna'], ['cif', 'haiku'], ['cdi', 'haiku'], ['cam', 'haiku']]) {
     await rig.op({ op: 'hire', name, parent: 'boss', tier, title: 'Compaction agent' })
   }

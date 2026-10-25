@@ -1,11 +1,12 @@
 // Engine-local isolation only: no live hub, provider, or message is used.
+import { SEED_SETTLE_TIMEOUT } from '../seed-settle.mjs'
 import { Proof } from '../proof.mjs'
 
 export default async function (rig) {
   const p = new Proof('org-inbox-isolation')
   rig.scenario({ default: { turns: [{ name: 'default', steps: [{ text: 'OK.' }] }] } })
   await rig.waitFor(() => rig.sql('SELECT 1 FROM ot.turns WHERE ended_at IS NULL').length === 0,
-    { what: 'seed turns', timeout: 60000 })
+    { what: 'seed turns', timeout: SEED_SETTLE_TIMEOUT })
   const A = rig.org
   const B = (await rig.api('POST', '/api/orgs', { name: 'Isolation peer', dirs: [], net_autoconnect: false })).slug
   await rig.op({ op: 'hire', name: 'zoe', tier: 'haiku', grant: 5 }, { org: B })

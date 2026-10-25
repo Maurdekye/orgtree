@@ -7,6 +7,7 @@
 // runs 6 s.
 // Run: node tools/rig/rig.mjs run tools/rig/proofs/turn-start-clock.mjs
 
+import { SEED_SETTLE_TIMEOUT } from '../seed-settle.mjs'
 import { Proof } from '../proof.mjs'
 
 export default async function (rig) {
@@ -18,7 +19,7 @@ export default async function (rig) {
     ] },
     { name: 'default', steps: [{ text: 'OK.' }] },
   ] } })
-  await rig.waitFor(() => rig.sql('SELECT 1 FROM ot.turns WHERE ended_at IS NULL').length === 0, { what: 'seed turns', timeout: 60000 })
+  await rig.waitFor(() => rig.sql('SELECT 1 FROM ot.turns WHERE ended_at IS NULL').length === 0, { what: 'seed turns', timeout: SEED_SETTLE_TIMEOUT })
 
   // a node carries the agent's name in `id`; the tree is the feed's snapshot
   const find = (nodes, name) => {

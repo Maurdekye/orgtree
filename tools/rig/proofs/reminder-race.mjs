@@ -11,6 +11,7 @@
 //   slot and is read once hog's turn ends.
 // Run: node tools/rig/rig.mjs run tools/rig/proofs/reminder-race.mjs
 
+import { SEED_SETTLE_TIMEOUT } from '../seed-settle.mjs'
 import { Proof } from '../proof.mjs'
 
 export async function setup() {
@@ -41,7 +42,7 @@ export default async function (rig) {
       throw new Error(`${e.message}; still busy: ${JSON.stringify(busy()).slice(0, 600)}`)
     }
   }
-  await settle('seed turns to settle')
+  await settle('seed turns to settle', SEED_SETTLE_TIMEOUT)
   for (const name of ['rex', 'sam', 'hog']) await rig.op({ op: 'hire', name, parent: 'boss', tier: 'haiku', title: 'Race agent' })
   const slug = {}
   for (const name of ['rex', 'sam']) {

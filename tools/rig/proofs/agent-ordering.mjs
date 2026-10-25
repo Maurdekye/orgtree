@@ -1,10 +1,11 @@
 // Isolated real tool/domain proof. No live hierarchy or provider calls.
+import { SEED_SETTLE_TIMEOUT } from '../seed-settle.mjs'
 import { Proof } from '../proof.mjs'
 
 export default async function (rig) {
   const p = new Proof('agent-ordering')
   await rig.waitFor(() => rig.sql('SELECT 1 FROM ot.turns WHERE ended_at IS NULL').length === 0,
-    { what: 'seed turns settle', timeout: 60000 })
+    { what: 'seed turns settle', timeout: SEED_SETTLE_TIMEOUT })
   await rig.userMail('boss', 'Ordering proof: answer OK only.')
   await rig.waitTurns('boss', 1)
   const servedLists = () => rig.fakeLog('boss').filter(l => l.kind === 'recv')

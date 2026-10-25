@@ -13,6 +13,7 @@
 //   listeners survive an engine restart; fair_queue refuses fire_actions
 // Run: node tools/rig/rig.mjs run tools/rig/proofs/project-listeners.mjs
 
+import { SEED_SETTLE_TIMEOUT } from '../seed-settle.mjs'
 import { Proof } from '../proof.mjs'
 import fs from 'node:fs'
 import path from 'node:path'
@@ -23,9 +24,9 @@ export async function setup() {
 
 async function projectListeners(rig, p) {
   rig.scenario({ default: { turns: [{ name: 'default', steps: [{ text: 'OK.' }] }] } })
-  const settle = what => rig.waitFor(() => rig.sql(`SELECT 1 FROM ot.turns WHERE ended_at IS NULL`).length === 0,
-    { what, timeout: 60000 }).catch(() => {})
-  await settle('seed turns to settle')
+  const settle = (what, timeout = 60000) => rig.waitFor(() => rig.sql(`SELECT 1 FROM ot.turns WHERE ended_at IS NULL`).length === 0,
+    { what, timeout }).catch(() => {})
+  await settle('seed turns to settle', SEED_SETTLE_TIMEOUT)
   const said = r => (r?.ok ? JSON.stringify(r.json ?? r.text) : String(r?.text)).slice(0, 400)
   const opTry = body => rig.op(body).then(v => ({ ok: true, v }), e => ({ ok: false, error: e.message }))
   const node = name => rig.one(`SELECT id, name, state FROM ot.agents

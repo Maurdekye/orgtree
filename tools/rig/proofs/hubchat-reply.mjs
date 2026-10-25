@@ -11,6 +11,7 @@
 //   one-line reminder naming that address; the user's own mail has none.
 // Run: node tools/rig/rig.mjs run tools/rig/proofs/hubchat-reply.mjs
 
+import { SEED_SETTLE_TIMEOUT } from '../seed-settle.mjs'
 import fs from 'node:fs'
 
 import { Proof } from '../proof.mjs'
@@ -23,7 +24,7 @@ const LINE = '↳ Answer with orgtree_message to @net:peer.rig: a reply only in 
 export default async function (rig) {
   const p = new Proof('hubchat-reply')
   rig.scenario({ default: { turns: [{ name: 'default', steps: [{ text: 'OK.' }] }] } })
-  await rig.waitFor(() => rig.sql('SELECT 1 FROM ot.turns WHERE ended_at IS NULL').length === 0, { what: 'seed turns to settle', timeout: 60000 })
+  await rig.waitFor(() => rig.sql('SELECT 1 FROM ot.turns WHERE ended_at IS NULL').length === 0, { what: 'seed turns to settle', timeout: SEED_SETTLE_TIMEOUT })
   await rig.op({ op: 'hire', name: 'tess', tier: 'haiku', title: 'New top-level hire' })
   await rig.op({ op: 'hire', name: 'nova', parent: 'boss', tier: 'haiku', title: 'New report' })
   const turn = async (name, text) => {

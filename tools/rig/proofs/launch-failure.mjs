@@ -12,6 +12,7 @@
 //   its launch is refused before any process starts, and that is told too.
 // Run: node tools/rig/rig.mjs run tools/rig/proofs/launch-failure.mjs
 
+import { SEED_SETTLE_TIMEOUT } from '../seed-settle.mjs'
 import { Proof } from '../proof.mjs'
 
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms))
@@ -30,7 +31,7 @@ export default async function (rig) {
     },
     default: { turns: [{ name: 'default', steps: [{ text: 'OK.' }] }] },
   })
-  await rig.waitFor(() => rig.sql('SELECT 1 FROM ot.turns WHERE ended_at IS NULL').length === 0, { what: 'seed turns to settle', timeout: 60000 })
+  await rig.waitFor(() => rig.sql('SELECT 1 FROM ot.turns WHERE ended_at IS NULL').length === 0, { what: 'seed turns to settle', timeout: SEED_SETTLE_TIMEOUT })
   await rig.api('PUT', '/api/app-settings/runtime', { antigravity_claude_enabled: true })
   await rig.op({ op: 'hire', name: 'lu', parent: 'boss', tier: 'luna', title: 'Codex subject' })
   await rig.op({ op: 'hire', name: 'solo', tier: 'luna', title: 'Top-level Codex subject', grant: 1 })

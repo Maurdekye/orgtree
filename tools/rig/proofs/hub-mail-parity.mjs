@@ -1,4 +1,5 @@
 // Focused engine proof: transport stays offline; no hub peer or identity.
+import { SEED_SETTLE_TIMEOUT } from '../seed-settle.mjs'
 import { Proof } from '../proof.mjs'
 
 export async function setup() {
@@ -13,7 +14,7 @@ export default async function (rig) {
   const receipts = () => hub('receipts')
   const mail = id => rig.one(`SELECT uid,state,turn_id,kind,net_hub FROM ot.mail WHERE net_id='${id}' ORDER BY id LIMIT 1`)
   await rig.waitFor(() => rig.sql('SELECT 1 FROM ot.turns WHERE ended_at IS NULL').length === 0,
-    { what: 'seed turn complete', timeout: 60000 })
+    { what: 'seed turn complete', timeout: SEED_SETTLE_TIMEOUT })
 
   for (const kind of ['message', 'question', 'request', 'decision', 'status']) {
     const payload = await hub('outgoing', { kind })

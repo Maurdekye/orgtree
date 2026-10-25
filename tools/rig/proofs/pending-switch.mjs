@@ -22,6 +22,7 @@
 // halted) once it shows, so the log stays small.
 // Run: node tools/rig/rig.mjs run tools/rig/proofs/pending-switch.mjs
 
+import { SEED_SETTLE_TIMEOUT } from '../seed-settle.mjs'
 import fs from 'node:fs'
 import path from 'node:path'
 
@@ -36,7 +37,7 @@ export default async function (rig) {
       [n, { turns: [{ name: 'long', match: 'PROOF-LONG', once: true, steps: [{ text: 'Working on it.' }, { sleep_ms: 60000 }, { text: 'NEVER-SAID' }] }] }])),
     default: { turns: [{ name: 'default', steps: [{ text: 'OK.' }] }] },
   })
-  await rig.waitFor(() => rig.sql('SELECT 1 FROM ot.turns WHERE ended_at IS NULL').length === 0, { what: 'seed turns to settle', timeout: 60000 })
+  await rig.waitFor(() => rig.sql('SELECT 1 FROM ot.turns WHERE ended_at IS NULL').length === 0, { what: 'seed turns to settle', timeout: SEED_SETTLE_TIMEOUT })
   // the live agent ran Claude Opus through Antigravity (App settings > Runtime)
   await rig.api('PUT', '/api/app-settings/runtime', { antigravity_claude_enabled: true })
   for (const [name, tier] of [['mira', 'agy-opus'], ['nell', 'haiku'], ['otto', 'haiku'], ['pia', 'haiku'], ['quin', 'haiku']]) {

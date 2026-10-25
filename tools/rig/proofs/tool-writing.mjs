@@ -1,3 +1,4 @@
+import { SEED_SETTLE_TIMEOUT } from '../seed-settle.mjs'
 import fs from 'node:fs'
 import { createHash } from 'node:crypto'
 import { Proof } from '../proof.mjs'
@@ -8,7 +9,7 @@ export default async function (rig, { flags = {} } = {}) {
   p.note('engine/fake source hashes', { engine: rig.run.engineSource, engineSha256: hash(rig.run.engineSource),
     fakeCli: process.env.ORGTREE_RIG_FAKECLI, fakeSha256: hash(process.env.ORGTREE_RIG_FAKECLI) })
   await rig.waitFor(() => rig.sql('SELECT 1 FROM ot.turns WHERE ended_at IS NULL').length === 0,
-    { what: 'seed turns idle', timeout: 60000 })
+    { what: 'seed turns idle', timeout: SEED_SETTLE_TIMEOUT })
   const stream = event => ({ raw: { type: 'stream_event', event, parent_tool_use_id: null } })
   const start = (id, name, index) => stream({ type: 'content_block_start', index, content_block: { type: 'tool_use', id, name, input: {} } })
   const stop = index => stream({ type: 'content_block_stop', index })

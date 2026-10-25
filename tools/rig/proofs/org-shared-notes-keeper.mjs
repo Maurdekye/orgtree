@@ -7,6 +7,7 @@
 // reads, and his CLI runs on. A `reminders: 3` run with working checkups off.
 // Run: node tools/rig/rig.mjs run tools/rig/proofs/org-shared-notes-keeper.mjs
 
+import { SEED_SETTLE_TIMEOUT } from '../seed-settle.mjs'
 import fs from 'node:fs'
 import path from 'node:path'
 
@@ -25,7 +26,7 @@ export default async function (rig) {
     default: { turns: [{ name: 'default', steps: [{ text: 'OK.' }] }] },
   })
   await rig.api('PUT', '/api/app-settings/runtime', { working_checkups_enabled: false, idle_docket_reminders_enabled: false })
-  await rig.waitFor(() => rig.sql('SELECT 1 FROM ot.turns WHERE ended_at IS NULL').length === 0, { what: 'seed turns to settle', timeout: 60000 })
+  await rig.waitFor(() => rig.sql('SELECT 1 FROM ot.turns WHERE ended_at IS NULL').length === 0, { what: 'seed turns to settle', timeout: SEED_SETTLE_TIMEOUT })
   const dir = path.join(rig.data, 'scratch', rig.org, '_shared')
   const file = path.join(dir, 'AGENTS.md')
   fs.mkdirSync(dir, { recursive: true })

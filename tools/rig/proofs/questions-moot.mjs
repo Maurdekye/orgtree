@@ -11,6 +11,7 @@
 //       her card stays open.
 // Run: node tools/rig/rig.mjs run tools/rig/proofs/questions-moot.mjs
 
+import { SEED_SETTLE_TIMEOUT } from '../seed-settle.mjs'
 import fs from 'node:fs'
 import path from 'node:path'
 
@@ -27,7 +28,7 @@ function codexHome(dir, email) {
 export default async function (rig) {
   const p = new Proof('questions-moot')
   rig.scenario({ default: { turns: [{ name: 'default', steps: [{ text: 'OK.' }] }] } })
-  await rig.waitFor(() => rig.sql(`SELECT 1 FROM ot.turns WHERE ended_at IS NULL`).length === 0, { what: 'seed turns to settle', timeout: 60000 })
+  await rig.waitFor(() => rig.sql(`SELECT 1 FROM ot.turns WHERE ended_at IS NULL`).length === 0, { what: 'seed turns to settle', timeout: SEED_SETTLE_TIMEOUT })
   const B = (await rig.api('POST', '/api/accounts', { provider: 'openai', kind: 'imported',
     path: codexHome(path.join(rig.data, 'rig-home', 'codex-b'), 'rig-b@example.invalid') })).id
   await rig.op({ op: 'hire', name: 'sam', parent: 'boss', tier: 'haiku', title: 'Switching agent' })

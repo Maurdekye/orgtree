@@ -12,6 +12,7 @@
 //   engine restart; a capacity raise grants the waiting at once
 // Run: node tools/rig/rig.mjs run tools/rig/proofs/project-slots.mjs
 
+import { SEED_SETTLE_TIMEOUT } from '../seed-settle.mjs'
 import { Proof } from '../proof.mjs'
 
 export async function setup() {
@@ -23,9 +24,9 @@ export default async function (rig) {
   let phase = 'setup'
   try {
   rig.scenario({ default: { turns: [{ name: 'default', steps: [{ text: 'OK.' }] }] } })
-  const settle = what => rig.waitFor(() => rig.sql(`SELECT 1 FROM ot.turns WHERE ended_at IS NULL`).length === 0,
-    { what, timeout: 60000 })
-  await settle('seed turns to settle')
+  const settle = (what, timeout = 60000) => rig.waitFor(() => rig.sql(`SELECT 1 FROM ot.turns WHERE ended_at IS NULL`).length === 0,
+    { what, timeout })
+  await settle('seed turns to settle', SEED_SETTLE_TIMEOUT)
   const said = r => (r?.ok ? JSON.stringify(r.json ?? r.text) : String(r?.text)).slice(0, 300)
   const opTry = body => rig.op(body).then(v => ({ ok: true, v }), e => ({ ok: false, error: e.message }))
   const node = name => rig.one(`SELECT id, name, scope, state, halt FROM ot.agents

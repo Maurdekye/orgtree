@@ -1,4 +1,5 @@
 // Cross-alias authentication recovery and actual automatic fallback, fake CLI only.
+import { SEED_SETTLE_TIMEOUT } from '../seed-settle.mjs'
 import fs from 'node:fs'
 import path from 'node:path'
 import { Proof } from '../proof.mjs'
@@ -23,7 +24,7 @@ function home(dir) {
 export default async function (rig) {
   const p = new Proof('continue-primary-review2')
   await rig.waitFor(() => rig.sql('SELECT 1 FROM ot.turns WHERE ended_at IS NULL').length === 0,
-    { what: 'seed turns settled', timeout: 60000 })
+    { what: 'seed turns settled', timeout: SEED_SETTLE_TIMEOUT })
   const usage = path.join(rig.data, 'rig-home', 'rig-usage')
   fs.mkdirSync(usage, { recursive: true })
   const put = (name, value) => fs.writeFileSync(path.join(usage, `${name}.json`), JSON.stringify(value))

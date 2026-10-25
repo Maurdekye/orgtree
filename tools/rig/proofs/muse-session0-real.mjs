@@ -15,6 +15,7 @@
 //   - the turn ends well.
 // Run: node tools/rig/rig.mjs run tools/rig/proofs/muse-session0-real.mjs --real-muse <muse-bin-*.exe>
 
+import { SEED_SETTLE_TIMEOUT } from '../seed-settle.mjs'
 import fs from 'node:fs'
 import path from 'node:path'
 import { Proof } from '../proof.mjs'
@@ -26,7 +27,7 @@ export default async function (rig) {
   const binDir = path.dirname(rig.run.realMuse)
   const outside = path.join(rig.dir, 'outside-s0', `unasked-${Date.now()}.txt`)
   fs.mkdirSync(path.dirname(outside), { recursive: true })
-  await rig.waitFor(() => rig.sql('SELECT 1 FROM ot.turns WHERE ended_at IS NULL').length === 0, { what: 'seed turns to settle', timeout: 60000 })
+  await rig.waitFor(() => rig.sql('SELECT 1 FROM ot.turns WHERE ended_at IS NULL').length === 0, { what: 'seed turns to settle', timeout: SEED_SETTLE_TIMEOUT })
   const muse = await rig.waitFor(async () => (await rig.api('GET', '/api/providers'))?.providers?.find((x) => x.id === 'muse' && x.muse?.catalog),
     { what: 'Muse discovery', timeout: 120000 })
   const spark = (muse.tiers ?? []).find((t) => t.tier === 'spark')

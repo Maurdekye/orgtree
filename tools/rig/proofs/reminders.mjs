@@ -21,6 +21,7 @@
 //   Both switches off: nothing.
 // Run: node tools/rig/rig.mjs run tools/rig/proofs/reminders.mjs
 
+import { SEED_SETTLE_TIMEOUT } from '../seed-settle.mjs'
 import { Proof } from '../proof.mjs'
 
 // the reminder sweep runs (a safe start never runs it), every 5 s
@@ -57,12 +58,12 @@ export default async function (rig) {
       UNION ALL SELECT a.name, 'mail ' || m.id || ' ' || m.state || ' from ' || m.sender || ': ' || left(m.body, 80)
       FROM ot.mail m JOIN ot.agents a ON a.id = m.recipient_agent_id
       WHERE a.org_id = ${orgId} AND m.state IN ('pending', 'delivering') AND NOT m.notice AND a.halt IS NULL AND a.state = 'live'`)
-  const settle = async what => {
-    try { await rig.waitFor(() => busy().length === 0, { what, timeout: 120000 }) } catch (e) {
+  const settle = async (what, timeout = 120000) => {
+    try { await rig.waitFor(() => busy().length === 0, { what, timeout }) } catch (e) {
       throw new Error(`${e.message}; still busy: ${JSON.stringify(busy()).slice(0, 800)}`)
     }
   }
-  await settle('seed turns to settle')
+  await settle('seed turns to settle', SEED_SETTLE_TIMEOUT)
 
   // ---------------------------------------------------------------- the org
   for (const [name, parent] of [['dave', 'boss'], ['erin', 'boss'], ['frank', 'boss'], ['gina', 'boss'], ['hank', 'alice'], ['idle-seat', 'boss'], ['done-seat', 'boss'], ['blocked-seat', 'boss']]) {

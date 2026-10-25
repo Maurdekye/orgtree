@@ -17,12 +17,13 @@
 //         team, and the former superior reports to it.
 // Run: node tools/rig/rig.mjs run tools/rig/proofs/tree-credits.mjs
 
+import { SEED_SETTLE_TIMEOUT } from '../seed-settle.mjs'
 import { Proof } from '../proof.mjs'
 
 export default async function (rig) {
   const p = new Proof('tree-credits')
   rig.scenario({ default: { turns: [{ name: 'default', steps: [{ text: 'OK.' }] }] } })
-  await rig.waitFor(() => rig.sql(`SELECT 1 FROM ot.turns WHERE ended_at IS NULL`).length === 0, { what: 'seed turns to settle', timeout: 60000 })
+  await rig.waitFor(() => rig.sql(`SELECT 1 FROM ot.turns WHERE ended_at IS NULL`).length === 0, { what: 'seed turns to settle', timeout: SEED_SETTLE_TIMEOUT })
   const ORG = `(SELECT id FROM ot.orgs WHERE slug = '${rig.org}' AND state = 'active')`
   const op = body => rig.op(body).then(r => ({ ok: true, r }), e => ({ ok: false, status: e.status, detail: String(e.body?.detail ?? e.message).slice(0, 240) }))
   const hire = (name, parent, grant, tier = 'haiku') => rig.op({ op: 'hire', name, ...(parent ? { parent } : {}), tier, grant, title: name })

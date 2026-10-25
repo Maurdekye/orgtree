@@ -15,6 +15,7 @@
 //   same thread.
 // Run: node tools/rig/rig.mjs run tools/rig/proofs/startup-context.mjs
 
+import { SEED_SETTLE_TIMEOUT } from '../seed-settle.mjs'
 import fs from 'node:fs'
 import path from 'node:path'
 
@@ -28,7 +29,7 @@ export default async function (rig) {
     agents: { sam: { turns: [{ name: 'long', match: 'PROOF-LONG', once: true, steps: [{ text: 'Working on it.' }, { sleep_ms: 35000 }, { text: 'Done.' }] }] } },
     default: { turns: [{ name: 'default', steps: [{ text: 'OK.' }] }] },
   })
-  await rig.waitFor(() => rig.sql('SELECT 1 FROM ot.turns WHERE ended_at IS NULL').length === 0, { what: 'seed turns to settle', timeout: 60000 })
+  await rig.waitFor(() => rig.sql('SELECT 1 FROM ot.turns WHERE ended_at IS NULL').length === 0, { what: 'seed turns to settle', timeout: SEED_SETTLE_TIMEOUT })
   await rig.op({ op: 'hire', name: 'sam', parent: 'boss', tier: 'haiku', title: 'Claude notes' })
   await rig.op({ op: 'hire', name: 'cora', parent: 'boss', tier: 'luna', title: 'Codex notes' })
   const scratch = name => path.join(rig.data, 'scratch', rig.org, name)

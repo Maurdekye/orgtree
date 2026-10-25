@@ -5,6 +5,7 @@
 // The desktop part opens each desk offscreen and saves a screenshot of the card.
 // Run: ORGTREE_RIG_UI=<bundle> node tools/rig/rig.mjs run tools/rig/proofs/resolution-cards.mjs
 
+import { SEED_SETTLE_TIMEOUT } from '../seed-settle.mjs'
 import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -17,7 +18,7 @@ const here = path.dirname(fileURLToPath(import.meta.url))
 export default async function (rig) {
   const p = new Proof('resolution-cards')
   rig.scenario({ default: { turns: [{ name: 'default', steps: [{ text: 'OK.' }] }] } })
-  await rig.waitFor(() => rig.sql(`SELECT 1 FROM ot.turns WHERE ended_at IS NULL`).length === 0, { what: 'seed turns to settle', timeout: 60000 })
+  await rig.waitFor(() => rig.sql(`SELECT 1 FROM ot.turns WHERE ended_at IS NULL`).length === 0, { what: 'seed turns to settle', timeout: SEED_SETTLE_TIMEOUT })
   const inner = path.join(rig.data, 'rig-shared', 'sub')
   const outside = path.join(rig.data, 'rig-outside')
   for (const d of [inner, outside]) fs.mkdirSync(d, { recursive: true })

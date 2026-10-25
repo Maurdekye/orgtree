@@ -4,6 +4,7 @@
 // times and switches the viewport right after each load.
 // Run: node tools/rig/rig.mjs run tools/rig/proofs/canvas-resize-crash.mjs --ui <renderer dir> [--attempts 3]
 
+import { SEED_SETTLE_TIMEOUT } from '../seed-settle.mjs'
 import path from 'node:path'
 
 import { runDesktop } from '../desktop.mjs'
@@ -15,7 +16,7 @@ export default async function (rig, { flags }) {
   p.note(`renderer bundle: ${rig.run.ui}`)
   rig.scenario({ agents: { carol: { turns: [{ match: 'LONG', steps: [{ text: 'Working a long time.' }, { sleep_ms: 600000 }] }] } },
                  default: { turns: [{ steps: [{ text: 'OK.' }] }] } })
-  await rig.waitFor(() => rig.sql(`SELECT 1 FROM ot.turns WHERE ended_at IS NULL`).length === 0, { what: 'seed turns to settle', timeout: 60000 })
+  await rig.waitFor(() => rig.sql(`SELECT 1 FROM ot.turns WHERE ended_at IS NULL`).length === 0, { what: 'seed turns to settle', timeout: SEED_SETTLE_TIMEOUT })
   await rig.userMail('carol', 'LONG job please')   // a busy agent while the canvas loads, as in the first sighting
   const attempts = Number(flags.attempts ?? 3)
   let crashes = 0, loads = 0

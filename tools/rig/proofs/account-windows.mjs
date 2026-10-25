@@ -11,6 +11,7 @@
 //     a fable agent finds no proven room anywhere and freezes.
 // Run: node tools/rig/rig.mjs run tools/rig/proofs/account-windows.mjs
 
+import { SEED_SETTLE_TIMEOUT } from '../seed-settle.mjs'
 import fs from 'node:fs'
 import path from 'node:path'
 
@@ -47,7 +48,7 @@ export default async function (rig) {
   // Session 0 placement can spend the first 60 s in the sign-in helper grace
   // before a seed CLI starts. Keep that grace plus the normal 60 s turn budget;
   // do not change placement preferences or retry the seed after a timeout.
-  await rig.waitFor(() => rig.sql(`SELECT 1 FROM ot.turns WHERE ended_at IS NULL`).length === 0, { what: 'seed turns to settle', timeout: 120000 })
+  await rig.waitFor(() => rig.sql(`SELECT 1 FROM ot.turns WHERE ended_at IS NULL`).length === 0, { what: 'seed turns to settle', timeout: SEED_SETTLE_TIMEOUT })
 
   // ---------------------------------------------------------------- logins and readings
   const usageDir = path.join(rig.data, 'rig-home', 'rig-usage')

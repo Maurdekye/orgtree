@@ -48,6 +48,7 @@
 // replace), for example ORGTREE_RIG_HOME=%LOCALAPPDATA%\orgtree-rig-<agent>.
 // Run: node tools/rig/rig.mjs run tools/rig/proofs/session0-handover.mjs
 
+import { SEED_SETTLE_TIMEOUT } from '../seed-settle.mjs'
 import { spawn, spawnSync } from 'node:child_process'
 import fs from 'node:fs'
 import path from 'node:path'
@@ -79,7 +80,7 @@ export default async function (rig) {
     agents: { [AGENT]: { turns: [{ name: 'hang', match: 'SIGNOUT-HANG', steps: [{ text: 'On it.' }, { hang: true }] }] } },
     default: { turns: [{ name: 'default', steps: [{ text: 'OK.' }] }] },
   })
-  await rig.waitFor(() => rig.sql('SELECT 1 FROM ot.turns WHERE ended_at IS NULL').length === 0, { what: 'seed turns to settle', timeout: 60000 })
+  await rig.waitFor(() => rig.sql('SELECT 1 FROM ot.turns WHERE ended_at IS NULL').length === 0, { what: 'seed turns to settle', timeout: SEED_SETTLE_TIMEOUT })
   await rig.op({ op: 'hire', name: AGENT, parent: 'boss', tier: 'opus', title: 'Claude subject' })
   await rig.op({ op: 'hire', name: PREFERS, parent: 'boss', tier: 'opus', title: 'Prefers Session 0' })
 

@@ -1,5 +1,6 @@
 // Synthetic only: provider offers -> saved setting -> actual fake-AGY argv.
 // This proves Orgtree delivery, not Google's inference behavior or account availability.
+import { SEED_SETTLE_TIMEOUT } from '../seed-settle.mjs'
 import fs from 'node:fs'
 import path from 'node:path'
 import { Proof } from '../proof.mjs'
@@ -8,7 +9,7 @@ export default async function (rig) {
   const p = new Proof('agy-argon-effort')
   rig.scenario({ default: { turns: [{ name: 'default', steps: [{ text: 'OK.' }] }] } })
   await rig.waitFor(() => rig.sql('SELECT 1 FROM ot.turns WHERE ended_at IS NULL').length === 0,
-    { what: 'seed turns to settle', timeout: 60000 })
+    { what: 'seed turns to settle', timeout: SEED_SETTLE_TIMEOUT })
   fs.writeFileSync(path.join(rig.fakeDir, 'agy-models.txt'),
     'gemini-4-argon-low\tGemini 4 Argon (Low)\n'
     + 'gemini-4-argon-medium\tGemini 4 Argon (Medium)\n'

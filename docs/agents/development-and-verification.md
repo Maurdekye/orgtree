@@ -333,12 +333,14 @@ not execute; never count it as a product result.
   runtimes may interleave; rejected or unknown owners still fail. Preserve all
   ten runtime checks and raw calls; replay is not a full runtime proof pass.
 
-- `account-windows.mjs` seed settling has a 120-second bound: the existing
-  60-second helper grace plus the normal 60-second seed execution budget.
-  `node --test tools/rig/tests/account-windows-seed.test.mjs` exercises its
-  actual wait closure with `Rig.waitFor` and a deterministic clock; the optional
-  `ACCOUNT_WINDOWS_PROOF_REF` selects a predecessor red control. Keep source
-  placement overrides, all account assertions and timeout failures intact.
+- All labeled seed waits use `SEED_SETTLE_TIMEOUT` from `tools/rig/seed-settle.mjs`:
+  120 seconds for the existing 60-second helper grace plus a 60-second execution
+  budget. Local `settle`/`quiet` calls pass it explicitly, preserving non-seed
+  defaults. `node --test tools/rig/tests/shared-seed.test.mjs tools/rig/tests/account-windows-seed.test.mjs`
+  checks coverage, actual wait closures and non-seed defaults with deterministic
+  clocks. `SHARED_SEED_PROOF_REF` selects a predecessor for the shared controls;
+  `ACCOUNT_WINDOWS_PROOF_REF` retains the original account-window red control.
+  Keep placement overrides, functional assertions and timeout failures intact.
   A seed-only runtime check stops before the account assertions and is not a
   full account-windows proof pass. See [rig safety](../rust-engine/test-rig.md#what-keeps-it-safe).
 

@@ -1,5 +1,6 @@
 // Fake CLI / synthetic scratch only. No native/model/auth claims.
 // Red: 72ea305; first two unit red controls committed separately at e0eb352.
+import { SEED_SETTLE_TIMEOUT } from '../seed-settle.mjs'
 import fs from 'node:fs'
 import path from 'node:path'
 import { Proof } from '../proof.mjs'
@@ -8,7 +9,7 @@ export default async function (rig) {
   const p = new Proof('agy-own-notes')
   rig.scenario({ default: { turns: [{ name: 'default', steps: [{ text: 'OK.' }] }] } })
   await rig.waitFor(() => rig.sql('SELECT 1 FROM ot.turns WHERE ended_at IS NULL').length === 0,
-    { what: 'seed turns settle', timeout: 60000 })
+    { what: 'seed turns settle', timeout: SEED_SETTLE_TIMEOUT })
   const agents = ['notesowner', 'oldidentity', 'mixednotes']
   const scratch = name => path.join(rig.data, 'scratch', rig.org, name)
   const notes = '# Standing notes\r\nNOTES_ONLY_ONCE_SENTINEL\r\n'

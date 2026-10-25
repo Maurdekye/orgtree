@@ -24,6 +24,7 @@
 //   6. screenshots on the dark and the light theme.
 // Run: node tools/rig/rig.mjs run tools/rig/proofs/provider-chips.mjs --ui <dir>
 
+import { SEED_SETTLE_TIMEOUT } from '../seed-settle.mjs'
 import fs from 'node:fs'
 import path from 'node:path'
 
@@ -70,7 +71,7 @@ export async function setup() {
 
 export default async function (rig) {
   const p = new Proof('provider-chips')
-  await rig.waitFor(() => rig.sql('SELECT 1 FROM ot.turns WHERE ended_at IS NULL').length === 0, { what: 'seed turns', timeout: 60000 })
+  await rig.waitFor(() => rig.sql('SELECT 1 FROM ot.turns WHERE ended_at IS NULL').length === 0, { what: 'seed turns', timeout: SEED_SETTLE_TIMEOUT })
 
   // ------------------------------------------------------------ 0. the canned catalog
   await rig.api('PUT', '/api/openrouter/key', { key: 'sk-or-rig-not-a-real-key' })

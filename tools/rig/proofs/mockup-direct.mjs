@@ -1,3 +1,4 @@
+import { SEED_SETTLE_TIMEOUT } from '../seed-settle.mjs'
 import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -12,7 +13,7 @@ export async function setup() {
 
 export default async function (rig) {
   await rig.waitFor(() => rig.sql('SELECT 1 FROM ot.turns WHERE ended_at IS NULL').length === 0,
-    { what: 'seed turn complete', timeout: 60000 })
+    { what: 'seed turn complete', timeout: SEED_SETTLE_TIMEOUT })
   const scratch = path.join(rig.data, 'scratch', rig.org, 'rhea')
   fs.mkdirSync(scratch, { recursive: true })
   fs.writeFileSync(path.join(scratch, 'mock.html'), '<!doctype html><html><body><h1>Mockup</h1></body></html>')

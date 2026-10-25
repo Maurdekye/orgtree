@@ -22,6 +22,7 @@
 //        demand, and the wake says it failed with exit code 3.
 // Run: node tools/rig/rig.mjs run tools/rig/proofs/claude-bg-result.mjs
 
+import { SEED_SETTLE_TIMEOUT } from '../seed-settle.mjs'
 import { Proof } from '../proof.mjs'
 
 const AGENTS = ['cla', 'cid', 'cim', 'cif']
@@ -55,7 +56,7 @@ export default async function (rig) {
     },
     default: { turns: [{ name: 'default', steps: [{ text: 'OK.' }] }] },
   })
-  await rig.waitFor(() => rig.sql('SELECT 1 FROM ot.turns WHERE ended_at IS NULL').length === 0, { what: 'seed turns to settle', timeout: 60000 })
+  await rig.waitFor(() => rig.sql('SELECT 1 FROM ot.turns WHERE ended_at IS NULL').length === 0, { what: 'seed turns to settle', timeout: SEED_SETTLE_TIMEOUT })
   for (const name of AGENTS) await rig.op({ op: 'hire', name, parent: 'boss', tier: 'haiku', title: 'Claude background agent' })
   const ids = Object.fromEntries(AGENTS.map((a) => [a, rig.agentRow(a)?.id]))
   p.check('four haiku agents hired on the Claude lane', Object.values(ids).every(Boolean), ids)

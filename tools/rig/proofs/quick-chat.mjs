@@ -7,6 +7,7 @@
 //   and the new agent's desk is the one in focus.
 // Run: node tools/rig/rig.mjs run tools/rig/proofs/quick-chat.mjs --ui <bundle>
 
+import { SEED_SETTLE_TIMEOUT } from '../seed-settle.mjs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -20,7 +21,7 @@ const NAME = 'summarize-open-docket'
 export default async function (rig) {
   const p = new Proof('quick-chat')
   await rig.waitFor(() => rig.sql('SELECT 1 FROM ot.turns WHERE ended_at IS NULL').length === 0,
-    { what: 'seed turns to settle', timeout: 60000 })
+    { what: 'seed turns to settle', timeout: SEED_SETTLE_TIMEOUT })
   const r = await runDesktop(rig, path.join(here, '../desktop/quick-chat.cjs'),
     { preset: 'wide', out: path.join(p.dir, 'desktop'), args: { superior: 'boss', effort: 'low', model: 'haiku', message: MESSAGE } })
   p.check('the desktop script ran', r.ok, r.ok ? undefined : r)

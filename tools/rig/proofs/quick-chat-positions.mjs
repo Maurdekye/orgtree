@@ -14,6 +14,7 @@
 //     Attention view's desk panel with its reply — the view stays Attention.
 // Run: node tools/rig/rig.mjs run tools/rig/proofs/quick-chat-positions.mjs --ui <bundle>
 
+import { SEED_SETTLE_TIMEOUT } from '../seed-settle.mjs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -28,7 +29,7 @@ const FILE = { name: 'changes.txt', text: 'fixed the footer' }
 export default async function (rig) {
   const p = new Proof('quick-chat-positions')
   await rig.waitFor(() => rig.sql('SELECT 1 FROM ot.turns WHERE ended_at IS NULL').length === 0,
-    { what: 'seed turns to settle', timeout: 60000 })
+    { what: 'seed turns to settle', timeout: SEED_SETTLE_TIMEOUT })
   const out = path.join(p.dir, 'charcoal')
 
   // ------------------------------------------------------------ the setting

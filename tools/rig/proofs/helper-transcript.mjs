@@ -1,9 +1,10 @@
+import { SEED_SETTLE_TIMEOUT } from '../seed-settle.mjs'
 import { Proof } from '../proof.mjs'
 
 export default async function (rig) {
   const p = new Proof('helper-transcript')
   await rig.waitFor(() => rig.sql('SELECT 1 FROM ot.turns WHERE ended_at IS NULL').length === 0,
-    { what: 'seed turns idle', timeout: 60000 })
+    { what: 'seed turns idle', timeout: SEED_SETTLE_TIMEOUT })
   const raw = event => ({ raw: event })
   const child = event => raw({ parent_tool_use_id: 'helper-root', ...event })
   const stream = event => child({ type: 'stream_event', event })

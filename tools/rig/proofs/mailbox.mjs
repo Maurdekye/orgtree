@@ -16,6 +16,7 @@
 //       ian (no audience) cannot attach to mail for the user.
 // Run: node tools/rig/rig.mjs run tools/rig/proofs/mailbox.mjs
 
+import { SEED_SETTLE_TIMEOUT } from '../seed-settle.mjs'
 import crypto from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
@@ -27,7 +28,7 @@ const sha = s => crypto.createHash('sha256').update(Buffer.from(s, 'utf8')).dige
 export default async function (rig) {
   const p = new Proof('mailbox')
   rig.scenario({ default: { turns: [{ name: 'default', steps: [{ text: 'OK.' }] }] } })
-  await rig.waitFor(() => rig.sql(`SELECT 1 FROM ot.turns WHERE ended_at IS NULL`).length === 0, { what: 'seed turns to settle', timeout: 60000 })
+  await rig.waitFor(() => rig.sql(`SELECT 1 FROM ot.turns WHERE ended_at IS NULL`).length === 0, { what: 'seed turns to settle', timeout: SEED_SETTLE_TIMEOUT })
   await rig.op({ op: 'hire', name: 'ian', parent: 'boss', tier: 'haiku', title: 'Mailbox owner' })
   await rig.op({ op: 'hire', name: 'pam', parent: 'boss', tier: 'haiku', title: 'Attaches files' })
   await rig.api('POST', `/api/orgs/${rig.org}/audiences`, { action: 'grant', node: 'pam', reason: 'proof: may mail the user' })

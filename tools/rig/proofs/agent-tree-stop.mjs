@@ -12,6 +12,7 @@
 // (POST /api/desktop/shutdown), and the tool commands are checked before the
 // rig reaps anything: its reaper ends whole trees, which would hide a failure.
 //   node tools/rig/rig.mjs run tools/rig/proofs/agent-tree-stop.mjs
+import { SEED_SETTLE_TIMEOUT } from '../seed-settle.mjs'
 import { spawnSync } from 'node:child_process'
 import fs from 'node:fs'
 import path from 'node:path'
@@ -41,7 +42,7 @@ export default async function (rig) {
     { spawn: `${ping} ${fg}` },
     { spawn: `start /b ${ping} ${bg}` },
     { text: 'Started two long tool commands.' }] }] } } })
-  await rig.waitFor(() => rig.sql(`SELECT 1 FROM ot.turns WHERE ended_at IS NULL`).length === 0, { what: 'seed turns to settle', timeout: 60000 })
+  await rig.waitFor(() => rig.sql(`SELECT 1 FROM ot.turns WHERE ended_at IS NULL`).length === 0, { what: 'seed turns to settle', timeout: SEED_SETTLE_TIMEOUT })
   await rig.op({ op: 'hire', name: 'tess', parent: 'boss', tier: 'haiku', title: 'Tool children' })
   await rig.userMail('tess', 'Start your tool commands.')
   await rig.waitTurns('tess', 1)

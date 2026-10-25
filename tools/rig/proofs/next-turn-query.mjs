@@ -1,5 +1,6 @@
 // Red first: the real tool dispatcher currently refuses orgtree_next_turn.
 // Synthetic PostgreSQL and fake CLIs only; no provider traffic or live data.
+import { SEED_SETTLE_TIMEOUT } from '../seed-settle.mjs'
 import fs from 'node:fs'
 import path from 'node:path'
 import { Proof } from '../proof.mjs'
@@ -22,7 +23,7 @@ export default async function (rig) {
   try {
   rig.scenario({ default: { turns: [{ name: 'normal', steps: [{ text: 'OK.' }] }] } })
   await rig.waitFor(() => rig.sql('SELECT 1 FROM ot.turns WHERE ended_at IS NULL').length === 0,
-    { what: 'seed turns complete', timeout: 60000 })
+    { what: 'seed turns complete', timeout: SEED_SETTLE_TIMEOUT })
   const granted = path.join(rig.data, 'next-turn-granted')
   fs.mkdirSync(granted, { recursive: true })
   const grantFiles = ['AGENTS.md', 'CLAUDE.md'].map(n => path.join(granted, n))

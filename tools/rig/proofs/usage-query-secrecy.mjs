@@ -1,4 +1,5 @@
 // Tool-operation log capture, synthetic provider data and loopback HTTP only.
+import { SEED_SETTLE_TIMEOUT } from '../seed-settle.mjs'
 import fs from 'node:fs'
 import path from 'node:path'
 import http from 'node:http'
@@ -19,7 +20,7 @@ export default async function (rig) {
   const old = new Date(Date.now() - 1800e3).toISOString()
   const put = (provider, value) => fs.writeFileSync(path.join(dir, `${provider}.json`), JSON.stringify(value))
   await rig.waitFor(() => rig.sql('SELECT 1 FROM ot.turns WHERE ended_at IS NULL').length === 0,
-    { what: 'seed turn complete', timeout: 60000 })
+    { what: 'seed turn complete', timeout: SEED_SETTLE_TIMEOUT })
   await rig.waitFor(() => fs.existsSync(path.join(dir, 'calls.log'))
     && fs.readFileSync(path.join(dir, 'calls.log'), 'utf8').includes(' google'),
     { what: 'initial automatic usage pass', timeout: 20000 })
