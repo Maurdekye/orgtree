@@ -171,6 +171,20 @@ six-check retire/undo block with modeled SQL ordering and identity/tree negative
 It starts no engine/database/window and does not establish the 57-check runtime
 verdict. [verified: `tools/rig/proofs/undo-history.mjs`; 2026-10-26]
 
+The initial `turn-start-clock.mjs` idle sample waits for the published node's
+`busy` and `starting` to be false, chat `busy` false, and Alice's inflight and
+unfinished ledger state to be clear. Ledger completion alone is earlier than
+the final runtime publication. This bounded 10 s precondition never waits for
+`turn_started_at` to become null: the original fresh timestamp assertions must
+still detect a real stale clock on an idle node. Missing state or timeout fails
+the existing initial check; no assertion is retried. `initial-idle-state.json`
+retains the independent samples. All six original check calls, slow-call scenario
+and running/admission/control/final-idle guards remain unchanged.
+`node --test tools/rig/tests/turn-start-clock-idle.test.mjs` runs the whole proof
+over synthetic feed/chat/SQL replies with a virtual clock, including missing-state
+and real-clock-defect negatives. The original 950 sample did not retain its
+busy/inflight state, so that specific publication race remains inferred.
+
 The template Quick chat driver uses the current `Save as template…` label and
 scrolls the modal's Save/Download controls into view at 1600×900. More Include
 choices can push Save below the scroll clip; a coordinate click without scrolling

@@ -123,6 +123,15 @@ not execute; never count it as a product result.
 
 ## Renderer, capture and rig traps
 
+- Turn-start clock probes synchronize initial idle on published busy/starting,
+  chat busy and clear inflight/ledger state, with a bounded failure. They never
+  wait for the timestamp under test to clear or retry its assertion. Keep all
+  six original clock/admission/control guards and the slow-call scenario;
+  `tools/rig/tests/turn-start-clock-idle.test.mjs` runs the complete proof with
+  publication-delay, missing-state and real-clock-defect controls. See
+  [initial idle sampling](../rust-engine/test-rig.md#what-keeps-it-safe).
+  [verified: `tools/rig/proofs/turn-start-clock.mjs`; 2026-10-25]
+
 - Concurrent-retire proofs identify a warm fake CLI by PID, native creation
   ticks and the owned executable, keeping before/after snapshots. A reused PID
   does not keep its old owner alive; unknown identity still fails. Preserve all
