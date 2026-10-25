@@ -28,7 +28,10 @@ does not draw over an opened desk.
 An agent's top hire strip opens a superior draft above that exact agent,
 including a top-level agent directly under the user. Hire preserves this
 insertion target when undo history is enabled or disabled; the new superior
-and its existing report are placed together in one operation. The compact
+and its existing report are placed together in one operation. The new
+superior keeps that agent's sibling position, and the agent's whole subtree
+moves below it; neighbouring siblings stay in order, including with Centre
+as the ordinary-hire default. The compact
 hire sheet's superior placement follows the same rule. Superior hiring stays
 on the hire strips or placement form; the shared context menu offers
 subordinate hiring, rather than adding a superior-menu action.

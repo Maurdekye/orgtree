@@ -20,6 +20,19 @@ explicit `index` (including a malformed null index), a real anchor or superior
 insertion retains its validation and precedence. Both agent and project user
 creation use this rule. [verified: `domain/ops/ordering.rs`; 2026-10-25]
 
+## Canvas superior insertion (2026-10-25, 4.4.5)
+
+A user superior hire with no explicit index/before/after takes the anchor's
+stored sibling ordinal and reports its original index. Its existing subtree
+moves below the new manager; neighbouring siblings keep their ordinals. This
+matches the above-draft projection and project-above creation, including when
+Centre creation has put the anchor before another sibling. Previously the
+engine appended that manager, while the canvas retained its draft position:
+the manager covered the next sibling until another tree change released it.
+Centre remains the unset default. Explicit placement, agent-tool indices and
+self-parent accounting/placement keep their existing contracts.
+[verified: domain/ops.rs; proof: tools/rig/proofs/superior-centre-ordering.mjs]
+
 ## Explicit agent placement
 
 2026-10-11. User request mb137ddaf7c1d and explicit-value correction

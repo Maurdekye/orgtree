@@ -22,6 +22,11 @@ the compact hire sheet, Quick chat and immediate Staff. Existing nodes,
 side/above tokens, moves and template order retain their placement. Circular
 view uses the same sibling position within the team's arc.
 
+Hiring above an existing agent puts the new manager in that agent's sibling
+position and moves the agent's whole subtree below it. Neighbouring siblings
+stay in order, including when ordinary Centre hiring placed the target in the
+middle of the row.
+
 Next to it, **Open desk after manual hire** is On by default. Turn it Off to
 keep your current view when a canvas hire or Quick chat finishes. The agent
 is still created, Quick chat still sends its task, and a successful draft

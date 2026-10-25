@@ -97,6 +97,18 @@ renderer view preference with no engine/tool field or per-frame layout work.
 [decided: user m64582ef89f52, coordinator m07cd1a99908f; verified:
 `hirefocus.ts`, `canvas/OrgCanvas.tsx`, `QuickChatBox.tsx`, `App.tsx`]
 
+## Superior insertion retains the anchor slot (2026-10-25)
+
+Canvas above hires omit ordinary user_position. Admission must retain the
+anchor's sibling ordinal when no explicit position was requested, matching
+withDraftTree's wrapper and OrgCanvas's retained birth position. Appending a
+mid-row superior instead overlays its following sibling until a tree change;
+Centre makes this case common. Keep agent-tool explicit index and self-parent
+contracts. The focused engine proof supplies actual before/after trees to the
+Session 0 renderer capture, which checks nonzero boxes throughout completion.
+[verified: domain/ops.rs, canvas/{shared,OrgCanvas}.tsx;
+tools/rig/proofs/superior-centre-ordering.mjs; 2026-10-25]
+
 ## New-hire position (2026-10-23)
 
 USER m0d1975636f40: **New hires go** is an app Display preference, not an org

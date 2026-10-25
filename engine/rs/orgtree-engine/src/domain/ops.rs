@@ -1456,7 +1456,19 @@ async fn hire(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transaction<'_>, 
         }
     } else { parent.clone() };
     let mut siblings = ordering::siblings(tx, org.id, placement_parent.as_ref().map(|p| p.id), anchor.as_ref().map(|a| a.id)).await?;
-    let (index, append) = ordering::creation_position(req, &siblings, agent)?;
+    let (mut index, append) = ordering::creation_position(req, &siblings, agent)?;
+    // A UI above insertion replaces its anchor's slot, just like a project
+    // wrapper. Appending instead disagrees with the draft and its retained
+    // birth position whenever the anchor has a following sibling (Centre
+    // creation makes that common). Explicit indices and self-parent hiring
+    // keep their existing placement contract.
+    let anchor_order: Option<f64> = if append && !self_parent {
+        if let Some(a) = &anchor {
+            let order = tx.query_one("SELECT sibling_order FROM ot.agents WHERE id = $1", &[&a.id]).await?.get(0);
+            index = siblings.iter().filter(|s| s.order < order).count();
+            Some(order)
+        } else { None }
+    } else { None };
     // a superior inserted above `anchor` also carries the anchor's stake
     let anchor_stake = anchor.as_ref().filter(|_| !self_parent).map(|a| a.seat + a.grant).unwrap_or(0.0);
     let grant = grant + anchor_stake;
@@ -1548,9 +1560,8 @@ async fn hire(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transaction<'_>, 
             crate::providers::check_effort_on(engine, &tier, pinned(&sc), account.as_deref().and_then(|id| view.get(id)), e)?;
         }
     }
-    // A user/internal hire without placement keeps the historical append rule,
-    // including a superior insertion (whose anchor used to count in max).
-    let order = if append {
+    // Ordinary hires without placement retain historical append ordering.
+    let order = if let Some(order) = anchor_order { order } else if append {
         tx.query_one(
             "SELECT coalesce(max(sibling_order), 0)::float8 + 1 FROM ot.agents WHERE org_id = $1 AND parent_id IS NOT DISTINCT FROM $2 AND state = 'live'",
             &[&org.id, &parent_id]).await?.get(0)
