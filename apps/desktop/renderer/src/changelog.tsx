@@ -24,8 +24,8 @@
 // row classes. Rows are versions: the version and its release date & time
 // (fmtStamp, local, like other list rows), newest first. The pane repeats them
 // in the full form (fmtFull, as the Presentations pane does) above the notes.
-// The header's checkbox is the Presentations header's "Show retired agents"
-// line, with the setting below in it.
+// The header's checkbox takes the Presentations header's "Show retired
+// agents" line and switches THE SETTING below.
 //
 // EVERY OPENING SHOWS THE LATEST, whatever was read last time: from the menu,
 // on the automatic opening after an update, and for a pinned panel restored at
