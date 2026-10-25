@@ -106,11 +106,15 @@ for all 360 hues and keeps 4.5:1 text on each theme's `--bg`, `--input`,
 `--panel` and `--panel-2`, at rest and pressed; `tests/mail-filter-bar.test.tsx`
 recomputes this from the stylesheet. All surfaces use the same 10px sans nowrap
 pill with an ellipsis for long labels, including the mono reading-pane header.
-Rows with three or more tags put one tag plus a neutral +N pill at the start of
-the existing preview line. With active filters, every matching filtered tag is
-shown first in filter order, then +N counts the remaining tags in their stored
-order. Multiple matching chips wrap within the row, with full labels on hover.
-One/two-tag rows retain their stored order, and no-filter rows keep one tag +N.
+In 4.5.0, every shared mail list row shows up to three tags. With no filters,
+use stored order; with active filters, put matches first in filter order and
+fill remaining places from other tags in stored order. Even more than three
+matching filters are capped at three visible tags. Four or more tags add a
+neutral **(+n)** count for all hidden tags, whose names remain available on
+hover in stored order; the count has no click expansion. Chips can wrap within
+a narrow row while individual labels retain ellipsis. The open message, tag
+picker and filter bar remain uncapped. This replaces the older one-tag +N
+preview/filter-matches-only rule. [decided: user 2026-10-25 m50c447216390]
 Pressed popover choices carry a check as well as a stronger tint.
 The user inbox omits only the reply.mail kind label/icon, retaining its quote and other kinds. Hashes are deterministic, not a guarantee that all
 possible names can have distinct colours.

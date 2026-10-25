@@ -789,19 +789,20 @@ export function MailList({ org, pending = [], delivered = [], waitLabel, sender,
 }
 
 function TagChips({tags,onTag,preview=false,filterTags}:{tags?:string[];onTag?:(tag:string)=>void;preview?:boolean;filterTags?:readonly string[]}) {
-  const collapsed=preview&&(tags?.length??0)>=3
-  const matches=collapsed&&filterTags
+  const matches=preview&&filterTags
     ? [...new Set(filterTags.map(mailTagKey))].flatMap(key=>tags?.find(tag=>mailTagKey(tag)===key)??[])
     : []
-  const shown=collapsed?(matches.length?matches:tags?.slice(0,1)):tags
+  const matching=new Set(matches.map(mailTagKey))
+  const ordered=preview?[...matches,...(tags??[]).filter(tag=>!matching.has(mailTagKey(tag)))]:tags
+  const shown=preview?ordered?.slice(0,3):ordered
   const visible=new Set(shown?.map(mailTagKey))
-  const hidden=tags?.filter(tag=>!visible.has(mailTagKey(tag)))??[]
+  const hidden=preview?tags?.filter(tag=>!visible.has(mailTagKey(tag)))??[]:[]
   return <>{shown?.map(tag=>{
     const key=mailTagKey(tag),style={'--mail-tag-hue':mailTagHue(key)} as CSSProperties
     return onTag ? <button type="button" className="mail-tag" data-tag-key={key} style={style} key={key}
       title={`Filter by ${tag}`} onClick={e=>{e.stopPropagation();onTag(tag)}}>{tag}</button>
       : <span className="mail-tag" data-tag-key={key} style={style} key={key} title={tag}>{tag}</span>
-  })}{collapsed&&hidden.length>0&&<span className="mail-tag mail-tag-more" title={hidden.join(', ')}>+{hidden.length}</span>}</>
+  })}{hidden.length>0&&<span className="mail-tag mail-tag-more" title={hidden.join(', ')}>(+{hidden.length})</span>}</>
 }
 
 const briefLine = (b: string | null | undefined) => (b ?? '').trim().replace(/\s+/g, ' ').slice(0, 90)
@@ -949,7 +950,7 @@ export function MailRowView({ m, pile = 1, view, selected, outgoing, flash, part
           ever see. The body is still one click away in the reading
           pane, and the `l1` header keeps the row identifiable. */}
       {!isSystemNotice(m)
-        && <div className={'l2'+((m.tags?.length??0)>=3&&(filterTags?.length??0)>1?' mail-tags-filtered':'')}
+        && <div className={'l2'+((m.tags?.length??0)>1?' mail-tags-wrap':'')}
           title={filterTags?.length ? m.tags?.join(', ') : undefined}>
           <TagChips tags={m.tags} onTag={onTag} preview filterTags={filterTags}/>
           <span className="mail-preview-text">{reply && <span className="dim" title={[reply.from, reply.at && fmtFull(reply.at), reply.gist].filter(Boolean).join(' · ')}>

@@ -21,7 +21,7 @@ module.exports=async page=>{
         quote:document.querySelector('#read-pane .reply-preview')?.textContent.includes('In reply to')}
     })
     if(measure.pills.some(p=>p.font!=='10px'||p.whiteSpace!=='nowrap'||p.ellipsis!=='ellipsis'||p.height>18))throw new Error('oversized/wrapping tag '+JSON.stringify(measure))
-    if(measure.headerPills!==0||measure.rowPills!==1||measure.more!=='+7'||Math.abs(measure.sender.width-measure.baseline.width)>.1||measure.replyKind||!measure.quote)throw new Error('mail layout contract '+JSON.stringify(measure))
+    if(measure.headerPills!==0||measure.rowPills!==3||measure.more!=='(+5)'||Math.abs(measure.sender.width-measure.baseline.width)>.1||measure.replyKind||!measure.quote)throw new Error('mail layout contract '+JSON.stringify(measure))
     if(measure.controls.height>38||measure.controlTags!==2||measure.filter.height>30||measure.clearTextLength!==1||measure.clear.height>28)throw new Error('tag filter controls are not compact and inline '+JSON.stringify(measure))
     await paint();await page.screenshot(`mail-tags-${contrast}`)
     await page.eval(()=>document.querySelector('button[aria-label="Filter mail by tags"]').click())

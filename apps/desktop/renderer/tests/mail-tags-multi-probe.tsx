@@ -19,6 +19,8 @@ function Fixture(){
     <div style={{display:'grid',gridTemplateColumns:'330px 550px',gap:16}}>
       <section id="narrow-row" style={{width:330,minWidth:0}}>
         <h4>Tagged row</h4><MailRowView m={row} view={view} selected={false} party="coordinator" onClick={()=>{}}/>
+        <h4>Four active tag filters</h4><div id="filtered-row"><MailRowView m={row} view={view} selected={false} party="coordinator"
+          filterTags={['ready','review','engine','alpha build']} onClick={()=>{}}/></div>
         <h4>Same header without tags</h4><div id="baseline-row"><MailRowView m={{...row,tags:[]}} view={view} selected={false} party="coordinator" onClick={()=>{}}/></div>
         <h4>Tag filter</h4><div id="tag-filter-layout"><MailList delivered={[]} tagFilter={{selected,choices:tags,onChange:setSelected}}/></div>
       </section>

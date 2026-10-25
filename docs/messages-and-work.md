@@ -170,6 +170,12 @@ For ordinary unread user mail, displaying the body and then leaving the reading 
 
 Search sender/body to narrow the user Inbox. The tag filter requires **all** selected tags, ignoring case. Tag choices come from retained user mail, including older pages. Counts still describe the whole inbox, and opening an exact mail reference clears a tag filter that would hide it.
 
+Each mail list row shows up to three tags in their stored order. Active filter
+matches come first in filter order, followed by other tags to fill three places.
+With four or more tags, **(+n)** counts the tags not shown; hover it to read their
+names. The count does not expand on click. Open the message to see all its tags;
+the tag picker and filter bar also keep the full list.
+
 The received-mail context menu can permanently delete **your copy** after confirmation. It leaves sender history, other recipients' copies and attachment files. An outstanding project ACK job must be acknowledged first. There is no bulk delete or keyboard-delete command in this release.
 
 **Transfers** shows file-delivery progress and errors. Retry resumes a failed transfer; Cancel stops it; **Remove file and send**, when offered, explicitly omits that failed attachment so the remaining message can proceed. Closing the panel does not cancel an engine transfer. Confirmed bytes and a queued count are not proof that a human read the file.
