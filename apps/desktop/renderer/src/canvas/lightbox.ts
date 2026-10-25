@@ -47,18 +47,20 @@ export function openLightbox(src: string, opts: { name?: string; download?: stri
   ov.appendChild(bar)
   ov.addEventListener('click', () => closeLightbox(ownerDocument))
   ownerDocument.body.appendChild(ov)
-  ownerDocument.addEventListener('keydown', onKey)
+  // Capture before a detached surface's keyboard bubbling boundary.
+  ownerDocument.addEventListener('keydown', onKey, true)
 }
 
 export function closeLightbox(ownerDocument: Document = initiatingDocument()): void {
   ownerDocument.querySelector('.lb-overlay')?.remove()
-  ownerDocument.removeEventListener('keydown', onKey)
+  ownerDocument.removeEventListener('keydown', onKey, true)
 }
 
 const onKey = (e: KeyboardEvent) => {
   if (e.key === 'Escape') {
     // the desk's own Esc handlers (panel close, deselect) live upstream —
     // while the viewer is up, Esc means ONLY "close the viewer"
+    e.preventDefault()
     e.stopPropagation()
     closeLightbox((e.currentTarget as Document))
   }

@@ -249,6 +249,11 @@ source file later does not change the delivered copy. If its saved copy was
 removed outside Orgtree, the row can remain while its download fails.
 Renaming or retiring an agent does not change its retained deliveries.
 
+Files downloads also work from a desk in a separate window: choose the filename
+or Download. The download limit is 256 MiB; errors appear beside the link.
+When View opens a picture, Escape closes that viewer while leaving the desk
+open. The viewer's Close button and backdrop remain available too.
+
 Files contains local download cards, including delivered pictures, archives,
 logs and exports. Readable reports stay in **Presented**. Mail attachments and
 hub transfer jobs keep their existing mail and transfer views; project
