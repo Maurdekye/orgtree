@@ -3,9 +3,10 @@
 //! presentations panel, one row per version, latest at the top ... backfill from
 //! existing github release descriptions"): one row per published release,
 //! newest first, each with its release date & time and its GitHub description.
-//! The build the engine is, when no published release is it (a local alpha),
-//! is one more row; it shows the notes of the release it leads to, if the build
-//! has them.
+//! Published releases only (USER 2026-10-25 09:01:38Z, m91aeac18fae1:
+//! "Published only"): a local alpha has no row of its own. A release is built
+//! before GitHub publishes it, so a release build, which its own list cannot
+//! have yet, lists itself.
 //!
 //! Everything is bundled at build time (build.rs), so it works offline and needs
 //! no service:
@@ -35,17 +36,17 @@ const RUNNING: &str = env!("CARGO_PKG_VERSION");
 const BUILD_TIME: Option<&str> = option_env!("ORGTREE_BUILD_COMMIT_TIME");
 
 /// Which of a published release's two times its row shows as the release date
-/// & time: when GitHub published it, or the time of the commit its tag names
-/// (which is also what an unpublished build's row shows: its own commit's).
-/// The user decides (asked through the coordinator, m2be2d725b614); the design
-/// note's recommendation is `Tagged`.
+/// & time: when GitHub published it, or the time of the commit its tag names.
+/// USER 2026-10-25 09:01:38Z (m91aeac18fae1): "GitHub publish time". A release
+/// build's own row, before its list has it, shows its build commit's time:
+/// GitHub publishes the release after it is built.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum TimeSource {
     Published,
     Tagged,
 }
 
-pub const TIME_SOURCE: TimeSource = TimeSource::Tagged;
+pub const TIME_SOURCE: TimeSource = TimeSource::Published;
 
 /// One row of the Changelog.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -53,11 +54,8 @@ pub struct Release {
     pub version: String,
     /// its release date & time; None when unknown (a build without a stamp)
     pub released_at: Option<DateTime<Utc>>,
-    /// this build, not a published release: a local alpha
-    pub unpublished: bool,
-    /// whose notes it shows: its own, or for an unpublished build those of the
-    /// release it leads to; None when there are none
-    pub notes_version: Option<String>,
+    /// whether this build has its notes (`docs/release-notes-<version>.md`)
+    pub has_notes: bool,
 }
 
 /// A pre-release identifier. Numbers sort before words, as semver orders them.
@@ -116,12 +114,6 @@ fn order(version: &str) -> Option<Order> {
     Some(Order { core, pre })
 }
 
-/// `4.4.5` for `4.4.5-alpha.3`: the release a pre-release leads to.
-#[logged]
-fn release_of(version: &str) -> &str {
-    version.split(['-', '+']).next().unwrap_or(version)
-}
-
 #[logged]
 fn time(value: Option<&str>) -> Option<DateTime<Utc>> {
     DateTime::parse_from_rfc3339(value?.trim())
@@ -129,8 +121,12 @@ fn time(value: Option<&str>) -> Option<DateTime<Utc>> {
         .map(|t| t.with_timezone(&Utc))
 }
 
-/// The rows, newest first. Pure over its inputs, so the tests can hand it a
-/// release list, notes, a running version and a build time of their own.
+/// The rows, newest first: the listed releases, and a release build itself
+/// when its list does not have it yet, dated by its build commit. A
+/// pre-release build adds nothing. Pure over its inputs, so the tests can hand
+/// it a release list, notes, a running version and a build time of their own.
+/// The desktop finds the newest row the same way (main/changelog-launch.ts
+/// `newestListed`), to open the Changelog when it lists a newer release.
 /// Not logged: `notes` holds every release's notes.
 #[nolog]
 fn rows(
@@ -151,26 +147,21 @@ fn rows(
         .flatten()
         .filter_map(|r| {
             let version = r["version"].as_str()?;
-            order(version)?;
+            // a final version: GitHub's pre-releases stay out, as on the desktop
+            order(version).filter(|o| o.pre.is_empty())?;
             Some(Release {
                 version: version.to_string(),
                 released_at: time(r[field].as_str()),
-                unpublished: false,
-                notes_version: has_notes(version).then(|| version.to_string()),
+                has_notes: has_notes(version),
             })
         })
         .collect();
-    if order(running).is_some() && !out.iter().any(|r| r.version == running) {
-        let unpublished = order(running).is_some_and(|o| !o.pre.is_empty());
-        let notes_version = [running, release_of(running)]
-            .into_iter()
-            .find(|v| has_notes(*v))
-            .map(str::to_string);
+    let release_build = order(running).is_some_and(|o| o.pre.is_empty());
+    if release_build && !out.iter().any(|r| r.version == running) {
         out.push(Release {
             version: running.to_string(),
             released_at: time(build_time),
-            unpublished,
-            notes_version,
+            has_notes: has_notes(running),
         });
     }
     out.sort_by(|a, b| order(&b.version).cmp(&order(&a.version)));
@@ -214,14 +205,13 @@ pub fn row_json(r: &Release) -> Value {
     json!({
         "version": r.version,
         "released_at": crate::util::iso_opt(r.released_at),
-        "unpublished": r.unpublished,
-        "notes": r.notes_version.is_some(),
+        "notes": r.has_notes,
     })
 }
 
 /// The glossary's copy, beside its changelog page (`orgtree-app/` relative
 /// paths): `releases/index.md` lists every row, newest first, and
-/// `releases/<version>.md` holds each set of notes a row shows.
+/// `releases/<version>.md` holds each row's notes.
 #[nolog]
 pub fn glossary_files() -> Vec<(String, Vec<u8>)> {
     glossary_from(releases(), RELEASE_NOTES)
@@ -231,35 +221,24 @@ pub fn glossary_files() -> Vec<(String, Vec<u8>)> {
 fn glossary_from(rows: &[Release], notes: &[(&str, &[u8])]) -> Vec<(String, Vec<u8>)> {
     const DIR: &str = "app-shell/changelog/releases";
     let mut index = String::from(
-        "# Orgtree releases\n\nEvery row of the Changelog panel, newest first. Each \
-         published release's file is its GitHub release description, exactly as the \
-         panel shows it. Times are UTC.\n\n| Version | Released | Notes |\n| --- | --- | --- |\n",
+        "# Orgtree releases\n\nEvery row of the Changelog panel, newest first: each \
+         published release, when GitHub published it (UTC), and its notes file, the \
+         GitHub release description exactly as the panel shows it. A release's own \
+         build lists it before this list has its publication, dated by the commit it \
+         was built from.\n\n| Version | Released | Notes |\n| --- | --- | --- |\n",
     );
     let mut files = Vec::new();
-    let mut written: Vec<&str> = Vec::new();
     for r in rows {
+        let v = &r.version;
         let when = r
             .released_at
             .map(|t| t.format("%Y-%m-%d %H:%M UTC").to_string())
             .unwrap_or_else(|| "unknown".into());
-        let label = if r.unpublished {
-            format!("{} (unpublished build)", r.version)
-        } else {
-            r.version.clone()
-        };
-        let link = match &r.notes_version {
-            Some(v) if *v == r.version => format!("[{v}.md]({v}.md)"),
-            Some(v) => format!("[{v}.md]({v}.md), the draft for {v}"),
-            None => "none".into(),
-        };
-        index.push_str(&format!("| {label} | {when} | {link} |\n"));
-        if let Some(v) = &r.notes_version {
-            if !written.contains(&v.as_str()) {
-                if let Some(text) = notes_in(notes, v) {
-                    files.push((format!("{DIR}/{v}.md"), text.into_bytes()));
-                    written.push(v);
-                }
-            }
+        let text = r.has_notes.then(|| notes_in(notes, v)).flatten();
+        let link = if text.is_some() { format!("[{v}.md]({v}.md)") } else { "none".into() };
+        index.push_str(&format!("| {v} | {when} | {link} |\n"));
+        if let Some(text) = text {
+            files.push((format!("{DIR}/{v}.md"), text.into_bytes()));
         }
     }
     files.push((format!("{DIR}/index.md"), index.into_bytes()));

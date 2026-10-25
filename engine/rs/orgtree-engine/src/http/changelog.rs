@@ -11,8 +11,9 @@ use super::error::{ApiError, ApiResult};
 use crate::changelog::{self, TimeSource};
 
 /// `GET /api/changelog`: `{running, time_source, releases: [{version,
-/// released_at, unpublished, notes}]}`, newest first. `running` is this build's
-/// version; its row is `unpublished` when it is not a published release.
+/// released_at, notes}]}`, newest first: the published releases, and a release
+/// build itself until its list has it. `running` is this build's version, which
+/// a local alpha's rows do not include.
 #[logged]
 pub async fn list() -> Json<Value> {
     Json(json!({
@@ -25,9 +26,8 @@ pub async fn list() -> Json<Value> {
     }))
 }
 
-/// `GET /api/changelog/{version}`: one row with its notes (Markdown), and
-/// `notes_version`, whose notes they are: an unpublished build shows those of
-/// the release it leads to. A version with no row is a 404.
+/// `GET /api/changelog/{version}`: one row with its notes (Markdown, or null
+/// when it has none). A version with no row is a 404.
 #[logged]
 pub async fn one(Path(version): Path<String>) -> ApiResult<Json<Value>> {
     let row = changelog::releases()
@@ -35,7 +35,6 @@ pub async fn one(Path(version): Path<String>) -> ApiResult<Json<Value>> {
         .find(|r| r.version == version)
         .ok_or_else(|| ApiError::not_found(format!("no Changelog row for version {version}")))?;
     let mut body = changelog::row_json(row);
-    body["notes_version"] = json!(row.notes_version);
-    body["notes"] = json!(row.notes_version.as_deref().and_then(changelog::notes));
+    body["notes"] = json!(row.has_notes.then(|| changelog::notes(&row.version)).flatten());
     Ok(Json(body))
 }
