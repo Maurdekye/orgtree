@@ -66,9 +66,9 @@ module.exports = async (page, { args }) => {
     gear?.click()
     return gear ? (gear.title || gear.getAttribute('aria-label')) : bs.map(b => b.title || b.getAttribute('aria-label')).filter(Boolean)
   })
-  await page.waitFor({ selector: 'button', text: '^save as template…$', regex: true, scroll: true }, { timeout: 20000 })
+  await page.waitFor({ selector: 'button', text: '^Save as template…$', regex: true, scroll: true }, { timeout: 20000 })
   await page.sleep(600)
-  await page.click({ selector: 'button', text: '^save as template…$', regex: true, scroll: true })
+  await page.click({ selector: 'button', text: '^Save as template…$', regex: true, scroll: true })
   await page.waitFor('#save-template-name')
   await page.eval((name) => {
     const el = document.querySelector('#save-template-name')
@@ -79,8 +79,9 @@ module.exports = async (page, { args }) => {
   out.groups = await page.eval(() => [...document.querySelectorAll('.save-template-groups label')]
     .map(l => ({ text: l.textContent.replace(/\s+/g, ' ').trim(), checked: !!l.querySelector('input')?.checked })))
   await page.screenshot('5-save-modal')
-  await page.click({ selector: '.save-template button', text: '^Save template$', regex: true })
-  await page.waitFor({ selector: '.save-template button', text: '^Download ', regex: true }, { timeout: 20000 })
+  // Include choices can push Save below this viewport's modal scroll clip.
+  await page.click({ selector: '.save-template button', text: '^Save template$', regex: true, scroll: true })
+  await page.waitFor({ selector: '.save-template button', text: '^Download ', regex: true, scroll: true }, { timeout: 20000 })
   await page.sleep(400)
   await page.screenshot('6-saved')
   return out

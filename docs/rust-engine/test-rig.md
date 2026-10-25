@@ -160,6 +160,21 @@ approval check, whose failure was also measured on v4.4.0.
 
 ## What keeps it safe
 
+The template Quick chat driver uses the current `Save as template…` label and
+scrolls the modal's Save/Download controls into view at 1600×900. More Include
+choices can push Save below the scroll clip; a coordinate click without scrolling
+can dismiss the overlay instead of saving. The driver changes no parent settings,
+so it needs no parent Save/Close or auto-save transition. Preserve its actual
+per-org Quick chat observations, checkbox states and strict save completion.
+`node --test tools/rig/tests/template-quickchat-driver.test.mjs` replays the
+actual driver with clipped controls, absent buttons and refused saves. Its
+synthetic navigation/layout does not establish the 18-check runtime verdict.
+The settings-checkbox lookup uses `Org defaults and project queue/event settings`;
+retain its historical check name and strict present-and-checked predicate. The
+old `Org-wide settings` lookup also misses the label in the published 4.4.4
+capture; matching failed check names do not imply the same failing driver stage.
+[verified: `tools/rig/desktop/template-quickchat.cjs`; 2026-10-25]
+
 The startup-switch driver and label oracle use the current `Run on boot` case.
 Keep all seven original check names/order and the boot-kind, removed-label,
 no-engine-choice and hint predicates; a driver timeout does not execute the later
