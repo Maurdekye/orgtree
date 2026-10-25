@@ -36,6 +36,10 @@ AGY auth proof runtime counts use positively correlated PID/cwd/agent ownership;
 unknown owners still fail. See [rig attribution](docs/rust-engine/test-rig.md#what-keeps-it-safe).
 [verified: `tools/rig/proofs/agy-auth-wake.mjs`; 2026-10-25]
 
+Undo identity snapshots order complete id/name pairs by id before strict
+comparison; keep every identity and history guard. See [identity controls](docs/rust-engine/test-rig.md#what-keeps-it-safe).
+[verified: `tools/rig/proofs/undo-history.mjs`; 2026-10-26]
+
 Seed waits share one helper-grace-plus-execution budget; local helper non-seed
 defaults and placement settings stay intact. See [seed settling](docs/rust-engine/test-rig.md#what-keeps-it-safe).
 [verified: `tools/rig/seed-settle.mjs`; 2026-10-25]

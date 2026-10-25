@@ -153,7 +153,8 @@ export default async function (rig) {
 
   // ---- 4. retire a team and undo it
   const t0 = tree()
-  const ids0 = rig.sql(`SELECT id, name FROM ot.agents WHERE org_id=${orgId} AND name IN ('alice','bob')`)
+  // Record identity is strict; unordered SQL row order may change across retirement.
+  const ids0 = rig.sql(`SELECT id, name FROM ot.agents WHERE org_id=${orgId} AND name IN ('alice','bob') ORDER BY id`)
   r = await op({ op: 'retire', node: 'alice' })
   const retireEntry = r.json?.history_entry
   p.check('4. retiring a seat with reports records one retire entry for its team', r.ok && retireEntry?.kind === 'retire'
@@ -161,7 +162,7 @@ export default async function (rig) {
   p.check('4. RED control: the team left the tree', tree() !== t0)
   r = await undo(retireEntry.id)
   p.check('4. undo rehires exactly the team, each under its parent in its place', r.ok && tree() === t0, { got: tree(), want: t0 })
-  const ids1 = rig.sql(`SELECT id, name FROM ot.agents WHERE org_id=${orgId} AND name IN ('alice','bob')`)
+  const ids1 = rig.sql(`SELECT id, name FROM ot.agents WHERE org_id=${orgId} AND name IN ('alice','bob') ORDER BY id`)
   p.check('4. the same records came back', JSON.stringify(ids0) === JSON.stringify(ids1), { ids0, ids1 })
   r = await redo(retireEntry.id)
   p.check('4. redo retires the same team again', r.ok && row('alice').state === 'archived' && row('bob').state === 'archived', r.json)

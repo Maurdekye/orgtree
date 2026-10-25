@@ -160,6 +160,17 @@ approval check, whose failure was also measured on v4.4.0.
 
 ## What keeps it safe
 
+Undo-history record identity snapshots select the full `id, name` pairs with
+`ORDER BY id` before retirement and after undo. Unordered SQL reads may return
+the same rows in different orders after UPDATEs; keep strict whole-array JSON
+equality and all 57 original check names/order, including tree/parent/slot,
+retirement, redo, confirmation, history and rollback guards. Never compare only
+names or discard missing, duplicate or changed identities. The focused control
+`node --test tools/rig/tests/undo-history-identity.test.mjs` replays the actual
+six-check retire/undo block with modeled SQL ordering and identity/tree negatives.
+It starts no engine/database/window and does not establish the 57-check runtime
+verdict. [verified: `tools/rig/proofs/undo-history.mjs`; 2026-10-26]
+
 The template Quick chat driver uses the current `Save as template…` label and
 scrolls the modal's Save/Download controls into view at 1600×900. More Include
 choices can push Save below the scroll clip; a coordinate click without scrolling
