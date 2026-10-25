@@ -92,6 +92,14 @@ placement settings and bounded failure. See [rig seed timing](docs/rust-engine/t
 
 ## Engine and desktop invariants
 
+- Chat video/audio cards are click-to-load, capped at256MiB and streamed only
+  after ordinary file authorization; single byte ranges are bounded to the
+  opened file's size snapshot. Preserve existing image behavior, Download and
+  compact staging/Files rows. Release playback offscreen/hidden/unmount/source
+  changes and keep native controls from desk navigation. See
+  [media cards](docs/rust-engine/chat-media-cards.md).
+  [decided: user2026-10-25,4.5.0; verified: `canvas/media.tsx`, `http/media_file.rs`]
+
 - Native proof admission accepts the owner's C build home/run scope and retained
   D rigs, preserving canonical/reparse and disposable metadata/DB checks. See
   [native fixture inputs](docs/agents/development-and-verification.md#renderer-capture-and-rig-traps).

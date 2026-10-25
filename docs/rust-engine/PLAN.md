@@ -285,6 +285,13 @@ still resume, so the agents themselves remember).
 
 ## 10. User-facing differences — complete ledger
 
+In-chat media cards (USER2026-10-25,4.5.0): agent-delivered and message-attached
+video/audio load only on Play across all transcript placements, with native
+controls and existing Download fallback. Preserve image cards/compact staging
+and Files. Playback caps at256MiB and streams through existing authorized file
+access, with no direct filesystem/remote media widening; offscreen/hidden/source
+changes release playback. See [media cards](chat-media-cards.md).
+
 Draft settings (USER2026-10-24): agent/project drafts omit the footer Close
 button and show the shared X in the header, retaining Escape and outside-dismiss
 paths. Project draft settings

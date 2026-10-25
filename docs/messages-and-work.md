@@ -76,6 +76,21 @@ The duration survives reopening the chat. Missing starts and older rows without
 timing stay unknown; a sealed thought can show its duration without exposing
 text. This is the reported item interval, not the whole turn's runtime.
 
+## Play media in a conversation
+
+Video and audio file cards offer **Play video** or **Play audio** in every chat
+placement, including pinned and popped-out chats. Media loads only after Play;
+use the player's controls to pause, seek or change volume. Scrolling the card
+out of view, hiding the window or changing chats stops playback. It stays stopped
+when you return. Images keep their inline picture and click-to-view behavior.
+
+Playback supports MP4/WebM video and MP3/WAV/Ogg/M4A/AAC/FLAC audio where Chromium
+supports the codec, up to 256 MiB per file. Larger, unsupported or unavailable
+files keep their Download action. Video fits the conversation and stays at most
+320 px tall. Files stay within their existing organization permissions; the player
+does not open arbitrary paths or fetch remote media. Composer previews and the
+separate Files list keep their compact layout.
+
 ## References, replies and formatting
 
 Type **@** for completion of agents, projects, available hub contacts and current/backlogged docket tickets. Search tickets by slug or title words. Tab or Enter completes the selected reference without sending. Archived tickets are omitted from completion.

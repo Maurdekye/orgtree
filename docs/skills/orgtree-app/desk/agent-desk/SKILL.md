@@ -22,6 +22,22 @@ Desk **Docket** and **Presented** tabs hide when neither the node nor its team h
 
 When only the team has content, entering the tab starts with **Team** checked and auto-select works in that team scope. A manual untick is remembered for this organization and node across visits/restarts until own content arrives. Own content keeps the ordinary own-node default. Live arrivals do not switch the scope or selection of a reader you are using. These rules apply to both agent desks and project Presented tabs. A project Docket already lists its subtree and keeps that scope without a Team checkbox.
 
+## In-chat media
+
+Delivered files and message attachments show images inline and offer **Play video**
+or **Play audio** for supported media in the desk, floating/pinned chat and pop-out.
+Nothing plays or loads before Play. Native controls provide pause, seek and volume;
+scrolling the card out of view, hiding the window or changing chat stops and releases
+playback. Returning does not restart it. Composer staging and Files rows stay compact.
+
+Video fits the chat width and stays at most 320 px tall. Playback is limited to
+256 MiB per file; larger files remain downloadable. Supported containers are
+MP4/WebM and MP3/WAV/Ogg/M4A/AAC/FLAC as Chromium supports; a codec or file failure
+keeps Download with a clear fallback. Files remain behind ordinary org/node file
+authorization; there is no direct filesystem or remote-media permission increase.
+Play/pause/seek/volume are local presentation controls. Existing delivery,
+`orgtree_files` and authorized file/shell/computer-use workflows provide agent parity.
+
 ## Badges
 
 A **badge** is a small marker, separate from the containing agent/zoom card
