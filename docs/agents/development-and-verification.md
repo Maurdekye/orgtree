@@ -326,6 +326,15 @@ not execute; never count it as a product result.
   select another author's executable or bypass admission to reuse a rig.
   [verified: `domain/native_fixture.rs`, `tools/rig/proofs/project-claim-boundary.mjs`; 2026-10-22]
 
+- `account-windows.mjs` seed settling has a 120-second bound: the existing
+  60-second helper grace plus the normal 60-second seed execution budget.
+  `node --test tools/rig/tests/account-windows-seed.test.mjs` exercises its
+  actual wait closure with `Rig.waitFor` and a deterministic clock; the optional
+  `ACCOUNT_WINDOWS_PROOF_REF` selects a predecessor red control. Keep source
+  placement overrides, all account assertions and timeout failures intact.
+  A seed-only runtime check stops before the account assertions and is not a
+  full account-windows proof pass. See [rig safety](../rust-engine/test-rig.md#what-keeps-it-safe).
+
 - The org-shared-notes proof expects a new shared `AGENTS.md` to contain
   exactly `# Shared standing notes for this organization\n` (USER 2026-10-17
   17:26Z), and checks that initialization preserves existing empty/custom

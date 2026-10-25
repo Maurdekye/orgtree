@@ -55,6 +55,10 @@ Before renderer or desktop-main tests, visual captures or rig proofs, read the [
 
 Rig live-root guards retain import-time `APPDATA`/home/data-override paths after fixture environment replacement; fixture/keeper allowlists carry validated `RIG_PROTECTED_ROOTS` across fresh imports without narrowing the captured set. Set original overrides before importing the rig. See [rig isolation](docs/rust-engine/test-rig.md). [verified: `tools/rig/{lib,broker-synthetic}.mjs`, `tools/rig/tests/live-roots.test.mjs`; 2026-10-22]
 
+Seed-completion waits account for the helper grace before CLI execution; retain
+placement settings and bounded failure. See [rig seed timing](docs/rust-engine/test-rig.md#what-keeps-it-safe).
+[verified: `tools/rig/proofs/account-windows.mjs`; 2026-10-25]
+
 ## Engine and desktop invariants
 
 - Native proof admission accepts the owner's C build home/run scope and retained

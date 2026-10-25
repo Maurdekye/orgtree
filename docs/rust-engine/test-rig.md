@@ -160,6 +160,17 @@ approval check, whose failure was also measured on v4.4.0.
 
 ## What keeps it safe
 
+`account-windows.mjs` allows 120 seconds for its existing seed-turn completion
+predicate: a synthetic Session 0 run may first spend 60 seconds in the engine's
+sign-in-helper grace, then needs the ordinary 60-second seed execution allowance.
+Keep the placement settings and account-window negatives unchanged. This is a
+single bounded wait, not a fixed sleep or a retry of a timed-out seed. Its
+deterministic controls exercise the actual wait closure and `Rig.waitFor`,
+including prompt completion, late completion, a stuck turn and persistent SQL
+failure. The engine's helper grace and fallback behavior are unchanged.
+[verified: `tools/rig/proofs/account-windows.mjs`, `runtime/actor.rs::session_settle`,
+`runtime/session_host.rs::SETTLE_MS`; 2026-10-25]
+
 Window-launching runs also require [desktop/clipboard isolation](#desktop-smoke),
 independently of the fake data, credentials and profile protections below.
 

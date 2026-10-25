@@ -44,7 +44,10 @@ export default async function (rig) {
     agents: Object.fromEntries(['ola', 'fay', 'ned', 'fio'].map(n => [n, { turns: [limited] }])),
     default: { turns: [{ name: 'default', steps: [{ text: 'OK.' }] }] },
   })
-  await rig.waitFor(() => rig.sql(`SELECT 1 FROM ot.turns WHERE ended_at IS NULL`).length === 0, { what: 'seed turns to settle', timeout: 60000 })
+  // Session 0 placement can spend the first 60 s in the sign-in helper grace
+  // before a seed CLI starts. Keep that grace plus the normal 60 s turn budget;
+  // do not change placement preferences or retry the seed after a timeout.
+  await rig.waitFor(() => rig.sql(`SELECT 1 FROM ot.turns WHERE ended_at IS NULL`).length === 0, { what: 'seed turns to settle', timeout: 120000 })
 
   // ---------------------------------------------------------------- logins and readings
   const usageDir = path.join(rig.data, 'rig-home', 'rig-usage')
