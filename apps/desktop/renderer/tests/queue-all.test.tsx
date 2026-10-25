@@ -46,7 +46,11 @@ for (const placement of ['desk', 'floating', 'pinned', 'popout'] as const) {
     assert.equal(JSON.stringify(server.pending_mail), state, 'collapse never delivers or mutates mail')
     await inAct(async () => { control.click(); await flush(5) })
     assert.ok(cards.every(card => !hidden(card)))
-    assert.deepEqual([...view.el.querySelectorAll('.pendrow')], cards, 'all cards remain mounted')
+    const reopenedCards = [...view.el.querySelectorAll('.pendrow')]
+    assert.equal(reopenedCards.length, cards.length, 'no cards are added or removed by toggling')
+    reopenedCards.forEach((card, index) => {
+      assert.equal(card === cards[index], true, `card ${index} remains mounted`)
+    })
   })
 }
 
