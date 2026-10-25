@@ -1,7 +1,7 @@
 import { mountView } from './harness'
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { MailList } from '../src/canvas/mail'
+import { MailList, MailRowView } from '../src/canvas/mail'
 
 const row = (tags: string[]) => ({ id: 'tag-order', from: 'lead', kind: 'message', at: '2026-10-19T19:00:00Z', body: 'Release update', tags })
 const preview = (el: HTMLElement) => el.querySelector<HTMLElement>('.mailrow .l2')!
@@ -62,8 +62,9 @@ test('mail previews cap stored tags at three across the zero-to-eight boundary',
 })
 
 test('more than three matching filters are capped and normalized duplicates do not inflate the count', async t => {
-  const v = await mountView(<MailList delivered={[row(['build', 'alpha', 'Review', 'release'])]}
-    tagFilter={filter(['Review', ' REVIEW ', 'release', 'alpha', 'build'])}/>, el => el)
+  const v = await mountView(<MailRowView m={row(['build', 'alpha', 'Review', 'release'])}
+    view={null} selected={false} party="lead" onClick={() => {}}
+    filterTags={['Review', ' REVIEW ', 'release', 'alpha', 'build']}/>, el => el)
   t.after(() => v.unmount())
   assert.deepEqual(names(v.el), ['Review', 'release', 'alpha'])
   assert.equal(preview(v.el).querySelector('.mail-tag-more')?.textContent, '(+1)')
@@ -76,7 +77,7 @@ test('the open message and active filter bar retain every tag', async t => {
     tagFilter={filter(['Review', 'release', 'alpha', 'build'])} selectOldestUnread/>, el => el)
   t.after(() => v.unmount())
   assert.equal(v.el.querySelectorAll('.mailer-head .mail-tag[data-tag-key]').length, 4)
-  assert.equal(v.el.querySelectorAll('.mail-list-controls .mail-tag[data-tag-key]').length, 4)
+  assert.equal(v.el.querySelectorAll('.mail-list-controls .mail-tag-active').length, 4)
   assert.equal(v.el.querySelector('.mailer-head .mail-tag-more'), null)
   assert.equal(names(v.el).length, 3)
 })

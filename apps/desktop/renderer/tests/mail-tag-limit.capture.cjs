@@ -28,7 +28,7 @@ app.whenReady().then(async()=>{
     const measured=await wc.executeJavaScript(`(()=>{
       const rect=e=>{const r=e.getBoundingClientRect();return{x:r.x,y:r.y,width:r.width,height:r.height,right:r.right,bottom:r.bottom}};
       const inspect=e=>({rect:rect(e),header:rect(e.querySelector('.mfrom')),tags:[...e.querySelectorAll('.l2 .mail-tag[data-tag-key]')].map(t=>({text:t.textContent,rect:rect(t)})),more:e.querySelector('.mail-tag-more')?.textContent,hidden:e.querySelector('.mail-tag-more')?.title});
-      return {plain:inspect(document.querySelector('#narrow-row > .mailrow')),filtered:inspect(document.querySelector('#filtered-row .mailrow')),baseline:rect(document.querySelector('#baseline-row .mfrom')),detailTags:document.querySelectorAll('#read-pane .mailer-head .mail-tag[data-tag-key]').length,filterTags:document.querySelectorAll('#narrow-row .mail-list-controls .mail-tag[data-tag-key]').length,clipboardBlocked:window.__clipboardBlocked,viewport:{width:innerWidth,height:innerHeight}};
+      return {plain:inspect(document.querySelector('#narrow-row > .mailrow')),filtered:inspect(document.querySelector('#filtered-row .mailrow')),baseline:rect(document.querySelector('#baseline-row .mfrom')),detailTags:document.querySelectorAll('#read-pane .mailer-head .mail-tag[data-tag-key]').length,filterTags:document.querySelectorAll('#narrow-row .mail-list-controls .mail-tag-active').length,clipboardBlocked:window.__clipboardBlocked,viewport:{width:innerWidth,height:innerHeight}};
     })()`)
     assert.deepEqual(measured.plain.tags.map(t=>t.text),['a lengthy build announcement tag','release','alpha build'])
     assert.deepEqual(measured.filtered.tags.map(t=>t.text),['ready','review','engine'])
