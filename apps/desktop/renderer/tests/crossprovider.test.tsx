@@ -116,7 +116,7 @@ function gateTest(name: string,
         },
         save: async () => {
           const b = [...v.el.querySelectorAll<HTMLButtonElement>('button')]
-            .find((x) => x.textContent?.trim() === 'save')!
+            .find((x) => x.textContent?.trim() === 'Save')!
           await act(async () => { b.click() })
         },
         dialog: () => document.querySelector<HTMLElement>('.confirm-box'),
@@ -228,7 +228,7 @@ gateTest('☠ §7 a MID-TURN switch asks, says QUEUED, and names the interrupt',
       'the dialog does not name the interrupt as the immediate path')
     assert.equal(m.ops.find((o) => o.op === 'switch_model'), undefined,
       'the switch fired before the user confirmed')
-    const go = m.dialogButton(/^queue the switch/)
+    const go = m.dialogButton(/^Queue the switch/)
     assert.ok(go, 'the confirm button must say "queue", never "switch"')
     const { act } = await import('react')
     await act(async () => { go!.click() })
@@ -246,7 +246,7 @@ gateTest('§7b a mid-turn CROSSING says both: queued now, reset when it applies'
     assert.match(txt, /queued/)
     assert.match(txt, /conversation/, 'the crossing paragraph is missing')
     assert.match(txt, /scratch/, 'the crossing paragraph is missing its survivors')
-    assert.ok(m.dialogButton(/^queue the switch/),
+    assert.ok(m.dialogButton(/^Queue the switch/),
       'a busy crossing must still confirm as a queue')
   })
 

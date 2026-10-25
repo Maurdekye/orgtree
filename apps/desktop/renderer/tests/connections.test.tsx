@@ -65,7 +65,7 @@ test('hub rows speak the real ladder and surface stuck mail with its reason', as
     assert.match(text, /Retrying — ConnectTimeout/)       // the failing one, with WHY
     assert.match(text, /3 queued/)
     assert.match(text, /⚠ 2 failing — hub unreachable/)   // the rollup
-    assert.match(text, /connect to this computer's mail hub/)
+    assert.match(text, /Connect to this computer's mail hub/)
     assert.match(text, /Other/)
     assert.match(text, /\(chat\)/)                        // kinds stay visible
     assert.match(text, /Online/)

@@ -44,7 +44,7 @@ test('a mid-turn account change is queued: the save shows no error and still sav
       select.dispatchEvent(new Event('change', { bubbles: true }))
     })
     const save = [...view.el.querySelectorAll<HTMLButtonElement>('button')]
-      .find(b => b.textContent?.trim() === 'save')!
+      .find(b => b.textContent?.trim() === 'Save')!
     await inAct(async () => { save.click(); await flush(8) })
     const assignments = posted.filter(p => p.path.endsWith('/account'))
     assert.deepEqual(assignments, [{ path: '/api/orgs/org/nodes/agent/account',

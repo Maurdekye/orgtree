@@ -152,7 +152,7 @@ test('§2 editing a key: a change says when its agents move, counts pinned agent
   const view = await mount()
   try {
     const edit = view.el.querySelectorAll<HTMLButtonElement>('.acct-row.orr-keyrow')[1]!
-      .querySelector<HTMLButtonElement>('button[title^="rename this key"]')!
+      .querySelector<HTMLButtonElement>('button[title^="Rename this key"]')!
     await inAct(async () => { edit.click(); await flush(4) })
     const dialog = document.querySelector('[aria-label="Edit team"]')!
     const sel = harnessSelect(dialog)!
@@ -221,7 +221,7 @@ test('§4 a saved harness since uninstalled is named, warned about, and never se
   try {
     assert.match(view.el.textContent ?? '', /Codex \(not installed\)/, 'the key row says so')
     const edit = view.el.querySelectorAll<HTMLButtonElement>('.acct-row.orr-keyrow')[1]!
-      .querySelector<HTMLButtonElement>('button[title^="rename this key"]')!
+      .querySelector<HTMLButtonElement>('button[title^="Rename this key"]')!
     await inAct(async () => { edit.click(); await flush(4) })
     const dialog = document.querySelector('[aria-label="Edit team"]')!
     const sel = harnessSelect(dialog)!
@@ -258,7 +258,7 @@ test('§6 App settings › Harnesses lists the registry, installed or not, and t
     assert.match(text, /Claude Code · installed/)
     assert.match(text, /opencode · not installed/, 'a registry entry appears with nothing named in the renderer')
     assert.doesNotMatch(text, /Runs agents on:|Install:|Anthropic's coding agent/)
-    assert.match(text, /version unknown/)
+    assert.match(text, /Version unknown/)
     assert.equal(view.el.querySelector('a'), null, 'installed rows have no install link; absent null URL stays absent')
     const opened: string[] = []
     const w = (globalThis as unknown as { window: Window }).window

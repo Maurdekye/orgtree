@@ -41,7 +41,7 @@ async function settings(t: TestContext, history: boolean, serving: string, queue
   const click = (button: HTMLElement) => inAct(async () => { button.click(); await flush(4) })
   return { node, v, writes, ops, click,
     save: async () => {
-      const save = [...v.el.querySelectorAll<HTMLButtonElement>('button')].find(b => b.textContent?.trim() === 'save')!
+      const save = [...v.el.querySelectorAll<HTMLButtonElement>('button')].find(b => b.textContent?.trim() === 'Save')!
       await click(save)
     } }
 }
@@ -81,7 +81,7 @@ for (const history of [false, true]) {
     await h.save()
     // A busy model change uses its existing explicit queue confirmation.
     const confirm = [...document.querySelectorAll<HTMLButtonElement>('.confirm-box button')]
-      .find(b => b.textContent?.startsWith('queue the switch to '))
+      .find(b => b.textContent?.startsWith('Queue the switch to '))
     assert.equal(!!confirm, true, 'busy model changes still ask before queuing')
     await h.click(confirm!)
     if (history) {

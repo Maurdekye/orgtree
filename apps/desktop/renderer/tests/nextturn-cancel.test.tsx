@@ -70,13 +70,13 @@ for(const history of [false,true])for(const surface of ['settings','desk'] as co
   if(surface==='settings'){
    if(kind!=='account'){
     assert.equal(document.querySelector<HTMLSelectElement>('select[aria-label="Model tier"]')?.value,'luna','show queued choice so choosing current fires change')
-    await choose('model tier','sol')
+    await choose('Model tier','sol')
    }
    if(kind!=='model'){
     assert.equal(document.querySelector<HTMLSelectElement>('select[aria-label="Account"]')?.value,'openai/backup')
     await choose('Account','openai/primary')
    }
-   await click([...document.querySelectorAll('button')].find(b=>b.textContent==='save'))
+   await click([...document.querySelectorAll('button')].find(b=>b.textContent==='Save'))
   }else{
    await click(s.v.el.querySelector('[aria-label="Change model for worker"]'))
    await click(document.querySelector('[aria-label="Change agent model"] .t-sol'))
@@ -87,7 +87,7 @@ for(const history of [false,true])for(const surface of ['settings','desk'] as co
 })
 for(const history of [false,true])test(`untouched ${history?'history':'legacy'} settings Save preserves both queues`,async()=>{
  const s=await setup('settings','both',history)
- try{await click([...document.querySelectorAll('button')].find(b=>b.textContent==='save'));assert.equal(s.acts.some(b=>['switch_model','account'].includes(String(b.op))),false);assert.equal(s.v.el.querySelectorAll('[data-next-turn]').length,2)}finally{await s.close()}
+ try{await click([...document.querySelectorAll('button')].find(b=>b.textContent==='Save'));assert.equal(s.acts.some(b=>['switch_model','account'].includes(String(b.op))),false);assert.equal(s.v.el.querySelectorAll('[data-next-turn]').length,2)}finally{await s.close()}
 })
 test('speed toggle already submits the current running value to revert a queued change',async()=>{
  const s=await setup('desk','model')

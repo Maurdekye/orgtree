@@ -193,7 +193,7 @@ test('§2 the favorites row\'s "+" opens the picker; search, select and deselect
     const plus = view.el.querySelector<HTMLButtonElement>('.orr-favs .orr-more')!
     assert.ok(plus, 'the row ends in "+"')
     assert.equal(plus.getAttribute('aria-haspopup'), 'dialog')
-    assert.equal(plus.textContent, '+pick the models that can be hired', 'no favorite yet: "+" says what it is for')
+    assert.equal(plus.textContent, '+Pick the models that can be hired', 'no favorite yet: "+" says what it is for')
     await inAct(async () => { plus.click() })
     assert.equal(picker.open, true, '"+" asks the panel to open the picker')
   } finally { await view.unmount() }

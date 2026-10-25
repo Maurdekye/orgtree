@@ -73,7 +73,7 @@ test('a model is offered where that login\'s own catalog lists it, never by anot
   assert.equal(museOffersOn('wonder', null, 'muse-3'), false, 'a signed-out login offers nothing')
   assert.equal(museOffersOn('wonder', null, 'muse-4'), undefined, 'an unreadable login is unknown, not "no"')
   assert.equal(museOffersOn('wonder', null, 'muse-9'), undefined, 'a login the payload does not describe is unknown')
-  assert.equal(museUnofferedWhy('wonder-full', null, 'muse/primary'), 'the signed-in Muse login does not offer wonder-full')
+  assert.equal(museUnofferedWhy('wonder-full', null, 'muse/primary'), 'The signed-in Muse login does not offer wonder-full')
   assert.equal(museUnofferedWhy('wonder', null, 'muse-3'), 'the Muse account muse-3 is signed out')
   assert.equal(museUnofferedWhy('wonder', null, 'muse-4'), null, 'unknown: the engine decides at the door')
   assert.equal(museUnofferedWhy('wonder-full', null, 'muse-2'), null, 'control')

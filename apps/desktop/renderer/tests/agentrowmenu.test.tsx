@@ -685,7 +685,7 @@ uiTest('§6b New project… from a row opens a draft project card, like a hire, 
     const create = [...card!.querySelectorAll('button')].find((b) => /create/.test(b.textContent ?? ''))!
     await inAct(async () => { create.click(); await flush(4) })
     assert.deepEqual(c.ops.filter((o) => o.op === 'create_project'),
-      [{ op: 'create_project', name: 'website', description: 'The site.', parent: 'other' }])
+      [{ op: 'create_project', name: 'website', description: 'The site.', parent: 'other', user_position: 'centre' }])
     await flush(4)
     assert.equal(c.el.querySelector('.sq.draft') === null, true, 'the draft gives way to the real card')
   })

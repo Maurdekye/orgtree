@@ -39,8 +39,8 @@ function stubCatalog(): void {
   }
 }
 
-const reading = (text: string) => [`${text}`, `showing ${text.slice(2)} — click to reverse`,
-  `sort direction: ${text.slice(2)}`]
+const reading = (text: string) => [`${text}`, `Showing ${text.slice(2)} — click to reverse`,
+  `Sort direction: ${text.slice(2)}`]
 
 test('the price sorts read "cheapest first" / "most expensive first", never "dearest"',
   async (t: TestContext) => {

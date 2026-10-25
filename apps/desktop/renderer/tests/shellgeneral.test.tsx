@@ -139,7 +139,7 @@ test('About names the running app version and the engine build that is serving',
     const text = a.view.el.textContent ?? ''
     assert.match(text, /3\.0\.0-alpha\.0/, 'the packaged version')
     assert.match(text, /main@abc1234/, 'the engine build — which deploy is actually serving')
-    assert.match(text, /started/)
+    assert.match(text, /Started/)
     const link = a.view.el.querySelector('a')!
     assert.equal(link.getAttribute('href'), 'https://github.com/Maurdekye/orgtree',
       'the repository link the removed sidebar used to carry')
@@ -154,7 +154,7 @@ test('a plain browser is given no invented version, and an unknown build no fake
   } finally { await a.stop() }
   const b = await about(null, { build: { commit: 'unknown', branch: '', started_at: '' } })
   try {
-    assert.match(b.view.el.textContent ?? '', /version unknown/,
+    assert.match(b.view.el.textContent ?? '', /Version unknown/,
       'nothing known, and it says so rather than showing a blank')
   } finally { await b.stop() }
 })

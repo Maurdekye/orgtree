@@ -264,7 +264,7 @@ test('account fallback gear inherits org default, saves OFF and can return to in
   assert.equal(select.value, '')
   assert.match(select.selectedOptions[0].textContent || '', /Org default \(on\)/)
   const { act } = await import('react')
-  const save = [...view.el.querySelectorAll<HTMLButtonElement>('button')].find(b => b.textContent === 'save')!
+  const save = [...view.el.querySelectorAll<HTMLButtonElement>('button')].find(b => b.textContent === 'Save')!
   await act(async () => {
     select.value = 'off'
     select.dispatchEvent(new Event('change', { bubbles: true }))

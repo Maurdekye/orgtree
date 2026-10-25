@@ -109,19 +109,19 @@ test('a key account that never ran says so instead of reading as zero spent', as
 test('the fallback toggle appears only with an enabled key account', async t => {
   // (the per-provider "use subscriptions for inference" switch is now an active checkbox on every account: PLAN H3, decision 41)
   await setup(t, [account('sub-only')])
-  assert.equal(toggle('claude', /fall back to Claude API-key accounts/), undefined,
+  assert.equal(toggle('claude', /Fall back to Claude API-key accounts/), undefined,
     'nothing to route to yet')
 })
 
 test('a DISABLED key account still does not raise the fallback toggle', async t => {
   await setup(t, [keyAccount('claude-key', 'claude', false)])
-  assert.equal(toggle('claude', /fall back to Claude API-key accounts/), undefined,
+  assert.equal(toggle('claude', /Fall back to Claude API-key accounts/), undefined,
     'turning fallback on would still route nowhere')
 })
 
 test('an enabled key account raises the fallback toggle, off by default, and writes the machine setting', async t => {
   const { calls } = await setup(t, [keyAccount('claude-key')])
-  const t1 = toggle('claude', /fall back to Claude API-key accounts/)!
+  const t1 = toggle('claude', /Fall back to Claude API-key accounts/)!
   assert.ok(t1, 'the lane now exists')
   assert.equal(t1.checked, false, 'off by default')
   await inAct(async () => { t1.click(); await flush() })

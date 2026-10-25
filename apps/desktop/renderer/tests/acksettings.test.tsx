@@ -31,7 +31,7 @@ test('ack mode shows the saved reminder count and saves only an edited count',as
   assert.equal(!!count,true,'configurable reminder count is present')
   assert.equal(count!.value,'5');assert.equal(count!.min,'1');assert.equal(count!.max,'10')
   await inAct(()=>{Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype,'value')!.set!.call(count,'8');count!.dispatchEvent(new Event('input',{bubbles:true}))})
-  await inAct(async()=>{[...el.querySelectorAll('button')].find(b=>b.textContent==='save')!.click();await flush(4)})
+  await inAct(async()=>{[...el.querySelectorAll('button')].find(b=>b.textContent==='Save')!.click();await flush(4)})
   assert.deepEqual(ops,[{op:'set_mail_queue',node:'build-project',ack_reminders:8}])
 })
 test('slot-only acknowledgement controls are inactive when runtime checkups are off',async t=>{
@@ -48,7 +48,7 @@ test('ack mode offers the turn-end reminder, on by default, and saves only a cha
   assert.equal(!!box,true,'the reminder toggle is in the Acknowledgement section')
   assert.equal(box!.checked,true,'on by default')
   await inAct(()=>{box!.click()})
-  await inAct(async()=>{[...el.querySelectorAll('button')].find(b=>b.textContent==='save')!.click();await flush(4)})
+  await inAct(async()=>{[...el.querySelectorAll('button')].find(b=>b.textContent==='Save')!.click();await flush(4)})
   assert.deepEqual(ops,[{op:'set_mail_queue',node:'build-project',turn_end_reminder:false}])
 })
 test('round-robin with only a slot has no turn-end reminder toggle',async t=>{

@@ -84,7 +84,7 @@ test('agent settings expose and save Fast mode only for a supported model', asyn
       assert.equal(!!checkbox, supported)
       if (supported) {
         await inAct(async () => { checkbox!.click(); await flush(2) })
-        const save = [...v.el.querySelectorAll<HTMLButtonElement>('button')].find(b => b.textContent?.trim() === 'save')!
+        const save = [...v.el.querySelectorAll<HTMLButtonElement>('button')].find(b => b.textContent?.trim() === 'Save')!
         assert.equal(!!save, true)
         await inAct(async () => { save.click(); await flush(4) })
         assert.deepEqual(posted.at(-1), { fast_mode: true }, 'a speed-only save does not resend structural settings')

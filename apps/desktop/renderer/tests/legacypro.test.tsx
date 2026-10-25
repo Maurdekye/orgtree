@@ -261,5 +261,5 @@ test('§4 the toggle is labelled with both legacy models',
     await inAct(async () => { await flush(10) })
     const panel = document.getElementById('app-settings-panel-runtime')
     assert.ok(panel, 'no Runtime tab panel')
-    assert.match(panel!.textContent ?? '', /show legacy models \(Terra, Gemini Pro\)/)
+    assert.match(panel!.textContent ?? '', /Show legacy models \(Terra, Gemini Pro\)/)
   })

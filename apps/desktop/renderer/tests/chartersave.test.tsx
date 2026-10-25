@@ -145,7 +145,7 @@ async function mount(
 
 const saveButton = (el: HTMLElement) =>
   [...el.querySelectorAll<HTMLButtonElement>('button')]
-    .find((b) => b.textContent?.trim() === 'save')!
+    .find((b) => b.textContent?.trim() === 'Save')!
 
 /** every line any toast carried, flattened */
 const popped = (m: Mounted) => m.toasts.flatMap((lines) => lines ?? [])
@@ -263,7 +263,7 @@ test('§4 CONTROL: a provider-crossing save still asks first, and sends nothing 
     assert.equal(sent.length, 0,
       'the save must not reach the backend before the user confirms')
     const confirm = [...document.querySelectorAll<HTMLButtonElement>(
-      '.confirm-box button')].find((b) => /^switch to sol/.test(
+      '.confirm-box button')].find((b) => /^Switch to sol/.test(
       b.textContent?.trim() ?? ''))
     assert.ok(confirm, 'the cross-provider confirmation did not appear')
 

@@ -38,7 +38,7 @@ for(const project of [false,true]) for(const saved of [undefined,false]) {
     assert.equal(toggle!==null,true,'node settings must expose peer-mail control')
     assert.equal(toggle!.checked,saved!==false)
     await inAct(()=>{toggle!.click()})
-    const save=[...v.el.querySelectorAll<HTMLButtonElement>('button')].find(b=>b.textContent?.trim()==='save')!
+    const save=[...v.el.querySelectorAll<HTMLButtonElement>('button')].find(b=>b.textContent?.trim()==='Save')!
     await inAct(async()=>{save.click();await flush(8)})
     const expected=saved===false
     assert.ok(posts.some(p=>p.peer_mail===expected || (p.steps as Record<string,unknown>[]|undefined)?.some(s=>s.peer_mail===expected)),

@@ -118,7 +118,7 @@ test('mail hosting speaks the hub\'s own model, warns on exposure, and retains e
       const select = v.el.querySelector<HTMLSelectElement>('[aria-label="Mail hub listen interface"]')!
       select.value = '0.0.0.0'; select.dispatchEvent(new Event('change', { bubbles: true }))
     })
-    assert.match(v.el.textContent!, /read ALL mail/, 'exposure states its scope before it happens')
+    assert.match(v.el.textContent!, /read all mail/, 'exposure states its scope before it happens')
     await type(v.el.querySelector<HTMLInputElement>('[aria-label="Mail hub name"]')!, 'office desk')
     await type(v.el.querySelector<HTMLInputElement>('[aria-label="Mail hub port"]')!, '7380')
     await inAct(() => {

@@ -177,7 +177,7 @@ test('a key\'s settings rename and optionally replace in one dialog, with no sep
   try {
     assert.equal(view.el.querySelector('button[title="name this key"]') === null, true, 'no separate name button')
     assert.equal(view.el.querySelector('button[title^="replace the key"]') === null, true, 'no first-key-only button')
-    const open = view.el.querySelector<HTMLButtonElement>('button[title^="rename this key"]')!
+    const open = view.el.querySelector<HTMLButtonElement>('button[title^="Rename this key"]')!
     await inAct(async () => { open.click(); await flush(4) })
     let dialog = document.querySelector('[aria-label="Edit personal"]')!
     let name = dialog.querySelector<HTMLInputElement>('input[aria-label="OpenRouter key name"]')!

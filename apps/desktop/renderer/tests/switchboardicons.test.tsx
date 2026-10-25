@@ -517,7 +517,7 @@ test('§3 the ⚙ panel became a tab: every control it had is reachable there, '
   assert.ok(panel.querySelector('input[aria-label="All registered MCP servers"]'))
   assert.ok(panel.querySelector('.dirlist'), 'folder access did not come across')
   assert.ok([...panel.querySelectorAll('button')]
-    .some((b) => b.textContent?.trim() === 'dissolve all agents'),
+    .some((b) => b.textContent?.trim() === 'Dissolve all agents'),
   'dissolve all agents had no other door — it must have moved with the panel')
 
   // Still ONE surface, with no ordinary Save step. The only Save is the

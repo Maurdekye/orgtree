@@ -247,7 +247,7 @@ test('§4 the Slots count: 0 (none) by default, no switch; saving sends one set_
   assert.equal(input!.type, 'number')
   assert.match(row('Concurrency slots')?.textContent ?? '', /0 = no concurrency slots/, 'the hint says 0 is none')
   await inAct(() => { typeInto(input!, '1') })
-  const b = [...document.querySelectorAll('button')].find((x) => x.textContent === 'save')!
+  const b = [...document.querySelectorAll('button')].find((x) => x.textContent === 'Save')!
   await inAct(async () => { b.click(); await flush(4) })
   assert.deepEqual(ops, [{ op: 'set_slots', node: 'build', capacity: 1 }])
 })

@@ -84,7 +84,7 @@ test('the agent account-swap selector shows the known host address and still sub
       `default · ${HOST}`)
     // …and the address is DISPLAY ONLY: what is saved is the selector
     const save = [...view.el.querySelectorAll<HTMLButtonElement>('button')]
-      .find(b => b.textContent?.trim() === 'save')!
+      .find(b => b.textContent?.trim() === 'Save')!
     await inAct(async () => { save.click(); await flush(8) })
     for (const p of posted) assert.doesNotMatch(JSON.stringify(p.body), /example\.test/)
   } finally { await view.unmount() }
@@ -185,7 +185,7 @@ test('the org-wide hire default names the host login too', async () => {
   const view = await mountView(<Defaults />, el => el)
   try {
     await inAct(async () => { await flush(8) })
-    assert.deepEqual(options(select(view.el, 'default provider account for new hires')),
+    assert.deepEqual(options(select(view.el, 'Default provider account for new hires')),
       [['claude/primary', `default · ${HOST}`]])
   } finally { await view.unmount() }
 })

@@ -29,7 +29,7 @@ async function setup(t: { after: (fn: () => Promise<void> | void) => void }, pro
     toast={(lines) => { notices.push(lines) }} />, (el) => el)
   t.after(async () => { await view.unmount(); globalThis.fetch = old })
   await inAct(async () => { await flush() })
-  const button = [...view.el.querySelectorAll('button')].find((b) => b.textContent === 'remove')!
+  const button = [...view.el.querySelectorAll('button')].find((b) => b.textContent === 'Remove')!
   return { view, notices, button }
 }
 

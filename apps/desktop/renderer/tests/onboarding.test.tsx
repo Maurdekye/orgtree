@@ -178,7 +178,7 @@ test('the Settings recovery action retries after a failed populate', async () =>
   fail.now = false
   await act(async () => { button.click() })
   await flush()
-  assert.ok(view.last().includes('nothing to create'),
+  assert.ok(view.last().includes('Nothing to create'),
     'retry succeeds and reports the outcome')
   assert.equal(seen.filter(s => s.path === '/api/charters/populate').length, 2)
   await view.unmount()

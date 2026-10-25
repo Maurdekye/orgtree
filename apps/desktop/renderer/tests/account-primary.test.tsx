@@ -55,7 +55,7 @@ test(`operator selects primary ${registered ? 'from a secondary' : 'with an empt
       }
     })
     const save = [...view.el.querySelectorAll<HTMLButtonElement>('button')]
-      .find(b => b.textContent?.trim() === 'save')!
+      .find(b => b.textContent?.trim() === 'Save')!
     await inAct(async () => { save.click(); await flush(8) })
     const assignments = posted.filter(p => p.path.endsWith('/account'))
     assert.deepEqual(assignments, [{ path: '/api/orgs/org/nodes/agent/account',

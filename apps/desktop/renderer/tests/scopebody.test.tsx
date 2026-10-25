@@ -118,7 +118,7 @@ async function choose(s: HTMLSelectElement, value: string) {
 async function save(el: HTMLElement) {
   const { act } = await import('react')
   const b = [...el.querySelectorAll<HTMLButtonElement>('button')]
-    .find((x) => x.textContent?.trim() === 'save')!
+    .find((x) => x.textContent?.trim() === 'Save')!
   await act(async () => { b.click() })
   await flush()
 }

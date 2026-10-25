@@ -792,14 +792,14 @@ test('§6 project settings: name, description, peer mail, actions; no turn-only 
   t.after(() => view.unmount())
   await inAct(async () => { await flush(6) })
   const text = document.body.textContent ?? ''
-  for (const want of ['Name', 'Project actions', 'Summary', 'Subordinates may message each other', 'dissolve'])
+  for (const want of ['Name', 'Project actions', 'Summary', 'Subordinates may message each other', 'Dissolve'])
     assert.ok(text.includes(want), `has "${want}"`)
-  for (const not of ['Model', 'Visible agents', 'File and command access', 'Instructions', 'rescind'])
+  for (const not of ['Model', 'Visible agents', 'File and command access', 'Instructions', 'Rescind'])
     assert.equal(text.includes(not), false, `no "${not}" on a project`)
   const box = document.querySelector<HTMLTextAreaElement>('textarea[aria-label="Project Summary"]')!
   assert.equal(box.value, '# The site\n\nDeploy from **main** only.')
   await inAct(() => { setText(box, 'New text.') })
-  const save = [...document.querySelectorAll('button')].find((b) => b.textContent === 'save')!
+  const save = [...document.querySelectorAll('button')].find((b) => b.textContent === 'Save')!
   await inAct(async () => { save.click(); await flush(4) })
   assert.deepEqual(ops, [{ op: 'set_description', node: 'website', description: 'New text.' }])
 })
@@ -816,14 +816,14 @@ test('§6b open settings follow the project: a remote description change is not 
   await view.render(cfg(project({ charter: 'Rewritten by dev1.' })))
   const box = document.querySelector<HTMLTextAreaElement>('textarea[aria-label="Project Summary"]')!
   assert.equal(box.value, 'Rewritten by dev1.', 'the untouched box shows the current description')
-  const save = [...document.querySelectorAll('button')].find((b) => b.textContent === 'save')!
+  const save = [...document.querySelectorAll('button')].find((b) => b.textContent === 'Save')!
   await inAct(async () => { save.click(); await flush(4) })
   assert.deepEqual(ops, [], 'nothing edited, nothing sent: the remote change stands')
   // renamed elsewhere: the untouched name field follows, and offers no rename back
   await view.render(cfg(project({ id: 'site', title: 'site' } as never)))
   const name = document.querySelector<HTMLInputElement>('input[aria-label="Project name"]')!
   assert.equal(name.value, 'site')
-  assert.equal([...document.querySelectorAll('button')].some((b) => b.textContent === 'rename'), false)
+  assert.equal([...document.querySelectorAll('button')].some((b) => b.textContent === 'Rename'), false)
 })
 
 /* ─── §7 the card's count and the app header ────────────────────────────── */

@@ -49,7 +49,7 @@ test('retool: settings Save sends account and scope as one gesture and preserves
   const account = view.el.querySelector<HTMLSelectElement>('select[aria-label="Account"]')!
   assert.ok(account)
   await inAct(() => { account.value = 'claude/primary'; account.dispatchEvent(new Event('change', { bubbles: true })) })
-  const save = [...view.el.querySelectorAll<HTMLButtonElement>('button')].find(b => b.textContent?.trim() === 'save')!
+  const save = [...view.el.querySelectorAll<HTMLButtonElement>('button')].find(b => b.textContent?.trim() === 'Save')!
   await inAct(async () => { save.click(); await flush(6) })
   assert.equal(posts.length, 1); assert.equal(posts[0]?.path, '/api/orgs/gesture-org/gesture')
   const steps = posts[0]!.body.steps as Record<string, unknown>[]
@@ -70,10 +70,10 @@ test('retire from settings exposes the committed journal entry instead of a gues
     slug="gesture-org" op={async body => { ops.push(body); return { history_entry: { id: 13, kind: 'retire', label: 'Retire alice' } } }}
     toast={(_lines, action) => { if (action && typeof action !== 'function') undo = action }} close={() => {}} />, el => el)
   t.after(() => view.unmount())
-  const retire = [...view.el.querySelectorAll<HTMLButtonElement>('button')].find(b => b.textContent?.trim().startsWith('retire'))!
+  const retire = [...view.el.querySelectorAll<HTMLButtonElement>('button')].find(b => b.textContent?.trim().startsWith('Retire'))!
   assert.ok(retire)
   await inAct(() => retire.click())
-  const confirm = [...document.querySelectorAll<HTMLButtonElement>('[role="dialog"] button')].find(b => b.textContent?.trim() === 'retire')!
+  const confirm = [...document.querySelectorAll<HTMLButtonElement>('[role="dialog"] button')].find(b => b.textContent?.trim() === 'Retire')!
   assert.ok(confirm)
   await inAct(async () => { confirm.click(); await flush(5) })
   assert.deepEqual(ops, [{ op: 'retire', node: 'alice' }]); assert.equal(undo?.label, 'Undo')

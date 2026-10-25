@@ -35,7 +35,7 @@ async function mount(session?: unknown) {
 }
 
 const save = async (el: HTMLElement) => {
-  const button = [...el.querySelectorAll<HTMLButtonElement>('button')].find(b => b.textContent?.trim() === 'save')!
+  const button = [...el.querySelectorAll<HTMLButtonElement>('button')].find(b => b.textContent?.trim() === 'Save')!
   await inAct(async () => { button.click(); await flush(8) })
 }
 

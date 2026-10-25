@@ -130,7 +130,7 @@ for (const [tier, seat, latest, older] of [
       versions.dispatchEvent(new Event('change', { bubbles: true }))
     })
     const save = [...el.querySelectorAll<HTMLButtonElement>('button')]
-      .find((b) => b.textContent?.trim() === 'save')!
+      .find((b) => b.textContent?.trim() === 'Save')!
     const originalFetch = globalThis.fetch
     const saved: Record<string, unknown>[] = []
     globalThis.fetch = (input, init) => {
@@ -163,7 +163,7 @@ configTest('Opus offers 5.5 as latest and saves an explicit older version',
       versions.dispatchEvent(new Event('change', { bubbles: true }))
     })
     const save = [...el.querySelectorAll<HTMLButtonElement>('button')]
-      .find((b) => b.textContent?.trim() === 'save')!
+      .find((b) => b.textContent?.trim() === 'Save')!
     const originalFetch = globalThis.fetch
     const saved: Record<string, unknown>[] = []
     globalThis.fetch = (input, init) => {
@@ -335,12 +335,12 @@ configTest('a confirmed provider-crossing switch sends the switch_model op',
       select.dispatchEvent(new Event('change', { bubbles: true }))
     })
     const save = [...el.querySelectorAll<HTMLButtonElement>('button')]
-      .find((b) => b.textContent?.trim() === 'save')!
+      .find((b) => b.textContent?.trim() === 'Save')!
     await act(async () => { save.click() })
     assert.equal(ops.find((o) => o.op === 'switch_model'), undefined,
       'the switch must not fire before the user confirms')
     const confirm = [...document.querySelectorAll<HTMLButtonElement>(
-      '.confirm-box button')].find((b) => /^switch to sol/.test(
+      '.confirm-box button')].find((b) => /^Switch to sol/.test(
       b.textContent?.trim() ?? ''))!
     await act(async () => { confirm.click() })
     assert.deepEqual(ops.find((o) => o.op === 'switch_model'), {

@@ -73,7 +73,7 @@ test('§D navigation: a name with somewhere to go is a control; otherwise text',
       onFocus={(id) => seen.push(id)} />)
     const btn = go.el.querySelector('button.cc-name.cc-name-jump')
     assert.ok(btn, 'a name that navigates is a button')
-    assert.equal(btn!.getAttribute('title'), "focus cto's desk")
+    assert.equal(btn!.getAttribute('title'), "Focus cto's desk")
     await inAct(() => { (btn as HTMLElement).click() })
     assert.deepEqual(seen, ['cto'], 'and clicking it navigates to that agent')
     await go.unmount()

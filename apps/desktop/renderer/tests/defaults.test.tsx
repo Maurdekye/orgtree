@@ -75,7 +75,7 @@ test('default org settings show the subtitle once in the App tab and standalone 
       try {
         await inAct(async () => { await flush() })
         const subtitles = [...view.el.querySelectorAll('.modalpin-subtitle')]
-          .filter(e => e.textContent?.replace(/\s+/g, ' ').trim() === 'applied to every NEW organization')
+          .filter(e => e.textContent?.replace(/\s+/g, ' ').trim() === 'Applied to every new organization')
         assert.equal(subtitles.length, 1)
         assert.equal(view.el.querySelector<HTMLInputElement>('input[type="number"]')?.value, '700',
           'the defaults fields still load in either host')

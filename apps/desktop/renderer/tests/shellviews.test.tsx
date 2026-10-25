@@ -427,7 +427,7 @@ test('Advanced options fold out inside the window, with no modal, and Create app
 
     const button = (text: string) => [...section!.querySelectorAll<HTMLButtonElement>('button')]
       .find((b) => b.textContent?.includes(text))!
-    await inAct(async () => { button('+ add folder').click(); await flush(4) })
+    await inAct(async () => { button('+ Add folder').click(); await flush(4) })
     await inAct(async () => { button('+ add a remote mail hub address').click(); await flush(4) })
     await inAct(async () => {
       typeInto(section!.querySelector<HTMLInputElement>('.dirrow input')!, 'E:\work')

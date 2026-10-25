@@ -15,7 +15,7 @@ function serve(t:{after:(fn:()=>void)=>void}) {const old=globalThis.fetch;instal
 
 test('project wire field remains description',()=>{
   assert.deepEqual(projectDraftSteps({parent:'user'} as never,'website','Saved summary'),[
-    {op:'create_project',name:'website',parent:'user',description:'Saved summary'},
+    {op:'create_project',name:'website',parent:'user',description:'Saved summary',user_position:'centre'},
   ])
 })
 
@@ -50,7 +50,7 @@ test('project settings and draft call the description setting Summary',async t=>
   const v=await mountView(<NodeConfig node={node} tree={tree} map={new Map([[node.id,node]])} slug="org" op={async()=>({})} toast={noop} close={noop}/>,el=>el)
   t.after(()=>v.unmount())
   assert.ok(v.el.querySelector('textarea[aria-label="Project Summary"]'))
-  assert.equal([...v.el.querySelectorAll('button')].some(b=>b.textContent==='dissolve'),true)
+  assert.equal([...v.el.querySelectorAll('button')].some(b=>b.textContent==='Dissolve'),true)
   const draft=await mountView(<ProjectDraftNode pos={{x:0,y:0}} onConfirm={noop} onCancel={noop}/>,el=>el)
   t.after(()=>draft.unmount())
   assert.match(draft.el.querySelector('textarea')?.placeholder??'',/^Summary \(optional\)/)

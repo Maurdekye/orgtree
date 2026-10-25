@@ -52,9 +52,9 @@ const steps = (draft: DraftState, name = 'website', description = 'The company w
 
 test('§1a under a node: one create_project with the name, the description and the parent', () => {
   assert.deepEqual(steps({ parent: 'boss', tier: 'project', project: true }),
-    [{ op: 'create_project', name: 'website', description: 'The company website.', parent: 'boss' }])
+    [{ op: 'create_project', name: 'website', description: 'The company website.', parent: 'boss', user_position: 'centre' }])
   assert.deepEqual(steps({ parent: 'boss', tier: 'project', project: true }, 'website', ''),
-    [{ op: 'create_project', name: 'website', parent: 'boss' }], 'no description, no key')
+    [{ op: 'create_project', name: 'website', parent: 'boss', user_position: 'centre' }], 'no description, no key')
 })
 
 test('§1b at the top level the parent is the user', () => {

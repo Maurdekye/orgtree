@@ -199,7 +199,7 @@ test('the setting is a real control in App settings, wired to the shared store',
   // renders THE store the canvas reads, in the Desk group beside the crowd
   // stack toggle it mirrors
   const src = readFileSync(joinPath(__SRC_DIR__, 'canvas', 'accounts.tsx'), 'utf8')
-  assert.match(src, /label="hide retired agents" checked=\{on\}\r?\n\s*onChange=\{setHideRetiredOn\}/)
+  assert.match(src, /label="Hide retired agents" checked=\{on\}\r?\n\s*onChange=\{setHideRetiredOn\}/)
   assert.match(src, /<CrowdStackToggle \/><HideRetiredToggle \/>/)
 })
 declare const __SRC_DIR__: string   // injected by run.mjs

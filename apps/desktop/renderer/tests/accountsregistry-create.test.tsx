@@ -163,7 +163,7 @@ test('Escape closes the add dialog without closing settings; changing providers 
 
 test('refresh queries stable account id but reports its displayed label', async t => {
   const { calls, notices } = await setup(t, [{ ...account('claude-4'), label: 'claude-0' }])
-  await inAct(async () => { button(lane('claude'), 'refresh').click(); await flush() })
+  await inAct(async () => { button(lane('claude'), 'Refresh').click(); await flush() })
   assert.ok(calls.some(c => c.url === '/api/accounts/claude-4/identity'))
   assert.deepEqual(notices, [['claude-4 · claude-4@example.test: unauthenticated']])
 })
@@ -171,11 +171,11 @@ test('refresh queries stable account id but reports its displayed label', async 
  test('an unreadable account registry stays visible as an error and retry restores the provider rows', async t => {
   const { state } = await setup(t)
   state.alien = true
-  await inAct(async () => { button(lane('claude'), 'refresh').click(); await flush() })
+  await inAct(async () => { button(lane('claude'), 'Refresh').click(); await flush() })
   assert.match(document.body.textContent!, /Could not load the account list/)
   assert.match(lane('claude').textContent!, /existing-claude/)
   state.alien = false
-  await inAct(async () => { button(document.body, 'retry').click(); await flush() })
+  await inAct(async () => { button(document.body, 'Retry').click(); await flush() })
   assert.doesNotMatch(document.body.textContent!, /Could not load the account list/)
   assert.equal(lane('claude').querySelectorAll('.account-row').length, 2)  // the native sign-in (default) + the registry row — decision 41
  })

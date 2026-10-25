@@ -27,7 +27,7 @@ test('agent settings never offer to remove retained reply quotes, even when some
   try {
     await flush(10)
     const labels = [...v.el.querySelectorAll<HTMLButtonElement>('button')].map(b => b.textContent ?? '')
-    assert.ok(labels.some(l => /delete permanently/.test(l)), 'control: the settings panel did render its buttons')
+    assert.ok(labels.some(l => /Delete permanently/.test(l)), 'control: the settings panel did render its buttons')
     assert.ok(!labels.some(l => /retained reply quotes/i.test(l)), 'no retained-reply-quotes button')
     assert.equal(quoteCalls.length, 0, 'the panel no longer asks the server how many quotes are retained')
   } finally { await v.unmount(); globalThis.fetch = original }

@@ -95,7 +95,7 @@ async function settings(t: TestContext, nd: CanvasNode, checkups = true) {
   return ops
 }
 const save = async () => {
-  const b = [...document.querySelectorAll('button')].find((x) => x.textContent === 'save')!
+  const b = [...document.querySelectorAll('button')].find((x) => x.textContent === 'Save')!
   await inAct(async () => { b.click(); await flush(4) })
 }
 

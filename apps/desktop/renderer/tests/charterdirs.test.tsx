@@ -156,13 +156,13 @@ test('settings list: shows folder states, adds and removes paths, surfaces refus
       input.dispatchEvent(new Event('input', { bubbles: true }))
     })
     const addBtn = [...view.el.querySelectorAll<HTMLButtonElement>('button')]
-      .find(b => b.textContent === 'add')!
+      .find(b => b.textContent === 'Add')!
     await inAct(async () => { addBtn.click(); await flush(6) })
     assert.deepEqual(JSON.parse(seen.at(-1)!.body!), { dirs: [A, 'X:\\gone', 'F:\\more'] },
       'add appends the trimmed path and keeps order')
     assert.match(text(), /F:\\more1 template(?!s)/)
     assert.equal(input.value, '', 'input clears after a successful add')
-    const remove = view.el.querySelector<HTMLButtonElement>('[aria-label="remove X:\\\\gone"]')!
+    const remove = view.el.querySelector<HTMLButtonElement>('[aria-label="Remove X:\\\\gone"]')!
     await inAct(async () => { remove.click(); await flush(6) })
     assert.deepEqual(JSON.parse(seen.at(-1)!.body!), { dirs: [A, 'F:\\more'] })
     assert.doesNotMatch(text(), /X:\\gone/)
@@ -178,7 +178,7 @@ test('settings list: shows folder states, adds and removes paths, surfaces refus
     assert.ok(alert, 'refusal surfaced')
     assert.match(alert!.textContent ?? '', /must be absolute paths/)
     assert.equal(input.value, 'rel', 'the typed path is kept for correction')
-    assert.equal(view.el.querySelectorAll('[aria-label^="remove "]').length, 2)
+    assert.equal(view.el.querySelectorAll('[aria-label^="Remove "]').length, 2)
   } finally {
     await view.unmount(); delete g.fetch
   }
