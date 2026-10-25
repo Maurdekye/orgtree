@@ -6,23 +6,26 @@ const out=path.resolve(process.argv[2])
 if(!out.toLowerCase().startsWith('c:\\orgtree-build\\mention-reply-sol\\'))throw Error('Output outside assigned root')
 const sessionId=Number(execFileSync('powershell.exe',['-NoProfile','-Command',`(Get-Process -Id ${process.pid}).SessionId`],{encoding:'utf8',windowsHide:true}).trim())
 assert.equal(sessionId,0,'Session 0 required before any window')
-app.setPath('userData',path.join(out,'profile'));app.setPath('sessionData',path.join(out,'session'))
+app.setPath('userData',path.join(out,'profile-'+process.pid));app.setPath('sessionData',path.join(out,'session-'+process.pid))
 app.disableHardwareAcceleration()
 const clipboardCalls=[]
 for(const key of Object.keys(clipboard))if(typeof clipboard[key]==='function')Object.defineProperty(clipboard,key,{value:()=>{clipboardCalls.push(key);return key==='availableFormats'?[]:key==='has'?false:''}})
 fs.writeFileSync(path.join(out,'index.html'),'<!doctype html><html lang="en"><meta charset="utf-8"><link rel="stylesheet" href="probe.css"><div id="root"></div><script src="probe.js"></script></html>')
+fs.writeFileSync(path.join(out,'clipboard.preload.cjs'),`Object.defineProperty(navigator,'clipboard',{value:Object.freeze({read:()=>Promise.reject(Error('Clipboard denied')),readText:()=>Promise.reject(Error('Clipboard denied')),write:()=>Promise.reject(Error('Clipboard denied')),writeText:()=>Promise.reject(Error('Clipboard denied'))})});window.__clipboardBlocked=true;`)
+async function within(promise,ms,label){let timer;try{return await Promise.race([promise,new Promise((_resolve,reject)=>{timer=setTimeout(()=>reject(Error(label)),ms)})])}finally{clearTimeout(timer)}}
 app.whenReady().then(async()=>{
+  console.log('Isolated Electron ready: PID '+process.pid+', Session '+sessionId)
   const isolated=session.fromPartition('mail-tag-limit-'+process.pid)
   isolated.setPermissionCheckHandler(()=>false)
   isolated.setPermissionRequestHandler((_wc,_permission,done)=>done(false))
-  const win=new BrowserWindow({width:1000,height:720,show:false,frame:false,webPreferences:{offscreen:true,backgroundThrottling:false,contextIsolation:true,sandbox:true,nodeIntegration:false,session:isolated}})
+  const win=new BrowserWindow({width:1000,height:720,show:false,frame:false,webPreferences:{offscreen:true,backgroundThrottling:false,contextIsolation:false,sandbox:false,nodeIntegration:false,preload:path.join(out,'clipboard.preload.cjs'),session:isolated}})
   const wc=win.webContents
   wc.setWindowOpenHandler(()=>({action:'deny'}))
   for(const method of ['cut','copy','paste','pasteAndMatchStyle'])wc[method]=()=>{throw Error('Clipboard command forbidden')}
-  wc.debugger.attach('1.3')
-  await wc.debugger.sendCommand('Page.addScriptToEvaluateOnNewDocument',{source:`Object.defineProperty(navigator,'clipboard',{value:Object.freeze({read:()=>Promise.reject(Error('Clipboard denied')),readText:()=>Promise.reject(Error('Clipboard denied')),write:()=>Promise.reject(Error('Clipboard denied')),writeText:()=>Promise.reject(Error('Clipboard denied'))})});window.__clipboardBlocked=true;`})
   try {
-    await win.loadFile(path.join(out,'index.html'))
+    // Do not await renderer CDP commands before first navigation creates it.
+    await within(win.loadFile(path.join(out,'index.html')),15000,'Fixture load timeout')
+    console.log('Loaded production mail fixture')
     await wc.executeJavaScript(`new Promise((resolve,reject)=>{const end=Date.now()+5000;function ready(){if(document.querySelector('#read-pane .mailer-head .mail-tag'))return resolve();if(Date.now()>end)return reject(Error('Mail fixture not mounted'));setTimeout(ready,20)}ready()})`)
     await wc.executeJavaScript(`new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(()=>setTimeout(resolve,150))))`)
     const measured=await wc.executeJavaScript(`(()=>{
@@ -43,6 +46,7 @@ app.whenReady().then(async()=>{
     assert.equal(measured.detailTags,8);assert.equal(measured.filterTags,2)
     assert.equal(measured.clipboardBlocked,true)
     // Move only the owned renderer pointer over the real overflow annotation.
+    wc.debugger.attach('1.3')
     const hover=await wc.executeJavaScript(`(()=>{const r=document.querySelector('#narrow-row > .mailrow .mail-tag-more').getBoundingClientRect();return{x:r.x+r.width/2,y:r.y+r.height/2}})()`)
     await wc.debugger.sendCommand('Input.dispatchMouseEvent',{type:'mouseMoved',...hover})
     await wc.executeJavaScript(`new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(()=>setTimeout(resolve,150))))`)
