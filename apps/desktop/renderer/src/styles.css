@@ -8872,6 +8872,23 @@ main:has(> .orgbar.native-header) > .error {
    so there is exactly one place the gallery's split is decided. */
 .settings.gallery-modal .mailer-list,
 .gallery-agent .mailer-list { width: 33.333333%; max-width: 33.333333%; min-width: 0; flex: 0 0 33.333333%; }
+/* THE CHANGELOG'S VERSION LIST IS NARROWER THAN THAT THIRD (USER 2026-10-25
+   10:14:15Z, on alpha.6: "narrow the list significantly, bolden and increase
+   the size of the verison number, put the timestamp on a new line
+   left-aligned"). Its rows are a version over a 16-character stamp, and the
+   third drew them about 390 px wide in the user's window. 150 px holds the
+   stamp's line: 16 Consolas characters at 11 px are 97 px, plus the row's
+   20 px of padding, the 10 px scrollbar and the 1 px border (Cascadia Mono,
+   the next face in --mono, is 106 px). Three classes, after the rule above:
+   it wins here, and the collapsed overlay's own `.mailer-list` rule (four)
+   still fills the overlay, which is as narrow. */
+.gallery-modal.changelog-modal .mailer-list { width: 150px; max-width: 150px; min-width: 0; flex: 0 0 150px; }
+.gallery-modal.changelog-modal .mailer.narrow-list > .mailer-listwrap { width: min(150px, calc(100% - var(--listrail) - 40px)); }
+/* the version bold and larger, over the read rows' quiet 11 px title */
+.gallery-modal.changelog-modal .mailrow.changelog-row .l1 .mfrom { font-size: 15px; font-weight: 700; }
+/* its date & time on the line below, at the left, in the mono it had beside
+   the version: not the gallery line's inherited face or 22 px owner line */
+.gallery-modal.changelog-modal .mailrow.changelog-row .l2 { height: auto; margin-top: 1px; font-family: var(--mono); }
 
 /* Provider-local secondary account management. */
 /* Providers has its own compact rhythm; other settings and portaled forms

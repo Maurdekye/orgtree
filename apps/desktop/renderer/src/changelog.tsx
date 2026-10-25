@@ -24,6 +24,11 @@
 // row classes. Rows are versions: the version and its release date & time
 // (fmtStamp, local, like other list rows), newest first. The pane repeats them
 // in the full form (fmtFull, as the Presentations pane does) above the notes.
+// USER 2026-10-25 10:14:15Z (m8d297c7ec920, on alpha.6): "narrow the list
+// significantly, bolden and increase the size of the verison number, put the
+// timestamp on a new line left-aligned": a row is the version on its first
+// line and the date & time on its second, and the list is a narrow column of
+// its own (styles.css, after the gallery's third).
 // The header's checkbox takes the Presentations header's "Show retired
 // agents" line and switches THE SETTING below.
 //
@@ -178,10 +183,8 @@ function ChangelogRowView({ row, on, onSelect }: { row: ChangelogRow; on: boolea
       data-version={row.version}
       title={row.released_at ? `${row.version} · ${fmtFull(row.released_at)}` : row.version}
       onClick={onSelect}>
-      <div className="l1">
-        <span className="mfrom">{row.version}</span>
-        <span className="mtime">{row.released_at ? fmtStamp(row.released_at) : ''}</span>
-      </div>
+      <div className="l1"><span className="mfrom">{row.version}</span></div>
+      {row.released_at && <div className="l2"><span className="mtime">{fmtStamp(row.released_at)}</span></div>}
     </div>
   )
 }
