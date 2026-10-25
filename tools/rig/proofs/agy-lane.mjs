@@ -198,7 +198,10 @@ export default async function (rig) {
       { error: ot[2].error, last_wall: rig.agentRow('ora').extra?.last_wall })
   }
   await rig.userMail('pia', 'PROOF-WORDS: please do the thing.')
-  const pf = await rig.waitFor(() => freezeOf('pia') ?? (rig.turns('pia')[0]?.ended_at ? 'ended' : null), { what: "pia's turn to end" })
+  // The ledger closes before the separate agent-freeze write. Only the freeze
+  // records the quota outcome; keep a missing outcome as a bounded check failure.
+  const pf = await rig.waitFor(() => freezeOf('pia'), { what: "pia's freeze to be recorded", timeout: 30000 })
+    .catch(e => ({ wait_error: e.message, turn: rig.turns('pia')[0] ?? null }))
   p.check('pia: "limit" with quota/exceeded is a usage limit (frozen, not a plain failure)', pf?.limit === true, pf === 'ended' ? rig.turns('pia')[0] : pf)
 
   // ---------------------------------------------------------------- max: the model pin

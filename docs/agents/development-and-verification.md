@@ -333,6 +333,13 @@ not execute; never count it as a product result.
   runtimes may interleave; rejected or unknown owners still fail. Preserve all
   ten runtime checks and raw calls; replay is not a full runtime proof pass.
 
+- `agy-lane.mjs` quota outcome controls replay its actual pia wait/check with
+  `Rig.waitFor`: `node --test tools/rig/tests/agy-quota-outcome.test.mjs`.
+  `AGY_QUOTA_PROOF_REF` selects a predecessor red control; `AGY_QUOTA_PACKET`
+  supplies retained ledger/freeze examples. The two-write gap is a deterministic
+  model, not a new runtime trace. Missing/non-limit outcomes remain failures;
+  do not replace the freeze assertion with ledger completion or a fixed sleep.
+
 - All labeled seed waits use `SEED_SETTLE_TIMEOUT` from `tools/rig/seed-settle.mjs`:
   120 seconds for the existing 60-second helper grace plus a 60-second execution
   budget. Local `settle`/`quiet` calls pass it explicitly, preserving non-seed

@@ -199,6 +199,16 @@ its single second removal. A timeout records a failed synchronization check.
 [verified: `tools/rig/proofs/muse-r4-removal.mjs`, `http/mailbox.rs::detail`,
 `domain/account_removal.rs`; 2026-10-24]
 
+Quota outcome synchronization: `agy-lane.mjs` reads `ot.agents.frozen` by SQL.
+`Actor::end_turn` closes the turn ledger before its separate agent-freeze write;
+a recognized quota error is retained in the freeze record and the ordinary
+ledger error is cleared. An ended ledger row alone is not a completed quota
+outcome. The pia case waits up to 30 seconds for the freeze record, then checks
+`limit:true` unchanged. A missing or non-limit freeze still records the named
+failed check; timeout diagnostics retain the turn row. Keep all 27 runtime
+checks (28 source call sites in conditional branches) and quota/retry/pin controls.
+[verified: `tools/rig/proofs/agy-lane.mjs`, `runtime/actor.rs::end_turn`; 2026-10-25]
+
 The `credential-broker.mjs` proof prepares compiled offline `git.exe` and
 `gh.exe` fixtures before the engine starts. Both the engine and its interactive
 broker receive an allowlisted environment with scratch HOME/USERPROFILE and empty

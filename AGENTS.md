@@ -40,6 +40,10 @@ Seed waits share one helper-grace-plus-execution budget; local helper non-seed
 defaults and placement settings stay intact. See [seed settling](docs/rust-engine/test-rig.md#what-keeps-it-safe).
 [verified: `tools/rig/seed-settle.mjs`; 2026-10-25]
 
+An ended ledger row can precede its quota freeze record; quota proofs wait for
+the outcome itself. See [quota synchronization](docs/rust-engine/test-rig.md#what-keeps-it-safe).
+[verified: `runtime/actor.rs::end_turn`, `tools/rig/proofs/agy-lane.mjs`; 2026-10-25]
+
 ## Setting text case
 
 Every setting name, description/help text, settings section header and settings-screen button label uses sentence case: capitalize the first word and retain proper nouns, product names, acronyms and literal identifiers (Orgtree, Claude Code, Codex, Hubchat, MCP, org.md). Apply this to new and changed settings and keep quoted glossary/user-documentation labels aligned. [decided: user 2026-10-24, settings capitalization]
