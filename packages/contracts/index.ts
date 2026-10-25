@@ -156,13 +156,15 @@ export interface ProviderLoginStatus {
   started?: boolean
   error?: string
 }
-/** The first launch after an update, told once to the first window that asks
- *  (apps/desktop/main/changelog-launch.ts); `from` is null when the earlier
- *  version kept no record. */
+/** The first launch whose Changelog lists a newer published release than this
+ *  install last saw, told once to the first window that asks
+ *  (apps/desktop/main/changelog-launch.ts): `to` is that release, `from` the
+ *  one on record, null when the earlier version kept none. */
 export interface ChangelogAfterUpdate { from: string | null; to: string }
 export interface DesktopBridge {
   getAppVersion(): Promise<string>
-  /** null except for the first window of the first launch after an update */
+  /** null except for the first window of the first launch after an update
+   *  that brings a newer published release */
   takeChangelogAfterUpdate(): Promise<ChangelogAfterUpdate | null>
   installUpdate(): Promise<void>
   getStatus(): Promise<EngineStatus>

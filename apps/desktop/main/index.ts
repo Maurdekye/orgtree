@@ -43,6 +43,8 @@ import { MaintenanceController } from './maintenance'
 import { awaitInstallerProof, bounded, checkForUpdatesViaEvents, installerLogTail, installDirectoryWritable, installDownloadedUpdate, MANUAL_UPGRADE_URL, pendingUpdateHold, prepareAndHandOff, refreshTrayUpdateMenu, sanitizeUpdateDetail, uninstallRegistryGuid, updateAttemptFailed, updateFailureDialogOptions, updateFailureToReport, UPDATE_DEADLINES, UpdateController, UpdateLog, updateLogger, updateReplacementInFlight, updateWatchdogMs } from './updater'
 import type { InstallableUpdater, UpdateStatus } from './updater'
 import { CHANGELOG_SEEN_FILE, ChangelogLaunch } from './changelog-launch'
+// the Changelog's published releases, the same file the engine bundles (crate::changelog)
+import releaseList from '../../../docs/releases.json'
 import { appImagePath, appImageRelaunch, appImageRelaunchEnv, replaceAppImage } from './appimage-update'
 import { buildPermitsUpdateFixture, confineExecutorToLoopback, prepareUpdateFixture, privateFeedDecision, UPDATE_FEED_ENV, UPDATE_FIXTURE_ENV } from './update-fixture'
 import type { PreparedFixture } from './update-fixture'
@@ -229,11 +231,12 @@ else {
   // by default, which a packaged Windows GUI process discards. Stages and
   // errors are written here instead, sanitized, beside the other desktop state.
   const updateLog = new UpdateLog(path.join(app.getPath('userData'), 'update-log.json'))
-  // The Changelog after an update (main/changelog-launch.ts). Decided BEFORE
-  // this run's own 'startup' line is written, so the log speaks only of
-  // earlier runs: none at all is a fresh install.
+  // The Changelog after an update (main/changelog-launch.ts): when it lists a
+  // newer published release than this install last saw. Decided BEFORE this
+  // run's own 'startup' line is written, so the log speaks only of earlier
+  // runs: none at all is a fresh install.
   const changelogLaunch = new ChangelogLaunch(path.join(app.getPath('userData'), CHANGELOG_SEEN_FILE),
-    app.getVersion(), updateLog.all().length > 0)
+    releaseList, app.getVersion(), updateLog.all().length > 0)
   // An installer-requested shutdown and whatever started the application again
   // are two halves of one event, and the log recorded neither. This is the
   // second half: the entry that says how this run began, written next to the
