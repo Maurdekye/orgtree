@@ -149,7 +149,7 @@ module.exports = async (page, { args }) => {
   res.browser.editing = await page.eval(() => !!document.querySelector('.ls-edit'))
   res.browser.offered = await offered(args.cards.many)
   await page.screenshot('5-browser-saves-at-once')
-  await tagButton('.ls-browser .orr-pager', 'done', 'data-done-target')
+  await tagButton('.ls-browser .orr-pager', 'Done', 'data-done-target')
   await press('[data-done-target]')
   await page.waitFor('.ls-browser', { timeout: 10000, gone: true }).catch(() => null)
   res.browser.closed = await page.eval(() => !document.querySelector('.ls-browser'))
@@ -189,7 +189,7 @@ module.exports = async (page, { args }) => {
   await press('[data-pick-target]')
   await page.waitFor(() => document.querySelector('[data-pick-target]')?.getAttribute('aria-pressed') === 'true', { timeout: 15000 })
   res.or.picked = { favorites: await favorites() }
-  await tagButton('.orr-picker .orr-pager', 'done', 'data-done-target')
+  await tagButton('.orr-picker .orr-pager', 'Done', 'data-done-target')
   await press('[data-done-target]')
   await page.waitFor('.orr-picker', { timeout: 10000, gone: true }).catch(() => null)
   res.or.closed = await page.eval(() => !document.querySelector('.orr-picker'))

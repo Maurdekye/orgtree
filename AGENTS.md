@@ -64,6 +64,10 @@ warnings; a failed driver's empty console fallback is not a no-warning proof.
 See [picker controls](docs/rust-engine/test-rig.md#what-keeps-it-safe).
 [verified: `tools/rig/desktop/org-accounts-picker.cjs`; 2026-10-25]
 
+Provider-chip probes use the current Done text in both browser pagers and retain
+catalog/OpenRouter negatives and raw warnings. See [pager controls](docs/rust-engine/test-rig.md#what-keeps-it-safe).
+[verified: `tools/rig/desktop/provider-chips.cjs`; 2026-10-25]
+
 ## Setting text case
 
 Every setting name, description/help text, settings section header and settings-screen button label uses sentence case: capitalize the first word and retain proper nouns, product names, acronyms and literal identifiers (Orgtree, Claude Code, Codex, Hubchat, MCP, org.md). Apply this to new and changed settings and keep quoted glossary/user-documentation labels aligned. [decided: user 2026-10-24, settings capitalization]

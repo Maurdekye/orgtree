@@ -160,6 +160,21 @@ approval check, whose failure was also measured on v4.4.0.
 
 ## What keeps it safe
 
+The provider-chip driver matches `Done` in both the language-server browser and
+the OpenRouter picker. Keep the exact text match, original centre-hit wait,
+timeouts, screenshots and all 16 checks in `provider-chips.mjs`; missing controls
+must still fail. A driver throw discards its accumulated value, so downstream
+false predicates are not measurements of those UI states. Preserve the catalog
+order/favorite, OpenRouter and raw console-warning failures separately; matching
+failed names need not mean matching causes. Do not suppress SvgIcon/MenuIcon
+warnings or count the unexecuted OpenRouter/light stages as passes.
+`node --test tools/rig/tests/provider-chips.test.mjs` exercises both actual
+tag/press call sites with absent/covered-button controls and replays the complete
+original proof over synthetic data, retaining catalog, offer, browser, picker,
+size, light-theme and console negatives. It starts no window, service or engine;
+functional approval still needs the assigned isolated renderer proof.
+[verified: `tools/rig/{desktop/provider-chips.cjs,proofs/provider-chips.mjs}`; 2026-10-25]
+
 The organization-template create bridge explicitly returns a null Promise for
 `takeChangelogAfterUpdate`: a fresh synthetic profile has no post-update notice.
 Keep synchronous subscription cleanup and the strict unknown-member refusal.
