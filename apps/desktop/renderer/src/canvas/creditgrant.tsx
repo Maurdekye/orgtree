@@ -47,8 +47,8 @@ export function CreditGrant({ node, map, tree, op }: {
 }) {
   return <CreditGrantControl value={node.grant ?? 0} limits={grantLimits(node, map, tree)}
     seat={node.seat ?? 0} segments={creditSegments(node.children)}
-    onCommit={async next => {
-      const result = await op({ op: 'reallocate', node: node.id, delta: next - (node.grant ?? 0) }, { quiet: true })
+    onCommit={async (next, previous) => {
+      const result = await op({ op: 'reallocate', node: node.id, delta: next - previous }, { quiet: true })
       return typeof result.grant === 'number' ? result.grant : next
     }} />
 }
@@ -57,7 +57,8 @@ export function CreditGrant({ node, map, tree, op }: {
 export function CreditGrantControl({ value: server, limits, seat, segments = [], onCommit }: {
   value: number; limits: { min: number; max: number; unavailable?: boolean }; seat: number
   segments?: { seat: number; grant: number }[]
-  onCommit: (value: number) => number | void | Promise<number | void>
+  /** Absolute target and accepted baseline; drafts can ignore the second argument. */
+  onCommit: (value: number, previous: number) => number | void | Promise<number | void>
 }) {
   const label = useId()
   const track = useRef<HTMLDivElement>(null)
@@ -130,7 +131,7 @@ export function CreditGrantControl({ value: server, limits, seat, segments = [],
     if (next === grant || min > max || limits.unavailable) { setDraft(null); return }
     saving.current = true; setPending(true); setError('')
     try {
-      const result = await onCommit(next)
+      const result = await onCommit(next, grant)
       setAccepted({ from: server, value: typeof result === 'number' ? result : next })
     } catch (e) { setError(e instanceof Error ? e.message : String(e)) }
     finally { saving.current = false; setPending(false); setDraft(null) }

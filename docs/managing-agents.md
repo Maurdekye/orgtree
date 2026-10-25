@@ -58,6 +58,8 @@ A live agent can hold capacity while idle, halted or waiting for a provider rese
 
 The **Credit grant** bar in Scope saves when its gesture commits, independently of the form's Save. Escape cancels an unfinished gesture. The minimum protects capacity already held by reports. The visible scale can grow during dragging; it is not permission to exceed the engine's live limit. Arrow keys adjust it, with Home/End selecting the available bounds.
 
+After a successful grant change, the next edit uses that accepted value while the tree refresh is pending: 5 to 10 followed by 12 adds five credits and then two. A refused change keeps the previous grant. Draft settings stage the absolute grant until Hire.
+
 Projects cost no seat and hold no independent grant. The credit display passes through nested projects to the agents below them. [Settings and usage](settings-and-usage.md) explains the app's credit-bubbling preferences for your own staffing changes.
 
 ## Give the agent the right access

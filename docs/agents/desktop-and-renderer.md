@@ -33,7 +33,11 @@ publish effect to avoid an update loop. Draft rows and section groups keep
 their natural height in the fixed-height scrolling panel. Existing live-agent
 settings retain their explicit Save path. The draft shares Charter/Model/Scope/Tools tabs,
 charter, fallback, compaction, native-tool and credit-editor presentation with live settings.
-`CreditGrantControl` accepts a local commit callback; never mount `NodeConfig` against a fake node.
+`CreditGrantControl` passes the absolute target and its displayed/accepted baseline
+to the commit callback. Live `CreditGrant` subtracts that baseline, never stale
+`node.grant`, so a second edit before tree refresh cannot overallocate. Draft
+callbacks retain the first argument's absolute semantics; never mount `NodeConfig`
+against a fake node.
 DraftNode owns identity, compiled instructions, grant and tab; the scope snapshot owns other preferences.
 Model changes remount the snapshot after clearing version/speed and sanitizing account/effort.
 `confirmDraft` forwards every independent preference in both direct and undo hires, omitting

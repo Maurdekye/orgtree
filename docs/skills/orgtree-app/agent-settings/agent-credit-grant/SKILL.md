@@ -11,6 +11,11 @@ Up: [orgtree-agent-settings](../SKILL.md)
 
 This control saves immediately through a reallocation when the gesture commits. It does not wait for the form's Save, and the form's Cancel does not reverse an accepted grant.
 
+After a successful save, another edit starts from the accepted grant even before
+the tree refresh arrives. Moving from 5 to 10 and then to 12 sends changes of +5
+and +2. A refused save leaves the previous grant in place. Draft credit edits
+still stage an absolute grant for Hire rather than reallocating a live node.
+
 The bar's allocation segments represent agent reports. It passes through projects (including nested projects), so grouping agents in a project adds no segment and leaves their credit display unchanged. Each agent's own team remains grouped in its grant.
 
 - Drag from the bar; a six-pixel movement threshold prevents accidental drags. Hold in its rightmost 10% after starting a drag to expand the visible range over time. The visible scale is not the maximum allowance.
