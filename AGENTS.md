@@ -57,6 +57,11 @@ Rig live-root guards retain import-time `APPDATA`/home/data-override paths after
 
 ## Engine and desktop invariants
 
+- Native proof admission accepts the owner's C build home/run scope and retained
+  D rigs, preserving canonical/reparse and disposable metadata/DB checks. See
+  [native fixture inputs](docs/agents/development-and-verification.md#renderer-capture-and-rig-traps).
+  [verified: `domain/native_fixture.rs`; 2026-10-25]
+
 - Every file the engine compile reads outside its crates (an `include_str!` path
   or a `build.rs` input such as `docs/releases.json`) is copied by
   `standalone/Dockerfile` and has its own exception in its allowlist;

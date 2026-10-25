@@ -300,9 +300,12 @@ not execute; never count it as a product result.
   2026-10-22]
 
 - Native project-boundary proofs require explicit `ORGTREE_AGENT`,
-  `ORGTREE_RIG_HOME` below `D:/orgtree-work/rig/<owner>`,
+  `ORGTREE_RIG_HOME` below the owner's `C:/orgtree-build/<owner>` scope,
   `ORGTREE_BOUNDARY_NATIVE_EXE` and `ORGTREE_CLAIM_TEST_OUTPUT` below the
-  owner's `C:/orgtree-build/<owner>` scope. The runner supplies its run root,
+  owner's `C:/orgtree-build/<owner>` scope. Admission also accepts retained
+  `D:/orgtree-work/rig/<owner>` homes; current storage policy still owns where
+  new generated fixtures may be written. The run root must be a direct child
+  of the admitted home's `runs` directory. The runner supplies its run root,
   database URL/org and exports v4.3.3 migrations into that output. Test-only
   admission rejects absent/foreign/live paths, traversal and reparse points;
   it checks run ownership/marker, disposable DB/user, loopback port/credentials
@@ -313,6 +316,11 @@ not execute; never count it as a product result.
   `hostaddr=192.0.2.1` and requires refusal; the metadata admission control also
   appends that override to its actual good owned config. These controls require
   no outside probe and do not repeat the seven functional boundary cases.
+  The ignored `native_fixture` metadata tests admit an owned C fixture without
+  connecting, then exercise foreign/live/traversal, phase, metadata, provider,
+  port/credential and junction refusals. Supply all three owned link fixtures
+  with `ORGTREE_NATIVE_FIXTURE_LINK_{HOME,ROOT,OUTPUT}` and run these tests
+  serially: the metadata control restores its own bytes between mutations.
   One guard control precedes the unchanged seven named boundary cases. Engine
   fixture outputs and migration reads use the supplied owned output; never
   select another author's executable or bypass admission to reuse a rig.

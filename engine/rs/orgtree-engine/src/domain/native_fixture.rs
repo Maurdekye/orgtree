@@ -57,8 +57,12 @@ impl Fixture {
         ensure!(!input.owner.is_empty() && input.owner.len() <= 64 && input.owner.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_'), "invalid synthetic owner");
         let owned_rig = Path::new("D:/orgtree-work/rig").join(&input.owner);
         let owned_build = Path::new("C:/orgtree-build").join(&input.owner);
-        let home = owned_path(Path::new(&input.home), &owned_rig)?;
-        let root = owned_path(Path::new(&input.root), &owned_rig)?;
+        // New generated fixtures belong to the owner's C build scope. Keep
+        // admission of retained D rigs, with the same canonical/reparse guards.
+        let home = owned_path(Path::new(&input.home), &owned_build)
+            .or_else(|_| owned_path(Path::new(&input.home), &owned_rig))?;
+        let root = owned_path(Path::new(&input.root), &owned_build)
+            .or_else(|_| owned_path(Path::new(&input.root), &owned_rig))?;
         ensure!(root.parent() == Some(home.join("runs").as_path()), "root must be a direct run in the owned rig home");
         let output = owned_path(Path::new(&input.output), &owned_build)?;
         ensure!(output != owned_build.canonicalize()?, "output must be a private phase below the owned build scope");
@@ -138,12 +142,72 @@ async fn rejects_invalid_inputs() {
     let mut bad = good.clone(); bad.root = std::env::var("APPDATA").unwrap_or_default(); assert!(Fixture::validate(&bad).is_err());
     let mut bad = good.clone(); bad.output = "C:/orgtree-build/other-owner".into(); assert!(Fixture::validate(&bad).is_err());
     let mut bad = good.clone(); bad.output.clear(); assert!(Fixture::validate(&bad).is_err());
+    let mut bad = good.clone(); bad.home = std::env::var("APPDATA").unwrap_or_default(); assert!(Fixture::validate(&bad).is_err());
+    let mut bad = good.clone(); bad.home = format!("{}/../escape", good.home); assert!(Fixture::validate(&bad).is_err());
+    let mut bad = good.clone(); bad.root = format!("{}/../escape", good.root); assert!(Fixture::validate(&bad).is_err());
+    let mut bad = good.clone(); bad.output = format!("{}/../escape", good.output); assert!(Fixture::validate(&bad).is_err());
+    let mut bad = good.clone(); bad.root = format!("{}/data", good.root); assert!(Fixture::validate(&bad).is_err(), "only a direct child of home/runs is admitted");
+    let mut bad = good.clone(); bad.output = format!("C:/orgtree-build/{}", good.owner); assert!(Fixture::validate(&bad).is_err(), "output needs its own phase");
     let mut bad = good.clone(); bad.url.clear(); assert!(Fixture::validate(&bad).is_err());
     let mut bad = good.clone(); bad.url.push_str(" password=wrong"); assert!(Fixture::validate(&bad).is_err());
     let mut bad = good.clone(); bad.url.push_str(" hostaddr=192.0.2.1"); assert!(Fixture::validate(&bad).is_err());
+    let mut bad = good.clone(); bad.url.push_str(" options='-c search_path=public'"); assert!(Fixture::validate(&bad).is_err());
     assert!(fixture.input_file(Path::new("C:/Windows")).is_err());
     assert!(fixture.input_file(&fixture.output).is_err());
     for url in ["host=192.0.2.1 user=orgtree_admin dbname=orgtree_engine", "host=127.0.0.1 user=postgres dbname=postgres", "host=127.0.0.1 user=orgtree_admin dbname=orgtree_engine port=1"] {
         let mut bad = good.clone(); bad.url = url.into(); assert!(Fixture::validate(&bad).is_err());
+    }
+}
+
+#[tokio::test]
+#[ignore = "requires supplied owned synthetic metadata, never connects"]
+#[nolog]
+async fn rejects_invalid_run_metadata() {
+    let good = Inputs::from_env().unwrap();
+    let fixture = Fixture::validate(&good).unwrap();
+    let run = fixture.root.join("run.json");
+    let marker = fixture.root.join("data/.orgtree-rig-root");
+    let attach = fixture.root.join("data/pg/cluster/pg-attach.json");
+    let credentials = fixture.root.join("data/pg/cluster/secrets/credentials.json");
+    for (path, patch) in [
+        (&run, serde_json::json!({"by":"other-owner"})),
+        (&run, serde_json::json!({"status":"stopped"})),
+        (&run, serde_json::json!({"id":"another-run"})),
+        (&run, serde_json::json!({"data":good.home})),
+        (&run, serde_json::json!({"realCli":true})),
+        (&run, serde_json::json!({"realMuse":true})),
+        (&run, serde_json::json!({"realOpenCode":true})),
+        (&marker, serde_json::json!({"rig":0})),
+        (&marker, serde_json::json!({"run":"another-run"})),
+        (&attach, serde_json::json!({"port":0})),
+        (&attach, serde_json::json!({"port":65536})),
+        (&attach, serde_json::json!({"port":1})),
+        (&credentials, serde_json::json!({"orgtree_admin":""})),
+        (&credentials, serde_json::json!({"orgtree_admin":"synthetic-other-password"})),
+    ] {
+        let original = std::fs::read(path).unwrap();
+        let mut value: Value = serde_json::from_slice(&original).unwrap();
+        value.as_object_mut().unwrap().extend(patch.as_object().unwrap().clone());
+        std::fs::write(path, serde_json::to_vec(&value).unwrap()).unwrap();
+        let refused = Fixture::validate(&good).is_err();
+        std::fs::write(path, original).unwrap();
+        assert!(refused, "changed synthetic metadata must be refused");
+    }
+    Fixture::validate(&good).expect("original metadata is restored");
+}
+
+#[tokio::test]
+#[ignore = "requires supplied owned synthetic junctions, never connects"]
+#[nolog]
+async fn rejects_linked_owned_paths() {
+    let good = Inputs::from_env().unwrap();
+    Fixture::validate(&good).unwrap();
+    for (field, key) in [("home", "ORGTREE_NATIVE_FIXTURE_LINK_HOME"),
+        ("root", "ORGTREE_NATIVE_FIXTURE_LINK_ROOT"), ("output", "ORGTREE_NATIVE_FIXTURE_LINK_OUTPUT")] {
+        let linked = std::env::var(key).expect("explicit owned link fixture");
+        let mut bad = good.clone();
+        match field { "home" => bad.home = linked, "root" => bad.root = linked, _ => bad.output = linked }
+        let error = Fixture::validate(&bad).err().expect("linked paths must be refused");
+        assert!(error.to_string().contains("reparse") || error.to_string().contains("symlink"), "refuse the link before reading metadata");
     }
 }
