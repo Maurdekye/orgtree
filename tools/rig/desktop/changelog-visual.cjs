@@ -1,8 +1,12 @@
 // Changelog captures (changelog-window-one-row-per-version-pinnable-po): the
 // panel on the latest release with its real notes and GitHub publish times, an
 // older release selected, the header's "Show this every time" checkbox cleared
-// by a CDP pointer click, and the app menu with Changelog below Usage history.
-// Dark and light.
+// by a CDP pointer click, a narrower window's collapsed version list opened,
+// and the app menu with Changelog below Usage history. Dark and light. Every
+// panel scene measures the list (USER 2026-10-25 10:14:15Z: "narrow the list
+// significantly, bolden and increase the size of the verison number, put the
+// timestamp on a new line left-aligned"): its drawn width, and in each row the
+// version's weight and size and the time's line, left edge and clipping.
 //
 // ISOLATION (docs/agents/development-and-verification.md, test-window session
 // and clipboard isolation): an offscreen window inherits the launching turn's
@@ -74,13 +78,21 @@ app.whenReady().then(async () => {
     const tick=every?.querySelector('input[type=checkbox]');
     const at=(el)=>{if(!el)return false;const r=el.getBoundingClientRect();return el.contains(document.elementFromPoint(r.left+r.width/2,r.top+r.height/2))};
     const v=window.changelogVisual;
+    const list=m.querySelector('.mailer-list');
+    const inner=(()=>{if(!list)return null;const r=list.getBoundingClientRect();return {x:Math.round(r.left+list.clientLeft),w:list.clientWidth}})();
     return {title:m.querySelector('.gallery-head h3')?.textContent.trim(),
       every:every?{text:every.textContent.trim(),checked:!!tick?.checked,label:box(every),input:box(tick),hit:at(tick),
         h3:box(m.querySelector('.gallery-head h3'))}:null,
       stored:localStorage.getItem('orgtree-changelog-after-update'),link:!!m.querySelector('.changelog-setting-link'),
       listed:v.listed.map(r=>r.version),published:v.listed.map(r=>v.stamp(r.published_at)),tagged:v.listed.map(r=>v.stamp(r.tagged_at)),
-      rows:rows.map(r=>({version:r.querySelector('.mfrom')?.textContent,time:r.querySelector('.mtime')?.textContent,
-        on:r.classList.contains('on'),box:box(r)})),
+      rows:rows.map(r=>{const ver=r.querySelector('.l1 .mfrom'),time=r.querySelector('.mtime'),l2=r.querySelector('.l2');
+        const vs=ver&&getComputedStyle(ver),ts=time&&getComputedStyle(time);
+        return {version:ver?.textContent,time:time?.textContent,on:r.classList.contains('on'),box:box(r),
+          lines:[...r.children].map(c=>c.className),v:box(ver),t:box(time),
+          weight:vs?Number(vs.fontWeight):null,vsize:vs?parseFloat(vs.fontSize):null,tsize:ts?parseFloat(ts.fontSize):null,
+          tfont:ts?ts.fontFamily:null,clipped:l2?l2.scrollWidth>l2.clientWidth:null}}),
+      mailer:box(m.querySelector('.mailer')),wrap:box(m.querySelector('.mailer-listwrap')),inner,
+      open:!!m.querySelector('.mailer.narrow-list-open'),
       meta:m.querySelector('.mailer-read .doc-pane-meta-row')?.textContent,
       heading:m.querySelector('.mailer-read .changelog-notes h1')?.textContent??null,
       empty:m.querySelector('.mailer-read .dim.pad')?.textContent??null,pane:box(m.querySelector('.mailer-read')),
@@ -131,7 +143,19 @@ app.whenReady().then(async () => {
       await wait(`()=>!document.querySelector('.changelog-modal .changelog-every-time input').checked`, 'the checkbox cleared')
       const unticked = { ...(await js(panelState)), click }
       await shot(`${theme}-unticked`)
-      // 4. the app menu, open
+      // 4. a narrower window: the list collapses behind its rail (896 px, canvas/narrowlist.tsx) and opens as an
+      //    overlay as narrow as the column; measured after the overlay's slide-in has settled
+      win.setContentSize(800, 700)
+      await wait(`()=>document.querySelector('.changelog-modal .mailer.narrow-list')`, 'the collapsed list')
+      await js(`document.querySelector('.changelog-modal .mailer-listtoggle').click()`)
+      await wait(`()=>document.querySelector('.changelog-modal .mailer.narrow-list-open')`, 'the opened list')
+      await settle()
+      const narrow = await js(panelState)
+      await shot(`${theme}-narrow`)
+      await js(`document.querySelector('.changelog-modal .mailer-listtoggle').click()`)
+      win.setContentSize(1024, 700)
+      await wait(`()=>!document.querySelector('.changelog-modal .mailer.narrow-list')`, 'the list back in its column')
+      // 5. the app menu, open
       await js(`window.changelogVisual.menu()`)
       await wait(`()=>document.querySelector('.shell-menu-button')`, 'the menu button')
       await js(`document.querySelector('.shell-menu-button').click()`)
@@ -139,18 +163,29 @@ app.whenReady().then(async () => {
       const menu = await js(`[...document.querySelectorAll('.shell-menu-item .shell-menu-label')].map(e=>{const r=e.getBoundingClientRect();return {label:e.textContent,y:Math.round(r.top),h:Math.round(r.height)}})`)
       await shot(`${theme}-menu`)
       await js(`document.querySelector('.shell-menu-button').click()`)
-      checks.push({ theme, latest, older, unticked, menu })
+      checks.push({ theme, latest, older, unticked, narrow, menu })
     }
     const sized = (b) => !!b && b.w > 0 && b.h > 0
     // inline: the checkbox line shares the title's line, to its right
     const inline = (e) => !!e && sized(e.label) && sized(e.input) && e.hit && e.label.x >= e.h3.x + e.h3.w
       && e.label.y < e.h3.y + e.h3.h && e.label.y + e.label.h > e.h3.y
-    const passed = checks.every(({ latest, older, unticked, menu }) => {
+    // each row: the version bold, larger than its time and alone on the first line; the time alone on the line
+    // below, starting at the version's left edge, in the mono, whole and inside the list's scrollbar
+    const twoLines = (s) => s.rows.length > 0 && s.rows.every(r => r.lines.join() === 'l1,l2' && r.weight >= 700
+      && r.vsize >= 14 && r.vsize > r.tsize && /Consolas|mono/i.test(r.tfont ?? '') && sized(r.v) && sized(r.t)
+      && r.t.y >= r.v.y + r.v.h - 1 && Math.abs(r.t.x - r.v.x) <= 1 && r.clipped === false
+      && r.t.x + r.t.w <= s.inner.x + s.inner.w)
+    const passed = checks.every(({ latest, older, unticked, narrow, menu }) => {
       const at = menu.findIndex(m => m.label === 'Changelog…')
       const stacked = menu.every((m, i) => i === 0 || m.y > menu[i - 1].y)
       return latest.title === 'Changelog' && !latest.link
         && latest.every?.text === 'Show this every time' && latest.every.checked && inline(latest.every)
         && [latest, older, unticked].every(s => !s.narrow && s.listShown && sized(s.list))
+        // the column: 150 px drawn, under a quarter of the list-and-pane (the gallery's third was ~390 px for the user)
+        && [latest, older, unticked].every(s => Math.abs(s.list.w - 150) <= 1 && s.list.w * 4 < s.mailer.w && twoLines(s))
+        // the collapsed list, opened: an overlay as narrow as the column, its rows the same two lines
+        && narrow.narrow && narrow.open && narrow.listShown && Math.abs(narrow.wrap.w - 150) <= 1 && twoLines(narrow)
+        && narrow.rows.find(r => r.on)?.version === '4.4.3'
         && latest.rows[0].version === '4.4.4' && latest.rows[0].on && latest.rows.every(r => /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/.test(r.time) && sized(r.box))
         && latest.rows.map(r => r.version).join() === latest.listed.join() && latest.listed[0] === '4.4.4'
         && latest.rows.every((r, i) => r.time === latest.published[i]) && latest.published[0] !== latest.tagged[0]

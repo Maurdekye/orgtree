@@ -2,8 +2,9 @@
 // changelog-window-one-row-per-version-pinnable-po: the Changelog panel on the
 // latest release with its real notes and GitHub publish times (the repo's own
 // release-notes files and docs/releases.json), an older release selected, the
-// header's "Show this every time" checkbox cleared, and the app menu with the
-// Changelog entry below Usage history. The panel, menu and styles are the
+// header's "Show this every time" checkbox cleared, the version list collapsed
+// in a narrower window and opened, and the app menu with the Changelog entry
+// below Usage history. The panel, menu and styles are the
 // app's own; the engine's two reads are answered here from those rows.
 // Browser-only fixture data: no engine, bridge or live org. The page has no
 // clipboard: its APIs are replaced below, before anything renders.
