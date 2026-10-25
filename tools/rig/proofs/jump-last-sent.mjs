@@ -17,9 +17,30 @@ export default async function (rig) {
   const p = new Proof('jump-last-sent')
   const transcript = Array.from({ length: 35 }, (_, i) => `Paragraph ${i + 1}. A transcript row for checking scroll layout.`).join('\n\n')
   rig.scenario({ default: { turns: [{ steps: [{ text: transcript }] }] } })
-  await rig.userMail('rhea', 'FIRST-QUESTION: write the scroll layout sample.')
-  await rig.waitFor(() => rig.sql('SELECT 1 FROM ot.turns WHERE ended_at IS NULL').length === 0 && rig.turns('rhea').length > 0,
-    { what: 'sample transcript completes', timeout: 60000 })
+  // An ended seed turn does not prove this sample mail has run. Follow its
+  // accepted UID through delivery to its own successful completed turn.
+  let sampleMail, sampleTurn
+  try {
+    sampleMail = await rig.userMail('rhea', 'FIRST-QUESTION: write the scroll layout sample.')
+    if (sampleMail?.accepted !== true || typeof sampleMail.id !== 'string' || !sampleMail.id)
+      throw new Error('sample mail has no accepted receipt UID')
+    const sampleUid = sampleMail.id.replace(/'/g, "''")
+    const sampleOrg = rig.org.replace(/'/g, "''")
+    await rig.waitFor(() => {
+      sampleTurn = rig.one(`SELECT m.uid, m.state, m.turn_id, t.ended_at, t.killed, t.error
+        FROM ot.mail m JOIN ot.agents a ON a.id = m.recipient_agent_id
+        JOIN ot.orgs o ON o.id = a.org_id AND m.org_id = o.id
+        LEFT JOIN ot.turns t ON t.id = m.turn_id AND t.agent_id = a.id
+        WHERE o.slug = '${sampleOrg}' AND a.name = 'rhea' AND m.uid = '${sampleUid}'`)
+      return sampleTurn?.state === 'delivered' && Number.isInteger(sampleTurn.turn_id)
+        && !!sampleTurn.ended_at && sampleTurn.killed === false && sampleTurn.error === null
+    }, { what: 'sample transcript completes in its own delivered turn', timeout: 120000 })
+    p.file('sample-turn.json', { receipt: sampleMail, turn: sampleTurn })
+  } catch (e) {
+    p.check('sample mail reaches its own completed turn before the desktop opens', false,
+      { receipt: sampleMail ?? null, turn: sampleTurn ?? null, error: e.message })
+    throw e
+  }
   const evidence = path.join(rigHome(), 'evidence', 'jump-last-sent-' + Date.now())
   const r = await runDesktop(rig, path.join(path.dirname(fileURLToPath(import.meta.url)), '../desktop/jump-last-sent.cjs'),
     { out: evidence, args: { org: rig.org, agent: 'rhea', token: 'FIRST-QUESTION' }, timeout: 90000 })

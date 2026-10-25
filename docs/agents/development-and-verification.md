@@ -348,6 +348,14 @@ not execute; never count it as a product result.
   model the ledger/runtime gap, not a new engine run. Missing or mismatched seats
   fail before DELETE; preserve lawful busy refusals without mutation retries.
 
+- `jump-last-sent.mjs` sample-turn controls replay its actual send/setup block
+  through `Rig.waitFor`: `node --test tools/rig/tests/jump-last-sample-turn.test.mjs`.
+  `JUMP_LAST_SAMPLE_PROOF_REF` selects a predecessor red control. Virtual-clock
+  relational rows cover prior seeds, exact receipt/agent/org identity, delivery,
+  helper grace, failed/killed turns and durable setup failures. Preserve all three
+  original scroll checks and the unchanged driver; replay starts no engine or UI
+  and cannot establish a functional jump pass. See [sample synchronization](../rust-engine/test-rig.md#what-keeps-it-safe).
+
 - All labeled seed waits use `SEED_SETTLE_TIMEOUT` from `tools/rig/seed-settle.mjs`:
   120 seconds for the existing 60-second helper grace plus a 60-second execution
   budget. Local `settle`/`quiet` calls pass it explicitly, preserving non-seed

@@ -232,6 +232,17 @@ failure before any DELETE; a lawful 409 is retained without a mutation retry.
 [verified: `tools/rig/proofs/codex-accounts.mjs`, `http/mailbox.rs::detail`,
 `domain/account_removal.rs`, `runtime/actor.rs::end_turn`; 2026-10-25]
 
+Sample-turn synchronization: `jump-last-sent.mjs` follows the accepted sample
+mail UID through its org/recipient-scoped delivery row to that same agent's
+successful ended turn. A prior ended seed is insufficient; an unrelated running
+turn does not block this sample. The single 120-second bound covers helper grace
+and execution, without changing placement or retrying mail. It saves the receipt
+and matched turn before desktop launch; send/setup/timeout failures record a
+named FAIL before launch. Keep all three original scroll checks and the desktop
+driver unchanged. Deterministic setup replay is not a functional desktop pass.
+[verified: `tools/rig/proofs/jump-last-sent.mjs`, `http/nodes.rs::message`,
+`runtime/actor.rs`, `domain/mail.rs::acknowledge_turn`; 2026-10-25]
+
 The `credential-broker.mjs` proof prepares compiled offline `git.exe` and
 `gh.exe` fixtures before the engine starts. Both the engine and its interactive
 broker receive an allowlisted environment with scratch HOME/USERPROFILE and empty
