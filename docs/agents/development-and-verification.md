@@ -123,6 +123,15 @@ not execute; never count it as a product result.
 
 ## Renderer, capture and rig traps
 
+- Concurrent-retire proofs identify a warm fake CLI by PID, native creation
+  ticks and the owned executable, keeping before/after snapshots. A reused PID
+  does not keep its old owner alive; unknown identity still fails. Preserve all
+  ten retire checks and the 30 s wait. The focused
+  `tools/rig/tests/retire-concurrent-identity.test.mjs` executes the complete
+  proof over synthetic process tables and a virtual clock, including live-owner,
+  query-refusal and precision controls. See [process identity](../rust-engine/test-rig.md#what-keeps-it-safe).
+  [verified: `tools/rig/proofs/retire-concurrent.mjs`; 2026-10-25]
+
 - **A capture fixture loads what main.tsx loads, at the width the app would.**
   The app menu's dropdown and other v3 shell rules live in `shell.css`, which
   `main.tsx` imports after `styles.css`; a fixture importing only `styles.css`

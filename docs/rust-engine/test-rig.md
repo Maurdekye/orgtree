@@ -173,6 +173,21 @@ zoom/position controls. It opens no window or engine and retires no real agent;
 functional acceptance still requires the assigned isolated renderer recheck.
 [verified: `tools/rig/{desktop,proofs}/retire-focused-fit.*`; 2026-10-25]
 
+`retire-concurrent.mjs` binds each warm fake CLI's PID to its native Windows
+creation ticks and the expected executable in that run's `bin` before retiring
+the workers. Creation ticks stay decimal strings to preserve 100 ns precision.
+Its original ten checks and 30 s exit wait remain: a missing PID or a different
+creation identity proves the original process is gone; a still-running captured
+identity or unavailable, malformed or ambiguous identity fails. Native query
+failures never become empty process tables. The before/after snapshots are saved
+alongside the result, including failures. `Rig.waitFor` rejects empty arrays, so
+the successful exit observation uses a result envelope rather than `[]`.
+`node --test tools/rig/tests/retire-concurrent-identity.test.mjs` runs the complete
+proof with synthetic process tables, tool replies and a virtual clock; it opens
+no engine, process or database. The original 950 run's native CLI exit is recorded,
+but PID reuse at its later failed sample remains inferred because that sample
+did not retain creation identity. Do not relabel its 9P1F as a measured pass.
+
 The provider-chip driver matches `Done` in both the language-server browser and
 the OpenRouter picker. Keep the exact text match, original centre-hit wait,
 timeouts, screenshots and all 16 checks in `provider-chips.mjs`; missing controls
