@@ -1,30 +1,32 @@
 # Custom apps and panels
 
 An app is a small HTML program kept by one organization. A panel is one saved
-copy, with its own label and JSON data. Two copies keep separate data. Closing a
-panel keeps it; deleting it removes that copy. App definitions and saved state
-live in Orgtree's database and survive an engine restart.
+copy with its own label and JSON data. Closing keeps it; deleting removes it.
+Definitions and committed data live in Orgtree's database across restarts.
 
-The first4.5.0 engine milestone provides this storage and the agent/API controls;
-the Apps menu, sandboxed host and import/export controls follow in later slices.
-The defaults below are provisional for the morning review.
+Open **Apps** beside Presentations in the org header. Clicking an app reopens its
+most recently used copy or creates the first one. **+ New panel** makes another
+copy from the initial state. Open and closed saved panels are listed below it.
+These defaults are provisional for the morning review.
 
-Opening an app reopens its most recently used copy, or creates the first one.
-New panel always starts another copy from the app's initial JSON state. Agents
-with Org-modifying tools can read or change an app or panel in their own org,
-including a copy made by another agent. The same category contains the Logo tool.
+Use the panel title menu for State, Rename, Linked agents, Activity, Permissions,
+Duplicate, placement or Delete. Drag the title or resize its corner. Float and
+Pin to screen stay in the viewport; Pin to canvas moves and zooms with the chart.
+Far zoom shows an icon, and hidden canvas HTML pauses until visible again.
+The title's pop-out opens a separate window; Return restores its previous place.
 
-An app definition accepts self-contained HTML up to4MiB and an initial JSON
-object. Each panel's state is limited to2MiB; an event is limited to64KiB. Changes
-use the current revision, so a concurrent edit is reported instead of replacing
-another edit silently. A panel's recent event log keeps256 entries.
+State opens editable JSON. Import changes the editor, Export saves it and Copy
+copies it. Reset loads initial data; Save is needed to commit either change. A
+concurrent edit reports a conflict. Each copy has its own data. A panel's recent
+Activity retains256 events. Linked agents can interpret/update any copy in this
+org with Org-modifying tools; linking does not grant permission.
 
-Declaring an engine capability does not grant it. No HTML engine-action channel
-is exposed in this storage milestone. The following host slice will keep HTML
-sandboxed with no network or same-origin access, and show permission decisions
-in Orgtree's own UI outside the app.
+Apps are opaque sandboxed HTML, with no engine credential or same-origin access.
+The current prototype provides saved state and named events, and refuses engine
+actions. Per-app permission prompts and app import/export follow in later slices.
+Declaring an engine capability does not grant it. App code is limited to4MiB,
+JSON state to2MiB and events to64KiB; these are provisional bounds.
 
-For agents, use orgtree_apps: list apps/panels, get a definition or saved panel,
-create/update/remove a definition, open/reopen/close/duplicate/remove a panel,
-replace or merge JSON state, and send/read recent events. Lists are paged and do
-not include HTML or saved state; request those explicitly by identity.
+Agents use orgtree_apps for the same lifecycle, placement, link, state and event
+controls. Org-modifying tools also contains Logo; the new category preserves old
+explicit Logo denials. Copy/export JSON use ordinary local clipboard/file actions.

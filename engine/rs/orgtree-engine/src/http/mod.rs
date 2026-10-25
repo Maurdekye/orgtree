@@ -82,7 +82,7 @@ pub fn router(engine: Arc<Engine>) -> Router {
         .route("/api/orgs/{slug}/mcp", post(usermcp::per_org).get(usermcp::no_stream))
         .route("/api/standalone/clients", get(client_tokens::list).post(client_tokens::create))
         .route("/api/standalone/clients/{id}", delete(client_tokens::revoke))
-        .route("/api/orgs/{slug}/apps", post(apps::request).layer(axum::extract::DefaultBodyLimit::max(32*1024*1024)))
+        .route("/api/orgs/{slug}/apps", post(apps::request).get(apps::read).layer(axum::extract::DefaultBodyLimit::max(32*1024*1024)))
         // organizations
         .route("/api/orgs", get(orgs::list).post(orgops::create))
         .route("/api/orgs/{slug}", get(orgs::tree).delete(orgops::delete))

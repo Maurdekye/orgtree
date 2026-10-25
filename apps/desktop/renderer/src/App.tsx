@@ -142,6 +142,8 @@ import { usageRefreshDisabledReason } from './usagerefreshpolicy'
 import { DocGalleryModal } from './canvas/gallery'
 import { HistoryView } from './history'
 import { DocketModal, DocketToolbarButton } from './canvas/docket'
+import { AppsButton, AppsWorkspace } from './canvas/apps/ui'
+import { invalidateCustomApps } from './canvas/apps/store'
 import { closeIfCentred, isModalPinned, PinFrame, raisePinnedModal, readModalOpen, toggleOrRaiseModal, usePersistedModalOpen, useScopedOpen } from './canvas/modalpin'
 import { HireDefaultsTab, orgDefaultTools, orgDirHoldings } from './canvas/modals'
 import { mailRefTarget, refToken, useRefRoutes } from './canvas/reflinks'
@@ -1243,6 +1245,7 @@ export default function App() {
         const send = (message: unknown) => {
           if (!dead && socket === currentSocket && socket.readyState === 1) socket.send(JSON.stringify(message))
         }
+        invalidateCustomApps(slug)
         connection = recordSocket.current.open(send)
         // rejoin this window's transcript rooms on every (re)connect
         bindRoomSocket(slug, send)
@@ -1276,6 +1279,7 @@ export default function App() {
       try { data = JSON.parse(ev.data) as WsEvent } catch { /* ignore */ }
       // EPIC Mode's tap: null (one check, arguments unevaluated) unless it is on
       epic?.frame(slug, data)
+      if ((data as unknown as {type?:string}|null)?.type === 'custom_apps_changed') { invalidateCustomApps(slug); return }
       const answer = data as unknown as RecordEvent | null
       if (answer?.type === 'record_changes' || answer?.type === 'record_reset'
           || answer?.type === 'record_snapshot' || answer?.type === 'record_subscribed'
@@ -1744,6 +1748,7 @@ export default function App() {
                         the whole app, not this organization, so it opens only
                         from the Orgtree menu's "Usage…", with no near-limit
                         warning anywhere ("we can do without the warning") */}
+                    <AppsButton slug={tree.slug} />
                     <ShellAction label="Org settings"
                       icon={<SettingsIcon fontSize="inherit" />}
                       onClick={openOrgSettings} />
@@ -1932,6 +1937,7 @@ export default function App() {
                     </button>
                   )
                 })()}
+                <AppsButton slug={tree.slug} />
                 <button className="iconbtn barmore mob-only" title="more"
                   onClick={() => setBarMore((v) => !v)}>⋯</button>
                 {/* host subscription usage (the Claude Code /usage bars) —
@@ -2127,6 +2133,7 @@ export default function App() {
           refs={galleryRefs}
           close={() => setShowGallery(false)} />
       )}
+      {slug && tree && <AppsWorkspace key={slug} slug={slug} onShowCanvas={() => setViewMode('canvas')} />}
       {showDocket && slug && tree && (
         <DocketModal slug={slug} toast={toast} tree={tree}
           jumpTo={docketJump?.id ?? null} jumpSeq={docketJump?.seq}

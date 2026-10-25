@@ -5,10 +5,10 @@
  "counts": {
   "categories": 3,
   "sections": 19,
-  "leaves": 185,
+  "leaves": 186,
   "tools": 49,
   "concepts": 56,
-  "total": 207
+  "total": 208
  },
  "leaves_per_writer": {
   "org-sol": 33,
@@ -30,7 +30,7 @@
   "helper-transcript-sol": 1,
   "template-dogs-sol": 1,
   "desk-parity-opus": 1,
-  "canvas-sol": 1
+  "canvas-sol": 2
  },
  "nodes": [
   {
@@ -2958,7 +2958,8 @@
     "onboarding",
     "attention-view",
     "mobile-layout",
-    "tray-and-windows"
+    "tray-and-windows",
+    "apps"
    ],
    "writer": "runtime-sol",
    "status": "fixed"
@@ -6349,7 +6350,7 @@
     },
     {
      "file": "apps/desktop/renderer/src/canvas/modals.tsx",
-     "label": "Organization logo"
+     "label": "Org-modifying tools"
     }
    ],
    "key_sources": [
@@ -7813,6 +7814,29 @@
     "tool-org-logo",
     "tool-retool"
    ]
+  },
+  {
+   "path": "orgtree-app/app-shell/apps",
+   "name": "orgtree-apps",
+   "level": 3,
+   "kind": "screen",
+   "registered": false,
+   "covers": [
+    "screen:apps"
+   ],
+   "purpose": "Apps menu, independent saved HTML panels and JSON state.",
+   "must_cover": [
+    "reopen and new copies",
+    "float/screen/canvas/popout placement",
+    "state menus and revisions",
+    "opaque sandbox and interim engine-action refusal",
+    "tool parity"
+   ],
+   "sources": [
+    "apps/desktop/renderer/src/canvas/apps/"
+   ],
+   "writer": "canvas-sol",
+   "status": "fixed"
   }
  ],
  "exempt": {

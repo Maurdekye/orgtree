@@ -1,4 +1,5 @@
 import { orgNavigationTooltip } from '../shell/orgnavigationbindings'
+import { AppsCanvasLayer } from './apps/ui'
 import { canonPiles, pruneRetiredView, viewPiles, viewHidden, canvasTargets } from './canvaslayout'
 import { hireAutoFocusOn } from '../hirefocus'
 import { projectBunches, projectBunchLink, projectBunchInsertion, type ProjectBunch } from './projectbunch'
@@ -1439,6 +1440,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
   // response lands frames before the tree that gives the node a position, and
   // a hire whose node never arrives must not strand a camera jump.
   const hireDeskRef = useRef<{ id: string; at: number } | null>(null)
+  const appNodePoints = useMemo(() => new Map([...map.values()].flatMap(n => {const p=target.get(n.id);return p?[[n.title,p] as const]:[]})), [map,target])
   const targetRef = useRef(target); targetRef.current = target
   const mapRef = useRef(map); mapRef.current = map
   const foregroundRef = useRef(tree.foreground); foregroundRef.current = tree.foreground
@@ -4464,6 +4466,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
         // badge on a distant card is noise, a screen-constant CONTROL is not.
         '--invzf': Math.max(1 / Z_MAX, 1 / view.z).toFixed(3),
       }}>
+        <AppsCanvasLayer slug={slug} zoom={view.z} viewport={visibleRect} nodePoint={name => appNodePoints.get(name)} focus={p => setView({x:viewportSize.w/2-p.x,y:viewportSize.h/2-p.y,z:1})} active={!worldHidden && !compact} />
         <svg className="edges" ref={edgesSvgRef} width={bounds.w} height={bounds.h}>
           {moveGhost && <MoveGhost point={moveGhost} zoom={view.z} />}
           {nodeDrag.current?.reorder && (!nodeDrag.current.inBunch || rearrangeBunches) && (nodeDrag.current.inBunch

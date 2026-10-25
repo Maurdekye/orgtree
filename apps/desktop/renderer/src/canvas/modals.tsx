@@ -1104,7 +1104,7 @@ const ORGTREE_GROUPS: ReadonlyArray<readonly [OrgtreeToolGroup, string, string]>
   ['watchdogs', 'Watchdogs', 'Create and manage persistent watchers. Command watchers also need Run commands.'],
   ['runtime', 'Runtime and accounts', 'Interrupt, halt or resume agents, change their account and inspect capacity marks.'],
   ['user', 'User questions and delivery', 'Ask questions, present documents, send files and request more scope or credits.'],
-  ['logo', 'Organization logo', 'Set or remove the organization logo immediately, with logging and undo history.'],
+  ['orgmod', 'Org-modifying tools', 'Manage Apps and saved panels; set or remove the organization logo, with logging and undo history.'],
 ]
 
 function OrgtreeGroupToggles({ value, ceiling, onChange }: {
@@ -1113,8 +1113,8 @@ function OrgtreeGroupToggles({ value, ceiling, onChange }: {
   return <>
     <p className="set-hint">Disabled groups remove their tools and instructions from the agent. Status reporting stays available.</p>
     {ORGTREE_GROUPS.map(([key, label, description]) => <SetToggle key={key} label={label}
-      checked={value?.[key] !== false && ceiling?.[key] !== false} disabled={ceiling?.[key] === false}
-      hint={ceiling?.[key] === false ? 'The superior does not have this permission.' : description}
+      checked={(key === 'orgmod' ? value?.orgmod ?? value?.logo : value?.[key]) !== false && (key === 'orgmod' ? ceiling?.orgmod ?? ceiling?.logo : ceiling?.[key]) !== false} disabled={(key === 'orgmod' ? ceiling?.orgmod ?? ceiling?.logo : ceiling?.[key]) === false}
+      hint={(key === 'orgmod' ? ceiling?.orgmod ?? ceiling?.logo : ceiling?.[key]) === false ? 'The superior does not have this permission.' : description}
       onChange={checked => onChange({ ...value, [key]: checked })} />)}
   </>
 }

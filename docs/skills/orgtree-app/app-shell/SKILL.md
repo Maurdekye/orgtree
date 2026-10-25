@@ -11,6 +11,8 @@ The app's frame: windows, homepage, header and menus, status bar, quick chat, tr
 
 ## Screens
 
+- [orgtree-apps](apps/SKILL.md): Apps, saved HTML panels, screen/canvas placement and independent JSON state.
+
 - [orgtree-homepage](homepage/SKILL.md): The homepage window: the org list, phone card and create button.
 - [orgtree-create-organization](create-organization/SKILL.md): Creating an organization: name, folders, layout and template.
 - [orgtree-org-header-and-menu](org-header-and-menu/SKILL.md): The org window header and the Orgtree app menu: view toggle, Inbox, Work, Presentations, Org settings, and the menu items.

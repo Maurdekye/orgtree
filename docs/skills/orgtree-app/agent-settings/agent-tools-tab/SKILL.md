@@ -34,7 +34,7 @@ These control tools built into the harness, such as Claude Code or Codex. Helper
 | Watchdogs | `watchdogs` | Persistent watchers. Command watchers also need Run commands. |
 | Runtime and accounts | `runtime` | Interrupt/halt/resume, continuation and account marks. |
 | User questions and delivery | `user` | Questions, documents, files and requests for scope/credits. |
-| Organization logo | `logo` | Immediately set/remove this org's Logo, with logging and user undo history. |
+| Org-modifying tools | `orgmod` | Manage Apps, saved panels and their state; set/remove the org Logo with logging and user undo history. |
 
 Disabled groups remove their tool definitions and corresponding engine-owned instructions. Status reporting remains available even with every group off. Staffing a work item needs both Docket work and Team management. A fresh usage refresh additionally needs Runtime and accounts; the saved read belongs to Organization reading. These are capability gates alongside the tools' normal target/audience/ownership checks, not permission to contact the user or modify any agent.
 
@@ -51,7 +51,9 @@ Verified at `2ec8c0e`: `tools/defs.rs`, `tools/treetools.rs::own_slot_status`,
 
 Each group is disabled in the UI when the superior has denied it. Missing group flags preserve on for compatibility; unknown group names or nonboolean values are refused by the engine. See `orgtree-scope-and-permissions` (orgtree-working › team) for effective ceilings and `orgtree-tool-request-scope` (orgtree-working › user) for asking for missing capability.
 
-Organization Logo is **on by default**, including existing agents. It inherits
+Org-modifying tools is **on by default**, including existing agents. A missing
+orgmod key preserves an explicit legacy logo denial; an explicit orgmod value
+takes precedence. The Tools tab retains Save for these changes. Organization Logo It inherits
 the same ceiling as other groups. Enabled agents at any depth need neither a user nor
 an org-inbox audience to change their own org's Logo. Details and file/crop limits:
 `orgtree-tool-org-logo` (orgtree-working › team).

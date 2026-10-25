@@ -43,7 +43,7 @@ impl Default for Placement {
 #[derive(Deserialize)]
 #[serde(tag = "action", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Request {
-    List { kind:Option<String>, app:Option<String>, after:Option<String>, limit:Option<i64> },
+    List { kind:Option<String>, app:Option<String>, after:Option<String>, limit:Option<i64>, open:Option<bool> },
     AppGet { app:String },
     AppCreate { definition:Definition },
     AppUpdate { app:String, expected_rev:i64, definition:Definition },

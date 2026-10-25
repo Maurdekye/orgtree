@@ -1,5 +1,7 @@
 // One import surface for every icon in the app (user ruling: MUI icons, no
 // emojis). All render at the local font size and inherit currentColor.
+export { default as AppsIcon } from '@mui/icons-material/Apps'
+export { default as MoreIcon } from '@mui/icons-material/MoreHoriz'
 export { default as AddIcon } from '@mui/icons-material/Add'
 export { default as ArrowDownIcon } from '@mui/icons-material/ArrowDownward'
 export { default as ArrowUpIcon } from '@mui/icons-material/ArrowUpward'

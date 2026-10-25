@@ -181,7 +181,8 @@ const failure = async (r: Response): Promise<Error> => {
 // T infers from that declared return at every call site - no `any` escapes.
 export const req = <T,>(path: string, init?: RequestInit,
                  timeoutMs: number = DEFAULT_TIMEOUT_MS,
-                 expectedStatuses: readonly number[] = []): Promise<T> =>
+                 expectedStatuses: readonly number[] = [],
+                 invalidateOrg = true): Promise<T> =>
   fetch(path, init?.signal || !timeoutMs
     ? init
     : { ...init, signal: timeoutSignal(timeoutMs) }).then((r) => {
@@ -196,7 +197,7 @@ export const req = <T,>(path: string, init?: RequestInit,
     // the client's G2 (see livebus.ts): every successful mutation THIS tab
     // makes wakes every mounted polled surface — centrally, so no call site
     // has to remember a refetch and none can be forgotten
-    if ((init?.method ?? 'GET') !== 'GET') {
+    if (invalidateOrg && (init?.method ?? 'GET') !== 'GET') {
       // §4.8: any mutation can change a seat's charter or scope, so drop what
       // we cached for it. This is the LOCAL half and it is a fast path, not
       // the guarantee: it fires immediately, ahead of the refresh that would
@@ -1677,3 +1678,13 @@ export const getMailTransfers = (slug: string, agent?: string, signal?: AbortSig
   req(`/api/orgs/${slug}/transfers?${new URLSearchParams({...agent ? {agent} : {}, ...cursor ? {cursor} : {}})}`, {signal})
 export const changeMailTransfer = (slug: string, id: string, action: 'retry' | 'cancel' | 'remove'): Promise<{transfers: MailTransfer[]}> =>
   req(`/api/orgs/${slug}/transfers/${encodeURIComponent(id)}`, {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action})})
+
+
+/** Apps own a separate revision and push channel: typing JSON must not refetch
+ * the whole agent chart or invalidate every archived node detail. */
+export const customAppsRequest = <T,>(slug:string,input:Record<string,unknown>):Promise<T> => {
+  const path='/api/orgs/'+encodeURIComponent(slug)+'/apps'
+  if(['list','app_get','panel_get','events'].includes(String(input.action)))
+    return req<T>(path+'?request='+encodeURIComponent(JSON.stringify(input)))
+  return req<T>(path,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(input)},DEFAULT_TIMEOUT_MS,[],false)
+}

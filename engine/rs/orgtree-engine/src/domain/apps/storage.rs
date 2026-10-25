@@ -9,7 +9,7 @@ use crate::{engine::Engine, orgs::OrgHandle, runtime::Caller};
 use super::wire::{self, Definition, Placement, Request};
 
 const APP_META:&str="jsonb_build_object('id',a.id,'name',a.name,'description',a.description,'capabilities',a.capabilities,'width',a.width,'height',a.height,'rev',a.rev,'permissions',a.permissions,'created_by',a.created_by,'updated_at',a.updated_at)";
-const PANEL_META:&str="jsonb_build_object('id',p.id,'app',p.app_id,'label',p.label,'rev',p.rev,'open',p.is_open,'placement',p.placement,'linked_agents',p.linked_agents,'updated_at',p.updated_at,'used_at',p.used_at)";
+const PANEL_META:&str="jsonb_build_object('id',p.id,'app',p.app_id,'label',p.label,'rev',p.rev,'open',p.is_open,'placement',p.placement,'linked_agents',p.linked_agents,'updated_at',p.updated_at,'used_at',p.used_at,'event_seq',p.event_seq)";
 
 #[nolog]
 async fn authorize(tx:&Transaction<'_>,org:i64,caller:Option<&Caller>) -> Result<String> {
@@ -52,6 +52,7 @@ async fn panel(tx:&Transaction<'_>,org:i64,id:&str,write:bool) -> Result<Value> 
 async fn event(tx:&Transaction<'_>,org:i64,id:&str,name:&str,payload:&Value,actor:&str)->Result<i64>{
     wire::text(name,80,"event name",false)?;wire::bounded(payload,wire::EVENT_MAX,false)?;
     let seq:i64=tx.query_one("INSERT INTO ot.custom_panel_events(org_id,panel_id,name,payload,actor) VALUES($1,$2,$3,$4,$5) RETURNING seq",&[&org,&id,&name,&payload,&actor]).await?.get(0);
+    tx.execute("UPDATE ot.custom_panels SET event_seq=$3 WHERE org_id=$1 AND id=$2",&[&org,&id,&seq]).await?;
     // Provisional: retain the latest256 events per panel, not unbounded history.
     tx.execute("DELETE FROM ot.custom_panel_events WHERE org_id=$1 AND panel_id=$2 AND seq < (SELECT seq FROM ot.custom_panel_events WHERE org_id=$1 AND panel_id=$2 ORDER BY seq DESC OFFSET 255 LIMIT 1)",&[&org,&id]).await?;
     Ok(seq)
@@ -61,7 +62,7 @@ async fn update_state(tx:&Transaction<'_>,org:i64,id:&str,state:&Value,actor:&st
     wire::bounded(state,wire::STATE_MAX,true)?;
     tx.execute("UPDATE ot.custom_panels SET state=$3,rev=rev+1,updated_at=now() WHERE org_id=$1 AND id=$2",&[&org,&id,&state]).await?;
     let out=panel(tx,org,id,false).await?;
-    event(tx,org,id,"state.changed",&json!({"rev":out["rev"]}),actor).await?;Ok(out)
+    event(tx,org,id,"state.changed",&json!({"rev":out["rev"]}),actor).await?;panel(tx,org,id,false).await
 }
 
 #[nolog]
@@ -70,11 +71,14 @@ pub async fn run(engine:&Arc<Engine>,org:&Arc<OrgHandle>,caller:Option<&Caller>,
     let mut client=engine.db.get().await?;let tx=client.transaction().await?;
     let actor=authorize(&tx,org.id,caller).await?;let mut changed=false;
     let out=match request {
-        Request::List{kind,app:filter,after,limit}=>{
+        Request::List{kind,app:filter,after,limit,open}=>{
             let n=page(limit)?;let after=after.unwrap_or_default();let kind=kind.unwrap_or_else(||"apps".into());
             let rows=match kind.as_str(){
                 "apps"=>tx.query(&format!("SELECT {APP_META} FROM ot.custom_apps a WHERE a.org_id=$1 AND a.id>$2 ORDER BY a.id LIMIT $3"),&[&org.id,&after,&(n+1)]).await?,
-                "panels"=>tx.query(&format!("SELECT {PANEL_META} FROM ot.custom_panels p WHERE p.org_id=$1 AND p.id>$2 AND ($3::text IS NULL OR p.app_id=$3) ORDER BY p.id LIMIT $4"),&[&org.id,&after,&filter,&(n+1)]).await?,
+                "panels"=>{
+                    let active=match open{Some(true)=>" AND p.is_open",Some(false)=>" AND NOT p.is_open",None=>""};
+                    tx.query(&format!("SELECT {PANEL_META} FROM ot.custom_panels p WHERE p.org_id=$1 AND p.id>$2 AND ($3::text IS NULL OR p.app_id=$3){active} ORDER BY p.id LIMIT $4"),&[&org.id,&after,&filter,&(n+1)]).await?
+                },
                 _=>crate::refuse!(BadRequest,"list kind must be apps or panels"),
             };
             let more=rows.len()>n as usize;let items:Vec<Value>=rows.into_iter().take(n as usize).map(|r|r.get(0)).collect();

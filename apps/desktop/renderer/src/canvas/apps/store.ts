@@ -1,0 +1,44 @@
+import { useSyncExternalStore } from 'react'
+import { customAppsRequest } from '../../api'
+import type { AppPage, CustomApp, CustomPanel } from './types'
+
+interface Snapshot {apps:CustomApp[];panels:CustomPanel[];appNext:string|null;panelNext:string|null;error:string;loading:boolean}
+interface Store {snapshot:Snapshot;subs:Set<()=>void>;running:Promise<void>|null;pending:boolean;active:boolean}
+const stores=new Map<string,Store>()
+function store(slug:string):Store {
+  let s=stores.get(slug);if(!s){s={snapshot:{apps:[],panels:[],appNext:null,panelNext:null,error:'',loading:false},subs:new Set(),running:null,pending:false,active:false};stores.set(slug,s)}return s
+}
+function publish(s:Store,next:Partial<Snapshot>){s.snapshot={...s.snapshot,...next};for(const fn of s.subs)fn()}
+const merge=<T extends {id:string}>(old:T[],items:T[]):T[]=>[...new Map([...old,...items].map(x=>[x.id,x])).values()]
+export function useApps(slug:string):Snapshot {const s=store(slug);return useSyncExternalStore(fn=>{s.subs.add(fn);return()=>s.subs.delete(fn)},()=>s.snapshot)}
+export function invalidateCustomApps(slug:string):void {const s=store(slug);if(s.active)void refreshApps(slug)}
+export function activateApps(slug:string):()=>void {const s=store(slug);s.active=true;void refreshApps(slug);return()=>{s.active=false;s.pending=false;stores.delete(slug)}}
+export async function refreshApps(slug:string):Promise<void>{
+  const s=store(slug);if(s.running){s.pending=true;return s.running}
+  publish(s,{loading:true})
+  s.running=(async()=>{try{
+    const panels:CustomPanel[]=[];let after:string|null=null
+    do{const page:AppPage<CustomPanel>=await customAppsRequest(slug,{action:'list',kind:'panels',open:true,...(after?{after}:{})});panels.push(...page.items);after=page.next_cursor}while(after)
+    const apps=await customAppsRequest<AppPage<CustomApp>>(slug,{action:'list',kind:'apps'})
+    const known=new Set(apps.items.map(a=>a.id));for(const panel of panels)if(!known.has(panel.app)){const app=await customAppsRequest<CustomApp>(slug,{action:'app_get',app:panel.app});apps.items.push(app);known.add(app.id)}
+    // Keep explicitly loaded closed panels for the menu, drop stale open rows.
+    publish(s,{apps:apps.items,panels:merge(s.snapshot.panels.filter(p=>!p.open),panels),appNext:apps.next_cursor,error:''})
+  }catch(error){publish(s,{error:String(error)})}finally{publish(s,{loading:false});s.running=null;if(s.pending&&s.active){s.pending=false;void refreshApps(slug)}}})()
+  return s.running
+}
+export async function loadAppsMenu(slug:string,more:'apps'|'panels'|null=null):Promise<void>{
+  const s=store(slug)
+  try{
+    if(more!=='panels'){const page=await customAppsRequest<AppPage<CustomApp>>(slug,{action:'list',kind:'apps',...(more==='apps'&&s.snapshot.appNext?{after:s.snapshot.appNext}:{})});publish(s,{apps:merge(more==='apps'?s.snapshot.apps:s.snapshot.apps.filter(a=>s.snapshot.panels.some(p=>p.open&&p.app===a.id)),page.items),appNext:page.next_cursor})}
+    if(more!=='apps'){const page=await customAppsRequest<AppPage<CustomPanel>>(slug,{action:'list',kind:'panels',...(more==='panels'&&s.snapshot.panelNext?{after:s.snapshot.panelNext}:{})});publish(s,{panels:merge(more==='panels'?s.snapshot.panels:s.snapshot.panels.filter(p=>p.open),page.items),panelNext:page.next_cursor})}
+  }catch(error){publish(s,{error:String(error)})}
+}
+export async function changeApps<T=CustomPanel>(slug:string,input:Record<string,unknown>):Promise<T>{
+  const result=await customAppsRequest<T>(slug,input);const s=store(slug)
+  if(input.action==='panel_delete'){publish(s,{panels:s.snapshot.panels.filter(p=>p.id!==input.panel)})}
+  else if(input.action==='app_delete'){publish(s,{apps:s.snapshot.apps.filter(a=>a.id!==input.app),panels:s.snapshot.panels.filter(p=>p.app!==input.app)})}
+  else if(result&&typeof result==='object'&&'id' in result&&'app' in result){publish(s,{panels:merge(s.snapshot.panels,[{...result as unknown as CustomPanel,state:undefined}])})}
+  else if(result&&typeof result==='object'&&'id' in result&&'capabilities' in result){publish(s,{apps:merge(s.snapshot.apps,[result as unknown as CustomApp])})}
+  if(input.action==='event')void refreshApps(slug)
+  return result
+}

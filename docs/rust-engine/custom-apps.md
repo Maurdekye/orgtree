@@ -58,3 +58,36 @@ scripts, optional accumulated state in export, no portable execution grants,
 template definitions/initial state only, and any-agent links without authority.
 Mail identity and creator-retirement policy remain morning questions; no default
 may silently turn an agent panel into general user authority.
+
+## Apps host milestone
+
+Migration0059 adds a panel event high-water mark and an open-panel partial index.
+The active workspace pages open:true; historical saved copies are fetched only
+when the menu is opened. GET /api/orgs/{slug}/apps?request=<JSON> whitelists list,
+app_get, panel_get and events; mutations remain POST. The renderer uses dedicated
+custom_apps_changed invalidation, not the generic live-bump loop on every edit.
+
+AppsButton/AppsWorkspace own one org menu and stable per-panel MovableSurfaces.
+AppsCanvasLayer owns independent world anchors without adding chart nodes or
+changing tree layout. Canvas culling and mini icons suspend embedded HTML.
+Panel state, not renderer geometry globals, persists placements and open copies.
+
+PanelHtml uses sandbox=allow-scripts (no same-origin), an opaque-origin exact-frame
+message check, a per-mount random channel and a restrictive prefixed CSP.
+The iframe supplies a reply MessagePort in its ready handshake. Replies use that
+port: adopted pop-out handlers still execute in the main JS realm, so their
+window.postMessage sender would not equal the iframe's new parent window. The
+parent binds state and events to its own panel ID, serializes writes, checks
+revisions and caps messages/rate. It exposes no credential, generic HTTP endpoint,
+permission decision or caller selection. Current engine.call requests refuse.
+Frame content is untrusted even after the envelope check. A later permission
+bridge must recheck engine-side app revision, panel and capability, and invalidate
+mounted sessions on code replacement/closure. Self-navigation network containment
+requires native-window verification before a no-network execution claim.
+
+The async SDK is window.orgtree state.get/set/patch/onChange; storage.getItem,
+setItem, removeItem, clear; on(name,fn); emit(name,payload). Storage values are
+JSON, not strings only. State patch follows RFC7396; null removes keys. The host
+does not replay the entire retained event history on opening. It forwards new
+named events after that panel's initial event_seq. Hidden/closed frame scripts
+are discarded and reconstruct from committed state. No background-timer guarantee.

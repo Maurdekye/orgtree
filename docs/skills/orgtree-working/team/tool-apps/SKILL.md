@@ -37,17 +37,18 @@ initial state are provisionally limited to2MiB and64 nesting levels.
 
 placement:{mode,x,y,width,height,anchor} distinguishes float/screen/popout/canvas.
 Only canvas permits an optional live-node name anchor. Coordinates must be finite;
-dimensions are160-4096 by120-4096. The storage milestone records placements; its
-HTML host and UI mounting follow in the next implementation slice.
+dimensions are160-4096 by120-4096. The Apps menu mounts saved open copies at these placements. The opaque host
+provides state/events, and currently refuses engine actions.
 
 event needs panel/name/payload (up to64KiB). events needs panel, optional integer
 after sequence and limit1-200. The latest256 events are retained; oldest_retained
 identifies the retained boundary. Linked agents must be at most64 unique live
 agents in the same org. Neither an event nor a link impersonates an agent/user.
 
-Permissions, no-network opaque sandbox hosting, import/export and subscriptions
-are subsequent implementation slices; do not claim they are in this storage-only
-milestone. All unruled defaults are provisional for the user's morning review.
+List kind:panels accepts open:true/false to page only that subset. Metadata
+includes event_seq; HTML/state remain excluded. Permission decisions, app
+import/export and agent subscriptions are subsequent slices. The current HTML
+host has no granted engine-action channel. All unruled defaults are provisional for the user's morning review.
 
 See also: [orgtree-scope-and-permissions](../scope-and-permissions/SKILL.md),
 [orgtree-tool-org-logo](../tool-org-logo/SKILL.md),

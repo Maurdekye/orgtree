@@ -39,3 +39,8 @@ App settings affect the application; Organization settings affect the selected o
 A glowing @ button appears immediately left of the STOP ALL latch in Canvas and Attention while the organization has unobserved transcript mentions. Its corner badge counts current transcript mention markers. Click to open the newest mention in its agent desk, select Chat and center/highlight the mentioning passage; observing it reduces the count, and repeated clicks visit the remaining mentions newest first. The button disappears when none remain. Mail mentions keep the Inbox cue and do not add to this count.
 
 With the Mentions notification category enabled, standalone @user mentions in transcript prose, mail, presentations and docket text can also raise native notifications. Their clicks open the exact related conversation, mail, document or item. Code spans and code blocks do not trigger mentions. Presentation/item mention banners are one-time alerts rather than persistent taskbar-badge requests. Use plain @user when deliberately requesting visibility; something needing an answer still belongs in a message or question. Notification settings are documented in [App notifications](../../app-settings/app-notifications/SKILL.md).
+
+## Apps
+
+The Apps header button beside Presentations lists app definitions and saved panels.
+See [orgtree-apps](../apps/SKILL.md) for New, reopen, state menus and placements.
