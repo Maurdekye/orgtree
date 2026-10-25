@@ -11,6 +11,12 @@
 // 22:15:56Z: "opens automatically to the latest version when opened (and when
 // opening automatically on launch after update)"; 22:16:17Z: "each list entry
 // has the version number and release date"; 22:17:14Z: "release date & time".
+// USER 2026-10-25 09:01:38Z (m91aeac18fae1): "GitHub publish time" and
+// "Published only": the rows are published releases, dated when GitHub
+// published them, and a local alpha has no row of its own (crate::changelog).
+// 09:09:02Z (m44c4b59e1de2): 'change the message on the changelog to "Show
+// this every time" and make the checkbox inline as well': the header switches
+// the setting itself, where it used to link to App settings.
 //
 // THE PRESENTATIONS PANEL'S SHAPE (canvas/gallery.tsx DocGalleryModal): the
 // same PinFrame, `.gallery-head`, and the mail idiom's `.mailpane` with the
@@ -18,6 +24,8 @@
 // row classes. Rows are versions: the version and its release date & time
 // (fmtStamp, local, like other list rows), newest first. The pane repeats them
 // in the full form (fmtFull, as the Presentations pane does) above the notes.
+// The header's checkbox is the Presentations header's "Show retired agents"
+// line, with the setting below in it.
 //
 // EVERY OPENING SHOWS THE LATEST, whatever was read last time: from the menu,
 // on the automatic opening after an update, and for a pinned panel restored at
@@ -35,15 +43,17 @@ import { CollapsibleMailer, NARROW_DOCS_WIDTH } from './canvas/narrowlist'
 import { usePanelSteps } from './canvas/panelsteps'
 import { RefMdBody } from './canvas/refmd'
 import { md } from './canvas/shared'
-import { openAppSettings, SetToggle } from './canvas/settingskit'
+import { SetToggle } from './canvas/settingskit'
 import { fmtFull, fmtStamp } from './timefmt'
 
 // ── THE SETTING ─────────────────────────────────────────────────────────────
 // A view preference of this profile, like "Open desk after manual hire"
 // (hirefocus.ts): read when native says this launch is the first after an
-// update (App.tsx). Off keeps the panel shut; the menu still opens it.
+// update with a newer published release (App.tsx). Off keeps the panel shut;
+// the menu still opens it. Two switches show it: App settings › Display ›
+// Startup and the panel header's "Show this every time".
 export const CHANGELOG_AFTER_UPDATE_KEY = 'orgtree-changelog-after-update'
-/** the Display › Startup row the panel header links to (`useSettingsTarget`) */
+/** the Display › Startup row's field (`useSettingsTarget`) */
 export const CHANGELOG_AFTER_UPDATE_FIELD = 'changelog_after_update'
 export function changelogAfterUpdateOn(): boolean {
   try { return localStorage.getItem(CHANGELOG_AFTER_UPDATE_KEY) !== '0' } catch { return true }
@@ -64,14 +74,10 @@ export function ChangelogAfterUpdateSetting() {
   const on = useChangelogAfterUpdate()
   return <SetToggle label="Open changelog after updates" checked={on} onChange={setChangelogAfterUpdateOn}
     field={CHANGELOG_AFTER_UPDATE_FIELD}
-    hint="The first time Orgtree starts after an update, the Changelog opens on the new version. A fresh install never opens it." />
+    hint="The first time Orgtree starts after an update that brings a newer published release, the Changelog opens on it. A fresh install never opens it." />
 }
 
 // ── THE PANEL ───────────────────────────────────────────────────────────────
-const UNPUBLISHED = 'Unpublished build'
-/** `4.4.5` for `4.4.5-alpha.3`: the release an unpublished build leads to */
-const releaseOf = (version: string): string => version.split(/[-+]/)[0] ?? version
-
 function useChangelogList(): { list: ChangelogList | null; error: string | null; retry: () => void } {
   const [list, setList] = useState<ChangelogList | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -130,12 +136,12 @@ export function ChangelogModal({ close, opening = 0 }: {
     <PinFrame kind="changelog" title="Changelog" panel="settings wide gallery-modal changelog-modal" close={close}>
       <div className="gallery-head">
         <h3><ChangelogIcon fontSize="inherit" /> Changelog</h3>
-        {/* the user's link to the setting (22:14:57Z), saying what it is now */}
-        <button type="button" className="link-btn changelog-setting-link"
-          title="Change this in App settings › Display › Startup"
-          onClick={() => openAppSettings('display', CHANGELOG_AFTER_UPDATE_FIELD)}>
-          Open after updates: {autoOpen ? 'On' : 'Off'}
-        </button>
+        {/* the setting itself, inline (09:09:02Z): the App settings row's switch */}
+        <label className="checkline gallery-showretired changelog-every-time"
+          title="Opens the Changelog after each update that brings a newer published release. Also in App settings › Display › Startup.">
+          <input type="checkbox" checked={autoOpen} onChange={(e) => setChangelogAfterUpdateOn(e.target.checked)} />
+          Show this every time
+        </label>
       </div>
       <div className="mailpane">
         {!rows || rows.length === 0
@@ -168,8 +174,7 @@ export function ChangelogModal({ close, opening = 0 }: {
 
 function ChangelogRowView({ row, on, onSelect }: { row: ChangelogRow; on: boolean; onSelect: () => void }) {
   return (
-    <div className={'mailrow doc-gallery-row changelog-row active' + (on ? ' on' : '')
-      + (row.unpublished ? ' unpublished' : '')}
+    <div className={'mailrow doc-gallery-row changelog-row active' + (on ? ' on' : '')}
       data-version={row.version}
       title={row.released_at ? `${row.version} · ${fmtFull(row.released_at)}` : row.version}
       onClick={onSelect}>
@@ -177,33 +182,25 @@ function ChangelogRowView({ row, on, onSelect }: { row: ChangelogRow; on: boolea
         <span className="mfrom">{row.version}</span>
         <span className="mtime">{row.released_at ? fmtStamp(row.released_at) : ''}</span>
       </div>
-      {row.unpublished && <div className="l2"><span className="dim">{UNPUBLISHED}</span></div>}
     </div>
   )
 }
 
 function ChangelogPane({ row }: { row: ChangelogRow }) {
   const { entry, error } = useChangelogEntry(row.version)
-  const draft = entry?.notes_version && entry.notes_version !== row.version ? entry.notes_version : null
   return (
     <>
       <div className="mailer-head doc-pane-head">
         <div className="doc-pane-meta-row">
           <b className="changelog-version">{row.version}</b>
-          {row.unpublished && <span className="dim">{UNPUBLISHED}</span>}
           {row.released_at && <span className="dim">{fmtFull(row.released_at)}</span>}
         </div>
-        {draft && <div className="dim changelog-draft">Draft notes for {draft}</div>}
       </div>
       {error && <div className="ask-warn">could not load the notes: {error}</div>}
       {!entry && !error && <div className="dim pad">loading…</div>}
       {entry && (entry.notes
         ? <RefMdBody className="mailer-body md changelog-notes" html={md(entry.notes)} />
-        : <div className="dim pad">
-            {row.unpublished
-              ? `Release notes for ${releaseOf(row.version)} are written when it is released.`
-              : 'No release notes.'}
-          </div>)}
+        : <div className="dim pad">No release notes.</div>)}
     </>
   )
 }
