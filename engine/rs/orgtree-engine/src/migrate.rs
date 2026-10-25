@@ -63,6 +63,7 @@ const MIGRATIONS: &[(&str, &str)] = &[
     ("0055_org_inbox_dnd", include_str!("../migrations/0055_org_inbox_dnd.sql")),
     ("0056_incomplete_response", include_str!("../migrations/0056_incomplete_response.sql")),
     ("0057_reminder_pages", include_str!("../migrations/0057_reminder_pages.sql")),
+    ("0058_custom_apps", include_str!("../migrations/0058_custom_apps.sql")),
 ];
 
 #[cfg(test)]

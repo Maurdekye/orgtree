@@ -183,6 +183,8 @@ Start with [After the tour](docs/getting-started.md#after-the-tour), then follow
 
 10. [Standalone engine](docs/standalone-engine.md) — Direct or Docker operation, authenticated HTTP/MCP and provider login over SSH.
 
+Custom apps: [Apps and independent saved panels](docs/custom-apps.md).
+
 Supplement: [Development and contributions](docs/development.md). Maintainers: [documentation source map and upkeep](docs/documentation-map.md).
 
 ## License

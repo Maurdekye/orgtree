@@ -819,3 +819,6 @@ Each step lands as commits on `rust-engine`; I tell you when a step is usable.
 3. purely visual UI work (tidying settings menus and the like; never the canvas), on a separate
    branch `rust-engine-ui` stacked on `rust-engine`, so it can be dropped without touching
    anything else.
+
+
+Custom apps (USER2026-10-25;4.5.0 overnight implementation): org definitions and independent JSON panels, agent parity and org-modifying tools including Logo. Unruled defaults remain provisional for morning review. See [custom apps](custom-apps.md) for current milestone, bounds and authority limits.

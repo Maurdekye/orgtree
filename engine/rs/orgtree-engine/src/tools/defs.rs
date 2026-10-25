@@ -65,6 +65,7 @@ pub fn implemented() -> &'static [&'static str] {
         "orgtree_status",
         "orgtree_next_turn",
         "orgtree_session",
+        "orgtree_apps",
         "orgtree_org_logo",
         "orgtree_transfers", "orgtree_inbox",
         "orgtree_chart",
@@ -157,7 +158,7 @@ pub fn sdk_server() -> Value { json!({ "type": "sdk", "name": "orgtree" }) }
 #[nolog]
 fn deferred(name: &str) -> bool {
     matches!(name,
-        "orgtree_files" | "orgtree_fast_defaults" | "orgtree_org_logo" | "orgtree_transfers" | "orgtree_list_orgs" |
+        "orgtree_apps" | "orgtree_files" | "orgtree_fast_defaults" | "orgtree_org_logo" | "orgtree_transfers" | "orgtree_list_orgs" |
         "orgtree_halt" | "orgtree_unhalt" | "orgtree_unstick" | "orgtree_continue_on" |
         "orgtree_account_mark" | "orgtree_withdraw_ask" | "orgtree_project" | "orgtree_read_reply_source" |
         "orgtree_retire" | "orgtree_dissolve" | "orgtree_retool" | "orgtree_switch_model" |
@@ -505,6 +506,7 @@ fn all() -> Vec<Value> {
     vec![
         message,
         notice,
+        build_tool_apps(),
         build_tool_org_logo(),
         build_tool_status(),
         build_tool_next_turn(),
@@ -560,7 +562,7 @@ fn all() -> Vec<Value> {
 fn build_tool_org_logo() -> Value {
     tool(
         "orgtree_org_logo",
-        "Set/remove your org's Logo immediately; requires logo tools, no user/inbox audience. Set reads a held local PNG/JPEG/WebP, ≤5 MiB and 16 MP; normalizes to square PNG ≤512px/256KiB. Optional crop fractions use 0..1 travel and 0.1..1 size. Remove restores the letter. Logged and undoable; returns no image bytes.",
+        "Set/remove your org's Logo immediately; requires org-modifying tools, no user/inbox audience. Set reads a held local PNG/JPEG/WebP, ≤5 MiB and 16 MP; normalizes to square PNG ≤512px/256KiB. Optional crop fractions use 0..1 travel and 0.1..1 size. Remove restores the letter. Logged and undoable; returns no image bytes.",
         json!({
             "action": {"type":"string", "enum":["set","remove"]},
             "path": {"type":"string", "description":"set: local image file in your folders"},
@@ -1096,7 +1098,7 @@ fn build_tool_request_scope() -> Value {
                     "kind": { "type": "string", "enum": ["dir", "tool", "mcp", "permission_mode"] },
                     "path": { "type": "string", "description": "dir: the absolute folder path" },
                     "mode": { "type": "string", "description": "dir: ro|rw; permission_mode: the mode" },
-                    "tool": { "type": "string", "enum": ["bash", "web", "edit", "subagents", "orgtree.docket", "orgtree.team", "orgtree.messaging", "orgtree.inspection", "orgtree.watchdogs", "orgtree.runtime", "orgtree.user", "orgtree.logo"] },
+                    "tool": { "type": "string", "enum": ["bash", "web", "edit", "subagents", "orgtree.docket", "orgtree.team", "orgtree.messaging", "orgtree.inspection", "orgtree.watchdogs", "orgtree.runtime", "orgtree.user", "orgtree.orgmod", "orgtree.logo"] },
                     "server": { "type": "string", "description": "mcp: the server name" } }, "required": ["kind"] } },
                 "reason": { "type": "string" } }),
         &["items", "reason"],
@@ -2051,4 +2053,39 @@ mod mqtt_card_tests {
         let d = dog["description"].as_str().unwrap();
         assert!(d.contains("websocket") && d.contains("send") && d.len() <= 900, "{} bytes: {d}", d.len());
     }
+}
+
+
+#[inline(never)]
+#[nolog]
+fn build_tool_apps()->Value {
+    tool("orgtree_apps","Manage this org's app definitions and independent saved panels. Requires org-modifying tools. List pages omit HTML/state; app_get/panel_get read them. Open reuses the last panel unless new=true; close keeps state. Mutations need the current expected_rev. Imported permissions never grant actions.",json!({
+        "action":{"type":"string","enum":["list","app_get","app_create","app_update","app_delete","panel_open","panel_get","panel_update","panel_duplicate","panel_delete","state_set","state_patch","event","events"]},
+        "kind":{"type":"string","enum":["apps","panels"],"description":"list: apps by default"},
+        "app":{"type":"string","description":"app identity; list panels may filter by app"},
+        "panel":{"type":"string","description":"saved panel identity"},
+        "after":{"description":"list: previous next_cursor string; events: sequence integer"},
+        "limit":{"type":"integer","minimum":1,"maximum":200},
+        "expected_rev":{"type":"integer","minimum":1},
+        "new":{"type":"boolean","description":"panel_open: make a fresh independent panel"},
+        "label":{"type":"string","maxLength":120},
+        "open":{"type":"boolean","description":"panel_update: false closes without deleting"},
+        "delete_panels":{"type":"boolean","description":"app_delete: explicit consent to delete all its saved copies"},
+        "definition":{"type":"object","additionalProperties":false,"properties":{
+            "name":{"type":"string","maxLength":120},"description":{"type":"string","maxLength":1000},
+            "html":{"type":"string","description":"self-contained HTML up to4MiB; no network"},
+            "initial_state":{"type":"object","description":"independent initial JSON object, up to2MiB"},
+            "capabilities":{"type":"array","uniqueItems":true,"items":{"enum":["org.read","mail.send","docket.write","events.fire"]}},
+            "width":{"type":"integer","minimum":160,"maximum":4096},"height":{"type":"integer","minimum":120,"maximum":4096}
+        },"required":["name","html"]},
+        "placement":{"type":"object","additionalProperties":false,"properties":{
+            "mode":{"enum":["float","screen","popout","canvas"]},"x":{"type":"number"},"y":{"type":"number"},
+            "width":{"type":"integer"},"height":{"type":"integer"},"anchor":{"type":["string","null"]}
+        }},
+        "linked_agents":{"type":"array","maxItems":64,"items":{"type":"string"}},
+        "state":{"type":"object","description":"state_set: replacement object, up to2MiB"},
+        "patch":{"type":"object","description":"state_patch: RFC7396 merge; null removes a key"},
+        "name":{"type":"string","description":"event name,1-80characters"},
+        "payload":{"description":"event JSON, up to64KiB"}
+    }),&["action"])
 }

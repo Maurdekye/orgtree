@@ -2140,3 +2140,6 @@ are nolog/body-omitted and never echoed. Browser login stays in separately
 installed native CLIs over SSH, directed at the stored account profile; no
 Orgtree device-code service or real-provider test is introduced.
 See [standalone contracts](STANDALONE-ENGINE.md#user-tree-mcp-additions-2026-10-24).
+
+
+Custom apps (USER2026-10-25;4.5.0 overnight implementation): org definitions and independent JSON panels, agent parity and org-modifying tools including Logo. Unruled defaults remain provisional for morning review. See [custom apps](custom-apps.md) for current milestone, bounds and authority limits.

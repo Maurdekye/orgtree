@@ -46,3 +46,5 @@ Start with [relationship terms](team-shape/SKILL.md#relationship-terms) to disti
 Tool calls and operating rules are in orgtree-working; screens and settings are in orgtree-app; suggested team workflows are in orgtree-workflows. Cross-category references name the page and breadcrumb instead of linking outside the bundle.
 
 - [orgtree-tool-fast-defaults](tool-fast-defaults/SKILL.md): Read hiring-speed defaults; top-level agents can patch them.
+
+- [orgtree-tool-apps](tool-apps/SKILL.md): Org app definitions, independent saved panels, JSON state and recent events.

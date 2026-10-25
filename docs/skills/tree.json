@@ -5,10 +5,10 @@
  "counts": {
   "categories": 3,
   "sections": 19,
-  "leaves": 184,
-  "tools": 48,
+  "leaves": 185,
+  "tools": 49,
   "concepts": 56,
-  "total": 206
+  "total": 207
  },
  "leaves_per_writer": {
   "org-sol": 33,
@@ -29,7 +29,8 @@
   "epic-combo-sol": 1,
   "helper-transcript-sol": 1,
   "template-dogs-sol": 1,
-  "desk-parity-opus": 1
+  "desk-parity-opus": 1,
+  "canvas-sol": 1
  },
  "nodes": [
   {
@@ -113,7 +114,8 @@
     "scope-and-permissions",
     "projects",
     "tool-org-logo",
-    "peer-mail"
+    "peer-mail",
+    "tool-apps"
    ],
    "writer": "org-sol",
    "status": "fixed"
@@ -422,7 +424,7 @@
    "covers": [
     "orgtree_org_logo"
    ],
-   "tool_group": "logo",
+   "tool_group": "orgmod",
    "registered": false,
    "purpose": "Set/remove the caller's own organization Logo immediately, with logging, crop limits and undo history.",
    "must_cover": [
@@ -7780,6 +7782,37 @@
    ],
    "writer": "skilltree-opus",
    "status": "fixed"
+  },
+  {
+   "path": "orgtree-working/team/tool-apps",
+   "name": "orgtree-tool-apps",
+   "level": 3,
+   "kind": "tool",
+   "covers": [
+    "orgtree_apps"
+   ],
+   "tool_group": "orgmod",
+   "registered": false,
+   "purpose": "Org-scoped app definitions, independent saved panels, bounded revision-checked JSON state and recent events.",
+   "must_cover": [
+    "live caller and inherited org-modifying scope",
+    "definition and panel lifecycle",
+    "JSON state revisions and limits",
+    "bounded paging and event retention",
+    "provisional defaults and no execution grant"
+   ],
+   "sources": [
+    "engine/rs/orgtree-engine/src/domain/apps/",
+    "engine/rs/orgtree-engine/src/tools/apps.rs",
+    "engine/rs/orgtree-engine/src/http/apps.rs"
+   ],
+   "writer": "canvas-sol",
+   "status": "fixed",
+   "see_also": [
+    "scope-and-permissions",
+    "tool-org-logo",
+    "tool-retool"
+   ]
   }
  ],
  "exempt": {

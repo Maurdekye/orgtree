@@ -7,7 +7,7 @@ Up: [orgtree-team](../SKILL.md)
 # orgtree_org_logo
 
 Use this tool to change the picture representing your own organization. Requires
-the `logo` Orgtree tool group, on by default. An explicit denial on you or any
+the `orgmod` (Org-modifying tools) group, on by default. An explicit denial on you or any
 ancestor disables the tool and also refuses remembered calls. Any enabled agent
 may use it at any depth, without a user or org-inbox audience. There
 is no top-level-only restriction and no org selector: the engine gets your
@@ -77,3 +77,7 @@ action, not another agent tool.
 - [orgtree-scope-and-permissions](../scope-and-permissions/SKILL.md)
 - [orgtree-tool-retool](../tool-retool/SKILL.md)
 - [orgtree-shared-folders](../../workspace/shared-folders/SKILL.md)
+
+## Org-modifying tools (4.5.0)
+
+Logo now belongs to tools.orgtree.orgmod alongside Apps. The old logo switch remains a compatibility alias when orgmod is absent; explicit old denials are preserved. Request orgtree.orgmod for the canonical category.
