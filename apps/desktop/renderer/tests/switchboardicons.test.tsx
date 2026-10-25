@@ -24,14 +24,13 @@
 // furniture (the eye, the hire strip; the tab strip, the `auto` toggle)
 // before its missing buttons mean anything.
 //
-// ⚠ The save gate has its own anti-vacuity pair. §5 proves an edit on the new
-// tab DOES reach both endpoints; §6 proves a save that never touched the tab
-// sends NEITHER. A gate stuck open passes §5 and fails §6; a gate stuck shut
-// passes §6 and fails §5. Neither test is worth anything without the other.
+// ⚠ The dirty-field gate has its own anti-vacuity pair. §5 proves edited hire
+// defaults reach their two endpoints; §6 proves untouched hire fields reach
+// NEITHER when Basic changes. org.md retains its separate explicit Save.
 //
 // Run:  cd frontend && node tests/run.mjs switchboardicons
 
-import { flush, inAct, mountView } from './harness'
+import { advance, flush, inAct, mountView, realClock, useFakeClock } from './harness'
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
@@ -445,7 +444,7 @@ function stubFetch(seen: { method: string; path: string; body: unknown }[]) {
     seen.push({ method, path,
       body: init?.body ? JSON.parse(String(init.body)) : null })
     const payload = path.startsWith('/api/orgs/acme/orgmd')
-      ? { content: '# Acme\n' }
+      ? { content: '# Acme\n', rev: 'orgmd-r1' }
       : path.startsWith('/api/mcp-servers')
         ? { servers: ['alpha-mcp'] }
         : {}
@@ -478,12 +477,14 @@ async function open(el: HTMLElement, label: string) {
 /** React ignores a plain `.value =` on a controlled field — go through the
  *  prototype setter and dispatch what React listens for. Same technique as
  *  tests/orgsettings.test.tsx. */
-async function setField(el: HTMLSelectElement, v: string) {
+async function setField(el: HTMLSelectElement | HTMLInputElement | HTMLTextAreaElement, v: string) {
   const w = el.ownerDocument.defaultView as unknown as {
-    HTMLSelectElement: typeof HTMLSelectElement; Event: typeof Event
+    HTMLSelectElement: typeof HTMLSelectElement; HTMLInputElement: typeof HTMLInputElement
+    HTMLTextAreaElement: typeof HTMLTextAreaElement; Event: typeof Event
   }
-  const setter = Object.getOwnPropertyDescriptor(
-    w.HTMLSelectElement.prototype, 'value')?.set
+  const proto = el.tagName === 'SELECT' ? w.HTMLSelectElement.prototype
+    : el.tagName === 'TEXTAREA' ? w.HTMLTextAreaElement.prototype : w.HTMLInputElement.prototype
+  const setter = Object.getOwnPropertyDescriptor(proto, 'value')?.set
   assert.ok(setter, 'no value setter on the element prototype')
   await inAct(async () => {
     setter!.call(el, v)
@@ -492,10 +493,6 @@ async function setField(el: HTMLSelectElement, v: string) {
     await flush()
   })
 }
-
-const save = (el: HTMLElement) =>
-  [...el.querySelectorAll<HTMLButtonElement>('button')]
-    .find((b) => b.textContent?.trim() === 'save')!
 
 test('§3 the ⚙ panel became a tab: every control it had is reachable there, '
   + 'and nothing opens a second modal to get to them', async (t) => {
@@ -523,10 +520,12 @@ test('§3 the ⚙ panel became a tab: every control it had is reachable there, '
     .some((b) => b.textContent?.trim() === 'dissolve all agents'),
   'dissolve all agents had no other door — it must have moved with the panel')
 
-  // still ONE surface and ONE save: the tab is not a modal in a modal
+  // Still ONE surface, with no ordinary Save step. The only Save is the
+  // separate org.md control mounted in Basic, never this hire-defaults tab.
   assert.equal(view.el.querySelectorAll('.overlay').length, 1)
-  assert.equal([...view.el.querySelectorAll<HTMLButtonElement>('button')]
-    .filter((b) => b.textContent?.trim() === 'save').length, 1)
+  assert.equal([...panel.querySelectorAll('button')]
+    .filter(b => /^save$/i.test(b.textContent?.trim() ?? '')).length, 0)
+  assert.equal(view.el.querySelectorAll('[aria-label="Save organization charter"]').length, 1)
 })
 
 test('§4 the tab shows the org’s SAVED values, not fresh defaults', async (t) => {
@@ -560,19 +559,33 @@ test('§4 the tab shows the org’s SAVED values, not fresh defaults', async (t)
     'the workspace must be the only permanent RW row')
 })
 
-test('§5 one save carries the tab’s edits, and keeps the two-endpoint split '
+test('§5 immediate dirty-field saves keep the two-endpoint split '
   + 'the ⚙ panel had', async (t) => {
+  useFakeClock()
   const seen: { method: string; path: string; body: unknown }[] = []
   stubFetch(seen)
   const { view, closed } = await mountOrg()
-  t.after(async () => { await view.unmount(); delete g.fetch })
+  t.after(async () => { await view.unmount(); delete g.fetch; realClock() })
 
   await open(view.el, 'Hire defaults')
   await inAct(async () => { await flush(10) })
+  seen.length = 0
   await setField(view.el.querySelector<HTMLSelectElement>(
     'select[aria-label="Visible agents"]')!, 'subtree')
   await setField(view.el.querySelector<HTMLSelectElement>(
     'select[aria-label="File and command access"]')!, 'acceptEdits')
+  await inAct(async () => {
+    view.el.querySelector<HTMLInputElement>('[aria-label="Run commands"]')!.click()
+    await flush(10)
+  })
+  // Editing folder modes still reaches the admin endpoint, without ever
+  // converting the permanent workspace into an ordinary editable holding.
+  for (const mode of ['rw', 'ro']) await inAct(async () => {
+    view.el.querySelector<HTMLButtonElement>('.dirrow button.modebtn')!.click()
+    await flush(10)
+    const last = seen.filter(r => r.method === 'POST' && r.path === '/api/orgs/acme/settings').at(-1)!
+    assert.deepEqual(last.body, { org_dirs: [{ path: 'C:\\shared', mode }] })
+  })
 
   // wander to another tab and back: the panel's one buffer must hold the
   // edit, the way it does for Basic's fields
@@ -581,40 +594,46 @@ test('§5 one save carries the tab’s edits, and keeps the two-endpoint split '
   assert.equal(view.el.querySelector<HTMLSelectElement>(
     'select[aria-label="Visible agents"]')!.value, 'subtree')
 
-  seen.length = 0
-  await inAct(async () => { save(view.el).click(); await flush(12) })
-
   // the OPEN half rides /defaults — the ceiling-clamped endpoint, kept
-  // separate exactly as the ⚙ panel kept it
-  const defaults = seen.find((r) => r.method === 'POST'
+  // separate exactly as the ⚙ panel kept it. Each field writes independently.
+  const defaults = seen.filter((r) => r.method === 'POST'
     && r.path === '/api/orgs/acme/defaults')
-  assert.ok(defaults, 'the hire defaults did not reach /defaults')
-  const db = defaults!.body as Record<string, unknown>
-  assert.equal(db.default_visibility, 'subtree')
-  assert.deepEqual((db.default_tools as Record<string, unknown>).mcp, ['*'])
+  assert.deepEqual(defaults.map(r => r.body), [
+    { default_visibility: 'subtree' },
+    { default_tools: { bash: true, web: true, edit: true, subagents: false, mcp: ['*'] } },
+  ])
 
-  // …and the ADMIN half rides /settings, in the SAME request as the rest of
-  // the panel rather than a second call
+  // …and the ADMIN half rides /settings, carrying no unchanged fields.
   const settings = seen.filter((r) => r.method === 'POST'
     && r.path === '/api/orgs/acme/settings')
-  assert.equal(settings.length, 1, 'the panel must POST /settings exactly once')
-  const sb = settings[0]!.body as Record<string, unknown>
-  assert.equal(sb.permission_mode, 'acceptEdits')
-  assert.deepEqual(sb.org_dirs, [{ path: 'C:\\shared', mode: 'ro' }])
-  assert.equal(sb.max_top_grant, 1000, 'the other tabs still save')
+  assert.deepEqual(settings.map(r => r.body), [
+    { permission_mode: 'acceptEdits' },
+    { org_dirs: [{ path: 'C:\\shared', mode: 'rw' }] },
+    { org_dirs: [{ path: 'C:\\shared', mode: 'ro' }] },
+  ])
   // the workspace is never sent — the server re-adds it (api.py
   // `_org_settings_locked`), and sending it would make it an ordinary entry
-  assert.equal((sb.org_dirs as { path: string }[])
+  assert.equal(settings.flatMap(r => (r.body as { org_dirs?: { path: string }[] }).org_dirs ?? [])
     .some((d) => d.path === 'C:\\ws'), false)
-  assert.equal(closed.length, 1, 'a successful save closes the panel')
+
+  await open(view.el, 'Basic')
+  await setField(view.el.querySelector<HTMLInputElement>('[aria-label="Top-level grant cap"]')!, '1200')
+  await advance(749)
+  assert.equal(seen.filter(r => r.method === 'POST' && r.path === '/api/orgs/acme/settings').length, 3,
+    'numeric edits wait for their debounce')
+  await advance(1)
+  assert.deepEqual(seen.filter(r => r.method === 'POST' && r.path === '/api/orgs/acme/settings').at(-1)!.body,
+    { max_top_grant: 1200 }, 'other tabs save only the edited field')
+  assert.equal(closed.length, 0, 'successful auto-save keeps the panel open')
 })
 
-test('§6 THE ZERO EDGE: a save that never touched the tab writes neither of '
+test('§6 THE ZERO EDGE: an edit that never touched the hire tab writes neither of '
   + 'its two payloads', async (t) => {
+  useFakeClock()
   const seen: { method: string; path: string; body: unknown }[] = []
   stubFetch(seen)
-  const { view } = await mountOrg()
-  t.after(async () => { await view.unmount(); delete g.fetch })
+  const { view, closed } = await mountOrg()
+  t.after(async () => { await view.unmount(); delete g.fetch; realClock() })
 
   // open it — VISITING is not EDITING, and a gate that fired on mount would
   // pass a version of this test that never opened the tab at all
@@ -623,17 +642,37 @@ test('§6 THE ZERO EDGE: a save that never touched the tab writes neither of '
   await open(view.el, 'Basic')
 
   seen.length = 0
-  await inAct(async () => { save(view.el).click(); await flush(12) })
+  await advance(1000)
+  assert.equal(seen.filter(r => r.method !== 'GET').length, 0, 'visiting never writes either endpoint')
+  await setField(view.el.querySelector<HTMLInputElement>('[aria-label="Top-level grant cap"]')!, '1100')
+  await advance(750)
 
   assert.equal(seen.some((r) => r.path === '/api/orgs/acme/defaults'), false,
     '/defaults was written without the tab being edited')
   const settings = seen.find((r) => r.method === 'POST'
     && r.path === '/api/orgs/acme/settings')
-  assert.ok(settings, 'the ordinary settings save must still happen')
+  assert.ok(settings, 'the ordinary settings auto-save must still happen')
   const sb = settings!.body as Record<string, unknown>
   // an unchanged org_dirs makes the server walk every node hunting for
   // grants to revoke or downgrade, so an untouched tab must send no key
   assert.equal('org_dirs' in sb, false, 'org_dirs was sent unedited')
   assert.equal('permission_mode' in sb, false, 'permission_mode was sent unedited')
-  assert.equal(sb.max_top_grant, 1000, 'the rest of the panel still saves')
+  assert.deepEqual(sb, { max_top_grant: 1100 }, 'the rest of the panel still saves only its edit')
+
+  // org.md alone retains explicit revision-checked Save: neither edits nor
+  // blur/elapsed debounce may write its disruptive agent-restart operation.
+  await setField(view.el.querySelector<HTMLTextAreaElement>('[aria-label="org.md"]')!, '# Acme changed\n')
+  await inAct(() => view.el.querySelector<HTMLTextAreaElement>('[aria-label="org.md"]')!.blur())
+  await advance(1000)
+  assert.equal(seen.filter(r => r.method === 'PUT' && r.path === '/api/orgs/acme/orgmd').length, 0)
+  await inAct(async () => {
+    view.el.querySelector<HTMLButtonElement>('[aria-label="Save organization charter"]')!.click()
+    await flush(12)
+  })
+  const charter = seen.filter(r => r.method === 'PUT' && r.path === '/api/orgs/acme/orgmd')
+  assert.equal(charter.length, 1, 'the explicit charter Save remains functional')
+  assert.deepEqual(charter[0]!.body, { content: '# Acme changed\n', base_rev: 'orgmd-r1' })
+  assert.equal(seen.filter(r => r.method === 'POST' && r.path === '/api/orgs/acme/settings').length, 1)
+  assert.equal(seen.some(r => r.method === 'POST' && r.path === '/api/orgs/acme/defaults'), false)
+  assert.equal(closed.length, 0)
 })

@@ -84,10 +84,11 @@ const byText = (root: ParentNode, label: string) =>
 const lane = (provider: string) =>
   document.querySelector('.prov-' + provider)!.closest('.acct-provider-group')!
 
-/** every button in the modal whose visible label is exactly `close` — the
- *  button this ticket removed, found the way a user finds it: by its text. */
+/** No App-settings footer close. The embedded Defaults panel retains its own
+ *  Close action after its Save/Cancel pair was replaced by auto-save. */
 const footerCloses = () => [...document.querySelectorAll('button')]
-  .filter(b => (b.textContent ?? '').trim() === 'close')
+  .filter(b => /^close$/i.test((b.textContent ?? '').trim())
+    && b.getAttribute('aria-label') !== 'Close default org settings')
 
 async function esc() {
   await inAct(async () => {
@@ -115,16 +116,15 @@ test('§1 no footer close button renders under ANY App settings tab', async (t) 
     assert.deepEqual(footerCloses().map(b => b.className), [],
       `the "${tab.textContent}" tab draws no close button of its own`)
   }
-  // ⚠ THE DEFAULT-ORG-SETTINGS TAB IS THE ONE WITH FOOTER BUTTONS, and they
-  // are not the control this ticket removed. Those fields are a BUFFERED form
-  // — unlike every other tab, which writes on the switch — so it keeps the
-  // save/cancel pair it has always had in its standalone window. What it must
-  // not grow is a second way to dismiss the modal that reads as a close.
+  // Defaults now auto-save like the other ordinary settings. Its own Close
+  // remains, while the obsolete Save/Cancel pair must not return.
   const defaults = tabs.find(t => t.textContent?.includes('Default org settings'))!
   await inAct(async () => { defaults.click(); await flush(6) })
   const panel = document.querySelector('#app-settings-panel-defaults')!
   assert.deepEqual([...panel.querySelectorAll('.row button')].map(b => b.textContent),
-    ['save', 'cancel'], 'the form’s own two controls, and no third')
+    ['Close'], 'the Defaults panel keeps just its own Close action')
+  assert.ok(panel.querySelector('[aria-label="Close default org settings"]'))
+  assert.equal([...panel.querySelectorAll('button')].some(b => /^(save|cancel)$/i.test(b.textContent?.trim() ?? '')), false)
   assert.equal(state.closed, 0, 'nothing dismissed the modal while tabbing through it')
 })
 

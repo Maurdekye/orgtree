@@ -60,6 +60,18 @@ test('①  no useState is seeded from server data, except where documented',
       /canvas\/modals\.tsx:\d+ const \[tools, setTools\]/,
       /canvas\/modals\.tsx:\d+ const \[vis, setVis\] = useState\(base\.org_visibility\)/,
       /canvas\/modals\.tsx:\d+ const \[effort, setEffort\] = useState\(base\.effort/,
+      // 4.4.5 extends the same pre-hire proposal (D-32) across the draft's
+      // tabs. These nine fields belong to an agent not yet created, not a
+      // live server-owned node; re-deriving would discard uncommitted choices.
+      /canvas\/modals\.tsx:\d+ const \[modelVersion, setModelVersion\] = useState\(base\.model_version/,
+      /canvas\/modals\.tsx:\d+ const \[teamCharter, setTeamCharter\] = useState\(base\.team_charter/,
+      /canvas\/modals\.tsx:\d+ const \[peerMail, setPeerMail\] = useState\(base\.peer_mail/,
+      /canvas\/modals\.tsx:\d+ const \[pm, setPm\] = useState\(base\.permission_mode/,
+      /canvas\/modals\.tsx:\d+ const \[sess, setSess\] = useState\(Array\.isArray\(base\.session/,
+      /canvas\/modals\.tsx:\d+ const \[accountFallback, setAccountFallback\] = useState\(base\.account_fallback/,
+      /canvas\/modals\.tsx:\d+ const \[fastOverride, setFastOverride\] = useState\(base\.fast_mode/,
+      /canvas\/modals\.tsx:\d+ const \[accMode, setAccMode\] = useState\(base\.auto_cheap_compact/,
+      /canvas\/modals\.tsx:\d+ const \[accOcc, setAccOcc\] = useState<number \| string>\(Math\.round\(\(base\.auto_cheap_compact/,
       // item 12: the draft's "Prefer reserve" box — the same one-time
       // proposal for an agent not yet hired (the gear's copy for an
       // EXISTING node goes through the edit buffer, not useState)

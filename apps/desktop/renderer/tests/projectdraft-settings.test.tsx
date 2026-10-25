@@ -1,6 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { inAct, mountView } from './harness'
+import { closeDraftSettings } from './draftclose.fixture'
 import { ProjectDraftNode, projectDraftSteps } from '../src/canvas/newproject'
 
 test('project draft gear stages each policy change immediately and submits it with creation', async t => {
@@ -28,15 +29,15 @@ test('project draft gear stages each policy change immediately and submits it wi
   // Use accessible switch names, as in the live project settings.
   await inAct(() => toggle('Subordinates may message each other').click())
   const button = (text: string) => [...dialog().querySelectorAll<HTMLButtonElement>('button')].find(b => b.textContent === text)!
-  assert.equal(button('save'), undefined, 'draft settings have no Save step')
+  assert.equal(button('Save'), undefined, 'draft settings have no Save step')
   assert.ok(dialog(), 'editing keeps the menu open')
-  await inAct(() => button('Close').click())
+  await closeDraftSettings(document.querySelector('.draft-project-settings'))
   assert.equal(dialog() == null, true)
   assert.equal(calls.length, 0, 'saving draft settings never creates a project')
   await inAct(() => gear!.click())
   assert.equal(document.querySelector<HTMLInputElement>('[aria-label="Concurrency slots"]')!.value, '4')
   await inAct(() => input('[aria-label="Concurrency slots"]', '8'))
-  await inAct(() => button('Close').click())
+  await closeDraftSettings(document.querySelector('.draft-project-settings'))
   await inAct(() => gear!.click())
   assert.equal(document.querySelector<HTMLInputElement>('[aria-label="Concurrency slots"]')!.value, '8')
   await inAct(() => window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })))
@@ -50,5 +51,5 @@ test('project draft gear stages each policy change immediately and submits it wi
   assert.equal(settings.mail_queue, 'ack')
   assert.equal(settings.peer_mail, false)
   assert.deepEqual(projectDraftSteps({ parent: 'user', tier: 'project', project: true }, 'website', '', settings as never),
-    [{ op: 'create_project', name: 'website', parent: 'user', settings }])
+    [{ op: 'create_project', name: 'website', parent: 'user', settings, user_position: 'centre' }])
 })

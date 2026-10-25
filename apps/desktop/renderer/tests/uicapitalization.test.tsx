@@ -117,7 +117,7 @@ test('InboxPanel renders "Your inbox" heading and "Mark all read" button', async
   }
 })
 
-test('DraftScopeModal renders "Permissions" heading with initial capital', async () => {
+test('DraftScopeModal renders sentence-case Draft settings and Scope permission controls', async () => {
   const restoreFetch = stubFetch({
     '/api/mcp': () => ({ servers: [] }),
     '/api/accounts': () => ({ accounts: [] }),
@@ -150,8 +150,17 @@ test('DraftScopeModal renders "Permissions" heading with initial capital', async
 
     const h3 = document.body.querySelector('.settings h3')
     assert.ok(h3, 'h3 heading exists')
-    assert.match(h3.textContent ?? '', /Permissions/)
-    assert.doesNotMatch(h3.textContent ?? '', /permissions\s*·/)
+    assert.match(h3.textContent ?? '', /Draft settings/)
+    assert.doesNotMatch(h3.textContent ?? '', /draft settings/)
+    const scopeTab = [...document.querySelectorAll<HTMLButtonElement>('.draft-scope [role="tab"]')]
+      .find(button => button.textContent === 'Scope')
+    assert.ok(scopeTab, 'Scope tab has its sentence-case label')
+    await inAct(() => scopeTab.click())
+    const permissions = document.querySelector('.draft-scope [role="tabpanel"]:not([hidden])')
+    assert.ok(permissions, 'Scope panel is active')
+    assert.ok(permissions.querySelector('[aria-label="Visible agents"]'))
+    assert.ok(permissions.querySelector('[aria-label="File and command access"]'))
+    assert.equal(permissions.querySelector('[aria-label="file and command access"]'), null)
 
     await view.unmount()
   } finally {
