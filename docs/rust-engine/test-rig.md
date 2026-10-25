@@ -160,6 +160,18 @@ approval check, whose failure was also measured on v4.4.0.
 
 ## What keeps it safe
 
+The org-account picker stage is read-only: use the current
+`Default provider account for new hires` selector without adding an auto-save
+transition. `org-accounts.mjs` keeps all 24 original checks and the existing
+picker screenshot/console data. Its allowed-option and muted-saved-default
+guards must still fail on absent/empty results; preserve baseline tool/console
+failures separately. The unchanged console guard's fallback after a failed
+driver is not evidence of an absence of warnings.
+`node --test tools/rig/tests/org-accounts-picker.test.mjs` replays the actual
+driver and three picker predicates, including missing options, an unmuted
+saved default and raw console warnings, without an engine or window.
+[verified: `tools/rig/{desktop/org-accounts-picker.cjs,proofs/org-accounts.mjs}`; 2026-10-25]
+
 New-hire account layout: `new-agent-account.cjs` uses the current
 `Default provider account for new hires` and `File and command access` selectors.
 The latter replaces the obsolete `permission mode for new agents` label; the

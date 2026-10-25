@@ -59,6 +59,11 @@ variants; use the current permission label without dropping its geometry guard.
 See [layout synchronization](docs/rust-engine/test-rig.md#what-keeps-it-safe).
 [verified: `tools/rig/desktop/new-agent-account.cjs`; 2026-10-25]
 
+Read-only org-account picker probes keep saved-disabled bindings and raw console
+warnings; a failed driver's empty console fallback is not a no-warning proof.
+See [picker controls](docs/rust-engine/test-rig.md#what-keeps-it-safe).
+[verified: `tools/rig/desktop/org-accounts-picker.cjs`; 2026-10-25]
+
 ## Setting text case
 
 Every setting name, description/help text, settings section header and settings-screen button label uses sentence case: capitalize the first word and retain proper nouns, product names, acronyms and literal identifiers (Orgtree, Claude Code, Codex, Hubchat, MCP, org.md). Apply this to new and changed settings and keep quoted glossary/user-documentation labels aligned. [decided: user 2026-10-24, settings capitalization]
