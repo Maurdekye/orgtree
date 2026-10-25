@@ -18,6 +18,7 @@ pub mod error;
 pub mod mailbox;
 pub mod mention_navigation;
 pub mod markdown_image;
+pub mod media_file;
 pub mod nodes;
 pub mod reply_sources;
 pub mod reader_availability;

@@ -1191,15 +1191,17 @@ pub async fn upload(
 #[derive(Deserialize, Debug)]
 pub struct FileQuery {
     path: String,
+    media: Option<bool>,
 }
 
 /// A file the desk links to: inside the org's scratch folders, the uploads,
 /// the org's own folders, or a file this org's mail or deliveries name.
-#[logged]
+#[nolog]
 pub async fn file(
     State(e): State<Arc<Engine>>,
     Path((slug, nid)): Path<(String, String)>,
     Query(q): Query<FileQuery>,
+    headers: axum::http::HeaderMap,
 ) -> ApiResult<Response> {
     let org = org(&e, &slug)?;
     let a = agent(&e, &org, &nid).await?;
@@ -1253,6 +1255,16 @@ pub async fn file(
     drop(client);
     if !allowed {
         return Err(ApiError::forbidden("that file is outside this organization's folders"));
+    }
+    if q.media.unwrap_or(false) {
+        let mut ranges = headers.get_all(header::RANGE).iter();
+        let range = ranges.next().map(|r| r.to_str().unwrap_or(""));
+        let range = if ranges.next().is_some() { Some("") } else { range };
+        return super::media_file::serve(&canon, range).await.map_err(|status| {
+            ApiError::new(status, if status == axum::http::StatusCode::PAYLOAD_TOO_LARGE {
+                "Playback is limited to 256 MiB; download the file instead"
+            } else { "Media preview unavailable; download the file instead" })
+        });
     }
     let bytes = tokio::fs::read(&canon).await.map_err(|_| ApiError::not_found("that file could not be read"))?;
     let mime = mime_guess::from_path(&canon).first_or_octet_stream();
