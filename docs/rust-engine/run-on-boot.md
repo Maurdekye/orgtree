@@ -33,7 +33,11 @@ task state and logs that decision. A later failure therefore preserves any
 intervening startup or administrator choice, rather than replaying the older
 attempt. Preflight validation or baseline-persistence failure changes no task
 and never replays that older snapshot. Setup arms its exit rollback only after
-Prepare succeeds. This restores task configuration, not replaced files.
+Prepare succeeds. Explicit post-Prepare exits restore before Quit, including
+the silent app-close refusal: NSIS does not invoke its GUI-end callback on that
+path. Section Abort restores through the installation-failure callback; GUI
+cancellation retains its shared rollback hook. This restores task configuration,
+not replaced files.
 
 `orgtree-installer.log` beside Setup (or in `%TEMP%` when that folder is not
 writable) records the boot action, exit code and up to 640 characters of helper

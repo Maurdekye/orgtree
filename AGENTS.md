@@ -89,7 +89,8 @@ Every setting name, description/help text, settings section header and settings-
 Windows installer task suspension is transactional across Prepare/copy/Register;
 keep the protected snapshot and failure/exit hooks, defer starts until commit,
 capture a fresh baseline before each new suspension, and distinguish disabled
-tasks from triggers off. Startup failures have visible
+tasks from triggers off. Silent post-Prepare exits restore explicitly before
+Quit; GUI-end callbacks alone do not run on that path. Startup failures have visible
 Retry/Quit without bypassing Session 0. See [update recovery](docs/rust-engine/run-on-boot.md#failed-updates-and-startup-recovery-445).
 [verified: `tools/boot-engine-task.ps1`, `build/installer.nsh`, `main/{runonstartup,sessionlaunch,index}.ts`; 2026-10-26]
 

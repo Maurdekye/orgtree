@@ -1,6 +1,7 @@
 // Inert, silent NSIS control: execute the actual failure/exit hooks and durable
-// logger. The sole task-helper launch is replaced with stack results. No task,
-// registry, elevation, application payload or installation operation exists.
+// logger. The task-helper launch is replaced with stack results, and the
+// upgrade-close result is faked. No task, registry, elevation, application
+// payload or installation operation exists.
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
@@ -37,16 +38,31 @@ Var OrgBootAction
 Var OrgLogPath
 Var OrgLogStage
 Var OrgLogDetail
+Var OrgUpgradeSelected
+Var installMode
 !define ORGTREE_LOG_MAX_BYTES 262144
 ${macro('OrgLog')}
+${macro('OrgQuit')}
 ${func('orgtreeInstallerLog')}
 ${safe}
 ${func('.onInstFailed')}
 ${func('.onGUIEnd')}
 ${macro('BootResult')}
+; Only this close-result boundary is faked. The actual selected-upgrade branch
+; runs; neither unused current-user dependency macro can launch anything.
+!macro IS_POWERSHELL_AVAILABLE
+!macroend
+!macro _CHECK_APP_RUNNING
+!macroend
+Function orgtreeCloseForUpgrade
+  Push "0"
+FunctionEnd
+${macro('customCheckAppRunning')}
 Function .onInit
   StrCpy $OrgBootPending "1"
   StrCpy $OrgBootAction "Register"
+  StrCpy $OrgUpgradeSelected "1"
+  StrCpy $installMode "all"
 FunctionEnd
 Section
 ${body}
@@ -61,9 +77,9 @@ SectionEnd
   const log=path.join(dir,'orgtree-installer.log')
   return {status:run.status,log:fs.existsSync(log)?fs.readFileSync(log,'utf8'):''}
 }
-test('silent Quit after Prepare invokes the real exit rollback hook',()=>{
-  const r=execute('prepare','  Quit')
-  assert.equal(r.status,0)
+test('silent close refusal after Prepare restores through the actual app-running check',()=>{
+  const r=execute('prepare','  !insertmacro customCheckAppRunning')
+  assert.equal(r.status,2,'a cancelled installation must not report success')
   assert.equal((r.log.match(/\[boot-rollback\]/g)||[]).length,1,r.log)
 })
 test('copy Abort invokes the real installation-failure rollback hook',()=>{
@@ -81,8 +97,10 @@ test('Register failure durably logs bounded stderr and restores once before exit
   assert.equal((r.log.match(/\[boot-rollback\]/g)||[]).length,1,r.log)
 })
 test('committed exit never invokes the rollback helper',()=>{
-  const r=execute('committed','  StrCpy $OrgBootPending "0"\n  Quit')
-  assert.equal(r.status,0)
+  const r=execute('committed','  StrCpy $OrgBootPending "0"\n  !insertmacro OrgQuit')
+  // The inert fixture quits before SectionEnd, so NSIS reports 2 even with
+  // no pending transaction. Its bookkeeping flag must not alter exit status.
+  assert.equal(r.status,2)
   assert.equal(r.log,'')
 })
 test('refused Prepare does not replay a retained snapshot through failure or exit hooks',()=>{
@@ -100,6 +118,8 @@ test('interactive Cancel uses the same restoration function through MUI',()=>{
   // The MUI-generated callback has no independent task mutation or launch.
   // Native Cancel dispatch is a release UI check; this pins the shared hook.
   assert.ok(func('orgtreeRestoreBootTasks'))
+  assert.match(macro('OrgQuit'),/Call orgtreeRestoreBootTasks[\s\S]*\bQuit/)
+  assert.match(macro('customCheckAppRunning'),/\$0 != "1"\s+!insertmacro OrgQuit/,'the post-Prepare exit must use the explicit restoration route')
   const prepare=source.slice(source.indexOf('        !insertmacro BootHelpers'),source.indexOf('    SectionEnd',source.indexOf('        !insertmacro BootHelpers')))
   assert.match(prepare,/StrCpy \$OrgBootPending "0"[\s\S]*-Action Prepare[\s\S]*!insertmacro BootResult\s+StrCpy \$OrgBootPending "1"/,'a refused Prepare must not arm exit rollback against an older snapshot')
 })

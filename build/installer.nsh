@@ -51,6 +51,17 @@ Var pid
   File /oname=$PLUGINSDIR\register-boot-engine.ps1 "${PROJECT_DIR}\tools\register-boot-engine.ps1"
   File /oname=$PLUGINSDIR\unregister-boot-engine.ps1 "${PROJECT_DIR}\tools\unregister-boot-engine.ps1"
 !macroend
+!macro OrgQuit
+  # Quit does not invoke .onGUIEnd in a silent installer. Explicit exits
+  # after Prepare must restore pending tasks before terminating instead of
+  # relying on GUI callbacks. Per-user/committed exits are no-ops here.
+  !ifndef BUILD_UNINSTALLER
+    !ifndef ORGTREE_DEV_CHANNEL
+      Call orgtreeRestoreBootTasks
+    !endif
+  !endif
+  Quit
+!macroend
 !macro BootResult
   Pop $0
   Pop $1
@@ -1352,8 +1363,8 @@ orgtreeSilentElevateDone:
       Call orgtreeRestoreBootTasks
     FunctionEnd
     Function .onGUIEnd
-      # Includes silent Quit and early exits after Prepare; successful commits
-      # clear the pending flag, so normal completion performs no rollback.
+      # GUI fallback only: silent explicit exits use OrgQuit. Successful
+      # commits clear pending, so normal completion performs no rollback.
       Call orgtreeRestoreBootTasks
     FunctionEnd
     Section "-Orgtree boot preflight"
@@ -1415,7 +1426,7 @@ orgtreeSilentElevateDone:
     Call orgtreeCloseForUpgrade
     Pop $0
     ${if} $0 != "1"
-      Quit
+      !insertmacro OrgQuit
     ${endif}
     ${elseif} $installMode == "CurrentUser"
     !insertmacro IS_POWERSHELL_AVAILABLE
