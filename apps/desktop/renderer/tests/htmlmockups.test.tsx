@@ -2,7 +2,7 @@ import './harness'
 import { flush, inAct, mountView, realClock, useFakeClock } from './harness'
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { DocChips, DocReader, PresentationCard } from '../src/canvas/docs'
+import { DocChips, DocReader, PresentationCard, presentationMenu } from '../src/canvas/docs'
 import { DocGalleryModal } from '../src/canvas/gallery'
 import { mockupUrl } from '../src/api'
 
@@ -86,4 +86,33 @@ test('gallery mockup cards select their preview in the same collection', async (
   const dismiss = view.el.querySelector('button[title="dismiss"]') as HTMLButtonElement
   await inAct(() => dismiss.click()); await flush()
   assert.ok(calls.includes('DELETE /api/orgs/org/documents/mock1'))
+})
+
+// User 2026-10-26 21:34Z mb8b511d41e12: "also rename them to just html
+// presentations, remove the word mockup from their tag".
+test('HTML presentations are labelled HTML presentation, never mockup or prototype', async (t) => {
+  const doc = { ...htmlDoc, title: 'Release dashboard' }
+  globalThis.fetch = (async () => ({ ok: true, status: 200, headers: new Headers(),
+    json: async () => ({ ...doc, node: 'agent', body: '<p>dashboard</p>' }),
+  } as Response)) as typeof fetch
+  const view = await mountView(<>
+    <PresentationCard slug="org" doc={doc} className="doc-badge" onOpen={() => {}}>{doc.title}</PresentationCard>
+    <DocChips slug="org" docs={[doc]} onOpen={() => {}} />
+    <DocReader slug="org" docId={doc.id} toast={() => {}} close={() => {}} />
+  </>, (host) => host)
+  t.after(() => view.unmount())
+  await flush()
+  const badge = view.el.querySelector('.doc-badge .mockup-format')
+  assert.equal(badge?.getAttribute('aria-label'), 'HTML presentation')
+  assert.equal(badge?.textContent, '</> HTML presentation')
+  assert.equal(view.el.querySelector('.doc-chip .mockup-format.compact')?.getAttribute('aria-label'), 'HTML presentation')
+  const menu = presentationMenu(null, 'org', doc, {}).flatMap((e) => e === 'sep' ? [] : [e.label])
+  assert.ok(menu.includes('Open HTML presentation in a new tab'), menu.join(' | '))
+  assert.ok(menu.includes('Download HTML presentation'), menu.join(' | '))
+  assert.equal(view.el.querySelector('.mockup-open a')?.textContent?.trim(), 'Open HTML presentation in a new tab')
+  assert.equal(view.el.querySelector('a.document-download')?.getAttribute('title'), 'Download HTML presentation')
+  const labelled = [...view.el.querySelectorAll('[aria-label], [title]')]
+    .flatMap((el) => [el.getAttribute('aria-label') ?? '', el.getAttribute('title') ?? ''])
+  const shown = [view.el.textContent ?? '', ...menu, ...labelled].join('\n')
+  assert.doesNotMatch(shown, /mockup|prototype/i)
 })
