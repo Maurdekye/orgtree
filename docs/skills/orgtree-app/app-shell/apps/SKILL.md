@@ -7,11 +7,10 @@ Up: [orgtree-app-shell](../SKILL.md)
 
 # Apps and saved panels
 
-Panel settings > History shows the copy's event history and opens native
-declared-event controls and Connections for that saved copy, including closed
-copies. History lists opens, changes, state saves and events, newest first; a
+Panel settings shows a saved copy's Connections, Fire event and History tabs
+(History last), including for closed copies. History lists opens, changes, state saves and events, newest first; a
 fired event shows its listener count, never its data. Fire event sends the chosen
-name and JSON; opening the view fires nothing. Connections are agent-owned
+name and JSON; opening the tab fires nothing. Connections are agent-owned
 app_listener watchdogs, with Refresh/More connections paging. Agents manage
 their registrations through orgtree_watchdog; orgtree_apps fire_event/listeners
 provide publication/list parity. HTML orgtree.events.fire(name,payload) uses
@@ -38,8 +37,9 @@ list (is_new/new_count) and mark_seen with explicit apps:[id,...], up to200 IDs.
 ## Running in the background
 
 Closing a panel's window hides it; the panel keeps running (user 2026-10-26).
-The window header has two controls: Hide (the eye) keeps the panel running, and
-Power off (the power symbol) stops it and closes the window. Each saved-panel row
+The window header has two run controls: Power off (the power symbol) stops the
+panel and closes the window, and Hide (the X at the far right) closes the window
+and keeps the panel running. Each saved-panel row
 shows its state on its light: filled for running and visible, an accent ring for
 running hidden, a hollow grey ring for off; the tooltip says Running · visible,
 Running · hidden or Off. Running rows show their CPU, sampled every 3 seconds while
@@ -70,16 +70,16 @@ catalogue is paged: use More apps / More saved panels (user rulings 2026-10-26).
 
 An unpinned panel opens as a standard centered modal, with pop-out, a canvas pin,
 Hide and Power off. There are two separate settings panels (user ruling2026-10-26).
-The app-row gear in Apps opens App settings with two tabs: General
-(description/creator, export and app deletion) and Permissions (Events
+The app-row gear in Apps opens App settings: the app's description above two
+tabs, General (export and app deletion) and Permissions (Events
 allow/deny, Files grants and pending changes, with their existing app-wide
 behavior). Allow once remains
 in the active host's native prompt.
 
 Each saved-panel row has its own gear, even when closed. That gear and the open
-panel header gear open Panel settings for that exact copy, with two tabs: General
-(State, Rename, Duplicate and Delete panel) and History (event history,
-Connections and Fire event). Event publication/connections are copy-specific;
+panel header gear open Panel settings for that exact copy, with four tabs: General
+(State, Rename, Duplicate and Delete panel), Connections, Fire event and, last,
+History (event history). No tab repeats its name as a section header. Event publication/connections are copy-specific;
 their permission remains app-wide. Placement is not a setting. No saved-copy selector or app actions appear
 here. Manage a closed copy without running its HTML; menu paging exposes further
 copies. The title-bar pin pins a panel to the canvas,

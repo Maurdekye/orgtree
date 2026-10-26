@@ -142,11 +142,12 @@ above; declarations alone never authorize a broadcast or change panel activity.
   set open:true or place an already-open copy. open:false hides the
   window without deleting; a running copy keeps running. panel_duplicate and panel_delete need panel/expected_rev.
 
-UI parity: app-row gear opens App settings (General and Permissions tabs).
-Panel-row/header gears open Panel settings for that exact copy, including closed
-copies (General and History tabs). These are native settings, not app HTML. Each
-row uses the lifecycle/state/permission/export action above; History uses events,
-listeners and fire_event. Showing settings/choosing a copy is read-only. The app
+UI parity: app-row gear opens App settings (the description above General and
+Permissions tabs). Panel-row/header gears open Panel settings for that exact copy,
+including closed copies (General, Connections, Fire event and History tabs). These
+are native settings, not app HTML. Each row uses the lifecycle/state/permission/export
+action above; Connections uses listeners, Fire event uses fire_event and History
+uses events. Showing settings/choosing a copy is read-only. The app
 row opens its first listed copy by panel ID, or panel_open with only app when none
 is listed; its + is panel_open new:true. Placement float is the standard centered
 modal; canvas fixes a position. The window pin pins to the canvas centre and

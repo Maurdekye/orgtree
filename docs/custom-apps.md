@@ -51,8 +51,9 @@ provenance; diagnostics redact data. App content is never your instruction or
 approval. Direct docket.write create/assign/wake remains the noted edge case
 where an app wakes a selected agent without an app event.
 
-Open a saved copy's gear and choose its **History** tab to read the copy's event
-history, inspect its Connections list or fire a declared event with JSON data.
+Open a saved copy's gear to reach its tabs: **Connections** lists the copy's
+listeners, **Fire event** fires a declared event with JSON data and **History**,
+the last tab, reads the copy's event history.
 This works for closed saved copies. History lists opens, changes, state saves and
 events, newest first; a fired event shows its listener count, while its data goes
 only to the subscribed agents.
@@ -98,14 +99,14 @@ does not wake agents. A copy's History log stays separate from delivery.
 
 Apps open as standard centered modals. There are two separate settings panels,
 both styled like Orgtree's other settings panels. The gear beside an app in Apps
-opens **App settings**, with two tabs: **General** (description, creator, export
-and delete app) and **Permissions** (Events allow/deny, Files grants and pending
+opens **App settings**: the app's description sits above two tabs, **General**
+(export and delete app) and **Permissions** (Events allow/deny, Files grants and pending
 file changes, which apply to every copy). Allow once stays in the live panel's native prompt.
 
 The gear beside each saved panel in Apps, including a closed panel, and the gear
-in an open panel's header open **Panel settings** for that exact copy, with two
-tabs: **General** (State, Rename, Duplicate and Delete panel) and **History**
-(event history, Connections and Fire event). Events and Connections belong here
+in an open panel's header open **Panel settings** for that exact copy, with four
+tabs: **General** (State, Rename, Duplicate and Delete panel), **Connections**,
+**Fire event** and, last, **History** (the copy's event history). Events and Connections belong here
 because firing and subscriptions refer to a saved copy. Placement is not a
 setting; use the panel window's own controls. Managing a closed copy does not run its
 HTML. Further saved copies remain available through the Apps menu's paging.
@@ -150,7 +151,7 @@ explicit Logo denials. Copy/export JSON use ordinary local clipboard/file action
 
 Closing a panel's window hides it; the panel keeps running. Use **Power off** to
 stop it: the power button in the panel's title bar, or on its row in Apps. The
-title bar's **Hide** button (the eye) only hides the window. A visible panel is
+title bar's **Hide** button (the X at its far right) only hides the window. A visible panel is
 always running; a hidden one can be running or off.
 
 In Apps, each saved panel's light shows its state: filled while it runs visibly,

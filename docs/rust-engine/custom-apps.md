@@ -8,7 +8,9 @@ closing a panel's visual does not stop it; a visible panel is always running and
 a hidden one need not be stopped. Opening starts a copy, Start running (saved-row
 context menu) starts it hidden, Power off (row and header) stops and hides it and
 Stop all powers off every app. Restart restores each copy as it was. Panels run
-only in the desktop app, including the tray, with no count cap.
+only in the desktop app, including the tray, with no count cap. The window
+header's Hide is its far-right X, after Power off (USER2026-10-26 m02d3caf61db2,
+m4bff476c3659).
 
 Migration 0067 adds is_running and run_generation (>0) with CHECK (NOT is_open
 OR is_running); copies open at migration become running. Panel metadata reports
@@ -174,9 +176,10 @@ payload never enters that log, and the host does not relay the row into the app
 By the user's2026-10-26 ruling, docket.write create/assign/wake remains the
 documented edge case that wakes a selected local agent without an app event.
 
-Native Panel settings > History shows the copy's log, lists actual scoped
-connections with bounded cursor paging, permits explicit user Fire event from that
-saved copy and displays acceptance/backpressure without automatic retries.
+Native Panel settings shows the copy's log on its History tab, lists actual scoped
+connections with bounded cursor paging on Connections, and permits explicit user
+Fire event from that saved copy on Fire event, displaying acceptance/backpressure
+without automatic retries.
 Agent parity is Apps listeners/fire_event; agent subscription ownership stays
 in watchdog controls. SDK orgtree.events.fire forwards only name/payload to
 the existing parent-only action client. The native broadcast prompt explicitly
@@ -336,18 +339,23 @@ the wire refuses mode screen, and migration0068 moved stored screen pins to
 float. The iframe remains the same subtree across pin/unpin.
 
 Separate native settings replace the former combined App/This panel view
-(USER2026-10-26 m9f3ddc116f78). App-row gear opens AppSettings: description,
-creator, export/delete) in its General tab and the embedded AppPermissions in a
-second Permissions tab (USER2026-10-26 m1fcbeca9488e): Files grants, pending
+(USER2026-10-26 m9f3ddc116f78). App-row gear opens AppSettings: the description
+above the tab row, export/delete in its General tab with no section header or
+creator row (USER2026-10-26 m7d07ebe438b4, mc6d6096f5206) and the embedded
+AppPermissions in a second Permissions tab (USER2026-10-26 m1fcbeca9488e): Files grants, pending
 changes and events.fire allow/deny. Panel-row and open-header gears open
 PanelSettings bound to one explicit panel ID, including closed copies; no MRU
 selection, HTML startup or app actions. Its General tab keeps state/rename/
-duplicate/delete on their existing revision-checked tool calls. Its History tab
-(USER mc8711410a925) holds the copy's log, merged from the former Activity view,
-with Connections and Fire event, which stay per-copy. Linked agents (USER
+duplicate/delete on their existing revision-checked tool calls, with no section
+header (USER m5e1010314d2c). Connections and Fire event have their own tabs (USER
+meb312360e19f) and History comes last (USER m547bae9b0585); it holds the copy's
+log (USER mc8711410a925), merged from the former Activity view. All three stay
+per-copy, no tab repeats its name as a section header, and a fire remounts
+History so it reloads. Delete panel/app confirmations are compact content-sized
+AppDialogs (custom-app-confirm, USER mf913dbdf1494). Linked agents (USER
 m66c0f064351c) and placement (USER m79ee175a5283, m5fca61662c5b) left settings;
 placement stays on the window and in orgtree_apps. Once stays in live native
-host consent. Both use the shared SettingsTabs/SetGroup/SetRow/AppDialog design system and independent
+host consent. Both use the shared SettingsTabs/SetRow/AppDialog design system and independent
 pin identities; owner-document context also wraps their nested dialogs. All
 three settings entry points are display only; orgtree_apps retains action parity.
 
