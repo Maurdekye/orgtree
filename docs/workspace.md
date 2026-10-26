@@ -14,6 +14,8 @@ The **Orgtree** application menu provides **New window**, **Open organization**,
 
 The **YOU** eye card is the human root. Agents appear below their superiors; projects group work inside the tree. A card's model mark identifies its tier, while its status, busy indicator and badges explain its current state. Hover a badge for its meaning before acting on it.
 
+At normal overview zoom, hover anywhere on a card, including a badge, to read a cut-off name in full on its background plate. This works even while a desk is open in this or another window. Short names stay plain. Far-zoom name plates still hide while a desk is open, and an opened desk keeps its own header.
+
 Three things can differ:
 
 - **Busy** means an agent is currently running. The elapsed timer is time spent, not an estimate of time remaining.

@@ -5,7 +5,8 @@ const DeskRegistration = createContext<(() => () => void) | null>(null)
 const NamesAllowed = createContext(true)
 
 /** One canvas owns its desks, including React-portal window surfaces. A desk
- * takes name plates out of the reveal path, not merely below its z-index. */
+ * takes far-zoom name plates out of the reveal path, not merely below its
+ * z-index. Normal-card plates remain available (USER 2026-10-26). */
 export function CardNameRevealProvider({ children }: { children: ReactNode }) {
   const [desks, setDesks] = useState(0)
   const register = useCallback(() => {

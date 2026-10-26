@@ -17,6 +17,9 @@ import { NodeSquare } from '../src/canvas/cards'
 import { ProjectSquare } from '../src/canvas/projectcard'
 import type { CanvasNode } from '../src/canvas/shared'
 import type { OpResult } from '../src/types'
+import { createPortal } from 'react-dom'
+import { CardNameRevealProvider } from '../src/canvas/cardnamereveal'
+import { DeskHead } from '../src/canvas/deskshell'
 
 declare const __SRC_DIR__: string
 
@@ -321,3 +324,37 @@ test('stylesheet: the far-zoom lift reveal is unchanged', () => {
   const css = readFileSync(path.join(__SRC_DIR__, 'styles.css'), 'utf8')
   assert.match(css, /\.sq\.mini:hover \.sq-far-tier,\s*\n\.sq\.mini:focus-within \.sq-far-tier,\s*\n\.sq\.mini:focus-visible \.sq-far-tier \{\s*top: -26px;/)
 })
+
+// A popped-out desk retains its React context even though its DOM is no
+// longer visible in the canvas document. Its mini-name guard must not mask
+// a normal card's name when entering the body or effort chip.
+for (const kind of ['agent', 'project'] as const) test(
+  'whole norm ' + kind + ' card reveals its clipped name with a desk in another document', async t => {
+    const restore = fakeNameLayout(260, 80); t.after(restore)
+    const foreign = document.implementation.createHTMLDocument('other desk')
+    const n = { ...makeNode(LONG), ...(kind === 'project' ? { kind: 'project' } : {}),
+      scope: { ...makeNode(LONG).scope, effort: 'high' } } as CanvasNode
+    const scene = (desk: boolean) => <CardNameRevealProvider>
+      {card(n, 'norm')}
+      {desk && createPortal(<DeskHead nodeId="other-desk" left={<b>Other desk</b>} tabs={<span>Chat</span>} />, foreign.body)}
+    </CardNameRevealProvider>
+    const v = await mountView(scene(false), el => el); t.after(() => v.unmount())
+    const sq = v.el.querySelector('.sq')!
+    await enter(sq.querySelector('.sq-meta')!)
+    assert.ok(v.el.querySelector('.name-full'), 'positive: body hover reveals a clipped name before the desk opens')
+    await v.render(scene(true))
+    assert.ok(foreign.querySelector('.cc-head'), 'real desk header remains mounted in the other document')
+    assert.equal(v.el.querySelector('.cc-head'), null, 'no desk is visible in this canvas document')
+    await leave(sq); await enter(sq.querySelector('.sq-meta')!)
+    assert.ok(v.el.querySelector('.name-full'), "normal body hover ignores another document's desk guard")
+    if (kind === 'agent') {
+      const chip = sq.querySelector('.effort-level')!
+      assert.ok(chip, 'positive: real effort chip mounted')
+      await leave(sq); await enter(chip); await move(chip)
+      assert.ok(v.el.querySelector('.name-full'), 'effort chip hover reveals the full name too')
+    }
+    await leave(sq)
+    assert.equal(v.el.querySelector('.name-full'), null, 'leave still retracts the plate')
+    await v.render(scene(false)); await enter(sq)
+    assert.ok(v.el.querySelector('.name-full'), 'closing the remote desk keeps normal reveal working')
+  })
