@@ -21,6 +21,7 @@
 // report an overlap. If that test ever goes green-by-passing, the predicate
 // has stopped being able to see anything and every check above it is vacuous.
 
+import './testguard.mjs'
 import test from 'node:test'
 import assert from 'node:assert/strict'
 

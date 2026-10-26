@@ -2,6 +2,7 @@
 // has started.  These labels are compared directly so an implementation that
 // always reports "primed" or always reports "in progress" cannot pass.
 
+import './testguard.mjs'
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { primedRestartChip } from '../src/canvas/shared'

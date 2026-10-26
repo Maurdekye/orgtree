@@ -24,6 +24,7 @@
  * Each case spawns Windows PowerShell 5.1 the exact way run.mjs does. The
  * memory cost is bounded by the cases themselves (640 MB for ~1 s, twice).
  */
+import './testguard.mjs'
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'

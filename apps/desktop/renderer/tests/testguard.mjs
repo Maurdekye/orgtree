@@ -49,10 +49,11 @@
 // Object, heap cap, per-test timeout and concurrency cap stay the run's real
 // bounds; launch tests through run.mjs.
 //
-// Loaded twice on purpose, and idempotent: harness.ts imports it first (every
-// bundle that mounts a DOM, however it is launched), and run.mjs preloads it
-// into every test process with NODE_OPTIONS=--import (the bundles that never
-// import the harness). testguard.test.ts holds the controls.
+// Loaded more than once on purpose, and idempotent: every renderer test file
+// imports it first, through harness.ts or directly (testguard.test.tsx §10
+// keeps it so), which covers any tool that bundles and runs a test itself;
+// run.mjs and the root tests/run.mjs also preload it into every test process
+// with NODE_OPTIONS=--import. testguard.test.tsx holds the controls.
 
 import assert from 'node:assert'
 import { syncBuiltinESMExports } from 'node:module'

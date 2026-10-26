@@ -1,3 +1,4 @@
+import './testguard.mjs'
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { findPinSnap, validPinSnap, isPinSnap } from '../src/canvas/pinSnap'

@@ -13,6 +13,7 @@
 //
 // Run:  cd apps/desktop/renderer && node tests/run.mjs userlinks
 
+import './testguard.mjs'
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { listenerCards, listenerLinks, mailListenerState, mailQueueCard, projectListenerState } from '../src/canvas/listeners'

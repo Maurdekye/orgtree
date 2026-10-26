@@ -1,5 +1,6 @@
 // CSS constraints behind the geometry measured by buttonspacing_probe.py.
 // These checks protect the rules; the browser probe measures real rectangles.
+import './testguard.mjs'
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'

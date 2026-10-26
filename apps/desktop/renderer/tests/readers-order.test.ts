@@ -4,6 +4,7 @@
 // choose one arbitrarily in a consistent manner". The fixed order: a reader
 // already showing it; its own agent/project reader; the team readers from its
 // node upwards, nearest first; the global reader.
+import './testguard.mjs'
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { pickReader, readerRank, registerReader } from '../src/canvas/readers'

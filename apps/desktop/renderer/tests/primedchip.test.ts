@@ -21,6 +21,7 @@
 //
 // Run:  cd frontend && node tests/run.mjs primedchip
 
+import './testguard.mjs'
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { primedRestartChip } from '../src/canvas/shared'

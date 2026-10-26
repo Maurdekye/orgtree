@@ -20,13 +20,16 @@
  * §8 run.mjs's heap cap and guard preload reach this test process itself
  * §9 run.mjs refuses to start below its free-memory floor or on a malformed
  *    floor, and gets past a satisfied floor
+ * §10 every renderer test file reaches the guard (through the harness, or by
+ *    importing testguard.mjs itself), so a bundle that a tool builds and runs
+ *    without run.mjs still carries it
  */
 import { mountView } from './harness'
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import loose, { strictEqual as namedStrictEqual } from 'node:assert'
 import { spawnSync } from 'node:child_process'
-import { closeSync, existsSync, mkdtempSync, openSync, readFileSync, writeFileSync } from 'node:fs'
+import { closeSync, existsSync, mkdtempSync, openSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import v8 from 'node:v8'
@@ -266,4 +269,15 @@ test('§9 run.mjs refuses to start below its free-memory floor', { timeout: 60_0
   const passed = run('1')
   assert.doesNotMatch(passed.stderr, /FREE MEMORY/, passed.stderr)
   assert.match(passed.stderr, /no test files match no-such-suite-for-the-floor/, passed.stderr)
+})
+
+test('§10 every renderer test file reaches the guard, through the harness or directly', () => {
+  const files = readdirSync(TESTS).filter((name) => /\.test\.tsx?$/.test(name))
+  // anti-vacuity: the scan must see the whole folder, not an empty one
+  assert.equal(files.length > 500, true, `only ${files.length} test files found in ${TESTS}`)
+  const guarded = (source: string) => /^import\s+['"]\.\/(harness|testguard\.mjs)['"]/m.test(source)
+    || /from\s+['"]\.\/harness['"]/.test(source)
+  const offenders = files.filter((name) => !guarded(readFileSync(path.join(TESTS, name), 'utf8')))
+  assert.deepEqual(offenders, [], 'a tool that bundles these and runs them itself would get no guard; '
+    + "give each `import './testguard.mjs'` as its first import")
 })

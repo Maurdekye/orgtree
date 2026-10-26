@@ -8,6 +8,7 @@
 //
 // Run:  cd apps/desktop/renderer && node tests/run.mjs desktablelayout
 
+import './testguard.mjs'
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'

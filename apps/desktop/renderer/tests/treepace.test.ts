@@ -8,6 +8,7 @@
  * 10 s while hidden), capped at 15 s, after the previous one FINISHED. A
  * different org and an urgent (user-driven selection) request skip the gap.
  */
+import './testguard.mjs'
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { TREE_HIDDEN_GAP_MS, TREE_MAX_GAP_MS, TREE_MIN_GAP_MS, TreeReadPacer, treeGap } from '../src/treepace'

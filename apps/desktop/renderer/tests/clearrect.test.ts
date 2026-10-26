@@ -26,6 +26,7 @@
  * §8 ties: nearest centre first, then deterministic coordinates
  * §9 fitZoom's own edges
  */
+import './testguard.mjs'
 import test from 'node:test'
 import assert from 'node:assert/strict'
 

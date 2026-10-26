@@ -1,3 +1,4 @@
+import './testguard.mjs'
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { slotTimeStyle as themedTimeStyle, slotEndedTimeStyle as themedEndedStyle } from '../src/canvas/slottime'

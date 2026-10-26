@@ -9,6 +9,7 @@
 // stylesheet in a real Chromium and asserts the gap above the first line is
 // zero at every height the box takes. This file exists so the rule cannot be
 // deleted silently by an edit that never runs that probe.
+import './testguard.mjs'
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'

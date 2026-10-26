@@ -1,3 +1,4 @@
+import './testguard.mjs'
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { WorkReferenceReader, type WorkReference } from '../src/workreferences'

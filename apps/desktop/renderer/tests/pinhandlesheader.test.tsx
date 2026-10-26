@@ -9,6 +9,7 @@
 //
 // jsdom has no layout and no native hit-testing, so this guards the CSS rule
 // that caused it: no top handle may be offset above its panel.
+import './testguard.mjs'
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'

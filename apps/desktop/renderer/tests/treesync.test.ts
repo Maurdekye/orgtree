@@ -2,6 +2,7 @@
 // replay selection, pruning, reset, and the old-server degradations —
 // the reorder/gap controls the 2026-09-19 approval requires as tests.
 
+import './testguard.mjs'
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { isPatchFrame, newSync, onBase, onFrame, resetSync } from '../src/treesync'

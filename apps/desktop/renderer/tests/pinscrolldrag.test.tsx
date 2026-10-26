@@ -15,6 +15,7 @@
 // `none` were measured NOT to stop it.
 //
 // jsdom has no layout and no native hit-testing, so this guards the CSS.
+import './testguard.mjs'
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
