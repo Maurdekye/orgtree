@@ -296,7 +296,7 @@ async fn arm_armed(engine: &Arc<Engine>) -> Result<()> {
         drop(client);
         let more=rows.len()==256;
         for row in rows {after=row.get(0);arm(engine,after);}
-        if !more { if !safe { crate::domain::listeners::recover_pending(engine).await?; } return Ok(()) }
+        if !more { if !safe { crate::domain::listeners::recover_pending(engine).await?; crate::domain::apps::events::start(engine); } return Ok(()) }
         tokio::task::yield_now().await;
     }
 }
@@ -440,6 +440,7 @@ async fn run(engine: &Arc<Engine>, dog: Dog, cancel: &CancellationToken,retrying
         "activity" => run_activity(engine, dog, cancel).await,
         "fair_queue" => run_fair_queue(engine, dog, cancel).await,
         "slot" => run_slot(engine, dog, cancel).await,
+        "app_listener" => {cancel.cancelled().await;Ok(())},
         "project_listener" | "listener_watch" => run_project_listener(engine, dog, cancel).await,
         _ => crate::util::boxed(|| run_poll(engine, dog.row, cancel,retrying)).await,
     }
@@ -2101,9 +2102,11 @@ pub(crate) async fn create_from_template(engine: &Arc<Engine>, org_id: i64, owne
 #[nolog]
 async fn create_mode(engine: &Arc<Engine>, org_id: i64, owner: i64, args: &Value, template: Option<bool>) -> Result<Value> {
     let kind = args["kind"].as_str().unwrap_or("").to_string();
-    if !["file", "command", "process", "stream", "activity", "event", "usage", "fair_queue", "slot", "project_listener", "listener_watch", "mqtt", "websocket"].contains(&kind.as_str()) {
+    if !["file", "command", "process", "stream", "activity", "event", "usage", "fair_queue", "slot", "project_listener", "listener_watch", "app_listener", "mqtt", "websocket"].contains(&kind.as_str()) {
         refuse!(BadRequest, "kind must be one of file, command, process, stream, activity, event, usage, fair_queue, slot, project_listener, listener_watch, mqtt, websocket");
     }
+    if kind!="app_listener" && ["event_name","panel","all_panels"].iter().any(|k|args.get(k).is_some()){refuse!(BadRequest,"event_name, panel and all_panels are app_listener fields only");}
+    if kind=="app_listener" && template.is_some(){refuse!(BadRequest,"app subscriptions and their actions are not portable in templates");}
     mqtt::foreign_fields(&kind, args)?;
     websocket::foreign_fields(&kind, args)?;
     let target = args["target"].as_str().map(str::trim).unwrap_or(if kind=="usage"{"usage"}else{""}).to_string();
@@ -2120,6 +2123,7 @@ async fn create_mode(engine: &Arc<Engine>, org_id: i64, owner: i64, args: &Value
     } else {
         unnamed(&kind, &target)
     };
+    let app_selector=if kind=="app_listener"{Some(crate::domain::apps::events::selector(args)?)}else{None};
     let mut target = target;
     let client = engine.db.get().await?;
     let owner_row = client.query_one("SELECT name, scratch_dir FROM ot.agents WHERE id = $1", &[&owner]).await?;
@@ -2369,6 +2373,7 @@ async fn create_mode(engine: &Arc<Engine>, org_id: i64, owner: i64, args: &Value
     let once = kind == "slot" || args["once"].as_bool().unwrap_or(false);
     let notice = args["notice"].as_bool().unwrap_or(false);
     memo["notice"] = json!(notice);
+    if let Some(selector)=&app_selector{memo.as_object_mut().expect("watchdog memo object").extend(selector.as_object().expect("selector object").clone());}
     let fire_actions = fire_actions_arg(args)?;
     if !fire_actions.is_empty() {
         if kind == "fair_queue" {
@@ -2401,6 +2406,7 @@ async fn create_mode(engine: &Arc<Engine>, org_id: i64, owner: i64, args: &Value
         else if kind=="usage" {json!({"push":true,"note":"Current cached levels evaluated now; future changes use edges. No provider requests. Clock checks detect stale/reset transitions within 15 seconds."})}
         else if let Some(c) = &mqtt_new { let (v, p) = mqtt::smoke(engine, owner, c).await; parked = p; v }
         else if let Some(c) = &ws_new { let (v, p) = websocket::smoke(engine, c).await; ws_parked = p; v }
+        else if kind=="app_listener" {json!({"push":true,"note":"named app event subscription; source and owner checked in the registration transaction"})}
         else if kind=="event" { events::smoke(engine,owner,&target,args).await? }
         else if let Some(p) = &queue_project { queue_smoke(engine, org_id, p).await? }
         else if slot_project.is_some() { json!({ "ran": "a concurrency slot claim has nothing to run" }) }
@@ -2427,6 +2433,7 @@ async fn create_mode(engine: &Arc<Engine>, org_id: i64, owner: i64, args: &Value
         let id = crate::domain::watchdog_inventory::available_id(&**client, owner, &base).await?;
         // a dog and its sealed inline credentials are written together
         let tx = client.transaction().await?;
+        if kind=="app_listener"{crate::domain::apps::events::admit_listener(&tx,org_id,owner,&target,&memo,None).await?;}
         if let Some(p)=slot_project.as_ref().filter(|_| template.is_none()) {
             crate::domain::slots::admit(&tx,p.id,Some(owner),i64::from(crate::domain::slots::requested(&memo)),None).await?;
         }
@@ -2511,7 +2518,7 @@ async fn create_mode(engine: &Arc<Engine>, org_id: i64, owner: i64, args: &Value
     changes::notify_id(engine, org_id, ch);
     let cadence = match kind.as_str() {
         "stream" => " (realtime stream)".to_string(),
-        "activity" | "event" | "usage" => " (pushed events)".to_string(),
+        "activity" | "event" | "usage" | "app_listener" => " (pushed events)".to_string(),
         "mqtt" => format!(" (pushed messages, topics {})", pattern.as_deref().unwrap_or("")),
         "websocket" => format!(" (pushed messages from {target})"),
         "fair_queue" | "slot" | "project_listener" | "listener_watch" => format!(" on project {target}"),
@@ -2657,6 +2664,7 @@ pub async fn configure_connect(engine: &Arc<Engine>, org_id: i64, actor: Option<
 pub async fn act(engine: &Arc<Engine>, org_id: i64, actor: Option<i64>, id: &str, action: &str, reason: Option<&str>) -> Result<Value> {
     let dog = resolve(engine, org_id, actor, id).await?;
     let reason = reason.map(str::trim).filter(|r| !r.is_empty());
+    if dog.kind=="app_listener" && action=="resume"{return crate::domain::apps::events::resume(engine,org_id,dog.owner,dog.row,&dog.target,&dog.memo).await;}
     let client = engine.db.get().await?;
     let state = match action {
         "pause" => {

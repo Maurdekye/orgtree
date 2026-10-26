@@ -96,6 +96,8 @@ pub enum Request {
     StatePatch { panel:String, expected_rev:i64, patch:Value },
     Event { panel:String, name:String, payload:Value },
     Events { panel:String, after:Option<i64>, limit:Option<i64> },
+    FireEvent { panel:String, name:String, payload:Value },
+    Listeners { app:String, panel:Option<String>, after:Option<i64>, limit:Option<i64> },
 }
 
 // These arguments can contain private app HTML/state. Do not trace their values.

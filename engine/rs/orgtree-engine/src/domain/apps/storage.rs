@@ -77,6 +77,11 @@ pub(crate) async fn run_locked(engine:&Arc<Engine>,org:&Arc<OrgHandle>,caller:Op
     let actor=authorize(&tx,org.id,caller).await?;let mut changed=false;
     let mut signals:Vec<(Vec<String>,Value)>=Vec::new();
     let out=match request {
+        Request::Listeners{app:id,panel,after,limit}=>super::events::listeners(&tx,org.id,&id,panel.as_deref(),after,limit).await?,
+        Request::FireEvent{panel,name,payload}=>{
+            let producer=if let Some(caller)=caller{json!({"kind":"agent","id":caller.agent_id,"name":caller.name})}else{json!({"kind":"user"})};
+            let out=super::events::publish(&tx,org.id,&panel,&name,&payload,producer).await?;changed=true;out
+        },
         Request::List{kind,app:filter,after,limit,open}=>{
             let n=page(limit)?;let after=after.unwrap_or_default();let kind=kind.unwrap_or_else(||"apps".into());
             let rows=match kind.as_str(){
@@ -143,11 +148,13 @@ pub(crate) async fn run_locked(engine:&Arc<Engine>,org:&Arc<OrgHandle>,caller:Op
             wire::definition(&def)?;let old=app(&tx,org.id,&id,false,true).await?;revision(&old,expected_rev)?;let caps=json!(def.capabilities);let declarations=json!(def.events);
             // Provisional security default: every code update revokes grants.
             tx.execute("UPDATE ot.custom_apps SET name=$3,description=$4,html=$5,initial_state=$6,capabilities=$7,width=$8,height=$9,declared_events=$10,permissions='{}',permission_rev=permission_rev+1,rev=rev+1,updated_at=now() WHERE org_id=$1 AND id=$2",&[&org.id,&id,&def.name,&def.description,&def.html,&def.initial_state,&caps,&def.width,&def.height,&declarations]).await?;
+            super::events::invalidate(&tx,org.id,&id,None,Some(&declarations)).await?;
             changed=true;app(&tx,org.id,&id,false,false).await?
         }
         Request::AppDelete{app:id,expected_rev,delete_panels}=>{
             revision(&app(&tx,org.id,&id,false,true).await?,expected_rev)?;
             if !delete_panels && tx.query_opt("SELECT 1 FROM ot.custom_panels WHERE org_id=$1 AND app_id=$2 LIMIT 1",&[&org.id,&id]).await?.is_some(){crate::refuse!(Conflict,"app has saved panels; explicitly set delete_panels to remove them");}
+            super::events::invalidate(&tx,org.id,&id,None,None).await?;
             tx.execute("DELETE FROM ot.custom_apps WHERE org_id=$1 AND id=$2",&[&org.id,&id]).await?;changed=true;json!({"deleted":id})
         }
         Request::PanelOpen{app:app_id,panel:panel_id,new,label}=>{
@@ -197,7 +204,9 @@ pub(crate) async fn run_locked(engine:&Arc<Engine>,org:&Arc<OrgHandle>,caller:Op
             event(&tx,org.id,&pid,"panel.duplicated",&json!({"source":id}),&actor).await?;changed=true;panel(&tx,org.id,&pid,false).await?
         }
         Request::PanelDelete{panel:id,expected_rev}=>{
-            revision(&panel(&tx,org.id,&id,true).await?,expected_rev)?;tx.execute("DELETE FROM ot.custom_panels WHERE org_id=$1 AND id=$2",&[&org.id,&id]).await?;changed=true;json!({"deleted":id})
+            let old=panel(&tx,org.id,&id,true).await?;revision(&old,expected_rev)?;
+            super::events::invalidate(&tx,org.id,old["app"].as_str().unwrap_or(""),Some(&id),None).await?;
+            tx.execute("DELETE FROM ot.custom_panels WHERE org_id=$1 AND id=$2",&[&org.id,&id]).await?;changed=true;json!({"deleted":id})
         }
         Request::StateSet{panel:id,expected_rev,state}=>{
             revision(&panel(&tx,org.id,&id,true).await?,expected_rev)?;let out=update_state(&tx,org.id,&id,&state,&actor).await?;
@@ -220,7 +229,8 @@ pub(crate) async fn run_locked(engine:&Arc<Engine>,org:&Arc<OrgHandle>,caller:Op
             json!({"panel":id,"events":events,"next_cursor":next,"oldest_retained":oldest})
         }
     };
-    tx.commit().await?;
+    tx.commit().await?;drop(client);
+    if input["action"]=="fire_event"{super::events::notify(engine);}
     if changed{org.emit(json!({"type":"custom_apps_changed","org":org.slug}));}
     // A link is a target, never a wake or a capability grant. Existing opt-in
     // event watchdogs decide delivery, scope, coalescing and wake/notice policy.
@@ -239,13 +249,14 @@ pub async fn run(engine:&Arc<Engine>,org:&Arc<OrgHandle>,caller:Option<&Caller>,
     wire::parse(input)?;
     if caller.is_some_and(|c|c.org_id!=org.id){crate::refuse!(Forbidden,"Apps caller belongs to another organization");}
     let action=input["action"].as_str().unwrap_or("");
-    if ["list","app_get","panel_get","events","app_create","app_import","app_export","mark_seen"].contains(&action){return run_locked(engine,org,caller,input).await;}
+    if ["list","app_get","panel_get","events","app_create","app_import","app_export","mark_seen","listeners"].contains(&action){return run_locked(engine,org,caller,input).await;}
     let app=if let Some(app)=input["app"].as_str(){app.to_owned()}else{
         let client=engine.db.get().await?;let panel=input["panel"].as_str().unwrap_or("");
         let row=client.query_opt("SELECT app_id FROM ot.custom_panels WHERE org_id=$1 AND id=$2",&[&org.id,&panel]).await?;
         let Some(row)=row else{crate::refuse!(NotFound,"saved panel not found");};row.get::<_,String>(0)
     };
     let gate=engine.custom_apps.gate(org.id,&app)?;let _guard=gate.lock.lock().await;
+    if action=="fire_event"{gate.admit()?;}
     let out=run_locked(engine,org,caller,input).await?;
     if ["app_update","app_delete"].contains(&action){engine.custom_apps.revoke(org.id,Some(&app),None)?;}
     if action=="panel_delete"||(action=="panel_update"&&input["open"]==false){engine.custom_apps.revoke(org.id,None,input["panel"].as_str())?;}

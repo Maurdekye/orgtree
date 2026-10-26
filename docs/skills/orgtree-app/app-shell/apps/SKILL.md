@@ -13,7 +13,7 @@ limit is64 events, unique exact names1–80 characters with no surrounding
 whitespace or controls, and descriptions up to1,000 characters. Whole-app
 export/import and templates retain these declarations. Declarations alone do
 not grant permissions, create listeners or wake agents; durable named-event
-delivery is a separate part of the app-events work.
+delivery uses explicit app_listener subscriptions.
 
 The header Apps button counts new apps with the unread attention-mail highlight.
 Each new menu entry is marked New. Only entries visible in the menu clear from

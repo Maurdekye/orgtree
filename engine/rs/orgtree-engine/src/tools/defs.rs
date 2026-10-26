@@ -1133,7 +1133,10 @@ fn build_tool_watchdog() -> Value {
             "cursor": {"type":"string","description":"list: next_cursor from the preceding page"},
             "limit": {"type":"integer","minimum":1,"maximum":100,"description":"list: page size (default 50, max 100)"},
             "name": { "type": "string", "description": "create: a short name, e.g. build-watch; its slug becomes the dog's id" },
-            "kind": { "type": "string", "enum": ["file", "command", "process", "stream", "activity", "event", "usage", "fair_queue", "slot", "project_listener", "listener_watch", "mqtt", "websocket"] },
+            "kind": { "type": "string", "enum": ["file", "command", "process", "stream", "activity", "event", "usage", "fair_queue", "slot", "project_listener", "listener_watch", "app_listener", "mqtt", "websocket"] },
+            "event_name":{"type":"string","description":"app_listener: exact declared event name"},
+            "panel":{"type":"string","description":"app_listener: one saved panel ID; mutually exclusive with all_panels"},
+            "all_panels":{"type":"boolean","description":"app_listener: explicitly listen to all current and future copies of this app"},
             "batch": { "type": "integer", "minimum": 1, "maximum": 20, "description": "fair_queue only: up to this many mails per wake; ACK capacity too. Default 1." },
             "slots": { "type": "integer", "minimum": 1, "maximum": 9999999, "description": "slot only: reserve this many slots together as one lease, in strict FIFO. Default 1; at most project capacity." },
             "credentials": { "anyOf": [
@@ -2064,7 +2067,7 @@ mod mqtt_card_tests {
 #[nolog]
 fn build_tool_apps()->Value {
     tool("orgtree_apps","Manage this org's app definitions and independent saved panels. Requires org-modifying tools. List pages omit HTML/state; app_get/panel_get read them. Open reuses the last panel unless new=true; close keeps state. Mutations need the current expected_rev. Imported permissions never grant actions.",json!({
-        "action":{"type":"string","enum":["list","app_get","app_create","app_update","app_delete","app_import","app_export","mark_seen","panel_open","panel_get","panel_update","panel_duplicate","panel_delete","state_set","state_patch","event","events","permission_set"]},
+        "action":{"type":"string","enum":["list","app_get","app_create","app_update","app_delete","app_import","app_export","mark_seen","panel_open","panel_get","panel_update","panel_duplicate","panel_delete","state_set","state_patch","event","events","fire_event","listeners","permission_set"]},
         "apps":{"type":"array","minItems":1,"maxItems":200,"uniqueItems":true,"items":{"type":"string"},"description":"mark_seen: acknowledge these explicit app IDs for this org's New badge; does not grant actions or change app/panel revisions"},
         "bundle":{"type":"object","description":"app_import: strict orgtree-app version1 object with definition and optional panels:[{label,state}]; up to16MiB/16 saved copies. No permissions, IDs, links or geometry."},
         "path":{"type":"string","description":"app_import: an absolute held local .orgtree-app JSON file without parent components or links, instead of inline bundle"},

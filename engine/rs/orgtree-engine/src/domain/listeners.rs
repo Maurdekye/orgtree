@@ -453,17 +453,17 @@ async fn evaluate_page(engine: &Arc<Engine>, org_id: i64, project: i64, after: i
 /// One listener an event fire delivered to (its fire-time tool calls and
 /// wake run after the delivery transaction, in this order).
 #[derive(serde::Serialize,serde::Deserialize)]
-struct Delivery {
-    row: i64,
-    uid: String,
-    name: String,
+pub(crate) struct Delivery {
+    pub(crate) row: i64,
+    pub(crate) uid: String,
+    pub(crate) name: String,
     /// None is the user's own listener: the mail is theirs, nobody wakes
-    owner: Option<i64>,
-    owner_name: String,
-    notice: bool,
-    spent: bool,
-    mail: String,
-    fire_actions: Vec<Value>,
+    pub(crate) owner: Option<i64>,
+    pub(crate) owner_name: String,
+    pub(crate) notice: bool,
+    pub(crate) spent: bool,
+    pub(crate) mail: String,
+    pub(crate) fire_actions: Vec<Value>,
 }
 
 /// The same project-fire wording in its delivered mail and recorded event lines.
@@ -796,7 +796,7 @@ async fn finish_fire(engine:&Arc<Engine>,org_id:i64,project:i64,id:i64,d:&Delive
 /// this). If it was already claimed or read in between, the results
 /// arrive as their own short watchdog mail instead of vanishing.
 #[logged]
-async fn append_results(engine: &Arc<Engine>, org_id: i64, d: &Delivery, text: &str) {
+pub(crate) async fn append_results(engine: &Arc<Engine>, org_id: i64, d: &Delivery, text: &str) {
     let Ok(c)=engine.db.get().await else {return};
     if !recovery_org_open(engine,&**c,org_id).await.unwrap_or(false) {return}
     drop(c);

@@ -85,6 +85,7 @@ pub fn validate(d: &Dog) -> Result<(), String> {
 pub fn saved_dog(raw: &Value, names: &HashMap<String, bool>, inc: &Include, warnings: &mut Vec<String>) -> Option<Dog> {
     let owner = raw["owner"].as_str().unwrap_or_default();
     let kind = raw["kind"].as_str().unwrap_or_default();
+    if kind=="app_listener"{warnings.push(format!("Dropped app subscription owned by {owner}: listeners and their actions never travel with app definitions."));return None;}
     if names.get(owner) != Some(&false) {
         warnings.push(format!("Dropped watchdog: owner {owner} is outside the saved agent layout.")); return None;
     }

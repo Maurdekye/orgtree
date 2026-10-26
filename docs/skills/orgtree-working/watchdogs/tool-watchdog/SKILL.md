@@ -7,6 +7,27 @@ Up: [orgtree-watchdogs](../SKILL.md)
 
 # orgtree_watchdog
 
+## Named app events
+
+Create `kind:"app_listener", target:"<stable app ID>", event_name:"submitted"`
+with `panel:"<saved copy ID>"` by default, or explicit `all_panels:true` instead.
+The source must declare the exact name. Its agent owner needs watchdog and
+Org-modifying tools; links and creator identity grant nothing. One owner cannot
+register overlapping selectors for the same app/event. Pause/resume/remove,
+once, notice and explicit fire_actions retain their usual semantics. No regex
+or silence mode applies. `orgtree_apps action=listeners` lists connections;
+`action=fire_event` publishes from a retained copy without running its HTML.
+
+Each accepted fire snapshots armed matching registrations. New or resumed dogs
+do not join earlier snapshots; delivery rechecks current live owner/tools and
+armed state. Removing an app, event or selected copy pauses its listeners with
+a reason; recreating a same-named app does not reconnect them. Declarations
+travel in imports/templates, subscriptions/actions do not. Authorized mail
+retains JSON/provenance with an app-content warning; diagnostics omit payload.
+Pending work survives restart without duplicate event×listener mail. Fire
+actions are claimed before execution; an uncertain crash can skip an action,
+never replay it. Provisional bounds4096 registrations and128 pending fires/app.
+
 For worked queue/slot/event/readiness/barrier protocols, open `orgtree-concurrency-primitives` (orgtree-workflows > collaboration-patterns). This page owns each watchdog kind, constraints and fire-time authority.
 
 ## Use proactively when a wait becomes known

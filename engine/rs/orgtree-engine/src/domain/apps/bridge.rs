@@ -13,7 +13,7 @@ pub enum Action {
     #[serde(rename="org.read")] OrgRead { after:Option<i64>, limit:Option<i64> },
     #[serde(rename="mail.send")] MailSend { to:String, body:String, #[serde(default)] notice:bool },
     #[serde(rename="docket.create")] DocketCreate { title:String, objective:String, owner:String },
-    #[serde(rename="events.fire")] EventsFire { target:String, name:String, payload:Value },
+    #[serde(rename="events.fire")] EventsFire { name:String, payload:Value },
 }
 impl Action {
     #[nolog] pub fn capability(&self)->&'static str {match self{Self::OrgRead{..}=>"org.read",Self::MailSend{..}=>"mail.send",Self::DocketCreate{..}=>"docket.write",Self::EventsFire{..}=>"events.fire"}}
@@ -23,7 +23,7 @@ impl Action {
             Self::OrgRead{after,limit}=>{if after.is_some_and(|v|v<0)||limit.is_some_and(|v|!(1..=200).contains(&v)){crate::refuse!(BadRequest,"invalid app chart page");}},
             Self::MailSend{to,body,..}=>{recipient(to)?;if body.trim().is_empty()||body.contains('\0'){crate::refuse!(BadRequest,"app message needs text without NUL");}},
             Self::DocketCreate{title,objective,owner}=>{wire::text(title,200,"title",false)?;recipient(owner)?;if objective.trim().is_empty()||objective.contains('\0'){crate::refuse!(BadRequest,"app work needs a description");}},
-            Self::EventsFire{target,name,payload}=>{recipient(target)?;wire::text(name,80,"app event name",false)?;wire::bounded(payload,wire::EVENT_MAX,false)?;},
+            Self::EventsFire{name,payload}=>{wire::text(name,80,"app event name",false)?;wire::bounded(payload,wire::EVENT_MAX,false)?;},
         }Ok(())
     }
 }
@@ -49,7 +49,7 @@ pub struct AppGate { pub lock:tokio::sync::Mutex<()>, rate:Arc<ActionRate> }
 #[derive(Default)]
 struct ActionRate { recent:Mutex<VecDeque<Instant>> }
 impl AppGate {
-    #[nolog] fn admit(&self)->Result<()> {
+    #[nolog] pub(super) fn admit(&self)->Result<()> {
         let mut q=self.rate.recent.lock().map_err(|_|anyhow::anyhow!("Apps rate registry unavailable"))?;let now=Instant::now();
         while q.front().is_some_and(|at|now.duration_since(*at)>=Duration::from_secs(60)){q.pop_front();}
         if q.len()>=60{crate::refuse!(Conflict,"app engine actions are limited to60 per minute across its panels");}q.push_back(now);Ok(())
@@ -61,6 +61,7 @@ struct Pending {id:String,action:Action,until:Instant}
 struct Session {bound:Bound,until:Instant,pending:Option<Pending>}
 #[derive(Default)]
 pub struct Registry {
+    pub(super) dispatch:super::events::Dispatcher,
     gates:Mutex<HashMap<(i64,String),Weak<AppGate>>>,
     rates:Mutex<HashMap<(i64,String),Arc<ActionRate>>>,
     sessions:Mutex<HashMap<String,Session>>,
@@ -113,13 +114,14 @@ impl Registry {
 #[nolog]
 async fn snapshot(engine:&Engine,bound:&Bound)->Result<Value> {
     let client=engine.db.get().await?;
-    let row=client.query_opt("SELECT jsonb_build_object('name',a.name,'rev',a.rev,'capabilities',a.capabilities,'permissions',a.permissions,'permission_rev',a.permission_rev,'label',p.label,'open',p.is_open) FROM ot.custom_apps a JOIN ot.custom_panels p ON p.org_id=a.org_id AND p.app_id=a.id WHERE a.org_id=$1 AND a.id=$2 AND p.id=$3",&[&bound.org,&bound.app,&bound.panel]).await?;
+    let row=client.query_opt("SELECT jsonb_build_object('name',a.name,'rev',a.rev,'capabilities',a.capabilities,'events',a.declared_events,'permissions',a.permissions,'permission_rev',a.permission_rev,'label',p.label,'open',p.is_open) FROM ot.custom_apps a JOIN ot.custom_panels p ON p.org_id=a.org_id AND p.app_id=a.id WHERE a.org_id=$1 AND a.id=$2 AND p.id=$3",&[&bound.org,&bound.app,&bound.panel]).await?;
     let Some(row)=row else{crate::refuse!(NotFound,"app or saved panel was removed");};let value:Value=row.get(0);
     if value["open"]!=true||value["rev"].as_i64()!=Some(bound.rev){crate::refuse!(Forbidden,"app code changed or panel closed; reopen its host session");}Ok(value)
 }
 #[nolog]
 fn permission(value:&Value,action:&Action)->Result<&'static str> {
     let cap=action.capability();if !value["capabilities"].as_array().is_some_and(|all|all.iter().any(|v|v==cap)){crate::refuse!(Forbidden,"app does not declare capability {cap}");}
+    if let Action::EventsFire{name,..}=action{if !value["events"].as_array().is_some_and(|a|a.iter().any(|e|e["name"]==name)){crate::refuse!(Forbidden,"app does not declare this event name");}}
     match value["permissions"][cap].as_str().unwrap_or("ask") {"allow"=>Ok("allow"),"ask"=>Ok("ask"),_=>crate::refuse!(Forbidden,"app capability {cap} is denied")}
 }
 
@@ -192,10 +194,10 @@ async fn execute_private(engine:&Arc<Engine>,org:&Arc<OrgHandle>,bound:&Bound,va
             let who=crate::domain::docket::Who::App{app:bound.app.clone(),panel:bound.panel.clone()};
             crate::domain::docket::create(engine,org,&who,&json!({"title":title,"objective":objective,"owner":owner,"kind":"non-code","status":"open"})).await
         },
-        Action::EventsFire{target,name,payload}=>{
-            let agent=live_agent(engine,org.id,target).await?;
-            crate::runtime::watchdogs::events::emit(engine,crate::runtime::watchdogs::events::event("app.event",crate::runtime::watchdogs::events::Scope::Agent(org.id,agent),json!({"app":bound.app,"panel":bound.panel,"name":name,"payload":payload,"untrusted_app_content":true})));
-            Ok(json!({"fired":true,"target":target,"name":name}))
+        Action::EventsFire{name,payload}=>{
+            let mut c=engine.db.get().await?;let tx=c.transaction().await?;
+            let out=super::events::publish(&tx,org.id,&bound.panel,name,payload,json!({"kind":"app","app":bound.app,"panel":bound.panel,"app_rev":bound.rev})).await?;
+            tx.commit().await?;drop(c);super::events::notify(engine);Ok(out)
         },
     }
 }

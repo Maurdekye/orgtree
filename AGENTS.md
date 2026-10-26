@@ -1,5 +1,11 @@
 # AGENTS.md — working on Orgtree
 
+Named app events use a durable armed-listener snapshot and private delivery
+outbox, never the coalescing metadata bus or project ancestry. Source mutations
+lock owner scope before app rows; nested fire actions run after all app gates
+and DB connections are released. See [Apps](docs/rust-engine/custom-apps.md).
+[verified: `domain/apps/events.rs`; 2026-10-26]
+
 Read this file before working in this repository. It is the startup guide, not a landing log. Detailed rules, source references and the complete earlier notes live in the [topic index](docs/agents/README.md).
 
 Installer shutdown fixtures need a trusted synthetic data parent, even when a

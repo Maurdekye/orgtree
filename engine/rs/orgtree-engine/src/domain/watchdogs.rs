@@ -167,7 +167,7 @@ pub fn view(w: &Value, owner: &str) -> Value {
     if let Some(config)=w["memo"]["usage"].as_object(){for (key,value) in config{o.insert(key.clone(),value.clone());}}
     for key in ["threshold","event_scope"] { if let Some(v)=w["memo"].get(key).filter(|v|!v.is_null()){o.insert(key.into(),v.clone());} }
     // a listener_watch's threshold and any dog's fire-time tool calls (bounded at create)
-    for key in ["count","fire_actions"] { if let Some(v)=w["memo"].get(key).filter(|v|!v.is_null()){o.insert(key.into(),v.clone());} }
+    for key in ["count","fire_actions","event_name","panel","all_panels"] { if let Some(v)=w["memo"].get(key).filter(|v|!v.is_null()){o.insert(key.into(),v.clone());} }
     if let Some(v)=w["memo"]["run"].get("last_output"){o.insert("last_output".into(),v.clone());}
     // an mqtt dog: how it authenticates (never with what) and its connection
     if w["kind"] == "mqtt" {

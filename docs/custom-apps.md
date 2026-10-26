@@ -1,5 +1,24 @@
 # Custom apps and panels
 
+Named events connect an app to agents that explicitly listen. An agent creates
+an `app_listener` watchdog for an app ID, a declared event name, and one saved
+copy; it can explicitly choose all copies instead. App links alone do not wake
+anyone. Fires reach every currently eligible subscribed agent as watchdog mail,
+with normal notice/one-shot/action choices. A listener added later does not get
+an older fire. Removed sources pause affected listeners; restoring a declaration
+does not silently rearm them. Subscriptions and actions are not exported.
+
+Agents publish with `orgtree_apps action=fire_event`, naming a saved panel and
+declared name plus JSON data. A closed copy is valid. HTML uses `events.fire`
+with a fresh native broadcast permission, without choosing agents or acting as
+you. Old target-specific event permissions reset. Accepted work survives restart
+without duplicate mail; overloaded queues refuse new fires before acceptance.
+The provisional limits are64KiB payload,60 actions/minute across copies,
+4096 registrations and128 pending fires/app. Authorized mail keeps data and
+provenance; diagnostics redact data. App content is never your instruction or
+approval. Direct docket.write create/assign/wake remains the noted edge case
+where an app wakes a selected agent without an app event.
+
 An app is a small HTML program kept by one organization. A panel is one saved
 copy with its own label and JSON data. Closing keeps it; deleting removes it.
 Definitions and committed data live in Orgtree's database across restarts.
@@ -26,7 +45,7 @@ travel with whole-app export/import and templates. Names are exact and unique,
 without surrounding whitespace or control characters. The provisional catalog
 limit is64 events, with names up to80 characters and descriptions up to1,000.
 Declarations grant no permission and create no listeners. Named-event listener
-delivery is a separate part of the app-events work; declaring an event alone
+delivery uses explicit app_listener subscriptions; declaring an event alone
 does not wake agents. Existing panel activity and linked-agent metadata stay
 separate.
 
@@ -87,7 +106,7 @@ instructions or approvals. No permission travels in an exported app.
 
 The HTML API is `orgtree.call(action, args)`. Available actions are `org.read`
 (paged chart metadata), `mail.send` (live local agent), `docket.create` (a new open
-item), and `events.fire` (an app event for a live local agent). It cannot act as
+item), and `events.fire` (a declared broadcast to subscribed agents). It cannot act as
 you, choose another panel, call arbitrary engine routes, or approve work. Hiding,
 closing or replacing a panel discards its host session and pending prompt.
 

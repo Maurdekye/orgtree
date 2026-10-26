@@ -1,5 +1,41 @@
 # Custom apps and saved panels (4.5.0)
 
+## Durable declared event delivery
+
+`orgtree_apps fire_event` takes a saved `panel`, exact declared `name` and JSON
+`payload` (64 KiB). Agents publish with org-modifying tools; a closed copy is
+valid. HTML uses its bound `events.fire` action with no recipient or caller
+selector. Migration0063 removes previous target-specific events.fire decisions;
+broadcast needs a new native per-app decision. Definition replacement still
+revokes all grants. The shared60/minute execution budget survives host closure.
+
+An agent creates `orgtree_watchdog kind=app_listener target=<stable app ID>`
+with `event_name` and either one `panel` or explicit `all_panels:true`. Its
+current live owner needs watchdog and Apps tools. Overlapping registrations for
+the same owner/event are refused. Links and creator identity confer no right.
+Pause/resume/remove, once, notice and explicit fire_actions keep watchdog meaning.
+App deletion, removed declarations and specific panel deletion pause affected
+registrations with a reason; returning sources do not silently rearm them.
+Subscriptions/actions never travel in templates or portable bundles.
+
+Publication locks the app and snapshots armed matching watchdog IDs atomically.
+Provisional bounds:4096 registrations/app,128 pending fires/app, retained latest
+128 completed fires. Overflow refuses before acceptance; zero subscribers is an
+accepted zero-listener result. A listener added or resumed after the snapshot
+cannot join that fire. Each recipient transaction locks one owner's ancestry
+root-first, then app and watchdog, and rechecks live owner/tools/state/source.
+Mail, one-shot spend and durable delivery are committed together. Actions are
+claimed durably before execution (an uncertain crash may skip one, never repeat
+it). No app gate or database connection spans nested action execution. The
+shutdown-bound dispatcher recovers pending work and caps concurrent app drains
+at four. Mail uniqueness is event×listener; diagnostics contain metadata only.
+Authorized mail retains JSON and server-derived org/app/panel/event/time/producer
+provenance. App content is not user instruction or approval. `listeners` lists
+registrations in bounded pages; event activity/linked-agent metadata stay separate.
+
+By the user's2026-10-26 ruling, docket.write create/assign/wake remains the
+documented edge case that wakes a selected local agent without an app event.
+
 ## Named event declarations
 
 Migration0062 adds `custom_apps.declared_events`, defaulting to an empty array.

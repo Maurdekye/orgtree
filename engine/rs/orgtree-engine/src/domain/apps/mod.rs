@@ -1,4 +1,5 @@
 pub mod bridge;
+pub mod events;
 pub(crate) mod files;
 pub mod wire;
 pub mod storage;
