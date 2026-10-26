@@ -8,7 +8,7 @@ import {desktop} from '../../desktop'
 import {useContextMenu,type MenuEntry} from '../contextmenu'
 import {windowExitStarted} from '../../windowlayout'
 import {customAppsRequest} from '../../api'
-import {activateApps,changeApps,isRunning,loadAppsMenu,markAppsSeen,useApps} from './store'
+import {activateApps,changeApps,createdAt,isRunning,loadAppsMenu,markAppsSeen,useApps} from './store'
 import {samplePanels,usePanelCpu} from './runtime'
 import {PanelHtml} from './host'
 import {AppSettings,PanelSettings} from './settings'
@@ -68,9 +68,14 @@ function AppsMenu({slug,current,manage,managePanel,importApp}:{slug:string;curre
     ref.current.querySelectorAll('[data-new-app]').forEach(e=>observer.observe(e));return()=>observer.disconnect()
   },[slug,owner,data.apps,style.visibility])
   const open=async(input:Record<string,unknown>)=>{setMenu(null);try{await changeApps<CustomPanel>(slug,input)}catch(e){window.dispatchEvent(new CustomEvent('custom-app-error',{detail:{slug,error:String(e)}}))}}
-  // The saved rows' own order, most recently used first. User 2026-10-26: a
-  // click on the app row opens the first listed copy, or creates one if none.
-  const listed=(app:CustomApp)=>data.panels.filter(p=>p.app===app.id).sort((a,b)=>b.used_at.localeCompare(a.used_at))
+  // The saved rows keep their creation order, oldest first: opening, hiding and
+  // power never move them (USER 2026-10-26 "Fixed order"). A click on the app row
+  // opens the most recently used copy wherever it is listed, as the engine picks
+  // one for panel_open with only the app (provisional, @coordinator-opus), or
+  // creates one if none.
+  const listed=(app:CustomApp)=>data.panels.filter(p=>p.app===app.id).sort((a,b)=>createdAt(a)-createdAt(b)||(a.id<b.id?-1:a.id>b.id?1:0))
+  const used=(p:CustomPanel)=>Date.parse(p.used_at)||0
+  const mostRecent=(rows:CustomPanel[])=>rows.reduce<CustomPanel|undefined>((best,p)=>!best||used(p)>used(best)||(used(p)===used(best)&&p.id>best.id)?p:best,undefined)
   // Start running never shows a window; Power off stops and hides it. Power
   // changes send no revision: a running panel's own saves keep bumping it.
   const power=async(p:CustomPanel,action:'panel_start'|'panel_stop')=>{try{await changeApps(slug,{action,panel:p.id})}catch(e){window.dispatchEvent(new CustomEvent('custom-app-error',{detail:{slug,error:String(e)}}))}}
@@ -79,8 +84,8 @@ function AppsMenu({slug,current,manage,managePanel,importApp}:{slug:string;curre
     <header><strong>Apps</strong><label className="custom-app-import-file">Import app<input type="file" aria-label="Import app" accept=".orgtree-app,.json,application/json" hidden onChange={async e=>{const file=e.target.files?.[0];e.target.value='';if(!file)return;try{if(file.size>APP_BUNDLE_MAX)throw Error('App bundle exceeds 16 MiB.');const bundle=parseAppBundle(await file.text());setMenu(null);importApp(bundle,owner)}catch(error){window.dispatchEvent(new CustomEvent('custom-app-error',{detail:{slug,error:String(error)}}))}}}/></label><button type="button" onClick={()=>void loadAppsMenu(slug)}>Refresh</button></header>
     {data.error&&<p role="alert">{data.error}</p>}
     {!data.apps.length&&!data.loading&&<p className="dim">Your apps will appear here.</p>}
-    {data.apps.map(app=>{const rows=listed(app),first=rows[0];return <section key={app.id} className="custom-apps-menu-group">
-      <div className="custom-apps-menu-app" data-new-app={app.is_new?app.id:undefined} onClick={()=>void open(first?{action:'panel_open',panel:first.id}:{action:'panel_open',app:app.id})}><button type="button" className="custom-apps-open" title={first?`Open ${first.label}`:`Create a panel for ${app.name}`}><AppsIcon/><span><b>{app.name}</b><small>{app.description}</small></span></button>
+    {data.apps.map(app=>{const rows=listed(app),recent=mostRecent(rows);return <section key={app.id} className="custom-apps-menu-group">
+      <div className="custom-apps-menu-app" data-new-app={app.is_new?app.id:undefined} onClick={()=>void open(recent?{action:'panel_open',panel:recent.id}:{action:'panel_open',app:app.id})}><button type="button" className="custom-apps-open" title={recent?`Open ${recent.label}`:`Create a panel for ${app.name}`}><AppsIcon/><span><b>{app.name}</b><small>{app.description}</small></span></button>
         {(app.is_new||seenHere.has(app.id))&&<b className="custom-app-new-label">New</b>}
         <button type="button" className="custom-apps-add" title="New panel" aria-label={`New panel for ${app.name}`} onClick={e=>{e.stopPropagation();void open({action:'panel_open',app:app.id,new:true})}}><AddIcon/></button>
         <button type="button" title={`App settings: ${app.name}`} aria-label={`Settings for ${app.name}`} onClick={e=>{e.stopPropagation();setMenu(null);manage(app)}}><SettingsIcon/></button></div>

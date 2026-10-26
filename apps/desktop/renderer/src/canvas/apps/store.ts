@@ -8,7 +8,13 @@ const stores=new Map<string,Store>()
 function store(slug:string):Store {
   let s=stores.get(slug);if(!s){s={snapshot:{apps:[],panels:[],appNext:null,panelNext:null,newCount:0,error:'',loading:false},subs:new Set(),running:null,pending:false,active:false,seenEpoch:0,seenQueue:Promise.resolve()};stores.set(slug,s)}return s
 }
-function publish(s:Store,next:Partial<Snapshot>){s.snapshot={...s.snapshot,...next};for(const fn of s.subs)fn()}
+/** Creation time in ms; payloads from before created_at sort as oldest. */
+export const createdAt=(x:{created_at?:string}):number=>(x.created_at&&Date.parse(x.created_at))||0
+// Apps are listed newest first, whichever path loaded them and whatever their
+// panels are doing (USER 2026-10-26: "the ordering of the apps in the list
+// shouldnt change as panels are turned onca or off", then "newest first").
+const newestFirst=<T extends {id:string;created_at?:string}>(items:T[]):T[]=>[...items].sort((a,b)=>createdAt(b)-createdAt(a)||(a.id<b.id?1:a.id>b.id?-1:0))
+function publish(s:Store,next:Partial<Snapshot>){if(next.apps)next={...next,apps:newestFirst(next.apps)};s.snapshot={...s.snapshot,...next};for(const fn of s.subs)fn()}
 const merge=<T extends {id:string}>(old:T[],items:T[]):T[]=>[...new Map([...old,...items].map(x=>[x.id,x])).values()]
 /** Execution intent; older payloads without it ran exactly while open. */
 export const isRunning=(p:CustomPanel):boolean=>p.running??p.open
@@ -34,6 +40,7 @@ export async function refreshApps(slug:string):Promise<void>{
 export async function loadAppsMenu(slug:string,more:'apps'|'panels'|null=null):Promise<void>{
   const s=store(slug)
   try{
+    // The apps of running panels stay listed even beyond the first page; publish orders the list.
     if(more!=='panels'){const epoch=s.seenEpoch,page=await customAppsRequest<AppPage<CustomApp>>(slug,{action:'list',kind:'apps',...(more==='apps'&&s.snapshot.appNext?{after:s.snapshot.appNext}:{})});if(epoch!==s.seenEpoch){void refreshApps(slug);return}publish(s,{apps:merge(more==='apps'?s.snapshot.apps:s.snapshot.apps.filter(a=>s.snapshot.panels.some(p=>isRunning(p)&&p.app===a.id)),page.items),appNext:page.next_cursor,newCount:page.new_count??0})}
     if(more!=='apps'){const page=await customAppsRequest<AppPage<CustomPanel>>(slug,{action:'list',kind:'panels',...(more==='panels'&&s.snapshot.panelNext?{after:s.snapshot.panelNext}:{})});publish(s,{panels:merge(more==='panels'?s.snapshot.panels:s.snapshot.panels.filter(p=>isRunning(p)),page.items),panelNext:page.next_cursor})}
   }catch(error){publish(s,{error:String(error)})}
