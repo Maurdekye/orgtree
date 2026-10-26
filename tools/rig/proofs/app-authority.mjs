@@ -27,8 +27,11 @@ export default async function(rig){
  const move=await rig.tool('writer','orgtree_apps',{action:'panel_update',panel:one.id,expected_rev:one.rev,placement:{mode:'window',x:10,y:10,width:520,height:420}})
  p.check('agent cannot expose an already-open window through placement',!move.ok&&/only the user/i.test(move.text))
  const initial=await apps({action:'app_get',app:app.id});p.file('native-app.json',initial);p.file('import-bundle.orgtree-app',{format:'orgtree-app',version:1,definition,panels:[]})
- const canary='PRIVATE_IMPLICIT_APP_BODY_137620',sent=await call({action:'mail.send',to:'boss',body:canary,notice:true}),fired=await call({action:'events.fire',name:'submitted',payload:{note:canary}}),work=await call({action:'docket.create',title:'Synthetic app work',objective:canary,owner:'boss'})
- p.check('implicit mail/events/work execute with app provenance and no prompt',!!sent.sent&&fired.accepted&&fired.subscribers===0&&!work.permission_required)
+ const canary='PRIVATE_IMPLICIT_APP_BODY_137620',fired=await call({action:'events.fire',name:'submitted',payload:{note:canary}}),work=await call({action:'docket.create',title:'Synthetic app work',objective:canary,owner:'boss'})
+ p.check('implicit events/work execute with app provenance and no prompt',fired.accepted&&fired.subscribers===0&&!work.permission_required)
+ // USER 2026-10-26: apps reach agents only through events; mail.send fails with directions.
+ let mailRefusal=null;try{await call({action:'mail.send',to:'boss',body:canary,notice:true})}catch(e){mailRefusal=e}
+ p.check('mail.send is refused with directions to events',mailRefusal?.status===400&&/only through events/.test(String(mailRefusal?.message??'')))
  const get=()=>apps({action:'app_get',app:app.id}),set=async(capability,permission)=>{app=await get();return apps({action:'permission_set',app:app.id,expected_rev:app.rev,expected_permission_rev:app.permission_rev,capability,permission})}
  await set('org.read','deny');p.check('explicit native Deny defeats org default',await reject(()=>call({action:'org.read'})))
  app=await get();const modified=await tool('writer',{action:'app_update',app:app.id,expected_rev:app.rev,definition:{...definition,description:'Edited'}})

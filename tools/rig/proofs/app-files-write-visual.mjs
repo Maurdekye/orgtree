@@ -27,7 +27,7 @@ export default async function(rig){
   run('replace',async()=>{window.__outcome=await orgtree.files.write(window.__directory,'existing.txt',btoa('Synthetic replacement bytes'),{replace:true});show(window.__outcome.changed?'Replaced':'Replace cancelled')});
   run('delete',async()=>{const file=await orgtree.files.child(window.__directory,'visual.txt');window.__outcome=await orgtree.files.delete(file.id);show(window.__outcome.changed?'Deleted':'Delete cancelled')});
   </script>`
-  const editor=await apps({action:'app_create',definition:{name:'Synthetic file editor',html,capabilities:['files.read','files.write','mail.send'],width:660,height:480}})
+  const editor=await apps({action:'app_create',definition:{name:'Synthetic file editor',html,capabilities:['files.read','files.write'],width:660,height:480}})
   const editorPanel=await apps({action:'panel_open',app:editor.id,new:true,label:'Synthetic file changes'});await apps({action:'panel_update',panel:editorPanel.id,expected_rev:editorPanel.rev,open:false})
   const config=path.join(out,'config.json');fs.writeFileSync(config,JSON.stringify({origin:rig.url,token:rig.token,org:rig.org,app:app.id,panel:panel.id,label,folder:path.join(process.env.ORGTREE_RIG_HOME,'files-fixture'),editor:editor.id,editorPanel:editorPanel.id,editorFolder:folder}))
   const args=path.join(out,'capture.args');fs.writeFileSync(args,[process.env.APP_FILES_VISUAL_DRIVER,config].join('\r\n'))

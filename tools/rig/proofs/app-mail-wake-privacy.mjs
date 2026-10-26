@@ -1,7 +1,8 @@
 // App content in a woken agent's turn input stays out of the engine log, and
 // ordinary agent mail keeps its diagnostics (docket
 // custom-panels-persistent-canvas-pinnable-html-pa, 2026-10-26). The app's
-// mail, its docket item's assignment and its named event's delivery are written
+// docket item's assignment and its named event's delivery (mail.send was removed
+// 2026-10-26) are written
 // inside the app's private request; the recipient's actor reads them back from
 // the database outside it. Disposable PG, fake CLIs and synthetic content only.
 import assert from 'node:assert/strict'
@@ -53,10 +54,9 @@ export default async function (rig) {
   await tool('boss', 'orgtree_watchdog', {action: 'create', kind: 'app_listener', target: app.id, event_name: 'submitted',
     panel: panel.id, name: 'wake-listener', notice: true})
 
-  // 3. one wake: an ordinary notice, then the app's mail, its event and its docket item (the waking mail)
+  // 3. one wake: an ordinary notice, then the app's event and its docket item (the waking mail)
   mark = rig.engineLog().length
   await tool('writer', 'orgtree_message', {metadata: {to: 'boss', notice: true}, body: `Draft notes attached. ${MIXED}`})
-  const sent = await call({action: 'mail.send', to: 'boss', body: APP, notice: true})
   const fired = await call({action: 'events.fire', name: 'submitted', payload: {note: APP}})
   const delivery = await rig.waitFor(() => rig.sql(`SELECT uid FROM ot.mail WHERE recipient_agent_id = ${boss.id}
     AND extra->'app_event'->>'event' = '${fired.event}'`), {what: 'the app event delivery'})
@@ -66,9 +66,9 @@ export default async function (rig) {
     FROM ot.mail WHERE recipient_agent_id = ${boss.id} AND turn_id = ${turn.id} ORDER BY id`)
   const appRows = taken.filter(r => r.sender.startsWith('app:') || r.actor?.startsWith('app:') || r.event)
   p.file('woken-batch.json', taken)
-  p.check('the app actions ran and one woken turn took all three app mails with the ordinary notice',
-    !!sent.sent && fired.accepted && fired.subscribers === 1 && delivery.length === 1 && !work.permission_required
-      && appRows.length === 3 && taken.some(r => r.mixed))
+  p.check('the app actions ran and one woken turn took both app mails with the ordinary notice',
+    fired.accepted && fired.subscribers === 1 && delivery.length === 1 && !work.permission_required
+      && appRows.length === 2 && taken.some(r => r.mixed))
   p.check('the woken agent still receives the app content', !!prompts().at(-1)?.includes(APP))
   const mixedWake = wakeLines(mark)
   p.file('mixed-wake-lines.log', mixedWake.join('\n'))

@@ -21,7 +21,7 @@ export default async function(rig){
   p.file('source-runtime.json',{engineSource:rig.run.engineSource,engineCopy:path.join(rig.dir,'bin','orgtree-engine.exe'),isolatedData:rig.data,verbose:!rig.run.quietLog})
   const schema=rig.one(`SELECT to_regclass('ot.custom_apps') IS NOT NULL AS apps,to_regclass('ot.custom_panels') IS NOT NULL AS panels,to_regclass('ot.custom_panel_events') IS NOT NULL AS events,to_regclass('ot.custom_panels_open_page') IS NOT NULL AS active_index,EXISTS(SELECT 1 FROM information_schema.columns WHERE table_schema='ot' AND table_name='custom_apps' AND column_name='permission_rev') AS permission_rev`)
   p.check('migrations created app/panel/event tables and separate permission revision',Object.values(schema).every(Boolean),schema)
-  const definition={name:'PG notes',description:'Synthetic persistence proof',html:'<p>Notes</p>',initial_state:{note:'initial'},events:[{name:'private-proof'}],capabilities:['org.read','mail.send','events.fire','docket.write'],width:480,height:420}
+  const definition={name:'PG notes',description:'Synthetic persistence proof',html:'<p>Notes</p>',initial_state:{note:'initial'},events:[{name:'private-proof'}],capabilities:['org.read','events.fire','docket.write'],width:480,height:420}
   const app=await tool({action:'app_create',definition});assert(app?.id)
   let one=await tool({action:'panel_open',app:app.id,new:true,label:'First'}),two=await tool({action:'panel_open',app:app.id,new:true,label:'Second'})
   one=await tool({action:'state_set',panel:one.id,expected_rev:one.rev,state:{note:'saved',nested:{a:1,b:2}}})
@@ -32,13 +32,13 @@ export default async function(rig){
   const denied=await rig.tool('denied','orgtree_apps',{action:'app_get',app:app.id})
   const other=await rig.api('POST','/api/orgs',{name:'Other Apps scope',dirs:[],net_autoconnect:false})
   p.check('agent orgmod denial and cross-org panel selection refuse',!denied.ok&&await refused(()=>rig.api('POST','/api/orgs/'+other.slug+'/apps',{action:'panel_get',panel:one.id}),404))
-  await grant(app,'mail.send','allow')
+  await grant(app,'org.read','allow')
   const exported=await tool({action:'app_export',app:app.id,expected_rev:app.rev,include_panels:true})
   assert(exported.path&&fs.existsSync(exported.path));const bytes=fs.readFileSync(exported.path),portable=JSON.parse(bytes)
   const imported=await tool({action:'app_import',path:exported.path});assert(imported.app?.id)
   const importedRows=await apps({action:'list',kind:'panels',app:imported.app.id})
   p.check('agent file export/import preserves chosen data with fresh closed Ask copies',portable.format==='orgtree-app'&&exported.bytes===bytes.length&&portable.panels.length===2&&!('permissions' in portable)&&imported.app.id!==app.id&&same(imported.app.permissions,{})&&importedRows.items.length===2&&importedRows.items.every(x=>!x.open&&!x.linked_agents.length&&![one.id,two.id].includes(x.id)),{bytes:bytes.length,imported:imported.app.id,copies:importedRows.items})
-  const invalid=structuredClone(portable);invalid.permissions={'mail.send':'allow'}
+  const invalid=structuredClone(portable);invalid.permissions={'org.read':'allow'}
   p.check('forged imported permission fields refuse before any write',await refused(()=>apps({action:'app_import',bundle:invalid}),400))
 
   // The runner is already active OUTSIDE the producer's private task scope.
@@ -57,8 +57,8 @@ export default async function(rig){
   p.file('private-watchdog-delivery.json',{dog,delivered})
   p.check('durable watchdog current-scope read and mail preserve private payload but redact diagnostics',fired.accepted&&dog.fired===1&&dog.state==='spent'&&delivered.body.includes(eventCanary)&&!JSON.stringify({run:dog.run,events:dog.events}).includes(eventCanary),{fired:dog.fired,mail:delivered.uid,diagnostics:dog.run?.last_output})
   p.check('Allow once is one-shot and does not persist a grant',await refused(()=>bridge({action:'decide',session:host.session,challenge:asked.permission_required.challenge,choice:'once'}),403)&&!(await get(app.id)).permissions['events.fire'])
-  const sent=await bridge({action:'call',session:host.session,request:{action:'mail.send',to:'watcher',body:mailCanary,notice:true}})
-  p.check('allowed app mail has explicit provenance and no user instruction authority',!!sent.sent&&rig.one(`SELECT body FROM ot.mail WHERE body LIKE '%${mailCanary}%'`)?.body.includes('not a user instruction or approval'))
+  // USER 2026-10-26: apps reach agents only through events; mail.send fails with directions and sends nothing.
+  p.check('mail.send is refused and sends nothing',await refused(()=>bridge({action:'call',session:host.session,request:{action:'mail.send',to:'watcher',body:mailCanary,notice:true}}),400)&&!rig.one(`SELECT 1 FROM ot.mail WHERE body LIKE '%${mailCanary}%'`))
   const nativeRefusal=await fetch(rig.url+root+'/apps/bridge',{method:'POST',headers:{authorization:'Bearer '+rig.token,'Content-Type':'application/json'},body:JSON.stringify({action:'session_open',panel:one.id})})
   p.check('native bridge refuses root bearer without desktop header',nativeRefusal.status===403)
   await grant(app,'org.read','ask');const readAsk=await bridge({action:'call',session:host.session,request:{action:'org.read',limit:2}})
