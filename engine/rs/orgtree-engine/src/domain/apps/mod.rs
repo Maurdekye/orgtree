@@ -25,3 +25,13 @@ pub use storage::run;
         let mut bad=base;bad["apps"][0]["capabilities"]=json!(["PRIVATE-TEMPLATE-REFUSAL-632"]);let error=templates::parse(&bad.to_string()).unwrap_err();assert!(!error.contains("PRIVATE-TEMPLATE-REFUSAL-632"));
     }
 }
+
+#[cfg(test)] mod new_apps_control {
+    use serde_json::json;
+    #[test] fn custom_apps_seen_is_explicit_bounded_and_not_an_authority_grant(){
+        assert!(super::wire::parse(&json!({"action":"mark_seen","apps":["app-one","app-two"]})).is_ok());
+        for apps in [json!([]),json!(["same","same"]),json!([""]),json!(vec!["x";201])]{assert!(super::wire::parse(&json!({"action":"mark_seen","apps":apps})).is_err());}
+        assert!(super::wire::parse(&json!({"action":"mark_seen","apps":["x"],"permissions":{"org.read":"allow"}})).is_err());
+        assert!(crate::http::apps::read_input(r#"{"action":"mark_seen","apps":["x"]}"#).is_err());
+    }
+}
