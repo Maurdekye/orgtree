@@ -4,6 +4,16 @@
 //   node tests/run.mjs convo           — only files whose name contains "convo"
 //   node tests/run.mjs --reps 5        — passed through to the suites via
 //                                        ORGTREE_TEST_REPS
+//   node tests/run.mjs convo --test-name-pattern "draft"
+//                                      — node's own name filter, passed to
+//                                        every test process (also
+//                                        --test-skip-pattern, --test-only)
+//
+// ⚠ RUN BUNDLES ONLY THROUGH THIS FILE (2026-10-26). A bundle run directly
+// with `node --test` gets none of the bounds below — no Job Object, no heap
+// cap, no per-test timeout — and that is how one red assertion grew a node
+// process to 41 GB. The name filter above exists so nobody needs to bypass
+// the runner to run one test; `--prebuilt DIR` runs bundles built elsewhere.
 //
 // WHY A BUNDLE STEP. The sources are TypeScript with extensionless imports and
 // JSX, and node's own type stripping does neither. esbuild is already in the
@@ -28,13 +38,25 @@ const filters = []
 let repsValue
 let outputArg
 let prebuiltArg
+// node's own test filters, forwarded to the `node --test` parent, which hands
+// them to every per-file child (measured on node 24.12, 2026-10-26)
+const nodeTestFilters = []
 let afterOptions = false
 for (let i = 0; i < argv.length; i++) {
   const arg = argv[i]
   if (afterOptions) { filters.push(arg); continue }
   if (arg === '--') { afterOptions = true; continue }
-  const [name, inline] = arg.split('=', 2)
-  if (name === '--reps') {
+  // split at the FIRST `=` only: a name pattern may contain one itself
+  const eq = arg.indexOf('=')
+  const name = eq === -1 ? arg : arg.slice(0, eq)
+  const inline = eq === -1 ? undefined : arg.slice(eq + 1)
+  if (name === '--test-name-pattern' || name === '--test-skip-pattern') {
+    const value = inline ?? argv[++i]
+    if (!value) throw new Error(`${name} needs a pattern`)
+    nodeTestFilters.push(`${name}=${value}`)
+  } else if (arg === '--test-only') {
+    nodeTestFilters.push('--test-only')
+  } else if (name === '--reps') {
     repsValue = inline ?? argv[++i]
     if (repsValue === undefined) throw new Error('--reps needs a value')
   } else if (name === '--output' || name === '--out') {
@@ -49,7 +71,9 @@ for (let i = 0; i < argv.length; i++) {
     filters.push(value)
   } else if (arg === '--help' || arg === '-h') {
     console.log('Usage: node run.mjs [filter ...] [--reps N] [--output DIR] [--prebuilt DIR]')
+    console.log('                    [--test-name-pattern RE] [--test-skip-pattern RE] [--test-only]')
     console.log('Filters are filename substrings combined with OR. --prebuilt skips bundling and never removes DIR.')
+    console.log('The --test-* options are node\'s own test-name filters, passed to every test process.')
     process.exit(0)
   } else if (arg.startsWith('-')) {
     throw new Error(`unknown option ${arg}`)
@@ -58,6 +82,31 @@ for (let i = 0; i < argv.length; i++) {
   }
 }
 if (outputArg && prebuiltArg) throw new Error('--output and --prebuilt cannot be combined')
+
+// Every ORGTREE_TEST_* number goes through this. A malformed override is
+// refused, not read as 0: a typo must never switch a bound off silently.
+const envInt = (name, dflt) => {
+  const raw = process.env[name]
+  if (raw === undefined) return dflt
+  if (!/^\d+$/.test(raw.trim())) {
+    console.error(`[run.mjs] ${name}=${JSON.stringify(raw)} is not a whole number of ${name.endsWith('_MS') ? 'milliseconds' : 'MB'}; refusing to guess`)
+    process.exit(2)
+  }
+  return Number(raw.trim())
+}
+
+// ⚠ FREE-MEMORY FLOOR — DO NOT START ON A MACHINE THAT IS ALREADY SHORT
+// (2026-10-26). Everything below bounds what THIS run can take; none of it
+// helps when the machine had no room to begin with, and bundling alone peaks
+// near 700 MB. os.freemem() is the OS's available physical memory, one cheap
+// call. 3 GB is the machine's floor for renderer phases.
+// ORGTREE_TEST_MIN_FREE_MB overrides (0 = no floor).
+const MIN_FREE_MB = envInt('ORGTREE_TEST_MIN_FREE_MB', 3072)
+const freeMbAtStart = Math.floor(os.freemem() / 2 ** 20)
+if (MIN_FREE_MB > 0 && freeMbAtStart < MIN_FREE_MB) {
+  console.error(`[run.mjs] FREE MEMORY ${freeMbAtStart} MB is below the ${MIN_FREE_MB} MB floor (ORGTREE_TEST_MIN_FREE_MB); not starting`)
+  process.exit(2)
+}
 
 // Resolve existing dependencies in place. Worktrees without node_modules can
 // name the dependency checkout's package.json; no install, copy or link.
@@ -171,10 +220,12 @@ if (!prebuilt) {
 //
 // The hang and the incident are two different failures, and this flag is aimed
 // squarely at the second. A hung test is a bug someone fixes; an UNBOUNDED hung
-// test is everyone's problem, including causes nobody has diagnosed yet. The
-// known trigger is process-global `mock.timers` (`useFakeClock()`) under a
-// concurrent runner — see the header of `sysnotice.test.tsx` — but this bound
-// holds whatever the cause.
+// test is everyone's problem, including causes nobody has diagnosed yet. This
+// incident was blamed on process-global `mock.timers` (`useFakeClock()`) under
+// a concurrent runner. The cause measured since (2026-10-26) is a FAILING
+// assertion on a large value: Node 24's assertion diff costs ~8·lines² bytes
+// of ArrayBuffer, the "Array buffer allocation failed" this incident showed,
+// and testguard.mjs now bounds it. This bound holds whatever the cause.
 //
 // It is PER TEST, not per run, so a slow suite is unaffected.
 //
@@ -244,9 +295,12 @@ const CONCURRENCY = process.env.ORGTREE_TEST_CONCURRENCY ?? '4'
 // REFUSED by the kernel — the child dies with the same "Array buffer allocation
 // failed" the incident produced, in well under a second, instead of swapping
 // the host — and a WHOLE-RUN time limit that terminates every process in the
-// job, not just the parent (node's --test parent does not take its children
-// with it when killed on Windows). The ceiling covers ArrayBuffer / external
-// memory, which --max-old-space-size does not (measured, D-177).
+// job, not just the parent: a DETACHED descendant outlives its parent, which
+// containment.test.ts §3 plants. (Non-detached children of a node parent do
+// die with it on Windows, through libuv's kill-on-close job: measured
+// 2026-10-26 on node 24.12, parent hard-killed or stopped by Git Bash
+// `timeout`.) The ceiling covers ArrayBuffer / external memory, which
+// --max-old-space-size does not (measured, D-177).
 //
 // WHERE THE NUMBERS COME FROM. Ceiling 6 GB: the whole suite at concurrency 4
 // peaks at 873 MB (measured above), so this is ~7x headroom — loose enough
@@ -270,15 +324,6 @@ const CONCURRENCY = process.env.ORGTREE_TEST_CONCURRENCY ?? '4'
 // sleeper with a detached child past a 2 s run limit and asserts exit 124
 // with no survivor. A guard that has never been seen to fire is not a guard
 // (team rule 2).
-const envInt = (name, dflt) => {
-  const raw = process.env[name]
-  if (raw === undefined) return dflt
-  if (!/^\d+$/.test(raw.trim())) {
-    console.error(`[run.mjs] ${name}=${JSON.stringify(raw)} is not a whole number of ${name.endsWith('_MS') ? 'milliseconds' : 'MB'}; refusing to guess`)
-    process.exit(2)
-  }
-  return Number(raw.trim())
-}
 const JOB_MB = envInt('ORGTREE_TEST_JOB_MB', 6144)
 const RUN_TIMEOUT_MS = envInt('ORGTREE_TEST_RUN_TIMEOUT_MS', 300_000 * REPS_N)
 
@@ -290,12 +335,34 @@ if (!files.length) throw new Error(`no prebuilt test files match ${filters.join(
 // never exit.
 const nodePrefix = ['--test', '--test-force-exit',
   `--test-timeout=${TIMEOUT_MS}`,
-  ...(Number(CONCURRENCY) > 0 ? [`--test-concurrency=${CONCURRENCY}`] : [])]
+  ...(Number(CONCURRENCY) > 0 ? [`--test-concurrency=${CONCURRENCY}`] : []),
+  ...nodeTestFilters]
 const env = {
   ...process.env,
   ORGTREE_TEST_REPS: repsValue ?? process.env.ORGTREE_TEST_REPS,
 }
 env.NODE_PATH = [dependencyRoot, process.env.NODE_PATH].filter(Boolean).join(path.delimiter)
+
+// ⚠ THE HEAP CAP AND THE GUARD REACH EVERY TEST PROCESS THROUGH NODE_OPTIONS
+// (2026-10-26). MEASURED on node 24.12: `--max-old-space-size` on the
+// `node --test` command line does NOT reach its per-file children (a child
+// still reported the default 4288 MB heap limit), while NODE_OPTIONS does
+// (1234 MB set, 1426 MB limit seen). 2 GB is several times what a suite holds
+// and ends a V8-heap runaway (an inspect explosion, an array that never stops
+// growing) in its own child, long before the Job ceiling that child shares
+// with three siblings. It does NOT bound ArrayBuffers: the Job ceiling does.
+// The --import preloads testguard.mjs (bounded assertion reports) into the
+// bundles that never import harness.ts.
+// ORGTREE_TEST_HEAP_MB overrides (0 = node's default heap limit).
+const HEAP_MB = envInt('ORGTREE_TEST_HEAP_MB', 2048)
+env.NODE_OPTIONS = [process.env.NODE_OPTIONS,
+  ...(HEAP_MB > 0 ? [`--max-old-space-size=${HEAP_MB}`] : []),
+  `--import=${pathToFileURL(path.join(HERE, 'testguard.mjs')).href}`].filter(Boolean).join(' ')
+// testguard.mjs's watchdog stands down only where this run's Job bounds the
+// process (Windows, non-zero ceiling); everywhere else it keeps watching.
+delete env.ORGTREE_TEST_CONTAINED_MB
+if (process.platform === 'win32' && JOB_MB > 0) env.ORGTREE_TEST_CONTAINED_MB = String(JOB_MB)
+console.error(`[run.mjs] ${freeMbAtStart} MB free at start (floor ${MIN_FREE_MB || 'off'}); heap cap ${HEAP_MB ? `${HEAP_MB} MB` : 'node default'} per test process`)
 
 // PowerShell's ProcessStartInfo has a finite command-line string even when an
 // argument file is used. Keep each batch below a conservative Windows limit;

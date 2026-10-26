@@ -55,11 +55,11 @@
 // even after it lands.
 //
 // ⚠ AND WHILE YOU ARE HERE: compare DOM nodes with `assert.ok(a === b)`, never
-// `assert.equal`/`deepEqual`. Not for speed — `memory-leak` measured the
-// failure message at a constant 75 characters, sub-millisecond, so the
-// once-popular "the diff hangs the runner" story is FALSE (see
-// pendcol.test.tsx). The real reason is that a deep compare of two same-tag
-// elements PASSES, so such a leg could never fail.
+// `assert.equal`/`deepEqual`. Two reasons. A deep compare of two same-tag
+// elements PASSES, so such a leg could never fail. And a FAILING comparison of
+// a rendered element is not cheap after all: Node 24's assertion diff grew a
+// process to 41 GB on 2026-10-26 (the "75 characters" measured here predates
+// it); testguard.mjs now bounds that report, but a scalar still reads better.
 //
 // Run:  cd frontend && node tests/run.mjs kbdhire
 

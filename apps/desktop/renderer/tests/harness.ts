@@ -15,7 +15,12 @@
 //   • deterministic time (node:test's mock timers) plus `flush`/`advance`
 //   • mountConvoView() — a real React subscriber, i.e. the actual code path a
 //     desk uses, so subscription-gated liveness is exercised rather than faked
+//   • testguard.mjs, FIRST: a failing assertion on a rendered DOM node gets a
+//     bounded report instead of Node's quadratic diff (the 41 GB incident,
+//     2026-10-26), and a bundle run outside run.mjs's Job gets a memory
+//     watchdog. It touches no DOM, so it may precede the jsdom install.
 
+import './testguard.mjs'
 import { JSDOM } from 'jsdom'
 // Reuse the harness dependency for additional native-document fixtures.
 export { JSDOM }
