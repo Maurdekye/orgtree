@@ -1,3 +1,4 @@
+import { downloadFile } from './filedownload'
 import { initiatingDocument } from '../windowlife'
 // canvas/lightbox.ts — the full-size image viewer (user spec 2026-08-25:
 // images flow both ways — agents present them, users attach them — and every
@@ -36,7 +37,19 @@ export function openLightbox(src: string, opts: { name?: string; download?: stri
     dl.href = opts.download
     dl.setAttribute('download', opts.name ?? '')
     dl.textContent = 'download'
+    const error = ownerDocument.createElement('span')
+    error.setAttribute('role', 'alert')
+    let busy = false
+    dl.addEventListener('click', event => {
+      event.preventDefault(); event.stopPropagation()
+      if (busy) return
+      busy = true; dl.setAttribute('aria-disabled', 'true'); error.textContent = ''
+      void downloadFile(ownerDocument, opts.download!, opts.name ?? 'image')
+        .catch((e: Error) => { error.textContent = e.message })
+        .finally(() => { busy = false; dl.removeAttribute('aria-disabled') })
+    })
     bar.appendChild(dl)
+    bar.appendChild(error)
   }
   const x = ownerDocument.createElement('button')
   x.className = 'lb-x'
@@ -47,18 +60,20 @@ export function openLightbox(src: string, opts: { name?: string; download?: stri
   ov.appendChild(bar)
   ov.addEventListener('click', () => closeLightbox(ownerDocument))
   ownerDocument.body.appendChild(ov)
-  ownerDocument.addEventListener('keydown', onKey)
+  // Capture before a detached surface's keyboard bubbling boundary.
+  ownerDocument.addEventListener('keydown', onKey, true)
 }
 
 export function closeLightbox(ownerDocument: Document = initiatingDocument()): void {
   ownerDocument.querySelector('.lb-overlay')?.remove()
-  ownerDocument.removeEventListener('keydown', onKey)
+  ownerDocument.removeEventListener('keydown', onKey, true)
 }
 
 const onKey = (e: KeyboardEvent) => {
   if (e.key === 'Escape') {
     // the desk's own Esc handlers (panel close, deselect) live upstream —
     // while the viewer is up, Esc means ONLY "close the viewer"
+    e.preventDefault()
     e.stopPropagation()
     closeLightbox((e.currentTarget as Document))
   }

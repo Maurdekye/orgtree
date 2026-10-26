@@ -24,6 +24,8 @@
 import { SEED_SETTLE_TIMEOUT } from '../seed-settle.mjs'
 import { Proof } from '../proof.mjs'
 import { alive } from '../lib.mjs'
+import { spawnSync } from 'node:child_process'
+import path from 'node:path'
 
 const N = 22
 const WORKERS = Array.from({ length: N }, (_, i) => `w${String(i + 1).padStart(2, '0')}`)
@@ -52,6 +54,43 @@ export async function setup() {
 
 const ms = stamp => Date.parse(stamp.replace(' ', 'T'))
 
+// Windows PIDs are reusable. Keep the native creation ticks as a string (a JS
+// number loses precision), and never turn a query failure into an empty table.
+export function cliIdentities(pids, run = spawnSync) {
+  const at = new Date().toISOString()
+  try {
+    const ids = [...new Set(pids)]
+    if (ids.some(pid => !Number.isSafeInteger(pid) || pid <= 0)) throw Error('invalid PID')
+    if (!ids.length) return { at, rows: [] }
+    const filter = ids.map(pid => `ProcessId=${pid}`).join(' OR ')
+    const script = `$ErrorActionPreference='Stop'; $rows=@(Get-CimInstance Win32_Process -Filter '${filter}' -ErrorAction Stop | ForEach-Object { [pscustomobject]@{ pid=[int]$_.ProcessId; born=$_.CreationDate.ToUniversalTime().Ticks.ToString(); exe=$_.ExecutablePath } }); ConvertTo-Json -InputObject $rows -Compress`
+    const r = run('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', script],
+      { encoding: 'utf8', windowsHide: true, timeout: 5000 })
+    if (r.error || r.signal || r.status !== 0) throw Error(r.error?.message || r.stderr || `identity query exit ${r.status}`)
+    const rows = JSON.parse(r.stdout.trim())
+    if (!Array.isArray(rows) || rows.some(row => !ids.includes(row.pid)
+      || !/^[1-9]\d*$/.test(row.born) || typeof row.born !== 'string'
+      || typeof row.exe !== 'string' || !row.exe || !path.win32.isAbsolute(row.exe))
+      || new Set(rows.map(row => row.pid)).size !== rows.length) throw Error('invalid identity rows')
+    return { at, rows }
+  } catch (e) { return { at, rows: null, error: e.message } }
+}
+
+export function lingeringClis(pids, before, after, dir) {
+  const normalized = s => path.win32.resolve(s).toLowerCase()
+  return Object.entries(pids).flatMap(([node, ids]) => ids.flatMap(pid => {
+    const original = before.rows?.find(row => row.pid === pid)
+    const current = after.rows?.find(row => row.pid === pid)
+    const expectedExe = normalized(path.win32.join(dir, 'bin', Number(node.slice(1)) % 2 ? 'claude.exe' : 'codex.exe'))
+    const known = original && normalized(original.exe) === expectedExe
+    const state = !known || !after.rows ? 'unknown identity'
+      : !current ? 'exited'
+      : current.born !== original.born ? 'PID reused'
+      : normalized(current.exe) !== expectedExe ? 'unknown identity' : 'still running'
+    return state === 'exited' || state === 'PID reused' ? [] : [{ node, pid, state, original, current }]
+  }))
+}
+
 export default async function (rig) {
   const p = new Proof('retire-concurrent')
   await rig.waitFor(() => rig.sql('SELECT 1 FROM ot.turns WHERE ended_at IS NULL').length === 0,
@@ -66,6 +105,8 @@ export default async function (rig) {
   const afterWarm = rig.engineLog().slice(fromRestart).split(/\r?\n/)
   const pids = Object.fromEntries(WORKERS.map(name => [name, afterWarm
     .filter(l => l.includes(`/${name} `) && LAUNCH.test(l)).map(l => Number(l.match(LAUNCH)[1])).filter(alive)]))
+  const identitiesBefore = cliIdentities(Object.values(pids).flat())
+  p.file('cli-identities-before.json', identitiesBefore)
   const warmWorkers = WORKERS.filter(n => pids[n].length > 0)
   p.note('warming', { ...warmed, warm_workers: warmWorkers.length })
   p.check('at least 20 workers hold a warm CLI before the retires', warmWorkers.length >= 20, { warm: warmWorkers.length })
@@ -132,10 +173,17 @@ export default async function (rig) {
     { conflicts, retried, ran_out: ranOut.slice(0, 5) })
 
   // each worker's warm CLI goes with its seat
+  let identitiesAfter
+  const leftNow = () => {
+    identitiesAfter = cliIdentities(Object.values(pids).flat())
+    return lingeringClis(pids, identitiesBefore, identitiesAfter, rig.dir)
+  }
   const lingering = await rig.waitFor(() => {
-    const left = warmWorkers.flatMap(n => pids[n].filter(alive).map(pid => `${n}:${pid}`))
-    return left.length === 0 ? [] : null
-  }, { what: 'the workers\' CLIs to exit', timeout: 30000 }).catch(() => warmWorkers.flatMap(n => pids[n].filter(alive).map(pid => `${n}:${pid}`)))
+    const left = leftNow()
+    // Rig.waitFor treats [] as unfinished; return a nonempty result envelope.
+    return left.length === 0 ? { left } : null
+  }, { what: 'the workers\' CLIs to exit', timeout: 30000 }).then(result => result.left).catch(() => leftNow())
+  p.file('cli-identities-after.json', identitiesAfter)
   p.check('every warm worker CLI exited after its retire', lingering.length === 0, lingering)
 
   p.file('retire-concurrent.json', { wall_ms: wall, results, warmed, warm_workers: warmWorkers.length, pids, overlap, engine_ms: engineMs,

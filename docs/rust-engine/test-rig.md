@@ -160,6 +160,129 @@ approval check, whose failure was also measured on v4.4.0.
 
 ## What keeps it safe
 
+Undo-history record identity snapshots select the full `id, name` pairs with
+`ORDER BY id` before retirement and after undo. Unordered SQL reads may return
+the same rows in different orders after UPDATEs; keep strict whole-array JSON
+equality and all 57 original check names/order, including tree/parent/slot,
+retirement, redo, confirmation, history and rollback guards. Never compare only
+names or discard missing, duplicate or changed identities. The focused control
+`node --test tools/rig/tests/undo-history-identity.test.mjs` replays the actual
+six-check retire/undo block with modeled SQL ordering and identity/tree negatives.
+It starts no engine/database/window and does not establish the 57-check runtime
+verdict. [verified: `tools/rig/proofs/undo-history.mjs`; 2026-10-26]
+
+The initial `turn-start-clock.mjs` idle sample waits for the published node's
+`busy` and `starting` to be false, chat `busy` false, and Alice's inflight and
+unfinished ledger state to be clear. Ledger completion alone is earlier than
+the final runtime publication. This bounded 10 s precondition never waits for
+`turn_started_at` to become null: the original fresh timestamp assertions must
+still detect a real stale clock on an idle node. Missing state or timeout fails
+the existing initial check; no assertion is retried. `initial-idle-state.json`
+retains the independent samples. All six original check calls, slow-call scenario
+and running/admission/control/final-idle guards remain unchanged.
+`node --test tools/rig/tests/turn-start-clock-idle.test.mjs` runs the whole proof
+over synthetic feed/chat/SQL replies with a virtual clock, including missing-state
+and real-clock-defect negatives. The original 950 sample did not retain its
+busy/inflight state, so that specific publication race remains inferred.
+
+The template Quick chat driver uses the current `Save as template…` label and
+scrolls the modal's Save/Download controls into view at 1600×900. More Include
+choices can push Save below the scroll clip; a coordinate click without scrolling
+can dismiss the overlay instead of saving. The driver changes no parent settings,
+so it needs no parent Save/Close or auto-save transition. Preserve its actual
+per-org Quick chat observations, checkbox states and strict save completion.
+`node --test tools/rig/tests/template-quickchat-driver.test.mjs` replays the
+actual driver with clipped controls, absent buttons and refused saves. Its
+synthetic navigation/layout does not establish the 18-check runtime verdict.
+The settings-checkbox lookup uses `Org defaults and project queue/event settings`;
+retain its historical check name and strict present-and-checked predicate. The
+old `Org-wide settings` lookup also misses the label in the published 4.4.4
+capture; matching failed check names do not imply the same failing driver stage.
+[verified: `tools/rig/desktop/template-quickchat.cjs`; 2026-10-25]
+
+The startup-switch driver and label oracle use the current `Run on boot` case.
+Keep all seven original check names/order and the boot-kind, removed-label,
+no-engine-choice and hint predicates; a driver timeout does not execute the later
+ON/declined/OFF operations. The actual planted bridge remains synthetic, omits
+native-window identity members and makes exactly two `startAtLogin:false`
+requests: declined-On with the permission message, then accepted-Off with the
+message cleared. Never replace it with real native preferences, startup tasks
+or UAC. Preserve all three screenshots and waits.
+`node --test tools/rig/tests/run-on-startup.test.mjs` executes the actual bridge,
+driver and seven-check proof against a synthetic settings surface, including a
+separate current-label control and missing-control/state/hint/write negatives.
+It opens no window or engine and changes no OS setting; functional acceptance
+still needs the assigned isolated renderer proof.
+[verified: `tools/rig/{desktop,proofs}/run-on-startup.*`; 2026-10-25]
+
+The focused-retire driver targets the current exact Fit button title,
+`fit the whole org (Shift+Alt+Space)`, at both the initial and final Fit samples.
+The shortcut suffix comes from `orgNavigationTooltip(HUD_FIT, 'fitOrg')`; the old
+bare-title selector cannot find it. Keep the visible Focus action, actual camera
+settling/comparisons, retire-other negative, dissolve-own positive and all three
+screenshots. The proof retains its four original check names/order/predicates;
+a failed driver records one failure with three camera checks unexecuted, never
+three passes. `node --test tools/rig/tests/retire-focused-fit.test.mjs` replays the
+actual driver and proof with synthetic matrices, missing Fit/Focus and wrong
+zoom/position controls. It opens no window or engine and retires no real agent;
+functional acceptance still requires the assigned isolated renderer recheck.
+[verified: `tools/rig/{desktop,proofs}/retire-focused-fit.*`; 2026-10-25]
+
+`retire-concurrent.mjs` binds each warm fake CLI's PID to its native Windows
+creation ticks and the expected executable in that run's `bin` before retiring
+the workers. Creation ticks stay decimal strings to preserve 100 ns precision.
+Its original ten checks and 30 s exit wait remain: a missing PID or a different
+creation identity proves the original process is gone; a still-running captured
+identity or unavailable, malformed or ambiguous identity fails. Native query
+failures never become empty process tables. The before/after snapshots are saved
+alongside the result, including failures. `Rig.waitFor` rejects empty arrays, so
+the successful exit observation uses a result envelope rather than `[]`.
+`node --test tools/rig/tests/retire-concurrent-identity.test.mjs` runs the complete
+proof with synthetic process tables, tool replies and a virtual clock; it opens
+no engine, process or database. The original 950 run's native CLI exit is recorded,
+but PID reuse at its later failed sample remains inferred because that sample
+did not retain creation identity. Do not relabel its 9P1F as a measured pass.
+
+The provider-chip driver matches `Done` in both the language-server browser and
+the OpenRouter picker. Keep the exact text match, original centre-hit wait,
+timeouts, screenshots and all 16 checks in `provider-chips.mjs`; missing controls
+must still fail. A driver throw discards its accumulated value, so downstream
+false predicates are not measurements of those UI states. Preserve the catalog
+order/favorite, OpenRouter and raw console-warning failures separately; matching
+failed names need not mean matching causes. Do not suppress SvgIcon/MenuIcon
+warnings or count the unexecuted OpenRouter/light stages as passes.
+`node --test tools/rig/tests/provider-chips.test.mjs` exercises both actual
+tag/press call sites with absent/covered-button controls and replays the complete
+original proof over synthetic data, retaining catalog, offer, browser, picker,
+size, light-theme and console negatives. It starts no window, service or engine;
+functional approval still needs the assigned isolated renderer proof.
+[verified: `tools/rig/{desktop/provider-chips.cjs,proofs/provider-chips.mjs}`; 2026-10-25]
+
+The organization-template create bridge explicitly returns a null Promise for
+`takeChangelogAfterUpdate`: a fresh synthetic profile has no post-update notice.
+Keep synchronous subscription cleanup and the strict unknown-member refusal.
+Save/Restore drivers and the restore-result predicate follow the current
+Sentence-case text; retain all 22 original proof names, order and functional
+guards, including both deleted-default files and subsequent 0-created/5-existing
+idempotency. `node --test tools/rig/tests/org-templates-drivers.test.mjs` replays
+the actual bridge, drivers and restore predicates with missing-control/file,
+wrong-count and unknown-member controls. It starts no window or engine and does
+not establish a full organization-template runtime verdict.
+[verified: `tools/rig/{desktop/org-templates-{create,save,app}.cjs,proofs/org-templates.mjs}`;
+2026-10-25]
+
+The org-account picker stage is read-only: use the current
+`Default provider account for new hires` selector without adding an auto-save
+transition. `org-accounts.mjs` keeps all 24 original checks and the existing
+picker screenshot/console data. Its allowed-option and muted-saved-default
+guards must still fail on absent/empty results; preserve baseline tool/console
+failures separately. The unchanged console guard's fallback after a failed
+driver is not evidence of an absence of warnings.
+`node --test tools/rig/tests/org-accounts-picker.test.mjs` replays the actual
+driver and three picker predicates, including missing options, an unmuted
+saved default and raw console warnings, without an engine or window.
+[verified: `tools/rig/{desktop/org-accounts-picker.cjs,proofs/org-accounts.mjs}`; 2026-10-25]
+
 New-hire account layout: `new-agent-account.cjs` uses the current
 `Default provider account for new hires` and `File and command access` selectors.
 The latter replaces the obsolete `permission mode for new agents` label; the

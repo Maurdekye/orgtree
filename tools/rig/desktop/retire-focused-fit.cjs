@@ -20,7 +20,7 @@ module.exports = async (page, { org }) => {
   const tool = (tool, args) => page.api('POST', '/api/rig/tool', { org, agent: 'boss', tool, args })
   const near = (a, b) => Math.abs(a.x - b.x) < 3 && Math.abs(a.y - b.y) < 3 && Math.abs(a.z - b.z) < 0.01
   await page.waitFor('[data-first-use-agent="alice"]', { timeout: 30000 })
-  await page.click('button[title="fit the whole org"]'); const fit0 = await settled()
+  await page.click('button[title="fit the whole org (Shift+Alt+Space)"]'); const fit0 = await settled()
   await page.rightClick('[data-first-use-agent="alice"]')
   await page.click({ selector: 'button.ctxmenu-item', text: 'Focus' })
   const focused = await settled()
@@ -33,7 +33,7 @@ module.exports = async (page, { org }) => {
   await page.sleep(1500)
   const afterOwn = await settled()
   await page.screenshot('3-focused-retired-fit')
-  await page.click('button[title="fit the whole org"]'); const fit1 = await settled()
+  await page.click('button[title="fit the whole org (Shift+Alt+Space)"]'); const fit1 = await settled()
   return {
     zoomedIn: focused.z > fit0.z * 1.5,
     otherRetireKeepsView: Math.abs(afterOther.z - focused.z) < 0.01 && !near(afterOther, fit0), // x may follow the focused card as the layout closes up

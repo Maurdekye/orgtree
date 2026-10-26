@@ -270,6 +270,11 @@ source file later does not change the delivered copy. If its saved copy was
 removed outside Orgtree, the row can remain while its download fails.
 Renaming or retiring an agent does not change its retained deliveries.
 
+Files downloads also work from a desk in a separate window: choose the filename
+or Download. The download limit is 256 MiB; errors appear beside the link.
+When View opens a picture, Escape closes that viewer while leaving the desk
+open. The viewer's Close button and backdrop remain available too.
+
 Files contains local download cards, including delivered pictures, archives,
 logs and exports. Readable reports stay in **Presented**. Mail attachments and
 hub transfer jobs keep their existing mail and transfer views; project
@@ -294,3 +299,6 @@ Highlight text in a Markdown presentation title/body, or a docket title, descrip
 Presentation replies retain their direct/project broadcast destination. Docket replies retain the ordinary recipient and attention rules: a changed selected source refuses before mail is sent or attention is cleared. HTML presentations do not offer this action. Delivered quotes survive later edits; opening a quote checks the current source and highlights only a verified passage.
 
 If a selected desk reply fails after you have started a new draft, the new draft stays intact. The failed message retains its original text, attachments and selected passages; use its **Restore** control to recover that submission. Source parts over 1 MiB refuse before DOM mapping; use a smaller retained field or JSON scalar.
+
+The image viewer's download link uses the same authenticated download path,
+256 MiB limit and visible failure handling, including in a separate window.

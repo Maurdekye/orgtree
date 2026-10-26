@@ -9,7 +9,7 @@ module.exports = async (page, { args }) => {
   await page.click({ selector: 'button.ctxmenu-item', text: 'Org settings' })
   await page.waitFor('#org-settings-tab-hiredefaults')
   await page.click('#org-settings-tab-hiredefaults')
-  const SEL = 'select[aria-label="default provider account for new hires"]'
+  const SEL = 'select[aria-label="Default provider account for new hires"]'
   await page.waitFor(SEL)
   // the org's account list arrives after the panel opens
   await page.sleep(2500)

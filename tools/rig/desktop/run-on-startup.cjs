@@ -43,11 +43,11 @@ module.exports = async (page, { args }) => {
     })
   })
   await page.eval(() => window.dispatchEvent(new window.CustomEvent('orgtree:open-app-settings', { detail: { tab: 'runtime' } })))
-  const SWITCH = 'input[aria-label="run on boot"]'
+  const SWITCH = 'input[aria-label="Run on boot"]'
   await page.waitFor(SWITCH, { timeout: 20000 })
   await page.sleep(500)
   const read = () => page.eval(() => {
-    const input = document.querySelector('input[aria-label="run on boot"]')
+    const input = document.querySelector('input[aria-label="Run on boot"]')
     const row = input?.closest('.set-row')
     return {
       checked: !!input?.checked,
@@ -69,7 +69,7 @@ module.exports = async (page, { args }) => {
 
   await page.eval(() => { window.__decline = false })
   await page.click(SWITCH)
-  await page.waitFor(() => !document.querySelector('input[aria-label="run on boot"]')?.checked, { timeout: 10000 })
+  await page.waitFor(() => !document.querySelector('input[aria-label="Run on boot"]')?.checked, { timeout: 10000 })
   await page.sleep(300)
   const off = await read()
   await page.screenshot('03-run-on-boot-off')

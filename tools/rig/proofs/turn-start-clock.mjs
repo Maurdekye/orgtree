@@ -34,7 +34,23 @@ export default async function (rig) {
   const chat = () => rig.api('GET', `/api/orgs/${rig.org}/nodes/alice/chat`)
   const slowChip = (c) => (c?.messages ?? []).flatMap((m) => m.tools ?? []).find((t) => String(t?.arg ?? '').includes('sleep 6'))
 
-  const [idleNode, idleChat] = [await nodeOf(), await chat()]
+  // Ledger completion precedes the final runtime publication. Synchronize on
+  // independent idle signals, never on the clock field this proof tests.
+  const idleSamples = []
+  const idleReady = await rig.waitFor(async () => {
+    const [n, c] = [await nodeOf(), await chat()]
+    const row = rig.one(`SELECT a.inflight_at, EXISTS (SELECT 1 FROM ot.turns t
+      WHERE t.agent_id=a.id AND t.ended_at IS NULL) AS unfinished FROM ot.agents a
+      JOIN ot.orgs o ON o.id=a.org_id WHERE o.slug='${rig.org}' AND a.name='alice'`)
+    idleSamples.push({ at: new Date().toISOString(), node: n && { busy: n.busy, starting: n.starting, turn_started_at: n.turn_started_at },
+      chat: c && { busy: c.busy, turn_started_at: c.turn_started_at }, row })
+    return n?.busy === false && n?.starting === false && c?.busy === false
+      && row?.inflight_at === null && row?.unfinished === false
+  }, { what: 'seed alice published idle with cleared inflight', timeout: 10000, every: 200 }).then(() => true, () => false)
+  p.file('initial-idle-state.json', { ready: idleReady, samples: idleSamples })
+  // A missing/unknown precondition must fail the existing check, even if a
+  // later read would happen to look idle. Do not retry any clock assertion.
+  const [idleNode, idleChat] = idleReady ? [await nodeOf(), await chat()] : [null, null]
   p.check('idle: neither the node nor the chat payload names a running turn',
     idleNode?.turn_started_at === null && idleChat?.turn_started_at === null,
     { node: idleNode?.turn_started_at, chat: idleChat?.turn_started_at })

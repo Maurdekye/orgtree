@@ -57,6 +57,10 @@ AGY auth proof runtime counts use positively correlated PID/cwd/agent ownership;
 unknown owners still fail. See [rig attribution](docs/rust-engine/test-rig.md#what-keeps-it-safe).
 [verified: `tools/rig/proofs/agy-auth-wake.mjs`; 2026-10-25]
 
+Undo identity snapshots order complete id/name pairs by id before strict
+comparison; keep every identity and history guard. See [identity controls](docs/rust-engine/test-rig.md#what-keeps-it-safe).
+[verified: `tools/rig/proofs/undo-history.mjs`; 2026-10-26]
+
 Seed waits share one helper-grace-plus-execution budget; local helper non-seed
 defaults and placement settings stay intact. See [seed settling](docs/rust-engine/test-rig.md#what-keeps-it-safe).
 [verified: `tools/rig/seed-settle.mjs`; 2026-10-25]
@@ -79,6 +83,23 @@ New-hire layout proofs reset and observe auto-saved account state between
 variants; use the current permission label without dropping its geometry guard.
 See [layout synchronization](docs/rust-engine/test-rig.md#what-keeps-it-safe).
 [verified: `tools/rig/desktop/new-agent-account.cjs`; 2026-10-25]
+
+Read-only org-account picker probes keep saved-disabled bindings and raw console
+warnings; a failed driver's empty console fallback is not a no-warning proof.
+See [picker controls](docs/rust-engine/test-rig.md#what-keeps-it-safe).
+[verified: `tools/rig/desktop/org-accounts-picker.cjs`; 2026-10-25]
+
+Provider-chip probes use the current Done text in both browser pagers and retain
+catalog/OpenRouter negatives and raw warnings. See [pager controls](docs/rust-engine/test-rig.md#what-keeps-it-safe).
+[verified: `tools/rig/desktop/provider-chips.cjs`; 2026-10-25]
+
+Focused-retire probes match the Fit tooltip's shortcut hint at both camera
+samples; retain visible Focus and the retire-other negative. See [Fit controls](docs/rust-engine/test-rig.md#what-keeps-it-safe).
+[verified: `tools/rig/desktop/retire-focused-fit.cjs`; 2026-10-25]
+
+Startup-switch probes use Run on boot in selectors and the label oracle, with
+the synthetic bridge retaining decline/accept and exact-write guards. See [startup controls](docs/rust-engine/test-rig.md#what-keeps-it-safe).
+[verified: `tools/rig/{desktop,proofs}/run-on-startup.*`; 2026-10-25]
 
 ## Setting text case
 

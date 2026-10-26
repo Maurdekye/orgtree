@@ -5,6 +5,7 @@ import { useOrgRecordCursor } from '../recordsession'
 import { DownloadIcon } from '../icons'
 import { fmtBytes, isImg } from './img'
 import { openLightbox } from './lightbox'
+import { FileDownload } from './filedownload'
 
 /** Bounded retained deliveries; the API is newest-first, the list reads upwards. */
 export function AgentFilesView({ slug, nid }: { slug: string; nid: string }) {
@@ -97,14 +98,14 @@ export function AgentFilesView({ slug, nid }: { slug: string; nid: string }) {
       <ol className="agent-files-list">{[...(page?.files ?? [])].reverse().map(file => {
         const href = fileUrl(slug, nid, file.path)
         return <li key={file.delivery_id} data-delivery-id={file.delivery_id}>
-          <a className="agent-file-name" href={href} download={file.name}
-            title={file.note ? `${file.name}\n${file.note}` : file.name}>{file.name}</a>
+          <FileDownload className="agent-file-name" href={href} name={file.name}
+            title={file.note ? `${file.name}\n${file.note}` : file.name}>{file.name}</FileDownload>
           <span className="dim agent-file-size">{fmtBytes(file.bytes)}</span>
           <time className="dim" dateTime={file.at} title={file.at}>{new Date(file.at).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' })}</time>
           {isImg(file.name) && <button className="agent-file-view" title="View image"
             aria-label={`View ${file.name}`} onClick={() => openLightbox(href, { name: file.name, download: href })}>View</button>}
-          <a className="agent-file-download" href={href} download={file.name}
-            title="Download" aria-label={`Download ${file.name}`}><DownloadIcon fontSize="inherit" /></a>
+          <FileDownload className="agent-file-download" href={href} name={file.name}
+            title="Download" ariaLabel={`Download ${file.name}`}><DownloadIcon fontSize="inherit" /></FileDownload>
         </li>
       })}</ol>
     </div>

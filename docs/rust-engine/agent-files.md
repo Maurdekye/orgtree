@@ -33,3 +33,18 @@ imply externally removed bytes exist. Project placement is unchanged.
 canvas/files.tsx, tests/files.test.tsx]
 
 [verified: domain/deliveries.rs, tools/orgview.rs, http/docs.rs; 2026-10-23]
+
+## Detached downloads and image Escape (2026-10-25)
+
+Files filename and Download links fetch through the authoritative main renderer,
+then hand only a Blob to the initiating document's native save anchor. Portal
+request authentication stays restricted. The response is bounded to 256 MiB by
+both declared length and counted stream bytes before a Blob is made; buffering
+still costs memory up to that limit. Errors remain visible beside the link.
+The image viewer captures Escape in its own document, ahead of a detached
+surface's bubbling boundary; matching cleanup prevents a stale key listener.
+One Escape closes the viewer without closing its desk or another document.
+[verified: canvas/{files,filedownload,lightbox}.tsx/ts; tests/filespopout.test.tsx]
+
+The image viewer's download link uses the same authenticated download path,
+256 MiB limit and visible failure handling, including in a separate window.

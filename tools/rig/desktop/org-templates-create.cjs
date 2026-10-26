@@ -25,6 +25,8 @@ const BRIDGE = `
       windowIdentity: { windowId: 'rig-create', kind: 'create' },
       onEvent: () => () => {},
       requestOrg: () => Promise.resolve(null),
+      // A fresh rig profile has no post-update changelog to consume.
+      takeChangelogAfterUpdate: () => Promise.resolve(null),
       // the native side would bind this window to the new org; the rig keeps it here
       bindCreatedOrg: () => Promise.resolve({ action: 'pending' }),
       getWindowIdentity: () => Promise.resolve({ windowId: 'rig-create', kind: 'create' }),
