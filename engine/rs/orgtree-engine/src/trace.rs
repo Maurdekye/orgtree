@@ -63,6 +63,13 @@ pub async fn private_app<T>(future:impl std::future::Future<Output=T>)->T {
 #[nolog]
 pub(crate) fn app_private()->bool { PRIVATE_APP.try_with(|v|*v).unwrap_or(false) }
 
+/// Run blocking App IO outside the async executor.
+#[nolog]
+pub(crate) fn private_app_blocking<F,T>(work:F)->tokio::task::JoinHandle<T>
+where F:FnOnce()->T+Send+'static,T:Send+'static {
+    tokio::task::spawn_blocking(work)
+}
+
 /// Turn verbose logging on or off; answers the previous state.
 pub fn set_verbose(on: bool) -> bool {
     VERBOSE.swap(on, Ordering::Relaxed)

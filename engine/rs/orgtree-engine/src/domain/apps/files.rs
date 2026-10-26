@@ -180,6 +180,51 @@ pub(super) fn scoped_path(root:&Path,suffix:&str)->Result<PathBuf>{
 
 #[cfg(test)] mod tests{
     use super::*;
+    #[tokio::test(flavor="current_thread")]
+    async fn app_files_private_blocking_io_keeps_results_but_not_verbose_paths(){
+        const PRIVATE:&str="PRIVATE_APP_FILE_PATH_CANARY_648";
+        const PUBLIC:&str="PUBLIC_APP_WORKER_PATH_CANARY_648";
+        const MANUAL:&str="PRIVATE_APP_MANUAL_CANARY_648";
+        let root=std::env::temp_dir().join(format!("{PRIVATE}-{}",crate::util::uid("io")));
+        std::fs::create_dir(&root).unwrap();let path=root.join("data.txt");
+        std::fs::write(&path,b"authorized synthetic bytes").unwrap();
+        let capture=crate::trace::LogCapture::start().await;
+        let dispatch=tracing::dispatcher::get_default(Clone::clone);
+        let ordinary=dispatch.clone();
+        let positive=tokio::task::spawn_blocking(move||tracing::dispatcher::with_default(&ordinary,||crate::config::strip_verbatim(Path::new(PUBLIC)))).await.unwrap();
+        assert_eq!(positive,Path::new(PUBLIC));
+        let selected=root.clone();let private_dispatch=dispatch.clone();
+        let result=crate::trace::private_app(async move{
+            crate::trace::private_app_blocking(move||tracing::dispatcher::with_default(&private_dispatch,||->Result<(String,PathBuf,bool)>{
+                let mut bytes=String::new();open_read(&selected.join("data.txt"))?.read_to_string(&mut bytes)?;
+                let (entries,_,_)=io::list(&selected,None,10)?;assert!(entries.iter().any(|e|e.name=="data.txt"));
+                let bundle=json!({"format":"orgtree-app","version":1,"definition":{"name":"Synthetic","html":"<p>test</p>"}});
+                let export=write(&selected,&bundle)?;let exported=PathBuf::from(export["path"].as_str().unwrap());
+                let p=crate::domain::docs::Presenter{id:1,name:"test".into(),may_present:false,scratch:selected.clone(),dirs:vec![]};
+                assert_eq!(read(&p,exported.to_str().unwrap())?,bundle);
+                #[cfg(windows)] {
+                    let target=selected.join("created.txt");
+                    io::commit(io::prepare(&target,Some(b"new".to_vec()),false)?)?;
+                    io::commit(io::prepare(&target,Some(b"replacement".to_vec()),true)?)?;
+                    assert_eq!(std::fs::read(&target)?,b"replacement");
+                    io::commit(io::prepare(&target,None,false)?)?;assert!(!target.exists());
+                }
+                tracing::warn!(path=%selected.display(),marker=MANUAL,"private worker manual event");
+                Ok((bytes,exported,crate::trace::app_private()))
+            })).await.unwrap()
+        }).await.unwrap();
+        let after=tokio::task::spawn_blocking(move||tracing::dispatcher::with_default(&dispatch,||{
+            assert!(!crate::trace::app_private());
+            crate::config::strip_verbatim(Path::new("PUBLIC_APP_AFTER_CANARY_648"))
+        })).await.unwrap();assert_eq!(after,Path::new("PUBLIC_APP_AFTER_CANARY_648"));
+        let log=capture.finish().await;
+        std::fs::remove_file(path).unwrap();std::fs::remove_file(&result.1).unwrap();std::fs::remove_dir(root).unwrap();
+        assert!(log.contains(PUBLIC)&&log.contains("PUBLIC_APP_AFTER_CANARY_648"),"ordinary worker logging must remain enabled: {log}");
+        assert!(log.contains("config.strip_verbatim"),"positive must exercise the real nested logged normalizer: {log}");
+        assert!(!log.contains(PRIVATE),"private blocking IO leaked its synthetic path: {log}");
+        assert!(!log.contains(MANUAL),"private blocking IO leaked a manual event: {log}");
+        assert_eq!(result.0,"authorized synthetic bytes");assert!(result.2);
+    }
     #[cfg(windows)]
     #[test] fn custom_apps_file_paths_refuse_original_junctions_and_retargeted_held_roots(){
         use std::process::Command;

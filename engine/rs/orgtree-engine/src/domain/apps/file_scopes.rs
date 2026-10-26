@@ -78,7 +78,7 @@ impl Registry{
 }
 #[nolog]async fn info(reference:&Reference)->Result<Value>{
     let path=reference.path.clone();let name=path.file_name().map(|s|s.to_string_lossy().to_string()).unwrap_or_else(||"Disk".into());
-    let directory=tokio::task::spawn_blocking(move||->Result<bool>{if files::open_read(&path).is_ok(){Ok(false)}else{files::directory(&path)?;Ok(true)}}).await??;
+    let directory=crate::trace::private_app_blocking(move||->Result<bool>{if files::open_read(&path).is_ok(){Ok(false)}else{files::directory(&path)?;Ok(true)}}).await??;
     Ok(json!({"id":reference.id,"name":name,"directory":directory}))
 }
 #[nolog]pub(super) async fn call(engine:&Arc<Engine>,org:&Arc<OrgHandle>,session:&str,request:&FileCall)->Result<Value>{
@@ -98,7 +98,7 @@ impl Registry{
     }
     let path=if scope=="folder"{
         let path=files::checked_path(Path::new(path.ok_or_else(||crate::domain::UserError::BadRequest("choose a folder before allowing access".into()))?))?;
-        let check=path.clone();tokio::task::spawn_blocking(move||files::directory(&check)).await??;Some(path)
+        let check=path.clone();crate::trace::private_app_blocking(move||files::directory(&check)).await??;Some(path)
     }else{if path.is_some(){crate::refuse!(BadRequest,"this scope does not take a path");}None};
     let grant=if matches!(choice,Choice::Always){remember(engine,bound,scope,mode,path.as_deref(),value["permission_rev"].as_i64().unwrap_or(1)).await?}else{
         let grant=Grant{id:crate::util::uid("once-grant"),scope:scope.clone(),mode:mode.clone(),path};
@@ -157,7 +157,7 @@ impl Registry{
             let path=if let Some(root)=root{match root.as_str(){"scratch"=>engine.cfg.scratch_root(&org.slug),"uploads"=>engine.cfg.path("uploads").join(&org.slug),_=>crate::refuse!(BadRequest,"unknown file collection")}}else{get_ref(engine,bound,session,directory.as_deref().expect("validated directory")).await?.path};
             let grant=grant_for(engine,bound,session,value,&path,"read").await?;
             if let Some(caller)=caller{agent_mode(engine,org,caller,&path,false).await?;}
-            let selected=path.clone();let cursor=after.clone();let size=limit.unwrap_or(100);let (entries,more,capped)=tokio::task::spawn_blocking(move||files::io::list(&selected,cursor.as_deref(),size)).await??;
+            let selected=path.clone();let cursor=after.clone();let size=limit.unwrap_or(100);let (entries,more,capped)=crate::trace::private_app_blocking(move||files::io::list(&selected,cursor.as_deref(),size)).await??;
             let next=if more{entries.last().map(|e|e.name.clone())}else{None};let mut items=Vec::new();
             for entry in entries{
                 let child=path.join(&entry.name);if !covers(engine,bound,&grant,&child).await?{continue;}
@@ -193,7 +193,7 @@ impl Registry{
 }
 #[nolog]async fn prepare(engine:&Arc<Engine>,org:&Arc<OrgHandle>,session:&str,bound:&Bound,value:&Value,path:&Path,data:Option<Vec<u8>>,replace:bool,caller:Option<&Caller>)->Result<Value>{
     let grant=grant_for(engine,bound,session,value,path,"write").await?;if let Some(caller)=caller{agent_mode(engine,org,caller,path,true).await?;}
-    let selected=path.to_path_buf();let io=tokio::task::spawn_blocking(move||files::io::prepare(&selected,data,replace)).await??;
+    let selected=path.to_path_buf();let io=crate::trace::private_app_blocking(move||files::io::prepare(&selected,data,replace)).await??;
     let challenge=bridge::secret();let detail=io.detail.clone();let until=Instant::now()+Duration::from_secs(120);
     let mut changes=engine.custom_apps.file_access.scopes.changes.lock().map_err(|_|anyhow::anyhow!("file changes unavailable"))?;changes.retain(|_,r|r.until>Instant::now());
     if changes.len()>=64||changes.values().any(|r|same(&r.bound,bound)){crate::refuse!(Conflict,"answer the pending file change first");}
@@ -248,7 +248,7 @@ impl Registry{
     let value=snapshot(engine,&change.bound).await?;let grant=grant_for(engine,&change.bound,&change.session,&value,&change.path,"write").await?;
     if grant.id!=change.grant{crate::refuse!(Conflict,"file grant changed; request the change again");}
     if let Some(caller)=&change.caller{agent_mode(engine,org,caller,&change.path,true).await?;}
-    tokio::task::spawn_blocking(move||files::io::commit(change.io)).await?
+    crate::trace::private_app_blocking(move||files::io::commit(change.io)).await?
 }
 #[nolog]async fn agent_mode(engine:&Arc<Engine>,org:&Arc<OrgHandle>,caller:&Caller,path:&Path,write:bool)->Result<()>{
     if !write{

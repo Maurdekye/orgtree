@@ -143,7 +143,7 @@ pub async fn native(engine:&Arc<Engine>,org:&Arc<OrgHandle>,input:&Value)->Resul
         NativeRequest::Revoke{app,expected_rev,expected_permission_rev,grant}=>revoke(engine,org,&app,expected_rev,expected_permission_rev,&grant).await,
         NativeRequest::Browse{session,path,after,limit}=>{
             let bound=engine.custom_apps.bound(org.id,&session)?;bridge::snapshot(engine,&bound).await?;
-            tokio::task::spawn_blocking(move||browse(&path,after.as_deref(),limit.unwrap_or(100))).await?
+            crate::trace::private_app_blocking(move||browse(&path,after.as_deref(),limit.unwrap_or(100))).await?
         },
         NativeRequest::Call{session,request:call}=>{
             if scopes::extended(&call){return scopes::call(engine,org,&session,&call).await;}
@@ -175,7 +175,7 @@ pub async fn native(engine:&Arc<Engine>,org:&Arc<OrgHandle>,input:&Value)->Resul
                 _=>{if path.is_some(){crate::refuse!(BadRequest,"existing file permission does not take a computer path");}existing.as_ref().expect("read/media reference").path.clone()},
             };
             // Validate the pinned regular file before recording ANY grant.
-            let selected_check=selected.clone();tokio::task::spawn_blocking(move||files::open_read(&selected_check)).await??;
+            let selected_check=selected.clone();crate::trace::private_app_blocking(move||files::open_read(&selected_check)).await??;
             let chosen=if matches!(choice,Choice::Always){
                 let scope=if matches!(call,FileCall::Open{..}){"orgtree"}else{"file"};
                 remember(engine,&bound,scope,&selected,value["permission_rev"].as_i64().unwrap_or(1)).await?
@@ -295,7 +295,7 @@ async fn agent_scope(engine:&Arc<Engine>,org:&Arc<OrgHandle>,caller:&Caller,path
 async fn execute(engine:&Arc<Engine>,org:&Arc<OrgHandle>,session:&str,bound:&Bound,call:&FileCall,reference:Reference,caller:Option<&Caller>)->Result<Value>{
     if let Some(caller)=caller{agent_scope(engine,org,caller,&reference.path).await?;}
     let selected=reference.path.clone();
-    let opened=tokio::task::spawn_blocking(move||files::open_read(&selected)).await??;
+    let opened=crate::trace::private_app_blocking(move||files::open_read(&selected)).await??;
     let metadata=opened.metadata()?;let bytes=metadata.len();
     let name=reference.path.file_name().map(|s|s.to_string_lossy().to_string()).unwrap_or_default();
     let mut info=json!({"id":reference.id,"name":name,"bytes":bytes,"mime":mime_guess::from_path(&reference.path).first_or_octet_stream().to_string()});
@@ -303,7 +303,7 @@ async fn execute(engine:&Arc<Engine>,org:&Arc<OrgHandle>,session:&str,bound:&Bou
         FileCall::Read{offset,limit,..}=>{
             let offset=offset.unwrap_or(0);let limit=limit.unwrap_or(READ_MAX);
             if offset>bytes{crate::refuse!(BadRequest,"file offset exceeds the current size");}
-            let data=tokio::task::spawn_blocking(move||->Result<Vec<u8>>{use std::io::{Read,Seek};let mut opened=opened;opened.seek(std::io::SeekFrom::Start(offset))?;let mut data=Vec::new();opened.take(limit as u64).read_to_end(&mut data)?;Ok(data)}).await??;
+            let data=crate::trace::private_app_blocking(move||->Result<Vec<u8>>{use std::io::{Read,Seek};let mut opened=opened;opened.seek(std::io::SeekFrom::Start(offset))?;let mut data=Vec::new();opened.take(limit as u64).read_to_end(&mut data)?;Ok(data)}).await??;
             if let Some(caller)=caller{agent_scope(engine,org,caller,&reference.path).await?;}
             use base64::Engine as _;info["offset"]=json!(offset);info["length"]=json!(data.len());info["eof"]=json!(offset+data.len() as u64>=bytes);info["base64"]=json!(base64::engine::general_purpose::STANDARD.encode(data));
         },
@@ -327,7 +327,7 @@ pub(crate) async fn media(engine:&Arc<Engine>,org:&Arc<OrgHandle>,ticket:&str)->
     let value=bridge::snapshot(engine,&bound).await?;declared(&value)?;
     let call=FileCall::Media{file:lease.reference.clone()};
     let reference=authorized(engine,org,&lease.session,&bound,&value,&call).await?.ok_or_else(||crate::domain::UserError::Forbidden("app file permission changed".into()))?;
-    let selected=reference.path.clone();let file=tokio::task::spawn_blocking(move||files::open_read(&selected)).await??;
+    let selected=reference.path.clone();let file=crate::trace::private_app_blocking(move||files::open_read(&selected)).await??;
     if lease.cancel.is_cancelled(){crate::refuse!(Forbidden,"app media was revoked");}
     Ok((file,reference.path,lease))
 }

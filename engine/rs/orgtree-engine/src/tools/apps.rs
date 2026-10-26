@@ -19,7 +19,7 @@ async fn run_private(engine:&Arc<Engine>,caller:&Caller,args:&Value)->Result<Don
         let raw=input["path"].as_str().filter(|s|!s.is_empty()).ok_or_else(||crate::domain::UserError::BadRequest("app_import path must be a nonempty string".into()))?.to_owned();
         crate::domain::apps::storage::file_authority(engine,&org,caller).await?;
         let p=crate::domain::docs::presenter(engine,&org,caller.agent_id).await?;
-        let bundle=tokio::task::spawn_blocking(move||crate::domain::apps::files::read(&p,&raw)).await??;
+        let bundle=crate::trace::private_app_blocking(move||crate::domain::apps::files::read(&p,&raw)).await??;
         input=serde_json::json!({"action":"app_import","bundle":bundle});
     }
     let export=input["action"]=="app_export";
@@ -29,7 +29,7 @@ async fn run_private(engine:&Arc<Engine>,caller:&Caller,args:&Value)->Result<Don
     if as_file{
         crate::domain::apps::storage::file_authority(engine,&org,caller).await?;
         let p=crate::domain::docs::presenter(engine,&org,caller.agent_id).await?;let bundle=out["bundle"].clone();
-        let mut file=tokio::task::spawn_blocking(move||crate::domain::apps::files::write(&p.scratch,&bundle)).await??;
+        let mut file=crate::trace::private_app_blocking(move||crate::domain::apps::files::write(&p.scratch,&bundle)).await??;
         file["panels"]=out["panels"].clone();Done::json(&file)
     }else{Done::json(&out)}
 }
