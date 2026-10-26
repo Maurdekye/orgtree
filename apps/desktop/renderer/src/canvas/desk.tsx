@@ -4971,7 +4971,7 @@ export function LineagePanel({ node, op, slug, presence = ALL_PRESENT,
                     {[...ALL_TIERS, ...openrouterTierIds(), ...langserverTierIds()]
                       .filter((t) => t !== b.tier
                         && tierShown(presence, t, b.tier)
-                        // Terra and Gemini Pro only with "show legacy models" on
+                        // Gemini Pro only with "show legacy models" on
                         && !optInLegacyHidden(t)
                         // Argon and Barium only once agy lists it
                         && !conditionalTierHidden(t))
