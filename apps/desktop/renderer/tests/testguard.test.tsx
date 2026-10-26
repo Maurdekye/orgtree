@@ -5,6 +5,8 @@
  *    React-rendered element) fails in milliseconds with a bounded report that
  *    still names the caller's message, the element and the caller's line
  * §2 a SMALL failure gets Node's own message, byte for byte
+ * §2b what the line count cannot see into (a Proxy, a Promise, an iterator,
+ *    a huge array) counts as over budget, never as small
  * §3 every comparison method passes and fails exactly where Node's does
  * §4 every way a test reaches assert is guarded (strict aliases, the loose
  *    module, a named import, an Assert instance)
@@ -103,6 +105,18 @@ test('§2 a small failure gets Node\'s own message, byte for byte', () => {
     assert.notEqual(theirs, 'passed', `${name} control must fail`)
     assert.equal(messageOf(guarded, ...args), theirs, `${name}${JSON.stringify(args)}`)
   }
+})
+
+test('§2b what the line count cannot see into counts as over budget, never as small', () => {
+  const unseen: [string, unknown][] = [
+    ['a Proxy', new Proxy({}, {})], ['a Promise', Promise.resolve({ big: true })],
+    ['a Map iterator', new Map([[1, 2]]).entries()], ['a Set iterator', new Set([1]).values()],
+    ['an array past the budget', new Array(5000).fill(0)],
+  ]
+  for (const [what, value] of unseen) assert.equal(estimateLines(value), Infinity, what)
+  // control: ordinary small values are counted, not refused (Node prints
+  // this one as exactly 9 lines too)
+  assert.equal(estimateLines({ rows: [['Panel 2', 'Closed']], open: false }), 9)
 })
 
 test('§3 every method passes and fails exactly where Node\'s does', () => {

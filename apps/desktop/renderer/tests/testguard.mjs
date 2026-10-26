@@ -110,7 +110,12 @@ export function estimateLines(value, budget = LINE_BUDGET) {
     if (isPrimitive(v)) { lines += typeof v === 'string' ? stringLines(v) : 1; return }
     // inspect prints [Circular] / [Object] for these, one line each
     if (depth > 1000 || path.includes(v)) { lines += 1; return }
-    if (types.isProxy(v)) { lines = Infinity; return }
+    // inspect prints a Proxy's target, a Promise's settled value and an
+    // iterator's remaining entries, none of which this walk can see
+    if (types.isProxy(v) || types.isPromise(v) || types.isMapIterator(v) || types.isSetIterator(v)) {
+      lines = Infinity
+      return
+    }
     lines += 2
     path.push(v)
     try {
