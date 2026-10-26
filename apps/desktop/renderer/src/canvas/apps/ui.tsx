@@ -79,16 +79,17 @@ function AppsMenu({slug,current,manage,managePanel,importApp}:{slug:string;curre
     <header><strong>Apps</strong><label className="custom-app-import-file">Import app<input type="file" aria-label="Import app" accept=".orgtree-app,.json,application/json" hidden onChange={async e=>{const file=e.target.files?.[0];e.target.value='';if(!file)return;try{if(file.size>APP_BUNDLE_MAX)throw Error('App bundle exceeds 16 MiB.');const bundle=parseAppBundle(await file.text());setMenu(null);importApp(bundle,owner)}catch(error){window.dispatchEvent(new CustomEvent('custom-app-error',{detail:{slug,error:String(error)}}))}}}/></label><button type="button" onClick={()=>void loadAppsMenu(slug)}>Refresh</button></header>
     {data.error&&<p role="alert">{data.error}</p>}
     {!data.apps.length&&!data.loading&&<p className="dim">Your apps will appear here.</p>}
-    {data.apps.map(app=>{const first=listed(app)[0];return <section key={app.id} className="custom-apps-menu-group">
+    {data.apps.map(app=>{const rows=listed(app),first=rows[0];return <section key={app.id} className="custom-apps-menu-group">
       <div className="custom-apps-menu-app" data-new-app={app.is_new?app.id:undefined} onClick={()=>void open(first?{action:'panel_open',panel:first.id}:{action:'panel_open',app:app.id})}><button type="button" className="custom-apps-open" title={first?`Open ${first.label}`:`Create a panel for ${app.name}`}><AppsIcon/><span><b>{app.name}</b><small>{app.description}</small></span></button>
         {(app.is_new||seenHere.has(app.id))&&<b className="custom-app-new-label">New</b>}
         <button type="button" className="custom-apps-add" title="New panel" aria-label={`New panel for ${app.name}`} onClick={e=>{e.stopPropagation();void open({action:'panel_open',app:app.id,new:true})}}><AddIcon/></button>
         <button type="button" title={`App settings: ${app.name}`} aria-label={`Settings for ${app.name}`} onClick={e=>{e.stopPropagation();setMenu(null);manage(app)}}><SettingsIcon/></button></div>
-      {/* User 2026-10-26: no Open/Closed word; the light alone shows state, named in the tooltip. */}
-      {listed(app).map(p=>{const state=panelRunState(p),usage=isRunning(p)?cpuText(cpu.get(p.id)?.cpu,cpu.get(p.id)?.method):''
+      {/* User 2026-10-26: no Open/Closed word; the light alone shows state, named in the tooltip.
+          The app's panels are their own group under it ("more visual delineation", provisional). */}
+      {rows.length>0&&<div className="custom-apps-menu-panels" role="group" aria-label={`Panels of ${app.name}`}>{rows.map(p=>{const state=panelRunState(p),usage=isRunning(p)?cpuText(cpu.get(p.id)?.cpu,cpu.get(p.id)?.method):''
         return <div key={p.id} className="custom-apps-saved-row" onContextMenu={e=>rowMenu.open(e,()=>rowEntries(p))}><button type="button" className="custom-apps-saved" title={state.word} aria-label={p.label+', '+state.word.toLowerCase()} onClick={()=>void open({action:'panel_open',panel:p.id})}><span className={'custom-app-dot'+(state.cls?' '+state.cls:'')} aria-hidden="true"/><span>{p.label}</span>{usage&&<small className="custom-app-cpu" title="Sampled CPU, one core = 100%">{usage}</small>}</button>
           {isRunning(p)&&<button type="button" className="custom-apps-saved-power" title={`Power off ${p.label}: stops it running`} aria-label={`Power off ${p.label}`} onClick={()=>void power(p,'panel_stop')}><PowerIcon/></button>}
-          <button type="button" className="custom-apps-saved-gear" title={`Panel settings: ${p.label}`} aria-label={`Settings for ${p.label}`} onClick={()=>{setMenu(null);managePanel(app,p)}}><SettingsIcon/></button></div>})}
+          <button type="button" className="custom-apps-saved-gear" title={`Panel settings: ${p.label}`} aria-label={`Settings for ${p.label}`} onClick={()=>{setMenu(null);managePanel(app,p)}}><SettingsIcon/></button></div>})}</div>}
     </section>})}
     {data.appNext&&<button type="button" onClick={()=>void loadAppsMenu(slug,'apps')}>More apps</button>}
     {data.panelNext&&<button type="button" onClick={()=>void loadAppsMenu(slug,'panels')}>More saved panels</button>}

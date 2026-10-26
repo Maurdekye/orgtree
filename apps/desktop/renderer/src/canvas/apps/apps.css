@@ -3,7 +3,7 @@
 .custom-apps-menu { position:fixed;z-index:2500;max-height:calc(100vh - 16px);overflow:auto;padding:8px;box-sizing:border-box }
 .custom-apps-menu>header,.custom-apps-menu-app { display:flex;align-items:center;gap:8px }
 .custom-apps-menu>header { padding:4px 4px 8px;justify-content:space-between }
-.custom-apps-menu-group { border-top:1px solid var(--line);padding:8px 2px }
+.custom-apps-menu-group { border:1px solid var(--line);border-radius:6px;padding:2px }
 .custom-apps-menu button { color:inherit;cursor:pointer }
 .custom-apps-menu-app>button:last-child { flex:none;border:0;background:none;padding:5px }
 .custom-apps-menu-app svg { width:20px;height:20px;flex:none }
@@ -16,6 +16,13 @@
 .custom-apps-saved small { color:var(--dim) }
 .custom-app-dot { flex:none;box-sizing:border-box;width:8px;height:8px;border:1px solid currentColor;border-radius:50%;color:var(--dim) }
 .custom-app-dot.open { background:var(--accent);border-color:var(--accent) }
+/* Provisional (USER 2026-10-26 m68e69e302bc4: "more visual delineation between
+   apps w/ panel groups and between individual panels under an app"): each app is
+   its own bordered block, its panels hang off a guide line centred under the app's
+   icon, and each panel row is ruled off from the one above. Theme colours only. */
+.custom-apps-menu-group+.custom-apps-menu-group { margin-top:6px }
+.custom-apps-menu-panels { margin:0 4px 4px 14px;padding-left:6px;border-left:2px solid var(--line) }
+.custom-apps-menu-panels>.custom-apps-saved-row+.custom-apps-saved-row { border-top:1px solid var(--line) }
 /* A window pin's surface lives in the org pin layer; its placeholder takes no space. */
 .custom-app-placeholder.pinned { display:contents }
 .custom-app-window.settings { display:flex;flex-direction:column;position:relative;box-sizing:border-box;pointer-events:auto;overflow:visible;min-width:160px;min-height:120px;padding:0;gap:0;margin:0;--panel-pad-x:0px;--panel-pad-y:0px }
