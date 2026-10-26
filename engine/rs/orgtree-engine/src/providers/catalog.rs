@@ -52,9 +52,12 @@ pub static TIERS: &[Tier] = &[
     Tier { tier: "sol", provider: OPENAI, seat: 2.0, model: "gpt-6.1-sol",
         versions: &[("6.1", "gpt-6.1-sol"), ("6", "gpt-6-sol"), ("5.6", "gpt-5.6-sol")], letter: "S",
         context: Some(1_050_000), live_effort: false, legacy: false, conditional: false, prices: Some((2.0, 0.10, 10.0)) },
-    Tier { tier: "terra", provider: OPENAI, seat: 2.0, model: "gpt-5.6-terra",
-        versions: &[("5.6", "gpt-5.6-terra")], letter: "T",
-        context: Some(1_050_000), live_effort: false, legacy: true, conditional: false, prices: Some((2.0, 0.20, 12.0)) },
+    // GPT-6.1 Terra (user 2026-10-26 "get 4.4.6 out with this", then "make
+    // sure to take terra out of the legacy models checkbox"): a current tier
+    // again, with 5.6 kept as a pin. Seated by the input-price rule ($1 → 1).
+    Tier { tier: "terra", provider: OPENAI, seat: 1.0, model: "gpt-6.1-terra",
+        versions: &[("6.1", "gpt-6.1-terra"), ("5.6", "gpt-5.6-terra")], letter: "T",
+        context: Some(1_050_000), live_effort: false, legacy: false, conditional: false, prices: Some((1.0, 0.05, 5.0)) },
     Tier { tier: "luna", provider: OPENAI, seat: 0.1, model: "gpt-6-luna",
         versions: &[("6", "gpt-6-luna"), ("5.6", "gpt-5.6-luna")], letter: "L",
         context: None, live_effort: false, legacy: false, conditional: false, prices: Some((0.10, 0.01, 0.60)) },
