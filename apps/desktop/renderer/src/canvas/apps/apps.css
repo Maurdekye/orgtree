@@ -14,7 +14,7 @@
 .custom-apps-menu button:hover { background:var(--hover) }
 .custom-apps-saved span:nth-child(2) { flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap }
 .custom-apps-saved small { color:var(--muted) }
-.custom-app-dot { width:6px;height:6px;border:1px solid currentColor;border-radius:50%;color:var(--muted) }
+.custom-app-dot { flex:none;box-sizing:border-box;width:8px;height:8px;border:1px solid currentColor;border-radius:50%;color:var(--muted) }
 .custom-app-dot.open { background:var(--accent);border-color:var(--accent) }
 .custom-app-placeholder.world { position:absolute;left:0;top:0;width:0;height:0;pointer-events:none }
 .custom-app-world-anchor { position:absolute;z-index:8;pointer-events:none }
