@@ -141,17 +141,17 @@ module.exports = async (page, { org, args }) => {
     return { seconds: s, processes, total: { cpuOneCore: sum('cpuOneCore'), privateMB: sum('privateMB'), workingSetMB: sum('workingSetMB') } }
   }
 
-  // 1. A visible panel: its header's Hide and Power off, centered and on the canvas.
+  // 1. A visible panel: its header's Hide and Power off, centered and pinned to the window.
   const V = args.visible, H = args.hidden, O = args.off
   await page.waitFor(`${sel(V.id)} ${frameOf(V.id)}`, { timeout: 30000 })
   R.restored = { visible: { parked: await parked(sel(V.id)), mounted: await exists(frameOf(V.id)) }, hidden: { parked: await parked(sel(H.id)), mounted: await exists(frameOf(H.id)) }, off: { mounted: await exists(frameOf(O.id)) } }
   const header = async key => { R.bounds[key] = { panel: await box(sel(V.id)), hide: await box(`${sel(V.id)} [aria-label="Hide ${V.label}"]`), power: await box(`${sel(V.id)} .custom-app-power`) } }
   await header('centered'); await page.screenshot('01-header-centered')
   R.rates.visible = await rate(V.id, 8000)
-  await page.click(`${sel(V.id)} [aria-label="Pin to canvas"]`, { after: 800 })
+  await page.click(`${sel(V.id)} [aria-label="Pin to window"]`, { after: 800 })
   await until(() => !document.querySelector('.custom-app-centered'))
-  await header('canvas'); R.bounds.canvasParked = await parked(sel(V.id))
-  await page.screenshot('02-header-on-canvas'); note('header captured', R.bounds)
+  await header('window'); R.bounds.pinnedParked = await parked(sel(V.id))
+  await page.screenshot('02-header-pinned'); note('header captured', R.bounds)
   const shownRuntime = await runtimeOf(V.id)
 
   // 2. Hide keeps the same runtime, parked; the throttling control runs meanwhile.

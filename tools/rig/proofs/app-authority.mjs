@@ -24,7 +24,7 @@ export default async function(rig){
  p.check('imports receive the same policy plus a warning and stay closed',imported.app.default_permissions?.['org.read']==='allow'&&/untrustworthy/.test(imported.warning??'')&&imported.panels.every(x=>!x.open))
  if(process.env.APP_AUTHORITY_RED==='1')return p.summary()
  assert(chart.items&&app.default_permissions)
- const move=await rig.tool('writer','orgtree_apps',{action:'panel_update',panel:one.id,expected_rev:one.rev,placement:{mode:'canvas',x:10,y:10,width:520,height:420}})
+ const move=await rig.tool('writer','orgtree_apps',{action:'panel_update',panel:one.id,expected_rev:one.rev,placement:{mode:'window',x:10,y:10,width:520,height:420}})
  p.check('agent cannot expose an already-open window through placement',!move.ok&&/only the user/i.test(move.text))
  const initial=await apps({action:'app_get',app:app.id});p.file('native-app.json',initial);p.file('import-bundle.orgtree-app',{format:'orgtree-app',version:1,definition,panels:[]})
  const canary='PRIVATE_IMPLICIT_APP_BODY_137620',sent=await call({action:'mail.send',to:'boss',body:canary,notice:true}),fired=await call({action:'events.fire',name:'submitted',payload:{note:canary}}),work=await call({action:'docket.create',title:'Synthetic app work',objective:canary,owner:'boss'})

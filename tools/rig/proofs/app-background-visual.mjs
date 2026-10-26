@@ -59,7 +59,7 @@ export default async function(rig){
   const near=(a,b,limit)=>Math.abs(a-b)<=limit
   p.check('clipboard isolated in both windows: every page clipboard path refused and none used',R.installed.clipboardStub&&R.clipboard.calls.length===0&&R.realWindow?.clipboardStub&&R.realWindow.clipboardCalls?.length===0,{rig:R.clipboard,real:{stub:R.realWindow?.clipboardStub,calls:R.realWindow?.clipboardCalls}})
   p.check('restart restore: the visible copy loads shown and the running hidden copy loads parked, the off copy not at all',R.restored.visible.mounted&&!R.restored.visible.parked&&R.restored.hidden.mounted&&R.restored.hidden.parked===true&&!R.restored.off.mounted,R.restored)
-  for(const key of ['centered','canvas'])p.check(`header Hide and Power off are on screen with nonzero size (${key})`,['hide','power'].every(k=>R.bounds[key]?.[k]?.onScreen)&&R.bounds[key].hide.title!==R.bounds[key].power.title,R.bounds[key])
+  for(const key of ['centered','window'])p.check(`header Hide and Power off are on screen with nonzero size (${key})`,['hide','power'].every(k=>R.bounds[key]?.[k]?.onScreen)&&R.bounds[key].hide.title!==R.bounds[key].power.title,R.bounds[key])
   p.check('Hide parks the same runtime and keeps it running',R.hidden.parked===true&&R.hidden.runtime===R.hidden.shownRuntime&&R.hidden.saved.open===false&&R.hidden.saved.running===true,R.hidden)
   const {visible:rv,hidden:rh}=R.rates
   p.check('hidden timers and Dedicated Worker keep their visible rate in the same boot',rv.boot===rh.boot&&rh.sameBoot&&rh.timer>=0.8*rv.timer&&rh.worker>=0.8*rv.worker&&rh.worker>0,{visible:rv,hidden:rh})
