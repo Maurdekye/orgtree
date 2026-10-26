@@ -21,6 +21,23 @@ root-first scope locks, then lock app before panel. These transactions never tak
 the org revision lock. After commit an org custom_apps_changed frame invalidates
 readers; reconnecting readers must perform a fresh bounded read.
 
+Migration0061 adds org-owned `is_new` metadata and a partial unseen-app index.
+App list pages include the org's complete `new_count`, independent of the page;
+metadata includes `is_new`. Creation/import/template restoration default new,
+including existing definitions at migration. Provisional self-import choice:
+native user imports count too. Definition updates never reset seen status.
+`mark_seen` takes1-200 unique explicit app IDs. It locks matches in ID order,
+ignores unknown/deleted/other-org IDs, and returns seen IDs plus the remaining
+count. It requires ordinary Apps scope, grants no authority, changes no app/panel
+revision and emits the existing invalidation only after a committed change.
+GET refuses it. User and agent operations share this contract.
+
+The menu acknowledges only intersecting entries in its owning scroll viewport,
+keeping New labels for that visit. Background catalog loads acknowledge nothing.
+The header reuses attention-mail glow/count CSS. Reads begun before a local
+acknowledgement cannot resurrect the count; local acknowledgements serialize.
+Seen flags are UI metadata and never travel in app bundles or templates.
+
 Metadata/state mutations and duplication/deletion require expected_rev. A stale
 revision refuses409 rather than silently overwriting. State patch uses RFC7396:
 objects merge, arrays replace and null removes a key. State set can retain a null
@@ -31,6 +48,8 @@ retain the latest256 per panel; oldest_retained makes truncation explicit.
 
 Opening an app creates its first panel or reopens the most recently used one;
 new=true always creates another. Definition initial_state is copied, not shared.
+Updating initial_state never overwrites existing saved-panel data; it applies
+only when a new panel is created. The focused apps-new real-PG proof covers this.
 Labels can be changed. Placement records distinguish float, screen, popout and
 world canvas coordinates; an optional live-node attachment is canvas-only. The
 storage milestone does not yet mount those surfaces.

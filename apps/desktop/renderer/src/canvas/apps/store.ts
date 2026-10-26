@@ -2,11 +2,11 @@ import { useSyncExternalStore } from 'react'
 import { customAppsRequest } from '../../api'
 import type { AppPage, CustomApp, CustomPanel } from './types'
 
-interface Snapshot {apps:CustomApp[];panels:CustomPanel[];appNext:string|null;panelNext:string|null;error:string;loading:boolean}
-interface Store {snapshot:Snapshot;subs:Set<()=>void>;running:Promise<void>|null;pending:boolean;active:boolean}
+interface Snapshot {apps:CustomApp[];panels:CustomPanel[];appNext:string|null;panelNext:string|null;newCount:number;error:string;loading:boolean}
+interface Store {snapshot:Snapshot;subs:Set<()=>void>;running:Promise<void>|null;pending:boolean;active:boolean;seenEpoch:number;seenQueue:Promise<void>}
 const stores=new Map<string,Store>()
 function store(slug:string):Store {
-  let s=stores.get(slug);if(!s){s={snapshot:{apps:[],panels:[],appNext:null,panelNext:null,error:'',loading:false},subs:new Set(),running:null,pending:false,active:false};stores.set(slug,s)}return s
+  let s=stores.get(slug);if(!s){s={snapshot:{apps:[],panels:[],appNext:null,panelNext:null,newCount:0,error:'',loading:false},subs:new Set(),running:null,pending:false,active:false,seenEpoch:0,seenQueue:Promise.resolve()};stores.set(slug,s)}return s
 }
 function publish(s:Store,next:Partial<Snapshot>){s.snapshot={...s.snapshot,...next};for(const fn of s.subs)fn()}
 const merge=<T extends {id:string}>(old:T[],items:T[]):T[]=>[...new Map([...old,...items].map(x=>[x.id,x])).values()]
@@ -16,22 +16,32 @@ export function activateApps(slug:string):()=>void {const s=store(slug);s.active
 export async function refreshApps(slug:string):Promise<void>{
   const s=store(slug);if(s.running){s.pending=true;return s.running}
   publish(s,{loading:true})
-  s.running=(async()=>{try{
+  s.running=(async()=>{const epoch=s.seenEpoch;try{
     const panels:CustomPanel[]=[];let after:string|null=null
     do{const page:AppPage<CustomPanel>=await customAppsRequest(slug,{action:'list',kind:'panels',open:true,...(after?{after}:{})});panels.push(...page.items);after=page.next_cursor}while(after)
     const apps=await customAppsRequest<AppPage<CustomApp>>(slug,{action:'list',kind:'apps'})
     const known=new Set(apps.items.map(a=>a.id));for(const panel of panels)if(!known.has(panel.app)){const app=await customAppsRequest<CustomApp>(slug,{action:'app_get',app:panel.app});apps.items.push(app);known.add(app.id)}
     // Keep explicitly loaded closed panels for the menu, drop stale open rows.
-    publish(s,{apps:apps.items,panels:merge(s.snapshot.panels.filter(p=>!p.open),panels),appNext:apps.next_cursor,error:''})
+    // A read begun before an acknowledgement must not resurrect its badge.
+    if(epoch!==s.seenEpoch){s.pending=true;return}
+    publish(s,{apps:apps.items,panels:merge(s.snapshot.panels.filter(p=>!p.open),panels),appNext:apps.next_cursor,newCount:apps.new_count??0,error:''})
   }catch(error){publish(s,{error:String(error)})}finally{publish(s,{loading:false});s.running=null;if(s.pending&&s.active){s.pending=false;void refreshApps(slug)}}})()
   return s.running
 }
 export async function loadAppsMenu(slug:string,more:'apps'|'panels'|null=null):Promise<void>{
   const s=store(slug)
   try{
-    if(more!=='panels'){const page=await customAppsRequest<AppPage<CustomApp>>(slug,{action:'list',kind:'apps',...(more==='apps'&&s.snapshot.appNext?{after:s.snapshot.appNext}:{})});publish(s,{apps:merge(more==='apps'?s.snapshot.apps:s.snapshot.apps.filter(a=>s.snapshot.panels.some(p=>p.open&&p.app===a.id)),page.items),appNext:page.next_cursor})}
+    if(more!=='panels'){const epoch=s.seenEpoch,page=await customAppsRequest<AppPage<CustomApp>>(slug,{action:'list',kind:'apps',...(more==='apps'&&s.snapshot.appNext?{after:s.snapshot.appNext}:{})});if(epoch!==s.seenEpoch){void refreshApps(slug);return}publish(s,{apps:merge(more==='apps'?s.snapshot.apps:s.snapshot.apps.filter(a=>s.snapshot.panels.some(p=>p.open&&p.app===a.id)),page.items),appNext:page.next_cursor,newCount:page.new_count??0})}
     if(more!=='apps'){const page=await customAppsRequest<AppPage<CustomPanel>>(slug,{action:'list',kind:'panels',...(more==='panels'&&s.snapshot.panelNext?{after:s.snapshot.panelNext}:{})});publish(s,{panels:merge(more==='panels'?s.snapshot.panels:s.snapshot.panels.filter(p=>p.open),page.items),panelNext:page.next_cursor})}
   }catch(error){publish(s,{error:String(error)})}
+}
+export async function markAppsSeen(slug:string,apps:string[]):Promise<void>{
+  const s=store(slug)
+  const write=s.seenQueue.then(async()=>{try{
+    const result=await customAppsRequest<{seen:string[];new_count:number}>(slug,{action:'mark_seen',apps});s.seenEpoch++
+    publish(s,{apps:s.snapshot.apps.map(a=>result.seen.includes(a.id)?{...a,is_new:false}:a),newCount:result.new_count,error:''})
+  }catch(error){publish(s,{error:String(error)});throw error}})
+  s.seenQueue=write.catch(()=>{});return write
 }
 export async function changeApps<T=CustomPanel>(slug:string,input:Record<string,unknown>):Promise<T>{
   const result=await customAppsRequest<T>(slug,input);const s=store(slug)
@@ -39,6 +49,6 @@ export async function changeApps<T=CustomPanel>(slug:string,input:Record<string,
   else if(input.action==='app_delete'){publish(s,{apps:s.snapshot.apps.filter(a=>a.id!==input.app),panels:s.snapshot.panels.filter(p=>p.app!==input.app)})}
   else if(result&&typeof result==='object'&&'id' in result&&'app' in result){publish(s,{panels:merge(s.snapshot.panels,[{...result as unknown as CustomPanel,state:undefined}])})}
   else if(result&&typeof result==='object'&&'id' in result&&'capabilities' in result){publish(s,{apps:merge(s.snapshot.apps,[result as unknown as CustomApp])})}
-  if(input.action==='event')void refreshApps(slug)
+  if(['event','app_create','app_import','app_delete'].includes(String(input.action)))void refreshApps(slug)
   return result
 }

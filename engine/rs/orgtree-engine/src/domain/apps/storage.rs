@@ -8,7 +8,7 @@ use tokio_postgres::Transaction;
 use crate::{engine::Engine, orgs::OrgHandle, runtime::Caller};
 use super::wire::{self, Definition, Placement, Request};
 
-const APP_META:&str="jsonb_build_object('id',a.id,'name',a.name,'description',a.description,'capabilities',a.capabilities,'width',a.width,'height',a.height,'rev',a.rev,'permissions',a.permissions,'permission_rev',a.permission_rev,'created_by',a.created_by,'updated_at',a.updated_at)";
+const APP_META:&str="jsonb_build_object('id',a.id,'name',a.name,'description',a.description,'capabilities',a.capabilities,'width',a.width,'height',a.height,'rev',a.rev,'permissions',a.permissions,'permission_rev',a.permission_rev,'is_new',a.is_new,'created_by',a.created_by,'updated_at',a.updated_at)";
 const PANEL_META:&str="jsonb_build_object('id',p.id,'app',p.app_id,'label',p.label,'rev',p.rev,'open',p.is_open,'placement',p.placement,'linked_agents',p.linked_agents,'updated_at',p.updated_at,'used_at',p.used_at,'event_seq',p.event_seq)";
 
 #[nolog]
@@ -88,7 +88,18 @@ pub(crate) async fn run_locked(engine:&Arc<Engine>,org:&Arc<OrgHandle>,caller:Op
                 _=>crate::refuse!(BadRequest,"list kind must be apps or panels"),
             };
             let more=rows.len()>n as usize;let items:Vec<Value>=rows.into_iter().take(n as usize).map(|r|r.get(0)).collect();
-            let next=if more{items.last().map(|v|v["id"].clone())}else{None};json!({"kind":kind,"items":items,"next_cursor":next})
+            let next=if more{items.last().map(|v|v["id"].clone())}else{None};let mut out=json!({"kind":kind,"items":items,"next_cursor":next});
+            if kind=="apps"{out["new_count"]=json!(tx.query_one("SELECT count(*) FROM ot.custom_apps WHERE org_id=$1 AND is_new",&[&org.id]).await?.get::<_,i64>(0));}out
+        }
+        Request::MarkSeen{apps}=>{
+            // Canonical row order for overlapping acknowledgements; no code
+            // revision, saved state or permission is changed. Unknown IDs are
+            // ignored, so a concurrent deletion is an idempotent no-op.
+            let rows=tx.query("SELECT id FROM ot.custom_apps WHERE org_id=$1 AND id=ANY($2) ORDER BY id FOR UPDATE",&[&org.id,&apps]).await?;
+            let ids:Vec<String>=rows.iter().map(|r|r.get(0)).collect();
+            changed=tx.execute("UPDATE ot.custom_apps SET is_new=false WHERE org_id=$1 AND id=ANY($2) AND is_new",&[&org.id,&ids]).await?>0;
+            let count:i64=tx.query_one("SELECT count(*) FROM ot.custom_apps WHERE org_id=$1 AND is_new",&[&org.id]).await?.get(0);
+            json!({"seen":ids,"new_count":count})
         }
         Request::PermissionSet{app:id,expected_rev,expected_permission_rev,capability,permission}=>{
             if caller.is_some(){crate::refuse!(Forbidden,"only the user may decide app execution permissions; ask your superior instead");}
@@ -228,7 +239,7 @@ pub async fn run(engine:&Arc<Engine>,org:&Arc<OrgHandle>,caller:Option<&Caller>,
     wire::parse(input)?;
     if caller.is_some_and(|c|c.org_id!=org.id){crate::refuse!(Forbidden,"Apps caller belongs to another organization");}
     let action=input["action"].as_str().unwrap_or("");
-    if ["list","app_get","panel_get","events","app_create","app_import","app_export"].contains(&action){return run_locked(engine,org,caller,input).await;}
+    if ["list","app_get","panel_get","events","app_create","app_import","app_export","mark_seen"].contains(&action){return run_locked(engine,org,caller,input).await;}
     let app=if let Some(app)=input["app"].as_str(){app.to_owned()}else{
         let client=engine.db.get().await?;let panel=input["panel"].as_str().unwrap_or("");
         let row=client.query_opt("SELECT app_id FROM ot.custom_panels WHERE org_id=$1 AND id=$2",&[&org.id,&panel]).await?;

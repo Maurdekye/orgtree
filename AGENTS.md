@@ -4,6 +4,10 @@ Read this file before working in this repository. It is the startup guide, not a
 
 Custom app actions use parent-only, code/panel-bound sessions and native owning-document
 permission prompts; sandbox HTML never receives a credential or permission method.
+Apps New counts are org-persisted catalog metadata; only visible menu entries
+are acknowledged, with orgtree_apps mark_seen parity. See
+[custom apps](docs/rust-engine/custom-apps.md).
+[verified: `domain/apps/storage.rs`, `canvas/apps/store.ts`, `canvas/apps/ui.tsx`; 2026-10-26]
 App events carry privacy across subscriber/overflow handoffs; authorized delivery
 keeps content while watchdog diagnostic output/history omit it.
 Hide/close/replacement discards prompts and authority, while grant edits use a separate

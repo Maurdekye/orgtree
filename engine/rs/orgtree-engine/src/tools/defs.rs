@@ -2060,7 +2060,8 @@ mod mqtt_card_tests {
 #[nolog]
 fn build_tool_apps()->Value {
     tool("orgtree_apps","Manage this org's app definitions and independent saved panels. Requires org-modifying tools. List pages omit HTML/state; app_get/panel_get read them. Open reuses the last panel unless new=true; close keeps state. Mutations need the current expected_rev. Imported permissions never grant actions.",json!({
-        "action":{"type":"string","enum":["list","app_get","app_create","app_update","app_delete","app_import","app_export","panel_open","panel_get","panel_update","panel_duplicate","panel_delete","state_set","state_patch","event","events","permission_set"]},
+        "action":{"type":"string","enum":["list","app_get","app_create","app_update","app_delete","app_import","app_export","mark_seen","panel_open","panel_get","panel_update","panel_duplicate","panel_delete","state_set","state_patch","event","events","permission_set"]},
+        "apps":{"type":"array","minItems":1,"maxItems":200,"uniqueItems":true,"items":{"type":"string"},"description":"mark_seen: acknowledge these explicit app IDs for this org's New badge; does not grant actions or change app/panel revisions"},
         "bundle":{"type":"object","description":"app_import: strict orgtree-app version1 object with definition and optional panels:[{label,state}]; up to16MiB/16 saved copies. No permissions, IDs, links or geometry."},
         "path":{"type":"string","description":"app_import: an absolute held local .orgtree-app JSON file without parent components or links, instead of inline bundle"},
         "include_panels":{"type":"boolean","description":"app_export: include up to16 saved panel JSON states; default false"},

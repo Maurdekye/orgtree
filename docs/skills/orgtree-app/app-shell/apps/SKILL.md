@@ -7,6 +7,14 @@ Up: [orgtree-app-shell](../SKILL.md)
 
 # Apps and saved panels
 
+The header Apps button counts new apps with the unread attention-mail highlight.
+Each new menu entry is marked New. Only entries visible in the menu clear from
+the count; scrolling and More apps expose the rest. Labels remain for that visit.
+Seen status is stored per org across restarts. Existing apps start new once when
+this feature is added. Provisional choice: your own imports also count as new.
+Updating a definition does not mark it new again. Agent parity is orgtree_apps
+list (is_new/new_count) and mark_seen with explicit apps:[id,...], up to200 IDs.
+
 Open **Apps** in the org header, beside Presentations. Open an app to reopen its
 most recently used panel, or choose **+ New panel** for an independent copy. Saved
 panels show Open/Closed; closing preserves their data until Delete. The catalogue

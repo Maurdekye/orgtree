@@ -16,10 +16,21 @@ app/panel in that org; linking is not an authority grant.
 - list defaults to kind:apps. Use kind:panels and optional app to list copies.
   limit defaults100, maximum200; after takes the previous next_cursor string.
   Lists omit executable HTML and saved JSON state.
+- App list metadata includes is_new; new_count counts all new apps in this org,
+  including unloaded pages. mark_seen needs apps:[id,...],1-200 unique explicit
+  IDs, and acknowledges only matching IDs in this org. Missing/deleted IDs are
+  ignored; repetition is safe. It returns seen IDs/new_count, changes no code,
+  state, revision or execution grant, and requires ordinary Org-modifying tools.
+  The Apps button uses the attention-mail count/highlight; menu entries marked
+  New clear when visible, retaining their label for that visit. Seen status
+  survives restart. Creation/import/template restoration starts new; migration
+  marks existing apps new once. Provisional choice: self-imports also count.
 - app_get needs app. app_create needs definition:{name,html}; optional description,
   initial_state, capabilities, width and height. app_update also needs app and
   expected_rev. Entry HTML is self-contained and bounded at4MiB. App code replacement
   revokes stored execution grants; declared capabilities alone grant nothing.
+  initial_state is an object up to2MiB, copied into the first/new:true panel.
+  An app_update changing it affects only future copies, not existing state.
 - app_delete needs app/expected_rev; existing panels refuse unless delete_panels:true.
 - panel_open needs app or panel. Provisional default: reuse the most recently used
   copy, creating the first if absent. new:true creates another independent copy;

@@ -36,7 +36,7 @@ test('new apps count includes unloaded pages and clears only entries actually se
   await inAct(async()=>{deliver(['a']);await tick()})
   assert.equal(button.querySelector('.eye-count')?.textContent,'2');assert.deepEqual(seen[0]?.apps,['a'])
   assert.equal(menu.querySelectorAll('.custom-app-new-label').length,2,'keep New labels for this menu visit')
-  await inAct(async()=>{button.click();await tick();button.click();await tick()})
+  await inAct(async()=>{button.click();await tick()});await inAct(async()=>{button.click();await tick()})
   assert.equal(view.el.ownerDocument.querySelectorAll('.custom-app-new-label').length,1,'next visit marks only the still-unseen entry')
   await inAct(async()=>{deliver(['b']);await tick()})
   const more=[...view.el.ownerDocument.querySelectorAll<HTMLButtonElement>('.custom-apps-menu button')].find(b=>b.textContent==='More apps')!

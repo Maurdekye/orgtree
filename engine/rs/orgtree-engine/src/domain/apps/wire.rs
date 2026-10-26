@@ -70,6 +70,7 @@ impl Default for Placement {
 pub enum Request {
     List { kind:Option<String>, app:Option<String>, after:Option<String>, limit:Option<i64>, open:Option<bool> },
     AppGet { app:String },
+    MarkSeen { apps:Vec<String> },
     AppExport { app:String, expected_rev:i64, #[serde(default)] include_panels:bool },
     AppImport { bundle:Bundle },
     PermissionSet { app:String, expected_rev:i64, expected_permission_rev:i64, capability:String, permission:String },
@@ -92,6 +93,11 @@ pub enum Request {
 pub fn parse(input:&Value) -> Result<Request> {
     let request:Request=serde_json::from_value(input.clone()).map_err(|e|crate::domain::UserError::BadRequest(format!("invalid Apps request: {e}")))?;
     if let Request::AppImport{bundle:value}=&request{bundle(value)?;}
+    if let Request::MarkSeen{apps}=&request{
+        if apps.is_empty()||apps.len()>200{crate::refuse!(BadRequest,"mark_seen needs1-200 explicit app IDs");}
+        let mut seen=std::collections::HashSet::new();
+        for id in apps{text(id,120,"app ID",false)?;if !seen.insert(id){crate::refuse!(BadRequest,"mark_seen app IDs must be unique");}}
+    }
     Ok(request)
 }
 #[nolog]

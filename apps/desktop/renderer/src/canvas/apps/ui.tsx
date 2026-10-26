@@ -5,7 +5,7 @@ import {AppsIcon,CloseIcon,MoreIcon,PinIcon} from '../../icons'
 import {MovableSurface,PopoutButton,useSurface,useSurfaceDocument} from '../../popout'
 import {windowExitStarted} from '../../windowlayout'
 import {customAppsRequest} from '../../api'
-import {activateApps,changeApps,loadAppsMenu,useApps} from './store'
+import {activateApps,changeApps,loadAppsMenu,markAppsSeen,useApps} from './store'
 import {PanelHtml} from './host'
 import {AppPermissions} from './permissions'
 import {APP_BUNDLE_MAX,AppExport,AppImport,parseAppBundle,saveAppJson} from './portable'
@@ -26,9 +26,9 @@ function useMenu(){return useSyncExternalStore(fn=>{menuSubs.add(fn);return()=>m
 function putAnchor(slug:string,id:string,element:HTMLElement|null,zoom:number){const k=key(slug,id),old=anchors.get(k);if(old?.element===element&&old?.zoom===zoom)return;if(element)anchors.set(k,{element,zoom});else anchors.delete(k);for(const fn of anchorSubs)fn()}
 function useAnchor(slug:string,id:string){return useSyncExternalStore(fn=>{anchorSubs.add(fn);return()=>anchorSubs.delete(fn)},()=>anchors.get(key(slug,id)))}
 export function AppsButton({slug}:{slug:string}){
-  const current=useMenu()
-  return <button type="button" className="iconbtn shell-action apps-button" aria-label="Apps" title="Apps" aria-expanded={current?.slug===slug}
-    onClick={e=>setMenu(current?.slug===slug?null:{slug,anchor:e.currentTarget})}><AppsIcon fontSize="inherit"/></button>
+  const current=useMenu(),{newCount}=useApps(slug)
+  return <button type="button" className={'iconbtn shell-action apps-button'+(newCount?' glow':'')} aria-label="Apps" title={newCount?`Apps · ${newCount} new`:'Apps'} aria-description={newCount?`${newCount} new apps`:undefined} aria-expanded={current?.slug===slug}
+    onClick={e=>setMenu(current?.slug===slug?null:{slug,anchor:e.currentTarget})}><AppsIcon fontSize="inherit"/>{newCount>0&&<b className="eye-count asks">{newCount}</b>}</button>
 }
 
 const saveJson=saveAppJson
@@ -40,19 +40,32 @@ function Dialog({title,close,children}:{title:string;close:()=>void;children:Rea
 function AppsMenu({slug,current,manage,importApp,onShowCanvas}:{slug:string;current:NonNullable<Menu>;manage:(app:CustomApp)=>void;importApp:(bundle:AppBundle,owner:Document)=>void;onShowCanvas:()=>void}){
   const data=useApps(slug),ref=useRef<HTMLDivElement>(null),owner=current.anchor.ownerDocument
   const [style,setStyle]=useState<CSSProperties>({visibility:'hidden'})
+  const [seenHere,setSeenHere]=useState<Set<string>>(()=>new Set()),pending=useRef(new Set<string>())
   useLayoutEffect(()=>{const win=owner.defaultView;if(!win||!ref.current)return;const a=current.anchor.getBoundingClientRect(),r=ref.current.getBoundingClientRect(),width=Math.min(390,win.innerWidth-16)
     setStyle({width,left:Math.max(8,Math.min(a.right-width,win.innerWidth-width-8)),top:Math.max(8,Math.min(a.bottom+6,win.innerHeight-r.height-8))})
   },[owner,current.anchor,data.apps.length,data.panels.length])
   useEffect(()=>{void loadAppsMenu(slug);const pointer=(e:PointerEvent)=>{if(!ref.current?.contains(e.target as Node)&&!current.anchor.contains(e.target as Node))setMenu(null)},keyboard=(e:KeyboardEvent)=>{if(e.key==='Escape'){e.preventDefault();e.stopPropagation();setMenu(null)}}
     owner.addEventListener('pointerdown',pointer,true);owner.addEventListener('keydown',keyboard,true);return()=>{owner.removeEventListener('pointerdown',pointer,true);owner.removeEventListener('keydown',keyboard,true)}
   },[slug,owner,current.anchor])
+  useEffect(()=>{
+    if(!ref.current||style.visibility==='hidden'||!owner.defaultView?.IntersectionObserver)return
+    // Only catalog entries actually visible in the owning menu are seen.
+    // Retain their New labels for this visit, then omit them on the next open.
+    const observer=new owner.defaultView.IntersectionObserver(entries=>{
+      const ids=entries.filter(e=>e.isIntersecting&&e.intersectionRatio>0).map(e=>e.target.getAttribute('data-new-app')!).filter(id=>id&&!pending.current.has(id)).slice(0,200)
+      if(!ids.length)return;ids.forEach(id=>pending.current.add(id));setSeenHere(old=>new Set([...old,...ids]))
+      void markAppsSeen(slug,ids).catch(()=>{ids.forEach(id=>pending.current.delete(id))})
+    },{root:ref.current,threshold:0})
+    ref.current.querySelectorAll('[data-new-app]').forEach(e=>observer.observe(e));return()=>observer.disconnect()
+  },[slug,owner,data.apps,style.visibility])
   const open=async(input:Record<string,unknown>)=>{setMenu(null);try{const p=await changeApps<CustomPanel>(slug,input);if(p.placement.mode==='canvas'){onShowCanvas();canvas.get(slug)?.focus(p.placement)}}catch(e){window.dispatchEvent(new CustomEvent('custom-app-error',{detail:{slug,error:String(e)}}))}}
   return createPortal(<div ref={ref} className="custom-apps-menu" role="dialog" aria-label="Apps" style={style}>
     <header><strong>Apps</strong><label className="custom-app-import-file">Import app<input type="file" aria-label="Import app" accept=".orgtree-app,.json,application/json" hidden onChange={async e=>{const file=e.target.files?.[0];e.target.value='';if(!file)return;try{if(file.size>APP_BUNDLE_MAX)throw Error('App bundle exceeds 16 MiB.');const bundle=parseAppBundle(await file.text());setMenu(null);importApp(bundle,owner)}catch(error){window.dispatchEvent(new CustomEvent('custom-app-error',{detail:{slug,error:String(error)}}))}}}/></label><button type="button" onClick={()=>void loadAppsMenu(slug)}>Refresh</button></header>
     {data.error&&<p role="alert">{data.error}</p>}
     {!data.apps.length&&!data.loading&&<p className="dim">Your apps will appear here.</p>}
     {data.apps.map(app=><section key={app.id} className="custom-apps-menu-group">
-      <div className="custom-apps-menu-app"><button type="button" className="custom-apps-open" onClick={()=>void open({action:'panel_open',app:app.id})}><AppsIcon/><span><b>{app.name}</b><small>{app.description}</small></span></button>
+      <div className="custom-apps-menu-app" data-new-app={app.is_new?app.id:undefined}><button type="button" className="custom-apps-open" onClick={()=>void open({action:'panel_open',app:app.id})}><AppsIcon/><span><b>{app.name}</b><small>{app.description}</small></span></button>
+        {(app.is_new||seenHere.has(app.id))&&<b className="custom-app-new-label">New</b>}
         <button type="button" title={`Manage ${app.name}`} aria-label={`Manage ${app.name}`} onClick={()=>{setMenu(null);manage(app)}}><MoreIcon/></button></div>
       <button type="button" className="custom-apps-new" onClick={()=>void open({action:'panel_open',app:app.id,new:true})}>+ New panel</button>
       {data.panels.filter(p=>p.app===app.id).sort((a,b)=>b.used_at.localeCompare(a.used_at)).map(p=><button type="button" key={p.id} className="custom-apps-saved" onClick={()=>void open({action:'panel_open',panel:p.id})}><span className={p.open?'custom-app-dot open':'custom-app-dot'}/><span>{p.label}</span><small>{p.open?'Open':'Closed'}</small></button>)}

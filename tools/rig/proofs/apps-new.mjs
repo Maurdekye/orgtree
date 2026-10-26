@@ -7,10 +7,11 @@ export default async function(rig){
   const tool=async input=>{const r=await rig.tool('maker','orgtree_apps',input);assert(r.ok,r.text);return r.json}
   const definition={name:'Initial app',html:'<p>Initial state</p>',initial_state:{count:2}}
   let app=await tool({action:'app_create',definition}),one=await tool({action:'panel_open',app:app.id})
+  const firstState=one.state.count
   one=await tool({action:'state_set',panel:one.id,expected_rev:one.rev,state:{count:4}})
   app=await tool({action:'app_update',app:app.id,expected_rev:app.rev,definition:{...definition,initial_state:{count:9}}})
   const two=await tool({action:'panel_open',app:app.id,new:true}),old=await api({action:'panel_get',panel:one.id})
-  p.check('definition initial_state changes apply to new panels only',one.state.count===4&&old.state.count===4&&two.state.count===9&&old.rev===one.rev)
+  p.check('definition initial_state changes apply to new panels only',firstState===2&&one.state.count===4&&old.state.count===4&&two.state.count===9&&old.rev===one.rev)
   const imported=await api({action:'app_import',bundle:{format:'orgtree-app',version:1,definition,panels:[]}})
   let list=await api({action:'list',limit:1})
   p.check('create and self-import count as new across pages',app.is_new===true&&imported.app.is_new===true&&list.new_count===2&&list.items.length===1&&!!list.next_cursor)

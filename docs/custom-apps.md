@@ -9,6 +9,17 @@ most recently used copy or creates the first one. **+ New panel** makes another
 copy from the initial state. Open and closed saved panels are listed below it.
 These defaults are provisional for the morning review.
 
+The Apps button highlights and counts new apps like unread attention mail. The
+menu marks them **New**. An entry clears from the count when you see it in the
+menu; entries below the scroll area or on another page stay new. Labels stay for
+that menu visit. Seen status belongs to the org and survives restarts. Existing
+apps start new when this feature is first added. Provisional choice: apps you
+import yourself also count as new. Updating an app does not mark it new again.
+
+Agents can set an app's initial JSON state. The first panel and **+ New panel**
+copy that state. Changing the definition's initial state affects future panels;
+existing saved panels keep their data.
+
 Use the panel title menu for State, Rename, Linked agents, Activity, Permissions,
 Duplicate, placement or Delete. Drag the title or resize its corner. Float and
 Pin to screen stay in the viewport; Pin to canvas moves and zooms with the chart.
