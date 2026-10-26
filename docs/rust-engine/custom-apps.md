@@ -345,8 +345,12 @@ creator row (USER2026-10-26 m7d07ebe438b4, mc6d6096f5206) and the embedded
 AppPermissions in a second Permissions tab (USER2026-10-26 m1fcbeca9488e): Files grants, pending
 changes and events.fire allow/deny. Panel-row and open-header gears open
 PanelSettings bound to one explicit panel ID, including closed copies; no MRU
-selection, HTML startup or app actions. Its General tab keeps state/rename/
-duplicate/delete on their existing revision-checked tool calls, with no section
+selection, HTML startup or app actions. Its Name row reuses the Agent settings
+rename row (USER md4315f720ecc): panel_update label on Rename, which shows once the
+text differs, then the app toast (ObjectMenuBoundary's CopyFeedback) and close; no
+Enter submit, and refusals toast the engine's message. Its General tab keeps
+duplicate/delete and its State tab (USER m1d9d1f971c9a) the JSON editor (panel_get,
+revision-checked state_set, Reload), all on their existing tool calls, with no section
 header (USER m5e1010314d2c). Connections and Fire event have their own tabs (USER
 meb312360e19f) and History comes last (USER m547bae9b0585); it holds the copy's
 log (USER mc8711410a925), merged from the former Activity view. All three stay

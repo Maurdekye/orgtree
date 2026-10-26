@@ -77,9 +77,13 @@ behavior). Allow once remains
 in the active host's native prompt.
 
 Each saved-panel row has its own gear, even when closed. That gear and the open
-panel header gear open Panel settings for that exact copy, with four tabs: General
-(State, Rename, Duplicate and Delete panel), Connections, Fire event and, last,
-History (event history). No tab repeats its name as a section header. Event publication/connections are copy-specific;
+panel header gear open Panel settings for that exact copy. Its Name field, above the
+tabs, renames the copy as Agent settings renames an agent: Rename appears once the
+text differs and applies at once, then the window closes with a notice; Enter does
+not submit, and a refused name shows the error. Five tabs follow: General (Duplicate
+and Delete panel), State (the copy's JSON data: Import, Export, Copy, Reset, Reload,
+Save), Connections, Fire event and, last, History (event history). No tab repeats
+its name as a section header. Event publication/connections are copy-specific;
 their permission remains app-wide. Placement is not a setting. No saved-copy selector or app actions appear
 here. Manage a closed copy without running its HTML; menu paging exposes further
 copies. The title-bar pin pins a panel to the canvas,

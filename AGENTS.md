@@ -55,8 +55,9 @@ were retired 2026-10-26; migration 0068 floats old ones). Native Apps chrome use
 the shared modal/settings kit. The app row opens its first listed copy or creates
 one, + always creates, and new copies are named Panel N. App-row gears open
 app-wide settings (description above General/Permissions tabs); saved-panel and
-open-header gears open settings for that exact copy (General/Connections/Fire
-event/History tabs, no section headers), including closed panels
+open-header gears open settings for that exact copy (the Agent settings Name row,
+then General/State/Connections/Fire event/History tabs, no section headers),
+including closed panels
 without running HTML. See the same custom-app topic for placement, permission
 and tool parity.
 [decided: user 2026-10-26; verified: `canvas/apps/{dialog,events,settings,ui}.tsx`, `domain/apps/labels.rs`]

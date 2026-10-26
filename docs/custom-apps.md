@@ -104,9 +104,13 @@ opens **App settings**: the app's description sits above two tabs, **General**
 file changes, which apply to every copy). Allow once stays in the live panel's native prompt.
 
 The gear beside each saved panel in Apps, including a closed panel, and the gear
-in an open panel's header open **Panel settings** for that exact copy, with four
-tabs: **General** (State, Rename, Duplicate and Delete panel), **Connections**,
-**Fire event** and, last, **History** (the copy's event history). Events and Connections belong here
+in an open panel's header open **Panel settings** for that exact copy. Its **Name**
+field, above the tabs, renames the copy the way Agent settings renames an agent:
+edit the name and choose **Rename**, which appears once the text differs; the
+window closes and a notice confirms the new name. Five tabs follow: **General**
+(Duplicate and Delete panel), **State** (the copy's JSON data, with Import, Export,
+Copy, Reset, Reload and Save), **Connections**, **Fire event** and, last,
+**History** (the copy's event history). Events and Connections belong here
 because firing and subscriptions refer to a saved copy. Placement is not a
 setting; use the panel window's own controls. Managing a closed copy does not run its
 HTML. Further saved copies remain available through the Apps menu's paging.
