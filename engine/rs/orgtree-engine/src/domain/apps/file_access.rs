@@ -16,7 +16,7 @@ const REGISTRY_MAX:usize=4096;
 #[derive(Clone,Deserialize,Serialize)]
 #[serde(tag="action",rename_all="snake_case",deny_unknown_fields)]
 pub enum FileCall {
-    Choose,
+    Choose{},
     Open{root:String,path:String},
     Read{file:String,offset:Option<u64>,limit:Option<usize>},
     Media{file:String},
@@ -109,7 +109,7 @@ fn validate(call:&FileCall)->Result<()>{
         },
         FileCall::Read{file,limit,..}=>{wire::text(file,120,"file reference",false)?;if !(1..=READ_MAX).contains(&limit.unwrap_or(READ_MAX)){crate::refuse!(BadRequest,"file read limit must be 1-65536 bytes");}},
         FileCall::Media{file}=>wire::text(file,120,"file reference",false)?,
-        FileCall::Choose=>{},
+        FileCall::Choose{}=>{},
     }Ok(())
 }
 #[nolog]
@@ -133,7 +133,7 @@ pub async fn native(engine:&Arc<Engine>,org:&Arc<OrgHandle>,input:&Value)->Resul
             validate(&call)?;let bound=engine.custom_apps.bound(org.id,&session)?;let _guard=bound.gate.lock.lock().await;
             engine.custom_apps.bound(org.id,&session)?;let value=bridge::snapshot(engine,&bound).await?;declared(&value)?;
             bound.gate.admit()?;
-            if !matches!(call,FileCall::Choose){
+            if !matches!(call,FileCall::Choose{}){
                 if let Some(reference)=authorized(engine,org,&session,&bound,&value,&call).await?{return execute(engine,org,&session,&bound,&call,reference,None).await;}
             }
             let challenge=engine.custom_apps.file_access.ask(&session,&bound,call.clone())?;
@@ -151,7 +151,7 @@ pub async fn native(engine:&Arc<Engine>,org:&Arc<OrgHandle>,input:&Value)->Resul
             }
             let existing=if let FileCall::Read{file,..}|FileCall::Media{file}= &call{Some(reference(engine,&bound,file).await?)}else{None};
             let selected=match &call{
-                FileCall::Choose=>files::checked_path(std::path::Path::new(path.as_deref().ok_or_else(||crate::domain::UserError::BadRequest("choose a file before allowing access".into()))?))?,
+                FileCall::Choose{}=>files::checked_path(std::path::Path::new(path.as_deref().ok_or_else(||crate::domain::UserError::BadRequest("choose a file before allowing access".into()))?))?,
                 FileCall::Open{root,path:relative}=>{if path.is_some(){crate::refuse!(BadRequest,"Orgtree file permission does not take a computer path");}org_path(engine,org,root,relative).await?},
                 _=>{if path.is_some(){crate::refuse!(BadRequest,"existing file permission does not take a computer path");}existing.as_ref().expect("read/media reference").path.clone()},
             };
@@ -224,7 +224,7 @@ async fn stored_reference(engine:&Engine,bound:&Bound,grant:&str,path:&std::path
 #[nolog]
 async fn authorized(engine:&Engine,org:&OrgHandle,session:&str,bound:&Bound,value:&Value,call:&FileCall)->Result<Option<Reference>>{
     match call{
-        FileCall::Choose=>Ok(None),
+        FileCall::Choose{}=>Ok(None),
         FileCall::Read{file,..}|FileCall::Media{file}=>{
             if let Some(r)=engine.custom_apps.file_access.temporary(session,bound,file)?{return Ok(Some(r));}
             let r=reference(engine,bound,file).await?;
@@ -289,7 +289,7 @@ async fn execute(engine:&Arc<Engine>,org:&Arc<OrgHandle>,session:&str,bound:&Bou
             let ticket=engine.custom_apps.file_access.media(session,bound,&reference.id,engine.custom_apps.remaining(org.id,session)?)?;
             info["media_path"]=json!(format!("/api/orgs/{}/apps/media?ticket={ticket}",org.slug));
         },
-        FileCall::Choose|FileCall::Open{..}=>{},
+        FileCall::Choose{}|FileCall::Open{..}=>{},
     }Ok(info)
 }
 #[nolog]
@@ -414,7 +414,7 @@ mod tests{
     #[test] fn app_files_challenges_and_once_references_are_host_panel_and_revision_bound(){
         let hosts=bridge::Registry::default();let files=Registry::default();
         let bound=Bound{org:1,app:"app".into(),panel:"panel".into(),rev:1,gate:hosts.gate(1,"app").unwrap()};
-        let challenge=files.ask("host",&bound,FileCall::Choose).unwrap();
+        let challenge=files.ask("host",&bound,FileCall::Choose{}).unwrap();
         let mut other=bound.clone();other.panel="other".into();assert!(files.consume("host",&other,&challenge).is_err());
         other=bound.clone();other.rev=2;assert!(files.consume("host",&other,&challenge).is_err());
         assert!(files.consume("other-host",&bound,&challenge).is_err());
