@@ -14,6 +14,9 @@ remain independent. See [identity hover](docs/rust-engine/agent-identity-tooltip
 
 Custom app actions use parent-only, code/panel-bound sessions and native owning-document
 permission prompts; sandbox HTML never receives a credential or permission method.
+App definitions retain portable named event declarations; declarations grant no
+execution or subscription. See [custom apps](docs/rust-engine/custom-apps.md).
+[verified: `domain/apps/{wire,storage,templates}.rs`; 2026-10-26]
 Apps New counts are org-persisted catalog metadata; only visible menu entries
 are acknowledged, with orgtree_apps mark_seen parity. See
 [custom apps](docs/rust-engine/custom-apps.md).

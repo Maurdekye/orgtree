@@ -7,6 +7,14 @@ Up: [orgtree-app-shell](../SKILL.md)
 
 # Apps and saved panels
 
+App definitions may carry a portable named event catalog in `events`:
+`[{name:"submitted",description:"Notes ready for review"}]`. The provisional
+limit is64 events, unique exact names1–80 characters with no surrounding
+whitespace or controls, and descriptions up to1,000 characters. Whole-app
+export/import and templates retain these declarations. Declarations alone do
+not grant permissions, create listeners or wake agents; durable named-event
+delivery is a separate part of the app-events work.
+
 The header Apps button counts new apps with the unread attention-mail highlight.
 Each new menu entry is marked New. Only entries visible in the menu clear from
 the count; scrolling and More apps expose the rest. Labels remain for that visit.

@@ -13,6 +13,15 @@ app/panel in that org; linking is not an authority grant.
 
 ## Definitions and saved copies
 
+`definition.events` optionally declares up to64 named events as
+`{name,description?}`. Names are exact and unique,1–80 characters without
+surrounding whitespace or controls; descriptions allow0–1,000 characters.
+Declarations survive app create/update, whole-app import/export and templates;
+catalog metadata and app_get expose them. They carry no permissions, recipient
+identity, listeners or fire actions. Omitted events means an empty catalog.
+This foundation does not implement named-event listener delivery yet, and does
+not broaden the existing targeted bridge or panel activity operations.
+
 - list defaults to kind:apps. Use kind:panels and optional app to list copies.
   limit defaults100, maximum200; after takes the previous next_cursor string.
   Lists omit executable HTML and saved JSON state.

@@ -9,6 +9,15 @@ pub const STATE_MAX: usize = 2 * 1024 * 1024;
 pub const EVENT_MAX: usize = 64 * 1024;
 pub const BUNDLE_MAX: usize = 16 * 1024 * 1024;
 pub const BUNDLE_PANELS: usize = 16;
+/// Provisional bounded event catalog; declarations carry no execution grant.
+pub const DECLARED_EVENTS_MAX: usize = 64;
+
+#[derive(Clone, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct EventDeclaration {
+    pub name: String,
+    #[serde(default)] pub description: String,
+}
 pub const CAPABILITIES: &[&str] = &["org.read", "mail.send", "docket.write", "events.fire"];
 
 #[derive(Clone, Deserialize, Serialize)]
@@ -19,6 +28,7 @@ pub struct Definition {
     pub html: String,
     #[serde(default = "empty")] pub initial_state: Value,
     #[serde(default)] pub capabilities: Vec<String>,
+    #[serde(default)] pub events: Vec<EventDeclaration>,
     #[serde(default = "width")] pub width: i32,
     #[serde(default = "height")] pub height: i32,
 }
@@ -125,6 +135,12 @@ pub fn definition(value:&Definition) -> Result<()> {
     if value.html.trim().is_empty() || value.html.len()>HTML_MAX { crate::refuse!(BadRequest,"HTML needs content up to 4 MiB"); }
     bounded(&value.initial_state,STATE_MAX,true)?;
     dimensions(value.width,value.height)?;
+    if value.events.len()>DECLARED_EVENTS_MAX {crate::refuse!(BadRequest,"at most64 declared app events");}
+    let mut names=std::collections::HashSet::new();
+    for event in &value.events {
+        text(&event.name,80,"declared event name",false)?;text(&event.description,1000,"declared event description",true)?;
+        if event.name.trim()!=event.name || !names.insert(&event.name) {crate::refuse!(BadRequest,"declared event names must be unique without surrounding whitespace");}
+    }
     let mut seen=std::collections::HashSet::new();
     for cap in &value.capabilities {
         if !CAPABILITIES.contains(&cap.as_str()) || !seen.insert(cap) { crate::refuse!(BadRequest,"unknown or duplicate app capability {cap}"); }

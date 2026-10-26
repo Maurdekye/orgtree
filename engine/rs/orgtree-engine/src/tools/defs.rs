@@ -2087,6 +2087,7 @@ fn build_tool_apps()->Value {
             "name":{"type":"string","maxLength":120},"description":{"type":"string","maxLength":1000},
             "html":{"type":"string","description":"self-contained HTML up to4MiB; no network"},
             "initial_state":{"type":"object","description":"independent initial JSON object, up to2MiB"},
+            "events":{"type":"array","maxItems":64,"description":"inert portable event declarations; unique exact names, no surrounding whitespace or execution grant","items":{"type":"object","additionalProperties":false,"properties":{"name":{"type":"string","minLength":1,"maxLength":80},"description":{"type":"string","maxLength":1000}},"required":["name"]}},
             "capabilities":{"type":"array","uniqueItems":true,"items":{"enum":["org.read","mail.send","docket.write","events.fire"]}},
             "width":{"type":"integer","minimum":160,"maximum":4096},"height":{"type":"integer","minimum":120,"maximum":4096}
         },"required":["name","html"]},

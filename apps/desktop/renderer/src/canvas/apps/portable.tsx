@@ -15,10 +15,22 @@ export function parseAppBundle(raw:string):AppBundle {
   const value:unknown=JSON.parse(raw)
   if(!object(value)||value.format!=='orgtree-app'||value.version!==1||!object(value.definition))throw Error('Expected an orgtree-app version 1 bundle.')
   keys(value,['format','version','definition','panels']);const def=value.definition
-  keys(def,['name','description','html','initial_state','capabilities','width','height'])
+  keys(def,['name','description','html','initial_state','capabilities','events','width','height'])
   if(!text(def.name,120)||typeof def.html!=='string'||!def.html.trim()||new TextEncoder().encode(def.html).length>4*1024*1024)throw Error('App needs a name and HTML up to 4 MiB.')
   if(def.description!==undefined&&(typeof def.description!=='string'||[...def.description].length>1000||/[\x00-\x1f\x7f]/.test(def.description)))throw Error('Invalid app description.')
   if(def.capabilities!==undefined&&(!Array.isArray(def.capabilities)||def.capabilities.length>4||new Set(def.capabilities).size!==def.capabilities.length||def.capabilities.some(c=>!['org.read','mail.send','docket.write','events.fire'].includes(c))))throw Error('Unknown or duplicate app capability.')
+  if(def.events!==undefined){
+    if(!Array.isArray(def.events)||def.events.length>64)throw Error('At most 64 declared app events.')
+    const seen=new Set<string>()
+    for(const event of def.events){
+      if(!object(event))throw Error('Invalid app event declaration.')
+      keys(event,['name','description'])
+      const name=event.name
+      if(typeof name!=='string'||!text(name,80)||name.trim()!==name||/[\u0080-\u009f]/.test(name)||seen.has(name))throw Error('Event names must be unique without surrounding whitespace or controls.')
+      seen.add(name)
+      if(event.description!==undefined&&(typeof event.description!=='string'||[...event.description].length>1000||/[\x00-\x1f\x7f-\x9f]/.test(event.description)))throw Error('Invalid app event description.')
+    }
+  }
   const state=(v:unknown)=>{if(!object(v)||new TextEncoder().encode(JSON.stringify(v)).length>2*1024*1024)throw Error('App state must be a JSON object up to 2 MiB.')}
   if(def.initial_state!==undefined)state(def.initial_state)
   if(value.panels!==undefined){if(!Array.isArray(value.panels)||value.panels.length>16)throw Error('An app bundle can include at most 16 saved panels.');for(const p of value.panels){if(!object(p)||!text(p.label,120))throw Error('Invalid saved panel label.');keys(p,['label','state']);state(p.state)}}

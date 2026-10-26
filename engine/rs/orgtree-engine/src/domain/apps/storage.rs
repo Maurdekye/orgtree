@@ -8,7 +8,7 @@ use tokio_postgres::Transaction;
 use crate::{engine::Engine, orgs::OrgHandle, runtime::Caller};
 use super::wire::{self, Definition, Placement, Request};
 
-const APP_META:&str="jsonb_build_object('id',a.id,'name',a.name,'description',a.description,'capabilities',a.capabilities,'width',a.width,'height',a.height,'rev',a.rev,'permissions',a.permissions,'permission_rev',a.permission_rev,'is_new',a.is_new,'created_by',a.created_by,'updated_at',a.updated_at)";
+const APP_META:&str="jsonb_build_object('id',a.id,'name',a.name,'description',a.description,'capabilities',a.capabilities,'events',a.declared_events,'width',a.width,'height',a.height,'rev',a.rev,'permissions',a.permissions,'permission_rev',a.permission_rev,'is_new',a.is_new,'created_by',a.created_by,'updated_at',a.updated_at)";
 const PANEL_META:&str="jsonb_build_object('id',p.id,'app',p.app_id,'label',p.label,'rev',p.rev,'open',p.is_open,'placement',p.placement,'linked_agents',p.linked_agents,'updated_at',p.updated_at,'used_at',p.used_at,'event_seq',p.event_seq)";
 
 #[nolog]
@@ -39,7 +39,7 @@ fn revision(actual:&Value,wanted:i64) -> Result<()> {
 }
 #[nolog]
 async fn app(tx:&Transaction<'_>,org:i64,id:&str,full:bool,write:bool) -> Result<Value> {
-    let extra=if full{" || jsonb_build_object('definition',jsonb_build_object('name',a.name,'description',a.description,'html',a.html,'initial_state',a.initial_state,'capabilities',a.capabilities,'width',a.width,'height',a.height))"}else{""};
+    let extra=if full{" || jsonb_build_object('definition',jsonb_build_object('name',a.name,'description',a.description,'html',a.html,'initial_state',a.initial_state,'capabilities',a.capabilities,'events',a.declared_events,'width',a.width,'height',a.height))"}else{""};
     let lock=if write{"UPDATE"}else{"SHARE"};
     let row=tx.query_opt(&format!("SELECT {APP_META}{extra} FROM ot.custom_apps a WHERE a.org_id=$1 AND a.id=$2 FOR {lock} OF a"),&[&org,&id]).await?;
     let Some(row)=row else {crate::refuse!(NotFound,"app not found in this organization");};Ok(row.get(0))
@@ -124,8 +124,8 @@ pub(crate) async fn run_locked(engine:&Arc<Engine>,org:&Arc<OrgHandle>,caller:Op
             wire::bundle(&value)?;json!({"panels":value.panels.len(),"bundle":value})
         }
         Request::AppImport{bundle:value}=>{
-            let id=crate::util::uid("app");let def=&value.definition;let caps=json!(def.capabilities);
-            tx.execute("INSERT INTO ot.custom_apps(org_id,id,name,description,html,initial_state,capabilities,width,height,created_by) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)",&[&org.id,&id,&def.name,&def.description,&def.html,&def.initial_state,&caps,&def.width,&def.height,&actor]).await?;
+            let id=crate::util::uid("app");let def=&value.definition;let caps=json!(def.capabilities);let declarations=json!(def.events);
+            tx.execute("INSERT INTO ot.custom_apps(org_id,id,name,description,html,initial_state,capabilities,width,height,created_by,declared_events) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)",&[&org.id,&id,&def.name,&def.description,&def.html,&def.initial_state,&caps,&def.width,&def.height,&actor,&declarations]).await?;
             let mut saved=Vec::new();
             for p in &value.panels{
                 let pid=crate::util::uid("panel");let place=serde_json::to_value(Placement{width:def.width,height:def.height,..Placement::default()})?;
@@ -135,14 +135,14 @@ pub(crate) async fn run_locked(engine:&Arc<Engine>,org:&Arc<OrgHandle>,caller:Op
             changed=true;json!({"imported":id,"app":app(&tx,org.id,&id,false,false).await?,"panels":saved})
         }
         Request::AppCreate{definition:def}=>{
-            wire::definition(&def)?;let id=crate::util::uid("app");let caps=json!(def.capabilities);
-            tx.execute("INSERT INTO ot.custom_apps(org_id,id,name,description,html,initial_state,capabilities,width,height,created_by) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)",&[&org.id,&id,&def.name,&def.description,&def.html,&def.initial_state,&caps,&def.width,&def.height,&actor]).await?;
+            wire::definition(&def)?;let id=crate::util::uid("app");let caps=json!(def.capabilities);let declarations=json!(def.events);
+            tx.execute("INSERT INTO ot.custom_apps(org_id,id,name,description,html,initial_state,capabilities,width,height,created_by,declared_events) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)",&[&org.id,&id,&def.name,&def.description,&def.html,&def.initial_state,&caps,&def.width,&def.height,&actor,&declarations]).await?;
             changed=true;app(&tx,org.id,&id,false,false).await?
         }
         Request::AppUpdate{app:id,expected_rev,definition:def}=>{
-            wire::definition(&def)?;let old=app(&tx,org.id,&id,false,true).await?;revision(&old,expected_rev)?;let caps=json!(def.capabilities);
+            wire::definition(&def)?;let old=app(&tx,org.id,&id,false,true).await?;revision(&old,expected_rev)?;let caps=json!(def.capabilities);let declarations=json!(def.events);
             // Provisional security default: every code update revokes grants.
-            tx.execute("UPDATE ot.custom_apps SET name=$3,description=$4,html=$5,initial_state=$6,capabilities=$7,width=$8,height=$9,permissions='{}',permission_rev=permission_rev+1,rev=rev+1,updated_at=now() WHERE org_id=$1 AND id=$2",&[&org.id,&id,&def.name,&def.description,&def.html,&def.initial_state,&caps,&def.width,&def.height]).await?;
+            tx.execute("UPDATE ot.custom_apps SET name=$3,description=$4,html=$5,initial_state=$6,capabilities=$7,width=$8,height=$9,declared_events=$10,permissions='{}',permission_rev=permission_rev+1,rev=rev+1,updated_at=now() WHERE org_id=$1 AND id=$2",&[&org.id,&id,&def.name,&def.description,&def.html,&def.initial_state,&caps,&def.width,&def.height,&declarations]).await?;
             changed=true;app(&tx,org.id,&id,false,false).await?
         }
         Request::AppDelete{app:id,expected_rev,delete_panels}=>{

@@ -20,6 +20,16 @@ Agents can set an app's initial JSON state. The first panel and **+ New panel**
 copy that state. Changing the definition's initial state affects future panels;
 existing saved panels keep their data.
 
+An app definition can declare named events in `events`, for example
+`[{"name":"submitted","description":"Notes ready for review"}]`. Declarations
+travel with whole-app export/import and templates. Names are exact and unique,
+without surrounding whitespace or control characters. The provisional catalog
+limit is64 events, with names up to80 characters and descriptions up to1,000.
+Declarations grant no permission and create no listeners. Named-event listener
+delivery is a separate part of the app-events work; declaring an event alone
+does not wake agents. Existing panel activity and linked-agent metadata stay
+separate.
+
 Apps open as standard centered modals. Use the gear on a panel or beside an app
 in Apps to open **App settings**, styled like Orgtree's other settings panels.
 The **App** section contains permissions, export and app deletion. **This panel**
