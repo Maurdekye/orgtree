@@ -60,12 +60,12 @@ canvas/cardname.tsx, cards.tsx, projectcard.tsx]
 
 While an agent or project desk is open, floating far-zoom name plates remain
 suppressed; closing the last desk restores them. Hovering or focusing a mini
-node still reveals its name in the card, with or without open desks, pinned or
-popped out: that reveal is never hidden. A desk's own header does not
+agent or project node still reveals its name in the card, with or without open
+desks, pinned or popped out: that reveal is never hidden. A desk's own header does not
 reveal its underlying normal-card name; ordinary native identity tooltips inside
 the desk remain available. [decided: user 2026-10-26, never hide on hover;
-verified: 2026-10-26, canvas/cardnamereveal.tsx, cards.tsx, farzoomname.tsx,
-deskshell.tsx, styles.css]
+verified: 2026-10-26, canvas/cardnamereveal.tsx, cards.tsx, projectcard.tsx,
+farzoomname.tsx, deskshell.tsx, styles.css]
 
 
 Agent identity hovers use the native tooltip: catalog model/version, effort and, when that provider has multiple configured accounts, the bound account or default. Missing values and queued model changes are omitted. Draft effort reads (not started); retired identities retain the last model with a retired marker. A visible name is not repeated in the tooltip; an icon-only link or identity-less Owner/Presenter menu label puts the name first. Far-zoom cards instead reveal the name in a floating label and omit it from the native tooltip, for projects as well as agents.
