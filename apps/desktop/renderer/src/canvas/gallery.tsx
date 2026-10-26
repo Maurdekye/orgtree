@@ -35,7 +35,7 @@ import type { ReplyTarget } from '../generated/events'
 import type { ToastFn, TreeNode } from '../types'
 import { CloseIcon, DocIcon } from '../icons'
 import type { LoadedDoc } from './docs'
-import { dismissDoc, MockupBadge, MockupOpen, presentationMenu, useDoc } from './docs'
+import { dismissDoc, HtmlPresentationView, MockupBadge, presentationMenu, useDoc } from './docs'
 import { docUnread, useDocViewedVersion } from './docviewed'
 import { useContextMenu } from './contextmenu'
 import { objectTooltipProps } from './objecttooltip'
@@ -561,8 +561,8 @@ export function DocGalleryModal({ slug, toast, close, onFocusAgent, onReply,
   )
 }
 
-/** Every format selects its preview inside this collection. HTML execution
- *  is offered separately by the preview's explicit new-tab action. */
+/** Every format selects its preview inside this collection. HTML runs only
+ *  in the reader's sandboxed frame (docs.tsx HtmlPresentationView). */
 function GalleryEntry({ slug, row, children, ...props }: {
   slug: string; row: DocRow; children: ReactNode
   className: string; title: string; onClick: () => void
@@ -603,8 +603,10 @@ function DocPane({ slug, row, toast, onDismissed, close, onFocusAgent, onReply,
   const { doc, err } = useDoc(slug, row.evicted ? '' : row.id, preloaded)
   const replyable = !row.evicted && isHired(row) && Boolean(row.node && !row.node.startsWith('@'))
   const tierOf = (id: string) => refs?.world.tierOf?.(id)
+  // an HTML presentation fills the pane's height with its frame (styles.css)
+  const htmlPane = !row.evicted && doc?.format === 'html'
   return (
-    <>
+    <div className={'doc-pane' + (htmlPane ? ' doc-pane-html' : '')}>
       <div className="mailer-head doc-pane-head">
         {/* METADATA FIRST, title second (user, 2026-09-04: "swap that row with
             the title row, it should be first, the title second"). */}
@@ -644,7 +646,7 @@ function DocPane({ slug, row, toast, onDismissed, close, onFocusAgent, onReply,
             {err && <div className="ask-warn">could not load the document: {err}</div>}
             {/* relative image srcs resolve against the PRESENTING node's
                 files — `![](outbox/chart.png)` embeds a figure that agent saved */}
-            {doc?.format === 'html' && <MockupOpen slug={slug} docId={row.id} />}
+            {doc?.format === 'html' && <HtmlPresentationView slug={slug} docId={row.id} title={row.title} />}
             {doc && doc.format !== 'html' && <ReplySelectionSurface source={{org:slug,target:{kind:'document',org:slug,id:row.id},part:{part:'document.body'},text:doc.body}}><RefMdBody className="mailer-body md"
               html={md(doc.body, fileBase(slug, doc.node))}
               world={refs?.world} onOpen={refs?.onOpen} /></ReplySelectionSurface>}
@@ -665,7 +667,7 @@ function DocPane({ slug, row, toast, onDismissed, close, onFocusAgent, onReply,
             )}
           </>
         )}
-    </>
+    </div>
   )
 }
 
@@ -772,8 +774,8 @@ export function AgentGalleryModal({ slug, nid, node, toast, close, onFocusAgent,
 
 /** The agent-scoped presentations view rendered on the agent desk.
  *  Shares the org presentation layout (.mailer with left-hand list and
- *  right-hand reading pane) and behaviors (inline markdown reading, HTML
- *  mockup new-tab link, viewer dismiss, reply box, selection by ID),
+ *  right-hand reading pane) and behaviors (inline markdown reading, sandboxed
+ *  HTML presentations, viewer dismiss, reply box, selection by ID),
  *  limited strictly to presentations made by the selected agent (or its
  *  subtree when the "Team" checkbox is checked). */
 export function AgentGalleryView({ slug, nid, node, toast, onFocusAgent, onReply, onBroadcast,

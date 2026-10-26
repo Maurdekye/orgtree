@@ -762,6 +762,23 @@ export const getDocument = (slug: string, did: string):
 /** A stable operator-only HTML preview; content isolation is server-enforced. */
 export const mockupUrl = (slug: string, did: string): string =>
   `/api/orgs/${encodeURIComponent(slug)}/documents/${encodeURIComponent(did)}/mockup`
+/** The stored HTML presentation exactly as its window shows it (that route's
+ *  captured preview, local assets inline), as text for the reader's sandboxed
+ *  frame (canvas/docs.tsx HtmlPresentationView). A body over `limit` bytes is
+ *  not kept: its declared or read size comes back instead. */
+export const getPresentationHtml = async (slug: string, did: string, limit: number):
+  Promise<{ html: string } | { tooLarge: number }> => {
+  const r = await fetch(mockupUrl(slug, did), { signal: timeoutSignal(DEFAULT_TIMEOUT_MS) })
+  noteInstance(r)
+  if (!r.ok) throw await failure(r)
+  const declared = Number(r.headers.get('Content-Length') ?? '')
+  if (declared > limit) {
+    void r.body?.cancel().catch(() => {})
+    return { tooLarge: declared }
+  }
+  const bytes = await r.arrayBuffer()
+  return bytes.byteLength > limit ? { tooLarge: bytes.byteLength } : { html: new TextDecoder().decode(bytes) }
+}
 // the gallery (user request 2026-09-03): every card, org-wide, newest first —
 // metadata only (no body; the reader fetches that on open). `evicted` rows
 // are cards the retention prune dropped whose log line survives — no body to

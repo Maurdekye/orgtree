@@ -8451,6 +8451,27 @@ a.doc-chip, a.doc-badge, a.doc-gallery-row { text-decoration: none; }
 .doc-gallery-row.doc-mockup { box-shadow: inset 2px 0 var(--accent); }
 .mockup-open { padding: 16px 12px; }
 .mockup-unavailable { opacity: .6; cursor: default; }
+/* Inline HTML presentations (docs.tsx HtmlPresentationView): the reader pane
+   becomes a column. Header and reply box keep their height; the sandboxed
+   frame takes the rest, at least 320px, and the pane scrolls below that. */
+.doc-pane-html { display: flex; flex-direction: column; min-height: 100%; }
+.doc-pane-html > * { flex: none; }
+.doc-pane-html > .html-presentation { flex: 1 1 auto; min-height: 320px; }
+.html-presentation { display: flex; flex-direction: column; gap: 6px; margin-bottom: 8px; }
+.html-presentation-bar { display: flex; align-items: center; gap: 8px; font-size: 12px; }
+.html-presentation-size { display: inline-flex; border: 1px solid var(--line); border-radius: 5px; overflow: hidden; }
+.html-presentation-size > button {
+  padding: 2px 10px; border: 0; border-radius: 0; background: transparent; color: var(--dim);
+  font: inherit; font-size: 12px; cursor: pointer; white-space: nowrap;
+}
+.html-presentation-size > button + button { border-left: 1px solid var(--line); }
+.html-presentation-size > button:hover { background: var(--panel-2); color: var(--ink); }
+.html-presentation-size > button.sel { background: var(--panel-2); color: var(--ink-strong); }
+.html-presentation-frame {
+  flex: 1 1 auto; width: 100%; min-height: 0; display: block;
+  border: 1px solid var(--line-soft); border-radius: 4px; background: #fff;
+}
+.html-presentation-note { padding: 16px 12px; }
 
 /* Small dialogs opt into their content height. Large readers/editors retain
    the fixed .settings height; pinned windows retain their user-sized rect. */
