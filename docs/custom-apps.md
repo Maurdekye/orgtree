@@ -163,7 +163,10 @@ running** to run it without opening its window. Opening a stopped panel starts i
 Panels run only while Orgtree's desktop app is open, including when it sits in the
 tray; quitting stops them. When you start Orgtree again, each panel comes back as
 it was: running hidden, visible where you placed it, or off. Hidden panels keep
-their timers, game loops and background work running. Apps can also start
+their timers, messages and background work running at full speed, also while
+Orgtree sits in the tray. Animation frames (`requestAnimationFrame`) run only while
+a panel shows, so drive a game or other continuous work from timers and count the
+real time that passed, and draw in animation frames. Apps can also start
 Dedicated Workers from scripts they build themselves; workers have no network
 access either, and they stop with the panel. Closing one of several Orgtree
 windows that runs panels hides it until those panels stop. **Stop all** powers off

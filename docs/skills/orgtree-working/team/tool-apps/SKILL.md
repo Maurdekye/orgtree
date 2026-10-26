@@ -29,8 +29,12 @@ app/panel in that org; that is not an app permission grant.
 
 User 2026-10-26: a visible panel is always running; a hidden one need not be
 stopped. Hiding (panel_update open:false, or the window's Hide, X, Escape or
-backdrop) keeps the copy running with its timers, loops, async work and Dedicated
-Workers. Execution happens only in the Orgtree desktop app, including while it
+backdrop) keeps the copy running with its timers, messages, async work and
+Dedicated Workers at full speed. requestAnimationFrame runs only while the copy
+shows (a parked frame gets animation frames only when its window repaints, and
+none while the window is hidden), so app loops should tick from setTimeout,
+setInterval or a MessageChannel, reconcile elapsed time with performance.now() and
+draw in animation frames. Execution happens only in the Orgtree desktop app, including while it
 sits in the tray; restart restores each copy as it was (running hidden, visible
 in its placement, or off). There is no count cap.
 
@@ -47,9 +51,10 @@ in its placement, or off). There is no count cap.
   label, visible, run_generation and status: running, error (with error) or not
   hosted (no desktop window runs it now, for example the desktop app is closed).
   cpu_percent is the last sampled CPU (100 = one core; null until sampled) with
-  measured_at; cpu_method is sampled CPU (that copy's own JavaScript) or shared
-  process CPU (its whole renderer process, shared with other copies and never
-  divided). sample:true asks the desktop for a fresh reading and waits up to
+  measured_at; cpu_method is sampled CPU (that copy's own script time over about
+  1 s; its Dedicated Workers are not included) or shared process CPU (the
+  renderer processes hosting the window's panels, shared by their copies and
+  never divided). sample:true asks the desktop for a fresh reading and waits up to
   3 s; sampled is then true when every hosted copy on the page answered in time
   (null without sample).
 - list kind:panels accepts running:true|false as well as open.

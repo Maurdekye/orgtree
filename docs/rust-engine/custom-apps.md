@@ -54,7 +54,11 @@ The 4096 host-session bound stays a registry safety bound, not a panel cap.
 Desktop: AppsWorkspace mounts every running copy. A hidden one is parked at its
 own size, fixed in the viewport, transparent, inert and under everything, because
 Chromium throttles cross-origin frames that are display:none, visibility:hidden or
-outside the viewport. Canvas anchors hand a live surface to a parking element
+outside the viewport (measured: display:none and offscreen sandboxed frames got 0
+animation frames and 1 timer tick a second; parked ones kept full timer rates).
+Parked frames get animation frames only when their window repaints, and none while
+it is hidden, so requestAnimationFrame is not a background clock; app loops tick
+from timers or a MessageChannel. Canvas anchors hand a live surface to a parking element
 before React removes them, and MovableSurface preserveFrames moves use
 Node.moveBefore, so culling, far zoom and canvas/float changes keep one browsing
 context. A move between documents (pop-out, return) still restarts the runtime.
@@ -64,10 +68,24 @@ list. Main keeps a hosting window's and its popouts' background throttling off;
 closing one of several org windows that hosts running panels hides it and finishes
 the close when its count reaches zero; exit-on-close quitting is unchanged. Hide
 in a pop-out hides that window natively. CPU sampling runs only while the Apps menu
-is open or a tool asks: a 1 s V8 profile per webContents and out-of-process frame,
-attributed through the owner iframe's data-orgtree-runtime attribute
-(DOM.getFrameOwner); otherwise the owner process CPU, labelled shared and never
-divided. Dedicated workers are not attributed per panel.
+is open or a tool asks. Chromium runs a window's sandboxed panel frames out of
+process, all in one renderer process (measured, Electron 44.2.0). Each frame root's
+own script time (CDP Performance ScriptDuration over about 1 s) is attributed
+through the owner iframe's data-orgtree-runtime attribute (DOM.getFrameOwner).
+Stack-sampling profiles cannot separate copies: copies of one app share compiled
+scripts in that process, and a concurrent profile charged 1 of 8 busy copies with
+everything (measured). Otherwise the cumulative CPU time of the processes hosting
+the window's frames is reported, labelled shared and never divided;
+getAppMetrics' percentCPUUsage is not used because it averages since whichever
+call came before. Dedicated workers are not attributed per panel.
+
+Measured 2026-10-26 (Session 0, a real 1024x768 window, Electron 44.2.0, 16
+logical processors): the panel process used 28-34 MB private memory for 1 copy and
+63-71 MB for 8 (each copy with a Dedicated Worker); a timer-driven loop doing 1 ms
+of work every 20 ms cost 5% of one core per copy (sampled 4.7-5.0%) and 40% for 8,
+the same with the window hidden. Idle copies with 100 ms timers sampled 0.02%
+each. Hidden native windows: throttling on gave 1 timer tick a second and no
+frames; throttling off gave 100 ticks and 60 frames a second for a plain page.
 
 The CSP allows worker-src blob: only: Dedicated Workers built from local blob
 scripts inherit the policy (no network) and end with their frame.

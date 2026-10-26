@@ -49,8 +49,9 @@ rows; runs it without opening its window) or Power off (running rows). Opening a
 releasing Stop all starts none of them.
 
 Panels run only while the desktop app is open, including in the tray. Hidden
-panels keep their timers, loops and Dedicated Workers running; a window that hosts
-running panels is never throttled. Closing one of several org windows that runs
+panels keep their timers, messages and Dedicated Workers running at full speed; a
+window that hosts running panels is never throttled. Animation frames run only
+while a panel shows, so apps tick game loops from timers. Closing one of several org windows that runs
 panels hides it until its panels stop. Quitting stops them; the next launch
 restores each panel as it was: running hidden, visible in its placement, or off.
 A hidden panel never shows a permission prompt: show it to answer. Moving a panel
