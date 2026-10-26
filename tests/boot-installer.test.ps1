@@ -23,7 +23,9 @@ function Remove-BootRecord { $script:events.Add('remove-record'); $script:record
 function Find-BootTask($Folder) { $script:events.Add('find'); return $script:task }
 function Get-BootProcesses { return $script:processes }
 function New-FakeTask([string]$Xml) {
-    $value=[pscustomobject]@{Xml=$Xml; Enabled=$true; Instances=0; State=3; KeepProcesses=$false; Sddl='O:BAG:BAD:P(A;;GA;;;SY)(A;;GA;;;BA)'; Definition=[pscustomobject]@{Principal=[pscustomobject]@{RunLevel=0}}}
+    $enabled=(Read-BootXml $Xml).SelectSingleNode('//*[local-name()="Settings"]/*[local-name()="Enabled"]')
+    $on=($null -eq $enabled -or $enabled.InnerText -cne 'false')
+    $value=[pscustomobject]@{Xml=$Xml; Enabled=$on; Instances=0; State=3; KeepProcesses=$false; Sddl='O:BAG:BAD:P(A;;GA;;;SY)(A;;GA;;;BA)'; Definition=[pscustomobject]@{Principal=[pscustomobject]@{RunLevel=0}}}
     $value | Add-Member ScriptMethod GetSecurityDescriptor { param($flags) return $this.Sddl }
     $value | Add-Member ScriptMethod Stop { param($flags) $script:events.Add('stop'); if (-not $this.KeepProcesses) { $script:processes=@() } }
     $value | Add-Member ScriptMethod GetInstances { param($flags) return [pscustomobject]@{Count=$this.Instances} }

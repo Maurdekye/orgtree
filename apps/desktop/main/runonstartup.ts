@@ -15,11 +15,10 @@ import { HELPER_TASK, OPERATOR_FUNCTIONS, POWERSHELL, RUN_AS_ADMIN_KEY, UAC_CANC
  *  boot, in Session 0, and "Orgtree Credential Helper" at the operator's
  *  sign-in. The helper is also the launcher through which the engine starts
  *  its agents' CLIs in the operator's signed-in session while they are signed
- *  in (engine runtime/session_host.rs). On enables both; off disables both,
- *  together with the window's own sign-in entry. Disabled, not deleted: the
- *  installer's ownership of them stays intact, and on again simply re-enables
- *  them. A task that is running is not stopped; the change applies from the
- *  next boot or sign-in.
+ *  in (engine runtime/session_host.rs). The switch controls both automatic
+ *  triggers together with the window's own sign-in entry. Tasks stay enabled
+ *  and installed for demand launch. A task that is running is not stopped;
+ *  automatic changes apply from the next boot or sign-in.
  *
  *  ⚠ ONLY ADMINISTRATORS MAY CHANGE THE TASKS. Their ACL gives the operator
  *  read and execute and nothing else, on purpose: every agent runs as the
@@ -42,7 +41,7 @@ export { HELPER_TASK }
 export interface StartupTarget { hive: 'LocalMachine' | 'CurrentUser'; key: string; boot: string; helper: string; report?: string }
 export const INSTALLED: StartupTarget = { hive: 'LocalMachine', key: 'SOFTWARE\\Orgtree\\BootEngine', boot: BOOT_TASK, helper: HELPER_TASK, report: RUN_AS_ADMIN_KEY }
 
-/** Each task's state: true enabled, false disabled, null not installed. */
+/** Automatic startup, plus separate task/trigger states; null means absent. */
 export interface StartupTasks {
   boot: boolean | null; helper: boolean | null
   // Separate damage/installer suspension from the operator's trigger choice.
@@ -51,7 +50,7 @@ export interface StartupTasks {
   bootTriggers?: boolean | null; helperTriggers?: boolean | null
 }
 
-/** Whether anything of Orgtree's starts by itself: the boot task enabled. */
+/** Configured boot triggers, retaining that choice if the task is damaged. */
 export const startupOn = (tasks: StartupTasks): boolean => (tasks.bootTriggers ?? tasks.boot) === true
 
 const psQuote = (s: string) => `'${s.replace(/'/g, "''")}'`

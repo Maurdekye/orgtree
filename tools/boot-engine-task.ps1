@@ -846,7 +846,9 @@ function Invoke-BootLifecycleCore {
             # Ownership accepts older task priorities. Register
             # always writes explicit Normal priority (Task Scheduler value 5), including upgrades.
             $sddl = "O:BAG:BAD:P(A;;GA;;;SY)(A;;GA;;;BA)(A;;GRGX;;;$($record.OperatorSid))"
-            $registered = $folder.RegisterTask($script:BootTaskName,(New-BootTaskXml $record (Get-RunAsAdministrator)),$flags,$record.OperatorSid,$null,2,$sddl)
+            $bootXml=New-BootTaskXml $record (Get-RunAsAdministrator)
+            if ($DeferStart) { $doc=Read-BootXml $bootXml; $doc.Task.Settings.Enabled='false'; $bootXml=$doc.OuterXml }
+            $registered = $folder.RegisterTask($script:BootTaskName,$bootXml,$flags,$record.OperatorSid,$null,2,$sddl)
             Assert-OwnedBootTask $registered $record $InstallDir
             # Paired release requirement: desktop startup must retry authenticated
             # attachment after losing the data-root lock to this newly started host.
@@ -865,7 +867,9 @@ function Invoke-BootLifecycleCore {
                 $helperFlags = 18
                 $helper = Find-HelperTask $folder
                 if ($null -ne $helper) { Assert-OwnedHelperTask $helper $record $InstallDir; $helperFlags = 20 }
-                $helperTask = Register-HelperTask $folder (New-HelperTaskXml $record (Get-RunAsAdministrator)) $helperFlags $record.OperatorSid $sddl
+                $helperXml=New-HelperTaskXml $record (Get-RunAsAdministrator)
+                if ($DeferStart) { $doc=Read-BootXml $helperXml; $doc.Task.Settings.Enabled='false'; $helperXml=$doc.OuterXml }
+                $helperTask = Register-HelperTask $folder $helperXml $helperFlags $record.OperatorSid $sddl
                 Assert-OwnedHelperTask $helperTask $record $InstallDir
                 if ($runs -and -not $DeferStart) { try { $null = $helperTask.Run($null) } catch { Write-Warning "The credential helper starts at the operator's next sign-in: $_" } }
             }
@@ -1004,8 +1008,10 @@ function Invoke-BootLifecycle {
     if ($Action -eq 'Rollback') { Restore-BootInstallTasks $InstallDir; return }
     if ($Action -in @('Stop','Remove')) {
         Invoke-BootLifecycleCore $Action $InstallDir $OperatorSid $InstallMode
+        if ($Action -eq 'Remove') { Remove-BootInstallSnapshot }
         return
     }
+    try {
     if ($Action -eq 'Commit') {
         $snapshot=Get-BootInstallSnapshot
         if ($null -eq $snapshot) { return } # idempotent; never launch twice
@@ -1014,6 +1020,11 @@ function Invoke-BootLifecycle {
         Assert-BootRecord $record $InstallDir
         $folder=Get-BootFolder
         $null=Get-BootInstallTasks $folder $record $InstallDir
+        # Register's XML holds the pair disabled, so no automatic trigger can
+        # race copy/registration. Enable only after all commit checks pass.
+        foreach ($task in @((Find-HelperTask $folder),(Find-BootTask $folder))) {
+            if ($null -ne $task) { $task.Enabled=$true; if (-not $task.Enabled) { throw 'Committed task enablement did not read back.' } }
+        }
         # Commit succeeds before any optional startup. A launch refusal is
         # logged and remains repairable through the desktop's visible Retry.
         Remove-BootInstallSnapshot
@@ -1028,7 +1039,6 @@ function Invoke-BootLifecycle {
         }
         return
     }
-    try {
         if ($Action -eq 'Prepare') {
             $record=Get-BootRecord
             if ($null -ne $record) { Assert-BootRecord $record $InstallDir }

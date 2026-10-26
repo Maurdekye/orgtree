@@ -64,8 +64,10 @@ Case 'Commit alone starts helper then boot once; Register never starts either' {
     Reset-Pair
     Invoke-BootLifecycle Prepare $dir $sid
     Invoke-BootLifecycle Register $dir -DeferStart
+    Assert (-not $script:task.Enabled -and -not $script:helper.Enabled) 'Deferred Register permits automatic task launches before commit'
     Assert (-not @($script:events|Where-Object {$_ -match '^(run|helper-run)$'}).Count) 'Register launched before commit'
     Invoke-BootLifecycle Commit $dir
+    Assert ($script:task.Enabled -and $script:helper.Enabled) 'Commit left tasks disabled'
     $starts=@($script:events|Where-Object {$_ -match '^(run|helper-run)$'})
     Assert ($starts.Count -eq 2 -and $starts[0] -eq 'helper-run' -and $starts[1] -eq 'run') 'Commit did not start helper then boot'
     Invoke-BootLifecycle Commit $dir
