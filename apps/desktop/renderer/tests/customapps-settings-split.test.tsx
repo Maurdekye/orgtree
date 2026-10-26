@@ -43,7 +43,7 @@ test('app-list gear opens only app-wide settings and preserves Files and event p
  // User 2026-10-26: Permissions is App settings' second tab, not a separate dialog.
  assert.deepEqual([...app.querySelectorAll('[role="tab"]')].map(e=>e.textContent),['General','Permissions']);assert.equal(!!button(app,'Permissions…'),false)
  await inAct(async()=>{button(app,'Permissions').click();await tick()})
- assert.equal(dialog('App permissions'),null,'permissions open in the tab');const permissions=app.querySelector<HTMLElement>('[role="tabpanel"]:not([hidden]) [aria-label="App permissions"]')!;assert.ok(permissions.textContent?.includes('Files'));assert.ok(button(permissions,'Revoke'));assert.ok(button(permissions,'Confirm change'))
+ assert.equal(!!dialog('App permissions'),false,'permissions open in the tab');const permissions=app.querySelector<HTMLElement>('[role="tabpanel"]:not([hidden]) [aria-label="App permissions"]')!;assert.ok(permissions.textContent?.includes('Files'));assert.ok(button(permissions,'Revoke'));assert.ok(button(permissions,'Confirm change'))
  const event=permissions.querySelector<HTMLSelectElement>('[aria-label="events.fire permission"]')!;assert.equal(event.value,'deny')
  await inAct(async()=>{event.value='allow';event.dispatchEvent(new Event('change',{bubbles:true}));await tick()})
  assert.ok(calls.some(c=>c.action==='permission_set'&&c.app==='notes'&&c.capability==='events.fire'&&c.permission==='allow'))

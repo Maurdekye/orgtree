@@ -31,7 +31,7 @@ test('the app row opens its first listed copy, + always creates one, and neither
  const menu=async()=>{await inAct(async()=>{view.el.querySelector<HTMLButtonElement>('.apps-button')!.click();await tick()});return document.querySelector<HTMLElement>('.custom-apps-menu')!}
  const opens=()=>calls.filter(c=>c.action==='panel_open')
  let m=await menu()
- assert.equal(m.querySelector('.custom-apps-new'),null,'the separate "+ New panel" row is gone')
+ assert.equal(!!m.querySelector('.custom-apps-new'),false,'the separate "+ New panel" row is gone')
  assert.equal([...m.querySelectorAll('button')].some(b=>b.textContent?.trim()==='+ New panel'),false)
  assert.deepEqual([...m.querySelectorAll('.custom-apps-saved-row .custom-apps-saved span:nth-child(2)')].map(e=>e.textContent),['Panel 2','Draft'],'saved rows list the most recently used copy first')
  // User 2026-10-26: no Open/Closed word; the light alone shows state, named in the tooltip.
@@ -64,7 +64,7 @@ test('the panel header pins to the canvas only, shows the canvas and unpins to t
  const {calls,panels}=fixture(t,[copy('one','Panel 1','2026-10-26',true)]);let shown=0
  const view=await mountView(<><AppsCanvasLayer slug="pin-case" zoom={1} viewport={{x:0,y:0,w:2000,h:2000}} nodePoint={()=>undefined} focus={()=>{}}/><AppsWorkspace slug="pin-case" onShowCanvas={()=>{shown++}}/></>,e=>e);t.after(()=>view.unmount());await inAct(tick)
  const frame=()=>document.querySelector<HTMLElement>('[data-custom-panel="one"]')!
- assert.equal(frame().querySelector('[aria-label="Pin to screen"]'),null,'screen pins are gone')
+ assert.equal(!!frame().querySelector('[aria-label="Pin to screen"]'),false,'screen pins are gone')
  assert.equal((frame().querySelector('.custom-app-status')?.textContent??'').toLowerCase().includes('link'),false,'panel links are gone from the window')
  await inAct(async()=>{frame().querySelector<HTMLButtonElement>('[aria-label="Pin to canvas"]')!.click();await tick()})
  const pin=calls.filter(c=>c.action==='panel_update').at(-1);assert.equal(pin?.placement?.mode,'canvas');assert.equal(shown,1,'a canvas pin brings the canvas into view')
