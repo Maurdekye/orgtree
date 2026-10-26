@@ -178,6 +178,31 @@ it mounts no imported HTML. Manage app exports through the same app_export route
 with an unchecked-by-default saved-data option and an owning-document file anchor.
 These defaults await morning review.
 
+## Templates and linked-agent subscriptions
+
+Provisional Save as template carries strict app definitions/initial state only,
+within its existing16MiB total file bound. It does not query saved copies,
+permissions, links or runtime IDs. Template App has opaque Debug and generic
+validation errors, including when a logged template service returns it. The
+new-org transaction inserts fresh default-Ask definitions atomically alongside
+its nodes. No panel/iframe/host session is created and no script executes.
+
+State set/patch and explicit panel events queue metadata-only app.event signals
+for the copy's at-most64 linked local agents. The transaction commits before
+engine emission; failures publish nothing. Each signal carries app/panel ID,
+kind, sequence and optional event name/revision, never saved state/event body.
+Scope::NamedAgent preserves the normal receiver visibility rules, including a
+self-visible linked subscriber. Event privacy survives existing queues/overflow.
+No link auto-arms a watcher or auto-wakes an agent. Existing app.event event
+watchdogs can filter payload_pattern and decide coalescing/notice/wake policy.
+Signals are live hints, not a durable replay stream: consumers reconcile via
+panel_get/events and their cursor; the existing latest256 boundary stays explicit.
+
+docs/examples/apps/annotation-notes.orgtree-app is a small inert portable sample:
+independent state, explicit save/reload and named mail.send through native consent.
+It is not auto-installed or auto-opened and does not reproduce an unavailable
+historical annotation editor. The focused wire check validates its actual file.
+
 ## Native action host implementation
 
 The SDK exposes `orgtree.call(action,args)`, forwarding only the fixed vocabulary

@@ -69,3 +69,22 @@ decisions; closing and reopening a panel does not reset it.
 App-triggered watchdogs keep their authorized event delivery. Their diagnostic
 last-output and recent-fire summaries omit private app payloads; read the event
 or panel data through its authorized delivery and Apps controls.
+
+Save as template now includes app definitions and initial data. Creating an org
+from it creates fresh app definitions with Ask permissions and no saved copies;
+no imported script runs until you open a panel. Current panel data, links and
+execution grants stay in the original org. This is a provisional default.
+
+For an agent to follow a copy, add its name under Linked agents and have it create
+an event watchdog for `app.event`, optionally filtering the app/panel IDs with
+payload_pattern. State saves and named panel events publish a sequence cursor
+after commit. The watcher can read panel_get/events for the data. Linking alone
+does not wake anyone, and no watcher is created automatically. Existing watcher
+scope, coalescing and notice/wake choices apply. Browser timers pause with hidden
+HTML; use an engine watchdog for work that must continue in the background.
+
+Try the portable [Annotation notes example](examples/apps/annotation-notes.orgtree-app):
+import it through Apps, open a copy, save notes, and enter a live local agent's
+name to send them. The send action uses the native permission prompt and app
+provenance. Reload saved data picks up agent edits. It is a generic example,
+not a recreation of the earlier annotation editor whose source is unavailable.

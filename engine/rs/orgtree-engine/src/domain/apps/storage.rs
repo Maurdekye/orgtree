@@ -75,6 +75,7 @@ pub(crate) async fn run_locked(engine:&Arc<Engine>,org:&Arc<OrgHandle>,caller:Op
     let request=wire::parse(input)?;
     let mut client=engine.db.get().await?;let tx=client.transaction().await?;
     let actor=authorize(&tx,org.id,caller).await?;let mut changed=false;
+    let mut signals:Vec<(Vec<String>,Value)>=Vec::new();
     let out=match request {
         Request::List{kind,app:filter,after,limit,open}=>{
             let n=page(limit)?;let after=after.unwrap_or_default();let kind=kind.unwrap_or_else(||"apps".into());
@@ -188,14 +189,17 @@ pub(crate) async fn run_locked(engine:&Arc<Engine>,org:&Arc<OrgHandle>,caller:Op
             revision(&panel(&tx,org.id,&id,true).await?,expected_rev)?;tx.execute("DELETE FROM ot.custom_panels WHERE org_id=$1 AND id=$2",&[&org.id,&id]).await?;changed=true;json!({"deleted":id})
         }
         Request::StateSet{panel:id,expected_rev,state}=>{
-            revision(&panel(&tx,org.id,&id,true).await?,expected_rev)?;let out=update_state(&tx,org.id,&id,&state,&actor).await?;changed=true;out
+            revision(&panel(&tx,org.id,&id,true).await?,expected_rev)?;let out=update_state(&tx,org.id,&id,&state,&actor).await?;
+            signals.push((serde_json::from_value(out["linked_agents"].clone())?,json!({"untrusted_app_content":true,"app":out["app"],"panel":id,"kind":"state.changed","seq":out["event_seq"],"rev":out["rev"]})));changed=true;out
         }
         Request::StatePatch{panel:id,expected_rev,patch}=>{
             let old=panel(&tx,org.id,&id,true).await?;revision(&old,expected_rev)?;let mut state=old["state"].clone();wire::merge(&mut state,&patch)?;
-            let out=update_state(&tx,org.id,&id,&state,&actor).await?;changed=true;out
+            let out=update_state(&tx,org.id,&id,&state,&actor).await?;
+            signals.push((serde_json::from_value(out["linked_agents"].clone())?,json!({"untrusted_app_content":true,"app":out["app"],"panel":id,"kind":"state.changed","seq":out["event_seq"],"rev":out["rev"]})));changed=true;out
         }
         Request::Event{panel:id,name,payload}=>{
-            panel(&tx,org.id,&id,true).await?;let seq=event(&tx,org.id,&id,&name,&payload,&actor).await?;changed=true;json!({"panel":id,"seq":seq})
+            let old=panel(&tx,org.id,&id,true).await?;let seq=event(&tx,org.id,&id,&name,&payload,&actor).await?;
+            signals.push((serde_json::from_value(old["linked_agents"].clone())?,json!({"untrusted_app_content":true,"app":old["app"],"panel":id,"kind":"panel.event","name":name,"seq":seq})));changed=true;json!({"panel":id,"seq":seq})
         }
         Request::Events{panel:id,after,limit}=>{
             panel(&tx,org.id,&id,false).await?;let n=page(limit)?;let after=after.unwrap_or(0);if after<0{crate::refuse!(BadRequest,"event cursor must be nonnegative");}
@@ -207,6 +211,13 @@ pub(crate) async fn run_locked(engine:&Arc<Engine>,org:&Arc<OrgHandle>,caller:Op
     };
     tx.commit().await?;
     if changed{org.emit(json!({"type":"custom_apps_changed","org":org.slug}));}
+    // A link is a target, never a wake or a capability grant. Existing opt-in
+    // event watchdogs decide delivery, scope, coalescing and wake/notice policy.
+    // Carry only metadata/cursors; agents read the bounded saved data separately.
+    crate::trace::private_app(async{for (targets,payload) in signals{for name in targets{
+        use crate::runtime::watchdogs::events::{emit,event,Scope};
+        emit(engine,event("app.event",Scope::NamedAgent(org.id,name),payload.clone()));
+    }}}).await;
     Ok(out)
 }
 

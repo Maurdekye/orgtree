@@ -21,6 +21,7 @@ pub(crate) struct Wire {
     #[serde(default)] watchdogs: Vec<super::template_links::Dog>,
     #[serde(default)] audiences: Vec<super::template_links::Grant>,
     #[serde(default)] warnings: Vec<String>,
+    #[serde(default)] apps: Vec<super::apps::templates::App>,
 }
 #[nolog]
 fn one() -> u64 { 1 }
@@ -96,7 +97,7 @@ impl TryFrom<Wire> for Template {
         }
         Ok(Template { id:w.id, name:w.name, description:w.description, org_md:w.org_md, agents,
             shared_agents_md:w.shared_agents_md, quick_chat:w.quick_chat, settings:w.settings,
-            watchdogs:w.watchdogs, audiences:w.audiences, warnings:w.warnings })
+            watchdogs:w.watchdogs, audiences:w.audiences, warnings:w.warnings, apps:w.apps })
     }
 }
 

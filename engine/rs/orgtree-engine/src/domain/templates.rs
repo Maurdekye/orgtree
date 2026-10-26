@@ -53,6 +53,9 @@ pub struct Template {
     pub audiences: Vec<super::template_links::Grant>,
     #[serde(default)]
     pub warnings: Vec<String>,
+    /// Provisional: inert definitions/initial JSON only, never saved copies or grants.
+    #[serde(default)]
+    pub apps: Vec<super::apps::templates::App>,
 }
 
 /// The org settings a template may carry: every Org settings key except
@@ -810,7 +813,7 @@ pub fn plan_json(t: &Template, planned: &[Planned], blocked: &[String]) -> Value
         "audiences": p.slot.audiences.iter().cloned().chain(links.audiences.iter().filter(|g| g.grantee == p.name).map(|g| g.grantor.clone())).collect::<Vec<_>>(),
     })).collect();
     let top: f64 = planned.iter().filter(|p| p.depth == 0).map(|p| p.grant).sum();
-    let mut out = json!({ "id": t.id, "name": t.name, "agents": rows, "org_md": t.org_md.is_some(), "blocked": blocked, "ok": blocked.is_empty(), "top_grant": round2(top) });
+    let mut out = json!({ "id": t.id, "name": t.name, "agents": rows, "org_md": t.org_md.is_some(), "blocked": blocked, "ok": blocked.is_empty(), "top_grant": round2(top), "apps":t.apps.len() });
     let notes = usize::from(t.shared_agents_md.is_some()) + planned.iter().map(|p|
         usize::from(p.slot.team_agents_md.is_some()) + usize::from(p.slot.scratch_agents_md.is_some())).sum::<usize>();
     if notes > 0 { out["standing_notes"] = json!(notes); }
@@ -852,7 +855,7 @@ pub fn summary(t: &Result<Template, String>, source: &str, path: &str) -> Value 
             walk(&t.agents, 0, None, &mut all);
             let agents: Vec<Value> = all.iter().map(|(s, d, p)| json!({ "name": s.name, "tier": s.tier, "depth": d, "parent": p })).collect();
             json!({ "id": t.id, "name": t.name, "description": t.description, "source": source, "path": path,
-                    "agents": agents, "problems": validate(t) })
+                    "agents": agents, "apps":t.apps.len(), "problems": validate(t) })
         }
         Err(e) => json!({ "id": null, "name": path.rsplit(['/', '\\']).next().unwrap_or(path), "source": source, "path": path,
                           "agents": [], "problems": [e] }),

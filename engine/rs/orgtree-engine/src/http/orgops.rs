@@ -157,6 +157,7 @@ pub async fn create(State(e): State<Arc<Engine>>, Json(b): Json<CreateOrg>) -> A
             }));
         }
         pending_notes = crate::domain::template_notes::pending(&e.cfg.scratch_root(&slug), template, planned, &locations);
+        crate::domain::apps::templates::restore(&tx,id,&template.apps).await?;
         template_links = crate::domain::template_links::plan(template, planned);
         for grant in &template_links.audiences {
             crate::domain::audiences::grant_tx(&e, &*tx, &pending, &Actor::User, &grant.grantee, Some(&grant.grantor), "restored from template").await?;
@@ -184,6 +185,7 @@ pub async fn create(State(e): State<Arc<Engine>>, Json(b): Json<CreateOrg>) -> A
     let mut out = json!({ "slug": slug });
     if planned.is_some() {
         out["hired"] = json!(hired);
+        out["apps"] = json!(planned.as_ref().map(|(t,_)|t.apps.len()).unwrap_or(0));
         if !projects.is_empty() { out["projects"] = json!(projects); }
         if !pending_notes.is_empty() { out["standing_notes"] = note_result; }
         out["watchdogs"] = watchdog_result;

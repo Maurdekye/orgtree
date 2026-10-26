@@ -82,6 +82,11 @@ Attention, inbox, work and presented-document details are covered in [Messages a
 
 ## Reuse a layout
 
+Apps definitions and initial JSON are included by provisional default in4.5.0.
+Current panel data, links, IDs and execution grants are excluded. The new org gets
+fresh Ask definitions with no open copies; open one explicitly before its HTML
+runs. Re-link agents and update any watcher filter that used an old app/panel ID.
+
 After a team works well, use **Organization settings > Basic > Templates > Save as template**. Give it a name, review the include choices and save it. The result becomes a **Starting layout** when creating another organization. It saves the currently stored organization, not unsaved settings edits.
 
 Tree structure, names and tiers are included. Include choices cover charters/project Summary, credits, effort/fast mode/explicit OpenRouter harness pins, tools, org instructions, Quick chat defaults and portable org/project queue/event settings. Accounts, machine-specific folders and standing-note copies need particular care when sharing. Mail, transcripts, docket items and watchdog runtime history are not copied. Projects are saved as free containers.

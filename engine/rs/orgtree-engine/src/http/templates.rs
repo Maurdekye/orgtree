@@ -158,6 +158,7 @@ pub async fn save(State(e): State<Arc<Engine>>, Path(slug): Path<String>, Json(b
         crate::domain::template_notes::capture_layout(&e.cfg.scratch_root(&slug), &locations, &mut t)
             .map_err(ApiError::unprocessable)?;
     }
+    crate::domain::apps::templates::capture(&e,o.id,&mut t.root).await?;
     let body = t.body().map_err(ApiError::unprocessable)?;
     let parsed = templates::parse(&body).map_err(ApiError::unprocessable)?;
     let problems = templates::validate(&parsed);
@@ -166,5 +167,5 @@ pub async fn save(State(e): State<Arc<Engine>>, Path(slug): Path<String>, Json(b
     })?;
     Ok(Json(json!({ "id": id, "file": format!("{id}.json"), "path": path.to_string_lossy(), "content": body,
                     "agents": rows.iter().filter(|r| r.tier != crate::domain::projects::TIER).count(), "problems": problems,
-                    "watchdogs": parsed.watchdogs.len(), "audiences": parsed.audiences.len(), "warnings": parsed.warnings })))
+                    "watchdogs": parsed.watchdogs.len(), "audiences": parsed.audiences.len(), "apps":parsed.apps.len(), "warnings": parsed.warnings })))
 }

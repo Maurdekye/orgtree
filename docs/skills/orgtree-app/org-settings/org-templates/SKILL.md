@@ -17,6 +17,12 @@ using it; the user saves or replaces templates.
 digits after normalization. **Description** is optional, starts empty, and
 appears in the creation picker's list. Tree, names and tiers are always included.
 
+In4.5.0, app definitions and their initial JSON are also included by provisional
+default, inside the same16MiB template bound. Current panel data, IDs, links and
+execution permissions are excluded. Creation installs fresh Ask definitions and
+no saved copies; HTML runs only after a panel is explicitly opened. Re-link the
+new copies and adjust app/panel-ID watcher filters after creation.
+
 | Include choice | Initially checked | Content |
 | --- | --- | --- |
 | Charters, team charters and project summary | Yes | Agent instructions, team instructions and project Summary. |

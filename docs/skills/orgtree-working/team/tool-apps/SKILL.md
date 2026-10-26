@@ -46,8 +46,8 @@ identifies the retained boundary. Linked agents must be at most64 unique live
 agents in the same org. Neither an event nor a link impersonates an agent/user.
 
 List kind:panels accepts open:true/false to page only that subset. Metadata
-includes event_seq; HTML/state remain excluded. Agent subscriptions are a
-subsequent slice. All unruled defaults are provisional for the user's morning review.
+includes event_seq; HTML/state remain excluded. All unruled defaults are
+provisional for the user's morning review.
 
 ## App import and export
 
@@ -113,3 +113,20 @@ App-event payloads remain private across watchdog channels/overflow. Matching an
 authorized delivery keep the payload; diagnostic last_output and recent-fire
 gists omit it. Use the delivered event or authorized Apps data, not diagnostic
 summaries, to interpret the app's content.
+
+## Linked-agent subscriptions and templates
+
+Any eligible agent can add its own name to a copy's linked_agents, then create
+an ordinary event watchdog with target:app.event. Optional payload_pattern can
+match the app/panel ID. Links do not create watchers or grant permissions.
+State saves publish kind:state.changed with rev/seq; explicit event writes publish
+kind:panel.event with name/seq. Signals contain IDs/cursors, not state or event
+bodies, and arrive only after commit. Use panel_get/events to reconcile through
+the latest256 retained events; live notifications are not a durable replay log.
+Existing scope/visibility, coalescing and notice/wake choices still apply.
+
+Provisional org templates carry app definitions and initial JSON, never current
+saved copy data, links, IDs or grants. Creation installs new Ask definitions and
+no open panels. After opening a new copy, link its agents and adjust any watcher
+filter that refers to old app/panel IDs. Apps file import/export remains the
+autonomous agent parity path for moving definitions and optional saved data.

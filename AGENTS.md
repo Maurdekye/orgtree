@@ -11,6 +11,9 @@ revision from code. Portable version1 app bundles never carry grants/IDs/links o
 machine placement; imports get fresh closed copies and Ask permissions. The
 provisional bundle bounds are16MiB/16 saved copies. Agent exports create a fresh
 private-scratch file; imports use bounded held-path reads. See [custom apps](docs/rust-engine/custom-apps.md).
+Templates carry only inert app definitions/initial data; restore creates no copies
+or grants. Post-commit panel change metadata targets linked agents through opt-in
+app.event watchdogs, with no automatic wake. See the same topic for cursor limits.
 [verified: `canvas/apps/actions.ts`, `canvas/apps/{host,permissions}.tsx`, `domain/apps/{bridge,files,storage,wire}.rs`; 2026-10-26]
 
 Mail list previews cap tags at three, with active filter matches first and a
