@@ -66,10 +66,11 @@ test('the panel header pins to the canvas only, shows the canvas and unpins to t
  const frame=()=>document.querySelector<HTMLElement>('[data-custom-panel="one"]')!
  assert.equal(!!frame().querySelector('[aria-label="Pin to screen"]'),false,'screen pins are gone')
  assert.equal((frame().querySelector('.custom-app-status')?.textContent??'').toLowerCase().includes('link'),false,'panel links are gone from the window')
+ assert.equal(frame().querySelector('[aria-label="Pin to canvas"]')!.getAttribute('aria-pressed'),'false','an unpinned window shows the pin released')
  await inAct(async()=>{frame().querySelector<HTMLButtonElement>('[aria-label="Pin to canvas"]')!.click();await tick()})
  const pin=calls.filter(c=>c.action==='panel_update').at(-1);assert.equal(pin?.placement?.mode,'canvas');assert.equal(shown,1,'a canvas pin brings the canvas into view')
  assert.equal(panels[0]!.placement.mode,'canvas')
- const unpin=frame().querySelector<HTMLButtonElement>('[aria-label="Unpin from canvas"]');assert.ok(unpin,'a canvas-pinned window offers to unpin')
+ const unpin=frame().querySelector<HTMLButtonElement>('[aria-label="Unpin from canvas"]');assert.ok(unpin,'a canvas-pinned window offers to unpin');assert.equal(unpin.getAttribute('aria-pressed'),'true','a canvas-pinned window shows the pin pressed')
  await inAct(async()=>{unpin.click();await tick()})
  assert.equal(calls.filter(c=>c.action==='panel_update').at(-1)?.placement?.mode,'float','unpinning returns to the centered window');assert.equal(shown,1)
 })
