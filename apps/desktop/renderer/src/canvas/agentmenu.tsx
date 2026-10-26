@@ -40,7 +40,7 @@ import { BulkCompactConfirm, subtreeAgents } from './bulkcompact'
 import type { MenuEntry } from './contextmenu'
 import { ConfirmModal } from './modals'
 import { AgentCompactConfirm } from './agentcompact'
-import { effectiveReports, fmtCredits, hireTierChoices, tierLabel, USER } from './shared'
+import { effectiveReports, fmtCredits, hireTierChoices, legacyMark, tierLabel, USER } from './shared'
 import { slotCount } from './slots'
 import { eventListenersOn } from './listeners'
 import type { CanvasNode, HireProviders, OpFn } from './shared'
@@ -267,7 +267,8 @@ export function agentMenuEntries(node: CanvasNode, h: AgentMenuHandlers,
       disabled: choices.length === 0,
       onSelect: () => { if (quickTier) hire(quickTier) },
       children: choices.map(({ tier, offer, reason }) => ({
-        label: tierLabel(tier),
+        // Gemini Pro (opt-in legacy) is marked as every chooser marks it (user 2026-09-30)
+        label: tierLabel(tier) + legacyMark(tier),
         disabled: offer !== 'offer',
         title: offer === 'offer' ? `Open a ${tierLabel(tier)} hire under ${node.id}` : reason,
         onSelect: () => hire(tier),
@@ -432,7 +433,7 @@ export function projectMenuEntries(node: CanvasNode, h: AgentMenuHandlers,
       disabled: choices.length === 0,
       onSelect: () => { if (quickTier) hire(quickTier) },
       children: choices.map(({ tier, offer, reason }) => ({
-        label: tierLabel(tier),
+        label: tierLabel(tier) + legacyMark(tier),
         disabled: offer !== 'offer',
         title: offer === 'offer' ? `Open a ${tierLabel(tier)} hire under project ${node.id}` : reason,
         onSelect: () => hire(tier),
