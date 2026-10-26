@@ -1,5 +1,4 @@
 import { CardFace } from './cardface'
-import { useCardNamesAllowed } from './cardnamereveal'
 import { RetiredBadge } from './retiredbadge'
 import { grantLimits, hireGrantMax } from './creditgrant'
 import { QueuedAccountBadge, QueuedModelBadge, QueuedFastBadge, SessionZeroBadge } from './nextturn'
@@ -1542,7 +1541,6 @@ function ActionBadge({ deskView, className, title, onAct, children }: {
  * other secondary interior details remain omitted at this scale.
  */
 export function FarZoomStateIcon({ node }: { node: CanvasNode }) {
-  const namesAllowed = useCardNamesAllowed()
   const visual = deriveAgentVisualState(node)
   let stateIcon: ReactNode
   switch (visual.farKind) {
@@ -1592,9 +1590,9 @@ export function FarZoomStateIcon({ node }: { node: CanvasNode }) {
     <span className="sq-far-tier">
       <span className="sq-far-scaler">
         <TierChip tier={node.tier} />
-        {namesAllowed && <span className="sq-far-name" title={node.account ? `${node.id}: account ${node.account}` : node.id}>
+        <span className="sq-far-name" title={node.account ? `${node.id}: account ${node.account}` : node.id}>
           {node.id}
-        </span>}
+        </span>
       </span>
     </span>
     {stateIcon}

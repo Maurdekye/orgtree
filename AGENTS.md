@@ -13,10 +13,10 @@ runner redirects `LOCALAPPDATA`; never relax product attach ACL checks. See
 [native test homes](docs/agents/development-and-verification.md#portable-root-test-output).
 [verified: `tests/installer-elevation.test.mjs`; 2026-10-26]
 
-Mini name suppression covers both the floating plate and the in-card CSS name;
-both use the same canvas desk counter, including external portals. Normal names
-remain independent. See [identity hover](docs/rust-engine/agent-identity-tooltip.md).
-[verified: `canvas/{cards,cardnamereveal,farzoomname}.tsx`; 2026-10-26]
+Hovering or focusing a mini node always reveals its name in the card, also while
+desks are open (local, pinned or popped out); only the floating far-zoom plate
+stays suppressed. Never hide the hover reveal. See [identity hover](docs/rust-engine/agent-identity-tooltip.md).
+[decided: user 2026-10-26 "Never hide on hover"; verified: `canvas/cards.tsx`, `styles.css`; 2026-10-26]
 
 Apps derive org-internal capability/file defaults from origin policy; user Deny
 wins and survives agent code replacement. Agents create only closed copies and

@@ -8,8 +8,10 @@ Normal reveal is independent of the canvas desk counter: a desk retained in a
 popped-out window can leave no visible desk in the main document while that
 counter remains nonzero. The user explicitly keeps normal names available in
 this case and while another desk is visible, superseding only the normal part
-of the 4.4.0 suppression rule. Mini-name suppression and a desk's own header
-remain unchanged. No card layout, motion, hit target or fit measurement changes.
+of the 4.4.0 suppression rule. Floating mini-name suppression and a desk's own
+header remain unchanged; hovering a mini node still reveals its in-card name,
+which is never hidden (user 2026-10-26). No card layout, motion, hit target or
+fit measurement changes.
 [decided: user 2026-10-26; verified: canvas/{cardname,cardnamereveal,cards}.tsx;
 controls: namehover.test.tsx, desknameplate.test.tsx, cardhoverfit.test.tsx]
 
