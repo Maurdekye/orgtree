@@ -280,3 +280,41 @@ test('a list that cannot be read says so and can be asked again', async () => {
     assert.equal(calls, 2)
   } finally { await view.unmount(); g.fetch = saved }
 })
+
+// USER 2026-10-26: major > minor > patch row emphasis (4.5.0).
+// Provisional: prereleases and build metadata follow the base version.
+const LEVEL_VERSIONS = ['5.0.0', '4.5.0', '4.4.5', '5.0.0-rc.1', '4.5.0-alpha.2', '4.4.5-beta.1+build.7', '4.5.0+build.9', 'unknown']
+const LEVEL_ROWS: ChangelogRow[] = LEVEL_VERSIONS.map((version) => ({ version, released_at: '2026-10-26T11:30:00Z', notes: true }))
+const LEVEL_ENTRIES = Object.fromEntries(LEVEL_ROWS.map((row) => [row.version, { ...row, notes: `Notes for ${row.version}.` }]))
+
+test('§10 release rows distinguish major, minor and patch by their base version, preserving selection and dates', async () => {
+  const { f, view } = await panel(0, LEVEL_ROWS, LEVEL_ENTRIES)
+  try {
+    assert.deepEqual(rows(view.el).map((r) => r.dataset.releaseLevel),
+      ['major', 'minor', 'patch', 'major', 'minor', 'patch', 'minor', 'patch'])
+    assert.deepEqual(rows(view.el).map((r) => r.dataset.version), LEVEL_VERSIONS)
+    for (const r of rows(view.el)) {
+      await inAct(async () => { r.click(); await flush(8) })
+      assert.equal(selected(view.el), r.dataset.version)
+      assert.ok(pane(view.el).includes(`Notes for ${r.dataset.version}.`))
+      assert.equal(r.querySelector('.mtime')?.textContent, fmtStamp(LEVEL_ROWS[0]!.released_at))
+      assert.ok(r.title.startsWith(r.dataset.version!), 'the full version remains in its tooltip')
+    }
+  } finally { await view.unmount(); f.restore() }
+})
+
+test('§11 major rows have stronger typography than minor rows, and minor than patch, including selected rows', async () => {
+  const unstyle = stylesheet()
+  const { f, view } = await panel(0, LEVEL_ROWS, LEVEL_ENTRIES)
+  try {
+    const titles = rows(view.el).slice(0, 3).map((r) => r.querySelector<HTMLElement>('.mfrom')!)
+    for (const selectedRow of rows(view.el).slice(0, 3)) {
+      await inAct(async () => { selectedRow.click(); await flush(8) })
+      const styles = titles.map((el) => window.getComputedStyle(el))
+      const sizes = styles.map((s) => Number.parseFloat(s.fontSize))
+      assert.ok(sizes[0]! > sizes[1]! && sizes[1]! > sizes[2]!, `major > minor > patch: ${sizes}`)
+      assert.ok(styles.every((s) => Number(s.fontWeight) >= 700), 'every version remains bold')
+      assert.ok(Number(styles[0]!.fontWeight) > Number(styles[2]!.fontWeight), 'major releases have the strongest weight')
+    }
+  } finally { await view.unmount(); f.restore(); unstyle() }
+})
