@@ -30,14 +30,14 @@ function server(slug:string){
 }
 async function press(owner:Document,label:string){const button=[...owner.querySelectorAll<HTMLButtonElement>('button')].find(b=>b.textContent?.trim()===label||b.getAttribute('aria-label')===label);assert.ok(button,`missing ${label}`);await inAct(async()=>{button.click();await tick()})}
 
-test('custom apps import previews plain metadata before creating closed ungranted copies',async t=>{
+test('custom apps import previews plain metadata before creating closed copies with implicit org access',async t=>{
   const fixture=server('portable-import');t.after(fixture.restore)
   const view=await mountView(<><AppsButton slug="portable-import"/><AppsWorkspace slug="portable-import"/></>,el=>el);t.after(()=>view.unmount());await inAct(tick)
   const owner=view.el.ownerDocument;await press(owner,'Apps')
   const input=owner.querySelector<HTMLInputElement>('input[aria-label="Import app"]');assert.ok(input,'Apps menu needs app import')
   Object.defineProperty(input,'files',{configurable:true,value:[{size:JSON.stringify(bundle).length,text:async()=>JSON.stringify(bundle)}]})
   await inAct(async()=>{input.dispatchEvent(new owner.defaultView!.Event('change',{bubbles:true}));await tick()})
-  const preview=owner.querySelector('[role="dialog"][aria-label="Import app"]');assert.ok(preview);assert.match(preview.textContent!,/Ask/);assert.match(preview.textContent!,/closed/);assert.match(preview.textContent!,/Saved notes/)
+  const preview=owner.querySelector('[role="dialog"][aria-label="Import app"]');assert.ok(preview);assert.match(preview.textContent!,/full access/);assert.match(preview.textContent!,/untrustworthy/);assert.match(preview.textContent!,/closed/);assert.match(preview.textContent!,/Saved notes/)
   assert.equal(fixture.calls.some(c=>c.action==='app_import'),false,'file selection must not import or execute code')
   assert.equal(owner.querySelector('iframe'),null)
   await press(owner,'Import app')

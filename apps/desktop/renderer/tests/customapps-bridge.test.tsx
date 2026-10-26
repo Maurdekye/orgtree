@@ -2,7 +2,7 @@ import {flush,inAct,mountView,StrictMode} from './harness'
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import {PanelHtml} from '../src/canvas/apps/host'
-import {AppsWorkspace} from '../src/canvas/apps/ui'
+import {AppsButton,AppsWorkspace} from '../src/canvas/apps/ui'
 import {PANEL_PROTOCOL} from '../src/canvas/apps/sdk'
 import type {CustomApp,CustomPanel} from '../src/canvas/apps/types'
 
@@ -70,8 +70,8 @@ test('cancelled and hidden app hosts discard prompts and close even a late sessi
 
 test('native App permissions editor changes every-copy grant with a separate permission revision',async t=>{
   visible(t);const f=fixture('permission-editor');t.after(f.restore)
-  const view=await mountView(<AppsWorkspace slug="permission-editor"/>,el=>el);t.after(()=>view.unmount());await inAct(tick)
-  await press(document,'Settings for Private notes');await press(document,'Permissions…')
+  const view=await mountView(<><AppsButton slug="permission-editor"/><AppsWorkspace slug="permission-editor"/></>,el=>el);t.after(()=>view.unmount());await inAct(tick)
+  await press(document,'Apps');await inAct(async()=>{document.querySelector<HTMLButtonElement>('.custom-apps-menu-app [aria-label="Settings for Notes"]')!.click();await tick()});await press(document,'Permissions…')
   const select=document.querySelector<HTMLSelectElement>('select[aria-label="mail.send permission"]');assert.ok(select,'declared permissions must be editable in native UI')
   const frame=view.el.querySelector('iframe');assert.ok(frame)
   await inAct(async()=>{select.value='deny';select.dispatchEvent(new window.Event('change',{bubbles:true}));await tick()})
