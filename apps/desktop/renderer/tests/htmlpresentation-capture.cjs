@@ -16,7 +16,8 @@
 //   set HTMLP_OUT=C:\orgtree-build\<agent>\<folder>   (required, owned)
 //   set HTMLP_NODE_MODULES=<existing node_modules>   (default ./node_modules)
 //   <node_modules>\electron\dist\electron.exe apps\desktop\renderer\tests\htmlpresentation-capture.cjs
-// No clipboard use; permissions follow the real guard (all denied here).
+/// No clipboard use; permissions follow the real guard (all denied here);
+// audio is muted (--mute-audio and setAudioMuted).
 const { app, BrowserWindow, session } = require('electron')
 const fs = require('node:fs'), path = require('node:path'), http = require('node:http'), cp = require('node:child_process')
 
@@ -181,6 +182,8 @@ try {
   app.disableHardwareAcceleration()
   app.commandLine.appendSwitch('force-device-scale-factor', '1')
   app.commandLine.appendSwitch('js-flags', '--expose-gc')
+  // silent by rule (coordinator 2026-10-26 m0f2fd7b119d6): no test window plays audio
+  app.commandLine.appendSwitch('mute-audio')
 } catch (e) { fail(e) }
 
 const sessionOf = (pid) => {
@@ -198,6 +201,7 @@ app.whenReady().then(async () => {
   register(win)
   const wc = win.webContents
   wc.setFrameRate(30)
+  wc.setAudioMuted(true)
   wc.setWindowOpenHandler(({ url }) => { receipt.windowOpens.push({ url, artifactRoute: windows.artifactUrl(url, origin) }); return { action: 'deny' } })
   wc.on('will-frame-navigate', (e) => { if (!e.isMainFrame) receipt.frameNavigations.push(e.url) })
   wc.on('did-fail-load', (_e, code, desc, url, isMain) => { if (!isMain) receipt.frameLoadFailures.push({ code, desc, url }) })
