@@ -44,8 +44,8 @@ export function AppPermissions({slug,app,close}:{slug:string;app:CustomApp;close
   return <AppDialog title="App permissions" close={close}>
     <p>Changes save immediately and apply to every copy of {current.name}. Replacing app code resets grants to Ask. Links to agents grant nothing.</p>
     {!current.capabilities.length&&<p>This app declares no engine actions.</p>}
-    {current.capabilities.filter(cap=>cap!=='files.read').map(cap=><label className="custom-app-permission-row" key={cap}><span>{cap}{cap==='docket.write'&&<small>Creates and assigns work; wakes the selected local agent.</small>}{cap==='events.fire'&&<small>Broadcasts declared events to this copy's subscribed agents.</small>}</span><select aria-label={`${cap} permission`} disabled={busy} value={current.permissions[cap]??'ask'} onChange={e=>void save(cap,e.target.value)}><option value="ask">Ask</option><option value="allow">Allow</option><option value="deny">Deny</option></select></label>)}
-    {current.capabilities.includes('files.read')&&<AppFilePermissions slug={slug} app={current} save={save} disabled={busy} refresh={async()=>setCurrent(await customAppsRequest<CustomApp>(slug,{action:'app_get',app:current.id}))}/>}
+    {current.capabilities.filter(cap=>!cap.startsWith('files.')).map(cap=><label className="custom-app-permission-row" key={cap}><span>{cap}{cap==='docket.write'&&<small>Creates and assigns work; wakes the selected local agent.</small>}{cap==='events.fire'&&<small>Broadcasts declared events to this copy's subscribed agents.</small>}</span><select aria-label={`${cap} permission`} disabled={busy} value={current.permissions[cap]??'ask'} onChange={e=>void save(cap,e.target.value)}><option value="ask">Ask</option><option value="allow">Allow</option><option value="deny">Deny</option></select></label>)}
+    {current.capabilities.some(cap=>cap.startsWith('files.'))&&<AppFilePermissions slug={slug} app={current} save={save} disabled={busy} refresh={async()=>setCurrent(await customAppsRequest<CustomApp>(slug,{action:'app_get',app:current.id}))}/>}
     {error&&<p role="alert">{error}</p>}
   </AppDialog>
 }

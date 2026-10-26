@@ -4,6 +4,7 @@ export type PermissionChoice = 'once'|'always'|'deny'
 export interface AppPermissionRequest {
   challenge:string; app:string; panel:string; name:string; label:string
   capability:string; request:Record<string,unknown>
+  detail?:{path:string;operation:string;previous_bytes:number|null;bytes:number|null;sha256:string|null}
 }
 type Ask = (request:AppPermissionRequest,signal:AbortSignal)=>Promise<PermissionChoice|null>
 const fields:Record<string,readonly string[]>={

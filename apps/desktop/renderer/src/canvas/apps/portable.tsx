@@ -18,7 +18,7 @@ export function parseAppBundle(raw:string):AppBundle {
   keys(def,['name','description','html','initial_state','capabilities','events','width','height'])
   if(!text(def.name,120)||typeof def.html!=='string'||!def.html.trim()||new TextEncoder().encode(def.html).length>4*1024*1024)throw Error('App needs a name and HTML up to 4 MiB.')
   if(def.description!==undefined&&(typeof def.description!=='string'||[...def.description].length>1000||/[\x00-\x1f\x7f]/.test(def.description)))throw Error('Invalid app description.')
-  if(def.capabilities!==undefined&&(!Array.isArray(def.capabilities)||def.capabilities.length>5||new Set(def.capabilities).size!==def.capabilities.length||def.capabilities.some(c=>!['org.read','mail.send','docket.write','events.fire','files.read'].includes(c))))throw Error('Unknown or duplicate app capability.')
+  if(def.capabilities!==undefined&&(!Array.isArray(def.capabilities)||def.capabilities.length>6||new Set(def.capabilities).size!==def.capabilities.length||def.capabilities.some(c=>!['org.read','mail.send','docket.write','events.fire','files.read','files.write'].includes(c))))throw Error('Unknown or duplicate app capability.')
   if(def.events!==undefined){
     if(!Array.isArray(def.events)||def.events.length>64)throw Error('At most 64 declared app events.')
     const seen=new Set<string>()

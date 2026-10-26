@@ -47,3 +47,36 @@ test('app media policy adds one host endpoint without opening connect or other A
   assert(source.includes('media-src data: blob: http://127.0.0.1:4999/api/orgs/demo/apps/media;'));assert(source.includes("connect-src 'none'"));assert(PANEL_CSP.includes('media-src data: blob:;'))
   for(const endpoint of ['file:///C:/video.mp4','http://127.0.0.1:4999/api/orgs/demo/apps/bridge','http://x/api/orgs/demo/apps/media?ticket=x','http://x/api/orgs/demo/apps/media; connect-src *'])assert.throws(()=>panelDocument('','channel',endpoint))
 })
+
+test('write confirmations stay native, bind the exact host and expose only the outcome',async t=>{
+  const original=globalThis.fetch,calls:Record<string,unknown>[]=[];t.after(()=>{globalThis.fetch=original})
+  globalThis.fetch=async(_raw,init)=>{
+    const input=JSON.parse(String(init?.body));calls.push(input)
+    const out=input.action==='session_open'?{session:'host-only',app:'a',app_rev:2,expires_in:1800}:input.action==='session_close'?{closed:true}:input.action==='call'?{confirmation_required:{app:'a',panel:'p',name:'Editor',label:'Copy',challenge:'one-shot',capability:'files.write',request:{action:'write'},detail:{path:'C:/native-only/existing.txt',operation:'replace',previous_bytes:10,bytes:3,sha256:'a'.repeat(64)}}}:input.action==='confirm'?{changed:true,operation:'replace',bytes:3}:null
+    return new Response(JSON.stringify(out))
+  }
+  const host=new AppActionClient('demo','a',2,'p',async()=>null);t.after(()=>host.dispose())
+  let nativePath='';const files=new AppFileClient('demo','a','p',host,async request=>{nativePath=request.detail!.path;return{choice:'once'}})
+  const result=await files.call({action:'write',directory:'opaque-dir',name:'existing.txt',base64:'bmV3',replace:true})
+  assert.equal(nativePath,'C:/native-only/existing.txt');assert.deepEqual(result,{changed:true,operation:'replace',bytes:3})
+  assert(!JSON.stringify(result).includes('native-only'));assert.deepEqual(calls.find(v=>v.action==='confirm'),{action:'confirm',app:'a',session:'host-only',challenge:'one-shot',allow:true})
+  for(const request of [{action:'confirm',allow:true},{action:'grant',scope:'computer',mode:'write',path:'C:/'},{action:'write',directory:'x',name:'x',base64:'',permission:'allow'}])await assert.rejects(files.call(request),/Unsupported/)
+})
+
+test('native write prompt has exact change details and cannot grant permanent confirmation',async t=>{
+  let decision:unknown=null
+  const prompt:FilePrompt={session:'native-only',request:{app:'a',panel:'p',name:'Editor',label:'Copy',capability:'files.write',challenge:'change',request:{action:'delete'},detail:{path:'C:/synthetic/existing.txt',operation:'delete',previous_bytes:12,bytes:null,sha256:null}},finish:value=>{decision=value}}
+  const view=await mountView(<AppFilePermissionPrompt slug="demo" prompt={prompt} owner={document} canSend={false}/>,el=>el);t.after(()=>view.unmount())
+  const dialog=document.querySelector('[aria-label="App file permission"]')!;assert.match(dialog.textContent!,/C:\/synthetic\/existing.txt/);assert.match(dialog.textContent!,/two minutes/)
+  const buttons=[...dialog.querySelectorAll('button')];assert(!buttons.some(b=>b.textContent==='Always allow'))
+  await inAct(()=>{buttons.find(b=>b.textContent==='Confirm change')!.click()});assert.deepEqual(decision,{choice:'once'})
+})
+
+test('folder consent requires an explicit native selection and whole-computer warning is outside HTML',async t=>{
+  const original=globalThis.fetch;t.after(()=>{globalThis.fetch=original})
+  globalThis.fetch=async()=>new Response(JSON.stringify({path:'C:/synthetic',parent:'C:/',items:[],next_cursor:null}))
+  let decision:unknown=null;const prompt:FilePrompt={session:'native-only',request:{app:'a',panel:'p',name:'Editor',label:'Copy',capability:'files.write',challenge:'scope',request:{action:'grant',scope:'folder',mode:'write'}},finish:value=>{decision=value}}
+  const view=await mountView(<AppFilePermissionPrompt slug="demo" prompt={prompt} owner={document} canSend/>,el=>el);t.after(()=>view.unmount());await inAct(tick)
+  const buttons=()=>[...document.querySelectorAll<HTMLButtonElement>('[aria-label="App file permission"] button')];assert(buttons().find(b=>b.textContent==='Always allow')!.disabled)
+  await inAct(()=>{buttons().find(b=>b.textContent==='Use this folder')!.click()});await inAct(()=>{buttons().find(b=>b.textContent==='Always allow')!.click()});assert.deepEqual(decision,{choice:'always',path:'C:/synthetic'})
+})
