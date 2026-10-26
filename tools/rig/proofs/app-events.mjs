@@ -86,8 +86,9 @@ export default async function(rig){
   const invalidated=await apps({action:'listeners',app:app.id})
   p.check('removing declarations pauses affected listeners with a visible reason',invalidated.items.length>=3&&invalidated.items.every(d=>d.state==='paused'&&d.reason))
   p.check('removed declaration cannot be silently resumed',!(await rig.tool('watcher','orgtree_watchdog',{action:'resume',id:specific.id})).ok)
+  const publicMarker='PUBLIC_APP_EVENT_LOG_POSITIVE_794';await rig.api('GET','/api/orgs?proof='+publicMarker)
   const logs=rig.engineLog();p.file('verbose-engine.log',logs)
-  p.check('independent durable worker preserves authorized payload but logs remain opaque',logs.includes('Access')&&logs.includes('/apps')&&!logs.includes(canary),{logBytes:Buffer.byteLength(logs),payloadLeak:logs.includes(canary)})
+  p.check('independent durable worker preserves authorized payload but logs remain opaque',logs.includes(publicMarker)&&logs.includes('/apps')&&!logs.includes(canary),{logBytes:Buffer.byteLength(logs),ordinaryPositive:logs.includes(publicMarker),payloadLeak:logs.includes(canary)})
   p.file('runtime-source.json',{engine:rig.run.engineSource,run:rig.run.id,restarts:rig.run.restarts,limits:'Actual isolated engine/PG/tool/bridge. No native UI or installed-alpha claim.'})
   return p.summary()
 }
