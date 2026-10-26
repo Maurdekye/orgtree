@@ -57,20 +57,31 @@ const TIMEOUT_MS = envInt('ORGTREE_TEST_TIMEOUT_MS', 120_000)
 const JOB_MB = envInt('ORGTREE_TEST_JOB_MB', 6144)
 const RUN_TIMEOUT_MS = envInt('ORGTREE_TEST_RUN_TIMEOUT_MS', 1_800_000)
 
-// node's test flags that take their value as the NEXT argument; anything else
-// that does not start with `-` is a file or glob
+// node reads options only BEFORE the first file, so flags are gathered ahead of
+// the files whatever order they were given in. These take their value as the
+// NEXT argument and are passed on as `--flag=value`; anything else that does
+// not start with `-` is a file or glob.
 const VALUE_FLAGS = new Set(['--test-name-pattern', '--test-skip-pattern', '--test-reporter',
   '--test-reporter-destination', '--test-shard'])
 const passed = process.argv.slice(2)
-let hasFiles = false
+const flags = []
+const files = []
 for (let i = 0; i < passed.length; i++) {
-  if (VALUE_FLAGS.has(passed[i])) i++
-  else if (!passed[i].startsWith('-')) hasFiles = true
+  const arg = passed[i]
+  if (VALUE_FLAGS.has(arg)) {
+    const value = passed[++i]
+    if (value === undefined) {
+      console.error(`[tests/run.mjs] ${arg} needs a value`)
+      process.exit(2)
+    }
+    flags.push(`${arg}=${value}`)
+  } else if (arg.startsWith('-')) flags.push(arg)
+  else files.push(arg)
 }
 const args = ['--test',
   ...(CONCURRENCY > 0 ? [`--test-concurrency=${CONCURRENCY}`] : []),
   ...(TIMEOUT_MS > 0 ? [`--test-timeout=${TIMEOUT_MS}`] : []),
-  ...passed, ...(hasFiles ? [] : ['tests/*.test.mjs'])]
+  ...flags, ...(files.length ? files : ['tests/*.test.mjs'])]
 
 const env = { ...process.env }
 env.NODE_OPTIONS = [process.env.NODE_OPTIONS,
