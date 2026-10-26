@@ -58,3 +58,11 @@ test('Panel settings lists connections and fires only the selected saved copy ev
   assert.deepEqual(calls.find(c=>c.action==='fire_event'),{action:'fire_event',panel:'one',name:'submitted',payload:{}})
   assert.equal(calls.filter(c=>c.action==='events').length,2,'a fire reloads the History tab')
 })
+
+// USER 2026-10-26: agents hear apps only through events ("Remove; import, never grant").
+test('mail.send was removed: the action fails with directions to events before any request',async t=>{
+  const original=globalThis.fetch,calls:unknown[]=[];globalThis.fetch=async(_raw,init)=>{calls.push(JSON.parse(String(init?.body)));return new Response(JSON.stringify({session:'bound',app:'notes',app_rev:1,expires_in:1800}))};t.after(()=>{globalThis.fetch=original})
+  const client=new AppActionClient('mail-removed','notes',1,'one',async()=>null);t.after(()=>client.dispose())
+  await assert.rejects(()=>client.call({action:'mail.send',args:{to:'worker',body:'notes'}}),/apps notify agents only through events.*orgtree\.events\.fire/)
+  assert.equal(calls.length,0,'a removed action opens no host session and sends nothing')
+})

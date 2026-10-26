@@ -37,7 +37,9 @@ test('app file permission uses trusted shell picker and forwards only a native s
   const view=await mountView(<AppFilePermissionPrompt slug="demo" prompt={prompt} owner={document} canSend/>,el=>el);t.after(()=>view.unmount());await inAct(tick)
   const dialog=document.querySelector('[aria-label="App file permission"]');assert(dialog)
   const buttons=()=>[...dialog.querySelectorAll<HTMLButtonElement>('button')]
-  const always=buttons().find(b=>b.textContent==='Always allow')!;assert(always.disabled);assert.match(dialog.textContent!,/mail sending/)
+  const always=buttons().find(b=>b.textContent==='Always allow')!;assert(always.disabled)
+  // USER 2026-10-26: mail.send was removed, so a file prompt has no mail warning to give.
+  assert.equal(/mail sending/.test(dialog.textContent!),false,'no mail warning')
   await inAct(async()=>{buttons().find(b=>b.textContent?.includes('Synthetic.mp4'))!.click();await tick()});assert(!always.disabled)
   await inAct(async()=>{always.click();await tick()});assert.deepEqual(decision,{choice:'always',path:'C:/synthetic/Synthetic.mp4'})
 })

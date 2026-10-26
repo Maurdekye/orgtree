@@ -5,7 +5,7 @@ import {AppsButton,AppsWorkspace} from '../src/canvas/apps/ui'
 import {AppPermissionPrompt} from '../src/canvas/apps/permissions'
 
 const tick=async()=>{for(let i=0;i<5;i++)await flush()}
-const app={id:'notes',name:'Notes',description:'Saved notes',rev:1,permission_rev:1,width:360,height:280,capabilities:['mail.send'],permissions:{},created_by:'maker',updated_at:'',definition:{name:'Notes',description:'',html:'<p>Notes</p>',initial_state:{note:''},capabilities:['mail.send'],width:360,height:280}}
+const app={id:'notes',name:'Notes',description:'Saved notes',rev:1,permission_rev:1,width:360,height:280,capabilities:['events.fire'],permissions:{},created_by:'maker',updated_at:'',definition:{name:'Notes',description:'',html:'<p>Notes</p>',initial_state:{note:''},capabilities:['events.fire'],width:360,height:280}}
 const panel={id:'one',app:'notes',label:'First notes',rev:1,open:true,state:{note:'saved'},event_seq:0,placement:{mode:'float',x:40,y:40,width:360,height:280},used_at:'',updated_at:''}
 test('app windows open centered and their gears lead to the panel settings system with every copy action',async t=>{
   const original=globalThis.fetch,p=structuredClone(panel),calls:Record<string,unknown>[]=[]
@@ -40,7 +40,7 @@ test('app windows open centered and their gears lead to the panel settings syste
 
 test('native permission chrome uses the shared settings frame without granting or changing identity',async t=>{
   const choices:unknown[]=[]
-  const prompt={request:{name:'Notes',label:'First notes',app:'notes',panel:'one',capability:'mail.send',request:{action:'mail.send',args:{to:'maker',body:'Private'}},challenge:'challenge'},finish:(choice:unknown)=>choices.push(choice)}
+  const prompt={request:{name:'Notes',label:'First notes',app:'notes',panel:'one',capability:'docket.write',request:{action:'docket.create',args:{title:'Review',objective:'Private',owner:'maker'}},challenge:'challenge'},finish:(choice:unknown)=>choices.push(choice)}
   const view=await mountView(<AppPermissionPrompt prompt={prompt as never} owner={document}/>,e=>e);t.after(()=>view.unmount())
   assert.ok(document.querySelector('[aria-label="App permission"].settings'),'permission prompt uses native modal design system')
   assert.ok(document.querySelector('[aria-label="App permission"]')?.closest('.overlay'))
