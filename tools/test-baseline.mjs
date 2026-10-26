@@ -50,6 +50,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { run as runNodeTests } from 'node:test'
+import { assertFreeMemory, testProcessBounds } from './test-process-bounds.mjs'
 
 const HERE = path.dirname(fileURLToPath(import.meta.url))
 const REPO = path.dirname(HERE)
@@ -673,6 +674,15 @@ function rendererSource(bundled) {
 
 async function runNodeTestSuite(suiteName, targets, { concurrency, timeout, onProgress }) {
 
+  // ⚠ THE CHILDREN GET THE TEST BOUNDS (2026-10-26). run() starts one child
+  // per file with this process's environment; nothing capped their heap or
+  // bounded a failing assertion's report, the shape that grew one test process
+  // to 41 GB. The cap and testguard go on each child's own command line
+  // (execArgv), and a machine below the free-memory floor is refused before
+  // anything starts. tests/run-bounds.test.mjs §3 is the control.
+  const bounds = testProcessBounds()
+  assertFreeMemory(bounds.minFreeMb, `${suiteName} suite`)
+
   const started = Date.now()
   const outcomes = new Map()
   // Node emits the running test's name and its nesting depth but not its
@@ -686,6 +696,7 @@ async function runNodeTestSuite(suiteName, targets, { concurrency, timeout, onPr
     // Tests here hold ref'd handles (React scheduler, timers); without this the
     // runner reaches 100 % and then sits forever.
     forceExit: false,
+    execArgv: bounds.execArgv,
   })
 
   // The per-type listeners below receive the event's DATA directly; only the

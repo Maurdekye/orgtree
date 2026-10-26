@@ -648,6 +648,10 @@ the incident needed no orphan: at this rate 41 GB takes seconds (inferred).
   (node's test flags pass through); `tests/run-bounds.test.mjs` holds its
   controls. `npm run test:disruptive` keeps bare `node --test` behind its
   `ORGTREE_DISRUPTIVE_PROBES` gate: those probes drive the desktop on purpose.
+- `tools/test-baseline.mjs` runs the root suite in-process with node:test's
+  `run()`. Its children get the same heap cap and guard through `run()`'s
+  `execArgv` (`tools/test-process-bounds.mjs`), and it refuses below the
+  free-memory floor; `tests/run-bounds.test.mjs` §3 is the control.
 
 Keep reducing DOM assertions to scalars: a deep compare of two same-tag
 elements passes, and a scalar reads better. That is now a style rule, not a
