@@ -79,8 +79,9 @@ function AppsMenu({slug,current,manage,managePanel,importApp,onShowCanvas}:{slug
   // The saved rows' own order, most recently used first. User 2026-10-26: a
   // click on the app row opens the first listed copy, or creates one if none.
   const listed=(app:CustomApp)=>data.panels.filter(p=>p.app===app.id).sort((a,b)=>b.used_at.localeCompare(a.used_at))
-  // Start running never shows a window; Power off stops and hides it.
-  const power=async(p:CustomPanel,action:'panel_start'|'panel_stop')=>{try{await changeApps(slug,{action,panel:p.id,expected_rev:p.rev})}catch(e){window.dispatchEvent(new CustomEvent('custom-app-error',{detail:{slug,error:String(e)}}))}}
+  // Start running never shows a window; Power off stops and hides it. Power
+  // changes send no revision: a running panel's own saves keep bumping it.
+  const power=async(p:CustomPanel,action:'panel_start'|'panel_stop')=>{try{await changeApps(slug,{action,panel:p.id})}catch(e){window.dispatchEvent(new CustomEvent('custom-app-error',{detail:{slug,error:String(e)}}))}}
   const rowEntries=(p:CustomPanel):MenuEntry[]=>isRunning(p)?[{label:'Power off',onSelect:()=>void power(p,'panel_stop'),description:'Stops this panel and closes its window'}]:[{label:'Start running',onSelect:()=>void power(p,'panel_start'),description:'Runs this panel hidden, without opening its window'}]
   return createPortal(<div ref={ref} className="ctxmenu custom-apps-menu" role="dialog" aria-label="Apps" style={style}>
     <header><strong>Apps</strong><label className="custom-app-import-file">Import app<input type="file" aria-label="Import app" accept=".orgtree-app,.json,application/json" hidden onChange={async e=>{const file=e.target.files?.[0];e.target.value='';if(!file)return;try{if(file.size>APP_BUNDLE_MAX)throw Error('App bundle exceeds 16 MiB.');const bundle=parseAppBundle(await file.text());setMenu(null);importApp(bundle,owner)}catch(error){window.dispatchEvent(new CustomEvent('custom-app-error',{detail:{slug,error:String(error)}}))}}}/></label><button type="button" onClick={()=>void loadAppsMenu(slug)}>Refresh</button></header>
@@ -111,7 +112,7 @@ function PanelBody({slug,app,panel,zoom,shown}:{slug:string;app:CustomApp;panel:
   // Hide closes the window and keeps the panel running; a popped-out window is
   // hidden natively, so its document and scripts survive. Power off stops it.
   const close=()=>{if(surface?.detached&&surface.name)void desktop()?.hidePopout?.(surface.name)?.catch(()=>{});void update({open:false}).catch(()=>{})}
-  const powerOff=async()=>{try{setError('');await changeApps(slug,{action:'panel_stop',panel:panel.id,expected_rev:latest.current.rev})}catch(e){setError(String(e))}}
+  const powerOff=async()=>{try{setError('');await changeApps(slug,{action:'panel_stop',panel:panel.id})}catch(e){setError(String(e))}}
   const wasShown=useRef(shown)
   useEffect(()=>{if(shown&&!wasShown.current&&surface?.detached)surface.open();wasShown.current=shown},[shown,surface])
   useEsc(close,shown&&panel.placement.mode==='float'&&!surface?.detached&&!settings,owner)
