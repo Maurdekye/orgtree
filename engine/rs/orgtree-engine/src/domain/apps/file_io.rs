@@ -84,15 +84,14 @@ fn delete_handle(file:&File)->Result<()>{
 }
 #[cfg(windows)]
 #[nolog]
-fn rename(file:&File,dir:&Directory,name:&str,replace:bool)->Result<()>{
+fn rename(file:&File,dir:&Directory,name:&str)->Result<()>{
     use std::os::windows::io::AsRawHandle;
     use windows_sys::Win32::Storage::FileSystem::*;
     use windows_sys::{Wdk::Storage::FileSystem::{NtSetInformationFile,FileRenameInformationEx},Win32::{Foundation::RtlNtStatusToDosError,System::IO::IO_STATUS_BLOCK}};
     let name:Vec<u16>=name.encode_utf16().collect();let offset=std::mem::offset_of!(FILE_RENAME_INFO,FileName);let size=offset+name.len()*2;
     let mut buffer=vec![0u64;size.div_ceil(8)];let info=buffer.as_mut_ptr().cast::<FILE_RENAME_INFO>();
-    unsafe{(*info).Anonymous.Flags=if replace{3}else{0};(*info).RootDirectory=dir._handles.last().expect("pinned directory").as_raw_handle() as _;(*info).FileNameLength=(name.len()*2) as u32;std::ptr::copy_nonoverlapping(name.as_ptr(),buffer.as_mut_ptr().cast::<u8>().add(offset).cast(),name.len());}
-    // REPLACE_IF_EXISTS | POSIX_SEMANTICS preserves the confirmed old handle
-    // until its last reader closes. No path-based fallback or truncation.
+    unsafe{(*info).Anonymous.Flags=0;(*info).RootDirectory=dir._handles.last().expect("pinned directory").as_raw_handle() as _;(*info).FileNameLength=(name.len()*2) as u32;std::ptr::copy_nonoverlapping(name.as_ptr(),buffer.as_mut_ptr().cast::<u8>().add(offset).cast(),name.len());}
+    // Never overwrite an existing destination, even one created concurrently.
     // The Win32 wrapper rejects a non-null RootDirectory. The NT call keeps
     // this rename relative to the pinned parent instead of resolving a path.
     let mut io:IO_STATUS_BLOCK=unsafe{std::mem::zeroed()};
@@ -101,14 +100,33 @@ fn rename(file:&File,dir:&Directory,name:&str,replace:bool)->Result<()>{
 }
 #[nolog]
 pub(in crate::domain::apps) fn commit(change:Change)->Result<Value>{
+    commit_with(change,||{})
+}
+#[nolog]
+fn commit_with(change:Change,between:impl FnOnce())->Result<Value>{
     #[cfg(windows)] {
         let Change{dir,name,target,data,detail}=change;
         if let Some(old)=&target{verify(old,&dir.path.join(&name))?;}
         if let Some(data)=data{
             let staged_name=crate::util::uid(".orgtree-app-save");
             let mut stage=anchored_access(dir._handles.last().expect("pinned directory"),OsStr::new(&staged_name),false,true,true)?;
-            let result=(||->Result<()>{stage.write_all(&data)?;stage.sync_all()?;rename(&stage,&dir,&name,target.is_some())})();
-            if let Err(error)=result{let _=delete_handle(&stage);return Err(error);}
+            let result=(||->Result<Value>{
+                stage.write_all(&data)?;stage.sync_all()?;
+                if let Some(old)=&target{
+                    // Keep the exclusive old-file pin. Windows cannot replace
+                    // it in one rename without relaxing deletion sharing. Move
+                    // that exact handle aside, then publish without overwrite.
+                    let backup=crate::util::uid(".orgtree-app-recovery");rename(old,&dir,&backup)?;between();
+                    if let Err(error)=rename(&stage,&dir,&name){
+                        if rename(old,&dir,&name).is_err(){
+                            return Ok(json!({"changed":false,"recovery_name":backup,"error":"Replacement conflicted. Original bytes remain in the recovery file; no existing destination was overwritten."}));
+                        }return Err(error);
+                    }
+                    if delete_handle(old).is_err(){return Ok(json!({"changed":true,"operation":"replace","bytes":detail["bytes"],"sha256":detail["sha256"],"recovery_name":backup,"warning":"Saved, but the original recovery copy could not be removed."}));}
+                }else{between();rename(&stage,&dir,&name)?;}
+                Ok(json!({"changed":true,"operation":detail["operation"],"bytes":detail["bytes"],"sha256":detail["sha256"]}))
+            })();
+            match result{Ok(value)=>{if value["changed"]!=true{let _=delete_handle(&stage);}return Ok(value)},Err(error)=>{let _=delete_handle(&stage);return Err(error)}}
         }else{delete_handle(target.as_ref().expect("checked deletion target"))?;}
         Ok(json!({"changed":true,"operation":detail["operation"],"bytes":detail["bytes"],"sha256":detail["sha256"]}))
     }
@@ -125,6 +143,10 @@ pub(in crate::domain::apps) fn commit(change:Change)->Result<Value>{
             let change=prepare(&dir.join("old.txt"),Some(b"new".to_vec()),true).unwrap();assert!(std::fs::write(dir.join("old.txt"),b"raced").is_err());commit(change).unwrap();assert_eq!(std::fs::read(dir.join("old.txt")).unwrap(),b"new");
             commit(prepare(&dir.join("new.txt"),Some(b"created".to_vec()),false).unwrap()).unwrap();assert_eq!(std::fs::read(dir.join("new.txt")).unwrap(),b"created");
             let change=prepare(&dir.join("old.txt"),None,false).unwrap();commit(change).unwrap();assert!(!dir.join("old.txt").exists());
+            std::fs::write(dir.join("conflict.txt"),b"original").unwrap();let change=prepare(&dir.join("conflict.txt"),Some(b"replacement".to_vec()),true).unwrap();
+            let result=commit_with(change,||std::fs::write(dir.join("conflict.txt"),b"concurrent destination").unwrap()).unwrap();
+            assert_eq!(result["changed"],false);assert_eq!(std::fs::read(dir.join("conflict.txt")).unwrap(),b"concurrent destination");
+            assert_eq!(std::fs::read(dir.join(result["recovery_name"].as_str().unwrap())).unwrap(),b"original");
         }
     }
 }

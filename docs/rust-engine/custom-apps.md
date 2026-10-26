@@ -116,10 +116,14 @@ outside HTML of the exact target, operation, size and new-content SHA256. No
 recursive delete, shell command, arbitrary endpoint or permission method exists.
 
 Changes retain no-reparse directory/target handles while consent is pending.
-The Windows target pin excludes ordinary data writes/delete; replacements stage,
-flush and commit through handle-relative FileRenameInfoEx with POSIX replacement
-semantics, never path-based fallback or in-place truncation. Failed staging keeps
-the confirmed target. Platforms without these mutation primitives refuse writes.
+The Windows target pin excludes ordinary data writes/delete. Replacements stage
+and flush bytes, rename the exact old handle to a fresh recovery name, then publish
+the new handle without overwriting a destination. There is a brief name gap;
+a concurrent destination is never overwritten. Failure restores the original
+name when possible; otherwise original bytes remain in the reported recovery
+file beside the target. Native UI reports retained recovery copies, independently
+of the HTML. No path-based fallback or in-place truncation exists. Platforms
+without these mutation primitives refuse writes.
 Pending changes are bounded64/engine, expire120s with target-pin cleanup, and are
 discarded on grant/code/host revocation. No data change happens before confirmation.
 

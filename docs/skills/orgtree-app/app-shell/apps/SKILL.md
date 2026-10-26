@@ -98,6 +98,8 @@ operation, size and new-content hash. Existing files need explicit replacement;
 folders cannot be deleted recursively. Changes are at most64KiB and use a staged
 Windows commit. Unsupported platforms refuse writes. Cancel/expiry changes nothing.
 Agent changes wait under Files → Pending changes; Refresh shows pending requests.
+If a replacement conflicts, native UI reports any retained recovery copy beside
+the original target. Review the result before retrying; concurrent files stay intact.
 Only the user confirms them, and agents need their own writable folders as well.
 
 The SDK adds files.choose(), files.open(root,path), files.read(file,{offset,limit})

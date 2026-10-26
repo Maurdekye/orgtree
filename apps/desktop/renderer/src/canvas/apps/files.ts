@@ -26,6 +26,10 @@ export class AppFileClient {
       if(this.host.signal.aborted)throw Error('App host closed or hidden.')
       if(decision===null){this.host.cancelSession();throw Error('App file request cancelled.')}
       result=await customAppsFiles<Record<string,unknown>>(this.slug,confirmation?{action:'confirm',app:this.app,session,challenge:pending.challenge,allow:decision.choice!=='deny'}:{action:'decide',session,challenge:pending.challenge,choice:decision.choice,...(decision.path===undefined?{}:{path:decision.path})})
+      if(confirmation&&typeof result.recovery_name==='string'&&pending.detail){
+        const path=pending.detail.path,cut=Math.max(path.lastIndexOf('/'),path.lastIndexOf('\\'))
+        await this.ask({...pending,request:{action:'recovery'},detail:{path:path.slice(0,cut+1)+result.recovery_name,operation:'Original retained in recovery file',previous_bytes:pending.detail.previous_bytes,bytes:null,sha256:null}},session,this.host.signal)
+      }
     }
     if(this.host.signal.aborted)throw Error('App host closed or hidden.')
     if(input.action==='media'){

@@ -153,6 +153,10 @@ and files.delete(file). Paths/consent stay in native chrome. Store returned root
 in this panel's state. Each create/replace/delete gets a native confirmation of
 the exact bytes/target; target handles are pinned for the two-minute prompt.
 Writes use Windows handle-relative staged commit; unsupported platforms refuse.
+Replacement has a brief name gap while the exact original handle is moved aside.
+A concurrent destination is preserved; failed rollback retains original bytes
+under recovery_name beside the target. Native UI reports recovery copies. Inspect
+changed/error/warning/recovery_name; never treat a pending or failed change as success.
 At most64 file changes may wait per engine. Permission/grant/code/host revocation
 discards pending changes and releases pins; cancelled/expired changes write nothing.
 
