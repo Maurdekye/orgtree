@@ -7,7 +7,7 @@ async fn provider_tool_message_is_opaque_in_actual_mailbox_log() {
     const CANARY: &str = "SYNTHETIC-ACTOR-CREDENTIAL-184a";
     let capture = crate::trace::LogCapture::start().await;
     let (tx, mut rx) = mpsc::unbounded_channel();
-    let handle = AgentHandle { id: 7, org_id: 3, tx, view: ArcSwap::from_pointee(json!({})) };
+    let handle = AgentHandle { id: 7, org_id: 3, tx, view: ArcSwap::from_pointee(json!({})), helpers: ArcSwap::from_pointee(json!({"count":0,"items":[]})) };
     let payload = json!({"method":"item/started","params":{"item":{"type":"mcpToolCall",
         "name":"orgtree_watchdog","arguments":{"credentials":{"bearer":CANARY},
             "headers":{"X-Auth":CANARY},"query":{"session_key":CANARY},"opaque":CANARY}}}});

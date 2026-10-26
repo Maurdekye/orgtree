@@ -16,6 +16,7 @@ import { QueuedAccountBadge, QueuedModelBadge, QueuedFastBadge, SessionZeroBadge
 import { rememberEffort } from '../quickchat'
 import { ToolInputDetails } from './toolinput'
 import { hasHelperTranscript, HelperTranscript } from './helpertranscript'
+import { LiveHelpersBadge } from './livehelpers'
 import { isFailedShellCall } from './shellerror'
 import { ToolOutputDetails } from './tooloutput'
 import { LiveTokenContext, TokenCount } from './tokencount'
@@ -3933,6 +3934,7 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
             recordedState={node.last_status?.status}
             reportedSummary={bannerDuplicatesStatus ? node.last_status?.summary : undefined}
             tier={node.tier} />
+          <LiveHelpersBadge key={`helpers:${slug}:${node.id}:${node.generation}`} slug={slug} nid={node.id} count={node.helper_count} />
         </>}
         actions={<>
             {live && <DndControl key={`dnd:${node.id}:${node.generation}`} slug={slug} nid={node.id}

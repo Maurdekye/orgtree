@@ -274,6 +274,8 @@ pub struct AgentHandle {
     pub tx: AgentTx,
     /// the overlay values the actor last published (read lock-free)
     pub view: ArcSwap<Value>,
+    /// Bounded helper details, read on demand; never copied into the org feed.
+    pub helpers: ArcSwap<Value>,
 }
 
 #[logged]
@@ -313,7 +315,7 @@ pub fn actor(engine: &Arc<Engine>, org_id: i64, agent_id: i64) -> Arc<AgentHandl
         }
     }
     let (tx, rx) = mpsc::unbounded_channel();
-    let handle = Arc::new(AgentHandle { id: agent_id, org_id, tx, view: ArcSwap::from_pointee(Value::Null) });
+    let handle = Arc::new(AgentHandle { id: agent_id, org_id, tx, view: ArcSwap::from_pointee(Value::Null), helpers: ArcSwap::from_pointee(json!({"count":0,"items":[],"truncated":false})) });
     let map = engine.agents.map.pin();
     // another caller may have raced us: keep whichever is in the map
     let winner = map

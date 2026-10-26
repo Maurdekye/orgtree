@@ -617,6 +617,8 @@ export interface TreeNode {
    *  outlive the turn's reply, which is why a node can sit busy for a long
    *  time with nothing else to show. FR-2's progress panel renders it. */
   bg_tasks?: number
+  /** Observed native helper identities, excluding background shell jobs. */
+  helper_count?: number
   elicitations?: AskInfo[]
   /** Backend-resolved current native harness, including custom-provider routes. */
   native_tool_harness?: string | null

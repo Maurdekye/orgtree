@@ -503,7 +503,7 @@ pub async fn list_orgs(engine: &Arc<Engine>, caller: &Caller) -> Result<Done> {
     Done::json(&crate::net::discovery_rows(&caller.org_slug, &locals, crate::net::remote_peers(engine)))
 }
 
-#[logged]
+#[nolog] // helper transcript payloads and descriptions are private content
 pub async fn read_transcript(engine: &Arc<Engine>, caller: &Caller, args: &Value) -> Result<Done> {
     let node = need_str(args, "node")?;
     let last = transcript_last(args)?;
@@ -512,6 +512,14 @@ pub async fn read_transcript(engine: &Arc<Engine>, caller: &Caller, args: &Value
     let t = target(&client, me.org_id, node).await?;
     if t.id != me.id {
         downward(&client, &me, &t, "read the transcript of").await?;
+    }
+    if args["helpers"]==true || !args["helper"].is_null() {
+        if args["helpers"]==true && !args["helper"].is_null() {crate::refuse!(BadRequest,"Choose helpers listing or one helper transcript, not both");}
+        drop(client);
+        if args["helpers"]==true {return Done::json(&crate::runtime::live_helpers::list(engine,t.id));}
+        let seq=args["helper"]["seq"].as_i64().ok_or_else(||crate::domain::user_err(crate::domain::UserError::BadRequest,"helper.seq must be a positive integer"))?;
+        let tool=need_str(&args["helper"],"tool")?;
+        return Done::json(&crate::runtime::live_helpers::transcript(engine,t.id,seq,tool).await?);
     }
     if let Err(err) = crate::runtime::history::ensure(engine, t.id).await {
         tracing::warn!(agent = t.id, error = %format!("{err:#}"), "earlier history could not be imported");

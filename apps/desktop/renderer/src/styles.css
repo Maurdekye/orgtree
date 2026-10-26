@@ -1938,6 +1938,21 @@ html.mobile .edge-jump { display: none; }
 .cc-head-meta .badge {
   max-width: 100%; white-space: normal; overflow-wrap: anywhere;
 }
+.live-helpers-badge { flex:none; cursor:pointer; font:inherit; font-size:11px; padding:2px 7px; }
+.live-helpers-panel { width:min(920px,calc(100vw - 32px)); max-height:calc(100dvh - 32px); }
+.live-helpers-body { padding:12px; min-height:0; overflow:auto; }
+.live-helpers-layout { display:grid; grid-template-columns:minmax(150px,230px) minmax(0,1fr); gap:14px; margin-top:12px; }
+.live-helpers-list { display:flex; flex-direction:column; gap:6px; max-height:58vh; overflow:auto; }
+.live-helpers-list button { text-align:left; padding:8px; white-space:normal; overflow-wrap:anywhere; }
+.live-helpers-list button.selected { border-color:var(--accent); }
+.live-helpers-list button span { display:block; font-size:11px; opacity:.75; margin-top:4px; }
+.live-helper-details { min-width:0; overflow-wrap:anywhere; }
+.live-helper-details h3 { margin:0 0 10px; font-size:14px; }
+.live-helper-details dl { display:grid; grid-template-columns:auto minmax(0,1fr); gap:4px 12px; margin:0 0 12px; font-size:12px; }
+.live-helper-details dt { opacity:.65; }
+.live-helper-details dd { margin:0; }
+.live-helper-details .helper-transcript { max-height:38vh; }
+@media(max-width:600px) { .live-helpers-layout { grid-template-columns:1fr; } .live-helpers-list { max-height:20vh; } }
 /* F-01 nav chips: superior at the top of the desk, direct reports at the
    bottom — small cards in the eye-tab language, one camera glide per click.
    Past 8 rows of chips a jump row scrolls (user 2026-10-20 09:41Z; the

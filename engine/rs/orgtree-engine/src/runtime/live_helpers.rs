@@ -1,18 +1,154 @@
 //! Bounded, actor-owned first-level helper identities. Never a native file reader.
 use serde_json::{json, Value};
+use std::collections::BTreeMap;
 
 #[derive(Default)]
-pub struct Helpers;
+pub struct Helpers {
+    items: BTreeMap<String, Value>,
+    truncated: bool,
+}
 
 #[nolog]
 impl Helpers {
-    pub fn claude(&mut self, _event: &Value, _at: &str) {}
-    pub fn codex(&mut self, _item: &Value, _at: &str) {}
-    pub fn muse(&mut self, _item: &Value, _done: bool, _at: &str) {}
-    pub fn link(&mut self, _tool: &str, _seq: i64) {}
-    pub fn finish_turn(&mut self) {}
-    pub fn clear(&mut self) {}
-    pub fn view(&self) -> Value { json!({"count":0,"items":[],"truncated":false}) }
+    fn put(&mut self, key: String, mut item: Value) {
+        if let Some(old)=self.items.get(&key) {
+            for field in ["started_at","seq","tool","task_id"] {
+                if !old[field].is_null() && (field=="started_at" || item[field].is_null()) {item[field]=old[field].clone();}
+            }
+            for field in ["description","kind","model"] {
+                if item[field].is_null() || item[field]=="" {item[field]=old[field].clone();}
+            }
+        } else if self.items.len()>=64 {
+            if let Some(ended)=self.items.iter().find(|(_,v)|v["live"]!=true).map(|(k,_)|k.clone()) {self.items.remove(&ended);}
+            else {self.truncated=true;return;}
+        }
+        item["id"]=json!(key);self.items.insert(key,item);
+    }
+    pub fn claude(&mut self, v: &Value, at: &str) {
+        if v.get("parent_tool_use_id").is_some_and(|p|!p.is_null()) {return;}
+        match v["type"].as_str().unwrap_or("") {
+            "assistant"=>for b in v.pointer("/message/content").and_then(Value::as_array).into_iter().flatten() {
+                if b["type"]!="tool_use" || !matches!(b["name"].as_str(),Some("Agent"|"Task")) {continue;}
+                let Some(tool)=id(&b["id"]) else {continue};let input=&b["input"];
+                self.put(format!("claude:{tool}"),json!({"harness":"claude","tool":tool,"kind":text(&input["subagent_type"],80),
+                    "description":text(&input["description"],400),"model":text(&input["model"],120),"started_at":at,"start_source":"observed",
+                    "status":"running","live":true,"background":input["run_in_background"]==true,"transcript":true}));
+            },
+            "user"=>for b in v.pointer("/message/content").and_then(Value::as_array).into_iter().flatten() {
+                if b["type"]!="tool_result" {continue;}
+                if let Some(tool)=id(&b["tool_use_id"]) {if let Some(item)=self.items.get_mut(&format!("claude:{tool}")) {
+                    // A background launch reply is not the child's completion.
+                    if item["background"]!=true {item["live"]=json!(false);item["status"]=json!(if b["is_error"]==true {"failed"} else {"completed"});}
+                }}
+            },
+            "system"=>{
+                let sub=v["subtype"].as_str().unwrap_or("");
+                let rows:Vec<&Value>=if sub=="background_tasks_changed" {v["tasks"].as_array().into_iter().flatten().collect()} else {vec![v]};
+                let mut present=std::collections::HashSet::new();
+                for row in rows {
+                    let Some(task)=id(&row["task_id"]) else {continue};
+                    let existing=self.items.iter().find(|(_,i)|i["harness"]=="claude" && i["task_id"]==task).map(|(k,_)|k.clone());
+                    let key=existing.or_else(||id(&row["tool_use_id"]).map(|t|format!("claude:{t}")));
+                    let Some(key)=key else {continue};
+                    // Only a known Agent/Task call can own a background identity.
+                    // Native background snapshots also contain ordinary shell jobs.
+                    let Some(item)=self.items.get_mut(&key) else {continue};
+                    item["task_id"]=json!(task);present.insert(key);
+                    if sub=="task_notification" {
+                        if let Some(status)=row["status"].as_str().filter(|s|matches!(*s,"completed"|"failed"|"stopped"|"cancelled"|"killed")) {
+                            item["live"]=json!(false);item["status"]=json!(status);
+                        }
+                    } else if sub=="task_started" || sub=="background_tasks_changed" {
+                        item["background"]=json!(sub=="background_tasks_changed" || item["background"]==true || row["is_background"]==true);
+                        item["status"]=json!("running");item["live"]=json!(true);
+                    }
+                }
+                if sub=="background_tasks_changed" && v["tasks"].is_array() {
+                    for (key,item) in &mut self.items {if item["harness"]=="claude" && item["background"]==true && !item["task_id"].is_null() && !present.contains(key) {
+                        item["live"]=json!(false);item["status"]=json!("ended");
+                    }}
+                }
+            },
+            "result"=>self.finish_turn(),
+            _=>{}
+        }
+    }
+    pub fn codex(&mut self, item: &Value, at: &str) {
+        if item["type"]!="collabAgentToolCall" {return;}
+        let states=item["agentsStates"].as_object();
+        let receivers:Vec<String>=item["receiverThreadIds"].as_array().into_iter().flatten().filter_map(id)
+            .chain(states.into_iter().flat_map(|m|m.keys().filter(|k|k.len()<=160).cloned())).collect();
+        for child in receivers {
+            let key=format!("codex:{child}");let native=states.and_then(|m|m.get(&child));
+            let status=native.and_then(|v|v["status"].as_str()).unwrap_or("unknown");
+            if status=="unknown" && self.items.contains_key(&key) {continue;}
+            self.put(key,json!({"harness":"codex","child_id":child,"tool":text(&item["id"],160),"kind":"Helper agent",
+                "description":text(&item["prompt"],400),"model":text(&item["model"],120),"started_at":at,"start_source":"observed",
+                "status":status,"live":status=="running","background":true,"transcript":false}));
+        }
+    }
+    pub fn muse(&mut self, item: &Value, done: bool, at: &str) {
+        if item["kind"]!="subagent" {return;}let Some(child)=id(&item["subagentId"]) else {return};
+        let status=item["status"].as_str().unwrap_or(if done {"ended"} else {"unknown"});
+        self.put(format!("muse:{child}"),json!({"harness":"muse","child_id":child,"tool":text(&item["itemId"],160),
+            "kind":text(&item["role"],80),"description":text(&item["objective"],400),"model":text(&item["model"],120),
+            "started_at":at,"start_source":"observed","status":status,"live":!done && status=="inProgress","transcript":false}));
+    }
+    pub fn link(&mut self, tool: &str, seq: i64) {
+        for item in self.items.values_mut() {if item["tool"]==tool {item["seq"]=json!(seq);}}
+    }
+    pub fn finish_turn(&mut self) {
+        for item in self.items.values_mut() {if item["background"]!=true && item["live"]==true {
+            item["live"]=json!(false);item["status"]=json!("unknown after parent turn");
+        }}
+    }
+    pub fn clear(&mut self) {*self=Self::default();}
+    pub fn view(&self) -> Value {
+        json!({"count":self.count(),"items":self.items.values().collect::<Vec<_>>(),"truncated":self.truncated})
+    }
+    pub fn count(&self) -> usize {self.items.values().filter(|v|v["live"]==true).count()}
+}
+
+#[nolog]
+fn id(value: &Value) -> Option<String> {
+    value.as_str().filter(|s|!s.is_empty() && s.len()<=160 && !s.contains('\0')).map(str::to_owned)
+}
+#[nolog]
+fn text(value: &Value, cap: usize) -> Value {
+    value.as_str().map(|s|json!(s.chars().filter(|c|*c!='\0').take(cap).collect::<String>())).unwrap_or(Value::Null)
+}
+
+/// Callers authenticate/authorize the parent agent before entering here. Never
+/// accepts a child session or filesystem path, and never starts an actor/CLI.
+#[nolog]
+pub fn list(engine: &crate::engine::Engine, agent: i64) -> Value {
+    engine.agents.get(agent).map(|h|h.helpers.load().as_ref().clone())
+        .unwrap_or_else(||json!({"count":0,"items":[],"truncated":false}))
+}
+
+#[nolog]
+pub async fn transcript(engine: &crate::engine::Engine, agent: i64, seq: i64, tool: &str) -> anyhow::Result<Value> {
+    if seq<1 || id(&json!(tool)).is_none() {crate::refuse!(BadRequest,"helper requires a positive seq and a retained tool ID");}
+    let client=engine.db.get().await?;
+    let row=client.query_opt("SELECT body, tool_inputs -> $3::text -> 'helper_transcript' FROM ot.convo WHERE agent_id = $1 AND seq = $2",&[&agent,&seq,&tool]).await?
+        .ok_or_else(||crate::domain::user_err(crate::domain::UserError::NotFound,"That tool call is not retained."))?;
+    let body:Value=row.get(0);
+    let chip=body["tools"].as_array().into_iter().flatten().find(|c|c["id"].as_str()==Some(tool))
+        .ok_or_else(||crate::domain::user_err(crate::domain::UserError::NotFound,"That tool call is not retained."))?;
+    let live=chip.get("result").is_none() && chip.get("error").is_none() && chip.get("ended_at").is_none()
+        && engine.agents.get(agent).is_some_and(|h| {
+            let runtime=h.view.load();
+            let call=chip["started_at"].as_str().and_then(crate::util::parse_ts);
+            let turn=runtime["turn_started_at"].as_str().and_then(crate::util::parse_ts);
+            runtime["busy"]==true && call.zip(turn).is_some_and(|(call,turn)|call>=turn)
+        });
+    let Some(mut snapshot)=row.get::<_,Option<Value>>(1) else {
+        let waiting=live && chip["helper_transcript"]==true;
+        return Ok(json!({"messages":[],"live":waiting,"note":if waiting {"Waiting for helper transcript records…"} else {
+            "A helper transcript was not retained for this call. New Claude Code helpers are captured during their parent's turn; a transcript is not available for this harness or older call."
+        }}));
+    };
+    super::helper_transcript::redact_snapshot(&mut snapshot);snapshot["live"]=json!(live);Ok(snapshot)
 }
 
 #[cfg(test)]

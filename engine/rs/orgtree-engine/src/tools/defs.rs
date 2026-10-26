@@ -717,10 +717,12 @@ fn build_tool_list_orgs() -> Value {
 fn build_tool_read_transcript() -> Value {
     tool(
         "orgtree_read_transcript",
-        "Read recent conversation rows, supplied thinking and sealed markers for yourself or an agent below you; last defaults 30, maximum 80.",
+        "Read recent conversation rows, supplied thinking and sealed markers for yourself or an agent below you; last defaults 30, maximum 80. helpers lists observed helper agents; helper reads one retained helper transcript.",
         json!({
             "node": { "type": "string" },
             "last": { "type": "integer", "minimum": 1, "maximum": 80, "description": "how many recent rows (default 30)" },
+            "helpers": {"type":"boolean","description":"true lists bounded live/recent helper identities and details; no native execution"},
+            "helper": {"type":"object","additionalProperties":false,"required":["seq","tool"],"properties":{"seq":{"type":"integer","minimum":1},"tool":{"type":"string"}},"description":"read one listed helper's retained transcript; mutually exclusive with helpers"},
         }),
         &["node"],
     )
@@ -1836,7 +1838,9 @@ mod builder_stack_tests {
         }
         // The same assigned base exposes supplied thinking and sealed markers.
         let transcript=expected.as_array_mut().unwrap().iter_mut().find(|c|c["name"]=="orgtree_read_transcript").unwrap();
-        transcript["description"]=serde_json::json!("Read recent conversation rows, supplied thinking and sealed markers for yourself or an agent below you; last defaults 30, maximum 80.\nGuide: orgtree-tool-read-transcript.");
+        let helper_card=super::build_tool_read_transcript();
+        transcript["description"]=helper_card["description"].clone();
+        for field in ["helpers","helper"] {transcript["inputSchema"]["properties"][field]=helper_card["inputSchema"]["properties"][field].clone();}
         // Approved node-placement contracts (bfa9369) and their concise wording.
         // Keep the captured required-field text and guide; schemas/order stay guarded.
         for (name, description) in [

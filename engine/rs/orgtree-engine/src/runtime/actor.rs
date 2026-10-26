@@ -992,6 +992,7 @@ struct Actor {
     codex_total: Option<Value>,
     /// the CLI's subagents and background tasks (P33/P39)
     tasks: crate::runtime::tasks::Tasks,
+    live_helpers: super::live_helpers::Helpers,
     /// Private first-level helper output; never part of the parent's feed.
     helpers: std::collections::BTreeMap<(i64, String), super::helper_transcript::Transcript>,
     helper_due: Option<Instant>,
@@ -1132,6 +1133,7 @@ impl Actor {
             codex_total: None,
             tasks: Default::default(),
             helpers: Default::default(),
+            live_helpers: Default::default(),
             helper_due: None,
             muse_bg: HashMap::new(),
             claude_bg: HashMap::new(),
@@ -4367,6 +4369,8 @@ impl Actor {
     /// The CLI is gone: background tasks it still held died with it. Tell
     /// the agent once (3.x `_bg_orphaned`); the counts drop to zero.
     fn orphans(&mut self, reason: &str) {
+        self.live_helpers.clear();
+        self.publish();
         let orphans = self.tasks.orphaned();
         if orphans.is_empty() {
             return;
@@ -4446,6 +4450,7 @@ impl Actor {
             self.record_interrupt("cancelled",false,&q.by,q.boundary,Some("the turn was stopped before its queued boundary"));
         }
         let t = self.turn.take();
+        self.live_helpers.finish_turn();
         self.stream("tool_writing", json!({}));
         self.pending_effort = None;
         self.steer_since = None;
@@ -4948,6 +4953,12 @@ impl Actor {
         if let Some(t) = self.turn.as_mut() {
             t.last_event = Instant::now();
         }
+        if v.get("parent_tool_use_id").is_none_or(|p|p.is_null())
+            && matches!(v["type"].as_str(),Some("assistant"|"user"|"system"|"result")) {
+            let before=self.live_helpers.view();
+            self.live_helpers.claude(&v,&now_iso());
+            if before!=self.live_helpers.view() {self.publish();}
+        }
         let counts = self.tasks.counts();
         let mut reported = None;
         if let Some(stopped) = self.tasks.observe(&v) {
@@ -5366,6 +5377,9 @@ impl Actor {
     #[nolog]
     async fn on_muse_item(&mut self, params: &Value, done: bool, started: bool) -> Result<()> {
         let item=&params["item"];
+        if item["kind"]=="subagent" {
+            self.live_helpers.muse(item,done,&now_iso());self.publish();
+        }
         if done && item["kind"]=="agentMessage"
             && self.complete_retained("muse",item["itemId"].as_str().unwrap_or(""),&[item["text"].as_str().unwrap_or("").to_string()]).await?.is_some() { return Ok(()); }
         if self.turn.is_none() {
@@ -6391,6 +6405,11 @@ impl Actor {
     #[nolog]
     async fn on_codex_item(&mut self, params: &Value, completed: bool) -> Result<()> {
         let item=&params["item"];
+        if item["type"]=="collabAgentToolCall"
+            && self.turn.as_ref().and_then(|t|t.codex_turn.as_deref())==params["turnId"].as_str()
+            && matches!(&self.proc,Some(Proc::Codex(p)) if params["threadId"].as_str()==Some(p.session_id.as_str())) {
+            self.live_helpers.codex(item,&now_iso());self.publish();
+        }
         if completed && matches!(item["type"].as_str(),Some("agentMessage"|"plan"))
             && self.complete_retained("codex",item["id"].as_str().unwrap_or(""),&[item["text"].as_str().unwrap_or("").to_string()]).await?.is_some() { return Ok(()); }
         if self.turn.is_none() {
@@ -7078,6 +7097,7 @@ impl Actor {
         drop(client);
         for chip in row["tools"].as_array().into_iter().flatten().filter(|c| c["helper_transcript"] == true) {
             if let Some(id) = chip["id"].as_str() {
+                self.live_helpers.link(id,seq);
                 let key = (seq, id.to_string());
                 if self.helpers.len() < super::helper_transcript::MAX_CALLS || self.helpers.contains_key(&key) {
                     let transcript = self.helpers.entry(key).or_default();
@@ -7089,6 +7109,7 @@ impl Actor {
         if let Some(turn) = self.turn.as_mut() {
             turn.rows.insert(mid, (seq, row));
         }
+        self.handle.helpers.store(Arc::new(self.live_helpers.view()));
         if wrote_text {
             self.text_landed().await;
         }
@@ -8451,6 +8472,7 @@ impl Actor {
             "mcp_readiness_reason": self.mcp.reason,
             "tasks": self.tasks.counts().0,
             "bg_tasks": self.tasks.counts().1 + self.muse_bg.len(),
+            "helper_count": self.live_helpers.count(),
             "last_error": self.last_error,
             "activity": activity,
             "cache_forecast": self.forecast,
@@ -8466,6 +8488,7 @@ impl Actor {
 
     #[nolog]
     fn publish(&self) {
+        self.handle.helpers.store(Arc::new(self.live_helpers.view()));
         let v = self.runtime_value();
         let old=self.handle.view.swap(Arc::new(v.clone()));
         crate::runtime::watchdogs::events::runtime(&self.engine,self.org_id,self.id,&old,&v);

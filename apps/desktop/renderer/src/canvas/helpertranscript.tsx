@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { req } from '../api'
 import type { ChatMessage, ToolChip } from '../types'
 import { Msg } from './desk'
@@ -39,15 +39,22 @@ function retainedMessage(message: HelperMessage): ChatMessage {
 }
 
 /** Mounted only inside an expanded call. Native child details cannot recurse. */
-export function HelperTranscript({ slug, nid, seq, tool }: {
-  slug: string; nid: string; seq?: number; tool?: string | null
+export function HelperTranscript({ slug, nid, seq, tool, autoFollow = false }: {
+  slug: string; nid: string; seq?: number; tool?: string | null; autoFollow?: boolean
 }) {
   const [snapshot, setSnapshot] = useState<Snapshot>()
   const [error, setError] = useState('')
   const [retry, setRetry] = useState(0)
   const folds = useFoldState()
+  const section = useRef<HTMLElement>(null)
+  const following = useRef(true)
   const messages = useMemo(() => snapshot?.messages.map(retainedMessage) ?? [], [snapshot])
   useEffect(() => { folds.prune(foldKeysOf(messages)) }, [messages, folds.prune])
+  useEffect(() => {
+    if (!autoFollow || !following.current) return
+    const frame = requestAnimationFrame(() => { const el = section.current; if (el) el.scrollTop = el.scrollHeight })
+    return () => cancelAnimationFrame(frame)
+  }, [snapshot, autoFollow])
   useEffect(() => {
     setSnapshot(undefined); setError('')
     if (seq === undefined || !tool) return
@@ -69,7 +76,8 @@ export function HelperTranscript({ slug, nid, seq, tool }: {
     void read()
     return () => { active = false; clearTimeout(timer); abort.abort() }
   }, [slug, nid, seq, tool, retry])
-  return <section className="helper-transcript" aria-label="Helper transcript">
+  return <section className="helper-transcript" aria-label="Helper transcript" ref={section}
+    onScroll={autoFollow ? e => { const el=e.currentTarget; following.current=el.scrollHeight-el.scrollTop-el.clientHeight<40 } : undefined}>
     <div className="helper-transcript-heading">Helper transcript{snapshot?.live && <span className="dim"> · live</span>}</div>
     {seq === undefined || !tool ? <div className="dim">A helper transcript was not retained for this older call.</div>
       : error ? <div role="alert">{error} <button onClick={() => setRetry(n => n + 1)}>Retry</button></div>

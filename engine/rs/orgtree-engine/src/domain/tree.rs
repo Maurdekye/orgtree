@@ -465,6 +465,7 @@ pub fn idle_runtime() -> Vec<(String, Value)> {
         ("mcp_readiness_reason".into(), Value::Null),
         ("tasks".into(), json!(0)),
         ("bg_tasks".into(), json!(0)),
+        ("helper_count".into(), json!(0)),
         ("activity".into(), json!({ "phase": "idle" })),
         ("cache_forecast".into(), Value::Null),
         ("ran_as_label".into(), Value::Null),

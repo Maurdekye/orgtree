@@ -1285,6 +1285,7 @@ export interface CanvasNode {
   tasks?: number
   /** background subagents (TreeNode.bg_tasks) — FR-2's progress panel */
   bg_tasks?: number
+  helper_count?: number
   last_error?: string | null
 }
 
