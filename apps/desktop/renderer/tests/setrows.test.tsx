@@ -166,7 +166,7 @@ test('§7 a toggle names itself to a screen reader without reading out its own '
     // Claude Sonnet/Opus through Antigravity, warm processes, working checkups,
     // MCP readiness wait, idle docket reminders, blocked-docket reminders, the
     // project listener wake (user 2026-10-18 07:47Z) and show legacy models
-    // (Terra, Gemini Pro). (4.x dropped the Quick Staffing
+    // (Gemini Pro; Terra left it 2026-10-26). (4.x dropped the Quick Staffing
     // account-selection switch, PLAN I5b, and the Luna reserve preference,
     // B5 / decision 31.)
     // The Orgtree feedback switch and both app-wide Credit cost bubbling
