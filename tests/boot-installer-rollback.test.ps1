@@ -4,6 +4,11 @@ $ErrorActionPreference='Stop'
 $fixture=[IO.File]::ReadAllText((Join-Path $PSScriptRoot 'boot-installer.test.ps1'))
 $prefix=$fixture.Substring(0,$fixture.IndexOf('# Per-user positive path:'))
 Invoke-Expression $prefix
+$paths=Get-BootPaths $dir
+[IO.Directory]::CreateDirectory((Split-Path $paths.Python)) | Out-Null
+[IO.File]::WriteAllText($paths.Python,'synthetic; never executed')
+[IO.File]::WriteAllText($paths.Host,'synthetic; never executed')
+[IO.File]::WriteAllText((Get-HelperPath $dir),'synthetic; never executed')
 $results=[Collections.Generic.List[object]]::new()
 function Case([string]$Name,[scriptblock]$Body) {
     try { & $Body; $results.Add(@{name=$Name;pass=$true}) }
@@ -17,7 +22,7 @@ function Save-BootInstallSnapshot($Snapshot) { $script:rollback=$Snapshot }
 function Remove-BootInstallSnapshot { $script:rollback=$null }
 function Reset-Pair {
     $script:record=$original.Clone();$script:record.RunOnStartup=1
-    $script:task=New-FakeTask (New-BootTaskXml $script:record)
+    $script:task=New-FakeTask ((New-BootTaskXml $script:record).Replace('<BootTrigger><Enabled>true</Enabled>','<BootTrigger><Enabled>false</Enabled>'))
     $script:helper=New-HelperFake (New-HelperTaskXml $script:record)
     $script:signin=$null;$script:interactive=$null;$script:rollback=$null
     $script:events.Clear();$script:processes=@()
@@ -31,10 +36,12 @@ foreach($stage in @('Prepare','Copy','Register')) {
         $beforeBoot=$script:task.Xml;$beforeHelper=$script:helper.Xml
         Invoke-BootLifecycle Prepare $dir $sid
         if($stage -eq 'Register') {
-            # Simulate Register having replaced the task definitions, then a
-            # later installer error. It must not have launched tasks yet.
-            $script:task=New-FakeTask ($beforeBoot.Replace('<Enabled>true</Enabled>','<Enabled>false</Enabled>'))
-            $script:helper=New-HelperFake ($beforeHelper.Replace('<Enabled>true</Enabled>','<Enabled>false</Enabled>'))
+            # Run the real Register path over empty synthetic payload files.
+            # NSIS defers the launches until its final commit, so a later
+            # copy/registry failure can restore states without any start.
+            Invoke-BootLifecycle Register $dir -DeferStart
+            Assert (@($script:events|Where-Object {$_ -eq 'register:20'}).Count -eq 1) 'Actual Register did not execute'
+            Assert (-not @($script:events|Where-Object {$_ -match '^(run|helper-run)$'}).Count) 'Register started tasks before installer commit'
         }
         Invoke-BootLifecycle Rollback $dir $sid
         Assert $script:task.Enabled 'Boot task left disabled after failure'
