@@ -13,8 +13,8 @@ the agent thru the app."). Inline HTML presentations are interactive but one-way
 or bridge, and the app never listens to their frame. Apps reach agents only through
 declared events (user: "i want to keep agent notification purely through the event
 system, no targeting agents directly (makes them more portable and easier to
-manipulwte)"). See [inline presentations](docs/agents/docket-and-presentations.md#inline-html-presentations-2026-10-26).
-[decided: user 2026-10-26; verified: `canvas/{docs,gallery}.tsx`]
+manipulwte)"); mail.send is removed (old declarations import, never granted). See [inline presentations](docs/agents/docket-and-presentations.md#inline-html-presentations-2026-10-26).
+[decided: user 2026-10-26; verified: `canvas/{docs,gallery}.tsx`, `domain/apps/{wire,policy,bridge}.rs`]
 
 Read this file before working in this repository. It is the startup guide, not a landing log. Detailed rules, source references and the complete earlier notes live in the [topic index](docs/agents/README.md).
 
