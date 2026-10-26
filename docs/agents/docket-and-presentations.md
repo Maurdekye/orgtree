@@ -8,6 +8,50 @@ that reader's candidate without re-running its initial selection choice.
 [verified: `canvas/useworkitems.ts`, `canvas/{docket,agentdocket}.tsx`,
 `tests/docketcontinuation.test.tsx`; 2026-10-23]
 
+## Inline HTML presentations (2026-10-26)
+
+The reader pane shows the selected HTML presentation inline (`HtmlPresentationView`
+in `canvas/docs.tsx`, mounted by the shared gallery `DocPane`); list rows and History
+never render one. It fetches the stored preview the window shows (the
+`/documents/{id}/mockup` route, captured local assets inlined) with the app's own
+credentials and renders it as `srcdoc`:
+
+- `sandbox="allow-scripts"` only: an opaque origin with no app DOM, storage,
+  credentials, forms, popups, modals, downloads or top navigation.
+- The window viewer's CSP (`http/docs.rs` `mockup`) as a `<meta>` after the author's
+  doctype, so standards or quirks mode matches the window, and before every author
+  element; then `<base href="about:srcdoc">`, which keeps `#section` links inside the
+  document, and a no-referrer policy. The doctype scan is linear: agent-written
+  leading comments must not be able to stall the renderer.
+- The main session's request guard (`main/windows.ts` `configureEngineSession`)
+  cancels every subframe request that is not `about:`, closing CSP's navigation gap;
+  only the app's own top frame is signed or granted a permission.
+- One frame at a time, up to 4 MiB of stored preview (`HTML_PRESENTATION_INLINE_MAX`,
+  provisional). A larger preview, possible only when a folder bundle's assets are
+  inlined, shows a note and keeps the window link; a body whose Content-Length
+  declares it too large is cancelled unread.
+
+**Fit width** (the default) is an in-frame script: content wider than the frame is
+scaled down with CSS `zoom` on the root element, measured unzoomed, and fitted again on
+resize, load and structural changes. **100%** removes the zoom. The reader posts the
+choice into the frame (`{orgtreePresentationFit}`), so switching keeps the
+presentation's own state, and the choice carries to the next presentation opened in
+that window. A link click that would leave the document does nothing, as in the
+window viewer, while #fragment and javascript: links work; a navigation started by a
+script is cancelled by the guard and leaves an error page in the frame, where the
+window keeps its page. That parent-to-frame post is the only message: the app registers no
+`message` listener for presentation frames.
+
+Presentations are one-way and custom apps are the two-way feature; the two stay
+separate (user 2026-10-26 21:36:16Z m2da6e3eb205d, mc5f0c7fac8ff). App-to-agent
+notification goes only through declared fired events, never mail or direct agent
+targeting (user m61de6ee6429c). **Open in a new window** in the reader toolbar, and
+**Open HTML presentation in a new window** on the context menu and in History, open the
+isolated window viewer, as one click on a canvas chip or desk badge does.
+[decided: user 2026-10-26 m027a7754ab06, m180c5c6cad58, m2da6e3eb205d, mc5f0c7fac8ff,
+m61de6ee6429c; coordinator m9834e9b5599b; verified: `canvas/{docs,gallery}.tsx`,
+`api.ts::getPresentationHtml`, `main/windows.ts`, `tests/htmlpresentation.test.tsx`; 2026-10-26]
+
 ## Bounded gallery location (2026-10-23)
 
 Explicit/continued `locate` reads return only the target's admitted page and

@@ -3962,7 +3962,8 @@
    "components": [
     "apps/desktop/renderer/src/canvas/gallery.tsx#DocGalleryModal",
     "apps/desktop/renderer/src/canvas/gallery.tsx#AgentGalleryModal",
-    "apps/desktop/renderer/src/canvas/gallery.tsx#AgentGalleryView"
+    "apps/desktop/renderer/src/canvas/gallery.tsx#AgentGalleryView",
+    "apps/desktop/renderer/src/canvas/docs.tsx#HtmlPresentationView"
    ]
   },
   {

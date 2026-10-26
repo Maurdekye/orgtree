@@ -6,6 +6,17 @@ lock owner scope before app rows; nested fire actions run after all app gates
 and DB connections are released. See [Apps](docs/rust-engine/custom-apps.md).
 [verified: `domain/apps/events.rs`; 2026-10-26]
 
+Presentations and custom apps stay separate features (user 2026-10-26: "its also
+good to spesrate them from a ux perspective; predentstions are intended as a one-way
+communication, whearas apps are meant as a two-way communication, where the user
+cimmunicates back to the agent thru the app."). The reader's inline HTML presentation is
+interactive for viewing only: no SDK or postMessage bridge, and the app never listens to
+its frame. Apps notify agents only through declared fired events (user 2026-10-26: "i
+want to keep agent notification purely through the event system, no targeting agents
+directly (makes them more portable and easier to manipulwte)"). See
+[inline presentations](docs/agents/docket-and-presentations.md#inline-html-presentations-2026-10-26).
+[decided: user 2026-10-26; verified: `canvas/{docs,gallery}.tsx`, `main/windows.ts`]
+
 Read this file before working in this repository. It is the startup guide, not a landing log. Detailed rules, source references and the complete earlier notes live in the [topic index](docs/agents/README.md).
 
 Installer shutdown fixtures need a trusted synthetic data parent, even when a
