@@ -47,6 +47,12 @@ pub async fn bridge(State(engine):State<Arc<Engine>>,Path(slug):Path<String>,hea
     native_user(&engine,&headers)?;let org=org(&engine,&slug)?;
     Ok(Json(crate::domain::apps::bridge::run(&engine,&org,&input).await?))
 }
+/// Desktop windows report which panels they actually run, never authority.
+#[nolog]
+pub async fn runtime(State(engine):State<Arc<Engine>>,Path(slug):Path<String>,headers:axum::http::HeaderMap,Json(input):Json<Value>)->ApiResult<Json<Value>>{
+    native_user(&engine,&headers)?;let org=org(&engine,&slug)?;
+    Ok(Json(crate::domain::apps::runtime::native(&engine,&org,&input).await?))
+}
 
 #[cfg(test)] mod native_control {
     #[test] fn custom_apps_native_guard_rejects_scoped_and_bearer_credentials(){

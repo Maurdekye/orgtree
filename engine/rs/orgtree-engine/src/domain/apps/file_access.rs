@@ -153,7 +153,7 @@ pub async fn native(engine:&Arc<Engine>,org:&Arc<OrgHandle>,input:&Value)->Resul
             if !matches!(call,FileCall::Choose{}){
                 if let Some(reference)=authorized(engine,org,&session,&bound,&value,&call).await?{return execute(engine,org,&session,&bound,&call,reference,None).await;}
             }
-            let challenge=engine.custom_apps.file_access.ask(&session,&bound,call.clone())?;
+            bridge::interactive(&value)?;let challenge=engine.custom_apps.file_access.ask(&session,&bound,call.clone())?;
             Ok(json!({"permission_required":{"challenge":challenge,"app":bound.app,"panel":bound.panel,"name":value["name"],"label":value["label"],"capability":"files.read","request":call}}))
         },
         NativeRequest::Decide{session,challenge,choice,path}=>{
@@ -410,9 +410,9 @@ pub async fn agent(engine:&Arc<Engine>,org:&Arc<OrgHandle>,caller:&Caller,input:
     if let Some(length)=object.remove("length"){object.insert("limit".into(),length);}
     object.insert("action".into(),json!(if action=="file_open"{"open"}else{"read"}));
     let call:FileCall=serde_json::from_value(args).map_err(|_|crate::domain::UserError::BadRequest("invalid app file read arguments".into()))?;validate(&call)?;
-    let client=engine.db.get().await?;let row=client.query_opt("SELECT p.app_id,a.rev FROM ot.custom_panels p JOIN ot.custom_apps a ON a.org_id=p.org_id AND a.id=p.app_id WHERE p.org_id=$1 AND p.id=$2",&[&org.id,&panel]).await?;
-    let Some(row)=row else{crate::refuse!(NotFound,"panel not found");};let app:String=row.get(0);let rev:i64=row.get(1);drop(client);
-    let gate=engine.custom_apps.gate(org.id,&app)?;let bound=Bound{org:org.id,app,panel,rev,gate:gate.clone()};let _guard=gate.lock.lock().await;
+    let client=engine.db.get().await?;let row=client.query_opt("SELECT p.app_id,a.rev,p.run_generation FROM ot.custom_panels p JOIN ot.custom_apps a ON a.org_id=p.org_id AND a.id=p.app_id WHERE p.org_id=$1 AND p.id=$2",&[&org.id,&panel]).await?;
+    let Some(row)=row else{crate::refuse!(NotFound,"panel not found");};let app:String=row.get(0);let rev:i64=row.get(1);let generation:i64=row.get(2);drop(client);
+    let gate=engine.custom_apps.gate(org.id,&app)?;let bound=Bound{org:org.id,app,panel,rev,generation,gate:gate.clone()};let _guard=gate.lock.lock().await;
     // Agent reads need the saved panel identity, not a running HTML host.
     let client=engine.db.get().await?;
     let value:Value=client.query_one("SELECT jsonb_build_object('origin',a.origin,'capabilities',a.capabilities,'permissions',a.permissions) FROM ot.custom_apps a JOIN ot.custom_panels p ON p.org_id=a.org_id AND p.app_id=a.id WHERE a.org_id=$1 AND a.id=$2 AND a.rev=$3 AND p.id=$4",&[&bound.org,&bound.app,&bound.rev,&bound.panel]).await?.get(0);drop(client);declared(&value)?;
@@ -448,7 +448,7 @@ mod tests{
     }
     #[test] fn app_files_challenges_and_once_references_are_host_panel_and_revision_bound(){
         let hosts=bridge::Registry::default();let files=Registry::default();
-        let bound=Bound{org:1,app:"app".into(),panel:"panel".into(),rev:1,gate:hosts.gate(1,"app").unwrap()};
+        let bound=Bound{org:1,app:"app".into(),panel:"panel".into(),rev:1,generation:1,gate:hosts.gate(1,"app").unwrap()};
         let challenge=files.ask("host",&bound,FileCall::Choose{}).unwrap();
         let mut other=bound.clone();other.panel="other".into();assert!(files.consume("host",&other,&challenge).is_err());
         other=bound.clone();other.rev=2;assert!(files.consume("host",&other,&challenge).is_err());

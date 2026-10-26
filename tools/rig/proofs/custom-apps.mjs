@@ -66,8 +66,11 @@ export default async function(rig){
   p.check('Always grants a declared capability and next action uses it',chart.items.length===2&&(await bridge({action:'call',session:host.session,request:{action:'org.read',limit:1}})).items.length===1&&(await get(app.id)).permissions['org.read']==='allow')
   await grant(app,'events.fire','deny')
   p.check('Deny and forged general action refuse',await refused(()=>bridge({action:'call',session:host.session,request:action}),403)&&await refused(()=>bridge({action:'call',session:host.session,request:{action:'publish'}}),400))
+  // USER 2026-10-26: hiding keeps a panel running; powering it off ends its host.
   one=await panel(one.id);one=await apps({action:'panel_update',panel:one.id,expected_rev:one.rev,open:false})
-  p.check('closing a panel revokes its host session',await refused(()=>bridge({action:'call',session:host.session,request:{action:'org.read'}}),403))
+  p.check('hiding a panel keeps its running host session',one.running===true&&(await bridge({action:'call',session:host.session,request:{action:'org.read',limit:1}})).items.length===1)
+  one=await apps({action:'panel_stop',panel:one.id,expected_rev:one.rev})
+  p.check('powering a panel off revokes its host session',one.running===false&&await refused(()=>bridge({action:'call',session:host.session,request:{action:'org.read'}}),403))
   one=await apps({action:'panel_open',panel:one.id});host=await bridge({action:'session_open',panel:one.id})
   const replaced=await apps({action:'app_update',app:app.id,expected_rev:app.rev,definition:{...definition,description:'Updated code definition'}})
   p.check('code replacement clears grants and revokes prior sessions',same(replaced.permissions,{})&&await refused(()=>bridge({action:'call',session:host.session,request:{action:'org.read'}}),403))

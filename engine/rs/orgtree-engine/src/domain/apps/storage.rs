@@ -11,7 +11,7 @@ use super::wire::{self, Definition, Placement, Request};
 const APP_META:&str="jsonb_build_object('id',a.id,'origin',a.origin,'name',a.name,'description',a.description,'capabilities',a.capabilities,'events',a.declared_events,'width',a.width,'height',a.height,'rev',a.rev,'permissions',a.permissions,'permission_rev',a.permission_rev,'is_new',a.is_new,'created_by',a.created_by,'updated_at',a.updated_at)";
 // Panel links were removed (user 2026-10-26): the inert linked_agents column is
 // never read or written; agents follow a panel's events with app_listener dogs.
-const PANEL_META:&str="jsonb_build_object('id',p.id,'app',p.app_id,'label',p.label,'rev',p.rev,'open',p.is_open,'placement',p.placement,'updated_at',p.updated_at,'used_at',p.used_at,'event_seq',p.event_seq)";
+const PANEL_META:&str="jsonb_build_object('id',p.id,'app',p.app_id,'label',p.label,'rev',p.rev,'open',p.is_open,'running',p.is_running,'run_generation',p.run_generation,'placement',p.placement,'updated_at',p.updated_at,'used_at',p.used_at,'event_seq',p.event_seq)";
 
 #[nolog]
 pub(crate) async fn file_authority(engine:&Arc<Engine>,org:&Arc<OrgHandle>,caller:&Caller)->Result<()> {
@@ -85,13 +85,14 @@ pub(crate) async fn run_locked(engine:&Arc<Engine>,org:&Arc<OrgHandle>,caller:Op
             let producer=if let Some(caller)=caller{json!({"kind":"agent","id":caller.agent_id,"name":caller.name})}else{json!({"kind":"user"})};
             let out=super::events::publish(&tx,org.id,&panel,&name,&payload,producer).await?;changed=true;out
         },
-        Request::List{kind,app:filter,after,limit,open}=>{
+        Request::List{kind,app:filter,after,limit,open,running}=>{
             let n=page(limit)?;let after=after.unwrap_or_default();let kind=kind.unwrap_or_else(||"apps".into());
             let rows=match kind.as_str(){
                 "apps"=>tx.query(&format!("SELECT {APP_META} FROM ot.custom_apps a WHERE a.org_id=$1 AND a.id>$2 ORDER BY a.id LIMIT $3"),&[&org.id,&after,&(n+1)]).await?,
                 "panels"=>{
-                    let active=match open{Some(true)=>" AND p.is_open",Some(false)=>" AND NOT p.is_open",None=>""};
-                    tx.query(&format!("SELECT {PANEL_META} FROM ot.custom_panels p WHERE p.org_id=$1 AND p.id>$2 AND ($3::text IS NULL OR p.app_id=$3){active} ORDER BY p.id LIMIT $4"),&[&org.id,&after,&filter,&(n+1)]).await?
+                    let visible=match open{Some(true)=>" AND p.is_open",Some(false)=>" AND NOT p.is_open",None=>""};
+                    let active=match running{Some(true)=>" AND p.is_running",Some(false)=>" AND NOT p.is_running",None=>""};
+                    tx.query(&format!("SELECT {PANEL_META} FROM ot.custom_panels p WHERE p.org_id=$1 AND p.id>$2 AND ($3::text IS NULL OR p.app_id=$3){visible}{active} ORDER BY p.id LIMIT $4"),&[&org.id,&after,&filter,&(n+1)]).await?
                 },
                 _=>crate::refuse!(BadRequest,"list kind must be apps or panels"),
             };
@@ -153,6 +154,11 @@ pub(crate) async fn run_locked(engine:&Arc<Engine>,org:&Arc<OrgHandle>,caller:Op
             tx.execute("DELETE FROM ot.custom_app_file_grants WHERE org_id=$1 AND app_id=$2",&[&org.id,&id]).await?;
             // Code replacement revokes external grants; user Ask/Deny stays restrictive.
             tx.execute("UPDATE ot.custom_apps SET name=$3,description=$4,html=$5,initial_state=$6,capabilities=$7,width=$8,height=$9,declared_events=$10,permissions=$11,permission_rev=permission_rev+1,rev=rev+1,updated_at=now() WHERE org_id=$1 AND id=$2",&[&org.id,&id,&def.name,&def.description,&def.html,&def.initial_state,&caps,&def.width,&def.height,&declarations,&restrictive]).await?;
+            // PROVISIONAL code-changed rule, not a user ruling: visible copies reload
+            // the new code as before; a hidden running copy powers off rather than
+            // silently running code nobody started, and stays off after a restart.
+            let restarted=tx.query("UPDATE ot.custom_panels SET is_running=is_open,run_generation=run_generation+1,rev=rev+1,updated_at=now() WHERE org_id=$1 AND app_id=$2 AND is_running RETURNING id,is_open",&[&org.id,&id]).await?;
+            for row in &restarted{if !row.get::<_,bool>(1){event(&tx,org.id,row.get::<_,&str>(0),"panel.stopped",&json!({"reason":"code changed"}),&actor).await?;}}
             super::events::invalidate(&tx,org.id,&id,None,Some(&declarations)).await?;
             changed=true;app(&tx,org.id,&id,false,false).await?
         }
@@ -175,9 +181,14 @@ pub(crate) async fn run_locked(engine:&Arc<Engine>,org:&Arc<OrgHandle>,caller:Op
             let existing=if let Some(pid)=panel_id{Some(pid)}else if !new&&caller.is_none(){
                 tx.query_opt("SELECT id FROM ot.custom_panels WHERE org_id=$1 AND app_id=$2 ORDER BY used_at DESC,id DESC LIMIT 1",&[&org.id,&id]).await?.map(|r|r.get::<_,String>(0))
             }else{None};
+            // Opening starts a stopped copy; showing a hidden running copy reveals
+            // the same runtime. Agents only create closed copies, which stay off.
             let pid=if let Some(pid)=existing{
-                tx.execute("UPDATE ot.custom_panels SET is_open=true,used_at=now(),updated_at=now(),rev=rev+1 WHERE org_id=$1 AND id=$2",&[&org.id,&pid]).await?;pid
+                let running:bool=tx.query_one("SELECT is_running FROM ot.custom_panels WHERE org_id=$1 AND id=$2 FOR UPDATE",&[&org.id,&pid]).await?.get(0);
+                if !running{super::runtime::can_start(&tx,org.id).await?;}
+                tx.execute("UPDATE ot.custom_panels SET is_open=true,is_running=true,run_generation=run_generation+(NOT is_running)::int,used_at=now(),updated_at=now(),rev=rev+1 WHERE org_id=$1 AND id=$2",&[&org.id,&pid]).await?;pid
             }else{
+                if caller.is_none(){super::runtime::can_start(&tx,org.id).await?;}
                 let pid=crate::util::uid("panel");let def:Definition=serde_json::from_value(a["definition"].clone())?;
                 // "Panel N", never the app's name (user 2026-10-26). The app row
                 // lock above serializes numbering; existing labels never change.
@@ -186,7 +197,7 @@ pub(crate) async fn run_locked(engine:&Arc<Engine>,org:&Arc<OrgHandle>,caller:Op
                     super::labels::default_panel_label(rows.iter().map(|r|r.get::<_,&str>(0)))
                 }};wire::text(&label,120,"panel label",false)?;
                 let placement=serde_json::to_value(Placement{width:def.width,height:def.height,..Placement::default()})?;
-                tx.execute("INSERT INTO ot.custom_panels(org_id,id,app_id,label,state,placement,is_open) VALUES($1,$2,$3,$4,$5,$6,$7)",&[&org.id,&pid,&id,&label,&def.initial_state,&placement,&caller.is_none()]).await?;pid
+                tx.execute("INSERT INTO ot.custom_panels(org_id,id,app_id,label,state,placement,is_open,is_running) VALUES($1,$2,$3,$4,$5,$6,$7,$7)",&[&org.id,&pid,&id,&label,&def.initial_state,&placement,&caller.is_none()]).await?;pid
             };
             event(&tx,org.id,&pid,if caller.is_some(){"panel.created"}else{"panel.opened"},&json!({}),&actor).await?;changed=true;panel(&tx,org.id,&pid,false).await?
         }
@@ -200,14 +211,17 @@ pub(crate) async fn run_locked(engine:&Arc<Engine>,org:&Arc<OrgHandle>,caller:Op
                 if tx.query_opt("SELECT 1 FROM ot.agents WHERE org_id=$1 AND name=$2 AND state='live'",&[&org.id,anchor]).await?.is_none(){crate::refuse!(NotFound,"canvas attachment node is not live in this org");}
             }
             let place=serde_json::to_value(place)?;let open=open.unwrap_or(old["open"].as_bool().unwrap_or(false));
-            tx.execute("UPDATE ot.custom_panels SET label=$3,is_open=$4,placement=$5,rev=rev+1,updated_at=now() WHERE org_id=$1 AND id=$2",&[&org.id,&id,&label,&open,&place]).await?;
+            // Hide keeps the runtime; Show (user only) starts a stopped copy.
+            if open&&old["running"]!=true{super::runtime::can_start(&tx,org.id).await?;}
+            tx.execute("UPDATE ot.custom_panels SET label=$3,is_open=$4,is_running=is_running OR $4,run_generation=run_generation+($4 AND NOT is_running)::int,placement=$5,rev=rev+1,updated_at=now() WHERE org_id=$1 AND id=$2",&[&org.id,&id,&label,&open,&place]).await?;
             event(&tx,org.id,&id,"panel.changed",&json!({}),&actor).await?;changed=true;panel(&tx,org.id,&id,false).await?
         }
         Request::PanelDuplicate{panel:id,expected_rev}=>{
             let old=panel(&tx,org.id,&id,true).await?;revision(&old,expected_rev)?;let pid=crate::util::uid("panel");
             let label:String=format!("{} copy",old["label"].as_str().unwrap_or("Panel")).chars().take(120).collect();
             let mut place:Placement=serde_json::from_value(old["placement"].clone())?;place.mode="float".into();place.anchor=None;place.x+=24.;place.y+=24.;let place=serde_json::to_value(place)?;
-            tx.execute("INSERT INTO ot.custom_panels(org_id,id,app_id,label,state,placement,is_open) VALUES($1,$2,$3,$4,$5,$6,$7)",&[&org.id,&pid,&old["app"].as_str().unwrap_or(""),&label,&old["state"],&place,&caller.is_none()]).await?;
+            if caller.is_none(){super::runtime::can_start(&tx,org.id).await?;}
+            tx.execute("INSERT INTO ot.custom_panels(org_id,id,app_id,label,state,placement,is_open,is_running) VALUES($1,$2,$3,$4,$5,$6,$7,$7)",&[&org.id,&pid,&old["app"].as_str().unwrap_or(""),&label,&old["state"],&place,&caller.is_none()]).await?;
             event(&tx,org.id,&pid,"panel.duplicated",&json!({"source":id}),&actor).await?;changed=true;panel(&tx,org.id,&pid,false).await?
         }
         Request::PanelDelete{panel:id,expected_rev}=>{
@@ -215,6 +229,24 @@ pub(crate) async fn run_locked(engine:&Arc<Engine>,org:&Arc<OrgHandle>,caller:Op
             super::events::invalidate(&tx,org.id,old["app"].as_str().unwrap_or(""),Some(&id),None).await?;
             tx.execute("DELETE FROM ot.custom_panels WHERE org_id=$1 AND id=$2",&[&org.id,&id]).await?;changed=true;json!({"deleted":id})
         }
+        // USER 2026-10-26: anyone with Apps tools may start any copy hidden or
+        // power one off. Starting never shows a window; already-running is a no-op.
+        Request::PanelStart{panel:id,expected_rev}=>{
+            let old=panel(&tx,org.id,&id,true).await?;revision(&old,expected_rev)?;
+            if old["running"]==true{old}else{
+                super::runtime::can_start(&tx,org.id).await?;
+                tx.execute("UPDATE ot.custom_panels SET is_running=true,run_generation=run_generation+1,rev=rev+1,updated_at=now() WHERE org_id=$1 AND id=$2",&[&org.id,&id]).await?;
+                event(&tx,org.id,&id,"panel.started",&json!({}),&actor).await?;changed=true;panel(&tx,org.id,&id,false).await?
+            }
+        }
+        Request::PanelStop{panel:id,expected_rev}=>{
+            let old=panel(&tx,org.id,&id,true).await?;revision(&old,expected_rev)?;
+            if old["running"]!=true&&old["open"]!=true{old}else{
+                tx.execute("UPDATE ot.custom_panels SET is_running=false,is_open=false,run_generation=run_generation+1,rev=rev+1,updated_at=now() WHERE org_id=$1 AND id=$2",&[&org.id,&id]).await?;
+                event(&tx,org.id,&id,"panel.stopped",&json!({}),&actor).await?;changed=true;panel(&tx,org.id,&id,false).await?
+            }
+        }
+        Request::Runtime{..}=>crate::refuse!(BadRequest,"runtime is read through the Apps runtime listing"),
         Request::StateSet{panel:id,expected_rev,state}=>{
             revision(&panel(&tx,org.id,&id,true).await?,expected_rev)?;let out=update_state(&tx,org.id,&id,&state,&actor).await?;changed=true;out
         }
@@ -245,8 +277,9 @@ pub(crate) async fn run_locked(engine:&Arc<Engine>,org:&Arc<OrgHandle>,caller:Op
 /// connection is held while an action dispatch calls another domain service.
 #[nolog]
 pub async fn run(engine:&Arc<Engine>,org:&Arc<OrgHandle>,caller:Option<&Caller>,input:&Value)->Result<Value>{
-    wire::parse(input)?;
+    let request=wire::parse(input)?;
     if caller.is_some_and(|c|c.org_id!=org.id){crate::refuse!(Forbidden,"Apps caller belongs to another organization");}
+    if let Request::Runtime{after,limit,sample}=request{return super::runtime::list(engine,org,caller,after,limit,sample).await;}
     let action=input["action"].as_str().unwrap_or("");
     if ["list","app_get","panel_get","events","app_create","app_import","app_export","mark_seen","listeners"].contains(&action){return run_locked(engine,org,caller,input).await;}
     let app=if let Some(app)=input["app"].as_str(){app.to_owned()}else{
@@ -257,8 +290,11 @@ pub async fn run(engine:&Arc<Engine>,org:&Arc<OrgHandle>,caller:Option<&Caller>,
     let gate=engine.custom_apps.gate(org.id,&app)?;let _guard=gate.lock.lock().await;
     if action=="fire_event"{gate.admit()?;}
     let out=run_locked(engine,org,caller,input).await?;
-    if ["app_update","app_delete"].contains(&action){engine.custom_apps.revoke(org.id,Some(&app),None)?;}
+    if ["app_update","app_delete"].contains(&action){engine.custom_apps.revoke(org.id,Some(&app),None)?;engine.custom_apps.runtime.revoke_app(org.id,&app)?;}
     if action=="permission_set"&&matches!(input["capability"].as_str(),Some("files.read"|"files.write")){engine.custom_apps.file_access.forget(org.id,Some(&app),None,None)?;}
-    if action=="panel_delete"||(action=="panel_update"&&input["open"]==false){engine.custom_apps.revoke(org.id,None,input["panel"].as_str())?;}
+    // Power off and deletion end the runtime and its authority. Hide keeps the
+    // host session, but still ends Once file links, playback and pending prompts.
+    if action=="panel_delete"||action=="panel_stop"{engine.custom_apps.revoke(org.id,None,input["panel"].as_str())?;engine.custom_apps.runtime.revoke(org.id,input["panel"].as_str())?;}
+    if action=="panel_update"&&input["open"]==false{engine.custom_apps.file_access.forget(org.id,None,input["panel"].as_str(),None)?;}
     Ok(out)
 }

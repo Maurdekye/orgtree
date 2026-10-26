@@ -35,7 +35,8 @@ impl Action {
 #[derive(Deserialize)]
 #[serde(tag="action",rename_all="snake_case",deny_unknown_fields)]
 pub enum Request {
-    SessionOpen { panel:String },
+    /// A host names the execution generation it runs; absent binds the current one.
+    SessionOpen { panel:String, generation:Option<i64> },
     SessionClose { session:String },
     Call { session:String, request:Action },
     Decide { session:String, challenge:String, choice:Choice },
@@ -56,7 +57,7 @@ impl AppGate {
     }
 }
 #[derive(Clone)]
-pub(super) struct Bound {pub org:i64,pub app:String,pub panel:String,pub rev:i64,pub gate:Arc<AppGate>}
+pub(super) struct Bound {pub org:i64,pub app:String,pub panel:String,pub rev:i64,pub generation:i64,pub gate:Arc<AppGate>}
 struct Pending {id:String,action:Action,until:Instant}
 struct Session {bound:Bound,until:Instant,pending:Option<Pending>}
 #[derive(Default)]
@@ -64,6 +65,7 @@ pub struct Registry {
     pub(super) dispatch:super::events::Dispatcher,
 
     pub(crate) file_access:super::file_access::Registry,
+    pub runtime:super::runtime::Registry,
     gates:Mutex<HashMap<(i64,String),Weak<AppGate>>>,
     rates:Mutex<HashMap<(i64,String),Arc<ActionRate>>>,
     sessions:Mutex<HashMap<String,Session>>,
@@ -119,12 +121,20 @@ impl Registry {
 }
 #[nolog] pub(super) fn secret()->String {format!("{}{}",uuid::Uuid::new_v4().simple(),uuid::Uuid::new_v4().simple())}
 
+/// Execution, not visibility, admits a host: a hidden running panel keeps its
+/// actions. Stop, restart, code replacement and Stop all fence older hosts.
 #[nolog]
 pub(super) async fn snapshot(engine:&Engine,bound:&Bound)->Result<Value> {
     let client=engine.db.get().await?;
-    let row=client.query_opt("SELECT jsonb_build_object('name',a.name,'origin',a.origin,'rev',a.rev,'capabilities',a.capabilities,'events',a.declared_events,'permissions',a.permissions,'permission_rev',a.permission_rev,'label',p.label,'open',p.is_open) FROM ot.custom_apps a JOIN ot.custom_panels p ON p.org_id=a.org_id AND p.app_id=a.id WHERE a.org_id=$1 AND a.id=$2 AND p.id=$3",&[&bound.org,&bound.app,&bound.panel]).await?;
+    let row=client.query_opt("SELECT jsonb_build_object('name',a.name,'origin',a.origin,'rev',a.rev,'capabilities',a.capabilities,'events',a.declared_events,'permissions',a.permissions,'permission_rev',a.permission_rev,'label',p.label,'open',p.is_open,'running',p.is_running,'run_generation',p.run_generation,'latched',o.killswitch IS NOT NULL) FROM ot.custom_apps a JOIN ot.custom_panels p ON p.org_id=a.org_id AND p.app_id=a.id JOIN ot.orgs o ON o.id=a.org_id WHERE a.org_id=$1 AND a.id=$2 AND p.id=$3",&[&bound.org,&bound.app,&bound.panel]).await?;
     let Some(row)=row else{crate::refuse!(NotFound,"app or saved panel was removed");};let value:Value=row.get(0);
-    if value["open"]!=true||value["rev"].as_i64()!=Some(bound.rev){crate::refuse!(Forbidden,"app code changed or panel closed; reopen its host session");}Ok(value)
+    if value["latched"]==true{crate::refuse!(Forbidden,"Stop all is on for this org; app actions are paused");}
+    if value["running"]!=true||value["run_generation"].as_i64()!=Some(bound.generation)||value["rev"].as_i64()!=Some(bound.rev){crate::refuse!(Forbidden,"app code changed or panel stopped; reopen its host session");}Ok(value)
+}
+/// Native consent needs a visible panel: a hidden one never opens a prompt.
+#[nolog]
+pub(super) fn interactive(value:&Value)->Result<()>{
+    if value["open"]!=true{crate::refuse!(Conflict,"interaction_required: this panel is hidden; show it to answer its permission prompt");}Ok(())
 }
 #[nolog]
 fn permission(value:&Value,action:&Action)->Result<&'static str> {
@@ -138,21 +148,23 @@ pub async fn run(engine:&Arc<Engine>,org:&Arc<OrgHandle>,input:&Value)->Result<V
     wire::bounded(input,wire::EVENT_MAX+8192,false)?;
     let request:Request=serde_json::from_value(input.clone()).map_err(|e|crate::domain::UserError::BadRequest(format!("invalid app bridge request: {e}")))?;
     match request {
-        Request::SessionOpen{panel}=>{
+        Request::SessionOpen{panel,generation}=>{
             let client=engine.db.get().await?;
             let row=client.query_opt("SELECT app_id FROM ot.custom_panels WHERE org_id=$1 AND id=$2",&[&org.id,&panel]).await?;
             let Some(row)=row else{crate::refuse!(NotFound,"saved panel not found");};let app:String=row.get(0);drop(client);
             let gate=engine.custom_apps.gate(org.id,&app)?;let _guard=gate.lock.lock().await;
-            let client=engine.db.get().await?;let row=client.query_opt("SELECT a.rev FROM ot.custom_apps a JOIN ot.custom_panels p ON p.org_id=a.org_id AND p.app_id=a.id WHERE p.org_id=$1 AND p.id=$2 AND p.is_open",&[&org.id,&panel]).await?;
-            let Some(row)=row else{crate::refuse!(Conflict,"panel is closed or removed");};let rev:i64=row.get(0);
-            let token=engine.custom_apps.open(Bound{org:org.id,app:app.clone(),panel,rev,gate:gate.clone()})?;
-            Ok(json!({"session":token,"app":app,"app_rev":rev,"expires_in":1800}))
+            let client=engine.db.get().await?;let row=client.query_opt("SELECT a.rev,p.run_generation,o.killswitch IS NOT NULL FROM ot.custom_apps a JOIN ot.custom_panels p ON p.org_id=a.org_id AND p.app_id=a.id JOIN ot.orgs o ON o.id=p.org_id WHERE p.org_id=$1 AND p.id=$2 AND p.is_running",&[&org.id,&panel]).await?;
+            let Some(row)=row else{crate::refuse!(Conflict,"panel is stopped or removed");};let (rev,current,latched):(i64,i64,bool)=(row.get(0),row.get(1),row.get(2));
+            if latched{crate::refuse!(Forbidden,"Stop all is on for this org; app actions are paused");}
+            if generation.is_some_and(|g|g!=current){crate::refuse!(Conflict,"panel was stopped or restarted; reload its host");}
+            let token=engine.custom_apps.open(Bound{org:org.id,app:app.clone(),panel,rev,generation:current,gate:gate.clone()})?;
+            Ok(json!({"session":token,"app":app,"app_rev":rev,"run_generation":current,"expires_in":1800}))
         },
         Request::SessionClose{session}=>{let bound=engine.custom_apps.bound(org.id,&session)?;let _guard=bound.gate.lock.lock().await;engine.custom_apps.close(org.id,&session)?;Ok(json!({"closed":true}))},
         Request::Call{session,request:action}=>{
             action.validate()?;let bound=engine.custom_apps.bound(org.id,&session)?;let _guard=bound.gate.lock.lock().await;
             engine.custom_apps.bound(org.id,&session)?;let value=snapshot(engine,&bound).await?;let mode=permission(&value,&action)?;
-            if mode=="ask"{let id=engine.custom_apps.ask(org.id,&session,action.clone())?;return Ok(json!({"permission_required":{"challenge":id,"app":bound.app,"panel":bound.panel,"name":value["name"],"label":value["label"],"capability":action.capability(),"request":action}}));}
+            if mode=="ask"{interactive(&value)?;let id=engine.custom_apps.ask(org.id,&session,action.clone())?;return Ok(json!({"permission_required":{"challenge":id,"app":bound.app,"panel":bound.panel,"name":value["name"],"label":value["label"],"capability":action.capability(),"request":action}}));}
             execute(engine,org,&bound,&value,&action).await
         },
         Request::Decide{session,challenge,choice}=>{
@@ -231,7 +243,7 @@ async fn execute_private(engine:&Arc<Engine>,org:&Arc<OrgHandle>,bound:&Bound,va
         assert!(permission(&json!({"capabilities":["mail.send"],"permissions":{"mail.send":"deny"}}),&action).is_err());
     }
     #[test] fn custom_apps_bridge_challenge_is_bound_one_shot_and_revocable(){
-        let registry=Registry::default();let gate=registry.gate(1,"app").unwrap();let token=registry.open(Bound{org:1,app:"app".into(),panel:"copy".into(),rev:7,gate}).unwrap();assert_eq!(token.len(),64);
+        let registry=Registry::default();let gate=registry.gate(1,"app").unwrap();let token=registry.open(Bound{org:1,app:"app".into(),panel:"copy".into(),rev:7,generation:1,gate}).unwrap();assert_eq!(token.len(),64);
         assert!(registry.bound(2,&token).is_err());
         let action=Action::OrgRead{after:None,limit:Some(10)};let id=registry.ask(1,&token,action.clone()).unwrap();
         assert!(registry.consume(1,&token,"wrong").is_err());assert!(registry.ask(1,&token,action).is_err());
@@ -244,7 +256,7 @@ async fn execute_private(engine:&Arc<Engine>,org:&Arc<OrgHandle>,bound:&Bound,va
     }
     #[test] fn custom_apps_execution_budget_survives_last_host_close_and_reopen(){
         let r=Registry::default();let gate=r.gate(1,"app").unwrap();
-        let token=r.open(Bound{org:1,app:"app".into(),panel:"copy".into(),rev:1,gate:gate.clone()}).unwrap();
+        let token=r.open(Bound{org:1,app:"app".into(),panel:"copy".into(),rev:1,generation:1,gate:gate.clone()}).unwrap();
         for _ in 0..60{gate.admit().unwrap();}
         r.close(1,&token).unwrap();drop(gate);
         assert!(r.gate(1,"app").unwrap().admit().is_err(),"closing the last host reset the execution budget");

@@ -7,6 +7,7 @@ pub(crate) mod files;
 pub(crate) mod labels;
 pub mod wire;
 pub mod storage;
+pub mod runtime;
 pub mod templates;
 pub use storage::run;
 

@@ -85,6 +85,7 @@ pub fn router(engine: Arc<Engine>) -> Router {
         .route("/api/standalone/clients/{id}", delete(client_tokens::revoke))
         .route("/api/orgs/{slug}/apps", post(apps::request).get(apps::read).layer(axum::extract::DefaultBodyLimit::max(32*1024*1024)))
         .route("/api/orgs/{slug}/apps/bridge", post(apps::bridge).layer(axum::extract::DefaultBodyLimit::max(128*1024)))
+        .route("/api/orgs/{slug}/apps/runtime", post(apps::runtime).layer(axum::extract::DefaultBodyLimit::max(1024*1024)))
         .route("/api/orgs/{slug}/apps/files", post(app_files::native).layer(axum::extract::DefaultBodyLimit::max(128*1024)))
         .route("/api/orgs/{slug}/apps/media", get(app_files::media))
         // organizations

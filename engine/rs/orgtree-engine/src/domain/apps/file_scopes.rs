@@ -87,7 +87,7 @@ impl Registry{
     engine.custom_apps.bound(org.id,session)?;let value=bridge::snapshot(engine,&bound).await?;declared_mode(&value,mode(request))?;bound.gate.admit()?;
     if let FileCall::Grant{scope,mode:requested_mode}=request{
         if scope=="orgtree"{if implicit_org_grant(engine,&bound,&value,requested_mode).await?.is_some(){return Ok(json!({"granted":true,"scope":"orgtree","mode":requested_mode,"implicit":true}));}}
-        let challenge=engine.custom_apps.file_access.ask(session,&bound,request.clone())?;
+        bridge::interactive(&value)?;let challenge=engine.custom_apps.file_access.ask(session,&bound,request.clone())?;
         return Ok(json!({"permission_required":{"challenge":challenge,"app":bound.app,"panel":bound.panel,"name":value["name"],"label":value["label"],"capability":format!("files.{}",mode(request)),"request":request}}));
     }
     execute(engine,org,session,&bound,&value,request,None).await
@@ -201,6 +201,8 @@ impl Registry{
     if super::super::policy::org_allowed(value,"files.write")&&org_member(engine,bound,path).await?{
         return confirm(engine,org,Change{session:session.into(),bound:bound.clone(),caller:caller.cloned(),grant:grant.id,path:path.into(),io,until:Instant::now()+Duration::from_secs(120)},true).await;
     }
+    // Agent changes wait in App settings; an HTML change needs its visible panel.
+    if caller.is_none(){bridge::interactive(value)?;}
     let challenge=bridge::secret();let detail=io.detail.clone();let until=Instant::now()+Duration::from_secs(120);
     let mut changes=engine.custom_apps.file_access.scopes.changes.lock().map_err(|_|anyhow::anyhow!("file changes unavailable"))?;changes.retain(|_,r|r.until>Instant::now());
     if changes.len()>=64||changes.values().any(|r|same(&r.bound,bound)){crate::refuse!(Conflict,"answer the pending file change first");}
@@ -292,9 +294,9 @@ impl Registry{
     let panel=object.remove("panel").and_then(|v|v.as_str().map(str::to_owned)).unwrap_or_default();
     object.insert("action".into(),json!(action.strip_prefix("file_").unwrap_or("")));
     let request:FileCall=serde_json::from_value(args).map_err(|_|crate::domain::UserError::BadRequest("invalid scoped file arguments".into()))?;super::validate(&request)?;
-    let client=engine.db.get().await?;let row=client.query_opt("SELECT p.app_id,a.rev FROM ot.custom_panels p JOIN ot.custom_apps a ON a.org_id=p.org_id AND a.id=p.app_id WHERE p.org_id=$1 AND p.id=$2",&[&org.id,&panel]).await?;
-    let Some(row)=row else{crate::refuse!(NotFound,"panel not found");};let app:String=row.get(0);let rev:i64=row.get(1);drop(client);
-    let gate=engine.custom_apps.gate(org.id,&app)?;let bound=Bound{org:org.id,app,panel,rev,gate:gate.clone()};let _guard=gate.lock.lock().await;
+    let client=engine.db.get().await?;let row=client.query_opt("SELECT p.app_id,a.rev,p.run_generation FROM ot.custom_panels p JOIN ot.custom_apps a ON a.org_id=p.org_id AND a.id=p.app_id WHERE p.org_id=$1 AND p.id=$2",&[&org.id,&panel]).await?;
+    let Some(row)=row else{crate::refuse!(NotFound,"panel not found");};let app:String=row.get(0);let rev:i64=row.get(1);let generation:i64=row.get(2);drop(client);
+    let gate=engine.custom_apps.gate(org.id,&app)?;let bound=Bound{org:org.id,app,panel,rev,generation,gate:gate.clone()};let _guard=gate.lock.lock().await;
     let value=snapshot(engine,&bound).await?;declared_mode(&value,mode(&request))?;bound.gate.admit()?;
     execute(engine,org,"",&bound,&value,&request,Some(caller)).await
 }

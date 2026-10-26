@@ -78,7 +78,13 @@ impl Default for Placement {
 #[derive(Deserialize)]
 #[serde(tag = "action", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Request {
-    List { kind:Option<String>, app:Option<String>, after:Option<String>, limit:Option<i64>, open:Option<bool> },
+    List { kind:Option<String>, app:Option<String>, after:Option<String>, limit:Option<i64>, open:Option<bool>, running:Option<bool> },
+    /// Running copies with actual desktop state; sample asks for fresh CPU.
+    Runtime { after:Option<String>, limit:Option<i64>, #[serde(default)] sample:bool },
+    /// Starts a copy hidden; it never shows a window.
+    PanelStart { panel:String, expected_rev:i64 },
+    /// Powers a copy off and hides it.
+    PanelStop { panel:String, expected_rev:i64 },
     AppGet { app:String },
     MarkSeen { apps:Vec<String> },
     AppExport { app:String, expected_rev:i64, #[serde(default)] include_panels:bool },
@@ -263,6 +269,17 @@ mod tests {
         let card=crate::tools::defs::list().into_iter().find(|c|c["name"]=="orgtree_apps").unwrap();
         for action in ["app_import","app_export"]{assert!(card["inputSchema"]["properties"]["action"]["enum"].as_array().unwrap().iter().any(|a|a==action));}
         for key in ["bundle","path","as_file","include_panels"]{assert!(card["inputSchema"]["properties"].get(key).is_some());}
+    }
+}
+
+#[cfg(test)] mod runtime_control {
+    use serde_json::json;
+    #[test] fn custom_apps_power_controls_are_explicit_revision_checked_requests(){
+        for ok in [json!({"action":"panel_start","panel":"p","expected_rev":3}),json!({"action":"panel_stop","panel":"p","expected_rev":3}),json!({"action":"runtime","limit":50,"sample":true}),json!({"action":"list","kind":"panels","running":true})]{assert!(super::parse(&ok).is_ok(),"{ok}");}
+        for bad in [json!({"action":"panel_start","panel":"p"}),json!({"action":"panel_start","panel":"p","expected_rev":3,"open":true}),json!({"action":"panel_stop","panel":"p","expected_rev":3,"as_user":true}),json!({"action":"runtime","org":"other"}),json!({"action":"panel_start","panel":"p","expected_rev":3,"generation":9})]{assert!(super::parse(&bad).is_err(),"{bad}");}
+        let card=crate::tools::defs::list().into_iter().find(|c|c["name"]=="orgtree_apps").unwrap();let actions=card["inputSchema"]["properties"]["action"]["enum"].as_array().unwrap();
+        for action in ["panel_start","panel_stop","runtime"]{assert!(actions.iter().any(|a|a==action),"tool parity needs {action}");}
+        for key in ["running","sample"]{assert!(card["inputSchema"]["properties"].get(key).is_some(),"tool parity needs {key}");}
     }
 }
 

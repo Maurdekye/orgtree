@@ -446,13 +446,16 @@ pub async fn killswitch(State(e): State<Arc<Engine>>, Path(slug): Path<String>) 
     for r in &paused {
         crate::runtime::watchdogs::disarm(&e, r.get::<_, i64>(0));
     }
+    // USER 2026-10-26: Stop all also powers off every app panel, hidden ones
+    // included; release starts none of them again.
+    let panels = crate::domain::apps::runtime::stop_all(&e, &o).await?;
     changes::notify(&e, &o, vec![Change::Org, Change::Watchdogs]);
     let watchdogs: Vec<Value> = paused
         .iter()
         .map(|r| json!({ "id": r.get::<_, String>(1), "name": r.get::<_, String>(2), "owner": r.get::<_, String>(3) }))
         .collect();
     Ok(Json(json!({ "latched": latched > 0, "already_latched": latched == 0, "interrupted": interrupted,
-                    "watchdogs_paused": watchdogs })))
+                    "watchdogs_paused": watchdogs, "panels_stopped": panels })))
 }
 
 /// Release the latch, and only the latch (as 3.x): no turn is started or
