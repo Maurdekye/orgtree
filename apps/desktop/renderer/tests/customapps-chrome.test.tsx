@@ -29,11 +29,12 @@ test('app windows open centered and their gears lead to the panel settings syste
   const settings=document.querySelector<HTMLElement>('[role="dialog"][aria-label="Panel settings"]')!;assert.ok(settings?.classList.contains('settings'))
   // User 2026-10-26: "removemthe "this panel" title"; the copy's rows sit straight under the tab row.
   assert.equal(settings.querySelectorAll('.set-group-head').length,0,'Panel settings shows no section header')
-  for(const name of ['State','Rename','Duplicate','Delete panel'])assert.ok(settings.textContent?.includes(name),'missing settings action '+name)
+  for(const name of ['State','Duplicate','Delete panel'])assert.ok(settings.textContent?.includes(name),'missing settings action '+name)
+  assert.equal(settings.querySelector<HTMLInputElement>('input[aria-label="Panel name"]')?.value,'First notes','the copy is renamed in place, as an agent is')
   // User 2026-10-26: links, Activity and placement left Panel settings.
   for(const name of ['Linked agents','Activity','Float','Pin to screen','Pin to canvas'])assert.equal(settings.textContent?.includes(name),false,'removed settings action '+name)
-  const state=[...settings.querySelectorAll<HTMLButtonElement>('button')].find(e=>e.textContent==='State…')!
-  await inAct(async()=>{state.click();await tick()});assert.equal(JSON.parse(document.querySelector<HTMLTextAreaElement>('textarea[aria-label="Panel JSON state"]')!.value).note,'saved')
+  const state=[...settings.querySelectorAll<HTMLButtonElement>('[role="tab"]')].find(e=>e.textContent==='State')!
+  await inAct(async()=>{state.click();await tick()});assert.equal(JSON.parse(settings.querySelector<HTMLTextAreaElement>('textarea[aria-label="Panel JSON state"]')!.value).note,'saved')
   assert.equal(calls.some(c=>c.action==='state_set'||c.action==='permission_set'||c.action==='app_delete'),false,'opening settings is read-only')
 })
 

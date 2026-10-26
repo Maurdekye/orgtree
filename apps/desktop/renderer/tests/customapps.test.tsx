@@ -81,10 +81,10 @@ test('custom apps menu opens a fresh independent copy, exposes JSON state and cl
   await press('Apps');await press('New panel for Counter')
   const fresh=[...fixture.saved.values()].find(p=>p.id!=='old')!;assert.ok(fresh);assert.equal(fresh.state!.count,2);assert.equal(fixture.saved.get('old')!.state!.count,4)
   assert.ok(owner.querySelector(`[data-custom-panel="${fresh.id}"]`))
-  await press('Settings for '+fresh.label);await press('State…');await inAct(tick)
+  await press('Settings for '+fresh.label);await press('State');await inAct(tick)
   assert.equal(JSON.parse(owner.querySelector<HTMLTextAreaElement>('textarea[aria-label="Panel JSON state"]')!.value).count,2)
   // USER 2026-10-26: Hide keeps the panel running (parked); Power off stops it.
-  await press('Cancel');await press('close this window');await press('Hide '+fresh.label)
+  await press('close this window');await press('Hide '+fresh.label)
   assert.equal(fixture.saved.has(fresh.id),true);assert.equal(fixture.saved.get(fresh.id)!.open,false);assert.equal(fixture.saved.get(fresh.id)!.running,true)
   assert.ok(owner.querySelector(`[data-custom-panel="${fresh.id}"][data-parked]`),'a hidden running panel stays loaded, parked')
   await press('Apps');await inAct(async()=>{owner.querySelector<HTMLButtonElement>(`.custom-apps-saved-row [aria-label="Power off ${fresh.label}"]`)!.click();await tick()})
