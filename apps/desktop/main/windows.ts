@@ -10,6 +10,34 @@ import { externalHttpUrl, hubchatChatUrl, isHoldingUrl, scopedHeaders, trustedUi
 type Live = string | (() => string)
 const live = (value: Live): string => typeof value === 'function' ? value() : value
 
+/** NO NETWORK FOR SANDBOXED AGENT HTML, WEBRTC INCLUDED (measured 2026-10-26,
+ *  Electron 44.2.0). CSP connect-src 'none' does not govern WebRTC, and WebRTC
+ *  asks no permission: app panel frames, chat HTML replies and the HTML
+ *  presentation viewer each reached a host:port of their own choosing through
+ *  STUN and ICE over UDP and TURN and ICE over TCP. Chromium 152 ignores a CSP
+ *  `webrtc` directive and Electron has no switch that turns WebRTC off, so two
+ *  layers close it, and each alone left one transport open:
+ *  - every webContents gets the `disable_non_proxied_udp` IP handling policy
+ *    (sealWebRtc, from the app-wide web-contents-created hook): no UDP at all,
+ *    because no proxy here carries UDP;
+ *  - every session that renders agent HTML gets a proxy that does not exist
+ *    (sealSessionNetwork, awaited before that session loads anything), so the
+ *    TCP that WebRTC must route through the session's proxy never connects,
+ *    with no fallback to a direct connection. `<-loopback>` drops Chromium's
+ *    implicit loopback bypass; only 127.0.0.1, where the desktop's engine
+ *    always listens, stays direct, on any port, because a recovered engine
+ *    may come back on another one.
+ *  Orgtree's own renderer talks only to that engine, so its UI is unaffected.
+ *  What remains: TCP to other ports of 127.0.0.1 itself, never off the machine. */
+export const SANDBOXED_WEBRTC_POLICY = 'disable_non_proxied_udp'
+export const SANDBOXED_PROXY = { mode: 'fixed_servers', proxyRules: '127.0.0.1:1', proxyBypassRules: '<-loopback>;127.0.0.1' } as const
+export function sealWebRtc(contents: Pick<Electron.WebContents, 'setWebRTCIPHandlingPolicy'>): void {
+  contents.setWebRTCIPHandlingPolicy(SANDBOXED_WEBRTC_POLICY)
+}
+export function sealSessionNetwork(session: Pick<Session, 'setProxy'>): Promise<void> {
+  return session.setProxy({ ...SANDBOXED_PROXY })
+}
+
 export function assertNativeSender(event: Electron.IpcMainInvokeEvent, main: BrowserWindow | undefined, origin: string): void {
   if (!main || event.sender !== main.webContents || event.senderFrame !== main.webContents.mainFrame || (!trustedUiUrl(event.senderFrame.url, origin) && !isHoldingUrl(event.senderFrame.url))) throw new Error('Native operation refused for this document')
 }

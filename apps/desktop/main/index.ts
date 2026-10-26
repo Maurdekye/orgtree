@@ -22,7 +22,7 @@ import { epicMuteTrayItem, refreshTrayEpic } from './tray-epic'
 import { allowPrereleaseUpdates, desktopIdentity, readBuildChannel, RELEASE_APP_ID } from './build-channel'
 import { closeAction, CONVERSION_FAILED, HARNESS_LINKS, resolveDataRoot, shellQuote, unsafeFolderMessage, validateDataRoot } from './policy'
 import { ConversionWindow } from './conversion-window'
-import { configureArtifactSession, configureEngineSession, configureWindow, popoutRegistry, revealPopout, setPanelsAwake } from './windows'
+import { configureArtifactSession, configureEngineSession, configureWindow, popoutRegistry, revealPopout, sealSessionNetwork, sealWebRtc, setPanelsAwake } from './windows'
 import { panelCount, samplePanels } from './panel-runtime'
 import { registerHeldEventChannels } from './held-events'
 import { beginCreation, cancelCreation, openOrg, orgWindowRegistry, planRestore, resolveNativeSender } from './org-windows'
@@ -1729,6 +1729,8 @@ else {
   // Renderer draft guards must not strand a window after its engine has stopped.
   app.on('web-contents-created', (_event, contents) => {
     contents.on('will-prevent-unload', event => { if (quitting) event.preventDefault() })
+    // Sandboxed agent HTML gets no WebRTC UDP, in every window (windows.ts).
+    sealWebRtc(contents)
   })
   app.on('second-instance', (_event, commandLine) => {
     // A second installed process is the upgrade helper's graceful control
@@ -2394,6 +2396,8 @@ else {
       }
       if (coreLifecycle) { await coreLifecycle.complete(); coreLifecycle.start() }
       const browserSession = session.fromPartition('persist:orgtree-v2')
+      // App panels and chat HTML replies render here: no WebRTC TCP either.
+      await sealSessionNetwork(browserSession)
       // The preload origin is fixed per window; session signing reads LIVE
       // engine values so a recovered attachment's new token keeps working.
       const initialOrigin = engine.origin
@@ -2513,7 +2517,8 @@ else {
         viewer.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
         viewer.webContents.on('will-navigate', event => event.preventDefault())
         viewer.webContents.on('will-redirect', event => event.preventDefault())
-        void viewer.loadURL(url).catch(() => viewer.destroy())
+        // Sealed before the presentation loads; a failed seal never shows it.
+        void sealSessionNetwork(artifactSession).then(() => viewer.loadURL(url)).catch(() => { if (!viewer.isDestroyed()) viewer.destroy() })
       }
       placement = new OrgPlacement(path.join(app.getPath('userData'), 'window-state.json'))
       const displays = () => screen.getAllDisplays().map(display => display.workArea)
