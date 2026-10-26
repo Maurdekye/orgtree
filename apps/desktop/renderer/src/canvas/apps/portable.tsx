@@ -59,7 +59,7 @@ export function AppImport({slug,bundle,close}:{slug:string;bundle:AppBundle;clos
 export function AppExport({slug,app,owner}:{slug:string;app:CustomApp;owner:Document}){
   const [include,setInclude]=useState(false),[busy,setBusy]=useState(false),[error,setError]=useState('')
   const exportApp=async()=>{setBusy(true);setError('');try{const out=await customAppsRequest<{bundle:AppBundle}>(slug,{action:'app_export',app:app.id,expected_rev:app.rev,include_panels:include});saveAppJson(owner,app.name+'.orgtree-app',out.bundle,true)}catch(e){setError(String(e))}finally{setBusy(false)}}
-  return <SetRow label="Export app" hint={<>Exports never include execution permissions or links. Maximum 16 MiB and 16 saved copies; leave data unchecked for a definition-only export.{error&&<span role="alert"> {error}</span>}</>}>
+  return <SetRow label="Export app" hint={<>Exports never include execution permissions. Maximum 16 MiB and 16 saved copies; leave data unchecked for a definition-only export.{error&&<span role="alert"> {error}</span>}</>}>
     <label className="custom-app-include"><input type="checkbox" aria-label="Include saved panel data" checked={include} disabled={busy} onChange={e=>setInclude(e.target.checked)}/>Include saved panel data</label>
     <button type="button" disabled={busy} onClick={()=>void exportApp()}>Export app</button></SetRow>
 }
