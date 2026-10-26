@@ -25,6 +25,9 @@ execution or subscription. See [custom apps](docs/rust-engine/custom-apps.md).
 [verified: `domain/apps/{wire,storage,templates}.rs`; 2026-10-26]
 
 App files use native read grants, opaque per-panel references and bounded reads.
+Folder/computer scopes and separate write grants retain paths in native code;
+each file change needs a one-shot native confirmation. Agent writes also require
+live writable folder/edit scope. See the same file-access topic.
 Only the exact media GET route substitutes a short-lived, host-bound asset ticket
 for desktop authentication; no general engine credential enters HTML. Revocation
 cancels active bodies. Agents require both app grants and their current folders.

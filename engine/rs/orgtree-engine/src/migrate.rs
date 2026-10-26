@@ -71,6 +71,7 @@ const MIGRATIONS: &[(&str, &str)] = &[
     ("0063_custom_app_event_delivery", include_str!("../migrations/0063_custom_app_event_delivery.sql")),
 
     ("0064_custom_app_file_access", include_str!("../migrations/0064_custom_app_file_access.sql")),
+    ("0065_custom_app_file_modes", include_str!("../migrations/0065_custom_app_file_modes.sql")),
 ];
 
 #[cfg(test)]

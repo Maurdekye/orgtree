@@ -4,8 +4,9 @@ use std::{fs::{File,OpenOptions},io::{Read,Write},path::{Path,PathBuf,Component}
 use anyhow::Result;
 use serde_json::{json,Value};
 use super::wire::BUNDLE_MAX;
+#[path="file_io.rs"] pub(super) mod io;
 
-struct Directory {path:PathBuf,_handles:Vec<File>}
+pub(super) struct Directory {pub(super) path:PathBuf,_handles:Vec<File>}
 #[nolog]
 fn plain(meta:&std::fs::Metadata)->Result<()> {
     #[cfg(windows)] let linked={use std::os::windows::fs::MetadataExt;meta.file_attributes()&(0x400|0x1000|0x40000|0x400000)!=0};
@@ -43,6 +44,11 @@ fn verify(file:&File,expected:&Path)->Result<()> {
 #[cfg(windows)]
 #[nolog]
 fn anchored(parent:&File,name:&std::ffi::OsStr,is_dir:bool,write:bool)->Result<File>{
+    anchored_access(parent,name,is_dir,write,false)
+}
+#[cfg(windows)]
+#[nolog]
+fn anchored_access(parent:&File,name:&std::ffi::OsStr,is_dir:bool,write:bool,delete:bool)->Result<File>{
     use std::os::windows::{ffi::OsStrExt,io::{AsRawHandle,FromRawHandle}};
     use windows_sys::{Wdk::{Foundation::OBJECT_ATTRIBUTES,Storage::FileSystem::{NtCreateFile,FILE_OPEN,FILE_CREATE,FILE_DIRECTORY_FILE,FILE_NON_DIRECTORY_FILE,FILE_SYNCHRONOUS_IO_NONALERT,FILE_OPEN_REPARSE_POINT,FILE_OPEN_NO_RECALL}},Win32::{Foundation::{HANDLE,UNICODE_STRING,RtlNtStatusToDosError},Storage::FileSystem::*,System::IO::IO_STATUS_BLOCK}};
     let mut wide:Vec<u16>=name.encode_wide().collect();
@@ -50,7 +56,7 @@ fn anchored(parent:&File,name:&std::ffi::OsStr,is_dir:bool,write:bool)->Result<F
     let text=UNICODE_STRING{Length:(wide.len()*2) as u16,MaximumLength:(wide.len()*2) as u16,Buffer:wide.as_mut_ptr()};
     let attributes=OBJECT_ATTRIBUTES{Length:std::mem::size_of::<OBJECT_ATTRIBUTES>() as u32,RootDirectory:parent.as_raw_handle() as HANDLE,ObjectName:&text,Attributes:0x40|0x1000,SecurityDescriptor:std::ptr::null(),SecurityQualityOfService:std::ptr::null()}; // OBJ_CASE_INSENSITIVE|OBJ_DONT_REPARSE
     let mut handle=std::ptr::null_mut();let mut io:IO_STATUS_BLOCK=unsafe{std::mem::zeroed()};
-    let access=FILE_READ_ATTRIBUTES|0x00100000|if write{FILE_WRITE_DATA}else{FILE_READ_DATA}; // SYNCHRONIZE
+    let access=FILE_READ_ATTRIBUTES|0x00100000|if write{FILE_WRITE_DATA}else{FILE_READ_DATA}|if delete{0x00010000}else{0}; // SYNCHRONIZE, DELETE
     // FILE_OPEN_NO_RECALL is not valid with FILE_DIRECTORY_FILE on Windows;
     // directory reparse points are rejected by OBJ_DONT_REPARSE and metadata.
     let options=FILE_SYNCHRONOUS_IO_NONALERT|FILE_OPEN_REPARSE_POINT|if is_dir{FILE_DIRECTORY_FILE}else{FILE_NON_DIRECTORY_FILE|FILE_OPEN_NO_RECALL};
@@ -85,7 +91,7 @@ fn open_directory_part(path:&Path,parent:Option<&File>)->Result<File>{
     verify(&file,path)?;Ok(file)
 }
 #[nolog]
-fn directory(path:&Path)->Result<Directory>{
+pub(super) fn directory(path:&Path)->Result<Directory>{
     let path=checked_path(path)?;let mut handles:Vec<File>=Vec::new();
     for part in path.ancestors().filter(|p|!p.as_os_str().is_empty()).collect::<Vec<_>>().into_iter().rev(){handles.push(open_directory_part(part,handles.last())?);}
     Ok(Directory{path,_handles:handles})

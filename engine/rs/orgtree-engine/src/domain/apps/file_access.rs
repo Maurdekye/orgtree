@@ -1,4 +1,4 @@
-//! Read-only App files. Paths/decisions are native-only; HTML gets references.
+//! App files. Paths/decisions are native-only; HTML gets references.
 //! All callers share the app gate with code/permission mutation. No PG client
 //! or transaction crosses file IO, a permission prompt, or a media stream.
 use std::{collections::HashMap,path::PathBuf,sync::Mutex,time::{Duration,Instant}};
@@ -9,6 +9,7 @@ use tokio_util::sync::CancellationToken;
 use crate::{engine::Engine,orgs::OrgHandle,runtime::Caller};
 use std::sync::Arc;
 use super::{bridge::{self,Bound,Choice},files,wire};
+#[path="file_scopes.rs"] mod scopes;
 
 pub const READ_MAX:usize=64*1024;
 const REGISTRY_MAX:usize=4096;
@@ -20,6 +21,12 @@ pub enum FileCall {
     Open{root:String,path:String},
     Read{file:String,offset:Option<u64>,limit:Option<usize>},
     Media{file:String},
+    Grant{scope:String,mode:String},
+    Roots{},
+    List{directory:Option<String>,root:Option<String>,after:Option<String>,limit:Option<usize>},
+    Child{directory:String,path:String},
+    Write{directory:String,name:String,base64:String,#[serde(default)] replace:bool},
+    Delete{file:String},
 }
 #[derive(Deserialize)]
 #[serde(tag="action",rename_all="snake_case",deny_unknown_fields)]
@@ -32,7 +39,7 @@ enum NativeRequest {
 }
 
 #[derive(Clone)]
-struct Reference {id:String,grant:String,path:PathBuf}
+struct Reference {id:String,grant:String,path:PathBuf,mode:String}
 struct Pending {session:String,bound:Bound,call:FileCall,until:Instant}
 #[derive(Clone)]
 pub(crate) struct MediaLease {
@@ -42,6 +49,7 @@ pub(crate) struct MediaLease {
 struct Temporary {session:String,bound:Bound,reference:Reference}
 #[derive(Default)]
 pub struct Registry {
+    scopes:scopes::Registry,
     pending:Mutex<HashMap<String,Pending>>,
     temporary:Mutex<HashMap<String,Temporary>>,
     media:Mutex<HashMap<String,MediaLease>>,
@@ -70,11 +78,12 @@ impl Registry {
     fn remember_once(&self,session:&str,bound:&Bound,path:PathBuf,id:Option<String>)->Result<Reference>{
         let mut temporary=self.temporary.lock().map_err(|_|anyhow::anyhow!("App file references unavailable"))?;
         if temporary.len()>=REGISTRY_MAX{crate::refuse!(Conflict,"too many temporary app files");}
-        let reference=Reference{id:id.unwrap_or_else(||crate::util::uid("app-file")),grant:String::new(),path};
+        let reference=Reference{id:id.unwrap_or_else(||crate::util::uid("app-file")),grant:String::new(),path,mode:"read".into()};
         temporary.insert(reference.id.clone(),Temporary{session:session.into(),bound:bound.clone(),reference:reference.clone()});Ok(reference)
     }
     #[nolog]
     pub(super) fn forget(&self,org:i64,app:Option<&str>,panel:Option<&str>,session:Option<&str>)->Result<()>{
+        self.scopes.forget(org,app,panel,session)?;
         let matches=|bound:&Bound,token:&str|bound.org==org&&app.is_none_or(|a|a==bound.app)&&panel.is_none_or(|p|p==bound.panel)&&session.is_none_or(|s|s==token);
         self.pending.lock().map_err(|_|anyhow::anyhow!("App file requests unavailable"))?.retain(|_,p|!matches(&p.bound,&p.session));
         self.temporary.lock().map_err(|_|anyhow::anyhow!("App file references unavailable"))?.retain(|_,p|!matches(&p.bound,&p.session));
@@ -100,7 +109,7 @@ impl Registry {
 fn same(left:&Bound,right:&Bound)->bool {left.org==right.org&&left.app==right.app&&left.panel==right.panel&&left.rev==right.rev}
 #[nolog]
 fn validate(call:&FileCall)->Result<()>{
-    wire::bounded(&serde_json::to_value(call)?,wire::EVENT_MAX,false)?;
+    wire::bounded(&serde_json::to_value(call)?,2*READ_MAX,false)?;
     match call{
         FileCall::Open{root,path}=>{
             if !["scratch","uploads","artifacts"].contains(&root.as_str()){crate::refuse!(BadRequest,"file root must be scratch, uploads or artifacts");}
@@ -110,17 +119,24 @@ fn validate(call:&FileCall)->Result<()>{
         FileCall::Read{file,limit,..}=>{wire::text(file,120,"file reference",false)?;if !(1..=READ_MAX).contains(&limit.unwrap_or(READ_MAX)){crate::refuse!(BadRequest,"file read limit must be 1-65536 bytes");}},
         FileCall::Media{file}=>wire::text(file,120,"file reference",false)?,
         FileCall::Choose{}=>{},
+        _=>scopes::validate(call)?,
     }Ok(())
 }
 #[nolog]
 fn declared(value:&Value)->Result<()>{
-    if !value["capabilities"].as_array().is_some_and(|v|v.iter().any(|c|c=="files.read")){crate::refuse!(Forbidden,"app does not declare files.read");}
-    if value["permissions"]["files.read"]=="deny"{crate::refuse!(Forbidden,"app file access is denied");}Ok(())
+    declared_mode(value,"read")
+}
+#[nolog]
+fn declared_mode(value:&Value,mode:&str)->Result<()>{
+    let cap=format!("files.{mode}");
+    if !value["capabilities"].as_array().is_some_and(|v|v.iter().any(|c|c==&cap)){crate::refuse!(Forbidden,"app does not declare the required file capability");}
+    if value["permissions"][&cap]=="deny"{crate::refuse!(Forbidden,"app file access is denied");}Ok(())
 }
 
 #[nolog]
 pub async fn native(engine:&Arc<Engine>,org:&Arc<OrgHandle>,input:&Value)->Result<Value>{
-    wire::bounded(input,wire::EVENT_MAX+8192,false)?;
+    wire::bounded(input,2*READ_MAX,false)?;
+    if let Some(result)=scopes::native(engine,org,input).await{return result;}
     let request:NativeRequest=serde_json::from_value(input.clone()).map_err(|_|crate::domain::UserError::BadRequest("invalid native App file request".into()))?;
     match request{
         NativeRequest::Permissions{app}=>permissions(engine,org,&app,None).await,
@@ -130,6 +146,7 @@ pub async fn native(engine:&Arc<Engine>,org:&Arc<OrgHandle>,input:&Value)->Resul
             tokio::task::spawn_blocking(move||browse(&path,after.as_deref(),limit.unwrap_or(100))).await?
         },
         NativeRequest::Call{session,request:call}=>{
+            if scopes::extended(&call){return scopes::call(engine,org,&session,&call).await;}
             validate(&call)?;let bound=engine.custom_apps.bound(org.id,&session)?;let _guard=bound.gate.lock.lock().await;
             engine.custom_apps.bound(org.id,&session)?;let value=bridge::snapshot(engine,&bound).await?;declared(&value)?;
             bound.gate.admit()?;
@@ -142,8 +159,10 @@ pub async fn native(engine:&Arc<Engine>,org:&Arc<OrgHandle>,input:&Value)->Resul
         NativeRequest::Decide{session,challenge,choice,path}=>{
             let bound=engine.custom_apps.bound(org.id,&session)?;let _guard=bound.gate.lock.lock().await;
             engine.custom_apps.bound(org.id,&session)?;
-            let value=bridge::snapshot(engine,&bound).await?;declared(&value)?;
+            let value=bridge::snapshot(engine,&bound).await?;
             let call=engine.custom_apps.file_access.consume(&session,&bound,&challenge)?;
+            if scopes::extended(&call){return scopes::decide(engine,org,&session,&bound,&value,&call,choice,path.as_deref()).await;}
+            declared(&value)?;
             if matches!(choice,Choice::Deny){
                 super::storage::run_locked(engine,org,None,&json!({"action":"permission_set","app":bound.app,"expected_rev":bound.rev,"expected_permission_rev":value["permission_rev"],"capability":"files.read","permission":"deny"})).await?;
                 engine.custom_apps.file_access.forget(org.id,Some(&bound.app),None,None)?;
@@ -194,6 +213,7 @@ fn inbox_upload(name:&str)->bool{name.split(['/', '\\']).next().is_some_and(|par
 #[nolog]
 async fn org_member(engine:&Engine,bound:&Bound,path:&std::path::Path)->Result<bool>{
     let org=engine.orgs.by_id(bound.org).ok_or_else(||crate::domain::UserError::NotFound("organization closed".into()))?;
+    if path==engine.cfg.scratch_root(&org.slug)||path==engine.cfg.path("uploads").join(&org.slug){return Ok(true);}
     if files::relative(path,&engine.cfg.scratch_root(&org.slug)).is_some(){return Ok(true);}
     if let Some(relative)=files::relative(path,&engine.cfg.path("uploads").join(&org.slug)){
         let relative=relative.to_string_lossy();org_path(engine,&org,"uploads",&relative).await?;return Ok(true);
@@ -204,41 +224,44 @@ async fn org_member(engine:&Engine,bound:&Bound,path:&std::path::Path)->Result<b
 #[nolog]
 async fn reference(engine:&Engine,bound:&Bound,id:&str)->Result<Reference>{
     let client=engine.db.get().await?;
-    let row=client.query_opt("SELECT r.path,r.grant_id,g.scope,g.path FROM ot.custom_app_file_refs r JOIN ot.custom_app_file_grants g ON g.org_id=r.org_id AND g.app_id=r.app_id AND g.id=r.grant_id AND g.app_rev=r.app_rev WHERE r.org_id=$1 AND r.app_id=$2 AND r.panel_id=$3 AND r.app_rev=$4 AND r.id=$5",&[&bound.org,&bound.app,&bound.panel,&bound.rev,&id]).await?;
+    let row=client.query_opt("SELECT r.path,r.grant_id,g.scope,g.path,g.mode FROM ot.custom_app_file_refs r JOIN ot.custom_app_file_grants g ON g.org_id=r.org_id AND g.app_id=r.app_id AND g.id=r.grant_id AND g.app_rev=r.app_rev WHERE r.org_id=$1 AND r.app_id=$2 AND r.panel_id=$3 AND r.app_rev=$4 AND r.id=$5",&[&bound.org,&bound.app,&bound.panel,&bound.rev,&id]).await?;
     let Some(row)=row else{crate::refuse!(Forbidden,"file reference is unavailable for this panel; choose the file again");};
     let path=PathBuf::from(row.get::<_,String>(0));let scope:String=row.get(2);let granted:Option<String>=row.get(3);drop(client);
     if scope=="file"&&granted.as_deref()!=path.to_str(){crate::refuse!(Forbidden,"file reference no longer matches its grant");}
     if scope=="orgtree"&&!org_member(engine,bound,&path).await?{crate::refuse!(Forbidden,"file left this organization's collections");}
-    Ok(Reference{id:id.into(),grant:row.get(1),path})
+    if scope=="folder"&&!granted.as_ref().is_some_and(|root|scopes::within(&path,std::path::Path::new(root))){crate::refuse!(Forbidden,"file reference left its chosen folder");}
+    Ok(Reference{id:id.into(),grant:row.get(1),path,mode:row.get(4)})
 }
 #[nolog]
 async fn stored_reference(engine:&Engine,bound:&Bound,grant:&str,path:&std::path::Path)->Result<Reference>{
     let raw=path.to_string_lossy().to_string();let mut client=engine.db.get().await?;let tx=client.transaction().await?;
     if let Some(row)=tx.query_opt("SELECT id FROM ot.custom_app_file_refs WHERE org_id=$1 AND app_id=$2 AND panel_id=$3 AND app_rev=$4 AND grant_id=$5 AND path=$6 LIMIT 1",&[&bound.org,&bound.app,&bound.panel,&bound.rev,&grant,&raw]).await?{
-        let id:String=row.get(0);tx.commit().await?;return Ok(Reference{id,grant:grant.into(),path:path.into()});
+        let id:String=row.get(0);tx.commit().await?;drop(client);return reference(engine,bound,&id).await;
     }
     let count:i64=tx.query_one("SELECT count(*) FROM ot.custom_app_file_refs WHERE org_id=$1 AND app_id=$2 AND panel_id=$3",&[&bound.org,&bound.app,&bound.panel]).await?.get(0);
     if count>=1024{crate::refuse!(Conflict,"a panel can remember at most 1024 file references");}
     let id=crate::util::uid("app-file");
     tx.execute("INSERT INTO ot.custom_app_file_refs(org_id,app_id,panel_id,id,app_rev,grant_id,path) VALUES($1,$2,$3,$4,$5,$6,$7)",&[&bound.org,&bound.app,&bound.panel,&id,&bound.rev,&grant,&raw]).await?;
-    tx.commit().await?;Ok(Reference{id,grant:grant.into(),path:path.into()})
+    tx.commit().await?;drop(client);reference(engine,bound,&id).await
 }
 #[nolog]
 async fn authorized(engine:&Engine,org:&OrgHandle,session:&str,bound:&Bound,value:&Value,call:&FileCall)->Result<Option<Reference>>{
     match call{
         FileCall::Choose{}=>Ok(None),
         FileCall::Read{file,..}|FileCall::Media{file}=>{
-            if let Some(r)=engine.custom_apps.file_access.temporary(session,bound,file)?{return Ok(Some(r));}
+            if let Some(r)=engine.custom_apps.file_access.temporary(session,bound,file)?{if r.mode!="read"{crate::refuse!(Forbidden,"a write reference does not permit content reads");}return Ok(Some(r));}
             let r=reference(engine,bound,file).await?;
+            if r.mode!="read"{crate::refuse!(Forbidden,"a write grant does not permit content reads");}
             if value["permissions"]["files.read"]=="allow"{Ok(Some(r))}else{Ok(None)}
         },
         FileCall::Open{root,path}=>{
             if value["permissions"]["files.read"]!="allow"{return Ok(None);}
             let client=engine.db.get().await?;
-            let row=client.query_opt("SELECT id FROM ot.custom_app_file_grants WHERE org_id=$1 AND app_id=$2 AND app_rev=$3 AND scope='orgtree' ORDER BY id LIMIT 1",&[&bound.org,&bound.app,&bound.rev]).await?;drop(client);
+            let row=client.query_opt("SELECT id FROM ot.custom_app_file_grants WHERE org_id=$1 AND app_id=$2 AND app_rev=$3 AND scope='orgtree' AND mode='read' ORDER BY id LIMIT 1",&[&bound.org,&bound.app,&bound.rev]).await?;drop(client);
             let Some(row)=row else{return Ok(None);};let selected=org_path(engine,org,root,path).await?;
             Ok(Some(stored_reference(engine,bound,&row.get::<_,String>(0),&selected).await?))
         },
+        _=>crate::refuse!(BadRequest,"extended file request needs its scoped dispatcher"),
     }
 }
 #[nolog]
@@ -248,7 +271,7 @@ async fn remember(engine:&Engine,bound:&Bound,scope:&str,path:&std::path::Path,p
     let Some(row)=row else{crate::refuse!(NotFound,"app removed");};
     if row.get::<_,i64>(0)!=bound.rev||row.get::<_,i64>(1)!=permission_rev{crate::refuse!(Conflict,"app permissions changed; reopen its file request");}
     let raw=if scope=="file"{Some(path.to_string_lossy().to_string())}else{None};
-    let old=tx.query_opt("SELECT id FROM ot.custom_app_file_grants WHERE org_id=$1 AND app_id=$2 AND app_rev=$3 AND scope=$4 AND path IS NOT DISTINCT FROM $5 ORDER BY id LIMIT 1",&[&bound.org,&bound.app,&bound.rev,&scope,&raw]).await?;
+    let old=tx.query_opt("SELECT id FROM ot.custom_app_file_grants WHERE org_id=$1 AND app_id=$2 AND app_rev=$3 AND scope=$4 AND mode='read' AND path IS NOT DISTINCT FROM $5 ORDER BY id LIMIT 1",&[&bound.org,&bound.app,&bound.rev,&scope,&raw]).await?;
     let grant=if let Some(row)=old{row.get::<_,String>(0)}else{
         let count:i64=tx.query_one("SELECT count(*) FROM ot.custom_app_file_grants WHERE org_id=$1 AND app_id=$2",&[&bound.org,&bound.app]).await?.get(0);
         if count>=128{crate::refuse!(Conflict,"an app can remember at most 128 file grants");}
@@ -292,6 +315,7 @@ async fn execute(engine:&Arc<Engine>,org:&Arc<OrgHandle>,session:&str,bound:&Bou
             info["media_path"]=json!(format!("/api/orgs/{}/apps/media?ticket={ticket}",org.slug));
         },
         FileCall::Choose{}|FileCall::Open{..}=>{},
+        _=>crate::refuse!(BadRequest,"unsupported file content operation"),
     }Ok(info)
 }
 #[nolog]
@@ -314,18 +338,18 @@ async fn permissions(engine:&Arc<Engine>,org:&Arc<OrgHandle>,app:&str,caller:Opt
     let row=client.query_opt("SELECT rev,permission_rev,permissions FROM ot.custom_apps WHERE org_id=$1 AND id=$2",&[&org.id,&app]).await?;
     let Some(row)=row else{crate::refuse!(NotFound,"app not found");};
     let rev:i64=row.get(0);let permission_rev:i64=row.get(1);let modes:Value=row.get(2);
-    let rows=client.query("SELECT id,scope,path FROM ot.custom_app_file_grants WHERE org_id=$1 AND app_id=$2 AND app_rev=$3 ORDER BY id LIMIT 128",&[&org.id,&app,&rev]).await?;drop(client);
+    let rows=client.query("SELECT id,scope,path,mode FROM ot.custom_app_file_grants WHERE org_id=$1 AND app_id=$2 AND app_rev=$3 ORDER BY id LIMIT 128",&[&org.id,&app,&rev]).await?;drop(client);
     let mut grants=Vec::new();
     for row in rows{
-        let path:Option<String>=row.get(2);let mut grant=json!({"id":row.get::<_,String>(0),"scope":row.get::<_,String>(1)});
+        let path:Option<String>=row.get(2);let mut grant=json!({"id":row.get::<_,String>(0),"scope":row.get::<_,String>(1),"mode":row.get::<_,String>(3)});
         if let Some(path)=path{
             if let Some(caller)=caller{if agent_scope(engine,org,caller,std::path::Path::new(&path)).await.is_err(){continue;}}
             grant["name"]=json!(std::path::Path::new(&path).file_name().map(|s|s.to_string_lossy().to_string()).unwrap_or_default());
             if caller.is_none(){grant["path"]=json!(path);}
-        }else{grant["name"]=json!("This organization's scratch, uploads and retained artifacts");}
+        }else{grant["name"]=json!(if grant["scope"]=="computer"{"Whole computer (current Windows user)"}else{"This organization's scratch, uploads and retained artifacts"});}
         grants.push(grant);
     }
-    Ok(json!({"app":app,"rev":rev,"permission_rev":permission_rev,"permission":modes["files.read"].as_str().unwrap_or("ask"),"grants":grants,"write":"unavailable"}))
+    Ok(json!({"app":app,"rev":rev,"permission_rev":permission_rev,"permission":modes["files.read"].as_str().unwrap_or("ask"),"grants":grants,"write":modes["files.write"].as_str().unwrap_or("ask")}))
 }
 #[nolog]
 async fn revoke(engine:&Arc<Engine>,org:&Arc<OrgHandle>,app:&str,rev:i64,permission_rev:i64,grant:&str)->Result<Value>{
@@ -350,24 +374,17 @@ fn browse(raw:&str,after:Option<&str>,limit:usize)->Result<Value>{
         return Ok(json!({"path":"","parent":null,"items":roots,"next_cursor":null}));
     }
     let path=files::checked_path(std::path::Path::new(raw))?;
-    // Native-only listing is bounded; it is never an iframe or agent method.
-    // Keyset order stays stable between pages, with a disclosed scan ceiling.
-    let mut entries=Vec::new();let mut scanned=0;
-    for entry in std::fs::read_dir(&path)?{
-        scanned+=1;if scanned>20_000{break;}let entry=entry?;let name=entry.file_name().to_string_lossy().to_string();
-        if after.is_some_and(|after|name.as_str()<=after){continue;}
-        let ty=entry.file_type()?;if ty.is_symlink(){continue;}
-        entries.push(json!({"name":name,"path":entry.path().to_string_lossy(),"directory":ty.is_dir()}));
-    }
-    entries.sort_by(|a,b|a["name"].as_str().cmp(&b["name"].as_str()));let more=entries.len()>limit;entries.truncate(limit);
+    let (items,more,capped)=files::io::list(&path,after,limit)?;
+    let entries:Vec<_>=items.into_iter().map(|entry|json!({"path":path.join(&entry.name).to_string_lossy(),"name":entry.name,"directory":entry.directory})).collect();
     let next=if more{entries.last().map(|v|v["name"].clone())}else{None};
-    Ok(json!({"path":path.to_string_lossy(),"parent":path.parent().map(|p|p.to_string_lossy()),"items":entries,"next_cursor":next,"scan_limited":scanned>20_000}))
+    Ok(json!({"path":path.to_string_lossy(),"parent":path.parent().map(|p|p.to_string_lossy()),"items":entries,"next_cursor":next,"scan_limited":capped}))
 }
 
 #[nolog]
 pub async fn agent(engine:&Arc<Engine>,org:&Arc<OrgHandle>,caller:&Caller,input:&Value)->Result<Value>{
     super::storage::file_authority(engine,org,caller).await?;
     let action=input["action"].as_str().unwrap_or("");
+    if ["file_roots","file_list","file_child","file_write","file_delete","file_result"].contains(&action){return scopes::agent(engine,org,caller,input).await;}
     if action=="file_permissions"{
         if !input.as_object().is_some_and(|v|v.keys().all(|k|["action","app"].contains(&k.as_str()))){crate::refuse!(BadRequest,"unexpected file permission fields");}
         return permissions(engine,org,input["app"].as_str().unwrap_or(""),Some(caller)).await;

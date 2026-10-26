@@ -113,7 +113,7 @@ pub(crate) async fn run_locked(engine:&Arc<Engine>,org:&Arc<OrgHandle>,caller:Op
             if !wire::CAPABILITIES.contains(&capability.as_str())||!old["capabilities"].as_array().is_some_and(|a|a.iter().any(|c|c==&capability)){crate::refuse!(BadRequest,"app does not declare that capability");}
             if !["ask","allow","deny"].contains(&permission.as_str()){crate::refuse!(BadRequest,"permission must be ask, allow or deny");}
             let mut permissions=old["permissions"].clone();permissions[&capability]=json!(permission);
-            if capability=="files.read"&&permission!="allow"{tx.execute("DELETE FROM ot.custom_app_file_grants WHERE org_id=$1 AND app_id=$2",&[&org.id,&id]).await?;}
+            if ["files.read","files.write"].contains(&capability.as_str())&&permission!="allow"{let mode=capability.strip_prefix("files.").expect("file capability");tx.execute("DELETE FROM ot.custom_app_file_grants WHERE org_id=$1 AND app_id=$2 AND mode=$3",&[&org.id,&id,&mode]).await?;}
             tx.execute("UPDATE ot.custom_apps SET permissions=$3,permission_rev=permission_rev+1,updated_at=now() WHERE org_id=$1 AND id=$2",&[&org.id,&id,&permissions]).await?;
             changed=true;app(&tx,org.id,&id,false,false).await?
         }
@@ -261,7 +261,7 @@ pub async fn run(engine:&Arc<Engine>,org:&Arc<OrgHandle>,caller:Option<&Caller>,
     if action=="fire_event"{gate.admit()?;}
     let out=run_locked(engine,org,caller,input).await?;
     if ["app_update","app_delete"].contains(&action){engine.custom_apps.revoke(org.id,Some(&app),None)?;}
-    if action=="permission_set"&&input["capability"]=="files.read"{engine.custom_apps.file_access.forget(org.id,Some(&app),None,None)?;}
+    if action=="permission_set"&&matches!(input["capability"].as_str(),Some("files.read"|"files.write")){engine.custom_apps.file_access.forget(org.id,Some(&app),None,None)?;}
     if action=="panel_delete"||(action=="panel_update"&&input["open"]==false){engine.custom_apps.revoke(org.id,None,input["panel"].as_str())?;}
     Ok(out)
 }

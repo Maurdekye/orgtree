@@ -70,7 +70,7 @@ each app has zero or more saved panels. Every panel owns an independent JSON
 object. Any live agent with org-modifying tools can operate on any copy in its
 current org. An author or linked agent does not acquire user authority.
 
-## Read-only file access (2026-10-26)
+## File access (2026-10-26)
 
 Migration0064 stores app/code-bound native read grants and panel-bound opaque
 references. Files are chosen in native Orgtree UI or opened from this org's
@@ -81,7 +81,7 @@ Closing/hiding ends host links. Imported/duplicated state cannot reuse a file id
 from another panel. Files settings live inside the existing Permissions dialog.
 
 POST apps/files requires the exact native desktop header. It accepts native
-Call/Decide/Permissions/Revoke/Browse; iframe methods are only choose/open/read/media,
+Call/Decide/Permissions/Revoke/Browse/Confirm/Confirmations; iframe methods are the fixed file SDK,
 validated by parent and engine. Bounded reads allocate at most64KiB. Agent actions
 file_permissions/file_open/file_read additionally require live orgmod and current
 held folders, rechecked before disclosure; agents never decide grants. Orgtree
@@ -96,10 +96,41 @@ Private-app logging omits ticket queries and file/stream data. Opened handles
 use the existing ancestor-pinned no-reparse IO. No PG handle/transaction spans
 disk IO, native consent or playback. Media cap256MiB; no video is embedded in state.
 
-First slice is read-only collections/chosen-file access. Folder-wide, whole-computer
-and write grants are deferred to the separately assigned second slice. Native
-consent warns about readable data plus declared mail.send. Grant limits128/app,
+Migration0065 adds separate read/write modes and folder/computer scopes. Existing
+grants remain read-only. Native consent warns about readable data plus declared
+mail.send and about whole-computer access under the current Windows user, without
+elevation. A chosen folder covers descendants; links/reparse points are refused.
+Read permission never confers write or vice versa. Grant limits128/app,
 refs1024/panel, registry4096/class; prompts120s, sessions/media at most30min.
+
+files.grant(scope,mode) requests native consent for orgtree/folder/computer and
+read/write. It returns opaque directory roots; persist these in that panel's
+state. files.list(directory,{after,limit}) and files.collection(root,options)
+page up to200 entries, scanning at most20,000 with scan_limited disclosure.
+Directory enumeration uses the opened directory handle, not path-based read_dir.
+files.child(directory,relativeName) opens a descendant reference after checking
+the current grant. files.write(directory,name,base64,{replace:false}) changes at
+most64KiB; an existing file refuses unless replace:true. files.delete(file)
+deletes a regular file only. Every create/replace/delete needs native confirmation
+outside HTML of the exact target, operation, size and new-content SHA256. No
+recursive delete, shell command, arbitrary endpoint or permission method exists.
+
+Changes retain no-reparse directory/target handles while consent is pending.
+The Windows target pin excludes ordinary data writes/delete; replacements stage,
+flush and commit through handle-relative FileRenameInfoEx with POSIX replacement
+semantics, never path-based fallback or in-place truncation. Failed staging keeps
+the confirmed target. Platforms without these mutation primitives refuse writes.
+Pending changes are bounded64/engine, expire120s with target-pin cleanup, and are
+discarded on grant/code/host revocation. No data change happens before confirmation.
+
+Agent parity adds file_roots/file_list/file_child/file_write/file_delete/file_result. Reads
+need current read folders; writes need current edit permission and writable
+folders AND an existing user write grant. The fresh scope chain includes parent
+ceilings and implicit shared folders. Agent changes wait in native App settings
+→ Permissions → Files → Pending changes; refresh shows exact target/size/hash.
+Agents get a pending confirmation ID and can read their own one-shot result for
+120s after a decision. They never choose roots, grant permission or confirm a
+change. All callbacks recheck the saved panel/code/grant and live caller scope.
 
 ## Storage milestone
 

@@ -88,15 +88,18 @@ List kind:panels accepts open:true/false to page only that subset. Metadata
 includes event_seq; HTML/state remain excluded. All unruled defaults are
 provisional for the user's morning review.
 
-## Read-only app files
+## App files
 
 Declare files.read in definition.capabilities to expose the fixed file SDK;
 declaration/import/state fields confer no access. The user grants one chosen file
 or this org's scratch/uploads/retained-delivery collection through native UI.
 Allow once lasts for that visible host; Always allow persists per app/code
 revision. Ask/Deny, code replacement or per-grant Revoke removes remembered
-access. Active media bodies are cancelled. Folder-wide/computer/write grants are
-not available in this first slice. Read plus mail.send is warned in native UI.
+access. Active media bodies are cancelled. Chosen folders (with descendants) and
+the whole computer can also be granted through native consent. Declare files.write
+separately for writes. Read and write grants never imply one another. Whole-computer
+access has current Windows user rights, without elevation. Read plus mail.send is
+warned in native UI; imported grants and paths are always refused.
 
 - file_permissions needs app. It reports bounded grant metadata, revisions and
   read mode. Chosen files outside your current folders are omitted; native paths
@@ -110,6 +113,25 @@ not available in this first slice. Read plus mail.send is warned in native UI.
   app grant and your live inherited orgmod/folder scope are checked before data
   is disclosed. Saved closed panels can be read. No agent choose/grant/media URL
   action exists; agents read media bytes within their own folders via file_read.
+- file_roots needs panel. It returns at most200 readable roots/files intersected
+  with your live folders; limited:true discloses truncation. It never creates a grant.
+- file_list needs panel and exactly one directory (opaque reference) or root
+  (scratch/uploads/artifacts). after is the previous next_cursor; limit1-200,
+  default100. Returns opaque child IDs, names, directory flags and next_cursor.
+  scan_limited means only20,000 entries were scanned; choose a narrower directory.
+- file_child needs panel/directory/path (relative descendant, no parent components).
+  It returns a reference after checking read authority, including your folders.
+- file_write needs panel/directory/name/base64. name is one file name, decoded
+  data at most65536 bytes. replace defaults false and refuses existing files.
+  replace:true requests replacement, with no automatic retry or truncation.
+- file_delete needs panel/file; only regular files, no recursive deletion.
+  Both write actions require an existing user files.write scope AND your own
+  live inherited edit permission and writable folders. They return a pending
+  confirmation ID, not success. The user confirms the exact operation/target/
+  size/hash in App settings → Permissions → Files → Pending changes (Refresh).
+- file_result needs confirmation, not panel. Only the originating agent can read
+  its result, once, within120s after native confirmation/rejection. Pending requests
+  expire120s. Agents cannot choose roots, grant access or confirm changes.
 
 The HTML SDK has files.choose(), files.open(root,path), files.read(id,{offset,limit})
 and files.media(id). It cannot select org/app/panel/session, browse native paths,
@@ -122,6 +144,17 @@ No DB transaction spans disk IO or playback. Paths reject traversal/reparse link
 chunk allocation is bounded64KiB. Limits:128 persisted grants/app,1024 refs/panel,
 4096 pending/temporary/media records per engine; prompts expire120s and host
 sessions/media tickets expire within30min. File calls share the app rate budget.
+
+The SDK also has files.grant('orgtree'|'folder'|'computer','read'|'write'), returning
+opaque roots; files.list(directory,{after,limit}), files.collection(root,options),
+files.roots() for current readable roots,
+files.child(directory,path), files.write(directory,name,base64,{replace:false})
+and files.delete(file). Paths/consent stay in native chrome. Store returned roots
+in this panel's state. Each create/replace/delete gets a native confirmation of
+the exact bytes/target; target handles are pinned for the two-minute prompt.
+Writes use Windows handle-relative staged commit; unsupported platforms refuse.
+At most64 file changes may wait per engine. Permission/grant/code/host revocation
+discards pending changes and releases pins; cancelled/expired changes write nothing.
 
 ## App import and export format
 

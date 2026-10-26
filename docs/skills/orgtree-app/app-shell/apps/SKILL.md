@@ -79,16 +79,26 @@ visibility and far-zoom culling are display only. See orgtree-tool-apps
 ## Files
 
 Apps declaring files.read ask through a native dialog outside HTML. Select a
-single file or allow this org's scratch/uploads/retained-delivery collection.
+single file, a folder with descendants, this org's scratch/uploads/retained-delivery
+collection, or the whole computer. Whole-computer access uses your Windows account
+without elevation and can include private files/settings; prefer a narrower folder.
 Allow once lasts for the open visible host; Always allow remembers that file or
 collection. Deny saves a refusal; Cancel leaves grants unchanged. A warning names
 the combination with mail.send, because readable contents may be sent if mail
 is also allowed. Imported apps and replaced code have no remembered grants.
 
 App settings → Permissions → Files shows Read files and remembered scopes with
-Revoke. Ask/Deny clears remembered grants; revocation stops active media streams.
-Allow granted scopes creates no grant itself. Write files is unavailable in this
-first slice, as are folder-wide/whole-computer grants. File paths stay native.
+Revoke. Separate Read files and Write files controls govern distinct grants.
+Ask/Deny clears remembered grants for that mode; revocation stops active media
+streams and pending changes. Allow granted scopes creates no grant itself.
+File paths stay native; readable contents may leave through permitted mail.
+
+Every create, replacement or deletion needs native confirmation of its target,
+operation, size and new-content hash. Existing files need explicit replacement;
+folders cannot be deleted recursively. Changes are at most64KiB and use a staged
+Windows commit. Unsupported platforms refuse writes. Cancel/expiry changes nothing.
+Agent changes wait under Files → Pending changes; Refresh shows pending requests.
+Only the user confirms them, and agents need their own writable folders as well.
 
 The SDK adds files.choose(), files.open(root,path), files.read(file,{offset,limit})
 and files.media(file). Store the returned opaque id in this panel's JSON, not
@@ -97,6 +107,7 @@ the remembered grant. Media uses byte ranges up to256MiB, outside the HTML/state
 limits. Hiding/closing discards session links; moved/deleted/revoked files need
 selection again. A duplicated panel cannot borrow another copy's file id.
 
-Agent parity is orgtree_apps file_permissions/file_open/file_read, requiring
+Agent parity is orgtree_apps file_permissions/file_open/file_read/file_roots/file_list/
+file_child/file_write/file_delete/file_result, requiring
 the app grant AND the agent's held folders. Native picking/consent/revoke is
 user-only; agents never self-grant. See orgtree-tool-apps for exact fields/limits.

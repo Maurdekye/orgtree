@@ -151,13 +151,15 @@ publication refuses before that snapshot would exceed the bound.
 
 ## Read files and remember media
 
-An app declaring `files.read` can ask to read one chosen file, or this org's
-scratch, uploads and retained file deliveries. Orgtree shows the request in its
+An app declaring `files.read` can ask to read one chosen file, a folder and its
+subfolders, this org's scratch/uploads/retained deliveries, or the whole computer.
+Orgtree shows the request in its
 own dialog outside the HTML. Choose a file in that native picker, then select
 **Allow once**, **Always allow**, **Deny** or **Cancel**. Read access is separate
 from sending messages: the dialog warns when an app also declares `mail.send`.
-Files are read-only in this first slice; folder-wide, whole-computer and write
-access are not available yet.
+Write access requires a separate `files.write` declaration and native grant.
+Whole-computer access includes private files/settings your Windows account can
+reach, without elevation. Prefer a chosen folder when that is enough.
 
 For files, Allow once lasts while this panel host stays open and visible.
 Always allow remembers the selected file or org collection for this app.
@@ -169,12 +171,33 @@ the host. Moving/removing a file or revoking permission requires selecting it
 again. Duplicating/importing a panel does not give its copied reference access.
 
 Open **App settings → Permissions → Files** to inspect or revoke remembered
-access. Returning Read files to Ask or Deny removes remembered grants and stops
-active playback. Replacing app code resets grants; importing an app starts at Ask.
+access. Separate Read files and Write files controls govern distinct grants.
+Returning a mode to Ask or Deny removes its remembered grants and stops active
+playback/pending changes. Replacing app code resets grants; importing starts at Ask.
 Choosing Allow granted scopes alone adds no files. Apps can read bounded chunks
-through `orgtree.files.read`; they cannot browse the computer or approve access.
+through `orgtree.files.read`; they browse only granted scopes and cannot approve access.
 
-Agent parity: `orgtree_apps` exposes `file_permissions`, `file_open` and
-`file_read`. Reads require both the app's existing user grant and the agent's
-current held folders. Agents cannot select files, grant permissions or expand
-their folders by using an app. Native permission decisions remain user-only.
+Every create, replacement or deletion requires native confirmation of the exact
+file, operation, size and new-content SHA256. Existing files need an explicit
+replacement request. Cancel and two-minute expiry write nothing. Writes are
+limited to64KiB per file change, use a staged Windows commit and never silently
+truncate an existing file. Unsupported platforms refuse changes; recursive folder
+deletion is unavailable. A grant alone does not approve a particular change.
+
+The SDK adds `files.grant(scope,mode)` for `orgtree`, `folder` or `computer`, and
+`read` or `write`. Save returned opaque roots in that panel's state.
+`files.roots()` returns current readable roots; `files.list(directory,options)`
+and `files.collection(root,options)` browse names/references with a page limit
+of1–200. `files.child(directory,path)` opens a relative descendant. Listings
+scan at most20,000 entries and disclose that limit. `files.write(directory,name,
+base64,{replace:false})` and `files.delete(file)` request confirmed changes.
+
+Agent parity: `orgtree_apps` exposes `file_permissions`, `file_open`, `file_read`,
+`file_roots`, `file_list`, `file_child`, `file_write`, `file_delete` and `file_result`.
+Reads need both the app's grant and the agent's current folders. Writes also need
+the agent's writable folders and edit permission. Agent changes return pending
+confirmation, not success: open **App settings → Permissions → Files → Pending
+changes**, refresh and review each target/size/hash to confirm or reject it.
+The originating agent can read its result once within two minutes of your choice.
+Agents cannot choose roots, grant permissions, confirm changes or expand their
+folders by using an app. Native permission decisions remain user-only.
