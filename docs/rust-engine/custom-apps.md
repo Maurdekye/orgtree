@@ -59,11 +59,11 @@ without surrounding whitespace or controls; descriptions allow0–1,000 characte
 The provisional catalog limit is64. Declarations contain no grants, listeners,
 recipients or fire actions. Old bundles without the field remain valid.
 
-This is the manifest/storage foundation; durable app listeners, publication and
-the renewed native broadcast permission are separate work. Existing targeted
-bridge fires and panel activity/linked metadata are not broadened by declaring
-names. The user explicitly retains docket create/assign/wake as the direct-wake
-edge case without an app event (USER2026-10-26 m556cde76bd33).
+Declarations alone are inert. Durable publication and renewed broadcast
+permission use the separate explicit paths described above; panel activity and
+linked metadata remain separate. The user explicitly retains docket
+create/assign/wake as the direct-wake edge case without an app event
+(USER2026-10-26 m556cde76bd33).
 
 Source ruling: USER2026-10-25, custom panels headline. An org owns app definitions;
 each app has zero or more saved panels. Every panel owns an independent JSON

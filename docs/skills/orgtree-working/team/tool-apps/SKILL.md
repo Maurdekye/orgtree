@@ -31,8 +31,8 @@ surrounding whitespace or controls; descriptions allow0–1,000 characters.
 Declarations survive app create/update, whole-app import/export and templates;
 catalog metadata and app_get expose them. They carry no permissions, recipient
 identity, listeners or fire actions. Omitted events means an empty catalog.
-This foundation does not implement named-event listener delivery yet, and does
-not broaden the existing targeted bridge or panel activity operations.
+Publication uses fire_event and explicit app_listener subscriptions as described
+above; declarations alone never authorize a broadcast or change panel activity.
 
 - list defaults to kind:apps. Use kind:panels and optional app to list copies.
   limit defaults100, maximum200; after takes the previous next_cursor string.
