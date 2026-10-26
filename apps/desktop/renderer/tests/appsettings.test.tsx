@@ -33,7 +33,7 @@ const provider = (id: 'claude' | 'openai' | 'google', on = true,
     { tier: 'opus', provider: id, seat: 5, model: 'opus', letter: 'O', name: 'Opus' },
   ] : id === 'openai' ? [
     { tier: 'luna', provider: id, seat: 0.2, model: 'gpt-5.6-luna', letter: 'L', name: 'Luna' },
-    { tier: 'terra', provider: id, seat: 2, model: 'gpt-5.6-terra', letter: 'T', name: 'Terra' },
+    { tier: 'terra', provider: id, seat: 1, model: 'gpt-6.1-terra', letter: 'T', name: 'Terra' },
     { tier: 'sol', provider: id, seat: 5, model: 'gpt-5.6-sol', letter: 'S', name: 'Sol' },
   ] : [
     { tier: 'flash', provider: id, seat: 1, model: 'antigravity-flash', letter: 'F', name: 'Flash' },
@@ -286,10 +286,10 @@ test('§3 provider rows present status and model-tier detail', async () => {
   try {
     const panel = view.el.querySelector<HTMLElement>('#app-settings-panel-providers')!
     assert.equal(panel.querySelectorAll('.acct-provider-group').length, 3)
-    // 8 in the fixture; Terra and Gemini Pro are left out while "show legacy
-    // models" is off
-    assert.equal(panel.querySelectorAll('.acct-provider-tier').length, 6)
-    assert.doesNotMatch(panel.textContent ?? '', /gpt-5\.6-terra/)
+    // 8 in the fixture; Gemini Pro is left out while "show legacy models" is
+    // off, and Terra (GPT-6.1 Terra) is current again (user 2026-10-26)
+    assert.equal(panel.querySelectorAll('.acct-provider-tier').length, 7)
+    assert.match(panel.textContent ?? '', /gpt-6\.1-terra/)
     assert.doesNotMatch(panel.textContent ?? '', /antigravity-pro/)
     assert.match(panel.textContent ?? '', /Installed · connected/)
     // the compact layout dropped the visible "Model tiers" caption (user

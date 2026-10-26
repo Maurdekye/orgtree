@@ -33,7 +33,7 @@ function tree(extra: Partial<TreePayload> = {}): TreePayload {
   return {
     slug: 'org', dirs: [], tiers: {
       haiku: 1, sonnet: 2, opus: 4, fable: 10,
-      'gpt-reserve': 0.2, luna: 0.1, terra: 2, sol: 2, flash: 1, pro: 2,
+      'gpt-reserve': 0.2, luna: 0.1, terra: 1, sol: 2, flash: 1, pro: 2,
     }, max_top_grant: 100, default_effort: '', effort_default: 'high',
     cascade_hire: true, ...extra,
   } as TreePayload
@@ -91,7 +91,7 @@ const options = (el: HTMLElement) =>
 const option = (el: HTMLElement, tier: string) =>
   options(el).find((o) => o.value === tier)!
 
-for (const [tier, version] of [['astra', '6'], ['terra', '5.6'], ['pro', '3.1']]) {
+for (const [tier, version] of [['astra', '6'], ['pro', '3.1']]) {
   configTest(`${tier} does not offer a picker for its single model version`, async (mount) => {
     const previous = MODEL_VERSIONS[tier]
     // Exercise the one-entry guard even if the renderer omits this catalog entry.
@@ -110,11 +110,12 @@ for (const [tier, version] of [['astra', '6'], ['terra', '5.6'], ['pro', '3.1']]
 }
 
 for (const [tier, seat, latest, older] of [
-  ['sol', 2, '6.1', ['6', '5.6']], ['luna', 0.1, '6', ['5.6']]] as const) {
+  ['sol', 2, '6.1', ['6', '5.6']], ['terra', 1, '6.1', ['5.6']],
+  ['luna', 0.1, '6', ['5.6']]] as const) {
   configTest(`${tier} offers ${latest} by default and older versions inside one tier`, async (mount) => {
     const { el, ops } = await mount({ node: { ...node(tier), seat },
       provider: provider({ tiers: [{ tier, provider: 'openai', seat,
-        model: `gpt-${latest}-${tier}`, letter: tier === 'sol' ? 'S' : 'L' }] }),
+        model: `gpt-${latest}-${tier}`, letter: tier[0].toUpperCase() }] }),
     })
     assert.equal(option(el, `gpt-6-${tier}`), undefined)
     assert.match(option(el, tier).textContent ?? '', new RegExp(`seat ${seat}`))
@@ -211,9 +212,8 @@ test('the header summary counts every provider family', async (t: TestContext) =
     [...view.el.querySelectorAll<HTMLBRElement>('.agents b')]
       .map((b) => [b.className, b.textContent]),
     [
-      // every family dearest seat first (user 2026-10-13); equal seats keep
-      // the renderer's tier order (terra before sol)
-      ['t-opus', 'O1'], ['t-terra', 'T1'], ['t-sol', 'S1'],
+      // every family dearest seat first (user 2026-10-13): Sol 2, Terra 1
+      ['t-opus', 'O1'], ['t-sol', 'S1'], ['t-terra', 'T1'],
       ['t-gpt-reserve', 'R1'], ['t-luna', 'L1'],
       ['t-pro', 'P1'], ['t-flash', 'F1'],
     ],
@@ -295,9 +295,9 @@ configTest('the switch lists every provider family with its ledger seats',
       // every family lists its dearest seat first (user 2026-10-13)
       ['fable', 'fable · seat 10'], ['opus', 'opus · seat 4'],
       ['sonnet', 'sonnet · seat 2'], ['haiku', 'haiku · seat 1'],
-      // terra is an opt-in legacy tier, hidden by default (legacytiers.test)
+      // terra is current again (GPT-6.1 Terra, terra.test)
       ['astra', 'astra · seat 10'], ['sol', 'sol · seat 2'],
-      ['luna', 'luna · seat 0.1'],
+      ['terra', 'terra · seat 1'], ['luna', 'luna · seat 0.1'],
       // pro is an opt-in legacy tier, hidden by default (legacypro.test)
       ['flash', 'flash · seat 1'],
     ])

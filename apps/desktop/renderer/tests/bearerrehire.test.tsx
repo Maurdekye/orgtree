@@ -99,9 +99,9 @@ panelTest('a claude bearer is offered every claude tier — fable included',
 panelTest('cross-provider tiers are SHOWN and disabled, each saying why',
   async (mount) => {
     const { el } = await mount(withBearer('opus'))
-    // (terra and pro are opt-in legacy tiers, hidden by default —
-    // legacytiers.test, legacypro.test)
-    for (const t of ['gpt-reserve', 'luna', 'sol', 'flash']) {
+    // (pro is an opt-in legacy tier, hidden by default — legacypro.test;
+    // terra is current again — terra.test)
+    for (const t of ['gpt-reserve', 'luna', 'terra', 'sol', 'flash']) {
       const o = option(el, t)
       assert.ok(o, `${t} must be listed, not omitted — a gap explains nothing`)
       assert.equal(o.disabled, true, `${t} must be disabled`)
