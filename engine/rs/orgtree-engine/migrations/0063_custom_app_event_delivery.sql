@@ -26,4 +26,5 @@ CREATE TABLE ot.app_event_recipients (
  done boolean NOT NULL DEFAULT false,
  PRIMARY KEY(fire_id,dog_id)
 );
+CREATE INDEX app_event_recipient_pending ON ot.app_event_recipients(fire_id,dog_id) WHERE NOT done;
 CREATE INDEX app_listener_source ON ot.watchdogs(org_id,target,id) WHERE kind='app_listener' AND state IN ('armed','paused');

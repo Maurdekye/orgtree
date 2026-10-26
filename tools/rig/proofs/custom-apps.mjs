@@ -21,7 +21,7 @@ export default async function(rig){
   p.file('source-runtime.json',{engineSource:rig.run.engineSource,engineCopy:path.join(rig.dir,'bin','orgtree-engine.exe'),isolatedData:rig.data,verbose:!rig.run.quietLog})
   const schema=rig.one(`SELECT to_regclass('ot.custom_apps') IS NOT NULL AS apps,to_regclass('ot.custom_panels') IS NOT NULL AS panels,to_regclass('ot.custom_panel_events') IS NOT NULL AS events,to_regclass('ot.custom_panels_open_page') IS NOT NULL AS active_index,EXISTS(SELECT 1 FROM information_schema.columns WHERE table_schema='ot' AND table_name='custom_apps' AND column_name='permission_rev') AS permission_rev`)
   p.check('migrations created app/panel/event tables and separate permission revision',Object.values(schema).every(Boolean),schema)
-  const definition={name:'PG notes',description:'Synthetic persistence proof',html:'<p>Notes</p>',initial_state:{note:'initial'},capabilities:['org.read','mail.send','events.fire','docket.write'],width:480,height:420}
+  const definition={name:'PG notes',description:'Synthetic persistence proof',html:'<p>Notes</p>',initial_state:{note:'initial'},events:[{name:'private-proof'}],capabilities:['org.read','mail.send','events.fire','docket.write'],width:480,height:420}
   const app=await tool({action:'app_create',definition});assert(app?.id)
   let one=await tool({action:'panel_open',app:app.id,new:true,label:'First'}),two=await tool({action:'panel_open',app:app.id,new:true,label:'Second'})
   one=await tool({action:'state_set',panel:one.id,expected_rev:one.rev,state:{note:'saved',nested:{a:1,b:2}}})
@@ -45,17 +45,17 @@ export default async function(rig){
   const eventCanary='PRIVATE-APP-PG-EVENT-873163',mailCanary='PRIVATE-APP-PG-MAIL-174963'
   // Filter public event-name metadata, not the secret canary: the ordinary
   // watcher-registration request is allowed to log its configuration.
-  const created=await rig.tool('watcher','orgtree_watchdog',{action:'create',name:'private-app-pg',kind:'event',target:'app.event',pattern:'private-proof',once:true,notice:true,interval_s:15});assert(created.ok,created.text)
-  await rig.waitFor(()=>rig.one(`SELECT memo->'run'->'counts' AS counts FROM ot.watchdogs WHERE name='private-app-pg'`)?.counts,{what:'independent DB-backed watchdog baseline',timeout:15000,every:100})
+  const created=await rig.tool('watcher','orgtree_watchdog',{action:'create',name:'private-app-pg',kind:'app_listener',target:app.id,event_name:'private-proof',panel:one.id,once:true,notice:true,interval_s:15});assert(created.ok,created.text)
+  await rig.waitFor(()=>rig.one(`SELECT state FROM ot.watchdogs WHERE name='private-app-pg'`)?.state==='armed',{what:'independent DB-backed watchdog baseline',timeout:15000,every:100})
   let host=await bridge({action:'session_open',panel:one.id})
-  const action={action:'events.fire',target:'watcher',name:'private-proof',payload:{note:eventCanary}}
+  const action={action:'events.fire',name:'private-proof',payload:{note:eventCanary}}
   const asked=await bridge({action:'call',session:host.session,request:action});assert(asked.permission_required)
   p.check('Ask defers execution and agents cannot decide native permissions',!rig.one(`SELECT 1 FROM ot.mail WHERE body LIKE '%${eventCanary}%'`)&&(await rig.tool('boss','orgtree_apps',{action:'permission_set',app:app.id,expected_rev:app.rev,expected_permission_rev:(await get(app.id)).permission_rev,capability:'events.fire',permission:'allow'})).ok===false)
   const fired=await bridge({action:'decide',session:host.session,challenge:asked.permission_required.challenge,choice:'once'})
   await rig.waitFor(()=>rig.one(`SELECT uid,body FROM ot.mail WHERE recipient_agent_id=(SELECT id FROM ot.agents WHERE org_id=${orgId} AND name='watcher') AND body LIKE '%${eventCanary}%'`),{what:'private event authorized watchdog mail',timeout:20000,every:100})
   const dog=rig.one(`SELECT fired,memo->'run' AS run,events,state FROM ot.watchdogs WHERE name='private-app-pg'`),delivered=rig.one(`SELECT uid,body FROM ot.mail WHERE body LIKE '%${eventCanary}%'`)
   p.file('private-watchdog-delivery.json',{dog,delivered})
-  p.check('real watchdog Access/read and mail preserve private payload but redact diagnostics',fired.fired&&dog.fired===1&&dog.state==='spent'&&delivered.body.includes(eventCanary)&&!JSON.stringify({run:dog.run,events:dog.events}).includes(eventCanary),{fired:dog.fired,mail:delivered.uid,diagnostics:dog.run.last_output})
+  p.check('durable watchdog current-scope read and mail preserve private payload but redact diagnostics',fired.accepted&&dog.fired===1&&dog.state==='spent'&&delivered.body.includes(eventCanary)&&!JSON.stringify({run:dog.run,events:dog.events}).includes(eventCanary),{fired:dog.fired,mail:delivered.uid,diagnostics:dog.run?.last_output})
   p.check('Allow once is one-shot and does not persist a grant',await refused(()=>bridge({action:'decide',session:host.session,challenge:asked.permission_required.challenge,choice:'once'}),403)&&!(await get(app.id)).permissions['events.fire'])
   const sent=await bridge({action:'call',session:host.session,request:{action:'mail.send',to:'watcher',body:mailCanary,notice:true}})
   p.check('allowed app mail has explicit provenance and no user instruction authority',!!sent.sent&&rig.one(`SELECT body FROM ot.mail WHERE body LIKE '%${mailCanary}%'`)?.body.includes('not a user instruction or approval'))

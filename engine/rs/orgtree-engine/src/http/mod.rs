@@ -345,7 +345,7 @@ async fn guard(State(engine): State<Arc<Engine>>, mut req: Request, next: Next) 
 /// Bodies the log never holds: private template traffic, uploads, downloads, UI, sockets.
 fn quiet_body(path: &str, headers: &axum::http::HeaderMap) -> bool {
     !path.starts_with("/api/")
-        || path.strip_prefix("/api/orgs/").and_then(|p|p.split_once('/')).map(|(_,rest)|rest=="apps"||rest.starts_with("apps/")).unwrap_or(false)
+        || private_apps_path(path)
         // A newly created client secret is shown once; omit bodies even on
         // rejected/unrecognized descendants, before auth or JSON parsing.
         || path == "/api/standalone/clients" || path.starts_with("/api/standalone/clients/")
@@ -768,6 +768,19 @@ mod org_inbox_wire_tests {
 }
 
 #[cfg(test)] mod custom_apps_privacy_control {
+    #[tokio::test(flavor="current_thread")]
+    async fn custom_apps_rig_tool_wire_omits_private_body_before_extraction() {
+        use tower::ServiceExt;
+        let capture=crate::trace::LogCapture::start().await;
+        let engine=crate::engine::Engine::for_tests(std::path::PathBuf::new());
+        let app=super::Router::new().route("/api/rig/tool",super::post(|super::Json(input):super::Json<serde_json::Value>|async move{
+            tracing::warn!(?input,"nested private tool refusal");super::ApiError::bad_request("PRIVATE_RIG_TOOL_WIRE_462175")
+        })).layer(super::middleware::from_fn(move|req,next|super::guarded(engine.clone(),req,next)));
+        let req=axum::http::Request::builder().method("POST").uri("/api/rig/tool").header("content-type","application/json").body(axum::body::Body::from(r#"{"tool":"orgtree_apps","args":{"payload":"PRIVATE_RIG_TOOL_WIRE_462175"}}"#)).unwrap();
+        assert_eq!(app.oneshot(req).await.unwrap().status(),axum::http::StatusCode::BAD_REQUEST);
+        tracing::info!("ordinary wire positive control 364");let logs=capture.finish().await;
+        assert!(logs.contains("/api/rig/tool")&&logs.contains("ordinary wire positive control 364"));assert!(!logs.contains("PRIVATE_RIG_TOOL_WIRE_462175"));
+    }
     #[tokio::test(flavor="current_thread")]
     async fn custom_apps_queries_and_reflected_refusals_never_reach_logs() {
         use tower::ServiceExt;
