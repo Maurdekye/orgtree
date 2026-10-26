@@ -33,20 +33,24 @@ export function AppPermissionPrompt({prompt,owner}:{prompt:PermissionPrompt;owne
     </div></AppDialog>
 }
 
-export function AppPermissions({slug,app,close}:{slug:string;app:CustomApp;close:()=>void}){
+/** App settings' Permissions tab (user 2026-10-26: "for now, make permissions a
+ * second tab in app settings"). `embedded` renders the tab body, leaving Escape
+ * to the settings window; standalone keeps its own dialog. */
+export function AppPermissions({slug,app,close,embedded=false}:{slug:string;app:CustomApp;close:()=>void;embedded?:boolean}){
   const owner=useSurfaceDocument(),[current,setCurrent]=useState(app),[busy,setBusy]=useState(false),[error,setError]=useState('')
   useEffect(()=>setCurrent(app),[app])
-  useEffect(()=>{const cancel=(e:KeyboardEvent)=>{if(e.key==='Escape'){e.preventDefault();e.stopImmediatePropagation();close()}};owner.addEventListener('keydown',cancel,true);return()=>owner.removeEventListener('keydown',cancel,true)},[owner,close])
+  useEffect(()=>{if(embedded)return;const cancel=(e:KeyboardEvent)=>{if(e.key==='Escape'){e.preventDefault();e.stopImmediatePropagation();close()}};owner.addEventListener('keydown',cancel,true);return()=>owner.removeEventListener('keydown',cancel,true)},[owner,close,embedded])
   const save=async(capability:string,permission:string)=>{
     setBusy(true);setError('')
     try{setCurrent(await changeApps<CustomApp>(slug,{action:'permission_set',app:current.id,expected_rev:current.rev,expected_permission_rev:current.permission_rev??1,capability,permission}))}
     catch(e){setError(String(e))}finally{setBusy(false)}
   }
-  return <AppDialog title="App permissions" close={close}>
-    <p>Changes save immediately and apply to every copy of {current.name}. Org-internal actions and Orgtree files are allowed by default. Explicit Ask or Deny overrides the default and survives code replacement. Outside file grants reset when code changes. Links to agents grant nothing.</p>
+  const content=<>
+    <p>Changes save immediately and apply to every copy of {current.name}. Org-internal actions and Orgtree files are allowed by default. Explicit Ask or Deny overrides the default and survives code replacement. Outside file grants reset when code changes.</p>
     {!appCapabilities(current).length&&<p>This app declares no engine actions.</p>}
     {appCapabilities(current).filter(cap=>!cap.startsWith('files.')).map(cap=><label className="custom-app-permission-row" key={cap}><span>{cap}{cap==='docket.write'&&<small>Creates and assigns work; wakes the selected local agent.</small>}{cap==='events.fire'&&<small>Broadcasts declared events to this copy's subscribed agents.</small>}</span><select aria-label={`${cap} permission`} disabled={busy} value={appPermission(current,cap)} onChange={e=>void save(cap,e.target.value)}><option value="ask">Ask</option><option value="allow">Allow</option><option value="deny">Deny</option></select></label>)}
     {appCapabilities(current).some(cap=>cap.startsWith('files.'))&&<AppFilePermissions slug={slug} app={current} save={save} disabled={busy} refresh={async()=>setCurrent(await customAppsRequest<CustomApp>(slug,{action:'app_get',app:current.id}))}/>}
     {error&&<p role="alert">{error}</p>}
-  </AppDialog>
+  </>
+  return embedded?<section className="custom-app-permissions" aria-label="App permissions">{content}</section>:<AppDialog title="App permissions" close={close}>{content}</AppDialog>
 }

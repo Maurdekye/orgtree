@@ -61,7 +61,7 @@ export function PanelHtml({slug,app,panel,visible=true}:{slug:string;app:CustomA
       while(after<latest){
         const page=await customAppsRequest<PanelEvents>(slug,{action:'events',panel:panel.id,after,limit:200})
         if(!alive||at!==epoch.current)return
-        for(const event of page.events){after=Math.max(after,event.seq);if(ready.current&&!['state.changed','panel.changed','panel.opened','panel.duplicated'].includes(event.name))postRef.current({kind:'event',name:event.name,payload:event.payload})}
+        for(const event of page.events){after=Math.max(after,event.seq);if(ready.current&&!['state.changed','panel.changed','panel.opened','panel.duplicated','event.fired'].includes(event.name))postRef.current({kind:'event',name:event.name,payload:event.payload})}
         if(page.next_cursor===null)break
       }
       eventSeq.current=latest
@@ -113,7 +113,7 @@ export function PanelHtml({slug,app,panel,visible=true}:{slug:string;app:CustomA
     {error&&<div className="custom-app-error" role="alert">{error}</div>}
     {visible&&foreground&&source?<iframe key={channel} ref={frame} title={`${app.name}: ${panel.label}`} srcDoc={source} sandbox="allow-scripts" referrerPolicy="no-referrer"
       onLoad={()=>{ready.current=true;postRef.current({kind:'ready'})}}/>:<div className="custom-app-suspended">{source?'Paused while hidden.':'Loading app…'}</div>}
-    <div className="custom-app-status">{panel.linked_agents.length?`Linked: ${panel.linked_agents.join(', ')}`:'No linked agents'}<span>{saved?'Saved':'State saved by Orgtree'}</span></div>
+    <div className="custom-app-status"><span>{saved?'Saved':'State saved by Orgtree'}</span></div>
     {prompt&&visible&&foreground&&<AppPermissionPrompt prompt={prompt} owner={owner}/>}
     {filePrompt&&visible&&foreground&&<AppFilePermissionPrompt slug={slug} prompt={filePrompt} owner={owner} canSend={appCapabilities(app).includes('mail.send')}/>}
   </div>

@@ -1,7 +1,7 @@
 import {useCallback,useEffect,useLayoutEffect,useRef,useState,useSyncExternalStore} from 'react'
 import type {CSSProperties,PointerEvent as ReactPointerEvent} from 'react'
 import {createPortal} from 'react-dom'
-import {AppsIcon,CloseIcon,SettingsIcon,PinIcon} from '../../icons'
+import {AddIcon,AppsIcon,CloseIcon,SettingsIcon,PinIcon} from '../../icons'
 import {MovableSurface,PopoutButton,useSurface,useSurfaceDocument} from '../../popout'
 import {windowExitStarted} from '../../windowlayout'
 import {customAppsRequest} from '../../api'
@@ -23,6 +23,8 @@ type Menu={slug:string;anchor:HTMLElement}|null
 let menu:Menu=null
 const menuSubs=new Set<()=>void>(),anchorSubs=new Set<()=>void>()
 const anchors=new Map<string,{element:HTMLElement;zoom:number}>(),returns=new Map<string,AppPlacement>()
+/** Each org window's "show the canvas" switch; a canvas pin is only visible there. */
+const showCanvas=new Map<string,()=>void>()
 const key=(slug:string,id:string)=>slug+'\0'+id
 function setMenu(value:Menu){menu=value;for(const fn of menuSubs)fn()}
 function useMenu(){return useSyncExternalStore(fn=>{menuSubs.add(fn);return()=>menuSubs.delete(fn)},()=>menu)}
@@ -56,17 +58,20 @@ function AppsMenu({slug,current,manage,managePanel,importApp,onShowCanvas}:{slug
     ref.current.querySelectorAll('[data-new-app]').forEach(e=>observer.observe(e));return()=>observer.disconnect()
   },[slug,owner,data.apps,style.visibility])
   const open=async(input:Record<string,unknown>)=>{setMenu(null);try{const p=await changeApps<CustomPanel>(slug,input);if(p.placement.mode==='canvas'){onShowCanvas();canvas.get(slug)?.focus(p.placement)}}catch(e){window.dispatchEvent(new CustomEvent('custom-app-error',{detail:{slug,error:String(e)}}))}}
+  // The saved rows' own order, most recently used first. User 2026-10-26: a
+  // click on the app row opens the first listed copy, or creates one if none.
+  const listed=(app:CustomApp)=>data.panels.filter(p=>p.app===app.id).sort((a,b)=>b.used_at.localeCompare(a.used_at))
   return createPortal(<div ref={ref} className="ctxmenu custom-apps-menu" role="dialog" aria-label="Apps" style={style}>
     <header><strong>Apps</strong><label className="custom-app-import-file">Import app<input type="file" aria-label="Import app" accept=".orgtree-app,.json,application/json" hidden onChange={async e=>{const file=e.target.files?.[0];e.target.value='';if(!file)return;try{if(file.size>APP_BUNDLE_MAX)throw Error('App bundle exceeds 16 MiB.');const bundle=parseAppBundle(await file.text());setMenu(null);importApp(bundle,owner)}catch(error){window.dispatchEvent(new CustomEvent('custom-app-error',{detail:{slug,error:String(error)}}))}}}/></label><button type="button" onClick={()=>void loadAppsMenu(slug)}>Refresh</button></header>
     {data.error&&<p role="alert">{data.error}</p>}
     {!data.apps.length&&!data.loading&&<p className="dim">Your apps will appear here.</p>}
-    {data.apps.map(app=><section key={app.id} className="custom-apps-menu-group">
-      <div className="custom-apps-menu-app" data-new-app={app.is_new?app.id:undefined}><button type="button" className="custom-apps-open" onClick={()=>void open({action:'panel_open',app:app.id})}><AppsIcon/><span><b>{app.name}</b><small>{app.description}</small></span></button>
+    {data.apps.map(app=>{const first=listed(app)[0];return <section key={app.id} className="custom-apps-menu-group">
+      <div className="custom-apps-menu-app" data-new-app={app.is_new?app.id:undefined} onClick={()=>void open(first?{action:'panel_open',panel:first.id}:{action:'panel_open',app:app.id})}><button type="button" className="custom-apps-open" title={first?`Open ${first.label}`:`Create a panel for ${app.name}`}><AppsIcon/><span><b>{app.name}</b><small>{app.description}</small></span></button>
         {(app.is_new||seenHere.has(app.id))&&<b className="custom-app-new-label">New</b>}
-        <button type="button" title={`App settings: ${app.name}`} aria-label={`Settings for ${app.name}`} onClick={()=>{setMenu(null);manage(app)}}><SettingsIcon/></button></div>
-      <button type="button" className="custom-apps-new" onClick={()=>void open({action:'panel_open',app:app.id,new:true})}>+ New panel</button>
+        <button type="button" className="custom-apps-add" title="New panel" aria-label={`New panel for ${app.name}`} onClick={e=>{e.stopPropagation();void open({action:'panel_open',app:app.id,new:true})}}><AddIcon/></button>
+        <button type="button" title={`App settings: ${app.name}`} aria-label={`Settings for ${app.name}`} onClick={e=>{e.stopPropagation();setMenu(null);manage(app)}}><SettingsIcon/></button></div>
       {data.panels.filter(p=>p.app===app.id).sort((a,b)=>b.used_at.localeCompare(a.used_at)).map(p=><div key={p.id} className="custom-apps-saved-row"><button type="button" className="custom-apps-saved" onClick={()=>void open({action:'panel_open',panel:p.id})}><span className={p.open?'custom-app-dot open':'custom-app-dot'}/><span>{p.label}</span><small>{p.open?'Open':'Closed'}</small></button><button type="button" className="custom-apps-saved-gear" title={`Panel settings: ${p.label}`} aria-label={`Settings for ${p.label}`} onClick={()=>{setMenu(null);managePanel(app,p)}}><SettingsIcon/></button></div>)}
-    </section>)}
+    </section>})}
     {data.appNext&&<button type="button" onClick={()=>void loadAppsMenu(slug,'apps')}>More apps</button>}
     {data.panelNext&&<button type="button" onClick={()=>void loadAppsMenu(slug,'panels')}>More saved panels</button>}
   </div>,owner.body)
@@ -79,7 +84,9 @@ function PanelBody({slug,app,panel,zoom}:{slug:string;app:CustomApp;panel:Custom
   const update=async(fields:Record<string,unknown>)=>{try{setError('');return await changeApps<CustomPanel>(slug,{action:'panel_update',panel:panel.id,expected_rev:latest.current.rev,...fields})}catch(e){setError(String(e));throw e}}
   const close=()=>void update({open:false}).catch(()=>{})
   useEsc(close,panel.placement.mode==='float'&&!surface?.detached&&!settings,owner)
-  const place=(mode:AppPlacement['mode'])=>void update({placement:appPlacement(slug,latest.current,mode,owner)}).catch(()=>{})
+  // The pin goes to the canvas only (user 2026-10-26: "only canvas pin, no
+  // screen pin"); unpinning returns to the centered window.
+  const pin=()=>{const toCanvas=latest.current.placement.mode!=='canvas';void update({placement:appPlacement(slug,latest.current,toCanvas?'canvas':'float')}).then(()=>{if(toCanvas)showCanvas.get(slug)?.()}).catch(()=>{})}
   const geometry=preview??panel.placement
   const style:CSSProperties=surface?.detached?{width:'100%',height:'100%'}:{width:geometry.width,height:geometry.height,...(preview?{transform:`translate(${preview.x-panel.placement.x}px,${preview.y-panel.placement.y}px)`}:{})}
   const start=(event:ReactPointerEvent<HTMLElement>,kind:'move'|'size')=>{if(surface?.detached||(kind==='move'&&panel.placement.mode==='float')||event.button!==0||(event.target as HTMLElement).closest('button,input,select'))return;event.preventDefault();event.stopPropagation();event.currentTarget.setPointerCapture(event.pointerId);drag.current={x:event.clientX,y:event.clientY,placement:{...panel.placement},kind}}
@@ -89,7 +96,7 @@ function PanelBody({slug,app,panel,zoom}:{slug:string;app:CustomApp;panel:Custom
     <header className="modalpin-bar on custom-app-title" onPointerDown={e=>start(e,'move')} onPointerMove={move} onPointerUp={end} onPointerCancel={()=>{drag.current=null;setPreview(null)}}>
       <AppsIcon/><strong className="modalpin-name" title={app.name+' · '+panel.label}>{app.name} · {panel.label}</strong>
       <button type="button" className="modalpin-btn" title="Panel settings" aria-label={'Settings for '+panel.label} onClick={()=>setSettings(true)}><SettingsIcon fontSize="inherit"/></button>
-      <PopoutButton/><button type="button" className={'modalpin-btn'+(panel.placement.mode==='screen'?' active':'')} title={panel.placement.mode==='screen'?'Unpin':'Pin to screen'} aria-label={panel.placement.mode==='screen'?'Unpin':'Pin to screen'} onClick={()=>place(panel.placement.mode==='screen'?'float':'screen')}><PinIcon fontSize="inherit"/></button>
+      <PopoutButton/>{!surface?.detached&&<button type="button" className={'modalpin-btn'+(panel.placement.mode==='canvas'?' active':'')} title={panel.placement.mode==='canvas'?'Unpin from canvas':'Pin to canvas'} aria-label={panel.placement.mode==='canvas'?'Unpin from canvas':'Pin to canvas'} onClick={pin}><PinIcon fontSize="inherit"/></button>}
       <button type="button" className="modalpin-btn" aria-label={'Close '+panel.label} onClick={close}><CloseIcon fontSize="inherit"/></button>
     </header>
     {error&&<div role="alert" className="custom-app-error">{error}</div>}{surface?.error&&<div role="alert">{surface.error}</div>}
@@ -104,7 +111,7 @@ function PanelWindow({slug,panel,app}:{slug:string;panel:CustomPanel;app:CustomA
   if(panel.placement.mode==='canvas'&&!anchor)return null
   const p=panel.placement,k=key(slug,panel.id),world=p.mode==='canvas',centered=p.mode==='float'
   const effective=world?panel:{...panel,placement:{...p,x:Math.max(8,Math.min(p.x,window.innerWidth-80)),y:Math.max(8,Math.min(p.y,window.innerHeight-40))}}
-  return <div ref={outer} className={centered?'overlay custom-app-centered':'custom-app-placeholder'+(world?' world':'')} style={world||centered?undefined:{position:'fixed',left:effective.placement.x,top:effective.placement.y,width:p.width,height:p.height,zIndex:p.mode==='screen'?17:19}} onPointerDownCapture={e=>{backdrop.current=e.target===e.currentTarget}} onClick={e=>{if(centered&&e.target===e.currentTarget&&backdrop.current!==false)void changeApps(slug,{action:'panel_update',panel:panel.id,expected_rev:latest.current.rev,open:false}).catch(()=>{});backdrop.current=null}}>
+  return <div ref={outer} className={centered?'overlay custom-app-centered':'custom-app-placeholder'+(world?' world':'')} style={world||centered?undefined:{position:'fixed',left:effective.placement.x,top:effective.placement.y,width:p.width,height:p.height,zIndex:19}} onPointerDownCapture={e=>{backdrop.current=e.target===e.currentTarget}} onClick={e=>{if(centered&&e.target===e.currentTarget&&backdrop.current!==false)void changeApps(slug,{action:'panel_update',panel:panel.id,expected_rev:latest.current.rev,open:false}).catch(()=>{});backdrop.current=null}}>
     <MovableSurface org={slug} kind={'custom-app:'+panel.id} title={app.name+' · '+panel.label} anchor={world?anchor?.element:undefined}
       sourceBox={()=>{const r=outer.current?.querySelector('.custom-app-window')?.getBoundingClientRect();return r?{x:r.x,y:r.y,w:r.width,h:r.height}:null}} exactSourceBox
       onDismiss={()=>{if(!windowExitStarted())void changeApps(slug,{action:'panel_update',panel:panel.id,expected_rev:latest.current.rev,open:false}).catch(()=>{})}}
@@ -120,6 +127,7 @@ function PanelWindow({slug,panel,app}:{slug:string;panel:CustomPanel;app:CustomA
 export function AppsWorkspace({slug,onShowCanvas=()=>{}}:{slug:string;onShowCanvas?:()=>void}){
   const data=useApps(slug),current=useMenu(),[manage,setManage]=useState<{app:CustomApp;panel?:CustomPanel;owner:Document}|null>(null),[imported,setImported]=useState<{bundle:AppBundle;owner:Document}|null>(null),[error,setError]=useState('')
   useEffect(()=>activateApps(slug),[slug])
+  useEffect(()=>{showCanvas.set(slug,onShowCanvas);return()=>{if(showCanvas.get(slug)===onShowCanvas)showCanvas.delete(slug)}},[slug,onShowCanvas])
   useEffect(()=>{const failure=(e:Event)=>{const d=(e as CustomEvent).detail;if(d?.slug===slug)setError(d.error)};window.addEventListener('custom-app-error',failure);return()=>window.removeEventListener('custom-app-error',failure)},[slug])
   return <>{current?.slug===slug&&<AppsMenu slug={slug} current={current} manage={app=>setManage({app,owner:current.anchor.ownerDocument})} managePanel={(app,panel)=>setManage({app,panel,owner:current.anchor.ownerDocument})} importApp={(bundle,owner)=>setImported({bundle,owner})} onShowCanvas={onShowCanvas}/>}
     {data.panels.filter(p=>p.open).map(p=>{const app=data.apps.find(a=>a.id===p.app);return app?<PanelWindow key={p.id} slug={slug} panel={p} app={app}/>:null})}

@@ -38,7 +38,7 @@
 .custom-app-more>div button { width:auto;min-height:27px;height:auto;text-align:left;justify-content:flex-start;padding:5px 8px }
 .custom-app-host { display:flex;flex-direction:column;flex:1;min-height:0;min-width:0;overflow:hidden;border-radius:0 0 7px 7px }
 .custom-app-host iframe { border:0;flex:1;min-height:0;width:100%;background:#fff }
-.custom-app-status { min-height:24px;display:flex;align-items:center;justify-content:space-between;gap:8px;padding:0 8px;font-size:11px;color:var(--muted);border-top:1px solid var(--border);overflow:hidden;white-space:nowrap }
+.custom-app-status { min-height:24px;display:flex;align-items:center;justify-content:flex-end;gap:8px;padding:0 8px;font-size:11px;color:var(--muted);border-top:1px solid var(--border);overflow:hidden;white-space:nowrap }
 .custom-app-suspended { display:grid;place-items:center;flex:1;color:var(--muted);padding:16px }
 .custom-app-error { padding:6px 9px;color:var(--danger,#e88);font-size:12px;overflow-wrap:anywhere }
 .custom-app-resize { position:absolute;width:15px;height:15px;right:0;bottom:0;cursor:nwse-resize;touch-action:none;border-right:2px solid var(--muted);border-bottom:2px solid var(--muted);border-radius:0 0 6px 0 }
@@ -89,3 +89,10 @@
 .custom-apps-saved-row .custom-apps-saved { flex:1;min-width:0 }
 .custom-apps-saved-gear { display:flex;align-items:center;justify-content:center;flex:none;border:0;border-radius:4px;background:none;padding:6px }
 .custom-apps-saved-gear svg { width:18px;height:18px }
+
+/* App rows (user 2026-10-26): the whole row opens its first listed panel, or
+   creates one when the app has none; + always creates a new panel. */
+.custom-apps-menu-app { cursor:pointer;border-radius:4px }
+.custom-apps-menu-app:hover { background:var(--hover) }
+.custom-apps-menu-app>.custom-apps-add { flex:none;display:inline-flex;align-items:center;justify-content:center;border:0;border-radius:4px;background:none;padding:5px }
+.custom-app-history pre { margin:4px 0 0 }
