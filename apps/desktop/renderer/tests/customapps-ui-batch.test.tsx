@@ -3,11 +3,12 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import {AppsButton,AppsWorkspace} from '../src/canvas/apps/ui'
 
-// User 2026-10-26 Apps rulings: the app row opens its first listed copy or
-// creates one, + always creates, panel links and screen pins are gone.
+// User 2026-10-26 Apps rulings: saved copies keep their creation order ("Fixed order"),
+// the app row opens the most recently used copy (provisional, independent of the
+// list order) or creates one, + always creates, panel links and screen pins are gone.
 const tick=async()=>{for(let i=0;i<5;i++)await flush()}
-type Panel={id:string;app:string;label:string;rev:number;open:boolean;state:Record<string,unknown>;event_seq:number;placement:{mode:string;x:number;y:number;width:number;height:number;anchor?:string|null};used_at:string;updated_at:string}
-const copy=(id:string,label:string,used:string,open=false,mode='float'):Panel=>({id,app:'notes',label,rev:1,open,state:{},event_seq:0,placement:{mode,x:40,y:40,width:360,height:280},used_at:used,updated_at:''})
+type Panel={id:string;app:string;label:string;rev:number;open:boolean;state:Record<string,unknown>;event_seq:number;placement:{mode:string;x:number;y:number;width:number;height:number;anchor?:string|null};created_at:string;used_at:string;updated_at:string}
+const copy=(id:string,label:string,used:string,open=false,mode='float'):Panel=>({id,app:'notes',label,rev:1,open,state:{},event_seq:0,placement:{mode,x:40,y:40,width:360,height:280},created_at:used,used_at:used,updated_at:''})
 function fixture(t:test.TestContext,panels:Panel[]){
  const app={id:'notes',name:'Notes',description:'Saved notes',rev:1,permission_rev:1,width:360,height:280,capabilities:['mail.send'],permissions:{},created_by:'maker',updated_at:'',definition:{name:'Notes',description:'',html:'<p>Notes</p>',initial_state:{},capabilities:['mail.send'],width:360,height:280}}
  const calls:Record<string,any>[]=[],original=globalThis.fetch
@@ -25,7 +26,7 @@ function fixture(t:test.TestContext,panels:Panel[]){
  return {calls,panels}
 }
 
-test('the app row opens its first listed copy, + always creates one, and neither + nor the gear triggers the row',async t=>{
+test('the app row opens the most recently used copy, + always creates one, and neither + nor the gear triggers the row',async t=>{
  const {calls}=fixture(t,[copy('older','Draft','2026-10-25'),copy('newer','Panel 2','2026-10-26')])
  const view=await mountView(<><AppsButton slug="row-case"/><AppsWorkspace slug="row-case"/></>,e=>e);t.after(()=>view.unmount());await inAct(tick)
  const menu=async()=>{await inAct(async()=>{view.el.querySelector<HTMLButtonElement>('.apps-button')!.click();await tick()});return document.querySelector<HTMLElement>('.custom-apps-menu')!}
@@ -33,14 +34,14 @@ test('the app row opens its first listed copy, + always creates one, and neither
  let m=await menu()
  assert.equal(!!m.querySelector('.custom-apps-new'),false,'the separate "+ New panel" row is gone')
  assert.equal([...m.querySelectorAll('button')].some(b=>b.textContent?.trim()==='+ New panel'),false)
- assert.deepEqual([...m.querySelectorAll('.custom-apps-saved-row .custom-apps-saved span:nth-child(2)')].map(e=>e.textContent),['Panel 2','Draft'],'saved rows list the most recently used copy first')
+ assert.deepEqual([...m.querySelectorAll('.custom-apps-saved-row .custom-apps-saved span:nth-child(2)')].map(e=>e.textContent),['Draft','Panel 2'],'saved rows keep their creation order')
  // User 2026-10-26: no Open/Closed word; the light alone shows state, named in the tooltip.
  const rows=()=>[...document.querySelectorAll<HTMLElement>('.custom-apps-menu .custom-apps-saved')].map(b=>[b.textContent,b.title,b.getAttribute('aria-label'),b.querySelector('.custom-app-dot')?.className])
- assert.deepEqual(rows(),[['Panel 2','Off','Panel 2, off','custom-app-dot'],['Draft','Off','Draft, off','custom-app-dot']])
- assert.equal(m.querySelector('.custom-apps-open')!.getAttribute('title'),'Open Panel 2')
+ assert.deepEqual(rows(),[['Draft','Off','Draft, off','custom-app-dot'],['Panel 2','Off','Panel 2, off','custom-app-dot']])
+ assert.equal(m.querySelector('.custom-apps-open')!.getAttribute('title'),'Open Panel 2','the app row names the most recently used copy')
  await inAct(async()=>{m.querySelector<HTMLButtonElement>('.custom-apps-open')!.click();await tick()})
- assert.deepEqual(opens().at(-1),{action:'panel_open',panel:'newer'},'the app row opens the first listed copy')
- m=await menu();assert.deepEqual(rows()[0],['Panel 2','Running · visible','Panel 2, running · visible','custom-app-dot open'],'an open copy lights its dot')
+ assert.deepEqual(opens().at(-1),{action:'panel_open',panel:'newer'},'the app row opens the most recently used copy, wherever it is listed')
+ m=await menu();assert.deepEqual(rows()[1],['Panel 2','Running · visible','Panel 2, running · visible','custom-app-dot open'],'an open copy lights its dot and keeps its place')
  await inAct(async()=>{m.querySelector<HTMLElement>('.custom-apps-menu-app small')!.dispatchEvent(new window.MouseEvent('click',{bubbles:true}));await tick()})
  assert.deepEqual(opens().at(-1),{action:'panel_open',panel:'newer'},'a click anywhere on the row opens it')
  const before=opens().length;m=await menu()
