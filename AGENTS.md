@@ -59,10 +59,17 @@ open settings for that exact copy (General/History tabs), including closed panel
 without running HTML. See the same custom-app topic for placement, permission
 and tool parity.
 [decided: user 2026-10-26; verified: `canvas/apps/{dialog,settings,ui}.tsx`, `domain/apps/labels.rs`]
+A visible app panel is always running; a hidden one need not be stopped (DB
+CHECK, migration 0067). Hide keeps the runtime; Power off and Stop all bump
+run_generation, which fences bridge sessions and desktop leases. Hidden running
+copies stay mounted and parked inside the viewport, never display:none or
+offscreen, because Chromium throttles such frames. See
+[custom apps](docs/rust-engine/custom-apps.md#background-panels-2026-10-26).
+[decided: user 2026-10-26; verified: `domain/apps/{runtime,storage,bridge}.rs`, `canvas/apps/ui.tsx`]
 App events carry privacy across subscriber/overflow handoffs; authorized delivery
 keeps content while watchdog diagnostic output/history omit it.
-Hide/close/replacement discards prompts and authority, while grant edits use a separate
-revision from code. Portable version1 app bundles never carry grants/IDs/links or
+Hide refuses prompts but keeps the running session; power off and replacement
+discard prompts and authority, while grant edits use a separate revision from code. Portable version1 app bundles never carry grants/IDs/links or
 machine placement; imports get fresh closed copies and implicit local org authority. The
 provisional bundle bounds are16MiB/16 saved copies. Agent exports create a fresh
 private-scratch file; imports pin original held roots without canonicalizing links.

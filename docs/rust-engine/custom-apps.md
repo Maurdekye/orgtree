@@ -1,5 +1,74 @@
 # Custom apps and saved panels (4.5.0)
 
+## Background panels (2026-10-26)
+
+User rulings 2026-10-26 (forwarded in m904ca9fb891f, plus m74c6e82ee894, the
+answers m6ba7f81fde6c and the light ruling m5ff0338a79da):
+closing a panel's visual does not stop it; a visible panel is always running and
+a hidden one need not be stopped. Opening starts a copy, Start running (saved-row
+context menu) starts it hidden, Power off (row and header) stops and hides it and
+Stop all powers off every app. Restart restores each copy as it was. Panels run
+only in the desktop app, including the tray, with no count cap.
+
+Migration 0067 adds is_running and run_generation (>0) with CHECK (NOT is_open
+OR is_running); copies open at migration become running. Panel metadata reports
+running/run_generation and list kind:panels filters running. Under the existing
+app-then-panel locks: Open/Show sets both flags and bumps the generation only for
+a stopped copy, so showing a hidden copy reveals the same runtime. Hide
+(panel_update open:false) clears only is_open: it keeps host sessions and ends
+Allow-once file grants and references, pending file requests and media streams;
+the desktop refuses its open prompts. panel_start runs any copy hidden (user
+or agent, expected_rev; running is a no-op). panel_stop clears both, bumps the
+generation and revokes sessions, file links and the runtime lease. User duplicates
+open and run; agent-created/duplicated and imported copies stay closed and off.
+Starts lock their app row, then refuse while the org killswitch is latched; Stop
+all locks every app row in ID order and powers off every copy with panel.stopped
+{reason:"stop all"}, so a racing start sees the latch or is stopped. Release
+starts nothing.
+
+PROVISIONAL, not a user ruling: app_update restarts running copies with a new
+generation. Visible ones reload the new code as before; hidden ones power off
+with panel.stopped {reason:"code changed"} and stay off after a restart.
+
+Bridge sessions bind the execution generation (session_open takes an optional
+generation; absent binds the current one). The snapshot admits a running current
+generation of the bound code without a latch, replacing the open check. A hidden
+copy's consent request refuses with interaction_required before any Ask challenge,
+file grant or HTML file-change confirmation is recorded; agent file changes still
+wait under Pending changes. Agent scoped file calls need a running copy (formerly
+an open one).
+
+domain/apps/runtime.rs holds desktop leases per org/panel: one window owner per
+generation, 20 s, renewed by POST apps/runtime heartbeat (desktop root header,
+at most 4096 items). A heartbeat for a stopped/replaced generation
+or a duplicate window gets that panel back in stop. Reports carry on-demand CPU
+{cpu_percent, method: sampled CPU | shared process CPU}. orgtree_apps runtime
+pages running copies with status running, error or not hosted plus the last CPU
+report; sample:true emits custom_apps_sample and waits up to 3 s without holding
+a database client. Leases never survive an engine restart; saved intent does.
+The 4096 host-session bound stays a registry safety bound, not a panel cap.
+
+Desktop: AppsWorkspace mounts every running copy. A hidden one is parked at its
+own size, fixed in the viewport, transparent, inert and under everything, because
+Chromium throttles cross-origin frames that are display:none, visibility:hidden or
+outside the viewport. Canvas anchors hand a live surface to a parking element
+before React removes them, and MovableSurface preserveFrames moves use
+Node.moveBefore, so culling, far zoom and canvas/float changes keep one browsing
+context. A move between documents (pop-out, return) still restarts the runtime.
+PanelHtml no longer suspends on hide or a hidden owner document. Each window keeps
+a sessionStorage owner ID and heartbeats every 5 s; a stop entry refreshes the
+list. Main keeps a hosting window's and its popouts' background throttling off;
+closing one of several org windows that hosts running panels hides it and finishes
+the close when its count reaches zero; exit-on-close quitting is unchanged. Hide
+in a pop-out hides that window natively. CPU sampling runs only while the Apps menu
+is open or a tool asks: a 1 s V8 profile per webContents and out-of-process frame,
+attributed through the owner iframe's data-orgtree-runtime attribute
+(DOM.getFrameOwner); otherwise the owner process CPU, labelled shared and never
+divided. Dedicated workers are not attributed per panel.
+
+The CSP allows worker-src blob: only: Dedicated Workers built from local blob
+scripts inherit the policy (no network) and end with their frame.
+
 ## Org access and agent window boundary
 
 Created, imported, template-restored and existing apps have implicit access to
@@ -21,8 +90,8 @@ Agent panel_open with an app ID always creates a fresh CLOSED saved panel;
 panel-ID reopen and panel_update open:true refuse. Agent duplicates stay closed.
 Placement edits may change a closed copy but cannot expose/move an already-open
 window. Only user UI opens windows. State and events remain usable while
-closed. Hidden runtime start/stop is a separate lifecycle feature, never a right
-to show a window.
+closed. Agents may start any copy running hidden and power it off (panel_start,
+panel_stop); starting never shows a window or grants a permission.
 
 Org-file create/replace/delete commits without per-change confirmation through
 the existing pinned, revision-checked staged IO path. This never applies to an
@@ -276,7 +345,8 @@ category. orgtree.logo scope requests resolve to the canonical orgmod grant.
 
 Other provisional choices retained for the next slices: per-app default/Ask/Allow/Deny
 outside HTML, exact-request Allow once, no network/no same-origin, suspend hidden
-scripts, optional accumulated state in export, no portable execution grants,
+scripts (superseded 2026-10-26: running copies keep running hidden, see Background
+panels), optional accumulated state in export, no portable execution grants,
 and template definitions/initial state only.
 Mail identity and creator-retirement policy remain morning questions; no default
 may silently turn an agent panel into general user authority.
@@ -291,7 +361,8 @@ custom_apps_changed invalidation, not the generic live-bump loop on every edit.
 
 AppsButton/AppsWorkspace own one org menu and stable per-panel MovableSurfaces.
 AppsCanvasLayer owns independent world anchors without adding chart nodes or
-changing tree layout. Canvas culling and mini icons suspend embedded HTML.
+changing tree layout. Canvas culling and mini icons suspended embedded HTML until
+2026-10-26; a running copy is now parked instead (Background panels).
 Panel state, not renderer geometry globals, persists placements and open copies.
 
 PanelHtml uses sandbox=allow-scripts (no same-origin), an opaque-origin exact-frame
@@ -310,8 +381,9 @@ The async SDK is window.orgtree state.get/set/patch/onChange; storage.getItem,
 setItem, removeItem, clear; on(name,fn); emit(name,payload). Storage values are
 JSON, not strings only. State patch follows RFC7396; null removes keys. The host
 does not replay the entire retained event history on opening. It forwards new
-named events after that panel's initial event_seq. Hidden/closed frame scripts
-are discarded and reconstruct from committed state. No background-timer guarantee.
+named events after that panel's initial event_seq. Until 2026-10-26 hidden/closed
+frame scripts were discarded; a hidden running copy now keeps its scripts and
+timers (Background panels). A powered-off copy reconstructs from committed state.
 
 ## Permission-checked backend bridge milestone
 
@@ -320,11 +392,13 @@ This route and permission_set require the exact desktop root header, not an agen
 or standalone client token/bearer. Request/response bodies under apps and every
 descendant are excluded from HTTP body logging, including malformed refusals.
 Sessions are bound to org, panel and app code revision, expire after30 minutes,
-and revoke on host close, panel close/delete and app code replacement/delete.
+and revoke on host close, power off (panel close until 2026-10-26), panel delete
+and app code replacement/delete.
 No session survives engine restart. The registry holds at most4096 sessions.
 
 Local org policy derives defaults; explicit stored choices override them. A Call validates a strict
-named action and checks current code revision, open panel and capability under a
+named action and checks current code revision, running generation (formerly open
+panel) and capability under a
 per-app async gate. Permission, code and panel mutations acquire that same gate
 BEFORE agent/database locks. The gate remains held through dispatch; no database
 client is held while another domain service acquires its own. Weak gate entries
@@ -484,9 +558,11 @@ Escape and120s prompt expiry close the session and discard the action without
 persisting Deny. No ambiguous action failure retries automatically. SDK action
 timeout150s allows the120s prompt; state requests retain30s.
 
-Lifecycle effects create disposable clients, including StrictMode replay. Hide,
-unmount, owner/channel/code changes abort pending native prompts, close reply ports
-and sessions, and close a delayed session_open result before it can dispatch.
+Lifecycle effects create disposable clients, including StrictMode replay. Unmount
+(power off), owner/channel/generation/code changes abort pending native prompts,
+close reply ports and sessions, and close a delayed session_open result before it
+can dispatch. Since 2026-10-26 Hide only refuses open prompts (interaction_required)
+and keeps the session.
 Permission edits use their separate revision and do not reload code. Native
 Permissions saves Ask/Allow/Deny immediately for all copies. Real-PostgreSQL
 persistence and capability execution/refusals remain part of the proof before alpha.

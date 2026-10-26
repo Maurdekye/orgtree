@@ -2171,3 +2171,5 @@ See [standalone contracts](STANDALONE-ENGINE.md#user-tree-mcp-additions-2026-10-
 
 
 Custom apps (USER2026-10-25;4.5.0 overnight implementation): org definitions and independent JSON panels, agent parity and org-modifying tools including Logo. Unruled defaults remain provisional for morning review. See [custom apps](custom-apps.md) for current milestone, bounds and authority limits.
+
+**Background panels, USER 2026-10-26 (4.5.0):** closing a panel's visual does not stop it; a visible panel is always running and a hidden one need not be stopped. Opening starts a copy, Start running (saved-row context menu) starts it hidden, Power off (row and header) stops and hides it, and Stop all powers off every app panel; release starts nothing. Restart restores each copy as it was. Panels run only in the desktop app, including the tray, with no count cap, a shared process and sampled CPU per panel in the running list. Agents may start any copy hidden and stop it, never show a window or grant permission. Provisional, not ruled: replacing app code powers off hidden running copies. See [background panels](custom-apps.md#background-panels-2026-10-26).

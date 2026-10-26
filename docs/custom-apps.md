@@ -21,8 +21,8 @@ Agent panel_open with an app ID always creates a fresh CLOSED saved panel;
 panel-ID reopen and panel_update open:true refuse. Agent duplicates stay closed.
 Placement edits may change a closed copy but cannot expose/move an already-open
 window. Only user UI opens windows. State and events remain usable while
-closed. Hidden runtime start/stop is a separate lifecycle feature, never a right
-to show a window.
+closed. Agents may start any copy running hidden and power it off (panel_start,
+panel_stop); starting never shows a window or grants a permission.
 
 Org-file create/replace/delete commits without per-change confirmation through
 the existing pinned, revision-checked staged IO path. This never applies to an
@@ -62,15 +62,17 @@ through their ordinary tools. Merely opening settings fires nothing. HTML uses
 `orgtree.emit` adds a History entry and does not broadcast to listeners.
 
 An app is a small HTML program kept by one organization. A panel is one saved
-copy with its own label and JSON data. Closing keeps it; deleting removes it.
+copy with its own label and JSON data. Closing its window hides it and keeps it
+running; Power off stops it; deleting removes it.
 Definitions and committed data live in Orgtree's database across restarts.
 
 Open **Apps** beside Presentations in the org header. A click anywhere on an
 app's row opens the first saved panel listed under it (the most recently used),
 or creates and opens its first panel when it has none. The **+** on the app's row
 always creates and opens a new panel from the initial state. Saved panels are
-listed under their app: a lit dot marks an open panel and a hollow dot a closed
-one, and the dot's tooltip names the state. New panels are named **Panel 1**,
+listed under their app, and each panel's light shows whether it runs visibly,
+runs hidden or is off; the tooltip names the state (see Running in the
+background). New panels are named **Panel 1**,
 **Panel 2** and so on, with the lowest number not yet used in that app; renamed,
 imported and duplicated panels keep their own names.
 
@@ -118,7 +120,7 @@ no longer pin to the screen; one pinned there before reopens centered. Pop-outs
 use the existing saved-window restoration (provisional reopen default), and the
 pin is hidden in a popped-out window. The pin shows filled and highlighted while
 the panel is pinned.
-Far zoom shows an icon, and hidden canvas HTML pauses until visible again.
+Far zoom shows an icon; a canvas panel out of view keeps running.
 The title's pop-out opens a separate window; Return restores its previous place.
 
 State opens editable JSON. Import changes the editor, Export saves it and Copy
@@ -144,6 +146,38 @@ Agents use orgtree_apps to create closed copies and manage saved placement,
 state and events; they cannot open a window. Org-modifying tools also contains Logo; the new category preserves old
 explicit Logo denials. Copy/export JSON use ordinary local clipboard/file actions.
 
+## Running in the background
+
+Closing a panel's window hides it; the panel keeps running. Use **Power off** to
+stop it: the power button in the panel's title bar, or on its row in Apps. The
+title bar's **Hide** button (the eye) only hides the window. A visible panel is
+always running; a hidden one can be running or off.
+
+In Apps, each saved panel's light shows its state: filled while it runs visibly,
+an accent ring while it runs hidden, and a hollow grey ring when it is off. Hover
+for the state. Running rows also show sampled CPU, where 100% is one processor
+core; "(shared)" means the figure covers the whole renderer process that the
+panel shares with others. Right-click a stopped panel's row and choose **Start
+running** to run it without opening its window. Opening a stopped panel starts it.
+
+Panels run only while Orgtree's desktop app is open, including when it sits in the
+tray; quitting stops them. When you start Orgtree again, each panel comes back as
+it was: running hidden, visible where you placed it, or off. Hidden panels keep
+their timers, game loops and background work running. Apps can also start
+Dedicated Workers from scripts they build themselves; workers have no network
+access either, and they stop with the panel. Closing one of several Orgtree
+windows that runs panels hides it until those panels stop. **Stop all** powers off
+every app panel too, including hidden ones, and releasing it starts none of them.
+
+A hidden panel never pops up a permission prompt: its request fails, and you can
+show the panel and try again. Moving a panel into or out of its own window
+restarts its HTML from its saved data. There is no limit on how many panels run.
+Provisional choice: when an app's code is replaced, its visible panels reload the
+new code and its hidden running panels power off.
+
+Agents can start any panel running hidden and power panels off, but they cannot
+open or show a window, and starting grants nothing.
+
 Agents can import an app from a held local file and export one into a new file in
 their private working folder. The tool returns its path, byte count and SHA256.
 Choose Import app in the Apps menu, select a bundle, review its name, description
@@ -168,8 +202,9 @@ instructions or approvals. No permission travels in an exported app.
 The HTML API is `orgtree.call(action, args)`. Available actions are `org.read`
 (paged chart metadata), `mail.send` (live local agent), `docket.create` (a new open
 item), and `events.fire` (a declared broadcast to subscribed agents). It cannot act as
-you, choose another panel, call arbitrary engine routes, or approve work. Hiding,
-closing or replacing a panel discards its host session and pending prompt.
+you, choose another panel, call arbitrary engine routes, or approve work. Hiding a
+panel refuses its pending prompt and keeps it running; powering it off or
+replacing its code discards its host session and pending prompt.
 
 The provisional `docket.write` permission lets an app create and assign a new
 open item and wake its selected local agent. The prompt says so; the assignment
@@ -190,8 +225,8 @@ Agents follow a copy only through its declared events, with an `app_listener`
 watchdog (see above). Panel links were removed (user 2026-10-26): there is no
 Linked agents setting, orgtree_apps refuses `linked_agents`, and state saves no
 longer signal `app.event` watchers. An agent that needs current data reads
-panel_get or events. Browser timers pause with hidden
-HTML; use an engine watchdog for work that must continue in the background.
+panel_get or events. Hidden running panels keep their timers while the desktop
+app runs; use an engine watchdog for work that must continue without it.
 
 Try the portable [Annotation notes example](examples/apps/annotation-notes.orgtree-app):
 import it through Apps, open a copy, save notes, and enter a live local agent's

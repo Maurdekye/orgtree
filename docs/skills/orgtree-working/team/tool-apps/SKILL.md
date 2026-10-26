@@ -25,6 +25,45 @@ Calls operate only in the calling live agent's org. Do not supply an org, caller
 identity or as_user field: unknown fields refuse. Any eligible agent can use any
 app/panel in that org; that is not an app permission grant.
 
+## Running, hidden and powered-off panels
+
+User 2026-10-26: a visible panel is always running; a hidden one need not be
+stopped. Hiding (panel_update open:false, or the window's Hide, X, Escape or
+backdrop) keeps the copy running with its timers, loops, async work and Dedicated
+Workers. Execution happens only in the Orgtree desktop app, including while it
+sits in the tray; restart restores each copy as it was (running hidden, visible
+in its placement, or off). There is no count cap.
+
+- panel_start needs panel/expected_rev. It runs any copy hidden, for the user or
+  any agent with Apps tools, never shows a window and grants nothing. An already
+  running copy is unchanged. History records panel.started.
+- panel_stop needs panel/expected_rev. It powers the copy off and hides it, ending
+  its host session, Once file links, playback, prompts and workers. History
+  records panel.stopped. Saved state and placement stay.
+- runtime pages running copies: after (previous next_cursor), limit 1-200
+  (default 100), sample (default false). Each item has panel, app, app_name,
+  label, visible, run_generation and status: running, error (with error) or not
+  hosted (no desktop window runs it now, for example the desktop app is closed).
+  cpu_percent is the last sampled CPU (100 = one core; null until sampled) with
+  measured_at; cpu_method is sampled CPU (that copy's own JavaScript) or shared
+  process CPU (its whole renderer process, shared with other copies and never
+  divided). sample:true asks the desktop for a fresh reading and waits up to
+  3 s; sampled is then true when every hosted copy on the page answered in time
+  (null without sample).
+- list kind:panels accepts running:true|false as well as open.
+
+Stop all (the org killswitch) powers off every panel, hidden copies included.
+While it is latched, opening, showing and starting refuse and app actions refuse;
+releasing it starts nothing. A hidden copy never opens a native prompt: an action
+or file request that needs consent fails with interaction_required, and the user
+answers after showing the panel. PROVISIONAL, not a user ruling: replacing an
+app's code reloads its visible copies and powers off its hidden running ones
+(panel.stopped, reason code changed), which stay off after a restart.
+
+UI parity: Start running (saved-row context menu) is panel_start; Power off (row
+button and the window's Power off) is panel_stop; Hide is panel_update open:false;
+the running rows' state dot and CPU are runtime. Opening a copy remains user-only.
+
 ## Org access and agent window boundary
 
 Created, imported, template-restored and existing apps have implicit access to
@@ -46,8 +85,8 @@ Agent panel_open with an app ID always creates a fresh CLOSED saved panel;
 panel-ID reopen and panel_update open:true refuse. Agent duplicates stay closed.
 Placement edits may change a closed copy but cannot expose/move an already-open
 window. Only user UI opens windows. State and events remain usable while
-closed. Hidden runtime start/stop is a separate lifecycle feature, never a right
-to show a window.
+closed. Agents may start any copy running hidden and power it off (panel_start,
+panel_stop); starting never shows a window or grants a permission.
 
 Org-file create/replace/delete commits without per-change confirmation through
 the existing pinned, revision-checked staged IO path. This never applies to an
@@ -93,8 +132,8 @@ above; declarations alone never authorize a broadcast or change panel activity.
 - panel_get needs panel and includes its state. panel_update needs panel and
   expected_rev; optional label, open or placement. linked_agents refuses: links
   were removed (user 2026-10-26). Agents cannot
-  set open:true or place an already-open copy. open:false closes
-  without deleting. panel_duplicate and panel_delete need panel/expected_rev.
+  set open:true or place an already-open copy. open:false hides the
+  window without deleting; a running copy keeps running. panel_duplicate and panel_delete need panel/expected_rev.
 
 UI parity: app-row gear opens App settings (General and Permissions tabs).
 Panel-row/header gears open Panel settings for that exact copy, including closed
@@ -125,7 +164,8 @@ event needs panel/name/payload (up to64KiB). events needs panel, optional intege
 after sequence and limit1-200. The latest256 events are retained; oldest_retained
 identifies the retained boundary. An event never impersonates an agent/user.
 
-List kind:panels accepts open:true/false to page only that subset. Metadata
+List kind:panels accepts open:true/false and running:true/false to page only
+that subset. Metadata
 includes event_seq; HTML/state remain excluded. All unruled defaults are
 provisional for the user's morning review.
 
@@ -251,7 +291,8 @@ one-shot permission challenges. HTML calls `orgtree.call(action,args)`; the nati
 owning-document prompt displays exact app/copy/action text and offers Allow once,
 Always allow, Deny or Cancel. Cancel/Escape/expiry discards without a denial. Native
 Permissions edits save immediately for all copies, without reloading app code.
-Hidden/closed/replaced hosts discard sessions and prompts. No HTML permission API,
+Hidden hosts refuse prompts but keep their session; powered-off and replaced
+hosts discard sessions and prompts. No HTML permission API,
 host session, arbitrary route, caller or cross-panel selector is exposed. Named actions are bounded
 chart metadata, app-provenance local-agent mail, new open docket items and
 declared event broadcasts; no generic user operations or approval authority. App mail is
