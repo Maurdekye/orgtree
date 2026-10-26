@@ -19,6 +19,7 @@ export type Route = 'boot' | 'managed' | 'unknown'
 
 /** The refusal of an installed build that cannot read its tasks. */
 export const UNREADABLE_TASKS = 'Orgtree could not read its background engine task, so it started no engine. Use Start engine in the tray to try again.'
+export const DISABLED_BOOT_TASK = 'The Orgtree background engine task is disabled. Run Setup again as administrator to repair this installation, then choose Retry. No engine was started.'
 
 /** Where an engine start goes, by the tasks as read (null: unreadable).
  *  `packaged` is an installed build (app.isPackaged): there only a task read
@@ -33,8 +34,10 @@ export function route(tasks: StartupTasks | null, packaged: boolean): Route {
  *  installed build that cannot read its tasks throws UNREADABLE_TASKS and
  *  starts nothing. */
 export async function launchBackground(_options: EngineOptions, packaged: boolean, runner: Runner = run): Promise<'boot' | 'managed'> {
-  const where = route(await readStartupTasks(runner).catch(() => null), packaged)
+  const tasks = await readStartupTasks(runner).catch(() => null)
+  const where = route(tasks, packaged)
   if (where === 'unknown') throw new Error(UNREADABLE_TASKS)
+  if (where === 'boot' && tasks?.bootEnabled === false) throw new Error(DISABLED_BOOT_TASK)
   if (where === 'boot') await startEngineTask(runner)
   return where
 }

@@ -1966,6 +1966,10 @@ All entries are dated 2026-10-06 unless stated otherwise.
       installer's own leftover "Orgtree User Session Engine" task and never registers it. An
       installed build that cannot read its tasks refuses, with Start engine in the tray, rather
       than start an engine of its own in the user's session.
+      The 2026-10-26 update-recovery fix preserves owned task enable/trigger
+      states across installer failures and exposes startup refusals with
+      Retry/Quit, without changing this placement invariant. See
+      [failed updates](run-on-boot.md#failed-updates-and-startup-recovery-445).
     - **Turn start (3, 5):** every turn waits for the helper while the user is signed in (or that
       is unread) and none hosts, up to 60 s after the engine's start or a helper's last hosting;
       running out is logged once per stretch, also when it ran out before the first turn came.

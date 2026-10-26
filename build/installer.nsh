@@ -19,6 +19,11 @@ Var pid
   Var OrgLogPath
   Var OrgLogStage
   Var OrgLogDetail
+  !ifndef ORGTREE_DEV_CHANNEL
+    Var OrgBootPending
+    Var OrgBootAction
+    !define MUI_CUSTOMFUNCTION_ABORT orgtreeRestoreBootTasks
+  !endif
 !endif
 # The dev channel compiles out the preInit SID probe — this instantiation's
 # only caller — and NSIS treats the resulting unreferenced function as an
@@ -46,11 +51,35 @@ Var pid
   File /oname=$PLUGINSDIR\register-boot-engine.ps1 "${PROJECT_DIR}\tools\register-boot-engine.ps1"
   File /oname=$PLUGINSDIR\unregister-boot-engine.ps1 "${PROJECT_DIR}\tools\unregister-boot-engine.ps1"
 !macroend
+!macro OrgQuit
+  # Quit does not invoke .onGUIEnd in a silent installer. Explicit exits
+  # after Prepare must restore pending tasks before terminating instead of
+  # relying on GUI callbacks. Per-user/committed exits are no-ops here.
+  !ifndef BUILD_UNINSTALLER
+    !ifndef ORGTREE_DEV_CHANNEL
+      Call orgtreeRestoreBootTasks
+    !endif
+  !endif
+  Quit
+!macroend
 !macro BootResult
   Pop $0
   Pop $1
+  !ifndef BUILD_UNINSTALLER
+    !ifndef ORGTREE_DEV_CHANNEL
+      # nsExec also captures stderr. Keep a bounded durable result, including
+      # under /S where a MessageBox is answered silently and leaves no trace.
+      StrCpy $1 $1 640
+      !insertmacro OrgLog "boot-result" "action=$OrgBootAction; exit=$0; $1"
+    !endif
+  !endif
   ${if} $0 != 0
     DetailPrint "Boot engine operation failed: $1"
+    !ifndef BUILD_UNINSTALLER
+      !ifndef ORGTREE_DEV_CHANNEL
+        Call orgtreeRestoreBootTasks
+      !endif
+    !endif
     MessageBox MB_OK|MB_ICONSTOP "Orgtree could not complete the boot engine operation.$\r$\n$1$\r$\nSetup will stop; boot startup has not been confirmed." /SD IDOK
     SetErrorLevel 2
     Quit
@@ -1314,6 +1343,30 @@ orgtreeSilentElevateDone:
       SectionEnd
     !else
     Var BootOperatorSid
+    Function orgtreeRestoreBootTasks
+      ${if} $OrgBootPending == "1"
+        Push $0
+        Push $1
+        nsExec::ExecToStack '"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "$PLUGINSDIR\register-boot-engine.ps1" -Action Rollback -InstallMode all -InstallDir "$INSTDIR"'
+        Pop $0
+        Pop $1
+        StrCpy $1 $1 640
+        !insertmacro OrgLog "boot-rollback" "exit=$0; $1"
+        ${if} $0 == "0"
+          StrCpy $OrgBootPending "0"
+        ${endif}
+        Pop $1
+        Pop $0
+      ${endif}
+    FunctionEnd
+    Function .onInstFailed
+      Call orgtreeRestoreBootTasks
+    FunctionEnd
+    Function .onGUIEnd
+      # GUI fallback only: silent explicit exits use OrgQuit. Successful
+      # commits clear pending, so normal completion performs no rollback.
+      Call orgtreeRestoreBootTasks
+    FunctionEnd
     Section "-Orgtree boot preflight"
       ${if} $installMode == "all"
         ${if} $OrgUpgradeSelected == "1"
@@ -1351,8 +1404,14 @@ orgtreeSilentElevateDone:
           Quit
         ${endif}
         !insertmacro BootHelpers
+        # Prepare restores its own partial suspension on failure. Only a
+        # successful Prepare arms our exit hooks; a refused preflight must not
+        # replay a retained snapshot from an older installer transaction.
+        StrCpy $OrgBootPending "0"
+        StrCpy $OrgBootAction "Prepare"
         nsExec::ExecToStack '"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "$PLUGINSDIR\register-boot-engine.ps1" -Action Prepare -InstallMode all -InstallDir "$INSTDIR" -OperatorSid "$BootOperatorSid"'
         !insertmacro BootResult
+        StrCpy $OrgBootPending "1"
       ${endif}
     SectionEnd
     !endif
@@ -1367,7 +1426,7 @@ orgtreeSilentElevateDone:
     Call orgtreeCloseForUpgrade
     Pop $0
     ${if} $0 != "1"
-      Quit
+      !insertmacro OrgQuit
     ${endif}
     ${elseif} $installMode == "CurrentUser"
     !insertmacro IS_POWERSHELL_AVAILABLE
@@ -1408,7 +1467,8 @@ orgtreeSilentElevateDone:
   !ifndef ORGTREE_DEV_CHANNEL
   ${if} $installMode == "all"
     !insertmacro BootHelpers
-    nsExec::ExecToStack '"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "$PLUGINSDIR\register-boot-engine.ps1" -Action Register -InstallMode all -InstallDir "$INSTDIR"'
+    StrCpy $OrgBootAction "Register"
+    nsExec::ExecToStack '"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "$PLUGINSDIR\register-boot-engine.ps1" -Action Register -InstallMode all -InstallDir "$INSTDIR" -DeferStart'
     !insertmacro BootResult
   ${endif}
   !endif
@@ -1417,6 +1477,14 @@ orgtreeSilentElevateDone:
   # older installs without it safely take the full setup path.
   WriteRegStr SHELL_CONTEXT "${INSTALL_REGISTRY_KEY}" OrgtreeUpgradeMetadata "1"
   WriteRegStr SHELL_CONTEXT "${UNINSTALL_REGISTRY_KEY}" OrgtreeUpgradeMetadata "1"
+  !ifndef ORGTREE_DEV_CHANNEL
+  ${if} $installMode == "all"
+    StrCpy $OrgBootAction "Commit"
+    nsExec::ExecToStack '"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "$PLUGINSDIR\register-boot-engine.ps1" -Action Commit -InstallMode all -InstallDir "$INSTDIR"'
+    !insertmacro BootResult
+    StrCpy $OrgBootPending "0"
+  ${endif}
+  !endif
   # The one line that says the files and registry work actually completed. Its
   # ABSENCE after the earlier stages is the shape of the reported incident.
   !insertmacro OrgLog "install-complete" "files and registry written for [$INSTDIR] at version ${VERSION}"

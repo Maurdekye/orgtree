@@ -3,6 +3,7 @@
 Set-StrictMode -Version Latest
 $script:BootTaskName = 'Orgtree Background Engine'
 $script:BootRecordKey = 'SOFTWARE\Orgtree\BootEngine'
+$script:BootSnapshotKey = 'SOFTWARE\Orgtree\BootInstallRollback'
 # The sign-in credential broker (engine/rs/orgtree-engine/src/credential_broker.rs):
 # a logon task for the operator only, interactive token, no window. It serves
 # git/gh credentials to the boot engine while the desktop app is not running,
@@ -751,9 +752,9 @@ function Assert-BootDesktopClosed([string]$InstallDir) {
         throw 'Close the Orgtree desktop before installing or uninstalling.'
     }
 }
-function Invoke-BootLifecycle {
+function Invoke-BootLifecycleCore {
     param([ValidateSet('Prepare','Register','Remove','Stop')][string]$Action,
-          [string]$InstallDir, [string]$OperatorSid, [string]$InstallMode='all')
+          [string]$InstallDir, [string]$OperatorSid, [string]$InstallMode='all', [switch]$DeferStart)
     # Per-user installs do not even query production task or ownership key.
     if ($InstallMode -ne 'all') { return }
     $InstallDir = Get-BootCanonicalPath $InstallDir
@@ -845,7 +846,9 @@ function Invoke-BootLifecycle {
             # Ownership accepts older task priorities. Register
             # always writes explicit Normal priority (Task Scheduler value 5), including upgrades.
             $sddl = "O:BAG:BAD:P(A;;GA;;;SY)(A;;GA;;;BA)(A;;GRGX;;;$($record.OperatorSid))"
-            $registered = $folder.RegisterTask($script:BootTaskName,(New-BootTaskXml $record (Get-RunAsAdministrator)),$flags,$record.OperatorSid,$null,2,$sddl)
+            $bootXml=New-BootTaskXml $record (Get-RunAsAdministrator)
+            if ($DeferStart) { $doc=Read-BootXml $bootXml; $doc.Task.Settings.Enabled='false'; $bootXml=$doc.OuterXml }
+            $registered = $folder.RegisterTask($script:BootTaskName,$bootXml,$flags,$record.OperatorSid,$null,2,$sddl)
             Assert-OwnedBootTask $registered $record $InstallDir
             # Paired release requirement: desktop startup must retry authenticated
             # attachment after losing the data-root lock to this newly started host.
@@ -864,14 +867,216 @@ function Invoke-BootLifecycle {
                 $helperFlags = 18
                 $helper = Find-HelperTask $folder
                 if ($null -ne $helper) { Assert-OwnedHelperTask $helper $record $InstallDir; $helperFlags = 20 }
-                $helperTask = Register-HelperTask $folder (New-HelperTaskXml $record (Get-RunAsAdministrator)) $helperFlags $record.OperatorSid $sddl
+                $helperXml=New-HelperTaskXml $record (Get-RunAsAdministrator)
+                if ($DeferStart) { $doc=Read-BootXml $helperXml; $doc.Task.Settings.Enabled='false'; $helperXml=$doc.OuterXml }
+                $helperTask = Register-HelperTask $folder $helperXml $helperFlags $record.OperatorSid $sddl
                 Assert-OwnedHelperTask $helperTask $record $InstallDir
-                if (Test-RunOnStartup $record) { try { $null = $helperTask.Run($null) } catch { Write-Warning "The credential helper starts at the operator's next sign-in: $_" } }
+                if ($runs -and -not $DeferStart) { try { $null = $helperTask.Run($null) } catch { Write-Warning "The credential helper starts at the operator's next sign-in: $_" } }
             }
             # Started last, after the helper: the engine starts in Session 0, where
             # it always runs (decision 94), and the helper, already waiting while
             # the operator is signed in, attaches to it within one poll.
-            if ($runs) { $null = $registered.Run($null) }
+            if ($runs -and -not $DeferStart) { $null = $registered.Run($null) }
         }
+    }
+}
+
+# A protected registry value, not a caller-writable temporary XML file. Prepare,
+# old uninstaller, copy and Register run in different processes; the snapshot
+# therefore outlives each helper. Failed restoration retains it for diagnosis.
+function Get-BootInstallSnapshot {
+    $hive=[Microsoft.Win32.RegistryKey]::OpenBaseKey('LocalMachine','Registry64')
+    try {
+        $key=$hive.OpenSubKey($script:BootSnapshotKey)
+        if ($null -eq $key) { return $null }
+        try {
+            Assert-BootRegistryKey $key
+            $text=[string]$key.GetValue('Snapshot')
+            if (-not $text -or $text.Length -gt 262144) { throw 'Invalid installer rollback snapshot.' }
+            return (ConvertFrom-Json $text)
+        } finally { $key.Dispose() }
+    } finally { $hive.Dispose() }
+}
+function Save-BootInstallSnapshot($Snapshot) {
+    $text=ConvertTo-Json -InputObject $Snapshot -Depth 8 -Compress
+    if ($text.Length -gt 262144) { throw 'Installer rollback snapshot is too large; no tasks were suspended.' }
+    $hive=[Microsoft.Win32.RegistryKey]::OpenBaseKey('LocalMachine','Registry64')
+    try {
+        $acl=[Security.AccessControl.RegistrySecurity]::new()
+        $acl.SetSecurityDescriptorSddlForm('O:BAG:BAD:P(A;;KA;;;SY)(A;;KA;;;BA)(A;;KR;;;BU)')
+        $key=$hive.CreateSubKey($script:BootSnapshotKey,[Microsoft.Win32.RegistryKeyPermissionCheck]::ReadWriteSubTree,$acl)
+        try { Assert-BootRegistryKey $key; $key.SetValue('Snapshot',$text,'String') }
+        finally { $key.Dispose() }
+    } finally { $hive.Dispose() }
+}
+function Remove-BootInstallSnapshot {
+    $hive=[Microsoft.Win32.RegistryKey]::OpenBaseKey('LocalMachine','Registry64')
+    try {
+        $key=$hive.OpenSubKey($script:BootSnapshotKey)
+        if ($null -eq $key) { return }
+        try { Assert-BootRegistryKey $key } finally { $key.Dispose() }
+        $hive.DeleteSubKey($script:BootSnapshotKey,$false)
+    } finally { $hive.Dispose() }
+}
+function Get-BootInstallTasks($Folder,$Record,[string]$InstallDir) {
+    $items=@(
+        @{Kind='boot';Name=$script:BootTaskName;Task=(Find-BootTask $Folder);Logon=2},
+        @{Kind='helper';Name=$script:HelperTaskName;Task=(Find-HelperTask $Folder);Logon=3},
+        @{Kind='signin';Name=$script:SigninTaskName;Task=(Find-SigninTask $Folder);Logon=3},
+        @{Kind='interactive';Name=$script:InteractiveTaskName;Task=(Find-InteractiveTask $Folder);Logon=3}
+    )
+    # Verify ALL existing tasks before any snapshot/restore writes.
+    foreach ($item in $items) {
+        if ($null -eq $item.Task) { continue }
+        if ($null -eq $Record) { throw 'Task exists without installer ownership. It will not be changed.' }
+        switch ($item.Kind) {
+            boot { Assert-OwnedBootTask $item.Task $Record $InstallDir }
+            helper { Assert-OwnedHelperTask $item.Task $Record $InstallDir }
+            signin { Assert-OwnedSigninTask $item.Task $Record $InstallDir }
+            interactive { Assert-OwnedInteractiveTask $item.Task $Record $InstallDir }
+        }
+    }
+    return $items
+}
+function Assert-BootInstallSnapshot($Snapshot,[string]$InstallDir,$Record) {
+    if ($Snapshot.Version -ne 1 -or (Get-BootCanonicalPath $Snapshot.InstallDir) -ine $InstallDir) { throw 'Installer rollback snapshot belongs to another installation.' }
+    if ($null -ne $Snapshot.Record) {
+        Assert-BootRecord $Snapshot.Record $InstallDir
+        if ($null -ne $Record -and $Record.Id -cne $Snapshot.Record.Id) { throw 'Installer ownership changed since Prepare.' }
+    }
+    if (@($Snapshot.Tasks).Count -ne 4) { throw 'Incomplete installer rollback snapshot.' }
+}
+function Get-BootTriggerStates([string]$Xml) {
+    $doc=Read-BootXml $Xml
+    foreach ($trigger in $doc.SelectNodes('/*[local-name()="Task"]/*[local-name()="Triggers"]/*')) {
+        $enabled=$trigger.SelectSingleNode('*[local-name()="Enabled"]')
+        # Task Scheduler omits default true values when normalizing XML.
+        $on=($null -eq $enabled -or $enabled.InnerText -cne 'false')
+        "$($trigger.LocalName):$on"
+    }
+}
+function Restore-BootInstallTasks([string]$InstallDir) {
+    $snapshot=Get-BootInstallSnapshot
+    if ($null -eq $snapshot) { return }
+    $record=Get-BootRecord
+    Assert-BootInstallSnapshot $snapshot $InstallDir $record
+    if ($null -ne $record) { Assert-BootRecord $record $InstallDir }
+    $owner=$record
+    if ($null -eq $owner) { $owner=$snapshot.Record }
+    $folder=Get-BootFolder
+    $current=@(Get-BootInstallTasks $folder $owner $InstallDir)
+    for ($i=0;$i -lt $current.Count;$i++) {
+        $item=$current[$i];$saved=$snapshot.Tasks[$i]
+        if ($saved.Kind -cne $item.Kind) { throw 'Installer rollback task identity changed.' }
+    }
+    $failures=@()
+    for ($i=0;$i -lt $current.Count;$i++) {
+        $item=$current[$i];$saved=$snapshot.Tasks[$i]
+        try {
+            if ($null -eq $saved.Xml) {
+                if ($null -ne $item.Task) { $folder.DeleteTask($item.Name,0) }
+                continue
+            }
+            # Full original XML retains every trigger (including mixed states),
+            # with its original principal/ACL. Suppress registration triggers and
+            # never call Run: restoring configuration is not a recovery launch.
+            $flags=50 # CREATE | DONT_ADD_PRINCIPAL_ACE | IGNORE_REGISTRATION_TRIGGERS
+            if ($null -ne $item.Task) { $flags=52 } # UPDATE, never overwrite a foreign task
+            if ($item.Kind -eq 'helper') {
+                $task=Register-HelperTask $folder $saved.Xml $flags $owner.OperatorSid $saved.Sddl
+            } else {
+                $task=$folder.RegisterTask($item.Name,$saved.Xml,$flags,$owner.OperatorSid,$null,$item.Logon,$saved.Sddl)
+            }
+            $task.Enabled=[bool]$saved.Enabled
+            if ([bool]$task.Enabled -ne [bool]$saved.Enabled) { throw 'Restored task enablement did not read back.' }
+            $expected=@(Get-BootTriggerStates $saved.Xml);$actual=@(Get-BootTriggerStates $task.Xml)
+            if ($expected.Count -ne $actual.Count -or ($expected.Count -gt 0 -and (Compare-Object $expected $actual -SyncWindow 0))) { throw 'Restored trigger states did not read back.' }
+        } catch {
+            $failures+="$($item.Name): $($_.Exception.Message)"
+        }
+    }
+    if ($failures.Count) { throw "Task rollback incomplete: $($failures -join '; ')" }
+    if ($null -eq $snapshot.Record -and $null -ne $record) { Remove-BootRecord }
+    Remove-BootInstallSnapshot
+    Write-BootLog 'rollback: restored original owned task enablement and all trigger states; no tasks started'
+}
+function Invoke-BootLifecycle {
+    param([ValidateSet('Prepare','Register','Remove','Stop','Rollback','Commit')][string]$Action,
+          [string]$InstallDir,[string]$OperatorSid,[string]$InstallMode='all',[switch]$DeferStart)
+    if ($InstallMode -ne 'all') { return }
+    $InstallDir=Get-BootCanonicalPath $InstallDir
+    if ($Action -eq 'Rollback') { Restore-BootInstallTasks $InstallDir; return }
+    if ($Action -in @('Stop','Remove')) {
+        Invoke-BootLifecycleCore $Action $InstallDir $OperatorSid $InstallMode
+        if ($Action -eq 'Remove') { Remove-BootInstallSnapshot }
+        return
+    }
+    # Before Prepare has durably saved THIS run's baseline, an exception must
+    # not replay a retained snapshot from another installer transaction.
+    $restoreOnFailure=($Action -ne 'Prepare')
+    try {
+    if ($Action -eq 'Commit') {
+        $snapshot=Get-BootInstallSnapshot
+        if ($null -eq $snapshot) { return } # idempotent; never launch twice
+        $record=Get-BootRecord
+        Assert-BootInstallSnapshot $snapshot $InstallDir $record
+        Assert-BootRecord $record $InstallDir
+        $folder=Get-BootFolder
+        $null=Get-BootInstallTasks $folder $record $InstallDir
+        # Register's XML holds the pair disabled, so no automatic trigger can
+        # race copy/registration. Enable only after all commit checks pass.
+        foreach ($task in @((Find-HelperTask $folder),(Find-BootTask $folder))) {
+            if ($null -ne $task) { $task.Enabled=$true; if (-not $task.Enabled) { throw 'Committed task enablement did not read back.' } }
+        }
+        # Commit succeeds before any optional startup. A launch refusal is
+        # logged and remains repairable through the desktop's visible Retry.
+        Remove-BootInstallSnapshot
+        Write-BootLog 'commit: installation complete; task rollback snapshot cleared'
+        if (Test-RunOnStartup $record) {
+            foreach ($task in @((Find-HelperTask $folder),(Find-BootTask $folder))) {
+                if ($null -ne $task) {
+                    try { $null=$task.Run($null) }
+                    catch { Write-BootLog "commit: task launch failed: $($_.Exception.Message)"; Write-Warning $_ }
+                }
+            }
+        }
+        return
+    }
+        if ($Action -eq 'Prepare') {
+            $record=Get-BootRecord
+            if ($null -ne $record) { Assert-BootRecord $record $InstallDir }
+            $folder=Get-BootFolder
+            $items=@(Get-BootInstallTasks $folder $record $InstallDir)
+            $snapshot=Get-BootInstallSnapshot
+            if ($null -ne $snapshot) { Assert-BootInstallSnapshot $snapshot $InstallDir $record }
+            # A retained snapshot is evidence of an older incomplete attempt,
+            # not this transaction's baseline. The operator may have repaired
+            # or changed these tasks since then. Capture current verified state
+            # BEFORE suspension, retaining failed restores until a new Prepare.
+            $saved=@(foreach ($item in $items) {
+                $xml=$null;$enabled=$false;$sddl=$null
+                if ($null -ne $item.Task) { $xml=[string]$item.Task.Xml;$enabled=[bool]$item.Task.Enabled;$sddl=$item.Task.GetSecurityDescriptor(7) }
+                @{Kind=$item.Kind;Xml=$xml;Enabled=$enabled;Sddl=$sddl}
+            })
+            Save-BootInstallSnapshot @{Version=1;InstallDir=$InstallDir;Record=$record;Tasks=$saved}
+            $restoreOnFailure=$true
+            if ($null -ne $snapshot) {
+                $decision='prepare: replaced retained rollback snapshot with current verified task state before suspension'
+                Write-BootLog $decision
+                Write-Output $decision # nsExec/BootResult persists it in orgtree-installer.log too.
+            } else {
+                Write-BootLog 'prepare: saved original owned task enablement and all trigger states'
+            }
+        }
+        Invoke-BootLifecycleCore $Action $InstallDir $OperatorSid $InstallMode -DeferStart:$DeferStart
+        if ($Action -eq 'Register' -and -not $DeferStart) { Remove-BootInstallSnapshot }
+    } catch {
+        $failure=$_
+        Write-BootLog "$Action failed: $($failure.Exception.Message)"
+        if ($restoreOnFailure) {
+            try { Restore-BootInstallTasks $InstallDir }
+            catch { throw "$($failure.Exception.Message) Rollback failed: $($_.Exception.Message)" }
+        }
+        throw $failure
     }
 }

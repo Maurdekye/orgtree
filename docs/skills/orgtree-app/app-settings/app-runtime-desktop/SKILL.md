@@ -32,7 +32,26 @@ Setup (or in `%TEMP%`) for the exact dispatch result. An engine log may not yet
 exist if no desktop process started. This is an installer action, not an agent
 tool or the Run on boot preference.
 
-The stored startup key retains the older name startAtLogin; the switch was called "run on startup" before 4.3.1. On an all-users Windows installation, the switch controls the automatic boot and sign-in triggers of Orgtree's two tasks (the boot engine and the sign-in credential helper) and the desktop's login entry. Turning it Off disables every one of those triggers. The tasks stay installed and enabled, so a restart or recovery can still start them. A running engine keeps running. Changing the switch uses one elevated Windows prompt and records the installer's choice. A change that fails after the prompt changes nothing and says why, as Run as admin does (below). The actual boot-task state wins over a disagreeing saved preference when reconciled.
+The stored startup key retains the older name startAtLogin; the switch was called "run on startup" before 4.3.1. On an all-users Windows installation, the switch controls the automatic boot and sign-in triggers of Orgtree's two tasks (the boot engine and the sign-in credential helper) and the desktop's login entry. Turning it Off disables every one of those triggers. The tasks stay installed and enabled, so a restart or recovery can still start them. A running engine keeps running. Changing the switch uses one elevated Windows prompt and records the installer's choice. A change that fails after the prompt changes nothing and says why, as Run as admin does (below). Automatic trigger state wins over a disagreeing saved preference when reconciled; a fully disabled task is a separate failure and does not turn the operator's choice off.
+
+An initial engine-start failure shows its actual reason with **Retry** and
+**Quit**. Retry repeats the same startup path; the tray's existing Start engine
+action or admitted native recovery can also resume it and dismiss the error.
+A fully disabled boot task refuses before launch. Repair it by running Setup
+as administrator, then Retry; no engine is started in the user's session as a
+fallback. These are protected desktop recovery controls, not permission for an
+agent to repair a live installation.
+
+Setup snapshots owned task enablement and all trigger states before Prepare,
+restores them on ordinary failure/cancellation/exit, and defers task starts until
+commit. Restoration does not start tasks or restore replaced application files.
+Its boot action, exit code and bounded helper failure text are persisted in
+`orgtree-installer.log` beside Setup or in `%TEMP%`; a failed restoration keeps
+the protected snapshot for diagnosis/repair. Abrupt process termination may
+also leave a snapshot. A completed installation logs optional task launch
+failures separately. An absent Uninstall-key InstallLocation is expected: the
+path is stored on the application key. Missing success markers after a partial
+copy can require the full setup flow instead of Upgrade.
 
 On per-user Windows installs, macOS and Linux, startup uses the applicable login registration. Turning startup Off leaves an engine already running alone; it prevents the next automatic start. It is not an interrupt or shutdown control. A second startup change while the first is pending is refused; wait for the result before advising another attempt.
 

@@ -17,6 +17,52 @@ reverts that: the engine always runs in Session 0, and the sign-in helper
 hosts the agents in each signed-in session. See
 [the engine stays in Session 0](#the-engine-stays-in-session-0-decision-94).
 
+## Failed updates and startup recovery (4.4.5)
+
+Before suspending owned tasks, Setup persists their original enablement, every
+trigger state, XML and ACL in an administrator-protected registry snapshot
+(`HKLM\SOFTWARE\Orgtree\BootInstallRollback`). Prepare failures restore the
+pair together. Installer failure, cancellation and exit hooks restore the
+snapshot after Prepare or copy; Register defers both task launches until the
+final commit. Restoration never calls Run, preserves an already-disabled task
+and attempts the other tasks even if one restoration fails. Ownership checks
+still refuse foreign tasks. A failed restoration keeps its snapshot and reports
+the reason; abrupt process termination can also leave one. Before suspending
+tasks, a new Prepare replaces a valid retained snapshot with the current verified
+task state and logs that decision. A later failure therefore preserves any
+intervening startup or administrator choice, rather than replaying the older
+attempt. Preflight validation or baseline-persistence failure changes no task
+and never replays that older snapshot. Setup arms its exit rollback only after
+Prepare succeeds. Explicit post-Prepare exits restore before Quit, including
+the silent app-close refusal: NSIS does not invoke its GUI-end callback on that
+path. Section Abort restores through the installation-failure callback; GUI
+cancellation retains its shared rollback hook. This restores task configuration,
+not replaced files.
+
+`orgtree-installer.log` beside Setup (or in `%TEMP%` when that folder is not
+writable) records the boot action, exit code and up to 640 characters of helper
+output, including failure text that a silent MessageBox previously lost.
+The successful commit clears the snapshot before optional startup; task launch
+failures at that point are logged without rolling back a completed installation.
+
+The desktop reads task enablement separately from automatic trigger state.
+Triggers off remains a lawful demand start in Session 0. A fully disabled boot
+task refuses before a demand launch and does not overwrite the saved Run on boot
+choice. A startup failure now shows its reason with **Retry** and **Quit**;
+Retry repeats the same initializer, while the tray/native recovery can also
+resume it and dismiss that dialog. There is no engine fallback into the user's
+signed-in session. For a disabled task, run Setup as administrator to repair the
+installation, then Retry. No organization state file needs to be deleted.
+
+InstallLocation belongs in the installer's application registry key, not its
+Uninstall key. Upgrade detection uses that application path plus identity and
+successful-install markers in both keys. A partial copy can remove the old
+markers before registration succeeds, so a repair run can offer the full setup
+flow. A raw quoted `/D=` may retain a trailing quote in diagnostic output; the
+existing native NSIS control establishes that assignment to `$INSTDIR` removes
+it for the supported path shape. That diagnostic quote alone does not prove an
+incorrect effective destination.
+
 ## The switch
 
 One checkbox, **Run on boot** (09:38Z; it was "Run on startup", and it is

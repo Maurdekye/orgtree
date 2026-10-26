@@ -119,7 +119,9 @@ test('measured: the scripts read, switch and record throwaway startup tasks, and
     return r.status === 0 ? r.stdout.trim() : null
   }
   const runElevatedScript = enabled => ps(startup.elevatedStartupScript(enabled, target))
-  const tasks = (boot, helper) => ({ boot, helper })
+  const tasks = (boot, helper) => ({ boot, helper,
+    bootEnabled: boot === null ? null : true, helperEnabled: helper === null ? null : true,
+    bootTriggers: boot, helperTriggers: helper })
   try {
     let r = ps(`New-Item -Path ${q('HKCU:\\' + target.key)} -Force | Out-Null; Set-ItemProperty -LiteralPath ${q('HKCU:\\' + target.key)} -Name Id -Value ${q(id)}`)
     assert.equal(r.status, 0, `could not create the throwaway key: ${r.stderr}`)

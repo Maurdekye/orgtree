@@ -31,6 +31,15 @@ The published installer is for **64-bit Windows**. Windows builds are unsigned; 
 
 The installer includes the desktop app, local engine and PostgreSQL database. You do not need to install Node.js, Rust or PostgreSQL to use the packaged app. A newer installation keeps your organization data. Model access and provider applications are set up separately.
 
+If the background engine cannot start, Orgtree shows the reason with **Retry**
+and **Quit**. A disabled background-engine task needs an installation repair:
+run Setup again as administrator, then choose **Retry**. Turning **Run on boot**
+off only disables automatic triggers and still permits a manual start. Failed
+updates restore the previous task and trigger states when Setup can complete its
+rollback; they record any failure in `orgtree-installer.log` beside Setup or in
+`%TEMP%`. Keep that log if repair fails. Task rollback does not restore replaced
+files, so completing Setup remains the repair for a partial installation.
+
 <a id="set-up-a-provider"></a>
 
 ## Connect one provider
