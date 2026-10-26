@@ -1,5 +1,18 @@
 # Desktop and renderer
 
+## Normal-card hover names (2026-10-26, 4.4.5)
+
+Hovering the whole normal agent/project card, including its body and effort
+chip, reveals a genuinely clipped name on its existing static background plate.
+Normal reveal is independent of the canvas desk counter: a desk retained in a
+popped-out window can leave no visible desk in the main document while that
+counter remains nonzero. The user explicitly keeps normal names available in
+this case and while another desk is visible, superseding only the normal part
+of the 4.4.0 suppression rule. Mini-name suppression and a desk's own header
+remain unchanged. No card layout, motion, hit target or fit measurement changes.
+[decided: user 2026-10-26; verified: canvas/{cardname,cardnamereveal,cards}.tsx;
+controls: namehover.test.tsx, desknameplate.test.tsx, cardhoverfit.test.tsx]
+
 ## Text editing and spelling menus (2026-10-24, 4.4.5)
 
 Native `editmenu.ts` uses Chromium's edit flags, pointed misspelling and

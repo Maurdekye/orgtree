@@ -32,6 +32,13 @@ policy remain physical, per the user's explicit exceptions.
 
 # Orgtree 4 rewrite — the user's standing decisions
 
+**Normal-card name reveal, USER 2026-10-26 (4.4.5):** clipped agent/project names
+show their existing background plate when any part of the normal card is hovered,
+including badges. Another open or popped-out desk does not suppress that plate.
+This supersedes only normal-zoom suppression from 0a47651/4.4.0; mini names remain
+suppressed while desks are open and desks keep their own headers. See
+[identity hover](agent-identity-tooltip.md).
+
 **Text context menus, USER 2026-10-24 m43ff979b165c (4.4.5):** editable text
 offers default Electron/OS spelling suggestions and Add to dictionary, plus
 Undo/Redo/Cut/Copy/Paste/Delete/Select All, with Paste as plain text for rich

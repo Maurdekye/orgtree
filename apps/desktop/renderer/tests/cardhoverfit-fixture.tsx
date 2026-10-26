@@ -6,9 +6,10 @@ import type { Watchdog } from '../src/types'
 
 const noop = () => {}, op = async () => ({ ok: true } as never)
 const hire = { enabled: true, installed: true, reason: null }
-export function CardHoverCard({ kind, lod, crowded, serial = 0 }: { kind: 'agent' | 'project'; lod: 'norm' | 'mini'; crowded: boolean; serial?: number }) {
+export function CardHoverCard({ kind, lod, crowded, serial = 0, effort }: { kind: 'agent' | 'project'; lod: 'norm' | 'mini'; crowded: boolean; serial?: number; effort?: string }) {
   const id = kind === 'project' ? 'project-transparency-committee' : 'agent-with-a-very-long-display-name'
   const node = { ...(kind === 'agent' ? agent(id) : project(id)), tier: kind === 'agent' ? 'sol' : 'project',
+    ...(effort ? { scope: { ...agent(id).scope, effort } } : {}),
     configured_scope: crowded ? { slots_capacity: 9999999, mail_queue: 'ack' } : {},
     mail_pending: crowded ? 9999999 : 0, mail_held: crowded ? 9999999 : 0,
     proc_warm: false, proc_live: false, busy: false, occupancy: 0, context_window: 1000,

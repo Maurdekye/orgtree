@@ -1,17 +1,16 @@
 import { useLayoutEffect, useRef, useState } from 'react'
 import type { HTMLAttributes } from 'react'
-import { useCardNamesAllowed } from './cardnamereveal'
 
 /** Normal-zoom card names reveal only when hovered and actually clipped.
  * The copy shares the name's offset and ignores pointer input; far-zoom names
- * have their own floating presentation. Agent and project cards use this. */
+ * have their own floating presentation. Other desks, including popped-out
+ * ones, do not suppress this normal-card plate (USER 2026-10-26). Agent and
+ * project cards use this; their own desk view removes the normal name. */
 export function CardName({ text, hovered, layoutKey, ...props }: {
   text: string
   hovered: boolean
   layoutKey?: string
 } & HTMLAttributes<HTMLSpanElement>) {
-  const allowed = useCardNamesAllowed()
-  hovered = hovered && allowed
   const ref = useRef<HTMLSpanElement>(null)
   const [at, setAt] = useState<{ left: number; top: number } | null>(null)
   useLayoutEffect(() => {
@@ -21,6 +20,6 @@ export function CardName({ text, hovered, layoutKey, ...props }: {
   }, [hovered, text, layoutKey])
   return <>
     <span {...props} ref={ref} className="name">{text}</span>
-    {allowed && at && <span className="name-full" data-card-fit-overlay="true" aria-hidden="true" style={at}>{text}</span>}
+    {at && <span className="name-full" data-card-fit-overlay="true" aria-hidden="true" style={at}>{text}</span>}
   </>
 }
