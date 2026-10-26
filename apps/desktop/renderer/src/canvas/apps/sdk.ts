@@ -19,7 +19,7 @@ export function panelDocument(html:string,channel:string):string {
 let ready=false,seq=0;const pending=new Map(),queued=[],listeners=new Map();
 let transport;const hello=()=>{transport?.close();const link=new MessageChannel();transport=link.port1;transport.onmessage=e=>receive(e.data);transport.start();parent.postMessage({protocol,channel,id:'ready',method:'host.ready'},'*',[link.port2])};const handshake=setInterval(hello,250);hello();setTimeout(()=>clearInterval(handshake),30000);
 const send=m=>{if(ready)parent.postMessage(m,'*');else queued.push(m)};
-const call=(method,args)=>new Promise((resolve,reject)=>{if(pending.size>=64){reject(Error('Too many pending panel requests'));return}const id=String(++seq),timer=setTimeout(()=>{pending.delete(id);reject(Error('Panel request timed out'))},30000);pending.set(id,{resolve,reject,timer});send({protocol,channel,id,method,args})});
+const call=(method,args)=>new Promise((resolve,reject)=>{if(pending.size>=64){reject(Error('Too many pending panel requests'));return}const id=String(++seq),timer=setTimeout(()=>{pending.delete(id);reject(Error('Panel request timed out'))},method==='engine.call'?150000:30000);pending.set(id,{resolve,reject,timer});send({protocol,channel,id,method,args})});
 const on=(name,fn)=>{if(typeof fn!=='function')throw Error('Expected an event listener');if(!listeners.has(name))listeners.set(name,new Set());listeners.get(name).add(fn);return()=>listeners.get(name)?.delete(fn)};
 const receive=d=>{if(!d||d.protocol!==protocol||d.channel!==channel)return;
 if(d.kind==='ready'){clearInterval(handshake);if(!ready){ready=true;for(const m of queued.splice(0))parent.postMessage(m,'*')}return}

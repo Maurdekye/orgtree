@@ -62,7 +62,7 @@ test('custom apps host binds state writes to one panel and never forwards arbitr
   assert.equal(fixture.saved.get('p1')!.state!.count,9);assert.equal(fixture.saved.get('p2')!.state!.count,4)
   const write=fixture.calls.find(c=>c.action==='state_set')!;assert.equal(write.panel,'p1');assert.equal(write.expected_rev,1)
   await send('engine','engine.call',{action:'publish',as_user:true})
-  assert.match(String(answers.find(a=>a.id==='engine')?.error),/not enabled/)
+  assert.match(String(answers.find(a=>a.id==='engine')?.error),/Unsupported app action/)
   assert.equal(fixture.calls.some(c=>c.action==='publish'||c.action==='engine.call'),false)
   const other=frame.ownerDocument.createElement('iframe');frame.ownerDocument.body.appendChild(other)
   await send('foreign','state.set',{count:100},other.contentWindow!);other.remove()

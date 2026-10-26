@@ -2,6 +2,12 @@
 
 Read this file before working in this repository. It is the startup guide, not a landing log. Detailed rules, source references and the complete earlier notes live in the [topic index](docs/agents/README.md).
 
+Custom app actions use parent-only, code/panel-bound sessions and native owning-document
+permission prompts; sandbox HTML never receives a credential or permission method.
+Hide/close/replacement discards prompts and authority, while grant edits use a separate
+revision from code. See [custom apps](docs/rust-engine/custom-apps.md).
+[verified: `canvas/apps/{actions,host,permissions}.tsx`, `domain/apps/bridge.rs`; 2026-10-26]
+
 Mail list previews cap tags at three, with active filter matches first and a
 hover-only (+n) count; detail and picker tags remain uncapped. See
 [mail tags](docs/rust-engine/mail-tags.md). [decided: user 2026-10-25; verified: `canvas/mail.tsx`]

@@ -38,7 +38,7 @@ initial state are provisionally limited to2MiB and64 nesting levels.
 placement:{mode,x,y,width,height,anchor} distinguishes float/screen/popout/canvas.
 Only canvas permits an optional live-node name anchor. Coordinates must be finite;
 dimensions are160-4096 by120-4096. The Apps menu mounts saved open copies at these placements. The opaque host
-provides state/events, and currently refuses engine actions.
+provides state/events and the permission-checked named action SDK.
 
 event needs panel/name/payload (up to64KiB). events needs panel, optional integer
 after sequence and limit1-200. The latest256 events are retained; oldest_retained
@@ -46,9 +46,8 @@ identifies the retained boundary. Linked agents must be at most64 unique live
 agents in the same org. Neither an event nor a link impersonates an agent/user.
 
 List kind:panels accepts open:true/false to page only that subset. Metadata
-includes event_seq; HTML/state remain excluded. Permission decisions, app
-import/export and agent subscriptions are subsequent slices. The current HTML
-host has no granted engine-action channel. All unruled defaults are provisional for the user's morning review.
+includes event_seq; HTML/state remain excluded. App import/export and agent
+subscriptions are subsequent slices. All unruled defaults are provisional for the user's morning review.
 
 See also: [orgtree-scope-and-permissions](../scope-and-permissions/SKILL.md),
 [orgtree-tool-org-logo](../tool-org-logo/SKILL.md),
@@ -65,8 +64,12 @@ This is the tool parity boundary for native permission decisions, not a right
 for an agent to grant itself execution. Code replacement revokes app grants.
 
 The engine backend has revision-bound expiring parent-only sessions and exact
-one-shot permission challenges; the HTML host still refuses engine.call in this
-backend milestone. Native prompt integration follows. Named actions are bounded
+one-shot permission challenges. HTML calls `orgtree.call(action,args)`; the native
+owning-document prompt displays exact app/copy/action text and offers Allow once,
+Always allow, Deny or Cancel. Cancel/Escape/expiry discards without a denial. Native
+Permissions edits save immediately for all copies, without reloading app code.
+Hidden/closed/replaced hosts discard sessions and prompts. No HTML permission API,
+host session, arbitrary route, caller or cross-panel selector is exposed. Named actions are bounded
 chart metadata, app-provenance local-agent mail, new open docket items and fixed
 app.event signals; no generic user operations or approval authority. App mail is
 app data and cannot speak as the user. Agents reply by reading/writing panel

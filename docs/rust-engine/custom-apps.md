@@ -79,10 +79,9 @@ port: adopted pop-out handlers still execute in the main JS realm, so their
 window.postMessage sender would not equal the iframe's new parent window. The
 parent binds state and events to its own panel ID, serializes writes, checks
 revisions and caps messages/rate. It exposes no credential, generic HTTP endpoint,
-permission decision or caller selection. Current engine.call requests refuse.
-Frame content is untrusted even after the envelope check. A later permission
-bridge must recheck engine-side app revision, panel and capability, and invalidate
-mounted sessions on code replacement/closure. Self-navigation network containment
+permission decision or caller selection. Frame content is untrusted even after
+the envelope check. The bridge rechecks engine-side app revision, panel and
+capability and invalidates mounted sessions on code replacement/closure. Self-navigation network containment
 requires native-window verification before a no-network execution claim.
 
 The async SDK is window.orgtree state.get/set/patch/onChange; storage.getItem,
@@ -129,7 +128,24 @@ never counts as direct user contact. App content is not a user instruction or
 approval. Docket creation records an app/panel actor. events.fire cannot spoof
 an arbitrary engine event kind. All payloads/actions are bounded to64KiB.
 
-This is the backend authority slice: the current HTML host STILL refuses
-engine.call until the following native prompt/host integration slice. No UI or
-real-PostgreSQL execution claim follows from these pure controls. The focused
-runtime proof before alpha must exercise persistence and capability refusals.
+## Native action host
+
+The SDK exposes `orgtree.call(action,args)`, forwarding only the fixed vocabulary
+above. The parent rejects extra identity/action/panel selectors and bounds action
+JSON to64KiB before the engine independently validates it. Main-realm requests keep
+native desktop authentication after a portal adopts the React DOM. Only the parent
+keeps the expiring engine session; replies to HTML contain operation results only.
+
+Permission-required responses render a native owning-document modal OUTSIDE the
+iframe, with complete action JSON as text. Buttons send only the engine's exact
+session/challenge/choice. Once/Always/Deny are provisional defaults. Cancel,
+Escape and120s prompt expiry close the session and discard the action without
+persisting Deny. No ambiguous action failure retries automatically. SDK action
+timeout150s allows the120s prompt; state requests retain30s.
+
+Lifecycle effects create disposable clients, including StrictMode replay. Hide,
+unmount, owner/channel/code changes abort pending native prompts, close reply ports
+and sessions, and close a delayed session_open result before it can dispatch.
+Permission edits use their separate revision and do not reload code. Native
+Permissions saves Ask/Allow/Deny immediately for all copies. Real-PostgreSQL
+persistence and capability execution/refusals remain part of the proof before alpha.

@@ -3,11 +3,14 @@ import {customAppsRequest} from '../../api'
 import {useSurfaceDocument} from '../../popout'
 import {changeApps} from './store'
 import {PANEL_PROTOCOL,panelDocument,panelRequest} from './sdk'
+import {AppActionClient} from './actions'
+import {AppPermissionPrompt,type PermissionPrompt} from './permissions'
 import type {CustomApp,CustomPanel,PanelEvents} from './types'
 
 export function PanelHtml({slug,app,panel,visible=true}:{slug:string;app:CustomApp;panel:CustomPanel;visible?:boolean}){
   const owner=useSurfaceDocument(),frame=useRef<HTMLIFrameElement>(null),replyPort=useRef<MessagePort|null>(null)
   const [definition,setDefinition]=useState<CustomApp|null>(null),[error,setError]=useState(''),[saved,setSaved]=useState(false)
+  const [prompt,setPrompt]=useState<PermissionPrompt|null>(null),actions=useRef<AppActionClient|null>(null)
   const channel=useMemo(()=>crypto.randomUUID(),[slug,app.id,app.rev,panel.id,owner])
   const current=useRef<CustomPanel|null>(null),eventSeq=useRef<number|null>(null),epoch=useRef(0),ready=useRef(false)
   // React handlers keep their main-window realm after a portal moves. A reply
@@ -18,6 +21,18 @@ export function PanelHtml({slug,app,panel,visible=true}:{slug:string;app:CustomA
   const postRef=useRef(post);postRef.current=post
   const [foreground,setForeground]=useState(!owner.hidden)
   useEffect(()=>{const update=()=>setForeground(!owner.hidden);owner.addEventListener('visibilitychange',update);update();return()=>owner.removeEventListener('visibilitychange',update)},[owner])
+  useEffect(()=>{
+    if(!visible||!foreground)return
+    const client=new AppActionClient(slug,app.id,app.rev,panel.id,(request,signal)=>new Promise(resolve=>{
+      let settled=false
+      const finish:PermissionPrompt['finish']=choice=>{if(settled)return;settled=true;signal.removeEventListener('abort',cancel);setPrompt(null);resolve(choice)}
+      const cancel=()=>finish(null)
+      if(signal.aborted){resolve(null);return}
+      signal.addEventListener('abort',cancel,{once:true});setPrompt({request,finish})
+    }))
+    actions.current=client
+    return()=>{client.dispose();if(actions.current===client)actions.current=null;replyPort.current?.close();replyPort.current=null;ready.current=false}
+  },[slug,app.id,app.rev,panel.id,channel,owner,visible,foreground])
   useEffect(()=>{let alive=true;setDefinition(null);setError('');current.current=null;eventSeq.current=null;ready.current=false;++epoch.current
     void customAppsRequest<CustomApp>(slug,{action:'app_get',app:app.id}).then(result=>{if(alive){if(result.rev!==app.rev)throw Error('App changed; refresh its panel.');setDefinition(result)}}).catch(e=>{if(alive)setError(String(e))})
     return()=>{alive=false;++epoch.current;ready.current=false}
@@ -42,6 +57,7 @@ export function PanelHtml({slug,app,panel,visible=true}:{slug:string;app:CustomA
     return()=>{alive=false}
   },[slug,panel.id,panel.rev,panel.event_seq,app.rev,owner])
   useEffect(()=>{
+    if(!visible||!foreground)return
     const win=owner.defaultView;if(!win)return
     let active=true,chain=Promise.resolve(),start=Date.now(),count=0
     const listener=(event:MessageEvent)=>{
@@ -67,9 +83,8 @@ export function PanelHtml({slug,app,panel,visible=true}:{slug:string;app:CustomA
             if(!args||typeof args.name!=='string')throw Error('Event needs a name and JSON payload.')
             result=await changeApps(slug,{action:'event',panel:panel.id,name:args.name,payload:args.payload??null})
           }else if(request.method==='engine.call'){
-            // Deliberately denied in the state-host slice. The next slice adds
-            // server-bound sessions and native per-app permission decisions.
-            throw Error('Engine actions are not enabled for this app.')
+            const client=actions.current;if(!client)throw Error('App host closed or hidden.')
+            result=await client.call(request.args)
           }else throw Error('Unknown panel API method.')
           if(active&&at===epoch.current){setError('');postRef.current({id:request.id,result})}
         }catch(e){if(active&&at===epoch.current){setError(String(e));postRef.current({id:request.id,error:e instanceof Error?e.message:String(e)})}}
@@ -77,12 +92,13 @@ export function PanelHtml({slug,app,panel,visible=true}:{slug:string;app:CustomA
     }
     win.addEventListener('message',listener)
     return()=>{active=false;win.removeEventListener('message',listener)}
-  },[slug,panel.id,channel,owner])
+  },[slug,panel.id,channel,owner,visible,foreground])
   const source=useMemo(()=>definition?.definition?panelDocument(definition.definition.html,channel):'', [definition,channel])
   return <div className="custom-app-host">
     {error&&<div className="custom-app-error" role="alert">{error}</div>}
     {visible&&foreground&&source?<iframe key={channel} ref={frame} title={`${app.name}: ${panel.label}`} srcDoc={source} sandbox="allow-scripts" referrerPolicy="no-referrer"
       onLoad={()=>{ready.current=true;postRef.current({kind:'ready'})}}/>:<div className="custom-app-suspended">{source?'Paused while hidden.':'Loading app…'}</div>}
     <div className="custom-app-status">{panel.linked_agents.length?`Linked: ${panel.linked_agents.join(', ')}`:'No linked agents'}<span>{saved?'Saved':'State saved by Orgtree'}</span></div>
+    {prompt&&visible&&foreground&&<AppPermissionPrompt prompt={prompt} owner={owner}/>}
   </div>
 }

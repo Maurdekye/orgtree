@@ -22,8 +22,8 @@ Activity retains256 events. Linked agents can interpret/update any copy in this
 org with Org-modifying tools; linking does not grant permission.
 
 Apps are opaque sandboxed HTML, with no engine credential or same-origin access.
-The current prototype provides saved state and named events, and refuses engine
-actions. Per-app permission prompts and app import/export follow in later slices.
+The host provides saved state, named events and permission-checked engine actions.
+App import/export follows in a later slice.
 Declaring an engine capability does not grant it. App code is limited to4MiB,
 JSON state to2MiB and events to64KiB; these are provisional bounds.
 
@@ -31,10 +31,19 @@ Agents use orgtree_apps for the same lifecycle, placement, link, state and event
 controls. Org-modifying tools also contains Logo; the new category preserves old
 explicit Logo denials. Copy/export JSON use ordinary local clipboard/file actions.
 
-The next action bridge is being added in stages. Its engine backend accepts only
-declared capabilities with a user's explicit permission; apps cannot grant their
-own permissions. The current HTML host continues to refuse actions until its
-native prompt is connected. Planned decisions are Ask, Allow and Deny per app,
-with one-action approval available. Replacing app code clears old permissions.
+The action bridge accepts only declared capabilities with your permission; apps
+cannot grant their own permissions. The native App permission prompt shows the
+app, saved copy, capability and exact action as text. Allow once applies to that
+one action. Always allow and Deny save a decision for every copy. Cancel or Escape
+discards the request without changing permissions. Requests expire after two
+minutes and are not retried automatically. In the title menu, Permissions offers
+Ask, Allow and Deny per declared capability; changes save immediately without
+reloading the app. These defaults are provisional. Replacing app code clears old permissions.
 App messages identify the app and copy, and carry app content rather than user
 instructions or approvals. No permission travels in an exported app.
+
+The HTML API is `orgtree.call(action, args)`. Available actions are `org.read`
+(paged chart metadata), `mail.send` (live local agent), `docket.create` (a new open
+item), and `events.fire` (an app event for a live local agent). It cannot act as
+you, choose another panel, call arbitrary engine routes, or approve work. Hiding,
+closing or replacing a panel discards its host session and pending prompt.

@@ -1688,3 +1688,7 @@ export const customAppsRequest = <T,>(slug:string,input:Record<string,unknown>):
     return req<T>(path+'?request='+encodeURIComponent(JSON.stringify(input)))
   return req<T>(path,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(input)},DEFAULT_TIMEOUT_MS,[],false)
 }
+
+/** Always fetch in the authenticated main realm, including portal callers. */
+export const customAppsBridge = <T=unknown,>(slug:string,input:Record<string,unknown>):Promise<T> =>
+  req<T>('/api/orgs/'+encodeURIComponent(slug)+'/apps/bridge',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(input)},DEFAULT_TIMEOUT_MS,[],false)

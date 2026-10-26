@@ -7,6 +7,7 @@ import {windowExitStarted} from '../../windowlayout'
 import {customAppsRequest} from '../../api'
 import {activateApps,changeApps,loadAppsMenu,useApps} from './store'
 import {PanelHtml} from './host'
+import {AppPermissions} from './permissions'
 import type {AppPlacement,CustomApp,CustomPanel,PanelEvents} from './types'
 import type {WorldRect} from '../viewport'
 import {intersectsViewport} from '../viewport'
@@ -117,7 +118,7 @@ function PanelBody({slug,app,panel,zoom}:{slug:string;app:CustomApp;panel:Custom
       <div className="custom-app-dialog-actions"><button type="button" onClick={()=>setDialog(null)}>Cancel</button><button type="button" className="primary" onClick={()=>void update(dialog==='rename'?{label:input}:{linked_agents:input.split(/[\n,]/).map(x=>x.trim().replace(/^@/, '')).filter(Boolean)}).then(()=>setDialog(null)).catch(()=>{})}>Save</button></div>
     </Dialog>}
     {dialog==='activity'&&<Dialog title="Panel activity" close={()=>setDialog(null)}><ol className="custom-app-activity">{events.map(e=><li key={e.seq}><time>{new Date(e.at).toLocaleString()}</time> {e.actor}: {e.name}<pre>{JSON.stringify(e.payload,null,2)}</pre></li>)}</ol></Dialog>}
-    {dialog==='permissions'&&<Dialog title="App permissions" close={()=>setDialog(null)}><p>Permissions apply to every copy of {app.name}. No engine actions are allowed yet.</p><ul>{app.capabilities.map(cap=><li key={cap}>{cap}: {app.permissions[cap]??'Ask'}</li>)}</ul></Dialog>}
+    {dialog==='permissions'&&<AppPermissions slug={slug} app={app} close={()=>setDialog(null)}/>}
     {dialog==='delete'&&<Dialog title="Delete panel" close={()=>setDialog(null)}><p>Delete {panel.label} and its saved state?</p><div className="custom-app-dialog-actions"><button type="button" onClick={()=>setDialog(null)}>Cancel</button><button type="button" className="danger" onClick={()=>void changeApps(slug,{action:'panel_delete',panel:panel.id,expected_rev:latest.current.rev}).catch(e=>setError(String(e)))}>Delete panel</button></div></Dialog>}
   </section>
 }
