@@ -428,7 +428,9 @@ Final opens refuse links/reparse points. Absolute paths cannot contain parent
 components. Imports stay within held roots, bounded by both file metadata and
 actual bytes. Exports create_new only in the agent's existing private scratch,
 returning path/bytes/SHA256; no DB connection or lock spans file IO. Native Apps-menu
-file selection shows a plaintext metadata/capability preview before app_import;
+file selection shows a plaintext preview before app_import (labelled name, any
+description, the outside-file consent note and the saved-copy count; no declared
+capabilities, which add nothing to an imported app's org authority);
 it mounts no imported HTML. Manage app exports through the same app_export route
 with an unchecked-by-default saved-data option and an owning-document file anchor.
 Whole-app file exports serialize compactly and check the exact UTF-8 bytes before

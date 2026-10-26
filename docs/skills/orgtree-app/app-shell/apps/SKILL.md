@@ -110,6 +110,10 @@ state, and that untrustworthy apps are dangerous. Authority is derived locally;
 exported permissions, paths and references never grant it. The user accepts that
 an app created by a subagent can affect a superior's state, as terminal access can.
 App-origin content still has no user instruction or approval authority.
+The import preview labels the app's name, notes that the app still asks before
+reading or changing files outside this org (a chosen folder or the whole computer)
+and counts saved copies. It lists no declared capabilities: they give an imported
+app nothing beyond its org access.
 
 Agent panel_open with an app ID always creates a fresh CLOSED saved panel;
 panel-ID reopen and panel_update open:true refuse. Agent duplicates stay closed.

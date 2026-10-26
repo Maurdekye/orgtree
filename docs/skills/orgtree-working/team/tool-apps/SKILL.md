@@ -227,7 +227,8 @@ permissions inside a saved JSON state remains ordinary app data, never a grant.
 
 User parity: Apps → Import app shows a native preview before confirmation;
 Manage app → Export app offers the same optional saved-data choice. File
-selection/download is ordinary local UI; import never opens a saved copy; its warning explains full implicit org access.
+selection/download is ordinary local UI; import never opens a saved copy; its warning explains full implicit org access,
+and the preview notes that files outside this org still ask first (it lists no declared capabilities).
 Whole-app exports are compact JSON with the same exact16MiB byte cap as import;
 ordinary panel-state JSON export keeps its readable formatting.
 

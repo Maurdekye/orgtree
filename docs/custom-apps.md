@@ -146,8 +146,11 @@ explicit Logo denials. Copy/export JSON use ordinary local clipboard/file action
 
 Agents can import an app from a held local file and export one into a new file in
 their private working folder. The tool returns its path, byte count and SHA256.
-Choose Import app in the Apps menu, select a bundle, review the name, requested
-capabilities and saved copies, then confirm Import app. This native preview
+Choose Import app in the Apps menu, select a bundle, review its name, description
+and saved copies, then confirm Import app. The preview notes that the app still
+asks before reading or changing files outside this org, such as a chosen folder or
+the whole computer. It lists no declared capabilities: they give an imported app
+nothing beyond its org access. This native preview
 does not execute HTML. Open the app's gear settings, choose whether
 to Include saved panel data, and press Export app to save the bundle.
 
