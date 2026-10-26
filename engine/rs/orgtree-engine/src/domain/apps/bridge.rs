@@ -212,6 +212,14 @@ async fn execute_private(engine:&Arc<Engine>,org:&Arc<OrgHandle>,bound:&Bound,va
 
 #[cfg(test)] mod tests {
     use super::*;
+    #[test] fn custom_apps_org_defaults_allow_internal_actions_without_native_prompt(){
+        for origin in ["created","imported","template","legacy"]{
+            let value=json!({"origin":origin,"capabilities":["org.read","mail.send","events.fire","docket.write"],"permissions":{},"events":[{"name":"submitted"}]});
+            for action in [Action::OrgRead{after:None,limit:None},Action::MailSend{to:"worker".into(),body:"notes".into(),notice:true},Action::EventsFire{name:"submitted".into(),payload:json!({})},Action::DocketCreate{title:"Review".into(),objective:"Notes".into(),owner:"worker".into()}]{
+                assert_eq!(permission(&value,&action).unwrap(),"allow","origin {origin} should have implicit org access");
+            }
+        }
+    }
     #[test] fn custom_apps_bridge_never_accepts_general_ops_or_selected_identity(){
         for input in [json!({"action":"publish"}),json!({"action":"mail.send","to":"bob","body":"x","as_user":true}),json!({"action":"org.read","org":"other"})]{assert!(serde_json::from_value::<Action>(input).is_err());}
         for name in ["user","system","@bob","net:remote","org:elsewhere"]{assert!(recipient(name).is_err());}
