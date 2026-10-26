@@ -60,6 +60,6 @@ export default async function(rig){
  await set('files.write','deny');p.check('explicit file-write Deny defeats implicit org writes',await reject(()=>file({action:'write',directory:directory.id,name:'denied.txt',base64:'eA=='}))&&!fs.existsSync(path.join(scratch,'denied.txt')))
  await set('files.read','deny');p.check('explicit file-read Deny defeats persisted implicit references',await reject(()=>file({action:'read',file:selected.id})))
  app=await get();p.file('denied-app.json',app)
- await rig.api('GET','/api/status?ordinary_app_policy_positive=visible');const log=rig.engineLog();p.check('implicit action and file dispatch keep private bodies out of diagnostics',!log.includes(canary)&&log.includes('ordinary_app_policy_positive'))
+ await rig.api('GET','/api/orgs?ordinary_app_policy_positive=visible');const log=rig.engineLog();p.check('implicit action and file dispatch keep private bodies out of diagnostics',!log.includes(canary)&&log.includes('ordinary_app_policy_positive'))
  p.file('runtime.json',{engine:rig.run.engineSource,run:rig.run.id,restarts:rig.run.restarts,limits:'Actual isolated PG/tool/native-route proof, not installed alpha or UI.'});return p.summary()
 }

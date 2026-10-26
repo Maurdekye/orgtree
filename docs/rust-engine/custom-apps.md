@@ -115,7 +115,7 @@ Migration0064 stores app/code-bound native read grants and panel-bound opaque
 references. Files are chosen in native Orgtree UI or opened from this org's
 scratch/uploads/retained-delivery catalog. Native paths never enter the iframe
 SDK or portable bundles. Once grants are host-memory only; Always grants persist
-in PG. Returning to Ask/Deny, grant revoke or code replacement clears authority.
+in PG. Ask/Deny overrides org defaults; grant revoke/code replacement clears external authority.
 Closing/hiding ends host links. Imported/duplicated state cannot reuse a file id
 from another panel. Files settings live inside the existing Permissions dialog.
 
