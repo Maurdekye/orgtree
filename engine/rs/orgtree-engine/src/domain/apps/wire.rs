@@ -7,6 +7,8 @@ use serde_json::{json, Value};
 pub const HTML_MAX: usize = 4 * 1024 * 1024;
 pub const STATE_MAX: usize = 2 * 1024 * 1024;
 pub const EVENT_MAX: usize = 64 * 1024;
+pub const BUNDLE_MAX: usize = 16 * 1024 * 1024;
+pub const BUNDLE_PANELS: usize = 16;
 pub const CAPABILITIES: &[&str] = &["org.read", "mail.send", "docket.write", "events.fire"];
 
 #[derive(Clone, Deserialize, Serialize)]
@@ -19,6 +21,29 @@ pub struct Definition {
     #[serde(default)] pub capabilities: Vec<String>,
     #[serde(default = "width")] pub width: i32,
     #[serde(default = "height")] pub height: i32,
+}
+
+/// Provisional v1 portability: definition and optional DATA only. No IDs,
+/// permissions, agent links, open state or machine geometry travel.
+#[derive(Clone,Deserialize,Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct Bundle {
+    pub format:String,
+    pub version:u32,
+    pub definition:Definition,
+    #[serde(default)] pub panels:Vec<PortablePanel>,
+}
+#[derive(Clone,Deserialize,Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct PortablePanel {pub label:String,pub state:Value}
+#[nolog]
+pub fn bundle(value:&Bundle)->Result<()> {
+    if value.format!="orgtree-app"||value.version!=1{crate::refuse!(BadRequest,"unsupported app bundle format/version; expected orgtree-app version1");}
+    definition(&value.definition)?;
+    if value.panels.len()>BUNDLE_PANELS{crate::refuse!(BadRequest,"at most16 saved panel states per app bundle");}
+    for p in &value.panels{text(&p.label,120,"panel label",false)?;bounded(&p.state,STATE_MAX,true)?;}
+    if serde_json::to_vec(value)?.len()>BUNDLE_MAX{crate::refuse!(BadRequest,"app bundle exceeds16MiB; export the definition without saved panels or reduce saved data");}
+    Ok(())
 }
 
 #[nolog] fn empty() -> Value { json!({}) }
@@ -45,6 +70,8 @@ impl Default for Placement {
 pub enum Request {
     List { kind:Option<String>, app:Option<String>, after:Option<String>, limit:Option<i64>, open:Option<bool> },
     AppGet { app:String },
+    AppExport { app:String, expected_rev:i64, #[serde(default)] include_panels:bool },
+    AppImport { bundle:Bundle },
     PermissionSet { app:String, expected_rev:i64, expected_permission_rev:i64, capability:String, permission:String },
     AppCreate { definition:Definition },
     AppUpdate { app:String, expected_rev:i64, definition:Definition },
@@ -63,7 +90,9 @@ pub enum Request {
 // These arguments can contain private app HTML/state. Do not trace their values.
 #[nolog]
 pub fn parse(input:&Value) -> Result<Request> {
-    serde_json::from_value(input.clone()).map_err(|e|crate::domain::UserError::BadRequest(format!("invalid Apps request: {e}")).into())
+    let request:Request=serde_json::from_value(input.clone()).map_err(|e|crate::domain::UserError::BadRequest(format!("invalid Apps request: {e}")))?;
+    if let Request::AppImport{bundle:value}=&request{bundle(value)?;}
+    Ok(request)
 }
 #[nolog]
 pub fn text(value:&str, maximum:usize, label:&str, blank:bool) -> Result<()> {
@@ -162,6 +191,14 @@ mod tests {
         assert!(parse(&json!({"action":"app_import","bundle":clean})).is_ok(),"positive import control");
         for (key,value) in [("permissions",json!({"mail.send":"allow"})),("session",json!("stolen")),("org",json!("other"))]{let mut bad=clean.clone();bad[key]=value;assert!(parse(&json!({"action":"app_import","bundle":bad})).is_err());}
         let mut bad=clean;bad["panels"]=json!([{"label":"Saved","state":{},"open":true,"linked_agents":["admin"],"placement":{"mode":"popout"}}]);assert!(parse(&json!({"action":"app_import","bundle":bad})).is_err());
+    }
+    #[test] fn custom_apps_portable_versions_counts_and_state_shapes_are_validated_before_storage(){
+        let clean=json!({"format":"orgtree-app","version":1,"definition":{"name":"Notes","html":"<p>notes</p>"}});
+        for value in [json!({"version":2}),json!({"format":"foreign-app"}),json!({"panels":vec![json!({"label":"copy","state":{}});17]}),json!({"panels":[{"label":"copy","state":[]} ]})]{let mut bad=clean.clone();bad.as_object_mut().unwrap().extend(value.as_object().unwrap().clone());assert!(parse(&json!({"action":"app_import","bundle":bad})).is_err());}
+        let mut copy=clean;copy["panels"]=json!([{"label":"copy","state":{"permissions":{"mail.send":"allow"}}}]);assert!(parse(&json!({"action":"app_import","bundle":copy})).is_ok(),"a state key is data, never an execution grant");
+        let card=crate::tools::defs::list().into_iter().find(|c|c["name"]=="orgtree_apps").unwrap();
+        for action in ["app_import","app_export"]{assert!(card["inputSchema"]["properties"]["action"]["enum"].as_array().unwrap().iter().any(|a|a==action));}
+        for key in ["bundle","path","as_file","include_panels"]{assert!(card["inputSchema"]["properties"].get(key).is_some());}
     }
 }
 

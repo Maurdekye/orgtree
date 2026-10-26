@@ -155,7 +155,27 @@ and typed assignment envelopes label app-origin work as app content with no user
 instruction/approval authority. Whether this should instead deposit data without
 assignment is in the single morning question list.
 
-## Native action host
+## Whole-app portability backend
+
+Provisional version1 `.orgtree-app` JSON carries format/version, a strict
+Definition and optional `{label,state}` copies. Limits:16MiB serialized bundle,
+16 copies, existing4MiB HTML/2MiB state/depth bounds. Imports validate before DB
+access, generate new IDs, leave all grants empty (Ask), and create copies closed
+with default placement. Neither script execution nor host creation happens on
+import. No links, runtime IDs, grants, sessions, geometry or credentials travel.
+
+Export takes expected_rev and the app row lock shared by all panel writers,
+giving one app/copy snapshot. It refuses more than16 selected copies rather than
+silently truncating; definition-only export is still available. Import is atomic.
+HTTP uses strict app_import/app_export requests. Agent tools share that service,
+adding import path or export as_file (defaulttrue) adapters with fresh live/orgmod
+checks. Directory handles pin ancestors; final opens refuse links/reparse points.
+Imports are confined to canonical held paths, bounded by both file metadata and
+actual bytes. Exports create_new only in the agent's existing private scratch,
+returning path/bytes/SHA256; no DB connection or lock spans file IO. Native whole-app
+file controls follow in the next visual slice. These defaults await morning review.
+
+## Native action host implementation
 
 The SDK exposes `orgtree.call(action,args)`, forwarding only the fixed vocabulary
 above. The parent rejects extra identity/action/panel selectors and bounds action

@@ -23,13 +23,23 @@ org with Org-modifying tools; linking does not grant permission.
 
 Apps are opaque sandboxed HTML, with no engine credential or same-origin access.
 The host provides saved state, named events and permission-checked engine actions.
-App import/export follows in a later slice.
+Whole-app portability uses a versioned `.orgtree-app` JSON file. It carries the
+definition and initial data, optionally saved copy labels and data. Permissions,
+credentials, links, IDs and machine-specific placement do not travel. Imports
+create fresh IDs, with every permission set to Ask and saved copies closed until
+explicitly opened. The provisional bounds are16MiB per bundle and16 saved copies;
+definition-only export is available for an app with more copies.
 Declaring an engine capability does not grant it. App code is limited to4MiB,
 JSON state to2MiB and events to64KiB; these are provisional bounds.
 
 Agents use orgtree_apps for the same lifecycle, placement, link, state and event
 controls. Org-modifying tools also contains Logo; the new category preserves old
 explicit Logo denials. Copy/export JSON use ordinary local clipboard/file actions.
+
+Agents can import an app from a held local file and export one into a new file in
+their private working folder. The tool returns its path, byte count and SHA256.
+The engine routes are available now; whole-app file controls in the Apps menu
+are the next UI slice. Importing never executes the imported HTML.
 
 The action bridge accepts only declared capabilities with your permission; apps
 cannot grant their own permissions. The native App permission prompt shows the

@@ -2060,7 +2060,11 @@ mod mqtt_card_tests {
 #[nolog]
 fn build_tool_apps()->Value {
     tool("orgtree_apps","Manage this org's app definitions and independent saved panels. Requires org-modifying tools. List pages omit HTML/state; app_get/panel_get read them. Open reuses the last panel unless new=true; close keeps state. Mutations need the current expected_rev. Imported permissions never grant actions.",json!({
-        "action":{"type":"string","enum":["list","app_get","app_create","app_update","app_delete","panel_open","panel_get","panel_update","panel_duplicate","panel_delete","state_set","state_patch","event","events","permission_set"]},
+        "action":{"type":"string","enum":["list","app_get","app_create","app_update","app_delete","app_import","app_export","panel_open","panel_get","panel_update","panel_duplicate","panel_delete","state_set","state_patch","event","events","permission_set"]},
+        "bundle":{"type":"object","description":"app_import: strict orgtree-app version1 object with definition and optional panels:[{label,state}]; up to16MiB/16 saved copies. No permissions, IDs, links or geometry."},
+        "path":{"type":"string","description":"app_import: a held local .orgtree-app JSON file instead of inline bundle; relative to your scratch"},
+        "include_panels":{"type":"boolean","description":"app_export: include up to16 saved panel JSON states; default false"},
+        "as_file":{"type":"boolean","description":"app_export: default true writes a new .orgtree-app file in your scratch and returns path/bytes/SHA256; false returns bundle JSON. No overwrite or arbitrary destination."},
         "kind":{"type":"string","enum":["apps","panels"],"description":"list: apps by default"},
         "app":{"type":"string","description":"app identity; list panels may filter by app"},
         "panel":{"type":"string","description":"saved panel identity"},

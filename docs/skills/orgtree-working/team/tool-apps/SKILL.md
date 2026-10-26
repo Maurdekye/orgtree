@@ -46,8 +46,31 @@ identifies the retained boundary. Linked agents must be at most64 unique live
 agents in the same org. Neither an event nor a link impersonates an agent/user.
 
 List kind:panels accepts open:true/false to page only that subset. Metadata
-includes event_seq; HTML/state remain excluded. App import/export and agent
-subscriptions are subsequent slices. All unruled defaults are provisional for the user's morning review.
+includes event_seq; HTML/state remain excluded. Agent subscriptions are a
+subsequent slice. All unruled defaults are provisional for the user's morning review.
+
+## App import and export
+
+app_export needs app/expected_rev. include_panels defaults false; true includes
+saved copy labels and JSON data. as_file defaults true: write a fresh
+`app-export-*.orgtree-app` in your existing private scratch and return path,
+bytes, SHA256 and copy count. No destination or overwrite field is accepted.
+as_file:false returns the bundle inline instead. Export is a consistent snapshot
+and does not change the source app.
+
+app_import takes EITHER path (an absolute file in your held folders/private
+scratch) OR bundle (an inline JSON object). It creates a new app with fresh IDs,
+Ask permissions and closed saved copies. Reopen a copy explicitly with panel_open.
+Reading a file does not execute HTML. Both actions require the same live-org
+Org-modifying tools authority as other Apps mutations; no database lock spans IO.
+File access refuses links/reparse points and limits declared and actual bytes.
+
+The strict provisional format is `{format:"orgtree-app",version:1,definition,
+panels:[{label,state}]}`. Unknown/version/authority fields refuse. Bundle maximum
+16MiB, saved copies maximum16; use definition-only export for a larger app.
+The existing4MiB HTML/2MiB state/depth limits still apply. No grants, sessions,
+credentials, links, IDs, open flags or machine geometry travel. A key named
+permissions inside a saved JSON state remains ordinary app data, never a grant.
 
 See also: [orgtree-scope-and-permissions](../scope-and-permissions/SKILL.md),
 [orgtree-tool-org-logo](../tool-org-logo/SKILL.md),

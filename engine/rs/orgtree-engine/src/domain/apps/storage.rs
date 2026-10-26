@@ -12,6 +12,11 @@ const APP_META:&str="jsonb_build_object('id',a.id,'name',a.name,'description',a.
 const PANEL_META:&str="jsonb_build_object('id',p.id,'app',p.app_id,'label',p.label,'rev',p.rev,'open',p.is_open,'placement',p.placement,'linked_agents',p.linked_agents,'updated_at',p.updated_at,'used_at',p.used_at,'event_seq',p.event_seq)";
 
 #[nolog]
+pub(crate) async fn file_authority(engine:&Arc<Engine>,org:&Arc<OrgHandle>,caller:&Caller)->Result<()> {
+    let mut client=engine.db.get().await?;let tx=client.transaction().await?;authorize(&tx,org.id,Some(caller)).await?;tx.commit().await?;Ok(())
+}
+
+#[nolog]
 async fn authorize(tx:&Transaction<'_>,org:i64,caller:Option<&Caller>) -> Result<String> {
     let Some(caller)=caller else {return Ok("user".into());};
     if caller.org_id!=org {crate::refuse!(Forbidden,"Apps caller belongs to another organization");}
@@ -95,6 +100,28 @@ pub(crate) async fn run_locked(engine:&Arc<Engine>,org:&Arc<OrgHandle>,caller:Op
             changed=true;app(&tx,org.id,&id,false,false).await?
         }
         Request::AppGet{app:id}=>app(&tx,org.id,&id,true,false).await?,
+        Request::AppExport{app:id,expected_rev,include_panels}=>{
+            // All panel writers first share-lock the app. Its exclusive lock
+            // gives this export one consistent definition/panel snapshot.
+            let old=app(&tx,org.id,&id,true,true).await?;revision(&old,expected_rev)?;
+            let mut saved=Vec::new();
+            if include_panels{
+                for row in tx.query("SELECT label,state FROM ot.custom_panels WHERE org_id=$1 AND app_id=$2 ORDER BY id LIMIT 17",&[&org.id,&id]).await?{saved.push(wire::PortablePanel{label:row.get(0),state:row.get(1)});}
+            }
+            let value=wire::Bundle{format:"orgtree-app".into(),version:1,definition:serde_json::from_value(old["definition"].clone())?,panels:saved};
+            wire::bundle(&value)?;json!({"panels":value.panels.len(),"bundle":value})
+        }
+        Request::AppImport{bundle:value}=>{
+            let id=crate::util::uid("app");let def=&value.definition;let caps=json!(def.capabilities);
+            tx.execute("INSERT INTO ot.custom_apps(org_id,id,name,description,html,initial_state,capabilities,width,height,created_by) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)",&[&org.id,&id,&def.name,&def.description,&def.html,&def.initial_state,&caps,&def.width,&def.height,&actor]).await?;
+            let mut saved=Vec::new();
+            for p in &value.panels{
+                let pid=crate::util::uid("panel");let place=serde_json::to_value(Placement{width:def.width,height:def.height,..Placement::default()})?;
+                tx.execute("INSERT INTO ot.custom_panels(org_id,id,app_id,label,state,placement,is_open) VALUES($1,$2,$3,$4,$5,$6,false)",&[&org.id,&pid,&id,&p.label,&p.state,&place]).await?;
+                let mut meta=panel(&tx,org.id,&pid,false).await?;meta.as_object_mut().unwrap().remove("state");saved.push(meta);
+            }
+            changed=true;json!({"imported":id,"app":app(&tx,org.id,&id,false,false).await?,"panels":saved})
+        }
         Request::AppCreate{definition:def}=>{
             wire::definition(&def)?;let id=crate::util::uid("app");let caps=json!(def.capabilities);
             tx.execute("INSERT INTO ot.custom_apps(org_id,id,name,description,html,initial_state,capabilities,width,height,created_by) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)",&[&org.id,&id,&def.name,&def.description,&def.html,&def.initial_state,&caps,&def.width,&def.height,&actor]).await?;
@@ -190,7 +217,7 @@ pub async fn run(engine:&Arc<Engine>,org:&Arc<OrgHandle>,caller:Option<&Caller>,
     wire::parse(input)?;
     if caller.is_some_and(|c|c.org_id!=org.id){crate::refuse!(Forbidden,"Apps caller belongs to another organization");}
     let action=input["action"].as_str().unwrap_or("");
-    if ["list","app_get","panel_get","events","app_create"].contains(&action){return run_locked(engine,org,caller,input).await;}
+    if ["list","app_get","panel_get","events","app_create","app_import","app_export"].contains(&action){return run_locked(engine,org,caller,input).await;}
     let app=if let Some(app)=input["app"].as_str(){app.to_owned()}else{
         let client=engine.db.get().await?;let panel=input["panel"].as_str().unwrap_or("");
         let row=client.query_opt("SELECT app_id FROM ot.custom_panels WHERE org_id=$1 AND id=$2",&[&org.id,&panel]).await?;

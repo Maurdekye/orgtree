@@ -7,8 +7,11 @@ permission prompts; sandbox HTML never receives a credential or permission metho
 App events carry privacy across subscriber/overflow handoffs; authorized delivery
 keeps content while watchdog diagnostic output/history omit it.
 Hide/close/replacement discards prompts and authority, while grant edits use a separate
-revision from code. See [custom apps](docs/rust-engine/custom-apps.md).
-[verified: `canvas/apps/actions.ts`, `canvas/apps/{host,permissions}.tsx`, `domain/apps/bridge.rs`; 2026-10-26]
+revision from code. Portable version1 app bundles never carry grants/IDs/links or
+machine placement; imports get fresh closed copies and Ask permissions. The
+provisional bundle bounds are16MiB/16 saved copies. Agent exports create a fresh
+private-scratch file; imports use bounded held-path reads. See [custom apps](docs/rust-engine/custom-apps.md).
+[verified: `canvas/apps/actions.ts`, `canvas/apps/{host,permissions}.tsx`, `domain/apps/{bridge,files,storage,wire}.rs`; 2026-10-26]
 
 Mail list previews cap tags at three, with active filter matches first and a
 hover-only (+n) count; detail and picker tags remain uncapped. See
