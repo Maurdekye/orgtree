@@ -2136,7 +2136,7 @@ export default function App() {
           refs={galleryRefs}
           close={() => setShowGallery(false)} />
       )}
-      {slug && tree && <AppsWorkspace key={slug} slug={slug} onShowCanvas={() => setViewMode('canvas')} />}
+      {slug && tree && <AppsWorkspace key={slug} slug={slug} />}
       {showDocket && slug && tree && (
         <DocketModal slug={slug} toast={toast} tree={tree}
           jumpTo={docketJump?.id ?? null} jumpSeq={docketJump?.seq}

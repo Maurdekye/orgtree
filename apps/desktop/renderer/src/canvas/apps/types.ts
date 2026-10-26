@@ -1,5 +1,5 @@
 export type AppState = Record<string, unknown>
-export type AppPlacement = { mode:'float'|'popout'|'canvas'; x:number; y:number; width:number; height:number; anchor?:string|null }
+export type AppPlacement = { mode:'float'|'window'|'popout'; x:number; y:number; width:number; height:number }
 export interface AppEventDeclaration { name:string; description?:string }
 export interface AppDefinition { name:string; description:string; html:string; initial_state:AppState; capabilities:string[]; events?:AppEventDeclaration[]; width:number; height:number }
 export interface CustomApp { id:string; name:string; description:string; capabilities:string[]; events?:AppEventDeclaration[]; width:number; height:number; rev:number; permission_rev?:number; is_new?:boolean; permissions:Record<string,string>; default_permissions?:Record<string,string>; origin?:string; created_by:string; updated_at:string; definition?:AppDefinition }

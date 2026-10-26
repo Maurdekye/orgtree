@@ -1,9 +1,9 @@
-import {useCallback,useEffect,useLayoutEffect,useRef,useState,useSyncExternalStore} from 'react'
-import type {CSSProperties,PointerEvent as ReactPointerEvent} from 'react'
+import {useEffect,useLayoutEffect,useRef,useState,useSyncExternalStore} from 'react'
+import type {CSSProperties,PointerEvent as ReactPointerEvent,RefObject} from 'react'
 import {createPortal} from 'react-dom'
 import {AddIcon,AppsIcon,CloseIcon,PowerIcon,SettingsIcon,PinIcon} from '../../icons'
 import PinOutlinedIcon from '@mui/icons-material/PushPinOutlined'
-import {MovableSurface,PopoutButton,moveKeepingFrames,useSurface,useSurfaceDocument} from '../../popout'
+import {MovableSurface,PopoutButton,useSurface,useSurfaceDocument} from '../../popout'
 import {desktop} from '../../desktop'
 import {useContextMenu,type MenuEntry} from '../contextmenu'
 import {windowExitStarted} from '../../windowlayout'
@@ -13,46 +13,38 @@ import {samplePanels,usePanelCpu} from './runtime'
 import {PanelHtml} from './host'
 import {AppSettings,PanelSettings} from './settings'
 import {AppDialog as Dialog} from './dialog'
-import {appCanvases as canvas,appPlacement} from './placement'
-import {useEsc} from '../shared'
+import {PANEL_MIN,appPlacement,windowRect} from './placement'
+import {pinSnapOn,useEsc} from '../shared'
 import {APP_BUNDLE_MAX,AppImport,parseAppBundle} from './portable'
 import type {AppBundle} from './portable'
 import type {AppPlacement,CustomApp,CustomPanel} from './types'
-import type {WorldRect} from '../viewport'
-import {intersectsViewport} from '../viewport'
+import {canvasBox,pinLayerFor,pinSnapId,raisePinSurface,readPinSurfaces,useCanvasBox,usePinSurface} from '../pinspace'
+import type {CanvasBox} from '../pinspace'
+import {findPinSnap} from '../pinSnap'
+import type {PinRect} from '../pins'
 import './apps.css'
 
-type Point={x:number;y:number}
 type Menu={slug:string;anchor:HTMLElement}|null
 let menu:Menu=null
-const menuSubs=new Set<()=>void>(),anchorSubs=new Set<()=>void>()
-const anchors=new Map<string,{element:HTMLElement;zoom:number}>(),returns=new Map<string,AppPlacement>()
-/** Each org window's "show the canvas" switch; a canvas pin is only visible there. */
-const showCanvas=new Map<string,()=>void>()
+const menuSubs=new Set<()=>void>()
+const returns=new Map<string,AppPlacement>()
+/** A window pin's place in its org's pin layer, shared with pinned desks. */
+type PinSlot={bounds:CanvasBox|null;z:number;key:string}
 const key=(slug:string,id:string)=>slug+'\0'+id
 /** Visible => running; a hidden panel may still run (user 2026-10-26). */
 export function panelRunState(p:CustomPanel):{cls:string;word:string}{
   return isRunning(p)?(p.open?{cls:'open',word:'Running · visible'}:{cls:'running',word:'Running · hidden'}):{cls:'',word:'Off'}
 }
 const cpuText=(cpu:number|null|undefined,method:string|null|undefined)=>cpu===null||cpu===undefined?'':`${cpu<10?cpu.toFixed(1):Math.round(cpu)}% CPU${method==='shared process CPU'?' (shared)':''}`
-/** A detached canvas anchor hands its panel here before React removes it, so
- * the iframe is moved (kept alive), never dropped. MovableSurface re-places it. */
-function parking(doc:Document):HTMLElement{
-  let el=doc.body.querySelector<HTMLElement>(':scope > .custom-app-parking')
-  if(!el){el=doc.createElement('div');el.className='custom-app-parking';el.setAttribute('aria-hidden','true');el.toggleAttribute('inert',true);doc.body.appendChild(el)}
-  return el
-}
 function setMenu(value:Menu){menu=value;for(const fn of menuSubs)fn()}
 function useMenu(){return useSyncExternalStore(fn=>{menuSubs.add(fn);return()=>menuSubs.delete(fn)},()=>menu)}
-function putAnchor(slug:string,id:string,element:HTMLElement|null,zoom:number){const k=key(slug,id),old=anchors.get(k);if(old?.element===element&&old?.zoom===zoom)return;if(element)anchors.set(k,{element,zoom});else anchors.delete(k);for(const fn of anchorSubs)fn()}
-function useAnchor(slug:string,id:string){return useSyncExternalStore(fn=>{anchorSubs.add(fn);return()=>anchorSubs.delete(fn)},()=>anchors.get(key(slug,id)))}
 export function AppsButton({slug}:{slug:string}){
   const current=useMenu(),{newCount}=useApps(slug)
   return <button type="button" className={'iconbtn shell-action apps-button'+(newCount?' glow':'')} aria-label="Apps" title={newCount?`Apps · ${newCount} new`:'Apps'} aria-description={newCount?`${newCount} new apps`:undefined} aria-expanded={current?.slug===slug}
     onClick={e=>setMenu(current?.slug===slug?null:{slug,anchor:e.currentTarget})}><AppsIcon fontSize="inherit"/>{newCount>0&&<b className="eye-count asks">{newCount}</b>}</button>
 }
 
-function AppsMenu({slug,current,manage,managePanel,importApp,onShowCanvas}:{slug:string;current:NonNullable<Menu>;manage:(app:CustomApp)=>void;managePanel:(app:CustomApp,panel:CustomPanel)=>void;importApp:(bundle:AppBundle,owner:Document)=>void;onShowCanvas:()=>void}){
+function AppsMenu({slug,current,manage,managePanel,importApp}:{slug:string;current:NonNullable<Menu>;manage:(app:CustomApp)=>void;managePanel:(app:CustomApp,panel:CustomPanel)=>void;importApp:(bundle:AppBundle,owner:Document)=>void}){
   const data=useApps(slug),ref=useRef<HTMLDivElement>(null),owner=current.anchor.ownerDocument,cpu=usePanelCpu(slug),rowMenu=useContextMenu()
   const [style,setStyle]=useState<CSSProperties>({visibility:'hidden'})
   const [seenHere,setSeenHere]=useState<Set<string>>(()=>new Set()),pending=useRef(new Set<string>())
@@ -75,7 +67,7 @@ function AppsMenu({slug,current,manage,managePanel,importApp,onShowCanvas}:{slug
     },{root:ref.current,threshold:0})
     ref.current.querySelectorAll('[data-new-app]').forEach(e=>observer.observe(e));return()=>observer.disconnect()
   },[slug,owner,data.apps,style.visibility])
-  const open=async(input:Record<string,unknown>)=>{setMenu(null);try{const p=await changeApps<CustomPanel>(slug,input);if(p.placement.mode==='canvas'){onShowCanvas();canvas.get(slug)?.focus(p.placement)}}catch(e){window.dispatchEvent(new CustomEvent('custom-app-error',{detail:{slug,error:String(e)}}))}}
+  const open=async(input:Record<string,unknown>)=>{setMenu(null);try{await changeApps<CustomPanel>(slug,input)}catch(e){window.dispatchEvent(new CustomEvent('custom-app-error',{detail:{slug,error:String(e)}}))}}
   // The saved rows' own order, most recently used first. User 2026-10-26: a
   // click on the app row opens the first listed copy, or creates one if none.
   const listed=(app:CustomApp)=>data.panels.filter(p=>p.app===app.id).sort((a,b)=>b.used_at.localeCompare(a.used_at))
@@ -104,10 +96,10 @@ function AppsMenu({slug,current,manage,managePanel,importApp,onShowCanvas}:{slug
   </div>,owner.body)
 }
 
-function PanelBody({slug,app,panel,zoom,shown}:{slug:string;app:CustomApp;panel:CustomPanel;zoom:number;shown:boolean}){
+function PanelBody({slug,app,panel,shown,layer,frame}:{slug:string;app:CustomApp;panel:CustomPanel;shown:boolean;layer:PinSlot|null;frame:RefObject<HTMLElement|null>}){
   const surface=useSurface(),owner=useSurfaceDocument(),[settings,setSettings]=useState(false),[error,setError]=useState('')
   const latest=useRef(panel);latest.current=panel
-  const drag=useRef<{x:number;y:number;placement:AppPlacement;kind:'move'|'size'}|null>(null),[preview,setPreview]=useState<AppPlacement|null>(null)
+  const drag=useRef<{x:number;y:number;placement:AppPlacement;kind:'move'|'size'}|null>(null),[preview,setPreview]=useState<AppPlacement|null>(null),[free,setFree]=useState(false)
   const update=async(fields:Record<string,unknown>)=>{try{setError('');return await changeApps<CustomPanel>(slug,{action:'panel_update',panel:panel.id,expected_rev:latest.current.rev,...fields})}catch(e){setError(String(e));throw e}}
   // Hide closes the window and keeps the panel running; a popped-out window is
   // hidden natively, so its document and scripts survive. Power off stops it.
@@ -117,82 +109,73 @@ function PanelBody({slug,app,panel,zoom,shown}:{slug:string;app:CustomApp;panel:
   const wasShown=useRef(shown)
   useEffect(()=>{if(shown&&!wasShown.current&&surface?.detached)surface.open();wasShown.current=shown},[shown,surface])
   useEsc(close,shown&&panel.placement.mode==='float'&&!surface?.detached&&!settings,owner)
-  // The pin goes to the canvas only (user 2026-10-26: "only canvas pin, no
-  // screen pin"); unpinning returns to the centered window.
-  const pin=()=>{const toCanvas=latest.current.placement.mode!=='canvas';void update({placement:appPlacement(slug,latest.current,toCanvas?'canvas':'float')}).then(()=>{if(toCanvas)showCanvas.get(slug)?.()}).catch(()=>{})}
-  const geometry=preview??panel.placement
-  const style:CSSProperties=surface?.detached?{width:'100%',height:'100%'}:{width:geometry.width,height:geometry.height,...(preview?{transform:`translate(${preview.x-panel.placement.x}px,${preview.y-panel.placement.y}px)`}:{})}
-  const start=(event:ReactPointerEvent<HTMLElement>,kind:'move'|'size')=>{if(surface?.detached||(kind==='move'&&panel.placement.mode==='float')||event.button!==0||(event.target as HTMLElement).closest('button,input,select'))return;event.preventDefault();event.stopPropagation();event.currentTarget.setPointerCapture(event.pointerId);drag.current={x:event.clientX,y:event.clientY,placement:{...panel.placement},kind}}
-  const move=(event:ReactPointerEvent<HTMLElement>)=>{const d=drag.current;if(!d)return;event.stopPropagation();const scale=panel.placement.mode==='canvas'?zoom:1,dx=(event.clientX-d.x)/scale,dy=(event.clientY-d.y)/scale;setPreview(d.kind==='move'?{...d.placement,x:d.placement.x+dx,y:d.placement.y+dy}:{...d.placement,width:Math.round(Math.max(160,Math.min(4096,d.placement.width+dx))),height:Math.round(Math.max(120,Math.min(4096,d.placement.height+dy)))})}
-  const end=()=>{drag.current=null;if(preview){void update({placement:preview}).catch(()=>{});setPreview(null)}}
-  return <section className="settings custom-app-window" data-custom-panel={panel.id} data-parked={!shown||undefined} data-detached={surface?.detached||undefined} data-centered={panel.placement.mode==='float'&&!surface?.detached||undefined} style={style} onPointerDown={e=>e.stopPropagation()} onWheel={e=>e.stopPropagation()} onKeyDown={e=>e.stopPropagation()}>
+  // The pin pins the panel to the window where it is, at its size, like pinned
+  // desks (user 2026-10-26: "i meant pin it to the window like other pinned
+  // panels"); unpinning returns to the centered window. Canvas pins are gone.
+  const pinned=panel.placement.mode==='window'
+  const pin=()=>{const current=latest.current;void update({placement:appPlacement(current,current.placement.mode==='window'?'float':'window',frame.current?.getBoundingClientRect()??null,canvasBox(document,slug))}).catch(()=>{})}
+  const geometry=preview??panel.placement,rect=layer?windowRect(geometry,layer.bounds):null
+  const style:CSSProperties=surface?.detached?{width:'100%',height:'100%'}:rect&&layer?{position:'absolute',left:rect.x,top:rect.y,width:rect.w,height:rect.h,zIndex:layer.z}:{width:geometry.width,height:geometry.height}
+  // Pinned desks' magnetism: edges of the canvas area and of other pinned windows; Shift places freely.
+  const snap=(r:PinRect,kind:'move'|'size',off:boolean)=>layer&&!off&&pinSnapOn()?findPinSnap(layer.key,r,readPinSurfaces().filter(p=>p.org===slug).map(p=>({id:pinSnapId(p),rect:p.rect})),layer.bounds,kind==='size'?{edge:'se',minWidth:PANEL_MIN.width,minHeight:PANEL_MIN.height}:undefined):null
+  const candidate=rect&&preview&&drag.current?snap(rect,drag.current.kind,free):null
+  const start=(event:ReactPointerEvent<HTMLElement>,kind:'move'|'size')=>{if(surface?.detached||(kind==='move'&&!rect)||event.button!==0||(event.target as HTMLElement).closest('button,input,select'))return;event.preventDefault();event.stopPropagation();event.currentTarget.setPointerCapture(event.pointerId);if(layer)raisePinSurface(layer.key);drag.current={x:event.clientX,y:event.clientY,placement:rect?{...panel.placement,x:rect.x,y:rect.y,width:rect.w,height:rect.h}:{...panel.placement},kind}}
+  const gesture=(d:NonNullable<typeof drag.current>,event:ReactPointerEvent<HTMLElement>):AppPlacement=>{const dx=event.clientX-d.x,dy=event.clientY-d.y;return d.kind==='move'?{...d.placement,x:d.placement.x+dx,y:d.placement.y+dy}:{...d.placement,width:Math.round(Math.max(160,Math.min(4096,d.placement.width+dx))),height:Math.round(Math.max(120,Math.min(4096,d.placement.height+dy)))}}
+  const move=(event:ReactPointerEvent<HTMLElement>)=>{const d=drag.current;if(!d)return;event.stopPropagation();setFree(event.shiftKey);setPreview(gesture(d,event))}
+  // One commit per gesture, from where the pointer ended; a window pin is
+  // clamped into the canvas area and snapped, as pinned desks are.
+  const end=(event:ReactPointerEvent<HTMLElement>)=>{const d=drag.current;if(!d)return;drag.current=null;setPreview(null);if(Math.hypot(event.clientX-d.x,event.clientY-d.y)<3)return
+    const g=gesture(d,event);if(!layer){void update({placement:g}).catch(()=>{});return}
+    const r=windowRect(g,layer.bounds),f=snap(r,d.kind,event.shiftKey)?.rect??r
+    void update({placement:{...g,x:Math.round(f.x),y:Math.round(f.y),width:Math.round(f.w),height:Math.round(f.h)}}).catch(()=>{})}
+  return <><section ref={frame} className="settings custom-app-window" data-custom-panel={panel.id} data-parked={!shown||undefined} data-detached={surface?.detached||undefined} data-centered={panel.placement.mode==='float'&&!surface?.detached||undefined} data-pinned={!!rect||undefined} style={style} onPointerDownCapture={layer?()=>raisePinSurface(layer.key):undefined} onPointerDown={e=>e.stopPropagation()} onWheel={e=>e.stopPropagation()} onKeyDown={e=>e.stopPropagation()}>
     <header className="modalpin-bar on custom-app-title" onPointerDown={e=>start(e,'move')} onPointerMove={move} onPointerUp={end} onPointerCancel={()=>{drag.current=null;setPreview(null)}}>
       <AppsIcon/><strong className="modalpin-name" title={app.name+' · '+panel.label}>{app.name} · {panel.label}</strong>
       <button type="button" className="modalpin-btn" title="Panel settings" aria-label={'Settings for '+panel.label} onClick={()=>setSettings(true)}><SettingsIcon fontSize="inherit"/></button>
-      <PopoutButton/>{!surface?.detached&&<button type="button" className={'modalpin-btn'+(panel.placement.mode==='canvas'?' active':'')} title={panel.placement.mode==='canvas'?'Unpin from canvas':'Pin to canvas'} aria-label={panel.placement.mode==='canvas'?'Unpin from canvas':'Pin to canvas'} aria-pressed={panel.placement.mode==='canvas'} onClick={pin}>{panel.placement.mode==='canvas'?<PinIcon fontSize="inherit"/>:<PinOutlinedIcon fontSize="inherit"/>}</button>}
+      <PopoutButton/>{!surface?.detached&&<button type="button" className={'modalpin-btn'+(pinned?' active':'')} title={pinned?'Unpin: back to the middle of the screen':'Pin to window: it stays put and can be dragged around'} aria-label={pinned?'Unpin':'Pin to window'} aria-pressed={pinned} onClick={pin}>{pinned?<PinIcon fontSize="inherit"/>:<PinOutlinedIcon fontSize="inherit"/>}</button>}
       <button type="button" className="modalpin-btn custom-app-power" title="Power off: stops the panel and closes the window" aria-label={'Power off '+panel.label} onClick={()=>void powerOff()}><PowerIcon fontSize="inherit"/></button>
       <button type="button" className="modalpin-btn" title="Hide: closes the window, keeps the panel running" aria-label={'Hide '+panel.label} onClick={close}><CloseIcon fontSize="inherit"/></button>
     </header>
     {error&&<div role="alert" className="custom-app-error">{error}</div>}{surface?.error&&<div role="alert">{surface.error}</div>}
     <PanelHtml slug={slug} app={app} panel={panel} visible={shown}/>
-    {!surface?.detached&&<div className="custom-app-resize" aria-label="Resize panel" onPointerDown={e=>{e.stopPropagation();e.currentTarget.setPointerCapture(e.pointerId);drag.current={x:e.clientX,y:e.clientY,placement:{...panel.placement},kind:'size'}}} onPointerMove={move} onPointerUp={end}/>}
+    {!surface?.detached&&<div className="custom-app-resize" aria-label="Resize panel" onPointerDown={e=>start(e,'size')} onPointerMove={move} onPointerUp={end} onPointerCancel={()=>{drag.current=null;setPreview(null)}}/>}
     {settings&&<PanelSettings slug={slug} app={app} panel={panel} close={()=>setSettings(false)}/>}
-  </section>
+  </section>{candidate&&<div className="pin-snap-preview" role="status" style={{left:candidate.rect.x,top:candidate.rect.y,width:candidate.rect.w,height:candidate.rect.h}}><span>{candidate.snap.target===null?candidate.label:'Snap beside pinned window'} · Shift for free placement</span></div>}</>
 }
 
 function PanelWindow({slug,panel,app}:{slug:string;panel:CustomPanel;app:CustomApp}){
-  const anchor=useAnchor(slug,panel.id),latest=useRef(panel),outer=useRef<HTMLDivElement>(null),backdrop=useRef<boolean|null>(null);latest.current=panel
-  const p=panel.placement,k=key(slug,panel.id),world=p.mode==='canvas'
-  // Visible => running is enforced by the caller; here a running copy without a
-  // visible place (hidden, culled, far zoom, canvas off) stays mounted, parked.
-  const shown=panel.open&&(!world||!!anchor),parked=!shown,centered=p.mode==='float'&&shown
-  const effective=world?panel:{...panel,placement:{...p,x:Math.max(8,Math.min(p.x,window.innerWidth-80)),y:Math.max(8,Math.min(p.y,window.innerHeight-40))}}
+  const latest=useRef(panel),outer=useRef<HTMLDivElement>(null),frame=useRef<HTMLElement>(null),backdrop=useRef<boolean|null>(null);latest.current=panel
+  const p=panel.placement,k=key(slug,panel.id)
+  // Visible => running is enforced by the caller; a hidden running copy stays
+  // mounted, parked. A window pin lives in the org's pin layer with pinned
+  // desks: their canvas-area coordinates, stacking and snapping.
+  const shown=panel.open,parked=!shown,centered=p.mode==='float'&&shown,pinned=p.mode==='window'&&shown
+  const bounds=useCanvasBox(document,pinned?slug:null)
+  const layout=usePinSurface(pinned?slug:null,'custom-app:'+panel.id,pinned?windowRect(p,bounds):null,true)
+  const effective=pinned?panel:{...panel,placement:{...p,x:Math.max(8,Math.min(p.x,window.innerWidth-80)),y:Math.max(8,Math.min(p.y,window.innerHeight-40))}}
   // React 18 has no inert prop: a parked panel takes no focus or input.
   useLayoutEffect(()=>{outer.current?.toggleAttribute('inert',parked)},[parked])
-  return <div ref={outer} className={parked?'custom-app-parked':centered?'overlay custom-app-centered':'custom-app-placeholder'+(world?' world':'')} aria-hidden={parked||undefined} style={parked?{width:p.width,height:p.height}:world||centered?undefined:{position:'fixed',left:effective.placement.x,top:effective.placement.y,width:p.width,height:p.height,zIndex:19}} onPointerDownCapture={e=>{backdrop.current=e.target===e.currentTarget}} onClick={e=>{if(centered&&e.target===e.currentTarget&&backdrop.current!==false)void changeApps(slug,{action:'panel_update',panel:panel.id,expected_rev:latest.current.rev,open:false}).catch(()=>{});backdrop.current=null}}>
-    <MovableSurface org={slug} kind={'custom-app:'+panel.id} title={app.name+' · '+panel.label} anchor={world&&shown?anchor?.element:undefined} parked={parked} preserveFrames
-      sourceBox={()=>{const r=outer.current?.querySelector('.custom-app-window')?.getBoundingClientRect();return r?{x:r.x,y:r.y,w:r.width,h:r.height}:null}} exactSourceBox
+  return <div ref={outer} className={parked?'custom-app-parked':centered?'overlay custom-app-centered':'custom-app-placeholder'+(pinned?' pinned':'')} aria-hidden={parked||undefined} style={parked?{width:p.width,height:p.height}:centered||pinned?undefined:{position:'fixed',left:effective.placement.x,top:effective.placement.y,width:p.width,height:p.height,zIndex:19}} onPointerDownCapture={e=>{backdrop.current=e.target===e.currentTarget}} onClick={e=>{if(centered&&e.target===e.currentTarget&&backdrop.current!==false)void changeApps(slug,{action:'panel_update',panel:panel.id,expected_rev:latest.current.rev,open:false}).catch(()=>{});backdrop.current=null}}>
+    <MovableSurface org={slug} kind={'custom-app:'+panel.id} title={app.name+' · '+panel.label} anchor={pinned?pinLayerFor(slug):undefined} parked={parked} preserveFrames
+      sourceBox={()=>{const r=frame.current?.getBoundingClientRect();return r?{x:r.x,y:r.y,w:r.width,h:r.height}:null}} exactSourceBox
       onDismiss={()=>{if(!windowExitStarted())void changeApps(slug,{action:'panel_update',panel:panel.id,expected_rev:latest.current.rev,open:false}).catch(()=>{})}}
       onDetached={(detached,reason)=>{if(windowExitStarted()||reason==='close')return;const current=latest.current
-        if(detached){if(current.placement.mode!=='popout')returns.set(k,{...current.placement});void changeApps(slug,{action:'panel_update',panel:panel.id,expected_rev:current.rev,placement:{...current.placement,mode:'popout',anchor:null}}).catch(()=>{})}
-        else if(current.placement.mode==='popout')void changeApps(slug,{action:'panel_update',panel:panel.id,expected_rev:current.rev,placement:returns.get(k)??{...current.placement,mode:'float',anchor:null}}).catch(()=>{})
+        if(detached){if(current.placement.mode!=='popout')returns.set(k,{...current.placement});void changeApps(slug,{action:'panel_update',panel:panel.id,expected_rev:current.rev,placement:{...current.placement,mode:'popout'}}).catch(()=>{})}
+        else if(current.placement.mode==='popout')void changeApps(slug,{action:'panel_update',panel:panel.id,expected_rev:current.rev,placement:returns.get(k)??{...current.placement,mode:'float'}}).catch(()=>{})
       }} minDimensions={{width:160,height:120}}>
-      <PanelBody slug={slug} app={app} panel={effective} zoom={anchor?.zoom??1} shown={shown}/>
+      <PanelBody slug={slug} app={app} panel={effective} shown={shown} layer={pinned?{bounds,z:layout.z,key:layout.key}:null} frame={frame}/>
     </MovableSurface>
   </div>
 }
 
-export function AppsWorkspace({slug,onShowCanvas=()=>{}}:{slug:string;onShowCanvas?:()=>void}){
+export function AppsWorkspace({slug}:{slug:string}){
   const data=useApps(slug),current=useMenu(),[manage,setManage]=useState<{app:CustomApp;panel?:CustomPanel;owner:Document}|null>(null),[imported,setImported]=useState<{bundle:AppBundle;owner:Document}|null>(null),[error,setError]=useState('')
   useEffect(()=>activateApps(slug),[slug])
-  useEffect(()=>{showCanvas.set(slug,onShowCanvas);return()=>{if(showCanvas.get(slug)===onShowCanvas)showCanvas.delete(slug)}},[slug,onShowCanvas])
   useEffect(()=>{const failure=(e:Event)=>{const d=(e as CustomEvent).detail;if(d?.slug===slug)setError(d.error)};window.addEventListener('custom-app-error',failure);return()=>window.removeEventListener('custom-app-error',failure)},[slug])
-  return <>{current?.slug===slug&&<AppsMenu slug={slug} current={current} manage={app=>setManage({app,owner:current.anchor.ownerDocument})} managePanel={(app,panel)=>setManage({app,panel,owner:current.anchor.ownerDocument})} importApp={(bundle,owner)=>setImported({bundle,owner})} onShowCanvas={onShowCanvas}/>}
+  return <>{current?.slug===slug&&<AppsMenu slug={slug} current={current} manage={app=>setManage({app,owner:current.anchor.ownerDocument})} managePanel={(app,panel)=>setManage({app,panel,owner:current.anchor.ownerDocument})} importApp={(bundle,owner)=>setImported({bundle,owner})}/>}
     {data.panels.filter(isRunning).map(p=>{const app=data.apps.find(a=>a.id===p.app);return app?<PanelWindow key={p.id} slug={slug} panel={p} app={app}/>:null})}
     {error&&<div className="custom-app-global-error" role="alert">{error}<button onClick={()=>setError('')}>Dismiss</button></div>}
     {manage&&(manage.panel?<PanelSettings key={manage.panel.id} slug={slug} app={manage.app} panel={manage.panel} owner={manage.owner} close={()=>setManage(null)}/>:<AppSettings slug={slug} app={manage.app} owner={manage.owner} close={()=>setManage(null)}/>)}
     {imported&&<Dialog title="Import app" close={()=>setImported(null)} owner={imported.owner}><AppImport slug={slug} bundle={imported.bundle} close={()=>setImported(null)}/></Dialog>}
   </>
-}
-
-function CanvasAnchor({slug,panel,point,zoom}:{slug:string;panel:CustomPanel;point:Point;zoom:number}){
-  const node=useRef<HTMLDivElement|null>(null),currentZoom=useRef(zoom);currentZoom.current=zoom
-  const ref=useCallback((element:HTMLDivElement|null)=>{
-    // React detaches this ref before removing the element: move a running
-    // panel out first, or its iframe would be destroyed with the anchor.
-    const old=node.current
-    if(!element&&old?.isConnected)for(const child of [...old.children])if(child.classList.contains('movable-surface'))moveKeepingFrames(parking(old.ownerDocument),child as HTMLElement)
-    node.current=element;putAnchor(slug,panel.id,element,currentZoom.current)
-  },[slug,panel.id])
-  useLayoutEffect(()=>{if(node.current)putAnchor(slug,panel.id,node.current,zoom)},[slug,panel.id,zoom])
-  return <div ref={ref} className="custom-app-world-anchor" data-world-panel={panel.id} style={{left:point.x,top:point.y,width:panel.placement.width,height:panel.placement.height}}/>
-}
-export function AppsCanvasLayer({slug,zoom,viewport,nodePoint,focus,active=true}:{slug:string;zoom:number;viewport:WorldRect|null;nodePoint:(id:string)=>Point|undefined;focus:(point:Point)=>void;active?:boolean}){
-  const data=useApps(slug)
-  useEffect(()=>{canvas.set(slug,{center:(w,h)=>viewport?{x:viewport.x+(viewport.w-w)/2,y:viewport.y+(viewport.h-h)/2}:{x:100,y:100},focus});return()=>{canvas.delete(slug)}},[slug,viewport?.x,viewport?.y,viewport?.w,viewport?.h,focus])
-  if(!active)return null
-  return <>{data.panels.filter(p=>p.open&&isRunning(p)&&p.placement.mode==='canvas').map(p=>{const anchor=p.placement.anchor?nodePoint(p.placement.anchor):undefined,point={x:p.placement.x+(anchor?.x??0),y:p.placement.y+(anchor?.y??0)}
-    if(!intersectsViewport({...point,w:p.placement.width,h:p.placement.height},viewport))return null
-    return zoom<.55?<button type="button" className="custom-app-mini" key={p.id} style={{left:point.x,top:point.y}} title={p.label} aria-label={`Show ${p.label}`} onPointerDown={e=>e.stopPropagation()} onClick={e=>{e.stopPropagation();focus(point)}}><AppsIcon/></button>:<CanvasAnchor key={p.id} slug={slug} panel={p} point={point} zoom={zoom}/>
-  })}</>
 }
