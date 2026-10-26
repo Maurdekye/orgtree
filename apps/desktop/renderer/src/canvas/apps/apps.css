@@ -67,6 +67,8 @@
 .custom-app-permission pre { margin:0;padding:10px;background:var(--bg);white-space:pre-wrap;overflow-wrap:anywhere;max-height:220px;overflow:auto;flex-shrink:0;user-select:text }
 .custom-app-permission small { overflow-wrap:anywhere;color:var(--muted) }
 .custom-app-dialog .custom-app-permission-row { flex:none;flex-direction:row;justify-content:space-between;align-items:center;gap:12px }
+/* the Permissions tab body keeps the settings panel's 14px column rhythm it had as a dialog */
+.custom-app-permissions { display:flex;flex-direction:column;gap:14px }
 .custom-app-permission-row small { display:block;color:var(--muted);font-size:11px }
 .custom-app-file-picker { display:flex;flex-direction:column;gap:8px;min-width:0 }
 .custom-app-file-picker form { display:flex;gap:6px;align-items:end;flex-wrap:wrap }
