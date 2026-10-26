@@ -25,8 +25,10 @@ export function parseAppBundle(raw:string):AppBundle {
   // complete original bundle and imports fresh IDs with no execution grants.
   return value as unknown as AppBundle
 }
-export function saveAppJson(owner:Document,name:string,value:unknown){
-  const url=window.URL.createObjectURL(new Blob([JSON.stringify(value,null,2)],{type:'application/json'})),a=owner.createElement('a')
+export function saveAppJson(owner:Document,name:string,value:unknown,portable=false){
+  const raw=portable?JSON.stringify(value):JSON.stringify(value,null,2)
+  if(portable&&new TextEncoder().encode(raw).length>APP_BUNDLE_MAX)throw Error('App bundle exceeds 16 MiB.')
+  const url=window.URL.createObjectURL(new Blob([raw],{type:'application/json'})),a=owner.createElement('a')
   a.href=url;a.download=name.replace(/[<>:"/\\|?*\x00-\x1f]/g,'_');owner.body.appendChild(a)
   try{a.click()}finally{a.remove();window.setTimeout(()=>window.URL.revokeObjectURL(url),30_000)}
 }
@@ -43,7 +45,7 @@ export function AppImport({slug,bundle,close}:{slug:string;bundle:AppBundle;clos
 }
 export function AppExport({slug,app,owner}:{slug:string;app:CustomApp;owner:Document}){
   const [include,setInclude]=useState(false),[busy,setBusy]=useState(false),[error,setError]=useState('')
-  const exportApp=async()=>{setBusy(true);setError('');try{const out=await customAppsRequest<{bundle:AppBundle}>(slug,{action:'app_export',app:app.id,expected_rev:app.rev,include_panels:include});saveAppJson(owner,app.name+'.orgtree-app',out.bundle)}catch(e){setError(String(e))}finally{setBusy(false)}}
+  const exportApp=async()=>{setBusy(true);setError('');try{const out=await customAppsRequest<{bundle:AppBundle}>(slug,{action:'app_export',app:app.id,expected_rev:app.rev,include_panels:include});saveAppJson(owner,app.name+'.orgtree-app',out.bundle,true)}catch(e){setError(String(e))}finally{setBusy(false)}}
   return <div className="custom-app-portable-export"><label className="custom-app-include"><input type="checkbox" aria-label="Include saved panel data" checked={include} disabled={busy} onChange={e=>setInclude(e.target.checked)}/>Include saved panel data</label>
     <p>Exports never include execution permissions or links. Maximum 16 MiB and 16 saved copies; leave data unchecked for a definition-only export.</p>
     {error&&<p role="alert">{error}</p>}<button type="button" disabled={busy} onClick={()=>void exportApp()}>Export app</button></div>

@@ -10,7 +10,9 @@ Hide/close/replacement discards prompts and authority, while grant edits use a s
 revision from code. Portable version1 app bundles never carry grants/IDs/links or
 machine placement; imports get fresh closed copies and Ask permissions. The
 provisional bundle bounds are16MiB/16 saved copies. Agent exports create a fresh
-private-scratch file; imports use bounded held-path reads. See [custom apps](docs/rust-engine/custom-apps.md).
+private-scratch file; imports pin original held roots without canonicalizing links.
+Windows pins deny write/delete sharing and verify final handle paths; portable
+native exports cap exact compact bytes. See [custom apps](docs/rust-engine/custom-apps.md).
 Templates carry only inert app definitions/initial data; restore creates no copies
 or grants. Post-commit panel change metadata targets linked agents through opt-in
 app.event watchdogs, with no automatic wake. See the same topic for cursor limits.

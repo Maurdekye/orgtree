@@ -63,7 +63,10 @@ scratch) OR bundle (an inline JSON object). It creates a new app with fresh IDs,
 Ask permissions and closed saved copies. Reopen a copy explicitly with panel_open.
 Reading a file does not execute HTML. Both actions require the same live-org
 Org-modifying tools authority as other Apps mutations; no database lock spans IO.
-File access refuses links/reparse points and limits declared and actual bytes.
+File access refuses original links/reparse points, including held-root links,
+and limits declared and actual bytes. Paths must be absolute without parent
+components. Held roots are pinned before descending; Windows pins exclude
+directory write/delete handles and verify the final opened path.
 
 The strict provisional format is `{format:"orgtree-app",version:1,definition,
 panels:[{label,state}]}`. Unknown/version/authority fields refuse. Bundle maximum
@@ -76,6 +79,8 @@ User parity: Apps → Import app shows a native preview before confirmation;
 Manage app → Export app offers the same optional saved-data choice. File
 selection/download is ordinary local UI; import never opens a saved copy or
 confers permission.
+Whole-app exports are compact JSON with the same exact16MiB byte cap as import;
+ordinary panel-state JSON export keeps its readable formatting.
 
 See also: [orgtree-scope-and-permissions](../scope-and-permissions/SKILL.md),
 [orgtree-tool-org-logo](../tool-org-logo/SKILL.md),

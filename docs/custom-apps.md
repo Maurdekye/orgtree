@@ -29,6 +29,8 @@ credentials, links, IDs and machine-specific placement do not travel. Imports
 create fresh IDs, with every permission set to Ask and saved copies closed until
 explicitly opened. The provisional bounds are16MiB per bundle and16 saved copies;
 definition-only export is available for an app with more copies.
+Whole-app export uses compact JSON and checks the final file size against the
+same import limit. State-only JSON export remains indented for reading.
 Declaring an engine capability does not grant it. App code is limited to4MiB,
 JSON state to2MiB and events to64KiB; these are provisional bounds.
 
