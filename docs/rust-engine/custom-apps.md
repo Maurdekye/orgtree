@@ -41,7 +41,7 @@ registrations in bounded pages; event activity/linked-agent metadata stay separa
 By the user's2026-10-26 ruling, docket.write create/assign/wake remains the
 documented edge case that wakes a selected local agent without an app event.
 
-Native App settings > This panel > Events… lists actual scoped connections
+Native Panel settings > Events… lists actual scoped connections
 with bounded cursor paging, permits explicit user Fire event from the selected
 saved copy and displays acceptance/backpressure without automatic retries.
 Agent parity is Apps listeners/fire_event; agent subscription ownership stays
@@ -191,15 +191,17 @@ the existing saved-window lifecycle. Pin captures the rendered box, so it stays
 put. Float/unpin centers it again. The iframe remains the same subtree across
 pin/unpin. No engine permission/state/schema changes implement this display rule.
 
-Both settings gears open native App settings directly. App/This panel groups use
-SetGroup/SetRow/SetBlock; native dialogs/import/permission prompts use PinFrame's
-settings class and owning-document portal. The Apps menu reuses ctxmenu styling,
-and app frames reuse modal title/buttons/settings typography. App settings can
-read/manage a closed copy without opening its HTML; copy selection is paged.
-UI navigation adds no tool authority: rows map to existing orgtree_apps actions.
-Labels can be changed. Placement records distinguish float, screen, popout and
-world canvas coordinates; an optional live-node attachment is canvas-only. The
-storage milestone does not yet mount those surfaces.
+Separate native settings replace the former combined App/This panel view
+(USER2026-10-26 m9f3ddc116f78). App-row gear opens AppSettings: description,
+creator, export/delete and unchanged AppPermissions, including Files grants,
+pending changes and events.fire allow/deny. Panel-row and open-header gears open
+PanelSettings bound to one explicit panel ID, including closed copies; no MRU
+selection, HTML startup or app actions. State/rename/links/activity/duplicate/
+placement/delete retain existing revision-checked tool calls. Events publication
+and Connections remain per-copy here; Once stays in live native host consent.
+Both use the existing SetGroup/SetRow/AppDialog design system and independent
+pin identities; owner-document context also wraps their nested dialogs. All
+three settings entry points are display only; orgtree_apps retains action parity.
 
 Entry HTML is limited to4MiB, state/initial state to2MiB compact JSON, nesting to64,
 event payloads to64KiB and links to64 unique live agents in the same org. Pages

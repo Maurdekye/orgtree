@@ -7,7 +7,7 @@ import {windowExitStarted} from '../../windowlayout'
 import {customAppsRequest} from '../../api'
 import {activateApps,changeApps,loadAppsMenu,markAppsSeen,useApps} from './store'
 import {PanelHtml} from './host'
-import {AppSettings} from './settings'
+import {AppSettings,PanelSettings} from './settings'
 import {AppDialog as Dialog} from './dialog'
 import {appCanvases as canvas,appPlacement} from './placement'
 import {useEsc} from '../shared'
@@ -34,7 +34,7 @@ export function AppsButton({slug}:{slug:string}){
     onClick={e=>setMenu(current?.slug===slug?null:{slug,anchor:e.currentTarget})}><AppsIcon fontSize="inherit"/>{newCount>0&&<b className="eye-count asks">{newCount}</b>}</button>
 }
 
-function AppsMenu({slug,current,manage,importApp,onShowCanvas}:{slug:string;current:NonNullable<Menu>;manage:(app:CustomApp)=>void;importApp:(bundle:AppBundle,owner:Document)=>void;onShowCanvas:()=>void}){
+function AppsMenu({slug,current,manage,managePanel,importApp,onShowCanvas}:{slug:string;current:NonNullable<Menu>;manage:(app:CustomApp)=>void;managePanel:(app:CustomApp,panel:CustomPanel)=>void;importApp:(bundle:AppBundle,owner:Document)=>void;onShowCanvas:()=>void}){
   const data=useApps(slug),ref=useRef<HTMLDivElement>(null),owner=current.anchor.ownerDocument
   const [style,setStyle]=useState<CSSProperties>({visibility:'hidden'})
   const [seenHere,setSeenHere]=useState<Set<string>>(()=>new Set()),pending=useRef(new Set<string>())
@@ -65,7 +65,7 @@ function AppsMenu({slug,current,manage,importApp,onShowCanvas}:{slug:string;curr
         {(app.is_new||seenHere.has(app.id))&&<b className="custom-app-new-label">New</b>}
         <button type="button" title={`App settings: ${app.name}`} aria-label={`Settings for ${app.name}`} onClick={()=>{setMenu(null);manage(app)}}><SettingsIcon/></button></div>
       <button type="button" className="custom-apps-new" onClick={()=>void open({action:'panel_open',app:app.id,new:true})}>+ New panel</button>
-      {data.panels.filter(p=>p.app===app.id).sort((a,b)=>b.used_at.localeCompare(a.used_at)).map(p=><button type="button" key={p.id} className="custom-apps-saved" onClick={()=>void open({action:'panel_open',panel:p.id})}><span className={p.open?'custom-app-dot open':'custom-app-dot'}/><span>{p.label}</span><small>{p.open?'Open':'Closed'}</small></button>)}
+      {data.panels.filter(p=>p.app===app.id).sort((a,b)=>b.used_at.localeCompare(a.used_at)).map(p=><div key={p.id} className="custom-apps-saved-row"><button type="button" className="custom-apps-saved" onClick={()=>void open({action:'panel_open',panel:p.id})}><span className={p.open?'custom-app-dot open':'custom-app-dot'}/><span>{p.label}</span><small>{p.open?'Open':'Closed'}</small></button><button type="button" className="custom-apps-saved-gear" title={`Panel settings: ${p.label}`} aria-label={`Settings for ${p.label}`} onClick={()=>{setMenu(null);managePanel(app,p)}}><SettingsIcon/></button></div>)}
     </section>)}
     {data.appNext&&<button type="button" onClick={()=>void loadAppsMenu(slug,'apps')}>More apps</button>}
     {data.panelNext&&<button type="button" onClick={()=>void loadAppsMenu(slug,'panels')}>More saved panels</button>}
@@ -88,14 +88,14 @@ function PanelBody({slug,app,panel,zoom}:{slug:string;app:CustomApp;panel:Custom
   return <section className="settings custom-app-window" data-custom-panel={panel.id} data-detached={surface?.detached||undefined} data-centered={panel.placement.mode==='float'&&!surface?.detached||undefined} style={style} onPointerDown={e=>e.stopPropagation()} onWheel={e=>e.stopPropagation()} onKeyDown={e=>e.stopPropagation()}>
     <header className="modalpin-bar on custom-app-title" onPointerDown={e=>start(e,'move')} onPointerMove={move} onPointerUp={end} onPointerCancel={()=>{drag.current=null;setPreview(null)}}>
       <AppsIcon/><strong className="modalpin-name" title={app.name+' · '+panel.label}>{app.name} · {panel.label}</strong>
-      <button type="button" className="modalpin-btn" title="App settings" aria-label={'Settings for '+panel.label} onClick={()=>setSettings(true)}><SettingsIcon fontSize="inherit"/></button>
+      <button type="button" className="modalpin-btn" title="Panel settings" aria-label={'Settings for '+panel.label} onClick={()=>setSettings(true)}><SettingsIcon fontSize="inherit"/></button>
       <PopoutButton/><button type="button" className={'modalpin-btn'+(panel.placement.mode==='screen'?' active':'')} title={panel.placement.mode==='screen'?'Unpin':'Pin to screen'} aria-label={panel.placement.mode==='screen'?'Unpin':'Pin to screen'} onClick={()=>place(panel.placement.mode==='screen'?'float':'screen')}><PinIcon fontSize="inherit"/></button>
       <button type="button" className="modalpin-btn" aria-label={'Close '+panel.label} onClick={close}><CloseIcon fontSize="inherit"/></button>
     </header>
     {error&&<div role="alert" className="custom-app-error">{error}</div>}{surface?.error&&<div role="alert">{surface.error}</div>}
     <PanelHtml slug={slug} app={app} panel={panel}/>
     {!surface?.detached&&<div className="custom-app-resize" aria-label="Resize panel" onPointerDown={e=>{e.stopPropagation();e.currentTarget.setPointerCapture(e.pointerId);drag.current={x:e.clientX,y:e.clientY,placement:{...panel.placement},kind:'size'}}} onPointerMove={move} onPointerUp={end}/>}
-    {settings&&<AppSettings slug={slug} app={app} panel={panel} close={()=>setSettings(false)}/>}
+    {settings&&<PanelSettings slug={slug} app={app} panel={panel} close={()=>setSettings(false)}/>}
   </section>
 }
 
@@ -118,13 +118,13 @@ function PanelWindow({slug,panel,app}:{slug:string;panel:CustomPanel;app:CustomA
 }
 
 export function AppsWorkspace({slug,onShowCanvas=()=>{}}:{slug:string;onShowCanvas?:()=>void}){
-  const data=useApps(slug),current=useMenu(),[manage,setManage]=useState<{app:CustomApp;owner:Document}|null>(null),[imported,setImported]=useState<{bundle:AppBundle;owner:Document}|null>(null),[error,setError]=useState('')
+  const data=useApps(slug),current=useMenu(),[manage,setManage]=useState<{app:CustomApp;panel?:CustomPanel;owner:Document}|null>(null),[imported,setImported]=useState<{bundle:AppBundle;owner:Document}|null>(null),[error,setError]=useState('')
   useEffect(()=>activateApps(slug),[slug])
   useEffect(()=>{const failure=(e:Event)=>{const d=(e as CustomEvent).detail;if(d?.slug===slug)setError(d.error)};window.addEventListener('custom-app-error',failure);return()=>window.removeEventListener('custom-app-error',failure)},[slug])
-  return <>{current?.slug===slug&&<AppsMenu slug={slug} current={current} manage={app=>setManage({app,owner:current.anchor.ownerDocument})} importApp={(bundle,owner)=>setImported({bundle,owner})} onShowCanvas={onShowCanvas}/>}
+  return <>{current?.slug===slug&&<AppsMenu slug={slug} current={current} manage={app=>setManage({app,owner:current.anchor.ownerDocument})} managePanel={(app,panel)=>setManage({app,panel,owner:current.anchor.ownerDocument})} importApp={(bundle,owner)=>setImported({bundle,owner})} onShowCanvas={onShowCanvas}/>}
     {data.panels.filter(p=>p.open).map(p=>{const app=data.apps.find(a=>a.id===p.app);return app?<PanelWindow key={p.id} slug={slug} panel={p} app={app}/>:null})}
     {error&&<div className="custom-app-global-error" role="alert">{error}<button onClick={()=>setError('')}>Dismiss</button></div>}
-    {manage&&<AppSettings slug={slug} app={manage.app} owner={manage.owner} close={()=>setManage(null)}/>}
+    {manage&&(manage.panel?<PanelSettings key={manage.panel.id} slug={slug} app={manage.app} panel={manage.panel} owner={manage.owner} close={()=>setManage(null)}/>:<AppSettings slug={slug} app={manage.app} owner={manage.owner} close={()=>setManage(null)}/>)}
     {imported&&<Dialog title="Import app" close={()=>setImported(null)} owner={imported.owner}><AppImport slug={slug} bundle={imported.bundle} close={()=>setImported(null)}/></Dialog>}
   </>
 }

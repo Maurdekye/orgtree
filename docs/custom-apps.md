@@ -56,12 +56,20 @@ delivery uses explicit app_listener subscriptions; declaring an event alone
 does not wake agents. Existing panel activity and linked-agent metadata stay
 separate.
 
-Apps open as standard centered modals. Use the gear on a panel or beside an app
-in Apps to open **App settings**, styled like Orgtree's other settings panels.
-The **App** section contains permissions, export and app deletion. **This panel**
-lists State, Rename, Linked agents, Activity, Duplicate, placement and Delete
-panel; choose a saved copy to manage it without running its HTML. Further copies
-remain available through paging. Permissions apply to every copy of the app.
+Apps open as standard centered modals. There are two separate settings panels,
+both styled like Orgtree's other settings panels. The gear beside an app in Apps
+opens **App settings**: description, creator, export, delete app and Permissions.
+Permissions includes Events allow/deny, Files grants and pending file changes;
+these apply to every copy. Allow once stays in the live panel's native prompt.
+
+The gear beside each saved panel in Apps, including a closed panel, and the gear
+in an open panel's header open **Panel settings** for that exact copy: State,
+Rename, Linked agents, Activity, Duplicate, Float, Pin to screen, Pin to canvas
+and Delete panel. Events and Connections also belong here because firing and
+subscriptions refer to a saved copy. Managing a closed copy does not run its
+HTML. Further saved copies remain available through the Apps menu's paging.
+Settings entry points are display only; all operations retain their existing
+orgtree_apps actions, revisions and permission checks.
 
 **Float** returns to the centered modal. **Pin to screen** fixes the current
 position; drag its title or resize its corner. **Pin to canvas** moves and zooms

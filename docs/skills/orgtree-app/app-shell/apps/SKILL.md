@@ -7,7 +7,7 @@ Up: [orgtree-app-shell](../SKILL.md)
 
 # Apps and saved panels
 
-This panel > Events… opens native declared-event controls and Connections for
+Panel settings > Events… opens native declared-event controls and Connections for
 the selected saved copy, including closed copies. Fire event sends the chosen
 name and JSON; opening the view fires nothing. Connections are agent-owned
 app_listener watchdogs, with Refresh/More connections paging. Agents manage
@@ -40,11 +40,19 @@ is paged: use More apps / More saved panels. These are provisional4.5.0 defaults
 for the morning review, not additional user rulings.
 
 An unpinned panel opens as a standard centered modal, with pop-out, screen pin
-and Close. The gears in the panel frame and Apps list open App settings directly,
-without a dropdown. Its App section contains permissions, export and app deletion.
-This panel lists State, Rename, Linked agents, Activity, Duplicate, Float, Pin to
-screen, Pin to canvas and Delete panel, with a saved-copy selector and paging.
-Manage a closed copy here without running it. Float returns to the centered
+and Close. There are two separate settings panels (user ruling2026-10-26).
+The app-row gear in Apps opens App settings: description/creator, Permissions,
+export and app deletion. Permissions includes Events allow/deny, Files grants
+and pending changes, with their existing app-wide behavior. Allow once remains
+in the active host's native prompt.
+
+Each saved-panel row has its own gear, even when closed. That gear and the open
+panel header gear open Panel settings for that exact copy: State, Rename,
+Linked agents, Activity, Events/Connections, Duplicate, Float, Pin to screen,
+Pin to canvas and Delete panel. Event publication/connections are copy-specific;
+their permission remains app-wide. No saved-copy selector or app actions appear
+here. Manage a closed copy without running its HTML; menu paging exposes further
+copies. Float returns to the centered
 modal; pinning fixes the current position. Drag a pinned title or resize its corner.
 Screen pins stay in the viewport. Canvas pins pan and zoom with the chart; far
 zoom shows an icon, and offscreen/hidden canvas panels suspend their HTML.

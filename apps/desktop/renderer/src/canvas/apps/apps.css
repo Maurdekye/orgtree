@@ -83,3 +83,9 @@
 .custom-app-connections li { display:grid;gap:3px;overflow-wrap:anywhere }
 .custom-app-connections span,.custom-app-connections small { color:var(--muted);font-size:11px }
 @media(max-width:600px){.custom-app-status { font-size:10px }}
+
+/* Separate, keyboard-focusable sibling buttons: opening a saved copy is not settings. */
+.custom-apps-saved-row { display:flex;align-items:center;min-width:0 }
+.custom-apps-saved-row .custom-apps-saved { flex:1;min-width:0 }
+.custom-apps-saved-gear { display:flex;align-items:center;justify-content:center;flex:none;border:0;border-radius:4px;background:none;padding:6px }
+.custom-apps-saved-gear svg { width:18px;height:18px }

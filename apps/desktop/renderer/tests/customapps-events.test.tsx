@@ -4,7 +4,7 @@ import assert from 'node:assert/strict'
 import vm from 'node:vm'
 import {AppActionClient} from '../src/canvas/apps/actions'
 import {panelDocument} from '../src/canvas/apps/sdk'
-import {AppSettings} from '../src/canvas/apps/settings'
+import {PanelSettings} from '../src/canvas/apps/settings'
 
 test('named broadcast API refuses chosen recipients before opening a host session',async t=>{
   const original=globalThis.fetch,calls:unknown[]=[];globalThis.fetch=async(_raw,init)=>{const input=JSON.parse(String(init?.body));calls.push(input);return new Response(JSON.stringify(input.action==='session_open'?{session:'bound-secret',app:'notes',app_rev:1,expires_in:1800}:{accepted:true}))};t.after(()=>{globalThis.fetch=original})
@@ -26,7 +26,7 @@ test('named event SDK exposes broadcast separately from panel activity',async()=
   context.window.orgtree.emit('activity',{});assert.equal(sent.at(-1)?.method,'event.emit')
 })
 
-test('App settings lists connections and fires only the selected saved copy event',async t=>{
+test('Panel settings lists connections and fires only the selected saved copy event',async t=>{
   const app={id:'notes',name:'Notes',description:'',rev:1,width:360,height:280,capabilities:['events.fire'],events:[{name:'submitted',description:'Notes ready'}],permissions:{},created_by:'maker',updated_at:''}
   const panel={id:'one',app:'notes',label:'First',rev:1,open:false,placement:{mode:'float' as const,x:0,y:0,width:360,height:280},linked_agents:[],used_at:'',updated_at:''}
   const original=globalThis.fetch,calls:Record<string,unknown>[]=[]
@@ -37,7 +37,7 @@ test('App settings lists connections and fires only the selected saved copy even
     else throw Error('Unexpected '+input.action)
     return new Response(JSON.stringify(out),{headers:{'Content-Type':'application/json'}})
   };t.after(()=>{globalThis.fetch=original})
-  const view=await mountView(<AppSettings slug="events-settings" app={app} panel={panel} close={()=>{}}/>,e=>e);t.after(()=>view.unmount());await inAct(async()=>{for(let i=0;i<5;i++)await flush()})
+  const view=await mountView(<PanelSettings slug="events-settings" app={app} panel={panel} close={()=>{}}/>,e=>e);t.after(()=>view.unmount());await inAct(async()=>{for(let i=0;i<5;i++)await flush()})
   const button=[...document.querySelectorAll<HTMLButtonElement>('button')].find(b=>b.textContent?.trim()==='Events…');assert.ok(!!button,'native event controls belong to the existing settings system')
   await inAct(async()=>{button!.click();for(let i=0;i<5;i++)await flush()})
   assert.ok(document.body.textContent?.includes('worker/notes'),'actual agent-owned connection is listed')

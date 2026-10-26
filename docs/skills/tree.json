@@ -7844,12 +7844,31 @@
     "apps/desktop/renderer/src/canvas/apps/dialog.tsx#AppDialog"
    ],
    "ui_dynamic_labels": [
-    {"file":"apps/desktop/renderer/src/canvas/apps/files-ui.tsx","component":"AppFilePermissions","label":"cap==='files.write'?'Write files':'Read files'","line":58},
-    {"file":"apps/desktop/renderer/src/canvas/apps/files-ui.tsx","component":"AppFilePermissions","label":"`${grant.mode==='write'?'Write':'Read'} · ${grant.scope==='orgtree'?'Orgtree files':grant.scope==='computer'?'Whole computer':grant.name}`","line":60},
-    {"file":"apps/desktop/renderer/src/canvas/apps/files-ui.tsx","component":"AppFilePermissions","label":"`${item.detail.operation} · ${item.agent}`","line":62}
+    {
+     "file": "apps/desktop/renderer/src/canvas/apps/files-ui.tsx",
+     "component": "AppFilePermissions",
+     "label": "cap==='files.write'?'Write files':'Read files'",
+     "line": 58
+    },
+    {
+     "file": "apps/desktop/renderer/src/canvas/apps/files-ui.tsx",
+     "component": "AppFilePermissions",
+     "label": "`${grant.mode==='write'?'Write':'Read'} · ${grant.scope==='orgtree'?'Orgtree files':grant.scope==='computer'?'Whole computer':grant.name}`",
+     "line": 60
+    },
+    {
+     "file": "apps/desktop/renderer/src/canvas/apps/files-ui.tsx",
+     "component": "AppFilePermissions",
+     "label": "`${item.detail.operation} · ${item.agent}`",
+     "line": 62
+    }
    ],
    "ui_labels": [
-    {"file":"apps/desktop/renderer/src/canvas/apps/files-ui.tsx","label":"Pending changes","line":62},
+    {
+     "file": "apps/desktop/renderer/src/canvas/apps/files-ui.tsx",
+     "label": "Pending changes",
+     "line": 62
+    },
     {
      "file": "apps/desktop/renderer/src/canvas/apps/settings.tsx",
      "label": "Created by",
@@ -7869,11 +7888,6 @@
      "file": "apps/desktop/renderer/src/canvas/apps/settings.tsx",
      "label": "Delete app",
      "line": 43
-    },
-    {
-     "file": "apps/desktop/renderer/src/canvas/apps/settings.tsx",
-     "label": "Saved panel",
-     "line": 45
     },
     {
      "file": "apps/desktop/renderer/src/canvas/apps/settings.tsx",
