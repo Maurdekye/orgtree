@@ -3,6 +3,8 @@
 $ErrorActionPreference='Stop'
 $fixture=[IO.File]::ReadAllText((Join-Path $PSScriptRoot 'boot-installer.test.ps1'))
 $prefix=$fixture.Substring(0,$fixture.IndexOf('# Per-user positive path:'))
+$lifecycle=(Resolve-Path -LiteralPath (Join-Path $PSScriptRoot '../tools/boot-engine-task.ps1')).Path.Replace("'","''")
+$prefix=$prefix.Replace('. "$PSScriptRoot\..\tools\boot-engine-task.ps1"',". '$lifecycle'")
 Invoke-Expression $prefix
 $paths=Get-BootPaths $dir
 [IO.Directory]::CreateDirectory((Split-Path $paths.Python)) | Out-Null
