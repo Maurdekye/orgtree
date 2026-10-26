@@ -8,11 +8,11 @@ name stays plain. This supersedes the normal-zoom part of the 4.4.0 desk-open
 suppression rule (0a47651). [decided: user 2026-10-26; verified:
 canvas/cardname.tsx, cards.tsx, projectcard.tsx]
 
-While an agent or project desk is open, floating far-zoom name plates remain
+While an agent or project desk is open, both inline and floating far-zoom name plates remain
 suppressed. Closing the last desk restores them. A desk's own header does not
 reveal its underlying normal-card name; ordinary native identity tooltips inside
 the desk remain available. [verified: 2026-10-26,
-canvas/cardnamereveal.tsx, farzoomname.tsx, deskshell.tsx]
+canvas/cardnamereveal.tsx, cards.tsx, farzoomname.tsx, deskshell.tsx]
 
 
 Renderer agent links use the operating system's native title tooltip so a

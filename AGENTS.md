@@ -2,6 +2,11 @@
 
 Read this file before working in this repository. It is the startup guide, not a landing log. Detailed rules, source references and the complete earlier notes live in the [topic index](docs/agents/README.md).
 
+Mini name suppression covers both the floating plate and the in-card CSS name;
+both use the same canvas desk counter, including external portals. Normal names
+remain independent. See [identity hover](docs/rust-engine/agent-identity-tooltip.md).
+[verified: `canvas/{cards,cardnamereveal,farzoomname}.tsx`; 2026-10-26]
+
 Custom app actions use parent-only, code/panel-bound sessions and native owning-document
 permission prompts; sandbox HTML never receives a credential or permission method.
 Apps New counts are org-persisted catalog metadata; only visible menu entries

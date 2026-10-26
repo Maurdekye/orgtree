@@ -1,7 +1,7 @@
 import {useEffect,useMemo,useState} from 'react'
 import {customAppsRequest} from '../../api'
 import {useSurfaceDocument} from '../../popout'
-import {SetBlock,SetGroup,SetRow} from '../settingskit'
+import {SetGroup,SetRow} from '../settingskit'
 import {changeApps,useApps} from './store'
 import {AppDialog} from './dialog'
 import {AppPermissions} from './permissions'
@@ -39,7 +39,7 @@ export function AppSettings({slug,app,panel,close,owner}:{slug:string;app:Custom
     {error&&<p role="alert">{error}</p>}
     <SetGroup title="App"><p className="dim">{a.description}</p><SetRow label="Created by">{a.created_by}</SetRow>
       <SetRow label="Permissions" hint="Applies to every copy; links grant no authority."><button type="button" onClick={()=>show('permissions')}>Permissions…</button></SetRow>
-      <SetBlock label="Export app"><AppExport slug={slug} app={a} owner={document}/></SetBlock>
+      <AppExport slug={slug} app={a} owner={document}/>
       <SetRow label="Delete app" hint="Removes the definition and every saved panel."><button type="button" className="danger" onClick={()=>show('delete-app')}>Delete app…</button></SetRow>
     </SetGroup>
     <SetGroup title="This panel"><SetRow label="Saved panel">{copies.length?<select aria-label="Saved panel" value={p?.id??''} onChange={e=>setSelected(e.target.value)}>{copies.map(p=><option key={p.id} value={p.id}>{p.label}{p.open?'':' (closed)'}</option>)}</select>:<span className="dim">No saved panels</span>}{next&&<button type="button" onClick={()=>void more()}>More saved panels</button>}</SetRow>

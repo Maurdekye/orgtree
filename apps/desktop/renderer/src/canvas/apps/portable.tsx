@@ -1,6 +1,7 @@
 import {useState} from 'react'
 import {customAppsRequest} from '../../api'
 import {changeApps,loadAppsMenu} from './store'
+import {SetRow} from '../settingskit'
 import type {AppDefinition,AppState,CustomApp} from './types'
 
 // Provisional v1 format and bounds, pending the single morning question list.
@@ -46,7 +47,7 @@ export function AppImport({slug,bundle,close}:{slug:string;bundle:AppBundle;clos
 export function AppExport({slug,app,owner}:{slug:string;app:CustomApp;owner:Document}){
   const [include,setInclude]=useState(false),[busy,setBusy]=useState(false),[error,setError]=useState('')
   const exportApp=async()=>{setBusy(true);setError('');try{const out=await customAppsRequest<{bundle:AppBundle}>(slug,{action:'app_export',app:app.id,expected_rev:app.rev,include_panels:include});saveAppJson(owner,app.name+'.orgtree-app',out.bundle,true)}catch(e){setError(String(e))}finally{setBusy(false)}}
-  return <div className="custom-app-portable-export"><label className="custom-app-include"><input type="checkbox" aria-label="Include saved panel data" checked={include} disabled={busy} onChange={e=>setInclude(e.target.checked)}/>Include saved panel data</label>
-    <p>Exports never include execution permissions or links. Maximum 16 MiB and 16 saved copies; leave data unchecked for a definition-only export.</p>
-    {error&&<p role="alert">{error}</p>}<button type="button" disabled={busy} onClick={()=>void exportApp()}>Export app</button></div>
+  return <SetRow label="Export app" hint={<>Exports never include execution permissions or links. Maximum 16 MiB and 16 saved copies; leave data unchecked for a definition-only export.{error&&<span role="alert"> {error}</span>}</>}>
+    <label className="custom-app-include"><input type="checkbox" aria-label="Include saved panel data" checked={include} disabled={busy} onChange={e=>setInclude(e.target.checked)}/>Include saved panel data</label>
+    <button type="button" disabled={busy} onClick={()=>void exportApp()}>Export app</button></SetRow>
 }

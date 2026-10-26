@@ -7855,9 +7855,9 @@
      "line": 41
     },
     {
-     "file": "apps/desktop/renderer/src/canvas/apps/settings.tsx",
-     "label": "Export app",
-     "line": 42
+      "file": "apps/desktop/renderer/src/canvas/apps/portable.tsx",
+      "label": "Export app",
+      "line": 49
     },
     {
      "file": "apps/desktop/renderer/src/canvas/apps/settings.tsx",
