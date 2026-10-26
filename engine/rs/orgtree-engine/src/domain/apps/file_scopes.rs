@@ -53,12 +53,13 @@ impl Registry{
 }
 #[nolog]async fn grants(engine:&Engine,bound:&Bound,session:&str,mode:&str)->Result<Vec<Grant>>{
     let client=engine.db.get().await?;
-    let rows=client.query("SELECT id,scope,mode,path FROM ot.custom_app_file_grants WHERE org_id=$1 AND app_id=$2 AND app_rev=$3 AND mode=$4 ORDER BY CASE scope WHEN 'file' THEN 0 WHEN 'folder' THEN 1 WHEN 'orgtree' THEN 2 ELSE 3 END,id LIMIT 128",&[&bound.org,&bound.app,&bound.rev,&mode]).await?;drop(client);
+    let rows=client.query("SELECT id,scope,mode,path FROM ot.custom_app_file_grants WHERE org_id=$1 AND app_id=$2 AND app_rev=$3 AND mode=$4 ORDER BY CASE scope WHEN 'file' THEN 0 WHEN 'folder' THEN 1 WHEN 'orgtree' THEN 2 ELSE 3 END,id LIMIT 130",&[&bound.org,&bound.app,&bound.rev,&mode]).await?;drop(client);
     let mut out:Vec<_>=rows.into_iter().map(|r|Grant{id:r.get(0),scope:r.get(1),mode:r.get(2),path:r.get::<_,Option<String>>(3).map(PathBuf::from)}).collect();
     out.extend(engine.custom_apps.file_access.scopes.once.lock().map_err(|_|anyhow::anyhow!("file grants unavailable"))?.values().filter(|r|r.session==session&&same(&r.bound,bound)&&r.grant.mode==mode).map(|r|r.grant.clone()));Ok(out)
 }
 #[nolog]async fn grant_for(engine:&Engine,bound:&Bound,session:&str,value:&Value,path:&Path,mode:&str)->Result<Grant>{
     declared_mode(value,mode)?;
+    if org_member(engine,bound,path).await?{if let Some(id)=implicit_org_grant(engine,bound,value,mode).await?{return Ok(Grant{id,scope:"orgtree".into(),mode:mode.into(),path:None});}}
     for grant in grants(engine,bound,session,mode).await?{
         let once=grant.id.starts_with("once-");
         if (once||value["permissions"][format!("files.{mode}")]=="allow")&&covers(engine,bound,&grant,path).await?{return Ok(grant);}
@@ -84,7 +85,8 @@ impl Registry{
 #[nolog]pub(super) async fn call(engine:&Arc<Engine>,org:&Arc<OrgHandle>,session:&str,request:&FileCall)->Result<Value>{
     super::validate(request)?;let bound=engine.custom_apps.bound(org.id,session)?;let _gate=bound.gate.lock.lock().await;
     engine.custom_apps.bound(org.id,session)?;let value=bridge::snapshot(engine,&bound).await?;declared_mode(&value,mode(request))?;bound.gate.admit()?;
-    if matches!(request,FileCall::Grant{..}){
+    if let FileCall::Grant{scope,mode:requested_mode}=request{
+        if scope=="orgtree"{if implicit_org_grant(engine,&bound,&value,requested_mode).await?.is_some(){return Ok(json!({"granted":true,"scope":"orgtree","mode":requested_mode,"implicit":true}));}}
         let challenge=engine.custom_apps.file_access.ask(session,&bound,request.clone())?;
         return Ok(json!({"permission_required":{"challenge":challenge,"app":bound.app,"panel":bound.panel,"name":value["name"],"label":value["label"],"capability":format!("files.{}",mode(request)),"request":request}}));
     }
@@ -123,7 +125,7 @@ impl Registry{
     if row.get::<_,i64>(0)!=bound.rev||row.get::<_,i64>(1)!=expected{crate::refuse!(Conflict,"app permissions changed; reopen its file request");}
     let old=tx.query_opt("SELECT id FROM ot.custom_app_file_grants WHERE org_id=$1 AND app_id=$2 AND app_rev=$3 AND scope=$4 AND mode=$5 AND path IS NOT DISTINCT FROM $6 LIMIT 1",&[&bound.org,&bound.app,&bound.rev,&scope,&mode,&raw]).await?;
     let id=if let Some(row)=old{row.get::<_,String>(0)}else{
-        let count:i64=tx.query_one("SELECT count(*) FROM ot.custom_app_file_grants WHERE org_id=$1 AND app_id=$2",&[&bound.org,&bound.app]).await?.get(0);if count>=128{crate::refuse!(Conflict,"an app can remember at most 128 file grants");}
+        let count:i64=tx.query_one("SELECT count(*) FROM ot.custom_app_file_grants WHERE org_id=$1 AND app_id=$2 AND NOT implicit",&[&bound.org,&bound.app]).await?.get(0);if count>=128{crate::refuse!(Conflict,"an app can remember at most 128 file grants");}
         let id=crate::util::uid("app-grant");tx.execute("INSERT INTO ot.custom_app_file_grants(org_id,app_id,id,app_rev,scope,mode,path) VALUES($1,$2,$3,$4,$5,$6,$7)",&[&bound.org,&bound.app,&id,&bound.rev,&scope,&mode,&raw]).await?;id
     };
     let mut permissions:Value=row.get(2);permissions[format!("files.{mode}")]=json!("allow");
@@ -135,9 +137,9 @@ impl Registry{
 #[nolog]async fn execute(engine:&Arc<Engine>,org:&Arc<OrgHandle>,session:&str,bound:&Bound,value:&Value,request:&FileCall,caller:Option<&Caller>)->Result<Value>{
     match request{
         FileCall::Roots{}=>{
-            let read=grants(engine,bound,session,"read").await?;let mut items=Vec::new();let mut seen=std::collections::HashSet::new();
+            implicit_org_grant(engine,bound,value,"read").await?;let read=grants(engine,bound,session,"read").await?;let mut items=Vec::new();let mut seen=std::collections::HashSet::new();
             for grant in read{
-                if !grant.id.starts_with("once-")&&value["permissions"]["files.read"]!="allow"{continue;}
+                if !grant.id.starts_with("once-")&&value["permissions"]["files.read"]!="allow"&&!(grant.scope=="orgtree"&&super::super::policy::org_allowed(value,"files.read")){continue;}
                 let paths=if let Some(caller)=caller{
                     let p=crate::domain::docs::presenter(engine,org,caller.agent_id).await?;
                     let mut held:Vec<_>=std::iter::once(p.scratch).chain(p.dirs.into_iter().map(PathBuf::from)).collect();
@@ -194,6 +196,11 @@ impl Registry{
 #[nolog]async fn prepare(engine:&Arc<Engine>,org:&Arc<OrgHandle>,session:&str,bound:&Bound,value:&Value,path:&Path,data:Option<Vec<u8>>,replace:bool,caller:Option<&Caller>)->Result<Value>{
     let grant=grant_for(engine,bound,session,value,path,"write").await?;if let Some(caller)=caller{agent_mode(engine,org,caller,path,true).await?;}
     let selected=path.to_path_buf();let io=crate::trace::private_app_blocking(move||files::io::prepare(&selected,data,replace)).await??;
+    // Only this org's classified collections bypass confirmation. A folder or
+    // computer grant covering an outside target never enters this branch.
+    if super::super::policy::org_allowed(value,"files.write")&&org_member(engine,bound,path).await?{
+        return confirm(engine,org,Change{session:session.into(),bound:bound.clone(),caller:caller.cloned(),grant:grant.id,path:path.into(),io,until:Instant::now()+Duration::from_secs(120)},true).await;
+    }
     let challenge=bridge::secret();let detail=io.detail.clone();let until=Instant::now()+Duration::from_secs(120);
     let mut changes=engine.custom_apps.file_access.scopes.changes.lock().map_err(|_|anyhow::anyhow!("file changes unavailable"))?;changes.retain(|_,r|r.until>Instant::now());
     if changes.len()>=64||changes.values().any(|r|same(&r.bound,bound)){crate::refuse!(Conflict,"answer the pending file change first");}
@@ -239,7 +246,7 @@ impl Registry{
 }
 #[nolog]async fn snapshot(engine:&Engine,bound:&Bound)->Result<Value>{
     let client=engine.db.get().await?;
-    let row=client.query_opt("SELECT jsonb_build_object('name',a.name,'label',p.label,'capabilities',a.capabilities,'permissions',a.permissions) FROM ot.custom_apps a JOIN ot.custom_panels p ON p.org_id=a.org_id AND p.app_id=a.id WHERE a.org_id=$1 AND a.id=$2 AND a.rev=$3 AND p.id=$4",&[&bound.org,&bound.app,&bound.rev,&bound.panel]).await?;
+    let row=client.query_opt("SELECT jsonb_build_object('name',a.name,'origin',a.origin,'label',p.label,'capabilities',a.capabilities,'permissions',a.permissions) FROM ot.custom_apps a JOIN ot.custom_panels p ON p.org_id=a.org_id AND p.app_id=a.id WHERE a.org_id=$1 AND a.id=$2 AND a.rev=$3 AND p.id=$4",&[&bound.org,&bound.app,&bound.rev,&bound.panel]).await?;
     let Some(row)=row else{crate::refuse!(Forbidden,"app or panel changed");};Ok(row.get(0))
 }
 #[nolog]async fn confirm(engine:&Arc<Engine>,org:&Arc<OrgHandle>,change:Change,allow:bool)->Result<Value>{

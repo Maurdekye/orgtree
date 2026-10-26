@@ -8,7 +8,7 @@ use tokio_postgres::Transaction;
 use crate::{engine::Engine, orgs::OrgHandle, runtime::Caller};
 use super::wire::{self, Definition, Placement, Request};
 
-const APP_META:&str="jsonb_build_object('id',a.id,'name',a.name,'description',a.description,'capabilities',a.capabilities,'events',a.declared_events,'width',a.width,'height',a.height,'rev',a.rev,'permissions',a.permissions,'permission_rev',a.permission_rev,'is_new',a.is_new,'created_by',a.created_by,'updated_at',a.updated_at)";
+const APP_META:&str="jsonb_build_object('id',a.id,'origin',a.origin,'name',a.name,'description',a.description,'capabilities',a.capabilities,'events',a.declared_events,'width',a.width,'height',a.height,'rev',a.rev,'permissions',a.permissions,'permission_rev',a.permission_rev,'is_new',a.is_new,'created_by',a.created_by,'updated_at',a.updated_at)";
 const PANEL_META:&str="jsonb_build_object('id',p.id,'app',p.app_id,'label',p.label,'rev',p.rev,'open',p.is_open,'placement',p.placement,'linked_agents',p.linked_agents,'updated_at',p.updated_at,'used_at',p.used_at,'event_seq',p.event_seq)";
 
 #[nolog]
@@ -42,7 +42,7 @@ async fn app(tx:&Transaction<'_>,org:i64,id:&str,full:bool,write:bool) -> Result
     let extra=if full{" || jsonb_build_object('definition',jsonb_build_object('name',a.name,'description',a.description,'html',a.html,'initial_state',a.initial_state,'capabilities',a.capabilities,'events',a.declared_events,'width',a.width,'height',a.height))"}else{""};
     let lock=if write{"UPDATE"}else{"SHARE"};
     let row=tx.query_opt(&format!("SELECT {APP_META}{extra} FROM ot.custom_apps a WHERE a.org_id=$1 AND a.id=$2 FOR {lock} OF a"),&[&org,&id]).await?;
-    let Some(row)=row else {crate::refuse!(NotFound,"app not found in this organization");};Ok(row.get(0))
+    let Some(row)=row else {crate::refuse!(NotFound,"app not found in this organization");};Ok(super::policy::metadata(row.get(0)))
 }
 #[nolog]
 async fn panel(tx:&Transaction<'_>,org:i64,id:&str,write:bool) -> Result<Value> {
@@ -92,7 +92,7 @@ pub(crate) async fn run_locked(engine:&Arc<Engine>,org:&Arc<OrgHandle>,caller:Op
                 },
                 _=>crate::refuse!(BadRequest,"list kind must be apps or panels"),
             };
-            let more=rows.len()>n as usize;let items:Vec<Value>=rows.into_iter().take(n as usize).map(|r|r.get(0)).collect();
+            let more=rows.len()>n as usize;let items:Vec<Value>=rows.into_iter().take(n as usize).map(|r|{let v:Value=r.get(0);if kind=="apps"{super::policy::metadata(v)}else{v}}).collect();
             let next=if more{items.last().map(|v|v["id"].clone())}else{None};let mut out=json!({"kind":kind,"items":items,"next_cursor":next});
             if kind=="apps"{out["new_count"]=json!(tx.query_one("SELECT count(*) FROM ot.custom_apps WHERE org_id=$1 AND is_new",&[&org.id]).await?.get::<_,i64>(0));}out
         }
@@ -110,7 +110,7 @@ pub(crate) async fn run_locked(engine:&Arc<Engine>,org:&Arc<OrgHandle>,caller:Op
             if caller.is_some(){crate::refuse!(Forbidden,"only the user may decide app execution permissions; ask your superior instead");}
             let old=app(&tx,org.id,&id,false,true).await?;revision(&old,expected_rev)?;
             if old["permission_rev"].as_i64()!=Some(expected_permission_rev){crate::refuse!(Conflict,"app permissions changed; read and reconcile");}
-            if !wire::CAPABILITIES.contains(&capability.as_str())||!old["capabilities"].as_array().is_some_and(|a|a.iter().any(|c|c==&capability)){crate::refuse!(BadRequest,"app does not declare that capability");}
+            if !wire::CAPABILITIES.contains(&capability.as_str())||!super::policy::available(&old,&capability){crate::refuse!(BadRequest,"app does not declare that capability");}
             if !["ask","allow","deny"].contains(&permission.as_str()){crate::refuse!(BadRequest,"permission must be ask, allow or deny");}
             let mut permissions=old["permissions"].clone();permissions[&capability]=json!(permission);
             if ["files.read","files.write"].contains(&capability.as_str())&&permission!="allow"{let mode=capability.strip_prefix("files.").expect("file capability");tx.execute("DELETE FROM ot.custom_app_file_grants WHERE org_id=$1 AND app_id=$2 AND mode=$3",&[&org.id,&id,&mode]).await?;}
@@ -131,25 +131,25 @@ pub(crate) async fn run_locked(engine:&Arc<Engine>,org:&Arc<OrgHandle>,caller:Op
         }
         Request::AppImport{bundle:value}=>{
             let id=crate::util::uid("app");let def=&value.definition;let caps=json!(def.capabilities);let declarations=json!(def.events);
-            tx.execute("INSERT INTO ot.custom_apps(org_id,id,name,description,html,initial_state,capabilities,width,height,created_by,declared_events) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)",&[&org.id,&id,&def.name,&def.description,&def.html,&def.initial_state,&caps,&def.width,&def.height,&actor,&declarations]).await?;
+            tx.execute("INSERT INTO ot.custom_apps(org_id,id,name,description,html,initial_state,capabilities,width,height,created_by,declared_events,origin) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,'imported')",&[&org.id,&id,&def.name,&def.description,&def.html,&def.initial_state,&caps,&def.width,&def.height,&actor,&declarations]).await?;
             let mut saved=Vec::new();
             for p in &value.panels{
                 let pid=crate::util::uid("panel");let place=serde_json::to_value(Placement{width:def.width,height:def.height,..Placement::default()})?;
                 tx.execute("INSERT INTO ot.custom_panels(org_id,id,app_id,label,state,placement,is_open) VALUES($1,$2,$3,$4,$5,$6,false)",&[&org.id,&pid,&id,&p.label,&p.state,&place]).await?;
                 let mut meta=panel(&tx,org.id,&pid,false).await?;meta.as_object_mut().unwrap().remove("state");saved.push(meta);
             }
-            changed=true;json!({"imported":id,"app":app(&tx,org.id,&id,false,false).await?,"panels":saved})
+            changed=true;json!({"imported":id,"app":app(&tx,org.id,&id,false,false).await?,"panels":saved,"warning":"Apps imported from outside this org have full access to it and its state. Be careful importing apps from untrustworthy sources."})
         }
         Request::AppCreate{definition:def}=>{
             wire::definition(&def)?;let id=crate::util::uid("app");let caps=json!(def.capabilities);let declarations=json!(def.events);
-            tx.execute("INSERT INTO ot.custom_apps(org_id,id,name,description,html,initial_state,capabilities,width,height,created_by,declared_events) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)",&[&org.id,&id,&def.name,&def.description,&def.html,&def.initial_state,&caps,&def.width,&def.height,&actor,&declarations]).await?;
+            tx.execute("INSERT INTO ot.custom_apps(org_id,id,name,description,html,initial_state,capabilities,width,height,created_by,declared_events,origin) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,'created')",&[&org.id,&id,&def.name,&def.description,&def.html,&def.initial_state,&caps,&def.width,&def.height,&actor,&declarations]).await?;
             changed=true;app(&tx,org.id,&id,false,false).await?
         }
         Request::AppUpdate{app:id,expected_rev,definition:def}=>{
-            wire::definition(&def)?;let old=app(&tx,org.id,&id,false,true).await?;revision(&old,expected_rev)?;let caps=json!(def.capabilities);let declarations=json!(def.events);
+            wire::definition(&def)?;let old=app(&tx,org.id,&id,false,true).await?;revision(&old,expected_rev)?;let caps=json!(def.capabilities);let declarations=json!(def.events);let restrictive=super::policy::restrictive_overrides(&old["permissions"]);
             tx.execute("DELETE FROM ot.custom_app_file_grants WHERE org_id=$1 AND app_id=$2",&[&org.id,&id]).await?;
-            // Provisional security default: every code update revokes grants.
-            tx.execute("UPDATE ot.custom_apps SET name=$3,description=$4,html=$5,initial_state=$6,capabilities=$7,width=$8,height=$9,declared_events=$10,permissions='{}',permission_rev=permission_rev+1,rev=rev+1,updated_at=now() WHERE org_id=$1 AND id=$2",&[&org.id,&id,&def.name,&def.description,&def.html,&def.initial_state,&caps,&def.width,&def.height,&declarations]).await?;
+            // Code replacement revokes external grants; user Ask/Deny stays restrictive.
+            tx.execute("UPDATE ot.custom_apps SET name=$3,description=$4,html=$5,initial_state=$6,capabilities=$7,width=$8,height=$9,declared_events=$10,permissions=$11,permission_rev=permission_rev+1,rev=rev+1,updated_at=now() WHERE org_id=$1 AND id=$2",&[&org.id,&id,&def.name,&def.description,&def.html,&def.initial_state,&caps,&def.width,&def.height,&declarations,&restrictive]).await?;
             super::events::invalidate(&tx,org.id,&id,None,Some(&declarations)).await?;
             changed=true;app(&tx,org.id,&id,false,false).await?
         }
@@ -160,6 +160,7 @@ pub(crate) async fn run_locked(engine:&Arc<Engine>,org:&Arc<OrgHandle>,caller:Op
             tx.execute("DELETE FROM ot.custom_apps WHERE org_id=$1 AND id=$2",&[&org.id,&id]).await?;changed=true;json!({"deleted":id})
         }
         Request::PanelOpen{app:app_id,panel:panel_id,new,label}=>{
+            if caller.is_some()&&panel_id.is_some(){crate::refuse!(Forbidden,"only the user may open an app window; use panel_get for an existing copy or panel_open with app to create a closed copy");}
             if new && panel_id.is_some(){crate::refuse!(BadRequest,"new and panel are mutually exclusive");}
             let id=if let Some(ref panel_id)=panel_id{
                 let row=tx.query_opt("SELECT app_id FROM ot.custom_panels WHERE org_id=$1 AND id=$2",&[&org.id,panel_id]).await?;
@@ -168,7 +169,7 @@ pub(crate) async fn run_locked(engine:&Arc<Engine>,org:&Arc<OrgHandle>,caller:Op
             }else{app_id.ok_or_else(||crate::domain::UserError::BadRequest("open requires app or panel".into()))?};
             let a=app(&tx,org.id,&id,true,true).await?;
             // Provisional mockup default: opening an app reuses its last panel.
-            let existing=if let Some(pid)=panel_id{Some(pid)}else if !new{
+            let existing=if let Some(pid)=panel_id{Some(pid)}else if !new&&caller.is_none(){
                 tx.query_opt("SELECT id FROM ot.custom_panels WHERE org_id=$1 AND app_id=$2 ORDER BY used_at DESC,id DESC LIMIT 1",&[&org.id,&id]).await?.map(|r|r.get::<_,String>(0))
             }else{None};
             let pid=if let Some(pid)=existing{
@@ -177,13 +178,14 @@ pub(crate) async fn run_locked(engine:&Arc<Engine>,org:&Arc<OrgHandle>,caller:Op
                 let pid=crate::util::uid("panel");let def:Definition=serde_json::from_value(a["definition"].clone())?;
                 let label=label.unwrap_or_else(||def.name.clone());wire::text(&label,120,"panel label",false)?;
                 let placement=serde_json::to_value(Placement{width:def.width,height:def.height,..Placement::default()})?;
-                tx.execute("INSERT INTO ot.custom_panels(org_id,id,app_id,label,state,placement) VALUES($1,$2,$3,$4,$5,$6)",&[&org.id,&pid,&id,&label,&def.initial_state,&placement]).await?;pid
+                tx.execute("INSERT INTO ot.custom_panels(org_id,id,app_id,label,state,placement,is_open) VALUES($1,$2,$3,$4,$5,$6,$7)",&[&org.id,&pid,&id,&label,&def.initial_state,&placement,&caller.is_none()]).await?;pid
             };
-            event(&tx,org.id,&pid,"panel.opened",&json!({}),&actor).await?;changed=true;panel(&tx,org.id,&pid,false).await?
+            event(&tx,org.id,&pid,if caller.is_some(){"panel.created"}else{"panel.opened"},&json!({}),&actor).await?;changed=true;panel(&tx,org.id,&pid,false).await?
         }
         Request::PanelGet{panel:id}=>panel(&tx,org.id,&id,false).await?,
         Request::PanelUpdate{panel:id,expected_rev,label,open,placement,linked_agents}=>{
             let old=panel(&tx,org.id,&id,true).await?;revision(&old,expected_rev)?;
+            if caller.is_some()&&(open==Some(true)||(placement.is_some()&&open.unwrap_or(old["open"].as_bool().unwrap_or(false)))){crate::refuse!(Forbidden,"only the user may open or show an app window; agents may create and configure closed saved panels");}
             let label=label.unwrap_or_else(||old["label"].as_str().unwrap_or("").into());wire::text(&label,120,"panel label",false)?;
             let place=placement.unwrap_or(serde_json::from_value(old["placement"].clone())?);wire::placement(&place)?;
             if let Some(anchor)=&place.anchor{
@@ -202,7 +204,7 @@ pub(crate) async fn run_locked(engine:&Arc<Engine>,org:&Arc<OrgHandle>,caller:Op
             let old=panel(&tx,org.id,&id,true).await?;revision(&old,expected_rev)?;let pid=crate::util::uid("panel");
             let label:String=format!("{} copy",old["label"].as_str().unwrap_or("Panel")).chars().take(120).collect();
             let mut place:Placement=serde_json::from_value(old["placement"].clone())?;place.mode="float".into();place.anchor=None;place.x+=24.;place.y+=24.;let place=serde_json::to_value(place)?;
-            tx.execute("INSERT INTO ot.custom_panels(org_id,id,app_id,label,state,placement,linked_agents) VALUES($1,$2,$3,$4,$5,$6,$7)",&[&org.id,&pid,&old["app"].as_str().unwrap_or(""),&label,&old["state"],&place,&old["linked_agents"]]).await?;
+            tx.execute("INSERT INTO ot.custom_panels(org_id,id,app_id,label,state,placement,linked_agents,is_open) VALUES($1,$2,$3,$4,$5,$6,$7,$8)",&[&org.id,&pid,&old["app"].as_str().unwrap_or(""),&label,&old["state"],&place,&old["linked_agents"],&caller.is_none()]).await?;
             event(&tx,org.id,&pid,"panel.duplicated",&json!({"source":id}),&actor).await?;changed=true;panel(&tx,org.id,&pid,false).await?
         }
         Request::PanelDelete{panel:id,expected_rev}=>{

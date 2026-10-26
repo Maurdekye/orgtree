@@ -74,19 +74,51 @@ state.get/set/patch/onChange, storage.getItem/setItem/removeItem/clear, on and e
 State is independent per copy; merge patch null deletes a key. Agent writes and
 new named events arrive through the host. Activity retains the latest256 events.
 The SDK exposes fixed permission-checked actions through orgtree.call. Apps
-supports whole-app import/export, with grants starting at Ask. Declaring a
-capability grants nothing. Native frames, settings, import/export and permission
+supports whole-app import/export, with implicit local org access and no portable grants. Org defaults apply
+independently of old capability declarations. Native frames, settings, import/export and permission
 prompts use Orgtree's existing modal/settings design system outside app HTML.
 
-Agent parity: orgtree_apps provides every saved lifecycle, placement, label,
+Agent parity: orgtree_apps creates closed saved panels, and provides saved placement, label,
 link, state and event action above. Copy/export JSON are ordinary local file or
 clipboard operations; drag/resize use panel_update placement. Apps-button/menu
 visibility and far-zoom culling are display only. See orgtree-tool-apps
 (orgtree-working > team).
 
+## Org access and agent window boundary
+
+Created, imported, template-restored and existing apps have implicit access to
+this org through org.read, mail.send, events.fire and docket.write, and read/write
+access to this org's scratch, uploads and exact retained-delivery files. These
+defaults do not depend on older capability declarations. Event names still need
+declarations. Explicit user Ask or Deny overrides the default; Deny wins over
+temporary, remembered and implicit file authority. Code replacement preserves
+restrictive Ask/Deny choices while clearing external grants and old host sessions.
+Native Permissions displays effective defaults separately from stored choices.
+
+Import warns that apps from outside this org have full access to the org and its
+state, and that untrustworthy apps are dangerous. Authority is derived locally;
+exported permissions, paths and references never grant it. The user accepts that
+an app created by a subagent can affect a superior's state, as terminal access can.
+App-origin content still has no user instruction or approval authority.
+
+Agent panel_open with an app ID always creates a fresh CLOSED saved panel;
+panel-ID reopen and panel_update open:true refuse. Agent duplicates stay closed.
+Placement edits may change a closed copy but cannot expose/move an already-open
+window. Only user UI opens windows. State, links and events remain usable while
+closed. Hidden runtime start/stop is a separate lifecycle feature, never a right
+to show a window.
+
+Org-file create/replace/delete commits without per-change confirmation through
+the existing pinned, revision-checked staged IO path. This never applies to an
+outside target covered by a chosen-folder or whole-computer grant. Those scopes
+still require native consent and every change requires native confirmation.
+Direct agent file tools also require current org-modifying tools, held folders
+and edit/RW scope for writes. App defaults never expand the caller's folders.
+Retained artifacts means exact catalog entries, not their parent directories.
+
 ## Files
 
-Apps declaring files.read ask through a native dialog outside HTML. Select a
+Org collections have default read/write access. For outside files, ask through a native dialog. Select a
 single file, a folder with descendants, this org's scratch/uploads/retained-delivery
 collection, or the whole computer. Whole-computer access uses your Windows account
 without elevation and can include private files/settings; prefer a narrower folder.
@@ -103,11 +135,11 @@ File paths stay native; readable contents may leave through permitted mail.
 File requests and app import/export omit paths and contents from engine
 diagnostics, including verbose file-worker logs; ordinary diagnostics stay enabled.
 
-Every create, replacement or deletion needs native confirmation of its target,
+Every outside-org create, replacement or deletion needs native confirmation of its target,
 operation, size and new-content hash. Existing files need explicit replacement;
 folders cannot be deleted recursively. Changes are at most64KiB and use a staged
 Windows commit. Unsupported platforms refuse writes. Cancel/expiry changes nothing.
-Agent changes wait under Files → Pending changes; Refresh shows pending requests.
+Outside-org agent changes wait under Files → Pending changes; Refresh shows pending requests.
 If a replacement conflicts, native UI reports any retained recovery copy beside
 the original target. Review the result before retrying; concurrent files stay intact.
 Only the user confirms them, and agents need their own writable folders as well.

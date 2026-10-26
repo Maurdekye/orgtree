@@ -1,5 +1,38 @@
 # Custom apps and panels
 
+## Org access and agent window boundary
+
+Created, imported, template-restored and existing apps have implicit access to
+this org through org.read, mail.send, events.fire and docket.write, and read/write
+access to this org's scratch, uploads and exact retained-delivery files. These
+defaults do not depend on older capability declarations. Event names still need
+declarations. Explicit user Ask or Deny overrides the default; Deny wins over
+temporary, remembered and implicit file authority. Code replacement preserves
+restrictive Ask/Deny choices while clearing external grants and old host sessions.
+Native Permissions displays effective defaults separately from stored choices.
+
+Import warns that apps from outside this org have full access to the org and its
+state, and that untrustworthy apps are dangerous. Authority is derived locally;
+exported permissions, paths and references never grant it. The user accepts that
+an app created by a subagent can affect a superior's state, as terminal access can.
+App-origin content still has no user instruction or approval authority.
+
+Agent panel_open with an app ID always creates a fresh CLOSED saved panel;
+panel-ID reopen and panel_update open:true refuse. Agent duplicates stay closed.
+Placement edits may change a closed copy but cannot expose/move an already-open
+window. Only user UI opens windows. State, links and events remain usable while
+closed. Hidden runtime start/stop is a separate lifecycle feature, never a right
+to show a window.
+
+Org-file create/replace/delete commits without per-change confirmation through
+the existing pinned, revision-checked staged IO path. This never applies to an
+outside target covered by a chosen-folder or whole-computer grant. Those scopes
+still require native consent and every change requires native confirmation.
+Direct agent file tools also require current org-modifying tools, held folders
+and edit/RW scope for writes. App defaults never expand the caller's folders.
+Retained artifacts means exact catalog entries, not their parent directories.
+
+
 Named events connect an app to agents that explicitly listen. An agent creates
 an `app_listener` watchdog for an app ID, a declared event name, and one saved
 copy; it can explicitly choose all copies instead. App links alone do not wake
@@ -10,7 +43,7 @@ does not silently rearm them. Subscriptions and actions are not exported.
 
 Agents publish with `orgtree_apps action=fire_event`, naming a saved panel and
 declared name plus JSON data. A closed copy is valid. HTML uses `events.fire`
-with a fresh native broadcast permission, without choosing agents or acting as
+with its effective broadcast permission, without choosing agents or acting as
 you. Old target-specific event permissions reset. Accepted work survives restart
 without duplicate mail; overloaded queues refuse new fires before acceptance.
 The provisional limits are64KiB payload,60 actions/minute across copies,
@@ -89,16 +122,16 @@ The host provides saved state, named events and permission-checked engine action
 Whole-app portability uses a versioned `.orgtree-app` JSON file. It carries the
 definition and initial data, optionally saved copy labels and data. Permissions,
 credentials, links, IDs and machine-specific placement do not travel. Imports
-create fresh IDs, with every permission set to Ask and saved copies closed until
-explicitly opened. The provisional bounds are16MiB per bundle and16 saved copies;
+create fresh IDs, with implicit org access and saved copies closed until
+opened by the user. The provisional bounds are16MiB per bundle and16 saved copies;
 definition-only export is available for an app with more copies.
 Whole-app export uses compact JSON and checks the final file size against the
 same import limit. State-only JSON export remains indented for reading.
-Declaring an engine capability does not grant it. App code is limited to4MiB,
+Org access comes from the local default policy, not portable declarations. App code is limited to4MiB,
 JSON state to2MiB and events to64KiB; these are provisional bounds.
 
-Agents use orgtree_apps for the same lifecycle, placement, link, state and event
-controls. Org-modifying tools also contains Logo; the new category preserves old
+Agents use orgtree_apps to create closed copies and manage saved placement,
+links, state and events; they cannot open a window. Org-modifying tools also contains Logo; the new category preserves old
 explicit Logo denials. Copy/export JSON use ordinary local clipboard/file actions.
 
 Agents can import an app from a held local file and export one into a new file in
@@ -108,14 +141,14 @@ capabilities and saved copies, then confirm Import app. This native preview
 does not execute HTML. Open the app's gear settings, choose whether
 to Include saved panel data, and press Export app to save the bundle.
 
-The action bridge accepts only declared capabilities with your permission; apps
-cannot grant their own permissions. The native App permission prompt shows the
+The action bridge applies org defaults and your explicit overrides; apps cannot
+grant chosen-folder or whole-computer access or change your permissions. The native App permission prompt shows the
 app, saved copy, capability and exact action as text. Allow once applies to that
 one action. Always allow and Deny save a decision for every copy. Cancel or Escape
 discards the request without changing permissions. Requests expire after two
 minutes and are not retried automatically. In App settings, Permissions offers
-Ask, Allow and Deny per declared capability; changes save immediately without
-reloading the app. These defaults are provisional. Replacing app code clears old permissions.
+Ask, Allow and Deny per capability; changes save immediately without
+reloading the app. Explicit Ask/Deny survives replacement; external grants and host sessions reset.
 App messages identify the app and copy, and carry app content rather than user
 instructions or approvals. No permission travels in an exported app.
 
@@ -136,7 +169,7 @@ last-output and recent-fire summaries omit private app payloads; read the event
 or panel data through its authorized delivery and Apps controls.
 
 Save as template now includes app definitions and initial data. Creating an org
-from it creates fresh app definitions with Ask permissions and no saved copies;
+from it creates fresh app definitions with implicit org access and no saved copies;
 no imported script runs until you open a panel. Current panel data, links and
 execution grants stay in the original org. This is a provisional default.
 
@@ -150,7 +183,7 @@ HTML; use an engine watchdog for work that must continue in the background.
 
 Try the portable [Annotation notes example](examples/apps/annotation-notes.orgtree-app):
 import it through Apps, open a copy, save notes, and enter a live local agent's
-name to send them. The send action uses the native permission prompt and app
+name to send them. The send action uses the effective permission policy and app
 provenance. Reload saved data picks up agent edits. It is a generic example,
 not a recreation of the earlier annotation editor whose source is unavailable.
 
@@ -159,13 +192,13 @@ publication refuses before that snapshot would exceed the bound.
 
 ## Read files and remember media
 
-An app declaring `files.read` can ask to read one chosen file, a folder and its
-subfolders, this org's scratch/uploads/retained deliveries, or the whole computer.
+Apps can read and write this org's collections by default. For one chosen file,
+a folder and its subfolders, or the whole computer, they ask through native UI.
 Orgtree shows the request in its
 own dialog outside the HTML. Choose a file in that native picker, then select
 **Allow once**, **Always allow**, **Deny** or **Cancel**. Read access is separate
 from sending messages: the dialog warns when an app also declares `mail.send`.
-Write access requires a separate `files.write` declaration and native grant.
+Outside-org writes require a separate native write grant.
 Whole-computer access includes private files/settings your Windows account can
 reach, without elevation. Prefer a chosen folder when that is enough.
 
@@ -181,11 +214,11 @@ again. Duplicating/importing a panel does not give its copied reference access.
 Open **App settings → Permissions → Files** to inspect or revoke remembered
 access. Separate Read files and Write files controls govern distinct grants.
 Returning a mode to Ask or Deny removes its remembered grants and stops active
-playback/pending changes. Replacing app code resets grants; importing starts at Ask.
+playback/pending changes. Replacing app code resets external grants; importing gets local org defaults.
 Choosing Allow granted scopes alone adds no files. Apps can read bounded chunks
 through `orgtree.files.read`; they browse only granted scopes and cannot approve access.
 
-Every create, replacement or deletion requires native confirmation of the exact
+Outside this org, each create, replacement or deletion requires native confirmation of the exact
 file, operation, size and new-content SHA256. Existing files need an explicit
 replacement request. Cancel and two-minute expiry write nothing. Writes are
 limited to64KiB per file change, use a staged Windows commit and never silently
@@ -207,7 +240,7 @@ base64,{replace:false})` and `files.delete(file)` request confirmed changes.
 Agent parity: `orgtree_apps` exposes `file_permissions`, `file_open`, `file_read`,
 `file_roots`, `file_list`, `file_child`, `file_write`, `file_delete` and `file_result`.
 Reads need both the app's grant and the agent's current folders. Writes also need
-the agent's writable folders and edit permission. Agent changes return pending
+the agent's writable folders and edit permission. Outside-org agent changes return pending
 confirmation, not success: open **App settings → Permissions → Files → Pending
 changes**, refresh and review each target/size/hash to confirm or reject it.
 The originating agent can read its result once within two minutes of your choice.

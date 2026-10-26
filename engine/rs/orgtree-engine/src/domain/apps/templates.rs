@@ -39,6 +39,6 @@ pub async fn capture(engine:&Engine,org:i64,root:&mut Value)->Result<()> {
 pub async fn restore(tx:&tokio_postgres::Transaction<'_>,org:i64,apps:&[App])->Result<usize> {
     for app in apps {
         let def=&app.0;wire::definition(def)?;let caps=json!(def.capabilities);let declarations=json!(def.events);let id=crate::util::uid("app");
-        tx.execute("INSERT INTO ot.custom_apps(org_id,id,name,description,html,initial_state,capabilities,width,height,created_by,declared_events) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,'template',$10)",&[&org,&id,&def.name,&def.description,&def.html,&def.initial_state,&caps,&def.width,&def.height,&declarations]).await?;
+        tx.execute("INSERT INTO ot.custom_apps(org_id,id,name,description,html,initial_state,capabilities,width,height,created_by,declared_events,origin) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,'template',$10,'template')",&[&org,&id,&def.name,&def.description,&def.html,&def.initial_state,&caps,&def.width,&def.height,&declarations]).await?;
     }Ok(apps.len())
 }

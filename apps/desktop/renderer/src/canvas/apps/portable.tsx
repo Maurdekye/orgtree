@@ -49,7 +49,7 @@ export function AppImport({slug,bundle,close}:{slug:string;bundle:AppBundle;clos
   const [busy,setBusy]=useState(false),[error,setError]=useState('')
   const importApp=async()=>{setBusy(true);setError('');try{await changeApps(slug,{action:'app_import',bundle});await loadAppsMenu(slug);close()}catch(e){setError(String(e))}finally{setBusy(false)}}
   return <><p><b>{bundle.definition.name}</b></p><p>{bundle.definition.description}</p>
-    <p>Permissions start at Ask. Saved copies stay closed until you open them. Importing does not run the app.</p>
+    <p>Apps imported from outside this org have full access to it and its state. Be careful importing apps from untrustworthy sources. Saved copies stay closed until you open them. Importing does not run the app.</p>
     <p>Requested capabilities: {bundle.definition.capabilities?.join(', ')||'None'}</p>
     <p>{bundle.panels?.length??0} saved copies. IDs and permissions from another org are not retained.</p>
     {!!bundle.panels?.length&&<ul className="custom-app-import-copies">{bundle.panels.map((p,i)=><li key={i}>{p.label}</li>)}</ul>}

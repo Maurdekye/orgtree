@@ -18,6 +18,11 @@ both use the same canvas desk counter, including external portals. Normal names
 remain independent. See [identity hover](docs/rust-engine/agent-identity-tooltip.md).
 [verified: `canvas/{cards,cardnamereveal,farzoomname}.tsx`; 2026-10-26]
 
+Apps derive org-internal capability/file defaults from origin policy; user Deny
+wins and survives agent code replacement. Agents create only closed copies and
+never show windows. See [custom apps](docs/rust-engine/custom-apps.md).
+[decided: user2026-10-26; verified: `domain/apps/{policy,storage,file_scopes}.rs`]
+
 Custom app actions use parent-only, code/panel-bound sessions and native owning-document
 permission prompts; sandbox HTML never receives a credential or permission method.
 App definitions retain portable named event declarations; declarations grant no
@@ -30,7 +35,7 @@ See [custom apps](docs/rust-engine/custom-apps.md).
 [verified: `trace::private_app_blocking`, `domain/apps/{file_access,file_scopes}.rs`, `tools/apps.rs`; 2026-10-26]
 App files use native read grants, opaque per-panel references and bounded reads.
 Folder/computer scopes and separate write grants retain paths in native code;
-each file change needs a one-shot native confirmation. Agent writes also require
+outside-org file changes need one-shot native confirmation; org changes do not. Agent writes also require
 live writable folder/edit scope. See the same file-access topic.
 Only the exact media GET route substitutes a short-lived, host-bound asset ticket
 for desktop authentication; no general engine credential enters HTML. Revocation
@@ -51,7 +56,7 @@ App events carry privacy across subscriber/overflow handoffs; authorized deliver
 keeps content while watchdog diagnostic output/history omit it.
 Hide/close/replacement discards prompts and authority, while grant edits use a separate
 revision from code. Portable version1 app bundles never carry grants/IDs/links or
-machine placement; imports get fresh closed copies and Ask permissions. The
+machine placement; imports get fresh closed copies and implicit local org authority. The
 provisional bundle bounds are16MiB/16 saved copies. Agent exports create a fresh
 private-scratch file; imports pin original held roots without canonicalizing links.
 Windows uses handle-relative no-reparse opens plus data-write/delete sharing

@@ -2,6 +2,7 @@ import {useEffect,useRef,useState} from 'react'
 import {useSurfaceDocument} from '../../popout'
 import {changeApps} from './store'
 import {customAppsRequest} from '../../api'
+import {appCapabilities,appPermission} from './policy'
 import {AppFilePermissions} from './files-ui'
 import {AppDialog} from './dialog'
 import type {CustomApp} from './types'
@@ -42,10 +43,10 @@ export function AppPermissions({slug,app,close}:{slug:string;app:CustomApp;close
     catch(e){setError(String(e))}finally{setBusy(false)}
   }
   return <AppDialog title="App permissions" close={close}>
-    <p>Changes save immediately and apply to every copy of {current.name}. Replacing app code resets grants to Ask. Links to agents grant nothing.</p>
-    {!current.capabilities.length&&<p>This app declares no engine actions.</p>}
-    {current.capabilities.filter(cap=>!cap.startsWith('files.')).map(cap=><label className="custom-app-permission-row" key={cap}><span>{cap}{cap==='docket.write'&&<small>Creates and assigns work; wakes the selected local agent.</small>}{cap==='events.fire'&&<small>Broadcasts declared events to this copy's subscribed agents.</small>}</span><select aria-label={`${cap} permission`} disabled={busy} value={current.permissions[cap]??'ask'} onChange={e=>void save(cap,e.target.value)}><option value="ask">Ask</option><option value="allow">Allow</option><option value="deny">Deny</option></select></label>)}
-    {current.capabilities.some(cap=>cap.startsWith('files.'))&&<AppFilePermissions slug={slug} app={current} save={save} disabled={busy} refresh={async()=>setCurrent(await customAppsRequest<CustomApp>(slug,{action:'app_get',app:current.id}))}/>}
+    <p>Changes save immediately and apply to every copy of {current.name}. Org-internal actions and Orgtree files are allowed by default. Explicit Ask or Deny overrides the default and survives code replacement. Outside file grants reset when code changes. Links to agents grant nothing.</p>
+    {!appCapabilities(current).length&&<p>This app declares no engine actions.</p>}
+    {appCapabilities(current).filter(cap=>!cap.startsWith('files.')).map(cap=><label className="custom-app-permission-row" key={cap}><span>{cap}{cap==='docket.write'&&<small>Creates and assigns work; wakes the selected local agent.</small>}{cap==='events.fire'&&<small>Broadcasts declared events to this copy's subscribed agents.</small>}</span><select aria-label={`${cap} permission`} disabled={busy} value={appPermission(current,cap)} onChange={e=>void save(cap,e.target.value)}><option value="ask">Ask</option><option value="allow">Allow</option><option value="deny">Deny</option></select></label>)}
+    {appCapabilities(current).some(cap=>cap.startsWith('files.'))&&<AppFilePermissions slug={slug} app={current} save={save} disabled={busy} refresh={async()=>setCurrent(await customAppsRequest<CustomApp>(slug,{action:'app_get',app:current.id}))}/>}
     {error&&<p role="alert">{error}</p>}
   </AppDialog>
 }

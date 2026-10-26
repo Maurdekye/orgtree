@@ -1,3 +1,4 @@
+import {appCapabilities} from './policy'
 import {useEffect,useMemo,useRef,useState} from 'react'
 import {customAppsRequest} from '../../api'
 import {useSurfaceDocument} from '../../popout'
@@ -114,6 +115,6 @@ export function PanelHtml({slug,app,panel,visible=true}:{slug:string;app:CustomA
       onLoad={()=>{ready.current=true;postRef.current({kind:'ready'})}}/>:<div className="custom-app-suspended">{source?'Paused while hidden.':'Loading app…'}</div>}
     <div className="custom-app-status">{panel.linked_agents.length?`Linked: ${panel.linked_agents.join(', ')}`:'No linked agents'}<span>{saved?'Saved':'State saved by Orgtree'}</span></div>
     {prompt&&visible&&foreground&&<AppPermissionPrompt prompt={prompt} owner={owner}/>}
-    {filePrompt&&visible&&foreground&&<AppFilePermissionPrompt slug={slug} prompt={filePrompt} owner={owner} canSend={app.capabilities.includes('mail.send')}/>}
+    {filePrompt&&visible&&foreground&&<AppFilePermissionPrompt slug={slug} prompt={filePrompt} owner={owner} canSend={appCapabilities(app).includes('mail.send')}/>}
   </div>
 }

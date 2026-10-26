@@ -129,7 +129,7 @@ fn declared(value:&Value)->Result<()>{
 #[nolog]
 fn declared_mode(value:&Value,mode:&str)->Result<()>{
     let cap=format!("files.{mode}");
-    if !value["capabilities"].as_array().is_some_and(|v|v.iter().any(|c|c==&cap)){crate::refuse!(Forbidden,"app does not declare the required file capability");}
+    if !super::policy::available(value,&cap){crate::refuse!(Forbidden,"app does not declare the required file capability");}
     if value["permissions"][&cap]=="deny"{crate::refuse!(Forbidden,"app file access is denied");}Ok(())
 }
 
@@ -244,6 +244,20 @@ async fn stored_reference(engine:&Engine,bound:&Bound,grant:&str,path:&std::path
     tx.execute("INSERT INTO ot.custom_app_file_refs(org_id,app_id,panel_id,id,app_rev,grant_id,path) VALUES($1,$2,$3,$4,$5,$6,$7)",&[&bound.org,&bound.app,&bound.panel,&id,&bound.rev,&grant,&raw]).await?;
     tx.commit().await?;drop(client);reference(engine,bound,&id).await
 }
+/// Derived grant rows keep references durable without recording user Allow.
+/// Callers hold the app gate; recheck revision and current overrides in PG.
+#[nolog]
+async fn implicit_org_grant(engine:&Engine,bound:&Bound,value:&Value,mode:&str)->Result<Option<String>>{
+    let cap=format!("files.{mode}");if !super::policy::org_allowed(value,&cap){return Ok(None);}
+    let mut client=engine.db.get().await?;let tx=client.transaction().await?;
+    let row=tx.query_opt("SELECT rev,jsonb_build_object('origin',origin,'capabilities',capabilities,'permissions',permissions) FROM ot.custom_apps WHERE org_id=$1 AND id=$2 FOR UPDATE",&[&bound.org,&bound.app]).await?;
+    let Some(row)=row else{crate::refuse!(NotFound,"app removed");};let current:Value=row.get(1);
+    if row.get::<_,i64>(0)!=bound.rev{crate::refuse!(Conflict,"app code changed; reopen its file reference");}
+    if !super::policy::org_allowed(&current,&cap){return Ok(None);}
+    let id=crate::util::uid("implicit-orgtree");
+    let grant:String=tx.query_one("INSERT INTO ot.custom_app_file_grants(org_id,app_id,id,app_rev,scope,path,mode,implicit) VALUES($1,$2,$3,$4,'orgtree',NULL,$5,true) ON CONFLICT(org_id,app_id,app_rev,mode) WHERE implicit DO UPDATE SET app_rev=EXCLUDED.app_rev RETURNING id",&[&bound.org,&bound.app,&id,&bound.rev,&mode]).await?.get(0);
+    tx.commit().await?;Ok(Some(grant))
+}
 #[nolog]
 async fn authorized(engine:&Engine,org:&OrgHandle,session:&str,bound:&Bound,value:&Value,call:&FileCall)->Result<Option<Reference>>{
     match call{
@@ -252,9 +266,10 @@ async fn authorized(engine:&Engine,org:&OrgHandle,session:&str,bound:&Bound,valu
             if let Some(r)=engine.custom_apps.file_access.temporary(session,bound,file)?{if r.mode!="read"{crate::refuse!(Forbidden,"a write reference does not permit content reads");}return Ok(Some(r));}
             let r=reference(engine,bound,file).await?;
             if r.mode!="read"{crate::refuse!(Forbidden,"a write grant does not permit content reads");}
-            if value["permissions"]["files.read"]=="allow"{Ok(Some(r))}else{Ok(None)}
+            if value["permissions"]["files.read"]=="allow"||(super::policy::org_allowed(value,"files.read")&&org_member(engine,bound,&r.path).await?){Ok(Some(r))}else{Ok(None)}
         },
         FileCall::Open{root,path}=>{
+            if let Some(grant)=implicit_org_grant(engine,bound,value,"read").await?{let selected=org_path(engine,org,root,path).await?;return Ok(Some(stored_reference(engine,bound,&grant,&selected).await?));}
             if value["permissions"]["files.read"]!="allow"{return Ok(None);}
             let client=engine.db.get().await?;
             let row=client.query_opt("SELECT id FROM ot.custom_app_file_grants WHERE org_id=$1 AND app_id=$2 AND app_rev=$3 AND scope='orgtree' AND mode='read' ORDER BY id LIMIT 1",&[&bound.org,&bound.app,&bound.rev]).await?;drop(client);
@@ -273,7 +288,7 @@ async fn remember(engine:&Engine,bound:&Bound,scope:&str,path:&std::path::Path,p
     let raw=if scope=="file"{Some(path.to_string_lossy().to_string())}else{None};
     let old=tx.query_opt("SELECT id FROM ot.custom_app_file_grants WHERE org_id=$1 AND app_id=$2 AND app_rev=$3 AND scope=$4 AND mode='read' AND path IS NOT DISTINCT FROM $5 ORDER BY id LIMIT 1",&[&bound.org,&bound.app,&bound.rev,&scope,&raw]).await?;
     let grant=if let Some(row)=old{row.get::<_,String>(0)}else{
-        let count:i64=tx.query_one("SELECT count(*) FROM ot.custom_app_file_grants WHERE org_id=$1 AND app_id=$2",&[&bound.org,&bound.app]).await?.get(0);
+        let count:i64=tx.query_one("SELECT count(*) FROM ot.custom_app_file_grants WHERE org_id=$1 AND app_id=$2 AND NOT implicit",&[&bound.org,&bound.app]).await?.get(0);
         if count>=128{crate::refuse!(Conflict,"an app can remember at most 128 file grants");}
         let id=crate::util::uid("app-grant");tx.execute("INSERT INTO ot.custom_app_file_grants(org_id,app_id,id,app_rev,scope,path) VALUES($1,$2,$3,$4,$5,$6)",&[&bound.org,&bound.app,&id,&bound.rev,&scope,&raw]).await?;id
     };
@@ -335,10 +350,10 @@ pub(crate) async fn media(engine:&Arc<Engine>,org:&Arc<OrgHandle>,ticket:&str)->
 async fn permissions(engine:&Arc<Engine>,org:&Arc<OrgHandle>,app:&str,caller:Option<&Caller>)->Result<Value>{
     if let Some(caller)=caller{super::storage::file_authority(engine,org,caller).await?;}
     let client=engine.db.get().await?;
-    let row=client.query_opt("SELECT rev,permission_rev,permissions FROM ot.custom_apps WHERE org_id=$1 AND id=$2",&[&org.id,&app]).await?;
+    let row=client.query_opt("SELECT rev,permission_rev,permissions,origin,capabilities FROM ot.custom_apps WHERE org_id=$1 AND id=$2",&[&org.id,&app]).await?;
     let Some(row)=row else{crate::refuse!(NotFound,"app not found");};
     let rev:i64=row.get(0);let permission_rev:i64=row.get(1);let modes:Value=row.get(2);
-    let rows=client.query("SELECT id,scope,path,mode FROM ot.custom_app_file_grants WHERE org_id=$1 AND app_id=$2 AND app_rev=$3 ORDER BY id LIMIT 128",&[&org.id,&app,&rev]).await?;drop(client);
+    let rows=client.query("SELECT id,scope,path,mode FROM ot.custom_app_file_grants WHERE org_id=$1 AND app_id=$2 AND app_rev=$3 AND NOT implicit ORDER BY id LIMIT 128",&[&org.id,&app,&rev]).await?;drop(client);
     let mut grants=Vec::new();
     for row in rows{
         let path:Option<String>=row.get(2);let mut grant=json!({"id":row.get::<_,String>(0),"scope":row.get::<_,String>(1),"mode":row.get::<_,String>(3)});
@@ -349,7 +364,7 @@ async fn permissions(engine:&Arc<Engine>,org:&Arc<OrgHandle>,app:&str,caller:Opt
         }else{grant["name"]=json!(if grant["scope"]=="computer"{"Whole computer (current Windows user)"}else{"This organization's scratch, uploads and retained artifacts"});}
         grants.push(grant);
     }
-    Ok(json!({"app":app,"rev":rev,"permission_rev":permission_rev,"permission":modes["files.read"].as_str().unwrap_or("ask"),"grants":grants,"write":modes["files.write"].as_str().unwrap_or("ask")}))
+    Ok(json!({"app":app,"rev":rev,"permission_rev":permission_rev,"permission":modes["files.read"].as_str().unwrap_or("ask"),"grants":grants,"write":modes["files.write"].as_str().unwrap_or("ask"),"orgtree_read":super::policy::org_allowed(&json!({"origin":row.get::<_,String>(3),"capabilities":row.get::<_,Value>(4),"permissions":modes}),"files.read"),"orgtree_write":super::policy::org_allowed(&json!({"origin":row.get::<_,String>(3),"capabilities":row.get::<_,Value>(4),"permissions":modes}),"files.write")}))
 }
 #[nolog]
 async fn revoke(engine:&Arc<Engine>,org:&Arc<OrgHandle>,app:&str,rev:i64,permission_rev:i64,grant:&str)->Result<Value>{
@@ -400,8 +415,8 @@ pub async fn agent(engine:&Arc<Engine>,org:&Arc<OrgHandle>,caller:&Caller,input:
     let gate=engine.custom_apps.gate(org.id,&app)?;let bound=Bound{org:org.id,app,panel,rev,gate:gate.clone()};let _guard=gate.lock.lock().await;
     // Agent reads need the saved panel identity, not a running HTML host.
     let client=engine.db.get().await?;
-    let value:Value=client.query_one("SELECT jsonb_build_object('capabilities',a.capabilities,'permissions',a.permissions) FROM ot.custom_apps a JOIN ot.custom_panels p ON p.org_id=a.org_id AND p.app_id=a.id WHERE a.org_id=$1 AND a.id=$2 AND a.rev=$3 AND p.id=$4",&[&bound.org,&bound.app,&bound.rev,&bound.panel]).await?.get(0);drop(client);declared(&value)?;
-    if value["permissions"]["files.read"]!="allow"{crate::refuse!(Forbidden,"the user must grant this app read access first");}
+    let value:Value=client.query_one("SELECT jsonb_build_object('origin',a.origin,'capabilities',a.capabilities,'permissions',a.permissions) FROM ot.custom_apps a JOIN ot.custom_panels p ON p.org_id=a.org_id AND p.app_id=a.id WHERE a.org_id=$1 AND a.id=$2 AND a.rev=$3 AND p.id=$4",&[&bound.org,&bound.app,&bound.rev,&bound.panel]).await?.get(0);drop(client);declared(&value)?;
+    if value["permissions"]["files.read"]!="allow"&&!super::policy::org_allowed(&value,"files.read"){crate::refuse!(Forbidden,"the user must grant this app read access first");}
     bound.gate.admit()?;
     if let FileCall::Open{root,path}=&call{let selected=org_path(engine,org,root,path).await?;agent_scope(engine,org,caller,&selected).await?;}
     let reference=authorized(engine,org,"",&bound,&value,&call).await?.ok_or_else(||crate::domain::UserError::Forbidden("the user must grant this file collection first".into()))?;

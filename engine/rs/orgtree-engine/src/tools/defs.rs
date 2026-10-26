@@ -2066,16 +2066,16 @@ mod mqtt_card_tests {
 #[inline(never)]
 #[nolog]
 fn build_tool_apps()->Value {
-    tool("orgtree_apps","Manage this org's app definitions and independent saved panels. Requires org-modifying tools. List pages omit HTML/state; app_get/panel_get read them. Open reuses the last panel unless new=true; close keeps state. Mutations need the current expected_rev. Imported permissions never grant actions.",json!({
+    tool("orgtree_apps","Manage this org's app definitions and independent saved panels. Requires org-modifying tools. List pages omit HTML/state; app_get/panel_get read them. Agent panel_open creates a new closed copy; only user UI shows windows. Close keeps state. Mutations need the current expected_rev. Apps have implicit org access; user Deny overrides. External files need consent.",json!({
         "action":{"type":"string","enum":["list","app_get","app_create","app_update","app_delete","app_import","app_export","mark_seen","panel_open","panel_get","panel_update","panel_duplicate","panel_delete","state_set","state_patch","event","events","fire_event","listeners","permission_set","file_permissions","file_open","file_read","file_roots","file_list","file_child","file_write","file_delete","file_result"]},
         "apps":{"type":"array","minItems":1,"maxItems":200,"uniqueItems":true,"items":{"type":"string"},"description":"mark_seen: acknowledge these explicit app IDs for this org's New badge; does not grant actions or change app/panel revisions"},
         "bundle":{"type":"object","description":"app_import: strict orgtree-app version1 object with definition and optional panels:[{label,state}]; up to16MiB/16 saved copies. No permissions, IDs, links or geometry."},
         "path":{"type":"string","description":"app_import: absolute held .orgtree-app file; file_open: relative name inside root (artifacts uses retained delivery ID). No parent components or links."},
-        "root":{"type":"string","enum":["scratch","uploads","artifacts"],"description":"file_open: this org's collection; requires an existing user app grant AND your held folders"},
+        "root":{"type":"string","enum":["scratch","uploads","artifacts"],"description":"file_open: this org's collection; implicit org access or user grant, intersected with your held folders"},
         "file":{"type":"string","description":"file_read: opaque reference from file_open or this panel's saved state; never a computer path"},
         "directory":{"type":"string","description":"file_list/child/write: opaque directory reference for this saved panel"},
-        "base64":{"type":"string","description":"file_write: standard base64, at most65536 decoded bytes; requires a user write grant, your own writable scope, and native confirmation"},
-        "replace":{"type":"boolean","description":"file_write: default false refuses existing files; true requests an exact native replacement confirmation"},
+        "base64":{"type":"string","description":"file_write: standard base64, at most65536 decoded bytes; requires effective app access and your writable scope; org changes commit directly, external changes need native confirmation"},
+        "replace":{"type":"boolean","description":"file_write: default false refuses existing files; true permits replacement; external targets still need exact native confirmation"},
         "confirmation":{"type":"string","description":"file_result: one-shot result of your pending file change; agents cannot confirm changes or create grants"},
         "offset":{"type":"integer","minimum":0,"description":"file_read: byte offset, default 0"},
         "length":{"type":"integer","minimum":1,"maximum":65536,"description":"file_read: maximum bytes, default 65536; returns base64, offset and eof"},
@@ -2090,9 +2090,9 @@ fn build_tool_apps()->Value {
         "expected_permission_rev":{"type":"integer","minimum":1},
         "capability":{"type":"string","enum":["org.read","mail.send","docket.write","events.fire","files.read","files.write"]},
         "permission":{"type":"string","enum":["ask","allow","deny"],"description":"permission_set is user-only; agents may inspect declarations/grants but cannot grant themselves execution"},
-        "new":{"type":"boolean","description":"panel_open: make a fresh independent panel"},
+        "new":{"type":"boolean","description":"panel_open: create a fresh closed saved panel; agents cannot open windows"},
         "label":{"type":"string","maxLength":120},
-        "open":{"type":"boolean","description":"panel_update: false closes without deleting"},
+        "open":{"type":"boolean","description":"panel_update: false closes without deleting; agents cannot set true or move an open window"},
         "delete_panels":{"type":"boolean","description":"app_delete: explicit consent to delete all its saved copies"},
         "definition":{"type":"object","additionalProperties":false,"properties":{
             "name":{"type":"string","maxLength":120},"description":{"type":"string","maxLength":1000},

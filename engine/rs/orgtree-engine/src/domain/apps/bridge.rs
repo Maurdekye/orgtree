@@ -122,15 +122,15 @@ impl Registry {
 #[nolog]
 pub(super) async fn snapshot(engine:&Engine,bound:&Bound)->Result<Value> {
     let client=engine.db.get().await?;
-    let row=client.query_opt("SELECT jsonb_build_object('name',a.name,'rev',a.rev,'capabilities',a.capabilities,'events',a.declared_events,'permissions',a.permissions,'permission_rev',a.permission_rev,'label',p.label,'open',p.is_open) FROM ot.custom_apps a JOIN ot.custom_panels p ON p.org_id=a.org_id AND p.app_id=a.id WHERE a.org_id=$1 AND a.id=$2 AND p.id=$3",&[&bound.org,&bound.app,&bound.panel]).await?;
+    let row=client.query_opt("SELECT jsonb_build_object('name',a.name,'origin',a.origin,'rev',a.rev,'capabilities',a.capabilities,'events',a.declared_events,'permissions',a.permissions,'permission_rev',a.permission_rev,'label',p.label,'open',p.is_open) FROM ot.custom_apps a JOIN ot.custom_panels p ON p.org_id=a.org_id AND p.app_id=a.id WHERE a.org_id=$1 AND a.id=$2 AND p.id=$3",&[&bound.org,&bound.app,&bound.panel]).await?;
     let Some(row)=row else{crate::refuse!(NotFound,"app or saved panel was removed");};let value:Value=row.get(0);
     if value["open"]!=true||value["rev"].as_i64()!=Some(bound.rev){crate::refuse!(Forbidden,"app code changed or panel closed; reopen its host session");}Ok(value)
 }
 #[nolog]
 fn permission(value:&Value,action:&Action)->Result<&'static str> {
-    let cap=action.capability();if !value["capabilities"].as_array().is_some_and(|all|all.iter().any(|v|v==cap)){crate::refuse!(Forbidden,"app does not declare capability {cap}");}
+    let cap=action.capability();
     if let Action::EventsFire{name,..}=action{if !value["events"].as_array().is_some_and(|a|a.iter().any(|e|e["name"]==name.as_str())){crate::refuse!(Forbidden,"app does not declare this event name");}}
-    match value["permissions"][cap].as_str().unwrap_or("ask") {"allow"=>Ok("allow"),"ask"=>Ok("ask"),_=>crate::refuse!(Forbidden,"app capability {cap} is denied")}
+    super::policy::decision(value,cap)
 }
 
 #[nolog]

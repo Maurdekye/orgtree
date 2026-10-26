@@ -1,5 +1,44 @@
 # Custom apps and saved panels (4.5.0)
 
+## Org access and agent window boundary
+
+Created, imported, template-restored and existing apps have implicit access to
+this org through org.read, mail.send, events.fire and docket.write, and read/write
+access to this org's scratch, uploads and exact retained-delivery files. These
+defaults do not depend on older capability declarations. Event names still need
+declarations. Explicit user Ask or Deny overrides the default; Deny wins over
+temporary, remembered and implicit file authority. Code replacement preserves
+restrictive Ask/Deny choices while clearing external grants and old host sessions.
+Native Permissions displays effective defaults separately from stored choices.
+
+Import warns that apps from outside this org have full access to the org and its
+state, and that untrustworthy apps are dangerous. Authority is derived locally;
+exported permissions, paths and references never grant it. The user accepts that
+an app created by a subagent can affect a superior's state, as terminal access can.
+App-origin content still has no user instruction or approval authority.
+
+Agent panel_open with an app ID always creates a fresh CLOSED saved panel;
+panel-ID reopen and panel_update open:true refuse. Agent duplicates stay closed.
+Placement edits may change a closed copy but cannot expose/move an already-open
+window. Only user UI opens windows. State, links and events remain usable while
+closed. Hidden runtime start/stop is a separate lifecycle feature, never a right
+to show a window.
+
+Org-file create/replace/delete commits without per-change confirmation through
+the existing pinned, revision-checked staged IO path. This never applies to an
+outside target covered by a chosen-folder or whole-computer grant. Those scopes
+still require native consent and every change requires native confirmation.
+Direct agent file tools also require current org-modifying tools, held folders
+and edit/RW scope for writes. App defaults never expand the caller's folders.
+Retained artifacts means exact catalog entries, not their parent directories.
+
+Migration0066 stores app origin and marks engine-owned implicit orgtree grant
+rows. Their stable per-app/code/mode IDs preserve panel-bound references across
+restart without storing a user Allow. Current Deny and org membership are checked
+on every use; these rows do not count as explicit external grants. Metadata adds
+default_permissions while permissions remains the stored override map.
+
+
 ## Durable declared event delivery
 
 Apps privacy begins before logged agent adapters (MCP, direct tool, Codex and
@@ -11,8 +50,8 @@ diagnostics. Independent dispatch tasks establish their own private scope.
 `payload` (64 KiB). Agents publish with org-modifying tools; a closed copy is
 valid. HTML uses its bound `events.fire` action with no recipient or caller
 selector. Migration0063 removes previous target-specific events.fire decisions;
-broadcast needs a new native per-app decision. Definition replacement still
-revokes all grants. The shared60/minute execution budget survives host closure.
+broadcast uses effective defaults/overrides. Definition replacement
+revokes external grants and sessions but preserves restrictive user choices. The shared60/minute execution budget survives host closure.
 
 An agent creates `orgtree_watchdog kind=app_listener target=<stable app ID>`
 with `event_name` and either one `panel` or explicit `all_panels:true`. Its
@@ -59,8 +98,8 @@ without surrounding whitespace or controls; descriptions allow0–1,000 characte
 The provisional catalog limit is64. Declarations contain no grants, listeners,
 recipients or fire actions. Old bundles without the field remain valid.
 
-Declarations alone are inert. Durable publication and renewed broadcast
-permission use the separate explicit paths described above; panel activity and
+Declarations alone create no listeners. Durable publication and effective
+broadcast permission use the separate explicit paths described above; panel activity and
 linked metadata remain separate. The user explicitly retains docket
 create/assign/wake as the direct-wake edge case without an app event
 (USER2026-10-26 m556cde76bd33).
@@ -100,7 +139,7 @@ Migration0065 adds separate read/write modes and folder/computer scopes. Existin
 grants remain read-only. Native consent warns about readable data plus declared
 mail.send and about whole-computer access under the current Windows user, without
 elevation. A chosen folder covers descendants; links/reparse points are refused.
-Read permission never confers write or vice versa. Grant limits128/app,
+Read and write remain separately overridable capabilities. Grant limits128/app,
 refs1024/panel, registry4096/class; prompts120s, sessions/media at most30min.
 
 files.grant(scope,mode) requests native consent for orgtree/folder/computer and
@@ -111,7 +150,7 @@ Directory enumeration uses the opened directory handle, not path-based read_dir.
 files.child(directory,relativeName) opens a descendant reference after checking
 the current grant. files.write(directory,name,base64,{replace:false}) changes at
 most64KiB; an existing file refuses unless replace:true. files.delete(file)
-deletes a regular file only. Every create/replace/delete needs native confirmation
+deletes a regular file only. Every outside-org create/replace/delete needs native confirmation
 outside HTML of the exact target, operation, size and new-content SHA256. No
 recursive delete, shell command, arbitrary endpoint or permission method exists.
 
@@ -125,14 +164,14 @@ file beside the target. Native UI reports retained recovery copies, independentl
 of the HTML. No path-based fallback or in-place truncation exists. Platforms
 without these mutation primitives refuse writes.
 Pending changes are bounded64/engine, expire120s with target-pin cleanup, and are
-discarded on grant/code/host revocation. No data change happens before confirmation.
+discarded on grant/code/host revocation. Outside-org data never changes before confirmation.
 
 Agent parity adds file_roots/file_list/file_child/file_write/file_delete/file_result. Reads
 need current read folders; writes need current edit permission and writable
-folders AND an existing user write grant. The fresh scope chain includes parent
+folders AND effective write authority for the target. The fresh scope chain includes parent
 ceilings and implicit shared folders. The readable org instruction workspace is
 not an implicit writable folder; writing there requires an explicit effective
-RW grant. Agent changes wait in native App settings → Permissions → Files →
+RW grant. Outside-org agent changes wait in native App settings → Permissions → Files →
 Pending changes; refresh shows exact target/size/hash.
 Agents get a pending confirmation ID and can read their own one-shot result for
 120s after a decision. They never choose roots, grant permission or confirm a
@@ -179,7 +218,7 @@ retain the latest256 per panel; oldest_retained makes truncation explicit.
 
 ## Provisional defaults for morning review
 
-Opening an app creates its first panel or reopens the most recently used one;
+User UI opening an app creates its first panel or reopens the most recently used one;
 new=true always creates another. Definition initial_state is copied, not shared.
 Updating initial_state never overwrites existing saved-panel data; it applies
 only when a new panel is created. The focused apps-new real-PG proof covers this.
@@ -207,12 +246,9 @@ Entry HTML is limited to4MiB, state/initial state to2MiB compact JSON, nesting t
 event payloads to64KiB and links to64 unique live agents in the same org. Pages
 default100, maximum200. These are provisional bounds, not new user rulings.
 
-App declarations may request org.read, mail.send, docket.write and events.fire.
-Declarations are NOT grants. This storage milestone does not expose an HTML
-action endpoint. App replacement clears stored permissions and increments the
-app revision so later frame sessions can be revision-bound. General user ops,
-question answers, publishing, arbitrary HTTP and identity selection are excluded.
-The sandboxed host and native permission decisions arrive in the following slice.
+The bound HTML bridge exposes fixed org actions under the effective policy above.
+General user operations, question answers, publishing, arbitrary HTTP and caller
+selection remain excluded.
 
 Org-modifying tools uses tools.orgtree.orgmod. Logo moves into the category.
 The legacy logo key remains an accepted compatibility alias: when orgmod is
@@ -220,7 +256,7 @@ absent, an explicit old Logo denial also denies the replacement category. An
 explicit orgmod value takes precedence. Parent intersection still clamps the
 category. orgtree.logo scope requests resolve to the canonical orgmod grant.
 
-Other provisional choices retained for the next slices: per-app Ask/Allow/Deny
+Other provisional choices retained for the next slices: per-app default/Ask/Allow/Deny
 outside HTML, exact-request Allow once, no network/no same-origin, suspend hidden
 scripts, optional accumulated state in export, no portable execution grants,
 template definitions/initial state only, and any-agent links without authority.
@@ -269,7 +305,7 @@ Sessions are bound to org, panel and app code revision, expire after30 minutes,
 and revoke on host close, panel close/delete and app code replacement/delete.
 No session survives engine restart. The registry holds at most4096 sessions.
 
-Declarations are not grants. Missing decisions mean Ask. A Call validates a strict
+Local org policy derives defaults; explicit stored choices override them. A Call validates a strict
 named action and checks current code revision, open panel and capability under a
 per-app async gate. Permission, code and panel mutations acquire that same gate
 BEFORE agent/database locks. The gate remains held through dispatch; no database
@@ -311,7 +347,7 @@ capability; Deny stores Deny. permission_set requires current app expected_rev
 and expected_permission_rev. Grants have their own revision (migration0060), so
 changing a grant does not reload code or lose the action reply. Agent callers
 are explicitly forbidden from deciding permissions. Code replacement resets
-grants and revokes sessions. Import/export must never carry these decisions.
+external grants and revokes sessions, retaining restrictive Ask/Deny. Import/export never carries decisions.
 
 The action vocabulary is limited to org.read (paged active chart metadata, not
 private mail/files), mail.send (a live local agent only), docket.create (one new
@@ -327,15 +363,14 @@ an arbitrary engine event kind. All payloads/actions are bounded to64KiB.
 Provisional docket.write authorizes creation AND assignment, waking the selected
 live local owner. The native grant states this explicitly. Both fallback mail
 and typed assignment envelopes label app-origin work as app content with no user
-instruction/approval authority. Whether this should instead deposit data without
-assignment is in the single morning question list.
+instruction/approval authority. The user explicitly retains this direct-wake edge case.
 
 ## Whole-app portability backend
 
 Provisional version1 `.orgtree-app` JSON carries format/version, a strict
 Definition and optional `{label,state}` copies. Limits:16MiB serialized bundle,
 16 copies, existing4MiB HTML/2MiB state/depth bounds. Imports validate before DB
-access, generate new IDs, leave all grants empty (Ask), and create copies closed
+access, generate new IDs, derive local org authority without portable grants, and create copies closed
 with default placement. Neither script execution nor host creation happens on
 import. No links, runtime IDs, grants, sessions, geometry or credentials travel.
 
@@ -369,7 +404,7 @@ Provisional Save as template carries strict app definitions/initial state only,
 within its existing16MiB total file bound. It does not query saved copies,
 permissions, links or runtime IDs. Template App has opaque Debug and generic
 validation errors, including when a logged template service returns it. The
-new-org transaction inserts fresh default-Ask definitions atomically alongside
+new-org transaction inserts fresh implicit-org-authority definitions atomically alongside
 its nodes. No panel/iframe/host session is created and no script executes.
 
 State set/patch and explicit panel events queue metadata-only app.event signals
