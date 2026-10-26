@@ -60,6 +60,15 @@ export default async function(rig){
   const connections=await apps({action:'listeners',app:app.id,panel:b.id,limit:1})
   p.check('bounded connection page reports real agent-owned registrations',connections.items.length===1&&typeof connections.next_cursor==='number'&&connections.items[0].id.includes('/'))
   p.check('wrong panel, undeclared event, oversized payload and forged HTML target refuse',await reject(()=>apps({action:'fire_event',panel:a.id,name:'missing',payload:{}}),409)&&await reject(()=>apps({action:'fire_event',panel:'other-copy',name:'submitted',payload:{}}),404)&&await reject(()=>apps({action:'fire_event',panel:a.id,name:'submitted',payload:'x'.repeat(65537)}),400))
+  app=await get(app.id)
+  for(const capability of ['events.fire','docket.write']){app=await apps({action:'permission_set',app:app.id,expected_rev:app.rev,expected_permission_rev:app.permission_rev,capability,permission:'allow'})}
+  const beforeGrant=app.permission_rev
+  // Exercise the exact data transition from0063 against real grants. The full
+  // DDL was applied at startup; this is a data-migration regression, not a claim
+  // that a previous-release binary was upgraded in this proof.
+  rig.exec(fs.readFileSync(new URL('../../../engine/rs/orgtree-engine/migrations/0063_custom_app_event_delivery.sql',import.meta.url),'utf8').split('CREATE TABLE')[0])
+  app=await get(app.id)
+  p.check('legacy target-specific grant reset SQL requires fresh Ask and preserves other grants',!app.permissions['events.fire']&&app.permissions['docket.write']==='allow'&&app.permission_rev===beforeGrant+1)
   const host=await bridge({action:'session_open',panel:b.id}),action={action:'events.fire',name:'submitted',payload:{native:canary}}
   p.check('old target-selector HTML vocabulary is refused',await reject(()=>bridge({action:'call',session:host.session,request:{...action,target:'watcher'}}),400))
   const asked=await bridge({action:'call',session:host.session,request:action});assert(asked.permission_required)
