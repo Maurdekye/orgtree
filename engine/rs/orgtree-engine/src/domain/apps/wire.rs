@@ -218,6 +218,15 @@ mod tests {
         assert!(p.get("linked_agents").is_none());assert_eq!(p["placement"]["properties"]["mode"]["enum"],json!(["float","window","popout"]));
         assert!(p["placement"]["properties"].get("anchor").is_none());
     }
+    #[test] fn custom_apps_history_and_messages_are_read_apart() {
+        // User 2026-10-26 md6edfebc1975: History holds only fired events agents can
+        // listen to and the copy starting and stopping; mcbcd7b3cb6c0 "Keep, separate":
+        // messages (the event action, orgtree.emit) keep their own listing.
+        assert!(parse(&json!({"action":"events","panel":"p","messages":true})).is_ok());
+        assert!(parse(&json!({"action":"events","panel":"p","messages":"yes"})).is_err());
+        let card=crate::tools::defs::list().into_iter().find(|c|c["name"]=="orgtree_apps").unwrap();
+        assert_eq!(card["inputSchema"]["properties"]["messages"]["type"],"boolean");
+    }
     #[test] fn custom_apps_named_listener_has_explicit_tool_vocabulary() {
         let card=crate::tools::defs::list().into_iter().find(|c|c["name"]=="orgtree_watchdog").unwrap();
         let p=&card["inputSchema"]["properties"];

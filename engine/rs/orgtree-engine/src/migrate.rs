@@ -130,6 +130,17 @@ pub async fn run(client: &mut Client, progress: &dyn Fn(&str)) -> Result<()> {
 mod numbered_keys_tests {
     /// Every OpenRouter key alike (user 2026-10-14): migration 0022 is
     /// registered, a no-op without the old row, and carries every reference.
+    /// User 2026-10-26 md6edfebc1975 and mcbcd7b3cb6c0: panel History keeps only
+    /// fired events and starts/stops, the old lifecycle rows are deleted on
+    /// upgrade, and agent-to-app messages are kept apart from History.
+    #[test]
+    fn custom_apps_panel_history_migration_is_registered_and_complete() {
+        let (_, sql) = super::MIGRATIONS.iter().find(|(n, _)| n.ends_with("_custom_panel_history")).expect("registered");
+        for part in ["ADD COLUMN kind", "'panel.opened'", "'panel.created'", "'panel.changed'", "'panel.duplicated'", "'state.changed'",
+                     "kind='message'", "'event.fired'", "'panel.started'", "'panel.stopped'"] {
+            assert!(sql.contains(part), "the panel history migration does not carry {part}");
+        }
+    }
     #[test]
     fn openrouter_numbered_keys_migration_is_registered_guarded_and_complete() {
         let (_, sql) = super::MIGRATIONS.iter().find(|(n, _)| *n == "0022_openrouter_numbered_keys").expect("registered");

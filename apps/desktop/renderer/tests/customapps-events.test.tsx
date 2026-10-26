@@ -34,7 +34,7 @@ test('Panel settings lists connections and fires only the selected saved copy ev
     if(input.action==='list')out={items:input.kind==='apps'?[app]:[panel],next_cursor:null}
     else if(input.action==='listeners')out={items:[{id:'worker/notes',owner:'worker',name:'notes',event_name:'submitted',panel:'one',state:'armed',once:false,notice:true,fired:0}],next_cursor:null}
     else if(input.action==='fire_event')out={accepted:true,subscribers:1,event:'accepted-event'}
-    else if(input.action==='events')out={panel:'one',events:[{seq:1,name:'panel.created',payload:{},actor:'worker',at:'2026-10-26T10:00:00Z'},{seq:2,name:'event.fired',payload:{event:'submitted',id:'accepted-event',subscribers:1},actor:'user',at:'2026-10-26T10:01:00Z'}],next_cursor:null,oldest_retained:1}
+    else if(input.action==='events')out={panel:'one',events:[{seq:1,name:'panel.started',payload:{reason:'opened'},actor:'user',at:'2026-10-26T10:00:00Z'},{seq:2,name:'event.fired',payload:{event:'submitted',id:'accepted-event',subscribers:1},actor:'user',at:'2026-10-26T10:01:00Z'},{seq:3,name:'panel.stopped',payload:{reason:'stop all'},actor:'user',at:'2026-10-26T10:02:00Z'}],next_cursor:null,oldest_retained:1}
     else throw Error('Unexpected '+input.action)
     return new Response(JSON.stringify(out),{headers:{'Content-Type':'application/json'}})
   };t.after(()=>{globalThis.fetch=original})
@@ -46,7 +46,10 @@ test('Panel settings lists connections and fires only the selected saved copy ev
   assert.ok(connections.textContent?.includes('worker/notes'),'actual agent-owned connection is listed')
   const log=await tab('History')
   const entries=[...document.querySelectorAll('.custom-app-history li')].map(e=>e.textContent??'')
-  assert.equal(entries.length,2,'History merges the copy log');assert.match(entries[0]!,/fired submitted · 1 subscribed listener/,'newest first, as fire metadata');assert.match(entries[1]!,/worker: panel\.created/)
+  // User 2026-10-26 md6edfebc1975: only fired events agents can listen to, and the copy starting and stopping.
+  assert.equal(entries.length,3,'History lists the copy log');assert.match(entries[0]!,/user: stopped \(Stop all\)/,'newest first; a stop names its cause');assert.match(entries[1]!,/fired submitted · 1 subscribed listener/,'fire metadata');assert.match(entries[2]!,/user: started \(opened\)/,'opening a stopped copy starts it')
+  assert.equal(log.querySelector('.set-group > p.dim:first-child')?.textContent,'Fired events agents can listen to, and this copy starting and stopping, newest first. A fired event shows its listener count; its data goes only to the subscribed agents.','the lead line says what History records, in the lead-line style of the other tabs')
+  assert.ok(calls.filter(c=>c.action==='events').every(c=>!('messages' in c)),'History reads the History listing, never messages')
   assert.equal(log.textContent?.includes('worker/notes'),false,'connections are not on the History tab');assert.equal(!!log.querySelector('[aria-label="Declared event"]'),false,'Fire event is not on the History tab')
   const fireTab=await tab('Fire event')
   const fire=[...fireTab.querySelectorAll<HTMLButtonElement>('button')].find(b=>b.textContent?.trim()==='Fire event');assert.ok(fire)
