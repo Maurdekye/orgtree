@@ -8,10 +8,13 @@ export interface AppPermissionRequest {
 }
 type Ask = (request:AppPermissionRequest,signal:AbortSignal)=>Promise<PermissionChoice|null>
 const fields:Record<string,readonly string[]>={
-  'org.read':['after','limit'], 'mail.send':['to','body','notice'],
+  'org.read':['after','limit'],
   'docket.create':['title','objective','owner'], 'events.fire':['name','payload'],
 }
 const capability=(action:string)=>action==='docket.create'?'docket.write':action
+/** Apps reach agents only through events (user 2026-10-26: "Remove; import, never
+ * grant"). The engine refuses mail.send with the same directions. */
+export const MAIL_SEND_REMOVED='mail.send was removed: apps notify agents only through events. Declare the event, fire it with orgtree.events.fire(name, payload), and agents subscribe with an app_listener watchdog.'
 /** A hidden panel keeps running but never opens a native prompt (user 2026-10-26). */
 export const HIDDEN_PROMPT='interaction_required: this panel is hidden; show it to answer its permission prompt'
 const object=(v:unknown):v is Record<string,unknown>=>!!v&&typeof v==='object'&&!Array.isArray(v)
@@ -49,6 +52,7 @@ export class AppActionClient {
   }
   async call(input:unknown):Promise<unknown>{
     this.check()
+    if(object(input)&&input.action==='mail.send')throw Error(MAIL_SEND_REMOVED)
     if(!object(input)||Object.keys(input).some(k=>!['action','args'].includes(k))||typeof input.action!=='string'||!Object.hasOwn(fields,input.action))throw Error('Unsupported app action or identity fields.')
     const args=input.args??{}
     if(!object(args)||Object.keys(args).some(k=>!fields[input.action as string].includes(k)))throw Error('Unsupported app action arguments or identity fields.')

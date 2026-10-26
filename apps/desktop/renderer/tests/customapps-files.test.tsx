@@ -34,7 +34,7 @@ test('app file permission uses trusted shell picker and forwards only a native s
   globalThis.fetch=async()=>new Response(JSON.stringify({path:'',parent:null,items:[{name:'Synthetic.mp4',path:'C:/synthetic/Synthetic.mp4',directory:false}],next_cursor:null}))
   let decision:unknown='pending'
   const prompt:FilePrompt={session:'native-only',request:{app:'a',panel:'p',name:'Caption editor',label:'First cut',capability:'files.read',challenge:'c',request:{action:'choose'}},finish:value=>{decision=value}}
-  const view=await mountView(<AppFilePermissionPrompt slug="demo" prompt={prompt} owner={document} canSend/>,el=>el);t.after(()=>view.unmount());await inAct(tick)
+  const view=await mountView(<AppFilePermissionPrompt slug="demo" prompt={prompt} owner={document}/>,el=>el);t.after(()=>view.unmount());await inAct(tick)
   const dialog=document.querySelector('[aria-label="App file permission"]');assert(dialog)
   const buttons=()=>[...dialog.querySelectorAll<HTMLButtonElement>('button')]
   const always=buttons().find(b=>b.textContent==='Always allow')!;assert(always.disabled)
@@ -68,7 +68,7 @@ test('write confirmations stay native, bind the exact host and expose only the o
 test('native write prompt has exact change details and cannot grant permanent confirmation',async t=>{
   let decision:unknown=null
   const prompt:FilePrompt={session:'native-only',request:{app:'a',panel:'p',name:'Editor',label:'Copy',capability:'files.write',challenge:'change',request:{action:'delete'},detail:{path:'C:/synthetic/existing.txt',operation:'delete',previous_bytes:12,bytes:null,sha256:null}},finish:value=>{decision=value}}
-  const view=await mountView(<AppFilePermissionPrompt slug="demo" prompt={prompt} owner={document} canSend={false}/>,el=>el);t.after(()=>view.unmount())
+  const view=await mountView(<AppFilePermissionPrompt slug="demo" prompt={prompt} owner={document}/>,el=>el);t.after(()=>view.unmount())
   const dialog=document.querySelector('[aria-label="App file permission"]')!;assert.match(dialog.textContent!,/C:\/synthetic\/existing.txt/);assert.match(dialog.textContent!,/two minutes/)
   const buttons=[...dialog.querySelectorAll('button')];assert(!buttons.some(b=>b.textContent==='Always allow'))
   await inAct(()=>{buttons.find(b=>b.textContent==='Confirm change')!.click()});assert.deepEqual(decision,{choice:'once'})
@@ -78,7 +78,7 @@ test('folder consent requires an explicit native selection and whole-computer wa
   const original=globalThis.fetch;t.after(()=>{globalThis.fetch=original})
   globalThis.fetch=async()=>new Response(JSON.stringify({path:'C:/synthetic',parent:'C:/',items:[],next_cursor:null}))
   let decision:unknown=null;const prompt:FilePrompt={session:'native-only',request:{app:'a',panel:'p',name:'Editor',label:'Copy',capability:'files.write',challenge:'scope',request:{action:'grant',scope:'folder',mode:'write'}},finish:value=>{decision=value}}
-  const view=await mountView(<AppFilePermissionPrompt slug="demo" prompt={prompt} owner={document} canSend/>,el=>el);t.after(()=>view.unmount());await inAct(tick)
+  const view=await mountView(<AppFilePermissionPrompt slug="demo" prompt={prompt} owner={document}/>,el=>el);t.after(()=>view.unmount());await inAct(tick)
   const buttons=()=>[...document.querySelectorAll<HTMLButtonElement>('[aria-label="App file permission"] button')];assert(buttons().find(b=>b.textContent==='Always allow')!.disabled)
   await inAct(()=>{buttons().find(b=>b.textContent==='Use this folder')!.click()});await inAct(()=>{buttons().find(b=>b.textContent==='Always allow')!.click()});assert.deepEqual(decision,{choice:'always',path:'C:/synthetic'})
 })

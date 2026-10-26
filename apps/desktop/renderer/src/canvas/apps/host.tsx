@@ -1,4 +1,3 @@
-import {appCapabilities} from './policy'
 import {useEffect,useMemo,useRef,useState} from 'react'
 import {customAppsRequest} from '../../api'
 import {useSurfaceDocument} from '../../popout'
@@ -125,6 +124,6 @@ export function PanelHtml({slug,app,panel,visible=true}:{slug:string;app:CustomA
       data-orgtree-runtime={panel.id+':'+generation} onLoad={()=>{ready.current=true;postRef.current({kind:'ready'})}}/>:<div className="custom-app-suspended">Loading app…</div>}
     <div className="custom-app-status"><span>{saved?'Saved':'State saved by Orgtree'}</span></div>
     {prompt&&visible&&<AppPermissionPrompt prompt={prompt} owner={owner}/>}
-    {filePrompt&&visible&&<AppFilePermissionPrompt slug={slug} prompt={filePrompt} owner={owner} canSend={appCapabilities(app).includes('mail.send')}/>}
+    {filePrompt&&visible&&<AppFilePermissionPrompt slug={slug} prompt={filePrompt} owner={owner}/>}
   </div>
 }
