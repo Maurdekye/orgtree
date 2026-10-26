@@ -44,6 +44,13 @@ pub enum Scope {
 #[derive(Clone, Debug)]
 pub struct Event { pub name: String, pub scope: Scope, pub payload: Value, members: Option<Arc<Vec<i64>>>, at: DateTime<Utc>, suppressed_owner: Option<i64> }
 
+// Identity seams used by the receiving-task red control before privacy is added.
+#[nolog]
+async fn app_event_scope<T>(_private:bool,future:impl std::future::Future<Output=T>)->T { future.await }
+impl Event {
+    #[nolog] fn diagnostic_line(&self)->String { format!("{} {}",self.name,self.payload) }
+}
+
 #[derive(Clone)]
 pub(super) struct Subscription {
     tx: Sender<Event>,
@@ -506,6 +513,33 @@ pub(crate) fn mail_delivered(engine:&Engine,org:i64,agent:i64,rows:Vec<(String,S
 
 #[logged]
 pub(crate) fn health(engine:&Engine,row:i64)->Option<String>{engine.dogs.event_health.pin().get(&row).cloned()}
+
+#[cfg(test)] mod custom_apps_handoff_control {
+    use super::*;
+    #[tokio::test(flavor="current_thread")]
+    async fn custom_apps_private_event_handoff_keeps_delivery_but_not_logs_or_diagnostic_state(){
+        const CANARY:&str="PRIVATE_APP_CHANNEL_CANARY_489";
+        let capture=crate::trace::LogCapture::start().await;
+        let engine=crate::engine::Engine::for_tests(std::path::PathBuf::new());
+        let (sub,mut rx)=subscribe(&engine,9821);
+        // This task already exists before the producer's private scope begins.
+        let consumer=tokio::spawn(async move{
+            let e=rx.recv().await.unwrap();
+            tracing::info!(?e,"independent subscriber received event");
+            let diagnostic=e.diagnostic_line();
+            tracing::info!(last_output=%diagnostic,"persisted diagnostic state");
+            app_event_scope(e.name=="app.event",async move{
+                let access=Access{me:crate::tools::Me{id:1,org_id:3,name:"owner".into(),superior_id:None,generation:0,visibility:"full".into()},org_slug:"fixture".into(),visible:None,names:HashMap::new(),ids:HashSet::from([2]),live:HashSet::from([2]),down:HashSet::from([2]),docket:HashSet::new(),credits:json!({}),reach:HashSet::new()};
+                let mut pending=Pending::default();pending.add(e);let lines=pending.lines(&access);
+                tracing::info!(?lines,"authorized delivery lines");lines
+            }).await
+        });
+        crate::trace::private_app(async{emit(&engine,event("app.event",Scope::Agent(3,2),json!({"untrusted_app_content":true,"payload":CANARY})));}).await;
+        let lines=consumer.await.unwrap();assert_eq!(lines.len(),1);assert!(lines[0].contains(CANARY),"authorized delivery lost the original payload");
+        unsubscribe(&engine,9821,&sub);tracing::info!("ordinary consumer positive 632");
+        let log=capture.finish().await;assert!(log.contains("ordinary consumer positive 632"));assert!(!log.contains(CANARY),"independent app-event consumer leaked: {log}");
+    }
+}
 
 #[logged]
 fn set_health(engine:&Engine,d:&Dog,message:Option<String>){
