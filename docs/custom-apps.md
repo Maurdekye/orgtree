@@ -145,3 +145,6 @@ import it through Apps, open a copy, save notes, and enter a live local agent's
 name to send them. The send action uses the native permission prompt and app
 provenance. Reload saved data picks up agent edits. It is a generic example,
 not a recreation of the earlier annotation editor whose source is unavailable.
+
+The provisional queue also caps pending recipient deliveries at8,192 per app;
+publication refuses before that snapshot would exceed the bound.

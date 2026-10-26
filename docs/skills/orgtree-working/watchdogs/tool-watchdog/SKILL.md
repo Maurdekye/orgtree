@@ -453,3 +453,6 @@ Read and remove a kept dog:
 - [orgtree-waiting-for-events](../waiting-for-events/SKILL.md)
 
 For suggested team patterns, see `orgtree-committee-mode` and `orgtree-dev-team` (orgtree-workflows › collaboration-patterns).
+
+The provisional queue also caps pending recipient deliveries at8,192 per app;
+publication refuses before that snapshot would exceed the bound.

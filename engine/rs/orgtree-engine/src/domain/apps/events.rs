@@ -88,6 +88,8 @@ pub async fn publish(tx:&Transaction<'_>,org:i64,panel:&str,name:&str,payload:&V
     if count>=PENDING_MAX{crate::refuse!(Conflict,"app event queue has128 pending fires; wait for listeners to drain");}
     let recipients=tx.query("SELECT w.id FROM ot.watchdogs w JOIN ot.agents a ON a.id=w.owner_agent_id WHERE w.org_id=$1 AND w.kind='app_listener' AND w.target=$2 AND w.state='armed' AND a.state='live' AND a.kind='agent' AND w.memo->>'event_name'=$3 AND (coalesce((w.memo->>'all_panels')::boolean,false) OR w.memo->>'panel'=$4) ORDER BY w.id LIMIT 4097",&[&org,&app,&name,&panel]).await?;
     if recipients.len()>LISTENERS_MAX as usize{crate::refuse!(Conflict,"app listener snapshot exceeds4096 registrations");}
+    let pending:i64=tx.query_one("SELECT count(*) FROM ot.app_event_recipients r JOIN ot.app_event_fires f ON f.id=r.fire_id WHERE f.org_id=$1 AND f.app_id=$2 AND NOT r.done",&[&org,&app]).await?.get(0);
+    if pending+recipients.len() as i64>8192{crate::refuse!(Conflict,"app event queue has8192 pending recipient deliveries; wait for listeners to drain");}
     let uid=crate::util::uid("app-event");let empty=recipients.is_empty();
     let id:i64=tx.query_one("INSERT INTO ot.app_event_fires(uid,org_id,app_id,panel_id,name,payload,producer,done) VALUES($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id",&[&uid,&org,&app,&panel,&name,&payload,&producer,&empty]).await?.get(0);
     let ids:Vec<i64>=recipients.iter().map(|r|r.get(0)).collect();
@@ -175,7 +177,7 @@ pub fn start(engine:&Arc<Engine>){
         loop{
             let mut added=false;
             if jobs.len()<4{
-                let candidates=async{let c=engine.db.get().await?;Ok::<_,anyhow::Error>(c.query("SELECT f.org_id,f.app_id,min(f.id) FROM ot.app_event_fires f JOIN ot.orgs o ON o.id=f.org_id WHERE NOT f.done AND o.state='active' GROUP BY f.org_id,f.app_id ORDER BY min(f.id) LIMIT 64",&[]).await?)}.await;
+                let candidates=async{let open:Vec<i64>=engine.orgs.all().into_iter().map(|o|o.id).collect();let c=engine.db.get().await?;Ok::<_,anyhow::Error>(c.query("SELECT f.org_id,f.app_id,min(f.id) FROM ot.app_event_fires f JOIN ot.orgs o ON o.id=f.org_id WHERE NOT f.done AND o.state='active' AND f.org_id=ANY($1) GROUP BY f.org_id,f.app_id ORDER BY min(f.id) LIMIT 64",&[&open]).await?)}.await;
                 if let Ok(rows)=candidates{let running:HashSet<_>=active.values().cloned().collect();for r in rows{
                     let key:(i64,String)=(r.get(0),r.get(1));if running.contains(&key)||engine.orgs.by_id(key.0).is_none()||jobs.len()>=4{continue}
                     let e=engine.clone();let task_key=key.clone();let h=jobs.spawn(async move{crate::trace::private_app(async{

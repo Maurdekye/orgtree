@@ -174,3 +174,6 @@ saved copy data, links, IDs or grants. Creation installs new Ask definitions and
 no open panels. After opening a new copy, link its agents and adjust any watcher
 filter that refers to old app/panel IDs. Apps file import/export remains the
 autonomous agent parity path for moving definitions and optional saved data.
+
+The provisional queue also caps pending recipient deliveries at8,192 per app;
+publication refuses before that snapshot would exceed the bound.

@@ -334,3 +334,6 @@ and sessions, and close a delayed session_open result before it can dispatch.
 Permission edits use their separate revision and do not reload code. Native
 Permissions saves Ask/Allow/Deny immediately for all copies. Real-PostgreSQL
 persistence and capability execution/refusals remain part of the proof before alpha.
+
+The provisional queue also caps pending recipient deliveries at8,192 per app;
+publication refuses before that snapshot would exceed the bound.

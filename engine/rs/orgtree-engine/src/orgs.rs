@@ -88,6 +88,7 @@ pub fn open(engine: &Arc<Engine>, id: i64, uuid: String, slug: String, name: Str
     let h = Arc::new(OrgHandle { id, uuid, slug, name: ArcSwap::from_pointee(name), feed, rooms: Rooms::default(), working: AtomicI64::new(0),
                              docket: AtomicU64::new(0) });
     engine.orgs.insert(h.clone());
+    crate::domain::apps::events::notify(engine);
     h
 }
 

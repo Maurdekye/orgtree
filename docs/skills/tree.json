@@ -7855,9 +7855,9 @@
      "line": 41
     },
     {
-      "file": "apps/desktop/renderer/src/canvas/apps/portable.tsx",
-      "label": "Export app",
-      "line": 49
+     "file": "apps/desktop/renderer/src/canvas/apps/portable.tsx",
+     "label": "Export app",
+     "line": 49
     },
     {
      "file": "apps/desktop/renderer/src/canvas/apps/settings.tsx",
@@ -7903,6 +7903,16 @@
      "file": "apps/desktop/renderer/src/canvas/apps/settings.tsx",
      "label": "Delete panel",
      "line": 52
+    },
+    {
+     "file": "apps/desktop/renderer/src/canvas/apps/settings.tsx",
+     "label": "Events",
+     "line": 51
+    },
+    {
+     "file": "apps/desktop/renderer/src/canvas/apps/events.tsx",
+     "label": "Declared event",
+     "line": 22
     }
    ]
   }
