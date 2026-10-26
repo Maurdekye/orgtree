@@ -163,6 +163,20 @@ pub fn merge(state:&mut Value,patch:&Value) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test] fn custom_apps_event_declarations_are_portable_inert_manifest_data() {
+        let raw=json!({"name":"Notes","html":"<p>notes</p>","events":[{"name":"submitted","description":"Notes ready for review"}]});
+        let def:Definition=serde_json::from_value(raw.clone()).unwrap();definition(&def).unwrap();
+        assert_eq!(serde_json::to_value(&def).unwrap()["events"],raw["events"]);
+        let portable:Bundle=serde_json::from_value(json!({"format":"orgtree-app","version":1,"definition":raw})).unwrap();bundle(&portable).unwrap();
+        let card=crate::tools::defs::list().into_iter().find(|c|c["name"]=="orgtree_apps").unwrap();
+        assert_eq!(card["inputSchema"]["properties"]["definition"]["properties"]["events"]["maxItems"],64);
+    }
+    #[test] fn custom_apps_event_declarations_reject_ambiguous_excess_or_authority_fields() {
+        let clean=json!({"name":"Notes","html":"<p>notes</p>","events":[{"name":"submitted"}]});
+        let check=|raw:Value|->bool{serde_json::from_value::<Definition>(raw).is_ok_and(|def|definition(&def).is_ok())};assert!(check(clean.clone()));
+        for events in [json!([{"name":"submitted"},{"name":"submitted"}]),json!([{"name":" submitted"}]),json!([{"name":"submitted "}]),json!([{"name":"\n"}]),json!([{"name":"x".repeat(81)}]),json!([{"name":"x","description":"x".repeat(1001)}]),json!([{"name":"x","permission":"allow"}]),json!((0..65).map(|i|json!({"name":format!("event{i}")})).collect::<Vec<_>>())]{let mut bad=clean.clone();bad["events"]=events;assert!(!check(bad));}
+        let mut legacy=clean;legacy.as_object_mut().unwrap().remove("events");assert!(check(legacy));
+    }
     #[test] fn custom_apps_state_merge_preserves_independent_json_and_removes_keys() {
         let original=json!({"notes":{"a":1,"b":2},"keep":[1,2]});let mut copy=original.clone();
         merge(&mut copy,&json!({"notes":{"a":null,"c":3}})).unwrap();

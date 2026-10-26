@@ -2,12 +2,18 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import {flush,inAct,mountView} from './harness'
 import {AppsButton,AppsWorkspace} from '../src/canvas/apps/ui'
-import {APP_BUNDLE_MAX,saveAppJson} from '../src/canvas/apps/portable'
+import {APP_BUNDLE_MAX,parseAppBundle,saveAppJson} from '../src/canvas/apps/portable'
 import type {CustomApp} from '../src/canvas/apps/types'
 
 const tick=async()=>{for(let i=0;i<4;i++)await flush()}
 const bundle={format:'orgtree-app',version:1,definition:{name:'Notes',html:'<p>saved</p>',initial_state:{note:'initial'},capabilities:['mail.send'],width:360,height:280},panels:[{label:'Saved notes',state:{note:'saved'}}]}
 const app:CustomApp={id:'local',name:'Notes',description:'Portable notes',rev:3,permission_rev:2,width:360,height:280,capabilities:['mail.send'],permissions:{'mail.send':'allow'},created_by:'maker',updated_at:'2026-01-01'}
+test('portable app event declarations preserve names and refuse ambiguity or authority',()=>{
+  const events=[{name:'submitted',description:'Notes ready for review'}],value={...bundle,definition:{...bundle.definition,events}}
+  assert.deepEqual(parseAppBundle(JSON.stringify(value)).definition.events,events)
+  for(const bad of [[events[0],events[0]],[{name:' submitted'}],[{name:'submitted '}],[{name:'\n'}],[{name:'x'.repeat(81)}],[{name:'x',description:'x'.repeat(1001)}],[{name:'x',permission:'allow'}],Array.from({length:65},(_,i)=>({name:'event'+i}))])assert.throws(()=>parseAppBundle(JSON.stringify({...value,definition:{...value.definition,events:bad}})))
+  assert.deepEqual(parseAppBundle(JSON.stringify(bundle)),bundle,'old definition-only bundles stay readable')
+})
 function server(slug:string){
   const original=globalThis.fetch,calls:Record<string,unknown>[]=[]
   globalThis.fetch=async(raw,init)=>{
