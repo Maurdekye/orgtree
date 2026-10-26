@@ -3,18 +3,18 @@
 .custom-apps-menu { position:fixed;z-index:2500;max-height:calc(100vh - 16px);overflow:auto;padding:8px;box-sizing:border-box }
 .custom-apps-menu>header,.custom-apps-menu-app { display:flex;align-items:center;gap:8px }
 .custom-apps-menu>header { padding:4px 4px 8px;justify-content:space-between }
-.custom-apps-menu-group { border-top:1px solid var(--border);padding:8px 2px }
+.custom-apps-menu-group { border-top:1px solid var(--line);padding:8px 2px }
 .custom-apps-menu button { color:inherit;cursor:pointer }
 .custom-apps-menu-app>button:last-child { flex:none;border:0;background:none;padding:5px }
 .custom-apps-menu-app svg { width:20px;height:20px;flex:none }
 .custom-apps-open { display:flex;gap:8px;align-items:center;flex:1;min-width:0;background:none;border:0;text-align:left;padding:5px }
 .custom-apps-open span { display:flex;flex-direction:column;min-width:0 }
-.custom-apps-open small { display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--muted) }
+.custom-apps-open small { display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--dim) }
 .custom-apps-new,.custom-apps-saved { display:flex;width:100%;align-items:center;gap:7px;text-align:left;padding:6px 10px;border:0;background:none;border-radius:4px }
-.custom-apps-menu button:hover { background:var(--hover) }
+.custom-apps-menu button:hover { background:var(--panel-2) }
 .custom-apps-saved span:nth-child(2) { flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap }
-.custom-apps-saved small { color:var(--muted) }
-.custom-app-dot { flex:none;box-sizing:border-box;width:8px;height:8px;border:1px solid currentColor;border-radius:50%;color:var(--muted) }
+.custom-apps-saved small { color:var(--dim) }
+.custom-app-dot { flex:none;box-sizing:border-box;width:8px;height:8px;border:1px solid currentColor;border-radius:50%;color:var(--dim) }
 .custom-app-dot.open { background:var(--accent);border-color:var(--accent) }
 /* A window pin's surface lives in the org pin layer; its placeholder takes no space. */
 .custom-app-placeholder.pinned { display:contents }
@@ -98,7 +98,7 @@
 /* App rows (user 2026-10-26): the whole row opens its first listed panel, or
    creates one when the app has none; + always creates a new panel. */
 .custom-apps-menu-app { cursor:pointer;border-radius:4px }
-.custom-apps-menu-app:hover { background:var(--hover) }
+.custom-apps-menu-app:hover { background:var(--panel-2) }
 .custom-apps-menu-app>.custom-apps-add { flex:none;display:inline-flex;align-items:center;justify-content:center;border:0;border-radius:4px;background:none;padding:5px }
 .custom-app-history pre { margin:4px 0 0 }
 /* Running but not visible (user 2026-10-26: hidden panels keep running). Chromium
@@ -108,7 +108,7 @@
 .custom-app-parked { position:fixed!important;left:0!important;top:0!important;opacity:0!important;z-index:-1!important;overflow:visible;contain:layout style }
 .custom-app-parked,.custom-app-parked * { pointer-events:none!important }
 .custom-app-dot.running { background:transparent;border:2px solid var(--accent) }
-.custom-apps-saved-power { display:flex;align-items:center;justify-content:center;flex:none;border:0;border-radius:4px;background:none;padding:6px;color:var(--muted) }
-.custom-apps-saved-power:hover { color:var(--text) }
+.custom-apps-saved-power { display:flex;align-items:center;justify-content:center;flex:none;border:0;border-radius:4px;background:none;padding:6px;color:var(--dim) }
+.custom-apps-saved-power:hover { color:var(--ink) }
 .custom-apps-saved-power svg { width:16px;height:16px }
-.custom-app-cpu { flex:none;color:var(--muted);font-size:11px;font-variant-numeric:tabular-nums }
+.custom-app-cpu { flex:none;color:var(--dim);font-size:11px;font-variant-numeric:tabular-nums }
