@@ -41,14 +41,26 @@ pub enum Scope {
     Account(Option<String>),
 }
 
-#[derive(Clone, Debug)]
-pub struct Event { pub name: String, pub scope: Scope, pub payload: Value, members: Option<Arc<Vec<i64>>>, at: DateTime<Utc>, suppressed_owner: Option<i64> }
+#[derive(Clone)]
+pub struct Event { pub name: String, pub scope: Scope, pub payload: Value, private:bool, members: Option<Arc<Vec<i64>>>, at: DateTime<Utc>, suppressed_owner: Option<i64> }
 
-// Identity seams used by the receiving-task red control before privacy is added.
+impl std::fmt::Debug for Event {
+    fn fmt(&self,f:&mut std::fmt::Formatter<'_>)->std::fmt::Result{
+        let mut out=f.debug_struct("Event");out.field("name",&self.name).field("scope",&self.scope).field("private",&self.private);
+        if self.private{out.field("payload",&"[private app content omitted]");}else{out.field("payload",&self.payload);}
+        out.field("at",&self.at).finish_non_exhaustive()
+    }
+}
+
+// Provenance must cross channels/overflow and live past the producer's task.
 #[nolog]
-async fn app_event_scope<T>(_private:bool,future:impl std::future::Future<Output=T>)->T { future.await }
+async fn app_event_scope<T>(private:bool,future:impl std::future::Future<Output=T>)->T {
+    if private{crate::trace::private_app(future).await}else{future.await}
+}
 impl Event {
-    #[nolog] fn diagnostic_line(&self)->String { format!("{} {}",self.name,self.payload) }
+    #[nolog] fn diagnostic_line(&self)->String {
+        if self.private{format!("{} [private app content omitted]",self.name)}else{format!("{} {}",self.name,self.payload)}
+    }
 }
 
 #[derive(Clone)]
@@ -60,7 +72,7 @@ pub(super) struct Subscription {
 
 #[logged]
 pub fn event(name: &str, scope: Scope, payload: Value) -> Event {
-    Event { name: name.to_owned(), scope, payload, members: None, at: Utc::now(), suppressed_owner: None }
+    Event { name: name.to_owned(), scope, payload, private:name=="app.event", members: None, at: Utc::now(), suppressed_owner: None }
 }
 
 /// Only engine producers call this: payloads are deliberately small allow-lists.
@@ -315,7 +327,8 @@ pub(super) async fn run(engine: &Arc<Engine>, mut d: Dog, sub: &Subscription, mu
         // latest overflow sample; busy targets are coalesced, never auto-paused.
         while batch.len()<256 {match rx.try_recv(){Ok(e)=>batch.push(e),Err(_)=>break}}
         if batch.len()<257 {if let Some(e)=sub.overflow.swap(None){batch.push((*e).clone());}}
-        let result:Result<bool>=async {
+        let private=batch.iter().any(|e|e.private)||pending.events.iter().any(|(e,_)|e.private);
+        let result:Result<bool>=app_event_scope(private,async {
             let Some(mut next)=load(engine,d.row).await? else{return Ok(true)};
             if next.state!="armed" || !next.owner_live{return Ok(true)}
             // A previous fire may have committed before a connection error. Do
@@ -352,7 +365,7 @@ pub(super) async fn run(engine: &Arc<Engine>, mut d: Dog, sub: &Subscription, mu
                 }
                 let hit=matches(&re,&e.payload.to_string());hit_any|=hit;dirty=true;
                 next.run["checks_run"]=json!(next.run_i64("checks_run")+1);
-                next.run["last_output"]=json!(tail(&format!("{} {}",e.name,e.payload),OUT_KEEP));note_life(&mut next.run,true);
+                next.run["last_output"]=json!(tail(&e.diagnostic_line(),OUT_KEEP));note_life(&mut next.run,true);
                 if hit && !next.silence(){staged.add(e);}
             }
             if dirty {save_run(engine,&mut next,hit_any).await?;}
@@ -368,14 +381,15 @@ pub(super) async fn run(engine: &Arc<Engine>, mut d: Dog, sub: &Subscription, mu
                 pending=Pending::default();
             }
             Ok(false)
-        }.await;
+        }).await;
         match result {
             Ok(true)=>{set_health(engine,&d,None);return Ok(());},
             Ok(false)=>retry=0,
             Err(e)=>{
                 retry=if retry==0{1}else{(retry*2).min(30)};
                 set_health(engine,&d,Some(format!("Event listener retrying after a storage error; queued events retained/coalesced; next retry in {retry}s")));
-                tracing::warn!(watchdog=%d.uid,retry_s=retry,error=%e,"event watchdog storage retry");
+                if private{tracing::warn!(watchdog=%d.uid,retry_s=retry,"private app event watchdog storage retry; detail omitted");}
+                else{tracing::warn!(watchdog=%d.uid,retry_s=retry,error=%e,"event watchdog storage retry");}
             }
         }
     }
@@ -522,20 +536,26 @@ pub(crate) fn health(engine:&Engine,row:i64)->Option<String>{engine.dogs.event_h
         let capture=crate::trace::LogCapture::start().await;
         let engine=crate::engine::Engine::for_tests(std::path::PathBuf::new());
         let (sub,mut rx)=subscribe(&engine,9821);
+        let overflow=sub.overflow.clone();
         // This task already exists before the producer's private scope begins.
         let consumer=tokio::spawn(async move{
             let e=rx.recv().await.unwrap();
+            let latest=overflow.swap(None).expect("bounded channel must retain an overflow sample");
+            assert!(e.private&&latest.private);assert_eq!(latest.payload["payload"],CANARY);
+            tracing::info!(?latest,"independent subscriber received overflow");
             tracing::info!(?e,"independent subscriber received event");
             let diagnostic=e.diagnostic_line();
             tracing::info!(last_output=%diagnostic,"persisted diagnostic state");
-            app_event_scope(e.name=="app.event",async move{
+            app_event_scope(e.private,async move{
                 let access=Access{me:crate::tools::Me{id:1,org_id:3,name:"owner".into(),superior_id:None,generation:0,visibility:"full".into()},org_slug:"fixture".into(),visible:None,names:HashMap::new(),ids:HashSet::from([2]),live:HashSet::from([2]),down:HashSet::from([2]),docket:HashSet::new(),credits:json!({}),reach:HashSet::new()};
                 let mut pending=Pending::default();pending.add(e);let lines=pending.lines(&access);
                 tracing::info!(?lines,"authorized delivery lines");lines
             }).await
         });
-        crate::trace::private_app(async{emit(&engine,event("app.event",Scope::Agent(3,2),json!({"untrusted_app_content":true,"payload":CANARY})));}).await;
+        crate::trace::private_app(async{for _ in 0..257{emit(&engine,event("app.event",Scope::Agent(3,2),json!({"untrusted_app_content":true,"payload":CANARY})));}}).await;
         let lines=consumer.await.unwrap();assert_eq!(lines.len(),1);assert!(lines[0].contains(CANARY),"authorized delivery lost the original payload");
+        let ring=super::super::fire_ring(&lines,true,Utc::now());tracing::info!(ring=%serde_json::to_string(&ring).unwrap(),"persisted ring diagnostic");assert!(!serde_json::to_string(&ring).unwrap().contains(CANARY));
+        assert!(super::super::fire_ring(&["ordinary event positive".into()],false,Utc::now())[0]["gist"].as_str().unwrap().contains("ordinary event positive"));
         unsubscribe(&engine,9821,&sub);tracing::info!("ordinary consumer positive 632");
         let log=capture.finish().await;assert!(log.contains("ordinary consumer positive 632"));assert!(!log.contains(CANARY),"independent app-event consumer leaked: {log}");
     }

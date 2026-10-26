@@ -61,7 +61,7 @@ pub async fn private_app<T>(future:impl std::future::Future<Output=T>)->T {
     PRIVATE_APP.scope(true,future).await
 }
 #[nolog]
-fn app_private()->bool { PRIVATE_APP.try_with(|v|*v).unwrap_or(false) }
+pub(crate) fn app_private()->bool { PRIVATE_APP.try_with(|v|*v).unwrap_or(false) }
 
 /// Turn verbose logging on or off; answers the previous state.
 pub fn set_verbose(on: bool) -> bool {

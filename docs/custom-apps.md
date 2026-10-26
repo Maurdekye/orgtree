@@ -53,3 +53,7 @@ open item and wake its selected local agent. The prompt says so; the assignment
 identifies app content with no user instruction or approval authority. The
 execution budget is60 dispatch attempts per minute per app, including one-shot
 decisions; closing and reopening a panel does not reset it.
+
+App-triggered watchdogs keep their authorized event delivery. Their diagnostic
+last-output and recent-fire summaries omit private app payloads; read the event
+or panel data through its authorized delivery and Apps controls.

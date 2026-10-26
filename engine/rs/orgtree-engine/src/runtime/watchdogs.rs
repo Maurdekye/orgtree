@@ -1345,6 +1345,13 @@ async fn fire(engine: &Arc<Engine>, dog: &mut Dog, events: &[String], prefix: &s
     crate::util::boxed(|| fire_with(engine, dog, events, prefix, None)).await
 }
 
+/// Diagnostic history is metadata only for private app-event batches. The
+/// separately authorized delivery below keeps its original full lines.
+#[nolog]
+fn fire_ring(events:&[String],private:bool,now:DateTime<Utc>)->Vec<Value>{
+    events.iter().take(20).map(|e|json!({"at":iso(now),"gist":if private{"[private app event content omitted]".to_owned()}else{gist(e,200)}})).collect()
+}
+
 /// [`fire`], with `extra` members for the fire's event: an mqtt fire's
 /// `source` and its true message `count` (docs/rust-engine/mqtt-watchdogs.md).
 #[logged]
@@ -1353,7 +1360,7 @@ async fn fire_with(engine: &Arc<Engine>, dog: &mut Dog, events: &[String], prefi
     let events=clean.as_slice();
     let now = Utc::now();
     let next_quiet=dog.silence().then(||schedule::next_slot(dog.quiet_deadline(),dog.quiet_s.unwrap_or(600),now));
-    let ring: Vec<Value> = events.iter().take(20).map(|e| json!({ "at": iso(now), "gist": gist(e, 200) })).collect();
+    let ring=fire_ring(events,crate::trace::app_private(),now);
     let client = engine.db.get().await?;
     let row = client
         .query_opt(

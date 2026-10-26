@@ -80,3 +80,8 @@ live local owner. Native permission UI and app-origin assignment envelopes say s
 and mark its description as app content, not user instruction/approval. This is
 an explicit morning design question. All action dispatches, including approved
 Once/Always requests, share60 attempts/minute across host closure/reopening.
+
+App-event payloads remain private across watchdog channels/overflow. Matching and
+authorized delivery keep the payload; diagnostic last_output and recent-fire
+gists omit it. Use the delivered event or authorized Apps data, not diagnostic
+summaries, to interpret the app's content.

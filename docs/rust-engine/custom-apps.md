@@ -120,6 +120,16 @@ non-HTTP internal callers. The scope does not propagate across spawned tasks;
 dispatch services must not spawn private payloads. Invalid read requests return a
 fixed parser refusal rather than reflecting caller content.
 
+App event privacy also travels in Event provenance through subscriber channels
+and overflow cells. Its Debug formatter is opaque even outside the producer task.
+The receiving runner scopes the complete mixed batch and pending delivery before
+Access/Pending/save/fire services. Payload remains available for authorized regex
+matching and delivery. Diagnostic last_output and fire-history gists omit private
+app content, so persisted progress cannot leak it on a later ordinary load. Error
+retries retain metadata only. A canary uses actual emit/subscription/overflow with
+an independent consumer created before the producer's private scope; it verifies
+the original delivery bytes and ordinary-log positives as well as omitted logs.
+
 Ask stores one exact action under an opaque challenge for120 seconds. Decide
 consumes it once. Once executes only that action; Always stores Allow for its
 capability; Deny stores Deny. permission_set requires current app expected_rev

@@ -4,6 +4,8 @@ Read this file before working in this repository. It is the startup guide, not a
 
 Custom app actions use parent-only, code/panel-bound sessions and native owning-document
 permission prompts; sandbox HTML never receives a credential or permission method.
+App events carry privacy across subscriber/overflow handoffs; authorized delivery
+keeps content while watchdog diagnostic output/history omit it.
 Hide/close/replacement discards prompts and authority, while grant edits use a separate
 revision from code. See [custom apps](docs/rust-engine/custom-apps.md).
 [verified: `canvas/apps/actions.ts`, `canvas/apps/{host,permissions}.tsx`, `domain/apps/bridge.rs`; 2026-10-26]
