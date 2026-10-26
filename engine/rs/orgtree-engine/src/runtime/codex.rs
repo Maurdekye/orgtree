@@ -657,8 +657,12 @@ async fn read_stdout(
 }
 
 /// A request from the app-server: an `orgtree_*` tool call, or an approval.
-#[logged]
+#[nolog]
 async fn answer(engine: &Arc<Engine>, caller: &Caller, actor: &AgentTx, method: &str, params: &Value, policy: Policy, process: uuid::Uuid) -> Result<Value> {
+    crate::tools::tool_scope(if method=="item/tool/call"{params["tool"].as_str().unwrap_or("")}else{""},answer_logged(engine,caller,actor,method,params,policy,process)).await
+}
+#[logged]
+async fn answer_logged(engine: &Arc<Engine>, caller: &Caller, actor: &AgentTx, method: &str, params: &Value, policy: Policy, process: uuid::Uuid) -> Result<Value> {
     match method {
         "item/tool/call" => {
             let tool = params["tool"].as_str().unwrap_or("");

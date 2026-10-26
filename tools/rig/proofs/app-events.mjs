@@ -1,5 +1,6 @@
 // Narrow approved real-PG author proof; synthetic org/fake CLIs, no live data.
 import assert from 'node:assert/strict'
+import {isDeepStrictEqual as same} from 'node:util'
 import fs from 'node:fs'
 import path from 'node:path'
 import {spawn} from 'node:child_process'
@@ -35,7 +36,8 @@ export default async function(rig){
   let app=await appTool({action:'app_create',definition}),a=await appTool({action:'panel_open',app:app.id,new:true,label:'First'}),b=await appTool({action:'panel_open',app:app.id,new:true,label:'Second'})
   a=await appTool({action:'panel_update',panel:a.id,expected_rev:a.rev,open:false})
   const exported=await appTool({action:'app_export',app:app.id,expected_rev:app.rev,as_file:false,include_panels:true}),imported=await appTool({action:'app_import',bundle:exported.bundle})
-  p.check('declarations round-trip through real PG/portable bundles with fresh Ask and no connections',JSON.stringify((await get(app.id)).events)===JSON.stringify(definition.events)&&JSON.stringify(imported.app.events)===JSON.stringify(definition.events)&&Object.keys(imported.app.permissions).length===0&&(await apps({action:'listeners',app:imported.app.id})).items.length===0)
+  const expected=definition.events.map(e=>({description:'',...e})),actual=(await get(app.id)).events;p.file('manifest-roundtrip.json',{expected,actual,imported:imported.app.events})
+  p.check('declarations round-trip through real PG/portable bundles with fresh Ask and no connections',same(actual,expected)&&same(imported.app.events,expected)&&Object.keys(imported.app.permissions).length===0&&(await apps({action:'listeners',app:imported.app.id})).items.length===0)
   const specific=await dog('watcher',{action:'create',kind:'app_listener',target:app.id,event_name:'submitted',panel:a.id,name:'first-copy',notice:true,fire_actions:[{tool:'orgtree_apps',args:{action:'fire_event',panel:a.id,name:'unobserved',payload:{nested:true}}}]}),all=await dog('second',{action:'create',kind:'app_listener',target:app.id,event_name:'submitted',all_panels:true,name:'all-copies',notice:true,once:true})
   const denied=await rig.tool('denied','orgtree_watchdog',{action:'create',kind:'app_listener',target:app.id,event_name:'submitted',panel:a.id}),duplicate=await rig.tool('second','orgtree_watchdog',{action:'create',kind:'app_listener',target:app.id,event_name:'submitted',panel:a.id})
   const unknown=await rig.tool('boss','orgtree_watchdog',{action:'create',kind:'app_listener',target:app.id,event_name:'missing',panel:a.id})

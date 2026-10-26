@@ -2,6 +2,11 @@
 
 ## Durable declared event delivery
 
+Apps privacy begins before logged agent adapters (MCP, direct tool, Codex and
+the test-only rig transport), not merely inside the Apps domain handler. This
+also protects read results and reflected refusals; ordinary tools retain normal
+diagnostics. Independent dispatch tasks establish their own private scope.
+
 `orgtree_apps fire_event` takes a saved `panel`, exact declared `name` and JSON
 `payload` (64 KiB). Agents publish with org-modifying tools; a closed copy is
 valid. HTML uses its bound `events.fire` action with no recipient or caller

@@ -542,6 +542,8 @@ fn request_target_for_log(path: &str, uri: &axum::http::Uri) -> String {
 
 #[nolog]
 fn private_apps_path(path:&str)->bool {
+    // Test-only tool transport carries the same private payloads as MCP.
+    if path=="/api/rig/tool"{return true}
     let mut parts=path.split('/');
     matches!((parts.next(),parts.next(),parts.next(),parts.next(),parts.next()),(Some(""),Some("api"),Some("orgs"),Some(_),Some("apps")))
 }

@@ -19,6 +19,22 @@ mod apps;
 mod logo;
 mod next_turn;
 pub(crate) mod result_timing;
+#[cfg(test)] mod apps_privacy_control {
+    use super::*;
+    #[tokio::test(flavor="current_thread")]
+    async fn custom_apps_agent_tool_adapters_hide_private_arguments_before_nested_logs(){
+        let capture=crate::trace::LogCapture::start().await;
+        let engine=Engine::for_tests(std::path::PathBuf::new());let caller=Caller{org_id:1,org_slug:"demo".into(),agent_id:1,name:"agent".into()};
+        // Invalid argument shape refuses before DB access, while every real
+        // adapter and its logged descendants still see the private canary.
+        let args=json!(["PRIVATE_APP_AGENT_ADAPTER_639174"]);
+        for shape in [defs::MailShape::Split,defs::MailShape::Flat]{let out=handle_mcp_as(&engine,&caller,&json!({"id":1,"method":"tools/call","params":{"name":"orgtree_apps","arguments":args}}),shape).await;assert_eq!(out["result"]["isError"],true);}
+        let direct=call_agent_tool(&engine,&caller,"orgtree_apps",&args,None).await;assert_eq!(direct["isError"],true);
+        assert!(!call_tool(&engine,&caller,"orgtree_apps",&args,None).await.0);
+        call_agent_tool(&engine,&caller,"ordinary-positive-tool",&json!(["PUBLIC_DIAGNOSTIC_POSITIVE_725"]),None).await;
+        let logs=capture.finish().await;assert!(logs.contains("PUBLIC_DIAGNOSTIC_POSITIVE_725"));assert!(!logs.contains("PRIVATE_APP_AGENT_ADAPTER_639174"));
+    }
+}
 #[cfg(test)]
 mod caller_scope_tests;
 
@@ -34,16 +50,26 @@ use crate::runtime::{AgentMsg, Caller};
 use crate::util::boxed;
 
 
+/// App inputs and returned state are opaque before ANY logged adapter runs.
+#[nolog]
+pub(crate) async fn tool_scope<T>(name:&str,future:impl std::future::Future<Output=T>)->T {
+    if name=="orgtree_apps"{crate::trace::private_app(future).await}else{future.await}
+}
+
 /// One JSON-RPC message from the CLI → the response it gets.
-#[logged]
+#[nolog]
 pub async fn handle_mcp(engine: &Arc<Engine>, caller: &Caller, msg: &Value) -> Value {
     handle_mcp_as(engine, caller, msg, defs::MailShape::Split).await
 }
 
 /// `handle_mcp`, listing the mail tools in `shape` (`defs::MailShape`: flat
 /// on Antigravity).
-#[logged]
+#[nolog]
 pub async fn handle_mcp_as(engine: &Arc<Engine>, caller: &Caller, msg: &Value, shape: defs::MailShape) -> Value {
+    tool_scope(msg["params"]["name"].as_str().unwrap_or(""),handle_mcp_as_logged(engine,caller,msg,shape)).await
+}
+#[logged]
+pub async fn handle_mcp_as_logged(engine: &Arc<Engine>, caller: &Caller, msg: &Value, shape: defs::MailShape) -> Value {
     if msg["method"].as_str() == Some("tools/call") {
         if let Some(id) = msg.get("id").cloned().filter(|i| !i.is_null()) {
             return json!({ "jsonrpc": "2.0", "id": id, "result": call(engine, caller, &msg["params"]).await });
@@ -168,8 +194,12 @@ async fn call_inner(engine: &Arc<Engine>, caller: &Caller, params: &Value) -> Va
 }
 
 /// A tool call from a driver without MCP, preserving its content blocks.
-#[logged]
+#[nolog]
 pub async fn call_agent_tool(engine: &Arc<Engine>, caller: &Caller, name: &str, args: &Value, tool_use: Option<&str>) -> Value {
+    tool_scope(name,call_agent_tool_logged(engine,caller,name,args,tool_use)).await
+}
+#[logged]
+pub async fn call_agent_tool_logged(engine: &Arc<Engine>, caller: &Caller, name: &str, args: &Value, tool_use: Option<&str>) -> Value {
     let mut params = json!({ "name": name, "arguments": args });
     if let Some(t) = tool_use {
         params["_meta"] = json!({ "claudecode/toolUseId": t });
@@ -179,8 +209,12 @@ pub async fn call_agent_tool(engine: &Arc<Engine>, caller: &Caller, name: &str, 
 
 /// Legacy primary text view used by the synthetic rig's JSON-aware endpoint.
 /// Real harnesses use MCP blocks or call_agent_tool, including the final timing block.
-#[logged]
+#[nolog]
 pub async fn call_tool(engine: &Arc<Engine>, caller: &Caller, name: &str, args: &Value, tool_use: Option<&str>) -> (bool, String) {
+    tool_scope(name,call_tool_logged(engine,caller,name,args,tool_use)).await
+}
+#[logged]
+pub async fn call_tool_logged(engine: &Arc<Engine>, caller: &Caller, name: &str, args: &Value, tool_use: Option<&str>) -> (bool, String) {
     let r = call_agent_tool(engine, caller, name, args, tool_use).await;
     let text = r["content"]
         .as_array()
