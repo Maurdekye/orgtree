@@ -742,7 +742,7 @@ else {
         const tasks = await readStartupTasks()
         if (!tasks) throw new Error('Orgtree could not read its startup tasks, so how it starts was not changed.')
         bootTask = tasks.boot !== null
-        if (tasks.boot !== null && startupOn(tasks) !== enabled) await writeRunOnStartup(enabled)
+        if (tasks.boot !== null && (startupOn(tasks) !== enabled || tasks.bootEnabled === false || tasks.helperEnabled === false)) await writeRunOnStartup(enabled)
       } else if (unixBootInputs) {
         if (enabled) {
           const outcome = await enableBootEngine(unixBootInputs)
@@ -2344,13 +2344,30 @@ else {
         try { await initialEngine(); break }
         catch (error) {
           if (!coreLifecycle || quitting) throw error
-          // The desktop remains available (including Quit and Restart engine).
-          // Native stamped-death admission can resume this same initializer;
-          // handlers/windows below are installed only once it succeeds.
+          // Initialization has no org window yet. Never wait invisibly for a
+          // native wake that a disabled/refused task cannot produce. Retry and
+          // Quit are visible; the tray/native recovery can still resume this
+          // same initializer, closing its outstanding dialog without quitting.
           automaticStartupRetry = !(error instanceof Error && error.message.startsWith(CONVERSION_FAILED))
-          await new Promise<void>(resolve => { resumeEngineStartup = resolve })
-          resumeEngineStartup = undefined
+          const detail = error instanceof Error ? error.message : String(error)
+          console.error(`background engine startup failed: ${detail}`)
+          const abort = new AbortController()
+          let cancelled = false
+          const resumed = new Promise<void>(resolve => { resumeEngineStartup = resolve })
+          try {
+            await Promise.race([resumed, dialog.showMessageBox({ type: 'error',
+              message: 'Orgtree could not start its background engine.', detail,
+              buttons: ['Retry', 'Quit'], defaultId: 0, cancelId: 1, signal: abort.signal,
+            }).then(({ response }) => {
+              if (abort.signal.aborted) return
+              cancelled = response !== 0
+            })])
+          } finally {
+            resumeEngineStartup = undefined
+            abort.abort()
+          }
           if (quitting) return
+          if (cancelled) { app.quit(); return }
         }
       }
       if (coreLifecycle) { await coreLifecycle.complete(); coreLifecycle.start() }

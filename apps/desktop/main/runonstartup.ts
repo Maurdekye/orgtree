@@ -43,10 +43,16 @@ export interface StartupTarget { hive: 'LocalMachine' | 'CurrentUser'; key: stri
 export const INSTALLED: StartupTarget = { hive: 'LocalMachine', key: 'SOFTWARE\\Orgtree\\BootEngine', boot: BOOT_TASK, helper: HELPER_TASK, report: RUN_AS_ADMIN_KEY }
 
 /** Each task's state: true enabled, false disabled, null not installed. */
-export interface StartupTasks { boot: boolean | null; helper: boolean | null }
+export interface StartupTasks {
+  boot: boolean | null; helper: boolean | null
+  // Separate damage/installer suspension from the operator's trigger choice.
+  // Optional only for callers retaining the older two-field reading.
+  bootEnabled?: boolean | null; helperEnabled?: boolean | null
+  bootTriggers?: boolean | null; helperTriggers?: boolean | null
+}
 
 /** Whether anything of Orgtree's starts by itself: the boot task enabled. */
-export const startupOn = (tasks: StartupTasks): boolean => tasks.boot === true
+export const startupOn = (tasks: StartupTasks): boolean => (tasks.bootTriggers ?? tasks.boot) === true
 
 const psQuote = (s: string) => `'${s.replace(/'/g, "''")}'`
 
@@ -60,24 +66,39 @@ export function readScript(target: StartupTarget = INSTALLED): string {
     "$folder = $service.GetFolder('\\')",
     'function State([string] $Name) {',
     '  try { $task = $folder.GetTask($Name) } catch {',
-    "    if ($_.Exception.GetBaseException().HResult -eq -2147024894) { return 'null' }",
+    "    if ($_.Exception.GetBaseException().HResult -eq -2147024894) { return [pscustomobject]@{on=$null;enabled=$null;triggers=$null} }",
     '    throw',
     '  }',
-    "  if ($task.Enabled -and @($task.Definition.Triggers | Where-Object { $_.Enabled }).Count -gt 0) { return 'true' }",
-    "  return 'false'",
+    '  $triggers = @($task.Definition.Triggers | Where-Object { $_.Enabled }).Count -gt 0',
+    '  return [pscustomobject]@{on=[bool]($task.Enabled -and $triggers);enabled=[bool]$task.Enabled;triggers=$triggers}',
     '}',
-    `Write-Output ('{"boot":' + (State ${psQuote(target.boot)}) + ',"helper":' + (State ${psQuote(target.helper)}) + '}')`,
+    `$boot = (State ${psQuote(target.boot)})`,
+    `$helper = (State ${psQuote(target.helper)})`,
+    '[ordered]@{boot=$boot.on;helper=$helper.on;bootEnabled=$boot.enabled;helperEnabled=$helper.enabled;bootTriggers=$boot.triggers;helperTriggers=$helper.triggers} | ConvertTo-Json -Compress',
   ].join('\n')
 }
 
 export function parseStartupTasks(stdout: string): StartupTasks | null {
   const line = stdout.split(/\r?\n/).map(l => l.trim()).filter(Boolean).pop() ?? ''
   try {
-    const value = JSON.parse(line) as { boot?: unknown; helper?: unknown }
+    const value = JSON.parse(line) as Record<string, unknown>
     const state = (v: unknown) => (v === true || v === false || v === null ? v : undefined)
     const boot = state(value.boot), helper = state(value.helper)
     if (boot === undefined || helper === undefined) return null
-    return { boot, helper }
+    const tasks: StartupTasks = { boot, helper }
+    for (const name of ['bootEnabled', 'helperEnabled', 'bootTriggers', 'helperTriggers'] as const) {
+      if (!(name in value)) continue
+      const read = state(value[name])
+      if (read === undefined) return null
+      tasks[name] = read
+    }
+    for (const name of ['boot', 'helper'] as const) {
+      const enabled = tasks[`${name}Enabled`], triggers = tasks[`${name}Triggers`]
+      if (enabled === undefined && triggers === undefined) continue
+      if (enabled === undefined || triggers === undefined || (enabled === null) !== (triggers === null)
+        || tasks[name] !== (enabled === null ? null : enabled && triggers)) return null
+    }
+    return tasks
   } catch { return null }
 }
 
@@ -153,7 +174,8 @@ export async function writeRunOnStartup(enabled: boolean, runner: Runner = run, 
   if (result.code === UAC_CANCELLED) throw new Error(`Windows did not give permission, so ${unchanged}.`)
   if (result.code !== 0) throw new Error(elevatedFailureMessage('Changing "run on boot" failed', result))
   const after = await readStartupTasks(runner, target)
-  if (!after || after.boot !== enabled || (after.helper !== null && after.helper !== enabled)) {
+  if (!after || after.boot !== enabled || after.bootEnabled === false || after.helperEnabled === false
+    || (after.helper !== null && after.helper !== enabled)) {
     throw new Error('The change was made but reads back differently; Orgtree may still start as before.')
   }
 }

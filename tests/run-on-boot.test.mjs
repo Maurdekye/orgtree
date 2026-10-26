@@ -79,7 +79,8 @@ test('the reading script reads all owned automatic triggers and changes nothing'
   assert.ok(!script.includes('Orgtree User Session Engine'), 'the retired user-session task is still read')
   assert.doesNotMatch(script, /StartupMode/)
   assert.doesNotMatch(script, /SetValue|\.Enabled =|RegisterTask|DeleteTask/)
-  assert.match(script, /\$task\.Enabled -and .*\$task\.Definition\.Triggers/)
+  assert.match(script, /\$task\.Definition\.Triggers/)
+  assert.match(script, /on=\[bool\]\(\$task\.Enabled -and \$triggers\);enabled=\[bool\]\$task\.Enabled;triggers=\$triggers/)
 })
 
 test('the elevated script verifies both tasks first, switches both and records only RunOnStartup', () => {

@@ -59,7 +59,7 @@ test('actual startup initializer shows launch refusal and Retry settles it witho
   const end=main.indexOf('      if (coreLifecycle) { await coreLifecycle.complete()',start)
   assert.ok(start>=0 && end>start)
   const messages=[];let attempts=0
-  const context={Error,CONVERSION_FAILED:'conversion failed:',quitting:false,app:{isPackaged:true},resumeEngineStartup:undefined,
+  const context={Error,AbortController,CONVERSION_FAILED:'conversion failed:',quitting:false,app:{isPackaged:true},resumeEngineStartup:undefined,
     coreLifecycle:{configureRecovery(){}},console,
     initialEngine:async()=>{if(++attempts===1)throw new Error('The boot task is disabled')},
     dialog:{showMessageBox:async options=>{messages.push(options);return {response:0}}}}
