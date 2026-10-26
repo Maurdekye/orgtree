@@ -582,6 +582,68 @@ verification phase and build-project permits still govern what may be run.
   [verified: `tools/rig/proofs/boot-host-stop.mjs`;
   measured: @rig-opus 2026-10-15]
 
+### Renderer test memory guards (2026-10-26)
+
+Run renderer tests only through `apps/desktop/renderer/tests/run.mjs`. To run
+one test, add node's own name filter: `node run.mjs <file-filter>
+--test-name-pattern <regex>` (also `--test-skip-pattern` and `--test-only`);
+`--prebuilt DIR` runs bundles built elsewhere. Never run a bundle with bare
+`node --test` and never wrap a run in bare `timeout`: that path has no Job
+Object, no heap cap and no per-test timeout, and on 2026-10-26 one red
+assertion grew such a run to 41 GB until the user killed it.
+[decided: coordinator 2026-10-26, docket test-runs-a-node-process-balloons-to-41-gb-ram-c]
+
+**Cause.** The failing assertion was `assert.equal(el, null, msg)`
+(`node:assert/strict`) on a React-rendered element. On failure, Node 24's
+`strictEqual`, `deepStrictEqual` and `partialDeepStrictEqual` always build a
+diff, even with a custom message. They print both values with `util.inspect`
+at depth 1000 with getters on, and React's own `__reactFiber$…` and
+`__reactProps$…` keys put its fiber graph on the element. The Myers line diff
+then keeps a `(2·lines+1)`-int32 copy per edit step: about 8·lines² bytes of
+ArrayBuffer, which `--max-old-space-size` does not cap.
+[verified: node 24.12 `lib/internal/assert/{assertion_error,myers_diff}.js`]
+On the incident's own test at base, inside a 3072 MiB Job, the element printed
+as 1,038,312 lines in 1.5 s, its diff would have needed about 8,000 GiB, and
+the test died after 2.5 s with `RangeError: Array buffer allocation failed`,
+the error ten older suites document. [measured: @school-cut-opus 2026-10-26]
+
+The suspected fake-timer clash did not reproduce. Each test file runs in its
+own process with sequential top-level tests, node:test's own timeout uses
+timers that `mock.timers` cannot reach, and no suite enables in-file
+concurrency. [verified: node 24.12 `internal/test_runner/{utils,test}.js`; grep]
+On Windows a node parent's non-detached children die with it (libuv's
+kill-on-close job), under `taskkill /F` and under Git Bash `timeout` alike, so
+the incident needed no orphan: at this rate 41 GB takes seconds (inferred).
+[measured: @school-cut-opus 2026-10-26]
+
+**What bounds a run now.**
+
+- `tests/testguard.mjs` wraps assert's comparison methods (`assert`,
+  `assert/strict`, named imports, `Assert` instances). Node still decides pass
+  or fail. On failure, values whose report would print past 1,500 lines get a
+  bounded report in milliseconds: the caller's message, the readable operator
+  and a preview (an element's opening tag, a depth-0 inspect). Smaller values
+  keep Node's own message byte for byte. `harness.ts` imports it first and
+  run.mjs preloads it into every test process.
+- Outside run.mjs's Job, the same module runs a watchdog thread. It ends the
+  process past `ORGTREE_TEST_GUARD_MB` (3072) resident, below
+  `ORGTREE_TEST_GUARD_FREE_MB` (2048) machine free memory, or once its parent
+  is gone; `ORGTREE_TEST_GUARD_MB=0` turns it off. Only run.mjs sets
+  `ORGTREE_TEST_CONTAINED_MB`, the Job marker that stands it down.
+- run.mjs refuses to start below `ORGTREE_TEST_MIN_FREE_MB` (3072) free. It
+  caps each test process's V8 heap at `ORGTREE_TEST_HEAP_MB` (2048) through
+  `NODE_OPTIONS`, because `--max-old-space-size` on the `node --test` command
+  line does not reach its per-file children (measured, node 24.12). The
+  per-test timeout, concurrency 4, Job ceiling and run limit are unchanged.
+- `testguard.test.tsx` holds the controls: a red/green pair under a 512 MB
+  ceiling, the watchdog with and without its limit, and the floor.
+
+Keep reducing DOM assertions to scalars: a deep compare of two same-tag
+elements passes, and a scalar reads better. That is now a style rule, not a
+memory rule. Root `npm test` (`tests/*.test.mjs`) is not covered by these
+guards. [verified: `apps/desktop/renderer/tests/{run,testguard}.mjs`,
+`testguard.test.tsx`; 2026-10-26]
+
 ### Renderer tests from a worktree without node_modules
 
 The repaired run.mjs resolves existing dependencies in place through
@@ -609,8 +671,9 @@ createRequire resolves esbuild there, nodePaths resolves bundled dependencies,
 and an onResolve plugin rewrites external jsdom to its absolute file URL. It
 creates no dependency links or copies and stops esbuild after each batch of
 eight, including build failures. OUT must be empty and outside worktrees.
-Use run.mjs --prebuilt OUT with ORGTREE_TEST_DEPS as above, or execute the
-bundles directly with Node's test runner. Prebuilt mode never removes OUT;
+Use run.mjs --prebuilt OUT with ORGTREE_TEST_DEPS as above; a bare
+`node --test` run of the bundles has none of the runner's bounds (see
+[memory guards](#renderer-test-memory-guards-2026-10-26)). Prebuilt mode never removes OUT;
 retain receipts and clean only authorized generated leaves after path/activity
 checks. For older, unrepaired checkouts, the existing ESM esbuild loader plus
 NODE_PATH set to DEPS still supports prebuilt execution; their normal bundling

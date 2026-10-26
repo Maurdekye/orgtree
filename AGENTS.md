@@ -182,6 +182,8 @@ Before launching any test/rig/capture/fixture window, follow [session and clipbo
 
 Before renderer or desktop-main tests, visual captures or rig proofs, read the [test and capture traps](docs/agents/development-and-verification.md#renderer-capture-and-rig-traps): reduce DOM assertions to scalars, run main's own closures rather than one handler's text, wait for paint, and verify the PNG and the engine log being measured. [decided: coordinator 2026-10-21, standing-note relocation; main closures verified 2026-10-22: `tests/run-as-administrator.test.mjs`]
 
+Run renderer tests only through `apps/desktop/renderer/tests/run.mjs` (it takes `--test-name-pattern`). Bare `node --test` on bundles, or bare `timeout`, has no Job, heap cap or timeout: one red DOM assertion grew such a run to 41 GB. See [memory guards](docs/agents/development-and-verification.md#renderer-test-memory-guards-2026-10-26). [decided: coordinator 2026-10-26; verified: `tests/{run,testguard}.mjs`]
+
 Rig live-root guards retain import-time `APPDATA`/home/data-override paths after fixture environment replacement; fixture/keeper allowlists carry validated `RIG_PROTECTED_ROOTS` across fresh imports without narrowing the captured set. Set original overrides before importing the rig. See [rig isolation](docs/rust-engine/test-rig.md). [verified: `tools/rig/{lib,broker-synthetic}.mjs`, `tools/rig/tests/live-roots.test.mjs`; 2026-10-22]
 
 Seed-completion waits account for the helper grace before CLI execution; retain
