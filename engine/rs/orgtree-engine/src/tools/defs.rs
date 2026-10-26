@@ -2091,7 +2091,7 @@ fn build_tool_apps()->Value {
         "capability":{"type":"string","enum":["org.read","mail.send","docket.write","events.fire","files.read","files.write"]},
         "permission":{"type":"string","enum":["ask","allow","deny"],"description":"permission_set is user-only; agents may inspect declarations/grants but cannot grant themselves execution"},
         "new":{"type":"boolean","description":"panel_open: create a fresh closed saved panel; agents cannot open windows"},
-        "label":{"type":"string","maxLength":120},
+        "label":{"type":"string","maxLength":120,"description":"panel_open default: Panel N, the app's lowest unused number"},
         "open":{"type":"boolean","description":"panel_update: false closes without deleting; agents cannot set true or move an open window"},
         "delete_panels":{"type":"boolean","description":"app_delete: explicit consent to delete all its saved copies"},
         "definition":{"type":"object","additionalProperties":false,"properties":{
@@ -2103,10 +2103,9 @@ fn build_tool_apps()->Value {
             "width":{"type":"integer","minimum":160,"maximum":4096},"height":{"type":"integer","minimum":120,"maximum":4096}
         },"required":["name","html"]},
         "placement":{"type":"object","additionalProperties":false,"properties":{
-            "mode":{"enum":["float","screen","popout","canvas"]},"x":{"type":"number"},"y":{"type":"number"},
+            "mode":{"enum":["float","popout","canvas"]},"x":{"type":"number"},"y":{"type":"number"},
             "width":{"type":"integer"},"height":{"type":"integer"},"anchor":{"type":["string","null"]}
         }},
-        "linked_agents":{"type":"array","maxItems":64,"items":{"type":"string"}},
         "state":{"type":"object","description":"state_set: replacement object, up to2MiB"},
         "patch":{"type":"object","description":"state_patch: RFC7396 merge; null removes a key"},
         "name":{"type":"string","description":"event name,1-80characters"},

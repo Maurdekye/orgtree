@@ -13,6 +13,8 @@ use super::wire;
 // Provisional bounded queue/catalog defaults, recorded in the morning questions.
 pub const LISTENERS_MAX:i64=4096;
 pub const PENDING_MAX:i64=128;
+/// Panel-log name of a fire's metadata row, shown in the copy's History.
+pub const FIRED:&str="event.fired";
 #[derive(Default)]
 pub struct Dispatcher {started:AtomicBool,notify:Notify}
 
@@ -94,6 +96,10 @@ pub async fn publish(tx:&Transaction<'_>,org:i64,panel:&str,name:&str,payload:&V
     let id:i64=tx.query_one("INSERT INTO ot.app_event_fires(uid,org_id,app_id,panel_id,name,payload,producer,done) VALUES($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id",&[&uid,&org,&app,&panel,&name,&payload,&producer,&empty]).await?.get(0);
     let ids:Vec<i64>=recipients.iter().map(|r|r.get(0)).collect();
     tx.execute("INSERT INTO ot.app_event_recipients(fire_id,dog_id) SELECT $1,unnest($2::bigint[])",&[&id,&ids]).await?;
+    // History shows the fire as metadata only (user 2026-10-26: events in their
+    // own History tab). The payload stays in this outbox and recipients' mail.
+    let actor=match producer["kind"].as_str(){Some("agent")=>producer["name"].as_str().unwrap_or("agent"),Some("app")=>"app",_=>"user"};
+    super::storage::event(tx,org,panel,FIRED,&json!({"event":name,"id":uid,"subscribers":ids.len()}),actor).await?;
     tx.execute("DELETE FROM ot.app_event_fires WHERE org_id=$1 AND app_id=$2 AND done AND id<(SELECT id FROM ot.app_event_fires WHERE org_id=$1 AND app_id=$2 AND done ORDER BY id DESC OFFSET 127 LIMIT 1)",&[&org,&app]).await?;
     Ok(json!({"accepted":true,"event":uid,"app":app,"panel":panel,"name":name,"subscribers":ids.len()}))
 }

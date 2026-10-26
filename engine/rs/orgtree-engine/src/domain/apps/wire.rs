@@ -89,7 +89,7 @@ pub enum Request {
     AppDelete { app:String, expected_rev:i64, #[serde(default)] delete_panels:bool },
     PanelOpen { app:Option<String>, panel:Option<String>, #[serde(default)] new:bool, label:Option<String> },
     PanelGet { panel:String },
-    PanelUpdate { panel:String, expected_rev:i64, label:Option<String>, open:Option<bool>, placement:Option<Placement>, linked_agents:Option<Vec<String>> },
+    PanelUpdate { panel:String, expected_rev:i64, label:Option<String>, open:Option<bool>, placement:Option<Placement> },
     PanelDuplicate { panel:String, expected_rev:i64 },
     PanelDelete { panel:String, expected_rev:i64 },
     StateSet { panel:String, expected_rev:i64, state:Value },
@@ -103,6 +103,8 @@ pub enum Request {
 // These arguments can contain private app HTML/state. Do not trace their values.
 #[nolog]
 pub fn parse(input:&Value) -> Result<Request> {
+    // Panel links were removed (user 2026-10-26); tell a stale caller where to go.
+    if input.get("linked_agents").is_some(){crate::refuse!(BadRequest,"panel links were removed; agents follow a panel's declared events with an app_listener watchdog");}
     let request:Request=serde_json::from_value(input.clone()).map_err(|e|crate::domain::UserError::BadRequest(format!("invalid Apps request: {e}")))?;
     if let Request::AppImport{bundle:value}=&request{bundle(value)?;}
     if let Request::MarkSeen{apps}=&request{
@@ -156,7 +158,9 @@ pub fn dimensions(width:i32,height:i32) -> Result<()> {
 }
 #[nolog]
 pub fn placement(value:&Placement) -> Result<()> {
-    if !["float","screen","popout","canvas"].contains(&value.mode.as_str()) { crate::refuse!(BadRequest,"unknown panel placement"); }
+    // Screen pins were removed (user 2026-10-26); migration 0068 moved stored ones to float.
+    if value.mode=="screen" { crate::refuse!(BadRequest,"screen pins were removed; use float (the centered window), canvas or popout"); }
+    if !["float","popout","canvas"].contains(&value.mode.as_str()) { crate::refuse!(BadRequest,"unknown panel placement"); }
     if !value.x.is_finite() || !value.y.is_finite() || value.x.abs()>10_000_000. || value.y.abs()>10_000_000. { crate::refuse!(BadRequest,"invalid panel coordinates"); }
     if value.anchor.is_some() && value.mode!="canvas" { crate::refuse!(BadRequest,"only canvas panels may attach to a node"); }
     dimensions(value.width,value.height)
@@ -185,6 +189,17 @@ mod tests {
         assert!(parse(&json!({"action":"fire_event","panel":"copy","name":"submitted","payload":{"note":"data"}})).is_ok());
         assert!(parse(&json!({"action":"listeners","app":"app","panel":"copy","limit":200})).is_ok());
         for extra in [json!({"target":"chosen-recipient"}),json!({"as_user":true}),json!({"org":"other"})]{let mut bad=json!({"action":"fire_event","panel":"copy","name":"submitted","payload":{}});bad.as_object_mut().unwrap().extend(extra.as_object().unwrap().clone());assert!(parse(&bad).is_err());}
+    }
+    #[test] fn custom_apps_retired_links_and_screen_pins_refuse_with_directions() {
+        // User 2026-10-26: panel links are removed completely, and so are screen pins.
+        let link=parse(&json!({"action":"panel_update","panel":"copy","expected_rev":1,"linked_agents":["worker"]})).err().unwrap().to_string();
+        assert!(link.contains("app_listener"),"{link}");
+        assert!(parse(&json!({"action":"panel_update","panel":"copy","expected_rev":1,"label":"Renamed"})).is_ok());
+        let place=|mode:&str|placement(&Placement{mode:mode.into(),..Placement::default()});
+        assert!(place("screen").err().unwrap().to_string().contains("screen pins were removed"));
+        for mode in ["float","canvas","popout"]{assert!(place(mode).is_ok(),"{mode}");}
+        let card=crate::tools::defs::list().into_iter().find(|c|c["name"]=="orgtree_apps").unwrap();let p=&card["inputSchema"]["properties"];
+        assert!(p.get("linked_agents").is_none());assert!(!p["placement"]["properties"]["mode"]["enum"].as_array().unwrap().iter().any(|m|m=="screen"));
     }
     #[test] fn custom_apps_named_listener_has_explicit_tool_vocabulary() {
         let card=crate::tools::defs::list().into_iter().find(|c|c["name"]=="orgtree_watchdog").unwrap();

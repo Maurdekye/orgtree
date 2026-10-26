@@ -73,6 +73,7 @@ const MIGRATIONS: &[(&str, &str)] = &[
     ("0064_custom_app_file_access", include_str!("../migrations/0064_custom_app_file_access.sql")),
     ("0065_custom_app_file_modes", include_str!("../migrations/0065_custom_app_file_modes.sql")),
     ("0066_custom_app_origin_policy", include_str!("../migrations/0066_custom_app_origin_policy.sql")),
+    ("0068_custom_app_links_and_screen_pins", include_str!("../migrations/0068_custom_app_links_and_screen_pins.sql")),
 ];
 
 #[cfg(test)]

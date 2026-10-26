@@ -4,6 +4,7 @@ pub mod events;
 
 pub mod file_access;
 pub(crate) mod files;
+pub(crate) mod labels;
 pub mod wire;
 pub mod storage;
 pub mod templates;

@@ -9,7 +9,9 @@ use crate::{engine::Engine, orgs::OrgHandle, runtime::Caller};
 use super::wire::{self, Definition, Placement, Request};
 
 const APP_META:&str="jsonb_build_object('id',a.id,'origin',a.origin,'name',a.name,'description',a.description,'capabilities',a.capabilities,'events',a.declared_events,'width',a.width,'height',a.height,'rev',a.rev,'permissions',a.permissions,'permission_rev',a.permission_rev,'is_new',a.is_new,'created_by',a.created_by,'updated_at',a.updated_at)";
-const PANEL_META:&str="jsonb_build_object('id',p.id,'app',p.app_id,'label',p.label,'rev',p.rev,'open',p.is_open,'placement',p.placement,'linked_agents',p.linked_agents,'updated_at',p.updated_at,'used_at',p.used_at,'event_seq',p.event_seq)";
+// Panel links were removed (user 2026-10-26): the inert linked_agents column is
+// never read or written; agents follow a panel's events with app_listener dogs.
+const PANEL_META:&str="jsonb_build_object('id',p.id,'app',p.app_id,'label',p.label,'rev',p.rev,'open',p.is_open,'placement',p.placement,'updated_at',p.updated_at,'used_at',p.used_at,'event_seq',p.event_seq)";
 
 #[nolog]
 pub(crate) async fn file_authority(engine:&Arc<Engine>,org:&Arc<OrgHandle>,caller:&Caller)->Result<()> {
@@ -53,8 +55,10 @@ async fn panel(tx:&Transaction<'_>,org:i64,id:&str,write:bool) -> Result<Value> 
     let row=tx.query_opt(&format!("SELECT {PANEL_META} || jsonb_build_object('state',p.state) FROM ot.custom_panels p WHERE p.org_id=$1 AND p.id=$2 FOR {lock} OF p"),&[&org,&id]).await?;
     let Some(row)=row else {crate::refuse!(NotFound,"panel was deleted");};Ok(row.get(0))
 }
+/// The panel's own bounded log, shown as its History. Callers already hold the
+/// app row, so this panel row lock keeps app→panel order.
 #[nolog]
-async fn event(tx:&Transaction<'_>,org:i64,id:&str,name:&str,payload:&Value,actor:&str)->Result<i64>{
+pub(super) async fn event(tx:&Transaction<'_>,org:i64,id:&str,name:&str,payload:&Value,actor:&str)->Result<i64>{
     wire::text(name,80,"event name",false)?;wire::bounded(payload,wire::EVENT_MAX,false)?;
     let seq:i64=tx.query_one("INSERT INTO ot.custom_panel_events(org_id,panel_id,name,payload,actor) VALUES($1,$2,$3,$4,$5) RETURNING seq",&[&org,&id,&name,&payload,&actor]).await?.get(0);
     tx.execute("UPDATE ot.custom_panels SET event_seq=$3 WHERE org_id=$1 AND id=$2",&[&org,&id,&seq]).await?;
@@ -75,7 +79,6 @@ pub(crate) async fn run_locked(engine:&Arc<Engine>,org:&Arc<OrgHandle>,caller:Op
     let request=wire::parse(input)?;
     let mut client=engine.db.get().await?;let tx=client.transaction().await?;
     let actor=authorize(&tx,org.id,caller).await?;let mut changed=false;
-    let mut signals:Vec<(Vec<String>,Value)>=Vec::new();
     let out=match request {
         Request::Listeners{app:id,panel,after,limit}=>super::events::listeners(&tx,org.id,&id,panel.as_deref(),after,limit).await?,
         Request::FireEvent{panel,name,payload}=>{
@@ -176,14 +179,19 @@ pub(crate) async fn run_locked(engine:&Arc<Engine>,org:&Arc<OrgHandle>,caller:Op
                 tx.execute("UPDATE ot.custom_panels SET is_open=true,used_at=now(),updated_at=now(),rev=rev+1 WHERE org_id=$1 AND id=$2",&[&org.id,&pid]).await?;pid
             }else{
                 let pid=crate::util::uid("panel");let def:Definition=serde_json::from_value(a["definition"].clone())?;
-                let label=label.unwrap_or_else(||def.name.clone());wire::text(&label,120,"panel label",false)?;
+                // "Panel N", never the app's name (user 2026-10-26). The app row
+                // lock above serializes numbering; existing labels never change.
+                let label=match label{Some(label)=>label,None=>{
+                    let rows=tx.query("SELECT label FROM ot.custom_panels WHERE org_id=$1 AND app_id=$2 AND label LIKE 'Panel %'",&[&org.id,&id]).await?;
+                    super::labels::default_panel_label(rows.iter().map(|r|r.get::<_,&str>(0)))
+                }};wire::text(&label,120,"panel label",false)?;
                 let placement=serde_json::to_value(Placement{width:def.width,height:def.height,..Placement::default()})?;
                 tx.execute("INSERT INTO ot.custom_panels(org_id,id,app_id,label,state,placement,is_open) VALUES($1,$2,$3,$4,$5,$6,$7)",&[&org.id,&pid,&id,&label,&def.initial_state,&placement,&caller.is_none()]).await?;pid
             };
             event(&tx,org.id,&pid,if caller.is_some(){"panel.created"}else{"panel.opened"},&json!({}),&actor).await?;changed=true;panel(&tx,org.id,&pid,false).await?
         }
         Request::PanelGet{panel:id}=>panel(&tx,org.id,&id,false).await?,
-        Request::PanelUpdate{panel:id,expected_rev,label,open,placement,linked_agents}=>{
+        Request::PanelUpdate{panel:id,expected_rev,label,open,placement}=>{
             let old=panel(&tx,org.id,&id,true).await?;revision(&old,expected_rev)?;
             if caller.is_some()&&(open==Some(true)||(placement.is_some()&&open.unwrap_or(old["open"].as_bool().unwrap_or(false)))){crate::refuse!(Forbidden,"only the user may open or show an app window; agents may create and configure closed saved panels");}
             let label=label.unwrap_or_else(||old["label"].as_str().unwrap_or("").into());wire::text(&label,120,"panel label",false)?;
@@ -191,20 +199,15 @@ pub(crate) async fn run_locked(engine:&Arc<Engine>,org:&Arc<OrgHandle>,caller:Op
             if let Some(anchor)=&place.anchor{
                 if tx.query_opt("SELECT 1 FROM ot.agents WHERE org_id=$1 AND name=$2 AND state='live'",&[&org.id,anchor]).await?.is_none(){crate::refuse!(NotFound,"canvas attachment node is not live in this org");}
             }
-            let links=linked_agents.unwrap_or(serde_json::from_value(old["linked_agents"].clone())?);
-            if links.len()>64{crate::refuse!(BadRequest,"at most64 linked agents per panel");}
-            let mut seen=std::collections::HashSet::new();for name in &links{
-                if !seen.insert(name) || tx.query_opt("SELECT 1 FROM ot.agents WHERE org_id=$1 AND name=$2 AND kind='agent' AND state='live'",&[&org.id,name]).await?.is_none(){crate::refuse!(BadRequest,"linked agents must be unique live agents in this org");}
-            }
-            let place=serde_json::to_value(place)?;let links=json!(links);let open=open.unwrap_or(old["open"].as_bool().unwrap_or(false));
-            tx.execute("UPDATE ot.custom_panels SET label=$3,is_open=$4,placement=$5,linked_agents=$6,rev=rev+1,updated_at=now() WHERE org_id=$1 AND id=$2",&[&org.id,&id,&label,&open,&place,&links]).await?;
+            let place=serde_json::to_value(place)?;let open=open.unwrap_or(old["open"].as_bool().unwrap_or(false));
+            tx.execute("UPDATE ot.custom_panels SET label=$3,is_open=$4,placement=$5,rev=rev+1,updated_at=now() WHERE org_id=$1 AND id=$2",&[&org.id,&id,&label,&open,&place]).await?;
             event(&tx,org.id,&id,"panel.changed",&json!({}),&actor).await?;changed=true;panel(&tx,org.id,&id,false).await?
         }
         Request::PanelDuplicate{panel:id,expected_rev}=>{
             let old=panel(&tx,org.id,&id,true).await?;revision(&old,expected_rev)?;let pid=crate::util::uid("panel");
             let label:String=format!("{} copy",old["label"].as_str().unwrap_or("Panel")).chars().take(120).collect();
             let mut place:Placement=serde_json::from_value(old["placement"].clone())?;place.mode="float".into();place.anchor=None;place.x+=24.;place.y+=24.;let place=serde_json::to_value(place)?;
-            tx.execute("INSERT INTO ot.custom_panels(org_id,id,app_id,label,state,placement,linked_agents,is_open) VALUES($1,$2,$3,$4,$5,$6,$7,$8)",&[&org.id,&pid,&old["app"].as_str().unwrap_or(""),&label,&old["state"],&place,&old["linked_agents"],&caller.is_none()]).await?;
+            tx.execute("INSERT INTO ot.custom_panels(org_id,id,app_id,label,state,placement,is_open) VALUES($1,$2,$3,$4,$5,$6,$7)",&[&org.id,&pid,&old["app"].as_str().unwrap_or(""),&label,&old["state"],&place,&caller.is_none()]).await?;
             event(&tx,org.id,&pid,"panel.duplicated",&json!({"source":id}),&actor).await?;changed=true;panel(&tx,org.id,&pid,false).await?
         }
         Request::PanelDelete{panel:id,expected_rev}=>{
@@ -213,17 +216,14 @@ pub(crate) async fn run_locked(engine:&Arc<Engine>,org:&Arc<OrgHandle>,caller:Op
             tx.execute("DELETE FROM ot.custom_panels WHERE org_id=$1 AND id=$2",&[&org.id,&id]).await?;changed=true;json!({"deleted":id})
         }
         Request::StateSet{panel:id,expected_rev,state}=>{
-            revision(&panel(&tx,org.id,&id,true).await?,expected_rev)?;let out=update_state(&tx,org.id,&id,&state,&actor).await?;
-            signals.push((serde_json::from_value(out["linked_agents"].clone())?,json!({"untrusted_app_content":true,"app":out["app"],"panel":id,"kind":"state.changed","seq":out["event_seq"],"rev":out["rev"]})));changed=true;out
+            revision(&panel(&tx,org.id,&id,true).await?,expected_rev)?;let out=update_state(&tx,org.id,&id,&state,&actor).await?;changed=true;out
         }
         Request::StatePatch{panel:id,expected_rev,patch}=>{
             let old=panel(&tx,org.id,&id,true).await?;revision(&old,expected_rev)?;let mut state=old["state"].clone();wire::merge(&mut state,&patch)?;
-            let out=update_state(&tx,org.id,&id,&state,&actor).await?;
-            signals.push((serde_json::from_value(out["linked_agents"].clone())?,json!({"untrusted_app_content":true,"app":out["app"],"panel":id,"kind":"state.changed","seq":out["event_seq"],"rev":out["rev"]})));changed=true;out
+            let out=update_state(&tx,org.id,&id,&state,&actor).await?;changed=true;out
         }
         Request::Event{panel:id,name,payload}=>{
-            let old=panel(&tx,org.id,&id,true).await?;let seq=event(&tx,org.id,&id,&name,&payload,&actor).await?;
-            signals.push((serde_json::from_value(old["linked_agents"].clone())?,json!({"untrusted_app_content":true,"app":old["app"],"panel":id,"kind":"panel.event","name":name,"seq":seq})));changed=true;json!({"panel":id,"seq":seq})
+            panel(&tx,org.id,&id,true).await?;let seq=event(&tx,org.id,&id,&name,&payload,&actor).await?;changed=true;json!({"panel":id,"seq":seq})
         }
         Request::Events{panel:id,after,limit}=>{
             panel(&tx,org.id,&id,false).await?;let n=page(limit)?;let after=after.unwrap_or(0);if after<0{crate::refuse!(BadRequest,"event cursor must be nonnegative");}
@@ -236,13 +236,8 @@ pub(crate) async fn run_locked(engine:&Arc<Engine>,org:&Arc<OrgHandle>,caller:Op
     tx.commit().await?;drop(client);
     if input["action"]=="fire_event"{super::events::notify(engine);}
     if changed{org.emit(json!({"type":"custom_apps_changed","org":org.slug}));}
-    // A link is a target, never a wake or a capability grant. Existing opt-in
-    // event watchdogs decide delivery, scope, coalescing and wake/notice policy.
-    // Carry only metadata/cursors; agents read the bounded saved data separately.
-    crate::trace::private_app(async{for (targets,payload) in signals{for name in targets{
-        use crate::runtime::watchdogs::events::{emit,event,Scope};
-        emit(engine,event("app.event",Scope::NamedAgent(org.id,name),payload.clone()));
-    }}}).await;
+    // No app.event signal follows a commit: panel links are gone (user
+    // 2026-10-26), and agents hear from panels only through app event listeners.
     Ok(out)
 }
 
