@@ -1,6 +1,6 @@
-// An HTML mockup opens straight in its own window from the desk header badge
-// and the canvas chip (one click); the presentations panel still opens the
-// reader first, whose mockup link is the second click.
+// An HTML presentation opens straight in its own window from the desk header
+// badge and the canvas chip (one click); the presentations panel shows it
+// inline in its reader instead, whose window link is a separate click.
 module.exports = async (page) => {
   const card = '[data-first-use-agent="rhea"]'
   const arm = () => { window.__opens = []; window.open = (...a) => { window.__opens.push(String(a[0])); return null } }
