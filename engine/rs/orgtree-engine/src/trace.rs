@@ -591,6 +591,9 @@ fn contains_thinking(v: &Value, depth: usize) -> bool {
 #[cfg(test)]
 mod thinking_privacy_tests;
 
+#[cfg(test)]
+mod app_mail_privacy_tests;
+
 fn render(v: &Value, out: &mut Capture) {
     if private_selection(v) { out.push_str("\"[reply selection omitted]\""); return; }
     if private_thinking(v) { out.push_str("\"[thinking omitted]\""); return; }
