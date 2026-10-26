@@ -7871,11 +7871,6 @@
      "line": 62
     },
     {
-     "file": "apps/desktop/renderer/src/canvas/apps/settings.tsx",
-     "label": "Created by",
-     "line": 43
-    },
-    {
      "file": "apps/desktop/renderer/src/canvas/apps/portable.tsx",
      "label": "Export app",
      "line": 49
@@ -7883,32 +7878,32 @@
     {
      "file": "apps/desktop/renderer/src/canvas/apps/settings.tsx",
      "label": "Delete app",
-     "line": 45
+     "line": 51
     },
     {
      "file": "apps/desktop/renderer/src/canvas/apps/settings.tsx",
      "label": "State",
-     "line": 69
+     "line": 77
     },
     {
      "file": "apps/desktop/renderer/src/canvas/apps/settings.tsx",
      "label": "Rename",
-     "line": 70
+     "line": 78
     },
     {
      "file": "apps/desktop/renderer/src/canvas/apps/settings.tsx",
      "label": "Duplicate",
-     "line": 71
+     "line": 79
     },
     {
      "file": "apps/desktop/renderer/src/canvas/apps/settings.tsx",
      "label": "Delete panel",
-     "line": 72
+     "line": 80
     },
     {
      "file": "apps/desktop/renderer/src/canvas/apps/events.tsx",
      "label": "Declared event",
-     "line": 54
+     "line": 73
     }
    ]
   }
