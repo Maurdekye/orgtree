@@ -29,6 +29,9 @@ test('app windows open centered and their gears lead to the shared settings syst
   const settings=document.querySelector<HTMLElement>('[role="dialog"][aria-label="App settings"]')!;assert.ok(settings?.classList.contains('settings'))
   assert.deepEqual([...settings.querySelectorAll('.set-group-head')].map(e=>e.textContent),['App','This panel'])
   for(const name of ['State','Rename','Linked agents','Activity','Permissions','Duplicate','Float','Pin to screen','Pin to canvas','Delete panel','Delete app'])assert.ok(settings.textContent?.includes(name),'missing settings action '+name)
+  const exportApp=[...settings.querySelectorAll<HTMLButtonElement>('button')].find(e=>e.textContent==='Export app')!
+  assert.ok(exportApp.closest('.set-control'),'Export app uses the same right control column as other settings')
+  assert.ok(exportApp.closest('.set-row')?.querySelector('.set-hint'),'export explanation uses the small shared hint')
   const state=[...settings.querySelectorAll<HTMLButtonElement>('button')].find(e=>e.textContent==='State…')!
   await inAct(async()=>{state.click();await tick()});assert.equal(JSON.parse(document.querySelector<HTMLTextAreaElement>('textarea[aria-label="Panel JSON state"]')!.value).note,'saved')
   assert.equal(calls.some(c=>c.action==='state_set'||c.action==='permission_set'||c.action==='app_delete'),false,'opening settings is read-only')
