@@ -27,65 +27,65 @@
 .custom-app-title>svg { width:16px;height:16px;flex:none }
 .custom-app-title strong { flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:600 }
 .custom-app-window .custom-app-title button { width:24px;height:24px;display:inline-flex;align-items:center;justify-content:center;padding:3px;background:none;border:0;color:inherit;cursor:pointer;border-radius:4px;-webkit-app-region:no-drag }
-.custom-app-title button:hover,.custom-app-title summary:hover { background:var(--hover) }
+.custom-app-title button:hover,.custom-app-title summary:hover { background:var(--panel-2) }
 .custom-app-title button svg,.custom-app-title summary svg { width:16px;height:16px }
 .custom-app-window[data-detached]>.custom-app-title { -webkit-app-region:drag;cursor:default }
 .custom-app-title .active { color:var(--accent) }
 .custom-app-more { position:relative;flex:none }
 .custom-app-more summary { list-style:none }
 .custom-app-more summary::-webkit-details-marker { display:none }
-.custom-app-more>div { position:absolute;right:0;top:27px;z-index:10;display:flex;flex-direction:column;min-width:170px;border:1px solid var(--border);background:var(--panel);padding:4px;border-radius:6px;box-shadow:0 8px 24px #0005 }
+.custom-app-more>div { position:absolute;right:0;top:27px;z-index:10;display:flex;flex-direction:column;min-width:170px;border:1px solid var(--line);background:var(--panel);padding:4px;border-radius:6px;box-shadow:0 8px 24px #0005 }
 .custom-app-more>div button { width:auto;min-height:27px;height:auto;text-align:left;justify-content:flex-start;padding:5px 8px }
 .custom-app-host { display:flex;flex-direction:column;flex:1;min-height:0;min-width:0;overflow:hidden;border-radius:0 0 7px 7px }
 .custom-app-host iframe { border:0;flex:1;min-height:0;width:100%;background:#fff }
-.custom-app-status { min-height:24px;display:flex;align-items:center;justify-content:flex-end;gap:8px;padding:0 8px;font-size:11px;color:var(--muted);border-top:1px solid var(--border);overflow:hidden;white-space:nowrap }
-.custom-app-suspended { display:grid;place-items:center;flex:1;color:var(--muted);padding:16px }
+.custom-app-status { min-height:24px;display:flex;align-items:center;justify-content:flex-end;gap:8px;padding:0 8px;font-size:11px;color:var(--dim);border-top:1px solid var(--line);overflow:hidden;white-space:nowrap }
+.custom-app-suspended { display:grid;place-items:center;flex:1;color:var(--dim);padding:16px }
 .custom-app-error { padding:6px 9px;color:var(--danger,#e88);font-size:12px;overflow-wrap:anywhere }
-.custom-app-resize { position:absolute;width:15px;height:15px;right:0;bottom:0;cursor:nwse-resize;touch-action:none;border-right:2px solid var(--muted);border-bottom:2px solid var(--muted);border-radius:0 0 6px 0 }
+.custom-app-resize { position:absolute;width:15px;height:15px;right:0;bottom:0;cursor:nwse-resize;touch-action:none;border-right:2px solid var(--dim);border-bottom:2px solid var(--dim);border-radius:0 0 6px 0 }
 .custom-app-dialog { box-sizing:border-box;min-height:0 }
 .custom-app-dialog>header { display:flex;gap:8px;align-items:center;justify-content:space-between;flex:none }
 .custom-app-dialog>header svg { width:16px;height:16px }
 .custom-app-dialog p { margin:0 }
-.custom-app-dialog textarea { width:100%;box-sizing:border-box;min-height:80px;flex:1;font:12px/1.45 Consolas,monospace;background:var(--bg);color:var(--ink);border:1px solid var(--border);border-radius:4px;padding:8px;resize:none }
+.custom-app-dialog textarea { width:100%;box-sizing:border-box;min-height:80px;flex:1;font:12px/1.45 Consolas,monospace;background:var(--bg);color:var(--ink);border:1px solid var(--line);border-radius:4px;padding:8px;resize:none }
 .custom-app-dialog label { display:flex;flex-direction:column;gap:6px;flex:1;min-height:0 }
 .custom-app-dialog-actions { display:flex;align-items:center;flex-wrap:wrap;gap:5px;flex:none }
 .custom-app-dialog-actions>span { flex:1 }
-.custom-app-dialog-actions label.button { display:inline-flex;flex:none;padding:4px 8px;border:1px solid var(--border);border-radius:4px;cursor:pointer }
+.custom-app-dialog-actions label.button { display:inline-flex;flex:none;padding:4px 8px;border:1px solid var(--line);border-radius:4px;cursor:pointer }
 .custom-app-dialog-actions button { min-height:26px }
 /* A delete confirmation fits its content (user 2026-10-26), not the settings frame's 660px by 88vh. */
 .settings.custom-app-confirm { width:auto;min-width:min(340px,94vw);max-width:min(480px,94vw);height:auto;max-height:88vh }
-.custom-app-import-file { cursor:pointer;border:1px solid var(--border);border-radius:4px;padding:4px 8px;font-size:12px }
+.custom-app-import-file { cursor:pointer;border:1px solid var(--line);border-radius:4px;padding:4px 8px;font-size:12px }
 .custom-app-dialog .custom-app-include { flex:none;flex-direction:row;align-items:center;gap:6px }
-.custom-app-portable-export { display:flex;flex-direction:column;align-items:flex-start;gap:8px;padding:10px 0;border-block:1px solid var(--border) }
+.custom-app-portable-export { display:flex;flex-direction:column;align-items:flex-start;gap:8px;padding:10px 0;border-block:1px solid var(--line) }
 .custom-app-import-copies { margin:0;padding-left:20px;max-height:130px;overflow:auto;font-size:12px }
 .custom-app-activity { padding-left:20px;overflow:auto;font-size:12px }
-.custom-app-activity time { color:var(--muted) }
+.custom-app-activity time { color:var(--dim) }
 .custom-app-activity pre { white-space:pre-wrap;overflow-wrap:anywhere }
-.custom-app-global-error { position:fixed;left:15%;right:15%;bottom:16px;z-index:2600;background:var(--panel);color:var(--danger,#e88);padding:12px;border:1px solid var(--border);border-radius:6px }
+.custom-app-global-error { position:fixed;left:15%;right:15%;bottom:16px;z-index:2600;background:var(--panel);color:var(--danger,#e88);padding:12px;border:1px solid var(--line);border-radius:6px }
 .custom-app-permission-backdrop { position:fixed;inset:0;z-index:5000;background:#0009;display:grid;place-items:center;padding:12px;box-sizing:border-box }
 .custom-app-permission>div:last-child { display:flex;flex-direction:column;gap:14px }
 .custom-app-permission h2,.custom-app-permission p { margin:0 }
 .custom-app-permission h2 { font-size:17px }
 .custom-app-permission pre { margin:0;padding:10px;background:var(--bg);white-space:pre-wrap;overflow-wrap:anywhere;max-height:220px;overflow:auto;flex-shrink:0;user-select:text }
-.custom-app-permission small { overflow-wrap:anywhere;color:var(--muted) }
+.custom-app-permission small { overflow-wrap:anywhere;color:var(--dim) }
 .custom-app-dialog .custom-app-permission-row { flex:none;flex-direction:row;justify-content:space-between;align-items:center;gap:12px }
 /* the Permissions tab body keeps the settings panel's 14px column rhythm it had as a dialog */
 .custom-app-permissions { display:flex;flex-direction:column;gap:14px }
-.custom-app-permission-row small { display:block;color:var(--muted);font-size:11px }
+.custom-app-permission-row small { display:block;color:var(--dim);font-size:11px }
 .custom-app-file-picker { display:flex;flex-direction:column;gap:8px;min-width:0 }
 .custom-app-file-picker form { display:flex;gap:6px;align-items:end;flex-wrap:wrap }
 .custom-app-file-picker form label { display:flex;flex:1;min-width:180px;flex-direction:column;gap:4px }
-.custom-app-file-list { display:flex;flex-direction:column;max-height:230px;overflow:auto;border:1px solid var(--border);border-radius:5px }
+.custom-app-file-list { display:flex;flex-direction:column;max-height:230px;overflow:auto;border:1px solid var(--line);border-radius:5px }
 .custom-app-file-list button { text-align:left;border:0;border-radius:0;flex-shrink:0;overflow-wrap:anywhere;min-height:30px }
 .custom-app-file-list button[aria-pressed="true"] { background:var(--accent);color:var(--bg) }
 .custom-app-file-picker p { overflow-wrap:anywhere;font-size:12px }
 .custom-app-file-change { display:flex;flex-direction:column;gap:10px;min-width:0 }
 .custom-app-file-change code { overflow-wrap:anywhere;user-select:text }
-.custom-app-mini { position:absolute;display:grid;place-items:center;width:48px;height:48px;background:var(--panel);color:var(--accent);border:1px solid var(--border);border-radius:10px;pointer-events:auto;cursor:pointer;z-index:8 }
+.custom-app-mini { position:absolute;display:grid;place-items:center;width:48px;height:48px;background:var(--panel);color:var(--accent);border:1px solid var(--line);border-radius:10px;pointer-events:auto;cursor:pointer;z-index:8 }
 .custom-app-mini svg { width:30px;height:30px }
 .custom-app-connections { list-style:none;padding:0;margin:0;display:grid;gap:10px }
 .custom-app-connections li { display:grid;gap:3px;overflow-wrap:anywhere }
-.custom-app-connections span,.custom-app-connections small { color:var(--muted);font-size:11px }
+.custom-app-connections span,.custom-app-connections small { color:var(--dim);font-size:11px }
 @media(max-width:600px){.custom-app-status { font-size:10px }}
 
 /* Separate, keyboard-focusable sibling buttons: opening a saved copy is not settings. */
