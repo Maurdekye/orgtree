@@ -175,7 +175,19 @@ payload never enters that log, and the host does not relay the row into the app
 By the user's2026-10-26 ruling, docket.write create/assign/wake remains the
 documented edge case that wakes a selected local agent without an app event.
 
-Native Panel settings shows the copy's log on its History tab, lists actual scoped
+Native Panel settings shows the copy's History on its History tab: only event.fired,
+panel.started and panel.stopped rows (USER 2026-10-26 md6edfebc1975, "make it only
+for fired events agents can listen to and starting / stopping, dont record anything
+else"; answers mcbcd7b3cb6c0). Opening, showing or a user duplicate starting a
+stopped copy records panel.started {reason:"opened"}; Start running records it
+without a reason; Power off, Stop all and code changes record panel.stopped. Opens of
+running copies, agent-created closed copies, label/placement changes and state
+saves record nothing. The event action and orgtree.emit store kind message rows
+apart from History (answer "Keep, separate"); events lists History and
+messages:true lists messages. Each kind keeps its latest 256 rows and both advance
+event_seq. Migration0071 added the kind, deleted the old panel.opened,
+panel.created, panel.changed, panel.duplicated and state.changed rows ("Delete on
+upgrade") and marked the remaining non-History rows as messages. The tab lists actual scoped
 connections with bounded cursor paging on Connections, and permits explicit user
 Fire event from that saved copy on Fire event, displaying acceptance/backpressure
 without automatic retries.
@@ -311,7 +323,7 @@ changes take it optionally, see Background panels). A stale
 revision refuses409 rather than silently overwriting. State patch uses RFC7396:
 objects merge, arrays replace and null removes a key. State set can retain a null
 value inside its replacement object. Events use monotonic sequence cursors and
-retain the latest256 per panel; oldest_retained makes truncation explicit.
+retain the latest256 per panel and kind; oldest_retained makes truncation explicit.
 
 ## Provisional defaults for morning review
 
@@ -433,8 +445,9 @@ requires native-window verification before a no-network execution claim.
 The async SDK is window.orgtree state.get/set/patch/onChange; storage.getItem,
 setItem, removeItem, clear; on(name,fn); emit(name,payload). Storage values are
 JSON, not strings only. State patch follows RFC7396; null removes keys. The host
-does not replay the entire retained event history on opening. It forwards new
-named events after that panel's initial event_seq. Until 2026-10-26 hidden/closed
+does not replay retained messages on opening. It reads new messages (events
+messages:true) after that panel's initial event_seq and forwards each to on();
+History rows never reach the app. Until 2026-10-26 hidden/closed
 frame scripts were discarded; a hidden running copy now keeps its scripts and
 timers (Background panels). A powered-off copy reconstructs from committed state.
 

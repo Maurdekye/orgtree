@@ -172,9 +172,14 @@ float. Mode screen refuses with a pointer to window, and a node anchor refuses
 dimensions are160-4096 by120-4096. The Apps menu mounts saved open copies at these placements. The opaque host
 provides state/events and the permission-checked named action SDK.
 
-event needs panel/name/payload (up to64KiB). events needs panel, optional integer
-after sequence and limit1-200. The latest256 events are retained; oldest_retained
-identifies the retained boundary. An event never impersonates an agent/user.
+event needs panel/name/payload (up to64KiB) and sends a message: running copies
+pass it to the app's orgtree.on, and it never enters History. events needs panel,
+optional integer after sequence and limit1-200, and lists the copy's History: only
+event.fired, panel.started (reason opened when an open, show or user duplicate
+starts it; none for panel_start) and panel.stopped (reason stop all or code
+changed; none for panel_stop) rows (user 2026-10-26). messages:true lists messages
+instead. Each kind keeps its latest256 rows; oldest_retained identifies that
+kind's boundary. An event never impersonates an agent/user.
 
 List kind:panels accepts open:true/false and running:true/false to page only
 that subset. Metadata
@@ -337,7 +342,7 @@ Panel links were removed (user 2026-10-26, "Remove completely"): there is no
 linked_agents field, and state saves or explicit event writes no longer signal
 app.event watchdogs. To follow a copy, subscribe to its declared events with an
 orgtree_watchdog app_listener (above). Use panel_get/events to reconcile through
-the latest256 retained History entries.
+the latest256 retained History entries (fired events, starts and stops).
 
 Provisional org templates carry app definitions and initial JSON, never current
 saved copy data, IDs or grants. Creation installs new implicit-org-authority definitions and

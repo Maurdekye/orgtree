@@ -69,6 +69,11 @@ including closed panels
 without running HTML. See the same custom-app topic for placement, permission
 and tool parity.
 [decided: user 2026-10-26; verified: `canvas/apps/{dialog,events,settings,ui}.tsx`, `domain/apps/labels.rs`]
+A copy's History rows are only event.fired, panel.started and panel.stopped; the
+event action and orgtree.emit write kind message rows apart from History, which
+the host forwards to orgtree.on. Never record lifecycle noise into History; each
+kind keeps its own latest 256 (migration 0071).
+[decided: user 2026-10-26; verified: `domain/apps/storage.rs`, `canvas/apps/host.tsx`]
 A visible app panel is always running; a hidden one need not be stopped (DB
 CHECK, migration 0067). Hide keeps the runtime; Power off and Stop all bump
 run_generation, which fences bridge sessions and desktop leases. Hidden running

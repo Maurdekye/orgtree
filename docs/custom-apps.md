@@ -54,13 +54,17 @@ where an app wakes a selected agent without an app event.
 Open a saved copy's gear to reach its tabs: **Connections** lists the copy's
 listeners, **Fire event** fires a declared event with JSON data and **History**,
 the last tab, reads the copy's event history.
-This works for closed saved copies. History lists opens, changes, state saves and
-events, newest first; a fired event shows its listener count, while its data goes
-only to the subscribed agents.
+This works for closed saved copies. History lists only the fired events agents
+can listen to and the copy starting and stopping, newest first. A fired event shows
+its listener count, while its data goes only to the subscribed agents. A start or
+stop shows its cause: opened, Start running, Power off, Stop all or code changed.
+Opening, renaming, moving and saving data add nothing to History.
 Refresh/More connections page the registrations; agents manage those watchdogs
 through their ordinary tools. Merely opening settings fires nothing. HTML uses
 `orgtree.events.fire(name,payload)` (or `orgtree.call('events.fire',{name,payload})`).
-`orgtree.emit` adds a History entry and does not broadcast to listeners.
+`orgtree.emit(name,payload)` sends a message to the copy's own running windows,
+which receive it through `orgtree.on(name,fn)`, as do messages agents send with
+orgtree_apps `event`. Messages stay out of History and reach no agent listener.
 
 An app is a small HTML program kept by one organization. A panel is one saved
 copy with its own label and JSON data. Closing its window hides it and keeps it
@@ -135,7 +139,7 @@ The title's pop-out opens a separate window; Return restores its previous place.
 State opens editable JSON. Import changes the editor, Export saves it and Copy
 copies it. Reset loads initial data; Save is needed to commit either change. A
 concurrent edit reports a conflict. Each copy has its own data. A panel's History
-retains its latest 256 entries. Any agent with Org-modifying tools can interpret
+and its messages each keep their latest 256 entries. Any agent with Org-modifying tools can interpret
 and update any copy in this org; that grants no app permission.
 
 Apps are opaque sandboxed HTML, with no engine credential or same-origin access.
