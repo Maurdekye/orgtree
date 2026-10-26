@@ -8895,6 +8895,13 @@ main:has(> .orgbar.native-header) > .error {
 .gallery-modal.changelog-modal .mailer.narrow-list > .mailer-listwrap { width: min(150px, calc(100% - var(--listrail) - 40px)); }
 /* the version bold and larger, over the read rows' quiet 11 px title */
 .gallery-modal.changelog-modal .mailrow.changelog-row .l1 .mfrom { font-size: 15px; font-weight: 700; }
+/* USER 2026-10-26 (4.5.0): major > minor > patch. Provisional typography
+   and inset edges use existing theme tokens; selection/hover stays neutral.
+   Text keeps the ordinary ink in every theme, never an accent-only signal. */
+.gallery-modal.changelog-modal .changelog-row[data-release-level="minor"] { box-shadow: inset 2px 0 var(--line-hover); }
+.gallery-modal.changelog-modal .changelog-row[data-release-level="minor"] .l1 .mfrom { font-size: 17px; font-weight: 750; }
+.gallery-modal.changelog-modal .changelog-row[data-release-level="major"] { box-shadow: inset 3px 0 var(--accent); }
+.gallery-modal.changelog-modal .changelog-row[data-release-level="major"] .l1 .mfrom { font-size: 19px; font-weight: 800; }
 /* its date & time on the line below, at the left, in the mono it had beside
    the version: not the gallery line's inherited face or 22 px owner line */
 .gallery-modal.changelog-modal .mailrow.changelog-row .l2 { height: auto; margin-top: 1px; font-family: var(--mono); }

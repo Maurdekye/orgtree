@@ -1627,6 +1627,13 @@ Organization settings and both Defaults placements save dirty fields in order vi
 
 ## The Changelog panel (2026-10-24, 4.4.5)
 
+For 4.5.0, rows emphasize major > minor > patch (USER 2026-10-26
+m91a2252773ec, target m0bce503007bb). `data-release-level` selects theme-token
+inset edges and 19/17/15 px version text at 800/750/700 weight. Ordinary ink,
+selection, timestamps, ordering and navigation retain their existing rules.
+The treatment is provisional; prereleases/build metadata provisionally follow
+their numeric base version, and unknown formats use patch styling.
+
 `changelog.tsx` has the Presentations panel's shape: the gallery frame, the
 `.mailpane` list and reading pane, the row classes and `usePanelSteps`. Rows are
 the engine's: version plus release date & time (`fmtStamp` in a row, `fmtFull`

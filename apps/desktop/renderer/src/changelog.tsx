@@ -177,10 +177,20 @@ export function ChangelogModal({ close, opening = 0 }: {
   )
 }
 
+// USER 2026-10-26 (4.5.0): major > minor > patch row emphasis.
+// Provisional: prereleases/build metadata follow the numeric base version;
+// an unrecognized version keeps the ordinary patch treatment.
+function releaseLevel(version: string): 'major' | 'minor' | 'patch' {
+  const base = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/.exec(version.split(/[-+]/, 1)[0] ?? '')
+  if (!base || base[3] !== '0') return 'patch'
+  return base[2] === '0' ? 'major' : 'minor'
+}
+
 function ChangelogRowView({ row, on, onSelect }: { row: ChangelogRow; on: boolean; onSelect: () => void }) {
   return (
     <div className={'mailrow doc-gallery-row changelog-row active' + (on ? ' on' : '')}
       data-version={row.version}
+      data-release-level={releaseLevel(row.version)}
       title={row.released_at ? `${row.version} · ${fmtFull(row.released_at)}` : row.version}
       onClick={onSelect}>
       <div className="l1"><span className="mfrom">{row.version}</span></div>

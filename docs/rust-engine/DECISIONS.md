@@ -1,3 +1,8 @@
+**Changelog release emphasis, USER 2026-10-26 m91a2252773ec, m0bce503007bb (4.5.0):**
+Style major release rows more strongly than minor rows, and minor more than
+patch rows. Typography/edges and grouping prereleases by their base version are
+provisional for feedback. See [Changelog](../agents/desktop-and-renderer.md#the-changelog-panel-2026-10-24-445).
+
 **Standalone client tokens, USER 2026-10-24 m786bcc0b3072 (4.4.5), coordinator edges m73ae357a3860:**
 Named tokens can be created/listed/revoked as the user. Revocation drops open
 HTTP/WS/MCP connections at once, including self-revoke with no response promise
