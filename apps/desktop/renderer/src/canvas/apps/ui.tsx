@@ -1,7 +1,7 @@
 import {useCallback,useEffect,useLayoutEffect,useRef,useState,useSyncExternalStore} from 'react'
 import type {CSSProperties,PointerEvent as ReactPointerEvent} from 'react'
 import {createPortal} from 'react-dom'
-import {AddIcon,AppsIcon,HideIcon,PowerIcon,SettingsIcon,PinIcon} from '../../icons'
+import {AddIcon,AppsIcon,CloseIcon,PowerIcon,SettingsIcon,PinIcon} from '../../icons'
 import PinOutlinedIcon from '@mui/icons-material/PushPinOutlined'
 import {MovableSurface,PopoutButton,moveKeepingFrames,useSurface,useSurfaceDocument} from '../../popout'
 import {desktop} from '../../desktop'
@@ -111,6 +111,7 @@ function PanelBody({slug,app,panel,zoom,shown}:{slug:string;app:CustomApp;panel:
   const update=async(fields:Record<string,unknown>)=>{try{setError('');return await changeApps<CustomPanel>(slug,{action:'panel_update',panel:panel.id,expected_rev:latest.current.rev,...fields})}catch(e){setError(String(e));throw e}}
   // Hide closes the window and keeps the panel running; a popped-out window is
   // hidden natively, so its document and scripts survive. Power off stops it.
+  // Hide is the header's far-right X (user 2026-10-26: an X instead of the crossed eye).
   const close=()=>{if(surface?.detached&&surface.name)void desktop()?.hidePopout?.(surface.name)?.catch(()=>{});void update({open:false}).catch(()=>{})}
   const powerOff=async()=>{try{setError('');await changeApps(slug,{action:'panel_stop',panel:panel.id})}catch(e){setError(String(e))}}
   const wasShown=useRef(shown)
@@ -129,8 +130,8 @@ function PanelBody({slug,app,panel,zoom,shown}:{slug:string;app:CustomApp;panel:
       <AppsIcon/><strong className="modalpin-name" title={app.name+' · '+panel.label}>{app.name} · {panel.label}</strong>
       <button type="button" className="modalpin-btn" title="Panel settings" aria-label={'Settings for '+panel.label} onClick={()=>setSettings(true)}><SettingsIcon fontSize="inherit"/></button>
       <PopoutButton/>{!surface?.detached&&<button type="button" className={'modalpin-btn'+(panel.placement.mode==='canvas'?' active':'')} title={panel.placement.mode==='canvas'?'Unpin from canvas':'Pin to canvas'} aria-label={panel.placement.mode==='canvas'?'Unpin from canvas':'Pin to canvas'} aria-pressed={panel.placement.mode==='canvas'} onClick={pin}>{panel.placement.mode==='canvas'?<PinIcon fontSize="inherit"/>:<PinOutlinedIcon fontSize="inherit"/>}</button>}
-      <button type="button" className="modalpin-btn" title="Hide: closes the window, keeps the panel running" aria-label={'Hide '+panel.label} onClick={close}><HideIcon fontSize="inherit"/></button>
       <button type="button" className="modalpin-btn custom-app-power" title="Power off: stops the panel and closes the window" aria-label={'Power off '+panel.label} onClick={()=>void powerOff()}><PowerIcon fontSize="inherit"/></button>
+      <button type="button" className="modalpin-btn" title="Hide: closes the window, keeps the panel running" aria-label={'Hide '+panel.label} onClick={close}><CloseIcon fontSize="inherit"/></button>
     </header>
     {error&&<div role="alert" className="custom-app-error">{error}</div>}{surface?.error&&<div role="alert">{surface.error}</div>}
     <PanelHtml slug={slug} app={app} panel={panel} visible={shown}/>

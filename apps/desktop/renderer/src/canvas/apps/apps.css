@@ -52,6 +52,8 @@
 .custom-app-dialog-actions>span { flex:1 }
 .custom-app-dialog-actions label.button { display:inline-flex;flex:none;padding:4px 8px;border:1px solid var(--border);border-radius:4px;cursor:pointer }
 .custom-app-dialog-actions button { min-height:26px }
+/* A delete confirmation fits its content (user 2026-10-26), not the settings frame's 660px by 88vh. */
+.settings.custom-app-confirm { width:auto;min-width:min(340px,94vw);max-width:min(480px,94vw);height:auto;max-height:88vh }
 .custom-app-import-file { cursor:pointer;border:1px solid var(--border);border-radius:4px;padding:4px 8px;font-size:12px }
 .custom-app-dialog .custom-app-include { flex:none;flex-direction:row;align-items:center;gap:6px }
 .custom-app-portable-export { display:flex;flex-direction:column;align-items:flex-start;gap:8px;padding:10px 0;border-block:1px solid var(--border) }
