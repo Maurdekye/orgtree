@@ -37,6 +37,8 @@ foreach($stage in @('Prepare','Copy','Register')) {
         $script:helper.Enabled=$false
         $beforeBoot=$script:task.Xml;$beforeHelper=$script:helper.Xml
         Invoke-BootLifecycle Prepare $dir $sid
+        # Prepare and Register are different PowerShell processes in Setup.
+        $script:rollback=ConvertFrom-Json (ConvertTo-Json -InputObject $script:rollback -Depth 8 -Compress)
         if($stage -eq 'Register') {
             # Run the real Register path over empty synthetic payload files.
             # NSIS defers the launches until its final commit, so a later
@@ -57,6 +59,42 @@ Case 'Prepare failure restores helper as well as boot task' {
     function Save-BootRecord($Record) { throw 'injected prepare persistence failure' }
     try { Invoke-BootLifecycle Prepare $dir $sid } catch { Assert ($_.Exception.Message -match 'injected prepare') 'Injection did not run' }
     Assert ($script:task.Enabled -and $script:helper.Enabled) 'Prepare failure left a paired task disabled'
+}
+Case 'Commit alone starts helper then boot once; Register never starts either' {
+    Reset-Pair
+    Invoke-BootLifecycle Prepare $dir $sid
+    Invoke-BootLifecycle Register $dir -DeferStart
+    Assert (-not @($script:events|Where-Object {$_ -match '^(run|helper-run)$'}).Count) 'Register launched before commit'
+    Invoke-BootLifecycle Commit $dir
+    $starts=@($script:events|Where-Object {$_ -match '^(run|helper-run)$'})
+    Assert ($starts.Count -eq 2 -and $starts[0] -eq 'helper-run' -and $starts[1] -eq 'run') 'Commit did not start helper then boot'
+    Invoke-BootLifecycle Commit $dir
+    Assert (@($script:events|Where-Object {$_ -match '^(run|helper-run)$'}).Count -eq 2) 'Repeated Commit started tasks twice'
+    Assert ($null -eq $script:rollback) 'Commit retained active snapshot'
+}
+Case 'actual partial Register failure restores original pair before any task starts' {
+    Reset-Pair
+    $script:helper.Enabled=$false
+    $beforeBoot=$script:task.Xml;$beforeHelper=$script:helper.Xml
+    Invoke-BootLifecycle Prepare $dir $sid
+    $originalHelperRegister=${function:Register-HelperTask}
+    function Register-HelperTask($Folder,[string]$Xml,[int]$Flags,[string]$Sid,[string]$Sddl) {
+        if($Flags -eq 20) { throw 'injected Register helper failure' }
+        & $originalHelperRegister $Folder $Xml $Flags $Sid $Sddl
+    }
+    Refuses { Invoke-BootLifecycle Register $dir -DeferStart } 'injected Register helper failure'
+    Assert ($script:task.Enabled -and -not $script:helper.Enabled) 'Partial Register lost prior task enablement'
+    Assert ($script:task.Xml -ceq $beforeBoot -and $script:helper.Xml -ceq $beforeHelper) 'Partial Register lost original triggers'
+    Assert (-not @($script:events|Where-Object {$_ -match '^(run|helper-run)$'}).Count) 'Partial Register started a task'
+}
+Case 'one failed restore still restores the other task and retains the snapshot' {
+    Reset-Pair
+    Invoke-BootLifecycle Prepare $dir $sid
+    $script:folder | Add-Member -Force ScriptMethod RegisterTask { throw 'injected boot restore failure' }
+    Refuses { Invoke-BootLifecycle Rollback $dir } 'injected boot restore failure'
+    Assert $script:helper.Enabled 'Boot restore failure prevented helper restoration'
+    Assert ($null -ne $script:rollback) 'Failed restore discarded its snapshot'
+    Assert (-not @($script:events|Where-Object {$_ -match '^(run|helper-run)$'}).Count) 'Failed restore started a task'
 }
 $results | ConvertTo-Json -Depth 5
 if(@($results|Where-Object {-not $_.pass}).Count) { exit 1 }

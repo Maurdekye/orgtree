@@ -64,6 +64,7 @@ test('silent Quit after Prepare invokes the real exit rollback hook',()=>{
 })
 test('copy Abort invokes the real installation-failure rollback hook',()=>{
   const r=execute('copy','  Abort')
+  assert.notEqual(r.status,0)
   assert.equal((r.log.match(/\[boot-rollback\]/g)||[]).length,1,r.log)
 })
 test('Register failure durably logs bounded stderr and restores once before exit',()=>{
@@ -72,7 +73,7 @@ test('Register failure durably logs bounded stderr and restores once before exit
   !insertmacro BootResult`)
   assert.equal(r.status,2)
   assert.match(r.log,/\[boot-result\] action=Register; exit=2; /)
-  assert.equal((r.log.match(/x/g)||[]).length,642,'640 detail characters plus two exit labels')
+  assert.equal(r.log.match(/\[boot-result\] action=Register; exit=2; (x+)/)?.[1].length,640)
   assert.equal((r.log.match(/\[boot-rollback\]/g)||[]).length,1,r.log)
 })
 test('committed exit never invokes the rollback helper',()=>{

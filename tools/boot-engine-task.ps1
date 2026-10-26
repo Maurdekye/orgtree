@@ -986,7 +986,7 @@ function Restore-BootInstallTasks([string]$InstallDir) {
             $task.Enabled=[bool]$saved.Enabled
             if ([bool]$task.Enabled -ne [bool]$saved.Enabled) { throw 'Restored task enablement did not read back.' }
             $expected=@(Get-BootTriggerStates $saved.Xml);$actual=@(Get-BootTriggerStates $task.Xml)
-            if ($expected.Count -ne $actual.Count -or (Compare-Object $expected $actual -SyncWindow 0)) { throw 'Restored trigger states did not read back.' }
+            if ($expected.Count -ne $actual.Count -or ($expected.Count -gt 0 -and (Compare-Object $expected $actual -SyncWindow 0))) { throw 'Restored trigger states did not read back.' }
         } catch {
             $failures+="$($item.Name): $($_.Exception.Message)"
         }

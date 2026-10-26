@@ -1962,6 +1962,10 @@ All entries are dated 2026-10-06 unless stated otherwise.
       Q2 (07:38:29Z m049077cca990): the one-off button is retired for 4.4.0, so 8's last
       sentence has nothing to apply to.
     - **Restarts, updates, recovery:** always the S4U boot task, also with Run on boot off (Q4);
+      The 2026-10-26 update-recovery fix preserves owned task enable/trigger
+      states across installer failures and exposes startup refusals with
+      Retry/Quit, without changing this placement invariant. See
+      [failed updates](run-on-boot.md#failed-updates-and-startup-recovery-445).
       the boot host runs one engine again, as before decision 93. An update deletes the
       installer's own leftover "Orgtree User Session Engine" task and never registers it. An
       installed build that cannot read its tasks refuses, with Start engine in the tray, rather

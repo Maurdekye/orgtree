@@ -86,6 +86,12 @@ Every setting name, description/help text, settings section header and settings-
 
 ## Read this first
 
+Windows installer task suspension is transactional across Prepare/copy/Register;
+keep the protected snapshot and failure/exit hooks, defer starts until commit,
+and distinguish disabled tasks from triggers off. Startup failures have visible
+Retry/Quit without bypassing Session 0. See [update recovery](docs/rust-engine/run-on-boot.md#failed-updates-and-startup-recovery-445).
+[verified: `tools/boot-engine-task.ps1`, `build/installer.nsh`, `main/{runonstartup,sessionlaunch,index}.ts`; 2026-10-26]
+
 Providers Refresh and post-login verification share serialized ordinary discovery; the default Codex row reuses the native sign-in flow. Tool refresh requires inspection + runtime. See [provider refresh](docs/agents/providers-and-accounts.md#explicit-provider-refresh-and-default-codex-sign-in-2026-10-23). [verified: `providers/status_refresh.rs`, `canvas/accountsregistry.tsx`;2026-10-23]
 
 1. **Work on the assigned line and scope.** Current development is the Rust engine in `engine/rs/` on local `rust-engine`; the assignment/team notes name the current release line and exact base. The 3.x Python rewrite is stopped; its procedures are historical. Read [PLAN §10](docs/rust-engine/PLAN.md#10-user-facing-differences--complete-ledger), [DECISIONS](docs/rust-engine/DECISIONS.md) and [HANDOFF](docs/rust-engine/HANDOFF.md). Preserve 3.x product behavior unless a signed decision changes it. Current user rulings and the assignment take precedence over old notes. [decided: user 2026-10-06, DECISIONS 1–2, 45]
