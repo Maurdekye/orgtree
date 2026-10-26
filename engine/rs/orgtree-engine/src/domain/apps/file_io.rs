@@ -3,6 +3,7 @@
 use super::*;
 use std::ffi::OsStr;
 use sha2::{Digest,Sha256};
+use anyhow::Context;
 
 pub(in crate::domain::apps) const WRITE_MAX:usize=64*1024;
 pub(in crate::domain::apps) struct Entry {pub name:String,pub directory:bool}
@@ -111,12 +112,12 @@ fn commit_with(change:Change,between:impl FnOnce())->Result<Value>{
             let staged_name=crate::util::uid(".orgtree-app-save");
             let mut stage=anchored_access(dir._handles.last().expect("pinned directory"),OsStr::new(&staged_name),false,true,true)?;
             let result=(||->Result<Value>{
-                stage.write_all(&data)?;stage.sync_all()?;
+                stage.write_all(&data).context("stage bytes")?;stage.sync_all().context("flush stage")?;
                 if let Some(old)=&target{
                     // Keep the exclusive old-file pin. Windows cannot replace
                     // it in one rename without relaxing deletion sharing. Move
                     // that exact handle aside, then publish without overwrite.
-                    let backup=crate::util::uid(".orgtree-app-recovery");rename(old,&dir,&backup)?;between();
+                    let backup=crate::util::uid(".orgtree-app-recovery");rename(old,&dir,&backup).context("retain confirmed target")?;between();
                     if let Err(error)=rename(&stage,&dir,&name){
                         if rename(old,&dir,&name).is_err(){
                             return Ok(json!({"changed":false,"recovery_name":backup,"error":"Replacement conflicted. Original bytes remain in the recovery file; no existing destination was overwritten."}));
