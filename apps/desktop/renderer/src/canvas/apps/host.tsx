@@ -5,12 +5,15 @@ import {changeApps} from './store'
 import {PANEL_PROTOCOL,panelDocument,panelRequest} from './sdk'
 import {AppActionClient} from './actions'
 import {AppPermissionPrompt,type PermissionPrompt} from './permissions'
+import {AppFileClient,type FilePrompt} from './files'
+import {AppFilePermissionPrompt} from './files-ui'
 import type {CustomApp,CustomPanel,PanelEvents} from './types'
 
 export function PanelHtml({slug,app,panel,visible=true}:{slug:string;app:CustomApp;panel:CustomPanel;visible?:boolean}){
   const owner=useSurfaceDocument(),frame=useRef<HTMLIFrameElement>(null),replyPort=useRef<MessagePort|null>(null)
   const [definition,setDefinition]=useState<CustomApp|null>(null),[error,setError]=useState(''),[saved,setSaved]=useState(false)
   const [prompt,setPrompt]=useState<PermissionPrompt|null>(null),actions=useRef<AppActionClient|null>(null)
+  const [filePrompt,setFilePrompt]=useState<FilePrompt|null>(null),files=useRef<AppFileClient|null>(null)
   const channel=useMemo(()=>crypto.randomUUID(),[slug,app.id,app.rev,panel.id,owner])
   const current=useRef<CustomPanel|null>(null),eventSeq=useRef<number|null>(null),epoch=useRef(0),ready=useRef(false)
   // React handlers keep their main-window realm after a portal moves. A reply
@@ -31,7 +34,15 @@ export function PanelHtml({slug,app,panel,visible=true}:{slug:string;app:CustomA
       signal.addEventListener('abort',cancel,{once:true});setPrompt({request,finish})
     }))
     actions.current=client
-    return()=>{client.dispose();if(actions.current===client)actions.current=null;replyPort.current?.close();replyPort.current=null;ready.current=false}
+    const fileClient=new AppFileClient(slug,app.id,panel.id,client,(request,session,signal)=>new Promise(resolve=>{
+      let settled=false
+      const finish:FilePrompt['finish']=decision=>{if(settled)return;settled=true;signal.removeEventListener('abort',cancel);setFilePrompt(null);resolve(decision)}
+      const cancel=()=>finish(null)
+      if(signal.aborted){resolve(null);return}
+      signal.addEventListener('abort',cancel,{once:true});setFilePrompt({request,session,finish})
+    }))
+    files.current=fileClient
+    return()=>{client.dispose();if(actions.current===client)actions.current=null;if(files.current===fileClient)files.current=null;replyPort.current?.close();replyPort.current=null;ready.current=false}
   },[slug,app.id,app.rev,panel.id,channel,owner,visible,foreground])
   useEffect(()=>{let alive=true;setDefinition(null);setError('');current.current=null;eventSeq.current=null;ready.current=false;++epoch.current
     void customAppsRequest<CustomApp>(slug,{action:'app_get',app:app.id}).then(result=>{if(alive){if(result.rev!==app.rev)throw Error('App changed; refresh its panel.');setDefinition(result)}}).catch(e=>{if(alive)setError(String(e))})
@@ -85,6 +96,9 @@ export function PanelHtml({slug,app,panel,visible=true}:{slug:string;app:CustomA
           }else if(request.method==='engine.call'){
             const client=actions.current;if(!client)throw Error('App host closed or hidden.')
             result=await client.call(request.args)
+          }else if(request.method==='files.call'){
+            const client=files.current;if(!client)throw Error('App host closed or hidden.')
+            result=await client.call(request.args)
           }else throw Error('Unknown panel API method.')
           if(active&&at===epoch.current){setError('');postRef.current({id:request.id,result})}
         }catch(e){if(active&&at===epoch.current){setError(String(e));postRef.current({id:request.id,error:e instanceof Error?e.message:String(e)})}}
@@ -93,12 +107,13 @@ export function PanelHtml({slug,app,panel,visible=true}:{slug:string;app:CustomA
     win.addEventListener('message',listener)
     return()=>{active=false;win.removeEventListener('message',listener)}
   },[slug,panel.id,channel,owner,visible,foreground])
-  const source=useMemo(()=>definition?.definition?panelDocument(definition.definition.html,channel):'', [definition,channel])
+  const source=useMemo(()=>definition?.definition?panelDocument(definition.definition.html,channel,new URL('/api/orgs/'+encodeURIComponent(slug)+'/apps/media',window.location.href).href):'', [definition,channel,slug])
   return <div className="custom-app-host">
     {error&&<div className="custom-app-error" role="alert">{error}</div>}
     {visible&&foreground&&source?<iframe key={channel} ref={frame} title={`${app.name}: ${panel.label}`} srcDoc={source} sandbox="allow-scripts" referrerPolicy="no-referrer"
       onLoad={()=>{ready.current=true;postRef.current({kind:'ready'})}}/>:<div className="custom-app-suspended">{source?'Paused while hidden.':'Loading app…'}</div>}
     <div className="custom-app-status">{panel.linked_agents.length?`Linked: ${panel.linked_agents.join(', ')}`:'No linked agents'}<span>{saved?'Saved':'State saved by Orgtree'}</span></div>
     {prompt&&visible&&foreground&&<AppPermissionPrompt prompt={prompt} owner={owner}/>}
+    {filePrompt&&visible&&foreground&&<AppFilePermissionPrompt slug={slug} prompt={filePrompt} owner={owner} canSend={app.capabilities.includes('mail.send')}/>}
   </div>
 }

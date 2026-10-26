@@ -27,14 +27,11 @@ export class AppActionClient {
     if(session)void customAppsBridge(this.slug,{action:'session_close',session}).catch(()=>{})
   }
   dispose(){this.active=false;this.stop.abort();this.closeSession()}
-  async call(input:unknown):Promise<unknown>{
+  cancelSession(){this.closeSession()}
+  get signal(){return this.stop.signal}
+  /** Used only by the trusted file client sharing this host's lifetime. */
+  async hostSession():Promise<string>{
     this.check()
-    if(!object(input)||Object.keys(input).some(k=>!['action','args'].includes(k))||typeof input.action!=='string'||!Object.hasOwn(fields,input.action))throw Error('Unsupported app action or identity fields.')
-    const args=input.args??{}
-    if(!object(args)||Object.keys(args).some(k=>!fields[input.action as string].includes(k)))throw Error('Unsupported app action arguments or identity fields.')
-    const request={...args,action:input.action}
-    if(new TextEncoder().encode(JSON.stringify(request)).length>64*1024)throw Error('App action exceeds 64 KiB.')
-    // Renew BEFORE sending an action. Never retry a possibly executed action.
     if(this.until<=Date.now()+5000){
       this.closeSession()
       const opened=await customAppsBridge<{session:string;app:string;app_rev:number;expires_in:number}>(this.slug,{action:'session_open',panel:this.panel})
@@ -45,8 +42,17 @@ export class AppActionClient {
       }
       this.session=opened.session;this.until=Date.now()+Math.min(1800,opened.expires_in)*1000
     }
+    this.check();return this.session!
+  }
+  async call(input:unknown):Promise<unknown>{
     this.check()
-    const session=this.session!
+    if(!object(input)||Object.keys(input).some(k=>!['action','args'].includes(k))||typeof input.action!=='string'||!Object.hasOwn(fields,input.action))throw Error('Unsupported app action or identity fields.')
+    const args=input.args??{}
+    if(!object(args)||Object.keys(args).some(k=>!fields[input.action as string].includes(k)))throw Error('Unsupported app action arguments or identity fields.')
+    const request={...args,action:input.action}
+    if(new TextEncoder().encode(JSON.stringify(request)).length>64*1024)throw Error('App action exceeds 64 KiB.')
+    // Renew BEFORE sending an action. Never retry a possibly executed action.
+    const session=await this.hostSession()
     const result=await customAppsBridge<Record<string,unknown>>(this.slug,{action:'call',session,request})
     this.check()
     if(!Object.hasOwn(result,'permission_required'))return result

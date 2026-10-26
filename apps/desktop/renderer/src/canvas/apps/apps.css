@@ -68,6 +68,13 @@
 .custom-app-permission small { overflow-wrap:anywhere;color:var(--muted) }
 .custom-app-dialog .custom-app-permission-row { flex:none;flex-direction:row;justify-content:space-between;align-items:center;gap:12px }
 .custom-app-permission-row small { display:block;color:var(--muted);font-size:11px }
+.custom-app-file-picker { display:flex;flex-direction:column;gap:8px;min-width:0 }
+.custom-app-file-picker form { display:flex;gap:6px;align-items:end;flex-wrap:wrap }
+.custom-app-file-picker form label { display:flex;flex:1;min-width:180px;flex-direction:column;gap:4px }
+.custom-app-file-list { display:flex;flex-direction:column;max-height:230px;overflow:auto;border:1px solid var(--border);border-radius:5px }
+.custom-app-file-list button { text-align:left;border:0;border-radius:0;flex-shrink:0;overflow-wrap:anywhere;min-height:30px }
+.custom-app-file-list button[aria-pressed="true"] { background:var(--accent);color:var(--bg) }
+.custom-app-file-picker p { overflow-wrap:anywhere;font-size:12px }
 .custom-app-mini { position:absolute;display:grid;place-items:center;width:48px;height:48px;background:var(--panel);color:var(--accent);border:1px solid var(--border);border-radius:10px;pointer-events:auto;cursor:pointer;z-index:8 }
 .custom-app-mini svg { width:30px;height:30px }
 .custom-app-connections { list-style:none;padding:0;margin:0;display:grid;gap:10px }
