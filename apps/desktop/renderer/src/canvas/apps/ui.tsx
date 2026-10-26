@@ -2,6 +2,7 @@ import {useCallback,useEffect,useLayoutEffect,useRef,useState,useSyncExternalSto
 import type {CSSProperties,PointerEvent as ReactPointerEvent} from 'react'
 import {createPortal} from 'react-dom'
 import {AddIcon,AppsIcon,CloseIcon,SettingsIcon,PinIcon} from '../../icons'
+import PinOutlinedIcon from '@mui/icons-material/PushPinOutlined'
 import {MovableSurface,PopoutButton,useSurface,useSurfaceDocument} from '../../popout'
 import {windowExitStarted} from '../../windowlayout'
 import {customAppsRequest} from '../../api'
@@ -97,7 +98,7 @@ function PanelBody({slug,app,panel,zoom}:{slug:string;app:CustomApp;panel:Custom
     <header className="modalpin-bar on custom-app-title" onPointerDown={e=>start(e,'move')} onPointerMove={move} onPointerUp={end} onPointerCancel={()=>{drag.current=null;setPreview(null)}}>
       <AppsIcon/><strong className="modalpin-name" title={app.name+' · '+panel.label}>{app.name} · {panel.label}</strong>
       <button type="button" className="modalpin-btn" title="Panel settings" aria-label={'Settings for '+panel.label} onClick={()=>setSettings(true)}><SettingsIcon fontSize="inherit"/></button>
-      <PopoutButton/>{!surface?.detached&&<button type="button" className={'modalpin-btn'+(panel.placement.mode==='canvas'?' active':'')} title={panel.placement.mode==='canvas'?'Unpin from canvas':'Pin to canvas'} aria-label={panel.placement.mode==='canvas'?'Unpin from canvas':'Pin to canvas'} onClick={pin}><PinIcon fontSize="inherit"/></button>}
+      <PopoutButton/>{!surface?.detached&&<button type="button" className={'modalpin-btn'+(panel.placement.mode==='canvas'?' active':'')} title={panel.placement.mode==='canvas'?'Unpin from canvas':'Pin to canvas'} aria-label={panel.placement.mode==='canvas'?'Unpin from canvas':'Pin to canvas'} aria-pressed={panel.placement.mode==='canvas'} onClick={pin}>{panel.placement.mode==='canvas'?<PinIcon fontSize="inherit"/>:<PinOutlinedIcon fontSize="inherit"/>}</button>}
       <button type="button" className="modalpin-btn" aria-label={'Close '+panel.label} onClick={close}><CloseIcon fontSize="inherit"/></button>
     </header>
     {error&&<div role="alert" className="custom-app-error">{error}</div>}{surface?.error&&<div role="alert">{surface.error}</div>}

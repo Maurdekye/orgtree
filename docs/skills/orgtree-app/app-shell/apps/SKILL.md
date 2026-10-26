@@ -64,6 +64,7 @@ the centered modal. Drag a pinned title or resize its corner. Canvas pins pan an
 zoom with the chart; far zoom shows an icon, and offscreen/hidden canvas panels
 suspend their HTML. Screen pins are gone: a panel pinned there before reopens
 centered, and orgtree_apps refuses mode screen. The pin is hidden in a pop-out.
+The pin shows filled and highlighted while the panel is pinned.
 Returning from a pop-out restores its preceding placement for this session.
 Stored placements and open copies are read again after restart. Reopen a panel
 from Apps if its canvas position is outside the current view.

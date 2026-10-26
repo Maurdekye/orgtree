@@ -116,7 +116,8 @@ its corner there. A canvas pin moves and zooms with the chart and keeps its save
 position when reopened. Unpinning returns the panel to the centered modal. Panels
 no longer pin to the screen; one pinned there before reopens centered. Pop-outs
 use the existing saved-window restoration (provisional reopen default), and the
-pin is hidden in a popped-out window.
+pin is hidden in a popped-out window. The pin shows filled and highlighted while
+the panel is pinned.
 Far zoom shows an icon, and hidden canvas HTML pauses until visible again.
 The title's pop-out opens a separate window; Return restores its previous place.
 
