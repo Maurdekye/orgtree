@@ -88,7 +88,8 @@ impl Registry {
         let now=Instant::now();let expired:Vec<_>=all.iter().filter(|(_,s)|s.until<=now).map(|(token,s)|(s.bound.org,token.clone())).collect();all.retain(|_,s|s.until>now);
         if all.len()>=4096{crate::refuse!(Conflict,"too many active app host sessions");}
         let token=secret();all.insert(token.clone(),Session{bound,until:now+Duration::from_secs(1800),pending:None});drop(all);
-        for (org,expired) in expired{self.file_access.forget(org,None,None,Some(&expired))?;}Ok(token)
+        // An expired host ends its questions; its copy's file and media links stay.
+        for (org,expired) in expired{self.file_access.forget_prompts(org,None,None,Some(&expired))?;}Ok(token)
     }
     #[nolog] pub(super) fn bound(&self,org:i64,token:&str)->Result<Bound> {
         let all=self.sessions.lock().map_err(|_|anyhow::anyhow!("Apps session registry unavailable"))?;
@@ -106,17 +107,16 @@ impl Registry {
         if !s.pending.as_ref().is_some_and(|p|p.id==id&&p.until>Instant::now()){crate::refuse!(Forbidden,"app permission prompt expired or does not match");}
         Ok(s.pending.take().expect("checked pending action").action)
     }
-    #[nolog] pub(super) fn remaining(&self,org:i64,token:&str)->Result<Duration>{
-        let all=self.sessions.lock().map_err(|_|anyhow::anyhow!("Apps session registry unavailable"))?;
-        let Some(s)=all.get(token).filter(|s|s.bound.org==org&&s.until>Instant::now())else{crate::refuse!(Forbidden,"app host session expired");};Ok(s.until.saturating_duration_since(Instant::now()))
-    }
     #[nolog] pub fn revoke(&self,org:i64,app:Option<&str>,panel:Option<&str>)->Result<()> {
         self.sessions.lock().map_err(|_|anyhow::anyhow!("Apps session registry unavailable"))?.retain(|_,s|!(s.bound.org==org&&app.is_none_or(|a|s.bound.app==a)&&panel.is_none_or(|p|s.bound.panel==p)));
-        self.file_access.forget(org,app,panel,None)
+        self.file_access.forget(org,app,panel)
     }
     #[nolog] fn close(&self,org:i64,token:&str)->Result<()> {
         let mut all=self.sessions.lock().map_err(|_|anyhow::anyhow!("Apps session registry unavailable"))?;
-        if all.get(token).is_some_and(|s|s.bound.org==org){all.remove(token);}drop(all);self.file_access.forget(org,None,None,Some(token))
+        if all.get(token).is_some_and(|s|s.bound.org==org){all.remove(token);}drop(all);
+        // Renewal, pop-out and a closed window keep the copy's file and media links
+        // (USER 2026-10-26 mf7add4fda093); only this host's open questions end.
+        self.file_access.forget_prompts(org,None,None,Some(token))
     }
 }
 #[nolog] pub(super) fn secret()->String {format!("{}{}",uuid::Uuid::new_v4().simple(),uuid::Uuid::new_v4().simple())}

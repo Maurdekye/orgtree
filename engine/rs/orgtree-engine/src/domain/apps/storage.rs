@@ -301,12 +301,56 @@ pub async fn run(engine:&Arc<Engine>,org:&Arc<OrgHandle>,caller:Option<&Caller>,
     };
     let gate=engine.custom_apps.gate(org.id,&app)?;let _guard=gate.lock.lock().await;
     if action=="fire_event"{gate.admit()?;}
+    // A Files permission change ends links only if it removes access, so read
+    // the access the app had before the change (under the same gate).
+    let file_cap=input["capability"].as_str().filter(|cap|action=="permission_set"&&matches!(*cap,"files.read"|"files.write"));
+    let before=if file_cap.is_some(){
+        let client=engine.db.get().await?;
+        client.query_opt("SELECT jsonb_build_object('origin',origin,'capabilities',capabilities,'permissions',permissions) FROM ot.custom_apps WHERE org_id=$1 AND id=$2",&[&org.id,&app]).await?.map(|row|row.get::<_,Value>(0))
+    }else{None};
     let out=run_locked(engine,org,caller,input).await?;
     if ["app_update","app_delete"].contains(&action){engine.custom_apps.revoke(org.id,Some(&app),None)?;engine.custom_apps.runtime.revoke_app(org.id,&app)?;}
-    if action=="permission_set"&&matches!(input["capability"].as_str(),Some("files.read"|"files.write")){engine.custom_apps.file_access.forget(org.id,Some(&app),None,None)?;}
+    if let (Some(cap),Some(before))=(file_cap,before.as_ref()){
+        if removes_file_access(before,cap,input["permission"].as_str().unwrap_or("")){engine.custom_apps.file_access.forget(org.id,Some(&app),None)?;}
+    }
     // Power off and deletion end the runtime and its authority. Hide keeps the
-    // host session, but still ends Once file links, playback and pending prompts.
+    // runtime with its file and media links, so hidden media keeps playing
+    // (USER 2026-10-26 mf7add4fda093); it ends only open questions.
     if action=="panel_delete"||action=="panel_stop"{engine.custom_apps.revoke(org.id,None,input["panel"].as_str())?;engine.custom_apps.runtime.revoke(org.id,input["panel"].as_str())?;}
-    if action=="panel_update"&&input["open"]==false{engine.custom_apps.file_access.forget(org.id,None,input["panel"].as_str(),None)?;}
+    if action=="panel_update"&&input["open"]==false{engine.custom_apps.file_access.forget_prompts(org.id,None,input["panel"].as_str(),None)?;}
     Ok(out)
+}
+
+/// Whether a Files permission change ends existing file and media links. Only
+/// removing access does (USER 2026-10-26 mf7add4fda093): a change that grants or
+/// keeps access leaves them. Deny always does, since it also overrides Once
+/// grants, which no standing permission covers.
+#[nolog]
+fn removes_file_access(before:&Value,cap:&str,permission:&str)->bool{
+    let mut after=before.clone();after["permissions"][cap]=json!(permission);
+    permission=="deny"||(super::policy::org_allowed(before,cap)&&!super::policy::org_allowed(&after,cap))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn only_a_files_permission_change_that_removes_access_ends_links() {
+        // implicit org access (no stored choice): Allow keeps it; Ask and Deny remove it
+        let implicit = json!({"origin":"created","capabilities":["files.read"],"permissions":{}});
+        assert!(!removes_file_access(&implicit, "files.read", "allow"));
+        assert!(removes_file_access(&implicit, "files.read", "ask"));
+        assert!(removes_file_access(&implicit, "files.read", "deny"));
+        // from Ask, granting or keeping Ask ends nothing; Deny always does (it overrides Once grants)
+        let asked = json!({"origin":"created","capabilities":["files.read"],"permissions":{"files.read":"ask"}});
+        assert!(!removes_file_access(&asked, "files.read", "allow"));
+        assert!(!removes_file_access(&asked, "files.read", "ask"));
+        assert!(removes_file_access(&asked, "files.read", "deny"));
+        let allowed = json!({"origin":"created","capabilities":["files.read"],"permissions":{"files.read":"allow"}});
+        assert!(!removes_file_access(&allowed, "files.read", "allow"));
+        assert!(removes_file_access(&allowed, "files.read", "ask"));
+        // a write change is judged on write access alone
+        assert!(!removes_file_access(&allowed, "files.write", "allow"));
+        assert!(removes_file_access(&allowed, "files.write", "ask"));
+    }
 }

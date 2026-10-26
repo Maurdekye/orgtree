@@ -4,16 +4,20 @@ use super::*;
 use std::path::Path;
 
 #[derive(Clone)]struct Grant{id:String,scope:String,mode:String,path:Option<PathBuf>}
-struct Once{session:String,bound:Bound,grant:Grant}
+/// A Once scope belongs to the running copy (any of its hosts), like Once references.
+struct Once{bound:Bound,grant:Grant}
 struct Change{session:String,bound:Bound,caller:Option<Caller>,grant:String,path:PathBuf,io:files::io::Change,until:Instant}
 struct Outcome{org:i64,agent:i64,value:Value,until:Instant}
 #[derive(Default)]pub(super) struct Registry{
     once:Mutex<HashMap<String,Once>>,changes:Mutex<HashMap<String,Change>>,outcomes:Mutex<HashMap<String,Outcome>>,
 }
 impl Registry{
-    #[nolog]pub(super) fn forget(&self,org:i64,app:Option<&str>,panel:Option<&str>,session:Option<&str>)->Result<()>{
+    #[nolog]pub(super) fn forget(&self,org:i64,app:Option<&str>,panel:Option<&str>)->Result<()>{
+        let matches=|b:&Bound|b.org==org&&app.is_none_or(|v|v==b.app)&&panel.is_none_or(|v|v==b.panel);
+        self.once.lock().map_err(|_|anyhow::anyhow!("file grants unavailable"))?.retain(|_,r|!matches(&r.bound));Ok(())
+    }
+    #[nolog]pub(super) fn forget_prompts(&self,org:i64,app:Option<&str>,panel:Option<&str>,session:Option<&str>)->Result<()>{
         let matches=|b:&Bound,s:&str|b.org==org&&app.is_none_or(|v|v==b.app)&&panel.is_none_or(|v|v==b.panel)&&session.is_none_or(|v|v==s);
-        self.once.lock().map_err(|_|anyhow::anyhow!("file grants unavailable"))?.retain(|_,r|!matches(&r.bound,&r.session));
         self.changes.lock().map_err(|_|anyhow::anyhow!("file changes unavailable"))?.retain(|_,r|!matches(&r.bound,&r.session)&&r.until>Instant::now());Ok(())
     }
 }
@@ -55,7 +59,7 @@ impl Registry{
     let client=engine.db.get().await?;
     let rows=client.query("SELECT id,scope,mode,path FROM ot.custom_app_file_grants WHERE org_id=$1 AND app_id=$2 AND app_rev=$3 AND mode=$4 ORDER BY CASE scope WHEN 'file' THEN 0 WHEN 'folder' THEN 1 WHEN 'orgtree' THEN 2 ELSE 3 END,id LIMIT 130",&[&bound.org,&bound.app,&bound.rev,&mode]).await?;drop(client);
     let mut out:Vec<_>=rows.into_iter().map(|r|Grant{id:r.get(0),scope:r.get(1),mode:r.get(2),path:r.get::<_,Option<String>>(3).map(PathBuf::from)}).collect();
-    out.extend(engine.custom_apps.file_access.scopes.once.lock().map_err(|_|anyhow::anyhow!("file grants unavailable"))?.values().filter(|r|r.session==session&&same(&r.bound,bound)&&r.grant.mode==mode).map(|r|r.grant.clone()));Ok(out)
+    out.extend(engine.custom_apps.file_access.scopes.once.lock().map_err(|_|anyhow::anyhow!("file grants unavailable"))?.values().filter(|r|!session.is_empty()&&same_run(&r.bound,bound)&&r.grant.mode==mode).map(|r|r.grant.clone()));Ok(out)
 }
 #[nolog]async fn grant_for(engine:&Engine,bound:&Bound,session:&str,value:&Value,path:&Path,mode:&str)->Result<Grant>{
     declared_mode(value,mode)?;
@@ -67,15 +71,15 @@ impl Registry{
     crate::refuse!(Forbidden,"the user must grant this app the required file scope first");
 }
 #[nolog]async fn get_ref(engine:&Engine,bound:&Bound,session:&str,id:&str)->Result<Reference>{
-    if let Some(reference)=engine.custom_apps.file_access.temporary(session,bound,id)?{return Ok(reference);}reference(engine,bound,id).await
+    if !session.is_empty(){if let Some(reference)=engine.custom_apps.file_access.temporary(bound,id)?{return Ok(reference);}}reference(engine,bound,id).await
 }
-#[nolog]async fn save_ref(engine:&Engine,bound:&Bound,session:&str,grant:&Grant,path:&Path)->Result<Reference>{
+#[nolog]async fn save_ref(engine:&Engine,bound:&Bound,grant:&Grant,path:&Path)->Result<Reference>{
     if !grant.id.starts_with("once-"){return stored_reference(engine,bound,&grant.id,path).await;}
     let mut refs=engine.custom_apps.file_access.temporary.lock().map_err(|_|anyhow::anyhow!("file references unavailable"))?;
-    if let Some(old)=refs.values().find(|r|r.session==session&&same(&r.bound,bound)&&r.reference.grant==grant.id&&r.reference.path==path){return Ok(old.reference.clone());}
+    if let Some(old)=refs.values().find(|r|same_run(&r.bound,bound)&&r.reference.grant==grant.id&&r.reference.path==path){return Ok(old.reference.clone());}
     if refs.len()>=REGISTRY_MAX{crate::refuse!(Conflict,"too many temporary app files");}
     let reference=Reference{id:crate::util::uid("app-file"),grant:grant.id.clone(),path:path.into(),mode:grant.mode.clone()};
-    refs.insert(reference.id.clone(),Temporary{session:session.into(),bound:bound.clone(),reference:reference.clone()});Ok(reference)
+    refs.insert(reference.id.clone(),Temporary{bound:bound.clone(),reference:reference.clone()});Ok(reference)
 }
 #[nolog]async fn info(reference:&Reference)->Result<Value>{
     let path=reference.path.clone();let name=path.file_name().map(|s|s.to_string_lossy().to_string()).unwrap_or_else(||"Disk".into());
@@ -92,11 +96,11 @@ impl Registry{
     }
     execute(engine,org,session,&bound,&value,request,None).await
 }
-#[nolog]pub(super) async fn decide(engine:&Arc<Engine>,org:&Arc<OrgHandle>,session:&str,bound:&Bound,value:&Value,request:&FileCall,choice:Choice,path:Option<&str>)->Result<Value>{
+#[nolog]pub(super) async fn decide(engine:&Arc<Engine>,org:&Arc<OrgHandle>,bound:&Bound,value:&Value,request:&FileCall,choice:Choice,path:Option<&str>)->Result<Value>{
     let FileCall::Grant{scope,mode}=request else{crate::refuse!(BadRequest,"only a grant request can record file permission");};declared_mode(value,mode)?;
     if matches!(choice,Choice::Deny){
         super::super::storage::run_locked(engine,org,None,&json!({"action":"permission_set","app":bound.app,"expected_rev":bound.rev,"expected_permission_rev":value["permission_rev"],"capability":format!("files.{mode}"),"permission":"deny"})).await?;
-        engine.custom_apps.file_access.forget(org.id,Some(&bound.app),None,None)?;crate::refuse!(Forbidden,"app file access denied");
+        engine.custom_apps.file_access.forget(org.id,Some(&bound.app),None)?;crate::refuse!(Forbidden,"app file access denied");
     }
     let path=if scope=="folder"{
         let path=files::checked_path(Path::new(path.ok_or_else(||crate::domain::UserError::BadRequest("choose a folder before allowing access".into()))?))?;
@@ -105,14 +109,14 @@ impl Registry{
     let grant=if matches!(choice,Choice::Always){remember(engine,bound,scope,mode,path.as_deref(),value["permission_rev"].as_i64().unwrap_or(1)).await?}else{
         let grant=Grant{id:crate::util::uid("once-grant"),scope:scope.clone(),mode:mode.clone(),path};
         let mut once=engine.custom_apps.file_access.scopes.once.lock().map_err(|_|anyhow::anyhow!("file grants unavailable"))?;
-        if once.len()>=REGISTRY_MAX{crate::refuse!(Conflict,"too many temporary file scopes");}once.insert(grant.id.clone(),Once{session:session.into(),bound:bound.clone(),grant:grant.clone()});grant
+        if once.len()>=REGISTRY_MAX{crate::refuse!(Conflict,"too many temporary file scopes");}once.insert(grant.id.clone(),Once{bound:bound.clone(),grant:grant.clone()});grant
     };
     let roots=match scope.as_str(){
         "folder"=>vec![("Chosen folder".into(),grant.path.clone().expect("chosen folder"))],
         "orgtree"=>vec![("Scratch".into(),engine.cfg.scratch_root(&org.slug)),("Uploads".into(),engine.cfg.path("uploads").join(&org.slug))],
         _=>disks(),
     };
-    let mut result=Vec::new();for (name,path) in roots{let reference=save_ref(engine,bound,session,&grant,&path).await?;result.push(json!({"id":reference.id,"name":name,"directory":true}));}
+    let mut result=Vec::new();for (name,path) in roots{let reference=save_ref(engine,bound,&grant,&path).await?;result.push(json!({"id":reference.id,"name":name,"directory":true}));}
     Ok(json!({"scope":scope,"mode":mode,"roots":result}))
 }
 #[nolog]fn disks()->Vec<(String,PathBuf)>{
@@ -148,7 +152,7 @@ impl Registry{
                 for path in paths{
                     if !covers(engine,bound,&grant,&path).await?||!seen.insert(path.clone()){continue;}
                     if let Some(caller)=caller{if agent_mode(engine,org,caller,&path,false).await.is_err(){continue;}}
-                    let reference=save_ref(engine,bound,session,&grant,&path).await?;let Ok(mut item)=info(&reference).await else{continue;};
+                    let reference=save_ref(engine,bound,&grant,&path).await?;let Ok(mut item)=info(&reference).await else{continue;};
                     if let Some(caller)=caller{agent_mode(engine,org,caller,&path,false).await?;}item["scope"]=json!(grant.scope);items.push(item);
                     if items.len()>=200{return Ok(json!({"items":items,"limited":true}));}
                 }
@@ -164,7 +168,7 @@ impl Registry{
             for entry in entries{
                 let child=path.join(&entry.name);if !covers(engine,bound,&grant,&child).await?{continue;}
                 if let Some(caller)=caller{if agent_mode(engine,org,caller,&child,false).await.is_err(){continue;}}
-                let reference=save_ref(engine,bound,session,&grant,&child).await?;items.push(json!({"id":reference.id,"name":entry.name,"directory":entry.directory}));
+                let reference=save_ref(engine,bound,&grant,&child).await?;items.push(json!({"id":reference.id,"name":entry.name,"directory":entry.directory}));
             }
             if let Some(caller)=caller{agent_mode(engine,org,caller,&path,false).await?;}
             Ok(json!({"items":items,"next_cursor":next,"scan_limited":capped}))
@@ -172,7 +176,7 @@ impl Registry{
         FileCall::Child{directory,path}=>{
             let parent=get_ref(engine,bound,session,directory).await?;let selected=files::scoped_path(&parent.path,path)?;
             let grant=grant_for(engine,bound,session,value,&selected,"read").await?;if let Some(caller)=caller{agent_mode(engine,org,caller,&selected,false).await?;}
-            let reference=save_ref(engine,bound,session,&grant,&selected).await?;let result=info(&reference).await?;if let Some(caller)=caller{agent_mode(engine,org,caller,&selected,false).await?;}Ok(result)
+            let reference=save_ref(engine,bound,&grant,&selected).await?;let result=info(&reference).await?;if let Some(caller)=caller{agent_mode(engine,org,caller,&selected,false).await?;}Ok(result)
         },
         FileCall::Write{directory,name,base64,replace}=>{
             let parent=get_ref(engine,bound,session,directory).await?;let selected=files::scoped_path(&parent.path,name)?;
@@ -189,7 +193,7 @@ impl Registry{
     let more=rows.len()>limit;let mut items=Vec::new();let mut cursor=None;
     for row in rows.into_iter().take(limit){let uid:String=row.get(0);cursor=Some(uid.clone());let path=PathBuf::from(row.get::<_,String>(1));
         if let Some(caller)=caller{if agent_mode(engine,org,caller,&path,false).await.is_err(){continue;}}
-        let grant=grant_for(engine,bound,session,value,&path,"read").await?;let reference=save_ref(engine,bound,session,&grant,&path).await?;
+        let grant=grant_for(engine,bound,session,value,&path,"read").await?;let reference=save_ref(engine,bound,&grant,&path).await?;
         items.push(json!({"id":reference.id,"name":path.file_name().map(|n|n.to_string_lossy()),"delivery":uid,"directory":false}));
     }Ok(json!({"items":items,"next_cursor":if more{cursor}else{None},"scan_limited":false}))
 }

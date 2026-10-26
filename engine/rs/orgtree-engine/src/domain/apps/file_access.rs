@@ -41,12 +41,19 @@ enum NativeRequest {
 #[derive(Clone)]
 struct Reference {id:String,grant:String,path:PathBuf,mode:String}
 struct Pending {session:String,bound:Bound,call:FileCall,until:Instant}
+/// A playback ticket belongs to one running copy (code revision and execution
+/// generation), not to the host session that asked for it: Hide, pop-out and
+/// session renewal keep it playing; power off, code change, delete, deny,
+/// revoke and a permission change that removes access cancel it
+/// (USER 2026-10-26 mf7add4fda093).
 #[derive(Clone)]
 pub(crate) struct MediaLease {
-    pub session:String,pub org:i64,pub app:String,pub panel:String,pub rev:i64,
-    pub reference:String,pub until:Instant,pub cancel:CancellationToken,
+    pub org:i64,pub app:String,pub panel:String,pub rev:i64,pub generation:i64,
+    pub reference:String,pub created:Instant,pub cancel:CancellationToken,
 }
-struct Temporary {session:String,bound:Bound,reference:Reference}
+/// The newest tickets a running copy keeps; a later one ends the oldest.
+const MEDIA_PER_PANEL:usize=64;
+struct Temporary {bound:Bound,reference:Reference}
 #[derive(Default)]
 pub struct Registry {
     scopes:scopes::Registry,
@@ -69,44 +76,62 @@ impl Registry {
         if !pending.get(id).is_some_and(|p|p.session==session&&same(&p.bound,bound)&&p.until>Instant::now()) {crate::refuse!(Forbidden,"app file permission expired or does not match");}
         Ok(pending.remove(id).expect("checked pending").call)
     }
+    /// A host's Once reference, from any host of the same running copy.
     #[nolog]
-    fn temporary(&self,session:&str,bound:&Bound,id:&str)->Result<Option<Reference>>{
+    fn temporary(&self,bound:&Bound,id:&str)->Result<Option<Reference>>{
         let temporary=self.temporary.lock().map_err(|_|anyhow::anyhow!("App file references unavailable"))?;
-        Ok(temporary.get(id).filter(|r|r.session==session&&same(&r.bound,bound)).map(|r|r.reference.clone()))
+        Ok(temporary.get(id).filter(|r|same_run(&r.bound,bound)).map(|r|r.reference.clone()))
     }
     #[nolog]
-    fn remember_once(&self,session:&str,bound:&Bound,path:PathBuf,id:Option<String>)->Result<Reference>{
+    fn remember_once(&self,bound:&Bound,path:PathBuf,id:Option<String>)->Result<Reference>{
         let mut temporary=self.temporary.lock().map_err(|_|anyhow::anyhow!("App file references unavailable"))?;
         if temporary.len()>=REGISTRY_MAX{crate::refuse!(Conflict,"too many temporary app files");}
         let reference=Reference{id:id.unwrap_or_else(||crate::util::uid("app-file")),grant:String::new(),path,mode:"read".into()};
-        temporary.insert(reference.id.clone(),Temporary{session:session.into(),bound:bound.clone(),reference:reference.clone()});Ok(reference)
+        temporary.insert(reference.id.clone(),Temporary{bound:bound.clone(),reference:reference.clone()});Ok(reference)
     }
+    /// Ends every link of the matching copies: Once grants and references,
+    /// playback (active bodies too), pending requests and file changes. For
+    /// power off, delete, code change, deny, revoke and removed access only.
     #[nolog]
-    pub(super) fn forget(&self,org:i64,app:Option<&str>,panel:Option<&str>,session:Option<&str>)->Result<()>{
-        self.scopes.forget(org,app,panel,session)?;
-        let matches=|bound:&Bound,token:&str|bound.org==org&&app.is_none_or(|a|a==bound.app)&&panel.is_none_or(|p|p==bound.panel)&&session.is_none_or(|s|s==token);
-        self.pending.lock().map_err(|_|anyhow::anyhow!("App file requests unavailable"))?.retain(|_,p|!matches(&p.bound,&p.session));
-        self.temporary.lock().map_err(|_|anyhow::anyhow!("App file references unavailable"))?.retain(|_,p|!matches(&p.bound,&p.session));
+    pub(super) fn forget(&self,org:i64,app:Option<&str>,panel:Option<&str>)->Result<()>{
+        self.forget_prompts(org,app,panel,None)?;self.scopes.forget(org,app,panel)?;
+        let matches=|bound:&Bound|bound.org==org&&app.is_none_or(|a|a==bound.app)&&panel.is_none_or(|p|p==bound.panel);
+        self.temporary.lock().map_err(|_|anyhow::anyhow!("App file references unavailable"))?.retain(|_,p|!matches(&p.bound));
         self.media.lock().map_err(|_|anyhow::anyhow!("App media unavailable"))?.retain(|_,m|{
-            let matched=m.org==org&&app.is_none_or(|a|a==m.app)&&panel.is_none_or(|p|p==m.panel)&&session.is_none_or(|s|s==m.session);
+            let matched=m.org==org&&app.is_none_or(|a|a==m.app)&&panel.is_none_or(|p|p==m.panel);
             if matched{m.cancel.cancel();} !matched
         });Ok(())
     }
+    /// Ends only open questions (pending file requests and file changes): a
+    /// Hide, a closed or expired host session. File and media links stay.
     #[nolog]
-    fn media(&self,session:&str,bound:&Bound,file:&str,lifetime:Duration)->Result<String>{
+    pub(super) fn forget_prompts(&self,org:i64,app:Option<&str>,panel:Option<&str>,session:Option<&str>)->Result<()>{
+        self.scopes.forget_prompts(org,app,panel,session)?;
+        let matches=|bound:&Bound,token:&str|bound.org==org&&app.is_none_or(|a|a==bound.app)&&panel.is_none_or(|p|p==bound.panel)&&session.is_none_or(|s|s==token);
+        self.pending.lock().map_err(|_|anyhow::anyhow!("App file requests unavailable"))?.retain(|_,p|!matches(&p.bound,&p.session));Ok(())
+    }
+    #[nolog]
+    fn media(&self,bound:&Bound,file:&str)->Result<String>{
         let mut media=self.media.lock().map_err(|_|anyhow::anyhow!("App media unavailable"))?;
-        media.retain(|_,m|{if m.until<=Instant::now(){m.cancel.cancel();false}else{true}});
+        media.retain(|_,m|!m.cancel.is_cancelled());
+        let mine:Vec<(String,Instant)>=media.iter().filter(|(_,m)|m.org==bound.org&&m.app==bound.app&&m.panel==bound.panel).map(|(t,m)|(t.clone(),m.created)).collect();
+        if mine.len()>=MEDIA_PER_PANEL{
+            if let Some((oldest,_))=mine.into_iter().min_by_key(|(_,created)|*created){if let Some(m)=media.remove(&oldest){m.cancel.cancel();}}
+        }
         if media.len()>=REGISTRY_MAX{crate::refuse!(Conflict,"too many app media streams");}
-        let ticket=bridge::secret();media.insert(ticket.clone(),MediaLease{session:session.into(),org:bound.org,app:bound.app.clone(),panel:bound.panel.clone(),rev:bound.rev,reference:file.into(),until:Instant::now()+lifetime,cancel:CancellationToken::new()});Ok(ticket)
+        let ticket=bridge::secret();media.insert(ticket.clone(),MediaLease{org:bound.org,app:bound.app.clone(),panel:bound.panel.clone(),rev:bound.rev,generation:bound.generation,reference:file.into(),created:Instant::now(),cancel:CancellationToken::new()});Ok(ticket)
     }
     #[nolog]
     pub(crate) fn lease(&self,org:i64,ticket:&str)->Result<MediaLease>{
         let media=self.media.lock().map_err(|_|anyhow::anyhow!("App media unavailable"))?;
-        let Some(value)=media.get(ticket).filter(|m|m.org==org&&m.until>Instant::now()&&!m.cancel.is_cancelled())else{crate::refuse!(Forbidden,"app media reference expired or was revoked");};Ok(value.clone())
+        let Some(value)=media.get(ticket).filter(|m|m.org==org&&!m.cancel.is_cancelled())else{crate::refuse!(Forbidden,"app media reference expired or was revoked");};Ok(value.clone())
     }
 }
 #[nolog]
 fn same(left:&Bound,right:&Bound)->bool {left.org==right.org&&left.app==right.app&&left.panel==right.panel&&left.rev==right.rev}
+/// One running copy: the same panel, code revision and execution generation.
+#[nolog]
+fn same_run(left:&Bound,right:&Bound)->bool {same(left,right)&&left.generation==right.generation}
 #[nolog]
 fn validate(call:&FileCall)->Result<()>{
     wire::bounded(&serde_json::to_value(call)?,2*READ_MAX,false)?;
@@ -151,7 +176,7 @@ pub async fn native(engine:&Arc<Engine>,org:&Arc<OrgHandle>,input:&Value)->Resul
             engine.custom_apps.bound(org.id,&session)?;let value=bridge::snapshot(engine,&bound).await?;declared(&value)?;
             bound.gate.admit()?;
             if !matches!(call,FileCall::Choose{}){
-                if let Some(reference)=authorized(engine,org,&session,&bound,&value,&call).await?{return execute(engine,org,&session,&bound,&call,reference,None).await;}
+                if let Some(reference)=authorized(engine,org,true,&bound,&value,&call).await?{return execute(engine,org,&bound,&call,reference,None).await;}
             }
             bridge::interactive(&value)?;let challenge=engine.custom_apps.file_access.ask(&session,&bound,call.clone())?;
             Ok(json!({"permission_required":{"challenge":challenge,"app":bound.app,"panel":bound.panel,"name":value["name"],"label":value["label"],"capability":"files.read","request":call}}))
@@ -161,11 +186,11 @@ pub async fn native(engine:&Arc<Engine>,org:&Arc<OrgHandle>,input:&Value)->Resul
             engine.custom_apps.bound(org.id,&session)?;
             let value=bridge::snapshot(engine,&bound).await?;
             let call=engine.custom_apps.file_access.consume(&session,&bound,&challenge)?;
-            if scopes::extended(&call){return scopes::decide(engine,org,&session,&bound,&value,&call,choice,path.as_deref()).await;}
+            if scopes::extended(&call){return scopes::decide(engine,org,&bound,&value,&call,choice,path.as_deref()).await;}
             declared(&value)?;
             if matches!(choice,Choice::Deny){
                 super::storage::run_locked(engine,org,None,&json!({"action":"permission_set","app":bound.app,"expected_rev":bound.rev,"expected_permission_rev":value["permission_rev"],"capability":"files.read","permission":"deny"})).await?;
-                engine.custom_apps.file_access.forget(org.id,Some(&bound.app),None,None)?;
+                engine.custom_apps.file_access.forget(org.id,Some(&bound.app),None)?;
                 crate::refuse!(Forbidden,"app file access denied");
             }
             let existing=if let FileCall::Read{file,..}|FileCall::Media{file}= &call{Some(reference(engine,&bound,file).await?)}else{None};
@@ -179,8 +204,8 @@ pub async fn native(engine:&Arc<Engine>,org:&Arc<OrgHandle>,input:&Value)->Resul
             let chosen=if matches!(choice,Choice::Always){
                 let scope=if matches!(call,FileCall::Open{..}){"orgtree"}else{"file"};
                 remember(engine,&bound,scope,&selected,value["permission_rev"].as_i64().unwrap_or(1)).await?
-            }else{engine.custom_apps.file_access.remember_once(&session,&bound,selected,existing.as_ref().map(|r|r.id.clone()))?};
-            execute(engine,org,&session,&bound,&call,chosen,None).await
+            }else{engine.custom_apps.file_access.remember_once(&bound,selected,existing.as_ref().map(|r|r.id.clone()))?};
+            execute(engine,org,&bound,&call,chosen,None).await
         },
     }
 }
@@ -258,12 +283,13 @@ async fn implicit_org_grant(engine:&Engine,bound:&Bound,value:&Value,mode:&str)-
     let grant:String=tx.query_one("INSERT INTO ot.custom_app_file_grants(org_id,app_id,id,app_rev,scope,path,mode,implicit) VALUES($1,$2,$3,$4,'orgtree',NULL,$5,true) ON CONFLICT(org_id,app_id,app_rev,mode) WHERE implicit DO UPDATE SET app_rev=EXCLUDED.app_rev RETURNING id",&[&bound.org,&bound.app,&id,&bound.rev,&mode]).await?.get(0);
     tx.commit().await?;Ok(Some(grant))
 }
+/// `host`: a panel's own host (Once links count); agents never see them.
 #[nolog]
-async fn authorized(engine:&Engine,org:&OrgHandle,session:&str,bound:&Bound,value:&Value,call:&FileCall)->Result<Option<Reference>>{
+async fn authorized(engine:&Engine,org:&OrgHandle,host:bool,bound:&Bound,value:&Value,call:&FileCall)->Result<Option<Reference>>{
     match call{
         FileCall::Choose{}=>Ok(None),
         FileCall::Read{file,..}|FileCall::Media{file}=>{
-            if let Some(r)=engine.custom_apps.file_access.temporary(session,bound,file)?{if r.mode!="read"{crate::refuse!(Forbidden,"a write reference does not permit content reads");}return Ok(Some(r));}
+            if let Some(r)=if host{engine.custom_apps.file_access.temporary(bound,file)?}else{None}{if r.mode!="read"{crate::refuse!(Forbidden,"a write reference does not permit content reads");}return Ok(Some(r));}
             let r=reference(engine,bound,file).await?;
             if r.mode!="read"{crate::refuse!(Forbidden,"a write grant does not permit content reads");}
             if value["permissions"]["files.read"]=="allow"||(super::policy::org_allowed(value,"files.read")&&org_member(engine,bound,&r.path).await?){Ok(Some(r))}else{Ok(None)}
@@ -307,7 +333,7 @@ async fn agent_scope(engine:&Arc<Engine>,org:&Arc<OrgHandle>,caller:&Caller,path
     }Ok(())
 }
 #[nolog]
-async fn execute(engine:&Arc<Engine>,org:&Arc<OrgHandle>,session:&str,bound:&Bound,call:&FileCall,reference:Reference,caller:Option<&Caller>)->Result<Value>{
+async fn execute(engine:&Arc<Engine>,org:&Arc<OrgHandle>,bound:&Bound,call:&FileCall,reference:Reference,caller:Option<&Caller>)->Result<Value>{
     if let Some(caller)=caller{agent_scope(engine,org,caller,&reference.path).await?;}
     let selected=reference.path.clone();
     let opened=crate::trace::private_app_blocking(move||files::open_read(&selected)).await??;
@@ -326,7 +352,7 @@ async fn execute(engine:&Arc<Engine>,org:&Arc<OrgHandle>,session:&str,bound:&Bou
             if caller.is_some(){crate::refuse!(Forbidden,"agents read media bytes through file_read within their own folders");}
             if crate::http::media_file::media_type(&reference.path).is_none(){crate::refuse!(BadRequest,"file is not a supported video or audio format");}
             if bytes>crate::http::media_file::MAX_BYTES{crate::refuse!(BadRequest,"media playback is limited to 256 MiB");}
-            let ticket=engine.custom_apps.file_access.media(session,bound,&reference.id,engine.custom_apps.remaining(org.id,session)?)?;
+            let ticket=engine.custom_apps.file_access.media(bound,&reference.id)?;
             info["media_path"]=json!(format!("/api/orgs/{}/apps/media?ticket={ticket}",org.slug));
         },
         FileCall::Choose{}|FileCall::Open{..}=>{},
@@ -337,11 +363,13 @@ async fn execute(engine:&Arc<Engine>,org:&Arc<OrgHandle>,session:&str,bound:&Bou
 pub(crate) async fn media(engine:&Arc<Engine>,org:&Arc<OrgHandle>,ticket:&str)->Result<(std::fs::File,PathBuf,MediaLease)>{
     if ticket.len()!=64||!ticket.bytes().all(|b|b.is_ascii_hexdigit()){crate::refuse!(Forbidden,"invalid app media ticket");}
     let lease=engine.custom_apps.file_access.lease(org.id,ticket)?;
-    let bound=engine.custom_apps.bound(org.id,&lease.session)?;let _guard=bound.gate.lock.lock().await;
-    if bound.app!=lease.app||bound.panel!=lease.panel||bound.rev!=lease.rev{crate::refuse!(Forbidden,"app media host changed");}
+    // Every range revalidates the copy the ticket was issued to (still running,
+    // same generation and code) and its file authority, under the app gate.
+    let gate=engine.custom_apps.gate(org.id,&lease.app)?;let _guard=gate.lock.lock().await;
+    let bound=Bound{org:org.id,app:lease.app.clone(),panel:lease.panel.clone(),rev:lease.rev,generation:lease.generation,gate:gate.clone()};
     let value=bridge::snapshot(engine,&bound).await?;declared(&value)?;
     let call=FileCall::Media{file:lease.reference.clone()};
-    let reference=authorized(engine,org,&lease.session,&bound,&value,&call).await?.ok_or_else(||crate::domain::UserError::Forbidden("app file permission changed".into()))?;
+    let reference=authorized(engine,org,true,&bound,&value,&call).await?.ok_or_else(||crate::domain::UserError::Forbidden("app file permission changed".into()))?;
     let selected=reference.path.clone();let file=crate::trace::private_app_blocking(move||files::open_read(&selected)).await??;
     if lease.cancel.is_cancelled(){crate::refuse!(Forbidden,"app media was revoked");}
     Ok((file,reference.path,lease))
@@ -376,7 +404,7 @@ async fn revoke(engine:&Arc<Engine>,org:&Arc<OrgHandle>,app:&str,rev:i64,permiss
     tx.execute("DELETE FROM ot.custom_app_file_grants WHERE org_id=$1 AND app_id=$2 AND id=$3",&[&org.id,&app,&grant]).await?;
     tx.execute("UPDATE ot.custom_apps SET permission_rev=permission_rev+1 WHERE org_id=$1 AND id=$2",&[&org.id,&app]).await?;
     tx.commit().await?;drop(client);
-    engine.custom_apps.file_access.forget(org.id,Some(app),None,None)?;
+    engine.custom_apps.file_access.forget(org.id,Some(app),None)?;
     org.emit(json!({"type":"custom_apps_changed","org":org.slug}));permissions(engine,org,app,None).await
 }
 #[nolog]
@@ -419,8 +447,8 @@ pub async fn agent(engine:&Arc<Engine>,org:&Arc<OrgHandle>,caller:&Caller,input:
     if value["permissions"]["files.read"]!="allow"&&!super::policy::org_allowed(&value,"files.read"){crate::refuse!(Forbidden,"the user must grant this app read access first");}
     bound.gate.admit()?;
     if let FileCall::Open{root,path}=&call{let selected=org_path(engine,org,root,path).await?;agent_scope(engine,org,caller,&selected).await?;}
-    let reference=authorized(engine,org,"",&bound,&value,&call).await?.ok_or_else(||crate::domain::UserError::Forbidden("the user must grant this file collection first".into()))?;
-    execute(engine,org,"",&bound,&call,reference,Some(caller)).await
+    let reference=authorized(engine,org,false,&bound,&value,&call).await?.ok_or_else(||crate::domain::UserError::Forbidden("the user must grant this file collection first".into()))?;
+    execute(engine,org,&bound,&call,reference,Some(caller)).await
 }
 
 #[cfg(test)]
@@ -446,22 +474,46 @@ mod tests{
         assert!(files::open_read(&dir).is_err());
         std::fs::remove_file(file).unwrap();std::fs::remove_dir(dir).unwrap();
     }
-    #[test] fn app_files_challenges_and_once_references_are_host_panel_and_revision_bound(){
+    #[test] fn app_files_challenges_are_host_bound_and_links_belong_to_the_running_copy(){
         let hosts=bridge::Registry::default();let files=Registry::default();
         let bound=Bound{org:1,app:"app".into(),panel:"panel".into(),rev:1,generation:1,gate:hosts.gate(1,"app").unwrap()};
+        // a permission question stays with the host that asked it
         let challenge=files.ask("host",&bound,FileCall::Choose{}).unwrap();
         let mut other=bound.clone();other.panel="other".into();assert!(files.consume("host",&other,&challenge).is_err());
         other=bound.clone();other.rev=2;assert!(files.consume("host",&other,&challenge).is_err());
         assert!(files.consume("other-host",&bound,&challenge).is_err());
         assert!(files.consume("host",&bound,&challenge).is_ok());assert!(files.consume("host",&bound,&challenge).is_err());
-        let reference=files.remember_once("host",&bound,PathBuf::from("synthetic.mp4"),None).unwrap();
-        assert!(files.temporary("host",&bound,&reference.id).unwrap().is_some());
-        assert!(files.temporary("other-host",&bound,&reference.id).unwrap().is_none());
-        assert!(files.temporary("host",&other,&reference.id).unwrap().is_none());
-        let ticket=files.media("host",&bound,&reference.id,Duration::from_secs(30)).unwrap();
+        // a Once link belongs to the running copy: any of its hosts, no other copy, code or generation
+        let reference=files.remember_once(&bound,PathBuf::from("synthetic.mp4"),None).unwrap();
+        assert!(files.temporary(&bound,&reference.id).unwrap().is_some());
+        let changes:[fn(&mut Bound);3]=[|b|b.panel="other".into(),|b|b.rev=2,|b|b.generation=2];
+        for change in changes{
+            let mut other=bound.clone();change(&mut other);assert!(files.temporary(&other,&reference.id).unwrap().is_none());
+        }
+        let ticket=files.media(&bound,&reference.id).unwrap();
         let lease=files.lease(1,&ticket).unwrap();assert!(files.lease(2,&ticket).is_err());
-        files.forget(1,Some("app"),None,Some("other-host")).unwrap();assert!(!lease.cancel.is_cancelled());
-        files.forget(1,Some("app"),None,Some("host")).unwrap();assert!(lease.cancel.is_cancelled());
-        assert!(files.lease(1,&ticket).is_err());assert!(files.temporary("host",&bound,&reference.id).unwrap().is_none());
+        assert_eq!((lease.panel.as_str(),lease.rev,lease.generation),("panel",1,1));
+        // USER 2026-10-26 mf7add4fda093: Hide and a closed or renewed host session end questions, not links
+        let asked=files.ask("host",&bound,FileCall::Choose{}).unwrap();
+        files.forget_prompts(1,None,Some("panel"),None).unwrap();assert!(files.consume("host",&bound,&asked).is_err());
+        files.forget_prompts(1,None,None,Some("host")).unwrap();
+        assert!(!lease.cancel.is_cancelled());assert!(files.lease(1,&ticket).is_ok());assert!(files.temporary(&bound,&reference.id).unwrap().is_some());
+        // another app's power off leaves them; this copy's ends them, active playback too
+        files.forget(1,Some("other-app"),None).unwrap();assert!(!lease.cancel.is_cancelled());
+        files.forget(1,None,Some("panel")).unwrap();assert!(lease.cancel.is_cancelled());
+        assert!(files.lease(1,&ticket).is_err());assert!(files.temporary(&bound,&reference.id).unwrap().is_none());
+    }
+    #[test] fn app_media_keeps_the_newest_tickets_of_each_running_copy(){
+        let hosts=bridge::Registry::default();let files=Registry::default();
+        let bound=Bound{org:1,app:"app".into(),panel:"panel".into(),rev:1,generation:1,gate:hosts.gate(1,"app").unwrap()};
+        let mut neighbour=bound.clone();neighbour.panel="neighbour".into();
+        let kept=files.media(&neighbour,"file").unwrap();
+        let first=files.media(&bound,"file").unwrap();let first_lease=files.lease(1,&first).unwrap();
+        let mut tickets=vec![first.clone()];
+        for _ in 1..MEDIA_PER_PANEL{std::thread::sleep(Duration::from_millis(1));tickets.push(files.media(&bound,"file").unwrap());}
+        assert!(tickets.iter().all(|t|files.lease(1,t).is_ok()),"{MEDIA_PER_PANEL} tickets fit");
+        std::thread::sleep(Duration::from_millis(1));let newest=files.media(&bound,"file").unwrap();
+        assert!(files.lease(1,&first).is_err()&&first_lease.cancel.is_cancelled(),"one more ends only the oldest");
+        assert!(files.lease(1,&tickets[1]).is_ok()&&files.lease(1,&newest).is_ok()&&files.lease(1,&kept).is_ok());
     }
 }

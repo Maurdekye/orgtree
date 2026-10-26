@@ -29,7 +29,7 @@ pub async fn media(State(engine):State<Arc<Engine>>,Path(slug):Path<String>,Quer
     let (file,path,lease)=crate::domain::apps::file_access::media(&engine,&org,&query.ticket).await?;
     let mime=super::media_file::media_type(&path).ok_or_else(||ApiError::new(StatusCode::UNSUPPORTED_MEDIA_TYPE,"unsupported app media format"))?;
     let mut ranges=headers.get_all(header::RANGE).iter();let range=ranges.next().map(|v|v.to_str().unwrap_or(""));let range=if ranges.next().is_some(){Some("")}else{range};
-    super::media_file::serve_opened(tokio::fs::File::from_std(file),mime,range,Some((lease.cancel,lease.until))).await.map_err(|status|ApiError::new(status,"app media could not be streamed"))
+    super::media_file::serve_opened(tokio::fs::File::from_std(file),mime,range,Some(lease.cancel)).await.map_err(|status|ApiError::new(status,"app media could not be streamed"))
 }
 
 #[cfg(test)]
