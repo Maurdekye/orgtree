@@ -45,6 +45,8 @@ test('a hidden owner document does not stop a running panel',async t=>{
 test('panel header exposes distinct Hide and Power off; Hide preserves the frame',async t=>{
  const f=await workspace(t,'header-runtime'),hide=f.view.el.querySelector<HTMLButtonElement>('[aria-label="Hide Clock"]'),power=f.view.el.querySelector<HTMLButtonElement>('[aria-label="Power off Clock"]')
  assert.ok(hide,'header Hide control missing');assert.ok(power,'header Power off control missing');const frame=f.view.el.querySelector('iframe');assert.ok(frame)
+ // User 2026-10-26: the close button sits at the far right as an X, instead of the crossed eye; it still only hides.
+ assert.equal([...hide.closest('header')!.querySelectorAll('button')].at(-1)===hide,true,'Hide is the far-right header control');assert.equal(hide.querySelector('svg')?.getAttribute('data-testid'),'CloseIcon','Hide shows an X')
  await inAct(async()=>{hide.click();await tick()});assert.equal(f.panel.open,false);assert.equal(f.panel.running,true);assert.equal(f.view.el.querySelector('iframe')===frame,true)
 })
 test('saved running-hidden panel is loaded and keeps HTML alive without exposing its visual',async t=>{

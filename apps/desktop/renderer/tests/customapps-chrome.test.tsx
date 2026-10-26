@@ -27,7 +27,8 @@ test('app windows open centered and their gears lead to the panel settings syste
   assert.equal(frame.querySelector('details'),null,'no gear dropdown')
   await inAct(async()=>{gear.click();await tick()})
   const settings=document.querySelector<HTMLElement>('[role="dialog"][aria-label="Panel settings"]')!;assert.ok(settings?.classList.contains('settings'))
-  assert.deepEqual([...settings.querySelectorAll('.set-group-head')].map(e=>e.textContent),['This panel'])
+  // User 2026-10-26: "removemthe "this panel" title"; the copy's rows sit straight under the tab row.
+  assert.equal(settings.querySelectorAll('.set-group-head').length,0,'Panel settings shows no section header')
   for(const name of ['State','Rename','Duplicate','Delete panel'])assert.ok(settings.textContent?.includes(name),'missing settings action '+name)
   // User 2026-10-26: links, Activity and placement left Panel settings.
   for(const name of ['Linked agents','Activity','Float','Pin to screen','Pin to canvas'])assert.equal(settings.textContent?.includes(name),false,'removed settings action '+name)

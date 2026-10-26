@@ -42,6 +42,12 @@ test('app-list gear opens only app-wide settings and preserves Files and event p
  for(const name of ['Created by','Export app','Delete app…'])assert.ok(app.textContent?.includes(name))
  // User 2026-10-26: Permissions is App settings' second tab, not a separate dialog.
  assert.deepEqual([...app.querySelectorAll('[role="tab"]')].map(e=>e.textContent),['General','Permissions']);assert.equal(!!button(app,'Permissions…'),false)
+ // User 2026-10-26: "put the description above the tabs and remove the app header".
+ const description=[...app.querySelectorAll('p')].find(p=>p.textContent==='Saved notes');assert.ok(description,'the app description is shown')
+ assert.equal(!!description.closest('[role="tabpanel"]'),false,'the description belongs to the whole window, not one tab')
+ assert.equal((description.compareDocumentPosition(app.querySelector('[role="tablist"]')!)&window.Node.DOCUMENT_POSITION_FOLLOWING)!==0,true,'the description sits above the tab row')
+ assert.equal(app.querySelectorAll('.set-group-head').length,0,'no App section header')
+ assert.ok(app.querySelector('[role="tabpanel"]:not([hidden])')!.textContent!.includes('Created by'),'Created by stays on General')
  await inAct(async()=>{button(app,'Permissions').click();await tick()})
  assert.equal(!!dialog('App permissions'),false,'permissions open in the tab');const permissions=app.querySelector<HTMLElement>('[role="tabpanel"]:not([hidden]) [aria-label="App permissions"]')!;assert.ok(permissions.textContent?.includes('Files'));assert.ok(button(permissions,'Revoke'));assert.ok(button(permissions,'Confirm change'))
  const event=permissions.querySelector<HTMLSelectElement>('[aria-label="events.fire permission"]')!;assert.equal(event.value,'deny')
@@ -67,13 +73,21 @@ test('open-panel header gear opens panel-only settings with every retained copy 
  const {view,calls}=await setup(t,'settings-open',true)
  await inAct(async()=>{view.el.querySelector<HTMLButtonElement>('[data-custom-panel="one"] [aria-label="Settings for First notes"]')!.click();await tick()})
  const settings=dialog('Panel settings');assert.equal(!!settings,true,'header gear must open per-panel settings')
- assert.deepEqual([...settings!.querySelectorAll('[role="tab"]')].map(e=>e.textContent),['General','History'])
+ // User 2026-10-26: "put connections and fire event on their own tabs" and "make history the last tab".
+ assert.deepEqual([...settings!.querySelectorAll('[role="tab"]')].map(e=>e.textContent),['General','Connections','Fire event','History'])
  for(const name of ['State…','Rename…','Duplicate','Delete panel…'])assert.ok(!!button(settings!,name),'missing '+name)
  // User 2026-10-26: links, Activity, the Events dialog and placement left Panel settings.
  for(const name of ['Linked agents…','Activity…','Events…','Float','Pin to screen','Pin to canvas'])assert.equal(!!button(settings!,name),false,'removed '+name)
  assert.equal(!!button(settings!,'Permissions…'),false);assert.equal(!!button(settings!,'Delete app…'),false)
+ const visible=()=>settings!.querySelector<HTMLElement>('[role="tabpanel"]:not([hidden])')!
  await inAct(async()=>{button(settings!,'History').click();await tick()})
  assert.ok(calls.some(c=>c.action==='events'&&c.panel==='one'),'History reads the copy log')
+ assert.equal(calls.some(c=>c.action==='listeners'),false,'History holds only the event history')
+ await inAct(async()=>{button(settings!,'Connections').click();await tick()})
  assert.ok(calls.some(c=>c.action==='listeners'&&c.panel==='one'))
+ assert.equal(!!visible().querySelector('.custom-app-history'),false,'connections are listed without the history')
+ await inAct(async()=>{button(settings!,'Fire event').click();await tick()})
+ assert.ok(visible().querySelector('[aria-label="Declared event"]'),'Fire event has its own tab')
  assert.equal(calls.some(c=>c.action==='fire_event'),false,'viewing connections never fires')
+ for(const name of ['Connections','Fire event','History']){await inAct(async()=>{button(settings!,name).click();await tick()});assert.equal(visible().querySelectorAll('.set-group-head').length,0,name+' repeats no section header')}
 })
