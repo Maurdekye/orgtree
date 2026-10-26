@@ -340,7 +340,7 @@ pub async fn mockup(State(e): State<Arc<Engine>>, Path((slug, did)): Path<(Strin
     let body: String = r.get(0);
     let format: String = r.get(1);
     if format != "html" {
-        return Err(ApiError::bad_request("that document is not an HTML mockup"));
+        return Err(ApiError::bad_request("that document is not an HTML presentation"));
     }
     let csp = "sandbox allow-scripts; default-src 'none'; img-src data: blob:; media-src data: blob:; font-src data:; \
                style-src 'unsafe-inline' data:; script-src 'unsafe-inline' data:; connect-src 'none'; form-action 'none'; frame-ancestors 'self'";

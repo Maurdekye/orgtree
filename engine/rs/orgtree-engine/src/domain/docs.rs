@@ -181,11 +181,11 @@ pub async fn present(engine: &Arc<Engine>, org: &Arc<OrgHandle>, p: &Presenter, 
                 (markdown_file(&f, path)?, "markdown")
             } else {
                 if !(lower.ends_with(".html") || lower.ends_with(".htm")) {
-                    refuse!(BadRequest, "path presents a .md document or a .html/.htm mockup");
+                    refuse!(BadRequest, "path presents a .md document or a .html/.htm presentation");
                 }
                 let size = std::fs::metadata(&f)?.len();
                 if size > HTML_MAX {
-                    refuse!(BadRequest, "an HTML mockup is limited to 4 MB");
+                    refuse!(BadRequest, "an HTML presentation is limited to 4 MB");
                 }
                 let bundle = crate::domain::html_bundle::capture(&f)?;
                 bundle_download = bundle.download;
@@ -193,7 +193,7 @@ pub async fn present(engine: &Arc<Engine>, org: &Arc<OrgHandle>, p: &Presenter, 
                 (bundle.body, "html")
             }
         }
-        _ => refuse!(BadRequest, "give exactly one of body (markdown) or path (a .md file or an .html mockup)"),
+        _ => refuse!(BadRequest, "give exactly one of body (markdown) or path (a .md file or an .html presentation)"),
     };
     let client = engine.db.get().await?;
     // under the caller's own seat, or under a project it reaches (its own
