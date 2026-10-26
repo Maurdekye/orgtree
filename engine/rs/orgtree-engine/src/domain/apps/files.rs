@@ -84,6 +84,29 @@ pub fn write(scratch:&Path,bundle:&Value)->Result<Value>{
 
 #[cfg(test)] mod tests{
     use super::*;
+    #[cfg(windows)]
+    #[test] fn custom_apps_file_paths_refuse_original_junctions_and_retargeted_held_roots(){
+        use std::process::Command;
+        let root=std::env::temp_dir().join(crate::util::uid("apps-link-control"));std::fs::create_dir(&root).unwrap();
+        let held=root.join("held");let unheld=root.join("unheld");std::fs::create_dir(&held).unwrap();std::fs::create_dir(&unheld).unwrap();
+        let bundle=json!({"format":"orgtree-app","version":1,"definition":{"name":"x","html":"<p>x</p>"}});
+        std::fs::write(held.join("app.json"),bundle.to_string()).unwrap();std::fs::write(unheld.join("app.json"),bundle.to_string()).unwrap();
+        let link=held.join("shortcut");assert!(Command::new("cmd.exe").args(["/c","mklink","/J"]).arg(&link).arg(&held).output().unwrap().status.success());
+        let p=crate::domain::docs::Presenter{id:1,name:"test".into(),may_present:false,scratch:held.clone(),dirs:vec![]};
+        assert!(read(&p,held.join("app.json").to_str().unwrap()).is_ok(),"ordinary positive");
+        assert!(read(&p,link.join("app.json").to_str().unwrap()).is_err(),"original in-scope junction must not disappear through canonicalization");
+        let replaced=root.join("retargeted");assert!(Command::new("cmd.exe").args(["/c","mklink","/J"]).arg(&replaced).arg(&unheld).output().unwrap().status.success());
+        let p=crate::domain::docs::Presenter{scratch:replaced.clone(),..p};assert!(read(&p,replaced.join("app.json").to_str().unwrap()).is_err(),"a held-root junction cannot transfer authority to its target");
+    }
+    #[cfg(windows)]
+    #[test] fn custom_apps_windows_import_export_pins_exclude_directory_mutators(){
+        use std::os::windows::fs::OpenOptionsExt;
+        use windows_sys::Win32::Storage::FileSystem::*;
+        let root=std::env::temp_dir().join(crate::util::uid("apps-pin-control"));std::fs::create_dir(&root).unwrap();
+        let writer=||OpenOptions::new().access_mode(FILE_WRITE_ATTRIBUTES).share_mode(FILE_SHARE_READ|FILE_SHARE_WRITE|FILE_SHARE_DELETE).custom_flags(FILE_FLAG_BACKUP_SEMANTICS|FILE_FLAG_OPEN_REPARSE_POINT).open(&root);
+        let pin=directory(&root).unwrap();assert!(writer().is_err(),"a live import/export pin must deny write-capable directory handles");drop(pin);
+        let _writer=writer().unwrap();assert!(directory(&root).is_err(),"a pre-opened mutator must prevent authority pinning");
+    }
     #[test] fn custom_apps_bundle_file_io_is_bounded_scoped_and_never_overwrites(){
         let root=std::env::temp_dir().join(crate::util::uid("apps-files-test"));std::fs::create_dir(&root).unwrap();
         let allowed=root.join("allowed");let outside=root.join("outside");std::fs::create_dir(&allowed).unwrap();std::fs::create_dir(&outside).unwrap();

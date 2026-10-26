@@ -2,6 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import {flush,inAct,mountView} from './harness'
 import {AppsButton,AppsWorkspace} from '../src/canvas/apps/ui'
+import {APP_BUNDLE_MAX,saveAppJson} from '../src/canvas/apps/portable'
 import type {CustomApp} from '../src/canvas/apps/types'
 
 const tick=async()=>{for(let i=0;i<4;i++)await flush()}
@@ -52,4 +53,14 @@ test('custom apps export explicitly chooses saved data and downloads only the re
   await press(owner,'Export app')
   assert.deepEqual(fixture.calls.find(c=>c.action==='app_export'),{action:'app_export',app:'local',expected_rev:3,include_panels:true})
   assert.equal(name,'Notes.orgtree-app');assert.ok(blob);assert.deepEqual(JSON.parse(await blob.text()),bundle)
+})
+
+test('portable native deep-array exports stay inside their exact import byte limit',async t=>{
+  let state:unknown=Array(150000).fill(0);for(let i=0;i<60;i++)state={nested:state}
+  const value={...bundle,panels:[{label:'Deep saved data',state}]};assert.ok(new TextEncoder().encode(JSON.stringify(value)).length<APP_BUNDLE_MAX)
+  let blob:Blob|undefined;const create=window.URL.createObjectURL,revoke=window.URL.revokeObjectURL,click=window.HTMLAnchorElement.prototype.click
+  window.URL.createObjectURL=value=>{blob=value as Blob;return 'blob:deep'};window.URL.revokeObjectURL=()=>{};window.HTMLAnchorElement.prototype.click=()=>{}
+  t.after(()=>{window.URL.createObjectURL=create;window.URL.revokeObjectURL=revoke;window.HTMLAnchorElement.prototype.click=click})
+  saveAppJson(document,'Deep.orgtree-app',value,true)
+  assert.ok(blob);assert.ok(blob.size<=APP_BUNDLE_MAX,'export must fit its own exact byte import cap');assert.deepEqual(JSON.parse(await blob.text()),value)
 })
