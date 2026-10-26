@@ -757,6 +757,38 @@ mod org_inbox_wire_tests {
 }
 
 #[cfg(test)] mod custom_apps_privacy_control {
+    #[tokio::test(flavor="current_thread")]
+    async fn custom_apps_queries_and_reflected_refusals_never_reach_logs() {
+        use tower::ServiceExt;
+        let capture=crate::trace::LogCapture::start().await;
+        let engine=crate::engine::Engine::for_tests(std::path::PathBuf::new());
+        let raw=r#"{"action":"PRIVATE_APPS_QUERY_CANARY_763"}"#;
+        let encoded:String=raw.bytes().map(|b|format!("%{b:02X}")).collect();
+        let req=axum::http::Request::builder().uri(format!("/api/orgs/demo/apps?request={encoded}")).body(axum::body::Body::empty()).unwrap();
+        let response=super::router(engine).oneshot(req).await.unwrap();
+        assert_eq!(response.status(),axum::http::StatusCode::BAD_REQUEST);
+        let log=capture.finish().await;
+        assert!(log.contains("/api/orgs/demo/apps"));
+        assert!(!log.contains("PRIVATE_APPS_QUERY_CANARY_763"),"private Apps query/refusal leaked: {log}");
+    }
+    #[tokio::test(flavor="current_thread")]
+    async fn custom_apps_nested_mail_event_and_refusal_values_are_opaque_in_real_formatter() {
+        use tower::ServiceExt;
+        let capture=crate::trace::LogCapture::start().await;
+        let engine=crate::engine::Engine::for_tests(std::path::PathBuf::new());
+        let app=super::Router::new().route("/api/orgs/demo/apps/canary",super::post(||async{
+            let _out=crate::domain::mail::Outgoing::new(crate::domain::mail::From::App{app:"a".into(),panel:"p".into()},"agent","PRIVATE_MAIL_CANARY_546");
+            let _event=crate::runtime::watchdogs::events::event("app.event",crate::runtime::watchdogs::events::Scope::Agent(1,2),serde_json::json!({"payload":"PRIVATE_EVENT_CANARY_318"}));
+            tracing::warn!(objective="PRIVATE_DOCKET_CANARY_852","private nested refusal");
+            super::ApiError::bad_request("PRIVATE_REFUSAL_CANARY_976")
+        })).layer(super::middleware::from_fn(move|req,next|super::guarded(engine.clone(),req,next)));
+        let req=axum::http::Request::builder().method("POST").uri("/api/orgs/demo/apps/canary").body(axum::body::Body::empty()).unwrap();
+        assert_eq!(app.oneshot(req).await.unwrap().status(),axum::http::StatusCode::BAD_REQUEST);
+        // Ordinary callers keep useful diagnostics after the private request.
+        tracing::info!("ordinary caller positive control 635");
+        let log=capture.finish().await;assert!(log.contains("ordinary caller positive control 635"));
+        for canary in ["PRIVATE_MAIL_CANARY_546","PRIVATE_EVENT_CANARY_318","PRIVATE_DOCKET_CANARY_852","PRIVATE_REFUSAL_CANARY_976"]{assert!(!log.contains(canary),"nested private value leaked: {canary}: {log}");}
+    }
     #[test] fn custom_apps_private_bodies_include_rejected_descendants() {
         let headers=axum::http::HeaderMap::new();
         for path in ["/api/orgs/demo/apps","/api/orgs/demo/apps/bridge","/api/orgs/demo/apps/unknown"] {

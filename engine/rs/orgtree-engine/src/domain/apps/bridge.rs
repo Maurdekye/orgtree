@@ -207,4 +207,12 @@ async fn execute(engine:&Arc<Engine>,org:&Arc<OrgHandle>,bound:&Bound,value:&Val
         let r=Registry::default();let a=r.gate(1,"a").unwrap();assert!(Arc::ptr_eq(&a,&r.gate(1,"a").unwrap()));
         for _ in 0..60{a.admit().unwrap();}assert!(a.admit().is_err());drop(a);r.gate(1,"b").unwrap();assert_eq!(r.gates.lock().unwrap().len(),1);
     }
+    #[test] fn custom_apps_execution_budget_survives_last_host_close_and_reopen(){
+        let r=Registry::default();let gate=r.gate(1,"app").unwrap();
+        let token=r.open(Bound{org:1,app:"app".into(),panel:"copy".into(),rev:1,gate:gate.clone()}).unwrap();
+        for _ in 0..60{gate.admit().unwrap();}
+        r.close(1,&token).unwrap();drop(gate);
+        assert!(r.gate(1,"app").unwrap().admit().is_err(),"closing the last host reset the execution budget");
+        assert!(r.gate(2,"app").unwrap().admit().is_ok(),"different organizations share no budget");
+    }
 }
