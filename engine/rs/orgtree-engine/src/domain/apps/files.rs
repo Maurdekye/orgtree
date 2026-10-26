@@ -43,23 +43,18 @@ fn verify(file:&File,expected:&Path)->Result<()> {
 #[cfg(windows)]
 #[nolog]
 fn anchored(parent:&File,name:&std::ffi::OsStr,is_dir:bool,write:bool)->Result<File>{
-    use std::{ffi::c_void,os::windows::{ffi::OsStrExt,io::{AsRawHandle,FromRawHandle}}};
-    use windows_sys::Win32::{Foundation::HANDLE,Storage::FileSystem::*};
-    #[repr(C)] struct Unicode {length:u16,maximum:u16,buffer:*mut u16}
-    #[repr(C)] struct Attributes {length:u32,root:HANDLE,name:*mut Unicode,flags:u32,security:*mut c_void,quality:*mut c_void}
-    #[repr(C)] struct IoStatus {status:usize,information:usize}
-    #[link(name="ntdll")] unsafe extern "system" {
-        fn NtCreateFile(handle:*mut HANDLE,access:u32,attributes:*const Attributes,io:*mut IoStatus,allocation:*const i64,file_attributes:u32,sharing:u32,disposition:u32,options:u32,ea:*const c_void,ea_length:u32)->i32;
-        fn RtlNtStatusToDosError(status:i32)->u32;
-    }
+    use std::os::windows::{ffi::OsStrExt,io::{AsRawHandle,FromRawHandle}};
+    use windows_sys::{Wdk::{Foundation::OBJECT_ATTRIBUTES,Storage::FileSystem::{NtCreateFile,FILE_OPEN,FILE_CREATE,FILE_DIRECTORY_FILE,FILE_NON_DIRECTORY_FILE,FILE_SYNCHRONOUS_IO_NONALERT,FILE_OPEN_REPARSE_POINT,FILE_OPEN_NO_RECALL}},Win32::{Foundation::{HANDLE,UNICODE_STRING,RtlNtStatusToDosError},Storage::FileSystem::*,System::IO::IO_STATUS_BLOCK}};
     let mut wide:Vec<u16>=name.encode_wide().collect();
     if wide.is_empty()||wide.len()>32760||wide.iter().any(|c|[0,47,92,58].contains(c))||name==std::ffi::OsStr::new(".")||name==std::ffi::OsStr::new(".."){crate::refuse!(Forbidden,"invalid anchored app file component");}
-    let mut text=Unicode{length:(wide.len()*2) as u16,maximum:(wide.len()*2) as u16,buffer:wide.as_mut_ptr()};
-    let attributes=Attributes{length:std::mem::size_of::<Attributes>() as u32,root:parent.as_raw_handle() as HANDLE,name:&mut text,flags:0x40|0x1000,security:std::ptr::null_mut(),quality:std::ptr::null_mut()}; // OBJ_CASE_INSENSITIVE|OBJ_DONT_REPARSE
-    let mut handle=std::ptr::null_mut();let mut io=IoStatus{status:0,information:0};
+    let text=UNICODE_STRING{Length:(wide.len()*2) as u16,MaximumLength:(wide.len()*2) as u16,Buffer:wide.as_mut_ptr()};
+    let attributes=OBJECT_ATTRIBUTES{Length:std::mem::size_of::<OBJECT_ATTRIBUTES>() as u32,RootDirectory:parent.as_raw_handle() as HANDLE,ObjectName:&text,Attributes:0x40|0x1000,SecurityDescriptor:std::ptr::null(),SecurityQualityOfService:std::ptr::null()}; // OBJ_CASE_INSENSITIVE|OBJ_DONT_REPARSE
+    let mut handle=std::ptr::null_mut();let mut io:IO_STATUS_BLOCK=unsafe{std::mem::zeroed()};
     let access=FILE_READ_ATTRIBUTES|0x00100000|if write{FILE_WRITE_DATA}else{FILE_READ_DATA}; // SYNCHRONIZE
-    let options=0x20|0x00200000|0x00400000|if is_dir{0x1}else{0x40}; // synchronous, open-reparse, no-recall, directory/non-directory
-    let status=unsafe{NtCreateFile(&mut handle,access,&attributes,&mut io,std::ptr::null(),FILE_ATTRIBUTE_NORMAL,FILE_SHARE_READ,if write{2}else{1},options,std::ptr::null(),0)};
+    // FILE_OPEN_NO_RECALL is not valid with FILE_DIRECTORY_FILE on Windows;
+    // directory reparse points are rejected by OBJ_DONT_REPARSE and metadata.
+    let options=FILE_SYNCHRONOUS_IO_NONALERT|FILE_OPEN_REPARSE_POINT|if is_dir{FILE_DIRECTORY_FILE}else{FILE_NON_DIRECTORY_FILE|FILE_OPEN_NO_RECALL};
+    let status=unsafe{NtCreateFile(&mut handle,access,&attributes,&mut io,std::ptr::null(),FILE_ATTRIBUTE_NORMAL,FILE_SHARE_READ,if write{FILE_CREATE}else{FILE_OPEN},options,std::ptr::null(),0)};
     if status<0{return Err(std::io::Error::from_raw_os_error(unsafe{RtlNtStatusToDosError(status)} as i32).into());}
     Ok(unsafe{File::from_raw_handle(handle as _)})
 }
