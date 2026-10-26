@@ -26,7 +26,8 @@ pub async fn capture(engine:&Engine,org:i64,root:&mut Value)->Result<()> {
     let mut size=serde_json::to_vec(root)?.len();
     loop {
         let row=client.query_opt("SELECT id,jsonb_build_object('name',name,'description',description,'html',html,'initial_state',initial_state,'capabilities',capabilities,'events',declared_events,'width',width,'height',height) FROM ot.custom_apps WHERE org_id=$1 AND id>$2 ORDER BY id LIMIT 1",&[&org,&after]).await?;
-        let Some(row)=row else{break;};after=row.get(0);let value:Value=row.get(1);
+        let Some(row)=row else{break;};after=row.get(0);let mut value:Value=row.get(1);
+        if let Some(caps)=value.get_mut("capabilities"){wire::drop_retired(caps);}
         let _:App=serde_json::from_value(value.clone())?;size+=serde_json::to_vec(&value)?.len()+1;
         if size>crate::domain::templates::FILE_MAX as usize{crate::refuse!(BadRequest,"template definitions exceed the16MiB template bound");}apps.push(value);
     }
@@ -38,7 +39,7 @@ pub async fn capture(engine:&Engine,org:i64,root:&mut Value)->Result<()> {
 #[nolog]
 pub async fn restore(tx:&tokio_postgres::Transaction<'_>,org:i64,apps:&[App])->Result<usize> {
     for app in apps {
-        let def=&app.0;wire::definition(def)?;let caps=json!(def.capabilities);let declarations=json!(def.events);let id=crate::util::uid("app");
+        let def=&app.0;wire::definition(def)?;let caps=json!(wire::current_capabilities(&def.capabilities));let declarations=json!(def.events);let id=crate::util::uid("app");
         tx.execute("INSERT INTO ot.custom_apps(org_id,id,name,description,html,initial_state,capabilities,width,height,created_by,declared_events,origin) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,'template',$10,'template')",&[&org,&id,&def.name,&def.description,&def.html,&def.initial_state,&caps,&def.width,&def.height,&declarations]).await?;
     }Ok(apps.len())
 }

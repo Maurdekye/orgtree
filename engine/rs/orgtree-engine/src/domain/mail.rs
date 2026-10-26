@@ -126,8 +126,6 @@ async fn settle_claimed(engine: &Engine, client: &tokio_postgres::Client, ids: &
 pub enum From {
     User,
     System,
-    /// User-granted app delivery, never a user instruction or reply audience.
-    App { app:String, panel:String },
     Agent { id: i64, name: String, generation: i32 },
     Extern(String),
     /// a watchdog mailing its owner (the mail is from the dog's name); `key`
@@ -141,7 +139,6 @@ impl From {
         match self {
             From::User => "@user".into(),
             From::System => "@system".into(),
-            From::App {app,panel} => format!("app:{app}/{panel}"),
             From::Agent { name, .. } => name.clone(),
             From::Extern(a) => a.clone(),
             From::Watchdog { name, .. } => name.clone(),
@@ -267,10 +264,8 @@ pub async fn send(engine: &Arc<Engine>, org_id: i64, out: Outgoing) -> Result<Se
 #[logged]
 pub(crate) async fn send_with_notices(engine: &Arc<Engine>, org_id: i64, mut out: Outgoing,
     notices: &mut super::runtime_notices::ForwardedUserNotices) -> Result<Sent> {
-    if matches!(out.from,From::App{..}){out.grant_reply_audience=false;}
     out.tags=super::mail_tags::normalize(Some(&json!(out.tags)))?;
     super::mail_tags::recipient(&out.to,&out.tags)?;
-    if matches!(out.from, From::App{..}) && (out.to.trim_start_matches('@')=="user"||out.to.contains(':')||out.to.contains('/')) {crate::refuse!(Forbidden,"app mail targets local agents only");}
     if matches!(out.from, From::Extern(_)) {
         crate::refuse!(Forbidden, "outside mail must publish through the org inbox");
     }
@@ -371,7 +366,6 @@ pub(crate) async fn send_with_notices(engine: &Arc<Engine>, org_id: i64, mut out
         )
         .await?;
     let Some(target) = target else {
-        if matches!(out.from,From::App{..}){crate::refuse!(NotFound,"no live local app recipient; nothing was sent");}
         if let Some(address) = bare_external(engine, out.to.trim())? {
             one_time_recipient(out.one_time, &address)?;
             if out.urgent {refuse!(BadRequest,"urgent is only for the user or an agent currently in Do Not Disturb");}
@@ -384,7 +378,6 @@ pub(crate) async fn send_with_notices(engine: &Arc<Engine>, org_id: i64, mut out
     let target_id: i64 = target.get(0);
     let state: String = target.get(1);
     let halted: bool = target.get(3);
-    if matches!(out.from,From::App{..}) && (state!="live"||target.get::<_,String>(4)!="agent"){crate::refuse!(Forbidden,"app mail targets live local agents only");}
     if target.get::<_, String>(4) == crate::domain::projects::KIND {
         if out.urgent {refuse!(BadRequest,"projects cannot be in Do Not Disturb; urgent needs an agent recipient");}
         let project = crate::domain::projects::Project { id: target_id, name: to.clone(), state };
@@ -828,14 +821,5 @@ mod direct_contact_tests {
     fn user_typed_lifecycle_is_not_direct_contact() {
         assert!(!direct_user_contact(&From::User, Some(&json!({"variant":"lifecycle.hired"}))));
         assert!(!direct_user_contact(&From::User, None));
-    }
-}
-
-#[cfg(test)] mod custom_apps_mail_control {
-    #[test] fn custom_apps_sender_never_counts_as_user_authority(){
-        let from=super::From::App{app:"a".into(),panel:"p".into()};
-        assert_eq!(from.name(),"app:a/p");
-        assert!(!super::direct_user_contact(&from,Some(&serde_json::json!({"variant":"ordinary.message"}))));
-        assert!(super::direct_user_contact(&super::From::User,Some(&serde_json::json!({"variant":"ordinary.message"}))));
     }
 }

@@ -18,7 +18,23 @@ pub struct EventDeclaration {
     pub name: String,
     #[serde(default)] pub description: String,
 }
-pub const CAPABILITIES: &[&str] = &["org.read", "mail.send", "docket.write", "events.fire", "files.read", "files.write"];
+pub const CAPABILITIES: &[&str] = &["org.read", "docket.write", "events.fire", "files.read", "files.write"];
+/// Capabilities older definitions may still declare (user 2026-10-26: "Remove;
+/// import, never grant"): accepted on input so the app imports and runs, then
+/// dropped before storage and from app metadata. Never granted.
+pub const RETIRED_CAPABILITIES: &[&str] = &["mail.send"];
+/// Why an app's mail.send call fails: apps reach agents only through events.
+pub const MAIL_SEND_REMOVED: &str = "mail.send was removed: apps notify agents only through events. Declare the event, fire it with orgtree.events.fire(name, payload), and agents subscribe with an app_listener watchdog.";
+/// The declared capabilities that are stored; retired ones are dropped.
+#[nolog] pub fn current_capabilities(caps:&[String])->Vec<String>{caps.iter().filter(|c|CAPABILITIES.contains(&c.as_str())).cloned().collect()}
+/// Drops retired capabilities from a stored capability list or permission map.
+#[nolog] pub fn drop_retired(value:&mut Value){
+    match value{
+        Value::Array(caps)=>caps.retain(|c|!c.as_str().is_some_and(|c|RETIRED_CAPABILITIES.contains(&c))),
+        Value::Object(map)=>{for cap in RETIRED_CAPABILITIES{map.remove(*cap);}},
+        _=>{}
+    }
+}
 
 #[derive(Clone, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
@@ -155,7 +171,7 @@ pub fn definition(value:&Definition) -> Result<()> {
     }
     let mut seen=std::collections::HashSet::new();
     for cap in &value.capabilities {
-        if !CAPABILITIES.contains(&cap.as_str()) || !seen.insert(cap) { crate::refuse!(BadRequest,"unknown or duplicate app capability {cap}"); }
+        if !(CAPABILITIES.contains(&cap.as_str()) || RETIRED_CAPABILITIES.contains(&cap.as_str())) || !seen.insert(cap) { crate::refuse!(BadRequest,"unknown or duplicate app capability {cap}"); }
     }
     Ok(())
 }
@@ -308,8 +324,8 @@ mod tests {
 
 #[cfg(test)] mod permission_control {
     #[test] fn custom_apps_permission_changes_have_explicit_revision_checked_vocabulary() {
-        assert!(super::parse(&serde_json::json!({"action":"permission_set","app":"a","expected_rev":1,"expected_permission_rev":1,"capability":"mail.send","permission":"ask"})).is_ok());
-        assert!(super::parse(&serde_json::json!({"action":"permission_set","app":"a","expected_rev":1,"capability":"mail.send","permission":"allow","as_user":true})).is_err());
+        assert!(super::parse(&serde_json::json!({"action":"permission_set","app":"a","expected_rev":1,"expected_permission_rev":1,"capability":"org.read","permission":"ask"})).is_ok());
+        assert!(super::parse(&serde_json::json!({"action":"permission_set","app":"a","expected_rev":1,"capability":"org.read","permission":"allow","as_user":true})).is_err());
     }
 }
 
@@ -321,5 +337,8 @@ mod tests {
         let def:super::Definition=serde_json::from_value(json!({"name":"Old","html":"<p>old</p>","capabilities":["mail.send","files.read"]})).unwrap();
         assert!(super::definition(&def).is_ok(),"an old declaration still imports");
         assert!(!super::CAPABILITIES.contains(&"mail.send"),"mail.send is no capability any more");
+        assert_eq!(super::current_capabilities(&def.capabilities),vec!["files.read".to_string()],"the declaration is not stored");
+        let (mut caps,mut grants)=(json!(["mail.send","events.fire"]),json!({"mail.send":"allow","events.fire":"deny"}));super::drop_retired(&mut caps);super::drop_retired(&mut grants);
+        assert_eq!(caps,json!(["events.fire"]));assert_eq!(grants,json!({"events.fire":"deny"}));
     }
 }

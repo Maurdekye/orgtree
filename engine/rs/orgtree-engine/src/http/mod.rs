@@ -802,12 +802,11 @@ mod org_inbox_wire_tests {
         assert!(!log.contains("PRIVATE_APPS_QUERY_CANARY_763"),"private Apps query/refusal leaked: {log}");
     }
     #[tokio::test(flavor="current_thread")]
-    async fn custom_apps_nested_mail_event_and_refusal_values_are_opaque_in_real_formatter() {
+    async fn custom_apps_nested_event_and_refusal_values_are_opaque_in_real_formatter() {
         use tower::ServiceExt;
         let capture=crate::trace::LogCapture::start().await;
         let engine=crate::engine::Engine::for_tests(std::path::PathBuf::new());
         let app=super::Router::new().route("/api/orgs/demo/apps/canary",super::post(||async{
-            let _out=crate::domain::mail::Outgoing::new(crate::domain::mail::From::App{app:"a".into(),panel:"p".into()},"agent","PRIVATE_MAIL_CANARY_546");
             let _event=crate::runtime::watchdogs::events::event("app.event",crate::runtime::watchdogs::events::Scope::Agent(1,2),serde_json::json!({"payload":"PRIVATE_EVENT_CANARY_318"}));
             tracing::warn!(objective="PRIVATE_DOCKET_CANARY_852","private nested refusal");
             super::ApiError::bad_request("PRIVATE_REFUSAL_CANARY_976")
@@ -817,7 +816,7 @@ mod org_inbox_wire_tests {
         // Ordinary callers keep useful diagnostics after the private request.
         tracing::info!("ordinary caller positive control 635");
         let log=capture.finish().await;assert!(log.contains("ordinary caller positive control 635"));
-        for canary in ["PRIVATE_MAIL_CANARY_546","PRIVATE_EVENT_CANARY_318","PRIVATE_DOCKET_CANARY_852","PRIVATE_REFUSAL_CANARY_976"]{assert!(!log.contains(canary),"nested private value leaked: {canary}: {log}");}
+        for canary in ["PRIVATE_EVENT_CANARY_318","PRIVATE_DOCKET_CANARY_852","PRIVATE_REFUSAL_CANARY_976"]{assert!(!log.contains(canary),"nested private value leaked: {canary}: {log}");}
     }
     #[test] fn custom_apps_private_bodies_include_rejected_descendants() {
         let headers=axum::http::HeaderMap::new();

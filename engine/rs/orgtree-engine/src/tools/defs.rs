@@ -2096,7 +2096,7 @@ fn build_tool_apps()->Value {
         "limit":{"type":"integer","minimum":1,"maximum":200},
         "expected_rev":{"type":"integer","minimum":1},
         "expected_permission_rev":{"type":"integer","minimum":1},
-        "capability":{"type":"string","enum":["org.read","mail.send","docket.write","events.fire","files.read","files.write"]},
+        "capability":{"type":"string","enum":["org.read","docket.write","events.fire","files.read","files.write"]},
         "permission":{"type":"string","enum":["ask","allow","deny"],"description":"permission_set is user-only; agents may inspect declarations/grants but cannot grant themselves execution"},
         "new":{"type":"boolean","description":"panel_open: create a fresh closed saved panel; agents cannot open windows"},
         "label":{"type":"string","maxLength":120,"description":"panel_open default: Panel N, the app's lowest unused number"},
@@ -2110,7 +2110,7 @@ fn build_tool_apps()->Value {
             "html":{"type":"string","description":"self-contained HTML up to4MiB; no network"},
             "initial_state":{"type":"object","description":"independent initial JSON object, up to2MiB"},
             "events":{"type":"array","maxItems":64,"description":"inert portable event declarations; unique exact names, no surrounding whitespace or execution grant","items":{"type":"object","additionalProperties":false,"properties":{"name":{"type":"string","minLength":1,"maxLength":80},"description":{"type":"string","maxLength":1000}},"required":["name"]}},
-            "capabilities":{"type":"array","uniqueItems":true,"items":{"enum":["org.read","mail.send","docket.write","events.fire","files.read","files.write"]}},
+            "capabilities":{"type":"array","uniqueItems":true,"items":{"enum":["org.read","docket.write","events.fire","files.read","files.write"]}},
             "width":{"type":"integer","minimum":160,"maximum":4096},"height":{"type":"integer","minimum":120,"maximum":4096}
         },"required":["name","html"]},
         "placement":{"type":"object","additionalProperties":false,"description":"float: the centered window; window: pinned to the window like pinned desks, x,y px from the canvas area's top-left; popout: its own native window","properties":{

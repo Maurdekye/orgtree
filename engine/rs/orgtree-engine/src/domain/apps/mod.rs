@@ -16,8 +16,8 @@ pub use storage::run;
     use crate::domain::templates;
     #[test] fn custom_apps_annotation_example_is_a_valid_inert_portable_bundle(){
         let app:super::wire::Bundle=serde_json::from_str(include_str!("../../../../../../docs/examples/apps/annotation-notes.orgtree-app")).unwrap();
-        super::wire::bundle(&app).unwrap();assert!(app.panels.is_empty());assert_eq!(app.definition.capabilities,vec!["mail.send"]);
-        assert_eq!(app.definition.initial_state,json!({"to":"","note":""}));
+        super::wire::bundle(&app).unwrap();assert!(app.panels.is_empty());assert_eq!(app.definition.capabilities,vec!["events.fire"]);assert_eq!(app.definition.events.iter().map(|e|e.name.as_str()).collect::<Vec<_>>(),vec!["notes.ready"]);
+        assert_eq!(app.definition.initial_state,json!({"note":""}));
     }
     #[test] fn custom_apps_templates_expose_definition_count_without_exposing_html(){
         let raw=json!({"id":"app-team","name":"App team","apps":[{"name":"Notes","html":"<p>PRIVATE-TEMPLATE-5831</p>","initial_state":{"note":"PRIVATE-TEMPLATE-5831"},"capabilities":["mail.send"]}]});

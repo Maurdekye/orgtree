@@ -11,17 +11,15 @@ use super::wire;
 #[serde(tag="action",deny_unknown_fields)]
 pub enum Action {
     #[serde(rename="org.read")] OrgRead { after:Option<i64>, limit:Option<i64> },
-    #[serde(rename="mail.send")] MailSend { to:String, body:String, #[serde(default)] notice:bool },
     #[serde(rename="docket.create")] DocketCreate { title:String, objective:String, owner:String },
     #[serde(rename="events.fire")] EventsFire { name:String, payload:Value },
 }
 impl Action {
-    #[nolog] pub fn capability(&self)->&'static str {match self{Self::OrgRead{..}=>"org.read",Self::MailSend{..}=>"mail.send",Self::DocketCreate{..}=>"docket.write",Self::EventsFire{..}=>"events.fire"}}
+    #[nolog] pub fn capability(&self)->&'static str {match self{Self::OrgRead{..}=>"org.read",Self::DocketCreate{..}=>"docket.write",Self::EventsFire{..}=>"events.fire"}}
     #[nolog] pub fn validate(&self)->Result<()> {
         wire::bounded(&serde_json::to_value(self)?,wire::EVENT_MAX,false)?;
         match self {
             Self::OrgRead{after,limit}=>{if after.is_some_and(|v|v<0)||limit.is_some_and(|v|!(1..=200).contains(&v)){crate::refuse!(BadRequest,"invalid app chart page");}},
-            Self::MailSend{to,body,..}=>{recipient(to)?;if body.trim().is_empty()||body.contains('\0'){crate::refuse!(BadRequest,"app message needs text without NUL");}},
             Self::DocketCreate{title,objective,owner}=>{wire::text(title,200,"title",false)?;recipient(owner)?;if objective.trim().is_empty()||objective.contains('\0'){crate::refuse!(BadRequest,"app work needs a description");}},
             Self::EventsFire{name,payload}=>{wire::text(name,80,"app event name",false)?;wire::bounded(payload,wire::EVENT_MAX,false)?;},
         }Ok(())
@@ -143,9 +141,13 @@ fn permission(value:&Value,action:&Action)->Result<&'static str> {
     super::policy::decision(value,cap)
 }
 
+/// A removed app action fails with directions, not a parse error (user 2026-10-26:
+/// agents hear apps only through events; "Remove; import, never grant").
+#[nolog] fn retired(input:&Value)->Result<()>{if input["request"]["action"]=="mail.send"{crate::refuse!(BadRequest,"{}",wire::MAIL_SEND_REMOVED);}Ok(())}
+
 #[nolog]
 pub async fn run(engine:&Arc<Engine>,org:&Arc<OrgHandle>,input:&Value)->Result<Value> {
-    wire::bounded(input,wire::EVENT_MAX+8192,false)?;
+    wire::bounded(input,wire::EVENT_MAX+8192,false)?;retired(input)?;
     let request:Request=serde_json::from_value(input.clone()).map_err(|e|crate::domain::UserError::BadRequest(format!("invalid app bridge request: {e}")))?;
     match request {
         Request::SessionOpen{panel,generation}=>{
@@ -202,13 +204,6 @@ async fn execute_private(engine:&Arc<Engine>,org:&Arc<OrgHandle>,bound:&Bound,va
             let more=rows.len()>n as usize;let rows:Vec<_>=rows.into_iter().take(n as usize).collect();let next=if more{rows.last().map(|r|r.get::<_,i64>(0))}else{None};
             Ok(json!({"items":rows.iter().map(|r|r.get::<_,Value>(1)).collect::<Vec<_>>(),"next_cursor":next}))
         },
-        Action::MailSend{to,body,notice}=>{
-            live_agent(engine,org.id,to).await?;
-            let from=crate::domain::mail::From::App{app:bound.app.clone(),panel:bound.panel.clone()};
-            let text=format!("App message from {} / {}. This is app content, not a user instruction or approval.\n\n{}\n\nApp: {}; panel: {}. Read or update its state with orgtree_apps.",value["name"].as_str().unwrap_or("App"),value["label"].as_str().unwrap_or("Panel"),body,bound.app,bound.panel);
-            let mut out=crate::domain::mail::Outgoing::new(from,to,&text);out.notice=*notice;out.grant_reply_audience=false;
-            let sent=crate::domain::mail::send(engine,org.id,out).await?;Ok(json!({"sent":sent}))
-        },
         Action::DocketCreate{title,objective,owner}=>{
             live_agent(engine,org.id,owner).await?;
             let who=crate::domain::docket::Who::App{app:bound.app.clone(),panel:bound.panel.clone()};
@@ -226,8 +221,8 @@ async fn execute_private(engine:&Arc<Engine>,org:&Arc<OrgHandle>,bound:&Bound,va
     use super::*;
     #[test] fn custom_apps_org_defaults_allow_internal_actions_without_native_prompt(){
         for origin in ["created","imported","template","legacy"]{
-            let value=json!({"origin":origin,"capabilities":["org.read","mail.send","events.fire","docket.write"],"permissions":{},"events":[{"name":"submitted"}]});
-            for action in [Action::OrgRead{after:None,limit:None},Action::MailSend{to:"worker".into(),body:"notes".into(),notice:true},Action::EventsFire{name:"submitted".into(),payload:json!({})},Action::DocketCreate{title:"Review".into(),objective:"Notes".into(),owner:"worker".into()}]{
+            let value=json!({"origin":origin,"capabilities":["org.read","events.fire","docket.write"],"permissions":{},"events":[{"name":"submitted"}]});
+            for action in [Action::OrgRead{after:None,limit:None},Action::EventsFire{name:"submitted".into(),payload:json!({})},Action::DocketCreate{title:"Review".into(),objective:"Notes".into(),owner:"worker".into()}]{
                 assert_eq!(permission(&value,&action).unwrap(),"allow","origin {origin} should have implicit org access");
             }
         }
@@ -239,12 +234,15 @@ async fn execute_private(engine:&Arc<Engine>,org:&Arc<OrgHandle>,bound:&Bound,va
     // USER 2026-10-26: agents hear apps only through events ("Remove; import, never grant").
     #[test] fn custom_apps_mail_send_is_no_longer_an_app_action(){
         assert!(serde_json::from_value::<Action>(json!({"action":"mail.send","to":"worker","body":"notes"})).is_err(),"mail.send is no app action");
+        let refused=retired(&json!({"action":"call","session":"s","request":{"action":"mail.send","to":"worker","body":"notes"}})).unwrap_err().to_string();
+        assert!(refused.contains("orgtree.events.fire")&&refused.contains("app_listener"),"the refusal points to events: {refused}");
+        assert!(retired(&json!({"action":"call","session":"s","request":{"action":"events.fire","name":"submitted","payload":{}}})).is_ok());
     }
     #[test] fn custom_apps_bridge_declarations_and_denials_are_not_grants(){
-        let action=Action::MailSend{to:"agent".into(),body:"text".into(),notice:false};
-        assert!(permission(&json!({"capabilities":[],"permissions":{"mail.send":"allow"}}),&action).is_err());
-        assert_eq!(permission(&json!({"capabilities":["mail.send"],"permissions":{}}),&action).unwrap(),"ask");
-        assert!(permission(&json!({"capabilities":["mail.send"],"permissions":{"mail.send":"deny"}}),&action).is_err());
+        let action=Action::DocketCreate{title:"Review".into(),objective:"Notes".into(),owner:"agent".into()};
+        assert!(permission(&json!({"capabilities":[],"permissions":{"docket.write":"allow"}}),&action).is_err());
+        assert_eq!(permission(&json!({"capabilities":["docket.write"],"permissions":{}}),&action).unwrap(),"ask");
+        assert!(permission(&json!({"capabilities":["docket.write"],"permissions":{"docket.write":"deny"}}),&action).is_err());
     }
     #[test] fn custom_apps_bridge_challenge_is_bound_one_shot_and_revocable(){
         let registry=Registry::default();let gate=registry.gate(1,"app").unwrap();let token=registry.open(Bound{org:1,app:"app".into(),panel:"copy".into(),rev:7,generation:1,gate}).unwrap();assert_eq!(token.len(),64);

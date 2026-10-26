@@ -126,6 +126,7 @@ pub(crate) async fn run_locked(engine:&Arc<Engine>,org:&Arc<OrgHandle>,caller:Op
             if caller.is_some(){crate::refuse!(Forbidden,"only the user may decide app execution permissions; ask your superior instead");}
             let old=app(&tx,org.id,&id,false,true).await?;revision(&old,expected_rev)?;
             if old["permission_rev"].as_i64()!=Some(expected_permission_rev){crate::refuse!(Conflict,"app permissions changed; read and reconcile");}
+            if wire::RETIRED_CAPABILITIES.contains(&capability.as_str()){crate::refuse!(BadRequest,"{}",wire::MAIL_SEND_REMOVED);}
             if !wire::CAPABILITIES.contains(&capability.as_str())||!super::policy::available(&old,&capability){crate::refuse!(BadRequest,"app does not declare that capability");}
             if !["ask","allow","deny"].contains(&permission.as_str()){crate::refuse!(BadRequest,"permission must be ask, allow or deny");}
             let mut permissions=old["permissions"].clone();permissions[&capability]=json!(permission);
@@ -146,7 +147,7 @@ pub(crate) async fn run_locked(engine:&Arc<Engine>,org:&Arc<OrgHandle>,caller:Op
             wire::bundle(&value)?;json!({"panels":value.panels.len(),"bundle":value})
         }
         Request::AppImport{bundle:value}=>{
-            let id=crate::util::uid("app");let def=&value.definition;let caps=json!(def.capabilities);let declarations=json!(def.events);
+            let id=crate::util::uid("app");let def=&value.definition;let caps=json!(wire::current_capabilities(&def.capabilities));let declarations=json!(def.events);
             tx.execute("INSERT INTO ot.custom_apps(org_id,id,name,description,html,initial_state,capabilities,width,height,created_by,declared_events,origin) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,'imported')",&[&org.id,&id,&def.name,&def.description,&def.html,&def.initial_state,&caps,&def.width,&def.height,&actor,&declarations]).await?;
             let mut saved=Vec::new();
             for p in &value.panels{
@@ -157,12 +158,12 @@ pub(crate) async fn run_locked(engine:&Arc<Engine>,org:&Arc<OrgHandle>,caller:Op
             changed=true;json!({"imported":id,"app":app(&tx,org.id,&id,false,false).await?,"panels":saved,"warning":"Apps imported from outside this org have full access to it and its state. Be careful importing apps from untrustworthy sources."})
         }
         Request::AppCreate{definition:def}=>{
-            wire::definition(&def)?;let id=crate::util::uid("app");let caps=json!(def.capabilities);let declarations=json!(def.events);
+            wire::definition(&def)?;let id=crate::util::uid("app");let caps=json!(wire::current_capabilities(&def.capabilities));let declarations=json!(def.events);
             tx.execute("INSERT INTO ot.custom_apps(org_id,id,name,description,html,initial_state,capabilities,width,height,created_by,declared_events,origin) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,'created')",&[&org.id,&id,&def.name,&def.description,&def.html,&def.initial_state,&caps,&def.width,&def.height,&actor,&declarations]).await?;
             changed=true;app(&tx,org.id,&id,false,false).await?
         }
         Request::AppUpdate{app:id,expected_rev,definition:def}=>{
-            wire::definition(&def)?;let old=app(&tx,org.id,&id,false,true).await?;revision(&old,expected_rev)?;let caps=json!(def.capabilities);let declarations=json!(def.events);let restrictive=super::policy::restrictive_overrides(&old["permissions"]);
+            wire::definition(&def)?;let old=app(&tx,org.id,&id,false,true).await?;revision(&old,expected_rev)?;let caps=json!(wire::current_capabilities(&def.capabilities));let declarations=json!(def.events);let restrictive=super::policy::restrictive_overrides(&old["permissions"]);
             tx.execute("DELETE FROM ot.custom_app_file_grants WHERE org_id=$1 AND app_id=$2",&[&org.id,&id]).await?;
             // Code replacement revokes external grants; user Ask/Deny stays restrictive.
             tx.execute("UPDATE ot.custom_apps SET name=$3,description=$4,html=$5,initial_state=$6,capabilities=$7,width=$8,height=$9,declared_events=$10,permissions=$11,permission_rev=permission_rev+1,rev=rev+1,updated_at=now() WHERE org_id=$1 AND id=$2",&[&org.id,&id,&def.name,&def.description,&def.html,&def.initial_state,&caps,&def.width,&def.height,&declarations,&restrictive]).await?;
