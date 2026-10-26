@@ -23,6 +23,13 @@ permission prompts; sandbox HTML never receives a credential or permission metho
 App definitions retain portable named event declarations; declarations grant no
 execution or subscription. See [custom apps](docs/rust-engine/custom-apps.md).
 [verified: `domain/apps/{wire,storage,templates}.rs`; 2026-10-26]
+
+App files use native read grants, opaque per-panel references and bounded reads.
+Only the exact media GET route substitutes a short-lived, host-bound asset ticket
+for desktop authentication; no general engine credential enters HTML. Revocation
+cancels active bodies. Agents require both app grants and their current folders.
+See the file-access section in [custom apps](docs/rust-engine/custom-apps.md).
+[decided: user 2026-10-26; verified: `domain/apps/file_access.rs`, `http/app_files.rs`, `canvas/apps/files.ts`]
 Apps New counts are org-persisted catalog metadata; only visible menu entries
 are acknowledged, with orgtree_apps mark_seen parity. See
 [custom apps](docs/rust-engine/custom-apps.md).

@@ -148,3 +148,33 @@ not a recreation of the earlier annotation editor whose source is unavailable.
 
 The provisional queue also caps pending recipient deliveries at8,192 per app;
 publication refuses before that snapshot would exceed the bound.
+
+## Read files and remember media
+
+An app declaring `files.read` can ask to read one chosen file, or this org's
+scratch, uploads and retained file deliveries. Orgtree shows the request in its
+own dialog outside the HTML. Choose a file in that native picker, then select
+**Allow once**, **Always allow**, **Deny** or **Cancel**. Read access is separate
+from sending messages: the dialog warns when an app also declares `mail.send`.
+Files are read-only in this first slice; folder-wide, whole-computer and write
+access are not available yet.
+
+For files, Allow once lasts while this panel host stays open and visible.
+Always allow remembers the selected file or org collection for this app.
+The app can keep an opaque file reference in its saved panel state. On reopening
+that same panel it requests a fresh playback link, so a remembered video loads
+without another file selection. Video/audio uses byte ranges, up to256MiB,
+without embedding the media in HTML or the2MiB JSON state. File paths stay in
+the host. Moving/removing a file or revoking permission requires selecting it
+again. Duplicating/importing a panel does not give its copied reference access.
+
+Open **App settings → Permissions → Files** to inspect or revoke remembered
+access. Returning Read files to Ask or Deny removes remembered grants and stops
+active playback. Replacing app code resets grants; importing an app starts at Ask.
+Choosing Allow granted scopes alone adds no files. Apps can read bounded chunks
+through `orgtree.files.read`; they cannot browse the computer or approve access.
+
+Agent parity: `orgtree_apps` exposes `file_permissions`, `file_open` and
+`file_read`. Reads require both the app's existing user grant and the agent's
+current held folders. Agents cannot select files, grant permissions or expand
+their folders by using an app. Native permission decisions remain user-only.

@@ -10,6 +10,9 @@ pub async fn run(engine:&Arc<Engine>,caller:&Caller,args:&Value)->Result<Done>{
 #[nolog]
 async fn run_private(engine:&Arc<Engine>,caller:&Caller,args:&Value)->Result<Done>{
     let org=engine.orgs.by_id(caller.org_id).ok_or_else(||crate::domain::UserError::NotFound("organization not open".into()))?;
+    if args["action"].as_str().is_some_and(|action|action.starts_with("file_")){
+        return Done::json(&crate::domain::apps::file_access::agent(engine,&org,caller,args).await?);
+    }
     let mut input=args.clone();
     if input["action"]=="app_import"&&input.get("path").is_some(){
         if !input.as_object().is_some_and(|o|o.keys().all(|k|["action","path"].contains(&k.as_str()))){crate::refuse!(BadRequest,"app_import takes bundle OR path, without additional fields");}

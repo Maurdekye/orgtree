@@ -56,12 +56,14 @@ impl AppGate {
     }
 }
 #[derive(Clone)]
-struct Bound {org:i64,app:String,panel:String,rev:i64,gate:Arc<AppGate>}
+pub(super) struct Bound {pub org:i64,pub app:String,pub panel:String,pub rev:i64,pub gate:Arc<AppGate>}
 struct Pending {id:String,action:Action,until:Instant}
 struct Session {bound:Bound,until:Instant,pending:Option<Pending>}
 #[derive(Default)]
 pub struct Registry {
     pub(super) dispatch:super::events::Dispatcher,
+
+    pub(crate) file_access:super::file_access::Registry,
     gates:Mutex<HashMap<(i64,String),Weak<AppGate>>>,
     rates:Mutex<HashMap<(i64,String),Arc<ActionRate>>>,
     sessions:Mutex<HashMap<String,Session>>,
@@ -81,11 +83,12 @@ impl Registry {
     }
     #[nolog] fn open(&self,bound:Bound)->Result<String> {
         let mut all=self.sessions.lock().map_err(|_|anyhow::anyhow!("Apps session registry unavailable"))?;
-        let now=Instant::now();all.retain(|_,s|s.until>now);
+        let now=Instant::now();let expired:Vec<_>=all.iter().filter(|(_,s)|s.until<=now).map(|(token,s)|(s.bound.org,token.clone())).collect();all.retain(|_,s|s.until>now);
         if all.len()>=4096{crate::refuse!(Conflict,"too many active app host sessions");}
-        let token=secret();all.insert(token.clone(),Session{bound,until:now+Duration::from_secs(1800),pending:None});Ok(token)
+        let token=secret();all.insert(token.clone(),Session{bound,until:now+Duration::from_secs(1800),pending:None});drop(all);
+        for (org,expired) in expired{self.file_access.forget(org,None,None,Some(&expired))?;}Ok(token)
     }
-    #[nolog] fn bound(&self,org:i64,token:&str)->Result<Bound> {
+    #[nolog] pub(super) fn bound(&self,org:i64,token:&str)->Result<Bound> {
         let all=self.sessions.lock().map_err(|_|anyhow::anyhow!("Apps session registry unavailable"))?;
         let Some(s)=all.get(token).filter(|s|s.bound.org==org&&s.until>Instant::now()) else{crate::refuse!(Forbidden,"app host session expired or unavailable");};Ok(s.bound.clone())
     }
@@ -101,18 +104,23 @@ impl Registry {
         if !s.pending.as_ref().is_some_and(|p|p.id==id&&p.until>Instant::now()){crate::refuse!(Forbidden,"app permission prompt expired or does not match");}
         Ok(s.pending.take().expect("checked pending action").action)
     }
+    #[nolog] pub(super) fn remaining(&self,org:i64,token:&str)->Result<Duration>{
+        let all=self.sessions.lock().map_err(|_|anyhow::anyhow!("Apps session registry unavailable"))?;
+        let Some(s)=all.get(token).filter(|s|s.bound.org==org&&s.until>Instant::now())else{crate::refuse!(Forbidden,"app host session expired");};Ok(s.until.saturating_duration_since(Instant::now()))
+    }
     #[nolog] pub fn revoke(&self,org:i64,app:Option<&str>,panel:Option<&str>)->Result<()> {
-        self.sessions.lock().map_err(|_|anyhow::anyhow!("Apps session registry unavailable"))?.retain(|_,s|!(s.bound.org==org&&app.is_none_or(|a|s.bound.app==a)&&panel.is_none_or(|p|s.bound.panel==p)));Ok(())
+        self.sessions.lock().map_err(|_|anyhow::anyhow!("Apps session registry unavailable"))?.retain(|_,s|!(s.bound.org==org&&app.is_none_or(|a|s.bound.app==a)&&panel.is_none_or(|p|s.bound.panel==p)));
+        self.file_access.forget(org,app,panel,None)
     }
     #[nolog] fn close(&self,org:i64,token:&str)->Result<()> {
         let mut all=self.sessions.lock().map_err(|_|anyhow::anyhow!("Apps session registry unavailable"))?;
-        if all.get(token).is_some_and(|s|s.bound.org==org){all.remove(token);}Ok(())
+        if all.get(token).is_some_and(|s|s.bound.org==org){all.remove(token);}drop(all);self.file_access.forget(org,None,None,Some(token))
     }
 }
-#[nolog] fn secret()->String {format!("{}{}",uuid::Uuid::new_v4().simple(),uuid::Uuid::new_v4().simple())}
+#[nolog] pub(super) fn secret()->String {format!("{}{}",uuid::Uuid::new_v4().simple(),uuid::Uuid::new_v4().simple())}
 
 #[nolog]
-async fn snapshot(engine:&Engine,bound:&Bound)->Result<Value> {
+pub(super) async fn snapshot(engine:&Engine,bound:&Bound)->Result<Value> {
     let client=engine.db.get().await?;
     let row=client.query_opt("SELECT jsonb_build_object('name',a.name,'rev',a.rev,'capabilities',a.capabilities,'events',a.declared_events,'permissions',a.permissions,'permission_rev',a.permission_rev,'label',p.label,'open',p.is_open) FROM ot.custom_apps a JOIN ot.custom_panels p ON p.org_id=a.org_id AND p.app_id=a.id WHERE a.org_id=$1 AND a.id=$2 AND p.id=$3",&[&bound.org,&bound.app,&bound.panel]).await?;
     let Some(row)=row else{crate::refuse!(NotFound,"app or saved panel was removed");};let value:Value=row.get(0);

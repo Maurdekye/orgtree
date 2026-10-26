@@ -2,6 +2,7 @@
 //! push sockets, and the renderer bundle.
 
 pub mod apps;
+pub mod app_files;
 pub mod accounts;
 pub mod changelog;
 pub mod client_tokens;
@@ -84,6 +85,8 @@ pub fn router(engine: Arc<Engine>) -> Router {
         .route("/api/standalone/clients/{id}", delete(client_tokens::revoke))
         .route("/api/orgs/{slug}/apps", post(apps::request).get(apps::read).layer(axum::extract::DefaultBodyLimit::max(32*1024*1024)))
         .route("/api/orgs/{slug}/apps/bridge", post(apps::bridge).layer(axum::extract::DefaultBodyLimit::max(128*1024)))
+        .route("/api/orgs/{slug}/apps/files", post(app_files::native).layer(axum::extract::DefaultBodyLimit::max(128*1024)))
+        .route("/api/orgs/{slug}/apps/media", get(app_files::media))
         // organizations
         .route("/api/orgs", get(orgs::list).post(orgops::create))
         .route("/api/orgs/{slug}", get(orgs::tree).delete(orgops::delete))
@@ -487,7 +490,9 @@ async fn guarded(engine: Arc<Engine>, req: Request, next: Next) -> Response {
     // Standalone: every path needs the token, and a missing token can never
     // open it (token_ok is false for an empty token). Other modes keep the
     // existing rule: /api/ only, and only when a launcher set a token.
-    let denied = if engine.cfg.standalone {
+    let denied = if app_files::ticket_route(req.uri().path(),req.method()) {
+        false // The dedicated handler requires its own live, grant-bound asset ticket.
+    } else if engine.cfg.standalone {
         !standalone_ok
     } else {
         req.uri().path().starts_with("/api/") && !engine.cfg.desktop_token.is_empty() && !token_ok(&engine, &req)

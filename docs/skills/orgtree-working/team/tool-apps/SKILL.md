@@ -88,7 +88,42 @@ List kind:panels accepts open:true/false to page only that subset. Metadata
 includes event_seq; HTML/state remain excluded. All unruled defaults are
 provisional for the user's morning review.
 
-## App import and export
+## Read-only app files
+
+Declare files.read in definition.capabilities to expose the fixed file SDK;
+declaration/import/state fields confer no access. The user grants one chosen file
+or this org's scratch/uploads/retained-delivery collection through native UI.
+Allow once lasts for that visible host; Always allow persists per app/code
+revision. Ask/Deny, code replacement or per-grant Revoke removes remembered
+access. Active media bodies are cancelled. Folder-wide/computer/write grants are
+not available in this first slice. Read plus mail.send is warned in native UI.
+
+- file_permissions needs app. It reports bounded grant metadata, revisions and
+  read mode. Chosen files outside your current folders are omitted; native paths
+  never appear in the agent answer. Native permission decisions remain user-only.
+- file_open needs panel, root:scratch|uploads|artifacts and path. Scratch/uploads
+  use relative names; artifacts uses this org's retained delivery ID. It requires
+  the user's existing org-collection grant AND your current held folders.
+  It returns an opaque id, basename, MIME and bytes, not a path.
+- file_read needs panel/file (opaque reference). offset defaults0; length is1-65536
+  bytes, default65536. Result includes base64, offset, length and eof. Both the
+  app grant and your live inherited orgmod/folder scope are checked before data
+  is disclosed. Saved closed panels can be read. No agent choose/grant/media URL
+  action exists; agents read media bytes within their own folders via file_read.
+
+The HTML SDK has files.choose(), files.open(root,path), files.read(id,{offset,limit})
+and files.media(id). It cannot select org/app/panel/session, browse native paths,
+or decide consent. Persist the opaque id in that panel's state; media returns a
+fresh temporary URL on reopen. References are org/app/code-revision/panel bound:
+copying JSON to another panel/import does not copy authority. Native grants and
+paths stay outside portable data. Media is byte-range streamed up to256MiB;
+the exact media GET route uses a host-bound asset ticket, never a root credential.
+No DB transaction spans disk IO or playback. Paths reject traversal/reparse links;
+chunk allocation is bounded64KiB. Limits:128 persisted grants/app,1024 refs/panel,
+4096 pending/temporary/media records per engine; prompts expire120s and host
+sessions/media tickets expire within30min. File calls share the app rate budget.
+
+## App import and export format
 
 app_export needs app/expected_rev. include_panels defaults false; true includes
 saved copy labels and JSON data. as_file defaults true: write a fresh

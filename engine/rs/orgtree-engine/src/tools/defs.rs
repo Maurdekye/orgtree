@@ -2067,10 +2067,14 @@ mod mqtt_card_tests {
 #[nolog]
 fn build_tool_apps()->Value {
     tool("orgtree_apps","Manage this org's app definitions and independent saved panels. Requires org-modifying tools. List pages omit HTML/state; app_get/panel_get read them. Open reuses the last panel unless new=true; close keeps state. Mutations need the current expected_rev. Imported permissions never grant actions.",json!({
-        "action":{"type":"string","enum":["list","app_get","app_create","app_update","app_delete","app_import","app_export","mark_seen","panel_open","panel_get","panel_update","panel_duplicate","panel_delete","state_set","state_patch","event","events","fire_event","listeners","permission_set"]},
+        "action":{"type":"string","enum":["list","app_get","app_create","app_update","app_delete","app_import","app_export","mark_seen","panel_open","panel_get","panel_update","panel_duplicate","panel_delete","state_set","state_patch","event","events","fire_event","listeners","permission_set","file_permissions","file_open","file_read"]},
         "apps":{"type":"array","minItems":1,"maxItems":200,"uniqueItems":true,"items":{"type":"string"},"description":"mark_seen: acknowledge these explicit app IDs for this org's New badge; does not grant actions or change app/panel revisions"},
         "bundle":{"type":"object","description":"app_import: strict orgtree-app version1 object with definition and optional panels:[{label,state}]; up to16MiB/16 saved copies. No permissions, IDs, links or geometry."},
-        "path":{"type":"string","description":"app_import: an absolute held local .orgtree-app JSON file without parent components or links, instead of inline bundle"},
+        "path":{"type":"string","description":"app_import: absolute held .orgtree-app file; file_open: relative name inside root (artifacts uses retained delivery ID). No parent components or links."},
+        "root":{"type":"string","enum":["scratch","uploads","artifacts"],"description":"file_open: this org's collection; requires an existing user app grant AND your held folders"},
+        "file":{"type":"string","description":"file_read: opaque reference from file_open or this panel's saved state; never a computer path"},
+        "offset":{"type":"integer","minimum":0,"description":"file_read: byte offset, default 0"},
+        "length":{"type":"integer","minimum":1,"maximum":65536,"description":"file_read: maximum bytes, default 65536; returns base64, offset and eof"},
         "include_panels":{"type":"boolean","description":"app_export: include up to16 saved panel JSON states; default false"},
         "as_file":{"type":"boolean","description":"app_export: default true writes a new .orgtree-app file in your scratch and returns path/bytes/SHA256; false returns bundle JSON. No overwrite or arbitrary destination."},
         "kind":{"type":"string","enum":["apps","panels"],"description":"list: apps by default"},
@@ -2080,7 +2084,7 @@ fn build_tool_apps()->Value {
         "limit":{"type":"integer","minimum":1,"maximum":200},
         "expected_rev":{"type":"integer","minimum":1},
         "expected_permission_rev":{"type":"integer","minimum":1},
-        "capability":{"type":"string","enum":["org.read","mail.send","docket.write","events.fire"]},
+        "capability":{"type":"string","enum":["org.read","mail.send","docket.write","events.fire","files.read"]},
         "permission":{"type":"string","enum":["ask","allow","deny"],"description":"permission_set is user-only; agents may inspect declarations/grants but cannot grant themselves execution"},
         "new":{"type":"boolean","description":"panel_open: make a fresh independent panel"},
         "label":{"type":"string","maxLength":120},
@@ -2091,7 +2095,7 @@ fn build_tool_apps()->Value {
             "html":{"type":"string","description":"self-contained HTML up to4MiB; no network"},
             "initial_state":{"type":"object","description":"independent initial JSON object, up to2MiB"},
             "events":{"type":"array","maxItems":64,"description":"inert portable event declarations; unique exact names, no surrounding whitespace or execution grant","items":{"type":"object","additionalProperties":false,"properties":{"name":{"type":"string","minLength":1,"maxLength":80},"description":{"type":"string","maxLength":1000}},"required":["name"]}},
-            "capabilities":{"type":"array","uniqueItems":true,"items":{"enum":["org.read","mail.send","docket.write","events.fire"]}},
+            "capabilities":{"type":"array","uniqueItems":true,"items":{"enum":["org.read","mail.send","docket.write","events.fire","files.read"]}},
             "width":{"type":"integer","minimum":160,"maximum":4096},"height":{"type":"integer","minimum":120,"maximum":4096}
         },"required":["name","html"]},
         "placement":{"type":"object","additionalProperties":false,"properties":{

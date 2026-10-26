@@ -75,3 +75,28 @@ link, state and event action above. Copy/export JSON are ordinary local file or
 clipboard operations; drag/resize use panel_update placement. Apps-button/menu
 visibility and far-zoom culling are display only. See orgtree-tool-apps
 (orgtree-working > team).
+
+## Files
+
+Apps declaring files.read ask through a native dialog outside HTML. Select a
+single file or allow this org's scratch/uploads/retained-delivery collection.
+Allow once lasts for the open visible host; Always allow remembers that file or
+collection. Deny saves a refusal; Cancel leaves grants unchanged. A warning names
+the combination with mail.send, because readable contents may be sent if mail
+is also allowed. Imported apps and replaced code have no remembered grants.
+
+App settings → Permissions → Files shows Read files and remembered scopes with
+Revoke. Ask/Deny clears remembered grants; revocation stops active media streams.
+Allow granted scopes creates no grant itself. Write files is unavailable in this
+first slice, as are folder-wide/whole-computer grants. File paths stay native.
+
+The SDK adds files.choose(), files.open(root,path), files.read(file,{offset,limit})
+and files.media(file). Store the returned opaque id in this panel's JSON, not
+a temporary media URL. Reopening gets a fresh playback link automatically from
+the remembered grant. Media uses byte ranges up to256MiB, outside the HTML/state
+limits. Hiding/closing discards session links; moved/deleted/revoked files need
+selection again. A duplicated panel cannot borrow another copy's file id.
+
+Agent parity is orgtree_apps file_permissions/file_open/file_read, requiring
+the app grant AND the agent's held folders. Native picking/consent/revoke is
+user-only; agents never self-grant. See orgtree-tool-apps for exact fields/limits.

@@ -13,7 +13,7 @@ fn plain(meta:&std::fs::Metadata)->Result<()> {
     if linked{crate::refuse!(Forbidden,"app bundle paths cannot use links or reparse points");}Ok(())
 }
 #[nolog]
-fn checked_path(path:&Path)->Result<PathBuf>{
+pub(super) fn checked_path(path:&Path)->Result<PathBuf>{
     let path=crate::config::strip_verbatim(path);
     if !path.is_absolute()||path.components().any(|c|matches!(c,Component::ParentDir)) {crate::refuse!(Forbidden,"app file paths must be absolute without parent components");}
     #[cfg(windows)] if !matches!(path.components().next(),Some(Component::Prefix(p)) if matches!(p.kind(),std::path::Prefix::Disk(_)|std::path::Prefix::UNC(_,_))){crate::refuse!(Forbidden,"unsupported app file path prefix");}
@@ -113,7 +113,7 @@ impl Directory {
     }
 }
 #[nolog]
-fn relative(path:&Path,root:&Path)->Option<PathBuf>{
+pub(super) fn relative(path:&Path,root:&Path)->Option<PathBuf>{
     let p:Vec<_>=path.components().collect();let r:Vec<_>=root.components().collect();
     if p.len()<=r.len(){return None;}
     let equal=|a:Component<'_>,b:Component<'_>|{
@@ -144,6 +144,26 @@ pub fn write(scratch:&Path,bundle:&Value)->Result<Value>{
     let dir=directory(scratch)?;let name=format!("{}.orgtree-app",crate::util::uid("app-export"));
     let mut file=dir.open(std::ffi::OsStr::new(&name),true)?;file.write_all(&bytes)?;file.sync_all()?;
     Ok(json!({"path":dir.path.join(name).to_string_lossy(),"bytes":bytes.len(),"sha256":hex::encode(Sha256::digest(&bytes)),"format":"orgtree-app","version":1}))
+}
+
+/// Open through pinned ancestors with the same no-reparse contract as bundle
+/// IO. The caller must establish app AND caller authority before invoking it.
+/// The returned handle excludes data-write/delete sharing on Windows; no later
+/// path reopen is used for reads or media streaming.
+#[nolog]
+pub(super) fn open_read(path:&Path)->Result<File>{
+    let path=checked_path(path)?;
+    let parent=path.parent().ok_or_else(||anyhow::anyhow!("app file has no parent"))?;
+    let name=path.file_name().ok_or_else(||anyhow::anyhow!("app file has no name"))?;
+    directory(parent)?.open(name,false)
+}
+
+#[nolog]
+pub(super) fn scoped_path(root:&Path,suffix:&str)->Result<PathBuf>{
+    let suffix=Path::new(suffix);
+    if suffix.as_os_str().is_empty()||suffix.components().any(|part|!matches!(part,Component::Normal(_))){crate::refuse!(Forbidden,"app file names must stay inside the selected collection");}
+    let root=checked_path(root)?;let path=root.join(suffix);
+    if relative(&path,&root).is_none(){crate::refuse!(Forbidden,"app file name escapes its collection");}Ok(path)
 }
 
 #[cfg(test)] mod tests{

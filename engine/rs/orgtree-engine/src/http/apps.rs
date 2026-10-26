@@ -39,7 +39,7 @@ pub async fn read(State(engine):State<Arc<Engine>>,Path(slug):Path<String>,axum:
 
 /// Scoped standalone client/agent tokens never decide native app grants.
 #[nolog]
-fn native_user(engine:&Engine,headers:&axum::http::HeaderMap)->Result<(),super::error::ApiError>{
+pub(super) fn native_user(engine:&Engine,headers:&axum::http::HeaderMap)->Result<(),super::error::ApiError>{
     if !super::token_ok_headers(&engine.cfg.desktop_token,false,headers){return Err(super::error::ApiError::forbidden("app host and permission operations require the desktop user credential"));}Ok(())
 }
 #[nolog]

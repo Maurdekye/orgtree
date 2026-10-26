@@ -1,5 +1,7 @@
 pub mod bridge;
 pub mod events;
+
+pub mod file_access;
 pub(crate) mod files;
 pub mod wire;
 pub mod storage;

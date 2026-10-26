@@ -10,7 +10,7 @@ use tokio_util::io::ReaderStream;
 pub const MAX_BYTES: u64 = 256 * 1024 * 1024;
 
 #[cfg_attr(not(test), orgtree_logged::nolog)]
-fn media_type(path: &Path) -> Option<&'static str> {
+pub(crate) fn media_type(path: &Path) -> Option<&'static str> {
     match path.extension()?.to_str()?.to_ascii_lowercase().as_str() {
         "mp4" => Some("video/mp4"),
         "webm" => Some("video/webm"),
@@ -61,9 +61,17 @@ pub async fn serve(path: &Path, range: Option<&str>) -> Result<Response, StatusC
     {
         return Err(StatusCode::NOT_FOUND);
     }
-    let mut file = tokio::fs::File::open(path)
+    let file = tokio::fs::File::open(path)
         .await
         .map_err(|_| StatusCode::NOT_FOUND)?;
+    serve_opened(file,mime,range,None).await
+}
+
+/// App files arrive as an already authorized, no-reparse handle. Do not reopen
+/// their private path. Cancellation ends active bodies when their host/grant
+/// is revoked; the original node-media path retains its unchanged behavior.
+#[cfg_attr(not(test), orgtree_logged::nolog)]
+pub(crate) async fn serve_opened(mut file:tokio::fs::File,mime:&'static str,range:Option<&str>,cancel:Option<(tokio_util::sync::CancellationToken,std::time::Instant)>)->Result<Response,StatusCode>{
     let meta = file.metadata().await.map_err(|_| StatusCode::NOT_FOUND)?;
     if !meta.is_file() {
         return Err(StatusCode::NOT_FOUND);
@@ -93,7 +101,11 @@ pub async fn serve(path: &Path, range: Option<&str>) -> Result<Response, StatusC
         .map_err(|_| StatusCode::NOT_FOUND)?;
     // Bound allocation and output, even if a writer grows the file after metadata.
     let stream = ReaderStream::with_capacity(file.take(len), 64 * 1024);
-    let mut response = Body::from_stream(stream).into_response();
+    let body=if let Some((cancel,until))=cancel{
+        use futures::StreamExt;
+        Body::from_stream(stream.take_until(async move{tokio::select!{_ = cancel.cancelled()=>{},_ = tokio::time::sleep_until(tokio::time::Instant::from_std(until))=>{}}}))
+    }else{Body::from_stream(stream)};
+    let mut response = body.into_response();
     *response.status_mut() = status;
     let headers = response.headers_mut();
     headers.insert(header::CONTENT_TYPE, mime.parse().unwrap());
@@ -252,4 +264,14 @@ mod tests {
         );
     }
     use std::io::Write;
+    #[tokio::test]
+    async fn app_files_opened_stream_preserves_ranges_and_cancels_revoked_bodies(){
+        let f=Fixture::new("mp4",b"0123456789");
+        let cancel=tokio_util::sync::CancellationToken::new();
+        let r=serve_opened(tokio::fs::File::open(&f.0).await.unwrap(),"video/mp4",Some("bytes=2-5"),Some((cancel.clone(),std::time::Instant::now()+std::time::Duration::from_secs(30)))).await.unwrap();
+        assert_eq!(r.status(),206);assert_eq!(r.headers()[header::CONTENT_RANGE],"bytes 2-5/10");
+        assert_eq!(r.into_body().collect().await.unwrap().to_bytes().as_ref(),b"2345");
+        let r=serve_opened(tokio::fs::File::open(&f.0).await.unwrap(),"video/mp4",None,Some((cancel.clone(),std::time::Instant::now()+std::time::Duration::from_secs(30)))).await.unwrap();
+        cancel.cancel();assert!(r.into_body().collect().await.unwrap().to_bytes().is_empty());
+    }
 }

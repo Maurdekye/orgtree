@@ -18,7 +18,7 @@ pub struct EventDeclaration {
     pub name: String,
     #[serde(default)] pub description: String,
 }
-pub const CAPABILITIES: &[&str] = &["org.read", "mail.send", "docket.write", "events.fire"];
+pub const CAPABILITIES: &[&str] = &["org.read", "mail.send", "docket.write", "events.fire", "files.read"];
 
 #[derive(Clone, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]

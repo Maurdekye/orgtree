@@ -70,6 +70,37 @@ each app has zero or more saved panels. Every panel owns an independent JSON
 object. Any live agent with org-modifying tools can operate on any copy in its
 current org. An author or linked agent does not acquire user authority.
 
+## Read-only file access (2026-10-26)
+
+Migration0064 stores app/code-bound native read grants and panel-bound opaque
+references. Files are chosen in native Orgtree UI or opened from this org's
+scratch/uploads/retained-delivery catalog. Native paths never enter the iframe
+SDK or portable bundles. Once grants are host-memory only; Always grants persist
+in PG. Returning to Ask/Deny, grant revoke or code replacement clears authority.
+Closing/hiding ends host links. Imported/duplicated state cannot reuse a file id
+from another panel. Files settings live inside the existing Permissions dialog.
+
+POST apps/files requires the exact native desktop header. It accepts native
+Call/Decide/Permissions/Revoke/Browse; iframe methods are only choose/open/read/media,
+validated by parent and engine. Bounded reads allocate at most64KiB. Agent actions
+file_permissions/file_open/file_read additionally require live orgmod and current
+held folders, rechecked before disclosure; agents never decide grants. Orgtree
+artifacts means this org's retained deliveries, not a global output directory.
+
+Sandbox frames never receive desktop headers. Only exact GET apps/media bypasses
+the general header check and independently validates a64-hex temporary asset
+ticket bound to org/app/code/panel/live host/file grant. Each range revalidates;
+active bodies end on cancellation or expiry. CSP adds only the exact generated
+host media endpoint; connect stays none and other API paths remain blocked.
+Private-app logging omits ticket queries and file/stream data. Opened handles
+use the existing ancestor-pinned no-reparse IO. No PG handle/transaction spans
+disk IO, native consent or playback. Media cap256MiB; no video is embedded in state.
+
+First slice is read-only collections/chosen-file access. Folder-wide, whole-computer
+and write grants are deferred to the separately assigned second slice. Native
+consent warns about readable data plus declared mail.send. Grant limits128/app,
+refs1024/panel, registry4096/class; prompts120s, sessions/media at most30min.
+
 ## Storage milestone
 
 Migration0058 creates org-scoped custom_apps, custom_panels and a bounded panel

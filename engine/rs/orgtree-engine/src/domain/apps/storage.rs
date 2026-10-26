@@ -113,6 +113,7 @@ pub(crate) async fn run_locked(engine:&Arc<Engine>,org:&Arc<OrgHandle>,caller:Op
             if !wire::CAPABILITIES.contains(&capability.as_str())||!old["capabilities"].as_array().is_some_and(|a|a.iter().any(|c|c==&capability)){crate::refuse!(BadRequest,"app does not declare that capability");}
             if !["ask","allow","deny"].contains(&permission.as_str()){crate::refuse!(BadRequest,"permission must be ask, allow or deny");}
             let mut permissions=old["permissions"].clone();permissions[&capability]=json!(permission);
+            if capability=="files.read"&&permission!="allow"{tx.execute("DELETE FROM ot.custom_app_file_grants WHERE org_id=$1 AND app_id=$2",&[&org.id,&id]).await?;}
             tx.execute("UPDATE ot.custom_apps SET permissions=$3,permission_rev=permission_rev+1,updated_at=now() WHERE org_id=$1 AND id=$2",&[&org.id,&id,&permissions]).await?;
             changed=true;app(&tx,org.id,&id,false,false).await?
         }
@@ -146,6 +147,7 @@ pub(crate) async fn run_locked(engine:&Arc<Engine>,org:&Arc<OrgHandle>,caller:Op
         }
         Request::AppUpdate{app:id,expected_rev,definition:def}=>{
             wire::definition(&def)?;let old=app(&tx,org.id,&id,false,true).await?;revision(&old,expected_rev)?;let caps=json!(def.capabilities);let declarations=json!(def.events);
+            tx.execute("DELETE FROM ot.custom_app_file_grants WHERE org_id=$1 AND app_id=$2",&[&org.id,&id]).await?;
             // Provisional security default: every code update revokes grants.
             tx.execute("UPDATE ot.custom_apps SET name=$3,description=$4,html=$5,initial_state=$6,capabilities=$7,width=$8,height=$9,declared_events=$10,permissions='{}',permission_rev=permission_rev+1,rev=rev+1,updated_at=now() WHERE org_id=$1 AND id=$2",&[&org.id,&id,&def.name,&def.description,&def.html,&def.initial_state,&caps,&def.width,&def.height,&declarations]).await?;
             super::events::invalidate(&tx,org.id,&id,None,Some(&declarations)).await?;
@@ -259,6 +261,7 @@ pub async fn run(engine:&Arc<Engine>,org:&Arc<OrgHandle>,caller:Option<&Caller>,
     if action=="fire_event"{gate.admit()?;}
     let out=run_locked(engine,org,caller,input).await?;
     if ["app_update","app_delete"].contains(&action){engine.custom_apps.revoke(org.id,Some(&app),None)?;}
+    if action=="permission_set"&&input["capability"]=="files.read"{engine.custom_apps.file_access.forget(org.id,Some(&app),None,None)?;}
     if action=="panel_delete"||(action=="panel_update"&&input["open"]==false){engine.custom_apps.revoke(org.id,None,input["panel"].as_str())?;}
     Ok(out)
 }
