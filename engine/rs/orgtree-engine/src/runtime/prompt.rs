@@ -35,6 +35,11 @@ pub struct Mail {
     pub via_project_ack: bool,
     /// Explicit bounded recovery when native mid-turn admission was uncertain.
     pub uncertain_mid_turn: bool,
+    /// App content (`trace::private_app_content` of its row: the app's mail, a
+    /// notice of what it did, its named event's delivery): the log names this
+    /// mail by its id alone. Absent from ordinary mail's serialization.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub private_app: bool,
 }
 
 // Bodies, reply snapshots and attachment paths must never enter tracing args.
@@ -250,7 +255,7 @@ mod mail_size_tests {
     fn mail(body: String) -> Mail {
         Mail { uid: "large-mail".into(), sender: "sender".into(), kind: "message".into(), body,
             at: chrono::DateTime::from_timestamp(0, 0).unwrap(), attachments: json!([]),
-            notice: false, one_time: false, urgent: false, reply_to: json!({}), replies: json!([]), ev: json!({}), via_project: None, via_project_ack: false, uncertain_mid_turn: false }
+            notice: false, one_time: false, urgent: false, reply_to: json!({}), replies: json!([]), ev: json!({}), via_project: None, via_project_ack: false, uncertain_mid_turn: false, private_app: false }
     }
 
     #[test]
@@ -445,6 +450,7 @@ mod phone_authority_tests {
                 via_project: None,
                 via_project_ack: false,
                 uncertain_mid_turn: false,
+                private_app: false,
             };
             let mail = [m];
             for text in [turn_text(&mail, "", &HashMap::new(), None), replay_text(&mail, &HashMap::new()), steer_text(&mail, &HashMap::new())] {

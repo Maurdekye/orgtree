@@ -381,6 +381,7 @@ impl Shown {
         if v.get("kind").and_then(Value::as_str) == Some("elicitation") {
             return Shown::text(format!("{pre}[MCP elicitation omitted]{post}"));
         }
+        if let Some(gone) = private_app_stand_in(v) { return Shown::text(format!("{pre}{gone}{post}")); }
         let (open, close, items): (String, String, Vec<(String, String, usize)>) = match v {
             Value::Object(m) if !m.is_empty() => (
                 format!("{pre}{{"),
@@ -591,6 +592,34 @@ fn contains_thinking(v: &Value, depth: usize) -> bool {
 #[cfg(test)]
 mod thinking_privacy_tests;
 
+/// App content outside the app's own private request (`private_app`): the
+/// app's mail (an `app:` sender), the notice of something it did (an `app:`
+/// actor on the mail's event: its docket item's assignment) and its named
+/// event's delivery (`extra.app_event`; on the agent's `Mail`, `private_app`).
+/// The app writes them inside that request, but the recipient's actor reads
+/// them back from the database outside it. So does anything an app caused or
+/// a listing or quote of its mail (an `app:` `actor`, `sender` or `from`).
+/// Each is logged by its id alone, wherever it travels; ordinary mail is
+/// logged as before.
+pub(crate) fn private_app_content(v: &Value) -> bool {
+    let Value::Object(m) = v else { return false };
+    let app = |id: &Value| id.as_str().is_some_and(|s| s.starts_with("app:"));
+    m.get("sender").is_some_and(app) || m.get("from").is_some_and(app)
+        || app(&v["actor"]["id"]) || app(&v["ev"]["actor"]["id"])
+        || m.get("extra").is_some_and(|x| x.get("app_event").is_some())
+        || m.get("private_app") == Some(&Value::Bool(true))
+}
+
+/// What the log shows instead of app content: a mail by its id.
+fn private_app_stand_in(v: &Value) -> Option<String> {
+    if !private_app_content(v) { return None; }
+    let uid = v["uid"].as_str().filter(|u| !u.is_empty() && u.len() <= 40 && u.bytes().all(|b| b.is_ascii_alphanumeric()));
+    Some(match uid {
+        Some(uid) => format!("[private app mail {uid} omitted]"),
+        None => "[private app content omitted]".into(),
+    })
+}
+
 #[cfg(test)]
 mod app_mail_privacy_tests;
 
@@ -599,6 +628,10 @@ fn render(v: &Value, out: &mut Capture) {
     if private_thinking(v) { out.push_str("\"[thinking omitted]\""); return; }
     if v.get("kind").and_then(Value::as_str) == Some("elicitation") {
         out.push_str("\"[MCP elicitation omitted]\"");
+        return;
+    }
+    if let Some(gone) = private_app_stand_in(v) {
+        out.push_str(&Value::String(gone).to_string());
         return;
     }
     match v {

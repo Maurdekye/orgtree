@@ -171,6 +171,7 @@ fn opencode_mail_uncertain_warning_survives_typed_events_and_reference_budget() 
         via_project: None,
         via_project_ack: false,
         uncertain_mid_turn: true,
+        private_app: false,
     };
     let result =
         super::super::prompt::batch(&[mail], "", &Default::default(), None, 4096, false).unwrap();
