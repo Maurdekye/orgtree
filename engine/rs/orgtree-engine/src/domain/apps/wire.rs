@@ -150,6 +150,21 @@ mod tests {
     }
 }
 
+#[cfg(test)] mod portability_control {
+    use super::*;
+    #[test] fn custom_apps_portable_import_and_export_are_explicit_requests(){
+        let bundle=json!({"format":"orgtree-app","version":1,"definition":{"name":"Notes","html":"<p>notes</p>","initial_state":{"note":"start"}},"panels":[{"label":"Saved notes","state":{"note":"saved"}}]});
+        assert!(parse(&json!({"action":"app_import","bundle":bundle})).is_ok(),"agents and users need whole-app import");
+        assert!(parse(&json!({"action":"app_export","app":"a","expected_rev":3,"include_panels":true})).is_ok(),"exports need an explicit optional saved-state choice");
+    }
+    #[test] fn custom_apps_portable_wire_never_accepts_execution_grants_or_machine_identity(){
+        let clean=json!({"format":"orgtree-app","version":1,"definition":{"name":"Notes","html":"<p>notes</p>"}});
+        assert!(parse(&json!({"action":"app_import","bundle":clean})).is_ok(),"positive import control");
+        for (key,value) in [("permissions",json!({"mail.send":"allow"})),("session",json!("stolen")),("org",json!("other"))]{let mut bad=clean.clone();bad[key]=value;assert!(parse(&json!({"action":"app_import","bundle":bad})).is_err());}
+        let mut bad=clean;bad["panels"]=json!([{"label":"Saved","state":{},"open":true,"linked_agents":["admin"],"placement":{"mode":"popout"}}]);assert!(parse(&json!({"action":"app_import","bundle":bad})).is_err());
+    }
+}
+
 #[cfg(test)] mod permission_control {
     #[test] fn custom_apps_permission_changes_have_explicit_revision_checked_vocabulary() {
         assert!(super::parse(&serde_json::json!({"action":"permission_set","app":"a","expected_rev":1,"expected_permission_rev":1,"capability":"mail.send","permission":"ask"})).is_ok());
