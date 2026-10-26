@@ -285,6 +285,12 @@ still resume, so the agents themselves remember).
 
 ## 10. User-facing differences — complete ledger
 
+Live helper inspector (USER 2026-10-26 m95e7ead06333, 4.5.0): a desk-header
+count opens helper details and captured live transcripts. Explicit native
+Claude/Codex/Muse lifecycle observations only; other harness transcripts remain
+unavailable. List/read tool parity uses optional `orgtree_read_transcript`
+fields with unchanged self/downward access. See [support and bounds](helper-transcripts.md#live-helper-inspector-450-2026-10-26).
+
 In-chat media cards (USER2026-10-25,4.5.0): agent-delivered and message-attached
 video/audio load only on Play across all transcript placements, with native
 controls and existing Download fallback. Preserve image cards/compact staging

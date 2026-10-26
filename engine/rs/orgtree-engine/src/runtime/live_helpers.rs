@@ -30,6 +30,7 @@ impl Helpers {
             "assistant"=>for b in v.pointer("/message/content").and_then(Value::as_array).into_iter().flatten() {
                 if b["type"]!="tool_use" || !matches!(b["name"].as_str(),Some("Agent"|"Task")) {continue;}
                 let Some(tool)=id(&b["id"]) else {continue};let input=&b["input"];
+                if self.items.contains_key(&format!("claude:{tool}")) {continue;}
                 self.put(format!("claude:{tool}"),json!({"harness":"claude","tool":tool,"kind":text(&input["subagent_type"],80),
                     "description":text(&input["description"],400),"model":text(&input["model"],120),"started_at":at,"start_source":"observed",
                     "status":"running","live":true,"background":input["run_in_background"]==true,"transcript":true}));
@@ -135,7 +136,9 @@ pub async fn transcript(engine: &crate::engine::Engine, agent: i64, seq: i64, to
     let body:Value=row.get(0);
     let chip=body["tools"].as_array().into_iter().flatten().find(|c|c["id"].as_str()==Some(tool))
         .ok_or_else(||crate::domain::user_err(crate::domain::UserError::NotFound,"That tool call is not retained."))?;
-    let live=chip.get("result").is_none() && chip.get("error").is_none() && chip.get("ended_at").is_none()
+    let running=list(engine,agent)["items"].as_array().into_iter().flatten()
+        .any(|item|item["live"]==true && item["seq"]==seq && item["tool"]==tool);
+    let live=(running || (chip.get("result").is_none() && chip.get("error").is_none() && chip.get("ended_at").is_none()))
         && engine.agents.get(agent).is_some_and(|h| {
             let runtime=h.view.load();
             let call=chip["started_at"].as_str().and_then(crate::util::parse_ts);
@@ -175,6 +178,7 @@ mod tests {
         h.claude(&json!({"type":"system","subtype":"task_started","task_id":"btask","tool_use_id":"b","task_type":"local_agent"}),AT);
         h.claude(&json!({"type":"system","subtype":"task_notification","task_id":"btask","status":"completed"}),AT);
         assert_eq!(h.view()["count"],0);
+        h.claude(&call("a",false),AT);assert_eq!(h.view()["count"],0,"native replay cannot resurrect a completed helper");
     }
     #[test]
     fn live_helpers_no_shell_or_nested_helpers_and_no_double_count() {

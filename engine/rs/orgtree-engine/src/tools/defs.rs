@@ -1838,9 +1838,9 @@ mod builder_stack_tests {
         }
         // The same assigned base exposes supplied thinking and sealed markers.
         let transcript=expected.as_array_mut().unwrap().iter_mut().find(|c|c["name"]=="orgtree_read_transcript").unwrap();
-        let helper_card=super::build_tool_read_transcript();
-        transcript["description"]=helper_card["description"].clone();
-        for field in ["helpers","helper"] {transcript["inputSchema"]["properties"][field]=helper_card["inputSchema"]["properties"][field].clone();}
+        transcript["description"]=json!("Read recent conversation rows, supplied thinking and sealed markers for yourself or an agent below you; last defaults 30, maximum 80. helpers lists observed helper agents; helper reads one retained helper transcript.\nGuide: orgtree-tool-read-transcript.");
+        transcript["inputSchema"]["properties"]["helpers"]=json!({"type":"boolean","description":"true lists bounded live/recent helper identities and details; no native execution"});
+        transcript["inputSchema"]["properties"]["helper"]=json!({"type":"object","additionalProperties":false,"required":["seq","tool"],"properties":{"seq":{"type":"integer","minimum":1},"tool":{"type":"string"}},"description":"read one listed helper's retained transcript; mutually exclusive with helpers"});
         // Approved node-placement contracts (bfa9369) and their concise wording.
         // Keep the captured required-field text and guide; schemas/order stay guarded.
         for (name, description) in [

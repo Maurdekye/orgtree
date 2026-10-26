@@ -15,10 +15,38 @@ Read recent conversation context to understand a descendant's progress or recove
 |---|---|---|
 | `node` | Required | Your name or a descendant's name in this org; leading `@` accepted. |
 | `last` | Default `30` | Number of recent stored rows; integer range `1`–`80`. |
+| `helpers` | Optional `true` | List observed live/recent helper identities/details instead of ordinary rows. |
+| `helper` | Optional object | Read one retained transcript using listed `seq` and `tool`; mutually exclusive with `helpers:true`. |
 
 Requires effective `tools.orgtree.inspection`. Self is permitted; otherwise the target must be a strict descendant. Full chart visibility does not authorize reading a peer or superior's transcript. Top-level agents have the same self/downward rule. Existing non-deleted archived descendants can be read without an `include_archived` flag.
 
 ## Result and bounds
+
+### Helper agents (4.5.0)
+
+`{"node":"worker","helpers":true}` returns `count`, bounded `items` and
+`truncated`. Items supply identity, harness, type/description, reported model,
+observed start, status/live and retained `seq`/`tool` where available. The
+64-entry limit is explicit; counts cover retained identities. This reads current
+actor state without searching history or starting a CLI.
+
+`{"node":"worker","helper":{"seq":7,"tool":"call-id"}}` reads that
+call's bounded first-level transcript (`messages`, `live`, optional note and
+truncation), with the desktop's shared indexed/redacted reader. It accepts no
+native session or path. Access remains self or a strict descendant.
+
+| Harness | Measured adapter support | Transcript |
+| --- | --- | --- |
+| Claude Code | Explicit root Agent/Task and background lifecycle; excludes shell jobs/nested helpers. | Captured first-level output during the parent's turn. |
+| Codex | Parent-linked receiver IDs and explicit child states; spawn-tool completion does not finish a helper. | Not available for this harness. |
+| Muse | Explicit parent-turn subagent item lifecycle and supplied metadata. | Not available for this harness. |
+| OpenCode | No verified negotiated child identity/lifecycle join. | Not available for this harness. |
+| Antigravity | No verified child identity/lifecycle join. | Not available for this harness. |
+
+This is source/native-format measured, not a live provider execution claim.
+Missing models stay unknown; start means observed receipt time. Codex states
+are latest parent-stream observations without a child subscription. See
+[the helper contract](../../../../rust-engine/helper-transcripts.md).
 
 The structured response contains `node`, `access`, persisted `busy`, `occupancy`, `occupancy_estimated`, and `messages`. Each message has `role`, `text`, the stored `tools` array, `event_id` and `convo_revision`; the result also includes current `generation`. Use those identities with [read reply source](../tool-read-reply-source/SKILL.md) for exact bounded parts, including retained tool input and displayed thoughts. The newest requested rows are returned in conversation order. A row is not necessarily a whole turn; tools and messages may span several rows.
 

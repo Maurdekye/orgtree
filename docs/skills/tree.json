@@ -3794,7 +3794,7 @@
    "covers": [
     "screen:desk-chat"
    ],
-   "purpose": "The Chat tab: transcript, tool chips, live one-level Claude helpers, thoughts, event cards, composer and shared offline LaTeX Markdown formatting.",
+   "purpose": "The Chat tab: transcript, tool chips, live helper count/details panel with per-harness availability, one-level Claude helper output, thoughts, event cards, composer and shared offline LaTeX Markdown formatting.",
    "must_cover": [
     "composer, effort switch, slash hints",
     "event cards"

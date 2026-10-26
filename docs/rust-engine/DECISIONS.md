@@ -775,6 +775,18 @@ All entries are dated 2026-10-06 unless stated otherwise.
 
 ## Mandate and working rules
 
+### 2026-10-26 — Live helper badge and inspector (4.5.0)
+
+USER m95e7ead06333: "new 4.5.0 feature: if the chat has any live running
+helper agents, add a header badge listing the number. clicking it opens a new
+panel that lists them all, where their details can each be reviewed and their
+live transcripts followed". The phase-1 choice is a temporary owning-desk
+inspector, with settled entries retained while open. Coordinator m0e80b946fff1
+approved explicit Claude/Codex/Muse lifecycles, captured Claude output through
+the safe reader, truthful unavailable explanations elsewhere, no shell-job
+counts and no child completion inferred from a spawn-tool completion. Support
+table and provisional bounds: [helper transcripts](helper-transcripts.md).
+
 1. **Rewrite the entire engine backend from the ground up in Rust**, using the existing bundled
    PostgreSQL. The frontend and its UX contract stay in place.
 2. **Design from the frontend contract, not from the old backend.** Treat the renderer as the

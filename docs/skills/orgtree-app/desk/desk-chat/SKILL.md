@@ -11,6 +11,32 @@ sits immediately left of speed where speed is available.
 
 # Desk Chat tab
 
+## Live helper badge (4.5.0)
+
+When observed helpers are running, the header shows **N helpers**. Click it
+to open the temporary **Helpers** panel in this desk's window. Select a helper
+to inspect its type/description, reported model, observed start and status.
+The panel refreshes while helpers run; it keeps recent finished entries while
+open. Closing stops its readers. The badge hides at zero observed live helpers.
+Transcript output follows the bottom until you scroll away; return to the
+bottom to follow again. Missing models are **Not reported**, not borrowed from
+the parent. A saturated list discloses its 64-identity bound.
+
+Measured source/native-format support, without real-provider execution:
+
+| Harness | Detection/details | Live transcript |
+| --- | --- | --- |
+| Claude Code | Explicit Agent/Task and background lifecycle; excludes shell jobs and nested helpers. | Captured first-level output during the parent's turn. |
+| Codex | Parent-linked receiver IDs/explicit child states; spawn completion alone never means finished. | Not available for this harness. |
+| Muse | Explicit subagent item lifecycle and supplied metadata. | Not available for this harness. |
+| OpenCode | No verified negotiated child identity/lifecycle join. | Not available for this harness. |
+| Antigravity | No verified child identity/lifecycle join. | Not available for this harness. |
+
+Codex status is its latest parent-stream observation, not a separately
+subscribed child heartbeat. Zero does not prove support for other harnesses.
+Agent parity: [read transcript](../../../orgtree-working/inspection/tool-read-transcript/SKILL.md)
+with `helpers:true` or `helper:{seq,tool}`, under existing self/downward access.
+
 The **↑ you** chip previews the last user-written communication in the nearest
 earlier delivered batch above the visible transcript. Clicking it jumps back
 to that batch. Messages, replies, question answers and initial hire instructions

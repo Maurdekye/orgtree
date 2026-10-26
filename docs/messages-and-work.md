@@ -66,6 +66,25 @@ text; a sealed thought cannot reveal text the harness did not provide.
 
 Where retained, an Agent/Task tool row can expand a helper's transcript. Newly captured Claude helpers can stream their text and tool activity within the parent call. Older calls and other harnesses explain when no helper transcript is available. This nested view is bounded and does not run a helper merely because you open it.
 
+When a chat has observed running helper agents, its header also shows **N
+helpers**. Click it to open **Helpers**, select a helper, and review its type,
+description, reported model, observed start and status. New captured Claude Code
+output updates live; scrolling away from the bottom pauses following until you
+return. Closing the panel stops its readers. The badge disappears at zero;
+recent finished helpers remain inspectable while the panel is open.
+
+| Harness | Helper details | Live transcript |
+| --- | --- | --- |
+| Claude Code | Explicit Agent/Task and background helper activity; shell jobs are excluded. | New first-level capture during the parent's turn. |
+| Codex | Explicit reported child identities/statuses; a spawn call ending does not mean its helper ended. | Currently unavailable. |
+| Muse | Reported subagent lifecycle and details. | Currently unavailable. |
+| OpenCode / Antigravity | Reliable child identity/lifecycle is not currently available in the adapter. | Currently unavailable. |
+
+Models not reported by the harness stay unknown. Start means when Orgtree
+observed the helper; Codex status is its latest parent-stream observation.
+The bounded list says when its 64-identity limit is reached. Opening this
+inspector never launches a helper or reads native transcript files.
+
 File tool rows show the attempted path. An existing file can be opened or revealed; an unavailable path retains copy actions and its status explanation. Reading a tool result and checking the actual current file are different ways to verify an outcome.
 
 The I-beam mark with `t` or `kt` is a tool's observed text-output token estimate; `~` stays an estimate even after completion, and hover shows the full number. It differs from billed usage and context occupancy. A file-read count uses the returned text or slice, rather than the short summary or the file's total line count. Large outputs use bounded sampling. If retained read text is unavailable, its count stays unknown; Orgtree does not reopen the file to estimate an older read. Live shell previews retain at most 32 KiB per tool and eight tools per agent, with an omission marker when clipped. Codex/Muse can supply live output; OpenCode does not currently emit shell progress snapshots, and Claude/Antigravity have no live shell preview here. Final results replace these transient previews.
