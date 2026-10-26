@@ -204,7 +204,7 @@ kind, sequence and optional event name/revision, never saved state/event body.
 Scope::NamedAgent preserves the normal receiver visibility rules, including a
 self-visible linked subscriber. Event privacy survives existing queues/overflow.
 No link auto-arms a watcher or auto-wakes an agent. Existing app.event event
-watchdogs can filter payload_pattern and decide coalescing/notice/wake policy.
+watchdogs can filter pattern and decide coalescing/notice/wake policy.
 Signals are live hints, not a durable replay stream: consumers reconcile via
 panel_get/events and their cursor; the existing latest256 boundary stays explicit.
 

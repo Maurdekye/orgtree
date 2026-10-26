@@ -122,7 +122,7 @@ summaries, to interpret the app's content.
 ## Linked-agent subscriptions and templates
 
 Any eligible agent can add its own name to a copy's linked_agents, then create
-an ordinary event watchdog with target:app.event. Optional payload_pattern can
+an ordinary event watchdog with target:app.event. Optional pattern can
 match the app/panel ID. Links do not create watchers or grant permissions.
 State saves publish kind:state.changed with rev/seq; explicit event writes publish
 kind:panel.event with name/seq. Signals contain IDs/cursors, not state or event

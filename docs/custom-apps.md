@@ -79,7 +79,7 @@ execution grants stay in the original org. This is a provisional default.
 
 For an agent to follow a copy, add its name under Linked agents and have it create
 an event watchdog for `app.event`, optionally filtering the app/panel IDs with
-payload_pattern. State saves and named panel events publish a sequence cursor
+pattern. State saves and named panel events publish a sequence cursor
 after commit. The watcher can read panel_get/events for the data. Linking alone
 does not wake anyone, and no watcher is created automatically. Existing watcher
 scope, coalescing and notice/wake choices apply. Browser timers pause with hidden

@@ -2,6 +2,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import assert from 'node:assert/strict'
+import {isDeepStrictEqual} from 'node:util'
 import {Proof} from '../proof.mjs'
 
 export function setup(){return{fixture:{org:{name:'Custom Apps persistence proof'},agents:[
@@ -10,7 +11,7 @@ export function setup(){return{fixture:{org:{name:'Custom Apps persistence proof
   {name:'denied',tier:'sol',parent:'boss',grant:0,charter:'Synthetic scope refusal.',tools:{orgtree:{orgmod:false}}},
 ]}}}
 export default async function(rig){
-  const p=new Proof('custom-apps'),same=(a,b)=>JSON.stringify(a)===JSON.stringify(b),org=rig.org
+  const p=new Proof('custom-apps'),same=isDeepStrictEqual,org=rig.org
   const root='/api/orgs/'+org,apps=input=>rig.api('POST',root+'/apps',input),bridge=input=>rig.api('POST',root+'/apps/bridge',input)
   const tool=async(input,who='boss')=>{const r=await rig.tool(who,'orgtree_apps',input);assert(r.ok,r.text);return r.json}
   const refused=async(fn,code)=>{try{await fn();return false}catch(e){return e.status===code}}
@@ -42,7 +43,9 @@ export default async function(rig){
 
   // The runner is already active OUTSIDE the producer's private task scope.
   const eventCanary='PRIVATE-APP-PG-EVENT-873163',mailCanary='PRIVATE-APP-PG-MAIL-174963'
-  const created=await rig.tool('watcher','orgtree_watchdog',{action:'create',name:'private-app-pg',kind:'event',target:'app.event',payload_pattern:eventCanary,once:true,notice:true,interval_s:15});assert(created.ok,created.text)
+  // Filter public event-name metadata, not the secret canary: the ordinary
+  // watcher-registration request is allowed to log its configuration.
+  const created=await rig.tool('watcher','orgtree_watchdog',{action:'create',name:'private-app-pg',kind:'event',target:'app.event',pattern:'private-proof',once:true,notice:true,interval_s:15});assert(created.ok,created.text)
   await rig.waitFor(()=>rig.one(`SELECT run->'counts' AS counts FROM ot.watchdogs WHERE name='private-app-pg'`)?.counts,{what:'independent DB-backed watchdog baseline',timeout:15000,every:100})
   let host=await bridge({action:'session_open',panel:one.id})
   const action={action:'events.fire',target:'watcher',name:'private-proof',payload:{note:eventCanary}}
@@ -71,7 +74,7 @@ export default async function(rig){
 
   // Metadata subscriptions do not include state/event payloads or auto-arm dogs.
   one=await panel(one.id);one=await apps({action:'panel_update',panel:one.id,expected_rev:one.rev,linked_agents:['watcher']})
-  const changed=await rig.tool('watcher','orgtree_watchdog',{action:'create',name:'panel-change-pg',kind:'event',target:'app.event',payload_pattern:one.id,once:true,notice:true,interval_s:15});assert(changed.ok,changed.text)
+  const changed=await rig.tool('watcher','orgtree_watchdog',{action:'create',name:'panel-change-pg',kind:'event',target:'app.event',pattern:one.id,once:true,notice:true,interval_s:15});assert(changed.ok,changed.text)
   await rig.waitFor(()=>rig.one(`SELECT run->'counts' AS counts FROM ot.watchdogs WHERE name='panel-change-pg'`)?.counts,{what:'linked metadata watcher baseline',timeout:15000,every:100})
   const stateOnly='PRIVATE-APP-PG-STATE-543221';one=await apps({action:'state_set',panel:one.id,expected_rev:one.rev,state:{note:stateOnly}})
   await rig.waitFor(()=>rig.one(`SELECT fired FROM ot.watchdogs WHERE name='panel-change-pg'`)?.fired===1,{what:'committed linked copy notification',timeout:15000,every:100})
