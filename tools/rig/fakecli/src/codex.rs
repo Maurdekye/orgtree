@@ -35,7 +35,7 @@ use super::{iso_now, load_json, now_ms, pick_for, save_json};
 pub const VERSION: &str = "codex-cli 0.999.0 (Codex fake)";
 
 /// What `model/list` offers: the engine's Codex tiers' models, every effort.
-const MODELS: &[&str] = &["gpt-6-astra", "gpt-6.1-sol", "gpt-5.6-terra", "gpt-6-luna", "gpt-reserve"];
+const MODELS: &[&str] = &["gpt-6-astra", "gpt-6.1-sol", "gpt-6.1-terra", "gpt-6-luna", "gpt-reserve"];
 const EFFORTS: &[&str] = &["low", "medium", "high", "xhigh", "max"];
 
 struct Thread {

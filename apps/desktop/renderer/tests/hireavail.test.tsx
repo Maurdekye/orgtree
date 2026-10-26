@@ -120,11 +120,9 @@ const SIGNED_OUT = state({ installed: true, reason: 'not signed in — run x' })
 const ABSENT = state({ reason: 'not installed — npm i -g y' })
 
 const CLAUDE = ['haiku', 'sonnet', 'opus', 'fable']
-// Terra is an opt-in LEGACY tier (user 2026-09-30): hidden unless "show legacy
-// models" is on, so it is not among the tiers these surfaces offer by default.
-// It stays in `tokens` below so a Terra chip that DID render is seen.
-const CODEX = ['luna', 'sol']
-const TERRA = 'terra'
+// Terra is a current Codex tier again (GPT-6.1 Terra, user 2026-10-26: "take
+// terra out of the legacy models checkbox"): offered by default, like Sol.
+const CODEX = ['luna', 'terra', 'sol']
 const ASTRA = 'astra'
 const ANTIGRAVITY = ['flash', 'pro']
 
@@ -132,7 +130,7 @@ const ANTIGRAVITY = ['flash', 'pro']
 function tokens(el: HTMLElement, sel: string): Record<string, boolean> {
   const out: Record<string, boolean> = {}
   for (const b of el.querySelectorAll<HTMLButtonElement>(`${sel} button`)) {
-    const t = [...CLAUDE, ...CODEX, TERRA, ASTRA, ...ANTIGRAVITY]
+    const t = [...CLAUDE, ...CODEX, ASTRA, ...ANTIGRAVITY]
       .find((x) => b.className.split(/\s+/).includes('t-' + x))
     if (t) out[t] = b.disabled
   }
@@ -241,7 +239,6 @@ surfaceTest('gpt-reserve is REMOVED from the chips whatever the family says '
   for (const t of CODEX) {
     assert.equal(got[t], false, `${t} bills per-token and must stay offered`)
   }
-  assert.equal(got[TERRA], undefined, 'terra is legacy: hidden by default even when offered')
 })
 
 surfaceTest('…but a Codex family that is itself unavailable still shows its '

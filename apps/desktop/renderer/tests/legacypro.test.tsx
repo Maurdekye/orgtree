@@ -1,9 +1,11 @@
-// legacypro.test.tsx — Gemini Pro is a legacy model, under the same switch as Terra.
+// legacypro.test.tsx — Gemini Pro is a legacy model, behind "show legacy models".
 //
 // Docket `v3-deprecate-and-disable-the-gemini-pro-model-ti`. The user
 // (2026-09-30): "also deprecate and disable gemini pro", then: put it under
-// the same "show legacy models" checkbox as Terra — hidden where Terra is
-// hidden while it is off, shown (marked legacy) while it is on.
+// the same "show legacy models" checkbox as Terra — hidden where Terra was
+// hidden while it is off, shown (marked legacy) while it is on. Terra left the
+// switch on 2026-10-26 (GPT-6.1 Terra: "make sure to take terra out of the
+// legacy models checkbox"; terra.test.tsx), so Gemini Pro is its only model.
 //
 // Gemini Pro is the Antigravity family's `pro` tier. Terra's hiding reached
 // the Codex surfaces through `codexTierOffer`, which the Antigravity rows never
@@ -16,7 +18,8 @@
 //      settings model switch, lineage rehire list, auto-autopsy model list,
 //      App settings > Model tiers, Usage tier rows
 //   §3 an agent already on Gemini Pro keeps its P token and its own tier
-//   §4 the toggle's label names both legacy models
+//   §4 the toggle's label names its one legacy model, Gemini Pro
+//   §5 the toggle lives in App settings > Runtime, off by default
 //
 // ⚠ Every test that turns the toggle on turns it off again in `t.after`.
 import { FakeServer, flush, inAct, installFetch, mountView } from './harness'
@@ -25,7 +28,7 @@ import type { TestContext } from 'node:test'
 import assert from 'node:assert/strict'
 import {
   availableAutopsyModels, legacyMark, OPT_IN_LEGACY_TIERS, optInLegacyHidden,
-  setShowLegacyModelsOn, tierHiddenAsLegacy, USER,
+  setShowLegacyModelsOn, showLegacyModelsOn, tierHiddenAsLegacy, USER,
 } from '../src/canvas/shared'
 import type { CanvasNode, HireState } from '../src/canvas/shared'
 import { NodeSquare } from '../src/canvas/cards'
@@ -67,10 +70,12 @@ async function flip(on: boolean) {
 
 /* ── §1 the rule ─────────────────────────────────────────────────────────── */
 
-test('§1 pro is an opt-in legacy tier beside terra; flash is not', (t: TestContext) => {
+test('§1 pro is the opt-in legacy tier; terra (current again) and flash are not', (t: TestContext) => {
   fresh(t)
   assert.ok(OPT_IN_LEGACY_TIERS.includes('pro'))
-  assert.ok(OPT_IN_LEGACY_TIERS.includes('terra'))
+  assert.equal(OPT_IN_LEGACY_TIERS.includes('terra'), false, 'Terra left the legacy switch')
+  assert.equal(optInLegacyHidden('terra'), false)
+  assert.equal(legacyMark('terra'), '')
   assert.equal(optInLegacyHidden('pro'), true)
   assert.equal(tierHiddenAsLegacy('pro'), true)
   assert.equal(optInLegacyHidden('flash'), false)
@@ -253,7 +258,7 @@ test('§2 Usage per-account tier rows leave Gemini Pro out unless legacy models 
 
 /* ── §4 the label ───────────────────────────────────────────────────────── */
 
-test('§4 the toggle is labelled with both legacy models',
+test('§4 the toggle is labelled with its one legacy model, Gemini Pro',
   async (t: TestContext) => {
     fresh(t)
     const v = await mountView(<AccountsPanel toast={noop} close={noop} />, (el) => el)
@@ -261,5 +266,33 @@ test('§4 the toggle is labelled with both legacy models',
     await inAct(async () => { await flush(10) })
     const panel = document.getElementById('app-settings-panel-runtime')
     assert.ok(panel, 'no Runtime tab panel')
-    assert.match(panel!.textContent ?? '', /Show legacy models \(Terra, Gemini Pro\)/)
+    assert.match(panel!.textContent ?? '', /Show legacy models \(Gemini Pro\)/)
+    assert.doesNotMatch(panel!.textContent ?? '', /Terra/, 'the Runtime tab still names Terra as legacy')
+  })
+
+/* ── §5 where the toggle lives (moved from legacytiers.test.tsx) ─────────── */
+
+test('§5 App settings > Runtime carries the toggle (and no other tab does), off by default, and it flips the preference',
+  async (t: TestContext) => {
+    fresh(t)
+    const v = await mountView(<AccountsPanel toast={noop} close={noop} />, (el) => el)
+    t.after(() => v.unmount())
+    await inAct(async () => { await flush(10) })
+    const label = /Show legacy models \(Gemini Pro\)/
+    const holders = [...document.querySelectorAll('[role="tabpanel"]')]
+      .filter((p) => label.test(p.textContent ?? ''))
+    assert.deepEqual(holders.map((p) => p.id), ['app-settings-panel-runtime'],
+      'the toggle must be in the Runtime tab and in no other tab')
+    const row = [...holders[0]!.querySelectorAll('label')]
+      .find((l) => label.test(l.textContent ?? ''))
+    assert.ok(row, 'the Runtime tab has no "show legacy models" toggle')
+    assert.equal(document.getElementById('app-settings-panel-providers')?.textContent?.includes('Legacy models'),
+      false, 'the old "Legacy models" section is still in the Providers tab')
+    const box = row!.querySelector<HTMLInputElement>('input[type="checkbox"]')
+      ?? row!.querySelector<HTMLInputElement>('input')
+    assert.ok(box, 'the toggle has no checkbox')
+    assert.equal(box!.checked, false, 'on by default')
+    await inAct(() => { box!.click() })
+    assert.equal(showLegacyModelsOn(), true, 'the toggle did not turn the preference on')
+    assert.equal(box!.checked, true)
   })

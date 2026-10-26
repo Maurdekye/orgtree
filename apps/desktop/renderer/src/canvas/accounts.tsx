@@ -99,7 +99,7 @@ const sevOf = (l: UsageLimit): '' | 'warn' | 'crit' => {
  *  and the two differ constantly — a fallback has capacity for opus the whole
  *  time opus is happily running on the primary above it. */
 export function TierStandings({ tiers }: { tiers: TierStanding[] }) {
-  // Terra and Gemini Pro only with "show legacy models" on, like every tier chooser
+  // Gemini Pro only with "show legacy models" on, like every tier chooser
   useShowLegacyModels()
   return (
     <div className="acct-tiers">
@@ -364,17 +364,17 @@ function AgentShortcutsToggle() {
     hint="Show action buttons beneath agent names on canvas cards" />
 }
 
-/* user 2026-09-30: Terra is "a legacy option", hidden by default. Off, no hire
-   or tier chooser offers it; on, it comes back marked "legacy". Agents
-   already on Terra show it either way. */
+/* user 2026-09-30: Gemini Pro is "a legacy option", hidden by default. Off, no
+   hire or tier chooser offers it; on, it comes back marked "legacy". Terra
+   left the switch on 2026-10-26 (GPT-6.1 Terra is current). */
 function ShowLegacyModelsToggle() {
   const on = useShowLegacyModels()
   return (
     <SetGroup title="Legacy models">
-      <SetToggle label="Show legacy models (Terra, Gemini Pro)" checked={on}
+      <SetToggle label="Show legacy models (Gemini Pro)" checked={on}
         onChange={setShowLegacyModelsOn}
-        hint={'Off: hire and model choices, and the model tier lists, leave Terra and Gemini Pro out. '
-          + 'Agents already on them keep running and show their model either way.'} />
+        hint={'Off: hire and model choices, and the model tier lists, leave Gemini Pro out. '
+          + 'Agents already on Gemini Pro keep running and show their model either way.'} />
     </SetGroup>
   )
 }
@@ -680,7 +680,7 @@ export function AccountsPanel({ toast, close, initialTab, target }: {
   // the providers page lists each provider's tiers: re-read agy's model list
   useAgyModelsRefresh(tab === 'providers')
   const [openingLogs, setOpeningLogs] = useState(false)
-  // the Model tiers list leaves Terra and Gemini Pro out unless "show legacy models" is on
+  // the Model tiers list leaves Gemini Pro out unless "show legacy models" is on
   useShowLegacyModels()
   useEffect(() => {
     const open = (e: Event) => {

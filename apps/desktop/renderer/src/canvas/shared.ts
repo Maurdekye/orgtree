@@ -81,13 +81,15 @@ export const TIER_SEAT: Record<string, number> =
  *  version it is merely listing. */
 export const MODEL_VERSIONS: Record<string, string[]> =
   { haiku: ['5.5', '4.5'], opus: ['5.5', '5', '4.8'], sonnet: ['5.5', '5'], fable: ['5.1', '5'],
-    flash: ['3.8', '3.7', '3.6'], sol: ['6.1', '6', '5.6'], luna: ['6', '5.6'], spark: ['1.3', '1.2'] }
+    flash: ['3.8', '3.7', '3.6'], sol: ['6.1', '6', '5.6'], terra: ['6.1', '5.6'], luna: ['6', '5.6'],
+    spark: ['1.3', '1.2'] }
 /** The codex family (FR-15 preview) — ChatGPT/OpenAI tiers. A
  *  SEPARATE list, never merged into TIERS: every existing surface iterates
  *  TIERS, and a family that cannot be hired yet must not grow chips there by
  *  accident. Mirrors backend providers.py (CODEX_TIERS / CODEX_MODELS) the
  *  same way TIER_SEAT mirrors ledger.TIERS. User ruling 2026-09-22 sets
  *  Sol to 2 and Luna to 0.1 credits, across supported model versions.
+ *  GPT-6.1 Terra (2026-10-26) seats Terra at 1 by the input-price rule.
  *  The legacy reserve tier stays 0.2; fractions remain real seat costs.
  *  The hire surfaces use this family list when the Codex CLI is
  *  available. Astra joined it on 2026-09-24 (user: "can you make astra a
@@ -110,8 +112,10 @@ export const LEGACY_CODEX_TIERS = ['gpt-reserve']
  *  "show legacy models" is on, and then they carry a "legacy" mark. Unlike
  *  LEGACY_CODEX_TIERS, which no surface ever offers. Gemini Pro (the
  *  antigravity `pro` tier) joined on 2026-09-30 (user: "deprecate and disable
- *  gemini pro", then: same "show legacy models" checkbox as Terra). */
-export const OPT_IN_LEGACY_TIERS = ['terra', 'pro']
+ *  gemini pro", then: same "show legacy models" checkbox as Terra). Terra left
+ *  on 2026-10-26: GPT-6.1 Terra made it a current tier again (user: "make
+ *  sure to take terra out of the legacy models checkbox"). */
+export const OPT_IN_LEGACY_TIERS = ['pro']
 /** All KNOWN Codex tiers — legacy tokens (for the nodes wearing them) and
  *  the always-offered hireable family. A future rollout tier would be listed
  *  here but not in `CODEX_ALWAYS_TIERS`; `codexTierOffer` would then require
@@ -120,7 +124,7 @@ export const CODEX_TIERS = [...LEGACY_CODEX_TIERS, ...CODEX_ALWAYS_TIERS]
 export const CODEX_TIER_LETTER: Record<string, string> = {
   'gpt-reserve': 'R', luna: 'L', terra: 'T', sol: 'S', astra: 'A' }
 export const CODEX_TIER_SEAT: Record<string, number> = {
-  'gpt-reserve': 0.2, luna: 0.1, terra: 2, sol: 2, astra: 10 }
+  'gpt-reserve': 0.2, luna: 0.1, terra: 1, sol: 2, astra: 10 }
 /** The antigravity family (D-189, re-walked for the Antigravity CLI
  *  2026-09-02) — Google tiers served by `agy`: flash (3.8-flash, with 3.7 and
  *  3.6 in the version menu) and pro (3.1-pro). Same separate-list rule as the
@@ -1732,7 +1736,7 @@ export const useHideRetired = (): boolean =>
 
 /* --------------------------- show legacy models (user 2026-09-30)
    OFF BY DEFAULT, same localStorage contract as the toggles above. Off, the
-   OPT_IN_LEGACY_TIERS (Terra, Gemini Pro) leave every hire and tier chooser; on, they
+   OPT_IN_LEGACY_TIERS (Gemini Pro) leave every hire and tier chooser; on, they
    come back marked "legacy". A DISPLAY preference only: agents already on a
    legacy tier show it either way, and the backend accepts it either way.
    ⚠ Surfaces that read `tierHiddenAsLegacy` (through `codexTierOffer` or

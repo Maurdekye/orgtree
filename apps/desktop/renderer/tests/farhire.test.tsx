@@ -85,10 +85,10 @@ test('the full three-provider set collapses only after its rendered width stops 
     await inAct(() => { expand.click() })
     assert.equal(report.classList.contains('is-expanded'), true)
     const offered = [...report.querySelectorAll('.hs-fam button')]
-    // 8 = 4 claude + 3 codex + 1 antigravity. Astra is always offered (user
-    // 2026-09-24, 9e640fb); Terra and Gemini Pro are legacy tiers hidden by
-    // default (2026-09-30)
-    assert.equal(offered.length, 8,
+    // 9 = 4 claude + 4 codex + 1 antigravity. Astra is always offered (user
+    // 2026-09-24, 9e640fb); Terra is current again (GPT-6.1 Terra, 2026-10-26);
+    // Gemini Pro is a legacy tier hidden by default (2026-09-30)
+    assert.equal(offered.length, 9,
       'opening renders the exact current provider/tier list, not a compact-only subset')
     assert.equal(new Set(offered.map((b) => b.className)).size, offered.length,
       'opening does not duplicate a tier while it reveals families')
@@ -97,7 +97,7 @@ test('the full three-provider set collapses only after its rendered width stops 
     assert.ok(codexRow, 'the Codex spawn row is present')
     assert.deepEqual(
       [...codexRow.querySelectorAll('button')].map((b) => b.className),
-      ['t-luna', 't-sol', 't-astra'],
+      ['t-luna', 't-terra', 't-sol', 't-astra'],
       'luna (the cheapest) is first within the Codex row, astra last (user 2026-10-14 10:43UTC); the legacy reserve token is gone (item 12)')
 
     await inAct(() => { expand.click() })
