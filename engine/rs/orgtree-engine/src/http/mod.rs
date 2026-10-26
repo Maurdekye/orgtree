@@ -773,7 +773,7 @@ mod org_inbox_wire_tests {
         use tower::ServiceExt;
         let capture=crate::trace::LogCapture::start().await;
         let engine=crate::engine::Engine::for_tests(std::path::PathBuf::new());
-        let app=super::Router::new().route("/api/rig/tool",super::post(|super::Json(input):super::Json<serde_json::Value>|async move{
+        let app=super::Router::new().route("/api/rig/tool",super::post(|axum::Json(input):axum::Json<serde_json::Value>|async move{
             tracing::warn!(?input,"nested private tool refusal");super::ApiError::bad_request("PRIVATE_RIG_TOOL_WIRE_462175")
         })).layer(super::middleware::from_fn(move|req,next|super::guarded(engine.clone(),req,next)));
         let req=axum::http::Request::builder().method("POST").uri("/api/rig/tool").header("content-type","application/json").body(axum::body::Body::from(r#"{"tool":"orgtree_apps","args":{"payload":"PRIVATE_RIG_TOOL_WIRE_462175"}}"#)).unwrap();
