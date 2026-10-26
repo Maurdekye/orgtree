@@ -77,6 +77,9 @@ env.NODE_OPTIONS = [process.env.NODE_OPTIONS,
   ...(HEAP_MB > 0 ? [`--max-old-space-size=${HEAP_MB}`] : []),
   `--import=${pathToFileURL(path.join(RENDERER_TESTS, 'testguard.mjs')).href}`].filter(Boolean).join(' ')
 delete env.ORGTREE_TEST_CONTAINED_MB
+// launched from inside a test process, the inherited node:test marker makes
+// `node --test` skip every file with only a warning, which reads as a pass
+delete env.NODE_TEST_CONTEXT
 const contained = process.platform === 'win32' && JOB_MB > 0
 if (contained) env.ORGTREE_TEST_CONTAINED_MB = String(JOB_MB)
 console.error(`[tests/run.mjs] ${freeMb} MB free at start (floor ${MIN_FREE_MB || 'off'}); heap cap ${HEAP_MB ? `${HEAP_MB} MB` : 'node default'} per test process; concurrency ${CONCURRENCY || 'node default'}; per-test timeout ${TIMEOUT_MS || 'none'} ms`)

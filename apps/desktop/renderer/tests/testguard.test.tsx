@@ -277,7 +277,9 @@ test('§10 every renderer test file reaches the guard, through the harness or di
   assert.equal(files.length > 500, true, `only ${files.length} test files found in ${TESTS}`)
   const guarded = (source: string) => /^import\s+['"]\.\/(harness|testguard\.mjs)['"]/m.test(source)
     || /from\s+['"]\.\/harness['"]/.test(source)
-  const offenders = files.filter((name) => !guarded(readFileSync(path.join(TESTS, name), 'utf8')))
+  // a leading byte-order mark is legal source (two suites carry one)
+  const offenders = files.filter((name) =>
+    !guarded(readFileSync(path.join(TESTS, name), 'utf8').replace(/^﻿/, '')))
   assert.deepEqual(offenders, [], 'a tool that bundles these and runs them itself would get no guard; '
     + "give each `import './testguard.mjs'` as its first import")
 })
