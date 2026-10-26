@@ -22,6 +22,11 @@ export function setup(){
 }
 export default async function(rig){
   const p=new Proof('app-files'),root='/api/orgs/'+rig.org
+  // Native hire's scope shape is distinct from the agent tool's add_dirs.
+  // Establish the intended RO grant through the canonical native scope routes,
+  // then retain both actual scope and the complete tool verdict as evidence.
+  await rig.api('POST',root+'/settings',{org_dirs:[{path:fixtureDir,mode:'ro'}]})
+  await rig.api('POST',root+'/nodes/allowed/scope',{add_dirs:[{path:fixtureDir,mode:'ro'}]})
   const apps=input=>rig.api('POST',root+'/apps',input),files=input=>rig.api('POST',root+'/apps/files',input),bridge=input=>rig.api('POST',root+'/apps/bridge',input)
   const refused=async(fn,status)=>{try{await fn();return false}catch(e){return e.status===status}}
   const tool=async(who,input)=>rig.tool(who,'orgtree_apps',input)
@@ -46,6 +51,7 @@ export default async function(rig){
   p.check('copied state reference cannot read from another panel',await refused(()=>files({action:'call',session:otherHost.session,request:{action:'read',file:saved.id}}),403))
   const allowed=await tool('allowed',{action:'file_read',panel:panel.id,file:saved.id,offset:0,length:32})
   const limited=await tool('limited',{action:'file_read',panel:panel.id,file:saved.id,length:32}),denied=await tool('denied',{action:'file_permissions',app:app.id})
+  p.file('agent-read-scope.json',{allowed,limited,denied,scopes:rig.sql("SELECT name,scope FROM ot.agents WHERE name IN ('allowed','limited','denied') ORDER BY name")})
   p.check('agent parity intersects real held folders and live orgmod with user app grant',allowed.ok&&allowed.json.length===32&&!limited.ok&&!denied.ok,{allowed:allowed.ok,limited:limited.ok,denied:denied.ok})
   const grants=await tool('limited',{action:'file_permissions',app:app.id})
   p.check('agent grant inspection omits chosen paths outside its scope',grants.ok&&grants.json.grants.length===0&&!JSON.stringify(grants.json).includes(fixtureDir))
