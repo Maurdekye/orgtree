@@ -213,6 +213,13 @@ independent state, explicit save/reload and named mail.send through native conse
 It is not auto-installed or auto-opened and does not reproduce an unavailable
 historical annotation editor. The focused wire check validates its actual file.
 
+The explicitly assigned narrow real-engine persistence/privacy proof is
+tools/rig/proofs/custom-apps.mjs. It uses isolated PG and fake CLIs, checks the
+actual routes/dispatcher, restart/cascade, portability/templates, permission
+revocation and the already-running DB watchdog's private-event mail path.
+Keep its raw diagnostics and positive delivery controls; unit synthetic Access
+coverage alone is not an end-to-end privacy claim.
+
 ## Native action host implementation
 
 The SDK exposes `orgtree.call(action,args)`, forwarding only the fixed vocabulary
