@@ -14,9 +14,10 @@
 //
 //   §1 the rule: `pro` is an opt-in legacy tier, `flash` is not
 //   §2 every chooser leaves Gemini Pro out by default and shows it marked
-//      legacy once the toggle is on: canvas hire chips, hire sheet, agent
-//      settings model switch, lineage rehire list, auto-autopsy model list,
-//      App settings > Model tiers, Usage tier rows
+//      legacy once the toggle is on: canvas hire chips, the canvas agent and
+//      project menus' hire submenus, hire sheet, agent settings model switch,
+//      lineage rehire list, auto-autopsy model list, App settings > Model
+//      tiers, Usage tier rows
 //   §3 an agent already on Gemini Pro keeps its P token and its own tier
 //   §4 the toggle's label names its one legacy model, Gemini Pro
 //   §5 the toggle lives in App settings > Runtime, off by default
@@ -36,6 +37,8 @@ import { HireSheet } from '../src/canvas/OrgCanvas'
 import { NodeConfig } from '../src/canvas/modals'
 import { LineagePanel } from '../src/canvas/desk'
 import { AccountsPanel, TierStandings } from '../src/canvas/accounts'
+import { agentMenuEntries } from '../src/canvas/agentmenu'
+import type { MenuEntry, MenuItem } from '../src/canvas/contextmenu'
 import { clearProviderDiscovery } from '../src/api'
 import type { LineageEntry, OpResult, ProviderInfo, TreePayload } from '../src/types'
 
@@ -122,6 +125,35 @@ test('§2 canvas hire chips: no Gemini Pro chip, then a legacy one on the SAME s
     assert.equal(hasClass(chip('flash')!, 'legacy'), false, 'flash is not legacy')
     await flip(false)
     assert.equal(Boolean(chip('pro')), false, 'turning it off again did not hide it')
+  })
+
+// The 4.4.6 RC1 pre-publish hands-on found these two submenus listing a plain
+// "pro" with the toggle on; they had never appended the mark (4.5.0 fix).
+test('§2 canvas agent and project menus: no Gemini Pro hire item, then one labelled legacy',
+  (t: TestContext) => {
+    fresh(t)
+    const project = { ...agent(), id: 'site', kind: 'project', tier: 'project', model_id: '' } as unknown as CanvasNode
+    const items = (entries: MenuEntry[] = []) => entries.filter((e): e is MenuItem => e !== 'sep')
+    const tiers = (node: CanvasNode) => {
+      const hire = items(agentMenuEntries(node, { onHire: noop }, { antigravityHire: ON }))
+        .find((e) => /^Hire (a subordinate|under this project)$/.test(e.label))
+      assert.ok(hire, `no hire submenu on ${node.id}`)
+      return items(hire!.children)
+    }
+    const pro = (node: CanvasNode) => tiers(node).find((e) => /^pro\b/.test(e.label))
+    for (const node of [agent(), project]) {
+      assert.ok(tiers(node).some((e) => e.label === 'flash'),
+        `positive control: ${node.id}'s menu lists the Antigravity tiers`)
+      assert.equal(pro(node), undefined, `${node.id}'s menu listed Gemini Pro with the toggle off`)
+    }
+    setShowLegacyModelsOn(true)
+    for (const node of [agent(), project]) {
+      const p = pro(node)
+      assert.ok(p, `${node.id}'s menu did not list Gemini Pro with the toggle on`)
+      assert.equal(p!.label, 'pro · legacy', `${node.id}'s menu does not mark Gemini Pro legacy`)
+      assert.equal(p!.disabled, false)
+      assert.ok(tiers(node).some((e) => e.label === 'flash'), `${node.id}'s menu marked flash legacy`)
+    }
   })
 
 test('§2 hire sheet: no Gemini Pro button, then one labelled legacy',
@@ -215,6 +247,9 @@ test('§2 auto-autopsy model list: no Gemini Pro, then labelled legacy; a config
     assert.deepEqual(tiers('flash'), ['flash', 'pro'])
   })
 
+// The engine never lists a legacy tier in /api/providers (providers::tier_rows
+// with legacy_ok false), so in the app this list has no Gemini Pro row either
+// way; this payload carries one to check the renderer's own filter and mark.
 test('§2 App settings > Model tiers leaves Gemini Pro out; the toggle brings it back marked legacy',
   async (t: TestContext) => {
     fresh(t)
