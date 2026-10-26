@@ -266,7 +266,7 @@ Outside-org writes require a separate native write grant.
 Whole-computer access includes private files/settings your Windows account can
 reach, without elevation. Prefer a chosen folder when that is enough.
 
-For files, Allow once lasts while this panel host stays open and visible.
+For files, Allow once lasts while this panel runs, hidden or popped out included.
 Always allow remembers the selected file or org collection for this app.
 The app can keep an opaque file reference in its saved panel state. On reopening
 that same panel it requests a fresh playback link, so a remembered video loads
@@ -274,11 +274,13 @@ without another file selection. Video/audio uses byte ranges, up to256MiB,
 without embedding the media in HTML or the2MiB JSON state. File paths stay in
 the host. Moving/removing a file or revoking permission requires selecting it
 again. Duplicating/importing a panel does not give its copied reference access.
+Hiding a panel, popping it out or returning it keeps its playback link working,
+and hidden media keeps playing. Powering the panel off ends the link.
 
 Open **App settings → Permissions → Files** to inspect or revoke remembered
 access. Separate Read files and Write files controls govern distinct grants.
 Returning a mode to Ask or Deny removes its remembered grants and stops active
-playback/pending changes. Replacing app code resets external grants; importing gets local org defaults.
+playback/pending changes. Changing it to Allow keeps playback running. Replacing app code resets external grants; importing gets local org defaults.
 Choosing Allow granted scopes alone adds no files. Apps can read bounded chunks
 through `orgtree.files.read`; they browse only granted scopes and cannot approve access.
 

@@ -173,8 +173,8 @@ Org collections have default read/write access. For outside files, ask through a
 single file, a folder with descendants, this org's scratch/uploads/retained-delivery
 collection, or the whole computer. Whole-computer access uses your Windows account
 without elevation and can include private files/settings; prefer a narrower folder.
-Allow once lasts for the open visible host; Always allow remembers that file or
-collection. Deny saves a refusal; Cancel leaves grants unchanged. A warning names
+Allow once lasts while the panel runs, hidden or popped out included; Always
+allow remembers that file or collection. Deny saves a refusal; Cancel leaves grants unchanged. A warning names
 the combination with mail.send, because readable contents may be sent if mail
 is also allowed. Imported apps and replaced code have no remembered grants.
 
@@ -202,8 +202,10 @@ The SDK adds files.choose(), files.open(root,path), files.read(file,{offset,limi
 and files.media(file). Store the returned opaque id in this panel's JSON, not
 a temporary media URL. Reopening gets a fresh playback link automatically from
 the remembered grant. Media uses byte ranges up to256MiB, outside the HTML/state
-limits. Hiding/closing discards session links; moved/deleted/revoked files need
-selection again. A duplicated panel cannot borrow another copy's file id.
+limits. A playback link keeps working while the panel runs: hiding, popping out
+and returning keep it, and hidden media keeps playing (user 2026-10-26). Power
+off, Deny, revoking access or a change that removes access ends it; moved,
+deleted or revoked files need selection again. A duplicated panel cannot borrow another copy's file id.
 
 Agent parity is orgtree_apps file_permissions/file_open/file_read/file_roots/file_list/
 file_child/file_write/file_delete/file_result, requiring

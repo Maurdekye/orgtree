@@ -17,9 +17,11 @@ OR is_running); copies open at migration become running. Panel metadata reports
 running/run_generation and list kind:panels filters running. Under the existing
 app-then-panel locks: Open/Show sets both flags and bumps the generation only for
 a stopped copy, so showing a hidden copy reveals the same runtime. Hide
-(panel_update open:false) clears only is_open: it keeps host sessions and ends
-Allow-once file grants and references, pending file requests and media streams;
-the desktop refuses its open prompts. panel_start runs any copy hidden (user
+(panel_update open:false) clears only is_open: it keeps host sessions and the
+copy's file and media links, so hidden media keeps playing, and ends only
+pending file requests and changes; the desktop refuses its open prompts (see
+[links of a running copy](#links-of-a-running-copy-2026-10-26), which replaced
+"Hide ends playback"). panel_start runs any copy hidden (user
 or agent; running is a no-op). panel_stop clears both, bumps the
 generation and revokes sessions, file links and the runtime lease. Both take an
 optional expected_rev, checked only when given: power changes carry no data, and a
@@ -222,9 +224,11 @@ current org. An app's author does not acquire user authority.
 Migration0064 stores app/code-bound native read grants and panel-bound opaque
 references. Files are chosen in native Orgtree UI or opened from this org's
 scratch/uploads/retained-delivery catalog. Native paths never enter the iframe
-SDK or portable bundles. Once grants are host-memory only; Always grants persist
-in PG. Ask/Deny overrides org defaults; grant revoke/code replacement clears external authority.
-Closing/hiding ends host links. Imported/duplicated state cannot reuse a file id
+SDK or portable bundles. Once grants live in engine memory with the running copy;
+Always grants persist in PG. Ask/Deny overrides org defaults; grant revoke/code
+replacement clears external authority. Links outlive Hide, pop-out and host-session
+renewal (see [links of a running copy](#links-of-a-running-copy-2026-10-26)).
+Imported/duplicated state cannot reuse a file id
 from another panel. Files settings live in App settings' Permissions tab.
 
 POST apps/files requires the exact native desktop header. It accepts native
@@ -235,9 +239,11 @@ held folders, rechecked before disclosure; agents never decide grants. Orgtree
 artifacts means this org's retained deliveries, not a global output directory.
 
 Sandbox frames never receive desktop headers. Only exact GET apps/media bypasses
-the general header check and independently validates a64-hex temporary asset
-ticket bound to org/app/code/panel/live host/file grant. Each range revalidates;
-active bodies end on cancellation or expiry. CSP adds only the exact generated
+the general header check and independently validates a64-hex asset ticket bound
+to the running copy (org/app/code/panel/execution generation) and its file
+grant. Each range revalidates, under the app gate, that the copy still runs with
+the same code and generation and still has file authority; active bodies end
+when the copy's links end. A copy keeps its64 newest tickets. CSP adds only the exact generated
 host media endpoint; connect stays none and other API paths remain blocked.
 Private-app logging omits ticket queries and file/stream data. Opened handles
 use the existing ancestor-pinned no-reparse IO. No PG handle/transaction spans
@@ -248,7 +254,8 @@ grants remain read-only. Native consent warns about readable data plus declared
 mail.send and about whole-computer access under the current Windows user, without
 elevation. A chosen folder covers descendants; links/reparse points are refused.
 Read and write remain separately overridable capabilities. Grant limits128/app,
-refs1024/panel, registry4096/class; prompts120s, sessions/media at most30min.
+refs1024/panel, registry4096/class; prompts120s, host sessions30min (renewal
+keeps links); media tickets live with their running copy, 64 per copy.
 
 files.grant(scope,mode) requests native consent for orgtree/folder/computer and
 read/write. It returns opaque directory roots; persist these in that panel's
@@ -284,6 +291,48 @@ Pending changes; refresh shows exact target/size/hash.
 Agents get a pending confirmation ID and can read their own one-shot result for
 120s after a decision. They never choose roots, grant permission or confirm a
 change. All callbacks recheck the saved panel/code/grant and live caller scope.
+
+## Links of a running copy (2026-10-26)
+
+USER 2026-10-26 22:09Z mf7add4fda093 "yes please", via @coordinator-opus
+me5464e3d35c4 and @liaison-opus m5bc999edb0cc. The user rejected an SDK notice event
+first (mb26ead2c2190: "that would involve a generic video link locating system,
+wouldnt it? seems not very agnostic to app strufture, tightly coupled"). This
+replaces "Hide ends playback" and "Closing/hiding ends host links". [decided:
+user 2026-10-26]
+
+An app's file and media links (Once grants and Once references, media tickets)
+belong to the running copy: its panel, code revision and execution generation,
+not the host session that asked for them. Any host of that copy can use them; agents
+never see Once links.
+
+| Event | Links |
+|---|---|
+| Hide, Show, pop-out, return, a closed window | kept; hidden media keeps playing |
+| Host session close, expiry or renewal | kept; that session's open questions end |
+| Files change that grants or keeps access (Ask to Allow, default to Allow) | kept |
+| Files change that removes access (to Deny; Allow or default to Ask) | ended |
+| Grant revoke, Deny in a prompt | ended |
+| Power off, Stop all, delete, code change | ended |
+
+Ended links refuse at once, and active media bodies stop. Hide and a closed,
+expired or renewed session end pending file requests and changes, because those
+are questions for one host. A permission change is judged on effective access
+(`policy::org_allowed`) before and after; Deny always ends links, since it also
+overrides Once grants. Each media range revalidates the copy (running, same
+generation and code) and its file authority under the app gate. A ticket no longer
+expires with its session; a copy keeps its64 newest, and a newer one ends the
+oldest. [verified: `domain/apps/{file_access,file_scopes,bridge,storage}.rs`,
+`http/{app_files,media_file}.rs`]
+
+Cause (measured 2026-10-26): the caption-placement App's remembered video
+loaded, and Play then failed. The live engine log shows one element's ticket
+refused (403) ~22 times right before the user's report. The ticket died with a
+Hide, a Files change or a session renewal while the App's iframe survived it, and
+the App asks for its video only once. Proof: a Session 0 rig repro (synthetic
+silent MP4, agent file_open plus state_patch as the user's agent did) failed at
+the base on Hide/Show, hidden play, renewal and Allow, floating and popped out,
+and passed at the fix; power off and Deny refuse the ticket in both.
 
 ## Storage milestone
 
@@ -464,6 +513,8 @@ descendant are excluded from HTTP body logging, including malformed refusals.
 Sessions are bound to org, panel and app code revision, expire after30 minutes,
 and revoke on host close, power off (panel close until 2026-10-26), panel delete
 and app code replacement/delete.
+A closed, expired or renewed session ends only its own open questions; its
+copy's file and media links stay (since 2026-10-26, [links of a running copy](#links-of-a-running-copy-2026-10-26)).
 No session survives engine restart. The registry holds at most4096 sessions.
 
 Local org policy derives defaults; explicit stored choices override them. A Call validates a strict

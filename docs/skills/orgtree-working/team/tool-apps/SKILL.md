@@ -29,8 +29,8 @@ app/panel in that org; that is not an app permission grant.
 
 User 2026-10-26: a visible panel is always running; a hidden one need not be
 stopped. Hiding (panel_update open:false, or the window's Hide, X, Escape or
-backdrop) keeps the copy running with its timers, messages, async work and
-Dedicated Workers at full speed. requestAnimationFrame runs only while the copy
+backdrop) keeps the copy running with its timers, messages, async work,
+Dedicated Workers and file and media links at full speed. requestAnimationFrame runs only while the copy
 shows (a parked frame gets animation frames only when its window repaints, and
 none while the window is hidden), so app loops should tick from setTimeout,
 setInterval or a MessageChannel, reconcile elapsed time with performance.now() and
@@ -190,9 +190,10 @@ provisional for the user's morning review.
 
 The fixed file SDK has implicit access to this org's scratch/uploads/exact
 retained-delivery files. Outside files/folders/computer need native consent.
-Allow once lasts for that visible host; Always allow persists per app/code
-revision. Ask/Deny, code replacement or per-grant Revoke removes remembered
-access. Active media bodies are cancelled. Chosen folders (with descendants) and
+Allow once lasts while that copy runs, hidden or popped out included; Always allow
+persists per app/code revision. File and media links survive Hide, pop-out and host
+session renewal (user 2026-10-26); Deny, a change to Ask that removes access, code
+replacement, per-grant Revoke and power off end them and cancel active media bodies. Chosen folders (with descendants) and
 the whole computer can also be granted through native consent. Read and write remain separately overridable. External writes need a write grant. Whole-computer
 access has current Windows user rights, without elevation. Read plus mail.send is
 warned in native UI; imported grants and paths are always refused.
@@ -235,7 +236,7 @@ or decide consent. Persist the opaque id in that panel's state; media returns a
 fresh temporary URL on reopen. References are org/app/code-revision/panel bound:
 copying JSON to another panel/import does not copy authority. Native grants and
 paths stay outside portable data. Media is byte-range streamed up to256MiB;
-the exact media GET route uses a host-bound asset ticket, never a root credential.
+the exact media GET route uses an asset ticket of the running copy, never a root credential.
 No DB transaction spans disk IO or playback. Paths reject traversal/reparse links;
 chunk allocation is bounded64KiB. Limits:128 persisted grants/app,1024 refs/panel,
 4096 pending/temporary/media records per engine; prompts expire120s and host
