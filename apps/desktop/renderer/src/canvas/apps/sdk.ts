@@ -27,7 +27,7 @@ if(d.kind==='event'){for(const fn of listeners.get(d.name)||[])try{fn(d.payload)
 const p=pending.get(d.id);if(!p)return;pending.delete(d.id);clearTimeout(p.timer);d.error?p.reject(Error(d.error)):p.resolve(d.result)};
 const state=Object.freeze({get:()=>call('state.get'),set:value=>call('state.set',value),patch:value=>call('state.patch',value),onChange:fn=>on('state.changed',fn)});
 const storage=Object.freeze({getItem:async key=>{const s=await state.get();return Object.prototype.hasOwnProperty.call(s,key)?s[key]:null},setItem:async(key,value)=>{const s=await state.get();Object.defineProperty(s,String(key),{value,writable:true,enumerable:true,configurable:true});return state.set(s)},removeItem:key=>state.patch({[String(key)]:null}),clear:()=>state.set({})});
-Object.defineProperty(window,'orgtree',{value:Object.freeze({version:1,state,storage,on,emit:(name,payload)=>call('event.emit',{name,payload}),call:(action,args)=>call('engine.call',{action,args})}),writable:false,configurable:false});
+Object.defineProperty(window,'orgtree',{value:Object.freeze({version:1,state,storage,on,events:Object.freeze({fire:(name,payload)=>call('engine.call',{action:'events.fire',args:{name,payload}})}),emit:(name,payload)=>call('event.emit',{name,payload}),call:(action,args)=>call('engine.call',{action,args})}),writable:false,configurable:false});
 })();`.replace('CHANNEL',JSON.stringify(channel))
   return '<!doctype html><meta http-equiv="Content-Security-Policy" content="'+PANEL_CSP+'"><meta name="referrer" content="no-referrer"><script>'+sdk+'</script>'+html.replace(/^\s*<!doctype[^>]*>/i,'')
 }

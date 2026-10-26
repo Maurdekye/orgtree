@@ -8,7 +8,7 @@ export interface AppPermissionRequest {
 type Ask = (request:AppPermissionRequest,signal:AbortSignal)=>Promise<PermissionChoice|null>
 const fields:Record<string,readonly string[]>={
   'org.read':['after','limit'], 'mail.send':['to','body','notice'],
-  'docket.create':['title','objective','owner'], 'events.fire':['target','name','payload'],
+  'docket.create':['title','objective','owner'], 'events.fire':['name','payload'],
 }
 const capability=(action:string)=>action==='docket.create'?'docket.write':action
 const object=(v:unknown):v is Record<string,unknown>=>!!v&&typeof v==='object'&&!Array.isArray(v)

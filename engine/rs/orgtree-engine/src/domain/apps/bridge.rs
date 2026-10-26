@@ -121,7 +121,7 @@ async fn snapshot(engine:&Engine,bound:&Bound)->Result<Value> {
 #[nolog]
 fn permission(value:&Value,action:&Action)->Result<&'static str> {
     let cap=action.capability();if !value["capabilities"].as_array().is_some_and(|all|all.iter().any(|v|v==cap)){crate::refuse!(Forbidden,"app does not declare capability {cap}");}
-    if let Action::EventsFire{name,..}=action{if !value["events"].as_array().is_some_and(|a|a.iter().any(|e|e["name"]==name)){crate::refuse!(Forbidden,"app does not declare this event name");}}
+    if let Action::EventsFire{name,..}=action{if !value["events"].as_array().is_some_and(|a|a.iter().any(|e|e["name"]==name.as_str())){crate::refuse!(Forbidden,"app does not declare this event name");}}
     match value["permissions"][cap].as_str().unwrap_or("ask") {"allow"=>Ok("allow"),"ask"=>Ok("ask"),_=>crate::refuse!(Forbidden,"app capability {cap} is denied")}
 }
 

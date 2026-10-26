@@ -36,6 +36,14 @@ registrations in bounded pages; event activity/linked-agent metadata stay separa
 By the user's2026-10-26 ruling, docket.write create/assign/wake remains the
 documented edge case that wakes a selected local agent without an app event.
 
+Native App settings > This panel > Events… lists actual scoped connections
+with bounded cursor paging, permits explicit user Fire event from the selected
+saved copy and displays acceptance/backpressure without automatic retries.
+Agent parity is Apps listeners/fire_event; agent subscription ownership stays
+in watchdog controls. SDK orgtree.events.fire forwards only name/payload to
+the existing parent-only action client. The native broadcast prompt explicitly
+identifies every-listener delivery; no recipient/caller selector is accepted.
+
 ## Named event declarations
 
 Migration0062 adds `custom_apps.declared_events`, defaulting to an empty array.

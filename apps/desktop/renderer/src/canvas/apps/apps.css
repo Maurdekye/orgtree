@@ -70,4 +70,7 @@
 .custom-app-permission-row small { display:block;color:var(--muted);font-size:11px }
 .custom-app-mini { position:absolute;display:grid;place-items:center;width:48px;height:48px;background:var(--panel);color:var(--accent);border:1px solid var(--border);border-radius:10px;pointer-events:auto;cursor:pointer;z-index:8 }
 .custom-app-mini svg { width:30px;height:30px }
+.custom-app-connections { list-style:none;padding:0;margin:0;display:grid;gap:10px }
+.custom-app-connections li { display:grid;gap:3px;overflow-wrap:anywhere }
+.custom-app-connections span,.custom-app-connections small { color:var(--muted);font-size:11px }
 @media(max-width:600px){.custom-app-status { font-size:10px }}
