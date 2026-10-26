@@ -65,8 +65,8 @@ Reading a file does not execute HTML. Both actions require the same live-org
 Org-modifying tools authority as other Apps mutations; no database lock spans IO.
 File access refuses original links/reparse points, including held-root links,
 and limits declared and actual bytes. Paths must be absolute without parent
-components. Held roots are pinned before descending; Windows pins exclude
-directory write/delete handles and verify the final opened path.
+components. Held roots are pinned before descending. Windows uses handle-relative
+no-reparse opens, excludes data-write/delete handles and verifies the final path.
 
 The strict provisional format is `{format:"orgtree-app",version:1,definition,
 panels:[{label,state}]}`. Unknown/version/authority fields refuse. Bundle maximum

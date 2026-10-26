@@ -171,9 +171,11 @@ HTTP uses strict app_import/app_export requests. Agent tools share that service,
 adding import path or export as_file (defaulttrue) adapters with fresh live/orgmod
 checks. Authority comes from the original lexical held root, pinned without
 following its components, never from canonicalizing a mutable root. Original
-relative descendants use pinned handles (Unix openat); Windows directory pins
-deny WRITE and DELETE sharing throughout validation/IO, including pre-opened
-mutators, and every opened handle's final path must match its pinned path.
+relative descendants use pinned handles (Unix openat, Windows NtCreateFile with
+RootDirectory and no-reparse options). Windows pins deny data-write/delete
+sharing, including pre-opened data mutators; attribute-only writes may not conflict,
+so the handle-relative opens are required. Every opened Windows handle's final
+path must also match its pinned path.
 Final opens refuse links/reparse points. Absolute paths cannot contain parent
 components. Imports stay within held roots, bounded by both file metadata and
 actual bytes. Exports create_new only in the agent's existing private scratch,

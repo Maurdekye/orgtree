@@ -11,7 +11,8 @@ revision from code. Portable version1 app bundles never carry grants/IDs/links o
 machine placement; imports get fresh closed copies and Ask permissions. The
 provisional bundle bounds are16MiB/16 saved copies. Agent exports create a fresh
 private-scratch file; imports pin original held roots without canonicalizing links.
-Windows pins deny write/delete sharing and verify final handle paths; portable
+Windows uses handle-relative no-reparse opens plus data-write/delete sharing
+exclusion and final handle-path checks; portable
 native exports cap exact compact bytes. See [custom apps](docs/rust-engine/custom-apps.md).
 Templates carry only inert app definitions/initial data; restore creates no copies
 or grants. Post-commit panel change metadata targets linked agents through opt-in

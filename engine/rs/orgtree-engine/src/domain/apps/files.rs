@@ -38,15 +38,42 @@ fn verify(file:&File,expected:&Path)->Result<()> {
 }
 #[cfg(not(windows))] #[nolog] fn verify(_file:&File,_expected:&Path)->Result<()>{Ok(())}
 
+// A relative NT open never re-resolves an absolute ancestor path. Attribute
+// writes are not excluded by Win32 share flags, so pins alone are insufficient.
+#[cfg(windows)]
+#[nolog]
+fn anchored(parent:&File,name:&std::ffi::OsStr,is_dir:bool,write:bool)->Result<File>{
+    use std::{ffi::c_void,os::windows::{ffi::OsStrExt,io::{AsRawHandle,FromRawHandle}}};
+    use windows_sys::Win32::{Foundation::HANDLE,Storage::FileSystem::*};
+    #[repr(C)] struct Unicode {length:u16,maximum:u16,buffer:*mut u16}
+    #[repr(C)] struct Attributes {length:u32,root:HANDLE,name:*mut Unicode,flags:u32,security:*mut c_void,quality:*mut c_void}
+    #[repr(C)] struct IoStatus {status:usize,information:usize}
+    #[link(name="ntdll")] unsafe extern "system" {
+        fn NtCreateFile(handle:*mut HANDLE,access:u32,attributes:*const Attributes,io:*mut IoStatus,allocation:*const i64,file_attributes:u32,sharing:u32,disposition:u32,options:u32,ea:*const c_void,ea_length:u32)->i32;
+        fn RtlNtStatusToDosError(status:i32)->u32;
+    }
+    let mut wide:Vec<u16>=name.encode_wide().collect();
+    if wide.is_empty()||wide.len()>32760||wide.iter().any(|c|[0,47,92,58].contains(c))||name==std::ffi::OsStr::new(".")||name==std::ffi::OsStr::new(".."){crate::refuse!(Forbidden,"invalid anchored app file component");}
+    let mut text=Unicode{length:(wide.len()*2) as u16,maximum:(wide.len()*2) as u16,buffer:wide.as_mut_ptr()};
+    let attributes=Attributes{length:std::mem::size_of::<Attributes>() as u32,root:parent.as_raw_handle() as HANDLE,name:&mut text,flags:0x40|0x1000,security:std::ptr::null_mut(),quality:std::ptr::null_mut()}; // OBJ_CASE_INSENSITIVE|OBJ_DONT_REPARSE
+    let mut handle=std::ptr::null_mut();let mut io=IoStatus{status:0,information:0};
+    let access=FILE_READ_ATTRIBUTES|0x00100000|if write{FILE_WRITE_DATA}else{FILE_READ_DATA}; // SYNCHRONIZE
+    let options=0x20|0x00200000|0x00400000|if is_dir{0x1}else{0x40}; // synchronous, open-reparse, no-recall, directory/non-directory
+    let status=unsafe{NtCreateFile(&mut handle,access,&attributes,&mut io,std::ptr::null(),FILE_ATTRIBUTE_NORMAL,FILE_SHARE_READ,if write{2}else{1},options,std::ptr::null(),0)};
+    if status<0{return Err(std::io::Error::from_raw_os_error(unsafe{RtlNtStatusToDosError(status)} as i32).into());}
+    Ok(unsafe{File::from_raw_handle(handle as _)})
+}
+
 #[nolog]
 fn open_directory_part(path:&Path,parent:Option<&File>)->Result<File>{
     #[cfg(windows)] let file={
         use std::os::windows::fs::OpenOptionsExt;
         use windows_sys::Win32::Storage::FileSystem::*;
-        // Deny BOTH write and delete sharing for the whole traversal/IO. A
-        // pre-existing write-capable handle also makes this open fail closed.
-        OpenOptions::new().read(true).share_mode(FILE_SHARE_READ)
-            .custom_flags(FILE_FLAG_BACKUP_SEMANTICS|FILE_FLAG_OPEN_REPARSE_POINT|FILE_FLAG_OPEN_NO_RECALL).open(path)?
+        // Deny data-write/delete sharing throughout IO. Attribute-only writes
+        // need not conflict, so all descendants also use anchored NT opens.
+        if let Some(parent)=parent{anchored(parent,path.file_name().ok_or_else(||anyhow::anyhow!("invalid app directory"))?,true,false)?}
+        else{OpenOptions::new().read(true).share_mode(FILE_SHARE_READ)
+            .custom_flags(FILE_FLAG_BACKUP_SEMANTICS|FILE_FLAG_OPEN_REPARSE_POINT|FILE_FLAG_OPEN_NO_RECALL).open(path)?}
     };
     #[cfg(unix)] let file={
         use std::{ffi::CString,os::{fd::{AsRawFd,FromRawFd},unix::{ffi::OsStrExt,fs::OpenOptionsExt}}};
@@ -78,11 +105,7 @@ impl Directory {
     #[nolog]
     fn open(&self,name:&std::ffi::OsStr,write:bool)->Result<File>{
         #[cfg(windows)] let file={
-            use std::os::windows::fs::OpenOptionsExt;
-            use windows_sys::Win32::Storage::FileSystem::*;
-            let mut options=OpenOptions::new();options.read(!write).write(write).create_new(write)
-                .share_mode(FILE_SHARE_READ).custom_flags(FILE_FLAG_OPEN_REPARSE_POINT|FILE_FLAG_OPEN_NO_RECALL);
-            options.open(self.path.join(name))?
+            anchored(self._handles.last().ok_or_else(||anyhow::anyhow!("missing checked directory"))?,name,false,write)?
         };
         #[cfg(unix)] let file={
             use std::{ffi::CString,os::{fd::{AsRawFd,FromRawFd},unix::ffi::OsStrExt}};
@@ -149,7 +172,9 @@ pub fn write(scratch:&Path,bundle:&Value)->Result<Value>{
         use std::os::windows::fs::OpenOptionsExt;
         use windows_sys::Win32::Storage::FileSystem::*;
         let root=std::env::temp_dir().join(crate::util::uid("apps-pin-control"));std::fs::create_dir(&root).unwrap();
-        let writer=||OpenOptions::new().access_mode(FILE_WRITE_ATTRIBUTES).share_mode(FILE_SHARE_READ|FILE_SHARE_WRITE|FILE_SHARE_DELETE).custom_flags(FILE_FLAG_BACKUP_SEMANTICS|FILE_FLAG_OPEN_REPARSE_POINT).open(&root);
+        let writer=||OpenOptions::new().access_mode(FILE_WRITE_DATA|FILE_WRITE_ATTRIBUTES).share_mode(FILE_SHARE_READ|FILE_SHARE_WRITE|FILE_SHARE_DELETE).custom_flags(FILE_FLAG_BACKUP_SEMANTICS|FILE_FLAG_OPEN_REPARSE_POINT).open(&root);
+        let old=OpenOptions::new().read(true).share_mode(FILE_SHARE_READ|FILE_SHARE_WRITE).custom_flags(FILE_FLAG_BACKUP_SEMANTICS|FILE_FLAG_OPEN_REPARSE_POINT).open(&root).unwrap();
+        assert!(writer().is_ok(),"old-policy positive must admit the same data-write mutator");drop(old);
         let pin=directory(&root).unwrap();assert!(writer().is_err(),"a live import/export pin must deny write-capable directory handles");drop(pin);
         let _writer=writer().unwrap();assert!(directory(&root).is_err(),"a pre-opened mutator must prevent authority pinning");
     }
