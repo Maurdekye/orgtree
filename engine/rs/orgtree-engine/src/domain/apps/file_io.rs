@@ -65,9 +65,17 @@ pub(in crate::domain::apps) fn prepare(path:&Path,data:Option<Vec<u8>>,replace:b
         // A rename needs directory-write sharing on its immediate parent.
         // Retain all ancestor pins and continue denying directory deletion;
         // reopen only this final component relative to its pinned ancestor.
-        if dir._handles.len()<2{crate::refuse!(Forbidden,"file changes at a filesystem root are unavailable");}
         let previous=dir._handles.pop().expect("selected parent");drop(previous);
-        let handle=anchored_shared(dir._handles.last().expect("parent ancestor"),dir.path.file_name().ok_or_else(||anyhow::anyhow!("invalid selected parent"))?,true,false,false,true)?;
+        let handle=if let Some(ancestor)=dir._handles.last(){
+            anchored_shared(ancestor,dir.path.file_name().ok_or_else(||anyhow::anyhow!("invalid selected parent"))?,true,false,false,true)?
+        }else{
+            // A disk/share root has no relative ancestor to reopen from. This
+            // is the same checked absolute root open used for read IO, with
+            // write sharing (never delete sharing) for its child mutations.
+            use std::os::windows::fs::OpenOptionsExt;
+            use windows_sys::Win32::Storage::FileSystem::*;
+            OpenOptions::new().read(true).share_mode(FILE_SHARE_READ|FILE_SHARE_WRITE).custom_flags(FILE_FLAG_BACKUP_SEMANTICS|FILE_FLAG_OPEN_REPARSE_POINT|FILE_FLAG_OPEN_NO_RECALL).open(&dir.path)?
+        };
         plain(&handle.metadata()?)?;verify(&handle,&dir.path)?;dir._handles.push(handle);
     }
     let name=path.file_name().and_then(|s|s.to_str()).ok_or_else(||anyhow::anyhow!("file has no Unicode name"))?.to_string();
@@ -149,6 +157,10 @@ fn commit_with(change:Change,between:impl FnOnce())->Result<Value>{
         let dir=std::env::temp_dir().join(crate::util::uid("apps-write"));std::fs::create_dir(&dir).unwrap();std::fs::write(dir.join("old.txt"),b"old").unwrap();
         assert_eq!(list(&dir,None,10).unwrap().0[0].name,"old.txt");assert!(list(&dir,None,201).is_err());
         #[cfg(windows)]{
+            // Only prepare/drop: measure the root-directory handle branch
+            // without writing anywhere outside the synthetic temp fixture.
+            let root=dir.ancestors().last().unwrap();let untouched=root.join(crate::util::uid("app-unwritten-root-probe"));
+            drop(prepare(&untouched,Some(b"not written".to_vec()),false).unwrap());assert!(!untouched.exists());
             assert!(prepare(&dir.join("old.txt"),Some(vec![0;WRITE_MAX+1]),true).is_err());assert!(prepare(&dir.join("old.txt"),Some(b"new".to_vec()),false).is_err());
             let change=prepare(&dir.join("old.txt"),Some(b"new".to_vec()),true).unwrap();assert!(std::fs::write(dir.join("old.txt"),b"raced").is_err());commit(change).unwrap();assert_eq!(std::fs::read(dir.join("old.txt")).unwrap(),b"new");
             commit(prepare(&dir.join("new.txt"),Some(b"created".to_vec()),false).unwrap()).unwrap();assert_eq!(std::fs::read(dir.join("new.txt")).unwrap(),b"created");
