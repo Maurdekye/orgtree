@@ -55,7 +55,8 @@ tokio::task_local! { static PRIVATE_APP: bool; }
 
 /// Private Apps requests keep metadata-only logs through every awaited child.
 /// Unlike #[nolog], this also protects nested logged methods and manual events.
-/// Does not propagate to spawned tasks: private dispatch must not spawn payloads.
+/// Spawned async consumers need their own scope. Blocking App IO must use
+/// private_app_blocking, which establishes privacy on the worker thread itself.
 #[nolog]
 pub async fn private_app<T>(future:impl std::future::Future<Output=T>)->T {
     PRIVATE_APP.scope(true,future).await
@@ -63,11 +64,13 @@ pub async fn private_app<T>(future:impl std::future::Future<Output=T>)->T {
 #[nolog]
 pub(crate) fn app_private()->bool { PRIVATE_APP.try_with(|v|*v).unwrap_or(false) }
 
-/// Run blocking App IO outside the async executor.
+/// Keep nested logged helpers and manual events private on blocking App workers,
+/// even if the initiating async task is cancelled. sync_scope restores the
+/// worker's previous value on return or unwind; unrelated diagnostics stay on.
 #[nolog]
 pub(crate) fn private_app_blocking<F,T>(work:F)->tokio::task::JoinHandle<T>
 where F:FnOnce()->T+Send+'static,T:Send+'static {
-    tokio::task::spawn_blocking(work)
+    tokio::task::spawn_blocking(move||PRIVATE_APP.sync_scope(true,work))
 }
 
 /// Turn verbose logging on or off; answers the previous state.

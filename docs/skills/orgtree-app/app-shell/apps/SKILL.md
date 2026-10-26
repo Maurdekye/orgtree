@@ -92,6 +92,8 @@ Revoke. Separate Read files and Write files controls govern distinct grants.
 Ask/Deny clears remembered grants for that mode; revocation stops active media
 streams and pending changes. Allow granted scopes creates no grant itself.
 File paths stay native; readable contents may leave through permitted mail.
+File requests and app import/export omit paths and contents from engine
+diagnostics, including verbose file-worker logs; ordinary diagnostics stay enabled.
 
 Every create, replacement or deletion needs native confirmation of its target,
 operation, size and new-content hash. Existing files need explicit replacement;

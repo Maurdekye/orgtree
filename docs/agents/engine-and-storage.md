@@ -90,6 +90,13 @@ arguments continue through `trace::Shown::json`; useful call/return diagnostics
 remain enabled. See [WebSocket log verification](../rust-engine/websocket-watchdogs.md#tests).
 [verified: `runtime/mod.rs`, `runtime/actor.rs`, `trace.rs`; 2026-10-22]
 
+App file and import/export workers use `trace::private_app_blocking`: task-local
+privacy on an async caller does not automatically reach blocking threads.
+Establish the private scope inside the worker so nested logged path helpers and
+manual events stay opaque, while ordinary worker diagnostics remain enabled.
+See [App logging](../rust-engine/custom-apps.md).
+[verified: `trace.rs`, `domain/apps/{file_access,file_scopes}.rs`, `tools/apps.rs`; 2026-10-26]
+
 <a id="e-50cc1d4e5597f3d3"></a>
 
 ## App registry locks and restore boundary: app migration 0005_app_feed.sql

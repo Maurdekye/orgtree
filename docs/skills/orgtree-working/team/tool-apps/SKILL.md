@@ -230,6 +230,10 @@ authorized delivery keep the payload; diagnostic last_output and recent-fire
 gists omit it. Use the delivered event or authorized Apps data, not diagnostic
 summaries, to interpret the app's content.
 
+File requests and bundle import/export keep paths and contents out of engine
+diagnostics, including verbose blocking-worker logs. Authorized file results stay
+available; ordinary engine diagnostics remain enabled.
+
 ## Linked-agent subscriptions and templates
 
 Any eligible agent can add its own name to a copy's linked_agents, then create

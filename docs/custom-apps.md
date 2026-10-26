@@ -205,3 +205,7 @@ changes**, refresh and review each target/size/hash to confirm or reject it.
 The originating agent can read its result once within two minutes of your choice.
 Agents cannot choose roots, grant permissions, confirm changes or expand their
 folders by using an app. Native permission decisions remain user-only.
+
+App file requests and app import/export keep paths and contents out of engine
+diagnostics, including verbose logs from file workers. Request status and ordinary
+engine diagnostics remain available.

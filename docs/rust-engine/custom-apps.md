@@ -282,9 +282,16 @@ The private Apps HTTP boundary strips query strings and wraps all awaited nested
 services in a task-local opaque-log scope. Logged method arguments/results and
 manual event fields are omitted there; request path/status remain visible and
 ordinary callers retain diagnostics. Bridge dispatch also enters the scope for
-non-HTTP internal callers. The scope does not propagate across spawned tasks;
-dispatch services must not spawn private payloads. Invalid read requests return a
-fixed parser refusal rather than reflecting caller content.
+non-HTTP internal callers. The scope does not propagate across spawned tasks.
+Every file-access and import/export blocking worker uses
+`trace::private_app_blocking`, which enters `PRIVATE_APP.sync_scope` inside the
+worker: nested logged path normalizers and manual events remain private there,
+including after cancellation of the async caller. The previous worker scope is
+restored on return or unwind. Independent async consumers establish their own
+scope. A real-file verbose canary covers reads, listing, Windows changes and
+bundle IO, preserving authorized results and ordinary worker-log positives.
+Invalid read requests return a fixed parser refusal rather than reflecting caller
+content.
 
 App event privacy also travels in Event provenance through subscriber channels
 and overflow cells. Its Debug formatter is opaque even outside the producer task.
