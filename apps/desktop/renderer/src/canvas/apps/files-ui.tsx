@@ -29,7 +29,7 @@ export function AppFilePermissionPrompt({slug,prompt,owner,canSend}:{slug:string
     <p><strong>{prompt.request.name}</strong> · {prompt.request.label}</p>
     <p>{choose?'Choose one file this app may read.':request.action==='open'?"Allow this app to read this organization's scratch, uploads and retained artifacts?":'Allow this app to read its remembered file?'}</p>
     {request.action==='open'&&<p>Requested: <code>{String(request.root)}/{String(request.path)}</code></p>}
-    <p className="dim">Read-only. Always allow remembers this scope for every copy of this app. Allow once lasts until this host closes. Revoke access in App settings → Permissions → Files.</p>
+    <p className="dim">Read-only. Always allow remembers this scope for every copy of this app. Allow once lasts while this panel stays open and visible. Revoke access in App settings → Permissions → Files.</p>
     {canSend&&<p role="note">This app also declares mail sending. File contents could be included in a message if you allow that action.</p>}
     {choose&&<div className="custom-app-file-picker">
       <form onSubmit={e=>{e.preventDefault();void browse(path)}}><label>Folder <input aria-label="File picker folder" value={path} onChange={e=>setPath(e.target.value)}/></label><button disabled={busy}>Open folder</button><button type="button" disabled={busy} onClick={()=>void browse(page?.parent??'')}>Up</button></form>
@@ -52,7 +52,7 @@ export function AppFilePermissions({slug,app,save,disabled,refresh}:{slug:string
     {app.capabilities.includes('mail.send')&&<p>This app also declares mail sending. Granted file contents could be included in a message.</p>}
     {data?.grants.map(grant=><SetRow key={grant.id} label={grant.scope==='orgtree'?'Orgtree files':grant.name} hint={grant.path??grant.name}><button type="button" disabled={disabled||busy} onClick={()=>void revoke(grant.id)}>Revoke</button></SetRow>)}
     {data&&!data.grants.length&&<p>No remembered file access. The app asks when it needs a file.</p>}
-    <SetRow label="Write files" hint="Not available in this slice. Files are read-only."/>
+    <SetRow label="Write files" hint="File writing is not available."/>
     {error&&<p role="alert">{error}</p>}
   </SetGroup>
 }
