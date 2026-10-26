@@ -57,23 +57,33 @@ async fn panel(tx:&Transaction<'_>,org:i64,id:&str,write:bool) -> Result<Value> 
     let row=tx.query_opt(&format!("SELECT {PANEL_META} || jsonb_build_object('state',p.state) FROM ot.custom_panels p WHERE p.org_id=$1 AND p.id=$2 FOR {lock} OF p"),&[&org,&id]).await?;
     let Some(row)=row else {crate::refuse!(NotFound,"panel was deleted");};Ok(row.get(0))
 }
-/// The panel's own bounded log, shown as its History. Callers already hold the
-/// app row, so this panel row lock keeps app→panel order.
+/// A copy's History holds only fired events agents can listen to and the copy
+/// starting and stopping (user 2026-10-26 md6edfebc1975: "dont record anything
+/// else"). Messages sent with the event action or orgtree.emit keep reaching
+/// orgtree.on from their own store (mcbcd7b3cb6c0 "Keep, separate").
+pub const HISTORY:[&str;3]=[super::events::FIRED,"panel.started","panel.stopped"];
+/// A History row. Callers already hold the app row, so this panel row lock
+/// keeps app→panel order.
 #[nolog]
 pub(super) async fn event(tx:&Transaction<'_>,org:i64,id:&str,name:&str,payload:&Value,actor:&str)->Result<i64>{
+    debug_assert!(HISTORY.contains(&name),"History records only fires, starts and stops");record(tx,org,id,"history",name,payload,actor).await
+}
+/// Both stores advance the copy's event_seq, so a running host and History see
+/// new rows; each keeps its own latest 256 (provisional), so messages never push
+/// History out.
+#[nolog]
+async fn record(tx:&Transaction<'_>,org:i64,id:&str,kind:&str,name:&str,payload:&Value,actor:&str)->Result<i64>{
     wire::text(name,80,"event name",false)?;wire::bounded(payload,wire::EVENT_MAX,false)?;
-    let seq:i64=tx.query_one("INSERT INTO ot.custom_panel_events(org_id,panel_id,name,payload,actor) VALUES($1,$2,$3,$4,$5) RETURNING seq",&[&org,&id,&name,&payload,&actor]).await?.get(0);
+    let seq:i64=tx.query_one("INSERT INTO ot.custom_panel_events(org_id,panel_id,kind,name,payload,actor) VALUES($1,$2,$3,$4,$5,$6) RETURNING seq",&[&org,&id,&kind,&name,&payload,&actor]).await?.get(0);
     tx.execute("UPDATE ot.custom_panels SET event_seq=$3 WHERE org_id=$1 AND id=$2",&[&org,&id,&seq]).await?;
-    // Provisional: retain the latest256 events per panel, not unbounded history.
-    tx.execute("DELETE FROM ot.custom_panel_events WHERE org_id=$1 AND panel_id=$2 AND seq < (SELECT seq FROM ot.custom_panel_events WHERE org_id=$1 AND panel_id=$2 ORDER BY seq DESC OFFSET 255 LIMIT 1)",&[&org,&id]).await?;
+    tx.execute("DELETE FROM ot.custom_panel_events WHERE org_id=$1 AND panel_id=$2 AND kind=$3 AND seq < (SELECT seq FROM ot.custom_panel_events WHERE org_id=$1 AND panel_id=$2 AND kind=$3 ORDER BY seq DESC OFFSET 255 LIMIT 1)",&[&org,&id,&kind]).await?;
     Ok(seq)
 }
 #[nolog]
-async fn update_state(tx:&Transaction<'_>,org:i64,id:&str,state:&Value,actor:&str)->Result<Value>{
+async fn update_state(tx:&Transaction<'_>,org:i64,id:&str,state:&Value)->Result<Value>{
     wire::bounded(state,wire::STATE_MAX,true)?;
     tx.execute("UPDATE ot.custom_panels SET state=$3,rev=rev+1,updated_at=now() WHERE org_id=$1 AND id=$2",&[&org,&id,&state]).await?;
-    let out=panel(tx,org,id,false).await?;
-    event(tx,org,id,"state.changed",&json!({"rev":out["rev"]}),actor).await?;panel(tx,org,id,false).await
+    panel(tx,org,id,false).await
 }
 
 #[nolog]
@@ -185,10 +195,10 @@ pub(crate) async fn run_locked(engine:&Arc<Engine>,org:&Arc<OrgHandle>,caller:Op
             }else{None};
             // Opening starts a stopped copy; showing a hidden running copy reveals
             // the same runtime. Agents only create closed copies, which stay off.
-            let pid=if let Some(pid)=existing{
+            let (pid,starts)=if let Some(pid)=existing{
                 let running:bool=tx.query_one("SELECT is_running FROM ot.custom_panels WHERE org_id=$1 AND id=$2 FOR UPDATE",&[&org.id,&pid]).await?.get(0);
                 if !running{super::runtime::can_start(&tx,org.id).await?;}
-                tx.execute("UPDATE ot.custom_panels SET is_open=true,is_running=true,run_generation=run_generation+(NOT is_running)::int,used_at=now(),updated_at=now(),rev=rev+1 WHERE org_id=$1 AND id=$2",&[&org.id,&pid]).await?;pid
+                tx.execute("UPDATE ot.custom_panels SET is_open=true,is_running=true,run_generation=run_generation+(NOT is_running)::int,used_at=now(),updated_at=now(),rev=rev+1 WHERE org_id=$1 AND id=$2",&[&org.id,&pid]).await?;(pid,!running)
             }else{
                 if caller.is_none(){super::runtime::can_start(&tx,org.id).await?;}
                 let pid=crate::util::uid("panel");let def:Definition=serde_json::from_value(a["definition"].clone())?;
@@ -199,9 +209,11 @@ pub(crate) async fn run_locked(engine:&Arc<Engine>,org:&Arc<OrgHandle>,caller:Op
                     super::labels::default_panel_label(rows.iter().map(|r|r.get::<_,&str>(0)))
                 }};wire::text(&label,120,"panel label",false)?;
                 let placement=serde_json::to_value(Placement{width:def.width,height:def.height,..Placement::default()})?;
-                tx.execute("INSERT INTO ot.custom_panels(org_id,id,app_id,label,state,placement,is_open,is_running) VALUES($1,$2,$3,$4,$5,$6,$7,$7)",&[&org.id,&pid,&id,&label,&def.initial_state,&placement,&caller.is_none()]).await?;pid
+                tx.execute("INSERT INTO ot.custom_panels(org_id,id,app_id,label,state,placement,is_open,is_running) VALUES($1,$2,$3,$4,$5,$6,$7,$7)",&[&org.id,&pid,&id,&label,&def.initial_state,&placement,&caller.is_none()]).await?;(pid,caller.is_none())
             };
-            event(&tx,org.id,&pid,if caller.is_some(){"panel.created"}else{"panel.opened"},&json!({}),&actor).await?;changed=true;panel(&tx,org.id,&pid,false).await?
+            // Opening a stopped copy starts it (user 2026-10-26 mcbcd7b3cb6c0); showing
+            // a running one and an agent's closed copy record nothing.
+            if starts{event(&tx,org.id,&pid,"panel.started",&json!({"reason":"opened"}),&actor).await?;}changed=true;panel(&tx,org.id,&pid,false).await?
         }
         Request::PanelGet{panel:id}=>panel(&tx,org.id,&id,false).await?,
         Request::PanelUpdate{panel:id,expected_rev,label,open,placement}=>{
@@ -213,7 +225,7 @@ pub(crate) async fn run_locked(engine:&Arc<Engine>,org:&Arc<OrgHandle>,caller:Op
             // Hide keeps the runtime; Show (user only) starts a stopped copy.
             if open&&old["running"]!=true{super::runtime::can_start(&tx,org.id).await?;}
             tx.execute("UPDATE ot.custom_panels SET label=$3,is_open=$4,is_running=is_running OR $4,run_generation=run_generation+($4 AND NOT is_running)::int,placement=$5,rev=rev+1,updated_at=now() WHERE org_id=$1 AND id=$2",&[&org.id,&id,&label,&open,&place]).await?;
-            event(&tx,org.id,&id,"panel.changed",&json!({}),&actor).await?;changed=true;panel(&tx,org.id,&id,false).await?
+            if open&&old["running"]!=true{event(&tx,org.id,&id,"panel.started",&json!({"reason":"opened"}),&actor).await?;}changed=true;panel(&tx,org.id,&id,false).await?
         }
         Request::PanelDuplicate{panel:id,expected_rev}=>{
             let old=panel(&tx,org.id,&id,true).await?;revision(&old,expected_rev)?;let pid=crate::util::uid("panel");
@@ -221,7 +233,7 @@ pub(crate) async fn run_locked(engine:&Arc<Engine>,org:&Arc<OrgHandle>,caller:Op
             let mut place:Placement=serde_json::from_value(old["placement"].clone())?;place.mode="float".into();place.anchor=None;place.x+=24.;place.y+=24.;let place=serde_json::to_value(place)?;
             if caller.is_none(){super::runtime::can_start(&tx,org.id).await?;}
             tx.execute("INSERT INTO ot.custom_panels(org_id,id,app_id,label,state,placement,is_open,is_running) VALUES($1,$2,$3,$4,$5,$6,$7,$7)",&[&org.id,&pid,&old["app"].as_str().unwrap_or(""),&label,&old["state"],&place,&caller.is_none()]).await?;
-            event(&tx,org.id,&pid,"panel.duplicated",&json!({"source":id}),&actor).await?;changed=true;panel(&tx,org.id,&pid,false).await?
+            if caller.is_none(){event(&tx,org.id,&pid,"panel.started",&json!({"reason":"opened"}),&actor).await?;}changed=true;panel(&tx,org.id,&pid,false).await?
         }
         Request::PanelDelete{panel:id,expected_rev}=>{
             let old=panel(&tx,org.id,&id,true).await?;revision(&old,expected_rev)?;
@@ -247,20 +259,21 @@ pub(crate) async fn run_locked(engine:&Arc<Engine>,org:&Arc<OrgHandle>,caller:Op
         }
         Request::Runtime{..}=>crate::refuse!(BadRequest,"runtime is read through the Apps runtime listing"),
         Request::StateSet{panel:id,expected_rev,state}=>{
-            revision(&panel(&tx,org.id,&id,true).await?,expected_rev)?;let out=update_state(&tx,org.id,&id,&state,&actor).await?;changed=true;out
+            revision(&panel(&tx,org.id,&id,true).await?,expected_rev)?;let out=update_state(&tx,org.id,&id,&state).await?;changed=true;out
         }
         Request::StatePatch{panel:id,expected_rev,patch}=>{
             let old=panel(&tx,org.id,&id,true).await?;revision(&old,expected_rev)?;let mut state=old["state"].clone();wire::merge(&mut state,&patch)?;
-            let out=update_state(&tx,org.id,&id,&state,&actor).await?;changed=true;out
+            let out=update_state(&tx,org.id,&id,&state).await?;changed=true;out
         }
         Request::Event{panel:id,name,payload}=>{
-            panel(&tx,org.id,&id,true).await?;let seq=event(&tx,org.id,&id,&name,&payload,&actor).await?;changed=true;json!({"panel":id,"seq":seq})
+            panel(&tx,org.id,&id,true).await?;let seq=record(&tx,org.id,&id,"message",&name,&payload,&actor).await?;changed=true;json!({"panel":id,"seq":seq})
         }
-        Request::Events{panel:id,after,limit}=>{
+        Request::Events{panel:id,after,limit,messages}=>{
             panel(&tx,org.id,&id,false).await?;let n=page(limit)?;let after=after.unwrap_or(0);if after<0{crate::refuse!(BadRequest,"event cursor must be nonnegative");}
-            let rows=tx.query("SELECT jsonb_build_object('seq',seq,'name',name,'payload',payload,'actor',actor,'at',at) FROM ot.custom_panel_events WHERE org_id=$1 AND panel_id=$2 AND seq>$3 ORDER BY seq LIMIT $4",&[&org.id,&id,&after,&(n+1)]).await?;
+            let kind=if messages{"message"}else{"history"};
+            let rows=tx.query("SELECT jsonb_build_object('seq',seq,'name',name,'payload',payload,'actor',actor,'at',at) FROM ot.custom_panel_events WHERE org_id=$1 AND panel_id=$2 AND kind=$5 AND seq>$3 ORDER BY seq LIMIT $4",&[&org.id,&id,&after,&(n+1),&kind]).await?;
             let more=rows.len()>n as usize;let events:Vec<Value>=rows.into_iter().take(n as usize).map(|r|r.get(0)).collect();let next=if more{events.last().map(|v|v["seq"].clone())}else{None};
-            let oldest:Option<i64>=tx.query_one("SELECT min(seq) FROM ot.custom_panel_events WHERE org_id=$1 AND panel_id=$2",&[&org.id,&id]).await?.get(0);
+            let oldest:Option<i64>=tx.query_one("SELECT min(seq) FROM ot.custom_panel_events WHERE org_id=$1 AND panel_id=$2 AND kind=$3",&[&org.id,&id,&kind]).await?.get(0);
             json!({"panel":id,"events":events,"next_cursor":next,"oldest_retained":oldest})
         }
     };

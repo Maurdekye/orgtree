@@ -2095,6 +2095,7 @@ fn build_tool_apps()->Value {
         "open":{"type":"boolean","description":"list panels: filter visible copies; panel_update: false hides the window and keeps the panel running; agents cannot set true or move an open window"},
         "running":{"type":"boolean","description":"list panels: filter running (true) or powered-off (false) copies; hidden copies can run"},
         "sample":{"type":"boolean","description":"runtime: ask the desktop for a fresh sampled CPU reading; waits up to3s"},
+        "messages":{"type":"boolean","description":"events: true lists messages sent with event or orgtree.emit instead of History (fired events, starts and stops)"},
         "delete_panels":{"type":"boolean","description":"app_delete: explicit consent to delete all its saved copies"},
         "definition":{"type":"object","additionalProperties":false,"properties":{
             "name":{"type":"string","maxLength":120},"description":{"type":"string","maxLength":1000},

@@ -102,7 +102,8 @@ pub enum Request {
     StateSet { panel:String, expected_rev:i64, state:Value },
     StatePatch { panel:String, expected_rev:i64, patch:Value },
     Event { panel:String, name:String, payload:Value },
-    Events { panel:String, after:Option<i64>, limit:Option<i64> },
+    /// History by default; messages:true lists the event action's and orgtree.emit's messages.
+    Events { panel:String, after:Option<i64>, limit:Option<i64>, #[serde(default)] messages:bool },
     FireEvent { panel:String, name:String, payload:Value },
     Listeners { app:String, panel:Option<String>, after:Option<i64>, limit:Option<i64> },
 }
