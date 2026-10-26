@@ -76,6 +76,16 @@ in this fixture and is never executed. [verified: `tests/test-baseline.test.mjs`
 
 ### Portable root test output
 
+The background-engine cases in `installer-elevation.test.mjs` need a private
+descriptor directory and ancestors that cannot be replaced by another account,
+under the production attach trust rule. If the runner redirects `LOCALAPPDATA`
+under a writable build root, set `ORGTREE_INSTALLER_TEST_DATA_ROOT` to an
+existing, absolute, owned synthetic-profile directory with trusted ancestors.
+The test creates fresh children there; ordinary temporary outputs still follow
+`TEMP`/`TMP`. Do not change shared ACLs or weaken the helper's checks to make
+these cases pass. Keep the explicit Everyone-write refusal control.
+[verified: `tests/installer-elevation.test.mjs`, `tools/installer-upgrade.ps1`; 2026-10-26]
+
 `scratch-note-create`, `taskbar-badge`, `taskbar-dot-art`, `taskbar-eligibility`,
 `taskbar-unified`, `tray-recent` and `tab-origin-native` run with ordinary
 `node --test tests/<name>.test.mjs`. Each allocates its own fresh child of the

@@ -1040,7 +1040,13 @@ async function fixtureEngine(mode = 'normal') {
   // NOT under %TEMP%: the window's trust rule refuses a descriptor that another
   // account could write or whose folders it could replace, and %TEMP% can carry
   // such grants (Codex's Windows sandbox adds Modify for its sandbox accounts).
-  const data = fs.mkdtempSync(path.join(process.env.LOCALAPPDATA || fs.realpathSync(process.env.TEMP || '.'), 'orgtree-installer-test-'))
+  // Isolated runners also replace LOCALAPPDATA: a build-root replacement can
+  // inherit Authenticated Users Modify even though it is outside TEMP. Give
+  // those runners an explicit owned, trusted parent rather than relaxing the
+  // product ACL rule or skipping the stop/identity/budget assertions.
+  const dataParent = process.env.ORGTREE_INSTALLER_TEST_DATA_ROOT || process.env.LOCALAPPDATA || fs.realpathSync(process.env.TEMP || '.')
+  assert.ok(path.isAbsolute(dataParent), 'installer fixture data parent must be absolute')
+  const data = fs.mkdtempSync(path.join(fs.realpathSync(dataParent), 'orgtree-installer-test-'))
   const image = path.join(dir, 'resources', 'engine', 'orgtree-engine.exe')
   fs.copyFileSync(process.execPath, image)
   const script = data + '-engine.cjs'

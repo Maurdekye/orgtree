@@ -2,6 +2,11 @@
 
 Read this file before working in this repository. It is the startup guide, not a landing log. Detailed rules, source references and the complete earlier notes live in the [topic index](docs/agents/README.md).
 
+Installer shutdown fixtures need a trusted synthetic data parent, even when a
+runner redirects `LOCALAPPDATA`; never relax product attach ACL checks. See
+[native test homes](docs/agents/development-and-verification.md#portable-root-test-output).
+[verified: `tests/installer-elevation.test.mjs`; 2026-10-26]
+
 Mini name suppression covers both the floating plate and the in-card CSS name;
 both use the same canvas desk counter, including external portals. Normal names
 remain independent. See [identity hover](docs/rust-engine/agent-identity-tooltip.md).
