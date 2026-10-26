@@ -179,6 +179,17 @@ pub fn merge(state:&mut Value,patch:&Value) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test] fn custom_apps_declared_publication_uses_explicit_scoped_requests() {
+        assert!(parse(&json!({"action":"fire_event","panel":"copy","name":"submitted","payload":{"note":"data"}})).is_ok());
+        assert!(parse(&json!({"action":"listeners","app":"app","panel":"copy","limit":200})).is_ok());
+        for extra in [json!({"target":"chosen-recipient"}),json!({"as_user":true}),json!({"org":"other"})]{let mut bad=json!({"action":"fire_event","panel":"copy","name":"submitted","payload":{}});bad.as_object_mut().unwrap().extend(extra.as_object().unwrap().clone());assert!(parse(&bad).is_err());}
+    }
+    #[test] fn custom_apps_named_listener_has_explicit_tool_vocabulary() {
+        let card=crate::tools::defs::list().into_iter().find(|c|c["name"]=="orgtree_watchdog").unwrap();
+        let p=&card["inputSchema"]["properties"];
+        assert!(p["kind"]["enum"].as_array().unwrap().iter().any(|v|v=="app_listener"));
+        for field in ["event_name","panel","all_panels"]{assert!(p.get(field).is_some(),"missing app_listener field {field}");}
+    }
     #[test] fn custom_apps_event_declarations_are_portable_inert_manifest_data() {
         let raw=json!({"name":"Notes","html":"<p>notes</p>","events":[{"name":"submitted","description":"Notes ready for review"}]});
         let def:Definition=serde_json::from_value(raw.clone()).unwrap();definition(&def).unwrap();
