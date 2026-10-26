@@ -59,8 +59,17 @@ pub(in crate::domain::apps) struct Change {dir:Directory,name:String,target:Opti
 #[nolog]
 pub(in crate::domain::apps) fn prepare(path:&Path,data:Option<Vec<u8>>,replace:bool)->Result<Change>{
     if data.as_ref().is_some_and(|v|v.len()>WRITE_MAX){crate::refuse!(BadRequest,"file writes are limited to 65536 bytes");}
-    let path=checked_path(path)?;let dir=directory(path.parent().ok_or_else(||anyhow::anyhow!("file has no parent"))?)?;
+    let path=checked_path(path)?;let mut dir=directory(path.parent().ok_or_else(||anyhow::anyhow!("file has no parent"))?)?;
     if directory(&path).is_ok(){crate::refuse!(Forbidden,"only regular files can be changed; directory deletion is unavailable");}
+    #[cfg(windows)] {
+        // A rename needs directory-write sharing on its immediate parent.
+        // Retain all ancestor pins and continue denying directory deletion;
+        // reopen only this final component relative to its pinned ancestor.
+        if dir._handles.len()<2{crate::refuse!(Forbidden,"file changes at a filesystem root are unavailable");}
+        let previous=dir._handles.pop().expect("selected parent");drop(previous);
+        let handle=anchored_shared(dir._handles.last().expect("parent ancestor"),dir.path.file_name().ok_or_else(||anyhow::anyhow!("invalid selected parent"))?,true,false,false,true)?;
+        plain(&handle.metadata()?)?;verify(&handle,&dir.path)?;dir._handles.push(handle);
+    }
     let name=path.file_name().and_then(|s|s.to_str()).ok_or_else(||anyhow::anyhow!("file has no Unicode name"))?.to_string();
     // Reuse the component checker even for a name that does not exist yet.
     scoped_path(&dir.path,&name)?;

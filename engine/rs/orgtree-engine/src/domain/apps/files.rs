@@ -49,6 +49,11 @@ fn anchored(parent:&File,name:&std::ffi::OsStr,is_dir:bool,write:bool)->Result<F
 #[cfg(windows)]
 #[nolog]
 fn anchored_access(parent:&File,name:&std::ffi::OsStr,is_dir:bool,write:bool,delete:bool)->Result<File>{
+    anchored_shared(parent,name,is_dir,write,delete,false)
+}
+#[cfg(windows)]
+#[nolog]
+fn anchored_shared(parent:&File,name:&std::ffi::OsStr,is_dir:bool,write:bool,delete:bool,mutable_dir:bool)->Result<File>{
     use std::os::windows::{ffi::OsStrExt,io::{AsRawHandle,FromRawHandle}};
     use windows_sys::{Wdk::{Foundation::OBJECT_ATTRIBUTES,Storage::FileSystem::{NtCreateFile,FILE_OPEN,FILE_CREATE,FILE_DIRECTORY_FILE,FILE_NON_DIRECTORY_FILE,FILE_SYNCHRONOUS_IO_NONALERT,FILE_OPEN_REPARSE_POINT,FILE_OPEN_NO_RECALL}},Win32::{Foundation::{HANDLE,UNICODE_STRING,RtlNtStatusToDosError},Storage::FileSystem::*,System::IO::IO_STATUS_BLOCK}};
     let mut wide:Vec<u16>=name.encode_wide().collect();
@@ -60,7 +65,8 @@ fn anchored_access(parent:&File,name:&std::ffi::OsStr,is_dir:bool,write:bool,del
     // FILE_OPEN_NO_RECALL is not valid with FILE_DIRECTORY_FILE on Windows;
     // directory reparse points are rejected by OBJ_DONT_REPARSE and metadata.
     let options=FILE_SYNCHRONOUS_IO_NONALERT|FILE_OPEN_REPARSE_POINT|if is_dir{FILE_DIRECTORY_FILE}else{FILE_NON_DIRECTORY_FILE|FILE_OPEN_NO_RECALL};
-    let status=unsafe{NtCreateFile(&mut handle,access,&attributes,&mut io,std::ptr::null(),FILE_ATTRIBUTE_NORMAL,FILE_SHARE_READ,if write{FILE_CREATE}else{FILE_OPEN},options,std::ptr::null(),0)};
+    let sharing=FILE_SHARE_READ|if mutable_dir{FILE_SHARE_WRITE}else{0};
+    let status=unsafe{NtCreateFile(&mut handle,access,&attributes,&mut io,std::ptr::null(),FILE_ATTRIBUTE_NORMAL,sharing,if write{FILE_CREATE}else{FILE_OPEN},options,std::ptr::null(),0)};
     if status<0{return Err(std::io::Error::from_raw_os_error(unsafe{RtlNtStatusToDosError(status)} as i32).into());}
     Ok(unsafe{File::from_raw_handle(handle as _)})
 }
