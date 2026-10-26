@@ -232,11 +232,12 @@ app.whenReady().then(async () => {
   }
   const row = (title) => `[...document.querySelectorAll('.doc-gallery-row')].find(r=>r.querySelector('.mfrom')?.textContent===${JSON.stringify(title)})`
   const button = (label) => `[...document.querySelectorAll('.html-presentation-size button')].find(b=>b.textContent===${JSON.stringify(label)})`
-  const clickInFrame = async (selector) => {
-    const f = await box(`document.querySelector('iframe.html-presentation-frame')`)
-    const b = await inFrame(`(()=>{const r=document.querySelector(${JSON.stringify(selector)}).getBoundingClientRect();return {x:r.left,y:r.top,w:r.width,h:r.height}})()`)
-    await click(Math.round(f.x + 1 + b.x + b.w / 2), Math.round(f.y + 1 + b.y + b.h / 2))
-  }
+  // The presentation frame runs out of process. In this offscreen window CDP
+  // mouse input at its coordinates did not reach it (measured 2026-10-26: the
+  // counter stayed at 0), so controls inside the frame are activated in the
+  // frame's own document; parent controls keep CDP input.
+  receipt.inFrameInput = 'element.click() in the frame document; parent controls by CDP mouse input'
+  const clickInFrame = (selector) => inFrame(`document.querySelector(${JSON.stringify(selector)}).click();true`)
   const open = async (title, marker) => {
     await clickAt(row(title), 'row ' + title)
     await until(() => js(`!!document.querySelector('.doc-gallery-row.on') && document.querySelector('.doc-gallery-row.on .mfrom').textContent===${JSON.stringify(title)}`), 'selection ' + title)
