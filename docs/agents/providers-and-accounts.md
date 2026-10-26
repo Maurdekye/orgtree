@@ -1,5 +1,22 @@
 # Providers and accounts
 
+## GPT-6.1 Terra (2026-10-26)
+
+The `terra` tier is current again: it defaults to `gpt-6.1-terra` (Codex CLI
+0.159.0 or later) and keeps `gpt-5.6-terra` as the `5.6` pin. It left "Show
+legacy models", which now covers Gemini Pro only (renderer
+`OPT_IN_LEGACY_TIERS`). Prices are OpenAI's GPT-6.1 Terra API rates ($1, $0.05
+cached, $5 per million tokens). The seat is 1 by the standing input-price seat
+rule (`openrouter::seat_for`), which every OpenAI tier follows and a catalog
+test checks. Efforts and Fast mode come from the Codex `model/list` probe, as
+for Sol; `ultra` is never offered. Codex turns are priced by tier, so a seat
+pinned to 5.6 is billed at the 6.1 rates, as Sol's older pins are. Codex has no
+per-account model gating: a login whose model list lacks `gpt-6.1-terra` cannot
+run a Terra 6.1 seat. This replaces the Terra half of the 2026-09-30 legacy
+ruling. [decided: user 2026-10-26 18:19Z "get 4.4.6 out with this", "make sure
+to take terra out of the legacy models checkbox"; verified: `providers/catalog.rs`,
+`runtime/actor.rs`, `canvas/shared.ts`, `canvas/accounts.tsx`]
+
 ## Native limit fallback (2026-10-24)
 
 An opted-in quota fallback searches registered subscriptions, then native

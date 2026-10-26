@@ -3620,7 +3620,7 @@
    "sources": [
     "apps/desktop/renderer/src/canvas/contextmenu.tsx:461",
     "apps/desktop/renderer/src/canvas/agentmenu.tsx",
-    "apps/desktop/renderer/src/canvas/shared.ts:1381",
+    "apps/desktop/renderer/src/canvas/shared.ts:1385",
     "apps/desktop/renderer/src/api.ts:889",
     "apps/desktop/renderer/src/canvas/bulkcompact.tsx"
    ],
@@ -6436,7 +6436,7 @@
    "ui_labels": [
     {
      "file": "apps/desktop/renderer/src/canvas/accounts.tsx",
-     "label": "Show legacy models (Terra, Gemini Pro)"
+     "label": "Show legacy models (Gemini Pro)"
     }
    ],
    "key_sources": [

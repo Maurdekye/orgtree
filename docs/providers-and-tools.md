@@ -23,7 +23,9 @@ Orgtree does not include model access. Your provider's subscription, API charges
 
 **Installed**, **signed in**, **active**, **allowed by this org** and **able to run this model now** are separate checks. The provider Enabled switch is app-wide; an account's Active switch is another gate; Organization settings > Accounts is a third. Turning one on does not bypass the others. Existing agents can remain visible on a model that is no longer offered for a new hire.
 
-For older catalog choices, **App settings > Runtime > Show legacy models (Terra, Gemini Pro)** controls visibility in hire/model menus. It starts off and is saved in the local desktop/browser profile. It does not change existing agents or create access to a model your account cannot use.
+For older catalog choices, **App settings > Runtime > Show legacy models (Gemini Pro)** controls visibility in hire/model menus. It starts off and is saved in the local desktop/browser profile. It does not change existing agents or create access to a model your account cannot use.
+
+Terra is a current Codex choice again, beside Astra, Sol and Luna. New Terra agents run GPT-6.1 Terra, which needs Codex CLI 0.159.0 or later and an OpenAI account that offers the model; an agent pinned to Terra 5.6 keeps that version. A Terra seat costs 1 credit.
 
 The default Codex row offers **Sign in / Sign in again**, opening Codex's browser authorization with its default profile. A managed account's Sign in targets that row's profile. Complete the authorization yourself; browser-only clients have no native login bridge. Some other harnesses open a terminal and ask you to finish login there: “terminal opened” is not verified sign-in. An unavailable authentication check is different from a confirmed signed-out result. Do not paste keys or verification codes into an agent conversation.
 
