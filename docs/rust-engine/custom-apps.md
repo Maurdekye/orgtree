@@ -172,8 +172,11 @@ adding import path or export as_file (defaulttrue) adapters with fresh live/orgm
 checks. Directory handles pin ancestors; final opens refuse links/reparse points.
 Imports are confined to canonical held paths, bounded by both file metadata and
 actual bytes. Exports create_new only in the agent's existing private scratch,
-returning path/bytes/SHA256; no DB connection or lock spans file IO. Native whole-app
-file controls follow in the next visual slice. These defaults await morning review.
+returning path/bytes/SHA256; no DB connection or lock spans file IO. Native Apps-menu
+file selection shows a plaintext metadata/capability preview before app_import;
+it mounts no imported HTML. Manage app exports through the same app_export route
+with an unchecked-by-default saved-data option and an owning-document file anchor.
+These defaults await morning review.
 
 ## Native action host implementation
 

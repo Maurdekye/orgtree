@@ -8,6 +8,8 @@ import {customAppsRequest} from '../../api'
 import {activateApps,changeApps,loadAppsMenu,useApps} from './store'
 import {PanelHtml} from './host'
 import {AppPermissions} from './permissions'
+import {APP_BUNDLE_MAX,AppExport,AppImport,parseAppBundle,saveAppJson} from './portable'
+import type {AppBundle} from './portable'
 import type {AppPlacement,CustomApp,CustomPanel,PanelEvents} from './types'
 import type {WorldRect} from '../viewport'
 import {intersectsViewport} from '../viewport'
@@ -29,17 +31,13 @@ export function AppsButton({slug}:{slug:string}){
     onClick={e=>setMenu(current?.slug===slug?null:{slug,anchor:e.currentTarget})}><AppsIcon fontSize="inherit"/></button>
 }
 
-function saveJson(owner:Document,name:string,value:unknown){
-  const url=window.URL.createObjectURL(new Blob([JSON.stringify(value,null,2)],{type:'application/json'})),a=owner.createElement('a')
-  a.href=url;a.download=name.replace(/[<>:"/\\|?*\x00-\x1f]/g,'_');owner.body.appendChild(a)
-  try{a.click()}finally{a.remove();window.setTimeout(()=>window.URL.revokeObjectURL(url),30_000)}
-}
+const saveJson=saveAppJson
 function Dialog({title,close,children}:{title:string;close:()=>void;children:ReactNode}){
   return <div className="custom-app-dialog" role="dialog" aria-label={title} onKeyDown={e=>{e.stopPropagation();if(e.key==='Escape'){e.preventDefault();close()}}}>
     <header><strong>{title}</strong><button type="button" className="iconbtn" aria-label="Close dialog" onClick={close}><CloseIcon/></button></header>{children}</div>
 }
 
-function AppsMenu({slug,current,manage,onShowCanvas}:{slug:string;current:NonNullable<Menu>;manage:(app:CustomApp)=>void;onShowCanvas:()=>void}){
+function AppsMenu({slug,current,manage,importApp,onShowCanvas}:{slug:string;current:NonNullable<Menu>;manage:(app:CustomApp)=>void;importApp:(bundle:AppBundle,owner:Document)=>void;onShowCanvas:()=>void}){
   const data=useApps(slug),ref=useRef<HTMLDivElement>(null),owner=current.anchor.ownerDocument
   const [style,setStyle]=useState<CSSProperties>({visibility:'hidden'})
   useLayoutEffect(()=>{const win=owner.defaultView;if(!win||!ref.current)return;const a=current.anchor.getBoundingClientRect(),r=ref.current.getBoundingClientRect(),width=Math.min(390,win.innerWidth-16)
@@ -50,7 +48,7 @@ function AppsMenu({slug,current,manage,onShowCanvas}:{slug:string;current:NonNul
   },[slug,owner,current.anchor])
   const open=async(input:Record<string,unknown>)=>{setMenu(null);try{const p=await changeApps<CustomPanel>(slug,input);if(p.placement.mode==='canvas'){onShowCanvas();canvas.get(slug)?.focus(p.placement)}}catch(e){window.dispatchEvent(new CustomEvent('custom-app-error',{detail:{slug,error:String(e)}}))}}
   return createPortal(<div ref={ref} className="custom-apps-menu" role="dialog" aria-label="Apps" style={style}>
-    <header><strong>Apps</strong><button type="button" onClick={()=>void loadAppsMenu(slug)}>Refresh</button></header>
+    <header><strong>Apps</strong><label className="custom-app-import-file">Import app<input type="file" aria-label="Import app" accept=".orgtree-app,.json,application/json" hidden onChange={async e=>{const file=e.target.files?.[0];e.target.value='';if(!file)return;try{if(file.size>APP_BUNDLE_MAX)throw Error('App bundle exceeds 16 MiB.');const bundle=parseAppBundle(await file.text());setMenu(null);importApp(bundle,owner)}catch(error){window.dispatchEvent(new CustomEvent('custom-app-error',{detail:{slug,error:String(error)}}))}}}/></label><button type="button" onClick={()=>void loadAppsMenu(slug)}>Refresh</button></header>
     {data.error&&<p role="alert">{data.error}</p>}
     {!data.apps.length&&!data.loading&&<p className="dim">Your apps will appear here.</p>}
     {data.apps.map(app=><section key={app.id} className="custom-apps-menu-group">
@@ -142,13 +140,14 @@ function PanelWindow({slug,panel,app}:{slug:string;panel:CustomPanel;app:CustomA
 }
 
 export function AppsWorkspace({slug,onShowCanvas=()=>{}}:{slug:string;onShowCanvas?:()=>void}){
-  const data=useApps(slug),current=useMenu(),[manage,setManage]=useState<CustomApp|null>(null),[error,setError]=useState('')
+  const data=useApps(slug),current=useMenu(),[manage,setManage]=useState<CustomApp|null>(null),[imported,setImported]=useState<{bundle:AppBundle;owner:Document}|null>(null),[error,setError]=useState('')
   useEffect(()=>activateApps(slug),[slug])
   useEffect(()=>{const failure=(e:Event)=>{const d=(e as CustomEvent).detail;if(d?.slug===slug)setError(d.error)};window.addEventListener('custom-app-error',failure);return()=>window.removeEventListener('custom-app-error',failure)},[slug])
-  return <>{current?.slug===slug&&<AppsMenu slug={slug} current={current} manage={setManage} onShowCanvas={onShowCanvas}/>}
+  return <>{current?.slug===slug&&<AppsMenu slug={slug} current={current} manage={setManage} importApp={(bundle,owner)=>setImported({bundle,owner})} onShowCanvas={onShowCanvas}/>}
     {data.panels.filter(p=>p.open).map(p=>{const app=data.apps.find(a=>a.id===p.app);return app?<PanelWindow key={p.id} slug={slug} panel={p} app={app}/>:null})}
     {error&&<div className="custom-app-global-error" role="alert">{error}<button onClick={()=>setError('')}>Dismiss</button></div>}
-    {manage&&createPortal(<div className="custom-app-management"><Dialog title={manage.name} close={()=>setManage(null)}><p>{manage.description}</p><p>Created by {manage.created_by}</p><p>Deleting this app also deletes every saved panel and its state.</p><div className="custom-app-dialog-actions"><button type="button" onClick={()=>setManage(null)}>Cancel</button><button type="button" className="danger" onClick={()=>void changeApps(slug,{action:'app_delete',app:manage.id,expected_rev:manage.rev,delete_panels:true}).then(()=>setManage(null)).catch(e=>setError(String(e)))}>Delete app and panels</button></div></Dialog></div>,document.body)}
+    {manage&&createPortal(<div className="custom-app-management"><Dialog title={manage.name} close={()=>setManage(null)}><p>{manage.description}</p><p>Created by {manage.created_by}</p><AppExport key={manage.id} slug={slug} app={manage} owner={document}/><p>Deleting this app also deletes every saved panel and its state.</p><div className="custom-app-dialog-actions"><button type="button" onClick={()=>setManage(null)}>Cancel</button><button type="button" className="danger" onClick={()=>void changeApps(slug,{action:'app_delete',app:manage.id,expected_rev:manage.rev,delete_panels:true}).then(()=>setManage(null)).catch(e=>setError(String(e)))}>Delete app and panels</button></div></Dialog></div>,document.body)}
+    {imported&&createPortal(<div className="custom-app-management"><Dialog title="Import app" close={()=>setImported(null)}><AppImport slug={slug} bundle={imported.bundle} close={()=>setImported(null)}/></Dialog></div>,imported.owner.body)}
   </>
 }
 

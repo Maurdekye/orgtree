@@ -72,6 +72,11 @@ The existing4MiB HTML/2MiB state/depth limits still apply. No grants, sessions,
 credentials, links, IDs, open flags or machine geometry travel. A key named
 permissions inside a saved JSON state remains ordinary app data, never a grant.
 
+User parity: Apps → Import app shows a native preview before confirmation;
+Manage app → Export app offers the same optional saved-data choice. File
+selection/download is ordinary local UI; import never opens a saved copy or
+confers permission.
+
 See also: [orgtree-scope-and-permissions](../scope-and-permissions/SKILL.md),
 [orgtree-tool-org-logo](../tool-org-logo/SKILL.md),
 [orgtree-tool-retool](../tool-retool/SKILL.md).

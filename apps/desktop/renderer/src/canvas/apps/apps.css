@@ -48,6 +48,10 @@
 .custom-app-dialog-actions>span { flex:1 }
 .custom-app-dialog-actions label.button { display:inline-flex;flex:none;padding:4px 8px;border:1px solid var(--border);border-radius:4px;cursor:pointer }
 .custom-app-dialog-actions button { min-height:26px }
+.custom-app-import-file { cursor:pointer;border:1px solid var(--border);border-radius:4px;padding:4px 8px;font-size:12px }
+.custom-app-dialog .custom-app-include { flex:none;flex-direction:row;align-items:center;gap:6px }
+.custom-app-portable-export { display:flex;flex-direction:column;align-items:flex-start;gap:8px;padding:10px 0;border-block:1px solid var(--border) }
+.custom-app-import-copies { margin:0;padding-left:20px;max-height:130px;overflow:auto;font-size:12px }
 .custom-app-activity { padding-left:20px;overflow:auto;font-size:12px }
 .custom-app-activity time { color:var(--muted) }
 .custom-app-activity pre { white-space:pre-wrap;overflow-wrap:anywhere }
