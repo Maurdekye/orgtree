@@ -10,6 +10,8 @@ function store(slug:string):Store {
 }
 function publish(s:Store,next:Partial<Snapshot>){s.snapshot={...s.snapshot,...next};for(const fn of s.subs)fn()}
 const merge=<T extends {id:string}>(old:T[],items:T[]):T[]=>[...new Map([...old,...items].map(x=>[x.id,x])).values()]
+/** Execution intent; older payloads without it ran exactly while open. */
+export const isRunning=(p:CustomPanel):boolean=>p.running??p.open
 export function useApps(slug:string):Snapshot {const s=store(slug);return useSyncExternalStore(fn=>{s.subs.add(fn);return()=>s.subs.delete(fn)},()=>s.snapshot)}
 export function invalidateCustomApps(slug:string):void {const s=store(slug);if(s.active)void refreshApps(slug)}
 export function activateApps(slug:string):()=>void {const s=store(slug);s.active=true;void refreshApps(slug);return()=>{s.active=false;s.pending=false;stores.delete(slug)}}
@@ -18,21 +20,22 @@ export async function refreshApps(slug:string):Promise<void>{
   publish(s,{loading:true})
   s.running=(async()=>{const epoch=s.seenEpoch;try{
     const panels:CustomPanel[]=[];let after:string|null=null
-    do{const page:AppPage<CustomPanel>=await customAppsRequest(slug,{action:'list',kind:'panels',open:true,...(after?{after}:{})});panels.push(...page.items);after=page.next_cursor}while(after)
+    // Running copies include the hidden ones: their HTML stays loaded.
+    do{const page:AppPage<CustomPanel>=await customAppsRequest(slug,{action:'list',kind:'panels',running:true,...(after?{after}:{})});panels.push(...page.items);after=page.next_cursor}while(after)
     const apps=await customAppsRequest<AppPage<CustomApp>>(slug,{action:'list',kind:'apps'})
     const known=new Set(apps.items.map(a=>a.id));for(const panel of panels)if(!known.has(panel.app)){const app=await customAppsRequest<CustomApp>(slug,{action:'app_get',app:panel.app});apps.items.push(app);known.add(app.id)}
-    // Keep explicitly loaded closed panels for the menu, drop stale open rows.
+    // Keep explicitly loaded stopped panels for the menu, drop stale running rows.
     // A read begun before an acknowledgement must not resurrect its badge.
     if(epoch!==s.seenEpoch){s.pending=true;return}
-    publish(s,{apps:apps.items,panels:merge(s.snapshot.panels.filter(p=>!p.open),panels),appNext:apps.next_cursor,newCount:apps.new_count??0,error:''})
+    publish(s,{apps:apps.items,panels:merge(s.snapshot.panels.filter(p=>!isRunning(p)),panels),appNext:apps.next_cursor,newCount:apps.new_count??0,error:''})
   }catch(error){publish(s,{error:String(error)})}finally{publish(s,{loading:false});s.running=null;if(s.pending&&s.active){s.pending=false;void refreshApps(slug)}}})()
   return s.running
 }
 export async function loadAppsMenu(slug:string,more:'apps'|'panels'|null=null):Promise<void>{
   const s=store(slug)
   try{
-    if(more!=='panels'){const epoch=s.seenEpoch,page=await customAppsRequest<AppPage<CustomApp>>(slug,{action:'list',kind:'apps',...(more==='apps'&&s.snapshot.appNext?{after:s.snapshot.appNext}:{})});if(epoch!==s.seenEpoch){void refreshApps(slug);return}publish(s,{apps:merge(more==='apps'?s.snapshot.apps:s.snapshot.apps.filter(a=>s.snapshot.panels.some(p=>p.open&&p.app===a.id)),page.items),appNext:page.next_cursor,newCount:page.new_count??0})}
-    if(more!=='apps'){const page=await customAppsRequest<AppPage<CustomPanel>>(slug,{action:'list',kind:'panels',...(more==='panels'&&s.snapshot.panelNext?{after:s.snapshot.panelNext}:{})});publish(s,{panels:merge(more==='panels'?s.snapshot.panels:s.snapshot.panels.filter(p=>p.open),page.items),panelNext:page.next_cursor})}
+    if(more!=='panels'){const epoch=s.seenEpoch,page=await customAppsRequest<AppPage<CustomApp>>(slug,{action:'list',kind:'apps',...(more==='apps'&&s.snapshot.appNext?{after:s.snapshot.appNext}:{})});if(epoch!==s.seenEpoch){void refreshApps(slug);return}publish(s,{apps:merge(more==='apps'?s.snapshot.apps:s.snapshot.apps.filter(a=>s.snapshot.panels.some(p=>isRunning(p)&&p.app===a.id)),page.items),appNext:page.next_cursor,newCount:page.new_count??0})}
+    if(more!=='apps'){const page=await customAppsRequest<AppPage<CustomPanel>>(slug,{action:'list',kind:'panels',...(more==='panels'&&s.snapshot.panelNext?{after:s.snapshot.panelNext}:{})});publish(s,{panels:merge(more==='panels'?s.snapshot.panels:s.snapshot.panels.filter(p=>isRunning(p)),page.items),panelNext:page.next_cursor})}
   }catch(error){publish(s,{error:String(error)})}
 }
 export async function markAppsSeen(slug:string,apps:string[]):Promise<void>{

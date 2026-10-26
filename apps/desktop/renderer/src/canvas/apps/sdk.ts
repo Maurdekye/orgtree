@@ -1,7 +1,9 @@
 // Provisional4.5 API: opaque HTML talks only to its bound host. No credential,
 // arbitrary endpoint, caller identity or permission-decision method is exposed.
+// Dedicated Workers may run locally built blob: scripts (user 2026-10-26:
+// game-like background work); they inherit this policy, so no network either.
 export const PANEL_PROTOCOL = 'orgtree-panel-v1'
-export const PANEL_CSP = "default-src 'none'; script-src 'unsafe-inline' data:; style-src 'unsafe-inline' data:; img-src data: blob:; media-src data: blob:; font-src data:; connect-src 'none'; frame-src 'none'; worker-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'"
+export const PANEL_CSP = "default-src 'none'; script-src 'unsafe-inline' data:; style-src 'unsafe-inline' data:; img-src data: blob:; media-src data: blob:; font-src data:; connect-src 'none'; frame-src 'none'; worker-src blob:; object-src 'none'; base-uri 'none'; form-action 'none'"
 export interface PanelRequest {id:string;method:string;args:unknown}
 export function panelRequest(event:MessageEvent,source:Window|null,channel:string):PanelRequest|null {
   if(!source || event.source!==source || event.origin!=='null')return null

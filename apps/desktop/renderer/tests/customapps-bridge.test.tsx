@@ -54,18 +54,36 @@ test('app engine action uses a parent-only bound session and a native one-shot p
   assert.equal(f.calls.length,before,'HTML must not select caller, panel, permissions or general operations')
 })
 
-test('cancelled and hidden app hosts discard prompts and close even a late session without deciding',async t=>{
+// USER 2026-10-26: hiding keeps a panel running. A hidden panel never opens a
+// native prompt: it is refused (interaction_required) and its challenge closed.
+test('cancelled prompts and hidden running hosts discard prompts without deciding',async t=>{
   visible(t);const f=fixture('cancel-action');t.after(f.restore)
   const view=await mountView(<PanelHtml slug="cancel-action" app={f.app} panel={f.panel}/>,el=>el);t.after(()=>view.unmount())
-  let c=await connect(view.el);await c.send('call','engine.call',{action:'mail.send',args:{to:'agent',body:'x'}})
+  const c=await connect(view.el);await c.send('call','engine.call',{action:'mail.send',args:{to:'agent',body:'x'}})
   assert.ok(document.querySelector('[aria-label="App permission"]'))
   await inAct(async()=>{document.dispatchEvent(new window.KeyboardEvent('keydown',{key:'Escape',bubbles:true}));await tick()})
   assert.equal(document.querySelector('[aria-label="App permission"]'),null);assert.ok(f.calls.some(x=>x.action==='session_close'));assert.equal(f.calls.some(x=>x.action==='decide'),false)
+  await c.send('shown','engine.call',{action:'mail.send',args:{to:'agent',body:'while shown'}})
+  assert.ok(document.querySelector('[aria-label="App permission"]'),'a visible panel still asks')
+  await view.render(<PanelHtml slug="cancel-action" app={f.app} panel={f.panel} visible={false}/>);await inAct(tick)
+  assert.equal(document.querySelector('[aria-label="App permission"]')===null,true,'hiding refuses the open prompt')
+  assert.match(String(c.answers.find(x=>x.id==='shown')?.error),/interaction_required/)
+  await c.send('hidden','engine.call',{action:'mail.send',args:{to:'agent',body:'while hidden'}})
+  assert.equal(document.querySelector('[aria-label="App permission"]')===null,true,'a hidden panel never opens a prompt')
+  assert.match(String(c.answers.find(x=>x.id==='hidden')?.error),/interaction_required/)
+  assert.equal(f.calls.some(x=>x.action==='decide'),false);assert.equal(c.frame.isConnected,true,'the hidden runtime keeps its frame')
+  assert.equal(f.calls.filter(x=>x.action==='session_close').length,3,'each refused or cancelled challenge closes its session')
+})
+
+test('a removed (powered off) host closes even a late session without calling',async t=>{
+  visible(t);const f=fixture('late-session');t.after(f.restore)
+  const view=await mountView(<PanelHtml slug="late-session" app={f.app} panel={f.panel}/>,el=>el)
+  const c=await connect(view.el)
   let release!:()=>void;f.delayOpen(new Promise<void>(r=>{release=r}))
   await c.send('late','engine.call',{action:'mail.send',args:{to:'agent',body:'late'}})
-  await view.render(<PanelHtml slug="cancel-action" app={f.app} panel={f.panel} visible={false}/>)
+  await inAct(async()=>{view.unmount();await tick()})
   await inAct(async()=>{release();await tick()})
-  assert.equal(document.querySelector('[aria-label="App permission"]'),null);assert.equal(f.calls.filter(x=>x.action==='session_close').length,2);assert.equal(f.calls.filter(x=>x.action==='call').length,1)
+  assert.equal(f.calls.filter(x=>x.action==='session_close').length,1);assert.equal(f.calls.filter(x=>x.action==='call').length,0)
 })
 
 test('native App permissions editor changes every-copy grant with a separate permission revision',async t=>{

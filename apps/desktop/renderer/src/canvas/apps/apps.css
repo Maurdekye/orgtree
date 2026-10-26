@@ -98,3 +98,15 @@
 .custom-apps-menu-app:hover { background:var(--hover) }
 .custom-apps-menu-app>.custom-apps-add { flex:none;display:inline-flex;align-items:center;justify-content:center;border:0;border-radius:4px;background:none;padding:5px }
 .custom-app-history pre { margin:4px 0 0 }
+/* Running but not visible (user 2026-10-26: hidden panels keep running). Chromium
+   throttles a cross-origin frame that is display:none, visibility:hidden or outside
+   the viewport, so a parked panel stays in the viewport at its size, transparent,
+   inert and under everything. */
+.custom-app-parked,.custom-app-parking { position:fixed!important;left:0!important;top:0!important;opacity:0!important;z-index:-1!important;overflow:visible;contain:layout style }
+.custom-app-parked,.custom-app-parked *,.custom-app-parking,.custom-app-parking * { pointer-events:none!important }
+.custom-app-parking { width:0;height:0 }
+.custom-app-dot.running { background:transparent;border:2px solid var(--accent) }
+.custom-apps-saved-power { display:flex;align-items:center;justify-content:center;flex:none;border:0;border-radius:4px;background:none;padding:6px;color:var(--muted) }
+.custom-apps-saved-power:hover { color:var(--text) }
+.custom-apps-saved-power svg { width:16px;height:16px }
+.custom-app-cpu { flex:none;color:var(--muted);font-size:11px;font-variant-numeric:tabular-nums }

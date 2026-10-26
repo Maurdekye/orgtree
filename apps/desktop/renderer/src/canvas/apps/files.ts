@@ -22,7 +22,8 @@ export class AppFileClient {
       const pending=(confirmation?result.confirmation_required:result.permission_required) as AppPermissionRequest
       const cap=input.action==='write'||input.action==='delete'||input.action==='grant'&&input.mode==='write'?'files.write':'files.read'
       if(!object(pending)||pending.app!==this.app||pending.panel!==this.panel||pending.capability!==cap||typeof pending.challenge!=='string'||!pending.challenge||!object(pending.request)||pending.request.action!==input.action)throw Error('App file permission does not match its host.')
-      const decision=await this.ask(pending,session,this.host.signal)
+      let decision:FileDecision|null
+      try{decision=await this.ask(pending,session,this.host.signal)}catch(e){this.host.cancelSession();throw e}
       if(this.host.signal.aborted)throw Error('App host closed or hidden.')
       if(decision===null){this.host.cancelSession();throw Error('App file request cancelled.')}
       result=await customAppsFiles<Record<string,unknown>>(this.slug,confirmation?{action:'confirm',app:this.app,session,challenge:pending.challenge,allow:decision.choice!=='deny'}:{action:'decide',session,challenge:pending.challenge,choice:decision.choice,...(decision.path===undefined?{}:{path:decision.path})})

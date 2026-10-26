@@ -41,6 +41,7 @@ const host = () => {
       state.inReopenSet = false
       state.popoutsOpen = 0
     },
+    keepForPanels() { state.kept = true; state.hidden = true },
   }
 }
 const UNTOUCHED = { tearingDown: false, popoutsOpen: 3, inReopenSet: true }
@@ -219,4 +220,28 @@ test('f7: a quit every window agrees to DOES clear their drafts', () => {
   for (const id of ['create-a', 'create-b']) registry.setUnsavedCreation(id, false)
   assert.deepEqual(registry.quitCreationGate(), { action: 'proceed' })
   assert.equal(registry.beginClose('create-a'), 'close', 'the draft was discarded, so closing asks nothing')
+})
+
+// ------------------------------------------- running app panels (2026-10-26)
+
+test('KEPT FOR PANELS: one of several windows hosting running panels hides, untouched', () => {
+  // User 2026-10-26: closing a panel's visual does not stop it. Tearing the
+  // window down would destroy the renderer its panels run in.
+  const h = host()
+  assert.equal(performClose(inputs({ otherMainsVisible: true, hostsRunningPanels: true }), h), 'hide')
+  assert.equal(h.state.prevented, true)
+  assert.equal(h.state.kept, true, 'native finishes this close once the panels stop')
+  assert.deepEqual(record(h.state), UNTOUCHED)
+})
+
+test('KEPT FOR PANELS controls: no panels tears down; a quit tears down; exit-on-close still quits', () => {
+  const plain = host()
+  assert.equal(performClose(inputs({ otherMainsVisible: true, hostsRunningPanels: false }), plain), 'proceed')
+  assert.equal(plain.state.tearingDown, true)
+  const quitting = host()
+  assert.equal(performClose(inputs({ quitting: true, otherMainsVisible: true, hostsRunningPanels: true }), quitting), 'proceed')
+  assert.equal(quitting.state.kept, undefined, 'quitting ends execution; saved intent restores it next launch')
+  const last = host()
+  assert.equal(performClose(inputs({ exitOnClose: true, hostsRunningPanels: true }), last), 'quit',
+    'the exit-on-close preference is not overridden')
 })

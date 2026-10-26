@@ -14,15 +14,18 @@ function server(slug:string,panels:CustomPanel[]){
   const original=globalThis.fetch
   globalThis.fetch=async(raw,init)=>{
     const url=new URL(String(raw),'http://local'),input=init?.method==='POST'?JSON.parse(String(init.body)):JSON.parse(url.searchParams.get('request')??'{}');calls.push(input)
+    if(url.pathname===`/api/orgs/${slug}/apps/runtime`)return new Response(JSON.stringify({lease_ms:20000,stop:[],sample_epoch:0}),{status:200,headers:{'Content-Type':'application/json'}})
     assert.equal(url.pathname,`/api/orgs/${slug}/apps`)
     let out:unknown
-    if(input.action==='list')out={items:input.kind==='apps'?[app]:[...saved.values()].filter(p=>input.open===undefined||p.open===input.open).map(({state,...p})=>p),next_cursor:null}
+    if(input.action==='list')out={items:input.kind==='apps'?[app]:[...saved.values()].filter(p=>(input.open===undefined||p.open===input.open)&&(input.running===undefined||(p.running??p.open)===input.running)).map(({state,...p})=>p),next_cursor:null}
     else if(input.action==='app_get')out=app
     else if(input.action==='panel_get')out=saved.get(input.panel)
     else if(input.action==='events')out={panel:input.panel,events:[],next_cursor:null,oldest_retained:null}
     else if(input.action==='panel_open'){
       let p=input.panel?saved.get(input.panel):!input.new?[...saved.values()].at(-1):undefined
-      if(!p){p={...make('p'+next++),state:structuredClone(app.definition!.initial_state)};saved.set(p.id,p)}p.open=true;p.rev++;out=p
+      if(!p){p={...make('p'+next++),state:structuredClone(app.definition!.initial_state)};saved.set(p.id,p)}if(!p.running)p.run_generation=(p.run_generation??0)+1;p.open=true;p.running=true;p.rev++;out=p
+    }else if(input.action==='panel_stop'){
+      const p=saved.get(input.panel)!;p.open=false;p.running=false;p.run_generation=(p.run_generation??1)+1;p.rev++;out=p
     }else if(input.action==='state_set'||input.action==='panel_update'){
       const p=saved.get(input.panel)!;if(input.expected_rev!==p.rev)return new Response('{"detail":"changed"}',{status:409,headers:{'Content-Type':'application/json'}})
       if(input.action==='state_set')p.state=input.state;else for(const name of ['label','open','placement'])if(name in input)(p as unknown as Record<string,unknown>)[name]=input[name]
@@ -80,7 +83,10 @@ test('custom apps menu opens a fresh independent copy, exposes JSON state and cl
   assert.ok(owner.querySelector(`[data-custom-panel="${fresh.id}"]`))
   await press('Settings for '+fresh.label);await press('State…');await inAct(tick)
   assert.equal(JSON.parse(owner.querySelector<HTMLTextAreaElement>('textarea[aria-label="Panel JSON state"]')!.value).count,2)
-  await press('Cancel');await press('close this window');await press('Close '+fresh.label)
-  assert.equal(fixture.saved.has(fresh.id),true);assert.equal(fixture.saved.get(fresh.id)!.open,false)
-  assert.equal(owner.querySelector(`[data-custom-panel="${fresh.id}"]`),null)
+  // USER 2026-10-26: Hide keeps the panel running (parked); Power off stops it.
+  await press('Cancel');await press('close this window');await press('Hide '+fresh.label)
+  assert.equal(fixture.saved.has(fresh.id),true);assert.equal(fixture.saved.get(fresh.id)!.open,false);assert.equal(fixture.saved.get(fresh.id)!.running,true)
+  assert.ok(owner.querySelector(`[data-custom-panel="${fresh.id}"][data-parked]`),'a hidden running panel stays loaded, parked')
+  await press('Apps');await inAct(async()=>{owner.querySelector<HTMLButtonElement>(`.custom-apps-saved-row [aria-label="Power off ${fresh.label}"]`)!.click();await tick()})
+  assert.equal(fixture.saved.get(fresh.id)!.running,false);assert.equal(owner.querySelector(`[data-custom-panel="${fresh.id}"]`)===null,true,'a powered-off panel unmounts')
 })

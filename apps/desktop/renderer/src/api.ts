@@ -1693,6 +1693,10 @@ export const customAppsRequest = <T,>(slug:string,input:Record<string,unknown>):
 export const customAppsBridge = <T=unknown,>(slug:string,input:Record<string,unknown>):Promise<T> =>
   req<T>('/api/orgs/'+encodeURIComponent(slug)+'/apps/bridge',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(input)},DEFAULT_TIMEOUT_MS,[],false)
 
+/** Native desktop windows report the panels they actually run; never authority. */
+export const customAppsRuntime = <T=unknown,>(slug:string,input:Record<string,unknown>):Promise<T> =>
+  req<T>('/api/orgs/'+encodeURIComponent(slug)+'/apps/runtime',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(input)},DEFAULT_TIMEOUT_MS,[],false)
+
 /** Native parent only. File paths and permission decisions never enter the SDK. */
 export const customAppsFiles = <T=unknown,>(slug:string,input:Record<string,unknown>):Promise<T> =>
   req<T>('/api/orgs/'+encodeURIComponent(slug)+'/apps/files',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(input)},DEFAULT_TIMEOUT_MS,[],false)

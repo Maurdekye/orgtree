@@ -36,6 +36,9 @@ export interface CloseInputs {
   /** Visible windows other than this one, as closeAction counts them —
    *  popouts and artifact viewers included. */
   otherViews: number
+  /** Its renderer runs app panels (user 2026-10-26: hidden panels keep
+   *  running). Tearing it down would stop them, so it hides instead. */
+  hostsRunningPanels?: boolean
 }
 
 export type CloseOutcome =
@@ -60,6 +63,9 @@ export interface CloseHost {
   /** Set tearingDown, drop the reopen membership, close the owned popouts.
    *  Reached from ONE branch, so a refused close cannot touch any of it. */
   teardown(): void
+  /** Hide a window that is kept only for its running panels; it finishes the
+   *  close once they stop. */
+  keepForPanels(): void
 }
 
 export function performClose(input: CloseInputs, host: CloseHost): CloseOutcome {
@@ -81,6 +87,10 @@ export function performClose(input: CloseInputs, host: CloseHost): CloseOutcome 
     const action = closeAction(input.exitOnClose, input.quitting, input.otherViews)
     if (action === 'hide') { host.preventDefault(); host.hide(); return 'hide' }
     if (action === 'quit') { host.preventDefault(); host.quit(); return 'quit' }
+  } else if (!input.quitting && input.hostsRunningPanels) {
+    // The exit-on-close preference is untouched: only a close that would tear
+    // the window down while the application keeps running becomes a hide.
+    host.preventDefault(); host.keepForPanels(); return 'hide'
   }
   host.teardown()
   return 'proceed'

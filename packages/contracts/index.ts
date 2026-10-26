@@ -161,6 +161,10 @@ export interface ProviderLoginStatus {
  *  (apps/desktop/main/changelog-launch.ts): `to` is that release, `from` the
  *  one on record, null when the earlier version kept none. */
 export interface ChangelogAfterUpdate { from: string | null; to: string }
+/** One running panel's CPU: per-panel sampled V8 time, or its owner process
+ *  labelled shared; null when it could not be measured. */
+export interface PanelCpuSample { panel: string; generation: number; cpu_percent: number | null; method: 'sampled CPU' | 'shared process CPU' | null }
+
 export interface DesktopBridge {
   getAppVersion(): Promise<string>
   /** null except for the first window of the first launch after an update
@@ -241,6 +245,16 @@ export interface DesktopBridge {
    *  window minimized (measured 2026-09-11, which is why "Show desk" on a
    *  popped-out desk's placeholder appeared to do nothing). */
   focusPopout?(name: string): Promise<void>
+  /** Running app panels this window hosts (user 2026-10-26: a hidden panel
+   *  keeps running). While nonzero, native keeps this window's and its
+   *  popouts' timers unthrottled, and a close that would tear it down hides it. */
+  setPanelRuntime?(count: number): Promise<void>
+  /** Hide (not close) that popped-out window: a hidden app panel inside it
+   *  keeps running; focusPopout shows it again. */
+  hidePopout?(name: string): Promise<void>
+  /** On-demand CPU for this window's running panel frames, attributed through
+   *  each owner iframe's data-orgtree-runtime attribute; never continuous. */
+  samplePanels?(panels: { panel: string; generation: number }[]): Promise<PanelCpuSample[]>
   checkForUpdates(): Promise<UpdateStatus>
   onEvent(listener: (event: DesktopEvent) => void): () => void
   // --------------------------------------------- v3 multi-window (optional)

@@ -242,10 +242,20 @@ function DetachedNotice({ home, children }: { home: Document; children: ReactNod
   return createPortal(<div className="popout-placeholder" onPointerDown={stop} onClick={stop}>{children}</div>, target)
 }
 
+/** Keeps a live iframe's browsing context across a same-document move where
+ *  Chromium's atomic Node.moveBefore exists; elsewhere it is an ordinary move. */
+export function moveKeepingFrames(target: HTMLElement, node: HTMLElement): void {
+  const atomic = (target as HTMLElement & { moveBefore?: (node: Node, child: Node | null) => void }).moveBefore
+  if (atomic && node.isConnected && target.isConnected && node.ownerDocument === target.ownerDocument) {
+    try { atomic.call(target, node, null); return } catch { /* fall back to an ordinary move */ }
+  }
+  target.appendChild(node)
+}
+
 /** Stable portal target, physically adopted between documents. React never
  * receives a different target and never owns/removes the hand-built shell. */
 export function MovableSurface({ kind, title, org = null, editable = true, children,
-  anchor, onDetached, onDismiss, flush, restore, sourceBox, minDimensions, exactSourceBox = false }: {
+  anchor, onDetached, onDismiss, flush, restore, sourceBox, minDimensions, exactSourceBox = false, parked = false, preserveFrames = false }: {
   kind: string; title: ReactNode; org?: string | null; editable?: boolean
   children: ReactNode; anchor?: HTMLElement | null; restore?: WindowRestore
   onDetached?: (detached: boolean, reason?: 'close' | 'return') => void; flush?: () => void
@@ -256,6 +266,12 @@ export function MovableSurface({ kind, title, org = null, editable = true, child
   /** A temporary desk becomes a window at its current frame, even if borrowed
    *  from an older saved window. Explicit lifecycle restores still use that save. */
   exactSourceBox?: boolean
+  /** Hidden but alive (a running app panel): its saved window is not restored
+   *  and no "in another window" notice shows until it is visible again. */
+  parked?: boolean
+  /** Same-document moves use Node.moveBefore, which keeps live iframes and
+   *  their scripts instead of reloading them; other moves are unchanged. */
+  preserveFrames?: boolean
   /** This surface's own box in its window, for the shape AND the place a
    *  first pop-out opens at (see `popupSize` and `popupPlacement`). A
    *  surface whose visible panel is NOT the whole of its DOM has to say so:
@@ -318,7 +334,8 @@ export function MovableSurface({ kind, title, org = null, editable = true, child
   }
   const place = (target: HTMLElement) => {
     if (fallback.current && fallback.current !== target) discardFallback()
-    target.appendChild(parts.container)
+    if (preserveFrames) moveKeepingFrames(target, parts.container)
+    else target.appendChild(parts.container)
     // Dialogs follow the document, outside any pin stacking context.
     target.ownerDocument.body.appendChild(parts.overlays)
   }
@@ -707,10 +724,10 @@ export function MovableSurface({ kind, title, org = null, editable = true, child
     }
   }, [anchor, parent?.document, parts])
   useEffect(() => {
-    if (!ready || !restoreAllowed || restored.current) return
+    if (!ready || !restoreAllowed || parked || restored.current) return
     restored.current = true
     if (restoredWindows(org).some(r => r.key === layoutKey)) open(true)
-  }, [ready, restoreAllowed, layoutKey, org])
+  }, [ready, restoreAllowed, parked, layoutKey, org])
   useEffect(() => () => {
     if (child.current && !child.current.closed) captureWindow(layoutKey, kind, org, child.current, true, latest.current.restore)
     closeSavedWindow(layoutKey)
@@ -738,7 +755,7 @@ export function MovableSurface({ kind, title, org = null, editable = true, child
   }, [owner, detached, parent, kind, org, editable])
   return <>
     <div ref={placeholder} className="movable-anchor">
-      {detached && !anchor && <DetachedNotice home={placeholder.current?.ownerDocument ?? initialOwner.current}>
+      {detached && !anchor && !parked && <DetachedNotice home={placeholder.current?.ownerDocument ?? initialOwner.current}>
         <span>{title} is in another window.</span>
         <button onClick={reveal}>Show window</button>
         <button onClick={redock}>Return here</button>

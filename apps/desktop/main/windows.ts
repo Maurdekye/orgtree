@@ -216,6 +216,15 @@ export function tabPopoutBounds(features: string, rect: Electron.Rectangle,
     y: Math.max(area.y, Math.min(rect.y, area.y + area.height - height)), width, height }
 }
 
+const panelsAwake = new WeakMap<BrowserWindow, boolean>()
+const throttles = new WeakMap<BrowserWindow, () => void>()
+/** Running app panels keep a window's timers unthrottled, also while it is
+ *  hidden in the tray or minimized (user 2026-10-26: hidden panels run). */
+export function setPanelsAwake(window: BrowserWindow, on: boolean): void {
+  panelsAwake.set(window, on)
+  if (!window.isDestroyed()) throttles.get(window)?.()
+}
+
 export function configureWindow(window: BrowserWindow, liveOrigin: Live, isMain: boolean, register?: (window: BrowserWindow, portal?: boolean) => void, openArtifact?: (url: string) => void, openExternal: OpenExternal = url => shell.openExternal(url), trackPopout?: TrackPopout): void {
   // did-create-window supplies parsed options, not the original feature text.
   // Retain only the named placement accepted by this window's open handler.
@@ -224,13 +233,14 @@ export function configureWindow(window: BrowserWindow, liveOrigin: Live, isMain:
   if (!isMain) {
     // Chromium can leave an adopted about:blank document "hidden" even while
     // its native window is visible. Keep that visible portal's frames running.
-    const throttle = () => window.webContents.setBackgroundThrottling(!window.isVisible() || window.isMinimized())
+    const throttle = () => window.webContents.setBackgroundThrottling(!panelsAwake.get(window) && (!window.isVisible() || window.isMinimized()))
+    throttles.set(window, throttle)
     window.on('show', throttle)
     window.on('hide', throttle)
     window.on('minimize', throttle)
     window.on('restore', throttle)
     throttle()
-  }
+  } else throttles.set(window, () => window.webContents.setBackgroundThrottling(!panelsAwake.get(window)))
   window.webContents.on('will-attach-webview', event => event.preventDefault())
   // Cut/copy/paste in every text field of this window. Registered HERE, and not
   // once for the main window, because this function recurses into every popout

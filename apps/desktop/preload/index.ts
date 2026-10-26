@@ -87,6 +87,9 @@ if (process.isMainFrame && expectedOrigin && location.origin === expectedOrigin 
     toggleMaximizePopout: (name: string) => ipcRenderer.invoke('desktop:popout-toggle-maximize', name),
     closePopout: (name: string) => ipcRenderer.invoke('desktop:popout-close', name),
     focusPopout: (name: string) => ipcRenderer.invoke('desktop:popout-focus', name),
+    setPanelRuntime: (count: number) => ipcRenderer.invoke('desktop:panel-runtime', count),
+    hidePopout: (name: string) => ipcRenderer.invoke('desktop:popout-hide', name),
+    samplePanels: (panels: { panel: string; generation: number }[]) => ipcRenderer.invoke('desktop:sample-panels', panels),
     checkForUpdates: () => ipcRenderer.invoke('desktop:check-for-updates'),
     startProviderLogin: (provider: LoginProvider, opts?: { profileDir?: string; accountId?: string }) =>
       ipcRenderer.invoke('desktop:provider-login-start', provider, opts),

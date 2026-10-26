@@ -29,6 +29,9 @@ export { default as FileIcon } from '@mui/icons-material/InsertDriveFileOutlined
 export { default as FolderIcon } from '@mui/icons-material/FolderOpen'
 export { default as FrozenIcon } from '@mui/icons-material/AcUnit'
 export { default as EyeIcon } from '@mui/icons-material/VisibilityOutlined'
+// App panels: Hide keeps a panel running; Power off stops it (user 2026-10-26).
+export { default as HideIcon } from '@mui/icons-material/VisibilityOffOutlined'
+export { default as PowerIcon } from '@mui/icons-material/PowerSettingsNew'
 export { default as FullscreenIcon } from '@mui/icons-material/Fullscreen'
 export { default as GitHubIcon } from '@mui/icons-material/GitHub'
 export { default as HearingIcon } from '@mui/icons-material/Hearing'

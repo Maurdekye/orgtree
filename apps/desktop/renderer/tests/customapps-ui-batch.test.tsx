@@ -36,11 +36,11 @@ test('the app row opens its first listed copy, + always creates one, and neither
  assert.deepEqual([...m.querySelectorAll('.custom-apps-saved-row .custom-apps-saved span:nth-child(2)')].map(e=>e.textContent),['Panel 2','Draft'],'saved rows list the most recently used copy first')
  // User 2026-10-26: no Open/Closed word; the light alone shows state, named in the tooltip.
  const rows=()=>[...document.querySelectorAll<HTMLElement>('.custom-apps-menu .custom-apps-saved')].map(b=>[b.textContent,b.title,b.getAttribute('aria-label'),b.querySelector('.custom-app-dot')?.className])
- assert.deepEqual(rows(),[['Panel 2','Closed','Panel 2, closed','custom-app-dot'],['Draft','Closed','Draft, closed','custom-app-dot']])
+ assert.deepEqual(rows(),[['Panel 2','Off','Panel 2, off','custom-app-dot'],['Draft','Off','Draft, off','custom-app-dot']])
  assert.equal(m.querySelector('.custom-apps-open')!.getAttribute('title'),'Open Panel 2')
  await inAct(async()=>{m.querySelector<HTMLButtonElement>('.custom-apps-open')!.click();await tick()})
  assert.deepEqual(opens().at(-1),{action:'panel_open',panel:'newer'},'the app row opens the first listed copy')
- m=await menu();assert.deepEqual(rows()[0],['Panel 2','Open','Panel 2, open','custom-app-dot open'],'an open copy lights its dot')
+ m=await menu();assert.deepEqual(rows()[0],['Panel 2','Running · visible','Panel 2, running · visible','custom-app-dot open'],'an open copy lights its dot')
  await inAct(async()=>{m.querySelector<HTMLElement>('.custom-apps-menu-app small')!.dispatchEvent(new window.MouseEvent('click',{bubbles:true}));await tick()})
  assert.deepEqual(opens().at(-1),{action:'panel_open',panel:'newer'},'a click anywhere on the row opens it')
  const before=opens().length;m=await menu()

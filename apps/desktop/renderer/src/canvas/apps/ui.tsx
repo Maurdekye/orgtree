@@ -1,12 +1,15 @@
 import {useCallback,useEffect,useLayoutEffect,useRef,useState,useSyncExternalStore} from 'react'
 import type {CSSProperties,PointerEvent as ReactPointerEvent} from 'react'
 import {createPortal} from 'react-dom'
-import {AddIcon,AppsIcon,CloseIcon,SettingsIcon,PinIcon} from '../../icons'
+import {AddIcon,AppsIcon,HideIcon,PowerIcon,SettingsIcon,PinIcon} from '../../icons'
 import PinOutlinedIcon from '@mui/icons-material/PushPinOutlined'
-import {MovableSurface,PopoutButton,useSurface,useSurfaceDocument} from '../../popout'
+import {MovableSurface,PopoutButton,moveKeepingFrames,useSurface,useSurfaceDocument} from '../../popout'
+import {desktop} from '../../desktop'
+import {useContextMenu,type MenuEntry} from '../contextmenu'
 import {windowExitStarted} from '../../windowlayout'
 import {customAppsRequest} from '../../api'
-import {activateApps,changeApps,loadAppsMenu,markAppsSeen,useApps} from './store'
+import {activateApps,changeApps,isRunning,loadAppsMenu,markAppsSeen,useApps} from './store'
+import {samplePanels,usePanelCpu} from './runtime'
 import {PanelHtml} from './host'
 import {AppSettings,PanelSettings} from './settings'
 import {AppDialog as Dialog} from './dialog'
@@ -27,6 +30,18 @@ const anchors=new Map<string,{element:HTMLElement;zoom:number}>(),returns=new Ma
 /** Each org window's "show the canvas" switch; a canvas pin is only visible there. */
 const showCanvas=new Map<string,()=>void>()
 const key=(slug:string,id:string)=>slug+'\0'+id
+/** Visible => running; a hidden panel may still run (user 2026-10-26). */
+export function panelRunState(p:CustomPanel):{cls:string;word:string}{
+  return isRunning(p)?(p.open?{cls:'open',word:'Running · visible'}:{cls:'running',word:'Running · hidden'}):{cls:'',word:'Off'}
+}
+const cpuText=(cpu:number|null|undefined,method:string|null|undefined)=>cpu===null||cpu===undefined?'':`${cpu<10?cpu.toFixed(1):Math.round(cpu)}% CPU${method==='shared process CPU'?' (shared)':''}`
+/** A detached canvas anchor hands its panel here before React removes it, so
+ * the iframe is moved (kept alive), never dropped. MovableSurface re-places it. */
+function parking(doc:Document):HTMLElement{
+  let el=doc.body.querySelector<HTMLElement>(':scope > .custom-app-parking')
+  if(!el){el=doc.createElement('div');el.className='custom-app-parking';el.setAttribute('aria-hidden','true');el.toggleAttribute('inert',true);doc.body.appendChild(el)}
+  return el
+}
 function setMenu(value:Menu){menu=value;for(const fn of menuSubs)fn()}
 function useMenu(){return useSyncExternalStore(fn=>{menuSubs.add(fn);return()=>menuSubs.delete(fn)},()=>menu)}
 function putAnchor(slug:string,id:string,element:HTMLElement|null,zoom:number){const k=key(slug,id),old=anchors.get(k);if(old?.element===element&&old?.zoom===zoom)return;if(element)anchors.set(k,{element,zoom});else anchors.delete(k);for(const fn of anchorSubs)fn()}
@@ -38,13 +53,15 @@ export function AppsButton({slug}:{slug:string}){
 }
 
 function AppsMenu({slug,current,manage,managePanel,importApp,onShowCanvas}:{slug:string;current:NonNullable<Menu>;manage:(app:CustomApp)=>void;managePanel:(app:CustomApp,panel:CustomPanel)=>void;importApp:(bundle:AppBundle,owner:Document)=>void;onShowCanvas:()=>void}){
-  const data=useApps(slug),ref=useRef<HTMLDivElement>(null),owner=current.anchor.ownerDocument
+  const data=useApps(slug),ref=useRef<HTMLDivElement>(null),owner=current.anchor.ownerDocument,cpu=usePanelCpu(slug),rowMenu=useContextMenu()
   const [style,setStyle]=useState<CSSProperties>({visibility:'hidden'})
   const [seenHere,setSeenHere]=useState<Set<string>>(()=>new Set()),pending=useRef(new Set<string>())
   useLayoutEffect(()=>{const win=owner.defaultView;if(!win||!ref.current)return;const a=current.anchor.getBoundingClientRect(),r=ref.current.getBoundingClientRect(),width=Math.min(320,win.innerWidth-16)
     setStyle({width,left:Math.max(8,Math.min(a.right-width,win.innerWidth-width-8)),top:Math.max(8,Math.min(a.bottom+6,win.innerHeight-r.height-8))})
   },[owner,current.anchor,data.apps.length,data.panels.length])
-  useEffect(()=>{void loadAppsMenu(slug);const pointer=(e:PointerEvent)=>{if(!ref.current?.contains(e.target as Node)&&!current.anchor.contains(e.target as Node))setMenu(null)},keyboard=(e:KeyboardEvent)=>{if(e.key==='Escape'){e.preventDefault();e.stopPropagation();setMenu(null)}}
+  // CPU is sampled only while this running list is open (user: CPU per panel).
+  useEffect(()=>{const tick=()=>void samplePanels(slug);tick();const timer=setInterval(tick,3000);return()=>clearInterval(timer)},[slug])
+  useEffect(()=>{void loadAppsMenu(slug);const pointer=(e:PointerEvent)=>{const target=e.target as Element|null;if(!ref.current?.contains(target)&&!current.anchor.contains(target)&&!target?.closest?.('.ctxmenu[role="menu"]'))setMenu(null)},keyboard=(e:KeyboardEvent)=>{if(e.key==='Escape'){e.preventDefault();e.stopPropagation();setMenu(null)}}
     owner.addEventListener('pointerdown',pointer,true);owner.addEventListener('keydown',keyboard,true);return()=>{owner.removeEventListener('pointerdown',pointer,true);owner.removeEventListener('keydown',keyboard,true)}
   },[slug,owner,current.anchor])
   useEffect(()=>{
@@ -62,6 +79,9 @@ function AppsMenu({slug,current,manage,managePanel,importApp,onShowCanvas}:{slug
   // The saved rows' own order, most recently used first. User 2026-10-26: a
   // click on the app row opens the first listed copy, or creates one if none.
   const listed=(app:CustomApp)=>data.panels.filter(p=>p.app===app.id).sort((a,b)=>b.used_at.localeCompare(a.used_at))
+  // Start running never shows a window; Power off stops and hides it.
+  const power=async(p:CustomPanel,action:'panel_start'|'panel_stop')=>{try{await changeApps(slug,{action,panel:p.id,expected_rev:p.rev})}catch(e){window.dispatchEvent(new CustomEvent('custom-app-error',{detail:{slug,error:String(e)}}))}}
+  const rowEntries=(p:CustomPanel):MenuEntry[]=>isRunning(p)?[{label:'Power off',onSelect:()=>void power(p,'panel_stop'),description:'Stops this panel and closes its window'}]:[{label:'Start running',onSelect:()=>void power(p,'panel_start'),description:'Runs this panel hidden, without opening its window'}]
   return createPortal(<div ref={ref} className="ctxmenu custom-apps-menu" role="dialog" aria-label="Apps" style={style}>
     <header><strong>Apps</strong><label className="custom-app-import-file">Import app<input type="file" aria-label="Import app" accept=".orgtree-app,.json,application/json" hidden onChange={async e=>{const file=e.target.files?.[0];e.target.value='';if(!file)return;try{if(file.size>APP_BUNDLE_MAX)throw Error('App bundle exceeds 16 MiB.');const bundle=parseAppBundle(await file.text());setMenu(null);importApp(bundle,owner)}catch(error){window.dispatchEvent(new CustomEvent('custom-app-error',{detail:{slug,error:String(error)}}))}}}/></label><button type="button" onClick={()=>void loadAppsMenu(slug)}>Refresh</button></header>
     {data.error&&<p role="alert">{data.error}</p>}
@@ -72,20 +92,29 @@ function AppsMenu({slug,current,manage,managePanel,importApp,onShowCanvas}:{slug
         <button type="button" className="custom-apps-add" title="New panel" aria-label={`New panel for ${app.name}`} onClick={e=>{e.stopPropagation();void open({action:'panel_open',app:app.id,new:true})}}><AddIcon/></button>
         <button type="button" title={`App settings: ${app.name}`} aria-label={`Settings for ${app.name}`} onClick={e=>{e.stopPropagation();setMenu(null);manage(app)}}><SettingsIcon/></button></div>
       {/* User 2026-10-26: no Open/Closed word; the light alone shows state, named in the tooltip. */}
-      {listed(app).map(p=>{const state=p.open?'Open':'Closed';return <div key={p.id} className="custom-apps-saved-row"><button type="button" className="custom-apps-saved" title={state} aria-label={`${p.label}, ${state.toLowerCase()}`} onClick={()=>void open({action:'panel_open',panel:p.id})}><span className={p.open?'custom-app-dot open':'custom-app-dot'} aria-hidden="true"/><span>{p.label}</span></button><button type="button" className="custom-apps-saved-gear" title={`Panel settings: ${p.label}`} aria-label={`Settings for ${p.label}`} onClick={()=>{setMenu(null);managePanel(app,p)}}><SettingsIcon/></button></div>})}
+      {listed(app).map(p=>{const state=panelRunState(p),usage=isRunning(p)?cpuText(cpu.get(p.id)?.cpu,cpu.get(p.id)?.method):''
+        return <div key={p.id} className="custom-apps-saved-row" onContextMenu={e=>rowMenu.open(e,()=>rowEntries(p))}><button type="button" className="custom-apps-saved" title={state.word} aria-label={p.label+', '+state.word.toLowerCase()} onClick={()=>void open({action:'panel_open',panel:p.id})}><span className={'custom-app-dot'+(state.cls?' '+state.cls:'')} aria-hidden="true"/><span>{p.label}</span>{usage&&<small className="custom-app-cpu" title="Sampled CPU, one core = 100%">{usage}</small>}</button>
+          {isRunning(p)&&<button type="button" className="custom-apps-saved-power" title={`Power off ${p.label}: stops it running`} aria-label={`Power off ${p.label}`} onClick={()=>void power(p,'panel_stop')}><PowerIcon/></button>}
+          <button type="button" className="custom-apps-saved-gear" title={`Panel settings: ${p.label}`} aria-label={`Settings for ${p.label}`} onClick={()=>{setMenu(null);managePanel(app,p)}}><SettingsIcon/></button></div>})}
     </section>})}
     {data.appNext&&<button type="button" onClick={()=>void loadAppsMenu(slug,'apps')}>More apps</button>}
     {data.panelNext&&<button type="button" onClick={()=>void loadAppsMenu(slug,'panels')}>More saved panels</button>}
+    {rowMenu.node}
   </div>,owner.body)
 }
 
-function PanelBody({slug,app,panel,zoom}:{slug:string;app:CustomApp;panel:CustomPanel;zoom:number}){
+function PanelBody({slug,app,panel,zoom,shown}:{slug:string;app:CustomApp;panel:CustomPanel;zoom:number;shown:boolean}){
   const surface=useSurface(),owner=useSurfaceDocument(),[settings,setSettings]=useState(false),[error,setError]=useState('')
   const latest=useRef(panel);latest.current=panel
   const drag=useRef<{x:number;y:number;placement:AppPlacement;kind:'move'|'size'}|null>(null),[preview,setPreview]=useState<AppPlacement|null>(null)
   const update=async(fields:Record<string,unknown>)=>{try{setError('');return await changeApps<CustomPanel>(slug,{action:'panel_update',panel:panel.id,expected_rev:latest.current.rev,...fields})}catch(e){setError(String(e));throw e}}
-  const close=()=>void update({open:false}).catch(()=>{})
-  useEsc(close,panel.placement.mode==='float'&&!surface?.detached&&!settings,owner)
+  // Hide closes the window and keeps the panel running; a popped-out window is
+  // hidden natively, so its document and scripts survive. Power off stops it.
+  const close=()=>{if(surface?.detached&&surface.name)void desktop()?.hidePopout?.(surface.name)?.catch(()=>{});void update({open:false}).catch(()=>{})}
+  const powerOff=async()=>{try{setError('');await changeApps(slug,{action:'panel_stop',panel:panel.id,expected_rev:latest.current.rev})}catch(e){setError(String(e))}}
+  const wasShown=useRef(shown)
+  useEffect(()=>{if(shown&&!wasShown.current&&surface?.detached)surface.open();wasShown.current=shown},[shown,surface])
+  useEsc(close,shown&&panel.placement.mode==='float'&&!surface?.detached&&!settings,owner)
   // The pin goes to the canvas only (user 2026-10-26: "only canvas pin, no
   // screen pin"); unpinning returns to the centered window.
   const pin=()=>{const toCanvas=latest.current.placement.mode!=='canvas';void update({placement:appPlacement(slug,latest.current,toCanvas?'canvas':'float')}).then(()=>{if(toCanvas)showCanvas.get(slug)?.()}).catch(()=>{})}
@@ -94,15 +123,16 @@ function PanelBody({slug,app,panel,zoom}:{slug:string;app:CustomApp;panel:Custom
   const start=(event:ReactPointerEvent<HTMLElement>,kind:'move'|'size')=>{if(surface?.detached||(kind==='move'&&panel.placement.mode==='float')||event.button!==0||(event.target as HTMLElement).closest('button,input,select'))return;event.preventDefault();event.stopPropagation();event.currentTarget.setPointerCapture(event.pointerId);drag.current={x:event.clientX,y:event.clientY,placement:{...panel.placement},kind}}
   const move=(event:ReactPointerEvent<HTMLElement>)=>{const d=drag.current;if(!d)return;event.stopPropagation();const scale=panel.placement.mode==='canvas'?zoom:1,dx=(event.clientX-d.x)/scale,dy=(event.clientY-d.y)/scale;setPreview(d.kind==='move'?{...d.placement,x:d.placement.x+dx,y:d.placement.y+dy}:{...d.placement,width:Math.round(Math.max(160,Math.min(4096,d.placement.width+dx))),height:Math.round(Math.max(120,Math.min(4096,d.placement.height+dy)))})}
   const end=()=>{drag.current=null;if(preview){void update({placement:preview}).catch(()=>{});setPreview(null)}}
-  return <section className="settings custom-app-window" data-custom-panel={panel.id} data-detached={surface?.detached||undefined} data-centered={panel.placement.mode==='float'&&!surface?.detached||undefined} style={style} onPointerDown={e=>e.stopPropagation()} onWheel={e=>e.stopPropagation()} onKeyDown={e=>e.stopPropagation()}>
+  return <section className="settings custom-app-window" data-custom-panel={panel.id} data-parked={!shown||undefined} data-detached={surface?.detached||undefined} data-centered={panel.placement.mode==='float'&&!surface?.detached||undefined} style={style} onPointerDown={e=>e.stopPropagation()} onWheel={e=>e.stopPropagation()} onKeyDown={e=>e.stopPropagation()}>
     <header className="modalpin-bar on custom-app-title" onPointerDown={e=>start(e,'move')} onPointerMove={move} onPointerUp={end} onPointerCancel={()=>{drag.current=null;setPreview(null)}}>
       <AppsIcon/><strong className="modalpin-name" title={app.name+' · '+panel.label}>{app.name} · {panel.label}</strong>
       <button type="button" className="modalpin-btn" title="Panel settings" aria-label={'Settings for '+panel.label} onClick={()=>setSettings(true)}><SettingsIcon fontSize="inherit"/></button>
       <PopoutButton/>{!surface?.detached&&<button type="button" className={'modalpin-btn'+(panel.placement.mode==='canvas'?' active':'')} title={panel.placement.mode==='canvas'?'Unpin from canvas':'Pin to canvas'} aria-label={panel.placement.mode==='canvas'?'Unpin from canvas':'Pin to canvas'} aria-pressed={panel.placement.mode==='canvas'} onClick={pin}>{panel.placement.mode==='canvas'?<PinIcon fontSize="inherit"/>:<PinOutlinedIcon fontSize="inherit"/>}</button>}
-      <button type="button" className="modalpin-btn" aria-label={'Close '+panel.label} onClick={close}><CloseIcon fontSize="inherit"/></button>
+      <button type="button" className="modalpin-btn" title="Hide: closes the window, keeps the panel running" aria-label={'Hide '+panel.label} onClick={close}><HideIcon fontSize="inherit"/></button>
+      <button type="button" className="modalpin-btn custom-app-power" title="Power off: stops the panel and closes the window" aria-label={'Power off '+panel.label} onClick={()=>void powerOff()}><PowerIcon fontSize="inherit"/></button>
     </header>
     {error&&<div role="alert" className="custom-app-error">{error}</div>}{surface?.error&&<div role="alert">{surface.error}</div>}
-    <PanelHtml slug={slug} app={app} panel={panel}/>
+    <PanelHtml slug={slug} app={app} panel={panel} visible={shown}/>
     {!surface?.detached&&<div className="custom-app-resize" aria-label="Resize panel" onPointerDown={e=>{e.stopPropagation();e.currentTarget.setPointerCapture(e.pointerId);drag.current={x:e.clientX,y:e.clientY,placement:{...panel.placement},kind:'size'}}} onPointerMove={move} onPointerUp={end}/>}
     {settings&&<PanelSettings slug={slug} app={app} panel={panel} close={()=>setSettings(false)}/>}
   </section>
@@ -110,18 +140,22 @@ function PanelBody({slug,app,panel,zoom}:{slug:string;app:CustomApp;panel:Custom
 
 function PanelWindow({slug,panel,app}:{slug:string;panel:CustomPanel;app:CustomApp}){
   const anchor=useAnchor(slug,panel.id),latest=useRef(panel),outer=useRef<HTMLDivElement>(null),backdrop=useRef<boolean|null>(null);latest.current=panel
-  if(panel.placement.mode==='canvas'&&!anchor)return null
-  const p=panel.placement,k=key(slug,panel.id),world=p.mode==='canvas',centered=p.mode==='float'
+  const p=panel.placement,k=key(slug,panel.id),world=p.mode==='canvas'
+  // Visible => running is enforced by the caller; here a running copy without a
+  // visible place (hidden, culled, far zoom, canvas off) stays mounted, parked.
+  const shown=panel.open&&(!world||!!anchor),parked=!shown,centered=p.mode==='float'&&shown
   const effective=world?panel:{...panel,placement:{...p,x:Math.max(8,Math.min(p.x,window.innerWidth-80)),y:Math.max(8,Math.min(p.y,window.innerHeight-40))}}
-  return <div ref={outer} className={centered?'overlay custom-app-centered':'custom-app-placeholder'+(world?' world':'')} style={world||centered?undefined:{position:'fixed',left:effective.placement.x,top:effective.placement.y,width:p.width,height:p.height,zIndex:19}} onPointerDownCapture={e=>{backdrop.current=e.target===e.currentTarget}} onClick={e=>{if(centered&&e.target===e.currentTarget&&backdrop.current!==false)void changeApps(slug,{action:'panel_update',panel:panel.id,expected_rev:latest.current.rev,open:false}).catch(()=>{});backdrop.current=null}}>
-    <MovableSurface org={slug} kind={'custom-app:'+panel.id} title={app.name+' · '+panel.label} anchor={world?anchor?.element:undefined}
+  // React 18 has no inert prop: a parked panel takes no focus or input.
+  useLayoutEffect(()=>{outer.current?.toggleAttribute('inert',parked)},[parked])
+  return <div ref={outer} className={parked?'custom-app-parked':centered?'overlay custom-app-centered':'custom-app-placeholder'+(world?' world':'')} aria-hidden={parked||undefined} style={parked?{width:p.width,height:p.height}:world||centered?undefined:{position:'fixed',left:effective.placement.x,top:effective.placement.y,width:p.width,height:p.height,zIndex:19}} onPointerDownCapture={e=>{backdrop.current=e.target===e.currentTarget}} onClick={e=>{if(centered&&e.target===e.currentTarget&&backdrop.current!==false)void changeApps(slug,{action:'panel_update',panel:panel.id,expected_rev:latest.current.rev,open:false}).catch(()=>{});backdrop.current=null}}>
+    <MovableSurface org={slug} kind={'custom-app:'+panel.id} title={app.name+' · '+panel.label} anchor={world&&shown?anchor?.element:undefined} parked={parked} preserveFrames
       sourceBox={()=>{const r=outer.current?.querySelector('.custom-app-window')?.getBoundingClientRect();return r?{x:r.x,y:r.y,w:r.width,h:r.height}:null}} exactSourceBox
       onDismiss={()=>{if(!windowExitStarted())void changeApps(slug,{action:'panel_update',panel:panel.id,expected_rev:latest.current.rev,open:false}).catch(()=>{})}}
       onDetached={(detached,reason)=>{if(windowExitStarted()||reason==='close')return;const current=latest.current
         if(detached){if(current.placement.mode!=='popout')returns.set(k,{...current.placement});void changeApps(slug,{action:'panel_update',panel:panel.id,expected_rev:current.rev,placement:{...current.placement,mode:'popout',anchor:null}}).catch(()=>{})}
         else if(current.placement.mode==='popout')void changeApps(slug,{action:'panel_update',panel:panel.id,expected_rev:current.rev,placement:returns.get(k)??{...current.placement,mode:'float',anchor:null}}).catch(()=>{})
       }} minDimensions={{width:160,height:120}}>
-      <PanelBody slug={slug} app={app} panel={effective} zoom={anchor?.zoom??1}/>
+      <PanelBody slug={slug} app={app} panel={effective} zoom={anchor?.zoom??1} shown={shown}/>
     </MovableSurface>
   </div>
 }
@@ -132,7 +166,7 @@ export function AppsWorkspace({slug,onShowCanvas=()=>{}}:{slug:string;onShowCanv
   useEffect(()=>{showCanvas.set(slug,onShowCanvas);return()=>{if(showCanvas.get(slug)===onShowCanvas)showCanvas.delete(slug)}},[slug,onShowCanvas])
   useEffect(()=>{const failure=(e:Event)=>{const d=(e as CustomEvent).detail;if(d?.slug===slug)setError(d.error)};window.addEventListener('custom-app-error',failure);return()=>window.removeEventListener('custom-app-error',failure)},[slug])
   return <>{current?.slug===slug&&<AppsMenu slug={slug} current={current} manage={app=>setManage({app,owner:current.anchor.ownerDocument})} managePanel={(app,panel)=>setManage({app,panel,owner:current.anchor.ownerDocument})} importApp={(bundle,owner)=>setImported({bundle,owner})} onShowCanvas={onShowCanvas}/>}
-    {data.panels.filter(p=>p.open).map(p=>{const app=data.apps.find(a=>a.id===p.app);return app?<PanelWindow key={p.id} slug={slug} panel={p} app={app}/>:null})}
+    {data.panels.filter(isRunning).map(p=>{const app=data.apps.find(a=>a.id===p.app);return app?<PanelWindow key={p.id} slug={slug} panel={p} app={app}/>:null})}
     {error&&<div className="custom-app-global-error" role="alert">{error}<button onClick={()=>setError('')}>Dismiss</button></div>}
     {manage&&(manage.panel?<PanelSettings key={manage.panel.id} slug={slug} app={manage.app} panel={manage.panel} owner={manage.owner} close={()=>setManage(null)}/>:<AppSettings slug={slug} app={manage.app} owner={manage.owner} close={()=>setManage(null)}/>)}
     {imported&&<Dialog title="Import app" close={()=>setImported(null)} owner={imported.owner}><AppImport slug={slug} bundle={imported.bundle} close={()=>setImported(null)}/></Dialog>}
@@ -141,7 +175,13 @@ export function AppsWorkspace({slug,onShowCanvas=()=>{}}:{slug:string;onShowCanv
 
 function CanvasAnchor({slug,panel,point,zoom}:{slug:string;panel:CustomPanel;point:Point;zoom:number}){
   const node=useRef<HTMLDivElement|null>(null),currentZoom=useRef(zoom);currentZoom.current=zoom
-  const ref=useCallback((element:HTMLDivElement|null)=>{node.current=element;putAnchor(slug,panel.id,element,currentZoom.current)},[slug,panel.id])
+  const ref=useCallback((element:HTMLDivElement|null)=>{
+    // React detaches this ref before removing the element: move a running
+    // panel out first, or its iframe would be destroyed with the anchor.
+    const old=node.current
+    if(!element&&old?.isConnected)for(const child of [...old.children])if(child.classList.contains('movable-surface'))moveKeepingFrames(parking(old.ownerDocument),child as HTMLElement)
+    node.current=element;putAnchor(slug,panel.id,element,currentZoom.current)
+  },[slug,panel.id])
   useLayoutEffect(()=>{if(node.current)putAnchor(slug,panel.id,node.current,zoom)},[slug,panel.id,zoom])
   return <div ref={ref} className="custom-app-world-anchor" data-world-panel={panel.id} style={{left:point.x,top:point.y,width:panel.placement.width,height:panel.placement.height}}/>
 }
@@ -149,7 +189,7 @@ export function AppsCanvasLayer({slug,zoom,viewport,nodePoint,focus,active=true}
   const data=useApps(slug)
   useEffect(()=>{canvas.set(slug,{center:(w,h)=>viewport?{x:viewport.x+(viewport.w-w)/2,y:viewport.y+(viewport.h-h)/2}:{x:100,y:100},focus});return()=>{canvas.delete(slug)}},[slug,viewport?.x,viewport?.y,viewport?.w,viewport?.h,focus])
   if(!active)return null
-  return <>{data.panels.filter(p=>p.open&&p.placement.mode==='canvas').map(p=>{const anchor=p.placement.anchor?nodePoint(p.placement.anchor):undefined,point={x:p.placement.x+(anchor?.x??0),y:p.placement.y+(anchor?.y??0)}
+  return <>{data.panels.filter(p=>p.open&&isRunning(p)&&p.placement.mode==='canvas').map(p=>{const anchor=p.placement.anchor?nodePoint(p.placement.anchor):undefined,point={x:p.placement.x+(anchor?.x??0),y:p.placement.y+(anchor?.y??0)}
     if(!intersectsViewport({...point,w:p.placement.width,h:p.placement.height},viewport))return null
     return zoom<.55?<button type="button" className="custom-app-mini" key={p.id} style={{left:point.x,top:point.y}} title={p.label} aria-label={`Show ${p.label}`} onPointerDown={e=>e.stopPropagation()} onClick={e=>{e.stopPropagation();focus(point)}}><AppsIcon/></button>:<CanvasAnchor key={p.id} slug={slug} panel={p} point={point} zoom={zoom}/>
   })}</>

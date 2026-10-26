@@ -144,6 +144,7 @@ import { HistoryView } from './history'
 import { DocketModal, DocketToolbarButton } from './canvas/docket'
 import { AppsButton, AppsWorkspace } from './canvas/apps/ui'
 import { invalidateCustomApps } from './canvas/apps/store'
+import { requestPanelSample } from './canvas/apps/runtime'
 import { closeIfCentred, isModalPinned, PinFrame, raisePinnedModal, readModalOpen, toggleOrRaiseModal, usePersistedModalOpen, useScopedOpen } from './canvas/modalpin'
 import { HireDefaultsTab, orgDefaultTools, orgDirHoldings } from './canvas/modals'
 import { mailRefTarget, refToken, useRefRoutes } from './canvas/reflinks'
@@ -1280,6 +1281,8 @@ export default function App() {
       // EPIC Mode's tap: null (one check, arguments unevaluated) unless it is on
       epic?.frame(slug, data)
       if ((data as unknown as {type?:string}|null)?.type === 'custom_apps_changed') { invalidateCustomApps(slug); return }
+      // an agent's orgtree_apps runtime sample=true: measure this window's panels once
+      if ((data as unknown as {type?:string}|null)?.type === 'custom_apps_sample') { requestPanelSample(slug, Number((data as unknown as {epoch?:unknown}).epoch) || 0); return }
       const answer = data as unknown as RecordEvent | null
       if (answer?.type === 'record_changes' || answer?.type === 'record_reset'
           || answer?.type === 'record_snapshot' || answer?.type === 'record_subscribed'
