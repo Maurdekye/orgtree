@@ -3,7 +3,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import assert from 'node:assert/strict'
 import {Proof} from '../proof.mjs'
-const fixture=path.join(process.env.ORGTREE_RIG_HOME,'write-fixture'),folder=path.join(fixture,'chosen'),outside=path.join(fixture,'outside')
+const fixture=path.join(process.env.ORGTREE_RIG_HOME,'write-fixture',process.pid+'-'+Date.now()),folder=path.join(fixture,'chosen'),outside=path.join(fixture,'outside')
 export function setup(){
   fs.mkdirSync(folder,{recursive:true});fs.mkdirSync(outside,{recursive:true});fs.writeFileSync(path.join(folder,'existing.txt'),'old');fs.writeFileSync(path.join(outside,'outside.txt'),'outside')
   return{fixture:{org:{name:'App folder and confirmed write proof'},agents:[{name:'writer',tier:'sol',grant:0,add_dirs:[{path:folder,mode:'rw'}],charter:'Synthetic bounded app file writes.'},{name:'reader',tier:'sol',grant:0,add_dirs:[{path:folder,mode:'ro'}],charter:'Synthetic read-only scope control.'},{name:'limited',tier:'sol',grant:0,add_dirs:[],charter:'Synthetic out-of-scope control.'}]}}
