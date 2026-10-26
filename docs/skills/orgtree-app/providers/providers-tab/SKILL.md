@@ -40,9 +40,9 @@ profile can differ from the ambient account. Verified at `2ec8c0e`:
 
 **App settings > Runtime > show legacy models (Gemini Pro)** is a renderer localStorage preference `orgtree-show-legacy-models`, default off. The control is in Runtime, not Providers. It changes hire/model chooser and tier-list visibility. Existing agents on Gemini Pro retain their model and remain visible either way. It does not buy entitlement, change runtime credentials, restart the app or alter a model's price.
 
-Terra left this setting in 4.4.6 (user 2026-10-26): it is a current Codex tier again, offered without the toggle and never marked legacy. New Terra seats run GPT-6.1 Terra (`gpt-6.1-terra`, Codex CLI 0.159.0 or later); `5.6` remains a pinnable older version. A Terra seat costs 1 credit, by the input-price seat rule. Agents hire it with tier `terra` and an optional `model_version` of `6.1` or `5.6` (`orgtree_hire`, `orgtree_staff`); `orgtree_list_tiers` lists it. The signed-in account must still offer the model.
-
 Suggest enabling it only to expose a deliberately requested legacy choice. The account and catalog must still offer that choice.
+
+Terra left this setting in 4.4.6 (user 2026-10-26): it is a current Codex tier again, offered without the toggle and never marked legacy. New Terra seats run GPT-6.1 Terra (`gpt-6.1-terra`, Codex CLI 0.159.0 or later); `5.6` remains a pinnable older version. Terra agents hired before 4.4.6 move to GPT-6.1 Terra on their next turn; where their login lacks the model, or Codex CLI is older than 0.159.0, pin them to 5.6 in the agent's Model settings tab (**Model version**). New Terra seats cost 1 credit, by the input-price seat rule; Terra agents hired before 4.4.6 keep their 2-credit seat until rehired. Agents hire it with tier `terra` and an optional `model_version` of `6.1` or `5.6` (`orgtree_hire`, `orgtree_staff`); `orgtree_list_tiers` lists it. The signed-in account must still offer the model.
 
 ## See also
 

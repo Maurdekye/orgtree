@@ -374,7 +374,7 @@ function ShowLegacyModelsToggle() {
       <SetToggle label="Show legacy models (Gemini Pro)" checked={on}
         onChange={setShowLegacyModelsOn}
         hint={'Off: hire and model choices, and the model tier lists, leave Gemini Pro out. '
-          + 'Agents already on them keep running and show their model either way.'} />
+          + 'Agents already on Gemini Pro keep running and show their model either way.'} />
     </SetGroup>
   )
 }
