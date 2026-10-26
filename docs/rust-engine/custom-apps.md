@@ -441,6 +441,10 @@ permission decision or caller selection. Frame content is untrusted even after
 the envelope check. The bridge rechecks engine-side app revision, panel and
 capability and invalidates mounted sessions on code replacement/closure. Self-navigation network containment
 requires native-window verification before a no-network execution claim.
+WebRTC is outside CSP: since 2026-10-27 main seals it for every webContents
+(no UDP) and for the window session (a proxy that does not exist for all TCP but
+the engine's host 127.0.0.1), measured closed on panel frames, chat HTML replies
+and inline and windowed presentations. See [sandboxed agent HTML](../agents/desktop-and-renderer.md#sandboxed-agent-html-has-no-network-webrtc-included-2026-10-27-450).
 
 The async SDK is window.orgtree state.get/set/patch/onChange; storage.getItem,
 setItem, removeItem, clear; on(name,fn); emit(name,payload). Storage values are

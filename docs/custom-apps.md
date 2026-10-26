@@ -142,7 +142,8 @@ concurrent edit reports a conflict. Each copy has its own data. A panel's Histor
 and its messages each keep their latest 256 entries. Any agent with Org-modifying tools can interpret
 and update any copy in this org; that grants no app permission.
 
-Apps are opaque sandboxed HTML, with no engine credential or same-origin access.
+Apps are opaque sandboxed HTML, with no engine credential or same-origin access,
+and no network access: not even WebRTC reaches another computer.
 The host provides saved state, named events and permission-checked engine actions.
 Whole-app portability uses a versioned `.orgtree-app` JSON file. It carries the
 definition and initial data, optionally saved copy labels and data. Permissions,

@@ -114,7 +114,7 @@ the HTML. Panel links were removed (user 2026-10-26): agents follow a copy only
 through app_listener subscriptions to its declared events.
 
 The embedded app is opaque sandboxed HTML (allow-scripts only), with a restrictive
-no-connect CSP and no engine credential. Its async window.orgtree API provides
+no-connect CSP and no engine credential; WebRTC is sealed off as well. Its async window.orgtree API provides
 state.get/set/patch/onChange, storage.getItem/setItem/removeItem/clear, on and emit.
 State is independent per copy; merge patch null deletes a key. Agent writes and
 messages (orgtree.emit, orgtree_apps event) arrive through the host. History and

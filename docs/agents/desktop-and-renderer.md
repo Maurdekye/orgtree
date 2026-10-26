@@ -1,5 +1,45 @@
 # Desktop and renderer
 
+## Sandboxed agent HTML has no network, WebRTC included (2026-10-27, 4.5.0)
+
+Four surfaces run agent script with CSP `connect-src 'none'`: app panel frames,
+chat HTML replies, the inline HTML presentation frame in the reader pane, and
+the HTML presentation viewer window. CSP does not govern WebRTC and WebRTC asks
+no permission. Measured 2026-10-26/27 in Session 0 (Electron 44.2.0, Chrome
+152, production CSPs and session rules, loopback listeners only): each surface
+reached a host:port of its own choosing over STUN and ICE on UDP and over TURN
+and ICE on TCP, carrying script-chosen bytes. Chromium 152 reports a CSP
+`webrtc` directive as unrecognized, Electron has no switch that disables WebRTC,
+and disabling Blink features by name changed nothing (measured).
+
+Main closes it in two layers (`main/windows.ts`), and each alone left one
+transport open (measured):
+- `sealWebRtc`: every webContents gets the `disable_non_proxied_udp` IP
+  handling policy from the app-wide `web-contents-created` hook. No UDP leaves.
+- `sealSessionNetwork`: the window session (`persist:orgtree-v2`, which renders
+  app panels, chat HTML replies and the inline presentation frame) and each
+  presentation viewer window's own session get
+  `fixed_servers` proxy `127.0.0.1:1`, a proxy that does not exist, with bypass
+  `<-loopback>;127.0.0.1`. WebRTC's TCP must go through the session proxy, so
+  it never connects and never falls back to direct. Only 127.0.0.1, where the
+  desktop's engine always listens, stays direct, on any port, because an
+  engine recovered in the same process may come back on another port. The seal
+  is awaited before the session loads anything; a viewer whose seal fails is
+  destroyed unshown.
+
+Orgtree's renderer reaches nothing but its engine, so the UI is unaffected.
+What remains: TCP to other ports of 127.0.0.1 itself, never off the machine.
+Any new session or window that renders agent HTML must be sealed before it
+loads; never remove either layer. The inline presentation frame needs no code
+of its own: it is a sandboxed `srcdoc` iframe in the window session, so both
+layers already reach it (the UDP policy covers a webContents' subframes, the
+session proxy covers every frame in the session). Measured with both layers
+(probe proxy bypass limited to the page server): 0 STUN, 0 ICE UDP, 0 TURN TCP
+and 0 ICE TCP packets on all four surfaces; the base had all four.
+[decided: coordinator 2026-10-26 assignment, user 2026-10-26 "No, 4.5.0 only"
+(m65b128578ffb); verified: `main/{windows,index}.ts`; control:
+`tests/sandboxed-html-network.test.mjs`]
+
 ## Normal-card hover names (2026-10-26, 4.4.5)
 
 Hovering the whole normal agent/project card, including its body and effort

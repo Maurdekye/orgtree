@@ -54,7 +54,7 @@ the asset reference as written, the path it resolved to, and the HTML or CSS fil
 that referenced it. For a nested CSS dependency, that last file is the CSS file,
 not just the entry HTML. Correct the reference or supply the asset, then retry.
 
-The preview embeds captured resources in an isolated sandbox with scripts allowed, but no network connections, form submission or app access. Prefer inline scripts/styles and local resources; a remote CDN/API dependency is not a working offline preview. The captured preview is separately size-bounded to 25 MiB. The download is HTML for a single file, or a ZIP with original relative layout for an asset bundle. Later source edits do not change either stored capture.
+The preview embeds captured resources in an isolated sandbox with scripts allowed, but no network connections (WebRTC included), form submission or app access. Prefer inline scripts/styles and local resources; a remote CDN/API dependency is not a working offline preview. The captured preview is separately size-bounded to 25 MiB. The download is HTML for a single file, or a ZIP with original relative layout for an asset bundle. Later source edits do not change either stored capture.
 
 ## What reaches the user
 
