@@ -87,12 +87,17 @@ fn delete_handle(file:&File)->Result<()>{
 fn rename(file:&File,dir:&Directory,name:&str,replace:bool)->Result<()>{
     use std::os::windows::io::AsRawHandle;
     use windows_sys::Win32::Storage::FileSystem::*;
+    use windows_sys::{Wdk::Storage::FileSystem::{NtSetInformationFile,FileRenameInformationEx},Win32::{Foundation::RtlNtStatusToDosError,System::IO::IO_STATUS_BLOCK}};
     let name:Vec<u16>=name.encode_utf16().collect();let offset=std::mem::offset_of!(FILE_RENAME_INFO,FileName);let size=offset+name.len()*2;
     let mut buffer=vec![0u64;size.div_ceil(8)];let info=buffer.as_mut_ptr().cast::<FILE_RENAME_INFO>();
     unsafe{(*info).Anonymous.Flags=if replace{3}else{0};(*info).RootDirectory=dir._handles.last().expect("pinned directory").as_raw_handle() as _;(*info).FileNameLength=(name.len()*2) as u32;std::ptr::copy_nonoverlapping(name.as_ptr(),buffer.as_mut_ptr().cast::<u8>().add(offset).cast(),name.len());}
     // REPLACE_IF_EXISTS | POSIX_SEMANTICS preserves the confirmed old handle
     // until its last reader closes. No path-based fallback or truncation.
-    if unsafe{SetFileInformationByHandle(file.as_raw_handle() as _,FileRenameInfoEx,buffer.as_ptr().cast(),size as u32)}==0{return Err(std::io::Error::last_os_error().into());}Ok(())
+    // The Win32 wrapper rejects a non-null RootDirectory. The NT call keeps
+    // this rename relative to the pinned parent instead of resolving a path.
+    let mut io:IO_STATUS_BLOCK=unsafe{std::mem::zeroed()};
+    let status=unsafe{NtSetInformationFile(file.as_raw_handle() as _,&mut io,buffer.as_ptr().cast(),size as u32,FileRenameInformationEx)};
+    if status<0{return Err(std::io::Error::from_raw_os_error(unsafe{RtlNtStatusToDosError(status)} as i32).into());}Ok(())
 }
 #[nolog]
 pub(in crate::domain::apps) fn commit(change:Change)->Result<Value>{
