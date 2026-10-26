@@ -10,6 +10,7 @@ Watch [Orgtree School 1: Introduction](https://youtu.be/c2SF2xMG0uk) (8:43) for 
 - **See what changed after an update.** The Changelog opens on the first start after an update that brings a newer published release. Fresh installations do not open it automatically. Its **Show this every time** checkbox and **App settings > Display > Startup > Open changelog after updates** control the same preference; you can always open it from the menu.
 - **Shift+Alt navigation remembers the last desk.** With no desk focused, arrow navigation continues from the last available agent or project desk in that org. Fit and overview keep that memory. Consecutive jumps also keep working through automatic composer focus and after a pointer release outside the window.
 - **Shift+Alt+Space works on Windows without opening the system menu.** Plain Alt+Space keeps its normal Windows behavior. Navigation command tooltips show their shortcuts; agent and project links keep their identity tooltips.
+- **Long agent names show in full on hover at normal zoom again**, including while another desk is open or popped out into its own window. Far-zoom nodes and desks keep hiding the plate while a desk is open.
 - **The taskbar attention dot matches Hubchat**, with a red centre, a light rim and no number. It still follows unresolved attention rather than ordinary unread mail.
 
 ## Hiring and settings
@@ -36,6 +37,11 @@ Watch [Orgtree School 1: Introduction](https://youtu.be/c2SF2xMG0uk) (8:43) for 
 - **Claude usage retries respect cooldowns.** Repeated throttling backs off from a minute through 2, 4, 8 and 15 minutes, honoring longer provider waits. Transient failures keep the backoff; a successful reading resets it. Old observations keep their date.
 - **Automatic account fallback can use native Claude and Codex sign-ins** even without an extra registered account row. Registered subscriptions are considered first, then an eligible native login, then any separately permitted paid keys. Fresh capacity and existing account/org permissions still apply; fallback remains opt-in.
 - **Credential lookups have coordinated time limits**, and local `gh help` and `gh --version` no longer wait for authentication they do not need.
+
+## Installation and updates
+
+- **A failed update no longer leaves Orgtree unable to start.** Setup now registers its background tasks turned off and turns them on only once the installation has finished. If an update fails or stops partway, Setup restores both tasks to how they were and records the error in `orgtree-installer.log`.
+- **A disabled background-engine task is reported instead of waiting.** Orgtree shows the reason with **Retry** and **Quit**. To repair, run Setup again as administrator, then choose **Retry**.
 
 ## Standalone engine
 
