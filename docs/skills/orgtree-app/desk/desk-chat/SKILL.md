@@ -34,8 +34,8 @@ Measured source/native-format support, without real-provider execution:
 
 Codex status is its latest parent-stream observation, not a separately
 subscribed child heartbeat. Zero does not prove support for other harnesses.
-Agent parity: [read transcript](../../../orgtree-working/inspection/tool-read-transcript/SKILL.md)
-with `helpers:true` or `helper:{seq,tool}`, under existing self/downward access.
+Agent parity: orgtree-tool-read-transcript (orgtree-working › inspection), with
+`helpers:true` or `helper:{seq,tool}`, under existing self/downward access.
 
 The **↑ you** chip previews the last user-written communication in the nearest
 earlier delivered batch above the visible transcript. Clicking it jumps back
