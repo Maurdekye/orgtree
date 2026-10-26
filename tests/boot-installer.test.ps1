@@ -123,6 +123,10 @@ function Get-OperatorStartupChoice([string]$Sid) { return $script:operatorChoice
 # real %TEMP%\orgtree-installer-upgrade.log.
 $script:bootLog=[Collections.Generic.List[string]]::new()
 function Write-BootLog([string]$Message) { $script:bootLog.Add($Message) }
+$script:installSnapshot=$null
+function Get-BootInstallSnapshot { return $script:installSnapshot }
+function Save-BootInstallSnapshot($Snapshot) { $script:installSnapshot=$Snapshot }
+function Remove-BootInstallSnapshot { $script:installSnapshot=$null }
 
 # Per-user positive path: no machine lookup at all, even with a foreign task.
 Invoke-BootLifecycle Prepare -InstallMode CurrentUser

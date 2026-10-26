@@ -2,13 +2,14 @@
 # installer's actual token. Updates retain the machine-owned operator binding.
 param(
     [Parameter(Mandatory=$true)][string]$InstallDir,
-    [ValidateSet('Prepare','Register')][string]$Action='Register',
+    [ValidateSet('Prepare','Register','Rollback','Commit')][string]$Action='Register',
     [string]$OperatorSid,
-    [string]$InstallMode='all'
+    [string]$InstallMode='all',
+    [switch]$DeferStart
 )
 $ErrorActionPreference='Stop'
 try {
     . "$PSScriptRoot\boot-engine-task.ps1"
-    Invoke-BootLifecycle -Action $Action -InstallDir $InstallDir -OperatorSid $OperatorSid -InstallMode $InstallMode
+    Invoke-BootLifecycle -Action $Action -InstallDir $InstallDir -OperatorSid $OperatorSid -InstallMode $InstallMode -DeferStart:$DeferStart
     Write-Output "Boot engine $Action completed."
 } catch { [Console]::Error.WriteLine($_.Exception.Message); exit 1 }
