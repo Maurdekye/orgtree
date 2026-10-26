@@ -218,7 +218,8 @@ app.whenReady().then(async () => {
       await sleep(60)
     }
   }
-  const presentationFrame = () => wc.mainFrame.frames.find((f) => f.url === 'about:srcdoc')
+  // about:srcdoc, plus #fragment after an in-document link
+  const presentationFrame = () => wc.mainFrame.frames.find((f) => /^about:srcdoc(#|$)/.test(f.url))
   const inFrame = (code) => { const f = presentationFrame(); if (!f) throw Error('no presentation frame'); return f.executeJavaScript(code, true) }
   const click = async (x, y) => {
     await dbg.sendCommand('Input.dispatchMouseEvent', { type: 'mouseMoved', x, y })
