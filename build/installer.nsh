@@ -1393,10 +1393,14 @@ orgtreeSilentElevateDone:
           Quit
         ${endif}
         !insertmacro BootHelpers
-        StrCpy $OrgBootPending "1"
+        # Prepare restores its own partial suspension on failure. Only a
+        # successful Prepare arms our exit hooks; a refused preflight must not
+        # replay a retained snapshot from an older installer transaction.
+        StrCpy $OrgBootPending "0"
         StrCpy $OrgBootAction "Prepare"
         nsExec::ExecToStack '"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "$PLUGINSDIR\register-boot-engine.ps1" -Action Prepare -InstallMode all -InstallDir "$INSTDIR" -OperatorSid "$BootOperatorSid"'
         !insertmacro BootResult
+        StrCpy $OrgBootPending "1"
       ${endif}
     SectionEnd
     !endif

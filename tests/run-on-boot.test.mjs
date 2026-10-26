@@ -195,7 +195,27 @@ test('main and the preload wire one startup switch and the Session 0 restart pat
   const change = main.slice(main.indexOf('const changeRunOnStartup = async'), main.indexOf('const reconcileRunOnStartup'))
   assert.match(change, /if \(startupChanging\) throw new Error/)
   assert.match(change, /finally \{\s+startupChanging = false/)
-  assert.match(change, /if \(tasks\.boot !== null && startupOn\(tasks\) !== enabled\) await writeRunOnStartup\(enabled\)/)
+  // A task disabled by a failed update needs repair even when its automatic
+  // triggers already equal the requested choice. The writer enables demand
+  // launch while preserving that choice; task damage is not a new preference.
+  assert.match(change, /if \(tasks\.boot !== null && \(startupOn\(tasks\) !== enabled \|\| tasks\.bootEnabled === false \|\| tasks\.helperEnabled === false\)\) await writeRunOnStartup\(enabled\)/)
+  for (const enabled of [false, true]) {
+    for (const damaged of [null, 'bootEnabled', 'helperEnabled']) {
+      const writes=[]
+      const tasks={boot:enabled,helper:enabled,bootEnabled:true,helperEnabled:true}
+      if (damaged) tasks[damaged]=false
+      const seams={
+        process:{platform:'win32'},app:{isPackaged:true},startupChanging:false,bootTask:true,
+        rebuildTray(){},readStartupTasks:async()=>tasks,startupOn:()=>enabled,
+        writeRunOnStartup:async value=>writes.push(value),setPreferences:value=>value,
+      }
+      // Export the real closure using its own anchor, as it is lexical in main.
+      vm.runInNewContext(transformSync(`${change}; this.change = changeRunOnStartup`,{loader:'ts'}).code,seams)
+      const result=await seams.change(enabled)
+      assert.deepEqual(writes,damaged?[enabled]:[],`repair=${damaged}; choice=${enabled}`)
+      assert.equal(result.startAtLogin,enabled)
+    }
+  }
   const restart = main.slice(main.indexOf('const restartBackgroundEngine = async'), main.indexOf('const runAsAdministratorState'))
   // decision 94: wherever the boot task is installed, a restart stops the
   // engine gracefully and starts it again through the boot task, in Session

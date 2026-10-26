@@ -1011,6 +1011,9 @@ function Invoke-BootLifecycle {
         if ($Action -eq 'Remove') { Remove-BootInstallSnapshot }
         return
     }
+    # Before Prepare has durably saved THIS run's baseline, an exception must
+    # not replay a retained snapshot from another installer transaction.
+    $restoreOnFailure=($Action -ne 'Prepare')
     try {
     if ($Action -eq 'Commit') {
         $snapshot=Get-BootInstallSnapshot
@@ -1046,13 +1049,22 @@ function Invoke-BootLifecycle {
             $items=@(Get-BootInstallTasks $folder $record $InstallDir)
             $snapshot=Get-BootInstallSnapshot
             if ($null -ne $snapshot) { Assert-BootInstallSnapshot $snapshot $InstallDir $record }
-            else {
-                $saved=@(foreach ($item in $items) {
-                    $xml=$null;$enabled=$false;$sddl=$null
-                    if ($null -ne $item.Task) { $xml=[string]$item.Task.Xml;$enabled=[bool]$item.Task.Enabled;$sddl=$item.Task.GetSecurityDescriptor(7) }
-                    @{Kind=$item.Kind;Xml=$xml;Enabled=$enabled;Sddl=$sddl}
-                })
-                Save-BootInstallSnapshot @{Version=1;InstallDir=$InstallDir;Record=$record;Tasks=$saved}
+            # A retained snapshot is evidence of an older incomplete attempt,
+            # not this transaction's baseline. The operator may have repaired
+            # or changed these tasks since then. Capture current verified state
+            # BEFORE suspension, retaining failed restores until a new Prepare.
+            $saved=@(foreach ($item in $items) {
+                $xml=$null;$enabled=$false;$sddl=$null
+                if ($null -ne $item.Task) { $xml=[string]$item.Task.Xml;$enabled=[bool]$item.Task.Enabled;$sddl=$item.Task.GetSecurityDescriptor(7) }
+                @{Kind=$item.Kind;Xml=$xml;Enabled=$enabled;Sddl=$sddl}
+            })
+            Save-BootInstallSnapshot @{Version=1;InstallDir=$InstallDir;Record=$record;Tasks=$saved}
+            $restoreOnFailure=$true
+            if ($null -ne $snapshot) {
+                $decision='prepare: replaced retained rollback snapshot with current verified task state before suspension'
+                Write-BootLog $decision
+                Write-Output $decision # nsExec/BootResult persists it in orgtree-installer.log too.
+            } else {
                 Write-BootLog 'prepare: saved original owned task enablement and all trigger states'
             }
         }
@@ -1061,8 +1073,10 @@ function Invoke-BootLifecycle {
     } catch {
         $failure=$_
         Write-BootLog "$Action failed: $($failure.Exception.Message)"
-        try { Restore-BootInstallTasks $InstallDir }
-        catch { throw "$($failure.Exception.Message) Rollback failed: $($_.Exception.Message)" }
+        if ($restoreOnFailure) {
+            try { Restore-BootInstallTasks $InstallDir }
+            catch { throw "$($failure.Exception.Message) Rollback failed: $($_.Exception.Message)" }
+        }
         throw $failure
     }
 }

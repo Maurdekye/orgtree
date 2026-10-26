@@ -39,6 +39,7 @@ $script:folder | Add-Member ScriptMethod RegisterTask {
     $script:events.Add("register:$flags")
     Assert ($user -eq $sid -and $null -eq $password -and $logon -eq 2) 'Wrong principal/password/logon'
     $script:task=New-FakeTask $xml
+    $script:task.Sddl=$sddl
     # Task Scheduler's principal follows the XML's run level, as for the helper.
     $level=(Read-BootXml $xml).SelectSingleNode('//*[local-name()="Principal"]/*[local-name()="RunLevel"]')
     $script:task.Definition.Principal.RunLevel=[int]($null -ne $level -and $level.InnerText -eq 'HighestAvailable')
@@ -71,6 +72,7 @@ function Register-HelperTask($Folder,[string]$Xml,[int]$Flags,[string]$Sid,[stri
     $script:events.Add("helper-register:$Flags")
     Assert ($Sid -eq $script:record.OperatorSid -and $Sddl -match '^O:BAG:BAD:P') 'Wrong helper principal or ACL'
     $script:helper=New-HelperFake $Xml
+    $script:helper.Sddl=$Sddl
     return $script:helper
 }
 function Remove-HelperTask($Folder) { $script:events.Add('helper-delete'); $script:helper=$null }
@@ -487,6 +489,11 @@ $script:task=New-FakeTask (New-BootTaskXml $script:record); $script:task.KeepPro
 $script:processes=@((New-Watcher),$conhost); $script:watchKills.Clear()
 Invoke-BootLifecycle Prepare $dir $sid
 Assert ($script:watchKills.Count -eq 1) 'Prepare did not end the closed desktop''s observer'
+# Finish this synthetic installation before later fixtures replace its record
+# with the original installation Id. A real protected snapshot spans processes;
+# changing only the fake record must not leak this transaction into that one.
+Invoke-BootLifecycle Rollback $dir
+Assert ($null -eq $script:installSnapshot) 'Observer fixture retained an unfinished installer snapshot'
 # The desktop's id now held by a process created after the observer, or by an
 # image outside the installation: that is not the desktop, which is gone.
 foreach ($holder in @([pscustomobject]@{ProcessId=4321; ParentProcessId=8; CreationDate=$t0.AddMinutes(1); Name='Orgtree.exe'; ExecutablePath=$desktopExe},
