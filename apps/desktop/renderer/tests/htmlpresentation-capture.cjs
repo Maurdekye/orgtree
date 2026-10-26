@@ -256,13 +256,25 @@ app.whenReady().then(async () => {
     frame: await box(`document.querySelector('iframe.html-presentation-frame')`),
     inner: await inFrame(`({zoom:document.documentElement.style.zoom||'',scrollWidth:document.documentElement.scrollWidth,clientWidth:document.documentElement.clientWidth,scrollHeight:document.documentElement.scrollHeight})`),
   })
-  const memory = async (label) => {
+  let rendererPid = 0
+  // Per renderer process: the app's own renderer, and the presentation
+  // frame's process while one is shown. `gone` names an earlier frame
+  // process to wait for (up to 10 s) before measuring, so a closed frame's
+  // memory is not counted twice.
+  const memory = async (label, gone) => {
     await js('typeof gc==="function"&&gc()')
+    const end = Date.now() + 10000
+    while (gone && Date.now() < end && app.getAppMetrics().some((m) => m.pid === gone)) await sleep(250)
     await sleep(1500)
-    const tabs = app.getAppMetrics().filter((m) => m.type === 'Tab')
-    const sum = (k) => tabs.reduce((n, m) => n + (m.memory[k] || 0), 0)
-    receipt.memory.push({ label, tabProcesses: tabs.map((m) => m.pid), workingSetKB: sum('workingSetSize'),
-      privateKB: sum('privateBytes'), jsHeapBytes: await js('performance.memory?performance.memory.usedJSHeapSize:null') })
+    const frame = presentationFrame()?.osProcessId ?? null
+    const tabs = app.getAppMetrics().filter((m) => m.type === 'Tab').map((m) => ({ pid: m.pid,
+      role: m.pid === rendererPid ? 'app' : m.pid === frame ? 'presentation frame' : 'other',
+      workingSetKB: m.memory.workingSetSize, privateKB: m.memory.privateBytes }))
+    const sum = (k) => tabs.reduce((n, m) => n + (m[k] || 0), 0)
+    receipt.memory.push({ label, framePid: frame, earlierFrameExited: gone ? !app.getAppMetrics().some((m) => m.pid === gone) : null,
+      tabs, workingSetKB: sum('workingSetKB'), privateKB: sum('privateKB'),
+      jsHeapBytes: await js('performance.memory?performance.memory.usedJSHeapSize:null') })
+    return frame
   }
   const sentinelHits = () => receipt.requests.filter((r) => r.path.startsWith('/sentinel/')).length
   const problems = receipt.problems
@@ -270,7 +282,7 @@ app.whenReady().then(async () => {
   try {
     await wc.loadURL(origin + '/')
     receipt.processes = { main: { pid: process.pid, session: sessionOf(process.pid) } }
-    const rendererPid = wc.getOSProcessId()
+    rendererPid = wc.getOSProcessId()
     receipt.processes.renderer = { pid: rendererPid, session: sessionOf(rendererPid) }
     receipt.clipboard = 'not used; the real session guard decided permissions'
     // 1. wide: Fit width, then 100% (no reload), then back
@@ -357,15 +369,15 @@ app.whenReady().then(async () => {
     await open('Plain Markdown notes')
     await memory('markdown-baseline')
     await open('Four MiB of text', '#last-row')
-    await memory('text-4mib-inline')
+    const textFrame = await memory('text-4mib-inline')
     await open('Plain Markdown notes')
-    await memory('after-text')
+    await memory('after-text', textFrame)
     await open('Embedded screenshots', '#last-row')
     await until(() => inFrame(`Promise.all([...document.images].map(i=>i.decode())).then(()=>document.images.length)`), 'images decoded')
     await shot('heavy-image')
-    await memory('image-4mib-inline')
+    const imageFrame = await memory('image-4mib-inline')
     await open('Plain Markdown notes')
-    await memory('after-image')
+    await memory('after-image', imageFrame)
     receipt.sizes = Object.fromEntries(presentations(server.address().port).map((d) => [d.id, Buffer.byteLength(d.html ?? d.markdown)]))
     expect(receipt.sizes['heavy-text'] <= LIMIT && receipt.sizes['heavy-image'] <= LIMIT, 'heavy fixtures exceed the cap')
   } catch (e) {
