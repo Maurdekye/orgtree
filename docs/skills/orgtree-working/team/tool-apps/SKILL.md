@@ -34,10 +34,12 @@ Workers. Execution happens only in the Orgtree desktop app, including while it
 sits in the tray; restart restores each copy as it was (running hidden, visible
 in its placement, or off). There is no count cap.
 
-- panel_start needs panel/expected_rev. It runs any copy hidden, for the user or
-  any agent with Apps tools, never shows a window and grants nothing. An already
-  running copy is unchanged. History records panel.started.
-- panel_stop needs panel/expected_rev. It powers the copy off and hides it, ending
+- panel_start needs panel; expected_rev is optional and refuses only when given
+  and stale, because a running copy's own state saves keep bumping its revision.
+  It runs any copy hidden, for the user or any agent with Apps tools, never shows
+  a window and grants nothing. An already running copy is unchanged. History
+  records panel.started.
+- panel_stop needs panel, with the same optional expected_rev. It powers the copy off and hides it, ending
   its host session, Once file links, playback, prompts and workers. History
   records panel.stopped. Saved state and placement stay.
 - runtime pages running copies: after (previous next_cursor), limit 1-200

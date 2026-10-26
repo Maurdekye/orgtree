@@ -232,7 +232,7 @@ pub(crate) async fn run_locked(engine:&Arc<Engine>,org:&Arc<OrgHandle>,caller:Op
         // USER 2026-10-26: anyone with Apps tools may start any copy hidden or
         // power one off. Starting never shows a window; already-running is a no-op.
         Request::PanelStart{panel:id,expected_rev}=>{
-            let old=panel(&tx,org.id,&id,true).await?;revision(&old,expected_rev)?;
+            let old=panel(&tx,org.id,&id,true).await?;if let Some(rev)=expected_rev{revision(&old,rev)?;}
             if old["running"]==true{old}else{
                 super::runtime::can_start(&tx,org.id).await?;
                 tx.execute("UPDATE ot.custom_panels SET is_running=true,run_generation=run_generation+1,rev=rev+1,updated_at=now() WHERE org_id=$1 AND id=$2",&[&org.id,&id]).await?;
@@ -240,7 +240,7 @@ pub(crate) async fn run_locked(engine:&Arc<Engine>,org:&Arc<OrgHandle>,caller:Op
             }
         }
         Request::PanelStop{panel:id,expected_rev}=>{
-            let old=panel(&tx,org.id,&id,true).await?;revision(&old,expected_rev)?;
+            let old=panel(&tx,org.id,&id,true).await?;if let Some(rev)=expected_rev{revision(&old,rev)?;}
             if old["running"]!=true&&old["open"]!=true{old}else{
                 tx.execute("UPDATE ot.custom_panels SET is_running=false,is_open=false,run_generation=run_generation+1,rev=rev+1,updated_at=now() WHERE org_id=$1 AND id=$2",&[&org.id,&id]).await?;
                 event(&tx,org.id,&id,"panel.stopped",&json!({}),&actor).await?;changed=true;panel(&tx,org.id,&id,false).await?

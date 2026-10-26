@@ -81,10 +81,11 @@ pub enum Request {
     List { kind:Option<String>, app:Option<String>, after:Option<String>, limit:Option<i64>, open:Option<bool>, running:Option<bool> },
     /// Running copies with actual desktop state; sample asks for fresh CPU.
     Runtime { after:Option<String>, limit:Option<i64>, #[serde(default)] sample:bool },
-    /// Starts a copy hidden; it never shows a window.
-    PanelStart { panel:String, expected_rev:i64 },
-    /// Powers a copy off and hides it.
-    PanelStop { panel:String, expected_rev:i64 },
+    /// Starts a copy hidden; it never shows a window. Power changes carry no
+    /// data, so expected_rev is optional: a running panel's saves bump it.
+    PanelStart { panel:String, expected_rev:Option<i64> },
+    /// Powers a copy off and hides it; expected_rev is optional as above.
+    PanelStop { panel:String, expected_rev:Option<i64> },
     AppGet { app:String },
     MarkSeen { apps:Vec<String> },
     AppExport { app:String, expected_rev:i64, #[serde(default)] include_panels:bool },

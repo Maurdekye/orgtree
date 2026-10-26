@@ -18,8 +18,11 @@ a stopped copy, so showing a hidden copy reveals the same runtime. Hide
 (panel_update open:false) clears only is_open: it keeps host sessions and ends
 Allow-once file grants and references, pending file requests and media streams;
 the desktop refuses its open prompts. panel_start runs any copy hidden (user
-or agent, expected_rev; running is a no-op). panel_stop clears both, bumps the
-generation and revokes sessions, file links and the runtime lease. User duplicates
+or agent; running is a no-op). panel_stop clears both, bumps the
+generation and revokes sessions, file links and the runtime lease. Both take an
+optional expected_rev, checked only when given: power changes carry no data, and a
+running copy's own state saves bump its revision faster than an agent can read and
+act (author decision, phase 1; not a user ruling). User duplicates
 open and run; agent-created/duplicated and imported copies stay closed and off.
 Starts lock their app row, then refuse while the org killswitch is latched; Stop
 all locks every app row in ID order and powers off every copy with panel.stopped
@@ -283,7 +286,8 @@ The header reuses attention-mail glow/count CSS. Reads begun before a local
 acknowledgement cannot resurrect the count; local acknowledgements serialize.
 Seen flags are UI metadata and never travel in app bundles or templates.
 
-Metadata/state mutations and duplication/deletion require expected_rev. A stale
+Metadata/state mutations and duplication/deletion require expected_rev (power
+changes take it optionally, see Background panels). A stale
 revision refuses409 rather than silently overwriting. State patch uses RFC7396:
 objects merge, arrays replace and null removes a key. State set can retain a null
 value inside its replacement object. Events use monotonic sequence cursors and
