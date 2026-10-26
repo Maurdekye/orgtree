@@ -46,12 +46,15 @@ Apps New counts are org-persisted catalog metadata; only visible menu entries
 are acknowledged, with orgtree_apps mark_seen parity. See
 [custom apps](docs/rust-engine/custom-apps.md).
 [verified: `domain/apps/storage.rs`, `canvas/apps/store.ts`, `canvas/apps/ui.tsx`; 2026-10-26]
-App panels default to centered modals; screen/canvas pins keep position. Native
-Apps chrome uses the shared modal/settings kit. App-row gears open app-wide
-settings; saved-panel and open-header gears open settings for that exact copy,
-including closed panels without running HTML. See the same custom-app topic
-for placement, permission and tool parity.
-[decided: user 2026-10-26; verified: `canvas/apps/{dialog,settings,ui}.tsx`]
+App panels default to centered modals; canvas pins keep position (screen pins
+were retired 2026-10-26; migration 0068 floats old ones). Native Apps chrome uses
+the shared modal/settings kit. The app row opens its first listed copy or creates
+one, + always creates, and new copies are named Panel N. App-row gears open
+app-wide settings (General/Permissions tabs); saved-panel and open-header gears
+open settings for that exact copy (General/History tabs), including closed panels
+without running HTML. See the same custom-app topic for placement, permission
+and tool parity.
+[decided: user 2026-10-26; verified: `canvas/apps/{dialog,settings,ui}.tsx`, `domain/apps/labels.rs`]
 App events carry privacy across subscriber/overflow handoffs; authorized delivery
 keeps content while watchdog diagnostic output/history omit it.
 Hide/close/replacement discards prompts and authority, while grant edits use a separate
@@ -63,8 +66,9 @@ Windows uses handle-relative no-reparse opens plus data-write/delete sharing
 exclusion and final handle-path checks; portable
 native exports cap exact compact bytes. See [custom apps](docs/rust-engine/custom-apps.md).
 Templates carry only inert app definitions/initial data; restore creates no copies
-or grants. Post-commit panel change metadata targets linked agents through opt-in
-app.event watchdogs, with no automatic wake. See the same topic for cursor limits.
+or grants. Panel links and their app.event signals were removed (user
+2026-10-26); agents follow copies only through app_listener subscriptions.
+See the same topic for cursor limits.
 [verified: `canvas/apps/actions.ts`, `canvas/apps/{host,permissions}.tsx`, `domain/apps/{bridge,files,storage,wire}.rs`; 2026-10-26]
 
 Mail list previews cap tags at three, with active filter matches first and a

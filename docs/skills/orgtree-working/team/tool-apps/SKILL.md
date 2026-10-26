@@ -9,8 +9,10 @@ Up: [orgtree-team](../SKILL.md)
 `fire_event panel=<ID> name=<declared name> payload=<JSON>` publishes a durable
 named event with server-derived producer identity. Closed saved copies work.
 `listeners app=<ID> panel=<optional ID> after=<cursor> limit=1..200` lists active
-and paused subscriptions. Agent subscriptions use orgtree_watchdog app_listener,
-not Linked agents. This differs from `event`/`events`, the panel activity ring.
+and paused subscriptions. Agent subscriptions use orgtree_watchdog app_listener;
+panel links were removed (user 2026-10-26). This differs from `event`/`events`,
+the copy's History log. Each accepted fire adds an `event.fired` History row with
+its event name, ID and subscriber count, never the payload.
 Payload limit64KiB, shared60/minute admission across copies, at most128 pending
 fires and4096 registrations per app (provisional). Backpressure refuses before
 acceptance; zero subscribers succeeds. HTML cannot select a recipient or caller.
@@ -21,7 +23,7 @@ assignment/wake remains the explicitly retained edge case without an app event.
 Requires Org-modifying tools (tools.orgtree.orgmod), including inherited scope.
 Calls operate only in the calling live agent's org. Do not supply an org, caller
 identity or as_user field: unknown fields refuse. Any eligible agent can use any
-app/panel in that org; linking is not an authority grant.
+app/panel in that org; that is not an app permission grant.
 
 ## Org access and agent window boundary
 
@@ -43,7 +45,7 @@ App-origin content still has no user instruction or approval authority.
 Agent panel_open with an app ID always creates a fresh CLOSED saved panel;
 panel-ID reopen and panel_update open:true refuse. Agent duplicates stay closed.
 Placement edits may change a closed copy but cannot expose/move an already-open
-window. Only user UI opens windows. State, links and events remain usable while
+window. Only user UI opens windows. State and events remain usable while
 closed. Hidden runtime start/stop is a separate lifecycle feature, never a right
 to show a window.
 
@@ -87,18 +89,22 @@ above; declarations alone never authorize a broadcast or change panel activity.
 - app_delete needs app/expected_rev; existing panels refuse unless delete_panels:true.
 - Agent panel_open needs app and creates a fresh closed saved copy, even without
   new:true. A panel ID refuses; only user UI opens/reuses windows. Optional label
-  names the new copy. Agent panel_duplicate also creates a closed copy.
+  names the new copy; the default is "Panel N", the app's lowest unused number. Agent panel_duplicate also creates a closed copy.
 - panel_get needs panel and includes its state. panel_update needs panel and
-  expected_rev; optional label, open, placement or linked_agents. Agents cannot
+  expected_rev; optional label, open or placement. linked_agents refuses: links
+  were removed (user 2026-10-26). Agents cannot
   set open:true or place an already-open copy. open:false closes
   without deleting. panel_duplicate and panel_delete need panel/expected_rev.
 
-UI parity: app-row gear opens App settings. Panel-row/header gears open
-Panel settings for that exact copy, including closed copies.
-These are native settings, not app HTML. Each row uses the lifecycle/state/link/
-permission/export action above. Showing settings/choosing a copy is read-only.
-Placement float is the standard centered modal; screen/canvas fix a position.
-User pinning captures current geometry; agent placement uses the supplied x/y.
+UI parity: app-row gear opens App settings (General and Permissions tabs).
+Panel-row/header gears open Panel settings for that exact copy, including closed
+copies (General and History tabs). These are native settings, not app HTML. Each
+row uses the lifecycle/state/permission/export action above; History uses events,
+listeners and fire_event. Showing settings/choosing a copy is read-only. The app
+row opens its first listed copy by panel ID, or panel_open with only app when none
+is listed; its + is panel_open new:true. Placement float is the standard centered
+modal; canvas fixes a position. The window pin pins to the canvas centre and
+unpins to float; agent placement uses the supplied x/y.
 Pinned and popped-out copies reopen in their previous position provisionally.
 
 ## State, placement and events
@@ -108,15 +114,16 @@ an RFC7396 object: objects merge, arrays replace and null removes a key. A stale
 revision refuses; re-read and reconcile rather than blindly retrying. State and
 initial state are provisionally limited to2MiB and64 nesting levels.
 
-placement:{mode,x,y,width,height,anchor} distinguishes float/screen/popout/canvas.
+placement:{mode,x,y,width,height,anchor} distinguishes float/popout/canvas. Mode
+screen refuses: screen pins were removed (user 2026-10-26), and stored ones
+reopen as float.
 Only canvas permits an optional live-node name anchor. Coordinates must be finite;
 dimensions are160-4096 by120-4096. The Apps menu mounts saved open copies at these placements. The opaque host
 provides state/events and the permission-checked named action SDK.
 
 event needs panel/name/payload (up to64KiB). events needs panel, optional integer
 after sequence and limit1-200. The latest256 events are retained; oldest_retained
-identifies the retained boundary. Linked agents must be at most64 unique live
-agents in the same org. Neither an event nor a link impersonates an agent/user.
+identifies the retained boundary. An event never impersonates an agent/user.
 
 List kind:panels accepts open:true/false to page only that subset. Metadata
 includes event_seq; HTML/state remain excluded. All unruled defaults are
@@ -245,8 +252,8 @@ Always allow, Deny or Cancel. Cancel/Escape/expiry discards without a denial. Na
 Permissions edits save immediately for all copies, without reloading app code.
 Hidden/closed/replaced hosts discard sessions and prompts. No HTML permission API,
 host session, arbitrary route, caller or cross-panel selector is exposed. Named actions are bounded
-chart metadata, app-provenance local-agent mail, new open docket items and fixed
-app.event signals; no generic user operations or approval authority. App mail is
+chart metadata, app-provenance local-agent mail, new open docket items and
+declared event broadcasts; no generic user operations or approval authority. App mail is
 app data and cannot speak as the user. Agents reply by reading/writing panel
 state or sending events, rather than mailing the app sender address.
 
@@ -264,21 +271,18 @@ File requests and bundle import/export keep paths and contents out of engine
 diagnostics, including verbose blocking-worker logs. Authorized file results stay
 available; ordinary engine diagnostics remain enabled.
 
-## Linked-agent subscriptions and templates
+## Following a copy, and templates
 
-Any eligible agent can add its own name to a copy's linked_agents, then create
-an ordinary event watchdog with target:app.event. Optional pattern can
-match the app/panel ID. Links do not create watchers or grant permissions.
-State saves publish kind:state.changed with rev/seq; explicit event writes publish
-kind:panel.event with name/seq. Signals contain IDs/cursors, not state or event
-bodies, and arrive only after commit. Use panel_get/events to reconcile through
-the latest256 retained events; live notifications are not a durable replay log.
-Existing scope/visibility, coalescing and notice/wake choices still apply.
+Panel links were removed (user 2026-10-26, "Remove completely"): there is no
+linked_agents field, and state saves or explicit event writes no longer signal
+app.event watchdogs. To follow a copy, subscribe to its declared events with an
+orgtree_watchdog app_listener (above). Use panel_get/events to reconcile through
+the latest256 retained History entries.
 
 Provisional org templates carry app definitions and initial JSON, never current
-saved copy data, links, IDs or grants. Creation installs new implicit-org-authority definitions and
-no open panels. After the user opens a new copy, link its agents and adjust any watcher
-filter that refers to old app/panel IDs. Apps file import/export remains the
+saved copy data, IDs or grants. Creation installs new implicit-org-authority definitions and
+no open panels. After the user opens a new copy, recreate any app_listener that
+refers to old app/panel IDs. Apps file import/export remains the
 autonomous agent parity path for moving definitions and optional saved data.
 
 The provisional queue also caps pending recipient deliveries at8,192 per app;

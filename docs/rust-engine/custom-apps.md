@@ -20,7 +20,7 @@ App-origin content still has no user instruction or approval authority.
 Agent panel_open with an app ID always creates a fresh CLOSED saved panel;
 panel-ID reopen and panel_update open:true refuse. Agent duplicates stay closed.
 Placement edits may change a closed copy but cannot expose/move an already-open
-window. Only user UI opens windows. State, links and events remain usable while
+window. Only user UI opens windows. State and events remain usable while
 closed. Hidden runtime start/stop is a separate lifecycle feature, never a right
 to show a window.
 
@@ -56,7 +56,7 @@ revokes external grants and sessions but preserves restrictive user choices. The
 An agent creates `orgtree_watchdog kind=app_listener target=<stable app ID>`
 with `event_name` and either one `panel` or explicit `all_panels:true`. Its
 current live owner needs watchdog and Apps tools. Overlapping registrations for
-the same owner/event are refused. Links and creator identity confer no right.
+the same owner/event are refused. Creator identity confers no right.
 Pause/resume/remove, once, notice and explicit fire_actions keep watchdog meaning.
 App deletion, removed declarations and specific panel deletion pause affected
 registrations with a reason; returning sources do not silently rearm them.
@@ -75,13 +75,17 @@ shutdown-bound dispatcher recovers pending work and caps concurrent app drains
 at four. Mail uniqueness is event×listener; diagnostics contain metadata only.
 Authorized mail retains JSON and server-derived org/app/panel/event/time/producer
 provenance. App content is not user instruction or approval. `listeners` lists
-registrations in bounded pages; event activity/linked-agent metadata stay separate.
+registrations in bounded pages. Each accepted fire also appends a metadata-only
+`event.fired` row (`{event,id,subscribers}`, actor user/agent/app) to that copy's
+bounded panel log inside the publishing transaction, after the app row lock. The
+payload never enters that log, and the host does not relay the row into the app
+(USER2026-10-26 mc8711410a925, History tab).
 
 By the user's2026-10-26 ruling, docket.write create/assign/wake remains the
 documented edge case that wakes a selected local agent without an app event.
 
-Native Panel settings > Events… lists actual scoped connections
-with bounded cursor paging, permits explicit user Fire event from the selected
+Native Panel settings > History shows the copy's log, lists actual scoped
+connections with bounded cursor paging, permits explicit user Fire event from that
 saved copy and displays acceptance/backpressure without automatic retries.
 Agent parity is Apps listeners/fire_event; agent subscription ownership stays
 in watchdog controls. SDK orgtree.events.fire forwards only name/payload to
@@ -99,15 +103,15 @@ The provisional catalog limit is64. Declarations contain no grants, listeners,
 recipients or fire actions. Old bundles without the field remain valid.
 
 Declarations alone create no listeners. Durable publication and effective
-broadcast permission use the separate explicit paths described above; panel activity and
-linked metadata remain separate. The user explicitly retains docket
+broadcast permission use the separate explicit paths described above; the copy's
+History log remains separate. The user explicitly retains docket
 create/assign/wake as the direct-wake edge case without an app event
 (USER2026-10-26 m556cde76bd33).
 
 Source ruling: USER2026-10-25, custom panels headline. An org owns app definitions;
 each app has zero or more saved panels. Every panel owns an independent JSON
 object. Any live agent with org-modifying tools can operate on any copy in its
-current org. An author or linked agent does not acquire user authority.
+current org. An app's author does not acquire user authority.
 
 ## File access (2026-10-26)
 
@@ -117,7 +121,7 @@ scratch/uploads/retained-delivery catalog. Native paths never enter the iframe
 SDK or portable bundles. Once grants are host-memory only; Always grants persist
 in PG. Ask/Deny overrides org defaults; grant revoke/code replacement clears external authority.
 Closing/hiding ends host links. Imported/duplicated state cannot reuse a file id
-from another panel. Files settings live inside the existing Permissions dialog.
+from another panel. Files settings live in App settings' Permissions tab.
 
 POST apps/files requires the exact native desktop header. It accepts native
 Call/Decide/Permissions/Revoke/Browse/Confirm/Confirmations; iframe methods are the fixed file SDK,
@@ -218,32 +222,46 @@ retain the latest256 per panel; oldest_retained makes truncation explicit.
 
 ## Provisional defaults for morning review
 
-User UI opening an app creates its first panel or reopens the most recently used one;
-new=true always creates another. Definition initial_state is copied, not shared.
+The app row (USER2026-10-26 m0d853b77c816) opens its first listed panel by
+explicit panel ID, or sends panel_open with only the app when it lists none, so
+the engine reopens the most recently used copy or creates the first; its + sends
+new=true and always creates another. A new panel without an explicit label is
+named "Panel N", the app's lowest unused positive number among exact automatic
+labels, chosen under the app row lock (USER me02e165c08fe;
+`domain/apps/labels.rs`). Existing, explicit, imported and duplicated labels never
+change. Saved-panel rows show state by their dot alone, open filled and closed
+hollow, with Open/Closed in the tooltip and accessible label (USER m5ff0338a79da). Definition initial_state is copied, not shared.
 Updating initial_state never overwrites existing saved-panel data; it applies
 only when a new panel is created. The focused apps-new real-PG proof covers this.
 
 The signed centered-modal rule supersedes the original fixed floating default:
 placement float renders a viewport-centered overlay (stored x/y are unused in
-that mode). Screen/canvas placement keeps stored geometry; native pop-outs keep
-the existing saved-window lifecycle. Pin captures the rendered box, so it stays
-put. Float/unpin centers it again. The iframe remains the same subtree across
-pin/unpin. No engine permission/state/schema changes implement this display rule.
+that mode). Canvas placement keeps stored geometry; native pop-outs keep the
+existing saved-window lifecycle. The header pin pins to the canvas only (USER
+2026-10-26 mbb2b54092d1f, "only canvas pin, no screen pin"): it places the copy
+at the visible canvas centre and asks its org window for the canvas view; unpin
+returns to float. The pin is hidden in a pop-out. Screen placement is retired:
+the wire refuses mode screen, and migration0068 moved stored screen pins to
+float. The iframe remains the same subtree across pin/unpin.
 
 Separate native settings replace the former combined App/This panel view
 (USER2026-10-26 m9f3ddc116f78). App-row gear opens AppSettings: description,
-creator, export/delete and unchanged AppPermissions, including Files grants,
-pending changes and events.fire allow/deny. Panel-row and open-header gears open
+creator, export/delete) in its General tab and the embedded AppPermissions in a
+second Permissions tab (USER2026-10-26 m1fcbeca9488e): Files grants, pending
+changes and events.fire allow/deny. Panel-row and open-header gears open
 PanelSettings bound to one explicit panel ID, including closed copies; no MRU
-selection, HTML startup or app actions. State/rename/links/activity/duplicate/
-placement/delete retain existing revision-checked tool calls. Events publication
-and Connections remain per-copy here; Once stays in live native host consent.
-Both use the existing SetGroup/SetRow/AppDialog design system and independent
+selection, HTML startup or app actions. Its General tab keeps state/rename/
+duplicate/delete on their existing revision-checked tool calls. Its History tab
+(USER mc8711410a925) holds the copy's log, merged from the former Activity view,
+with Connections and Fire event, which stay per-copy. Linked agents (USER
+m66c0f064351c) and placement (USER m79ee175a5283, m5fca61662c5b) left settings;
+placement stays on the window and in orgtree_apps. Once stays in live native
+host consent. Both use the shared SettingsTabs/SetGroup/SetRow/AppDialog design system and independent
 pin identities; owner-document context also wraps their nested dialogs. All
 three settings entry points are display only; orgtree_apps retains action parity.
 
 Entry HTML is limited to4MiB, state/initial state to2MiB compact JSON, nesting to64,
-event payloads to64KiB and links to64 unique live agents in the same org. Pages
+and event payloads to64KiB. Pages
 default100, maximum200. These are provisional bounds, not new user rulings.
 
 The bound HTML bridge exposes fixed org actions under the effective policy above.
@@ -259,7 +277,7 @@ category. orgtree.logo scope requests resolve to the canonical orgmod grant.
 Other provisional choices retained for the next slices: per-app default/Ask/Allow/Deny
 outside HTML, exact-request Allow once, no network/no same-origin, suspend hidden
 scripts, optional accumulated state in export, no portable execution grants,
-template definitions/initial state only, and any-agent links without authority.
+and template definitions/initial state only.
 Mail identity and creator-retirement policy remain morning questions; no default
 may silently turn an agent panel into general user authority.
 
@@ -351,8 +369,8 @@ external grants and revokes sessions, retaining restrictive Ask/Deny. Import/exp
 
 The action vocabulary is limited to org.read (paged active chart metadata, not
 private mail/files), mail.send (a live local agent only), docket.create (one new
-open non-code item with title/objective/owner) and events.fire (fixed app.event
-namespace scoped to a live local agent). No general ops/HTTP, identity selection,
+open non-code item with title/objective/owner) and events.fire (a declared named
+event broadcast to subscribed app_listener watchdogs). No general ops/HTTP, identity selection,
 question answering, release actions, outside mail, user mail or project mail.
 
 Mail has explicit app:<app>/<panel> provenance, grants no reply audience and
@@ -372,7 +390,7 @@ Definition and optional `{label,state}` copies. Limits:16MiB serialized bundle,
 16 copies, existing4MiB HTML/2MiB state/depth bounds. Imports validate before DB
 access, generate new IDs, derive local org authority without portable grants, and create copies closed
 with default placement. Neither script execution nor host creation happens on
-import. No links, runtime IDs, grants, sessions, geometry or credentials travel.
+import. No runtime IDs, grants, sessions, geometry or credentials travel.
 
 Export takes expected_rev and the app row lock shared by all panel writers,
 giving one app/copy snapshot. It refuses more than16 selected copies rather than
@@ -398,25 +416,24 @@ Blob creation, so valid deep state does not expand past the import cap. Ordinary
 panel-state JSON export retains its readable formatting.
 These defaults await morning review.
 
-## Templates and linked-agent subscriptions
+## Templates and the retired panel links
 
 Provisional Save as template carries strict app definitions/initial state only,
 within its existing16MiB total file bound. It does not query saved copies,
-permissions, links or runtime IDs. Template App has opaque Debug and generic
+permissions or runtime IDs. Template App has opaque Debug and generic
 validation errors, including when a logged template service returns it. The
 new-org transaction inserts fresh implicit-org-authority definitions atomically alongside
 its nodes. No panel/iframe/host session is created and no script executes.
 
-State set/patch and explicit panel events queue metadata-only app.event signals
-for the copy's at-most64 linked local agents. The transaction commits before
-engine emission; failures publish nothing. Each signal carries app/panel ID,
-kind, sequence and optional event name/revision, never saved state/event body.
-Scope::NamedAgent preserves the normal receiver visibility rules, including a
-self-visible linked subscriber. Event privacy survives existing queues/overflow.
-No link auto-arms a watcher or auto-wakes an agent. Existing app.event event
-watchdogs can filter pattern and decide coalescing/notice/wake policy.
-Signals are live hints, not a durable replay stream: consumers reconcile via
-panel_get/events and their cursor; the existing latest256 boundary stays explicit.
+Panel links are removed (USER2026-10-26 mbb2b54092d1f, "Remove completely";
+m66c0f064351c: agents are linked by listening for panel events now). Panel
+metadata omits linked_agents; any Apps request carrying linked_agents is refused
+with directions to app_listener; duplicates copy no links; state set/patch and
+explicit panel events no longer emit app.event watchdog signals. Migration0068
+empties the inert linked_agents column, kept so an older build still reads its
+rows. The watchdog event bus keeps its private-payload handling for the retired
+app.event name as defensive code with no producer. Agents reconcile through
+panel_get/events and their cursor; the latest256 boundary stays explicit.
 
 docs/examples/apps/annotation-notes.orgtree-app is a small inert portable sample:
 independent state, explicit save/reload and named mail.send through native consent.

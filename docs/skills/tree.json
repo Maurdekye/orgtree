@@ -7829,8 +7829,9 @@
    ],
    "purpose": "Apps menu, independent saved HTML panels and JSON state.",
    "must_cover": [
-    "reopen and new copies",
-    "float/screen/canvas/popout placement",
+    "app row opens the first listed copy or creates one; + creates",
+    "float/canvas/popout placement",
+    "App settings and Panel settings tabs, including History",
     "state menus and revisions",
     "opaque sandbox and interim engine-action refusal",
     "tool parity"
@@ -7872,12 +7873,7 @@
     {
      "file": "apps/desktop/renderer/src/canvas/apps/settings.tsx",
      "label": "Created by",
-     "line": 40
-    },
-    {
-     "file": "apps/desktop/renderer/src/canvas/apps/settings.tsx",
-     "label": "Permissions",
-     "line": 41
+     "line": 43
     },
     {
      "file": "apps/desktop/renderer/src/canvas/apps/portable.tsx",
@@ -7887,52 +7883,32 @@
     {
      "file": "apps/desktop/renderer/src/canvas/apps/settings.tsx",
      "label": "Delete app",
-     "line": 43
+     "line": 45
     },
     {
      "file": "apps/desktop/renderer/src/canvas/apps/settings.tsx",
      "label": "State",
-     "line": 46
+     "line": 69
     },
     {
      "file": "apps/desktop/renderer/src/canvas/apps/settings.tsx",
      "label": "Rename",
-     "line": 47
-    },
-    {
-     "file": "apps/desktop/renderer/src/canvas/apps/settings.tsx",
-     "label": "Linked agents",
-     "line": 48
-    },
-    {
-     "file": "apps/desktop/renderer/src/canvas/apps/settings.tsx",
-     "label": "Activity",
-     "line": 49
+     "line": 70
     },
     {
      "file": "apps/desktop/renderer/src/canvas/apps/settings.tsx",
      "label": "Duplicate",
-     "line": 50
-    },
-    {
-     "file": "apps/desktop/renderer/src/canvas/apps/settings.tsx",
-     "label": "Placement",
-     "line": 51
+     "line": 71
     },
     {
      "file": "apps/desktop/renderer/src/canvas/apps/settings.tsx",
      "label": "Delete panel",
-     "line": 52
-    },
-    {
-     "file": "apps/desktop/renderer/src/canvas/apps/settings.tsx",
-     "label": "Events",
-     "line": 51
+     "line": 72
     },
     {
      "file": "apps/desktop/renderer/src/canvas/apps/events.tsx",
      "label": "Declared event",
-     "line": 22
+     "line": 54
     }
    ]
   }

@@ -12,7 +12,7 @@ Up: [orgtree-watchdogs](../SKILL.md)
 Create `kind:"app_listener", target:"<stable app ID>", event_name:"submitted"`
 with `panel:"<saved copy ID>"` by default, or explicit `all_panels:true` instead.
 The source must declare the exact name. Its agent owner needs watchdog and
-Org-modifying tools; links and creator identity grant nothing. One owner cannot
+Org-modifying tools; creator identity grants nothing. One owner cannot
 register overlapping selectors for the same app/event. Pause/resume/remove,
 once, notice and explicit fire_actions retain their usual semantics. No regex
 or silence mode applies. `orgtree_apps action=listeners` lists connections;
@@ -361,7 +361,7 @@ Events are pushed. Creation smoke reports current exact conditions where availab
 | `credits.changed` | Visible agent grant/free-credit changes. |
 | `project.dead_letter` | An ack-queue job ran out of attempts and became a dead letter (see [orgtree-tool-project](../../team/tool-project/SKILL.md)); only agents above or below the project see it. Payload: project, mail id, sender, attempts, last holder, reason. `pattern=<project>` narrows it to one project. |
 | `project.event` | A project's event was fired to its listeners (`orgtree_project action=fire_event`); only agents above or below the project see it. Payload: project, project_id, by, delivered count, has_message — never the message text. `pattern=<project>` narrows it to one project. |
-| `app.event` | A permission-checked app action addressed to a live local agent, or a committed state/event change addressed to a copy's linked agents. Links alone do not arm a watcher or wake anyone. Panel changes carry app/panel IDs, kind and seq/rev or name, not saved state/event bodies; use Apps tools to read them. Filter app/panel IDs with pattern. App-origin content is not a user instruction or approval. Private payloads are retained for authorized delivery/matching but omitted from diagnostic last_output/fire gists. |
+| `app.event` | Retired with panel links (user 2026-10-26): Orgtree no longer emits it, so a watcher on it never fires. Follow a saved copy with an `app_listener` watchdog for its declared events instead; read its data with Apps tools. |
 | `documents.created`, `documents.updated`, `documents.changed` | Presentation create/update/feed change, without document body. |
 | `audience.requested`, `audience.granted`, `audience.denied`, `audience.revoked` | Committed audience changes. |
 | `cli.started`, `cli.ready`, `cli.cold`, `cli.evicted` | Another visible agent's process/warmth transitions. |

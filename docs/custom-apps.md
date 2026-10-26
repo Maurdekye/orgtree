@@ -20,7 +20,7 @@ App-origin content still has no user instruction or approval authority.
 Agent panel_open with an app ID always creates a fresh CLOSED saved panel;
 panel-ID reopen and panel_update open:true refuse. Agent duplicates stay closed.
 Placement edits may change a closed copy but cannot expose/move an already-open
-window. Only user UI opens windows. State, links and events remain usable while
+window. Only user UI opens windows. State and events remain usable while
 closed. Hidden runtime start/stop is a separate lifecycle feature, never a right
 to show a window.
 
@@ -35,8 +35,7 @@ Retained artifacts means exact catalog entries, not their parent directories.
 
 Named events connect an app to agents that explicitly listen. An agent creates
 an `app_listener` watchdog for an app ID, a declared event name, and one saved
-copy; it can explicitly choose all copies instead. App links alone do not wake
-anyone. Fires reach every currently eligible subscribed agent as watchdog mail,
+copy; it can explicitly choose all copies instead. Fires reach every currently eligible subscribed agent as watchdog mail,
 with normal notice/one-shot/action choices. A listener added later does not get
 an older fire. Removed sources pause affected listeners; restoring a declaration
 does not silently rearm them. Subscriptions and actions are not exported.
@@ -52,21 +51,28 @@ provenance; diagnostics redact data. App content is never your instruction or
 approval. Direct docket.write create/assign/wake remains the noted edge case
 where an app wakes a selected agent without an app event.
 
-Open a saved copy's gear, choose **Events…**, and inspect its Connections list
-or fire a declared event with JSON data. This works for closed saved copies.
+Open a saved copy's gear and choose its **History** tab to read the copy's event
+history, inspect its Connections list or fire a declared event with JSON data.
+This works for closed saved copies. History lists opens, changes, state saves and
+events, newest first; a fired event shows its listener count, while its data goes
+only to the subscribed agents.
 Refresh/More connections page the registrations; agents manage those watchdogs
 through their ordinary tools. Merely opening settings fires nothing. HTML uses
 `orgtree.events.fire(name,payload)` (or `orgtree.call('events.fire',{name,payload})`).
-`orgtree.emit` stays separate panel activity and does not broadcast to listeners.
+`orgtree.emit` adds a History entry and does not broadcast to listeners.
 
 An app is a small HTML program kept by one organization. A panel is one saved
 copy with its own label and JSON data. Closing keeps it; deleting removes it.
 Definitions and committed data live in Orgtree's database across restarts.
 
-Open **Apps** beside Presentations in the org header. Clicking an app reopens its
-most recently used copy or creates the first one. **+ New panel** makes another
-copy from the initial state. Open and closed saved panels are listed below it.
-These defaults are provisional for the morning review.
+Open **Apps** beside Presentations in the org header. A click anywhere on an
+app's row opens the first saved panel listed under it (the most recently used),
+or creates and opens its first panel when it has none. The **+** on the app's row
+always creates and opens a new panel from the initial state. Saved panels are
+listed under their app: a lit dot marks an open panel and a hollow dot a closed
+one, and the dot's tooltip names the state. New panels are named **Panel 1**,
+**Panel 2** and so on, with the lowest number not yet used in that app; renamed,
+imported and duplicated panels keep their own names.
 
 The Apps button highlights and counts new apps like unread attention mail. The
 menu marks them **New**. An entry clears from the count when you see it in the
@@ -75,8 +81,8 @@ that menu visit. Seen status belongs to the org and survives restarts. Existing
 apps start new when this feature is first added. Provisional choice: apps you
 import yourself also count as new. Updating an app does not mark it new again.
 
-Agents can set an app's initial JSON state. The first panel and **+ New panel**
-copy that state. Changing the definition's initial state affects future panels;
+Agents can set an app's initial JSON state. The first panel and each panel made
+with **+** copy that state. Changing the definition's initial state affects future panels;
 existing saved panels keep their data.
 
 An app definition can declare named events in `events`, for example
@@ -86,42 +92,45 @@ without surrounding whitespace or control characters. The provisional catalog
 limit is64 events, with names up to80 characters and descriptions up to1,000.
 Declarations grant no permission and create no listeners. Named-event listener
 delivery uses explicit app_listener subscriptions; declaring an event alone
-does not wake agents. Existing panel activity and linked-agent metadata stay
-separate.
+does not wake agents. A copy's History log stays separate from delivery.
 
 Apps open as standard centered modals. There are two separate settings panels,
 both styled like Orgtree's other settings panels. The gear beside an app in Apps
-opens **App settings**: description, creator, export, delete app and Permissions.
-Permissions includes Events allow/deny, Files grants and pending file changes;
-these apply to every copy. Allow once stays in the live panel's native prompt.
+opens **App settings**, with two tabs: **General** (description, creator, export
+and delete app) and **Permissions** (Events allow/deny, Files grants and pending
+file changes, which apply to every copy). Allow once stays in the live panel's native prompt.
 
 The gear beside each saved panel in Apps, including a closed panel, and the gear
-in an open panel's header open **Panel settings** for that exact copy: State,
-Rename, Linked agents, Activity, Duplicate, Float, Pin to screen, Pin to canvas
-and Delete panel. Events and Connections also belong here because firing and
-subscriptions refer to a saved copy. Managing a closed copy does not run its
+in an open panel's header open **Panel settings** for that exact copy, with two
+tabs: **General** (State, Rename, Duplicate and Delete panel) and **History**
+(event history, Connections and Fire event). Events and Connections belong here
+because firing and subscriptions refer to a saved copy. Placement is not a
+setting; use the panel window's own controls. Managing a closed copy does not run its
 HTML. Further saved copies remain available through the Apps menu's paging.
 Settings entry points are display only; all operations retain their existing
 orgtree_apps actions, revisions and permission checks.
 
-**Float** returns to the centered modal. **Pin to screen** fixes the current
-position; drag its title or resize its corner. **Pin to canvas** moves and zooms
-with the chart. Screen/canvas pins retain their saved position when reopened;
-pop-outs use the existing saved-window restoration (provisional reopen default).
+The pin on a panel's title bar pins it to the canvas, centred in the visible
+canvas, and switches the org window to the canvas view; drag its title or resize
+its corner there. A canvas pin moves and zooms with the chart and keeps its saved
+position when reopened. Unpinning returns the panel to the centered modal. Panels
+no longer pin to the screen; one pinned there before reopens centered. Pop-outs
+use the existing saved-window restoration (provisional reopen default), and the
+pin is hidden in a popped-out window.
 Far zoom shows an icon, and hidden canvas HTML pauses until visible again.
 The title's pop-out opens a separate window; Return restores its previous place.
 
 State opens editable JSON. Import changes the editor, Export saves it and Copy
 copies it. Reset loads initial data; Save is needed to commit either change. A
-concurrent edit reports a conflict. Each copy has its own data. A panel's recent
-Activity retains256 events. Linked agents can interpret/update any copy in this
-org with Org-modifying tools; linking does not grant permission.
+concurrent edit reports a conflict. Each copy has its own data. A panel's History
+retains its latest 256 entries. Any agent with Org-modifying tools can interpret
+and update any copy in this org; that grants no app permission.
 
 Apps are opaque sandboxed HTML, with no engine credential or same-origin access.
 The host provides saved state, named events and permission-checked engine actions.
 Whole-app portability uses a versioned `.orgtree-app` JSON file. It carries the
 definition and initial data, optionally saved copy labels and data. Permissions,
-credentials, links, IDs and machine-specific placement do not travel. Imports
+credentials, IDs and machine-specific placement do not travel. Imports
 create fresh IDs, with implicit org access and saved copies closed until
 opened by the user. The provisional bounds are16MiB per bundle and16 saved copies;
 definition-only export is available for an app with more copies.
@@ -131,7 +140,7 @@ Org access comes from the local default policy, not portable declarations. App c
 JSON state to2MiB and events to64KiB; these are provisional bounds.
 
 Agents use orgtree_apps to create closed copies and manage saved placement,
-links, state and events; they cannot open a window. Org-modifying tools also contains Logo; the new category preserves old
+state and events; they cannot open a window. Org-modifying tools also contains Logo; the new category preserves old
 explicit Logo denials. Copy/export JSON use ordinary local clipboard/file actions.
 
 Agents can import an app from a held local file and export one into a new file in
@@ -170,15 +179,14 @@ or panel data through its authorized delivery and Apps controls.
 
 Save as template now includes app definitions and initial data. Creating an org
 from it creates fresh app definitions with implicit org access and no saved copies;
-no imported script runs until you open a panel. Current panel data, links and
+no imported script runs until you open a panel. Current panel data and
 execution grants stay in the original org. This is a provisional default.
 
-For an agent to follow a copy, add its name under Linked agents and have it create
-an event watchdog for `app.event`, optionally filtering the app/panel IDs with
-pattern. State saves and named panel events publish a sequence cursor
-after commit. The watcher can read panel_get/events for the data. Linking alone
-does not wake anyone, and no watcher is created automatically. Existing watcher
-scope, coalescing and notice/wake choices apply. Browser timers pause with hidden
+Agents follow a copy only through its declared events, with an `app_listener`
+watchdog (see above). Panel links were removed (user 2026-10-26): there is no
+Linked agents setting, orgtree_apps refuses `linked_agents`, and state saves no
+longer signal `app.event` watchers. An agent that needs current data reads
+panel_get or events. Browser timers pause with hidden
 HTML; use an engine watchdog for work that must continue in the background.
 
 Try the portable [Annotation notes example](examples/apps/annotation-notes.orgtree-app):

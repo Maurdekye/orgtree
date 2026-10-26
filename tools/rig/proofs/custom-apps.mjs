@@ -72,14 +72,16 @@ export default async function(rig){
   const replaced=await apps({action:'app_update',app:app.id,expected_rev:app.rev,definition:{...definition,description:'Updated code definition'}})
   p.check('code replacement clears grants and revokes prior sessions',same(replaced.permissions,{})&&await refused(()=>bridge({action:'call',session:host.session,request:{action:'org.read'}}),403))
 
-  // Metadata subscriptions do not include state/event payloads or auto-arm dogs.
-  one=await panel(one.id);one=await apps({action:'panel_update',panel:one.id,expected_rev:one.rev,linked_agents:['watcher']})
+  // Panel links were removed (user 2026-10-26): a link request is refused with
+  // directions, and a state save signals no app.event watcher.
+  one=await panel(one.id);const linked=await rig.tool('watcher','orgtree_apps',{action:'panel_update',panel:one.id,expected_rev:one.rev,linked_agents:['watcher']})
+  p.check('panel links are refused with directions to app_listener',!linked.ok&&/app_listener/.test(linked.text))
   const changed=await rig.tool('watcher','orgtree_watchdog',{action:'create',name:'panel-change-pg',kind:'event',target:'app.event',pattern:one.id,once:true,notice:true,interval_s:15});assert(changed.ok,changed.text)
   await rig.waitFor(()=>rig.one(`SELECT memo->'run'->'counts' AS counts FROM ot.watchdogs WHERE name='panel-change-pg'`)?.counts,{what:'linked metadata watcher baseline',timeout:15000,every:100})
   const stateOnly='PRIVATE-APP-PG-STATE-543221';one=await apps({action:'state_set',panel:one.id,expected_rev:one.rev,state:{note:stateOnly}})
-  await rig.waitFor(()=>rig.one(`SELECT fired FROM ot.watchdogs WHERE name='panel-change-pg'`)?.fired===1,{what:'committed linked copy notification',timeout:15000,every:100})
-  const signal=rig.one(`SELECT body FROM ot.mail WHERE body LIKE '%state.changed%' AND body LIKE '%${one.id}%'`)
-  p.check('linked self-visible receiver gets metadata/cursor without saved state',!!signal?.body&&!signal.body.includes(stateOnly)&&signal.body.includes('seq'))
+  await new Promise(r=>setTimeout(r,2000))
+  const signal=rig.one(`SELECT fired FROM ot.watchdogs WHERE name='panel-change-pg'`)
+  p.check('a committed state save signals no app.event watcher',signal?.fired===0)
 
   // Save and instantiate an actual template: no current state/grants/copies.
   const template=await rig.api('POST',root+'/template',{name:'Apps portable template',include:{watchdogs:false,audiences:false}})
