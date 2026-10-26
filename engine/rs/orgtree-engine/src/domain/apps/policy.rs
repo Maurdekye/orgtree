@@ -30,4 +30,12 @@ pub const ORG_CAPABILITIES:&[&str]=&["org.read","mail.send","events.fire","docke
         assert!(!org_allowed(&json!({"origin":"forged"}),"org.read"));assert!(!default_allowed(&json!({"origin":"created"}),"files.computer"));
         assert_eq!(restrictive_overrides(&json!({"mail.send":"deny","events.fire":"ask","files.read":"allow"})),json!({"mail.send":"deny","events.fire":"ask"}));
     }
+    // USER 2026-10-26 "Remove; import, never grant": an old declaration or stored grant
+    // never allows mail.send, and app metadata no longer shows it.
+    #[test]fn custom_apps_never_grant_the_removed_mail_send(){
+        assert!(!ORG_CAPABILITIES.contains(&"mail.send"));
+        for origin in ["created","imported","template","legacy"]{let v=json!({"origin":origin,"capabilities":["mail.send"],"permissions":{"mail.send":"allow"}});assert!(!org_allowed(&v,"mail.send"),"{origin}");assert!(decision(&v,"mail.send").is_err(),"{origin}");}
+        let out=metadata(json!({"origin":"created","capabilities":["mail.send","files.read"],"permissions":{"mail.send":"allow","files.read":"deny"},"definition":{"capabilities":["mail.send"]}}));
+        assert_eq!(out["capabilities"],json!(["files.read"]));assert_eq!(out["permissions"],json!({"files.read":"deny"}));assert_eq!(out["definition"]["capabilities"],json!([]));assert!(out["default_permissions"].get("mail.send").is_none());
+    }
 }

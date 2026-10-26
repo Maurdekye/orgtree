@@ -236,6 +236,10 @@ async fn execute_private(engine:&Arc<Engine>,org:&Arc<OrgHandle>,bound:&Bound,va
         for input in [json!({"action":"publish"}),json!({"action":"mail.send","to":"bob","body":"x","as_user":true}),json!({"action":"org.read","org":"other"})]{assert!(serde_json::from_value::<Action>(input).is_err());}
         for name in ["user","system","@bob","net:remote","org:elsewhere"]{assert!(recipient(name).is_err());}
     }
+    // USER 2026-10-26: agents hear apps only through events ("Remove; import, never grant").
+    #[test] fn custom_apps_mail_send_is_no_longer_an_app_action(){
+        assert!(serde_json::from_value::<Action>(json!({"action":"mail.send","to":"worker","body":"notes"})).is_err(),"mail.send is no app action");
+    }
     #[test] fn custom_apps_bridge_declarations_and_denials_are_not_grants(){
         let action=Action::MailSend{to:"agent".into(),body:"text".into(),notice:false};
         assert!(permission(&json!({"capabilities":[],"permissions":{"mail.send":"allow"}}),&action).is_err());

@@ -2044,6 +2044,14 @@ mod mqtt_card_tests {
         assert!(d.contains("mqtt") && d.len() <= 900, "{} bytes: {d}", d.len());
     }
 
+    /// mail.send was removed (user 2026-10-26: agents hear apps only through events).
+    #[test]
+    fn the_apps_card_offers_no_mail_send() {
+        let cards = super::all();
+        let apps = cards.iter().find(|c| c["name"] == "orgtree_apps").unwrap();
+        assert!(!apps.to_string().contains("mail.send"), "the apps card still offers mail.send");
+    }
+
     /// The websocket kind, its fields and the send action
     /// (docs/rust-engine/websocket-watchdogs.md).
     #[test]

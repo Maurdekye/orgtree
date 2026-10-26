@@ -312,3 +312,14 @@ mod tests {
         assert!(super::parse(&serde_json::json!({"action":"permission_set","app":"a","expected_rev":1,"capability":"mail.send","permission":"allow","as_user":true})).is_err());
     }
 }
+
+#[cfg(test)] mod retired_capabilities {
+    use serde_json::json;
+    // USER 2026-10-26 "Remove; import, never grant": an old mail.send declaration still
+    // validates, so the app imports and runs, but it is no capability any more.
+    #[test] fn custom_apps_old_mail_send_declarations_still_import(){
+        let def:super::Definition=serde_json::from_value(json!({"name":"Old","html":"<p>old</p>","capabilities":["mail.send","files.read"]})).unwrap();
+        assert!(super::definition(&def).is_ok(),"an old declaration still imports");
+        assert!(!super::CAPABILITIES.contains(&"mail.send"),"mail.send is no capability any more");
+    }
+}
