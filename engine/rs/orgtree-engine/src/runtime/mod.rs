@@ -23,6 +23,7 @@ pub mod freeze;
 pub mod global_instructions;
 pub mod history;
 pub mod helper_transcript;
+pub mod live_helpers;
 pub mod identity;
 pub mod incomplete_response;
 pub mod interrupt;
