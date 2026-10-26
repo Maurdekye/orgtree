@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react'
 import { getReaderAvailability } from '../api'
 import type { ReaderAvailability } from '../api'
+import { useOrgRecordCursor } from '../recordsession'
 import { useDeskMemory } from './desktabs'
 import { usePolled } from './shared'
 
@@ -10,8 +11,11 @@ export function deskReaderVisible(tab:string,shown:string,available:boolean | un
   return tab===shown || available===true
 }
 export function useDeskReaderAvailability(org:string,nid:string,archived=false,backlogged=false,retired=false) {
+  const cursor=useOrgRecordCursor(org)
   const key=JSON.stringify([org,nid,archived,backlogged,retired])
-  const packet=usePolled(async()=>({key,value:await getReaderAvailability(org,nid,archived,backlogged,retired)}),[key],15000)
+  // Record-mode commits bypass the legacy live bump. Refresh the same reader
+  // without clearing confirmed availability; runtime-only frames keep cursor.
+  const packet=usePolled(async()=>({key,value:await getReaderAvailability(org,nid,archived,backlogged,retired)}),[key],15000,cursor)
   return packet?.key===key ? packet.value : null
 }
 export function useDeskReaderTeam(org:string,nid:string,kind:'work'|'presented',

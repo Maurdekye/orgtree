@@ -1,13 +1,15 @@
-import { FakeServer, installFetch, mountView, inAct, flush, settleLive } from './harness'
+import { FakeServer, installFetch, mountView, inAct, flush, settleLive, useFakeClock, realClock, advance } from './harness'
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import type { TestContext } from 'node:test'
 import { Agent, Project, lead, documentRow, workRow } from './deskreaders.fixture'
-import { deskReaderVisible } from '../src/canvas/deskreaders'
+import { deskReaderVisible, useDeskReaderAvailability } from '../src/canvas/deskreaders'
 import { forgetDeskMemory, deskMemory } from '../src/canvas/desktabs'
 import { resetConvos } from '../src/convo'
 import { bumpLive, flushLive } from '../src/livebus'
 import type { ReaderAvailability } from '../src/api'
+import { RecordFeed } from '../src/recordfeed'
+import { OrgRecordContext } from '../src/recordsession'
 
 const bit=(own=false,team=own)=>({own,team})
 const empty=():ReaderAvailability=>({work:bit(),presented:bit()})
@@ -37,7 +39,7 @@ async function serve(t:TestContext,first=empty()) {
   const mount=async(element:Parameters<typeof mountView>[0])=>{
     const v=await mountView(element,el=>el);mounted.push(v);await inAct(()=>flush(15));return v
   }
-  return {mount,requests,change:async(next:ReaderAvailability)=>{
+  return {mount,requests,setAvailability:(next:ReaderAvailability)=>{value=next},change:async(next:ReaderAvailability)=>{
     value=next;bumpLive();flushLive();await settleLive();await inAct(()=>flush(15))
   }}
 }
@@ -47,6 +49,62 @@ const pick=async(el:Element,tab:string)=>inAct(async()=>{
   assert.equal(!!button,true,'tab offered: '+tab);button!.click();await flush(15)
 })
 const teamCheck=(el:Element)=>el.querySelector<HTMLInputElement>('.gallery-team-check input')?.checked
+
+test('record commits reveal first Presented and Docket tabs on mounted agent and project desks without a live bump',async t=>{
+  const s=await serve(t)
+  const feed=new RecordFeed({snapshot:async()=>{throw Error('unexpected snapshot')},
+    catchup:async()=>{throw Error('unexpected catchup')},project:records=>records,
+    publish:()=>{},error:error=>{throw error}})
+  t.after(()=>feed.dispose())
+  const cursor={org_uuid:'readers-id',incarnation:'one',rev:1}
+  feed.receive({type:'record_snapshot',cursor,records:[]})
+  const v=await s.mount(<OrgRecordContext.Provider value={{slug:'readers',session:feed}}>
+    <section data-reader="agent"><Agent/></section><section data-reader="project"><Project/></section>
+  </OrgRecordContext.Provider>)
+  const desks=[...v.el.querySelectorAll('[data-reader]')]
+  const reads=()=>s.requests.filter(p=>p.includes('/reader-availability')).length
+  for(const el of desks){assert.equal(offered(el,'presented'),false);assert.equal(offered(el,'docket'),false)}
+  assert.equal(reads(),2)
+  s.setAvailability({work:bit(),presented:bit(false,true)})
+  await inAct(async()=>{
+    feed.receive({type:'record_changes',...cursor,from:1,to:2,
+      upserts:[{entity:'org',id:'events_count',body:{events_count:1}}],tombstones:[]})
+    await flush(15)
+  })
+  for(const el of desks){assert.equal(offered(el,'presented'),true,'first presentation reveals its tab before the 15 s poll');assert.equal(offered(el,'docket'),false)}
+  assert.equal(reads(),4)
+  s.setAvailability({work:bit(true,true),presented:bit(false,true)})
+  await inAct(async()=>{
+    feed.receive({type:'record_changes',...cursor,from:2,to:3,upserts:[],tombstones:[]})
+    await flush(15)
+  })
+  for(const el of desks){assert.equal(offered(el,'docket'),true,'first docket item reveals its tab');assert.equal(el.querySelector('.cc-tabs button.on')?.getAttribute('data-tab'),el.getAttribute('data-reader')==='agent'?'chat':'desk','arrival keeps the current tab')}
+  assert.equal(reads(),6)
+  const socket=feed.socketOpened(()=>{})
+  await inAct(async()=>{
+    feed.receiveSocket({type:'agent_runtime',...cursor,epoch:'host',seq:1,full:true,
+      agents:{'7':{epoch:'host',seq:1,busy:true}}},socket)
+    await flush(10)
+  })
+  assert.equal(feed.getSnapshot()?.runtime.get('7')?.busy,true,'runtime control really publishes')
+  assert.equal(reads(),6,'runtime-only updates do not refetch availability')
+})
+
+test('availability retains its 15 s polling fallback without record events',async t=>{
+  const s=await serve(t)
+  const Probe=()=>{const rows=useDeskReaderAvailability('readers','lead');return <output>{String(rows?.presented.team===true)}</output>}
+  useFakeClock()
+  try{
+    const v=await s.mount(<Probe/>)
+    assert.equal(v.el.textContent,'false')
+    s.setAvailability({work:bit(),presented:bit(false,true)})
+    await advance(14999)
+    assert.equal(v.el.textContent,'false','no event or early polling refresh')
+    await advance(1)
+    assert.equal(v.el.textContent,'true','fallback still refreshes at 15 seconds')
+    await v.unmount()
+  }finally{realClock()}
+})
 
 test('empty tabs are hidden; an active empty tab is retained only until leaving it',async t=>{
   const s=await serve(t),v=await s.mount(<Agent/>)
