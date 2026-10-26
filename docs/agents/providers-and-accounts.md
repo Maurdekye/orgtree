@@ -1,5 +1,21 @@
 # Providers and accounts
 
+## Legacy mark in the canvas hire menus (2026-10-26)
+
+With "Show legacy models" on, the canvas agent menu's "Hire a subordinate" and
+the project menu's "Hire under this project" submenus label Gemini Pro
+`pro · legacy` (`legacyMark`), as the hire tokens (dashed, tooltip), the Model
+tiers and Usage rows and the model pickers (tooltip) already did. The submenus
+had listed a plain "pro" since at least 4.4.5; the 4.4.6 RC1 pre-publish
+hands-on found it. The engine never sends a legacy tier in `/api/providers`
+(`providers::tier_rows` with `legacy_ok` false) or in the staffing options
+(`domain/staffing.rs`), so the Providers model-tier list and the docket Staff…
+menu list no Gemini Pro either way; the renderer's legacy filter and mark there
+only act on a payload that carries one. [decided: user 2026-09-30 (a shown
+legacy tier is marked legacy); coordinator 2026-10-26 (fix in 4.5.0); verified:
+`canvas/agentmenu.tsx`, `canvas/shared.ts`, `providers/mod.rs`,
+`domain/staffing.rs`]
+
 ## GPT-6.1 Terra (2026-10-26)
 
 The `terra` tier is current again: it defaults to `gpt-6.1-terra` (Codex CLI

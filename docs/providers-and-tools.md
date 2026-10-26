@@ -23,7 +23,7 @@ Orgtree does not include model access. Your provider's subscription, API charges
 
 **Installed**, **signed in**, **active**, **allowed by this org** and **able to run this model now** are separate checks. The provider Enabled switch is app-wide; an account's Active switch is another gate; Organization settings > Accounts is a third. Turning one on does not bypass the others. Existing agents can remain visible on a model that is no longer offered for a new hire.
 
-For older catalog choices, **App settings > Runtime > Show legacy models (Gemini Pro)** controls visibility in hire/model menus. It starts off and is saved in the local desktop/browser profile. It does not change existing agents or create access to a model your account cannot use.
+For older catalog choices, **App settings > Runtime > Show legacy models (Gemini Pro)** controls visibility in hire/model menus: with it on, Gemini Pro appears there marked legacy. The Providers model list and the docket **Staff…** menu never list it. It starts off and is saved in the local desktop/browser profile. It does not change existing agents or create access to a model your account cannot use.
 
 Terra is a current Codex choice again, beside Astra, Sol and Luna. New Terra agents run GPT-6.1 Terra, which needs Codex CLI 0.159.0 or later and an OpenAI account that offers the model; an agent pinned to Terra 5.6 keeps that version. Terra agents hired before 4.4.6 move to GPT-6.1 Terra on their next turn; where their login lacks the model, or Codex CLI is older than 0.159.0, pin them to 5.6 in the agent's **Model** settings tab (**Model version**). New Terra seats cost 1 credit; Terra agents hired before 4.4.6 keep their 2-credit seat until rehired.
 

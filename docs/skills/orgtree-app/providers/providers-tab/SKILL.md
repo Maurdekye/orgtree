@@ -38,7 +38,7 @@ profile can differ from the ambient account. Verified at `2ec8c0e`:
 
 ## Legacy models
 
-**App settings > Runtime > show legacy models (Gemini Pro)** is a renderer localStorage preference `orgtree-show-legacy-models`, default off. The control is in Runtime, not Providers. It changes hire/model chooser and tier-list visibility. Existing agents on Gemini Pro retain their model and remain visible either way. It does not buy entitlement, change runtime credentials, restart the app or alter a model's price.
+**App settings > Runtime > show legacy models (Gemini Pro)** is a renderer localStorage preference `orgtree-show-legacy-models`, default off. The control is in Runtime, not Providers. Off, Gemini Pro is left out of every hire and model chooser. On, it comes back marked legacy: as `pro · legacy` in the canvas agent and project menus' hire submenus, as a dashed hire token whose tooltip ends in `· legacy`, and in the tooltip of its agent Model tab option. The Providers model-tier list and the docket **Staff…** menu never list Gemini Pro: the engine leaves legacy tiers out of both. Existing agents on Gemini Pro retain their model and remain visible either way. It does not buy entitlement, change runtime credentials, restart the app or alter a model's price.
 
 Suggest enabling it only to expose a deliberately requested legacy choice. The account and catalog must still offer that choice.
 

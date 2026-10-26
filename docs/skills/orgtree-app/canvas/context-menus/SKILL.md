@@ -36,7 +36,7 @@ Right-click a recognized object to open its menu. Copy actions come from that ob
 | Project Open → Slots | One direct entry opens the standalone slots modal; present only while that project has slots > 0. Pin and pop-out are in the modal's standard controls and the slots tab's shortcut row, rather than a menu submenu. |
 | Project Open → events | After Slots: opens the project's standalone events window (the events tab's view, with its **Register…** menu); present only while the project's **Project events** setting is on, as the tab is. Pin and pop-out are in the window's standard controls and the events tab's corner. |
 | Focus | Navigate to the agent; present but disabled when this surface has no focus handler. |
-| Hire a subordinate | Opens a tier's existing draft form, creating no seat until confirmation; offered for an eligible live card with free hire edges, not a pile front. |
+| Hire a subordinate | Opens a tier's existing draft form, creating no seat until confirmation; offered for an eligible live card with free hire edges, not a pile front. With **Show legacy models** on, its tiers (and those of a project's **Hire under this project**) include Gemini Pro as `pro · legacy`. |
 | New project… | Directly under Hire a subordinate (after Focus when no hire is offered): opens a draft project card under the agent, creating nothing until create. |
 | Open → Desk | Temporary desk glance without changing focused agent/layout. |
 | Open → Desk as a pinned window | Pin the desk, or raise its existing pinned canvas window. Second in the desk section for both agents and projects. |
