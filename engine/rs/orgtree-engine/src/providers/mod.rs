@@ -1450,8 +1450,13 @@ mod model_version_tests {
     }
 
     #[test]
-    fn legacy_terra_names_its_existing_model_version() {
-        assert_named_version("terra", "5.6", "ChatGPT Terra 5.6");
+    fn terra_names_gpt_6_1_and_keeps_its_5_6_pin() {
+        assert_named_version("terra", "6.1", "ChatGPT Terra 6.1");
+        let terra = catalog::tier("terra").unwrap();
+        assert_eq!(catalog::display_name(terra, Some("5.6")).as_deref(), Some("ChatGPT Terra 5.6"));
+        assert_eq!(catalog::model_for("terra", Some("5.6")), "gpt-5.6-terra");
+        // a current tier: offered without "show legacy models"
+        assert!(tier_rows(catalog::OPENAI, false).iter().any(|row| row["tier"] == "terra"));
     }
 
     #[test]

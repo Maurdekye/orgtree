@@ -475,7 +475,7 @@ mod effort_tests {
                 .map(|t| t.tier).collect()
         };
         assert_eq!(seen(GOOGLE, &["agy-sonnet", "agy-opus"]), ["agy-opus", "agy-sonnet", "flash"]);
-        assert_eq!(seen(OPENAI, &[]), ["astra", "sol", "luna"]);
+        assert_eq!(seen(OPENAI, &[]), ["astra", "sol", "terra", "luna"]);
         // the rule itself, so a tier added later orders itself
         for p in [CLAUDE, OPENAI, GOOGLE, MUSE] {
             let seats: Vec<f64> = listed().iter().filter(|t| t.provider == p).map(|t| t.seat).collect();
@@ -488,6 +488,34 @@ mod effort_tests {
                 }
             }
         }
+    }
+
+    /// GPT-6.1 Terra (user 2026-10-26 18:19Z "get 4.4.6 out with this";
+    /// "make sure to take terra out of the legacy models checkbox"): Terra is
+    /// a current Codex tier again. New seats run gpt-6.1-terra; a seat pinned
+    /// to 5.6 keeps gpt-5.6-terra.
+    #[test]
+    fn terra_is_current_on_gpt_6_1_and_keeps_its_5_6_pin() {
+        let t = tier("terra").unwrap();
+        assert_eq!((t.provider, t.model, t.legacy, t.conditional), (OPENAI, "gpt-6.1-terra", false, false));
+        assert_eq!(t.versions, &[("6.1", "gpt-6.1-terra"), ("5.6", "gpt-5.6-terra")]);
+        assert_eq!(model_for("terra", None), "gpt-6.1-terra");
+        assert_eq!(model_for("terra", Some("5.6")), "gpt-5.6-terra");
+        assert!(runs_model("terra", "gpt-6.1-terra") && runs_model("terra", "gpt-5.6-terra"));
+        // OpenAI's GPT-6.1 Terra API rates per million tokens
+        assert_eq!(t.prices, Some((1.0, 0.05, 5.0)));
+    }
+
+    /// The standing seat rule, the one OpenRouter seats use: dollars per
+    /// million input tokens. Every priced OpenAI tier follows it, and seat
+    /// prices follow the latest model, so GPT-6.1 Terra's $1 seats at 1.
+    #[test]
+    fn openai_seats_follow_the_input_price_rule() {
+        for t in TIERS.iter().filter(|t| t.provider == OPENAI) {
+            let (input, _, _) = t.prices.unwrap_or_else(|| panic!("{} has no price", t.tier));
+            assert_eq!(t.seat, crate::openrouter::seat_for(input), "{}", t.tier);
+        }
+        assert_eq!(seat_price("terra"), 1.0);
     }
 
     #[test]
