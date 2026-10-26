@@ -41,6 +41,7 @@ pub struct Engine {
     pub dogs: crate::runtime::watchdogs::Registry,
     pub usage: crate::usage::Usage,
     pub net: crate::net::Net,
+    pub custom_apps: crate::domain::apps::bridge::Registry,
     pub elicitations: crate::runtime::elicitation::Registry,
 }
 
@@ -97,6 +98,7 @@ impl Engine {
             dogs: Default::default(),
             usage: Default::default(),
             net: Default::default(),
+            custom_apps: Default::default(),
             elicitations: Default::default(),
         })
     }

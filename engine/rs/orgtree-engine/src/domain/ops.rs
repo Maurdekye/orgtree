@@ -948,6 +948,7 @@ pub(crate) async fn run_in_tx_without_audience_notices(engine: &Arc<Engine>, org
             let target = node_by_name(&tx, org.id, &node).await?;
             let (sender, generation) = match &who {
                 crate::domain::docket::Who::User => (None, None),
+                crate::domain::docket::Who::App { .. } => refuse!(Forbidden, "apps cannot hire, staff or send hire kickoffs"),
                 crate::domain::docket::Who::Agent { id, generation, .. } => (Some(*id), Some(*generation)),
             };
             let uid = crate::util::uid("m");

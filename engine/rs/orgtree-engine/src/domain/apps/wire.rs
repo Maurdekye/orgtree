@@ -45,6 +45,7 @@ impl Default for Placement {
 pub enum Request {
     List { kind:Option<String>, app:Option<String>, after:Option<String>, limit:Option<i64>, open:Option<bool> },
     AppGet { app:String },
+    PermissionSet { app:String, expected_rev:i64, expected_permission_rev:i64, capability:String, permission:String },
     AppCreate { definition:Definition },
     AppUpdate { app:String, expected_rev:i64, definition:Definition },
     AppDelete { app:String, expected_rev:i64, #[serde(default)] delete_panels:bool },
@@ -146,5 +147,12 @@ mod tests {
         def.capabilities=vec!["mail.send".into(),"mail.send".into()];assert!(definition(&def).is_err());
         let mut p=Placement::default();p.mode="canvas".into();p.anchor=Some("lead".into());placement(&p).unwrap();
         p.x=f64::INFINITY;assert!(placement(&p).is_err());
+    }
+}
+
+#[cfg(test)] mod permission_control {
+    #[test] fn custom_apps_permission_changes_have_explicit_revision_checked_vocabulary() {
+        assert!(super::parse(&serde_json::json!({"action":"permission_set","app":"a","expected_rev":1,"expected_permission_rev":1,"capability":"mail.send","permission":"ask"})).is_ok());
+        assert!(super::parse(&serde_json::json!({"action":"permission_set","app":"a","expected_rev":1,"capability":"mail.send","permission":"allow","as_user":true})).is_err());
     }
 }

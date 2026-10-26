@@ -30,3 +30,11 @@ JSON state to2MiB and events to64KiB; these are provisional bounds.
 Agents use orgtree_apps for the same lifecycle, placement, link, state and event
 controls. Org-modifying tools also contains Logo; the new category preserves old
 explicit Logo denials. Copy/export JSON use ordinary local clipboard/file actions.
+
+The next action bridge is being added in stages. Its engine backend accepts only
+declared capabilities with a user's explicit permission; apps cannot grant their
+own permissions. The current HTML host continues to refuse actions until its
+native prompt is connected. Planned decisions are Ask, Allow and Deny per app,
+with one-action approval available. Replacing app code clears old permissions.
+App messages identify the app and copy, and carry app content rather than user
+instructions or approvals. No permission travels in an exported app.

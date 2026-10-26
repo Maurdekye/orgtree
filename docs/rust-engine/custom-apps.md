@@ -91,3 +91,45 @@ JSON, not strings only. State patch follows RFC7396; null removes keys. The host
 does not replay the entire retained event history on opening. It forwards new
 named events after that panel's initial event_seq. Hidden/closed frame scripts
 are discarded and reconstruct from committed state. No background-timer guarantee.
+
+## Permission-checked backend bridge milestone
+
+The engine now owns ephemeral host sessions at POST /api/orgs/{slug}/apps/bridge.
+This route and permission_set require the exact desktop root header, not an agent
+or standalone client token/bearer. Request/response bodies under apps and every
+descendant are excluded from HTTP body logging, including malformed refusals.
+Sessions are bound to org, panel and app code revision, expire after30 minutes,
+and revoke on host close, panel close/delete and app code replacement/delete.
+No session survives engine restart. The registry holds at most4096 sessions.
+
+Declarations are not grants. Missing decisions mean Ask. A Call validates a strict
+named action and checks current code revision, open panel and capability under a
+per-app async gate. Permission, code and panel mutations acquire that same gate
+BEFORE agent/database locks. The gate remains held through dispatch; no database
+client is held while another domain service acquires its own. Weak gate entries
+are pruned rather than growing with inactive app history. Per-app action rate is
+provisionally60/minute across all its active copies.
+
+Ask stores one exact action under an opaque challenge for120 seconds. Decide
+consumes it once. Once executes only that action; Always stores Allow for its
+capability; Deny stores Deny. permission_set requires current app expected_rev
+and expected_permission_rev. Grants have their own revision (migration0060), so
+changing a grant does not reload code or lose the action reply. Agent callers
+are explicitly forbidden from deciding permissions. Code replacement resets
+grants and revokes sessions. Import/export must never carry these decisions.
+
+The action vocabulary is limited to org.read (paged active chart metadata, not
+private mail/files), mail.send (a live local agent only), docket.create (one new
+open non-code item with title/objective/owner) and events.fire (fixed app.event
+namespace scoped to a live local agent). No general ops/HTTP, identity selection,
+question answering, release actions, outside mail, user mail or project mail.
+
+Mail has explicit app:<app>/<panel> provenance, grants no reply audience and
+never counts as direct user contact. App content is not a user instruction or
+approval. Docket creation records an app/panel actor. events.fire cannot spoof
+an arbitrary engine event kind. All payloads/actions are bounded to64KiB.
+
+This is the backend authority slice: the current HTML host STILL refuses
+engine.call until the following native prompt/host integration slice. No UI or
+real-PostgreSQL execution claim follows from these pure controls. The focused
+runtime proof before alpha must exercise persistence and capability refusals.

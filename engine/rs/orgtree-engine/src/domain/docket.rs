@@ -62,6 +62,8 @@ const COMPACT_EXTRA: &[&str] = &[
 #[derive(Debug, Clone)]
 pub enum Who {
     User,
+    /// Only the narrow, native-granted app create action constructs this actor.
+    App { app:String, panel:String },
     Agent { id: i64, name: String, generation: i32 },
 }
 
@@ -71,6 +73,7 @@ impl Who {
     pub fn actor(&self) -> Value {
         match self {
             Who::User => json!("user"),
+            Who::App {app,panel} => json!({"app":app,"panel":panel}),
             Who::Agent { name, generation, .. } => json!({ "node": name, "generation": generation }),
         }
     }
@@ -79,6 +82,7 @@ impl Who {
     pub fn label(&self) -> String {
         match self {
             Who::User => "the user".into(),
+            Who::App {app,panel} => format!("app:{app}/{panel}"),
             Who::Agent { name, .. } => name.clone(),
         }
     }
@@ -86,7 +90,7 @@ impl Who {
     #[nolog]
     fn name(&self) -> Option<&str> {
         match self {
-            Who::User => None,
+            Who::User | Who::App{..} => None,
             Who::Agent { name, .. } => Some(name.as_str()),
         }
     }
@@ -94,7 +98,7 @@ impl Who {
     #[nolog]
     fn id(&self) -> Option<i64> {
         match self {
-            Who::User => None,
+            Who::User | Who::App{..} => None,
             Who::Agent { id, .. } => Some(*id),
         }
     }
@@ -1099,6 +1103,7 @@ async fn tell_ev(engine: &Arc<Engine>, org_id: i64, it: &Item, to: &str, body: S
 fn who_id(who: &Who) -> String {
     match who {
         Who::User => crate::events::USER.to_string(),
+        Who::App {app,panel} => format!("app:{app}/{panel}"),
         Who::Agent { name, .. } => name.clone(),
     }
 }
@@ -1350,6 +1355,7 @@ async fn participation_notices_tx(tx: &impl GenericClient, post: &mut AfterCommi
         }
         let (from, sender_id, generation) = match who {
             Who::User => ("@user", None, None),
+            Who::App {..} => ("@app", None, None),
             Who::Agent { id: sender_id, name, generation } => {
                 if let Err(error) = mail::authorize(tx, org.id, *sender_id, name, id, p, false).await {
                     // Database errors must still abort the mutation; only policy refusals are best effort.
@@ -2714,4 +2720,12 @@ pub(crate) async fn recover_abandoned(engine: &Arc<Engine>, org: &Arc<OrgHandle>
     drop(client);
     post.publish(engine, org);
     Ok(())
+}
+
+#[cfg(test)] mod custom_apps_actor_control {
+    #[test] fn custom_apps_docket_creation_keeps_app_provenance(){
+        let who=super::Who::App{app:"a".into(),panel:"p".into()};
+        assert_eq!(who.actor(),serde_json::json!({"app":"a","panel":"p"}));assert_eq!(who.label(),"app:a/p");
+        assert_eq!(who.name(),None);assert_eq!(who.id(),None);
+    }
 }

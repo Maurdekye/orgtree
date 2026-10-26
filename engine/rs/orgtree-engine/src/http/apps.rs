@@ -5,7 +5,8 @@ use serde_json::Value;
 use crate::engine::Engine;
 use super::{error::ApiResult, orgs::org};
 #[nolog]
-pub async fn request(State(engine):State<Arc<Engine>>,Path(slug):Path<String>,Json(input):Json<Value>)->ApiResult<Json<Value>> {
+pub async fn request(State(engine):State<Arc<Engine>>,Path(slug):Path<String>,headers:axum::http::HeaderMap,Json(input):Json<Value>)->ApiResult<Json<Value>> {
+    if input["action"]=="permission_set"{native_user(&engine,&headers)?;}
     let org=org(&engine,&slug)?;
     Ok(Json(crate::domain::apps::run(&engine,&org,None,&input).await?))
 }
@@ -33,5 +34,27 @@ pub async fn read(State(engine):State<Arc<Engine>>,Path(slug):Path<String>,axum:
     #[test] fn custom_apps_get_cannot_mutate_or_choose_identity(){
         for input in [serde_json::json!({"action":"panel_delete","panel":"p","expected_rev":1}),serde_json::json!({"action":"list","org":"other"})]{assert!(read_input(&input.to_string()).is_err());}
         assert!(read_input(r#"{"action":"list","kind":"panels","open":true}"#).is_ok());
+    }
+}
+
+/// Scoped standalone client/agent tokens never decide native app grants.
+#[nolog]
+fn native_user(engine:&Engine,headers:&axum::http::HeaderMap)->Result<(),super::error::ApiError>{
+    if !super::token_ok_headers(&engine.cfg.desktop_token,false,headers){return Err(super::error::ApiError::forbidden("app host and permission operations require the desktop user credential"));}Ok(())
+}
+#[nolog]
+pub async fn bridge(State(engine):State<Arc<Engine>>,Path(slug):Path<String>,headers:axum::http::HeaderMap,Json(input):Json<Value>)->ApiResult<Json<Value>>{
+    native_user(&engine,&headers)?;let org=org(&engine,&slug)?;
+    Ok(Json(crate::domain::apps::bridge::run(&engine,&org,&input).await?))
+}
+
+#[cfg(test)] mod native_control {
+    #[test] fn custom_apps_native_guard_rejects_scoped_and_bearer_credentials(){
+        let mut engine=crate::engine::Engine::for_tests(std::path::PathBuf::new());
+        std::sync::Arc::get_mut(&mut engine).unwrap().cfg.desktop_token="root-test-secret".into();
+        let mut headers=axum::http::HeaderMap::new();
+        headers.insert("x-orgtree-desktop-token","scoped-client-secret".parse().unwrap());assert!(super::native_user(&engine,&headers).is_err());
+        headers.clear();headers.insert("authorization","Bearer root-test-secret".parse().unwrap());assert!(super::native_user(&engine,&headers).is_err());
+        headers.insert("x-orgtree-desktop-token","root-test-secret".parse().unwrap());assert!(super::native_user(&engine,&headers).is_ok());
     }
 }

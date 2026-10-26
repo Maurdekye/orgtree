@@ -8,7 +8,7 @@ use tokio_postgres::Transaction;
 use crate::{engine::Engine, orgs::OrgHandle, runtime::Caller};
 use super::wire::{self, Definition, Placement, Request};
 
-const APP_META:&str="jsonb_build_object('id',a.id,'name',a.name,'description',a.description,'capabilities',a.capabilities,'width',a.width,'height',a.height,'rev',a.rev,'permissions',a.permissions,'created_by',a.created_by,'updated_at',a.updated_at)";
+const APP_META:&str="jsonb_build_object('id',a.id,'name',a.name,'description',a.description,'capabilities',a.capabilities,'width',a.width,'height',a.height,'rev',a.rev,'permissions',a.permissions,'permission_rev',a.permission_rev,'created_by',a.created_by,'updated_at',a.updated_at)";
 const PANEL_META:&str="jsonb_build_object('id',p.id,'app',p.app_id,'label',p.label,'rev',p.rev,'open',p.is_open,'placement',p.placement,'linked_agents',p.linked_agents,'updated_at',p.updated_at,'used_at',p.used_at,'event_seq',p.event_seq)";
 
 #[nolog]
@@ -66,7 +66,7 @@ async fn update_state(tx:&Transaction<'_>,org:i64,id:&str,state:&Value,actor:&st
 }
 
 #[nolog]
-pub async fn run(engine:&Arc<Engine>,org:&Arc<OrgHandle>,caller:Option<&Caller>,input:&Value)->Result<Value>{
+pub(crate) async fn run_locked(engine:&Arc<Engine>,org:&Arc<OrgHandle>,caller:Option<&Caller>,input:&Value)->Result<Value>{
     let request=wire::parse(input)?;
     let mut client=engine.db.get().await?;let tx=client.transaction().await?;
     let actor=authorize(&tx,org.id,caller).await?;let mut changed=false;
@@ -84,6 +84,16 @@ pub async fn run(engine:&Arc<Engine>,org:&Arc<OrgHandle>,caller:Option<&Caller>,
             let more=rows.len()>n as usize;let items:Vec<Value>=rows.into_iter().take(n as usize).map(|r|r.get(0)).collect();
             let next=if more{items.last().map(|v|v["id"].clone())}else{None};json!({"kind":kind,"items":items,"next_cursor":next})
         }
+        Request::PermissionSet{app:id,expected_rev,expected_permission_rev,capability,permission}=>{
+            if caller.is_some(){crate::refuse!(Forbidden,"only the user may decide app execution permissions; ask your superior instead");}
+            let old=app(&tx,org.id,&id,false,true).await?;revision(&old,expected_rev)?;
+            if old["permission_rev"].as_i64()!=Some(expected_permission_rev){crate::refuse!(Conflict,"app permissions changed; read and reconcile");}
+            if !wire::CAPABILITIES.contains(&capability.as_str())||!old["capabilities"].as_array().is_some_and(|a|a.iter().any(|c|c==&capability)){crate::refuse!(BadRequest,"app does not declare that capability");}
+            if !["ask","allow","deny"].contains(&permission.as_str()){crate::refuse!(BadRequest,"permission must be ask, allow or deny");}
+            let mut permissions=old["permissions"].clone();permissions[&capability]=json!(permission);
+            tx.execute("UPDATE ot.custom_apps SET permissions=$3,permission_rev=permission_rev+1,updated_at=now() WHERE org_id=$1 AND id=$2",&[&org.id,&id,&permissions]).await?;
+            changed=true;app(&tx,org.id,&id,false,false).await?
+        }
         Request::AppGet{app:id}=>app(&tx,org.id,&id,true,false).await?,
         Request::AppCreate{definition:def}=>{
             wire::definition(&def)?;let id=crate::util::uid("app");let caps=json!(def.capabilities);
@@ -93,7 +103,7 @@ pub async fn run(engine:&Arc<Engine>,org:&Arc<OrgHandle>,caller:Option<&Caller>,
         Request::AppUpdate{app:id,expected_rev,definition:def}=>{
             wire::definition(&def)?;let old=app(&tx,org.id,&id,false,true).await?;revision(&old,expected_rev)?;let caps=json!(def.capabilities);
             // Provisional security default: every code update revokes grants.
-            tx.execute("UPDATE ot.custom_apps SET name=$3,description=$4,html=$5,initial_state=$6,capabilities=$7,width=$8,height=$9,permissions='{}',rev=rev+1,updated_at=now() WHERE org_id=$1 AND id=$2",&[&org.id,&id,&def.name,&def.description,&def.html,&def.initial_state,&caps,&def.width,&def.height]).await?;
+            tx.execute("UPDATE ot.custom_apps SET name=$3,description=$4,html=$5,initial_state=$6,capabilities=$7,width=$8,height=$9,permissions='{}',permission_rev=permission_rev+1,rev=rev+1,updated_at=now() WHERE org_id=$1 AND id=$2",&[&org.id,&id,&def.name,&def.description,&def.html,&def.initial_state,&caps,&def.width,&def.height]).await?;
             changed=true;app(&tx,org.id,&id,false,false).await?
         }
         Request::AppDelete{app:id,expected_rev,delete_panels}=>{
@@ -170,5 +180,25 @@ pub async fn run(engine:&Arc<Engine>,org:&Arc<OrgHandle>,caller:Option<&Caller>,
     };
     tx.commit().await?;
     if changed{org.emit(json!({"type":"custom_apps_changed","org":org.slug}));}
+    Ok(out)
+}
+
+/// All paths acquire this gate before root-first agent/database locks. No PG
+/// connection is held while an action dispatch calls another domain service.
+#[nolog]
+pub async fn run(engine:&Arc<Engine>,org:&Arc<OrgHandle>,caller:Option<&Caller>,input:&Value)->Result<Value>{
+    wire::parse(input)?;
+    if caller.is_some_and(|c|c.org_id!=org.id){crate::refuse!(Forbidden,"Apps caller belongs to another organization");}
+    let action=input["action"].as_str().unwrap_or("");
+    if ["list","app_get","panel_get","events","app_create"].contains(&action){return run_locked(engine,org,caller,input).await;}
+    let app=if let Some(app)=input["app"].as_str(){app.to_owned()}else{
+        let client=engine.db.get().await?;let panel=input["panel"].as_str().unwrap_or("");
+        let row=client.query_opt("SELECT app_id FROM ot.custom_panels WHERE org_id=$1 AND id=$2",&[&org.id,&panel]).await?;
+        let Some(row)=row else{crate::refuse!(NotFound,"saved panel not found");};row.get::<_,String>(0)
+    };
+    let gate=engine.custom_apps.gate(org.id,&app)?;let _guard=gate.lock.lock().await;
+    let out=run_locked(engine,org,caller,input).await?;
+    if ["app_update","app_delete"].contains(&action){engine.custom_apps.revoke(org.id,Some(&app),None)?;}
+    if action=="panel_delete"||(action=="panel_update"&&input["open"]==false){engine.custom_apps.revoke(org.id,None,input["panel"].as_str())?;}
     Ok(out)
 }

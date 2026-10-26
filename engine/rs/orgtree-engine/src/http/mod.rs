@@ -83,6 +83,7 @@ pub fn router(engine: Arc<Engine>) -> Router {
         .route("/api/standalone/clients", get(client_tokens::list).post(client_tokens::create))
         .route("/api/standalone/clients/{id}", delete(client_tokens::revoke))
         .route("/api/orgs/{slug}/apps", post(apps::request).get(apps::read).layer(axum::extract::DefaultBodyLimit::max(32*1024*1024)))
+        .route("/api/orgs/{slug}/apps/bridge", post(apps::bridge).layer(axum::extract::DefaultBodyLimit::max(128*1024)))
         // organizations
         .route("/api/orgs", get(orgs::list).post(orgops::create))
         .route("/api/orgs/{slug}", get(orgs::tree).delete(orgops::delete))
@@ -343,6 +344,7 @@ async fn guard(State(engine): State<Arc<Engine>>, mut req: Request, next: Next) 
 /// Bodies the log never holds: private template traffic, uploads, downloads, UI, sockets.
 fn quiet_body(path: &str, headers: &axum::http::HeaderMap) -> bool {
     !path.starts_with("/api/")
+        || path.strip_prefix("/api/orgs/").and_then(|p|p.split_once('/')).map(|(_,rest)|rest=="apps"||rest.starts_with("apps/")).unwrap_or(false)
         // A newly created client secret is shown once; omit bodies even on
         // rejected/unrecognized descendants, before auth or JSON parsing.
         || path == "/api/standalone/clients" || path.starts_with("/api/standalone/clients/")
@@ -751,5 +753,14 @@ mod org_inbox_wire_tests {
         let headers = axum::http::HeaderMap::new();
         for path in ["/api/orgs/fixture/org_inbox", "/api/orgs/fixture/org_inbox/read", "/api/orgs/fixture/org_inbox/unknown-child"] { assert!(quiet_body(path, &headers), "{path}"); }
         for path in ["/api/orgs/fixture/org_inbox-extra", "/api/orgs/org_inbox/nodes", "/api/orgs/fixture/net"] { assert!(!quiet_body(path, &headers), "{path}"); }
+    }
+}
+
+#[cfg(test)] mod custom_apps_privacy_control {
+    #[test] fn custom_apps_private_bodies_include_rejected_descendants() {
+        let headers=axum::http::HeaderMap::new();
+        for path in ["/api/orgs/demo/apps","/api/orgs/demo/apps/bridge","/api/orgs/demo/apps/unknown"] {
+            assert!(super::quiet_body(path,&headers),"private app HTML/state/session bodies logged at {path}");
+        }
     }
 }

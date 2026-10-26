@@ -2060,13 +2060,16 @@ mod mqtt_card_tests {
 #[nolog]
 fn build_tool_apps()->Value {
     tool("orgtree_apps","Manage this org's app definitions and independent saved panels. Requires org-modifying tools. List pages omit HTML/state; app_get/panel_get read them. Open reuses the last panel unless new=true; close keeps state. Mutations need the current expected_rev. Imported permissions never grant actions.",json!({
-        "action":{"type":"string","enum":["list","app_get","app_create","app_update","app_delete","panel_open","panel_get","panel_update","panel_duplicate","panel_delete","state_set","state_patch","event","events"]},
+        "action":{"type":"string","enum":["list","app_get","app_create","app_update","app_delete","panel_open","panel_get","panel_update","panel_duplicate","panel_delete","state_set","state_patch","event","events","permission_set"]},
         "kind":{"type":"string","enum":["apps","panels"],"description":"list: apps by default"},
         "app":{"type":"string","description":"app identity; list panels may filter by app"},
         "panel":{"type":"string","description":"saved panel identity"},
         "after":{"description":"list: previous next_cursor string; events: sequence integer"},
         "limit":{"type":"integer","minimum":1,"maximum":200},
         "expected_rev":{"type":"integer","minimum":1},
+        "expected_permission_rev":{"type":"integer","minimum":1},
+        "capability":{"type":"string","enum":["org.read","mail.send","docket.write","events.fire"]},
+        "permission":{"type":"string","enum":["ask","allow","deny"],"description":"permission_set is user-only; agents may inspect declarations/grants but cannot grant themselves execution"},
         "new":{"type":"boolean","description":"panel_open: make a fresh independent panel"},
         "label":{"type":"string","maxLength":120},
         "open":{"type":"boolean","description":"panel_update: false closes without deleting"},

@@ -53,3 +53,21 @@ host has no granted engine-action channel. All unruled defaults are provisional 
 See also: [orgtree-scope-and-permissions](../scope-and-permissions/SKILL.md),
 [orgtree-tool-org-logo](../tool-org-logo/SKILL.md),
 [orgtree-tool-retool](../tool-retool/SKILL.md).
+
+## Execution permission boundary
+
+app_get/list report capabilities, permissions and permission_rev. Declaring a
+capability grants nothing. permission_set has app, expected_rev,
+expected_permission_rev, capability and permission:ask|allow|deny. It is user-only:
+an agent tool call is refused, even with Org-modifying tools. Ask your superior
+for a user's decision; never try an as_user/caller field or a native host token.
+This is the tool parity boundary for native permission decisions, not a right
+for an agent to grant itself execution. Code replacement revokes app grants.
+
+The engine backend has revision-bound expiring parent-only sessions and exact
+one-shot permission challenges; the HTML host still refuses engine.call in this
+backend milestone. Native prompt integration follows. Named actions are bounded
+chart metadata, app-provenance local-agent mail, new open docket items and fixed
+app.event signals; no generic user operations or approval authority. App mail is
+app data and cannot speak as the user. Agents reply by reading/writing panel
+state or sending events, rather than mailing the app sender address.

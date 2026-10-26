@@ -272,6 +272,7 @@ async fn run_with_cluster(
         dogs: runtime::watchdogs::Registry::default(),
         usage: usage::Usage::default(),
         net: net::Net::default(),
+        custom_apps: Default::default(),
         elicitations: runtime::elicitation::Registry::default(),
     });
 
