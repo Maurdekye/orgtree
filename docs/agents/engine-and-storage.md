@@ -83,9 +83,12 @@ Original section: Orgtree 4.0.0 (Rust engine): read this first. Source lines 397
 <!-- /preserved:e-8192a6f3da6dff13 -->
 
 Secret-bearing arguments must use `#[nolog]` or an opaque formatter, as for
-`runtime::prompt::Mail` and `runtime::AgentMsg`. `AgentMsg`'s exhaustive Debug
+`runtime::AgentMsg`. `AgentMsg`'s exhaustive Debug
 formatter emits its static variant only: actor handler/send logging must never
-serialize the nested provider/tool body before JSON redaction. Direct JSON
+serialize the nested provider/tool body before JSON redaction. A Debug formatter
+is opaque only for a type without `Serialize`: the trace renders serializable
+values as JSON first (`trace::show` L2 before L1), so logged
+`runtime::prompt::Mail` arguments show their bodies (measured 2026-10-26). Direct JSON
 arguments continue through `trace::Shown::json`; useful call/return diagnostics
 remain enabled. See [WebSocket log verification](../rust-engine/websocket-watchdogs.md#tests).
 [verified: `runtime/mod.rs`, `runtime/actor.rs`, `trace.rs`; 2026-10-22]
@@ -96,6 +99,13 @@ Establish the private scope inside the worker so nested logged path helpers and
 manual events stay opaque, while ordinary worker diagnostics remain enabled.
 See [App logging](../rust-engine/custom-apps.md).
 [verified: `trace.rs`, `domain/apps/{file_access,file_scopes}.rs`, `tools/apps.rs`; 2026-10-26]
+
+App content read back outside the private request (an app's mail, its docket
+assignment notice, its named event's delivery) is omitted by value in the log
+renderer: `trace::private_app_content` recognizes the stored row or `Mail` by its
+provenance, so every logged function that receives it stays covered without its
+own `#[nolog]`. Ordinary mail renders unchanged. See [App logging](../rust-engine/custom-apps.md).
+[verified: `trace.rs`, `runtime/actor.rs::mail_of`; 2026-10-26]
 
 <a id="e-50cc1d4e5597f3d3"></a>
 

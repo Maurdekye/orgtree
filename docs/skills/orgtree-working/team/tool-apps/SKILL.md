@@ -271,6 +271,12 @@ File requests and bundle import/export keep paths and contents out of engine
 diagnostics, including verbose blocking-worker logs. Authorized file results stay
 available; ordinary engine diagnostics remain enabled.
 
+Mail an app action sends, the assignment notice of a docket item it creates and its
+event deliveries reach the recipient with their content. Engine diagnostics name
+each by mail ID only, including the recipient's turn-start logs. Ordinary mail is
+logged as before. An item an app created is ordinary docket content when it is
+read back later.
+
 ## Following a copy, and templates
 
 Panel links were removed (user 2026-10-26, "Remove completely"): there is no

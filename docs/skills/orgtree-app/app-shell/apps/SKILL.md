@@ -144,6 +144,9 @@ streams and pending changes. Allow granted scopes creates no grant itself.
 File paths stay native; readable contents may leave through permitted mail.
 File requests and app import/export omit paths and contents from engine
 diagnostics, including verbose file-worker logs; ordinary diagnostics stay enabled.
+App mail, its docket assignment notices and its event deliveries appear in engine
+diagnostics by mail ID only, also when they wake their recipient; agents still
+receive them, and ordinary mail logs as before.
 
 Every outside-org create, replacement or deletion needs native confirmation of its target,
 operation, size and new-content hash. Existing files need explicit replacement;

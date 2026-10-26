@@ -259,3 +259,8 @@ folders by using an app. Native permission decisions remain user-only.
 App file requests and app import/export keep paths and contents out of engine
 diagnostics, including verbose logs from file workers. Request status and ordinary
 engine diagnostics remain available.
+
+App messages, the notice of a docket item an app assigns, and app event deliveries
+also stay out of engine diagnostics when they wake an agent: the log names each
+by its message ID. The agent still receives the content, and ordinary messages
+are logged as before.

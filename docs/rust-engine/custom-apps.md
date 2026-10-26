@@ -349,6 +349,26 @@ bundle IO, preserving authorized results and ordinary worker-log positives.
 Invalid read requests return a fixed parser refusal rather than reflecting caller
 content.
 
+Mail carries app content past the private request. The app's own mail, the notice
+of a docket item it creates and assigns, and its named event's delivery are written
+inside the scope, but the recipient's actor reads them back from the database
+outside it, and its turn start logs that input (`Actor.session_notes`,
+`Actor.rels_of`, `envelope::ping_for`, `alert_turn`). The log renderer therefore
+recognizes app content by value, as it does reply selections and thinking:
+`trace::private_app_content` matches a stored row or the agent's `Mail` with an
+`app:` sender, an `app:` actor on its event or an `extra.app_event` delivery
+(`Mail.private_app`, set by `mail_of`), and any object an app caused or that quotes
+or lists its mail (an `app:` `actor`, `sender` or `from`). Each renders as
+`[private app mail <uid> omitted]` in call/return members and REQUEST/RESPONSE
+lines. Ordinary mail renders unchanged, and the agent still receives the content.
+The composed turn and steer texts already render as `[thinking omitted]`: the
+encoded-payload rule fails closed on their `[` block header, and a unit canary
+pins this for app content. The rig control `tools/rig/proofs/app-mail-wake-privacy.mjs`
+covers an ordinary-only wake and a mixed wake. Limit: an app-created item's own
+title and objective are ordinary docket content once read back; the desktop's read
+logs them (`domain.docket.load`, `http.docket.get` and its RESPONSE line, as the
+control's closing note measures).
+
 App event privacy also travels in Event provenance through subscriber channels
 and overflow cells. Its Debug formatter is opaque even outside the producer task.
 The receiving runner scopes the complete mixed batch and pending delivery before
