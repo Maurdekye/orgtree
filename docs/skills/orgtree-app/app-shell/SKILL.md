@@ -27,6 +27,6 @@ The app's frame: windows, homepage, header and menus, status bar, quick chat, tr
 - [orgtree-onboarding](onboarding/SKILL.md): First run: onboarding on the homepage and the first-use guide on a new org's canvas.
 - [orgtree-attention-view](attention-view/SKILL.md): The Attention view: the needs-attention queue and the agent desk panel.
 - [orgtree-mobile-layout](mobile-layout/SKILL.md): Narrow-width layout: the mobile agent sheet, its hire sheet, and the legacy drawer.
-- [orgtree-tray-and-windows](tray-and-windows/SKILL.md): Main-process surfaces: the tray icon and menu, popout windows, mockup viewer, data-conversion window and native dialogs.
+- [orgtree-tray-and-windows](tray-and-windows/SKILL.md): Main-process surfaces: the tray icon and menu, popout windows, HTML presentation viewer, data-conversion window and native dialogs.
 
 For another topic, return to the category above. References to another category use its skill name and breadcrumb; open that category to locate them.

@@ -3364,7 +3364,7 @@
     "screen:conversion-window",
     "screen:native-dialogs"
    ],
-   "purpose": "Main-process surfaces: the tray icon and menu, popout windows, mockup viewer, data-conversion window and native dialogs.",
+   "purpose": "Main-process surfaces: the tray icon and menu, popout windows, HTML presentation viewer, data-conversion window and native dialogs.",
    "must_cover": [
     "every tray menu item",
     "Windows taskbar Home, New org and current organization tasks",

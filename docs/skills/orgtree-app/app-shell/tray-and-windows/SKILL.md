@@ -33,7 +33,7 @@ For individual notification switches see [App notifications](../../app-settings/
 
 Each organization has one main window; opening it again focuses that window. Popouts are separate native windows whose controls apply to themselves. Pop in returns a panel to its owner; closing a panel window dismisses that surface. Closing a window and Quit Orgtree have different scope, governed by Exit on close and engine ownership.
 
-Auxiliary artifact/mockup viewers display the supplied document in an isolated window without the normal app bridge or chrome. Startup data conversion can display a small progress window that closes when conversion finishes. Neither is a replacement organization window.
+HTML presentation viewers display the supplied document in an isolated window without the normal app bridge or chrome. Startup data conversion can display a small progress window that closes when conversion finishes. Neither is a replacement organization window.
 
 Native text context menus offer Cut/Copy/Paste/Select all according to the selected editable field; read-only selection offers Copy. Native discard, startup, update, and restart dialogs apply to their named action and window. Read their actual error or scope instead of treating every native prompt as the same confirmation.
 

@@ -1,6 +1,6 @@
 ---
 name: orgtree-tool-present
-description: Present Markdown documents and captured HTML mockups as user-readable cards and update them in place.
+description: Present Markdown documents and captured HTML presentations as user-readable cards and update them in place.
 ---
 
 Up: [orgtree-user](../SKILL.md)
@@ -39,9 +39,9 @@ Folder authority and membership in an ancestor project resolve through the compl
 
 ## HTML capture and preview
 
-The HTML entry is limited to 4 MiB. Capture collects supported local HTML/CSS dependency references under its source directory, including nested CSS resources, with a 25 MiB total resource bound and 4,096-file cap. Absolute/escaping/protected/missing local asset paths refuse. A resource in another granted folder still cannot escape the mockup root. Dynamically discovered assets are not guaranteed captured.
+The HTML entry is limited to 4 MiB. Capture collects supported local HTML/CSS dependency references under its source directory, including nested CSS resources, with a 25 MiB total resource bound and 4,096-file cap. Absolute/escaping/protected/missing local asset paths refuse. A resource in another granted folder still cannot escape the HTML file's source directory. Dynamically discovered assets are not guaranteed captured.
 
-The mockup must be self-contained for offline use: inline its resources or keep
+An HTML presentation must be self-contained for offline use: inline its resources or keep
 every referenced local asset under the source directory. Local references are
 resolved relative to the HTML or CSS file containing them; package imports are
 not looked up in an installed dependency tree. For example, CSS containing
@@ -58,9 +58,9 @@ The preview embeds captured resources in an isolated sandbox with scripts allowe
 
 ## What reaches the user
 
-The successful result returns a presentation ID and card. Canvas/desk compact surfaces show recent presentations; the wider gallery opens the collection. Markdown uses the reader. Direct HTML chips open the mockup in a new tab; gallery readers have an explicit mockup link. Available menus include title/reference copying and format-specific downloads. Closing the reader differs from dismissing a card.
+The successful result returns a presentation ID and card. Canvas/desk compact surfaces show recent presentations; the wider gallery opens the collection. Markdown uses the reader. HTML presentations carry an **HTML presentation** tag (`</>` on compact chips). Direct HTML chips open the presentation in a new tab; gallery readers have an explicit **Open HTML presentation in a new tab** link. Available menus include title/reference copying and format-specific downloads. Closing the reader differs from dismissing a card.
 
-A successful transcript call has its ordinary timed, expandable tool row followed by the untimed presentation card; failures remain tool rows. User viewed/new/updated indicators are separate from tool success. A presented document is not proof of reading, agreement, deployment or functional verification of the mockup.
+A successful transcript call has its ordinary timed, expandable tool row followed by the untimed presentation card; failures remain tool rows. User viewed/new/updated indicators are separate from tool success. A presented document is not proof of reading, agreement, deployment or functional verification of an HTML presentation.
 
 Common refusals include missing title, giving both/neither body and path, exceeding the Markdown/HTML/capture bounds, non-UTF-8 Markdown, unsupported extension, out-of-scope path, missing assets, invalid replaces ID and missing user audience. Correct the named problem before retrying; when updating, reuse replaces rather than creating duplicate cards.
 
