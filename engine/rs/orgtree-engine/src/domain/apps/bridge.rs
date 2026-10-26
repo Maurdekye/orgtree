@@ -167,7 +167,7 @@ pub async fn run(engine:&Arc<Engine>,org:&Arc<OrgHandle>,input:&Value)->Result<V
             action.validate()?;let bound=engine.custom_apps.bound(org.id,&session)?;let _guard=bound.gate.lock.lock().await;
             engine.custom_apps.bound(org.id,&session)?;let value=snapshot(engine,&bound).await?;let mode=permission(&value,&action)?;
             if mode=="ask"{interactive(&value)?;let id=engine.custom_apps.ask(org.id,&session,action.clone())?;return Ok(json!({"permission_required":{"challenge":id,"app":bound.app,"panel":bound.panel,"name":value["name"],"label":value["label"],"capability":action.capability(),"request":action}}));}
-            execute(engine,org,&bound,&value,&action).await
+            execute(engine,org,&bound,&action).await
         },
         Request::Decide{session,challenge,choice}=>{
             let bound=engine.custom_apps.bound(org.id,&session)?;let _guard=bound.gate.lock.lock().await;
@@ -177,7 +177,7 @@ pub async fn run(engine:&Arc<Engine>,org:&Arc<OrgHandle>,input:&Value)->Result<V
                 super::storage::run_locked(engine,org,None,&json!({"action":"permission_set","app":bound.app,"expected_rev":bound.rev,"expected_permission_rev":value["permission_rev"],"capability":action.capability(),"permission":if matches!(choice,Choice::Deny){"deny"}else{"allow"}})).await?;
             }
             if matches!(choice,Choice::Deny){crate::refuse!(Forbidden,"app action denied");}
-            execute(engine,org,&bound,&value,&action).await
+            execute(engine,org,&bound,&action).await
         },
     }
 }
@@ -188,15 +188,15 @@ async fn live_agent(engine:&Engine,org:i64,name:&str)->Result<i64> {
     let Some(row)=row else{crate::refuse!(NotFound,"app target must be a live agent in this organization");};Ok(row.get(0))
 }
 #[nolog]
-async fn execute(engine:&Arc<Engine>,org:&Arc<OrgHandle>,bound:&Bound,value:&Value,action:&Action)->Result<Value> {
+async fn execute(engine:&Arc<Engine>,org:&Arc<OrgHandle>,bound:&Bound,action:&Action)->Result<Value> {
     // Both direct Allow and successful Once/Always decisions reach this exact
     // admission point. Ask, Cancel and Deny do not execute an action.
     bound.gate.admit()?;
     tracing::info!(app=%bound.app,panel=%bound.panel,capability=action.capability(),"app action dispatch");
-    crate::trace::private_app(execute_private(engine,org,bound,value,action)).await
+    crate::trace::private_app(execute_private(engine,org,bound,action)).await
 }
 #[nolog]
-async fn execute_private(engine:&Arc<Engine>,org:&Arc<OrgHandle>,bound:&Bound,value:&Value,action:&Action)->Result<Value> {
+async fn execute_private(engine:&Arc<Engine>,org:&Arc<OrgHandle>,bound:&Bound,action:&Action)->Result<Value> {
     match action {
         Action::OrgRead{after,limit}=>{
             let client=engine.db.get().await?;let n=limit.unwrap_or(100);let after=after.unwrap_or(0);
