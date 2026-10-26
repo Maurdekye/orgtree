@@ -87,8 +87,8 @@ these cases pass. Keep the explicit Everyone-write refusal control.
 [verified: `tests/installer-elevation.test.mjs`, `tools/installer-upgrade.ps1`; 2026-10-26]
 
 `scratch-note-create`, `taskbar-badge`, `taskbar-dot-art`, `taskbar-eligibility`,
-`taskbar-unified`, `tray-recent` and `tab-origin-native` run with ordinary
-`node --test tests/<name>.test.mjs`. Each allocates its own fresh child of the
+`taskbar-unified`, `tray-recent` and `tab-origin-native` run with the ordinary
+root runner, `node tests/run.mjs tests/<name>.test.mjs`. Each allocates its own fresh child of the
 platform temporary directory; team runners set `TEMP`/`TMP` to their authorized
 output scope. No module requires another author's folder. Existing dependencies
 resolve locally, or via `ORGTREE_TEST_DEPS` pointing to the existing dependency
@@ -122,7 +122,7 @@ unchanged. [verified: `tests/helpers/test-output.mjs`; 2026-10-22]
 `.ttf`, `.woff` and `.woff2` assets as data URLs because the disposable loopback
 server serves only fixture JS and CSS. Keep the full stylesheet, native header
 structure and every restored/maximized edge hit-test and inset-header mutation
-assertion. Run `node --test tests/window-controls-edge.test.mjs` only on the
+assertion. Run `node tests/run.mjs tests/window-controls-edge.test.mjs` only on the
 [isolated route](#test-window-session-and-clipboard-isolation-2026-10-24) under
 the current build permit/containment, with `TEMP`/`TMP` inside the
 assigned output scope. A font-loader setup failure means native hit-testing did
@@ -637,12 +637,22 @@ the incident needed no orphan: at this rate 41 GB takes seconds (inferred).
   per-test timeout, concurrency 4, Job ceiling and run limit are unchanged.
 - `testguard.test.tsx` holds the controls: a red/green pair under a 512 MB
   ceiling, the watchdog with and without its limit, and the floor.
+- Every renderer test file imports `harness.ts` or `testguard.mjs` first
+  (`testguard.test.tsx` §10 enforces it), so a bundle that a tool builds and
+  runs itself still carries the guard. Such tools' `--max-old-space-size` on
+  the `node --test` command line never capped their per-file children.
+- Root `npm test` is `node tests/run.mjs`: the same floor, heap cap and guard
+  preload through `NODE_OPTIONS`, concurrency 4, 120 s per test (the baseline
+  tool's settings for these files), and on Windows a 6144 MB Job with a 30 min
+  run limit. Run single root files as `node tests/run.mjs tests/x.test.mjs`
+  (node's test flags pass through); `tests/run-bounds.test.mjs` holds its
+  controls. `npm run test:disruptive` keeps bare `node --test` behind its
+  `ORGTREE_DISRUPTIVE_PROBES` gate: those probes drive the desktop on purpose.
 
 Keep reducing DOM assertions to scalars: a deep compare of two same-tag
 elements passes, and a scalar reads better. That is now a style rule, not a
-memory rule. Root `npm test` (`tests/*.test.mjs`) is not covered by these
-guards. [verified: `apps/desktop/renderer/tests/{run,testguard}.mjs`,
-`testguard.test.tsx`; 2026-10-26]
+memory rule. [verified: `apps/desktop/renderer/tests/{run,testguard}.mjs`,
+`testguard.test.tsx`, `tests/run.mjs`; 2026-10-26]
 
 ### Renderer tests from a worktree without node_modules
 
