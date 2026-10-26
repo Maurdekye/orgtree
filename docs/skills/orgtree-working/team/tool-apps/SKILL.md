@@ -74,7 +74,7 @@ the running rows' state dot and CPU are runtime. Opening a copy remains user-onl
 ## Org access and agent window boundary
 
 Created, imported, template-restored and existing apps have implicit access to
-this org through org.read, mail.send, events.fire and docket.write, and read/write
+this org through org.read, events.fire and docket.write, and read/write
 access to this org's scratch, uploads and exact retained-delivery files. These
 defaults do not depend on older capability declarations. Event names still need
 declarations. Explicit user Ask or Deny overrides the default; Deny wins over
@@ -195,8 +195,8 @@ persists per app/code revision. File and media links survive Hide, pop-out and h
 session renewal (user 2026-10-26); Deny, a change to Ask that removes access, code
 replacement, per-grant Revoke and power off end them and cancel active media bodies. Chosen folders (with descendants) and
 the whole computer can also be granted through native consent. Read and write remain separately overridable. External writes need a write grant. Whole-computer
-access has current Windows user rights, without elevation. Read plus mail.send is
-warned in native UI; imported grants and paths are always refused.
+access has current Windows user rights, without elevation. Imported grants and paths
+are always refused.
 
 - file_permissions needs app. It reports bounded grant metadata, revisions and
   read mode. Chosen files outside your current folders are omitted; native paths
@@ -312,10 +312,12 @@ Permissions edits save immediately for all copies, without reloading app code.
 Hidden hosts refuse prompts but keep their session; powered-off and replaced
 hosts discard sessions and prompts. No HTML permission API,
 host session, arbitrary route, caller or cross-panel selector is exposed. Named actions are bounded
-chart metadata, app-provenance local-agent mail, new open docket items and
-declared event broadcasts; no generic user operations or approval authority. App mail is
-app data and cannot speak as the user. Agents reply by reading/writing panel
-state or sending events, rather than mailing the app sender address.
+chart metadata, new open docket items and declared event broadcasts; no generic
+user operations or approval authority. mail.send was removed (user 2026-10-26): apps
+reach agents only through events. An old declaration is accepted but dropped and
+never granted, and an app's mail.send call or permission_set fails with directions
+to orgtree.events.fire and app_listener. App content cannot speak as the user.
+Agents reply by reading/writing panel state or sending events.
 
 Provisional docket.write creates AND assigns a new open item, waking the selected
 live local owner. Native permission UI and app-origin assignment envelopes say so
@@ -331,8 +333,8 @@ File requests and bundle import/export keep paths and contents out of engine
 diagnostics, including verbose blocking-worker logs. Authorized file results stay
 available; ordinary engine diagnostics remain enabled.
 
-Mail an app action sends, the assignment notice of a docket item it creates and its
-event deliveries reach the recipient with their content. Engine diagnostics name
+The assignment notice of a docket item an app creates and its event deliveries (and
+mail it sent before mail.send was removed) reach the recipient with their content. Engine diagnostics name
 each by mail ID only, including the recipient's turn-start logs. Ordinary mail is
 logged as before. An item an app created is ordinary docket content when it is
 read back later.

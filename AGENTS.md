@@ -50,8 +50,8 @@ App file and portability IO enter a private scope on each blocking worker,
 including nested path helpers; ordinary verbose diagnostics remain enabled.
 See [custom apps](docs/rust-engine/custom-apps.md).
 [verified: `trace::private_app_blocking`, `domain/apps/{file_access,file_scopes}.rs`, `tools/apps.rs`; 2026-10-26]
-App content that a recipient's actor reads back from the database (the app's
-mail, its docket assignment notice, its named event's delivery) is logged by
+App content that a recipient's actor reads back from the database (an app's
+docket assignment notice, named event delivery or older mail) is logged by
 mail ID in every line; ordinary mail logs as before. See [custom apps](docs/rust-engine/custom-apps.md).
 [verified: `trace::private_app_content`, `runtime/actor.rs::mail_of`; 2026-10-26]
 App files use native read grants, opaque per-panel references and bounded reads.

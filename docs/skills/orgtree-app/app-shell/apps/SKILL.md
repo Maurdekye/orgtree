@@ -134,13 +134,17 @@ visibility and far-zoom culling are display only. See orgtree-tool-apps
 ## Org access and agent window boundary
 
 Created, imported, template-restored and existing apps have implicit access to
-this org through org.read, mail.send, events.fire and docket.write, and read/write
+this org through org.read, events.fire and docket.write, and read/write
 access to this org's scratch, uploads and exact retained-delivery files. These
 defaults do not depend on older capability declarations. Event names still need
 declarations. Explicit user Ask or Deny overrides the default; Deny wins over
 temporary, remembered and implicit file authority. Code replacement preserves
 restrictive Ask/Deny choices while clearing external grants and old host sessions.
 Native Permissions displays effective defaults separately from stored choices.
+
+Apps reach agents only through events (user 2026-10-26): `mail.send` was removed. An
+older app that declares it still imports and runs; the declaration is ignored and
+never granted, and its send fails with a message that points to `orgtree.events.fire`.
 
 Import warns that apps from outside this org have full access to the org and its
 state, and that untrustworthy apps are dangerous. Authority is derived locally;
@@ -174,18 +178,19 @@ single file, a folder with descendants, this org's scratch/uploads/retained-deli
 collection, or the whole computer. Whole-computer access uses your Windows account
 without elevation and can include private files/settings; prefer a narrower folder.
 Allow once lasts while the panel runs, hidden or popped out included; Always
-allow remembers that file or collection. Deny saves a refusal; Cancel leaves grants unchanged. A warning names
-the combination with mail.send, because readable contents may be sent if mail
-is also allowed. Imported apps and replaced code have no remembered grants.
+allow remembers that file or collection. Deny saves a refusal; Cancel leaves grants unchanged.
+Imported apps and replaced code have no remembered grants.
 
 App settings → Permissions → Files shows Read files and remembered scopes with
 Revoke. Separate Read files and Write files controls govern distinct grants.
 Ask/Deny clears remembered grants for that mode; revocation stops active media
 streams and pending changes. Allow granted scopes creates no grant itself.
-File paths stay native; readable contents may leave through permitted mail.
+File paths stay native; an app passes readable contents on only through its events
+or the work items it creates.
 File requests and app import/export omit paths and contents from engine
 diagnostics, including verbose file-worker logs; ordinary diagnostics stay enabled.
-App mail, its docket assignment notices and its event deliveries appear in engine
+An app's docket assignment notices and event deliveries (and mail it sent before
+mail.send was removed) appear in engine
 diagnostics by mail ID only, also when they wake their recipient; agents still
 receive them, and ordinary mail logs as before.
 

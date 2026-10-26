@@ -3,7 +3,7 @@
 ## Org access and agent window boundary
 
 Created, imported, template-restored and existing apps have implicit access to
-this org through org.read, mail.send, events.fire and docket.write, and read/write
+this org through org.read, events.fire and docket.write, and read/write
 access to this org's scratch, uploads and exact retained-delivery files. These
 defaults do not depend on older capability declarations. Event names still need
 declarations. Explicit user Ask or Deny overrides the default; Deny wins over
@@ -213,15 +213,19 @@ discards the request without changing permissions. Requests expire after two
 minutes and are not retried automatically. In App settings, Permissions offers
 Ask, Allow and Deny per capability; changes save immediately without
 reloading the app. Explicit Ask/Deny survives replacement; external grants and host sessions reset.
-App messages identify the app and copy, and carry app content rather than user
-instructions or approvals. No permission travels in an exported app.
+Event deliveries and work items an app creates identify the app and copy, and carry
+app content rather than user instructions or approvals. No permission travels in an exported app.
 
 The HTML API is `orgtree.call(action, args)`. Available actions are `org.read`
-(paged chart metadata), `mail.send` (live local agent), `docket.create` (a new open
-item), and `events.fire` (a declared broadcast to subscribed agents). It cannot act as
-you, choose another panel, call arbitrary engine routes, or approve work. Hiding a
-panel refuses its pending prompt and keeps it running; powering it off or
-replacing its code discards its host session and pending prompt.
+(paged chart metadata), `docket.create` (a new open item), and `events.fire` (a
+declared broadcast to subscribed agents). It cannot act as you, choose another
+panel, call arbitrary engine routes, or approve work. Hiding a panel refuses its
+pending prompt and keeps it running; powering it off or replacing its code
+discards its host session and pending prompt.
+
+Apps reach agents only through events (user 2026-10-26): `mail.send` was removed. An
+older app that declares it still imports and runs; the declaration is ignored and
+never granted, and its send fails with a message that points to `orgtree.events.fire`.
 
 The provisional `docket.write` permission lets an app create and assign a new
 open item and wake its selected local agent. The prompt says so; the assignment
@@ -246,9 +250,9 @@ panel_get or events. Hidden running panels keep their timers while the desktop
 app runs; use an engine watchdog for work that must continue without it.
 
 Try the portable [Annotation notes example](examples/apps/annotation-notes.orgtree-app):
-import it through Apps, open a copy, save notes, and enter a live local agent's
-name to send them. The send action uses the effective permission policy and app
-provenance. Reload saved data picks up agent edits. It is a generic example,
+import it through Apps, open a copy, save notes, and choose **Share notes** to fire its
+`notes.ready` event; agents that subscribed with an app_listener watchdog receive the
+notes. Reload saved data picks up agent edits. It is a generic example,
 not a recreation of the earlier annotation editor whose source is unavailable.
 
 The provisional queue also caps pending recipient deliveries at8,192 per app;
@@ -260,8 +264,7 @@ Apps can read and write this org's collections by default. For one chosen file,
 a folder and its subfolders, or the whole computer, they ask through native UI.
 Orgtree shows the request in its
 own dialog outside the HTML. Choose a file in that native picker, then select
-**Allow once**, **Always allow**, **Deny** or **Cancel**. Read access is separate
-from sending messages: the dialog warns when an app also declares `mail.send`.
+**Allow once**, **Always allow**, **Deny** or **Cancel**.
 Outside-org writes require a separate native write grant.
 Whole-computer access includes private files/settings your Windows account can
 reach, without elevation. Prefer a chosen folder when that is enough.

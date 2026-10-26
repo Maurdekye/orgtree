@@ -96,7 +96,7 @@ scripts inherit the policy (no network) and end with their frame.
 ## Org access and agent window boundary
 
 Created, imported, template-restored and existing apps have implicit access to
-this org through org.read, mail.send, events.fire and docket.write, and read/write
+this org through org.read, events.fire and docket.write, and read/write
 access to this org's scratch, uploads and exact retained-delivery files. These
 defaults do not depend on older capability declarations. Event names still need
 declarations. Explicit user Ask or Deny overrides the default; Deny wins over
@@ -250,9 +250,9 @@ use the existing ancestor-pinned no-reparse IO. No PG handle/transaction spans
 disk IO, native consent or playback. Media cap256MiB; no video is embedded in state.
 
 Migration0065 adds separate read/write modes and folder/computer scopes. Existing
-grants remain read-only. Native consent warns about readable data plus declared
-mail.send and about whole-computer access under the current Windows user, without
-elevation. A chosen folder covers descendants; links/reparse points are refused.
+grants remain read-only. Native consent warns about whole-computer access under the
+current Windows user, without elevation (its readable-data-plus-mail.send warning went
+with mail.send, USER 2026-10-26). A chosen folder covers descendants; links/reparse points are refused.
 Read and write remain separately overridable capabilities. Grant limits128/app,
 refs1024/panel, registry4096/class; prompts120s, host sessions30min (renewal
 keeps links); media tickets live with their running copy, 64 per copy.
@@ -544,8 +544,9 @@ bundle IO, preserving authorized results and ordinary worker-log positives.
 Invalid read requests return a fixed parser refusal rather than reflecting caller
 content.
 
-Mail carries app content past the private request. The app's own mail, the notice
-of a docket item it creates and assigns, and its named event's delivery are written
+Mail carries app content past the private request. The notice of a docket item an
+app creates and assigns, its named event's delivery and any mail it sent before
+mail.send was removed are written
 inside the scope, but the recipient's actor reads them back from the database
 outside it, and its turn start logs that input (`Actor.session_notes`,
 `Actor.rels_of`, `envelope::ping_for`, `alert_turn`). The log renderer therefore
@@ -559,7 +560,8 @@ lines. Ordinary mail renders unchanged, and the agent still receives the content
 The composed turn and steer texts already render as `[thinking omitted]`: the
 encoded-payload rule fails closed on their `[` block header, and a unit canary
 pins this for app content. The rig control `tools/rig/proofs/app-mail-wake-privacy.mjs`
-covers an ordinary-only wake and a mixed wake. Limit: an app-created item's own
+covers an ordinary-only wake and a mixed wake (event delivery and docket notice since
+mail.send was removed). Limit: an app-created item's own
 title and objective are ordinary docket content once read back; the desktop's read
 logs them (`domain.docket.load`, `http.docket.get` and its RESPONSE line, as the
 control's closing note measures).
@@ -583,14 +585,23 @@ are explicitly forbidden from deciding permissions. Code replacement resets
 external grants and revokes sessions, retaining restrictive Ask/Deny. Import/export never carries decisions.
 
 The action vocabulary is limited to org.read (paged active chart metadata, not
-private mail/files), mail.send (a live local agent only), docket.create (one new
-open non-code item with title/objective/owner) and events.fire (a declared named
-event broadcast to subscribed app_listener watchdogs). No general ops/HTTP, identity selection,
+private mail/files), docket.create (one new open non-code item with
+title/objective/owner) and events.fire (a declared named event broadcast to
+subscribed app_listener watchdogs). No general ops/HTTP, identity selection,
 question answering, release actions, outside mail, user mail or project mail.
 
-Mail has explicit app:<app>/<panel> provenance, grants no reply audience and
-never counts as direct user contact. App content is not a user instruction or
-approval. Docket creation records an app/panel actor. events.fire cannot spoof
+Apps reach agents only through events: mail.send was removed (USER 2026-10-26
+m61de6ee6429c "i want to keep agent notification purely through the event system,
+no targeting agents directly"; mdacb9d629e59 "Remove; import, never grant"). The app
+mail sender (domain::mail From::App) and its reply-audience and target guards went
+with it. Old definitions that declare mail.send still validate
+(wire::RETIRED_CAPABILITIES), so they import and run, but the declaration is dropped
+before storage (wire::current_capabilities) and from app metadata, also for apps
+stored earlier (policy::metadata), and stored grants never allow it
+(policy::available). An app's mail.send call and permission_set for it refuse with
+wire::MAIL_SEND_REMOVED, which points to orgtree.events.fire and app_listener; the
+desktop action client refuses first with the same text. App content is not a user
+instruction or approval. Docket creation records an app/panel actor. events.fire cannot spoof
 an arbitrary engine event kind. All payloads/actions are bounded to64KiB.
 
 Provisional docket.write authorizes creation AND assignment, waking the selected
@@ -653,7 +664,8 @@ app.event name as defensive code with no producer. Agents reconcile through
 panel_get/events and their cursor; the latest256 boundary stays explicit.
 
 docs/examples/apps/annotation-notes.orgtree-app is a small inert portable sample:
-independent state, explicit save/reload and named mail.send through native consent.
+independent state, explicit save/reload and a declared notes.ready event fired with
+orgtree.events.fire.
 It is not auto-installed or auto-opened and does not reproduce an unavailable
 historical annotation editor. The focused wire check validates its actual file.
 
