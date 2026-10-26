@@ -174,7 +174,7 @@ async fn org_path(engine:&Engine,org:&OrgHandle,root:&str,name:&str)->Result<Pat
     match root{
         "scratch"=>files::scoped_path(&engine.cfg.scratch_root(&org.slug),name),
         "uploads"=>{
-            if name.split(['/', '\\']).next()==Some("@org-inbox"){
+            if inbox_upload(name){
                 let client=engine.db.get().await?;
                 let settings:Value=client.query_one("SELECT settings FROM ot.orgs WHERE id=$1",&[&org.id]).await?.get(0);
                 if !crate::domain::orginbox::enabled(&settings){crate::refuse!(Forbidden,"the organization's inbox is disabled");}
@@ -189,6 +189,8 @@ async fn org_path(engine:&Engine,org:&OrgHandle,root:&str,name:&str)->Result<Pat
         _=>crate::refuse!(BadRequest,"unknown Orgtree file collection"),
     }
 }
+#[nolog]
+fn inbox_upload(name:&str)->bool{name.split(['/', '\\']).next().is_some_and(|part|part.eq_ignore_ascii_case("@org-inbox"))}
 #[nolog]
 async fn org_member(engine:&Engine,bound:&Bound,path:&std::path::Path)->Result<bool>{
     let org=engine.orgs.by_id(bound.org).ok_or_else(||crate::domain::UserError::NotFound("organization closed".into()))?;
@@ -393,6 +395,7 @@ pub async fn agent(engine:&Arc<Engine>,org:&Arc<OrgHandle>,caller:&Caller,input:
 mod tests{
     use super::*;
     #[test] fn app_files_only_accept_fixed_read_actions_and_relative_collections(){
+        assert!(inbox_upload("@org-inbox/a.mp4"));assert!(inbox_upload("@ORG-INBOX\\a.mp4"));assert!(!inbox_upload("agent/@org-inbox/a.mp4"));
         for value in [json!({"action":"write","path":"x"}),json!({"action":"choose","path":"C:/secret"}),json!({"action":"read","file":"x","as_user":true})]{assert!(serde_json::from_value::<FileCall>(value).is_err());}
         for value in [json!({"action":"open","root":"scratch","path":"../other/file"}),json!({"action":"open","root":"uploads","path":"C:/other"}),json!({"action":"read","file":"x","limit":65537}),json!({"action":"read","file":"x","limit":0})]{assert!(validate(&serde_json::from_value(value).unwrap()).is_err());}
         assert!(validate(&FileCall::Open{root:"scratch".into(),path:"agent/outbox/demo.mp4".into()}).is_ok());
