@@ -494,7 +494,8 @@ async fn guarded(engine: Arc<Engine>, req: Request, next: Next) -> Response {
         let detail = if engine.cfg.standalone { "standalone token required" } else { "desktop token required" };
         (StatusCode::FORBIDDEN, axum::Json(serde_json::json!({ "detail": detail }))).into_response()
     } else {
-        next.run(req).await
+        if private_apps_path(&path){crate::trace::private_app(next.run(req)).await}
+        else{next.run(req).await}
     };
     if let Ok(v) = HeaderValue::from_str(&engine.boot.id) {
         res.headers_mut().insert("x-orgtree-instance", v);
@@ -527,7 +528,7 @@ async fn guarded(engine: Arc<Engine>, req: Request, next: Next) -> Response {
 }
 
 fn request_target_for_log(path: &str, uri: &axum::http::Uri) -> String {
-    if path == "/api/markdown-image" {
+    if path == "/api/markdown-image" || private_apps_path(path) {
         // Query values contain local paths or full remote image URLs.
         path.to_string()
     } else {
@@ -535,6 +536,12 @@ fn request_target_for_log(path: &str, uri: &axum::http::Uri) -> String {
             .map(|p| p.as_str().to_string())
             .unwrap_or_else(|| path.to_string())
     }
+}
+
+#[nolog]
+fn private_apps_path(path:&str)->bool {
+    let mut parts=path.split('/');
+    matches!((parts.next(),parts.next(),parts.next(),parts.next(),parts.next()),(Some(""),Some("api"),Some("orgs"),Some(_),Some("apps")))
 }
 
 fn token_ok(engine: &Engine, req: &Request) -> bool {

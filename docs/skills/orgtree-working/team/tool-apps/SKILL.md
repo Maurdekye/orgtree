@@ -74,3 +74,9 @@ chart metadata, app-provenance local-agent mail, new open docket items and fixed
 app.event signals; no generic user operations or approval authority. App mail is
 app data and cannot speak as the user. Agents reply by reading/writing panel
 state or sending events, rather than mailing the app sender address.
+
+Provisional docket.write creates AND assigns a new open item, waking the selected
+live local owner. Native permission UI and app-origin assignment envelopes say so
+and mark its description as app content, not user instruction/approval. This is
+an explicit morning design question. All action dispatches, including approved
+Once/Always requests, share60 attempts/minute across host closure/reopening.

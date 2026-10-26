@@ -47,3 +47,9 @@ The HTML API is `orgtree.call(action, args)`. Available actions are `org.read`
 item), and `events.fire` (an app event for a live local agent). It cannot act as
 you, choose another panel, call arbitrary engine routes, or approve work. Hiding,
 closing or replacing a panel discards its host session and pending prompt.
+
+The provisional `docket.write` permission lets an app create and assign a new
+open item and wake its selected local agent. The prompt says so; the assignment
+identifies app content with no user instruction or approval authority. The
+execution budget is60 dispatch attempts per minute per app, including one-shot
+decisions; closing and reopening a panel does not reset it.

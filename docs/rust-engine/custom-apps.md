@@ -107,7 +107,18 @@ per-app async gate. Permission, code and panel mutations acquire that same gate
 BEFORE agent/database locks. The gate remains held through dispatch; no database
 client is held while another domain service acquires its own. Weak gate entries
 are pruned rather than growing with inactive app history. Per-app action rate is
-provisionally60/minute across all its active copies.
+provisionally60 dispatch attempts/minute across all its copies. One admission
+point covers direct Allow and successful Once/Always decisions immediately before
+dispatch. Ask/Cancel/Deny do not execute. Rate history survives the last session
+and weak gate; only inactive histories past the full60s window are pruned.
+
+The private Apps HTTP boundary strips query strings and wraps all awaited nested
+services in a task-local opaque-log scope. Logged method arguments/results and
+manual event fields are omitted there; request path/status remain visible and
+ordinary callers retain diagnostics. Bridge dispatch also enters the scope for
+non-HTTP internal callers. The scope does not propagate across spawned tasks;
+dispatch services must not spawn private payloads. Invalid read requests return a
+fixed parser refusal rather than reflecting caller content.
 
 Ask stores one exact action under an opaque challenge for120 seconds. Decide
 consumes it once. Once executes only that action; Always stores Allow for its
@@ -127,6 +138,12 @@ Mail has explicit app:<app>/<panel> provenance, grants no reply audience and
 never counts as direct user contact. App content is not a user instruction or
 approval. Docket creation records an app/panel actor. events.fire cannot spoof
 an arbitrary engine event kind. All payloads/actions are bounded to64KiB.
+
+Provisional docket.write authorizes creation AND assignment, waking the selected
+live local owner. The native grant states this explicitly. Both fallback mail
+and typed assignment envelopes label app-origin work as app content with no user
+instruction/approval authority. Whether this should instead deposit data without
+assignment is in the single morning question list.
 
 ## Native action host
 

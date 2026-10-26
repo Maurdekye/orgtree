@@ -22,6 +22,7 @@ export function AppPermissionPrompt({prompt,owner}:{prompt:PermissionPrompt;owne
     <div ref={ref} className="custom-app-permission" role="dialog" aria-modal="true" aria-label="App permission">
       <h2>Allow app action?</h2><p><strong>{p.name}</strong> · {p.label}</p>
       <p>Capability: <code>{p.capability}</code></p><p className="dim">App content acts as this app, with its own permission. It cannot approve work or impersonate you.</p>
+      {p.capability==='docket.write'&&<p>This creates an open work item, assigns it to the selected local agent and wakes that agent. Its description remains app content.</p>}
       <pre>{JSON.stringify(p.request,null,2)}</pre><small>App {p.app} · Panel {p.panel}</small>
       <p>Always allow and Deny apply to every copy of this app. Cancel leaves permissions unchanged.</p>
       <div className="custom-app-dialog-actions"><button type="button" onClick={()=>prompt.finish(null)}>Cancel</button><span/>
@@ -42,7 +43,7 @@ export function AppPermissions({slug,app,close}:{slug:string;app:CustomApp;close
     <header><strong>App permissions</strong><button type="button" onClick={close}>Close dialog</button></header>
     <p>Changes save immediately and apply to every copy of {current.name}. Replacing app code resets grants to Ask. Links to agents grant nothing.</p>
     {!current.capabilities.length&&<p>This app declares no engine actions.</p>}
-    {current.capabilities.map(cap=><label className="custom-app-permission-row" key={cap}><span>{cap}</span><select aria-label={`${cap} permission`} disabled={busy} value={current.permissions[cap]??'ask'} onChange={e=>void save(cap,e.target.value)}><option value="ask">Ask</option><option value="allow">Allow</option><option value="deny">Deny</option></select></label>)}
+    {current.capabilities.map(cap=><label className="custom-app-permission-row" key={cap}><span>{cap}{cap==='docket.write'&&<small>Creates and assigns work; wakes the selected local agent.</small>}</span><select aria-label={`${cap} permission`} disabled={busy} value={current.permissions[cap]??'ask'} onChange={e=>void save(cap,e.target.value)}><option value="ask">Ask</option><option value="allow">Allow</option><option value="deny">Deny</option></select></label>)}
     {error&&<p role="alert">{error}</p>}
   </div>
 }

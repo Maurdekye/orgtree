@@ -19,7 +19,7 @@ pub fn read_input(raw:&str)->Result<Value,super::error::ApiError>{
     if raw.len()>8192{return Err(super::error::ApiError::bad_request("Apps read request is too large"));}
     let input:Value=serde_json::from_str(raw).map_err(|_|super::error::ApiError::bad_request("invalid Apps read request"))?;
     use crate::domain::apps::wire::Request;
-    if !matches!(crate::domain::apps::wire::parse(&input)?,Request::List{..}|Request::AppGet{..}|Request::PanelGet{..}|Request::Events{..}){
+    if !matches!(crate::domain::apps::wire::parse(&input).map_err(|_|super::error::ApiError::bad_request("invalid Apps read request"))?,Request::List{..}|Request::AppGet{..}|Request::PanelGet{..}|Request::Events{..}){
         return Err(super::error::ApiError::bad_request("GET only supports Apps reads"));
     }
     Ok(input)

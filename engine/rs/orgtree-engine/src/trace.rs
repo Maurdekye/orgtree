@@ -51,6 +51,18 @@ pub const RELEASE_BUILD: bool = option_env!("ORGTREE_RELEASE_BUILD").is_some();
 /// Developer (decision 35).
 static VERBOSE: AtomicBool = AtomicBool::new(!RELEASE_BUILD);
 
+tokio::task_local! { static PRIVATE_APP: bool; }
+
+/// Private Apps requests keep metadata-only logs through every awaited child.
+/// Unlike #[nolog], this also protects nested logged methods and manual events.
+/// Does not propagate to spawned tasks: private dispatch must not spawn payloads.
+#[nolog]
+pub async fn private_app<T>(future:impl std::future::Future<Output=T>)->T {
+    PRIVATE_APP.scope(true,future).await
+}
+#[nolog]
+fn app_private()->bool { PRIVATE_APP.try_with(|v|*v).unwrap_or(false) }
+
 /// Turn verbose logging on or off; answers the previous state.
 pub fn set_verbose(on: bool) -> bool {
     VERBOSE.swap(on, Ordering::Relaxed)
@@ -154,7 +166,7 @@ pub struct Frame {
 
 impl Frame {
     pub fn new(path: &'static str) -> Frame {
-        if !VERBOSE.load(Ordering::Relaxed) {
+        if !VERBOSE.load(Ordering::Relaxed) || app_private() {
             return Frame { span: tracing::Span::none(), path, start: None, on: false };
         }
         let span = tracing::span!(target: "call", Level::INFO, "frame", ex = id32(), m = path);
@@ -1018,6 +1030,7 @@ where
     S: Subscriber + for<'a> LookupSpan<'a>,
 {
     fn on_new_span(&self, attrs: &Attributes<'_>, id: &Id, ctx: Context<'_, S>) {
+        if app_private(){return;}
         let mut g = SpanGrab::default();
         attrs.record(&mut g);
         let Some(span) = ctx.span(id) else { return };
@@ -1067,7 +1080,8 @@ where
         }
         let meta = event.metadata();
         let mut g = EventGrab::default();
-        event.record(&mut g);
+        if app_private(){g.message="[private app dispatch omitted]".into();}
+        else{event.record(&mut g);}
         // by its own target, or a `log` record's (tracing-log: target `log`)
         if silenced(meta.target()) || g.log_target.as_deref().is_some_and(silenced) {
             return;

@@ -45,10 +45,12 @@ pub enum Request {
 pub enum Choice { Once, Always, Deny }
 
 #[derive(Default)]
-pub struct AppGate { pub lock:tokio::sync::Mutex<()>, recent:Mutex<VecDeque<Instant>> }
+pub struct AppGate { pub lock:tokio::sync::Mutex<()>, rate:Arc<ActionRate> }
+#[derive(Default)]
+struct ActionRate { recent:Mutex<VecDeque<Instant>> }
 impl AppGate {
     #[nolog] fn admit(&self)->Result<()> {
-        let mut q=self.recent.lock().map_err(|_|anyhow::anyhow!("Apps rate registry unavailable"))?;let now=Instant::now();
+        let mut q=self.rate.recent.lock().map_err(|_|anyhow::anyhow!("Apps rate registry unavailable"))?;let now=Instant::now();
         while q.front().is_some_and(|at|now.duration_since(*at)>=Duration::from_secs(60)){q.pop_front();}
         if q.len()>=60{crate::refuse!(Conflict,"app engine actions are limited to60 per minute across its panels");}q.push_back(now);Ok(())
     }
@@ -60,6 +62,7 @@ struct Session {bound:Bound,until:Instant,pending:Option<Pending>}
 #[derive(Default)]
 pub struct Registry {
     gates:Mutex<HashMap<(i64,String),Weak<AppGate>>>,
+    rates:Mutex<HashMap<(i64,String),Arc<ActionRate>>>,
     sessions:Mutex<HashMap<String,Session>>,
 }
 impl Registry {
@@ -67,7 +70,13 @@ impl Registry {
         let mut all=self.gates.lock().map_err(|_|anyhow::anyhow!("Apps gate registry unavailable"))?;
         all.retain(|_,gate|gate.strong_count()>0);
         let key=(org,app.to_owned());if let Some(gate)=all.get(&key).and_then(Weak::upgrade){return Ok(gate);}
-        let gate=Arc::new(AppGate::default());all.insert(key,Arc::downgrade(&gate));Ok(gate)
+        let mut rates=self.rates.lock().map_err(|_|anyhow::anyhow!("Apps rate registry unavailable"))?;
+        let now=Instant::now();
+        // A window survives the last host/gate. Prune only inactive, expired
+        // histories; a retained active gate may still admit another dispatch.
+        rates.retain(|_,rate|Arc::strong_count(rate)>1||rate.recent.lock().map(|q|q.back().is_some_and(|at|now.duration_since(*at)<Duration::from_secs(60))).unwrap_or(true));
+        let rate=rates.entry(key.clone()).or_default().clone();
+        let gate=Arc::new(AppGate{lock:tokio::sync::Mutex::new(()),rate});all.insert(key,Arc::downgrade(&gate));Ok(gate)
     }
     #[nolog] fn open(&self,bound:Bound)->Result<String> {
         let mut all=self.sessions.lock().map_err(|_|anyhow::anyhow!("Apps session registry unavailable"))?;
@@ -132,7 +141,7 @@ pub async fn run(engine:&Arc<Engine>,org:&Arc<OrgHandle>,input:&Value)->Result<V
         Request::SessionClose{session}=>{let bound=engine.custom_apps.bound(org.id,&session)?;let _guard=bound.gate.lock.lock().await;engine.custom_apps.close(org.id,&session)?;Ok(json!({"closed":true}))},
         Request::Call{session,request:action}=>{
             action.validate()?;let bound=engine.custom_apps.bound(org.id,&session)?;let _guard=bound.gate.lock.lock().await;
-            engine.custom_apps.bound(org.id,&session)?;let value=snapshot(engine,&bound).await?;let mode=permission(&value,&action)?;bound.gate.admit()?;
+            engine.custom_apps.bound(org.id,&session)?;let value=snapshot(engine,&bound).await?;let mode=permission(&value,&action)?;
             if mode=="ask"{let id=engine.custom_apps.ask(org.id,&session,action.clone())?;return Ok(json!({"permission_required":{"challenge":id,"app":bound.app,"panel":bound.panel,"name":value["name"],"label":value["label"],"capability":action.capability(),"request":action}}));}
             execute(engine,org,&bound,&value,&action).await
         },
@@ -156,6 +165,14 @@ async fn live_agent(engine:&Engine,org:i64,name:&str)->Result<i64> {
 }
 #[nolog]
 async fn execute(engine:&Arc<Engine>,org:&Arc<OrgHandle>,bound:&Bound,value:&Value,action:&Action)->Result<Value> {
+    // Both direct Allow and successful Once/Always decisions reach this exact
+    // admission point. Ask, Cancel and Deny do not execute an action.
+    bound.gate.admit()?;
+    tracing::info!(app=%bound.app,panel=%bound.panel,capability=action.capability(),"app action dispatch");
+    crate::trace::private_app(execute_private(engine,org,bound,value,action)).await
+}
+#[nolog]
+async fn execute_private(engine:&Arc<Engine>,org:&Arc<OrgHandle>,bound:&Bound,value:&Value,action:&Action)->Result<Value> {
     match action {
         Action::OrgRead{after,limit}=>{
             let client=engine.db.get().await?;let n=limit.unwrap_or(100);let after=after.unwrap_or(0);
@@ -214,5 +231,11 @@ async fn execute(engine:&Arc<Engine>,org:&Arc<OrgHandle>,bound:&Bound,value:&Val
         r.close(1,&token).unwrap();drop(gate);
         assert!(r.gate(1,"app").unwrap().admit().is_err(),"closing the last host reset the execution budget");
         assert!(r.gate(2,"app").unwrap().admit().is_ok(),"different organizations share no budget");
+    }
+    #[test] fn custom_apps_inactive_rate_history_prunes_only_after_the_whole_window(){
+        let r=Registry::default();let gate=r.gate(1,"old").unwrap();gate.admit().unwrap();drop(gate);
+        let other=r.gate(1,"other").unwrap();assert_eq!(r.rates.lock().unwrap().len(),2);
+        {let rates=r.rates.lock().unwrap();let mut q=rates[&(1,"old".to_owned())].recent.lock().unwrap();q.clear();q.push_back(Instant::now()-Duration::from_secs(61));}
+        r.gate(1,"next").unwrap();let rates=r.rates.lock().unwrap();assert_eq!(rates.len(),2);assert!(!rates.contains_key(&(1,"old".to_owned())));drop(other);
     }
 }
