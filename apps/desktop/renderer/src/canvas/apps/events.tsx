@@ -11,7 +11,7 @@ interface Connections {items:Connection[];next_cursor:number|null}
 const FIRED='event.fired'
 const plural=(n:number,one:string)=>`${n} ${one}${n===1?'':'s'}`
 
-/** The copy's own retained log (the engine keeps its latest 256 entries), read
+/** The copy's History (the engine keeps its latest 256 rows apart from messages), read
  * in at most two pages and shown newest first. */
 async function loadHistory(slug:string,panel:string){
   const page=await customAppsRequest<PanelEvents>(slug,{action:'events',panel,limit:200});let all=page.events
@@ -19,11 +19,19 @@ async function loadHistory(slug:string,panel:string){
   return all.reverse()
 }
 
+/** The control or cause behind a start or stop; a reason the engine records wins. */
+const CAUSE:Record<string,string>={'panel.started':'Start running','panel.stopped':'Power off','stop all':'Stop all'}
+/** History's rows (user 2026-10-26 md6edfebc1975): a fire as its metadata, and
+ * the copy starting or stopping with its cause. Anything else (an older engine's
+ * row) shows by name. */
 function HistoryEntry({event}:{event:PanelEvent}){
-  const fired=event.name===FIRED?event.payload as {event?:unknown;subscribers?:unknown}|null:null
+  const payload=event.payload as {event?:unknown;subscribers?:unknown;reason?:unknown}|null
+  const power=event.name==='panel.started'?'started':event.name==='panel.stopped'?'stopped':null
+  const reason=typeof payload?.reason==='string'?payload.reason:null,cause=reason?CAUSE[reason]??reason:CAUSE[event.name]
   const empty=event.payload===null||(typeof event.payload==='object'&&!Array.isArray(event.payload)&&!Object.keys(event.payload as object).length)
-  return <li><time dateTime={event.at}>{new Date(event.at).toLocaleString()}</time> {event.actor}: {fired
-    ?<>fired <strong>{String(fired.event??'event')}</strong> · {plural(Number(fired.subscribers??0),'subscribed listener')}</>
+  return <li><time dateTime={event.at}>{new Date(event.at).toLocaleString()}</time> {event.actor}: {event.name===FIRED
+    ?<>fired <strong>{String(payload?.event??'event')}</strong> · {plural(Number(payload?.subscribers??0),'subscribed listener')}</>
+    :power?<>{power} ({cause})</>
     :<>{event.name}{!empty&&<pre>{JSON.stringify(event.payload,null,2)}</pre>}</>}</li>
 }
 
@@ -35,8 +43,8 @@ export function PanelHistory({slug,panel}:{slug:string;panel:CustomPanel}){
   const refresh=async()=>{try{setHistory(await loadHistory(slug,panel.id))}catch(e){setError(String(e))}}
   useEffect(()=>{let alive=true;void loadHistory(slug,panel.id).then(all=>{if(alive)setHistory(all)}).catch(e=>{if(alive)setError(String(e))});return()=>{alive=false}},[slug,panel.id,panel.event_seq])
   return <>
-    <div className="set-group"><div className="set-group-subtitle">Opens, changes, state saves and events of this copy, newest first. A fired event shows its listener count; its data goes only to the subscribed agents.</div>
-      {history===null?<p className="dim">Loading history…</p>:history.length?<ol className="custom-app-activity custom-app-history">{history.map(e=><HistoryEntry key={e.seq} event={e}/>)}</ol>:<p className="dim">Nothing has happened in this copy yet.</p>}
+    <div className="set-group"><p className="dim">Fired events agents can listen to, and this copy starting and stopping, newest first. A fired event shows its listener count; its data goes only to the subscribed agents.</p>
+      {history===null?<p className="dim">Loading history…</p>:history.length?<ol className="custom-app-activity custom-app-history">{history.map(e=><HistoryEntry key={e.seq} event={e}/>)}</ol>:<p className="dim">Nothing has fired, started or stopped in this copy yet.</p>}
       <div className="custom-app-dialog-actions"><button type="button" onClick={()=>void refresh()}>Refresh history</button></div>
     </div>
     {error&&<p role="alert">{error}</p>}

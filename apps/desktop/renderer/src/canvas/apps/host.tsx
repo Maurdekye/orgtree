@@ -68,9 +68,11 @@ export function PanelHtml({slug,app,panel,visible=true}:{slug:string;app:CustomA
       if(eventSeq.current===null){eventSeq.current=latest;return}
       let after=eventSeq.current
       while(after<latest){
-        const page=await customAppsRequest<PanelEvents>(slug,{action:'events',panel:panel.id,after,limit:200})
+        // Messages (the event action, orgtree.emit) reach orgtree.on from their own
+        // listing; History rows never do (user 2026-10-26 mcbcd7b3cb6c0).
+        const page=await customAppsRequest<PanelEvents>(slug,{action:'events',panel:panel.id,after,limit:200,messages:true})
         if(!alive||at!==epoch.current)return
-        for(const event of page.events){after=Math.max(after,event.seq);if(ready.current&&!['state.changed','panel.changed','panel.opened','panel.duplicated','event.fired','panel.started','panel.stopped'].includes(event.name))postRef.current({kind:'event',name:event.name,payload:event.payload})}
+        for(const event of page.events){after=Math.max(after,event.seq);if(ready.current)postRef.current({kind:'event',name:event.name,payload:event.payload})}
         if(page.next_cursor===null)break
       }
       eventSeq.current=latest
