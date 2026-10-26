@@ -1,7 +1,7 @@
 import {flush,inAct,mountView} from './harness'
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import {AppsButton,AppsCanvasLayer,AppsWorkspace} from '../src/canvas/apps/ui'
+import {AppsButton,AppsWorkspace} from '../src/canvas/apps/ui'
 
 // User 2026-10-26 Apps rulings: the app row opens its first listed copy or
 // creates one, + always creates, panel links and screen pins are gone.
@@ -58,19 +58,4 @@ test('an app without saved copies creates and opens its first panel from the row
  await inAct(async()=>{open.click();await tick()})
  assert.deepEqual(calls.filter(c=>c.action==='panel_open'),[{action:'panel_open',app:'notes'}],'the engine creates a copy only when none exists')
  assert.ok(document.querySelector(`[data-custom-panel="${panels[0]!.id}"]`),'a user-created panel opens immediately')
-})
-
-test('the panel header pins to the canvas only, shows the canvas and unpins to the centered window',async t=>{
- const {calls,panels}=fixture(t,[copy('one','Panel 1','2026-10-26',true)]);let shown=0
- const view=await mountView(<><AppsCanvasLayer slug="pin-case" zoom={1} viewport={{x:0,y:0,w:2000,h:2000}} nodePoint={()=>undefined} focus={()=>{}}/><AppsWorkspace slug="pin-case" onShowCanvas={()=>{shown++}}/></>,e=>e);t.after(()=>view.unmount());await inAct(tick)
- const frame=()=>document.querySelector<HTMLElement>('[data-custom-panel="one"]')!
- assert.equal(!!frame().querySelector('[aria-label="Pin to screen"]'),false,'screen pins are gone')
- assert.equal((frame().querySelector('.custom-app-status')?.textContent??'').toLowerCase().includes('link'),false,'panel links are gone from the window')
- assert.equal(frame().querySelector('[aria-label="Pin to canvas"]')!.getAttribute('aria-pressed'),'false','an unpinned window shows the pin released')
- await inAct(async()=>{frame().querySelector<HTMLButtonElement>('[aria-label="Pin to canvas"]')!.click();await tick()})
- const pin=calls.filter(c=>c.action==='panel_update').at(-1);assert.equal(pin?.placement?.mode,'canvas');assert.equal(shown,1,'a canvas pin brings the canvas into view')
- assert.equal(panels[0]!.placement.mode,'canvas')
- const unpin=frame().querySelector<HTMLButtonElement>('[aria-label="Unpin from canvas"]');assert.ok(unpin,'a canvas-pinned window offers to unpin');assert.equal(unpin.getAttribute('aria-pressed'),'true','a canvas-pinned window shows the pin pressed')
- await inAct(async()=>{unpin.click();await tick()})
- assert.equal(calls.filter(c=>c.action==='panel_update').at(-1)?.placement?.mode,'float','unpinning returns to the centered window');assert.equal(shown,1)
 })

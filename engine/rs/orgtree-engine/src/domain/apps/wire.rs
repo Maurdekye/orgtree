@@ -197,16 +197,22 @@ mod tests {
         assert!(parse(&json!({"action":"listeners","app":"app","panel":"copy","limit":200})).is_ok());
         for extra in [json!({"target":"chosen-recipient"}),json!({"as_user":true}),json!({"org":"other"})]{let mut bad=json!({"action":"fire_event","panel":"copy","name":"submitted","payload":{}});bad.as_object_mut().unwrap().extend(extra.as_object().unwrap().clone());assert!(parse(&bad).is_err());}
     }
-    #[test] fn custom_apps_retired_links_and_screen_pins_refuse_with_directions() {
-        // User 2026-10-26: panel links are removed completely, and so are screen pins.
+    #[test] fn custom_apps_retired_links_and_canvas_pins_refuse_with_directions() {
+        // User 2026-10-26: panel links are removed completely. The pin pins to
+        // the window ("i meant pin it to the window") and canvas pins are gone
+        // ("Remove canvas pinning"), so no panel attaches to a node either.
         let link=parse(&json!({"action":"panel_update","panel":"copy","expected_rev":1,"linked_agents":["worker"]})).err().unwrap().to_string();
         assert!(link.contains("app_listener"),"{link}");
         assert!(parse(&json!({"action":"panel_update","panel":"copy","expected_rev":1,"label":"Renamed"})).is_ok());
         let place=|mode:&str|placement(&Placement{mode:mode.into(),..Placement::default()});
-        assert!(place("screen").err().unwrap().to_string().contains("screen pins were removed"));
-        for mode in ["float","canvas","popout"]{assert!(place(mode).is_ok(),"{mode}");}
+        let canvas=place("canvas").err().unwrap().to_string();assert!(canvas.contains("canvas pins were removed")&&canvas.contains("window"),"{canvas}");
+        let screen=place("screen").err().unwrap().to_string();assert!(screen.contains("use window"),"{screen}");
+        for mode in ["float","window","popout"]{assert!(place(mode).is_ok(),"{mode}");}
+        let anchored=placement(&Placement{mode:"window".into(),anchor:Some("lead".into()),..Placement::default()}).err().unwrap().to_string();
+        assert!(anchored.contains("no longer attach"),"{anchored}");
         let card=crate::tools::defs::list().into_iter().find(|c|c["name"]=="orgtree_apps").unwrap();let p=&card["inputSchema"]["properties"];
-        assert!(p.get("linked_agents").is_none());assert!(!p["placement"]["properties"]["mode"]["enum"].as_array().unwrap().iter().any(|m|m=="screen"));
+        assert!(p.get("linked_agents").is_none());assert_eq!(p["placement"]["properties"]["mode"]["enum"],json!(["float","window","popout"]));
+        assert!(p["placement"]["properties"].get("anchor").is_none());
     }
     #[test] fn custom_apps_named_listener_has_explicit_tool_vocabulary() {
         let card=crate::tools::defs::list().into_iter().find(|c|c["name"]=="orgtree_watchdog").unwrap();
@@ -245,7 +251,7 @@ mod tests {
         definition(&def).unwrap();
         for cap in ["ops","publish","questions.answer","http.fetch"] {def.capabilities=vec![cap.into()];assert!(definition(&def).is_err());}
         def.capabilities=vec!["mail.send".into(),"mail.send".into()];assert!(definition(&def).is_err());
-        let mut p=Placement::default();p.mode="canvas".into();p.anchor=Some("lead".into());placement(&p).unwrap();
+        let mut p=Placement::default();p.mode="window".into();placement(&p).unwrap();
         p.x=f64::INFINITY;assert!(placement(&p).is_err());
     }
 }
