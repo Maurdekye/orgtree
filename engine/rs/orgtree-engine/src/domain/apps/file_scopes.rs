@@ -267,7 +267,9 @@ impl Registry{
     effective=crate::domain::scope::with_org_notes(&effective,&engine.cfg.org_notes_dir(&org.slug).to_string_lossy());
     effective=crate::domain::scope::with_team_workspaces(&effective,&crate::domain::teams::held(engine,&org.slug,caller.agent_id).await?);
     effective=crate::domain::scope::with_team_workspaces(&effective,&crate::domain::teams::projects_below(engine,&org.slug,caller.agent_id).await?);
-    if within(path,&p.scratch)||within(path,&engine.cfg.workspace_dir(&org.slug))||effective["add_dirs"].as_array().into_iter().flatten().any(|r|r["mode"]=="rw"&&r["path"].as_str().is_some_and(|root|within(path,Path::new(root)))){return Ok(());}
+    // The org instruction workspace is readable context in Presenter; it is
+    // not an implicit writable folder. Only scratch and actual RW grants count.
+    if within(path,&p.scratch)||effective["add_dirs"].as_array().into_iter().flatten().any(|r|r["mode"]=="rw"&&r["path"].as_str().is_some_and(|root|within(path,Path::new(root)))){return Ok(());}
     crate::refuse!(Forbidden,"the calling agent needs its own writable folder scope");
 }
 #[nolog]pub(super) async fn agent(engine:&Arc<Engine>,org:&Arc<OrgHandle>,caller:&Caller,input:&Value)->Result<Value>{
