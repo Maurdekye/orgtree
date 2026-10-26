@@ -151,8 +151,9 @@ panel_update label, State uses panel_get and state_set, Connections uses listene
 Fire event uses fire_event and History uses events. Showing settings/choosing a copy is read-only. The app
 row opens its first listed copy by panel ID, or panel_open with only app when none
 is listed; its + is panel_open new:true. Placement float is the standard centered
-modal; canvas fixes a position. The window pin pins to the canvas centre and
-unpins to float; agent placement uses the supplied x/y.
+modal; window pins the panel to the window like a pinned desk, at x/y pixels
+from the canvas area's top-left. The header pin stores the panel's current box
+and unpins to float; agent placement uses the supplied x/y.
 Pinned and popped-out copies reopen in their previous position provisionally.
 
 ## State, placement and events
@@ -162,10 +163,10 @@ an RFC7396 object: objects merge, arrays replace and null removes a key. A stale
 revision refuses; re-read and reconcile rather than blindly retrying. State and
 initial state are provisionally limited to2MiB and64 nesting levels.
 
-placement:{mode,x,y,width,height,anchor} distinguishes float/popout/canvas. Mode
-screen refuses: screen pins were removed (user 2026-10-26), and stored ones
-reopen as float.
-Only canvas permits an optional live-node name anchor. Coordinates must be finite;
+placement:{mode,x,y,width,height} distinguishes float/window/popout. Mode canvas
+refuses: canvas pins were removed (user 2026-10-26), and stored ones reopen as
+float. Mode screen refuses with a pointer to window, and a node anchor refuses
+(panels no longer attach to nodes). Coordinates must be finite;
 dimensions are160-4096 by120-4096. The Apps menu mounts saved open copies at these placements. The opaque host
 provides state/events and the permission-checked named action SDK.
 

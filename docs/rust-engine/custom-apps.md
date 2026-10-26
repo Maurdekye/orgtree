@@ -60,10 +60,9 @@ outside the viewport (measured: display:none and offscreen sandboxed frames got 
 animation frames and 1 timer tick a second; parked ones kept full timer rates).
 Parked frames get animation frames only when their window repaints, and none while
 it is hidden, so requestAnimationFrame is not a background clock; app loops tick
-from timers or a MessageChannel. Canvas anchors hand a live surface to a parking element
-before React removes them, and MovableSurface preserveFrames moves use
-Node.moveBefore, so culling, far zoom and canvas/float changes keep one browsing
-context. A move between documents (pop-out, return) still restarts the runtime.
+from timers or a MessageChannel. MovableSurface preserveFrames moves use
+Node.moveBefore, so hiding, pinning and unpinning (moves into and out of the org
+pin layer) keep one browsing context. A move between documents (pop-out, return) still restarts the runtime.
 PanelHtml no longer suspends on hide or a hidden owner document. Each window keeps
 a sessionStorage owner ID and heartbeats every 5 s; a stop entry refreshes the
 list. Main keeps a hosting window's and its popouts' background throttling off;
@@ -330,13 +329,21 @@ only when a new panel is created. The focused apps-new real-PG proof covers this
 
 The signed centered-modal rule supersedes the original fixed floating default:
 placement float renders a viewport-centered overlay (stored x/y are unused in
-that mode). Canvas placement keeps stored geometry; native pop-outs keep the
-existing saved-window lifecycle. The header pin pins to the canvas only (USER
-2026-10-26 mbb2b54092d1f, "only canvas pin, no screen pin"): it places the copy
-at the visible canvas centre and asks its org window for the canvas view; unpin
-returns to float. The pin is hidden in a pop-out. Screen placement is retired:
-the wire refuses mode screen, and migration0068 moved stored screen pins to
-float. The iframe remains the same subtree across pin/unpin.
+that mode). The header pin pins the copy to the window like a pinned desk (USER
+2026-10-26 m5bf326d39c4b, "i meant pin it to the window like other pinned
+panels"): mode window stores the panel's current on-screen box as x/y pixels from
+the org canvas area's top-left plus width/height. A window pin renders in the
+org pin layer (pinLayerFor) and shares canvas-area coordinates, stacking
+(usePinSurface, raised on press) and snapping (findPinSnap, Shift for free
+placement) with pinned desks; render and commit clamp it into the canvas area,
+and a drag commits once, from where the pointer ended. Unpin returns to float;
+the pin is hidden in a pop-out, and native pop-outs keep the existing
+saved-window lifecycle. Canvas placement is retired (USER 2026-10-26
+m2b682426170d, "Remove canvas pinning"): the wire refuses mode canvas, the
+retired mode screen (pointing at window) and any node anchor; the anchor field
+still parses as null for older clients. Migration0069 reopens stored canvas
+pins as float (provisional, liaison: they reopen centered). The iframe remains
+the same subtree across pin/unpin.
 
 Separate native settings replace the former combined App/This panel view
 (USER2026-10-26 m9f3ddc116f78). App-row gear opens AppSettings: the description
@@ -394,9 +401,9 @@ app_get, panel_get and events; mutations remain POST. The renderer uses dedicate
 custom_apps_changed invalidation, not the generic live-bump loop on every edit.
 
 AppsButton/AppsWorkspace own one org menu and stable per-panel MovableSurfaces.
-AppsCanvasLayer owns independent world anchors without adding chart nodes or
-changing tree layout. Canvas culling and mini icons suspended embedded HTML until
-2026-10-26; a running copy is now parked instead (Background panels).
+Window pins join the org pin layer, not the chart, so they add no chart nodes
+and never change tree layout; the canvas wheel ignores a panel's frame and title
+bar. A hidden running copy is parked (Background panels).
 Panel state, not renderer geometry globals, persists placements and open copies.
 
 PanelHtml uses sandbox=allow-scripts (no same-origin), an opaque-origin exact-frame

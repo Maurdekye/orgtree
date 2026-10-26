@@ -117,15 +117,16 @@ HTML. Further saved copies remain available through the Apps menu's paging.
 Settings entry points are display only; all operations retain their existing
 orgtree_apps actions, revisions and permission checks.
 
-The pin on a panel's title bar pins it to the canvas, centred in the visible
-canvas, and switches the org window to the canvas view; drag its title or resize
-its corner there. A canvas pin moves and zooms with the chart and keeps its saved
-position when reopened. Unpinning returns the panel to the centered modal. Panels
-no longer pin to the screen; one pinned there before reopens centered. Pop-outs
+The pin on a panel's title bar pins it to the window where it is, at its size,
+like a pinned desk: it stays put while the canvas pans and zooms. Drag its title
+to move it or its corner to resize it; it snaps to the canvas edges and to other
+pinned windows (hold Shift to place it freely), and pressing it brings it in
+front of other pinned windows. It keeps its place when hidden and shown again
+and after a restart. Unpinning returns the panel to the centered modal. Panels
+no longer pin to the canvas; one pinned there before reopens centered. Pop-outs
 use the existing saved-window restoration (provisional reopen default), and the
 pin is hidden in a popped-out window. The pin shows filled and highlighted while
 the panel is pinned.
-Far zoom shows an icon; a canvas panel out of view keeps running.
 The title's pop-out opens a separate window; Return restores its previous place.
 
 State opens editable JSON. Import changes the editor, Export saves it and Copy

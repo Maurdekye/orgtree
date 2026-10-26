@@ -68,7 +68,7 @@ runs hidden or is off, with the state in its tooltip (see Running in the
 background). Hiding or powering off preserves their data until Delete. The
 catalogue is paged: use More apps / More saved panels (user rulings 2026-10-26).
 
-An unpinned panel opens as a standard centered modal, with pop-out, a canvas pin,
+An unpinned panel opens as a standard centered modal, with pop-out, a window pin,
 Hide and Power off. There are two separate settings panels (user ruling2026-10-26).
 The app-row gear in Apps opens App settings: the app's description above two
 tabs, General (export and app deletion) and Permissions (Events
@@ -86,12 +86,13 @@ Save), Connections, Fire event and, last, History (event history). No tab repeat
 its name as a section header. Event publication/connections are copy-specific;
 their permission remains app-wide. Placement is not a setting. No saved-copy selector or app actions appear
 here. Manage a closed copy without running its HTML; menu paging exposes further
-copies. The title-bar pin pins a panel to the canvas,
-centred in the visible canvas, and shows the canvas view; unpinning returns it to
-the centered modal. Drag a pinned title or resize its corner. Canvas pins pan and
-zoom with the chart; far zoom shows an icon, and offscreen or far-zoom canvas
-panels keep running hidden. Screen pins are gone: a panel pinned there before reopens
-centered, and orgtree_apps refuses mode screen. The pin is hidden in a pop-out.
+copies. The title-bar pin pins a panel to the window where it is, at its size,
+like a pinned desk (user ruling 2026-10-26): it stays put while the canvas pans
+and zooms, shares the pinned desks' stacking and edge snapping (Shift places
+freely) and keeps its place after a restart; unpinning returns it to the
+centered modal. Drag a pinned title or resize its corner. Canvas pins are gone
+(user ruling 2026-10-26): a panel pinned there before reopens centered, and
+orgtree_apps refuses mode canvas. The pin is hidden in a pop-out.
 The pin shows filled and highlighted while the panel is pinned.
 Returning from a pop-out restores its preceding placement for this session.
 Stored placements and running or open copies are restored after restart. Reopen a panel

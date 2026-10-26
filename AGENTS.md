@@ -50,8 +50,9 @@ Apps New counts are org-persisted catalog metadata; only visible menu entries
 are acknowledged, with orgtree_apps mark_seen parity. See
 [custom apps](docs/rust-engine/custom-apps.md).
 [verified: `domain/apps/storage.rs`, `canvas/apps/store.ts`, `canvas/apps/ui.tsx`; 2026-10-26]
-App panels default to centered modals; canvas pins keep position (screen pins
-were retired 2026-10-26; migration 0068 floats old ones). Native Apps chrome uses
+App panels default to centered modals; the pin pins one to the window like a
+pinned desk, in the org pin layer (canvas pins were retired 2026-10-26; migration
+0069 floats old ones). Native Apps chrome uses
 the shared modal/settings kit. The app row opens its first listed copy or creates
 one, + always creates, and new copies are named Panel N. App-row gears open
 app-wide settings (description above General/Permissions tabs); saved-panel and
