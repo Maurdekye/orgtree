@@ -18,6 +18,8 @@ function fixture(t:test.TestContext,open=true,running=true){
   else if(input.action==='panel_get')out=panel
   else if(input.action==='events')out={events:[],next_cursor:null}
   else if(input.action==='panel_update'){Object.assign(panel,input);panel.rev++;out=panel}
+  // Like the engine: an optional expected_rev must match the current revision.
+  else if((input.action==='panel_start'||input.action==='panel_stop')&&input.expected_rev!==undefined&&input.expected_rev!==panel.rev)return new Response('{"detail":"panel or app changed; read its current revision and retry"}',{status:409,headers:{'Content-Type':'application/json'}})
   else if(input.action==='panel_start'){panel.running=true;panel.rev++;out=panel}
   else if(input.action==='panel_stop'){panel.running=false;panel.open=false;panel.run_generation++;panel.rev++;out=panel}
   else if(input.action==='runtime')out={items:[],next_cursor:null}
@@ -70,4 +72,20 @@ test('background execution retains the existing exact-frame and opaque-origin br
  const source={} as Window,other={} as Window,message={protocol:PANEL_PROTOCOL,channel:'c',id:'1',method:'state.get'}
  const event=(win:Window,origin:string)=>({source:win,origin,data:message} as MessageEvent)
  assert.ok(panelRequest(event(source,'null'),source,'c'));assert.equal(panelRequest(event(other,'null'),source,'c'),null);assert.equal(panelRequest(event(source,'https://untrusted.invalid'),source,'c'),null)
+})
+
+test('power controls still work while a running panel keeps saving its state',async t=>{
+ // A running panel's own saves bump its revision between the menu's read and
+ // the click. Power changes carry no data, so a save must never block them.
+ const f=await workspace(t,'busy-power'),saved=()=>{f.panel.rev+=3}
+ saved();await inAct(async()=>{f.view.el.querySelector<HTMLButtonElement>('section[data-custom-panel] .custom-app-power')!.click();await tick()})
+ assert.equal(f.panel.running,false,'header Power off refused on a stale revision')
+ await f.menu();saved()
+ const row=document.querySelector<HTMLElement>('.custom-apps-saved-row')!;assert.ok(row)
+ await inAct(async()=>{row.dispatchEvent(new MouseEvent('contextmenu',{bubbles:true,cancelable:true,clientX:40,clientY:50}));await tick()})
+ const start=[...document.querySelectorAll<HTMLElement>('[role="menuitem"],button')].find(b=>b.textContent?.trim()==='Start running');assert.ok(start,'row context menu needs Start running')
+ await inAct(async()=>{start.click();await tick()});assert.equal(f.panel.running,true,'Start running refused on a stale revision')
+ saved();const power=document.querySelector<HTMLButtonElement>('.custom-apps-saved-row [aria-label="Power off Clock"]');assert.ok(power,'running row Power off missing')
+ await inAct(async()=>{power.click();await tick()});assert.equal(f.panel.running,false,'row Power off refused on a stale revision')
+ assert.ok(f.calls.filter(c=>c.action==='panel_start'||c.action==='panel_stop').every(c=>!('expected_rev' in c)),'power changes send no revision')
 })

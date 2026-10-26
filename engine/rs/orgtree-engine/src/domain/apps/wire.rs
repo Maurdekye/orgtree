@@ -274,9 +274,11 @@ mod tests {
 
 #[cfg(test)] mod runtime_control {
     use serde_json::json;
-    #[test] fn custom_apps_power_controls_are_explicit_revision_checked_requests(){
-        for ok in [json!({"action":"panel_start","panel":"p","expected_rev":3}),json!({"action":"panel_stop","panel":"p","expected_rev":3}),json!({"action":"runtime","limit":50,"sample":true}),json!({"action":"list","kind":"panels","running":true})]{assert!(super::parse(&ok).is_ok(),"{ok}");}
-        for bad in [json!({"action":"panel_start","panel":"p"}),json!({"action":"panel_start","panel":"p","expected_rev":3,"open":true}),json!({"action":"panel_stop","panel":"p","expected_rev":3,"as_user":true}),json!({"action":"runtime","org":"other"}),json!({"action":"panel_start","panel":"p","expected_rev":3,"generation":9})]{assert!(super::parse(&bad).is_err(),"{bad}");}
+    // Power changes carry no data: a running panel's own state saves bump its
+    // revision, so expected_rev is optional and checked only when given.
+    #[test] fn custom_apps_power_controls_are_explicit_requests_with_optional_revision(){
+        for ok in [json!({"action":"panel_start","panel":"p","expected_rev":3}),json!({"action":"panel_start","panel":"p"}),json!({"action":"panel_stop","panel":"p"}),json!({"action":"panel_stop","panel":"p","expected_rev":3}),json!({"action":"runtime","limit":50,"sample":true}),json!({"action":"list","kind":"panels","running":true})]{assert!(super::parse(&ok).is_ok(),"{ok}");}
+        for bad in [json!({"action":"panel_start","panel":"p","expected_rev":3,"open":true}),json!({"action":"panel_stop","panel":"p","expected_rev":3,"as_user":true}),json!({"action":"runtime","org":"other"}),json!({"action":"panel_start","panel":"p","expected_rev":3,"generation":9})]{assert!(super::parse(&bad).is_err(),"{bad}");}
         let card=crate::tools::defs::list().into_iter().find(|c|c["name"]=="orgtree_apps").unwrap();let actions=card["inputSchema"]["properties"]["action"]["enum"].as_array().unwrap();
         for action in ["panel_start","panel_stop","runtime"]{assert!(actions.iter().any(|a|a==action),"tool parity needs {action}");}
         for key in ["running","sample"]{assert!(card["inputSchema"]["properties"].get(key).is_some(),"tool parity needs {key}");}
