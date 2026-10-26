@@ -145,6 +145,10 @@ export function ProjectSquare({ node, pos, lod, focused, pinnedFocus, pinned, on
   const [nameFocus, setNameFocus] = useState(false)
   const farEligible = lod === 'mini' && !focused && !pinnedFocus
   const farReveal = useFarZoomReveal(farEligible, farEligible && (nameHover || nameFocus))
+  // The card carries the same folder-then-name group as the floating plate, as
+  // an agent card carries its own: its CSS hover/focus reveal names the project
+  // while a desk suppresses the plate (USER 2026-10-26 "Never hide on hover").
+  const farIcon = <span className="project-mark"><FolderIcon fontSize="inherit" /></span>
   // A portaled menu can disappear without pointerleave/blur. Reconcile the
   // card's real hover/focus, as agent cards do, so its label cannot get stuck.
   const menuWasOpen = useRef(false)
@@ -166,6 +170,7 @@ export function ProjectSquare({ node, pos, lod, focused, pinnedFocus, pinned, on
   const cls = ['sq', 'project', node.state, deskOpen ? 'desk' : lod, 'edge-' + edge]
   if (dragging) cls.push('lifted')
   if (isDrop) cls.push('drop')
+  if (farReveal.visible) cls.push('far-ghosted')
   const style: React.CSSProperties = {
     transform: `translate(${pos.x}px, ${pos.y}px)`,
     width: NODE_W, height: NODE_H,
@@ -216,9 +221,12 @@ export function ProjectSquare({ node, pos, lod, focused, pinnedFocus, pinned, on
         onFocus?.()
       }}
       onContextMenu={(e) => menu.open(e, menuEntries)}>
-      {lod === 'mini' ? (
+      {lod === 'mini' ? (<>
         <span className="project-mini" {...agentTooltipProps(node.id)}><FolderIcon fontSize="inherit" /></span>
-      ) : (
+        {farEligible && <span className="sq-far-tier" aria-hidden="true"><span className="sq-far-scaler">
+          {farIcon}<span className="sq-far-name">{node.id}</span>
+        </span></span>}
+      </>) : (
         <CardFace fit={!deskOpen && !pinnedFocus}>
           <div className="sq-head project-head">
             <div className="sq-title">
@@ -337,8 +345,7 @@ export function ProjectSquare({ node, pos, lod, focused, pinnedFocus, pinned, on
       {asking && createPortal(
         <AgentRetireConfirm kind={asking} node={node} op={op} toast={toast}
           close={() => setAsking(null)} />, document.body)}
-      <FarZoomName reveal={farReveal} cardRef={cardRef} pos={pos} name={node.id}
-        icon={<span className="project-mark"><FolderIcon fontSize="inherit" /></span>} />
+      <FarZoomName reveal={farReveal} cardRef={cardRef} pos={pos} name={node.id} icon={farIcon} />
     </div>
   )
 }
