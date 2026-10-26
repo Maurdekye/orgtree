@@ -130,10 +130,10 @@ discarded on grant/code/host revocation. No data change happens before confirmat
 Agent parity adds file_roots/file_list/file_child/file_write/file_delete/file_result. Reads
 need current read folders; writes need current edit permission and writable
 folders AND an existing user write grant. The fresh scope chain includes parent
-ceilings and implicit shared folders. Agent changes wait in native App settings
-The readable org instruction workspace is not an implicit writable folder;
-writing there requires an explicit effective RW grant.
-→ Permissions → Files → Pending changes; refresh shows exact target/size/hash.
+ceilings and implicit shared folders. The readable org instruction workspace is
+not an implicit writable folder; writing there requires an explicit effective
+RW grant. Agent changes wait in native App settings → Permissions → Files →
+Pending changes; refresh shows exact target/size/hash.
 Agents get a pending confirmation ID and can read their own one-shot result for
 120s after a decision. They never choose roots, grant permission or confirm a
 change. All callbacks recheck the saved panel/code/grant and live caller scope.

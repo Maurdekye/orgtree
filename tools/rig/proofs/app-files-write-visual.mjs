@@ -5,7 +5,7 @@ import assert from 'node:assert/strict'
 import {spawnSync} from 'node:child_process'
 import {setup as captionFixture} from './app-files.mjs'
 import {REPO,electronExe} from '../lib.mjs'
-const out=path.join(process.env.ORGTREE_RIG_HOME,'..','visual'),folder=path.join(process.env.ORGTREE_RIG_HOME,'write-visual')
+const out=path.join(process.env.ORGTREE_RIG_HOME,'..','visual'),folder=path.join(process.env.ORGTREE_RIG_HOME,'write-visual',process.pid+'-'+Date.now(),'chosen')
 export function setup(){
   const base=captionFixture();fs.mkdirSync(folder,{recursive:true});fs.writeFileSync(path.join(folder,'existing.txt'),'original synthetic bytes')
   base.fixture.agents.push({name:'writer',tier:'sol',grant:0,add_dirs:[{path:folder,mode:'rw'}],charter:'Synthetic native confirmation only.'})
