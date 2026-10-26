@@ -315,15 +315,27 @@ retain the latest256 per panel; oldest_retained makes truncation explicit.
 
 ## Provisional defaults for morning review
 
-The app row (USER2026-10-26 m0d853b77c816) opens its first listed panel by
-explicit panel ID, or sends panel_open with only the app when it lists none, so
-the engine reopens the most recently used copy or creates the first; its + sends
-new=true and always creates another. A new panel without an explicit label is
+The app row opens its most recently used panel by explicit panel ID, wherever
+the list shows it (the copy panel_open with only the app would pick: used_at,
+then ID), or sends panel_open with only the app when it lists none, so the
+engine creates the first; its + sends new=true and always creates another.
+USER2026-10-26 m0d853b77c816 named the first listed copy, which was the most
+recently used; since panels now list in creation order, @coordinator-opus
+2026-10-26 keeps the most recently used one (provisional). A new panel without an explicit label is
 named "Panel N", the app's lowest unused positive number among exact automatic
 labels, chosen under the app row lock (USER me02e165c08fe;
 `domain/apps/labels.rs`). Existing, explicit, imported and duplicated labels never
-change. Saved-panel rows show state by their dot alone, open filled and closed
-hollow, with Open/Closed in the tooltip and accessible label (USER m5ff0338a79da). Definition initial_state is copied, not shared.
+change. Saved-panel rows show state by their light alone, filled while visible,
+an accent ring while running hidden and hollow grey when off, with the state in
+the tooltip and accessible label (USER m5ff0338a79da; three states since hidden
+panels keep running). The Apps list shows apps newest first by created_at and
+each app's panels in creation order, oldest first; opening, hiding and power
+never move a row (USER 2026-10-26 mf87be90ee3c8, m1e0117740c5f "newest first",
+"Fixed order"). List, app_get and panel_get metadata carry created_at, but list
+pages stay in ID order, so past one page (100 apps) a newer app from a later
+page joins the top only after More apps. Each app and its panels form one
+bordered block with ruled panel rows (USER m68e69e302bc4; provisional;
+`canvas/apps/{store.ts,ui.tsx,apps.css}`). Definition initial_state is copied, not shared.
 Updating initial_state never overwrites existing saved-panel data; it applies
 only when a new panel is created. The focused apps-new real-PG proof covers this.
 

@@ -23,6 +23,13 @@ wins and survives agent code replacement. Agents create only closed copies and
 never show windows. See [custom apps](docs/rust-engine/custom-apps.md).
 [decided: user2026-10-26; verified: `domain/apps/{policy,storage,file_scopes}.rs`]
 
+The Apps list shows apps newest first and each app's panels in creation order
+(`created_at`); never reorder by running, shown, hidden or used state. Renderer
+CSS must use theme variables that `styles.css` defines (`--line`, `--dim`,
+`--panel-2`, `--ink`, ...): an undefined `var()` silently drops its declaration,
+as `--border/--muted/--hover/--text` did in `apps.css`. See [custom apps](docs/rust-engine/custom-apps.md).
+[decided: user 2026-10-26 "the ordering of the apps in the list shouldnt change as panels are turned onca or off", "newest first", "Fixed order"; verified: `canvas/apps/{store.ts,ui.tsx,apps.css}`, `domain/apps/storage.rs`; 2026-10-26]
+
 Custom app actions use parent-only, code/panel-bound sessions and native owning-document
 permission prompts; sandbox HTML never receives a credential or permission method.
 App definitions retain portable named event declarations; declarations grant no
@@ -53,7 +60,7 @@ are acknowledged, with orgtree_apps mark_seen parity. See
 App panels default to centered modals; the pin pins one to the window like a
 pinned desk, in the org pin layer (canvas pins were retired 2026-10-26; migration
 0069 floats old ones). Native Apps chrome uses
-the shared modal/settings kit. The app row opens its first listed copy or creates
+the shared modal/settings kit. The app row opens its most recently used copy or creates
 one, + always creates, and new copies are named Panel N. App-row gears open
 app-wide settings (description above General/Permissions tabs); saved-panel and
 open-header gears open settings for that exact copy (the Agent settings Name row,

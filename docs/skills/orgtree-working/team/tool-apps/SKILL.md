@@ -117,6 +117,8 @@ above; declarations alone never authorize a broadcast or change panel activity.
 - list defaults to kind:apps. Use kind:panels and optional app to list copies.
   limit defaults100, maximum200; after takes the previous next_cursor string.
   Lists omit executable HTML and saved JSON state.
+- App and panel metadata include created_at. List pages stay in ID order; the
+  desktop shows apps newest first and each app's panels oldest first.
 - App list metadata includes is_new; new_count counts all new apps in this org,
   including unloaded pages. mark_seen needs apps:[id,...],1-200 unique explicit
   IDs, and acknowledges only matching IDs in this org. Missing/deleted IDs are
@@ -149,7 +151,7 @@ History tabs). These are native settings, not app HTML. Each row uses the
 lifecycle/state/permission/export action above: the Name row's Rename is
 panel_update label, State uses panel_get and state_set, Connections uses listeners,
 Fire event uses fire_event and History uses events. Showing settings/choosing a copy is read-only. The app
-row opens its first listed copy by panel ID, or panel_open with only app when none
+row opens its most recently used copy by panel ID, or panel_open with only app when none
 is listed; its + is panel_open new:true. Placement float is the standard centered
 modal; window pins the panel to the window like a pinned desk, at x/y pixels
 from the canvas area's top-left. The header pin stores the panel's current box

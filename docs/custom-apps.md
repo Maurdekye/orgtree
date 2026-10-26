@@ -68,12 +68,15 @@ running; Power off stops it; deleting removes it.
 Definitions and committed data live in Orgtree's database across restarts.
 
 Open **Apps** beside Presentations in the org header. A click anywhere on an
-app's row opens the first saved panel listed under it (the most recently used),
+app's row opens its most recently used saved panel, wherever it is listed,
 or creates and opens its first panel when it has none. The **+** on the app's row
 always creates and opens a new panel from the initial state. Saved panels are
 listed under their app, and each panel's light shows whether it runs visibly,
 runs hidden or is off; the tooltip names the state (see Running in the
-background). New panels are named **Panel 1**,
+background). Apps are listed newest first, and each app's panels in the order
+they were created; opening, hiding or powering a panel on or off never moves
+anything. Each app and its panels form one bordered block, with a line between
+panels. New panels are named **Panel 1**,
 **Panel 2** and so on, with the lowest number not yet used in that app; renamed,
 imported and duplicated panels keep their own names.
 

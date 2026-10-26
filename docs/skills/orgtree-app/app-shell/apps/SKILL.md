@@ -59,13 +59,17 @@ into or out of a pop-out restarts its HTML from its saved data. Provisional:
 replacing an app's code powers off its hidden running copies.
 
 Open **Apps** in the org header, beside Presentations. A click anywhere on an
-app's row opens the first saved panel listed under it (the most recently used),
+app's row opens its most recently used saved panel, wherever it is listed,
 or creates and opens its first panel when it has none. The **+** on the app's row
 always creates and opens a new panel. New panels are named Panel 1, Panel 2 and
 so on, with the app's lowest unused number; other names never change. Saved
 panels are listed under their app; the dot shows whether each runs visibly,
 runs hidden or is off, with the state in its tooltip (see Running in the
-background). Hiding or powering off preserves their data until Delete. The
+background). Apps are listed newest first, and each app's panels in the order
+they were created, oldest first: opening, hiding or powering a panel on or off
+never moves an app or a panel. Each app and its panels form one bordered block,
+with the panels on a guide line under the app and a rule between panel rows
+(provisional). Hiding or powering off preserves their data until Delete. The
 catalogue is paged: use More apps / More saved panels (user rulings 2026-10-26).
 
 An unpinned panel opens as a standard centered modal, with pop-out, a window pin,
