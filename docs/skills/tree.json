@@ -7843,7 +7843,12 @@
    "components": [
     "apps/desktop/renderer/src/canvas/apps/dialog.tsx#AppDialog"
    ],
+   "ui_dynamic_labels": [
+    {"file":"apps/desktop/renderer/src/canvas/apps/files-ui.tsx","component":"AppFilePermissions","label":"grant.scope==='orgtree'?'Orgtree files':grant.name","line":53}
+   ],
    "ui_labels": [
+    {"file":"apps/desktop/renderer/src/canvas/apps/files-ui.tsx","label":"Read files","line":51},
+    {"file":"apps/desktop/renderer/src/canvas/apps/files-ui.tsx","label":"Write files","line":55},
     {
      "file": "apps/desktop/renderer/src/canvas/apps/settings.tsx",
      "label": "Created by",
