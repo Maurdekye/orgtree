@@ -46,14 +46,14 @@ export default async function(rig){
   // Filter public event-name metadata, not the secret canary: the ordinary
   // watcher-registration request is allowed to log its configuration.
   const created=await rig.tool('watcher','orgtree_watchdog',{action:'create',name:'private-app-pg',kind:'event',target:'app.event',pattern:'private-proof',once:true,notice:true,interval_s:15});assert(created.ok,created.text)
-  await rig.waitFor(()=>rig.one(`SELECT run->'counts' AS counts FROM ot.watchdogs WHERE name='private-app-pg'`)?.counts,{what:'independent DB-backed watchdog baseline',timeout:15000,every:100})
+  await rig.waitFor(()=>rig.one(`SELECT memo->'run'->'counts' AS counts FROM ot.watchdogs WHERE name='private-app-pg'`)?.counts,{what:'independent DB-backed watchdog baseline',timeout:15000,every:100})
   let host=await bridge({action:'session_open',panel:one.id})
   const action={action:'events.fire',target:'watcher',name:'private-proof',payload:{note:eventCanary}}
   const asked=await bridge({action:'call',session:host.session,request:action});assert(asked.permission_required)
   p.check('Ask defers execution and agents cannot decide native permissions',!rig.one(`SELECT 1 FROM ot.mail WHERE body LIKE '%${eventCanary}%'`)&&(await rig.tool('boss','orgtree_apps',{action:'permission_set',app:app.id,expected_rev:app.rev,expected_permission_rev:(await get(app.id)).permission_rev,capability:'events.fire',permission:'allow'})).ok===false)
   const fired=await bridge({action:'decide',session:host.session,challenge:asked.permission_required.challenge,choice:'once'})
   await rig.waitFor(()=>rig.one(`SELECT uid,body FROM ot.mail WHERE recipient_agent_id=(SELECT id FROM ot.agents WHERE org_id=${orgId} AND name='watcher') AND body LIKE '%${eventCanary}%'`),{what:'private event authorized watchdog mail',timeout:20000,every:100})
-  const dog=rig.one(`SELECT fired,run,events,state FROM ot.watchdogs WHERE name='private-app-pg'`),delivered=rig.one(`SELECT uid,body FROM ot.mail WHERE body LIKE '%${eventCanary}%'`)
+  const dog=rig.one(`SELECT fired,memo->'run' AS run,events,state FROM ot.watchdogs WHERE name='private-app-pg'`),delivered=rig.one(`SELECT uid,body FROM ot.mail WHERE body LIKE '%${eventCanary}%'`)
   p.file('private-watchdog-delivery.json',{dog,delivered})
   p.check('real watchdog Access/read and mail preserve private payload but redact diagnostics',fired.fired&&dog.fired===1&&dog.state==='spent'&&delivered.body.includes(eventCanary)&&!JSON.stringify({run:dog.run,events:dog.events}).includes(eventCanary),{fired:dog.fired,mail:delivered.uid,diagnostics:dog.run.last_output})
   p.check('Allow once is one-shot and does not persist a grant',await refused(()=>bridge({action:'decide',session:host.session,challenge:asked.permission_required.challenge,choice:'once'}),403)&&!(await get(app.id)).permissions['events.fire'])
@@ -75,7 +75,7 @@ export default async function(rig){
   // Metadata subscriptions do not include state/event payloads or auto-arm dogs.
   one=await panel(one.id);one=await apps({action:'panel_update',panel:one.id,expected_rev:one.rev,linked_agents:['watcher']})
   const changed=await rig.tool('watcher','orgtree_watchdog',{action:'create',name:'panel-change-pg',kind:'event',target:'app.event',pattern:one.id,once:true,notice:true,interval_s:15});assert(changed.ok,changed.text)
-  await rig.waitFor(()=>rig.one(`SELECT run->'counts' AS counts FROM ot.watchdogs WHERE name='panel-change-pg'`)?.counts,{what:'linked metadata watcher baseline',timeout:15000,every:100})
+  await rig.waitFor(()=>rig.one(`SELECT memo->'run'->'counts' AS counts FROM ot.watchdogs WHERE name='panel-change-pg'`)?.counts,{what:'linked metadata watcher baseline',timeout:15000,every:100})
   const stateOnly='PRIVATE-APP-PG-STATE-543221';one=await apps({action:'state_set',panel:one.id,expected_rev:one.rev,state:{note:stateOnly}})
   await rig.waitFor(()=>rig.one(`SELECT fired FROM ot.watchdogs WHERE name='panel-change-pg'`)?.fired===1,{what:'committed linked copy notification',timeout:15000,every:100})
   const signal=rig.one(`SELECT body FROM ot.mail WHERE body LIKE '%state.changed%' AND body LIKE '%${one.id}%'`)
