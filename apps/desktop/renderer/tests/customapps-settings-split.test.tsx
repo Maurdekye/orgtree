@@ -39,7 +39,8 @@ test('app-list gear opens only app-wide settings and preserves Files and event p
  const app=dialog('App settings')!;assert.ok(app?.classList.contains('settings'))
  assert.equal(!!app.querySelector('[aria-label="Saved panel"]'),false,'app settings must not choose or edit a panel')
  assert.equal(!!button(app,'State…'),false,'panel actions do not belong in App settings')
- for(const name of ['Created by','Export app','Delete app…'])assert.ok(app.textContent?.includes(name))
+ for(const name of ['Export app','Delete app…'])assert.ok(app.textContent?.includes(name))
+ assert.equal(app.textContent?.includes('Created by'),false,'no creator row (user 2026-10-26: "remove created-by")')
  // User 2026-10-26: Permissions is App settings' second tab, not a separate dialog.
  assert.deepEqual([...app.querySelectorAll('[role="tab"]')].map(e=>e.textContent),['General','Permissions']);assert.equal(!!button(app,'Permissions…'),false)
  // User 2026-10-26: "put the description above the tabs and remove the app header".
@@ -47,7 +48,10 @@ test('app-list gear opens only app-wide settings and preserves Files and event p
  assert.equal(!!description.closest('[role="tabpanel"]'),false,'the description belongs to the whole window, not one tab')
  assert.equal((description.compareDocumentPosition(app.querySelector('[role="tablist"]')!)&window.Node.DOCUMENT_POSITION_FOLLOWING)!==0,true,'the description sits above the tab row')
  assert.equal(app.querySelectorAll('.set-group-head').length,0,'no App section header')
- assert.ok(app.querySelector('[role="tabpanel"]:not([hidden])')!.textContent!.includes('Created by'),'Created by stays on General')
+ assert.ok(app.querySelector('[role="tabpanel"]:not([hidden])')!.textContent!.includes('Export app'),'Export app stays on General')
+ // User 2026-10-26: a delete confirmation fits its content, not the full settings frame.
+ await inAct(async()=>{button(app,'Delete app…').click();await tick()});assert.equal(dialog('Delete app')!.classList.contains('custom-app-confirm'),true,'Delete app is a compact confirmation')
+ await inAct(async()=>{button(dialog('Delete app')!,'Cancel').click();await tick()})
  await inAct(async()=>{button(app,'Permissions').click();await tick()})
  assert.equal(!!dialog('App permissions'),false,'permissions open in the tab');const permissions=app.querySelector<HTMLElement>('[role="tabpanel"]:not([hidden]) [aria-label="App permissions"]')!;assert.ok(permissions.textContent?.includes('Files'));assert.ok(button(permissions,'Revoke'));assert.ok(button(permissions,'Confirm change'))
  const event=permissions.querySelector<HTMLSelectElement>('[aria-label="events.fire permission"]')!;assert.equal(event.value,'deny')
@@ -89,5 +93,8 @@ test('open-panel header gear opens panel-only settings with every retained copy 
  await inAct(async()=>{button(settings!,'Fire event').click();await tick()})
  assert.ok(visible().querySelector('[aria-label="Declared event"]'),'Fire event has its own tab')
  assert.equal(calls.some(c=>c.action==='fire_event'),false,'viewing connections never fires')
+ await inAct(async()=>{button(settings!,'General').click();await tick();button(settings!,'Delete panel…').click();await tick()})
+ assert.equal(dialog('Delete panel')!.classList.contains('custom-app-confirm'),true,'Delete panel is a compact confirmation')
+ await inAct(async()=>{button(dialog('Delete panel')!,'Cancel').click();await tick()});assert.equal(calls.some(c=>c.action==='panel_delete'),false)
  for(const name of ['Connections','Fire event','History']){await inAct(async()=>{button(settings!,name).click();await tick()});assert.equal(visible().querySelectorAll('.set-group-head').length,0,name+' repeats no section header')}
 })
