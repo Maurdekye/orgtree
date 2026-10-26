@@ -44,7 +44,7 @@ test('helper list failure is visible and retry uses the same scoped parent', asy
   assert.match(document.querySelector('[aria-label="Helper agents"]')!.textContent!,/No helper agents are currently observed/)
 })
 test('last helper completion hides the badge while an open panel remains inspectable', async t => {
-  const original=globalThis.fetch;globalThis.fetch=(async()=>new Response(JSON.stringify({count:0,items:initial.items.map(h=>({...h,live:false,status:'completed'}))}),{headers:{'Content-Type':'application/json'}})) as typeof fetch
+  const original=globalThis.fetch;globalThis.fetch=(async url=>new Response(JSON.stringify(String(url).endsWith('/helpers')?{count:0,items:initial.items.map(h=>({...h,live:false,status:'completed'}))}:{messages:[],live:false}),{headers:{'Content-Type':'application/json'}})) as typeof fetch
   const view=await mountView(<LiveHelpersBadge slug="org" nid="worker" count={2}/>,e=>e.textContent);t.after(async()=>{await view.unmount();globalThis.fetch=original})
   await inAct(()=>view.el.querySelector('button')!.click());await flush();await view.render(<LiveHelpersBadge slug="org" nid="worker" count={0}/>);await flush()
   assert.equal(view.el.querySelector('.live-helpers-badge'),null);assert.match(document.querySelector('[aria-label="Helper agents"]')!.textContent!,/0 live helpers/)
