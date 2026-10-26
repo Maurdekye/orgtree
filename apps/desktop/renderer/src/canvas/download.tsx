@@ -40,7 +40,7 @@ export function DocumentDownload({ slug, id, title, format }: {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   return <><a className="document-download" href={documentDownloadUrl(slug, id)} aria-disabled={busy}
-    download={documentFilename(title, format)} title={`Download ${format === 'html' ? 'HTML prototype' : 'Markdown source'}`}
+    download={documentFilename(title, format)} title={`Download ${format === 'html' ? 'HTML presentation' : 'Markdown source'}`}
     onPointerDown={e => e.stopPropagation()} onClick={e => {
       e.preventDefault(); e.stopPropagation()
       if (busy) return

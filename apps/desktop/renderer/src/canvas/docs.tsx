@@ -52,11 +52,13 @@ export function presentationIdentityActions(el: Element | null,
   })
 }
 
-/** Stored HTML format has the same compact identity on every presentation surface. */
+/** Stored HTML format has the same compact identity on every presentation surface.
+ *  Users see "HTML presentation", never "mockup" (user 2026-10-26 21:34Z
+ *  mb8b511d41e12); the component, class and route names stay internal. */
 export function MockupBadge({ compact = false }: { compact?: boolean }) {
   return <span className={'mockup-format' + (compact ? ' compact' : '')}
-    aria-label="HTML mockup"><span aria-hidden="true">{'</>'}</span>
-    {!compact && ' HTML mockup'}</span>
+    aria-label="HTML presentation"><span aria-hidden="true">{'</>'}</span>
+    {!compact && ' HTML presentation'}</span>
 }
 
 /** Both source formats use the engine attachment route and its filename. */
@@ -93,7 +95,7 @@ export function presentationMenu(el: Element | null, slug: string,
   if (acts.open) entries.push({ label: acts.openLabel ?? 'Open reader', onSelect: acts.open })
   if (html && !gone) {
     entries.push({
-      label: 'Open HTML mockup in a new tab',
+      label: 'Open HTML presentation in a new tab',
       onSelect: () => {
         const win = el?.ownerDocument.defaultView ?? window
         win.open(mockupUrl(slug, doc.id), '_blank', 'noopener,noreferrer')
@@ -111,7 +113,7 @@ export function presentationMenu(el: Element | null, slug: string,
     { label: 'Copy reference', title: ref,
       onSelect: () => { void copyToClipboard(el, ref).then(copied('the reference ' + ref)) } })
   if (!gone) {
-    entries.push({ label: html ? 'Download HTML prototype' : 'Download as Markdown',
+    entries.push({ label: html ? 'Download HTML presentation' : 'Download as Markdown',
       onSelect: () => { void downloadDocument(el?.ownerDocument ?? document, slug, doc.id, doc.title, doc.format)
         .catch((e: Error) => acts.toast?.([e.message])) } })
   }
@@ -191,7 +193,7 @@ export function PresentationCard({ slug, doc, onOpen, onReply, replyLabel, class
 export function MockupOpen({ slug, docId }: { slug: string; docId: string }) {
   return <div className="mockup-open">
     <a href={mockupUrl(slug, docId)} target="_blank" rel="noopener noreferrer">
-      Open interactive mockup in a new tab
+      Open HTML presentation in a new tab
     </a>
   </div>
 }

@@ -72,7 +72,7 @@ test('transcript title card uses exactly the desk document card menu for markdow
     await right(view.el.querySelector('.doc-badge')!)
     const expected = labels()
     assert.ok(expected.includes('Copy title'))
-    assert.ok(expected.includes(format === 'html' ? 'Download HTML prototype' : 'Download as Markdown'))
+    assert.ok(expected.includes(format === 'html' ? 'Download HTML presentation' : 'Download as Markdown'))
     await right(view.el.querySelector('.presentation-chat-card')!)
     assert.deepEqual(labels(), expected)
     assert.deepEqual(opened, [], 'right-click opens neither document')
