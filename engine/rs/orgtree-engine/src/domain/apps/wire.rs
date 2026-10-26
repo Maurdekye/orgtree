@@ -165,11 +165,15 @@ pub fn dimensions(width:i32,height:i32) -> Result<()> {
 }
 #[nolog]
 pub fn placement(value:&Placement) -> Result<()> {
-    // Screen pins were removed (user 2026-10-26); migration 0068 moved stored ones to float.
-    if value.mode=="screen" { crate::refuse!(BadRequest,"screen pins were removed; use float (the centered window), canvas or popout"); }
-    if !["float","popout","canvas"].contains(&value.mode.as_str()) { crate::refuse!(BadRequest,"unknown panel placement"); }
+    // The pin pins to the window (user 2026-10-26: "i meant pin it to the window
+    // like other pinned panels") and canvas pins were removed ("Remove canvas
+    // pinning"); migration 0069 moved stored canvas pins to float. The anchor
+    // field stays parseable as null for older clients but never attaches.
+    if value.mode=="canvas" { crate::refuse!(BadRequest,"canvas pins were removed; use float (the centered window), window (pinned to the window) or popout"); }
+    if value.mode=="screen" { crate::refuse!(BadRequest,"screen pins are now window pins; use window"); }
+    if !["float","window","popout"].contains(&value.mode.as_str()) { crate::refuse!(BadRequest,"unknown panel placement"); }
     if !value.x.is_finite() || !value.y.is_finite() || value.x.abs()>10_000_000. || value.y.abs()>10_000_000. { crate::refuse!(BadRequest,"invalid panel coordinates"); }
-    if value.anchor.is_some() && value.mode!="canvas" { crate::refuse!(BadRequest,"only canvas panels may attach to a node"); }
+    if value.anchor.is_some() { crate::refuse!(BadRequest,"panels no longer attach to nodes; canvas pins were removed"); }
     dimensions(value.width,value.height)
 }
 /// RFC7396 merge patch, restricted to object state; validate before recursion.

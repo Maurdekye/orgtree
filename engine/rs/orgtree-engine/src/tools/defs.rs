@@ -2104,9 +2104,9 @@ fn build_tool_apps()->Value {
             "capabilities":{"type":"array","uniqueItems":true,"items":{"enum":["org.read","mail.send","docket.write","events.fire","files.read","files.write"]}},
             "width":{"type":"integer","minimum":160,"maximum":4096},"height":{"type":"integer","minimum":120,"maximum":4096}
         },"required":["name","html"]},
-        "placement":{"type":"object","additionalProperties":false,"properties":{
-            "mode":{"enum":["float","popout","canvas"]},"x":{"type":"number"},"y":{"type":"number"},
-            "width":{"type":"integer"},"height":{"type":"integer"},"anchor":{"type":["string","null"]}
+        "placement":{"type":"object","additionalProperties":false,"description":"float: the centered window; window: pinned to the window like pinned desks, x,y px from the canvas area's top-left; popout: its own native window","properties":{
+            "mode":{"enum":["float","window","popout"]},"x":{"type":"number"},"y":{"type":"number"},
+            "width":{"type":"integer"},"height":{"type":"integer"}
         }},
         "state":{"type":"object","description":"state_set: replacement object, up to2MiB"},
         "patch":{"type":"object","description":"state_patch: RFC7396 merge; null removes a key"},

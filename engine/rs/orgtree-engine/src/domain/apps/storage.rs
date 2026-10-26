@@ -207,9 +207,6 @@ pub(crate) async fn run_locked(engine:&Arc<Engine>,org:&Arc<OrgHandle>,caller:Op
             if caller.is_some()&&(open==Some(true)||(placement.is_some()&&open.unwrap_or(old["open"].as_bool().unwrap_or(false)))){crate::refuse!(Forbidden,"only the user may open or show an app window; agents may create and configure closed saved panels");}
             let label=label.unwrap_or_else(||old["label"].as_str().unwrap_or("").into());wire::text(&label,120,"panel label",false)?;
             let place=placement.unwrap_or(serde_json::from_value(old["placement"].clone())?);wire::placement(&place)?;
-            if let Some(anchor)=&place.anchor{
-                if tx.query_opt("SELECT 1 FROM ot.agents WHERE org_id=$1 AND name=$2 AND state='live'",&[&org.id,anchor]).await?.is_none(){crate::refuse!(NotFound,"canvas attachment node is not live in this org");}
-            }
             let place=serde_json::to_value(place)?;let open=open.unwrap_or(old["open"].as_bool().unwrap_or(false));
             // Hide keeps the runtime; Show (user only) starts a stopped copy.
             if open&&old["running"]!=true{super::runtime::can_start(&tx,org.id).await?;}
