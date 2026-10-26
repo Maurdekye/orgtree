@@ -8,7 +8,7 @@ import type {CustomApp,CustomPanel} from '../src/canvas/apps/types'
 
 const tick=async()=>{for(let i=0;i<4;i++)await flush()}
 const app:CustomApp={id:'app1',name:'Counter',description:'Independent counters',rev:1,width:360,height:280,capabilities:[],permissions:{},created_by:'maker',updated_at:'2026-01-01',definition:{name:'Counter',description:'',html:'<button id="counter">Count</button>',initial_state:{count:2},capabilities:[],width:360,height:280}}
-const make=(id:string,open=true):CustomPanel=>({id,app:'app1',label:id,open,rev:1,state:{count:4},event_seq:0,placement:{mode:'float',x:40,y:40,width:360,height:280},linked_agents:[],updated_at:'2026-01-01',used_at:id})
+const make=(id:string,open=true):CustomPanel=>({id,app:'app1',label:id,open,rev:1,state:{count:4},event_seq:0,placement:{mode:'float',x:40,y:40,width:360,height:280},updated_at:'2026-01-01',used_at:id})
 function server(slug:string,panels:CustomPanel[]){
   const calls:Record<string,unknown>[]=[],saved=new Map(panels.map(p=>[p.id,structuredClone(p)]));let next=10
   const original=globalThis.fetch
@@ -25,7 +25,7 @@ function server(slug:string,panels:CustomPanel[]){
       if(!p){p={...make('p'+next++),state:structuredClone(app.definition!.initial_state)};saved.set(p.id,p)}p.open=true;p.rev++;out=p
     }else if(input.action==='state_set'||input.action==='panel_update'){
       const p=saved.get(input.panel)!;if(input.expected_rev!==p.rev)return new Response('{"detail":"changed"}',{status:409,headers:{'Content-Type':'application/json'}})
-      if(input.action==='state_set')p.state=input.state;else for(const name of ['label','open','placement','linked_agents'])if(name in input)(p as unknown as Record<string,unknown>)[name]=input[name]
+      if(input.action==='state_set')p.state=input.state;else for(const name of ['label','open','placement'])if(name in input)(p as unknown as Record<string,unknown>)[name]=input[name]
       p.rev++;out=p
     }else throw Error('Unexpected '+JSON.stringify(input))
     return new Response(JSON.stringify(out),{status:200,headers:{'Content-Type':'application/json'}})
@@ -75,7 +75,7 @@ test('custom apps menu opens a fresh independent copy, exposes JSON state and cl
   const view=await mountView(<><AppsButton slug="menu-case"/><AppsWorkspace slug="menu-case"/></>,el=>el);t.after(()=>view.unmount());await inAct(tick)
   const owner=view.el.ownerDocument
   const press=async(label:string)=>{const button=[...owner.querySelectorAll<HTMLButtonElement>('button')].find(b=>b.textContent?.trim()===label||b.getAttribute('aria-label')===label);assert.ok(button,`missing ${label}`);await inAct(async()=>{button.click();await tick()})}
-  await press('Apps');await press('+ New panel')
+  await press('Apps');await press('New panel for Counter')
   const fresh=[...fixture.saved.values()].find(p=>p.id!=='old')!;assert.ok(fresh);assert.equal(fresh.state!.count,2);assert.equal(fixture.saved.get('old')!.state!.count,4)
   assert.ok(owner.querySelector(`[data-custom-panel="${fresh.id}"]`))
   await press('Settings for '+fresh.label);await press('State…');await inAct(tick)

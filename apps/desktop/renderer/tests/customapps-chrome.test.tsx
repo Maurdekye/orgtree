@@ -6,7 +6,7 @@ import {AppPermissionPrompt} from '../src/canvas/apps/permissions'
 
 const tick=async()=>{for(let i=0;i<5;i++)await flush()}
 const app={id:'notes',name:'Notes',description:'Saved notes',rev:1,permission_rev:1,width:360,height:280,capabilities:['mail.send'],permissions:{},created_by:'maker',updated_at:'',definition:{name:'Notes',description:'',html:'<p>Notes</p>',initial_state:{note:''},capabilities:['mail.send'],width:360,height:280}}
-const panel={id:'one',app:'notes',label:'First notes',rev:1,open:true,state:{note:'saved'},event_seq:0,placement:{mode:'float',x:40,y:40,width:360,height:280},linked_agents:[],used_at:'',updated_at:''}
+const panel={id:'one',app:'notes',label:'First notes',rev:1,open:true,state:{note:'saved'},event_seq:0,placement:{mode:'float',x:40,y:40,width:360,height:280},used_at:'',updated_at:''}
 test('app windows open centered and their gears lead to the panel settings system with every copy action',async t=>{
   const original=globalThis.fetch,p=structuredClone(panel),calls:Record<string,unknown>[]=[]
   globalThis.fetch=async(raw,init)=>{const url=new URL(String(raw),'http://local'),input=init?.method==='POST'?JSON.parse(String(init.body)):JSON.parse(url.searchParams.get('request')??'{}');calls.push(input);let out:unknown
@@ -28,7 +28,9 @@ test('app windows open centered and their gears lead to the panel settings syste
   await inAct(async()=>{gear.click();await tick()})
   const settings=document.querySelector<HTMLElement>('[role="dialog"][aria-label="Panel settings"]')!;assert.ok(settings?.classList.contains('settings'))
   assert.deepEqual([...settings.querySelectorAll('.set-group-head')].map(e=>e.textContent),['This panel'])
-  for(const name of ['State','Rename','Linked agents','Activity','Duplicate','Float','Pin to screen','Pin to canvas','Delete panel'])assert.ok(settings.textContent?.includes(name),'missing settings action '+name)
+  for(const name of ['State','Rename','Duplicate','Delete panel'])assert.ok(settings.textContent?.includes(name),'missing settings action '+name)
+  // User 2026-10-26: links, Activity and placement left Panel settings.
+  for(const name of ['Linked agents','Activity','Float','Pin to screen','Pin to canvas'])assert.equal(settings.textContent?.includes(name),false,'removed settings action '+name)
   const state=[...settings.querySelectorAll<HTMLButtonElement>('button')].find(e=>e.textContent==='State…')!
   await inAct(async()=>{state.click();await tick()});assert.equal(JSON.parse(document.querySelector<HTMLTextAreaElement>('textarea[aria-label="Panel JSON state"]')!.value).note,'saved')
   assert.equal(calls.some(c=>c.action==='state_set'||c.action==='permission_set'||c.action==='app_delete'),false,'opening settings is read-only')

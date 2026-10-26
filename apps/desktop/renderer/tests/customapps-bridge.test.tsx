@@ -9,7 +9,7 @@ import type {CustomApp,CustomPanel} from '../src/canvas/apps/types'
 const tick=async()=>{for(let i=0;i<5;i++)await flush()}
 function fixture(slug:string){
   const app={id:'bridge-app',name:'Notes',description:'Send notes',rev:4,permission_rev:7,width:360,height:330,capabilities:['mail.send'],permissions:{},created_by:'maker',updated_at:'now',definition:{name:'Notes',description:'',html:'<button>Send</button>',initial_state:{},capabilities:['mail.send'],width:360,height:330}} as CustomApp
-  const panel:CustomPanel={id:'bound-copy',app:app.id,label:'Private notes',open:true,rev:1,state:{},placement:{mode:'float',x:20,y:20,width:360,height:330},linked_agents:[],updated_at:'now',used_at:'now'}
+  const panel:CustomPanel={id:'bound-copy',app:app.id,label:'Private notes',open:true,rev:1,state:{},placement:{mode:'float',x:20,y:20,width:360,height:330},updated_at:'now',used_at:'now'}
   const original=globalThis.fetch,calls:Record<string,unknown>[]=[],token='parent-only-secret';let delayOpen:Promise<void>|undefined
   globalThis.fetch=async(raw,init)=>{
     const url=new URL(String(raw),'http://local'),input=init?.method==='POST'?JSON.parse(String(init.body)):JSON.parse(url.searchParams.get('request')??'{}');calls.push(input)
@@ -71,7 +71,7 @@ test('cancelled and hidden app hosts discard prompts and close even a late sessi
 test('native App permissions editor changes every-copy grant with a separate permission revision',async t=>{
   visible(t);const f=fixture('permission-editor');t.after(f.restore)
   const view=await mountView(<><AppsButton slug="permission-editor"/><AppsWorkspace slug="permission-editor"/></>,el=>el);t.after(()=>view.unmount());await inAct(tick)
-  await press(document,'Apps');await inAct(async()=>{document.querySelector<HTMLButtonElement>('.custom-apps-menu-app [aria-label="Settings for Notes"]')!.click();await tick()});await press(document,'Permissions…')
+  await press(document,'Apps');await inAct(async()=>{document.querySelector<HTMLButtonElement>('.custom-apps-menu-app [aria-label="Settings for Notes"]')!.click();await tick()});await press(document,'Permissions')
   const select=document.querySelector<HTMLSelectElement>('select[aria-label="mail.send permission"]');assert.ok(select,'declared permissions must be editable in native UI')
   const frame=view.el.querySelector('iframe');assert.ok(frame)
   await inAct(async()=>{select.value='deny';select.dispatchEvent(new window.Event('change',{bubbles:true}));await tick()})

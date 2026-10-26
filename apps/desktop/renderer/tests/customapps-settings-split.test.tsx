@@ -8,7 +8,7 @@ const dialog=(name:string)=>document.querySelector<HTMLElement>('[role="dialog"]
 const button=(root:ParentNode,name:string)=>[...root.querySelectorAll<HTMLButtonElement>('button')].find(b=>b.textContent?.trim()===name)!
 async function setup(t:test.TestContext,slug:string,open=false){
  const app={id:'notes',name:'Notes',description:'Saved notes',rev:1,permission_rev:1,width:360,height:280,capabilities:['events.fire','files.read','files.write'],events:[{name:'submitted'}],permissions:{'events.fire':'deny'},created_by:'maker',updated_at:''}
- const copy=(id:string,label:string,isOpen:boolean)=>({id,app:'notes',label,rev:1,open:isOpen,state:{note:id},event_seq:0,placement:{mode:'float',x:40,y:40,width:360,height:280},linked_agents:[],used_at:id==='one'?'2026-10-26':'2026-10-25',updated_at:''})
+ const copy=(id:string,label:string,isOpen:boolean)=>({id,app:'notes',label,rev:1,open:isOpen,state:{note:id},event_seq:0,placement:{mode:'float',x:40,y:40,width:360,height:280},used_at:id==='one'?'2026-10-26':'2026-10-25',updated_at:''})
  const panels=[copy('one','First notes',open),copy('two','Closed notes',false)],calls:Record<string,any>[]=[]
  const original=globalThis.fetch
  globalThis.fetch=async(raw,init)=>{const url=new URL(String(raw),'http://local'),input=init?.method==='POST'?JSON.parse(String(init.body)):JSON.parse(url.searchParams.get('request')??'{}');calls.push(input);let out:unknown
@@ -39,9 +39,11 @@ test('app-list gear opens only app-wide settings and preserves Files and event p
  const app=dialog('App settings')!;assert.ok(app?.classList.contains('settings'))
  assert.equal(!!app.querySelector('[aria-label="Saved panel"]'),false,'app settings must not choose or edit a panel')
  assert.equal(!!button(app,'State…'),false,'panel actions do not belong in App settings')
- for(const name of ['Created by','Permissions…','Export app','Delete app…'])assert.ok(app.textContent?.includes(name))
- await inAct(async()=>{button(app,'Permissions…').click();await tick()})
- const permissions=dialog('App permissions')!;assert.ok(permissions.textContent?.includes('Files'));assert.ok(button(permissions,'Revoke'));assert.ok(button(permissions,'Confirm change'))
+ for(const name of ['Created by','Export app','Delete app…'])assert.ok(app.textContent?.includes(name))
+ // User 2026-10-26: Permissions is App settings' second tab, not a separate dialog.
+ assert.deepEqual([...app.querySelectorAll('[role="tab"]')].map(e=>e.textContent),['General','Permissions']);assert.equal(!!button(app,'Permissions…'),false)
+ await inAct(async()=>{button(app,'Permissions').click();await tick()})
+ assert.equal(dialog('App permissions'),null,'permissions open in the tab');const permissions=app.querySelector<HTMLElement>('[role="tabpanel"]:not([hidden]) [aria-label="App permissions"]')!;assert.ok(permissions.textContent?.includes('Files'));assert.ok(button(permissions,'Revoke'));assert.ok(button(permissions,'Confirm change'))
  const event=permissions.querySelector<HTMLSelectElement>('[aria-label="events.fire permission"]')!;assert.equal(event.value,'deny')
  await inAct(async()=>{event.value='allow';event.dispatchEvent(new Event('change',{bubbles:true}));await tick()})
  assert.ok(calls.some(c=>c.action==='permission_set'&&c.app==='notes'&&c.capability==='events.fire'&&c.permission==='allow'))
@@ -65,9 +67,13 @@ test('open-panel header gear opens panel-only settings with every retained copy 
  const {view,calls}=await setup(t,'settings-open',true)
  await inAct(async()=>{view.el.querySelector<HTMLButtonElement>('[data-custom-panel="one"] [aria-label="Settings for First notes"]')!.click();await tick()})
  const settings=dialog('Panel settings');assert.equal(!!settings,true,'header gear must open per-panel settings')
- for(const name of ['State…','Rename…','Linked agents…','Activity…','Events…','Duplicate','Float','Pin to screen','Pin to canvas','Delete panel…'])assert.ok(!!button(settings!,name),'missing '+name)
+ assert.deepEqual([...settings!.querySelectorAll('[role="tab"]')].map(e=>e.textContent),['General','History'])
+ for(const name of ['State…','Rename…','Duplicate','Delete panel…'])assert.ok(!!button(settings!,name),'missing '+name)
+ // User 2026-10-26: links, Activity, the Events dialog and placement left Panel settings.
+ for(const name of ['Linked agents…','Activity…','Events…','Float','Pin to screen','Pin to canvas'])assert.equal(!!button(settings!,name),false,'removed '+name)
  assert.equal(!!button(settings!,'Permissions…'),false);assert.equal(!!button(settings!,'Delete app…'),false)
- await inAct(async()=>{button(settings!,'Events…').click();await tick()})
+ await inAct(async()=>{button(settings!,'History').click();await tick()})
+ assert.ok(calls.some(c=>c.action==='events'&&c.panel==='one'),'History reads the copy log')
  assert.ok(calls.some(c=>c.action==='listeners'&&c.panel==='one'))
  assert.equal(calls.some(c=>c.action==='fire_event'),false,'viewing connections never fires')
 })

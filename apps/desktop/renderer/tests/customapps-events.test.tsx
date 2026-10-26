@@ -28,19 +28,23 @@ test('named event SDK exposes broadcast separately from panel activity',async()=
 
 test('Panel settings lists connections and fires only the selected saved copy event',async t=>{
   const app={id:'notes',name:'Notes',description:'',rev:1,width:360,height:280,capabilities:['events.fire'],events:[{name:'submitted',description:'Notes ready'}],permissions:{},created_by:'maker',updated_at:''}
-  const panel={id:'one',app:'notes',label:'First',rev:1,open:false,placement:{mode:'float' as const,x:0,y:0,width:360,height:280},linked_agents:[],used_at:'',updated_at:''}
+  const panel={id:'one',app:'notes',label:'First',rev:1,open:false,placement:{mode:'float' as const,x:0,y:0,width:360,height:280},used_at:'',event_seq:2,updated_at:''}
   const original=globalThis.fetch,calls:Record<string,unknown>[]=[]
   globalThis.fetch=async(raw,init)=>{const url=new URL(String(raw),'http://local'),input=init?.method==='POST'?JSON.parse(String(init.body)):JSON.parse(url.searchParams.get('request')??'{}');calls.push(input);let out:unknown
     if(input.action==='list')out={items:input.kind==='apps'?[app]:[panel],next_cursor:null}
     else if(input.action==='listeners')out={items:[{id:'worker/notes',owner:'worker',name:'notes',event_name:'submitted',panel:'one',state:'armed',once:false,notice:true,fired:0}],next_cursor:null}
     else if(input.action==='fire_event')out={accepted:true,subscribers:1,event:'accepted-event'}
+    else if(input.action==='events')out={panel:'one',events:[{seq:1,name:'panel.created',payload:{},actor:'worker',at:'2026-10-26T10:00:00Z'},{seq:2,name:'event.fired',payload:{event:'submitted',id:'accepted-event',subscribers:1},actor:'user',at:'2026-10-26T10:01:00Z'}],next_cursor:null,oldest_retained:1}
     else throw Error('Unexpected '+input.action)
     return new Response(JSON.stringify(out),{headers:{'Content-Type':'application/json'}})
   };t.after(()=>{globalThis.fetch=original})
   const view=await mountView(<PanelSettings slug="events-settings" app={app} panel={panel} close={()=>{}}/>,e=>e);t.after(()=>view.unmount());await inAct(async()=>{for(let i=0;i<5;i++)await flush()})
-  const button=[...document.querySelectorAll<HTMLButtonElement>('button')].find(b=>b.textContent?.trim()==='Events…');assert.ok(!!button,'native event controls belong to the existing settings system')
+  assert.equal([...document.querySelectorAll('button')].some(b=>['Events…','Activity…'].includes(b.textContent?.trim()??'')),false,'events moved to their own History tab')
+  const button=[...document.querySelectorAll<HTMLButtonElement>('[role="tab"]')].find(b=>b.textContent?.trim()==='History');assert.ok(!!button,'native event controls belong to the settings History tab')
   await inAct(async()=>{button!.click();for(let i=0;i<5;i++)await flush()})
   assert.ok(document.body.textContent?.includes('worker/notes'),'actual agent-owned connection is listed')
+  const entries=[...document.querySelectorAll('.custom-app-history li')].map(e=>e.textContent??'')
+  assert.equal(entries.length,2,'History merges the copy log');assert.match(entries[0]!,/fired submitted · 1 subscribed listener/,'newest first, as fire metadata');assert.match(entries[1]!,/worker: panel\.created/)
   const fire=[...document.querySelectorAll<HTMLButtonElement>('button')].find(b=>b.textContent?.trim()==='Fire event');assert.ok(fire)
   assert.equal(calls.some(c=>c.action==='fire_event'),false,'opening settings never fires')
   await inAct(async()=>{fire.click();for(let i=0;i<5;i++)await flush()})
