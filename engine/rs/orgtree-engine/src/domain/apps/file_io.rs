@@ -4,13 +4,13 @@ use super::*;
 use std::ffi::OsStr;
 use sha2::{Digest,Sha256};
 
-pub(super) const WRITE_MAX:usize=64*1024;
-pub(super) struct Entry {pub name:String,pub directory:bool}
+pub(in crate::domain::apps) const WRITE_MAX:usize=64*1024;
+pub(in crate::domain::apps) struct Entry {pub name:String,pub directory:bool}
 
 /// The directory is opened once through no-reparse ancestors. Enumeration
 /// uses that handle, never a second resolution of the original path.
 #[nolog]
-pub(super) fn list(path:&Path,after:Option<&str>,limit:usize)->Result<(Vec<Entry>,bool,bool)>{
+pub(in crate::domain::apps) fn list(path:&Path,after:Option<&str>,limit:usize)->Result<(Vec<Entry>,bool,bool)>{
     if !(1..=200).contains(&limit){crate::refuse!(BadRequest,"file listing limit must be 1-200");}
     let dir=directory(path)?;let mut entries=Vec::new();let mut scanned=0usize;let mut capped=false;
     #[cfg(windows)] {
@@ -54,9 +54,9 @@ pub(super) fn list(path:&Path,after:Option<&str>,limit:usize)->Result<(Vec<Entry
 
 /// Kept only in the host's bounded 120-second confirmation registry. A target
 /// handle excludes ordinary data writes/deletion while consent is pending.
-pub(super) struct Change {dir:Directory,name:String,target:Option<File>,data:Option<Vec<u8>>,pub detail:Value}
+pub(in crate::domain::apps) struct Change {dir:Directory,name:String,target:Option<File>,data:Option<Vec<u8>>,pub detail:Value}
 #[nolog]
-pub(super) fn prepare(path:&Path,data:Option<Vec<u8>>,replace:bool)->Result<Change>{
+pub(in crate::domain::apps) fn prepare(path:&Path,data:Option<Vec<u8>>,replace:bool)->Result<Change>{
     if data.as_ref().is_some_and(|v|v.len()>WRITE_MAX){crate::refuse!(BadRequest,"file writes are limited to 65536 bytes");}
     let path=checked_path(path)?;let dir=directory(path.parent().ok_or_else(||anyhow::anyhow!("file has no parent"))?)?;
     if directory(&path).is_ok(){crate::refuse!(Forbidden,"only regular files can be changed; directory deletion is unavailable");}
@@ -95,7 +95,7 @@ fn rename(file:&File,dir:&Directory,name:&str,replace:bool)->Result<()>{
     if unsafe{SetFileInformationByHandle(file.as_raw_handle() as _,FileRenameInfoEx,buffer.as_ptr().cast(),size as u32)}==0{return Err(std::io::Error::last_os_error().into());}Ok(())
 }
 #[nolog]
-pub(super) fn commit(change:Change)->Result<Value>{
+pub(in crate::domain::apps) fn commit(change:Change)->Result<Value>{
     #[cfg(windows)] {
         let Change{dir,name,target,data,detail}=change;
         if let Some(old)=&target{verify(old,&dir.path.join(&name))?;}
