@@ -7836,7 +7836,72 @@
     "apps/desktop/renderer/src/canvas/apps/"
    ],
    "writer": "canvas-sol",
-   "status": "fixed"
+   "status": "fixed",
+   "components": [
+    "apps/desktop/renderer/src/canvas/apps/dialog.tsx#AppDialog"
+   ],
+   "ui_labels": [
+    {
+     "file": "apps/desktop/renderer/src/canvas/apps/settings.tsx",
+     "label": "Created by",
+     "line": 40
+    },
+    {
+     "file": "apps/desktop/renderer/src/canvas/apps/settings.tsx",
+     "label": "Permissions",
+     "line": 41
+    },
+    {
+     "file": "apps/desktop/renderer/src/canvas/apps/settings.tsx",
+     "label": "Export app",
+     "line": 42
+    },
+    {
+     "file": "apps/desktop/renderer/src/canvas/apps/settings.tsx",
+     "label": "Delete app",
+     "line": 43
+    },
+    {
+     "file": "apps/desktop/renderer/src/canvas/apps/settings.tsx",
+     "label": "Saved panel",
+     "line": 45
+    },
+    {
+     "file": "apps/desktop/renderer/src/canvas/apps/settings.tsx",
+     "label": "State",
+     "line": 46
+    },
+    {
+     "file": "apps/desktop/renderer/src/canvas/apps/settings.tsx",
+     "label": "Rename",
+     "line": 47
+    },
+    {
+     "file": "apps/desktop/renderer/src/canvas/apps/settings.tsx",
+     "label": "Linked agents",
+     "line": 48
+    },
+    {
+     "file": "apps/desktop/renderer/src/canvas/apps/settings.tsx",
+     "label": "Activity",
+     "line": 49
+    },
+    {
+     "file": "apps/desktop/renderer/src/canvas/apps/settings.tsx",
+     "label": "Duplicate",
+     "line": 50
+    },
+    {
+     "file": "apps/desktop/renderer/src/canvas/apps/settings.tsx",
+     "label": "Placement",
+     "line": 51
+    },
+    {
+     "file": "apps/desktop/renderer/src/canvas/apps/settings.tsx",
+     "label": "Delete panel",
+     "line": 52
+    }
+   ]
   }
  ],
  "exempt": {

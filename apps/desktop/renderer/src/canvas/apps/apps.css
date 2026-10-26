@@ -1,6 +1,6 @@
 .apps-button svg { width:20px;height:20px }
 .custom-app-new-label { flex:none;font-size:11px;line-height:1.5;padding:0 5px;border-radius:8px;background:var(--accent);color:var(--ink-strong) }
-.custom-apps-menu { position:fixed;z-index:2500;max-height:calc(100vh - 16px);overflow:auto;border:1px solid var(--border);border-radius:9px;background:var(--panel);color:var(--ink);box-shadow:0 10px 40px #0006;padding:8px;box-sizing:border-box }
+.custom-apps-menu { position:fixed;z-index:2500;max-height:calc(100vh - 16px);overflow:auto;padding:8px;box-sizing:border-box }
 .custom-apps-menu>header,.custom-apps-menu-app { display:flex;align-items:center;gap:8px }
 .custom-apps-menu>header { padding:4px 4px 8px;justify-content:space-between }
 .custom-apps-menu-group { border-top:1px solid var(--border);padding:8px 2px }
@@ -18,12 +18,15 @@
 .custom-app-dot.open { background:var(--accent);border-color:var(--accent) }
 .custom-app-placeholder.world { position:absolute;left:0;top:0;width:0;height:0;pointer-events:none }
 .custom-app-world-anchor { position:absolute;z-index:8;pointer-events:none }
-.custom-app-window { display:flex;flex-direction:column;position:relative;box-sizing:border-box;border:1px solid var(--border);border-radius:8px;background:var(--panel);color:var(--ink);box-shadow:0 8px 30px #0005;pointer-events:auto;overflow:visible;min-width:160px;min-height:120px }
+.custom-app-window.settings { display:flex;flex-direction:column;position:relative;box-sizing:border-box;pointer-events:auto;overflow:visible;min-width:160px;min-height:120px;padding:0;gap:0;margin:0;--panel-pad-x:0px;--panel-pad-y:0px }
+.custom-app-centered { z-index:30 }
+.custom-app-centered .custom-app-window { max-width:calc(100vw - 32px);max-height:calc(100vh - 32px) }
 .custom-app-window[data-detached] { border:0;border-radius:0;min-width:0;min-height:0 }
-.custom-app-title { position:relative;display:flex;gap:5px;align-items:center;height:30px;min-height:30px;padding:0 5px;border-bottom:1px solid var(--border);font-size:12px;cursor:move;touch-action:none;user-select:none }
+.custom-app-window>.custom-app-title { position:relative;top:0;margin:0;display:flex;gap:6px;align-items:center;height:28px;min-height:28px;padding:0 4px 0 8px;user-select:none }
+.custom-app-window[data-centered]>.custom-app-title { cursor:default }
 .custom-app-title>svg { width:16px;height:16px;flex:none }
 .custom-app-title strong { flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:600 }
-.custom-app-title button,.custom-app-title summary { width:24px;height:24px;display:inline-flex;align-items:center;justify-content:center;padding:3px;background:none;border:0;color:inherit;cursor:pointer;border-radius:4px;-webkit-app-region:no-drag }
+.custom-app-window .custom-app-title button { width:24px;height:24px;display:inline-flex;align-items:center;justify-content:center;padding:3px;background:none;border:0;color:inherit;cursor:pointer;border-radius:4px;-webkit-app-region:no-drag }
 .custom-app-title button:hover,.custom-app-title summary:hover { background:var(--hover) }
 .custom-app-title button svg,.custom-app-title summary svg { width:16px;height:16px }
 .custom-app-window[data-detached]>.custom-app-title { -webkit-app-region:drag;cursor:default }
@@ -39,10 +42,10 @@
 .custom-app-suspended { display:grid;place-items:center;flex:1;color:var(--muted);padding:16px }
 .custom-app-error { padding:6px 9px;color:var(--danger,#e88);font-size:12px;overflow-wrap:anywhere }
 .custom-app-resize { position:absolute;width:15px;height:15px;right:0;bottom:0;cursor:nwse-resize;touch-action:none;border-right:2px solid var(--muted);border-bottom:2px solid var(--muted);border-radius:0 0 6px 0 }
-.custom-app-dialog { position:absolute;inset:0;z-index:20;display:flex;flex-direction:column;gap:10px;padding:12px;background:var(--panel);color:var(--ink);box-sizing:border-box;border-radius:7px;min-height:0;overflow:auto }
+.custom-app-dialog { box-sizing:border-box;min-height:0 }
 .custom-app-dialog>header { display:flex;gap:8px;align-items:center;justify-content:space-between;flex:none }
 .custom-app-dialog>header svg { width:16px;height:16px }
-.custom-app-dialog p { margin:0;font-size:12px }
+.custom-app-dialog p { margin:0 }
 .custom-app-dialog textarea { width:100%;box-sizing:border-box;min-height:80px;flex:1;font:12px/1.45 Consolas,monospace;background:var(--bg);color:var(--ink);border:1px solid var(--border);border-radius:4px;padding:8px;resize:none }
 .custom-app-dialog label { display:flex;flex-direction:column;gap:6px;flex:1;min-height:0 }
 .custom-app-dialog-actions { display:flex;align-items:center;flex-wrap:wrap;gap:5px;flex:none }
@@ -56,10 +59,9 @@
 .custom-app-activity { padding-left:20px;overflow:auto;font-size:12px }
 .custom-app-activity time { color:var(--muted) }
 .custom-app-activity pre { white-space:pre-wrap;overflow-wrap:anywhere }
-.custom-app-management { position:fixed;inset:20% 25%;z-index:2400;box-shadow:0 10px 40px #0006 }
 .custom-app-global-error { position:fixed;left:15%;right:15%;bottom:16px;z-index:2600;background:var(--panel);color:var(--danger,#e88);padding:12px;border:1px solid var(--border);border-radius:6px }
 .custom-app-permission-backdrop { position:fixed;inset:0;z-index:5000;background:#0009;display:grid;place-items:center;padding:12px;box-sizing:border-box }
-.custom-app-permission { width:min(560px,100%);max-height:100%;overflow:auto;box-sizing:border-box;background:var(--panel);color:var(--ink);border:1px solid var(--accent);border-radius:9px;padding:16px;display:flex;flex-direction:column;gap:10px;box-shadow:0 12px 45px #0008;font-size:13px }
+.custom-app-permission>div:last-child { display:flex;flex-direction:column;gap:14px }
 .custom-app-permission h2,.custom-app-permission p { margin:0 }
 .custom-app-permission h2 { font-size:17px }
 .custom-app-permission pre { margin:0;padding:10px;background:var(--bg);white-space:pre-wrap;overflow-wrap:anywhere;max-height:220px;overflow:auto;flex-shrink:0;user-select:text }
@@ -68,4 +70,4 @@
 .custom-app-permission-row small { display:block;color:var(--muted);font-size:11px }
 .custom-app-mini { position:absolute;display:grid;place-items:center;width:48px;height:48px;background:var(--panel);color:var(--accent);border:1px solid var(--border);border-radius:10px;pointer-events:auto;cursor:pointer;z-index:8 }
 .custom-app-mini svg { width:30px;height:30px }
-@media(max-width:600px){.custom-app-management { inset:15% 5% }.custom-app-status { font-size:10px }}
+@media(max-width:600px){.custom-app-status { font-size:10px }}

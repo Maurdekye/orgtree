@@ -21,9 +21,13 @@ panels show Open/Closed; closing preserves their data until Delete. The catalogu
 is paged: use More apps / More saved panels. These are provisional4.5.0 defaults
 for the morning review, not additional user rulings.
 
-The panel title has a menu, pop-out, screen pin and Close. Drag the title or
-resize the corner. The menu offers State, Rename, Linked agents, Activity,
-Permissions, Duplicate, Float, Pin to screen, Pin to canvas and Delete panel.
+An unpinned panel opens as a standard centered modal, with pop-out, screen pin
+and Close. The gears in the panel frame and Apps list open App settings directly,
+without a dropdown. Its App section contains permissions, export and app deletion.
+This panel lists State, Rename, Linked agents, Activity, Duplicate, Float, Pin to
+screen, Pin to canvas and Delete panel, with a saved-copy selector and paging.
+Manage a closed copy here without running it. Float returns to the centered
+modal; pinning fixes the current position. Drag a pinned title or resize its corner.
 Screen pins stay in the viewport. Canvas pins pan and zoom with the chart; far
 zoom shows an icon, and offscreen/hidden canvas panels suspend their HTML.
 Returning from a pop-out restores its preceding placement for this session.
@@ -43,9 +47,10 @@ no-connect CSP and no engine credential. Its async window.orgtree API provides
 state.get/set/patch/onChange, storage.getItem/setItem/removeItem/clear, on and emit.
 State is independent per copy; merge patch null deletes a key. Agent writes and
 new named events arrive through the host. Activity retains the latest256 events.
-This slice refuses engine.call: permission-granted actions and app import/export
-are following slices. Declaring a capability does not grant it. This is a host
-prototype, not a complete custom-app feature.
+The SDK exposes fixed permission-checked actions through orgtree.call. Apps
+supports whole-app import/export, with grants starting at Ask. Declaring a
+capability grants nothing. Native frames, settings, import/export and permission
+prompts use Orgtree's existing modal/settings design system outside app HTML.
 
 Agent parity: orgtree_apps provides every saved lifecycle, placement, label,
 link, state and event action above. Copy/export JSON are ordinary local file or

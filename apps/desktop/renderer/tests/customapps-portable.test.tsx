@@ -43,7 +43,7 @@ test('custom apps import previews plain metadata before creating closed ungrante
 test('custom apps export explicitly chooses saved data and downloads only the returned portable bundle',async t=>{
   const fixture=server('portable-export');t.after(fixture.restore)
   const view=await mountView(<><AppsButton slug="portable-export"/><AppsWorkspace slug="portable-export"/></>,el=>el);t.after(()=>view.unmount());await inAct(tick)
-  const owner=view.el.ownerDocument;await press(owner,'Apps');await press(owner,'Manage Notes')
+  const owner=view.el.ownerDocument;await press(owner,'Apps');await press(owner,'Settings for Notes')
   const saved=owner.querySelector<HTMLInputElement>('input[aria-label="Include saved panel data"]');assert.ok(saved,'export needs a saved data choice');assert.equal(saved.checked,false)
   await inAct(async()=>{saved.click();await tick()})
   let blob:Blob|undefined,name='';const create=window.URL.createObjectURL,revoke=window.URL.revokeObjectURL,click=owner.defaultView!.HTMLAnchorElement.prototype.click

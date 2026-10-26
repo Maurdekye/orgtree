@@ -39,6 +39,13 @@ app/panel in that org; linking is not an authority grant.
   expected_rev; optional label, open, placement or linked_agents. open:false closes
   without deleting. panel_duplicate and panel_delete need panel/expected_rev.
 
+UI parity: both gear icons open App settings, with App and This panel sections.
+These are native settings, not app HTML. Each row uses the lifecycle/state/link/
+permission/export action above. Showing settings/choosing a copy is read-only.
+Placement float is the standard centered modal; screen/canvas fix a position.
+User pinning captures current geometry; agent placement uses the supplied x/y.
+Pinned and popped-out copies reopen in their previous position provisionally.
+
 ## State, placement and events
 
 state_set needs panel/expected_rev/state (JSON object). state_patch needs patch,

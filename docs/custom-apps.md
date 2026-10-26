@@ -20,9 +20,17 @@ Agents can set an app's initial JSON state. The first panel and **+ New panel**
 copy that state. Changing the definition's initial state affects future panels;
 existing saved panels keep their data.
 
-Use the panel title menu for State, Rename, Linked agents, Activity, Permissions,
-Duplicate, placement or Delete. Drag the title or resize its corner. Float and
-Pin to screen stay in the viewport; Pin to canvas moves and zooms with the chart.
+Apps open as standard centered modals. Use the gear on a panel or beside an app
+in Apps to open **App settings**, styled like Orgtree's other settings panels.
+The **App** section contains permissions, export and app deletion. **This panel**
+lists State, Rename, Linked agents, Activity, Duplicate, placement and Delete
+panel; choose a saved copy to manage it without running its HTML. Further copies
+remain available through paging. Permissions apply to every copy of the app.
+
+**Float** returns to the centered modal. **Pin to screen** fixes the current
+position; drag its title or resize its corner. **Pin to canvas** moves and zooms
+with the chart. Screen/canvas pins retain their saved position when reopened;
+pop-outs use the existing saved-window restoration (provisional reopen default).
 Far zoom shows an icon, and hidden canvas HTML pauses until visible again.
 The title's pop-out opens a separate window; Return restores its previous place.
 
@@ -53,7 +61,7 @@ Agents can import an app from a held local file and export one into a new file i
 their private working folder. The tool returns its path, byte count and SHA256.
 Choose Import app in the Apps menu, select a bundle, review the name, requested
 capabilities and saved copies, then confirm Import app. This native preview
-does not execute HTML. Manage an app from its menu's three dots, choose whether
+does not execute HTML. Open the app's gear settings, choose whether
 to Include saved panel data, and press Export app to save the bundle.
 
 The action bridge accepts only declared capabilities with your permission; apps
@@ -61,7 +69,7 @@ cannot grant their own permissions. The native App permission prompt shows the
 app, saved copy, capability and exact action as text. Allow once applies to that
 one action. Always allow and Deny save a decision for every copy. Cancel or Escape
 discards the request without changing permissions. Requests expire after two
-minutes and are not retried automatically. In the title menu, Permissions offers
+minutes and are not retried automatically. In App settings, Permissions offers
 Ask, Allow and Deny per declared capability; changes save immediately without
 reloading the app. These defaults are provisional. Replacing app code clears old permissions.
 App messages identify the app and copy, and carry app content rather than user

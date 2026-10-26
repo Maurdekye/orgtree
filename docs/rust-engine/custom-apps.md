@@ -50,6 +50,20 @@ Opening an app creates its first panel or reopens the most recently used one;
 new=true always creates another. Definition initial_state is copied, not shared.
 Updating initial_state never overwrites existing saved-panel data; it applies
 only when a new panel is created. The focused apps-new real-PG proof covers this.
+
+The signed centered-modal rule supersedes the original fixed floating default:
+placement float renders a viewport-centered overlay (stored x/y are unused in
+that mode). Screen/canvas placement keeps stored geometry; native pop-outs keep
+the existing saved-window lifecycle. Pin captures the rendered box, so it stays
+put. Float/unpin centers it again. The iframe remains the same subtree across
+pin/unpin. No engine permission/state/schema changes implement this display rule.
+
+Both settings gears open native App settings directly. App/This panel groups use
+SetGroup/SetRow/SetBlock; native dialogs/import/permission prompts use PinFrame's
+settings class and owning-document portal. The Apps menu reuses ctxmenu styling,
+and app frames reuse modal title/buttons/settings typography. App settings can
+read/manage a closed copy without opening its HTML; copy selection is paged.
+UI navigation adds no tool authority: rows map to existing orgtree_apps actions.
 Labels can be changed. Placement records distinguish float, screen, popout and
 world canvas coordinates; an optional live-node attachment is canvas-only. The
 storage milestone does not yet mount those surfaces.

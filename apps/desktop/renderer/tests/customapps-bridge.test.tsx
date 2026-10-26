@@ -71,7 +71,7 @@ test('cancelled and hidden app hosts discard prompts and close even a late sessi
 test('native App permissions editor changes every-copy grant with a separate permission revision',async t=>{
   visible(t);const f=fixture('permission-editor');t.after(f.restore)
   const view=await mountView(<AppsWorkspace slug="permission-editor"/>,el=>el);t.after(()=>view.unmount());await inAct(tick)
-  await press(document,'Permissions…')
+  await press(document,'Settings for Private notes');await press(document,'Permissions…')
   const select=document.querySelector<HTMLSelectElement>('select[aria-label="mail.send permission"]');assert.ok(select,'declared permissions must be editable in native UI')
   const frame=view.el.querySelector('iframe');assert.ok(frame)
   await inAct(async()=>{select.value='deny';select.dispatchEvent(new window.Event('change',{bubbles:true}));await tick()})

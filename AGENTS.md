@@ -8,6 +8,10 @@ Apps New counts are org-persisted catalog metadata; only visible menu entries
 are acknowledged, with orgtree_apps mark_seen parity. See
 [custom apps](docs/rust-engine/custom-apps.md).
 [verified: `domain/apps/storage.rs`, `canvas/apps/store.ts`, `canvas/apps/ui.tsx`; 2026-10-26]
+App panels default to centered modals; screen/canvas pins keep position. Native
+Apps gears/settings/import/permission chrome uses the shared modal/settings kit.
+See the same custom-app topic for placement and tool parity.
+[decided: user 2026-10-26; verified: `canvas/apps/{dialog,settings,ui}.tsx`]
 App events carry privacy across subscriber/overflow handoffs; authorized delivery
 keeps content while watchdog diagnostic output/history omit it.
 Hide/close/replacement discards prompts and authority, while grant edits use a separate
