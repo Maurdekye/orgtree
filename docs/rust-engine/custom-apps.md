@@ -405,7 +405,11 @@ Shape:
   permission change (via change), prompt answer including Allow once (via
   prompt) and each Allow a code change clears (via code, permission default),
   for every capability. Written in the change's own transaction; latest 128 per
-  app; `permission_history` reads it newest first (a GET read; agents included).
+  app; `permission_history` reads it newest first (a GET read; agents included),
+  paged like events: limit 1-200 (default 100), before for older entries, after
+  for newer ones, never both. App settings shows it on its own last tab (USER
+  2026-10-27 m838e66af753b, "ssme for permission history, and put tgat on i6s own
+  tab") as the same live LogList as History; it follows custom_apps_changed only.
 - A code change clears every Allow, capability and site rows alike, as for
   outside file grants; Ask and Deny stay.
 

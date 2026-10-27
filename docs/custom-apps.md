@@ -125,9 +125,10 @@ does not wake agents. A copy's History log stays separate from delivery.
 
 Apps open as standard centered modals. There are two separate settings panels,
 both styled like Orgtree's other settings panels. The gear beside an app in Apps
-opens **App settings**: the app's description sits above two tabs, **General**
-(export and delete app) and **Permissions** (Events allow/deny, Files grants and pending
-file changes, which apply to every copy). Allow once stays in the live panel's native prompt.
+opens **App settings**: the app's description sits above three tabs, **General**
+(export and delete app), **Permissions** (Events allow/deny, Files grants and pending
+file changes, which apply to every copy) and **Permission history**. Allow once stays in
+the live panel's native prompt.
 
 The gear beside each saved panel in Apps, including a closed panel, and the gear
 in an open panel's header open **Panel settings** for that exact copy. Its **Name**
@@ -376,8 +377,11 @@ requests in progress.
 Agents can declare sites, read permissions and the history, and set internet
 access to Ask or Deny; only you can allow it.
 
-**Permission history**, at the bottom of the Permissions tab, lists permission
-changes and prompt answers for the app, newest first (the latest 128).
+**Permission history**, App settings' last tab, lists permission changes and
+prompt answers for the app, newest first (the latest 128), one line each: when,
+what changed and how, and who. Click an entry for its details, such as the panel
+where a prompt was answered. New entries appear while the tab is open, and older
+ones load as you scroll down.
 
 App code calls `orgtree.net.fetch(url, options)` instead of `fetch`; it returns a
 standard Response. Plain `fetch`, WebSocket and image URLs stay blocked: to show

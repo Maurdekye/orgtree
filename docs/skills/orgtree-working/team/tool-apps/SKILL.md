@@ -322,11 +322,13 @@ Deny, Allow once and Always allow this site; a host answered under a wildcard or
   declared `*.domain` or `*` covers. permission `default` removes a row.
 - An agent may set net.fetch, the capability or one site, to ask or deny, never
   allow, and may not lift a stored deny. Ask your superior for an Allow.
-- permission_history needs app and optional limit 1-128. It returns entries,
-  newest first: seq, capability, site, permission (ask, allow, deny, default or
-  once), via (change, prompt or code), actor, panel and at. Every permission
-  change, prompt answer and code-change reset is there; the latest 128 per app
-  are kept.
+- permission_history needs app; limit 1-200 (default 100). It returns entries
+  newest first with next_cursor, paged like events: before=<next_cursor> for
+  older entries, after=<seq> for newer ones oldest first, never both (user
+  2026-10-27). Each entry: seq, capability, site, permission (ask, allow, deny,
+  default or once), via (change, prompt or code), actor, panel and at. Every
+  permission change, prompt answer and code-change reset is there; the latest
+  128 per app are kept.
 
 A code change clears every Allow; Ask and Deny stay. A change to Ask or Deny,
 a code change, power off, deletion or Stop all aborts requests in flight.

@@ -96,10 +96,10 @@ catalogue is paged: use More apps / More saved panels (user rulings 2026-10-26).
 
 An unpinned panel opens as a standard centered modal, with pop-out, a window pin,
 Hide and Power off. There are two separate settings panels (user ruling2026-10-26).
-The app-row gear in Apps opens App settings: the app's description above two
-tabs, General (export and app deletion) and Permissions (Events
-allow/deny, Files grants and pending changes, Internet access per site, and
-Permission history at the bottom, with their existing app-wide behavior). Allow once remains
+The app-row gear in Apps opens App settings: the app's description above three
+tabs, General (export and app deletion), Permissions (Events allow/deny, Files
+grants and pending changes and Internet access per site, with their existing
+app-wide behavior) and Permission history (user ruling 2026-10-27). Allow once remains
 in the active host's native prompt.
 
 Each saved-panel row has its own gear, even when closed. That gear and the open
@@ -256,8 +256,10 @@ never to this computer or the local network. A site you allow can receive
 anything the app can read. A code change clears every Allow; changing a
 permission to Ask or Deny stops requests in progress.
 
-Permission history, at the bottom of the Permissions tab, lists every
-permission change and prompt answer for the app, newest first (the latest 128).
+Permission history, App settings' last tab, lists every permission change and
+prompt answer for the app, newest first (the latest 128), as the same live list as
+a copy's History: one line per entry (time, what changed and how, who) that expands
+to its details, new entries while it is open and older ones as you scroll down.
 
 Agent parity: orgtree_apps definition.sites, permission_set with site (agents may
 set Ask or Deny only) and permission_history. See orgtree-tool-apps for exact
