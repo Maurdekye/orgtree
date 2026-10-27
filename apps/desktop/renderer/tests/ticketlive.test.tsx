@@ -25,12 +25,12 @@ test('native record changes repaint an old transcript card without a legacy live
   forgetWorkInflight(); const f = feed(); let status = 'blocked'
   globalThis.fetch = async () => response(status)
   const v = await mountView(view(f), el => el); t.after(async () => { await v.unmount(); f.dispose() })
-  const oldCard = v.el.querySelector('.tool-ticket')
-  assert.ok(v.el.querySelector('.tool-ticket.status-blocked'))
+  const oldCard = v.el.querySelector('.tool-ref .ref-chip.ref-item')
+  assert.ok(v.el.querySelector('.tool-ref .ref-chip.ref-item.status-blocked'))
   status = 'done'
   await inAct(async () => { f.receive({ type: 'record_changes', ...cursor, from: 1, to: 2, upserts: [], tombstones: [] }); await Promise.resolve() })
-  assert.ok(v.el.querySelector('.tool-ticket.status-done'), 'accepted native org cursor must refresh current reference')
-  assert.equal(oldCard === v.el.querySelector('.tool-ticket'), true, 'the same old card updates in place')
+  assert.ok(v.el.querySelector('.tool-ref .ref-chip.ref-item.status-done'), 'accepted native org cursor must refresh current reference')
+  assert.equal(oldCard === v.el.querySelector('.tool-ref .ref-chip.ref-item'), true, 'the same old card updates in place')
   assert.equal(v.el.querySelector('.tool-work-transition')?.textContent, 'Blocked → Done')
 })
 

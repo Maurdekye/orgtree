@@ -135,6 +135,7 @@ import { DogChip, useDeskDogs, useDogRoute } from './deskdogs'
 import { WatchdogGroup, WATCHDOG_CARD_LIMIT } from './watchdoggroup'
 import { AgentSlotChips } from './slotchips'
 import { PresentationCard, recentDocumentChips } from './docs'
+import { useDocumentRef } from './docrefs'
 import { buildNodeFacts } from './docket'
 import { AgentDirectoryProvider, AgentName, TierChip, agentFactsSig, nodeTierOf, useAgentDirectory } from './identity'
 import { HistoryView, MailFrom } from './historyview'
@@ -5249,9 +5250,16 @@ export function ToolChip({ t, slug, nid, onMailLink, onWorkLink, onOpenDoc }: To
   const outputSource = t.id ? {org:slug,agent:nid,eventId:outputEvent,part:{part:"tool.result",tool_id:t.id}} : undefined
   const resultText = (child:ReactNode,text:string) => outputSource ? <TranscriptSelection {...outputSource} text={text} format="plain" partial={t.truncated}>{child}</TranscriptSelection> : child
   const expandable = true
+  // THE CARD IS THE PRESENTATION AS IT IS NOW (USER 2026-10-27 mc1c4ab23c4bf
+  // "presentation cards should be highlighted if unread or modified"): the
+  // bounded mention read gives its slug, current title and read times, so the
+  // card shows unread or modified since read; the recorded card until it answers
+  const presented = useDocumentRef(slug, t.presentation && !t.error ? t.presentation.id : undefined)
   const presentation = t.presentation && !t.error && onOpenDoc
-    ? <PresentationCard slug={slug} doc={t.presentation} className="presentation-chat-card" onOpen={onOpenDoc}>
-      <DocIcon fontSize="inherit" /><span>{t.presentation.title}</span>
+    ? <PresentationCard slug={slug} doc={presented ? { ...t.presentation, id: presented.id, title: presented.title,
+        format: presented.format ?? t.presentation.format, at: presented.at, viewed_at: presented.viewed_at } : t.presentation}
+        className="presentation-chat-card" onOpen={onOpenDoc}>
+      <DocIcon fontSize="inherit" /><span>{presented?.title ?? t.presentation.title}</span>
     </PresentationCard> : null
   // Sent files retain their original card beneath the ordinary tool row.
   // Timing and expandable call details belong to that row, not the card.

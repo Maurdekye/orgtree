@@ -2,6 +2,7 @@ import { getDocument, getWorkItem, getMailById } from '../api'
 
 import { mailTitle } from './mailtitle'
 import { knownStatus, statusLabel } from './docketstatus'
+import { docStateTitle, docUnread } from './docviewed'
 export type ObjectTooltipKind = 'ticket' | 'document' | 'mail'
 const KIND = 'data-object-tooltip-kind', ID = 'data-object-tooltip-id', ORG = 'data-object-tooltip-org'
 
@@ -28,7 +29,10 @@ async function titleOf(kind: string, org: string, id: string, box?: string | nul
           : knownStatus(item.status) ? statusLabel(item.status) : null
         return status ? `${status} · ${item.title}` : item.title
       })
-      : getDocument(org, id).then(doc => doc?.title || null)).catch(() => null)
+      // a presentation unread or modified since read says so first, from the
+      // same fresh read (USER 2026-10-27 m919f12828686)
+      : getDocument(org, id).then(doc => doc?.title
+        ? docStateTitle(docUnread(org, doc.id || id, doc.at, doc.viewed_at), doc.title) : null)).catch(() => null)
     reading.set(key, request)
     void request.then(() => { if (reading.get(key) === request) reading.delete(key) })
   }

@@ -16,9 +16,9 @@ test('ticket accent follows current remote status while the captured transition 
   forgetWorkInflight(); let status = 'done'
   globalThis.fetch = async () => response(status)
   const v = await mountView(render(), el => el); t.after(() => v.unmount())
-  assert.ok(v.el.querySelector('.tool-ticket.status-done'), 'current done state, not captured review')
+  assert.ok(v.el.querySelector('.tool-ref .ref-chip.ref-item.status-done'), 'current done state, not captured review')
   status = 'blocked'; await bump()
-  assert.ok(v.el.querySelector('.tool-ticket.status-blocked'), 'remote live bump refreshes the accent')
+  assert.ok(v.el.querySelector('.tool-ref .ref-chip.ref-item.status-blocked'), 'remote live bump refreshes the accent')
   assert.equal(v.el.querySelector('.tool-work-transition')?.textContent, 'Open → Agent review')
 })
 
@@ -26,11 +26,11 @@ test('duplicate inline ticket references share a refresh and deletion removes th
   forgetWorkInflight(); let exists = true, reads = 0
   globalThis.fetch = async () => { ++reads; return response(exists ? 'in_progress' : undefined) }
   const v = await mountView(<>{render()}{render()}</>, el => el); t.after(() => v.unmount())
-  assert.equal(v.el.querySelectorAll('.tool-ticket.status-in_progress').length, 2)
+  assert.equal(v.el.querySelectorAll('.tool-ref .ref-chip.ref-item.status-in_progress').length, 2)
   assert.equal(reads, 1)
   exists = false; await bump()
   assert.equal(reads, 2, 'duplicate cards reuse the same current epoch lookup')
-  assert.equal(v.el.querySelector('.tool-ticket') === null, true)
+  assert.equal(v.el.querySelector('.tool-ref .ref-chip.ref-item') === null, true)
   assert.equal(v.el.querySelectorAll('.tool-ticket-plain').length, 2)
 })
 
@@ -41,9 +41,9 @@ test('switching org never paints the previous org state while the new lookup is 
     return response(String(input).includes('/other/') ? 'approved' : 'done')
   }
   const v = await mountView(render(), el => el); t.after(() => v.unmount())
-  assert.ok(v.el.querySelector('.tool-ticket.status-done'))
+  assert.ok(v.el.querySelector('.tool-ref .ref-chip.ref-item.status-done'))
   await v.render(render('other'))
-  assert.equal(v.el.querySelector('.tool-ticket.status-done') === null, true)
+  assert.equal(v.el.querySelector('.tool-ref .ref-chip.ref-item.status-done') === null, true)
   await inAct(async () => { release?.(); await Promise.resolve() })
-  assert.ok(v.el.querySelector('.tool-ticket.status-approved'))
+  assert.ok(v.el.querySelector('.tool-ref .ref-chip.ref-item.status-approved'))
 })

@@ -36,7 +36,7 @@ import { openAppRef } from './apprefs'
 import './itemrefs'
 import './docrefs'
 import { useRefNames } from './refnames'
-import type { RefNameAnswer } from './refnames'
+import type { RefFlare, RefNameAnswer } from './refnames'
 import { agentReferences } from '../api'
 import type { TreePayload } from '../types'
 import type { MentionIndex, RefKind, TypedRef } from './workrefs'
@@ -130,6 +130,9 @@ export interface ResolvedRef {
   /** this reference names the agent whose surface you are already on: real,
    *  resolvable, and not somewhere to go */
   atDestination?: boolean
+  /** a ticket's status or a presentation's unread/modified state, only on a
+   *  ready chip whose name read answered (refnames.ts) */
+  flare?: RefFlare
 }
 
 const KIND_WORD: Record<TypedRef['kind'], string> = {
@@ -222,12 +225,19 @@ export function resolveRef(ref: TypedRef, world: RefWorld): ResolvedRef {
   // ⚠ THE TITLE IS A LABEL, NOT A VERDICT. Whether the item exists stays the
   // docket's to judge (outcome above): a name read never makes a ticket absent,
   // and a presentation's chip stays the reader's to answer when it is opened.
+  // THE SAME ANSWER CARRIES THE FLARE (USER 2026-10-27 m43beb8089dd4,
+  // m919f12828686): a ticket's status, a presentation unread or modified since
+  // read. It is read even where the surface's list names the ticket, so every
+  // ticket chip colours from the same live read.
+  const answer = outcome === 'ready' && (ref.kind === 'item' || ref.kind === 'doc') ? world.refName?.(ref) : undefined
   const named = outcome !== 'ready' ? undefined
-    : ref.kind === 'item' ? world.itemTitles?.get(ref.id) ?? itemTitle(world.refName?.(ref))
-      : ref.kind === 'doc' ? itemTitle(world.refName?.(ref)) : undefined
+    : ref.kind === 'item' ? world.itemTitles?.get(ref.id) ?? itemTitle(answer)
+      : ref.kind === 'doc' ? itemTitle(answer) : undefined
+  const flare = answer?.outcome === 'ready' ? answer.flare : undefined
   return {
     ref, token, outcome, label: named ?? label ?? ref.id, tier, atDestination,
     ...(ref.kind === 'item' && named !== undefined ? { copyTitle: named } : {}),
+    ...(flare ? { flare } : {}),
     why: atDestination ? `${ref.id} — this is its own desk`
       : outcome === 'ready' ? `open the ${tier === 'project' ? 'project' : kind} ${ref.id}`
         : outcome === 'pending' ? `still loading this org's ${kind}s`
@@ -611,7 +621,7 @@ export function RefChip({ r, onOpen }: {
     'data-copy-ticket-title': r.copyTitle,
   }
   const cls = `ref-chip ref-${r.ref.kind} ref-${r.outcome}`
-    + (r.atDestination ? ' ref-here' : '')
+    + (r.atDestination ? ' ref-here' : '') + (r.flare ? ` ref-flare ${r.flare.cls}` : '')
   if (r.ref.kind === 'mail' && r.ref.id === '@user' && r.outcome === 'ready') return <UserIdentityLink className={cls} open={onOpen ? () => onOpen(r) : undefined} />
   if (r.ref.kind === 'agent' && r.outcome === 'ready') {
     return (
@@ -634,7 +644,7 @@ export function RefChip({ r, onOpen }: {
           // a panel link's menu is its Apps menu row's; an app row has none
           : r.ref.kind === 'panel' ? objectNavProps('panel', r.ref.id, r.ref.org)
           : r.ref.kind === 'mail' && r.ref.box ? mailLinkProps({ ...r.ref, box: r.ref.box }) : {})}
-        className={cls} title={r.ref.kind === 'item' ? r.copyTitle : r.ref.kind === 'doc' ? r.label : r.why}
+        className={cls} title={refChipTitle(r)}
         onMouseDown={(e) => { if (e.button !== 0) e.stopPropagation() }}
         onClick={(e) => { e.stopPropagation(); onOpen(r) }}>
         {hasRefMark(r.ref.kind) && <RefMark kind={r.ref.kind} />}{r.label}
@@ -642,7 +652,7 @@ export function RefChip({ r, onOpen }: {
     )
   }
   if (r.outcome === 'ready') {
-    return <span {...copy} className={cls} title={r.why}
+    return <span {...copy} className={cls} title={r.flare ? refChipTitle(r) : r.why}
       onMouseDown={(e) => { if (e.button !== 0) e.stopPropagation() }}>
       {hasRefMark(r.ref.kind) && <RefMark kind={r.ref.kind} />}{r.label}</span>
   }
@@ -658,6 +668,15 @@ export function RefChip({ r, onOpen }: {
           : r.outcome === 'elsewhere' ? 'not from here' : 'unavailable'}</span>
     </span>
   )
+}
+
+/** A live chip's hover text, which `refmd`'s DOM chip shares: a ticket's
+ *  title and a presentation's, each led by its flare's words the way the shared
+ *  hover leads with a ticket's status (`In progress · title`, `Unread · title`). */
+export function refChipTitle(r: ResolvedRef): string | undefined {
+  const named = r.ref.kind === 'item' ? r.copyTitle : r.ref.kind === 'doc' ? r.label : undefined
+  if (r.ref.kind !== 'item' && r.ref.kind !== 'doc') return r.why
+  return r.flare ? `${r.flare.tip} · ${named ?? r.label}` : named
 }
 
 /** Prose with its canonical references rendered. With no `onOpen` every chip

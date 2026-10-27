@@ -25,6 +25,7 @@ import type { WorkItem } from '../types'
 import { AgentName } from './identity'
 import { objectNavProps } from './objectnav'
 import { RefMark } from './refmarks'
+import { ticketFlare } from './docketstatus'
 
 /** The names that may be matched, and what each one resolves to. A Map is
  *  both halves at once — the key set is what the matcher scans for, and the
@@ -41,7 +42,7 @@ export type RefIndex<T> = Map<string, T>
  *  that agent runs under NOW. One index holds both kinds — two would mean two
  *  scans with two sets of boundary rules, free to drift. */
 export type MentionRef =
-  | { kind: 'item'; slug: string; title?: string }
+  | { kind: 'item'; slug: string; title?: string; status?: string; archived?: boolean }
   | { kind: 'agent'; id: string; tier?: string | null }
 
 export type MentionIndex = RefIndex<MentionRef>
@@ -53,7 +54,7 @@ export type MentionIndex = RefIndex<MentionRef>
  *  absent from `agents` gets no entry, and an agent whose tier is unknown gets
  *  an entry with no tier — neither is filled in with a plausible answer. */
 export function buildMentionIndex(
-  items: Iterable<Pick<WorkItem, 'slug' | 'title'>>,
+  items: Iterable<Pick<WorkItem, 'slug' | 'title'> & { status?: string; archived?: boolean }>,
   agents?: Iterable<readonly [string, string | null | undefined]>,
 ): MentionIndex {
   const out: MentionIndex = new Map()
@@ -62,7 +63,9 @@ export function buildMentionIndex(
   for (const [id, tier] of agents ?? []) {
     if (id) out.set(id, { kind: 'agent', id, tier })
   }
-  for (const it of items) if (it?.slug) out.set(it.slug, { kind: 'item', slug: it.slug, title: it.title })
+  // the status rides along for the link's flare (USER 2026-10-27 m43beb8089dd4)
+  for (const it of items) if (it?.slug) out.set(it.slug, { kind: 'item', slug: it.slug, title: it.title,
+    ...(it.status ? { status: it.status } : {}), ...(it.archived ? { archived: true } : {}) })
   return out
 }
 
@@ -193,10 +196,15 @@ export function WorkRefText({ text, index, onPick, onFocusAgent }: {
         )
         : <span key={key} data-copy-agent-name={ref.id}>{shown}</span>
     }
+    // A LINK WEARS THE ITEM'S STATUS FLARE, named in its tooltip with the
+    // title, like a typed mention (USER 2026-10-27 m43beb8089dd4)
+    const title = ref.title?.trim() ? ref.title : undefined
+    const flare = ticketFlare(ref)
     return onPick
       ? (
-        <button key={key} type="button" {...objectNavProps('ticket', ref.slug, org ?? undefined)} data-copy-ticket-title={ref.title} className="docket-ref"
-          title={ref.title}
+        <button key={key} type="button" {...objectNavProps('ticket', ref.slug, org ?? undefined)} data-copy-ticket-title={ref.title}
+          className={'docket-ref' + (flare ? ` ref-flare ${flare.cls}` : '')}
+          title={title && flare ? `${flare.tip} · ${title}` : title}
           onClick={(e) => { e.stopPropagation(); onPick(ref.slug) }}>
           <RefMark kind="item" />{shown}
         </button>

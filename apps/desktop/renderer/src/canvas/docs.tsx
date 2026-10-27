@@ -16,7 +16,7 @@ import { RefMdBody } from './refmd'
 import type { RefWorld, ResolvedRef } from './reflinks'
 import { openLightboxIfEligibleImage } from './lightbox'
 import { PinFrame } from './modalpin'
-import { docUnread, markDocViewed, useDocViewedVersion } from './docviewed'
+import { docStateTitle, docUnread, markDocViewed, useDocViewedVersion } from './docviewed'
 import { CloseIcon, DocIcon } from '../icons'
 import { fmtFull } from '../timefmt'
 import { copyToClipboard, useContextMenu } from './contextmenu'
@@ -185,8 +185,9 @@ export function PresentationCard({ slug, doc, onOpen, onReply, replyLabel, class
   const body = <>{doc.format === 'html' && <MockupBadge compact={compact} />}{children}</>
   const mark = unread ? ' doc-' + unread : ''
   if (inert) return <span className={className + ' inert' + mark} data-doc-id={doc.id} data-doc-unread={unread ?? undefined} aria-hidden="true">{body}</span>
+  // an unread or modified card says so first (USER 2026-10-27 mc1c4ab23c4bf)
   return <button className={className + mark} data-doc-id={doc.id} data-doc-unread={unread ?? undefined}
-    {...objectTooltipProps('document', doc.id, slug)} title={doc.title}
+    {...objectTooltipProps('document', doc.id, slug)} title={docStateTitle(unread, doc.title)}
     onPointerDown={(e) => e.stopPropagation()}
     onClick={(e) => { e.stopPropagation(); open(e) }}
     onContextMenu={onContextMenu}>{body}{menu.node}</button>

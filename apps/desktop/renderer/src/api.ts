@@ -757,7 +757,9 @@ export const markMentionSeen = (slug: string, nid: string, mentionId?: string):
   })
 // FR-03: presented documents — the reader fetches the body on open
 export const getDocument = (slug: string, did: string):
-  Promise<{ id: string; node: string; presented_by?: string; title: string; body: string; at: string; format?: 'markdown' | 'html'; bytes?: number }> =>
+  Promise<{ id: string; node: string; presented_by?: string; title: string; body: string; at: string; format?: 'markdown' | 'html'; bytes?: number
+    /** the user's last open, as the engine records it (canvas/docviewed.ts) */
+    viewed_at?: string | null }> =>
   req(`/api/orgs/${slug}/documents/${did}`)
 /** A stable operator-only HTML preview; content isolation is server-enforced. */
 export const mockupUrl = (slug: string, did: string): string =>
@@ -800,7 +802,9 @@ export interface DocRow {
 }
 /** A presentation a mention names: `ref` as written (its slug, or the old
  *  generic id it had before migration 0073), `id` its slug. */
-export interface DocumentRef { ref: string; id: string; title: string; format?: 'markdown' | 'html' }
+export interface DocumentRef { ref: string; id: string; title: string; format?: 'markdown' | 'html'
+  /** the gallery row's own times (canvas/docviewed.ts): unread or modified since read */
+  at?: string; viewed_at?: string | null }
 /** The current titles of the exact presentation references on screen (at most
  *  64, the engine's REFS_MAX); a reference that names none is left out. */
 export const getDocumentRefs = (slug: string, refs: string[]): Promise<DocumentRef[]> =>

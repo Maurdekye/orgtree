@@ -8,10 +8,16 @@
 // docket write reads the titles on screen again; the engine sends that frame
 // from its docket write funnel because the record feed skips an unchanged work
 // summary and a rename alone changes none of it.
+//
+// The same row's status is the chip's flare, in the docket's status colour
+// and named in its tooltip (USER 2026-10-27 m43beb8089dd4 "add a flare with the
+// ticket's status as a color, similar to ticket links"), so it follows every
+// docket write as the title does.
 
 import { getWorkReferences } from '../api'
 import type { WorkReference } from '../workreferences'
 import { refKey, refNames } from './refnames'
+import { ticketFlare } from './docketstatus'
 
 const epochs = new Map<string, number>()
 
@@ -24,7 +30,10 @@ refNames.register({
     for (const [slug, row] of rows) if (row) found.set(refKey('item', slug), row)
     return found
   },
-  name: (_kind, row) => ({ label: (row as WorkReference).title }),
+  name: (_kind, row) => {
+    const flare = ticketFlare(row as WorkReference)
+    return { label: (row as WorkReference).title, ...(flare ? { flare } : {}) }
+  },
 })
 
 /** The org feed's docket frame: every docket write reads the ticket titles on

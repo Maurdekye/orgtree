@@ -1,4 +1,5 @@
-// canvas/refnames.ts — the current name a mention shows, for every kind whose
+// canvas/refnames.ts — the current name a mention shows (and its state flare,
+// itemrefs.ts and docrefs.ts), for every kind whose
 // chip names its target rather than printing its ID: apps and panels (USER
 // 2026-10-27 m449dc0a35cbe), docket items (m7bb9eb904138 "ticket ajd
 // presentation links should renerr ss their full nsme, notmtheir slug"), and any
@@ -18,12 +19,17 @@ import { useMemo, useSyncExternalStore } from 'react'
 import type { RefOutcome } from './reflinks'
 import type { RefKind, TypedRef } from './workrefs'
 
-/** What a chip shows for a target that exists: its name, and the hover text
- *  when the kind's links share one (an Apps row's). */
-export interface RefName { label: string; title?: string }
+/** A state a link shows beside its name: the class that colours its flare,
+ *  and the words its tooltip says (a ticket's status, a presentation unread
+ *  or modified since read). */
+export interface RefFlare { cls: string; tip: string }
+
+/** What a chip shows for a target that exists: its name, the hover text when
+ *  the kind's links share one (an Apps row's), and its state flare. */
+export interface RefName { label: string; title?: string; flare?: RefFlare }
 
 /** One mention, decided by name. */
-export interface RefNameAnswer { outcome: RefOutcome; label?: string; title?: string }
+export interface RefNameAnswer { outcome: RefOutcome; label?: string; title?: string; flare?: RefFlare }
 
 export interface RefNameReader {
   /** the kinds this reader answers for, read together */
@@ -33,8 +39,8 @@ export interface RefNameReader {
   /** the rows of the requested IDs that exist in `org`, keyed `kind:id`.
    *  Throws when the read failed: that is not an answer. */
   read(org: string, ids: { kind: RefKind; id: string }[]): Promise<Map<string, unknown>>
-  /** what the chip shows for one row */
-  name(kind: RefKind, row: unknown): RefName
+  /** what the chip shows for one row of `org` */
+  name(kind: RefKind, row: unknown, org: string): RefName
 }
 
 type Known = { row: unknown } | { absent: true }
@@ -86,7 +92,15 @@ class RefNames {
     const known = this.get(org, ref.kind, ref.id)
     if (!known) return { outcome: 'pending' }
     if ('absent' in known) return { outcome: 'absent' }
-    return { outcome: 'ready', ...reader.name(ref.kind, known.row) }
+    return { outcome: 'ready', ...reader.name(ref.kind, known.row, org) }
+  }
+
+  /** what a reader's name() reads besides its rows changed here (a
+   *  presentation opened in this window): the chips on screen are decided
+   *  again from the answers they have, with no read */
+  touch(): void {
+    this.version++
+    for (const fn of this.subs) fn()
   }
 
   /** a kind changed in `org`: read its kept targets again */

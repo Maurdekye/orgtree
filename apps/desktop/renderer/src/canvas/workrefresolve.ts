@@ -38,7 +38,7 @@ export function useHistoricalWorkReferences(text: string, world: RefWorld, index
     const resolved = new Map(index)
     const titles = new Map(world.itemTitles)
     for (const [id, row] of rows ?? []) if (row) {
-      resolved.set(id, { kind: 'item', slug: id, title: row.title })
+      resolved.set(id, { kind: 'item', slug: id, title: row.title, status: row.status, ...(row.archived ? { archived: true } : {}) })
       titles.set(id, row.title)
     }
     return { index: resolved, world: { ...world, itemTitles: titles,

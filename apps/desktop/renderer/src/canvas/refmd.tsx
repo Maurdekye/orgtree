@@ -31,8 +31,9 @@ import { createNodeLinkEl } from './identity'
 import { objectNavProps } from './objectnav'
 import { mailLinkProps } from './mailidentity'
 import { useEffect, useRef } from 'react'
-import { resolveRef, refToken, scanInlineMentions } from './reflinks'
+import { refChipTitle, resolveRef, refToken, scanInlineMentions } from './reflinks'
 import type { RefOutcome, RefWorld, ResolvedRef } from './reflinks'
+import { ticketFlare } from './docketstatus'
 import { parseRef, scanRefs, splitRefs } from './workrefs'
 import type { MentionRef } from './workrefs'
 import { useContextMenu } from './contextmenu'
@@ -81,7 +82,7 @@ function inSkipped(node: Node): boolean {
 function chipSig(r: ResolvedRef, live: boolean): string {
   return [r.outcome, live ? '1' : '0', r.label, r.why,
     r.tier ?? '', r.atDestination ? '1' : '0', r.copyTitle === undefined ? '0' : '1',
-    r.copyTitle ?? ''].join(' ')
+    r.copyTitle ?? '', r.flare ? `${r.flare.cls}|${r.flare.tip}` : ''].join(' ')
 }
 
 function hubChipSig(address: string): string {
@@ -132,7 +133,7 @@ function chipEl(doc: Document, r: ResolvedRef,
   clickable: boolean): HTMLElement {
   const live = r.outcome === 'ready' && clickable && !r.atDestination
   const cls = `ref-chip ref-${r.ref.kind} ref-${r.outcome}`
-    + (r.atDestination ? ' ref-here' : '')
+    + (r.atDestination ? ' ref-here' : '') + (r.flare ? ` ref-flare ${r.flare.cls}` : '')
   if (r.ref.kind === 'agent' && r.outcome === 'ready') {
     const el = createNodeLinkEl(doc, {
       id: r.ref.id,
@@ -151,9 +152,11 @@ function chipEl(doc: Document, r: ResolvedRef,
   const el: HTMLElement = doc.createElement(live ? 'button' : 'span')
   if (live) (el as HTMLButtonElement).type = 'button'
   el.className = cls
-  if (r.ref.kind === 'doc' && r.outcome === 'ready') el.title = r.label
-  else if (r.ref.kind !== 'item' || r.outcome !== 'ready') el.title = r.why
-  else if (r.copyTitle) el.title = r.copyTitle
+  // a ready ticket or presentation: its title, led by its flare's words
+  if ((r.ref.kind === 'item' || r.ref.kind === 'doc') && r.outcome === 'ready') {
+    const title = refChipTitle(r)
+    if (title) el.title = title
+  } else el.title = r.why
   el.setAttribute(TOK, r.token)
   el.setAttribute(OUT, r.outcome)
   el.setAttribute(SIG, chipSig(r, live))
@@ -291,7 +294,8 @@ function rememberScan(host: HTMLElement, items: Map<string, MentionRef> | null,
  *  (`data-copy-ticket-title`), so a renamed item must rebuild. */
 function mentionSig(ref: MentionRef, live: boolean): string {
   return ['m', live ? '1' : '0',
-    ref.kind === 'item' ? ref.slug : '', ref.kind === 'item' ? ref.title ?? '' : ''].join('|')
+    ref.kind === 'item' ? ref.slug : '', ref.kind === 'item' ? ref.title ?? '' : '',
+    ref.kind === 'item' ? String(ref.status ?? '') : ''].join('|')
 }
 
 /** build one bare-name chip as DOM. Mirrors `WorkRefText`'s item branch;
@@ -301,10 +305,14 @@ function mentionEl(doc: Document, ref: MentionRef,
   const slug = ref.kind === 'item' ? ref.slug : ''
   const live = !!onPick
   const el = doc.createElement(live ? 'button' : 'span')
+  // a live ticket link wears the item's status flare, named in its tooltip
+  // with the title, as `WorkRefText` does (USER 2026-10-27 m43beb8089dd4)
+  const title = live && ref.kind === 'item' && ref.title?.trim() ? ref.title : undefined
+  const flare = live && ref.kind === 'item' ? ticketFlare(ref) : undefined
   if (live) {
     (el as HTMLButtonElement).type = 'button'
-    el.className = 'docket-ref'
-    if (ref.kind === 'item' && ref.title) el.title = ref.title
+    el.className = 'docket-ref' + (flare ? ` ref-flare ${flare.cls}` : '')
+    if (title) el.title = flare ? `${flare.tip} · ${title}` : title
   }
   el.setAttribute(MEN, slug)
   if (live) for (const [key, value] of Object.entries(objectNavProps('ticket', slug, org))) {

@@ -65,7 +65,7 @@ test('ticket opening and context-menu identity remain beside the transition with
     onWorkLink={work => opened.push(work.slug)} />, el => el.textContent ?? '')
   t.after(() => view.unmount())
   await flush()
-  const ticket = view.el.querySelector<HTMLButtonElement>('.tool-ticket')!
+  const ticket = view.el.querySelector<HTMLButtonElement>('.tool-ref .ref-chip.ref-item')!
   assert.ok(ticket)
   assert.equal(ticket.getAttribute('data-object-id'), 'fix-x')
   await inAct(() => ticket.click())

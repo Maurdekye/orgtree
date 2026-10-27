@@ -4966,18 +4966,18 @@ main.solo { width: 100%; }
 }
 /* Docket status styling */
 .docket-status { font-weight: 600; color: var(--docket-status-color, inherit); }
-:is(.docket-status, .tool-ticket, .idle-ticket).status-open { --docket-status-color: var(--ink); }
-:is(.docket-status, .tool-ticket, .idle-ticket).status-in_progress { --docket-status-color: var(--work); }
-:is(.docket-status, .tool-ticket, .idle-ticket).status-blocked { --docket-status-color: var(--bad); }
-:is(.docket-status, .tool-ticket, .idle-ticket).status-review { --docket-status-color: var(--review); }
+:is(.docket-status, .ref-flare).status-open { --docket-status-color: var(--ink); }
+:is(.docket-status, .ref-flare).status-in_progress { --docket-status-color: var(--work); }
+:is(.docket-status, .ref-flare).status-blocked { --docket-status-color: var(--bad); }
+:is(.docket-status, .ref-flare).status-review { --docket-status-color: var(--review); }
 /* `waiting` takes --warn, the band that already marks PENDING things — every
    other declared token is a docket status already, or too near one. */
-:is(.docket-status, .tool-ticket, .idle-ticket).status-waiting { --docket-status-color: var(--warn); }
-:is(.docket-status, .tool-ticket, .idle-ticket).status-approved { --docket-status-color: var(--approved); }
-:is(.docket-status, .tool-ticket, .idle-ticket).status-deploy_ready { --docket-status-color: var(--deploy-ready); }
-:is(.docket-status, .tool-ticket, .idle-ticket).status-backlogged { --docket-status-color: var(--backlog); }
-:is(.docket-status, .tool-ticket, .idle-ticket).status-done { --docket-status-color: var(--ok); }
-:is(.docket-status, .tool-ticket, .idle-ticket).status-superseded, :is(.docket-status, .tool-ticket, .idle-ticket).status-dropped { --docket-status-color: var(--dim); }
+:is(.docket-status, .ref-flare).status-waiting { --docket-status-color: var(--warn); }
+:is(.docket-status, .ref-flare).status-approved { --docket-status-color: var(--approved); }
+:is(.docket-status, .ref-flare).status-deploy_ready { --docket-status-color: var(--deploy-ready); }
+:is(.docket-status, .ref-flare).status-backlogged { --docket-status-color: var(--backlog); }
+:is(.docket-status, .ref-flare).status-done { --docket-status-color: var(--ok); }
+:is(.docket-status, .ref-flare).status-superseded, :is(.docket-status, .ref-flare).status-dropped { --docket-status-color: var(--dim); }
 .docket-status.attention { color: var(--agent-accent-text, var(--accent)); }
 /* a question is answered in the Inbox, so its ticket says so quietly: no
    attention colour, no glow (user 2026-09-30) */
@@ -8572,14 +8572,12 @@ a.doc-chip, a.doc-badge, a.doc-gallery-row { text-decoration: none; }
 .event-values > li + li { margin-top: 5px; }
 .event-unsupported { display: block; color: var(--dim); font-size: 11px; }
 /* the idle-docket reminder's items as ticket cards (events/idledocket.tsx):
-   the docket chip, its title and status on one wrapping line, edged in the
-   status colour like the tool-call ticket chips */
+   the ticket's mention link, which wears its status flare (USER 2026-10-27
+   md478a732e0c0), then the status it recorded, on one wrapping line */
 .idle-items { list-style: none; margin: 3px 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
 .idle-ticket { display: flex; flex-wrap: wrap; align-items: center; gap: 3px 8px; min-width: 0;
-  padding: 3px 8px; border: 1px solid var(--line-soft); border-radius: 5px;
-  box-shadow: inset 3px 0 0 var(--docket-status-color, transparent); font-size: 12px; }
-.idle-ticket-link { flex: none; font-family: var(--mono); }
-.idle-ticket-title { flex: 1 1 140px; min-width: 0; overflow-wrap: anywhere; color: var(--ink); }
+  padding: 3px 8px; border: 1px solid var(--line-soft); border-radius: 5px; font-size: 12px; }
+.idle-ticket > .ref-chip { flex: 0 1 auto; min-width: 0; overflow-wrap: anywhere; }
 .idle-ticket-status { flex: none; font-size: 11px; }
 .idle-ticket-role { flex: 1 0 100%; font-size: 11px; }
 .idle-more { font-size: 11px; margin-top: 2px; }
@@ -9138,13 +9136,25 @@ main:has(> .orgbar.native-header) > .error {
 /* unread presented documents: a card the user has not opened is NEW (full
    accent), one re-presented since they last opened it is UPDATED (the same
    accent, duller). Both clear on open — canvas/docviewed.ts. */
-.doc-chip.doc-new, .doc-badge.doc-new {
+.doc-chip.doc-new, .doc-badge.doc-new, .presentation-chat-card.doc-new {
   background: var(--accent-soft); border-color: var(--accent); color: var(--ink-strong);
 }
-.doc-chip.doc-updated, .doc-badge.doc-updated {
+.doc-chip.doc-updated, .doc-badge.doc-updated, .presentation-chat-card.doc-updated {
   background: color-mix(in srgb, var(--accent-soft) 45%, var(--panel));
   border-color: color-mix(in srgb, var(--accent) 45%, var(--line));
 }
+/* a tool row's presentation card (USER 2026-10-27 mc1c4ab23c4bf "presentation
+   cards should be highlighted if unread or modified") also wears the links'
+   edge; the Presented list's rows, whose edge already marks an HTML
+   presentation, wear the desk badges' dot before the title */
+.presentation-chat-card.doc-new { box-shadow: inset 3px 0 0 var(--accent); }
+.presentation-chat-card.doc-updated { box-shadow: inset 3px 0 0 color-mix(in srgb, var(--accent) 45%, transparent); }
+.doc-gallery-row:is(.doc-new, .doc-updated) .l1 .mfrom::before {
+  /* the title is a flex row: a fixed dot, never squeezed by a long title */
+  content: ''; display: inline-block; flex: none; width: 6px; height: 6px; border-radius: 50%;
+  background: var(--accent); margin-right: 2px; vertical-align: middle;
+}
+.doc-gallery-row.doc-updated .l1 .mfrom::before { opacity: .5; }
 .doc-chip.doc-new::after, .doc-chip.doc-updated::after {
   content: ''; position: absolute; top: -2px; right: -2px;
   width: 7px; height: 7px; border-radius: 50%; background: var(--accent);
@@ -9689,8 +9699,9 @@ main:has(> .orgbar.native-header) > .error {
 .tool-refs { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; margin-left: 6px; vertical-align: middle; }
 .tool-ref-agent { display: inline-flex; align-items: center; gap: 6px; }
 .tool-refs .desk-dog-chip.gone { opacity: 0.55; cursor: default; }
-.tool-refs .tool-ticket { display: inline-flex; align-items: center; gap: 4px; cursor: pointer; }
-.tool-refs .tool-ticket { box-shadow: inset 3px 0 0 var(--docket-status-color, transparent); }
+/* a ticket the call names is the inline mention link itself (USER 2026-10-27
+   m0baa7d0b5a61, mffa2a51ed1b1): no box of its own; a long title wraps */
+.tool-refs .ref-chip.ref-item { min-width: 0; overflow-wrap: anywhere; }
 .tool-refs .tool-ticket-plain { font-family: var(--mono); font-size: 10.5px; }
 .tool-work-transition { display: inline-flex; align-items: baseline; gap: 4px; margin-left: 6px; }
 .tool-model-transition { display: inline-flex; align-items: center; gap: 4px; }
@@ -9973,6 +9984,21 @@ button.ref-chip.ref-chip.ref-ready:is(.ref-item, .ref-doc, .ref-app, .ref-panel)
   color: var(--org-accent, var(--accent)); text-decoration: none;
 }
 .ref-mark svg { width: 1em; height: 1em; }
+/* A LINK'S STATE FLARE (USER 2026-10-27 m43beb8089dd4 "add a flare with the
+   ticket's status as a color, similar to ticket links"; m919f12828686 "unread
+   or modified presentation links should be highlighted in a similar manner as
+   well"): the left edge the tool-call ticket chips used to wear, on a ticket or
+   presentation link to a live target, now one mention link everywhere. A ticket's edge is its docket status
+   colour (the palette above, so it follows the docket in every theme); a
+   presentation's is the accent while unread and the duller accent once it was
+   modified since it was read, as the canvas chips and desk badges mark them.
+   The words are the link's tooltip; a read presentation has none. */
+:is(.ref-chip.ref-chip, .docket-modal .docket-ref.docket-ref).ref-flare {
+  padding-left: 5px;
+  box-shadow: inset 3px 0 0 var(--ref-flare-color, var(--docket-status-color, transparent));
+}
+.ref-flare.doc-new { --ref-flare-color: var(--accent); }
+.ref-flare.doc-updated { --ref-flare-color: color-mix(in srgb, var(--accent) 45%, transparent); }
 .ref-chip.ref-hub { cursor: pointer; }
 .ref-chip.ref-hub.inert, .ref-chip.ref-hub:disabled {
   opacity: .72; cursor: not-allowed; text-decoration: none;

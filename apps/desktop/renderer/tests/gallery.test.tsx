@@ -215,8 +215,9 @@ uiTest('§4b active and retired rows are told apart by CLASS, not by a badge '
     'and the word does not appear in the row either')
   // USER 2026-10-21 06:53Z: the canonical document hover is its full title;
   // the signed retirement distinction remains the secondary/grey row class.
-  assert.equal(past!.getAttribute('title'), 'an older plan')
-  assert.equal(live!.getAttribute('title'), 'a current plan')
+  // An unread row's hover leads with its state (USER 2026-10-27 mc1c4ab23c4bf).
+  for (const [r, title] of [[past!, 'an older plan'], [live!, 'a current plan']] as const)
+    assert.equal(r.getAttribute('title'), r.classList.contains('unread') ? `Unread · ${title}` : title)
 })
 
 uiTest('§4c each entry shows its agent\'s model chip', async (mount) => {

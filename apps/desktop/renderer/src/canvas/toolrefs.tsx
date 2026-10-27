@@ -1,22 +1,28 @@
 import { useEffect, useState } from 'react'
 import type { ReactNode } from 'react'
 import { getWorkReferences } from '../api'
-import { DocketIcon } from '../icons'
 import type { WorkLinkFn } from './shared'
 import { useAgentDirectory } from './identity'
 import { WatchdogLink } from './watchdoglink'
 import type { ToolChip } from '../types'
-import { objectNavProps } from './objectnav'
-import { WorkStatusTransition } from './docketstatus'
+import { WorkStatusTransition, ticketFlare } from './docketstatus'
+import { RefChip, refToken } from './reflinks'
+import type { ResolvedRef } from './reflinks'
 import { liveRevision, onLiveBump } from '../livebus'
 import type { WorkReference } from '../workreferences'
 import { useOrgRecordCursor } from '../recordsession'
 import { HubContactChip } from './agentmentions'
 import { ModelChange } from './modelchange'
 
-/** A docket ticket the call names: a chip that opens it in the docket. The slug
- *  is looked up first; one that does not exist (typo, deleted) stays plain
- *  text, like an unknown agent name gets no link. */
+/** A docket ticket the call names: the SAME LINK an inline mention is (USER
+ *  2026-10-27 m0baa7d0b5a61 "also change these links to look identical to how
+ *  they render inline in a chat", mffa2a51ed1b1 "just use the same link there
+ *  as when rendering a mention"): `RefChip` itself, with the item's current
+ *  full title (m3eb804e5023a) and its status flare, the shared ticket hover and
+ *  menu; the slug until the read answers. The slug is looked up first; one that
+ *  does not exist (typo, deleted) stays plain text, like an unknown agent name
+ *  gets no link. This row's own live read (record cursor and live bumps) keeps
+ *  the title and status current. */
 function TicketRef({ org, id, onOpen }: { org: string; id: string; onOpen?: WorkLinkFn }) {
   const cursor = useOrgRecordCursor(org)
   const key = JSON.stringify([org, id])
@@ -36,14 +42,13 @@ function TicketRef({ org, id, onOpen }: { org: string; id: string; onOpen?: Work
   }, [org, id, cursor])
   const current = settled?.key === key ? settled : null
   if (current?.row === null || !onOpen) return <span className="tool-ticket-plain dim">{id}</span>
-  const status = current?.row?.status
-  return (
-    <button type="button" {...objectNavProps('ticket', id, org)} className={`desk-nav-chip tool-ticket${status ? ` status-${status}` : ''}`}
-      title={current?.row?.title} aria-label={`ticket ${id}`}
-      onClick={() => onOpen({ slug: id } as Parameters<WorkLinkFn>[0])}>
-      <DocketIcon fontSize="inherit" />{id}
-    </button>
-  )
+  const row = current?.row
+  const title = row?.title?.trim() ? row.title : undefined
+  const flare = ticketFlare(row)
+  const ref = { kind: 'item' as const, org, id }
+  const resolved: ResolvedRef = { ref, token: refToken(ref), outcome: 'ready', label: title ?? id,
+    ...(title ? { copyTitle: title } : {}), ...(flare ? { flare } : {}), why: `open the docket item ${id}` }
+  return <RefChip r={resolved} onOpen={() => onOpen({ slug: id } as Parameters<WorkLinkFn>[0])} />
 }
 
 /** The links drawn beside an orgtree tool call: one per agent it names, and a

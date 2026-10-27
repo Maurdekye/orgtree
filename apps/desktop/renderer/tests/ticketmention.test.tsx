@@ -158,7 +158,7 @@ async function surfaceFixture(t: TestContext, org: string, item: WorkItem) {
   const box = view.el.querySelector<HTMLTextAreaElement>('.fake-composer')!
   const surface = (where: 'inside' | 'outside', kind: string): HTMLElement => {
     const selector = kind === 'chip' ? '.ref-chip.ref-item' : kind === 'prose' ? '.docket-ref'
-      : kind === 'tool' ? '.tool-ticket' : kind === 'card' ? 'button.idle-ticket-link' : '.docket-row'
+      : kind === 'tool' ? '.tool-ref .ref-chip.ref-item' : kind === 'card' ? '.idle-ticket button.ref-chip' : '.docket-row'
     const el = view.el.querySelector<HTMLElement>(`.${where} ${selector}`)
     assert.ok(el, `${where} ${kind} surface rendered (${selector})`)
     return el!

@@ -93,9 +93,25 @@ if (typeof window !== 'undefined') {
   })
 }
 
+/** `fn` runs whenever any document is marked viewed, here or in another window */
+export function subscribeDocViewed(fn: () => void): () => void {
+  listeners.add(fn)
+  return () => { listeners.delete(fn) }
+}
+
 /** re-renders the caller whenever any document is marked viewed */
 export function useDocViewedVersion(): number {
-  return useSyncExternalStore(
-    (l) => { listeners.add(l); return () => { listeners.delete(l) } },
-    () => version)
+  return useSyncExternalStore(subscribeDocViewed, () => version)
 }
+
+/** What a presentation's flare and tooltip say (USER 2026-10-27 m919f12828686
+ *  "unread or modified presentation links should be highlighted"): the same
+ *  words on every link, card and hover. */
+export const DOC_UNREAD_WORDS: Record<NonNullable<DocUnread>, string> = {
+  new: 'Unread',
+  updated: 'Modified since you last read it',
+}
+
+/** A hover text: the state first, as a ticket's status leads its title. */
+export const docStateTitle = (unread: DocUnread, title: string): string =>
+  unread ? `${DOC_UNREAD_WORDS[unread]} · ${title}` : title

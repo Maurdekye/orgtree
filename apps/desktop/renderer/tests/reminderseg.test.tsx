@@ -52,8 +52,9 @@ test('an idle-docket wake draws a labelled reminder card with its items', async 
   const card = mounted.el.querySelector('[data-event-variant="reminder.idle_docket"]')!
   assert.match(card.className, /event-reminder/, 'the Reminder family treatment')
   assert.match(card.textContent ?? '', /Docket reminder/, 'the card is labelled')
+  // named by its recorded title (USER 2026-10-27 m3eb804e5023a)
   assert.match(card.textContent ?? '',
-    new RegExp(REMINDER.private.items[0].slug.replace(/[.·[\]]/g, '\\$&')),
+    new RegExp(REMINDER.private.items[0].title.replace(/[.·[\]]/g, '\\$&')),
     'the item it names is on screen')
   assert.match(card.textContent ?? '',
     new RegExp(REMINDER.private.items[0].status.replace(/[.·[\]]/g, '\\$&')),
@@ -133,6 +134,7 @@ test('with no opener the card is inert text, not a dead link', async () => {
     <SegmentList segments={wakeSegments(reminderWith(0), 'text')} profile="operator" slug="orgtree" nid="agent" />, el => el)
   const first = mounted.el.querySelector('.idle-ticket')!
   assert.equal(first.querySelectorAll('button').length, 0)
-  assert.match(first.textContent ?? '', /alpha-ticket/)
+  // named by its recorded title, as the live link is (USER 2026-10-27 m3eb804e5023a)
+  assert.match(first.textContent ?? '', /Alpha ticket title/)
   await mounted.unmount()
 })

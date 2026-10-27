@@ -142,7 +142,7 @@ test('§3 a tool-call ticket chip shows the ticket\'s full title and keeps its s
   const view = await mountView(<ToolChip t={call} slug={slug} nid="author" onWorkLink={noop} />, el => el)
   t.after(() => view.unmount())
   await inAct(tick)
-  const chip = view.el.querySelector<HTMLElement>('.tool-ticket')!
+  const chip = view.el.querySelector<HTMLElement>('.tool-ref .ref-chip.ref-item')!
   assert.equal(chip.textContent, 'Build the docs site from main', 'the title, not the slug build-docs')
   assert.ok(chip.classList.contains('status-in_progress'), 'in its current status colour')
   assert.equal(chip.getAttribute('title'), 'In progress · Build the docs site from main', 'named in its tooltip')
@@ -193,7 +193,7 @@ test('§5 the idle-docket reminder card links the ticket by its recorded title, 
     items: [{ slug: 'build-docs', title: 'Build the docs site from main', status: 'in_progress', role: 'owner' }] }
   const view = await mountView(<IdleDocketCards event={event as never} org={slug} world={{ org: slug }} onOpen={noop} />, el => el)
   t.after(() => view.unmount())
-  const link = view.el.querySelector<HTMLElement>('button.idle-ticket-link')!
+  const link = view.el.querySelector<HTMLElement>('.idle-ticket button.ref-chip')!
   assert.equal(link.textContent, 'Build the docs site from main')
   assert.equal(link.getAttribute('data-object-id'), 'build-docs')
   assert.equal((view.el.textContent ?? '').split('Build the docs site from main').length - 1, 1, 'the title once, not twice')

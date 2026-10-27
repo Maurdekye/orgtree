@@ -36,7 +36,7 @@ import type { ToastFn, TreeNode } from '../types'
 import { CloseIcon, DocIcon } from '../icons'
 import type { LoadedDoc } from './docs'
 import { dismissDoc, HtmlPresentationView, MockupBadge, presentationMenu, useDoc } from './docs'
-import { docUnread, useDocViewedVersion } from './docviewed'
+import { docStateTitle, docUnread, useDocViewedVersion } from './docviewed'
 import { useContextMenu } from './contextmenu'
 import { objectTooltipProps } from './objecttooltip'
 import { PinFrame, raisePinnedModal } from './modalpin'
@@ -571,7 +571,10 @@ function GalleryEntry({ slug, row, children, ...props }: {
 }) {
   useDocViewedVersion()
   const unread = row.evicted ? null : docUnread(slug, row.id, row.at, row.viewed_at)
-  return <div {...props} className={props.className + (unread ? ' unread' : '')}
+  // mail's unread styling, plus a flare that tells unread from modified since
+  // read, named first in the hover (USER 2026-10-27 mc1c4ab23c4bf)
+  return <div {...props} className={props.className + (unread ? ` unread doc-${unread}` : '')}
+    title={docStateTitle(unread, props.title)}
     data-doc-id={row.id} data-doc-unread={unread ?? undefined}>{children}</div>
 }
 

@@ -1,10 +1,8 @@
 import type { ReactNode } from 'react'
 import type { Event } from '../generated/events'
-import { DocketIcon } from '../icons'
-import { objectNavProps } from '../canvas/objectnav'
-import { resolveRef } from '../canvas/reflinks'
+import { RefChip, resolveRef } from '../canvas/reflinks'
 import type { RefWorld, ResolvedRef } from '../canvas/reflinks'
-import { knownStatus, statusLabel } from '../canvas/docketstatus'
+import { knownStatus, statusLabel, ticketFlare } from '../canvas/docketstatus'
 
 type IdleDocket = Extract<Event, { variant: 'reminder.idle_docket' }>
 type IdleItem = IdleDocket['items'][number]
@@ -19,9 +17,12 @@ const ROLE_NOTE: Record<IdleItem['role'], string> = {
   stale_reviewer: 'its reviewer is no longer live: name another',
 }
 
-/** The idle-docket reminder's items as ticket cards. Each is the ticket link
- *  every other surface draws (the same `data-object-*` attributes, so the
- *  one ticket context menu and the hover title come with it), plus the
+/** The idle-docket reminder's items as ticket cards. Each links its ticket
+ *  with the SAME LINK an inline mention is (USER 2026-10-27 md478a732e0c0 "same
+ *  for in the docket reminder message", after m0baa7d0b5a61 / mffa2a51ed1b1):
+ *  `RefChip`, so the one ticket context menu, the hover, the current full title
+ *  and the status flare come with it. Until the surface's name read answers,
+ *  the chip shows the title and status the reminder recorded. The card adds the
  *  status and role the reminder recorded. Built from the typed event, never
  *  from the reminder's text; the text the agent reads is unchanged. */
 export function IdleDocketCards({ event, org, world, onOpen }: {
@@ -32,15 +33,12 @@ export function IdleDocketCards({ event, org, world, onOpen }: {
       const resolved = resolveRef({ kind: 'item', org, id: item.slug }, world ?? { org })
       const status = knownStatus(item.status) ? item.status : null
       const note = ROLE_NOTE[item.role]
-      const label = <><DocketIcon fontSize="inherit" />{item.slug}</>
-      return <li key={item.slug} className={'idle-ticket' + (status ? ' status-' + status : '')} data-idle-item={item.slug}>
-        {resolved.outcome === 'ready' && onOpen && !resolved.atDestination
-          ? <button type="button" {...objectNavProps('ticket', item.slug, org)} data-copy-ticket-title={item.title}
-              className="desk-nav-chip idle-ticket-link" title={item.title}
-              onMouseDown={e => { if (e.button !== 0) e.stopPropagation() }}
-              onClick={e => { e.stopPropagation(); onOpen({ ...resolved, copyTitle: item.title }) }}>{label}</button>
-          : <span className="desk-nav-chip dim idle-ticket-link" data-copy-ticket-title={item.title} title={item.title}>{label}</span>}
-        <span className="idle-ticket-title">{item.title}</span>
+      const flare = resolved.flare ?? ticketFlare(item)
+      const named = resolved.copyTitle ?? (item.title || undefined)
+      const r: ResolvedRef = resolved.outcome !== 'ready' ? resolved
+        : { ...resolved, label: named ?? resolved.label, ...(named ? { copyTitle: named } : {}), ...(flare ? { flare } : {}) }
+      return <li key={item.slug} className="idle-ticket" data-idle-item={item.slug}>
+        <RefChip r={r} onOpen={onOpen} />
         <span className={'docket-status idle-ticket-status' + (status ? ' status-' + status : '')}>{statusLabel(item.status)}</span>
         {note && <span className="idle-ticket-role dim">{note}</span>}
       </li>
