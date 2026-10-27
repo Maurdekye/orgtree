@@ -15,6 +15,18 @@ const APP_META:&str="jsonb_build_object('id',a.id,'origin',a.origin,'name',a.nam
 // creation order (USER 2026-10-26 "newest first", "Fixed order").
 const PANEL_META:&str="jsonb_build_object('id',p.id,'app',p.app_id,'label',p.label,'rev',p.rev,'open',p.is_open,'running',p.is_running,'run_generation',p.run_generation,'placement',p.placement,'created_at',p.created_at,'updated_at',p.updated_at,'used_at',p.used_at,'event_seq',p.event_seq)";
 
+/// The desktop may explicitly choose the same closed/off creation path as an
+/// agent. A closed request never reuses or stops an existing copy.
+#[derive(Debug,PartialEq)]
+pub(super) enum PanelOpenMode { Show { fresh:bool }, CreateClosed }
+#[nolog]
+pub(super) fn panel_open_mode(agent:bool,closed:bool,fresh:bool,existing:bool)->Result<PanelOpenMode>{
+    if agent&&existing{crate::refuse!(Forbidden,"only the user may open an app window; use panel_get for an existing copy or panel_open with app to create a closed copy");}
+    if closed&&existing{crate::refuse!(BadRequest,"closed creates a new copy; leave panel out");}
+    if fresh&&existing{crate::refuse!(BadRequest,"new and panel are mutually exclusive");}
+    Ok(if agent||closed{PanelOpenMode::CreateClosed}else{PanelOpenMode::Show{fresh}})
+}
+
 #[nolog]
 pub(crate) async fn file_authority(engine:&Arc<Engine>,org:&Arc<OrgHandle>,caller:&Caller)->Result<()> {
     let mut client=engine.db.get().await?;let tx=client.transaction().await?;authorize(&tx,org.id,Some(caller)).await?;tx.commit().await?;Ok(())
@@ -302,11 +314,10 @@ pub(crate) async fn run_locked(engine:&Arc<Engine>,org:&Arc<OrgHandle>,caller:Op
             super::events::invalidate(&tx,org.id,&id,None,None).await?;
             tx.execute("DELETE FROM ot.custom_apps WHERE org_id=$1 AND id=$2",&[&org.id,&id]).await?;changed=true;json!({"deleted":id})
         }
-        Request::PanelOpen{app:app_id,panel:panel_id,new,label,slug}=>{
+        Request::PanelOpen{app:app_id,panel:panel_id,new,closed,label,slug}=>{
             // a slug names a new copy (wire::parse refuses it beside panel)
-            let new=new||slug.is_some();
-            if caller.is_some()&&panel_id.is_some(){crate::refuse!(Forbidden,"only the user may open an app window; use panel_get for an existing copy or panel_open with app to create a closed copy");}
-            if new && panel_id.is_some(){crate::refuse!(BadRequest,"new and panel are mutually exclusive");}
+            let mode=panel_open_mode(caller.is_some(),closed,new||slug.is_some(),panel_id.is_some())?;
+            let opens=matches!(mode,PanelOpenMode::Show{..});
             let id=if let Some(ref panel_id)=panel_id{
                 let row=tx.query_opt("SELECT app_id FROM ot.custom_panels WHERE org_id=$1 AND id=$2",&[&org.id,panel_id]).await?;
                 let Some(row)=row else{crate::refuse!(NotFound,"saved panel not found");};let actual:String=row.get(0);
@@ -314,7 +325,7 @@ pub(crate) async fn run_locked(engine:&Arc<Engine>,org:&Arc<OrgHandle>,caller:Op
             }else{app_id.ok_or_else(||crate::domain::UserError::BadRequest("open requires app or panel".into()))?};
             let a=app(&tx,org.id,&id,true,true).await?;
             // Provisional mockup default: opening an app reuses its last panel.
-            let existing=if let Some(pid)=panel_id{Some(pid)}else if !new&&caller.is_none(){
+            let existing=if let Some(pid)=panel_id{Some(pid)}else if matches!(mode,PanelOpenMode::Show{fresh:false}){
                 tx.query_opt("SELECT id FROM ot.custom_panels WHERE org_id=$1 AND app_id=$2 ORDER BY used_at DESC,id DESC LIMIT 1",&[&org.id,&id]).await?.map(|r|r.get::<_,String>(0))
             }else{None};
             // Opening starts a stopped copy; showing a hidden running copy reveals
@@ -324,7 +335,7 @@ pub(crate) async fn run_locked(engine:&Arc<Engine>,org:&Arc<OrgHandle>,caller:Op
                 if !running{super::runtime::can_start(&tx,org.id).await?;}
                 tx.execute("UPDATE ot.custom_panels SET is_open=true,is_running=true,run_generation=run_generation+(NOT is_running)::int,used_at=now(),updated_at=now(),rev=rev+1 WHERE org_id=$1 AND id=$2",&[&org.id,&pid]).await?;(pid,!running)
             }else{
-                if caller.is_none(){super::runtime::can_start(&tx,org.id).await?;}
+                if opens{super::runtime::can_start(&tx,org.id).await?;}
                 let def:Definition=serde_json::from_value(a["definition"].clone())?;
                 // "Panel N", never the app's name (user 2026-10-26). The app row
                 // lock above serializes numbering; existing labels never change.
@@ -334,7 +345,7 @@ pub(crate) async fn run_locked(engine:&Arc<Engine>,org:&Arc<OrgHandle>,caller:Op
                 }};wire::text(&label,120,"panel label",false)?;
                 let placement=serde_json::to_value(Placement{width:def.width,height:def.height,..Placement::default()})?;
                 // the slug asked for, else its app's slug and label (migration 0075)
-                let pid:String=tx.query_one("INSERT INTO ot.custom_panels(org_id,id,app_id,label,state,placement,is_open,is_running) VALUES($1,$2,$3,$4,$5,$6,$7,$7) RETURNING id",&[&org.id,&slug,&id,&label,&def.initial_state,&placement,&caller.is_none()]).await?.get(0);(pid,caller.is_none())
+                let pid:String=tx.query_one("INSERT INTO ot.custom_panels(org_id,id,app_id,label,state,placement,is_open,is_running) VALUES($1,$2,$3,$4,$5,$6,$7,$7) RETURNING id",&[&org.id,&slug,&id,&label,&def.initial_state,&placement,&opens]).await?.get(0);(pid,opens)
             };
             // Opening a stopped copy starts it (user 2026-10-26 mcbcd7b3cb6c0); showing
             // a running one and an agent's closed copy record nothing.

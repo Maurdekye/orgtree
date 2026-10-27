@@ -35,6 +35,31 @@ pub use storage::run;
 
 #[cfg(test)] mod new_apps_control {
     use serde_json::json;
+    #[test] fn custom_apps_panel_open_closed_uses_agent_creation_without_show_or_start(){
+        use super::{storage::{panel_open_mode,PanelOpenMode},wire::{parse,Request}};
+        // Exercise the actual wire defaults and the planner used by the store:
+        // Show permits reuse/start; CreateClosed only inserts open=running=false.
+        let mode=|input,agent|{
+            let Request::PanelOpen{closed,new,slug,panel,..}=parse(&input).unwrap() else{panic!("panel_open")};
+            panel_open_mode(agent,closed,new||slug.is_some(),panel.is_some())
+        };
+        assert_eq!(mode(json!({"action":"panel_open","app":"notes"}),false).unwrap(),PanelOpenMode::Show{fresh:false});
+        assert_eq!(mode(json!({"action":"panel_open","app":"notes","closed":false}),false).unwrap(),PanelOpenMode::Show{fresh:false});
+        for input in [json!({"action":"panel_open","app":"notes","new":true}),json!({"action":"panel_open","app":"notes","slug":"desk"})]{
+            assert_eq!(mode(input,false).unwrap(),PanelOpenMode::Show{fresh:true});
+        }
+        for agent in [false,true]{
+            for new in [false,true]{
+                assert_eq!(mode(json!({"action":"panel_open","app":"notes","closed":true,"new":new}),agent).unwrap(),PanelOpenMode::CreateClosed);
+            }
+        }
+        assert_eq!(mode(json!({"action":"panel_open","app":"notes"}),true).unwrap(),PanelOpenMode::CreateClosed);
+        assert_eq!(mode(json!({"action":"panel_open","panel":"existing"}),false).unwrap(),PanelOpenMode::Show{fresh:false});
+        assert!(mode(json!({"action":"panel_open","panel":"existing","closed":true}),false).is_err(),"closed never modifies an existing copy");
+        assert!(mode(json!({"action":"panel_open","panel":"existing"}),true).is_err(),"agents cannot show existing copies");
+        assert!(mode(json!({"action":"panel_open","panel":"existing","new":true}),false).is_err());
+        assert!(parse(&json!({"action":"panel_open","app":"notes","closed":"true"})).is_err(),"flag is a boolean");
+    }
     #[test] fn custom_apps_seen_is_explicit_bounded_and_not_an_authority_grant(){
         assert!(super::wire::parse(&json!({"action":"mark_seen","apps":["app-one","app-two"]})).is_ok());
         for apps in [json!([]),json!(["same","same"]),json!([""]),json!(vec!["x";201])]{assert!(super::wire::parse(&json!({"action":"mark_seen","apps":apps})).is_err());}

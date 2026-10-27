@@ -130,7 +130,9 @@ pub enum Request {
     AppUpdate { app:String, expected_rev:i64, definition:Definition },
     AppDelete { app:String, expected_rev:i64, #[serde(default)] delete_panels:bool },
     /// slug: the id asked for a NEW copy; without one its app and label make it.
-    PanelOpen { app:Option<String>, panel:Option<String>, #[serde(default)] new:bool, label:Option<String>, #[serde(default)] slug:Option<String> },
+    /// closed creates a fresh powered-off copy, also for the desktop. Omitted
+    /// preserves the desktop's show/start default; agents always create closed.
+    PanelOpen { app:Option<String>, panel:Option<String>, #[serde(default)] new:bool, #[serde(default)] closed:bool, label:Option<String>, #[serde(default)] slug:Option<String> },
     PanelGet { panel:String },
     PanelUpdate { panel:String, expected_rev:i64, label:Option<String>, open:Option<bool>, placement:Option<Placement> },
     PanelDuplicate { panel:String, expected_rev:i64 },

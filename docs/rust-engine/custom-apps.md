@@ -135,6 +135,11 @@ App-origin content still has no user instruction or approval authority.
 
 Agent panel_open with an app ID always creates a fresh CLOSED saved panel;
 panel-ID reopen and panel_update open:true refuse. Agent duplicates stay closed.
+The desktop may also request `panel_open {app, closed:true}` to make a fresh
+closed, powered-off copy through that same insertion path. It never reuses an
+existing panel, passes the running-capacity gate or records panel.started.
+`closed` defaults to false, preserving desktop click/+ show-and-start behavior;
+`closed:true` with `panel` refuses instead of changing an existing copy.
 Placement edits may change a closed copy but cannot expose/move an already-open
 window. Only user UI opens windows. State and events remain usable while
 closed. Agents may start any copy running hidden and power it off (panel_start,
