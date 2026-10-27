@@ -99,7 +99,11 @@ a new slot before it continues. Recent holds show `frozen`, `halted`,
 `moved out of the project`, `turn ended abnormally` or
 `engine restarted during its turn` as the end reason. A frozen or halted
 claimant waiting in line is passed over until it can run again, and keeps its
-place. This replaces waiting for the checkup, which never reaches a frozen,
+place. An agent that **moves out of a project** also loses its WAITING claim in that
+project's line (the line goes on without it) and has its queue listener there
+**paused**, not removed; moving back resumes nothing by itself, so the agent claims
+again and resumes the listener when it needs them. The same one notice names them.
+This replaces waiting for the checkup, which never reaches a frozen,
 halted or mid-turn agent: an **idle** holder that can run still has the
 project's Ack timeout and reminders (20-minute checkups, count 1-10, default 3).
 

@@ -68,7 +68,9 @@ A frozen, halted or moved-out holder, and a holder whose turn died (anything but
 manual interrupt or ending its own turn), also loses every lease and un-acked mail job
 at once; its next turn gets one notice naming what was released, and the next waiter is
 granted in FIFO order. A claimant that is frozen or halted is passed over in the line and
-keeps its place. Recent holds' end reasons then read `frozen`, `halted`,
+keeps its place. An agent that moved out of the project also loses its WAITING claim there
+(removed from the line) and has its queue listener there paused; the same notice names them,
+and moving back resumes nothing: claim again, and resume the listener with the watchdog tool. Recent holds' end reasons then read `frozen`, `halted`,
 `moved out of the project` or `turn ended abnormally`.
 
 ```json

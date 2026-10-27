@@ -28,7 +28,8 @@ substitute for normal release or proof that a compiler/process tree stopped.
 
 A holder that is frozen by a usage limit, halted, moved out of the project or whose
 turn died also loses its lease at once, and its next turn is told which leases were
-released: claim again before continuing the build. A manual interrupt or ending your
+released: claim again before continuing the build. An agent that moved out of the
+project also loses its waiting claim there and has its queue listener paused. A manual interrupt or ending your
 own turn does not release; release normally, because an idle holder is reclaimed only
 after the project's Ack reminders. See
 [concurrency primitives](../concurrency-primitives/SKILL.md).

@@ -49,8 +49,18 @@ returns jobs `was halted`, `was frozen by a usage limit` or `moved out of the pr
 event-driven (`holdings::release_after_death`) runs at `Actor::end_turn` and in
 `runtime::recover` for agents whose turn the engine cut. A move runs
 `holdings::after_move` after commit for the moved node and its whole subtree
-(`Effects.moved`), rechecking every project where one of them holds a lease or job and
-every moved project. `holdings::died` decides which turn ends count: not interrupted,
+(`Effects.moved`), rechecking every project where one of them holds a lease or job,
+waits in the slot line or listens on the queue, and every project that moved. For each,
+`drop_unreached_dogs` first removes the WAITING `slot` claims (state `removed`, reason
+"removed from the line: its owner moved out of the project") and pauses the armed
+`fair_queue` listeners (state `paused`, `paused_why` "its owner moved out of the project;
+resume it when it should listen again") of owners that no longer reach the project, under
+the project row lock; then `slots::check` and `projects::dispatch` run as above. The pass
+runs inside a task-local notice batch (`holdings::BATCH`): `holdings::tell` collects instead
+of sending, so a mover that lost a lease, a job, a claim and a listener reads ONE notice
+(`holdings::notice_body`) when the pass ends. A paused listener is not re-armed by moving
+back (`resume_owned` re-arms only archive pauses): the owner resumes it, and a removed claim
+is simply claimed again (admission counts only armed and paused claims). `holdings::died` decides which turn ends count: not interrupted,
 not a compaction, and a `limit`, a freeze record, `session_ended` or an `error`. That
 covers the idle watchdog and time limit, a CLI exit, provider and harness errors, a
 context-overflow retry, the user's Windows session ending and a freeze; an engine restart
@@ -61,9 +71,11 @@ attempt and dead-letter rules unchanged), commits, then runs `slots::grant` (str
 `projects::dispatch`, and sends ONE passive System notice naming every lease and job, which
 rides the holder's next turn (`holdings::notice_body`). A frozen or halted claimant in the line
 (`slots::grant_in`) or ack hand-out (`projects::hand_batch`) is skipped, keeps its place, and
-thaw or unhalt rechecks it. Not covered: the org's Stop all (a manual stop, leases stay held);
-waiting claims and listener dogs of an agent that moved out are left as they were.
-[decided: user 2026-10-27 16:15:14Z m739ebe27c924, 16:17:09Z mc608eb4330a0, 16:18:01Z mea799ba1df7c;
+thaw or unhalt rechecks it. Not covered: the org's Stop all (a manual stop, leases stay held; user 2026-10-27
+18:01:13Z m603e6114476e, "Keep slots"). A job released after a dead turn goes back to the
+queue's plain FIFO and may reach the same listener again (same answer, "Plain FIFO").
+[decided: user 2026-10-27 16:15:14Z m739ebe27c924, 16:17:09Z mc608eb4330a0, 16:18:01Z mea799ba1df7c,
+18:01:13Z m603e6114476e (moved out: "Drop both");
 verified: `domain/{holdings,slots,projects,ops}.rs`, `runtime/{actor,freeze,mod}.rs`,
 `org_accounts.rs`; disposable-PG tests `domain::holdings`, red control at base]
 
