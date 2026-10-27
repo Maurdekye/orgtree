@@ -17,6 +17,10 @@ export const createdAt=(x:{created_at?:string}):number=>(x.created_at&&Date.pars
 const newestFirst=<T extends {id:string;created_at?:string}>(items:T[]):T[]=>[...items].sort((a,b)=>createdAt(b)-createdAt(a)||(a.id<b.id?1:a.id>b.id?-1:0))
 function publish(s:Store,next:Partial<Snapshot>){if(next.apps)next={...next,apps:newestFirst(next.apps)};s.snapshot={...s.snapshot,...next};for(const fn of s.subs)fn()}
 const merge=<T extends {id:string}>(old:T[],items:T[]):T[]=>[...new Map([...old,...items].map(x=>[x.id,x])).values()]
+/** A read begun before a write can answer after it: a panel is never replaced
+ *  by an older revision of itself (the same creation), or a dropped window pin
+ *  would jump back to where its drag began (user 2026-10-27 m061e2860fd9b). */
+const newer=(current:CustomPanel[],items:CustomPanel[]):CustomPanel[]=>{const now=new Map(current.map(p=>[p.id,p]));return items.map(p=>{const c=now.get(p.id);return c&&c.rev>p.rev&&(c.created_at??'')===(p.created_at??'')?c:p})}
 /** Execution intent; older payloads without it ran exactly while open. */
 export const isRunning=(p:Pick<CustomPanel,'open'|'running'>):boolean=>p.running??p.open
 export function useApps(slug:string):Snapshot {const s=store(slug);return useSyncExternalStore(fn=>{s.subs.add(fn);return()=>s.subs.delete(fn)},()=>s.snapshot)}
@@ -58,7 +62,7 @@ export async function refreshApps(slug:string):Promise<void>{
     // Keep explicitly loaded stopped panels for the menu, drop stale running rows.
     // A read begun before an acknowledgement must not resurrect its badge.
     if(epoch!==s.seenEpoch){s.pending=true;return}
-    publish(s,{apps:apps.items,panels:merge(s.snapshot.panels.filter(p=>!isRunning(p)),panels),appNext:apps.next_cursor,newCount:apps.new_count??0,error:'',loaded:true})
+    publish(s,{apps:apps.items,panels:merge(s.snapshot.panels.filter(p=>!isRunning(p)),newer(s.snapshot.panels,panels)),appNext:apps.next_cursor,newCount:apps.new_count??0,error:'',loaded:true})
   }catch(error){publish(s,{error:String(error)})}finally{publish(s,{loading:false});s.running=null;if(s.pending&&s.active){s.pending=false;void refreshApps(slug)}}})()
   return s.running
 }
@@ -67,7 +71,7 @@ export async function loadAppsMenu(slug:string,more:'apps'|'panels'|null=null):P
   try{
     // The apps of running panels stay listed even beyond the first page; publish orders the list.
     if(more!=='panels'){const epoch=s.seenEpoch,page=await customAppsRequest<AppPage<CustomApp>>(slug,{action:'list',kind:'apps',...(more==='apps'&&s.snapshot.appNext?{after:s.snapshot.appNext}:{})});if(epoch!==s.seenEpoch){void refreshApps(slug);return}publish(s,{apps:merge(more==='apps'?s.snapshot.apps:s.snapshot.apps.filter(a=>s.snapshot.panels.some(p=>isRunning(p)&&p.app===a.id)),page.items),appNext:page.next_cursor,newCount:page.new_count??0})}
-    if(more!=='apps'){const page=await customAppsRequest<AppPage<CustomPanel>>(slug,{action:'list',kind:'panels',...(more==='panels'&&s.snapshot.panelNext?{after:s.snapshot.panelNext}:{})});publish(s,{panels:merge(more==='panels'?s.snapshot.panels:s.snapshot.panels.filter(p=>isRunning(p)),page.items),panelNext:page.next_cursor})}
+    if(more!=='apps'){const page=await customAppsRequest<AppPage<CustomPanel>>(slug,{action:'list',kind:'panels',...(more==='panels'&&s.snapshot.panelNext?{after:s.snapshot.panelNext}:{})});publish(s,{panels:merge(more==='panels'?s.snapshot.panels:s.snapshot.panels.filter(p=>isRunning(p)),newer(s.snapshot.panels,page.items)),panelNext:page.next_cursor})}
   }catch(error){publish(s,{error:String(error)})}
 }
 export async function markAppsSeen(slug:string,apps:string[]):Promise<void>{
@@ -82,7 +86,7 @@ export async function changeApps<T=CustomPanel>(slug:string,input:Record<string,
   const result=await customAppsRequest<T>(slug,input);const s=store(slug)
   if(input.action==='panel_delete'){publish(s,{panels:s.snapshot.panels.filter(p=>p.id!==input.panel)})}
   else if(input.action==='app_delete'){publish(s,{apps:s.snapshot.apps.filter(a=>a.id!==input.app),panels:s.snapshot.panels.filter(p=>p.app!==input.app)})}
-  else if(result&&typeof result==='object'&&'id' in result&&'app' in result){publish(s,{panels:merge(s.snapshot.panels,[{...result as unknown as CustomPanel,state:undefined}])})}
+  else if(result&&typeof result==='object'&&'id' in result&&'app' in result){publish(s,{panels:merge(s.snapshot.panels,newer(s.snapshot.panels,[{...result as unknown as CustomPanel,state:undefined}]))})}
   else if(result&&typeof result==='object'&&'id' in result&&'capabilities' in result){publish(s,{apps:merge(s.snapshot.apps,[result as unknown as CustomApp])})}
   if(['event','app_create','app_import','app_delete'].includes(String(input.action)))void refreshApps(slug)
   return result

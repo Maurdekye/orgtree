@@ -148,6 +148,8 @@ function PanelBody({slug,app,panel,shown,behind,layer,frame,motion}:{slug:string
   useLayoutEffect(()=>{frame.current?.toggleAttribute('inert',stopping)},[frame,stopping])
   const latest=useRef(panel);latest.current=panel
   const drag=useRef<{x:number;y:number;placement:AppPlacement;kind:'move'|'size'}|null>(null),[preview,setPreview]=useState<AppPlacement|null>(null),[free,setFree]=useState(false)
+  // a released drop on screen until its save commits: the revision that commits it, once known (`end`)
+  const held=useRef<{rev:number}|null>(null)
   const update=async(fields:Record<string,unknown>)=>{try{setError('');return await changeApps<CustomPanel>(slug,{action:'panel_update',panel:panel.id,expected_rev:latest.current.rev,...fields})}catch(e){setError(String(e));throw e}}
   // Hide closes the window and keeps the panel running; a popped-out window is
   // hidden natively, so its document and scripts survive. Power off stops it.
@@ -183,10 +185,20 @@ function PanelBody({slug,app,panel,shown,behind,layer,frame,motion}:{slug:string
   const move=(event:ReactPointerEvent<HTMLElement>)=>{const d=drag.current;if(!d)return;event.stopPropagation();setFree(event.shiftKey);setPreview(gesture(d,event))}
   // One commit per gesture, from where the pointer ended; a window pin is
   // clamped into the canvas area and snapped, as pinned desks are.
-  const end=(event:ReactPointerEvent<HTMLElement>)=>{const d=drag.current;if(!d)return;drag.current=null;setPreview(null);if(Math.hypot(event.clientX-d.x,event.clientY-d.y)<3)return
-    const g=gesture(d,event);if(!layer){void update({placement:g}).catch(()=>{});return}
-    const r=windowRect(g,layer.bounds),f=snap(r,d.kind,event.shiftKey)?.rect??r
-    void update({placement:{...g,x:Math.round(f.x),y:Math.round(f.y),width:Math.round(f.w),height:Math.round(f.h)}}).catch(()=>{})}
+  // ⚠ THE DROP IS HELD ON SCREEN UNTIL IT IS COMMITTED (user 2026-10-27
+  // m061e2860fd9b: "it briefly flickers back to its initial pre-drag positon
+  // for 1 frame before settling in the new location"). Clearing the preview on
+  // release painted the panel at its old placement for as long as the save was
+  // in flight. The held geometry ends when this drop's own save has answered and
+  // the panel carries that revision; a refused drop goes back where it was.
+  const end=(event:ReactPointerEvent<HTMLElement>)=>{const d=drag.current;if(!d)return;drag.current=null;if(Math.hypot(event.clientX-d.x,event.clientY-d.y)<3){setPreview(null);return}
+    const g=gesture(d,event),r=layer?windowRect(g,layer.bounds):null,f=r&&layer?snap(r,d.kind,event.shiftKey)?.rect??r:null
+    const placement=f?{...g,x:Math.round(f.x),y:Math.round(f.y),width:Math.round(f.w),height:Math.round(f.h)}:g
+    const hold={rev:Infinity};held.current=hold;setPreview(placement)
+    const done=()=>{if(held.current===hold){held.current=null;setPreview(null)}}
+    void update({placement}).then(saved=>{hold.rev=saved?.rev??-Infinity;if(latest.current.rev>=hold.rev)done()},done)}
+  // the committed revision replaces the held drop before the next paint
+  useLayoutEffect(()=>{const hold=held.current;if(hold&&panel.rev>=hold.rev){held.current=null;setPreview(null)}},[panel.rev])
   return <><section ref={frame} className="settings custom-app-window" data-custom-panel={panel.id} data-motion={motion} data-parked={!shown||undefined} data-detached={surface?.detached||undefined} data-centered={panel.placement.mode==='float'&&!surface?.detached||undefined} data-pinned={!!rect||undefined} style={style} onPointerDownCapture={layer?()=>raisePinSurface(layer.key):undefined} onPointerDown={e=>e.stopPropagation()} onWheel={e=>e.stopPropagation()} onKeyDown={e=>e.stopPropagation()}>
     <header className="modalpin-bar on custom-app-title" onPointerDown={e=>start(e,'move')} onPointerMove={move} onPointerUp={end} onPointerCancel={()=>{drag.current=null;setPreview(null)}}>
       <AppsIcon/><strong className="modalpin-name" title={app.name+' · '+panel.label}>{app.name} · {panel.label}</strong>
