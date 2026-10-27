@@ -82,6 +82,9 @@
 /* the Permissions tab body keeps the settings panel's 14px column rhythm it had as a dialog */
 .custom-app-permissions { display:flex;flex-direction:column;gap:14px }
 .custom-app-permission-row small { display:block;color:var(--dim);font-size:11px }
+.custom-app-permission-history { margin:0;padding:0;list-style:none;display:flex;flex-direction:column;gap:6px;max-height:260px;overflow:auto }
+.custom-app-permission-history li { display:flex;flex-direction:column;gap:2px;overflow-wrap:anywhere }
+.custom-app-permission-history small { color:var(--dim);font-size:11px }
 .custom-app-file-picker { display:flex;flex-direction:column;gap:8px;min-width:0 }
 .custom-app-file-picker form { display:flex;gap:6px;align-items:end;flex-wrap:wrap }
 .custom-app-file-picker form label { display:flex;flex:1;min-width:180px;flex-direction:column;gap:4px }

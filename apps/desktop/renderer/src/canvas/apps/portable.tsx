@@ -15,10 +15,12 @@ export function parseAppBundle(raw:string):AppBundle {
   const value:unknown=JSON.parse(raw)
   if(!object(value)||value.format!=='orgtree-app'||value.version!==1||!object(value.definition))throw Error('Expected an orgtree-app version 1 bundle.')
   keys(value,['format','version','definition','panels']);const def=value.definition
-  keys(def,['name','description','html','initial_state','capabilities','events','width','height'])
+  keys(def,['name','description','html','initial_state','capabilities','events','sites','width','height'])
   if(!text(def.name,120)||typeof def.html!=='string'||!def.html.trim()||new TextEncoder().encode(def.html).length>4*1024*1024)throw Error('App needs a name and HTML up to 4 MiB.')
   if(def.description!==undefined&&(typeof def.description!=='string'||[...def.description].length>1000||/[\x00-\x1f\x7f]/.test(def.description)))throw Error('Invalid app description.')
-  if(def.capabilities!==undefined&&(!Array.isArray(def.capabilities)||def.capabilities.length>6||new Set(def.capabilities).size!==def.capabilities.length||def.capabilities.some(c=>!['org.read','mail.send','docket.write','events.fire','files.read','files.write'].includes(c))))throw Error('Unknown or duplicate app capability.')
+  if(def.capabilities!==undefined&&(!Array.isArray(def.capabilities)||def.capabilities.length>7||new Set(def.capabilities).size!==def.capabilities.length||def.capabilities.some(c=>!['org.read','mail.send','docket.write','events.fire','files.read','files.write','net.fetch'].includes(c))))throw Error('Unknown or duplicate app capability.')
+  // Declared internet sites are inert until the user allows them; the engine checks their syntax.
+  if(def.sites!==undefined&&(!Array.isArray(def.sites)||def.sites.length>32||new Set(def.sites).size!==def.sites.length||def.sites.some(s=>typeof s!=='string'||!s||s.length>255)))throw Error('An app declares at most 32 unique internet sites.')
   if(def.events!==undefined){
     if(!Array.isArray(def.events)||def.events.length>64)throw Error('At most 64 declared app events.')
     const seen=new Set<string>()
@@ -55,6 +57,7 @@ export function AppImport({slug,bundle,close}:{slug:string;bundle:AppBundle;clos
   return <><p>Name: <b>{bundle.definition.name}</b></p>{description&&<p>{description}</p>}
     <p>Apps imported from outside this org have full access to it and its state. Be careful importing apps from untrustworthy sources. Saved copies stay closed until you open them. Importing does not run the app.</p>
     <p>The app still asks before reading or changing files outside this org, such as a chosen folder or the whole computer.</p>
+    {!!bundle.definition.sites?.length&&<p>It asks before connecting to the internet{bundle.definition.sites.includes('*')?', and it asks to reach any site':''}: {bundle.definition.sites.map(s=>s==='*'?'any site':s).join(', ')}.</p>}
     <p>{copies===0?'No saved copies':copies===1?'1 saved copy':`${copies} saved copies`}. IDs and permissions from another org are not retained.</p>
     {!!bundle.panels?.length&&<ul className="custom-app-import-copies">{bundle.panels.map((p,i)=><li key={i}>{p.label}</li>)}</ul>}
     {error&&<p role="alert">{error}</p>}

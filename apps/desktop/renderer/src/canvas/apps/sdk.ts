@@ -2,6 +2,8 @@
 // arbitrary endpoint, caller identity or permission-decision method is exposed.
 // Dedicated Workers may run locally built blob: scripts (user 2026-10-26:
 // game-like background work); they inherit this policy, so no network either.
+// Internet access (USER 2026-10-26 m95c57abc95fb) never opens this policy:
+// orgtree.net.fetch asks the engine, which makes the request for the app.
 export const PANEL_PROTOCOL = 'orgtree-panel-v1'
 export const PANEL_CSP = "default-src 'none'; script-src 'unsafe-inline' data:; style-src 'unsafe-inline' data:; img-src data: blob:; media-src data: blob:; font-src data:; connect-src 'none'; frame-src 'none'; worker-src blob:; object-src 'none'; base-uri 'none'; form-action 'none'"
 export interface PanelRequest {id:string;method:string;args:unknown}
@@ -30,7 +32,14 @@ const p=pending.get(d.id);if(!p)return;pending.delete(d.id);clearTimeout(p.timer
 const state=Object.freeze({get:()=>call('state.get'),set:value=>call('state.set',value),patch:value=>call('state.patch',value),onChange:fn=>on('state.changed',fn)});
 const storage=Object.freeze({getItem:async key=>{const s=await state.get();return Object.prototype.hasOwnProperty.call(s,key)?s[key]:null},setItem:async(key,value)=>{const s=await state.get();Object.defineProperty(s,String(key),{value,writable:true,enumerable:true,configurable:true});return state.set(s)},removeItem:key=>state.patch({[String(key)]:null}),clear:()=>state.set({})});
 const files=Object.freeze({choose:()=>call('files.call',{action:'choose'}),open:(root,path)=>call('files.call',{action:'open',root,path}),read:(file,options={})=>call('files.call',{action:'read',file,offset:options.offset,limit:options.limit}),media:file=>call('files.call',{action:'media',file}),roots:()=>call('files.call',{action:'roots'}),grant:(scope,mode='read')=>call('files.call',{action:'grant',scope,mode}),list:(directory,options={})=>call('files.call',{action:'list',directory,after:options.after,limit:options.limit}),collection:(root,options={})=>call('files.call',{action:'list',root,after:options.after,limit:options.limit}),child:(directory,path)=>call('files.call',{action:'child',directory,path}),write:(directory,name,base64,options={})=>call('files.call',{action:'write',directory,name,base64,replace:options.replace??false}),delete:file=>call('files.call',{action:'delete',file})});
-Object.defineProperty(window,'orgtree',{value:Object.freeze({version:1,state,storage,files,on,events:Object.freeze({fire:(name,payload)=>call('engine.call',{action:'events.fire',args:{name,payload}})}),emit:(name,payload)=>call('event.emit',{name,payload}),call:(action,args)=>call('engine.call',{action,args})}),writable:false,configurable:false});
+const b64=bytes=>{let s='';for(let i=0;i<bytes.length;i+=32768)s+=String.fromCharCode.apply(null,bytes.subarray(i,i+32768));return btoa(s)};
+const unb64=text=>{const raw=atob(text),out=new Uint8Array(raw.length);for(let i=0;i<raw.length;i++)out[i]=raw.charCodeAt(i);return out};
+const net=Object.freeze({fetch:async(input,init)=>{const request=new Request(input,init),method=request.method.toUpperCase(),bytes=method==='GET'||method==='HEAD'?null:new Uint8Array(await request.arrayBuffer());
+const out=await call('engine.call',{action:'net.fetch',args:{url:request.url,method,headers:[...request.headers],...(bytes&&bytes.length?{body:b64(bytes)}:{})}});
+const headers=new Headers();for(const [name,value] of out.headers||[])try{headers.append(name,value)}catch{}
+const response=new Response(method==='HEAD'||[204,205,304].includes(out.status)?null:unb64(out.body||''),{status:out.status,headers});
+Object.defineProperties(response,{url:{value:out.url},redirected:{value:!!out.redirected}});return response}});
+Object.defineProperty(window,'orgtree',{value:Object.freeze({version:1,state,storage,files,net,on,events:Object.freeze({fire:(name,payload)=>call('engine.call',{action:'events.fire',args:{name,payload}})}),emit:(name,payload)=>call('event.emit',{name,payload}),call:(action,args)=>call('engine.call',{action,args})}),writable:false,configurable:false});
 })();`.replace('CHANNEL',JSON.stringify(channel))
   let csp=PANEL_CSP
   if(mediaSource){

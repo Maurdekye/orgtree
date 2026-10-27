@@ -5,12 +5,17 @@ export interface AppPermissionRequest {
   challenge:string; app:string; panel:string; name:string; label:string
   capability:string; request:Record<string,unknown>
   detail?:{path:string;operation:string;previous_bytes:number|null;bytes:number|null;sha256:string|null}
+  /** net.fetch: the host asked for and the site row an answer is stored under. */
+  site?:string; host?:string
 }
 type Ask = (request:AppPermissionRequest,signal:AbortSignal)=>Promise<PermissionChoice|null>
 const fields:Record<string,readonly string[]>={
   'org.read':['after','limit'],
   'docket.create':['title','objective','owner'], 'events.fire':['name','payload'],
+  'net.fetch':['url','method','headers','body'],
 }
+/** An internet request carries up to 1 MiB of base64 body (engine net.rs). */
+export const NET_REQUEST_MAX=1536*1024-4096
 const capability=(action:string)=>action==='docket.create'?'docket.write':action
 /** Apps reach agents only through events (user 2026-10-26: "Remove; import, never
  * grant"). The engine refuses mail.send with the same directions. */
@@ -57,7 +62,7 @@ export class AppActionClient {
     const args=input.args??{}
     if(!object(args)||Object.keys(args).some(k=>!fields[input.action as string].includes(k)))throw Error('Unsupported app action arguments or identity fields.')
     const request={...args,action:input.action}
-    if(new TextEncoder().encode(JSON.stringify(request)).length>64*1024)throw Error('App action exceeds 64 KiB.')
+    if(new TextEncoder().encode(JSON.stringify(request)).length>(input.action==='net.fetch'?NET_REQUEST_MAX:64*1024))throw Error(input.action==='net.fetch'?'App internet request exceeds 1 MiB of body.':'App action exceeds 64 KiB.')
     // Renew BEFORE sending an action. Never retry a possibly executed action.
     const session=await this.hostSession()
     const result=await customAppsBridge<Record<string,unknown>>(this.slug,{action:'call',session,request})
