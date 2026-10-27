@@ -332,5 +332,5 @@ in `ref`. See orgtree-tool-apps.
 Panels can use Orgtree's current theme colors (user 2026-10-27). A panel built to
 use them follows your visual theme and contrast color (Display > Appearance) and
 restyles at once when you change either, without reloading or losing its state; a
-panel that sets its own colors keeps them. Agents read how in
-[orgtree-tool-apps](../../../orgtree-working/team/tool-apps/SKILL.md#theme-colors).
+panel that sets its own colors keeps them. Agents read how in `orgtree-tool-apps`
+(orgtree-working › team), under Theme colors.

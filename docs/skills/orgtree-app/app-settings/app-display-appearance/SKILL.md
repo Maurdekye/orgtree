@@ -22,7 +22,7 @@ use false to turn it off, or get the runtime scope to read it. This is a user
 tool, retaining its existing authority; an agent does not acquire settings
 permission by suggesting the change.
 
-Display > Appearance and Display > Canvas background control presentation across this desktop profile. Agents explain or suggest these controls; they do not change settings themselves. Changes apply immediately without restarting agents or rewriting their prompts. A theme or background choice is not a provider/account selection and does not alter work-state meaning. HTML presentations and app panels that use Orgtree's theme colors (the `--orgtree-*` variables, [orgtree-tool-present](../../../orgtree-working/user/tool-present/SKILL.md#theme-colors)) follow the visual theme and contrast color too, as they change (user 2026-10-27).
+Display > Appearance and Display > Canvas background control presentation across this desktop profile. Agents explain or suggest these controls; they do not change settings themselves. Changes apply immediately without restarting agents or rewriting their prompts. A theme or background choice is not a provider/account selection and does not alter work-state meaning. HTML presentations and app panels that use Orgtree's theme colors, the `--orgtree-*` variables listed in `orgtree-tool-present` (orgtree-working › user), follow the visual theme and contrast color too, as they change (user 2026-10-27).
 
 | Control | Storage | Choices and initial behavior |
 | --- | --- | --- |
