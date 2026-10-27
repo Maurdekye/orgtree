@@ -4578,9 +4578,10 @@
     "np:visualTheme",
     "np:contrastTheme",
     "np:agentColorSource",
-    "np:canvasBackground"
+    "np:canvasBackground",
+    "rt:wrap_object_mentions"
    ],
-   "purpose": "Display > Appearance and Canvas background: theme, custom color, contrast color, agent colors, canvas background and intensity.",
+   "purpose": "Display > Appearance, Text and Canvas background: themes, colors, opt-in object mention wrapping, backgrounds and intensity.",
    "must_cover": [
     "each choice"
    ],
@@ -4623,6 +4624,10 @@
     {
      "file": "apps/desktop/renderer/src/themes.tsx",
      "label": "Rainbow mode"
+    },
+    {
+     "file": "apps/desktop/renderer/src/canvas/accounts.tsx",
+     "label": "Wrap object mentions"
     }
    ],
    "key_sources": [
@@ -4645,6 +4650,14 @@
      "file": "apps/desktop/renderer/src/agentcolors.tsx",
      "needles": [
       "agentColorSource"
+     ]
+    },
+    {
+     "key": "rt:wrap_object_mentions",
+     "file": "engine/rs/orgtree-engine/src/settings.rs",
+     "needles": [
+      "pub fn wrap_object_mentions",
+      "unwrap_or(false)"
      ]
     },
     {
