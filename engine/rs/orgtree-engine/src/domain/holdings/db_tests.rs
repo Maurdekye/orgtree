@@ -45,6 +45,8 @@ async fn world(scope: Value) -> World {
     let mgr = deadpool_postgres::Manager::from_config(cfg, NoTls, deadpool_postgres::ManagerConfig { recycling_method: deadpool_postgres::RecyclingMethod::Fast });
     Arc::get_mut(&mut engine).unwrap().db = deadpool_postgres::Pool::builder(mgr).max_size(4).runtime(deadpool_postgres::Runtime::Tokio1).build().unwrap();
     let org = crate::orgs::provisional(id, "fixture".into(), "holdings-fixture".into(), "fixture".into());
+    // mail::send finds the org by id: a notice to the holder needs it registered
+    engine.orgs.insert(org.clone());
     World { e: engine, org, project, holder, waiter }
 }
 
@@ -81,14 +83,15 @@ impl World {
         rows.iter().any(|r| { let b: String = r.get(0); needles.iter().all(|n| b.contains(n)) })
     }
 
-    /// An un-acked ack-mode job held by `agent` (what the project's copy of the mail looks like).
+    /// An un-acked ack-mode job held by `agent` (what the project's copy of the mail looks like;
+    /// `inline`: it was claimed without a listener dog, which counts as watching the project).
     #[nolog]
     async fn job(&self, agent: i64, copy: &str) -> i64 {
         self.e.db.get().await.unwrap().query_one(
             "INSERT INTO ot.mail(uid,org_id,sender,recipient_kind,recipient_agent_id,recipient_name,body,state,extra)
              VALUES($1,$2,'@user','agent',$3,'build','job','read',$4) RETURNING id",
             &[&format!("job-{copy}"), &self.org.id, &self.project,
-              &json!({"attempts":1,"claimed":{"by_id":agent,"by":"holder","copy":copy,"ack":true,"at":crate::util::now_iso()}})],
+              &json!({"attempts":1,"claimed":{"by_id":agent,"by":"holder","copy":copy,"ack":true,"inline":true,"at":crate::util::now_iso()}})],
         ).await.unwrap().get(0)
     }
 
