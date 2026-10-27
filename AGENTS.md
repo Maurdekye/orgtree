@@ -199,6 +199,12 @@ Provider-chip probes use the current Done text in both browser pagers and retain
 catalog/OpenRouter negatives and raw warnings. See [pager controls](docs/rust-engine/test-rig.md#what-keeps-it-safe).
 [verified: `tools/rig/desktop/provider-chips.cjs`; 2026-10-25]
 
+A rig engine's children never see the host's profile: `rigProfileEnv` (`tools/rig/lib.mjs`)
+sets `USERPROFILE`/`HOME`/`HOMEDRIVE`/`HOMEPATH`/`APPDATA`/`LOCALAPPDATA`/`TEMP`/`TMP`
+under the run, and every script that builds an engine environment spreads it after
+`cleanEnv()`. See [rig profile](docs/rust-engine/test-rig.md#what-keeps-it-safe).
+[verified: `tools/rig/tests/rig-synthetic-home.test.mjs`; 2026-10-27]
+
 Focused-retire probes match the Fit tooltip's shortcut hint at both camera
 samples; retain visible Focus and the retire-other negative. See [Fit controls](docs/rust-engine/test-rig.md#what-keeps-it-safe).
 [verified: `tools/rig/desktop/retire-focused-fit.cjs`; 2026-10-25]

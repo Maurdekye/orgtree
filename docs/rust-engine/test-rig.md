@@ -160,6 +160,31 @@ approval check, whose failure was also measured on v4.4.0.
 
 ## What keeps it safe
 
+Every child of a rig engine sees the run's own fake profile, never the profile of whoever
+started the rig (USER 2026-10-27 m11c44cfd007e, "Fix it, Sonnet"; measured in Session 0 runs:
+an ordinary run's engine children inherited the real `USERPROFILE`, so a proof that wrote to
+"home" would have written the user's real files; only `--real-cli` runs had isolated
+`USERPROFILE`/`HOME`/`TEMP`). `rigProfileEnv(data, { tmp })` in `tools/rig/lib.mjs` returns the
+whole set: `USERPROFILE` and `HOME` (`<data>\rig-home`, the folder the engine's own home lookups
+and the fake CLIs already use), `HOMEDRIVE`/`HOMEPATH` (the same folder, split at the drive),
+`APPDATA` and `LOCALAPPDATA` (under it) and `TEMP`/`TMP` (the run's `tmp` folder; without `tmp`,
+`rig-home\AppData\Local\Temp`), and creates the folders. `keeper.mjs` applies it to every run,
+`standalone-engine.mjs` gains the `APPDATA`/`LOCALAPPDATA`/`HOMEDRIVE`/`HOMEPATH` it lacked, and
+the host-mode proofs `boot-host-stop`, `core-lifecycle`, `core-recovery` and `session0-handover`
+spread it after `...cleanEnv()`; a new script that builds an engine environment must too.
+`node --test tools/rig/tests/rig-synthetic-home.test.mjs` runs the real keeper with a stand-in
+engine (a copy of node that records its environment) and a sentinel host profile: it fails if a
+profile variable the child sees is the host's, is outside the run, or if any variable mentions
+the host profile, and it fails for any rig script that builds an engine environment from
+`cleanEnv()` without the helper (0 pass / 3 fail at the base, 3 pass at the fix). It starts no
+engine, database or window. Not covered: the `desktop.mjs` Electron driver (it launches no engine
+and keeps its profile in its own `electron-profiles` folder) and `git-askpass.mjs` (its askpass
+copy runs with `GIT_CONFIG_*` disabled). Windows known folders are not environment variables: the
+engine reads them only to refuse a live data root and, outside rig mode, to find installed CLIs
+(rig mode takes CLIs from the `ORGTREE_*_BIN` variables only). [verified: `tools/rig/lib.mjs`,
+`tools/rig/keeper.mjs`, `dirs-sys` `known_folder`; the host-mode proofs' runtime is not
+verified by this change; 2026-10-27]
+
 Undo-history record identity snapshots select the full `id, name` pairs with
 `ORDER BY id` before retirement and after undo. Unordered SQL reads may return
 the same rows in different orders after UPDATEs; keep strict whole-array JSON
@@ -631,7 +656,7 @@ status and wake stamps with `rig.exec` rather than waiting (see `reminders.mjs`)
 `up --real-cli` (or `{ 'real-cli': true }` from a script's `setup()`) runs the INSTALLED Claude Code and
 Codex as the agents' CLIs instead of the fake (copies of `claude.exe` from its npm package and of Codex's
 bin folder; `ORGTREE_RIG_REAL_CLAUDE` / `ORGTREE_RIG_REAL_CODEX` name others). Every child's `USERPROFILE`
-and `HOME` is the run's fake home (its `TEMP` and `TMP` the run's `tmp` folder), and a fixture may hire only language model server tiers (`ls-…`): any other
+and `HOME` is the run's fake home, as in every run (see What keeps it safe), and a fixture may hire only language model server tiers (`ls-…`): any other
 tier would run the installed CLI on whatever login it finds. Point such agents at `tools/rig/fakellm.mjs`
 (`startFakeLlm({ rules })`), a scripted server that answers like Ollama and streams Anthropic Messages
 and OpenAI Responses, so no model, GPU or account is involved (see `langserver-lane.mjs`). Its `models`
