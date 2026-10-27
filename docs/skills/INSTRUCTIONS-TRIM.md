@@ -486,3 +486,23 @@ description caps remain in force; no allowance is raised. These are UTF-8
 byte counts, not token estimates or proof of model compliance. The changed
 standing prefix and glossary snapshot may affect prompt-cache continuity on
 the next launch; no cache hit is promised.
+
+## 16. App and panel mentions (2026-10-27)
+
+USER 2026-10-27 m449dc0a35cbe ("also allow apps or spedific panels to be
+mentioned to the user"): the MENTIONS rule, unconditional on every lane and
+profile, gains one sentence: "Point the user at an app or one of its panels
+with @app:<org>/<app-id> or @panel:<org>/<panel-id>." It names no tool, so it
+stays true for seats without the Apps tool; agents with it copy the token from
+each result's `ref`. The mail-basics page gives the same rule. The legacy test
+normalizes the new MENTIONS text like the 21:44Z replacement, and both approved
+seat fixtures carry the sentence.
+
+| Synthetic compressed example | Before | After | Change |
+| --- | ---: | ---: | ---: |
+| Seat A | 10,474 B | 10,573 B | +99 B |
+| Seat B | 10,486 B | 10,585 B | +99 B |
+
+The identity budget already counts MENTIONS by its length; no other allowance
+moves. Every agent's standing prefix changes once, at its first start on the
+new build; no cache hit is promised.

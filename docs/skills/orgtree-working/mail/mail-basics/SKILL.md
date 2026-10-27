@@ -9,9 +9,9 @@ Up: [orgtree-mail](../SKILL.md)
 
 Use mail to hand off work, ask another agent for information, or return a result. Choose [orgtree_message](../tool-message/SKILL.md) when the recipient needs to act; choose [orgtree_send_notice](../tool-send-notice/SKILL.md) for an FYI that can wait for their next turn. The tool pages own wake behavior, accepted kinds, recipient state warnings and outside-mail exceptions.
 
-MENTIONS: whenever you name an agent, project or docket item in text a person or agent will read (your replies, mail, docket descriptions, presentations), write @name or @item:<org>/<slug> as plain text, never in backticks or code spans. A bare name is wrong.
+MENTIONS: whenever you name an agent, project or docket item in text a person or agent will read (your replies, mail, docket descriptions, presentations), write @name or @item:<org>/<slug> as plain text, never in backticks or code spans. A bare name is wrong. Point the user at an app or one of its panels with @app:<org>/<app-id> or @panel:<org>/<panel-id>.
 
-For example, write @coordinator-opus, @worker-project or @item:orgtree/example-item in prose so it renders as an interactive link. Write @user (plain text, never in backticks) in replies, mail, presented documents or docket updates to notify the user: 'I need you to see this'. Anything needing an answer still goes by mail or question.
+For example, write @coordinator-opus, @worker-project or @item:orgtree/example-item in prose so it renders as an interactive link. An app or panel mention shows the app's current name (a panel with its app's) and opens it as its Apps row does; copy the exact token from the `ref` field of [orgtree_apps](../../team/tool-apps/SKILL.md) results (user 2026-10-27). Write @user (plain text, never in backticks) in replies, mail, presented documents or docket updates to notify the user: 'I need you to see this'. Anything needing an answer still goes by mail or question.
 
 Before replying after a fresh session or compaction, recover your conversation with that correspondent using [orgtree_inbox](../tool-inbox/SKILL.md). Read the full message when its preview is cut. Explicit content reads consume returned pending received mail and record it once after the tool in the transcript; previews leave delivery unchanged. A read does not establish understanding or completion.
 

@@ -471,6 +471,70 @@ Verification (measured 2026-10-27, Session 0, one build-slot permit):
 - Renderer `customapps*` 55/55. The new tests fail 4/4 against the base app
   sources.
 
+## Mentions (2026-10-27)
+
+USER 2026-10-27 m449dc0a35cbe: "also allow apps or spedific panels to be
+mentioned to the user". Design approved by @coordinator-opus (m3e712903173d),
+departures provisional for the user.
+
+- Tokens: `@app:<org>/<app-id>` and `@panel:<org>/<panel-id>`, the engine's own
+  IDs, in the one shared grammar (`canvas/workrefs.tsx` REF_TOKEN_RE) with the
+  same boundaries and code-span exclusion as `@item:`/`@doc:`. Another org's
+  token is `foreign` before any lookup.
+- Names: `canvas/apprefs.ts` asks the engine's `refs` read for the exact IDs on
+  screen, batched per org (64 IDs a read, wire::REFS_MAX), keeps at most 512
+  answers per org and reads the kept ones again on every `custom_apps_changed`
+  (store `onAppsInvalidated`), keeping the old answer on screen meanwhile. Only
+  an answered read makes a target `absent`; a failed read stays `pending` and is
+  not retried for 10 s. `refs` returns an app's name and the label of its most
+  recently used copy (`custom_panels_app_recent`), a panel's label, app, app name
+  and run state; never HTML, state, permissions or tokens; IDs not in this org
+  are left out.
+- Chips: an app shows its name; a panel shows `<app name> · <panel label>`
+  (labels default to "Panel N"). The hover text and a panel's menu are its Apps
+  menu row's, from `canvas/apps/links.ts` (`appLinkTitle`, `panelLinkTitle`,
+  `panelLinkMenu`, `panelRunState`); a panel chip carries the `panel` object-nav
+  kind so the shared menu host builds it; app rows and app chips have no menu.
+  Deleted and other-org targets are the existing inert chip (departure a).
+- Click: `openAppRef` calls the Apps rows' own `openAppPanel` (bring-to-front,
+  @tutorial-opus): `{app}` lets the engine pick the most recently used copy or
+  create one, `{panel}` opens that copy and starts it if off. Refusals go to the
+  apps error banner. Every `useRefRoutes` world and the docket's own world handle
+  `app`/`panel`. Agents still never show a window.
+- Agent parity: every app and panel result of the Apps request (agent tool and
+  desktop routes) carries `ref`; `refs` itself is a desktop read, not on the
+  tool card (whose description total already exceeds its cap at base).
+- The MENTIONS standing rule gains one sentence naming both tokens; it changes
+  every agent's prompt prefix once, at its first start on the new build.
+- Not in this change (departure c): the composer @ menu and a Mention entry for
+  apps and panels. Hubchat renders only contact mentions, so these tokens stay
+  text there (@hubchat-design-opus, orgtree-hubchat c288898; its scanner stops at
+  `:`, so a contact literally named app or panel would link the `@app` prefix).
+- Styling (USER m6d0cdc7a2be6, m33e4a043b457; separate commit): every mention
+  kind wears its icon on the left (`canvas/refmarks.tsx`, the same element in
+  React and in the Markdown walk): docket item, document, app and panel marks in
+  the org accent like the project folder, names in `--ink-strong` with the link
+  colour and underline only on hover or focus, as agent names. Failed chips keep
+  the token and verdict with no mark.
+
+Verification (measured 2026-10-27, Session 0, build-slot permits; final branch
+on integ adaab07):
+- Engine `domain::apps` 66/66 (with the `ref` stamping and `refs` bounds),
+  `http::apps` 2/2, `tools::defs` 43/43. `runtime::identity` 29/30: the legacy
+  fingerprint test fails identically at base c9ba54f (Antigravity read-only
+  legacy profile 24,726 vs 24,712 bytes); the MENTIONS and approved-example
+  tests pass. Test binary peak 6.3 GB in the 8192 MiB Job.
+- `tools/rig/proofs/app-mentions.mjs` 14/14 on the real engine and isolated PG,
+  with the Session 0 window: the mail's chips show the current names with their
+  marks and the Apps rows' hover text; clicking the app shows its most recently
+  used (hidden) copy, and clicking the panel starts and opens the stopped one.
+- Renderer focused set 273/275; the two failures (contextmenu §B3c, §B3d) are
+  identical at base b0ea3a1. The new tests fail 10/11 against the base grammar,
+  resolver and chip sources (the eleventh reads only styles.css).
+- `tools/rig/mentionkinds-visual.mjs`: all six kinds in the 24 theme and
+  contrast combinations, a hover per contrast and a contact sheet; every chip
+  leads with its own mark, names in --ink-strong, marks in the accent.
+
 ## Storage milestone
 
 Migration0058 creates org-scoped custom_apps, custom_panels and a bounded panel

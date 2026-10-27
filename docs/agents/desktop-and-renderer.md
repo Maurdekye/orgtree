@@ -1694,3 +1694,19 @@ published releases only. Data and the after-update rule:
 [startup and release](startup-and-release.md#the-changelog-and-the-first-launch-after-an-update-2026-10-24-445).
 [decided: user 2026-10-24 22:13:55Z–22:17:14Z, 2026-10-25 09:01:38Z, 09:09:02Z;
 verified: `changelog.tsx`, `App.tsx`, `shell/menu.tsx`]
+
+## Mention kinds and app or panel mentions (2026-10-27, 4.5.0)
+
+A reference kind lives in one grammar (`canvas/workrefs.tsx` REF_TOKEN_RE and
+END), one resolver (`resolveRef`, `KIND_WORD`) and two chip builders that must
+match (`RefChip`, refmd `chipEl`); every world that judges tokens declares the
+kinds it opens in `handles` (`useRefRoutes` and the docket panel's own world).
+`@app:`/`@panel:` names come from `canvas/apprefs.ts` (bounded `refs` reads, kept
+answers re-read on `custom_apps_changed`); clicks go through the Apps rows'
+`openAppPanel`, and their hover text and a panel's menu through
+`canvas/apps/links.ts`, which the rows use too. Every ready chip except mail
+leads with its kind's mark (`canvas/refmarks.tsx`, one element for both
+builders; agents and projects keep their identity badge); failed chips keep the
+token and verdict with no mark. See [custom apps](../rust-engine/custom-apps.md#mentions-2026-10-27).
+[decided: user 2026-10-27 m449dc0a35cbe, m6d0cdc7a2be6, m33e4a043b457; verified:
+`canvas/{workrefs,reflinks,refmd,refmarks,apprefs,objectnavhost}.ts*`, `canvas/apps/{links,ui}.ts*`]

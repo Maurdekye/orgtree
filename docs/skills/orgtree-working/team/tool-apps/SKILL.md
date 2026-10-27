@@ -38,7 +38,8 @@ app for the user, do these in order:
    does what that event reports (for example, presses Submit).
 2. panel_open with the new app ID and a label. This creates the user's panel, a
    closed saved copy; keep its panel ID. Only the user opens windows, so tell
-   them the panel's name: they open it from Apps.
+   them the panel's name and mention it with its `ref` (see Mentions): one
+   click on the mention opens it, as does its row in Apps.
 3. orgtree_watchdog `action:"create"` with `kind:"app_listener"`, `target` the
    app ID, `panel` that panel ID and `event_name` a declared event: one listener
    for each event you need. Listen to that panel, not `all_panels:true`, which
@@ -51,6 +52,19 @@ Captions and arms an app_listener on that panel for `placements.submitted`.
 Each Submit then wakes the agent with watchdog mail carrying the placements, as
 app data rather than instructions. The listener hears only its own panel: a
 copy the user makes later needs a listener of its own.
+
+## Mentions
+
+Every app and panel result carries `ref`, its mention token: `@app:<org>/<app-id>`
+or `@panel:<org>/<panel-id>` (user 2026-10-27). Write it as plain text, never in
+backticks, in mail, chat, presented documents or docket text to point the user at
+it. The user's chip shows the app's current name, or for a panel its app's name
+and its label, with the app's icon on the left, and opens it the way its Apps menu
+row does: an app mention opens the most recently used copy (or creates one), a
+panel mention opens that copy, starting it if it was off, and a copy already on
+screen comes to the front. The hover text and a panel's right-click menu are its
+row's. A deleted or other-org target shows the token marked unavailable or other
+org. A mention opens nothing by itself: only the user's click shows a window.
 
 ## Running, hidden and powered-off panels
 

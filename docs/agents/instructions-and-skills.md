@@ -125,6 +125,12 @@ only these replacements normalized) guard the change. See
 `engine/rs/orgtree-engine/src/runtime/identity.rs`,
 `engine/rs/orgtree-engine/src/runtime/identity/compression_tests.rs`]
 
+The MENTIONS rule also names @app:<org>/<app-id> and @panel:<org>/<panel-id>
+(one sentence, no tool named, so it holds on every profile). See
+[instruction wording](../skills/INSTRUCTIONS-TRIM.md#16-app-and-panel-mentions-2026-10-27).
+[decided: user 2026-10-27 m449dc0a35cbe; verified:
+`engine/rs/orgtree-engine/src/runtime/identity.rs`]
+
 These attributed records were moved from the root guide at `22daffd`; they retain the original substance, dates, verification limits and replacements. They are source evidence, not a declaration that every historical state is current. Read the signed decisions/current source before changing behavior. Inline source paths remain relative to the repository root; Markdown links were rebased. Add current detailed guidance here; preserve replaced records in history and update the coverage destination when moving one.
 
 <a id="e-de4e633eb38398d7"></a>

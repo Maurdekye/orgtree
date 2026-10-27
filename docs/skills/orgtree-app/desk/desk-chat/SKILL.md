@@ -153,6 +153,8 @@ opening a disclosure is not a read/delivery acknowledgment.
 
 Event cards and reference links can open their exact related agent, mail, work item, watchdog or document when a route is available. Copy/reply menus use durable source identity; a missing exact source can disable a reply action rather than inventing a target.
 
+Each mention wears its kind on the left (user 2026-10-27): an agent its model badge, a project its folder, a docket item the docket icon, a document or presentation the document icon, an app the Apps icon and a panel a window icon, with the name in strong text that takes the link colour and an underline on hover or focus. An app or panel mention shows the current name (a panel with its app's) and opens it as its row in Apps does; see orgtree-apps. A reference that cannot be followed shows the token as written with unavailable, other org or not from here, and no icon.
+
 ## Helper activity inside a tool call
 
 Expand a helper Agent/Task tool row to see its retained transcript inline.

@@ -398,3 +398,19 @@ ones load as you scroll down.
 App code calls `orgtree.net.fetch(url, options)` instead of `fetch`; it returns a
 standard Response. Plain `fetch`, WebSocket and image URLs stay blocked: to show
 an image, fetch its bytes and use a `blob:` URL.
+
+## Mentions
+
+An agent can point you at an app or at one of its panels from chat, mail, a
+presented document or a docket item. The mention shows the app's current name,
+or the panel's app and label (for example **Caption board · Panel 1**), with the
+Apps icon or a window icon on its left. Clicking it does what the app's or the
+panel's row in **Apps** does: an app opens the copy you used most recently, or a
+new one; a panel opens, and starts if it was off; a copy already on screen comes
+to the front. Hover for the row's tooltip; right-click a panel mention for
+**Start running** or **Power off**. A mention of a deleted app or panel, or of
+another organization's, shows the agent's text marked *unavailable* or *other
+org* and opens nothing.
+
+Agents write these as `@app:<org>/<app-id>` and `@panel:<org>/<panel-id>`; the
+Apps tool gives them the exact text.

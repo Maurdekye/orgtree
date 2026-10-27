@@ -276,3 +276,19 @@ to its details, new entries while it is open and older ones as you scroll down.
 Agent parity: orgtree_apps definition.sites, permission_set with site (agents may
 set Ask or Deny only) and permission_history. See orgtree-tool-apps for exact
 fields and limits.
+
+## Mentions
+
+Agents can point you at an app or one of its panels in chat, mail, presented
+documents and docket text (user 2026-10-27). The mention shows the app's current
+name, or the panel's app and label (for example Caption board · Panel 1), with
+the Apps icon or a window icon on its left. Click it to do what its row in Apps
+does: an app opens its most recently used copy, or a new one; a panel opens, and
+starts if it was off; a copy already on screen comes to the front. Hovering shows
+the row's tooltip, and right-clicking a panel mention offers the row's Start
+running or Power off. A mention of a deleted app or panel, or of another
+organization's, shows its token marked unavailable or other org and opens
+nothing.
+
+Agent parity: every orgtree_apps app and panel result carries its mention token
+in `ref`. See orgtree-tool-apps.
