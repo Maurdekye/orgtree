@@ -935,3 +935,14 @@ Original section: Shared skills and installed plugin imports (2026-10-15). Sourc
   [Markdown image embeds](../../docs/rust-engine/markdown-image-embeds.md).
   [verified: `engine/rs/orgtree-engine/src/http/markdown_image.rs`, 2026-10-17]
 <!-- /preserved:e-9534fe084290c8b2 -->
+
+## Ticket mentions show the current title (2026-10-27, 4.5.0)
+
+Every docket write also sends the org's windows `{"type":"docket_changed"}` from
+`domain/docket.rs` changed(): the record feed skips an unchanged work summary,
+and a rename alone changes none of it. Ticket mention chips read the titles of
+the exact slugs on screen again on that frame (`canvas/itemrefs.ts`, through the
+bounded work-item-references read). The chip's token, Copy slug and the shared
+`Status · title` hover keep the slug available; prose slugs stay as written.
+[decided: user 2026-10-27 m7bb9eb904138; verified: `domain/docket.rs`,
+`canvas/{itemrefs,refnames,reflinks}.ts*`, `App.tsx`]

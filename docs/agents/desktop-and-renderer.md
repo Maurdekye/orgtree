@@ -1701,8 +1701,14 @@ A reference kind lives in one grammar (`canvas/workrefs.tsx` REF_TOKEN_RE and
 END), one resolver (`resolveRef`, `KIND_WORD`) and two chip builders that must
 match (`RefChip`, refmd `chipEl`); every world that judges tokens declares the
 kinds it opens in `handles` (`useRefRoutes` and the docket panel's own world).
-`@app:`/`@panel:` names come from `canvas/apprefs.ts` (bounded `refs` reads, kept
-answers re-read on `custom_apps_changed`); clicks go through the Apps rows'
+Names come from one shared label path, `canvas/refnames.ts`: a kind registers a
+bounded reader and a change signal, answers are kept per org and re-read on
+that signal with the old answer on screen, and only an answered read makes a
+target absent. `@app:`/`@panel:` read the Apps `refs` (`canvas/apprefs.ts`,
+re-read on `custom_apps_changed`); `@item:` reads the work-item references for
+the item's current title (`canvas/itemrefs.ts`, re-read on the engine's
+`docket_changed` frame from `domain/docket.rs` changed(); user 2026-10-27
+m7bb9eb904138), and a title never decides an item's outcome. Clicks go through the Apps rows'
 `openAppPanel`, and their hover text and a panel's menu through
 `canvas/apps/links.ts`, which the rows use too. Every ready chip except mail
 leads with its kind's mark (`canvas/refmarks.tsx`, one element for both
