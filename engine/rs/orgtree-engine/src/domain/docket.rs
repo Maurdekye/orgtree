@@ -1139,6 +1139,10 @@ fn assignment_text(who: &Who, it: &Item) -> String {
 #[logged]
 fn changed(engine: &Engine, org: &OrgHandle) {
     changes::notify(engine, org, vec![Change::Docket, Change::Events]);
+    // Every docket write tells the org's windows: ticket mention chips show an
+    // item's current title (USER 2026-10-27 m7bb9eb904138) and read it again.
+    // The record feed skips an unchanged work summary, so it cannot say this.
+    org.emit(serde_json::json!({"type": "docket_changed", "org": org.slug}));
 }
 
 /// Notifications are stored with the mutation; only runtime wakes escape after commit.
