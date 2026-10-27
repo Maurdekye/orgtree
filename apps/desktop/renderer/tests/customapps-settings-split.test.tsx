@@ -140,6 +140,11 @@ test('State is its own Panel settings tab: the JSON edits in place, saves with i
  const tab=settings.querySelector<HTMLElement>('[role="tabpanel"]:not([hidden])')!,area=tab.querySelector<HTMLTextAreaElement>('textarea[aria-label="Panel JSON state"]')!
  assert.equal(JSON.parse(area.value).note,'one');assert.equal(document.querySelectorAll('[role="dialog"]').length,1,'no separate state dialog')
  for(const name of ['Import','Export','Copy','Reset','Reload','Save'])assert.ok(tab.textContent?.includes(name),'missing '+name)
+ // User 2026-10-27 m531629c33a06: "why is the import button styled differently". Import is a button like
+ // the other five (theme look, focus), and it opens the hidden JSON file picker.
+ const importButton=button(tab,'Import');assert.ok(importButton,'Import is a button like Export');assert.equal(tab.querySelector('label.button'),null)
+ const picker=tab.querySelector<HTMLInputElement>('input[type="file"]')!;let opened=0;picker.click=()=>{opened++}
+ await inAct(async()=>{importButton.click();await tick()});assert.equal(opened,1,'Import opens the file picker')
  await inAct(async()=>{Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype,'value')!.set!.call(area,'{"note":"edited"}');area.dispatchEvent(new Event('input',{bubbles:true}));await tick()})
  await inAct(async()=>{button(tab,'Save').click();await tick()})
  assert.deepEqual(calls.find(c=>c.action==='state_set'),{action:'state_set',panel:'one',expected_rev:1,state:{note:'edited'}})
