@@ -69,7 +69,8 @@ import { peekQuickStaff, prefetchQuickStaff, queueStaffingWarm } from './staffin
 import type { QuickStaffPreview } from './quickstaff'
 import type { MenuEntry } from './contextmenu'
 import type { RefRoutes, RefWorld, ResolvedRef } from './reflinks'
-import { openAppRef, useAppRefs } from './apprefs'
+import { openAppRef } from './apprefs'
+import { useRefNames } from './refnames'
 import type { RefKind, TypedRef } from './workrefs'
 import { statusLabel } from './docketstatus'
 
@@ -1216,7 +1217,7 @@ export function DocketModal({ slug, toast, close, tree, onFocusAgent,
   // an unresolved placeholder is not evidence the agent exists
   const settled = useMemo(() => new Map([...facts].filter(([, f]) => !f.unresolved)), [facts])
   const agentOutcome = useAgentOutcome(slug, settled, tree?.foreground)
-  const appRef = useAppRefs(slug)
+  const refName = useRefNames(slug)
   const refWorld = useMemo<RefWorld>(() => {
     // apps and panels open from anywhere (`useRefRoutes`): one engine request
     const handles = new Set<RefKind>(['item', 'agent', 'doc', 'app', 'panel'])
@@ -1229,7 +1230,7 @@ export function DocketModal({ slug, toast, close, tree, onFocusAgent,
       itemTitles: new Map([...allKnown].map(([s, item]) => [s, item.title])),
       agents: new Map([...facts.keys()].map((id) => [id, id])),
       ...(agentOutcome ? { agentOutcome } : {}),
-      appRef,
+      refName,
       // ⚠ A NODE'S INBOX IS ONLY REAL IF THE NODE IS. The user's box and the
       // org's box always exist; a NODE box named after somebody this org has
       // never had (or who was dissolved out of the tree) does not, and the
@@ -1242,7 +1243,7 @@ export function DocketModal({ slug, toast, close, tree, onFocusAgent,
           : facts.has(String(r.node ?? '')) ? 'ready' : 'absent'),
       handles,
     }
-  }, [slug, data, allKnown, facts, onOpenMail, agentOutcome, appRef])
+  }, [slug, data, allKnown, facts, onOpenMail, agentOutcome, refName])
   const [flash, setFlash] = useState<string | null>(null)
   const rows = useRef(new Map<string, HTMLDivElement>())
   const captureRow = useCallback((id: string, el: HTMLDivElement | null) => {

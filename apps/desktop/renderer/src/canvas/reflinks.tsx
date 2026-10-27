@@ -32,8 +32,10 @@ import { WorkRefText, parseRef, scanRefs } from './workrefs'
 import { RefMark, hasRefMark } from './refmarks'
 import { splitInlineCodeSpans } from './shared'
 import { useHistoricalWorkReferences } from './workrefresolve'
-import { openAppRef, useAppRefs } from './apprefs'
-import type { AppRefAnswer } from './apprefs'
+import { openAppRef } from './apprefs'
+import './itemrefs'
+import { useRefNames } from './refnames'
+import type { RefNameAnswer } from './refnames'
 import { agentReferences } from '../api'
 import type { TreePayload } from '../types'
 import type { MentionIndex, RefKind, TypedRef } from './workrefs'
@@ -74,11 +76,13 @@ export interface RefWorld {
    *  surface answers for the BOX (can I address it at all?) and the mail list
    *  answers for the message once it has loaded one. */
   mail?: (ref: TypedRef) => RefOutcome
-  /** what an app or panel mention names now, and its hover text (`apprefs.ts`:
-   *  one bounded read of the exact IDs on screen). Omitted means this surface
-   *  cannot say: the chip stays clickable, labelled with its ID, and the engine
-   *  refuses a target that has gone. */
-  appRef?: (ref: TypedRef) => AppRefAnswer
+  /** what a mention names now, for the kinds whose chips show a current name
+   *  (`refnames.ts`: one bounded read of the exact IDs on screen per kind):
+   *  apps and panels with their hover text, and a docket item's title.
+   *  `undefined` for a kind no reader names. Omitted means this surface cannot
+   *  say: an app or panel chip stays clickable, labelled with its ID, and the
+   *  engine refuses a target that has gone; a ticket shows its slug. */
+  refName?: (ref: TypedRef) => RefNameAnswer | undefined
   /** THE AGENT WHOSE SURFACE THIS IS, when the surface has one.
    *
    *  A reference to the agent whose focused desk you are already reading is
@@ -172,7 +176,7 @@ export function resolveRef(ref: TypedRef, world: RefWorld): ResolvedRef {
   // one its Apps menu row shows (USER 2026-10-27 m449dc0a35cbe; one link, one
   // behaviour). A panel's label alone ("Panel 2") would not say which app.
   if (ref.kind === 'app' || ref.kind === 'panel') {
-    const answer = world.appRef?.(ref) ?? { outcome: 'ready' as const }
+    const answer = world.refName?.(ref) ?? { outcome: 'ready' as const }
     return { ref, token, outcome: answer.outcome, label: answer.label ?? ref.id,
       why: answer.outcome === 'ready' ? answer.title ?? `open the ${kind} ${ref.id}`
         : answer.outcome === 'pending' ? `still loading this org's apps`
@@ -207,15 +211,26 @@ export function resolveRef(ref: TypedRef, world: RefWorld): ResolvedRef {
     ? world.tierOf?.(ref.id) ?? null : null
   const atDestination = ref.kind === 'agent' && outcome === 'ready'
     && !!world.destination && world.destination === ref.id
+  // A TICKET SHOWS ITS CURRENT FULL TITLE, not its slug (USER 2026-10-27
+  // m7bb9eb904138): the surface's own list first, else the bounded name read,
+  // and the slug until either answers. The slug stays in the ticket menu's
+  // Copy slug and the hover keeps the shared `Status · title`.
+  // ⚠ THE TITLE IS A LABEL, NOT A VERDICT. Whether the item exists stays the
+  // docket's to judge (outcome above): a name read never makes a ticket absent.
+  const named = ref.kind === 'item' && outcome === 'ready'
+    ? world.itemTitles?.get(ref.id) ?? itemTitle(world.refName?.(ref)) : undefined
   return {
-    ref, token, outcome, label: label ?? ref.id, tier, atDestination,
-    ...(ref.kind === 'item' && outcome === 'ready' && world.itemTitles?.has(ref.id)
-      ? { copyTitle: world.itemTitles.get(ref.id)! } : {}),
+    ref, token, outcome, label: named ?? label ?? ref.id, tier, atDestination,
+    ...(named !== undefined ? { copyTitle: named } : {}),
     why: atDestination ? `${ref.id} — this is its own desk`
       : outcome === 'ready' ? `open the ${tier === 'project' ? 'project' : kind} ${ref.id}`
         : outcome === 'pending' ? `still loading this org's ${kind}s`
           : `no ${kind} named ${ref.id} in this org`,
   }
+}
+
+function itemTitle(answer: RefNameAnswer | undefined): string | undefined {
+  return answer?.outcome === 'ready' ? answer.label : undefined
 }
 
 /** A ref back to its literal token. The renderer needs it for the `pending`
@@ -340,7 +355,7 @@ export function useRefRoutes(org: string, agents: ReadonlyMap<string, unknown> |
   const inherited = useContext(ForegroundViewContext)
   const view = 'view' in routes ? routes.view : inherited
   const agentOutcome = useAgentOutcome(org, agents, view)
-  const appRef = useAppRefs(org)
+  const refName = useRefNames(org)
   const world = useMemo<RefWorld>(() => {
     const handles = new Set<RefKind>()
     if (onOpenItem) handles.add('item')
@@ -357,7 +372,7 @@ export function useRefRoutes(org: string, agents: ReadonlyMap<string, unknown> |
         ? new Map([...agents.keys()].map((id) => [id, id]))
         : 'loading',
       ...(agentOutcome ? { agentOutcome } : {}),
-      appRef,
+      refName,
       mail: (r) => (r.box !== 'node' ? 'ready'
         : !agents ? 'pending'
           : agentOutcome ? agentOutcome(String(r.node ?? ''))
@@ -367,7 +382,7 @@ export function useRefRoutes(org: string, agents: ReadonlyMap<string, unknown> |
       handles,
     }
   }, [org, agents, onOpenItem, onFocusAgent, onOpenDoc, onOpenMail,
-    destination, effectiveTierOf, agentOutcome, appRef])
+    destination, effectiveTierOf, agentOutcome, refName])
   const onOpen = useCallback((r: ResolvedRef) => {
     // ⚠ THE DESTINATION IS NOT A ROUTE. A chip at its own desk renders inert,
     // but a click can still arrive — a keyboard, an old chip, a caller that

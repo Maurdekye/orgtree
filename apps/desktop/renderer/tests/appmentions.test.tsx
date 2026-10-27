@@ -98,7 +98,7 @@ test('a token is decided like the other kinds: foreign first, then what this sur
  assert.equal(resolveRef(app,{org:'acme',handles:new Set(['item'])}).outcome,'elsewhere')
  // no resolver: clickable, labelled with the ID, the engine refuses a target that has gone
  assert.deepEqual([resolveRef(app,{org:'acme'}).outcome,resolveRef(app,{org:'acme'}).label],['ready','notes'])
- const world=(outcome:'ready'|'pending'|'absent')=>({org:'acme',appRef:()=>({outcome,label:'Notes · Panel 1',title:'Off'})})
+ const world=(outcome:'ready'|'pending'|'absent')=>({org:'acme',refName:()=>({outcome,label:'Notes · Panel 1',title:'Off'})})
  assert.deepEqual([resolveRef(panel,world('ready')).label,resolveRef(panel,world('ready')).why],['Notes · Panel 1','Off'])
  assert.equal(resolveRef(panel,world('pending')).why,"still loading this org's apps")
  assert.equal(resolveRef(panel,world('absent')).why,'no panel one in this org')

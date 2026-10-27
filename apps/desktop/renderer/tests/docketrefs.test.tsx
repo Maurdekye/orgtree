@@ -624,8 +624,11 @@ uiTest('§25 a canonical @item token in the description is a working link',
 
     const chip = el.querySelector('.docket-desc button.ref-chip')
     assert.ok(chip, 'the token rendered as a clickable reference')
-    // §9 of the corrections: a trustworthy label instead of the raw token
-    assert.equal(chip!.textContent, 'the-target-item')
+    // §9 of the corrections: a trustworthy label instead of the raw token,
+    // and that label is the item's current full title, not its slug (USER
+    // 2026-10-27 m7bb9eb904138 "ticket ajd presentation links should renerr ss
+    // their full nsme, notmtheir slug")
+    assert.equal(chip!.textContent, 'Target')
 
     await inAct(() => (chip as HTMLElement).click())
     await flush()

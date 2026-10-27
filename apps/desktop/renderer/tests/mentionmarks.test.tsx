@@ -17,7 +17,7 @@ import {REF_MARK_PATHS} from '../src/canvas/refmarks'
 declare const __SRC_DIR__:string
 const noop=()=>{}
 const world:RefWorld={org:'acme',agents:new Map([['dev','dev'],['crew','crew']]),tierOf:id=>id==='crew'?'project':'opus',
- appRef:r=>({outcome:'ready',label:r.kind==='app'?'Notes':'Notes · Panel 1',title:'Off'})}
+ refName:r=>r.kind==='app'||r.kind==='panel'?{outcome:'ready',label:r.kind==='app'?'Notes':'Notes · Panel 1',title:'Off'}:undefined}
 // token → what its chip's first element is
 const KINDS:[string,string][]=[['@agent:acme/dev','tier'],['@agent:acme/crew','project-mark'],['@item:acme/build-docs','ref-mark-item'],
  ['@doc:acme/d1','ref-mark-doc'],['@app:acme/notes','ref-mark-app'],['@panel:acme/one','ref-mark-panel']]
