@@ -989,8 +989,9 @@ and every output names the slug. A new slug is never an old id of its org or the
   column, the row id: a new column goes before it.
 - The gallery read answers `located_id` (the slug a located old id stands for),
   `refs` (titles of at most 64 exact references, for mention labels) and
-  `search` (the composer's @ list: title and slug words, gallery presentations
-  only, newest first, at most 20). Renderer jumps select `locatedId`.
+  `search` (title and slug words, gallery presentations only, newest first, at
+  most 20; the composer's @ list reads `mention-candidates` instead since
+  2026-10-27). Renderer jumps select `locatedId`.
 - `orgtree_present` emits `{"type":"documents_changed"}` on the org socket;
   `canvas/docrefs.ts` reads the titles on screen again.
 - Proof: `migrate/document_slug_tests.rs` (native fixture, staged pre-0073

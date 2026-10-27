@@ -300,7 +300,8 @@ starts if it was off; a copy already on screen comes to the front. Hovering show
 the row's tooltip, and right-clicking a panel mention offers the row's Start
 running or Power off. A mention of a deleted app or panel, or of another
 organization's, shows its token marked unavailable or other org and opens
-nothing.
+nothing. The composer's @ menu offers every app and saved panel by name, newest
+first; `@app:` or `@panel:` lists all of them (see orgtree-desk-chat).
 
 Agent parity: every orgtree_apps app and panel result carries its mention token
 in `ref`. See orgtree-tool-apps.

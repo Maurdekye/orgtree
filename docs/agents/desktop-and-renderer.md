@@ -453,9 +453,10 @@ Capture it when the menu opens (`captureTicketMention`): the object host reads
 the item afterwards. `captureMention` no longer consumes the right-click caret
 snapshot, since a ticket and its Owner submenu each capture one; its one-second
 age bound remains. The `@` completion adds current and backlogged tickets
-(`canvas/ticketmentions.ts`: the docket page search per org and query, one read
-in flight, five-second answers, never the archive) after the agents and projects,
-matched by slug or title, with transcript recency keyed `item:<org>/<slug>`.
+(since 2026-10-27 from the engine's mention read, see
+[Mention menu](#mention-menu-every-kind-newest-first-2026-10-27); never the
+archive), matched by slug or title, with transcript recency keyed
+`item:<org>/<slug>`.
 The highlighted entry is held by identity so a late answer cannot move it.
 Composer text action: agents already write the reference; no tool added.
 [decided: user 2026-10-21 19:12:54Z, 2026-10-22 18:15:39Z, 18:16:44Z, 19:36:06Z;
@@ -1755,3 +1756,45 @@ address. The hover is kind: name, the address, then the click, and the
 accessible name `name (address)`. A local org and `@org:` take no roster name.
 The Markdown signature carries the name, so a rename rebuilds the chip.
 [decided: user 2026-10-27 mb7ea64d82743; verified: `canvas/{netmentions,agentmentions,refmd}.ts*`, `canvas/netmentions.css`]
+
+## Mention menu: every kind, newest first (2026-10-27)
+
+The composer's @ list offers agents, projects, tickets, presentations, apps and
+panels, newest first by the latest of mentioned, operated on and presented, and
+a kind prefix (`@agent:` `@project:` `@item:` `@doc:` `@app:` `@panel:`) lists
+all of one kind. Tickets, presentations, apps and panels come from one bounded
+engine read, `GET /api/orgs/{slug}/mention-candidates?kinds&q&after&limit`
+(`domain/mention_candidates.rs`, `http/mention_candidates.rs`): ranked, keyset
+paged by `[at_ms, lower(label), kind, id]`, at most 50 rows. `at_ms` is in
+milliseconds, the precision of every engine time, so the list's own sort agrees
+with the pages. The read first runs a bounded catch-up of mail mentions into
+`ot.mention_recency` (migration 0076; one cursor, 2,000 messages per read, 200
+read again behind it for late commits, `SKIP LOCKED` so readers never queue).
+Its first page carries `nodes`, the newest mail mention of each agent or project
+name.
+- `canvas/mentionsearch.ts` holds the answers: one read per org in flight (the
+  latest query waits), answers per org, kinds and text for five seconds, a
+  continued page appended, and the nearest shorter query's rows standing in
+  (paging nothing) until the exact one arrives. It replaced
+  `ticketmentions.ts` and `presentationmentions.ts`.
+- `canvas/agentmentions.tsx` `matchMentionQuery` reads a kind prefix (an
+  unknown `@word:` opens nothing), and `filterMentionCandidates` ranks:
+  transcript mentions first (as before), then `max(at, node mail mention)`, then
+  name, kind and id. A tree node's `at` is `nodeActivity` (newest turn, status,
+  turn in flight, else creation). The hook draws 60 rows at a time; an
+  IntersectionObserver marker at the far end draws more and asks for the next
+  engine page, as do the arrow keys near the end.
+- The menu ranks with the window's rows: a typed word narrows without
+  reordering, and the engine's `q` filter is the same every-word-in-name-or-id
+  rule.
+- `@project:<org>/<name>` (USER md30a04a62550) parses as a node reference with
+  `as: 'project'`; `projectFormPlain` leaves it plain text unless it names a
+  live project here (another org's keeps its chip); `refToken` keeps the form.
+- Agent parity: composer completion inserts text agents already write; no tool.
+- Proofs: `tests/mentionmenu.test.tsx`, `tests/projectform.test.tsx`, native
+  `migrate/mention_recency_tests.rs` (rig `proofs/mention-recency.mjs`), and
+  `proofs/mention-menu.mjs` (Session 0 window: every kind by one word, then
+  `@doc:`).
+[decided: user 2026-10-27 m042c82fb0228, mdb3b4aef1062, m35d9b7cf74f6,
+m79e889ce1609, md30a04a62550; verified: `canvas/{agentmentions.tsx,mentionsearch.ts,workrefs.tsx,reflinks.tsx,refmd.tsx}`,
+`domain/mention_candidates.rs`]

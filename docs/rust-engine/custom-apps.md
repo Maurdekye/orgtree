@@ -567,7 +567,8 @@ departures provisional for the user.
 - The MENTIONS standing rule gains one sentence naming both tokens; it changes
   every agent's prompt prefix once, at its first start on the new build.
 - Not in this change (departure c): the composer @ menu and a Mention entry for
-  apps and panels. Hubchat renders only contact mentions, so these tokens stay
+  apps and panels. (The @ menu offers them since 2026-10-27: see
+  [desktop and renderer](../agents/desktop-and-renderer.md#mention-menu-every-kind-newest-first-2026-10-27).) Hubchat renders only contact mentions, so these tokens stay
   text there (@hubchat-design-opus, orgtree-hubchat c288898; its scanner stops at
   `:`, so a contact literally named app or panel would link the `@app` prefix).
 - Styling (USER m6d0cdc7a2be6, m33e4a043b457; separate commit): every mention

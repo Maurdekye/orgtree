@@ -427,4 +427,6 @@ another organization's, shows the agent's text marked *unavailable* or *other
 org* and opens nothing.
 
 Agents write these as `@app:<org>/<app-id>` and `@panel:<org>/<panel-id>`; the
-Apps tool gives them the exact text.
+Apps tool gives them the exact text. You can mention them too: type **@** and
+part of the app's name in a message, or `@app:` or `@panel:` to list them all,
+the most recently used first.
