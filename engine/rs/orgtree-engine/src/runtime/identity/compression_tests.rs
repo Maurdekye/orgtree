@@ -106,6 +106,12 @@ fn legacy_profiles_change_only_approved_mentions_and_claude_loading() {
         ).replace(
             "orgtree_session, orgtree_apps, orgtree_org_logo",
             "orgtree_session, orgtree_org_logo",
+        ).replace(
+            // Fewer failed docket calls (USER 2026-10-27 m3f52496b06f6,
+            // proposals A and B): keep/append need no revision, and
+            // expected_rev guards only the fields a call replaces.
+            "On a long item, use `keep_done`/`keep_next` to carry a stored list forward, or `done_append`/`next_append` to add to one: the backend merges and stores the COMPLETE list either way, skips an appended entry the list already holds, and returns exactly what it stored. Pass `expected_rev` (the rev you read) when you replace something: if somebody has since changed a field your call replaces (a whole list, the status, the scope, the reviewer or attention), your whole call is refused before anything changes rather than overwriting theirs; other changes since then let it apply, with a note.",
+            "On a long item, pass `expected_rev` (the rev you read) with `keep_done`/`keep_next` to carry a stored list forward, or `done_append`/`next_append` to add to one: the backend merges and stores the COMPLETE list either way and returns exactly what it stored. `expected_rev` is compare-and-set — if somebody wrote to the item since you read it, your whole call is refused before anything changes rather than interleaving with theirs — and it is required with any keep or append, because those are statements about a list you have actually read.",
         );
         assert_eq!(json!(text.len()), expected[&key]["bytes"], "{key}: byte length");
         assert_eq!(json!(format!("{:x}", Sha256::digest(text.as_bytes()))),
