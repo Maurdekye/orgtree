@@ -277,9 +277,10 @@ test('§4c a bare item name inside markdown is still a control', async () => {
     await flush()
     const link = body(v.el).querySelector('.docket-ref') as HTMLElement | null
     assert.ok(link, 'a bare item name in a markdown list stopped being a link')
-    assert.equal(link.textContent, 'the-other-ticket')
-    // the list item still reads as the sentence the author wrote
-    assert.match(body(v.el).textContent ?? '', /blocked behind the-other-ticket/)
+    // the link shows the item's title (USER 2026-10-27 m3eb804e5023a)
+    assert.equal(link.textContent, 'The other ticket')
+    // the list item still reads as the sentence the author wrote, around it
+    assert.match(body(v.el).textContent ?? '', /blocked behind The other ticket/)
     await inAct(() => link.click())
     assert.deepEqual(went, ['the-other-ticket'])
     await v.unmount()
@@ -397,8 +398,9 @@ test('§7 a name that ENTERS the index becomes a control without a reload', asyn
     await flush()
     assert.equal(v.el.querySelectorAll('.docket-ref').length, 2,
       'a name that entered the index stayed prose')
-    const names = [...v.el.querySelectorAll('.docket-ref')].map(e => e.textContent)
+    const names = [...v.el.querySelectorAll('.docket-ref')].map(e => e.getAttribute('data-ref-mention'))
     assert.deepEqual(names, ['alpha-ticket', 'beta-ticket'])
+    assert.deepEqual([...v.el.querySelectorAll('.docket-ref')].map(e => e.textContent), ['A', 'B'], 'each shows its title')
     // and the new one really works, rather than merely looking like a control
     await inAct(() => (v.el.querySelectorAll('.docket-ref')[1] as HTMLElement).click())
     assert.deepEqual(went, ['beta-ticket'])
@@ -409,7 +411,7 @@ test('§7 a name that ENTERS the index becomes a control without a reload', asyn
         index={one} onPick={(s) => went.push(s)} />)
     await flush()
     assert.equal(v.el.querySelectorAll('.docket-ref').length, 1)
-    assert.match(body(v.el).textContent ?? '', /Follow alpha-ticket and beta-ticket\./)
+    assert.match(body(v.el).textContent ?? '', /Follow A and beta-ticket\./)
     await v.unmount()
   } finally { restore() }
 })
@@ -485,7 +487,7 @@ test('§7d two DIFFERENT name sets are never mistaken for each other', () => {
   assert.equal(linkifyRefs(host, WORLD, true, { index: before, onPick }), 1)
   assert.equal(host.querySelectorAll('.docket-ref').length, 1)
   assert.equal(linkifyRefs(host, WORLD, true, { index: after, onPick }), 2)
-  const names = [...host.querySelectorAll('.docket-ref')].map(e => e.textContent)
+  const names = [...host.querySelectorAll('.docket-ref')].map(e => e.getAttribute('data-ref-mention'))
   assert.deepEqual(names, ['alpha-ticket', 'c0-ticket'],
     'a colliding name swap left the prose undecorated')
 })

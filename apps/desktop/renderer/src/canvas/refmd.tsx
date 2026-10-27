@@ -305,8 +305,9 @@ function mentionEl(doc: Document, ref: MentionRef,
   const slug = ref.kind === 'item' ? ref.slug : ''
   const live = !!onPick
   const el = doc.createElement(live ? 'button' : 'span')
-  // a live ticket link wears the item's status flare, named in its tooltip
-  // with the title, as `WorkRefText` does (USER 2026-10-27 m43beb8089dd4)
+  // a live ticket link shows the item's title and wears its status flare, as
+  // `WorkRefText` does (USER 2026-10-27 m3eb804e5023a, m43beb8089dd4); MEN
+  // keeps the name the prose holds, so undoing the chip stays exact
   const title = live && ref.kind === 'item' && ref.title?.trim() ? ref.title : undefined
   const flare = live && ref.kind === 'item' ? ticketFlare(ref) : undefined
   if (live) {
@@ -324,7 +325,7 @@ function mentionEl(doc: Document, ref: MentionRef,
   }
   // a live ticket link wears the docket mark, as `WorkRefText` draws it
   if (live) el.appendChild(createRefMarkEl(doc, 'item'))
-  el.appendChild(doc.createTextNode(slug))
+  el.appendChild(doc.createTextNode(title ?? slug))
   return el
 }
 

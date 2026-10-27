@@ -196,8 +196,10 @@ export function WorkRefText({ text, index, onPick, onFocusAgent }: {
         )
         : <span key={key} data-copy-agent-name={ref.id}>{shown}</span>
     }
-    // A LINK WEARS THE ITEM'S STATUS FLARE, named in its tooltip with the
-    // title, like a typed mention (USER 2026-10-27 m43beb8089dd4)
+    // A LINK SHOWS THE ITEM'S TITLE AND WEARS ITS STATUS FLARE, like a typed
+    // mention (USER 2026-10-27 m3eb804e5023a "also make these links use the full
+    // name", m43beb8089dd4); the words around it stay as written, and inert
+    // prose keeps the name itself
     const title = ref.title?.trim() ? ref.title : undefined
     const flare = ticketFlare(ref)
     return onPick
@@ -206,7 +208,7 @@ export function WorkRefText({ text, index, onPick, onFocusAgent }: {
           className={'docket-ref' + (flare ? ` ref-flare ${flare.cls}` : '')}
           title={title && flare ? `${flare.tip} · ${title}` : title}
           onClick={(e) => { e.stopPropagation(); onPick(ref.slug) }}>
-          <RefMark kind="item" />{shown}
+          <RefMark kind="item" />{title ?? shown}
         </button>
       )
       : <span key={key} data-copy-ticket-title={ref.title}>{shown}</span>

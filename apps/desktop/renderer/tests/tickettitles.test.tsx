@@ -89,10 +89,11 @@ test('without a title the chip keeps its slug, and a name read never makes a tic
  assert.equal(resolveRef(parseRef('@item:acme/a-b')!,{org:'acme'}).label,'a-b','no list, no reader: the slug')
 })
 
-test('a docket item named by its slug in prose keeps the words the author wrote',async t=>{
+test('a docket item named by its slug in prose links by its title, the words around it as the author wrote them',async t=>{
  docket(t,[{slug:'build-the-docs',title:'Build the docs site from main',status:'open'}])
  const index=buildMentionIndex([{slug:'build-the-docs',title:'Build the docs site from main'}])
  const view=await mountView(<WorkRefText text="see build-the-docs today" index={index} onPick={()=>{}}/>,el=>el)
  t.after(()=>view.unmount());await inAct(tick)
- assert.equal(view.el.textContent,'see build-the-docs today')
+ // a link shows the item's title too (USER 2026-10-27 m3eb804e5023a); unlinked prose keeps the slug
+ assert.equal(view.el.textContent,'see Build the docs site from main today')
 })

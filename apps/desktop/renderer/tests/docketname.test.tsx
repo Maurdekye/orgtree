@@ -311,6 +311,8 @@ uiTest('§N6 an ITEM named exactly like an agent is still the item',
     assert.deepEqual(went, [], 'clicking the mention left the docket')
     assert.match(pane(el)?.textContent ?? '', /A work item, not an agent/,
       'the mention did not select the item it names')
+    // the link itself shows that title, so the selection is told by the slug
+    assert.equal(el.querySelector('.docket-pane-sub .docket-slug-text')?.textContent, 'checklist-evidence')
   })
 
 uiTest('§N7 agent names in prose stay plain while actor attribution remains',

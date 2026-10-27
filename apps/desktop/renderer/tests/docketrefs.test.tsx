@@ -274,7 +274,8 @@ uiTest('§7 a mention in the DESCRIPTION is a link, and the sentence still reads
 
     const link = refs(el)
     assert.equal(link.length, 1, 'the description mention did not become a link')
-    assert.equal(link[0]!.textContent, 'clickable-docket-references')
+    // the link shows the item's title (USER 2026-10-27 m3eb804e5023a)
+    assert.equal(link[0]!.textContent, 'Clickable docket references across text surfaces')
     // ⚠ THE PROSE MUST BE INTACT. A linkifier that drops or reorders the words
     // around the match has broken the thing it was decorating.
     //
@@ -284,7 +285,7 @@ uiTest('§7 a mention in the DESCRIPTION is a link, and the sentence still reads
     // prose — every character the author wrote is still here, in order.
     assert.equal(
       pane(el)?.querySelector('.docket-desc-body')?.textContent?.trim(),
-      'blocked behind clickable-docket-references until the renderer exists.')
+      'blocked behind Clickable docket references across text surfaces until the renderer exists.')
   })
 
 uiTest('§8 mentions in PROGRESS entries and in an attention reason link too',
@@ -310,7 +311,7 @@ uiTest('§8 mentions in PROGRESS entries and in an attention reason link too',
     // would give one link here, not three
     assert.equal(refs(el).length, 3)
     assert.deepEqual(new Set(refs(el).map((r) => r.textContent)),
-      new Set(['clickable-docket-references']))
+      new Set(['Clickable docket references across text surfaces']))
   })
 
 uiTest('§9 clicking a mention selects, reveals and marks the item it names',

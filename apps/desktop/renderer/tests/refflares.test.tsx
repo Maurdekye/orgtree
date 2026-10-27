@@ -185,6 +185,25 @@ test('§4 a bare ticket name in docket prose wears the status flare, named with 
   }
 })
 
+test('§4b a bare ticket name links by its ticket title; the words around it, and inert prose, stay as written', async t => {
+  const slug = 'flares-bare-title'
+  engine(t)
+  const index = buildMentionIndex([{ slug: 'build-docs', title: 'Build the docs site from main', status: 'in_progress' }])
+  const view = await mountView(<div className="docket-modal">
+    <p className="react"><WorkRefText text="blocked behind build-docs until it lands" index={index} onPick={noop} /></p>
+    <div className="markdown"><RefMdBody html={md('blocked behind build-docs until it lands')} world={{ org: slug }}
+      mentions={{ index, onPick: noop }} /></div>
+    <p className="inert"><WorkRefText text="blocked behind build-docs until it lands" index={index} /></p>
+  </div>, el => el)
+  t.after(() => view.unmount())
+  await inAct(tick)
+  for (const where of ['react', 'markdown']) {
+    assert.equal(view.el.querySelector(`.${where} .docket-ref`)?.textContent, 'Build the docs site from main', `${where}: the title`)
+    assert.equal(view.el.querySelector(`.${where}`)!.textContent?.trim(), 'blocked behind Build the docs site from main until it lands')
+  }
+  assert.equal(view.el.querySelector('.inert')!.textContent, 'blocked behind build-docs until it lands', 'no link, no change')
+})
+
 test('§5 the idle-docket reminder card links the ticket by its recorded title, not its slug', async t => {
   const slug = 'flares-idle'
   engine(t)

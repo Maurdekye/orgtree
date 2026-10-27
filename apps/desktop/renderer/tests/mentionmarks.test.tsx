@@ -59,7 +59,8 @@ test('a docket item named in prose wears the same docket mark, wherever it is a 
  const live=await mountView(<WorkRefText text="see build-docs today" index={index} onPick={noop}/>,el=>el);t.after(()=>live.unmount())
  const button=live.el.querySelector('button.docket-ref')!
  assert.ok(lead(button)?.classList.contains('ref-mark-item'))
- assert.equal(button.textContent,'build-docs')
+ // a link shows the item's title (USER 2026-10-27 m3eb804e5023a)
+ assert.equal(button.textContent,'Build the docs')
  const host=document.createElement('div');document.body.appendChild(host);t.after(()=>host.remove())
  host.innerHTML='<p>see build-docs today</p>'
  linkifyRefs(host,world,true,{index,onPick:noop})
