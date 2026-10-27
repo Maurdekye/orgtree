@@ -6268,14 +6268,18 @@ impl Actor {
                 let raw_params = info.get("parameters").cloned().unwrap_or_else(|| json!({}));
                 let (name, input) = convo::unwrap_tool_call(raw_name, &raw_params);
                 let retained_read=state=="DONE" && token_counts::is_file_read(&name);
-                let native_read=if retained_read {
+                // A completed tool whose stream carried no output text is counted from its exact
+                // native step (any tool, not one row kind); a file read always is, never a summary.
+                let native_fallback=state=="DONE" && !retained_read && token_counts::agy_output(info).is_none();
+                let native_read=if retained_read || native_fallback {
                     let bound=self.proc.as_ref().and_then(|p|match p {
                         Proc::Agy(p)=>p.conversation.as_deref().filter(|s|step["conversation_id"].as_str()==Some(*s) && idx>=0)
                             .zip(p.history_home.as_ref()).map(|(s,h)|(s.to_string(),h.clone())),
                         _=>None,
                     });
                     if let Some((session,home))=bound {
-                        tokio::task::spawn_blocking(move ||super::agy_thinking::read_tool_output(&home,&session,idx))
+                        tokio::task::spawn_blocking(move ||if retained_read {super::agy_thinking::read_tool_output(&home,&session,idx)}
+                            else {super::agy_thinking::tool_output(&home,&session,idx)})
                             .await.ok().and_then(Result::ok).flatten()
                     } else {None}
                 } else {None};
@@ -6308,7 +6312,7 @@ impl Actor {
                         .map(|v| v.as_str().map(str::to_string).unwrap_or_else(|| v.to_string()))
                         .or_else(|| err.clone())
                         .unwrap_or_else(|| state.to_lowercase());
-                    let raw_output=if retained_read {native_read} else {token_counts::agy_output(info)};
+                    let raw_output=if retained_read {native_read} else {token_counts::agy_output(info).or(native_read)};
                     let output_tokens=self.output_estimate(&id,raw_output.as_deref()).await;
                     let update = {
                         let Some(t) = self.turn.as_mut() else { return Ok(()) };

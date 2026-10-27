@@ -572,10 +572,11 @@ mod tests {
         let db=rusqlite::Connection::open(dir.join(format!("{session}.db"))).unwrap();
         db.execute_batch("CREATE TABLE steps(idx INTEGER PRIMARY KEY,step_payload BLOB)").unwrap();
         let bytes=|field:u8,s:&[u8]|{let mut v=vec![(field<<3)|2];let mut n=s.len();while n>=128{v.push((n as u8&127)|128);n>>=7;}v.push(n as u8);v.extend(s);v};
-        let payload=bytes(14,&bytes(4,content.as_bytes()));
+        // the stored shape of a native read: a generic tool step (field 1 = 132), call 5 -> 4 -> 2, result 140 -> 2 -> 1
+        let payload=[vec![8,132,1],bytes(5,&bytes(4,&bytes(2,b"read_file"))),bytes(140,&bytes(2,&bytes(1,content.as_bytes())))].concat();
         db.execute("INSERT INTO steps VALUES (6,?1)",[payload]).unwrap();drop(db);
         let observed=crate::runtime::agy_thinking::read_tool_output(&root,session,6).unwrap();
-        println!("READ_MEASUREMENT {}",json!({"harness":"Antigravity","row":e.count(observed.as_deref().unwrap_or(&agy_output(&info).unwrap())),"returned":e.count(&content),"bytes":content.len(),"estimated":true,"source":"synthetic native view_file field14/content4 fixture"}));
+        println!("READ_MEASUREMENT {}",json!({"harness":"Antigravity","row":e.count(observed.as_deref().unwrap_or(&agy_output(&info).unwrap())),"returned":e.count(&content),"bytes":content.len(),"estimated":true,"source":"synthetic native generic tool step (field 140 result) fixture"}));
         assert!(observed.as_deref()==Some(content.as_str()));
         assert_eq!(crate::runtime::agy_thinking::read_tool_output(&root,session,5),Ok(None));
         assert_eq!(crate::runtime::agy_thinking::read_tool_output(&root,"../wrong",6),Err(crate::runtime::agy_thinking::Skip::Identity));

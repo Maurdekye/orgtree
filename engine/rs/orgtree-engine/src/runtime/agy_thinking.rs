@@ -13,15 +13,48 @@ pub enum Skip {
     Payload,
 }
 
-/// The exact native step's model-facing file slice, never a current file read.
-/// AGY 1.4.5 descriptor: CortexStep.view_file=14, ViewFile.content=4.
+/// `CortexStep` type of AGY's generic tool step (payload field 1).
+const TOOL_STEP: u64 = 132;
+
+/// One completed native tool step: the tool's name and the text it returned to the model.
+#[derive(Debug, PartialEq, Eq)]
+pub struct ToolStep {
+    pub name: String,
+    pub text: String,
+}
+
+/// The exact native tool step, never a current file read.
+/// Measured 2026-10-27 on nine real AGY histories (2,291 tool steps, read_file and view_file
+/// among them): every native tool is one generic step (field 1 = 132) whose call is field 5 -> 4
+/// (tool name = field 2) and whose result is field 140 -> 2 -> 1, UTF-8, each field once.
+/// `CortexStep.view_file` (14) never occurs there, so reading it counted nothing.
+/// A step without result text (an error, a media-only result) is `None`.
+#[nolog]
+pub fn tool_step(home: &Path, session: &str, index: i64) -> Result<Option<ToolStep>, Skip> {
+    let Some(data)=read_payload(home,session,index)? else {return Ok(None)};
+    if scalar(&data,1)?!=Some(TOOL_STEP) {return Ok(None)}
+    let Some(result)=field(&data,140)? else {return Ok(None)};
+    let Some(body)=field(result,2)? else {return Ok(None)};
+    let Some(text)=field(body,1)? else {return Ok(None)};
+    let text=std::str::from_utf8(text).map_err(|_|Skip::Payload)?.to_string();
+    let call=match field(&data,5)? {Some(meta)=>field(meta,4)?, None=>None};
+    let name=match call {Some(call)=>field(call,2)?, None=>None};
+    let name:String=name.map(|n|String::from_utf8_lossy(n).chars().take(128).collect()).unwrap_or_default();
+    Ok(Some(ToolStep{name,text}))
+}
+
+/// The model-facing file slice of a completed read / read_file / view_file step.
+/// The step's own tool name must be a file read, so a step index that points at another
+/// tool never lends its text to a read row.
 #[nolog]
 pub fn read_tool_output(home: &Path, session: &str, index: i64) -> Result<Option<String>, Skip> {
-    let Some(data)=read_payload(home,session,index)? else {return Ok(None)};
-    let Some(view)=field(&data,14)? else {return Ok(None)};
-    // A media-only result cannot be assigned a text count.
-    let Some(content)=field(view,4)? else {return Ok(None)};
-    Ok(Some(std::str::from_utf8(content).map_err(|_|Skip::Payload)?.into()))
+    Ok(tool_step(home,session,index)?.filter(|s|crate::runtime::token_counts::is_file_read(&s.name)).map(|s|s.text))
+}
+
+/// The text any completed native tool step returned, for a stream that carried none.
+#[nolog]
+pub fn tool_output(home: &Path, session: &str, index: i64) -> Result<Option<String>, Skip> {
+    Ok(tool_step(home,session,index)?.map(|s|s.text))
 }
 
 #[nolog]
