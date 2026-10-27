@@ -16,11 +16,17 @@
 //      was;
 //   2. Power off inside the pop-out (shutdown);
 //   3. opened again from the Apps list (reopen): where it shows, its window's
-//      bounds, and every frame the main window paints meanwhile;
+//      bounds against where it was left, and every frame the main window
+//      paints meanwhile; then moved again, powered off and opened again, to
+//      show nothing builds up (docket 4-5-0-a-saved-pop-out-window-reopens-8-px-off-an);
 //   4. its title bar's drag region; Return to main window; a CDP drag of its
 //      title bar that moves it (drag);
 //   5. a floating and a window-pinned panel powered off and opened again, and
 //      a drag of the pinned one.
+// The pop-outs go through the desktop's own wiring, bundled from the checkout
+// like the session guard: configureWindow's open handler and exact placement,
+// and a popoutRegistry whose reports (state, with the window's own box) the
+// bridge stand-in hands to the page, as main/index.ts and the preload do.
 // The same file also runs against an older checkout (kept outside the tree):
 // it records what that checkout does instead of stopping at the first gap.
 //
@@ -45,6 +51,8 @@ const SLUG = 'synthetic-panels', TOKEN = 'capture-token-' + process.pid
 const WINDOW_MS = 700
 // Where the user leaves the pop-out: inside the 1024x768 Session 0 display.
 const MOVED = { x: 340, y: 180, width: 560, height: 400 }
+// and where it is left the second time
+const MOVED2 = { x: 200, y: 120, width: 600, height: 440 }
 const receipt = { started: new Date().toISOString(), requests: [], static: [], scenarios: {}, console: [], problems: [], knownGaps: [], pops: [] }
 const fail = (e) => { console.error(e && e.stack || e); app.exit(1) }
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
@@ -69,10 +77,13 @@ const find = (id) => panels.find((p) => p.id === id)
 // A stand-in for the preload's window.orgtreeDesktop, with what the Apps
 // workspace and its pop-outs ask of it: without a bridge the renderer neither
 // saves pop-out windows nor restores them. Like the preload's
-// ipcRenderer.invoke, the window state answers later (20 ms here).
-const BRIDGE_JS = `window.orgtreeDesktop = {
+// ipcRenderer.invoke, the window state answers later (20 ms here). Main's
+// events reach onEvent listeners through window.__orgtreeEmit.
+const BRIDGE_JS = `window.__orgtreeListeners = new Set()
+window.__orgtreeEmit = (event) => { for (const fn of [...window.__orgtreeListeners]) fn(event); return true }
+window.orgtreeDesktop = {
   getWindowState: () => new Promise((resolve) => setTimeout(() => resolve({ visible: true, restoreWindows: true }), 20)),
-  onEvent: () => () => {},
+  onEvent: (fn) => { window.__orgtreeListeners.add(fn); return () => { window.__orgtreeListeners.delete(fn) } },
   getPreferences: () => Promise.resolve({}),
   setPreferences: () => Promise.resolve(),
   focusPopout: () => Promise.resolve(),
@@ -195,27 +206,36 @@ app.whenReady().then(async () => {
   const register = windows.configureEngineSession(session.defaultSession, origin, TOKEN)
   const prefs = { contextIsolation: true, sandbox: true, nodeIntegration: false, offscreen: true, backgroundThrottling: false }
   const win = new BrowserWindow({ width: 1024, height: 760, useContentSize: true, show: false, paintWhenInitiallyHidden: true, webPreferences: prefs })
-  register(win)
   const wc = win.webContents
   wc.setFrameRate(60)
   wc.setAudioMuted(true)
   const mainRec = recorder(wc)
-  // The renderer's named about:blank pop-outs only. An offscreen window.open
-  // child keeps a 0x0 viewport (measured 2026-10-27), so each pop-out is an
-  // ordinary frameless window, shown inactive in Session 0. Electron applies
-  // the features' left/top/width/height to it.
+  // Main's reports of each pop-out (popout-state, with its own box), handed to
+  // the page as the preload delivers events.
+  const reported = []
+  receipt.reported = reported
+  const registry = windows.popoutRegistry((state) => {
+    reported.push({ at: Math.round(performance.now()), ...state })
+    if (!wc.isDestroyed()) wc.executeJavaScript(`window.__orgtreeEmit(${JSON.stringify({ type: 'popout-state', data: { ...state, reason: 'user' } })})`, true).catch(() => {})
+  })
+  // Every open request's features, as the desktop's own handler answers them.
+  const setOpenHandler = wc.setWindowOpenHandler.bind(wc)
+  wc.setWindowOpenHandler = (handler) => setOpenHandler((details) => {
+    const answer = handler(details)
+    receipt.pops.push({ asked: Math.round(performance.now()), frameName: details.frameName, features: details.features, allowed: answer.action === 'allow' })
+    return answer
+  })
+  // The desktop's own wiring: the session guard registers the windows, the open
+  // handler allows the renderer's named about:blank pop-outs (ordinary frameless
+  // windows; an offscreen window.open child kept a 0x0 viewport, measured
+  // 2026-10-27) and places exact ones, and each pop-out is tracked.
+  windows.configureWindow(win, () => origin, true, register, undefined, undefined, (name, child) => registry.track(name, child))
   const pops = []
   let recordNext = false
-  wc.setWindowOpenHandler(({ url, frameName, features }) => {
-    const ok = url === 'about:blank' && /^orgtree-popout-/.test(frameName)
-    receipt.pops.push({ asked: Math.round(performance.now()), frameName, features, allowed: ok })
-    return ok ? { action: 'allow', overrideBrowserWindowOptions: { show: false, frame: false, paintWhenInitiallyHidden: true, webPreferences: { ...prefs, offscreen: false } } } : { action: 'deny' }
-  })
-  wc.on('did-create-window', (w) => {
-    register(w, true)
+  wc.on('did-create-window', (w, details) => {
     const cwc = w.webContents
-    const entry = { win: w, wc: cwc, createdAt: performance.now(), closedAt: null }
-    if (!cwc.isOffscreen()) w.showInactive()
+    const entry = { win: w, wc: cwc, name: details.frameName, createdAt: performance.now(), closedAt: null }
+    if (!w.isVisible()) w.showInactive()
     cwc.setAudioMuted(true)
     entry.rec = recorder(cwc)
     if (recordNext) { recordNext = false; entry.rec.start(); entry.fromCreation = true }
@@ -377,6 +397,7 @@ h1{font-size:13px;margin:0 0 8px}main{display:grid;grid-template-columns:repeat(
     first.win.setBounds(MOVED)
     await sleep(700) // the renderer samples its pop-outs' bounds every 250 ms
     receipt.popout.moved = first.win.getBounds()
+    receipt.popout.reportedAfterMove = reported.filter((r) => r.name === first.name).at(-1)?.bounds ?? null
     // what the renderer samples into the saved row (windowlayout.ts captureWindow)
     receipt.popout.rendererSees = await js('({screenX,screenY,outerWidth,outerHeight,innerWidth,innerHeight})', first.wc)
     // the main window where the pinned panel was: the canvas, or a box left there?
@@ -419,13 +440,35 @@ h1{font-size:13px;margin:0 0 8px}main{display:grid;grid-template-columns:repeat(
     receipt.reopen.writes = writesSince(mark)
     receipt.reopen.notice = await js(`(()=>{const n=document.querySelector('.popout-notices');return n?n.textContent:null})()`)
 
-    // 4. Back to the main window (its earlier place: the window pin), then a drag.
+    // 3b. Moved once more, powered off and opened again: nothing builds up.
+    let last = second
     if (second) {
-      const back = await scenario('return', panelSel('popped'), () => press(`${q(panelSel('popped'))}.querySelector('.popout-button')`, 'Return to main window', second.wc, second.dbg))
+      second.win.setBounds(MOVED2)
+      await sleep(700)
+      receipt.again = { moved: second.win.getBounds(), reportedAfterMove: reported.filter((r) => r.name === second.name).at(-1)?.bounds ?? null }
+      await press(`${q(panelSel('popped'))}.querySelector('[aria-label="Power off Popped out"]')`, 'Power off in the pop-out (again)', second.wc, second.dbg)
+      await until(() => second.closedAt !== null, 'the second pop-out to close', 3000)
+      await sleep(300)
+      await openMenu()
+      await press(row('Popped out'), 'Popped out row (off, again)')
+      const third = await maybe(() => pops[2], 'its own window a third time', 3000)
+      receipt.again.ownWindow = !!third
+      if (third) {
+        await until(() => js(`!!${q(panelSel('popped'))}?.querySelector('iframe')`, third.wc), 'the panel in its window (third)')
+        await settle(third.wc)
+        receipt.again.bounds = third.win.getBounds()
+        receipt.again.features = receipt.pops.at(-1)?.features
+        last = third
+      }
+    }
+
+    // 4. Back to the main window (its earlier place: the window pin), then a drag.
+    if (last) {
+      const back = await scenario('return', panelSel('popped'), () => press(`${q(panelSel('popped'))}.querySelector('.popout-button')`, 'Return to main window', last.wc, last.dbg))
       // every box the panel had in the main window while it came back: one means straight to its pin
       receipt.returned = { boxes: [...new Set(back.samples.filter((x) => x.box).map((x) => x.box.join()))] }
       await until(() => js(`!!${q(panelSel('popped'))}?.querySelector('iframe')`), 'the panel back in the main window')
-      await until(() => second.closedAt !== null, 'the second pop-out to close', 3000)
+      await until(() => last.closedAt !== null, 'the last pop-out to close', 3000)
       await settle()
     }
     receipt.beforeDrag = { state: await js(STATE('popped')), placement: { ...find('popped').placement } }
@@ -470,16 +513,16 @@ h1{font-size:13px;margin:0 0 8px}main{display:grid;grid-template-columns:repeat(
     expect(receipt.shutdown.placement.mode === 'popout' && !receipt.shutdown.open && !receipt.shutdown.running, 'shutdown: the record should be off and still say popout')
     expect(receipt.reopen.ownWindow, 'reopen: no window of its own was opened')
     expect(!receipt.reopen.inMainWindowAtAnyFrame, 'reopen: the panel showed in the main window')
-    // The window opens exactly at the saved row's rect. That rect is what the
-    // renderer saw where the user left it: screenX/outerWidth include Windows'
-    // invisible frame allowance, which the restore then opens as visible bounds.
-    // Pre-existing in every saved pop-out restore, so it is listed, not failed.
+    // Where it was left, within 1 px, both times: the saved row is the window's
+    // own box as main reported it, and main places it exactly. (The renderer's
+    // own view, rendererSees, includes Windows' invisible frame.)
     const rectOf = (f) => { const v = (k) => Number(new RegExp('(?:^|,)' + k + '=(-?\\d+)').exec(f || '')?.[1]); return { x: v('left'), y: v('top'), width: v('width'), height: v('height') } }
-    const seen = receipt.popout.rendererSees
+    const within1 = (a, b) => !!a && !!b && ['x', 'y', 'width', 'height'].every((k) => Math.abs(a[k] - b[k]) <= 1)
     receipt.reopen.asked = rectOf(receipt.reopen.features)
-    expect(near(receipt.reopen.bounds, receipt.reopen.asked), 'reopen: its window is not at the saved row\'s place and size')
-    expect(!!seen && near(receipt.reopen.asked, { x: seen.screenX, y: seen.screenY, width: seen.outerWidth, height: seen.outerHeight }), 'reopen: the saved row is not where the renderer saw the window')
-    if (receipt.reopen.bounds && !near(receipt.reopen.bounds, MOVED)) receipt.knownGaps.push(`reopen: opened at ${JSON.stringify(receipt.reopen.bounds)}, left at ${JSON.stringify(MOVED)}: the saved row is the renderer's outer rect (invisible frame allowance), as in every saved pop-out restore`)
+    expect(within1(receipt.popout.reportedAfterMove, MOVED), 'main did not report the moved window\'s own box')
+    expect(/(?:^|,)orgtreeNativeRect=1(?:,|$)/.test(receipt.reopen.features || '') && within1(receipt.reopen.asked, MOVED), 'reopen: the restore did not ask for the window\'s own box')
+    expect(within1(receipt.reopen.bounds, MOVED), 'reopen: its window is not where it was left (within 1 px)')
+    expect(receipt.again?.ownWindow && within1(receipt.again?.bounds, MOVED2), 'second reopen: its window is not where it was left (within 1 px)')
     expect(receipt.reopen.state?.detached === true, 'reopen: the panel is not in its own window')
     expect(receipt.reopen.dragRegion?.title === 'drag' && receipt.reopen.dragRegion?.button === 'no-drag', 'reopen: the title bar is not the window drag region')
     expect(JSON.stringify(receipt.reopen.writes.map((w) => w.action)) === '["panel_open"]', 'reopen: wrote more than the open')
