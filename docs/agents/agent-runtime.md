@@ -1,5 +1,9 @@
 # Agent runtime
 
+## CLI placement and warming (2026-10-22)
+
+- **A CLI is reused only where its turn runs it, warming waits for the sign-in helper, and the helper's arrival takes idle Session 0 CLIs (2026-10-22).** Every harness's reuse check compares `hosted_in()` with the placement the turn chose as well as the prompt fingerprint: a full-access Codex seat has the same sandbox, and so the same prompt, in both sessions, and before this its Session 0 Codex ran its turns there while the helper hosted. Warming and a start by hand (`Actor::start_ahead`) wait in `session_settle` as a turn start does, so the warming after an engine start no longer starts CLIs in Session 0 before the helper is back, and they keep the next turn's `use` pick. When a helper starts hosting (the engine's start included), `runtime::rehost_all` closes each idle CLI parked in Session 0 and warms it again in the signed-in session, within warming's memory floor: never one in a turn, one holding background work, or one whose own choice is Session 0 (the user 14:21Z: "Move them at sign-in"). Bound such work by permits its actor holds until done (`REHOSTING`'s place travels in `AgentMsg::Rehost`), never by dispatch chunks: a timed-out reply does not stop a queued move, and sweeps overlap. `core_process::Sessions::read` passes over a session Windows lists as WTSDown or WTSReset, which is being torn down; any other failed call still makes the reading unknown, logged once per stretch with the call. Rig runs warm only with `warming` (`ORGTREE_RIG_WARMING`). [decided: user 2026-10-22 14:21Z, coordinator 14:19Z; verified: `runtime/actor.rs`, `runtime/mod.rs`, `runtime/session_watch.rs`, `core_process.rs`; proof `warm-placement.mjs`]
+
 ## Mail and transcript mention correlation
 
 The renderer, native duplicate predicate and mail read-clear require matching
