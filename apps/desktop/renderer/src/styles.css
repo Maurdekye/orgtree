@@ -9988,6 +9988,11 @@ button.ref-chip.ref-chip.ref-ready:is(.ref-item, .ref-doc, .ref-app, .ref-panel)
   flex: none; align-self: center; display: inline-grid; place-items: center;
   width: 1.15em; height: 1.15em; font-size: 1.1em; line-height: 1;
   color: var(--org-accent, var(--accent)); text-decoration: none;
+  /* In an inline chip (the "wrap object mentions" layout) the mark is an inline box and sits on the text
+     baseline, riding 3 to 6 px above its label (USER 2026-10-27 m2aeb0fd887cb "center the icon appearing in
+     all links to things"). Lowering it by this much centres it on the label's own line box in the app's mono
+     font at any size; a flex chip centres itself with `align-self`, which ignores this. */
+  vertical-align: -0.265em;
 }
 .ref-mark svg { width: 1em; height: 1em; }
 /* A LINK'S STATE FLARE (USER 2026-10-27 m43beb8089dd4 "add a flare with the
