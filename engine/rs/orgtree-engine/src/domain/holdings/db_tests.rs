@@ -139,6 +139,12 @@ impl World {
             .iter().map(|r| r.get(0)).collect()
     }
 
+    /// Let the tasks that arming a dog starts (its first run) finish.
+    #[nolog]
+    async fn settle(&self) {
+        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+    }
+
     /// Who stands in the project's slot line, first first.
     #[nolog]
     async fn line(&self) -> Vec<String> {
@@ -409,6 +415,11 @@ async fn a_mover_is_told_about_its_lease_job_claim_and_listener_in_one_notice() 
     w.claim(w.waiter).await;
     w.claim(w.holder).await;
     w.listen(w.holder).await;
+    // The claim and listener dogs each start a task of their own (the listener's first handout, a slot
+    // check). One that ran after the move's commit but before its pass would release the mover's holdings
+    // on its own and tell it separately, a benign extra notice; let them finish before the move so the
+    // test asks only what it means to: the PASS tells everything it releases in one notice.
+    w.settle().await;
     w.job(w.holder, "copy-mover").await;
     assert_eq!(w.line().await, ["holder"], "its second claim waits: both slots are taken");
     let (claim, _, _) = w.dog(w.holder, "slot").await;
