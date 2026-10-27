@@ -27,6 +27,10 @@
 .custom-app-placeholder.pinned { display:contents }
 .custom-app-window.settings { display:flex;flex-direction:column;position:relative;box-sizing:border-box;pointer-events:auto;overflow:visible;min-width:160px;min-height:120px;padding:0;gap:0;margin:0;--panel-pad-x:0px;--panel-pad-y:0px }
 .custom-app-centered { z-index:30 }
+/* Centered panels stack like window pins (user 2026-10-27): the one shown or brought to the
+   front last is on top, the others just under it and still above every pinned window. */
+.custom-app-centered.custom-app-behind { z-index:29 }
+html.mobile .overlay.custom-app-centered.custom-app-behind { z-index:39 }
 .custom-app-centered .custom-app-window { max-width:calc(100vw - 32px);max-height:calc(100vh - 32px) }
 /* a popped-out panel is its whole window: lift the 94vw cap .settings gives every dialog */
 .custom-app-window[data-detached] { border:0;border-radius:0;min-width:0;min-height:0;max-width:none;max-height:none }

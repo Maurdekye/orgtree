@@ -19,6 +19,7 @@ import {APP_BUNDLE_MAX,AppImport,parseAppBundle} from './portable'
 import type {AppBundle} from './portable'
 import type {AppPlacement,CustomApp,CustomPanel} from './types'
 import {canvasBox,pinLayerFor,pinSnapId,raisePinSurface,readPinSurfaces,useCanvasBox,usePinSurface} from '../pinspace'
+import {revealDetachedPanel} from '../../windowlife'
 import type {CanvasBox} from '../pinspace'
 import {findPinSnap} from '../pinSnap'
 import type {PinRect} from '../pins'
@@ -31,6 +32,33 @@ const returns=new Map<string,AppPlacement>()
 /** A window pin's place in its org's pin layer, shared with pinned desks. */
 type PinSlot={bounds:CanvasBox|null;z:number;key:string}
 const key=(slug:string,id:string)=>slug+'\0'+id
+/** USER 2026-10-27 (mffd8da23dc8f): the row of a panel that is already open and
+ *  visible brings it to the front and focuses it. Each shown panel registers how
+ *  it raises itself, as the shell's surfaces perform their own actions; hidden
+ *  and stopped panels have none and open as before. */
+const raisers=new Map<string,()=>void>()
+/** Centered panels stack the way window pins do: the one shown or brought to the
+ *  front last is on top and the others sit just under it (.custom-app-behind). */
+const fronts=new Map<string,number>()
+let frontSeq=0,frontVersion=0
+const frontSubs=new Set<()=>void>()
+function setFront(k:string,on:boolean){if(on)fronts.set(k,++frontSeq);else if(!fronts.delete(k))return;frontVersion++;for(const fn of frontSubs)fn()}
+function useBehind(slug:string,k:string):boolean{
+  useSyncExternalStore(fn=>{frontSubs.add(fn);return()=>frontSubs.delete(fn)},()=>frontVersion)
+  const mine=fronts.get(k);if(mine===undefined)return false
+  for(const [other,seq] of fronts)if(other!==k&&other.startsWith(slug+'\0')&&seq>mine)return true
+  return false
+}
+/** Opens a saved panel, or the copy the engine picks for an app (its most recently
+ *  used, or a first one), as the Apps list's rows do; panel and app mentions use it
+ *  too. A copy that was already open and visible comes to the front and takes the
+ *  focus; the request is the same panel_open, the use. Refusals reject. */
+export async function openAppPanel(slug:string,target:{panel:string}|{app:string}):Promise<CustomPanel>{
+  if('panel' in target){raisers.get(key(slug,target.panel))?.();return changeApps<CustomPanel>(slug,{action:'panel_open',panel:target.panel})}
+  const shown=new Set(raisers.keys()),opened=await changeApps<CustomPanel>(slug,{action:'panel_open',app:target.app})
+  if(shown.has(key(slug,opened.id)))raisers.get(key(slug,opened.id))?.()
+  return opened
+}
 /** Visible => running; a hidden panel may still run (user 2026-10-26). */
 export function panelRunState(p:CustomPanel):{cls:string;word:string}{
   return isRunning(p)?(p.open?{cls:'open',word:'Running · visible'}:{cls:'running',word:'Running · hidden'}):{cls:'',word:'Off'}
@@ -76,6 +104,9 @@ function AppsMenu({slug,current,manage,managePanel,importApp}:{slug:string;curre
   const listed=(app:CustomApp)=>data.panels.filter(p=>p.app===app.id).sort((a,b)=>createdAt(a)-createdAt(b)||(a.id<b.id?-1:a.id>b.id?1:0))
   const used=(p:CustomPanel)=>Date.parse(p.used_at)||0
   const mostRecent=(rows:CustomPanel[])=>rows.reduce<CustomPanel|undefined>((best,p)=>!best||used(p)>used(best)||(used(p)===used(best)&&p.id>best.id)?p:best,undefined)
+  // A visible panel's row, or an app row that resolves to one, also brings it to
+  // the front; the click still records the use, so nothing else changes.
+  const show=(target:{panel:string}|{app:string})=>{setMenu(null);openAppPanel(slug,target).catch(e=>window.dispatchEvent(new CustomEvent('custom-app-error',{detail:{slug,error:String(e)}})))}
   // Start running never shows a window; Power off stops and hides it. Power
   // changes send no revision: a running panel's own saves keep bumping it.
   const power=async(p:CustomPanel,action:'panel_start'|'panel_stop')=>{try{await changeApps(slug,{action,panel:p.id})}catch(e){window.dispatchEvent(new CustomEvent('custom-app-error',{detail:{slug,error:String(e)}}))}}
@@ -85,14 +116,14 @@ function AppsMenu({slug,current,manage,managePanel,importApp}:{slug:string;curre
     {data.error&&<p role="alert">{data.error}</p>}
     {!data.apps.length&&!data.loading&&<p className="dim">Your apps will appear here.</p>}
     {data.apps.map(app=>{const rows=listed(app),recent=mostRecent(rows);return <section key={app.id} className="custom-apps-menu-group">
-      <div className="custom-apps-menu-app" data-new-app={app.is_new?app.id:undefined} onClick={()=>void open(recent?{action:'panel_open',panel:recent.id}:{action:'panel_open',app:app.id})}><button type="button" className="custom-apps-open" title={recent?`Open ${recent.label}`:`Create a panel for ${app.name}`}><AppsIcon/><span><b>{app.name}</b><small>{app.description}</small></span></button>
+      <div className="custom-apps-menu-app" data-new-app={app.is_new?app.id:undefined} onClick={()=>show(recent?{panel:recent.id}:{app:app.id})}><button type="button" className="custom-apps-open" title={recent?`Open ${recent.label}`:`Create a panel for ${app.name}`}><AppsIcon/><span><b>{app.name}</b><small>{app.description}</small></span></button>
         {(app.is_new||seenHere.has(app.id))&&<b className="custom-app-new-label">New</b>}
         <button type="button" className="custom-apps-add" title="New panel" aria-label={`New panel for ${app.name}`} onClick={e=>{e.stopPropagation();void open({action:'panel_open',app:app.id,new:true})}}><AddIcon/></button>
         <button type="button" title={`App settings: ${app.name}`} aria-label={`Settings for ${app.name}`} onClick={e=>{e.stopPropagation();setMenu(null);manage(app)}}><SettingsIcon/></button></div>
       {/* User 2026-10-26: no Open/Closed word; the light alone shows state, named in the tooltip.
           The app's panels are their own group under it ("more visual delineation", provisional). */}
       {rows.length>0&&<div className="custom-apps-menu-panels" role="group" aria-label={`Panels of ${app.name}`}>{rows.map(p=>{const state=panelRunState(p),usage=isRunning(p)?cpuText(cpu.get(p.id)?.cpu,cpu.get(p.id)?.method):''
-        return <div key={p.id} className="custom-apps-saved-row" onContextMenu={e=>rowMenu.open(e,()=>rowEntries(p))}><button type="button" className="custom-apps-saved" title={state.word} aria-label={p.label+', '+state.word.toLowerCase()} onClick={()=>void open({action:'panel_open',panel:p.id})}><span className={'custom-app-dot'+(state.cls?' '+state.cls:'')} aria-hidden="true"/><span>{p.label}</span>{usage&&<small className="custom-app-cpu" title="Sampled CPU, one core = 100%">{usage}</small>}</button>
+        return <div key={p.id} className="custom-apps-saved-row" onContextMenu={e=>rowMenu.open(e,()=>rowEntries(p))}><button type="button" className="custom-apps-saved" title={state.word} aria-label={p.label+', '+state.word.toLowerCase()} onClick={()=>show({panel:p.id})}><span className={'custom-app-dot'+(state.cls?' '+state.cls:'')} aria-hidden="true"/><span>{p.label}</span>{usage&&<small className="custom-app-cpu" title="Sampled CPU, one core = 100%">{usage}</small>}</button>
           {isRunning(p)&&<button type="button" className="custom-apps-saved-power" title={`Power off ${p.label}: stops it running`} aria-label={`Power off ${p.label}`} onClick={()=>void power(p,'panel_stop')}><PowerIcon/></button>}
           <button type="button" className="custom-apps-saved-gear" title={`Panel settings: ${p.label}`} aria-label={`Settings for ${p.label}`} onClick={()=>{setMenu(null);managePanel(app,p)}}><SettingsIcon/></button></div>})}</div>}
     </section>})}
@@ -102,7 +133,7 @@ function AppsMenu({slug,current,manage,managePanel,importApp}:{slug:string;curre
   </div>,owner.body)
 }
 
-function PanelBody({slug,app,panel,shown,layer,frame}:{slug:string;app:CustomApp;panel:CustomPanel;shown:boolean;layer:PinSlot|null;frame:RefObject<HTMLElement|null>}){
+function PanelBody({slug,app,panel,shown,behind,layer,frame}:{slug:string;app:CustomApp;panel:CustomPanel;shown:boolean;behind:boolean;layer:PinSlot|null;frame:RefObject<HTMLElement|null>}){
   const surface=useSurface(),owner=useSurfaceDocument(),[settings,setSettings]=useState(false),[error,setError]=useState('')
   const latest=useRef(panel);latest.current=panel
   const drag=useRef<{x:number;y:number;placement:AppPlacement;kind:'move'|'size'}|null>(null),[preview,setPreview]=useState<AppPlacement|null>(null),[free,setFree]=useState(false)
@@ -114,7 +145,18 @@ function PanelBody({slug,app,panel,shown,layer,frame}:{slug:string;app:CustomApp
   const powerOff=async()=>{try{setError('');await changeApps(slug,{action:'panel_stop',panel:panel.id})}catch(e){setError(String(e))}}
   const wasShown=useRef(shown)
   useEffect(()=>{if(shown&&!wasShown.current&&surface?.detached)surface.open();wasShown.current=shown},[shown,surface])
-  useEsc(close,shown&&panel.placement.mode==='float'&&!surface?.detached&&!settings,owner)
+  // Only the front centered panel answers Esc: the others sit under its backdrop.
+  useEsc(close,shown&&panel.placement.mode==='float'&&!surface?.detached&&!settings&&!behind,owner)
+  // The Apps list's raise: a pop-out's own live window is restored and focused
+  // (never reopened), a window pin rises above the other pinned windows, a
+  // centered panel above the other centered panels. Then the panel's window
+  // takes the focus, as a revealed pop-out does: Esc still hides a centered one
+  // and Tab enters its content. The tabindex lasts only until it loses focus, so
+  // clicks on the panel's chrome behave as before. Nothing closes, moves,
+  // resizes or changes state.
+  const raise=useRef(()=>{});raise.current=()=>{if(surface?.detached)revealDetachedPanel('custom-app:'+panel.id,slug);else if(layer)raisePinSurface(layer.key);else if(panel.placement.mode==='float')setFront(key(slug,panel.id),true)
+    const win=frame.current;if(!win)return;if(!win.hasAttribute('tabindex')){win.tabIndex=-1;win.addEventListener('blur',()=>win.removeAttribute('tabindex'),{once:true})}win.focus({preventScroll:true})}
+  useEffect(()=>{if(!shown)return;const k=key(slug,panel.id),fn=()=>raise.current();raisers.set(k,fn);return()=>{if(raisers.get(k)===fn)raisers.delete(k)}},[slug,panel.id,shown])
   // The pin pins the panel to the window where it is, at its size, like pinned
   // desks (user 2026-10-26: "i meant pin it to the window like other pinned
   // panels"); unpinning returns to the centered window. Canvas pins are gone.
@@ -161,7 +203,11 @@ function PanelWindow({slug,panel,app}:{slug:string;panel:CustomPanel;app:CustomA
   const effective=pinned?panel:{...panel,placement:{...p,x:Math.max(8,Math.min(p.x,window.innerWidth-80)),y:Math.max(8,Math.min(p.y,window.innerHeight-40))}}
   // React 18 has no inert prop: a parked panel takes no focus or input.
   useLayoutEffect(()=>{outer.current?.toggleAttribute('inert',parked)},[parked])
-  return <div ref={outer} className={parked?'custom-app-parked':centered?'overlay custom-app-centered':'custom-app-placeholder'+(pinned?' pinned':'')} aria-hidden={parked||undefined} style={parked?{width:p.width,height:p.height}:centered||pinned?undefined:{position:'fixed',left:effective.placement.x,top:effective.placement.y,width:p.width,height:p.height,zIndex:19}} onPointerDownCapture={e=>{backdrop.current=e.target===e.currentTarget}} onClick={e=>{if(centered&&e.target===e.currentTarget&&backdrop.current!==false)void changeApps(slug,{action:'panel_update',panel:panel.id,expected_rev:latest.current.rev,open:false}).catch(()=>{});backdrop.current=null}}>
+  // A centered panel enters the centered stack in front, as a new window pin
+  // does, and leaves it when it is hidden, pinned or popped out.
+  useLayoutEffect(()=>{if(!centered)return;setFront(k,true);return()=>setFront(k,false)},[centered,k])
+  const behind=useBehind(slug,k)
+  return <div ref={outer} className={parked?'custom-app-parked':centered?'overlay custom-app-centered'+(behind?' custom-app-behind':''):'custom-app-placeholder'+(pinned?' pinned':'')} aria-hidden={parked||undefined} style={parked?{width:p.width,height:p.height}:centered||pinned?undefined:{position:'fixed',left:effective.placement.x,top:effective.placement.y,width:p.width,height:p.height,zIndex:19}} onPointerDownCapture={e=>{backdrop.current=e.target===e.currentTarget}} onClick={e=>{if(centered&&e.target===e.currentTarget&&backdrop.current!==false)void changeApps(slug,{action:'panel_update',panel:panel.id,expected_rev:latest.current.rev,open:false}).catch(()=>{});backdrop.current=null}}>
     <MovableSurface org={slug} kind={'custom-app:'+panel.id} title={app.name+' · '+panel.label} anchor={pinned?pinLayerFor(slug):undefined} parked={parked} preserveFrames
       sourceBox={()=>{const r=frame.current?.getBoundingClientRect();return r?{x:r.x,y:r.y,w:r.width,h:r.height}:null}} exactSourceBox
       onDismiss={()=>{if(!windowExitStarted())void changeApps(slug,{action:'panel_update',panel:panel.id,expected_rev:latest.current.rev,open:false}).catch(()=>{})}}
@@ -169,7 +215,7 @@ function PanelWindow({slug,panel,app}:{slug:string;panel:CustomPanel;app:CustomA
         if(detached){if(current.placement.mode!=='popout')returns.set(k,{...current.placement});void changeApps(slug,{action:'panel_update',panel:panel.id,expected_rev:current.rev,placement:{...current.placement,mode:'popout'}}).catch(()=>{})}
         else if(current.placement.mode==='popout')void changeApps(slug,{action:'panel_update',panel:panel.id,expected_rev:current.rev,placement:returns.get(k)??{...current.placement,mode:'float'}}).catch(()=>{})
       }} minDimensions={{width:160,height:120}}>
-      <PanelBody slug={slug} app={app} panel={effective} shown={shown} layer={pinned?{bounds,z:layout.z,key:layout.key}:null} frame={frame}/>
+      <PanelBody slug={slug} app={app} panel={effective} shown={shown} behind={centered&&behind} layer={pinned?{bounds,z:layout.z,key:layout.key}:null} frame={frame}/>
     </MovableSurface>
   </div>
 }
