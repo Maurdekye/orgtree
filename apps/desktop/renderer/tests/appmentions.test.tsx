@@ -150,12 +150,12 @@ test('a rename or a deletion updates the chips already on screen',async t=>{
  assert.deepEqual(m.refs().at(-1)!.input,{action:'refs',apps:['notes'],panels:['one']},'the kept targets are read again')
 })
 
-test("a panel chip's menu is its Apps menu row's; an app chip has none, like its row",async t=>{
+test("a panel chip's menu keeps its power action alongside shared Settings and Delete",async t=>{
  const slug='mentions-menu'
  const m=await mount(t,slug,`@app:${slug}/notes and @panel:${slug}/one`)
  const [app,panel]=[...m.view.el.querySelectorAll<HTMLButtonElement>('button.ref-chip')]
  await rightClick(panel!)
- assert.deepEqual(menuLabels(),['Start running'],'a stopped copy can start hidden')
+ assert.deepEqual(menuLabels(),['Start running','Settings','Delete…'],'a stopped copy can start hidden and manage its own settings')
  const mark=m.calls.length
  await inAct(async()=>{const b=[...top()!.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find(x=>x.textContent?.trim()==='Start running')!
   b.dispatchEvent(new window.MouseEvent('pointerdown',{bubbles:true,cancelable:true,button:0}));b.click();await tick()})
