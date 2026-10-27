@@ -1499,6 +1499,33 @@ Original section: Read this first. Source lines 4175–4179.
 
 ## Conditional Gemini tiers: Argon (gemini-4-argon) and speculative Barium
 
+**4.5.0, after a sign-in to another account (2026-10-27):** every agy of the
+user shares one Windows credential, and a running agy keeps the login it started
+with and saves its refreshed token back over that credential. Measured
+2026-10-27: four warm Argon seats launched on the earlier login were the only
+agy processes alive when the credential returned to that login 6.5 minutes after
+the user signed in as another. The catalog cleared at each change, and nothing
+read the new login's catalog, so Argon stayed hidden for both logins.
+- When the checked default sign-in names a login with no list of its own, the
+  usage loop starts one `agy models` read for it off the loop, once per login and
+  credential stamp, never a poll (user m4db0526e54f1 "it should recheck when the
+  account changes"). A failed read waits for that login's next credential.
+  `orgtree_list_tiers refresh=true` also re-reads, with the 30 s reuse.
+- When a passing check names a different account than the last named one
+  (unnamed and signed-out answers keep it; a rotation is the same account),
+  every agent replaces an Antigravity process launched on the default sign-in
+  under another stamp, like a reconfiguration: idle now, busy after its turn,
+  held for background work once that is over (user mb2fa30fd31fd "Yes, restart
+  them"). The agy close stays graceful and writes a forced end to the durable
+  kill record.
+- Argon spends its own weekly bucket too: /usage group `gemini-argon-wtu-weekly`
+  ("Gemini 4 Argon Weekly Limit"). A conditional tier spends a window whose group
+  id has its name as one dash-separated part, besides its pool's 5 h and weekly
+  windows. Staffing still omits a tier its login cannot run (user 2026-09-15:
+  no disabled rows); a hire is refused with the window's reason.
+[verified: `providers/{agy_auth,mod}.rs`, `runtime/{mod,actor,agy}.rs`, `usage.rs`,
+`providers/agy_model_refresh_tests.rs`, `usage/agy_reading_tests.rs`; 2026-10-27]
+
 **Current 4.4 behavior (2026-10-22):** the failed-read behavior in the historical
 entry below is superseded. An inconclusive registry read (including a credential
 metadata race, timeout, output limit, I/O error or failed command) retains the last

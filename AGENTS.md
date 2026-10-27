@@ -344,7 +344,8 @@ placement settings and bounded failure. See [rig seed timing](docs/rust-engine/t
   on inconclusive refresh failures only for the same silently checked principal.
   Metadata changes quarantine cached offers until one bounded identity recheck;
   a different/unknown login clears them. Catalog results carry their own identity;
-  successful omission/empty and auth refusals still remove models. See
+  successful omission/empty and auth refusals still remove models. A running agy
+  writes its old login back over the shared credential (2026-10-27). See
   [conditional Gemini tiers](docs/agents/providers-and-accounts.md#e-f9bfc5ac5f086eb7).
   [verified: `providers/{agy_auth,agy_models,mod}.rs`; 2026-10-22]
 

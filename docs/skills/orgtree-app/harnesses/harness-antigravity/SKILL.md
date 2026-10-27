@@ -35,11 +35,15 @@ catalog that omits the model removes it, as does a sign-out or account-isolation
 refusal. A late result from the previous login cannot give models to the new
 login. A later successful read can restore them. Model menus request a refresh
 when opened, reusing attempts for up to 30 seconds for the same login; the cache
-starts empty after an engine restart.
+starts empty after an engine restart. After a sign-in to another account,
+Orgtree reads the new login's catalog by itself within seconds of noticing the
+change, once per login, so its conditional models come back without opening a
+menu. A token refresh of the same account reads nothing new.
 
-Argon uses Gemini's usage windows, independently of the Claude/GPT windows on
-Antigravity. Retaining a catalog never bypasses sign-in, account enablement or a
-spent Gemini window. Sign-in/usage refusals keep their usual reasons; asking to
+Argon uses Gemini's usage windows and its own weekly window ("Gemini 4 Argon
+Weekly Limit"), independently of the Claude/GPT windows on Antigravity. A full
+Argon window limits Argon only. Retaining a catalog never bypasses sign-in,
+account enablement or a spent Gemini or Argon window. Sign-in/usage refusals keep their usual reasons; asking to
 hire or switch to a conditional model absent from the catalog returns an
 unavailable-model explanation.
 
@@ -126,6 +130,11 @@ that genuinely isolates them.
 
 A transient launch-check failure gets at most one bounded retry; an actual
 auth refusal or profile-isolation refusal is not converted into success.
+
+A running AGY keeps the login it started with and can save that login back over
+a newer sign-in. So when the default sign-in changes to a different account,
+Orgtree restarts the Antigravity processes still on the old login: idle ones at
+once, busy ones after their current turn. Their next turn runs on the new login.
 Verified at `2ec8c0e`: `providers/agy_auth.rs`, `usage/agy_reading_tests.rs`,
 `canvas/accountsregistry.tsx`; detailed evidence:
 `docs/rust-engine/antigravity-accounts.md`.
