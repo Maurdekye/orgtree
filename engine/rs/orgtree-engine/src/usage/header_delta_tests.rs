@@ -12,16 +12,21 @@ fn synthetic_engine() -> Arc<Engine> {
 
 #[tokio::test]
 async fn header_measurement_usage_baseline() {
-    for (name, changing) in [("quiet",false),("one-window-progress",true)] {
+    for (name, changing, drifting) in [("quiet",false,false),("one-window-progress",true,false),("rolling-reset-drift",false,true)] {
         let engine = synthetic_engine();
         let (mut full, mut delta, mut reference, mut total, mut first) = (0, 0, 0, 0, 0);
         let mut prior = Value::Null;
+        let start = fixed_start();
         for turn in 0..40 {
             if changing {
                 let pin = engine.usage.cache.pin();
                 let mut reading = pin.get(&codex_key(None)).unwrap().data.clone();
                 reading["limits"][0]["percent"] = json!(12 + turn);
                 engine.usage.put(&codex_key(None), &reading);
+            }
+            if drifting {
+                // a turn a minute: every rolling window's reset moves one minute on
+                rolling(&engine, start + chrono::Duration::minutes(turn));
             }
             let snapshot = turn_snapshot(&engine, "openai", None, "sol", "synthetic-header-fixture", "session", &prior);
             let output = snapshot.text;
@@ -120,18 +125,78 @@ async fn header_usage_secondary_weekly_stop_and_turn_account_are_explicit() {
 }
 
 #[tokio::test]
-async fn header_usage_reset_deadline_jitter_is_not_a_new_reset() {
+async fn header_usage_reset_jitter_and_drift_are_not_new_resets_but_a_rollover_is() {
     let engine = synthetic_engine();
     let key = codex_key(None);
     let mut data = engine.usage.cache.pin().get(&key).unwrap().data.clone();
     data["limits"][0]["resets_at"] = json!("2030-01-01T04:59:59.950Z");
     engine.usage.put(&key,&data);
     let first = turn_snapshot(&engine,"openai",None,"sol","synthetic-header-fixture","s",&Value::Null);
-    data["limits"][0]["resets_at"] = json!("2030-01-01T05:00:00.050Z");
+    let prior = first.record.as_ref().unwrap();
+    for (reset, why) in [("2030-01-01T05:00:00.050Z", "subsecond deadline jitter"),
+                         ("2030-01-01T06:00:00Z", "an hour of drift inside a five-hour window")] {
+        data["limits"][0]["resets_at"] = json!(reset);
+        engine.usage.put(&key,&data);
+        let unchanged = turn_snapshot(&engine,"openai",None,"sol","synthetic-header-fixture","s",prior);
+        assert_eq!(unchanged.text.lines().count(), 1, "{why} is not a new reset: {}", unchanged.text);
+    }
+    // the session window rolled over: its reset moved on by the window's length
+    data["limits"][0]["resets_at"] = json!("2030-01-01T10:00:00Z");
     engine.usage.put(&key,&data);
-    let unchanged = turn_snapshot(&engine,"openai",None,"sol","synthetic-header-fixture","s",first.record.as_ref().unwrap());
-    assert_eq!(unchanged.text.lines().count(),1);
-    data["limits"][0]["resets_at"] = json!("2030-01-01T06:00:00Z");
-    engine.usage.put(&key,&data);
-    assert!(turn_snapshot(&engine,"openai",None,"sol","synthetic-header-fixture","s",first.record.as_ref().unwrap()).text.contains("DELTA"));
+    let rolled = turn_snapshot(&engine,"openai",None,"sol","synthetic-header-fixture","s",prior);
+    assert!(rolled.text.contains("DELTA") && rolled.text.contains("2030-01-01T10:00:00"), "{}", rolled.text);
+}
+
+/// A fixed clock: 05:00Z is on the five-hour grid, so a five-hour reset at
+/// start + 5 h sits mid-bucket and two hours of drift cannot cross into the next.
+fn fixed_start() -> DateTime<Utc> {
+    DateTime::parse_from_rfc3339("2030-01-01T05:00:00Z").unwrap().with_timezone(&Utc)
+}
+
+/// Rolling windows as measured 2026-10-27 (google/primary Five Hour and Weekly,
+/// openai-1 5 h and 7 d): each reset is a fixed span after `now`, so it moves
+/// forward every minute while the used percent stays put.
+fn rolling(engine: &Engine, now: DateTime<Utc>) {
+    for key in [codex_key(None), "agy".into()] {
+        let mut reading = engine.usage.cache.pin().get(&key).unwrap().data.clone();
+        reading["limits"][0]["resets_at"] = json!(iso(now + chrono::Duration::hours(5)));
+        reading["limits"][1]["resets_at"] = json!(iso(now + chrono::Duration::days(7)));
+        engine.usage.put(&key, &reading);
+    }
+}
+
+#[tokio::test]
+async fn header_usage_rolling_reset_drift_is_not_resent() {
+    // USER 2026-10-27 m2a9b4d2d29ae: "we should update provider usage to only
+    // carry changes in usage in the mail framing"
+    let engine = synthetic_engine();
+    let start = fixed_start();
+    rolling(&engine, start);
+    let mut prior = turn_snapshot(&engine,"google",None,"flash","synthetic-header-fixture","s",&Value::Null).record.unwrap();
+    for minutes in [1, 2, 7, 30, 61, 119] {
+        rolling(&engine, start + chrono::Duration::minutes(minutes));
+        let turn = turn_snapshot(&engine,"google",None,"flash","synthetic-header-fixture","s",&prior);
+        assert_eq!(turn.text.lines().count(), 1, "{minutes} min of rolling drift alone resent rows: {}", turn.text);
+        assert!(turn.text.contains("unchanged since"));
+        prior = turn.record.unwrap();
+    }
+}
+
+#[tokio::test]
+async fn header_usage_change_in_use_or_a_rollover_is_still_resent() {
+    let engine = synthetic_engine();
+    let start = fixed_start();
+    rolling(&engine, start);
+    let prior = turn_snapshot(&engine,"google",None,"flash","synthetic-header-fixture","s",&Value::Null).record.unwrap();
+    let mut reading = engine.usage.cache.pin().get("agy").unwrap().data.clone();
+    reading["limits"][0]["percent"] = json!(17);
+    engine.usage.put("agy", &reading);
+    let used = turn_snapshot(&engine,"google",None,"flash","synthetic-header-fixture","s",&prior);
+    assert!(used.text.contains("DELTA") && used.text.contains("17%"), "a used-percent step is material: {}", used.text);
+    assert!(!used.text.contains("openai/primary"), "only the changed row: {}", used.text);
+    reading["limits"][0]["percent"] = json!(12);
+    reading["limits"][1]["resets_at"] = json!(iso(start + chrono::Duration::days(14)));
+    engine.usage.put("agy", &reading);
+    let rolled = turn_snapshot(&engine,"google",None,"flash","synthetic-header-fixture","s",&prior);
+    assert!(rolled.text.contains("DELTA") && rolled.text.contains("| weekly |"), "a weekly rollover is material: {}", rolled.text);
 }

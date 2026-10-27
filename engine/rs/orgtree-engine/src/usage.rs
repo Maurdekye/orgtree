@@ -2100,6 +2100,17 @@ fn countdown(secs: i64) -> String {
     }
 }
 
+/// A usage window's length in seconds, by its kind: a reset must move into
+/// another bucket of this length to count as a rollover rather than drift.
+#[nolog]
+fn reset_span(kind: &str) -> i64 {
+    match kind {
+        "session" => 5 * 3600,
+        k if k.starts_with("weekly") => 7 * 86400,
+        _ => 86400,
+    }
+}
+
 /// The PROVIDER USAGE block a turn starts with (as in 3.x): every account's
 /// cached usage windows, the agent's own account starred, and which account
 /// its turns draw on. Cache-only: it never fetches. Returns the text and a
@@ -2258,10 +2269,17 @@ fn turn_board_parts(engine: &Engine, provider: &str, account: Option<&str>, tier
             // A 5% band plus rounded-minute reset and freshness class. No age
             // ticks; a stale/unknown/limited transition is always material.
             let band = pct.map(|p| ((p / 5.0).floor() * 5.0) as i64).map(|b| b.to_string()).unwrap_or_else(|| "-".into());
-            // Providers often compute a deadline as now + remaining seconds;
-            // fractional jitter is not a new reset. The passed boundary is
-            // still compared at full precision independently below.
-            let reset_at = l["resets_at"].as_str().and_then(crate::util::parse_ts).map(|t| (t.timestamp() + 30) / 60);
+            // Only a rollover is a new reset (user 2026-10-27 m2a9b4d2d29ae:
+            // "only carry changes in usage"). A rolling window's reset moves
+            // forward every minute and a deadline computed as now plus the
+            // remaining seconds jitters, but a fixed window's reset moves only
+            // when it rolls over, by at least its own length. So the key holds
+            // the reset (to the minute) bucketed by the window's length, offset
+            // half a window so a round reset time sits mid-bucket. The passed
+            // boundary is still compared at full precision independently below.
+            let span = reset_span(l["kind"].as_str().unwrap_or(""));
+            let reset_at = l["resets_at"].as_str().and_then(crate::util::parse_ts)
+                .map(|t| ((t.timestamp() + 30) / 60 * 60 + span / 2).div_euclid(span));
             let reset_passed = l["resets_at"].as_str().and_then(crate::util::parse_ts).is_some_and(|t| t <= now);
             let secondary_stop = lane == "openai-1" && l["kind"].as_str().is_some_and(|k| k.starts_with("weekly")) && pct.is_some_and(|p| p >= 80.0);
             let freshness = if age < BOARD_FRESH { "fresh" } else { "stale" };
