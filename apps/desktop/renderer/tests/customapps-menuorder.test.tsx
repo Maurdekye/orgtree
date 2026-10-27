@@ -13,7 +13,7 @@ const byId=<T extends {id:string}>(items:T[])=>[...items].sort((a,b)=>a.id<b.id?
 // The engine lists apps and panels by ID; created_at makes Alpha the newest app, then Clock, then Beta.
 // Beta runs hidden. Clock's Panel 1 was created first but Panel 2 was used last, and their IDs sort the
 // other way round, so creation, use and ID order all differ.
-function fixture(t:test.TestContext){
+function fixture(t:test.TestContext,pageSize=Infinity){
  const app=(id:string,name:string,created_at:string)=>({id,name,description:name+' app',rev:1,permission_rev:1,width:320,height:240,capabilities:[],permissions:{},created_by:'maker',created_at,updated_at:'',definition:{name,description:'',html:'<p>panel</p>',initial_state:{},capabilities:[],width:320,height:240}}) as unknown as CustomApp
  const panel=(id:string,owner:string,label:string,open:boolean,running:boolean,created_at:string,used_at:string)=>({id,app:owner,label,rev:1,open,running,run_generation:1,state:{},event_seq:0,placement:{mode:'float',x:40,y:40,width:320,height:240},linked_agents:[],created_at,used_at,updated_at:''}) as CustomPanel&{running:boolean;run_generation:number}
  const apps=[app('app1alpha','Alpha','2026-10-26T08:00:00Z'),app('app2beta','Beta','2026-10-20T09:00:00Z'),app('app3clock','Clock','2026-10-23T12:00:00Z')]
@@ -25,7 +25,11 @@ function fixture(t:test.TestContext){
  Object.defineProperty(document,'hidden',{configurable:true,value:false})
  globalThis.fetch=async(raw,init)=>{const url=new URL(String(raw),'http://local'),input=init?.method==='POST'?JSON.parse(String(init.body)):JSON.parse(url.searchParams.get('request')??'{}');calls.push(input);let out:unknown
   const one=()=>panels.find(p=>p.id===input.panel)!
-  if(input.action==='list')out={items:input.kind==='apps'?byId(apps):byId(panels).filter(p=>(input.open===undefined||p.open===input.open)&&(input.running===undefined||p.running===input.running)),next_cursor:null,new_count:0}
+  if(input.action==='list'){
+   const all=input.kind==='apps'?byId(apps):byId(panels).filter(p=>(input.open===undefined||p.open===input.open)&&(input.running===undefined||p.running===input.running))
+   const remaining=all.filter(x=>!input.after||x.id>input.after),items=remaining.slice(0,pageSize)
+   out={items,next_cursor:remaining.length>items.length?items.at(-1)!.id:null,new_count:0}
+  }
   else if(input.action==='app_get')out=apps.find(a=>a.id===input.app)
   else if(input.action==='panel_get')out=one()
   else if(input.action==='events')out={events:[],next_cursor:null}
@@ -41,8 +45,8 @@ function fixture(t:test.TestContext){
  };t.after(()=>{globalThis.fetch=original;delete (document as unknown as Record<string,unknown>).hidden})
  return{app,panel,apps,panels,calls}
 }
-async function workspace(t:test.TestContext,slug:string){
- const f=fixture(t),view=await mountView(<><AppsButton slug={slug}/><AppsWorkspace slug={slug}/></>,e=>e);t.after(()=>view.unmount());await inAct(tick)
+async function workspace(t:test.TestContext,slug:string,pageSize=Infinity){
+ const f=fixture(t,pageSize),view=await mountView(<><AppsButton slug={slug}/><AppsWorkspace slug={slug}/></>,e=>e);t.after(()=>view.unmount());await inAct(tick)
  const menu=()=>document.querySelector<HTMLElement>('.custom-apps-menu')!
  const group=(app:string)=>[...menu().querySelectorAll<HTMLElement>('.custom-apps-menu-group')].find(g=>g.querySelector('.custom-apps-open b')?.textContent===app)!
  return{...f,menu,group,
@@ -141,4 +145,19 @@ test('the Apps header right-aligns Import app with no Refresh button, and app an
  await f.feed()
  assert.deepEqual(f.order(),['Alpha','Clock','Beta'],'deleted app disappears live')
  assert.deepEqual(f.rows('Clock'),['Panel 2','Summary'],'deleted stopped panel disappears live')
+})
+
+for(const kind of ['apps','panels'] as const)test(`live ${kind} refresh follows new page boundaries after insertion`,async t=>{
+ const f=await workspace(t,'menu-live-boundary-'+kind,2);await f.toggle()
+ for(const label of ['More apps','More panels'])await inAct(async()=>{const more=[...f.menu().querySelectorAll<HTMLButtonElement>('button')].find(b=>b.textContent===label)!;assert.ok(Boolean(more),label+' available');more.click();await tick()})
+ assert.deepEqual(f.rows('Beta'),['Runner'],'loaded running row before external change')
+ // Its old running row must now be read from the saved listing, while an
+ // insertion shifts the previous first-page cursor to the second page.
+ Object.assign(f.panels.find(p=>p.id==='pb1')!,{open:false,running:false,rev:2,run_generation:2})
+ if(kind==='apps')f.apps.push(f.app('app0delta','Delta','2026-10-27T09:00:00Z'))
+ else f.panels.push(f.panel('paz','app1alpha','New copy',false,false,'2026-10-27T09:00:00Z','2026-10-27T09:00:00Z'))
+ await f.feed()
+ assert.deepEqual(f.order(),kind==='apps'?['Delta','Alpha','Clock','Beta']:['Alpha','Clock','Beta'],'no app is skipped at the shifted page boundary')
+ assert.deepEqual(f.rows('Beta'),['Runner'],'stopped row remains present at the shifted page boundary')
+ assert.equal(f.group('Beta').querySelector('.custom-apps-saved')!.getAttribute('title'),'Off')
 })
