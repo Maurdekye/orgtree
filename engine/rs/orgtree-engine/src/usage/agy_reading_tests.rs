@@ -161,3 +161,29 @@ async fn agy_model_argon_spends_gemini_windows_only() {
     assert!(at_limit(&engine, None, "argon").is_some(), "Gemini exhaustion remains enforced");
     assert!(!has_room(&engine, None, "argon"));
 }
+
+#[tokio::test]
+async fn argon_own_weekly_bucket_limits_argon_only() {
+    // Measured 2026-10-27: /usage reports "Gemini 4 Argon Weekly Limit" as
+    // group gemini-argon-wtu-weekly, full until 2026-11-01 while Gemini's
+    // pool windows had room. Only Argon spends it (coordinator m878126ccd5ef).
+    let engine = Engine::for_tests(PathBuf::from("synthetic-unused-argon-bucket"));
+    let reset = iso(Utc::now() + chrono::Duration::days(5));
+    engine.usage.put("agy", &json!({"available":true,"limits":[
+        {"group":"gemini-5h","kind":"session","percent":1,"resets_at":reset},
+        {"group":"gemini-weekly","kind":"weekly_scoped","percent":7,"resets_at":reset},
+        {"group":"gemini-argon-wtu-weekly","kind":"weekly_scoped","model":"Gemini 4 Argon","percent":100,
+         "resets_at":reset,"label":"Gemini 4 Argon - Gemini 4 Argon Weekly Limit"}
+    ]}));
+    assert!(at_limit(&engine, None, "argon").is_some_and(|why| why.contains("Gemini 4 Argon Weekly Limit")),
+        "{:?}", at_limit(&engine, None, "argon"));
+    assert!(antigravity_limit(&engine, "argon").is_some_and(|why| why.contains("gemini-argon-wtu-weekly")
+        && why.contains("its own argon windows")), "{:?}", antigravity_limit(&engine, "argon"));
+    assert!(!has_room(&engine, None, "argon"));
+    assert_eq!(balance_reading(&engine, None, "argon").unwrap().used, Some(100.0));
+    assert!(at_limit(&engine, None, "flash").is_none(), "Argon's bucket is not the Gemini pool");
+    assert!(antigravity_limit(&engine, "flash").is_none());
+    assert!(has_room(&engine, None, "flash"));
+    assert!(at_limit(&engine, None, "barium").is_none(), "nor another conditional tier's bucket");
+    assert!(at_limit(&engine, None, "agy-opus").is_none(), "nor the third-party pool");
+}

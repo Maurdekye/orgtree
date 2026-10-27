@@ -158,16 +158,28 @@ pub fn antigravity_limit(engine: &Engine, tier: &str) -> Option<String> {
         return None;
     }
     let pool = catalog::antigravity_pool(tier);
+    let own = catalog::antigravity_own_bucket(tier).map(|m| format!(" and its own {m} windows")).unwrap_or_default();
     let data = engine.usage.peek("agy", catalog::GOOGLE);
     let limits = data["limits"].as_array()?;
     limits.iter().find(|l| {
-        let group = l["group"].as_str().unwrap_or("");
-        (group == format!("{pool}-5h") || group == format!("{pool}-weekly"))
+        agy_spends(tier, l["group"].as_str().unwrap_or(""))
             && l["percent"].as_f64().is_some_and(|p| p >= 100.0)
             && !l["resets_at"].as_str().and_then(|s| DateTime::parse_from_rfc3339(s).ok())
                 .is_some_and(|t| t <= Utc::now())
-    }).map(|l| format!("Antigravity {} is exhausted until {}; this tier spends the {pool} windows",
+    }).map(|l| format!("Antigravity {} is exhausted until {}; this tier spends the {pool} windows{own}",
         l["group"].as_str().unwrap_or("usage"), l["resets_at"].as_str().unwrap_or("the provider resets it")))
+}
+
+/// Whether `tier` spends one Antigravity window: its pool's five-hour and
+/// weekly windows, and its own model's bucket (Argon's weekly, coordinator
+/// 2026-10-27 m878126ccd5ef: "Argon's own weekly bucket must count toward
+/// Argon's limit"). Another model's bucket never applies.
+#[nolog]
+fn agy_spends(tier: &str, group: &str) -> bool {
+    use crate::providers::catalog;
+    let pool = catalog::antigravity_pool(tier);
+    group == format!("{pool}-5h") || group == format!("{pool}-weekly")
+        || catalog::antigravity_own_bucket(tier).is_some_and(|own| group.split('-').any(|part| part == own))
 }
 
 // ------------------------------------------------------------ the 100% rule
@@ -257,10 +269,7 @@ pub(crate) fn spends(provider: &str, tier: &str, w: &Value) -> bool {
             _ => false,
         },
         catalog::OPENAI => w["model"].as_str().map(str::trim).unwrap_or("").is_empty(),
-        catalog::GOOGLE => {
-            let pool = catalog::antigravity_pool(tier);
-            w["group"].as_str().is_some_and(|g| g == format!("{pool}-5h") || g == format!("{pool}-weekly"))
-        }
+        catalog::GOOGLE => w["group"].as_str().is_some_and(|g| agy_spends(tier, g)),
         // every OpenRouter tier spends its key's one credit row
         catalog::OPENROUTER => w["group"] == "credits",
         catalog::MUSE => w["observed_model"].as_str().is_some_and(|m| catalog::runs_model(tier, m)),
@@ -2334,7 +2343,8 @@ Your turns run on {selected_lane} (tier {tier}): the user's own model server. It
         text.push_str(&format!("\nYour turns run on {selected_lane} (tier {tier}) and draw on its windows above; Muse reports one window set per account and does not say which models share it."));
     } else if provider == crate::providers::catalog::GOOGLE {
         let pool = crate::providers::catalog::antigravity_pool(tier);
-        text.push_str(&format!("\nThis turn spends: {tier} on {selected_lane} → session:{pool}-5h and weekly_scoped:{pool}-weekly. Other model groups' windows do not apply to this tier."));
+        let own = crate::providers::catalog::antigravity_own_bucket(tier).map(|m| format!(", and its own {m} windows")).unwrap_or_default();
+        text.push_str(&format!("\nThis turn spends: {tier} on {selected_lane} → session:{pool}-5h and weekly_scoped:{pool}-weekly{own}. Other model groups' windows do not apply to this tier."));
     } else {
         text.push_str(&format!("\nYour turns run on {selected_lane} (tier {tier}) and draw on its windows above."));
     }

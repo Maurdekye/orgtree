@@ -210,6 +210,14 @@ pub fn antigravity_pool(tier: &str) -> &'static str {
     if antigravity_claude(tier) { "3p" } else { "gemini" }
 }
 
+/// A conditional Gemini tier's own quota bucket, beside its pool's windows:
+/// /usage reports Argon's "Gemini 4 Argon Weekly Limit" as group
+/// `gemini-argon-wtu-weekly` (measured 2026-10-27). The token is the tier
+/// name, matched as one part of a group id; only that tier spends it.
+pub fn antigravity_own_bucket(tier: &str) -> Option<&'static str> {
+    TIERS.iter().find(|t| t.tier == tier && t.provider == GOOGLE && t.conditional).map(|t| t.tier)
+}
+
 pub fn tier(name: &str) -> Option<&'static Tier> {
     TIERS.iter().find(|t| t.tier == name)
 }
