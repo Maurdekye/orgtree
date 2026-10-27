@@ -2254,10 +2254,7 @@ function NetSection({ net }: { net?: TreePayload['net'] }) {
                         + ' · reachable via: '
                         + (r.transports ?? ['net']).join(', ')}>
                       <span className={'oi-dot' + (r.online ? ' ok' : '')} />
-                      {r.org_name || r.slug.split('.')[0]}
-                      {(r.kind === 'chat' || r.kind === 'person') &&
-                        <span className="dim"> ({r.kind})</span>}
-                      <span className="dim mono-sm">·{r.slug.split('.').pop()}</span>
+                      <HubContactChip address={'@net:' + r.slug} />
                       <span className="dim"> {(r.transports ?? ['net']).join('·')}</span>
                     </span>
                   ))}

@@ -19,6 +19,7 @@ import { getOrgNet, probeHub, saveSettings } from '../api'
 import type { NetHub, TreePayload, ToastFn } from '../types'
 import { CloseIcon } from '../icons'
 import { PinFrame } from './modalpin'
+import { HubContactChip } from './agentmentions'
 
 export function ConnectionsPanel({ tree, toast, close }: {
   tree: TreePayload; toast: ToastFn; close: () => void
@@ -122,8 +123,7 @@ export function Connections({ tree, toast, adding, setAdding }: {
           onChange={next => { void apply({ net_hubs: settings.map(x => x.id === h.id ? { ...x, enabled: next } : x) }, 'Connection updated') }} />}
         {(h.stuck ?? 0) > 0 && <SetBlock><p className="oi-stuck" title={h.stuck_err}>⚠ {h.stuck} failing — {h.stuck_err}</p></SetBlock>}
         {h.roster?.length ? <SetBlock><ul className="connection-peers">{h.roster.map(p => <li key={p.slug}>
-          <b>{p.org_name || p.slug.split('.')[0]}</b>{peerKindText(p.kind) && <span className="dim">{peerKindText(p.kind)}</span>}
-          {' '}<span className="mono-sm">{p.slug}</span> · {p.online ? 'Online' : 'Offline'}
+          <HubContactChip address={'@net:' + p.slug} /> · {p.online ? 'Online' : 'Offline'}
           {p.blurb && <span className="dim"> · {p.blurb}</span>}
         </li>)}</ul></SetBlock> : h.connected ? <SetBlock hint="No other organizations on this hub yet." /> : null}
       </section>)}
