@@ -145,7 +145,7 @@ the live panel's native prompt.
 The gear beside each saved panel in Apps, including a closed panel, and the gear
 in an open panel's header open **Panel settings** for that exact copy. Its **Name**
 field, above the tabs, renames the copy the way Agent settings renames an agent:
-edit the name and choose **Rename**, which appears once the text differs; the
+edit the name and choose **Rename**, which is always shown and becomes available once the name differs; the
 window closes and a notice confirms the new name. Five tabs follow: **General**
 (Duplicate and Delete panel), **State** (the copy's JSON data, with Import, Export,
 Copy, Reset, Reload and Save), **Connections**, **Fire event** and, last,

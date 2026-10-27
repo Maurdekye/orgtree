@@ -119,7 +119,7 @@ Switching settings tabs preserves local edits. **Save** applies the buffered con
 
 Scope/instruction changes can replace an idle process; a running turn normally finishes before reconfiguration. Startup text and capability changes can affect cached input reuse. A full settings Save is broader than an effort-only or speed-only desk action. If a multi-step save fails, check the current values before repeating it: an earlier step may have succeeded.
 
-**Rename** is its own action. Use a unique short name made from letters, digits, hyphens, underscores or periods. The runtime's stored scratch path remains authoritative; do not assume renaming moved its folder on disk. Open the scratch folder through the menu.
+**Rename** is its own action: the button is always shown and stays disabled until the name is changed (the same holds for projects and saved panels). Use a unique short name made from letters, digits, hyphens, underscores or periods. The runtime's stored scratch path remains authoritative; do not assume renaming moved its folder on disk. Open the scratch folder through the menu.
 
 ## Change model, effort or account
 

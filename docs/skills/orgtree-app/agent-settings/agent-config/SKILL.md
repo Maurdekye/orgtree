@@ -43,7 +43,7 @@ Scope saves mark affected processes for reconfiguration. An idle process is repl
 
 ## Name and Agent actions
 
-**Name** has its own **rename** button, shown only after the text differs. It submits and closes the window independently of Save. Names are trimmed, leading `@` characters removed, and must be 1–64 ASCII letters/digits/`-`/`_`/`.` beginning with a letter or digit. `user`, `system`, `engine`, `org` and `net` are reserved, ignoring case; an existing nondeleted agent name is refused. Legacy bearer cards hide Rename.
+**Name** has its own **rename** button, always shown and enabled only once the trimmed text is a different, non-empty name (user 2026-10-27); Project settings' Name row works the same way. It submits and closes the window independently of Save. Names are trimmed, leading `@` characters removed, and must be 1–64 ASCII letters/digits/`-`/`_`/`.` beginning with a letter or digit. `user`, `system`, `engine`, `org` and `net` are reserved, ignoring case; an existing nondeleted agent name is refused. Legacy bearer cards hide Rename.
 
 Renaming updates the agent's name and name-based audience/request and activity-watchdog references. The stored scratch path remains authoritative. The UI hint says the folder and mailbox move, but the current rename handler does not move the scratch directory; do not instruct the user to look for a newly named folder on that basis.
 

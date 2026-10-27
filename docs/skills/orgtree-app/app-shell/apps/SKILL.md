@@ -124,8 +124,8 @@ in the active host's native prompt.
 
 Each saved-panel row has its own gear, even when closed. That gear and the open
 panel header gear open Panel settings for that exact copy. Its Name field, above the
-tabs, renames the copy as Agent settings renames an agent: Rename appears once the
-text differs and applies at once, then the window closes with a notice; Enter does
+tabs, renames the copy as Agent settings renames an agent: Rename is always shown,
+is enabled once the trimmed text is a different, non-empty name, and applies at once, then the window closes with a notice; Enter does
 not submit, and a refused name shows the error. Five tabs follow: General (Duplicate
 and Delete panel), State (the copy's JSON data: Import, Export, Copy, Reset, Reload,
 Save), Connections, Fire event and, last, History (event history). No tab repeats
