@@ -36,7 +36,7 @@ mod incoming;
 pub mod control;
 mod failures;
 pub mod isolation;
-mod pictures;
+pub(crate) mod pictures;
 mod discovery;
 pub(crate) mod transport;
 pub(crate) mod typing;

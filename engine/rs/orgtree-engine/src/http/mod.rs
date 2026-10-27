@@ -96,6 +96,7 @@ pub fn router(engine: Arc<Engine>) -> Router {
         .route("/api/orgs/{slug}/settings", post(settings::save_org))
         .route("/api/orgs/{slug}/profile-picture", get(pictures::get).post(pictures::set).layer(axum::extract::DefaultBodyLimit::max(7*1024*1024)))
         .route("/api/orgs/{slug}/profile-picture/preview", post(pictures::preview).layer(axum::extract::DefaultBodyLimit::max(7*1024*1024)))
+        .route("/api/orgs/{slug}/net/profile-picture", get(pictures::mention))
         .route("/api/orgs/{slug}/accounts-allowed", get(settings::accounts_allowed))
         .route("/api/orgs/{slug}/asks/{aid}/answer", post(asks::answer))
         .route("/api/orgs/{slug}/credit-requests", post(asks::credit))

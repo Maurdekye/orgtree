@@ -2,7 +2,7 @@
 //! cannot hold up mail, and every external IO shares the org isolation gate.
 use super::*;
 use std::sync::atomic::{AtomicBool,Ordering};
-use crate::profile_pictures::{self as p,wire::PictureRecord};
+use crate::profile_pictures::{self as p,wire::{PictureMeta,PictureRecord}};
 use futures::StreamExt;
 
 type Key=(i64,String);
@@ -12,10 +12,14 @@ pub struct State {
     tried:papaya::HashMap<Key,Instant>,
     supported:papaya::HashMap<String,(bool,Instant)>,
     slots:Arc<tokio::sync::Semaphore>,
+    /// (org id, peer address) → the peer picture this org last fetched
+    peers:papaya::HashMap<Key,Peer>,
+    peer_slots:Arc<tokio::sync::Semaphore>,
 }
 impl Default for State {
     #[nolog]
-    fn default()->Self {Self{jobs:Default::default(),ack:Default::default(),tried:Default::default(),supported:Default::default(),slots:Arc::new(tokio::sync::Semaphore::new(4))}}
+    fn default()->Self {Self{jobs:Default::default(),ack:Default::default(),tried:Default::default(),supported:Default::default(),slots:Arc::new(tokio::sync::Semaphore::new(4)),
+        peers:Default::default(),peer_slots:Arc::new(tokio::sync::Semaphore::new(4))}}
 }
 
 #[nolog]
@@ -56,14 +60,15 @@ async fn member(engine:&Engine,part:&Part,hid:&str,addr:&str)->Result<()> {
     Ok(())
 }
 
+/// `slug` names whose picture a GET reads: this org's own unless given.
 #[nolog]
-async fn json_request(engine:&Engine,part:&Part,hid:&str,addr:&str,method:reqwest::Method,path:&str,body:Option<Value>)->Result<Value> {
+async fn json_request(engine:&Engine,part:&Part,hid:&str,addr:&str,method:reqwest::Method,path:&str,body:Option<Value>,slug:Option<&str>)->Result<Value> {
     isolation::run(engine,&[part.org_id],async {
         member(engine,part,hid,addr).await?;
         let client=reqwest::Client::builder().redirect(reqwest::redirect::Policy::none()).connect_timeout(transport::DIRECT_CONNECT_TIMEOUT).no_proxy().build()?;
         let proxy=reqwest::Client::builder().redirect(reqwest::redirect::Policy::none()).connect_timeout(Duration::from_secs(5)).build()?;
         let mut request=client.request(method,format!("{addr}{path}")).timeout(Duration::from_secs(10)).header("X-Org-Auth",part.auth());
-        if path=="/api/profile-picture" && body.is_none() {request=request.query(&[("slug",part.net_slug.as_str())]);}
+        if path=="/api/profile-picture" && body.is_none() {request=request.query(&[("slug",slug.unwrap_or(&part.net_slug))]);}
         if let Some(body)=body {request=request.json(&body);}
         let response=transport::send_with_proxy(request,&proxy).await?;
         anyhow::ensure!(response.status().is_success(),"picture HTTP request failed");
@@ -93,18 +98,132 @@ async fn sync(engine:&Engine,part:&Part,hid:&str,addr:&str)->Result<()> {
     let remote=engine.net.rosters.pin().get(addr).and_then(|rows|rows.iter().find(|r|r["slug"].as_str()==Some(&part.net_slug)).and_then(|r|r["picture"]["revision"].as_str()).map(str::to_owned));
     if local.is_none() && ack.as_deref()==Some("") && remote.is_none() {return Ok(());}
     if let Some(local)=&local {if ack.as_deref()==Some(local.meta.revision.as_str())&&remote.as_deref().is_none_or(|r|r<=local.meta.revision.as_str()) {return Ok(());}}
-    let cached=state.supported.pin().get(addr).cloned().filter(|(_,at)|at.elapsed()<Duration::from_secs(300));
-    let supported=if let Some((yes,_))=cached {yes} else {
-        let health=json_request(engine,part,hid,addr,reqwest::Method::GET,"/healthz",None).await?;
-        let yes=health["features"].as_array().is_some_and(|fs|fs.iter().any(|f|f=="profile_pictures"));
-        state.supported.pin().insert(addr.to_owned(),(yes,Instant::now()));yes
-    };
-    if !supported {return Ok(());}
-    let remote=json_request(engine,part,hid,addr,reqwest::Method::GET,"/api/profile-picture",None).await?;
+    if !supported(engine,part,hid,addr).await? {return Ok(());}
+    let remote=json_request(engine,part,hid,addr,reqwest::Method::GET,"/api/profile-picture",None,None).await?;
     merge(engine,part,hid,addr,&remote).await?;
     let Some(local)=p::load(engine,part.org_id).await? else {state.ack.pin().insert(key,String::new());return Ok(());};
-    let answer=json_request(engine,part,hid,addr,reqwest::Method::POST,"/api/profile-picture",Some(json!({"slug":part.net_slug,"picture":local}))).await?;
+    let answer=json_request(engine,part,hid,addr,reqwest::Method::POST,"/api/profile-picture",Some(json!({"slug":part.net_slug,"picture":local})),None).await?;
     merge(engine,part,hid,addr,&answer).await?;
     if let Some(revision)=answer["picture"]["revision"].as_str() {state.ack.pin().insert(key,revision.to_owned());}
     Ok(())
 }
+
+/// Does this hub serve pictures? Its `/healthz` answer, kept five minutes.
+#[nolog]
+async fn supported(engine:&Engine,part:&Part,hid:&str,addr:&str)->Result<bool> {
+    let state=&engine.net.pictures;
+    let cached=state.supported.pin().get(addr).cloned().filter(|(_,at)|at.elapsed()<Duration::from_secs(300));
+    if let Some((yes,_))=cached {return Ok(yes);}
+    let health=json_request(engine,part,hid,addr,reqwest::Method::GET,"/healthz",None,None).await?;
+    let yes=health["features"].as_array().is_some_and(|fs|fs.iter().any(|f|f=="profile_pictures"));
+    state.supported.pin().insert(addr.to_owned(),(yes,Instant::now()));
+    Ok(yes)
+}
+
+// ------------------------------------------------------------ mention pictures
+
+/// A mention chip's picture (USER 2026-10-27 mf8697b8ba8fc "perhaps if they
+/// have a profile picture set then use that"): a local org's own logo, else
+/// the picture a hub this org is registered on advertises for the address.
+/// Hub contract (orgtree-mailhub docs/profile-pictures.md): any authenticated
+/// identity reads a registered person's or org's picture; clients fetch it
+/// natively, never by renderer URL, and bind it to the roster's owner token
+/// and revision.
+#[derive(Clone)]
+pub(super) struct Peer { revision:String, owner:String, record:Option<Arc<PictureRecord>>, at:Instant }
+const PEER_CACHE:usize=256;
+/// A failed or empty fetch is retried no sooner than this.
+const PEER_RETRY:Duration=Duration::from_secs(60);
+
+/// What a mention address names, for its picture.
+#[derive(Debug,PartialEq,Eq)]
+pub(crate) enum Target { Org(String), Net(String) }
+
+/// `@org:<slug>` or `@net:<address>`, case-insensitive; anything else names
+/// nothing.
+#[nolog]
+pub(crate) fn target(address:&str)->Option<Target> {
+    let a=address.trim().to_ascii_lowercase();
+    let ok=|s:&str|!s.is_empty() && s.len()<=200 && s.bytes().all(|c|c.is_ascii_alphanumeric()||matches!(c,b'.'|b'_'|b'-'));
+    if let Some(s)=a.strip_prefix("@org:") {return ok(s).then(||Target::Org(s.to_owned()));}
+    if let Some(s)=a.strip_prefix("@net:") {return ok(s).then(||Target::Net(s.to_owned()));}
+    None
+}
+
+/// One hub roster's advertisement for `slug`: its picture metadata (a removal
+/// has no hash) and owner token. None when the row is missing, carries no
+/// valid metadata (never set, or a hub without pictures) or no owner token.
+#[nolog]
+pub(crate) fn advertised(rows:&[Value],slug:&str)->Option<(PictureMeta,String)> {
+    let row=rows.iter().find(|r|r["slug"].as_str()==Some(slug))?;
+    let meta:PictureMeta=serde_json::from_value(row.get("picture")?.clone()).ok()?;
+    let owner=row["picture_owner"].as_str()?.to_owned();
+    meta.valid().then_some((meta,owner))
+}
+
+/// A hub's picture answer, taken only from the advertised owner and at the
+/// advertised revision or newer. A removal is no picture; bytes that fail
+/// the size, hash or normalized-PNG checks are refused.
+#[nolog]
+pub(crate) fn accept(answer:&Value,owner:&str,revision:&str)->Result<Option<PictureRecord>> {
+    anyhow::ensure!(answer["picture_owner"].as_str()==Some(owner),"picture owner changed");
+    if answer["picture"].is_null() {return Ok(None);}
+    let record:PictureRecord=serde_json::from_value(answer["picture"].clone())?;
+    anyhow::ensure!(record.meta.revision.as_str()>=revision,"stale picture revision");
+    Ok(record.decoded()?.map(|_|record))
+}
+
+/// The picture a mention of `address` shows in `org_id`'s views, or None (no
+/// picture, network paused, hub without pictures or unreachable): the chip
+/// then keeps its fallback icon. A hub is asked once per advertised revision;
+/// a failure is retried after `PEER_RETRY`.
+#[nolog]
+pub async fn peer(engine:&Arc<Engine>,org_id:i64,address:&str)->Result<Option<PictureRecord>> {
+    let Some(target)=target(address) else {return Ok(None)};
+    let parts=engine.net.parts.load_full();
+    let local=match &target {
+        Target::Org(slug)=>engine.orgs.get(slug).map(|o|o.id),
+        Target::Net(slug)=>parts.iter().find(|p|p.net_slug==*slug).map(|p|p.org_id),
+    };
+    if let Some(id)=local {return Ok(p::load(engine,id).await?.filter(|r|r.meta.sha256.is_some()));}
+    let Target::Net(slug)=target else {return Ok(None)};
+    if super::offline() {return Ok(None);}
+    let Some(part)=parts.iter().find(|p|p.org_id==org_id) else {return Ok(None)};
+    let mut best:Option<(String,String,PictureMeta,String)>=None;
+    for (hid,addr) in &part.hubs {
+        if !part.registered.contains(hid) {continue;}
+        let Some(rows)=engine.net.rosters.pin().get(addr).cloned() else {continue};
+        let Some((meta,owner))=advertised(&rows,&slug) else {continue};
+        if best.as_ref().is_none_or(|b|meta.revision>b.2.revision) {best=Some((hid.clone(),addr.clone(),meta,owner));}
+    }
+    let Some((hid,addr,meta,owner))=best else {return Ok(None)};
+    if meta.sha256.is_none() {return Ok(None);}
+    let state=&engine.net.pictures;
+    let key=(org_id,slug.clone());
+    if let Some(hit)=state.peers.pin().get(&key).cloned() {
+        if hit.owner==owner && hit.revision>=meta.revision && (hit.record.is_some() || hit.at.elapsed()<PEER_RETRY) {
+            return Ok(hit.record.map(|r|(*r).clone()));
+        }
+    }
+    let _slot=state.peer_slots.acquire().await?;
+    let fetched:Result<Option<PictureRecord>>=async {
+        anyhow::ensure!(supported(engine,part,&hid,&addr).await?,"hub serves no pictures");
+        let answer=json_request(engine,part,&hid,&addr,reqwest::Method::GET,"/api/profile-picture",None,Some(&slug)).await?;
+        accept(&answer,&owner,&meta.revision)
+    }.await;
+    let record=fetched.unwrap_or_else(|e|{
+        tracing::debug!(peer = %slug, error = %format!("{e:#}"), "mention picture not fetched");
+        None
+    });
+    let revision=record.as_ref().map_or(meta.revision.clone(),|r|r.meta.revision.clone());
+    let peers=state.peers.pin();
+    if peers.len()>=PEER_CACHE && !peers.contains_key(&key) {
+        if let Some(oldest)=peers.iter().min_by_key(|(_,v)|v.at).map(|(k,_)|k.clone()) {peers.remove(&oldest);}
+    }
+    peers.insert(key,Peer{revision,owner,record:record.clone().map(Arc::new),at:Instant::now()});
+    Ok(record)
+}
+
+#[cfg(test)]
+#[path = "pictures_tests.rs"]
+mod tests;
