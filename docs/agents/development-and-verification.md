@@ -581,6 +581,15 @@ verification phase and build-project permits still govern what may be run.
   72 seconds before this correction).
   [verified: `tools/rig/proofs/boot-host-stop.mjs`;
   measured: @rig-opus 2026-10-15]
+- **Reader-opening tests set `viewed_at` themselves.** Presentation viewed
+  marks live in a per-org module cache (`canvas/docviewed.ts`) that outlives
+  each test in a file; `localStorage.clear()` does not reset it. A fresh
+  opening selects the oldest unread presentation, so fixture rows without
+  `viewed_at` open whatever earlier tests left unread: contextmenu §B3c passed
+  only on earlier tests' marks. Still clear `localStorage`, which holds the
+  remembered last item. [verified: `apps/desktop/renderer/src/canvas/docviewed.ts`,
+  `canvas/gallery.tsx` openingPresentation; measured: §B3c alone failed at
+  a063f31; 2026-10-27]
 
 ### Renderer test memory guards (2026-10-26)
 
