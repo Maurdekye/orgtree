@@ -39,6 +39,8 @@ copy; it can explicitly choose all copies instead. Fires reach every currently e
 with normal notice/one-shot/action choices. A listener added later does not get
 an older fire. Removed sources pause affected listeners; restoring a declaration
 does not silently rearm them. Subscriptions and actions are not exported.
+Wherever the listener's watchdog is shown, it names its app, its panel (or all
+panels) and its event by their current names (user 2026-10-27).
 
 When an agent builds an app for you, it follows Orgtree's app-creation
 instructions (user 2026-10-27): it creates the app with its declared events,

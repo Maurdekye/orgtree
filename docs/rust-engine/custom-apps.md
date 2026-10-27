@@ -154,6 +154,12 @@ Pause/resume/remove, once, notice and explicit fire_actions keep watchdog meanin
 App deletion, removed declarations and specific panel deletion pause affected
 registrations with a reason; returning sources do not silently rearm them.
 Subscriptions/actions never travel in templates or portable bundles.
+Shown dogs name their source (USER 2026-10-27 m7a692fd13b1d): the desktop
+watchdog reads (watchdog_inventory) and orgtree_watchdog list add the current
+app_name/panel_name through events::listener_names, one bounded read of
+custom_apps/custom_panels per page, or app_deleted/panel_deleted once the row is
+gone. Renaming or deleting an app or panel that has listeners announces
+Change::Watchdogs, so the desktop rereads the names.
 
 Publication locks the app and snapshots armed matching watchdog IDs atomically.
 Provisional bounds:4096 registrations/app,128 pending fires/app, retained latest

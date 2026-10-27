@@ -119,6 +119,7 @@ A watchdog is a persistent monitor, not an agent seat. Ask an authorized agent f
 | Usage | Cached allowance edges/reset/freshness, without a new provider request for each watch. Unknown is never zero. |
 | Project queue / slot / event / listener watch | The shared primitives above. |
 | MQTT / WebSocket | Network messages on a maintained connection, with optional filters, authentication and heartbeat/hello settings where supported. |
+| App event | A declared event fired by an app's saved panel: one panel, or every panel of the app. |
 
 Agent tools create most general watches; the human UI supplies the project registrations described here and watchdog inspection/control. There is no generic “create any watchdog” form. A ready one-shot command/process/usage/slot/queue claim can resolve immediately in the agent's tool result with no later watchdog mail. The agent must read that result rather than wait for a notification that will not come.
 
@@ -127,6 +128,8 @@ Save as template can include standing watcher definitions and explicit audiences
 ## Inspect and maintain a watch
 
 Open its chip on the canvas or desk. The detail shows owner, kind, target, match/filter, cadence or quiet period, state, last check/fire and retained event summaries. More than eight watches fold into a paged list. **Armed**, **paused**, **exited/error** and a departing one-shot are distinct states. Closing the panel does not stop monitoring; use Pause, Resume or Remove.
+
+An app event watch shows ▦ on its chip. Its tooltip and detail name the app, the panel (or all panels) and the event, current names first with their IDs after them. A deleted app or panel is shown as deleted, and the watch is paused with the reason.
 
 For MQTT/WebSocket, **Connection messages** chooses passive Notice (default), Wake or Off. That changes outage/recovery administrative mail without reconnecting or replaying hello. Incoming server data keeps its own filtering and wake rules. Agents can send through their owned live connection; that action requires their actual authority and does not dial an unrelated client.
 

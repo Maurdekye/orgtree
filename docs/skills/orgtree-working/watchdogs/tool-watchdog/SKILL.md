@@ -18,6 +18,13 @@ once, notice and explicit fire_actions retain their usual semantics. No regex
 or silence mode applies. `orgtree_apps action=listeners` lists connections;
 `action=fire_event` publishes from a retained copy without running its HTML.
 
+`list` returns an app_listener's `event_name` and its `panel` or `all_panels`,
+with the current `app_name` and `panel_name` read at each call, so a rename
+shows at once. `app_deleted` or `panel_deleted` marks a deleted app or copy; the
+listener is then paused with a reason. The desktop shows the same (user
+2026-10-27): an armed chip shows ▦, and every chip's tooltip and the detail panel
+name the app, the panel or all panels, and the event, with IDs after the names.
+
 For an app you build for the user, follow the app-creation instructions in
 [orgtree-tool-apps](../../team/tool-apps/SKILL.md#creating-an-app-for-the-user):
 create the app, create its panel, then listen on that panel, not `all_panels:true`.
