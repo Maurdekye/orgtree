@@ -114,6 +114,15 @@ unchanged. [verified: `tests/helpers/test-output.mjs`; 2026-10-22]
   before and after the isolated assertion, and checks that its bytes survive.
   This uses the existing cfg(test)-only home seam; product lookup is unchanged.
   [verified: `domain/templates.rs` tests; 2026-10-22]
+- The Apps file tests (`domain::apps::file_access`, `domain::apps::files`,
+  `domain::apps::files::io`) compare `std::env::temp_dir()` with the path a
+  file opens as. A shell whose `TEMP`/`TMP` is the 8.3 short form of the
+  profile path (`C:\Users\ABCDEF~1\AppData\Local\Temp`, as agent shells in a
+  Session 0 turn had) fails six of them with "opened app file path differs
+  from its pinned path". That is the environment, not the product: run engine
+  tests with `TEMP`/`TMP` set to the long path or an authorized output scope.
+  Measured: 108 pass / 6 fail with the short form, 114/114 with the long path,
+  same binary. [verified: `domain/apps/files.rs`, `domain/apps/file_access.rs` tests; 2026-10-27]
 
 ## Native window-controls edge probe assets
 
