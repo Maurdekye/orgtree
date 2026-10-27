@@ -44,18 +44,21 @@ app for the user, do these in order:
    you, and HTML that calls `orgtree.events.fire(name, payload)` when the user
    does what that event reports (for example, presses Submit).
 2. panel_open with the new app's id and a label. This creates the user's panel, a
-   closed saved copy; keep its id. Only the user opens windows, so tell
-   them the panel's name and mention it with its `ref` (see Mentions): one
-   click on the mention opens it, as does its row in Apps.
+   closed saved copy; keep its id. Only the user opens windows.
 3. orgtree_watchdog `action:"create"` with `kind:"app_listener"`, `target` the
    app's id, `panel` that panel's id and `event_name` a declared event: one listener
    for each event you need. Listen to that panel, not `all_panels:true`, which
    also hears every other and later copy of the app.
+4. Mention the panel to the user using its returned `ref`,
+   `@panel:<org>/<panel-id>` (see Mentions), as plain text. They get a clickable
+   link to explicitly visit that panel; clicking it opens the saved copy, as
+   does its row in Apps.
 
 Example: a caption placement editor declares `placements.submitted` ("The
 complete caption-placement JSON from this saved copy") and fires it when the
 user presses Submit. Its agent creates the app, creates one panel labelled
-Captions and arms an app_listener on that panel for `placements.submitted`.
+Captions, arms an app_listener on that panel for `placements.submitted`, then
+mentions the panel to the user so they can open it.
 Each Submit then wakes the agent with watchdog mail carrying the placements, as
 app data rather than instructions. The listener hears only its own panel: a
 copy the user makes later needs a listener of its own.

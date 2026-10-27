@@ -6,6 +6,13 @@ lock owner scope before app rows; nested fire actions run after all app gates
 and DB connections are released. See [Apps](docs/rust-engine/custom-apps.md).
 [verified: `domain/apps/events.rs`; 2026-10-26]
 
+App creation for the user: (1) app_create declaring events, (2) panel_open to
+create its closed panel, (3) arm an app_listener on that exact panel/event,
+(4) mention the panel to the user with its returned @panel:<org>/<panel-id> ref
+so they can explicitly visit it. Never listen on all panels for this workflow.
+See [app-creation instructions](docs/skills/orgtree-working/team/tool-apps/SKILL.md#creating-an-app-for-the-user).
+[decided: user 2026-10-27]
+
 Presentations and apps stay separate (user 2026-10-26: "its also good to spesrate
 them from a ux perspective; predentstions are intended as a one-way communication,
 whearas apps are meant as a two-way communication, where the user cimmunicates back to

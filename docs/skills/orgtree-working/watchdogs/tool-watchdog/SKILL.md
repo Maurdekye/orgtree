@@ -30,7 +30,9 @@ name the app, the panel or all panels, and the event, with IDs after the names.
 
 For an app you build for the user, follow the app-creation instructions in
 [orgtree-tool-apps](../../team/tool-apps/SKILL.md#creating-an-app-for-the-user):
-create the app, create its panel, then listen on that panel, not `all_panels:true`.
+create the app, create its panel, listen on that panel, not `all_panels:true`,
+then mention the panel to the user with its returned `@panel:<org>/<panel-id>`
+ref so they have a clickable link to explicitly visit it.
 A panel fires its own events only while Orgtree is open, tray included; an
 agent's `fire_event` works at any time.
 

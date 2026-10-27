@@ -52,8 +52,9 @@ When an agent builds an app for you, it follows Orgtree's app-creation
 instructions (user 2026-10-27). An app is a custom view for working with your
 data in a structured way, not a program that keeps running on its own. The agent
 creates the app with its declared events, creates a panel for it and listens to
-that panel's events, not to every copy.
-The new panel waits closed in Apps; open it there. Each declared event that
+that panel's events, not to every copy, then mentions the panel to you with its
+`@panel:<org>/<panel-id>` link so you can explicitly visit it.
+The new panel waits closed; click that mention or open its row in Apps. Each declared event that
 copy fires reaches the agent; a copy you make later is not heard until the
 agent listens to it too.
 
