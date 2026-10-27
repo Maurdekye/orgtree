@@ -36,9 +36,9 @@ pub async fn get(State(e): State<Arc<Engine>>, Path((slug, did)): Path<(String, 
     let client = e.db.get().await?;
     let r = client
         .query_opt(
-            "SELECT d.uid, coalesce(a.name, d.node_name), d.title, coalesce(d.body, ''), d.at, d.format, d.bytes, d.viewed_at,
+            "SELECT d.slug, coalesce(a.name, d.node_name), d.title, coalesce(d.body, ''), d.at, d.format, d.bytes, d.viewed_at,
                     coalesce(d.presented_by, a.name, d.node_name)
-               FROM ot.documents d LEFT JOIN ot.agents a ON a.id = d.agent_id WHERE d.org_id = $1 AND d.uid = $2",
+               FROM ot.documents d LEFT JOIN ot.agents a ON a.id = d.agent_id WHERE d.org_id = $1 AND d.id = ot.document_ref($1, $2)",
             &[&o.id, &did],
         )
         .await?
@@ -56,7 +56,7 @@ pub async fn dismiss(State(e): State<Arc<Engine>>, Path((slug, did)): Path<(Stri
     let client = e.db.get().await?;
     let r = client
         .query_opt(
-            "UPDATE ot.documents SET dismissed = true WHERE org_id = $1 AND uid = $2 RETURNING node_name, agent_id",
+            "UPDATE ot.documents SET dismissed = true WHERE org_id = $1 AND id = ot.document_ref($1, $2) RETURNING node_name, agent_id",
             &[&o.id, &did],
         )
         .await?
@@ -97,7 +97,7 @@ pub async fn viewed(State(e): State<Arc<Engine>>, Path(slug): Path<String>, Json
             .query(
                 "UPDATE ot.documents SET viewed_at = CASE
                    WHEN date_trunc('milliseconds', at) = date_trunc('milliseconds', $3::timestamptz) THEN at ELSE $3 END
-                 WHERE org_id = $1 AND uid = $2 AND (viewed_at IS NULL OR viewed_at < $3)
+                 WHERE org_id = $1 AND id = ot.document_ref($1, $2) AND (viewed_at IS NULL OR viewed_at < $3)
                  RETURNING agent_id",
                 &[&o.id, &m.id, &at],
             )
@@ -138,15 +138,78 @@ pub struct ListQuery {
     #[serde(default)]
     previous: String,
     #[serde(default)] visible: bool,
+    /// Mention labels: the exact presentation ids on screen, comma separated
+    /// (slugs or old ids), answered with their current titles and nothing else.
+    #[serde(default)]
+    refs: Option<String>,
+    /// The composer's @ list (user 2026-10-27 mb21c096e5dc4): the words typed
+    /// after `@`, matched in titles and slugs.
+    #[serde(default)]
+    search: Option<String>,
 }
 
-const OPENING_UNREAD_SQL: &str = "SELECT d.uid, d.id FROM ot.documents d LEFT JOIN ot.agents a ON a.id = d.agent_id
+/// Presentations offered while one `@` is being completed.
+pub const SEARCH_MAX: i64 = 20;
+
+/// The org's gallery presentations (dismissed ones are not offered) whose
+/// title or slug holds every typed word, newest first, at most SEARCH_MAX.
+/// The scan walks the gallery's newest-first index and stops at the limit.
+#[logged]
+async fn search(client: &tokio_postgres::Client, org_id: i64, raw: &str) -> ApiResult<Json<Value>> {
+    if raw.len() > 200 {
+        return Err(ApiError::bad_request("search text is limited to 200 bytes"));
+    }
+    let terms: Vec<String> = raw.to_lowercase().split_whitespace().map(str::to_string).collect();
+    let rows = client
+        .query(
+            "SELECT d.slug, d.title, d.format, coalesce(a.name, d.node_name) FROM ot.documents d LEFT JOIN ot.agents a ON a.id = d.agent_id
+              WHERE d.org_id = $1 AND NOT d.dismissed
+                AND NOT EXISTS (SELECT 1 FROM unnest($2::text[]) term WHERE position(term IN lower(d.title || ' ' || d.slug)) = 0)
+              ORDER BY d.at DESC, d.id DESC LIMIT $3",
+            &[&org_id, &terms, &SEARCH_MAX],
+        )
+        .await?;
+    let found: Vec<Value> = rows
+        .iter()
+        .map(|r| json!({ "id": r.get::<_, String>(0), "title": r.get::<_, String>(1), "format": r.get::<_, String>(2),
+                         "node": r.get::<_, String>(3) }))
+        .collect();
+    Ok(Json(json!({ "documents": found })))
+}
+
+/// One bounded read of mention labels (`?refs=`), like the apps' refs read.
+pub const REFS_MAX: usize = 64;
+
+/// The presentations these references name in this org, with their slug and
+/// current title. A reference that names none is left out of the answer.
+#[logged]
+async fn refs(client: &tokio_postgres::Client, org_id: i64, raw: &str) -> ApiResult<Json<Value>> {
+    let asked: Vec<String> = raw.split(',').map(str::trim).filter(|s| !s.is_empty()).map(str::to_string).collect();
+    if asked.len() > REFS_MAX || asked.iter().any(|r| r.len() > 200) {
+        return Err(ApiError::bad_request(format!("at most {REFS_MAX} references of up to 200 bytes at a time")));
+    }
+    let rows = client
+        .query(
+            "SELECT r.ref, d.slug, d.title, d.format FROM unnest($2::text[]) WITH ORDINALITY AS r(ref, n)
+               JOIN ot.documents d ON d.id = ot.document_ref($1, r.ref) ORDER BY r.n",
+            &[&org_id, &asked],
+        )
+        .await?;
+    let found: Vec<Value> = rows
+        .iter()
+        .map(|r| json!({ "ref": r.get::<_, String>(0), "id": r.get::<_, String>(1), "title": r.get::<_, String>(2),
+                         "format": r.get::<_, String>(3) }))
+        .collect();
+    Ok(Json(json!({ "refs": found })))
+}
+
+const OPENING_UNREAD_SQL: &str = "SELECT d.slug, d.id FROM ot.documents d LEFT JOIN ot.agents a ON a.id = d.agent_id
  WHERE d.org_id = $1 AND NOT d.dismissed AND (d.viewed_at IS NULL OR d.viewed_at < d.at)
  AND (d.viewed_at IS NULL OR date_trunc('milliseconds', d.viewed_at) < date_trunc('milliseconds', d.at))
  AND CASE WHEN $3::bigint[] IS NULL THEN ($2 = '' OR d.node_name = $2)
           ELSE (d.agent_id = ANY($3) OR (d.agent_id IS NULL AND d.node_name = $2)) END
  AND (NOT $4::boolean OR a.state = 'live') ORDER BY d.at ASC, d.id ASC LIMIT 1";
-const OPENING_TOPMOST_SQL: &str = "SELECT d.uid, d.id FROM ot.documents d LEFT JOIN ot.agents a ON a.id = d.agent_id
+const OPENING_TOPMOST_SQL: &str = "SELECT d.slug, d.id FROM ot.documents d LEFT JOIN ot.agents a ON a.id = d.agent_id
  WHERE d.org_id = $1 AND NOT d.dismissed
  AND CASE WHEN $3::bigint[] IS NULL THEN ($2 = '' OR d.node_name = $2)
           ELSE (d.agent_id = ANY($3) OR (d.agent_id IS NULL AND d.node_name = $2)) END
@@ -165,7 +228,7 @@ async fn opening_target(client: &tokio_postgres::Client, org_id: i64, node: &str
         None => {
             // Identity lookup, scoped exactly like the list; no history prefix.
             let prior = if previous.is_empty() || previous.len() > 512 { None } else {
-                let sql=OPENING_TOPMOST_SQL.replace("ORDER BY d.id DESC", "AND d.uid=$5 ORDER BY d.id DESC");
+                let sql=OPENING_TOPMOST_SQL.replace("ORDER BY d.id DESC", "AND d.id=ot.document_ref($1,$5) ORDER BY d.id DESC");
                 client.query_opt(&sql,&[&org_id,&node,members,&hired,&previous]).await?
             };
             match prior { Some(row)=>Some(row), None=>client.query_opt(OPENING_TOPMOST_SQL, params).await? }
@@ -188,6 +251,12 @@ fn gallery_locate_page(position: i64, limit: i64) -> (i64, i64) {
 pub async fn list(State(e): State<Arc<Engine>>, Path(slug): Path<String>, Query(q): Query<ListQuery>) -> ApiResult<Json<Value>> {
     let o = org(&e, &slug)?;
     let client = e.db.get().await?;
+    if let Some(raw) = &q.refs {
+        return refs(&client, o.id, raw).await;
+    }
+    if let Some(raw) = &q.search {
+        return search(&client, o.id, raw).await;
+    }
     let node = q.node.trim().to_string();
     let team = matches!(q.team.as_deref(), Some("1" | "true"));
     let members = subtree_members(&client, &o, &node, team).await?;
@@ -206,22 +275,26 @@ pub async fn list(State(e): State<Arc<Engine>>, Path(slug): Path<String>, Query(
     let mut located = None;
     if !q.locate.is_empty() {
         // Return the target's page and real offset; the reader owns sparse ranges.
-        let pos: Option<i64> = client
+        let pos: Option<(i64, String)> = client
             .query_one(
                 "SELECT (SELECT count(*) FROM ot.documents d2 LEFT JOIN ot.agents a2 ON a2.id=d2.agent_id WHERE d2.org_id = $1 AND d2.id > d.id
                           AND CASE WHEN $4::bigint[] IS NULL THEN ($3 = '' OR d2.node_name = $3)
                                    ELSE (d2.agent_id = ANY($4) OR (d2.agent_id IS NULL AND d2.node_name = $3)) END
-                          AND (NOT $5::boolean OR (NOT d2.dismissed AND (NOT $6::boolean OR a2.state='live'))))
-                   FROM ot.documents d WHERE d.org_id = $1 AND d.uid = $2",
+                          AND (NOT $5::boolean OR (NOT d2.dismissed AND (NOT $6::boolean OR a2.state='live')))), d.slug
+                   FROM ot.documents d WHERE d.org_id = $1 AND d.id = ot.document_ref($1, $2)",
                 &[&o.id, &q.locate, &node, &members, &q.visible, &hired],
             )
             .await
             .ok()
-            .map(|r| r.get(0));
-        if let Some(p) = pos {
+            .map(|r| (r.get(0), r.get(1)));
+        if let Some((p, id)) = pos {
             located = Some(q.locate.clone());
             let (start, size) = gallery_locate_page(p, limit);
-            return list_page(&client, &o, &node, members.as_deref(), start, size, located, q.visible, hired).await;
+            // `located` echoes the request; `located_id` is the slug the page
+            // lists it by, which differs when the request was an old id
+            let Json(mut page) = list_page(&client, &o, &node, members.as_deref(), start, size, located, q.visible, hired).await?;
+            page["located_id"] = json!(id);
+            return Ok(Json(page));
         }
     }
     list_page(&client, &o, &node, members.as_deref(), offset, limit, located, q.visible, hired).await
@@ -285,7 +358,7 @@ async fn list_page(
             // `node` is the node's CURRENT name: a document keeps the name it was
             // presented under, and a renamed node's rows must still match its
             // gallery and focus it (docket org/rename item)
-            "SELECT d.uid, coalesce(a.name, d.node_name), d.title, d.at, d.format, d.bytes, coalesce(a.state, 'deleted'), a.tier, d.viewed_at,
+            "SELECT d.slug, coalesce(a.name, d.node_name), d.title, d.at, d.format, d.bytes, coalesce(a.state, 'deleted'), a.tier, d.viewed_at,
                     coalesce(d.presented_by, a.name, d.node_name),
                     (SELECT p.tier FROM ot.agents p WHERE p.org_id = d.org_id AND p.name = coalesce(d.presented_by, a.name, d.node_name)
                       AND p.state <> 'deleted' ORDER BY (p.state = 'live') DESC, p.id DESC LIMIT 1)
@@ -334,7 +407,7 @@ pub async fn mockup(State(e): State<Arc<Engine>>, Path((slug, did)): Path<(Strin
     let o = org(&e, &slug)?;
     let client = e.db.get().await?;
     let r = client
-        .query_opt("SELECT coalesce(preview, body, ''), format FROM ot.documents WHERE org_id = $1 AND uid = $2", &[&o.id, &did])
+        .query_opt("SELECT coalesce(preview, body, ''), format FROM ot.documents WHERE org_id = $1 AND id = ot.document_ref($1, $2)", &[&o.id, &did])
         .await?
         .ok_or_else(|| ApiError::not_found("that document no longer exists"))?;
     let body: String = r.get(0);
@@ -362,7 +435,7 @@ pub async fn download(State(e): State<Arc<Engine>>, Path((slug, did)): Path<(Str
     let o = org(&e, &slug)?;
     let client = e.db.get().await?;
     let r = client
-        .query_opt("SELECT title, coalesce(body, ''), format, download FROM ot.documents WHERE org_id = $1 AND uid = $2", &[&o.id, &did])
+        .query_opt("SELECT title, coalesce(body, ''), format, download FROM ot.documents WHERE org_id = $1 AND id = ot.document_ref($1, $2)", &[&o.id, &did])
         .await?
         .ok_or_else(|| ApiError::not_found("that document no longer exists"))?;
     let title: String = r.get(0);
@@ -414,18 +487,26 @@ mod opening_tests {
             (3,'retired',1,2,'retired','2026-01-01',NULL,false),
             (4,'other-org',2,1,'old-name','2026-01-01',NULL,false),
             (5,'dismissed',1,1,'old-name','2026-01-01',NULL,true);
-          CREATE INDEX documents_org ON ot.documents(org_id,id DESC);").await.unwrap();
+          CREATE INDEX documents_org ON ot.documents(org_id,id DESC);
+          ALTER TABLE ot.documents ADD COLUMN slug text;
+          UPDATE ot.documents SET slug=uid;
+          UPDATE ot.documents SET uid='d00000000c4a1' WHERE slug='changed';").await.unwrap();
         client.batch_execute(include_str!("../../migrations/0041_document_opening.sql")).await.unwrap();
+        // the reference resolver exactly as migration 0073 defines it
+        let slugs = include_str!("../../migrations/0073_document_slugs.sql");
+        client.batch_execute(&slugs[slugs.find("CREATE FUNCTION ot.document_ref").unwrap()..]).await.unwrap();
         assert_eq!(super::opening_target(&client,1,"",&None,true, "", false).await.unwrap(),Some(("changed".into(),3)));
         assert_eq!(super::opening_target(&client,1,"renamed",&Some(vec![1]),false, "", false).await.unwrap(),Some(("changed".into(),2)));
         assert_eq!(super::opening_target(&client,1,"retired",&Some(vec![2]),false, "", false).await.unwrap(),Some(("retired".into(),0)));
         assert_eq!(super::opening_target(&client,99,"",&None,true, "", false).await.unwrap(),None);
-        client.batch_execute("UPDATE ot.documents SET viewed_at=at;UPDATE ot.documents SET at='2026-10-20' WHERE uid='changed'").await.unwrap();
+        client.batch_execute("UPDATE ot.documents SET viewed_at=at;UPDATE ot.documents SET at='2026-10-20' WHERE slug='changed'").await.unwrap();
         assert_eq!(super::opening_target(&client,1,"",&None,true, "", false).await.unwrap(),Some(("changed".into(),3)));
         client.batch_execute("UPDATE ot.documents SET viewed_at=at").await.unwrap();
         // The list is id DESC even when an older document was replaced later.
         assert_eq!(super::opening_target(&client,1,"",&None,true, "", false).await.unwrap(),Some(("new".into(),2)));
         assert_eq!(super::opening_target(&client,1,"",&None,true, "changed", false).await.unwrap(),Some(("changed".into(),3)));
+        // a reader restored with the old generic id opens the same card by its slug
+        assert_eq!(super::opening_target(&client,1,"",&None,true, "d00000000c4a1", false).await.unwrap(),Some(("changed".into(),3)));
         for unavailable in ["dismissed","retired","other-org","missing"] {
             assert_eq!(super::opening_target(&client,1,"",&None,true, unavailable, false).await.unwrap(),Some(("new".into(),2)));
         }

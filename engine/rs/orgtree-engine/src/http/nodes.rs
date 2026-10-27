@@ -522,7 +522,7 @@ pub(crate) async fn resolve_target(e: &Engine, org: &OrgHandle, t: &Value, trans
                             "gist": gist(&body, 600), "kind": "mail" })))
         }
         "document" => {
-            let r = client.query_opt("SELECT uid, node_name, at, title FROM ot.documents WHERE org_id = $1 AND uid = $2", &[&org.id, &id]).await?;
+            let r = client.query_opt("SELECT slug, node_name, at, title FROM ot.documents WHERE org_id = $1 AND id = ot.document_ref($1, $2)", &[&org.id, &id]).await?;
             let Some(r) = r else { return Err(ApiError::not_found("that document no longer exists")) };
             Ok(Some(json!({ "id": r.get::<_, String>(0), "from": r.get::<_, String>(1), "at": iso(r.get(2)),
                             "gist": format!("document: {}", r.get::<_, String>(3)), "kind": "document" })))

@@ -124,7 +124,7 @@ pub async fn page(
             o.id,
         ),
         "documents" => (
-            "SELECT id, jsonb_build_object('id', uid, 'title', title, 'format', format, 'node', node_name, 'at', at,
+            "SELECT id, jsonb_build_object('id', slug, 'title', title, 'format', format, 'node', node_name, 'at', at,
                                            'dismissed', dismissed, 'bytes', bytes)
                FROM ot.documents WHERE org_id = $1 AND id < $2 ORDER BY id DESC LIMIT $3",
             "SELECT count(*) FROM ot.documents WHERE org_id = $1",

@@ -78,6 +78,7 @@ const MIGRATIONS: &[(&str, &str)] = &[
     ("0069_custom_panel_window_pins", include_str!("../migrations/0069_custom_panel_window_pins.sql")),
     ("0071_custom_panel_history", include_str!("../migrations/0071_custom_panel_history.sql")),
     ("0072_custom_app_internet_access", include_str!("../migrations/0072_custom_app_internet_access.sql")),
+    ("0073_document_slugs", include_str!("../migrations/0073_document_slugs.sql")),
 ];
 
 #[cfg(test)]

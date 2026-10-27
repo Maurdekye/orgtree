@@ -162,7 +162,8 @@ pub async fn load(engine: &Engine, org: &OrgHandle, reader: &Reader<'_>, target:
         "mail" if part.part == "mail.body" => mail(engine, org, reader, id, None).await,
         "document" | "presentation" if matches!(part.part.as_str(),"document.body"|"document.title") => {
             let client = engine.db.get().await?;
-            let row = client.query_opt("SELECT d.uid,d.agent_id,coalesce(a.name,d.node_name),d.title,d.body,d.format,d.at,coalesce(d.presented_by,'') FROM ot.documents d LEFT JOIN ot.agents a ON a.id=d.agent_id WHERE d.org_id=$1 AND d.uid=$2", &[&org.id,&id]).await?.ok_or_else(missing)?;
+            // the presentation's slug or its old id (migration 0073); the quote names the slug
+            let row = client.query_opt("SELECT d.slug,d.agent_id,coalesce(a.name,d.node_name),d.title,d.body,d.format,d.at,coalesce(d.presented_by,'') FROM ot.documents d LEFT JOIN ot.agents a ON a.id=d.agent_id WHERE d.org_id=$1 AND d.id=ot.document_ref($1,$2)", &[&org.id,&id]).await?.ok_or_else(missing)?;
             if row.get::<_,String>(5) != "markdown" { crate::refuse!(BadRequest, "interactive HTML presentations do not support text selection replies"); }
             if let Reader::Agent { id: agent, name, .. } = reader {
                 if row.get::<_,Option<i64>>(1) != Some(*agent) && row.get::<_,String>(7) != *name {
@@ -172,7 +173,7 @@ pub async fn load(engine: &Engine, org: &OrgHandle, reader: &Reader<'_>, target:
             }
             let text = if part.part == "document.title" { row.get(3) } else { row.get::<_,Option<String>>(4).ok_or_else(missing)? };
             bounded(Source { text, revision: json!(crate::util::iso(row.get(6))),
-                quote: json!({"kind":"document","org":org.slug,"id":id,"from":row.get::<_,String>(2),"title":row.get::<_,String>(3),"at":crate::util::iso(row.get(6))}) })
+                quote: json!({"kind":"document","org":org.slug,"id":row.get::<_,String>(0),"from":row.get::<_,String>(2),"title":row.get::<_,String>(3),"at":crate::util::iso(row.get(6))}) })
         }
         "work_item" if part.part.starts_with("work_item.") => {
             let slug = target["slug"].as_str().or_else(|| target["id"].as_str()).ok_or_else(missing)?;

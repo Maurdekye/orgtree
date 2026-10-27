@@ -132,25 +132,28 @@ pub async fn for_org(client: &Client, org_id: i64, slug: &str) -> Result<Vec<Val
                      WHEN (viewed_at IS NULL OR viewed_at < at) AND title ~* '@user'
                      THEN title
                      ELSE NULL END,
-                id FROM ot.documents
+                slug, id FROM ot.documents
               WHERE org_id = $1 AND NOT dismissed AND id < $2 ORDER BY id DESC LIMIT 200",
         org_id,
         i64::MAX,
     )
     .await?;
     for r in &docs {
+        // The notice keeps its old key (doc:<uid>), so the upgrade raises no
+        // presentation again; it opens by the slug (migration 0073).
         let uid: String = r.get(0);
         let node_name: String = r.get(1);
         let title: String = r.get(2);
         let presenter: String = r.get(3);
+        let id: String = r.get(5);
         out.push(json!({
-            "id": format!("doc:{uid}"), "source_id": uid, "kind": "document", "org": slug,
+            "id": format!("doc:{uid}"), "source_id": id, "kind": "document", "org": slug,
             "agent": node_name, "title": format!("{node_name} presented a document"),
             "body": gist(&title, 300),
         }));
         if let Some(prose) = r.get::<_, Option<String>>(4) {
             if let Some(blurb) = crate::runtime::convo::user_mention_blurb(&prose) {
-                out.push(doc_mention_notice(slug, &uid, &presenter, &title, &blurb));
+                out.push(doc_mention_notice(slug, &uid, &id, &presenter, &title, &blurb));
             }
         }
     }
@@ -190,9 +193,9 @@ fn mention_notice(slug: &str, agent: &str, generation: i32, marker: &Value) -> V
 }
 
 #[nolog]
-fn doc_mention_notice(slug: &str, uid: &str, agent: &str, title: &str, blurb: &str) -> Value {
+fn doc_mention_notice(slug: &str, uid: &str, id: &str, agent: &str, title: &str, blurb: &str) -> Value {
     json!({
-        "id": format!("mention:doc:{uid}"), "source_id": uid, "kind": "mention", "attention": false,
+        "id": format!("mention:doc:{uid}"), "source_id": id, "kind": "mention", "attention": false,
         "org": slug, "agent": agent,
         "title": format!("{agent} mentioned you in {}", gist(title, 80)),
         "body": gist(if blurb.is_empty() { "Mentioned you" } else { blurb }, 300),
@@ -261,9 +264,11 @@ mod taskbar_notice_tests {
         assert_eq!(transcript["kind"], "mention");
         assert_eq!(transcript["source_id"], "e3");
 
-        let doc = doc_mention_notice("org", "d1", "helper", "Spec Doc", "Section for @user");
+        // keyed by the internal id, so no mention is raised again by the
+        // upgrade, and opened by the presentation's slug (migration 0073)
+        let doc = doc_mention_notice("org", "d1", "spec-doc", "helper", "Spec Doc", "Section for @user");
         assert_eq!(doc["id"], "mention:doc:d1");
-        assert_eq!(doc["source_id"], "d1");
+        assert_eq!(doc["source_id"], "spec-doc");
         assert_eq!(doc["kind"], "mention");
         assert_eq!(doc["attention"], false);
 

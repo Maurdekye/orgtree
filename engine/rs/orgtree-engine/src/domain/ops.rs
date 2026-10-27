@@ -2595,15 +2595,17 @@ async fn project_presentations(org:&Arc<OrgHandle>,tx:&Transaction<'_>,actor:&Ac
     let (chunk_index,chunk_start)=super::presentation_chunks::index(req)?;
     let limit=req["limit"].as_i64().unwrap_or(50).clamp(1,100);
     let offset=req["offset"].as_i64().unwrap_or(0).max(0);
-    let rows=tx.query("SELECT d.uid,d.node_name,d.title,d.at,d.format,d.bytes,
+    // `document` is a presentation's slug or its old id (migration 0073)
+    let rows=tx.query("SELECT d.slug,d.node_name,d.title,d.at,d.format,d.bytes,
         CASE WHEN $4::text IS NULL THEN NULL ELSE substring(coalesce(d.body,''),$7::integer,$8::integer) END,
         CASE WHEN $4::text IS NULL THEN NULL ELSE char_length(coalesce(d.body,'')) END,d.xmin::text
         FROM ot.documents d WHERE d.org_id=$1 AND (d.agent_id=ANY($2) OR (d.agent_id IS NULL AND d.node_name=$3))
-        AND ($4::text IS NULL OR d.uid=$4) ORDER BY d.id DESC OFFSET $5 LIMIT $6",
+        AND ($4::text IS NULL OR d.id=ot.document_ref($1,$4)) ORDER BY d.id DESC OFFSET $5 LIMIT $6",
         &[&org.id,&members,&n.name,&document,&offset,&limit,&chunk_start,&super::presentation_chunks::CHARS]).await?;
     if document.is_some() && rows.is_empty() {refuse!(NotFound,"presentation is not in the requested project gallery");}
     let docs:Vec<Value>=rows.iter().map(|r|->Result<Value>{
-        let mut d=json!({"id":r.get::<_,String>(0),"node":r.get::<_,String>(1),"title":r.get::<_,String>(2),"at":crate::util::iso(r.get(3)),"format":r.get::<_,String>(4),"bytes":r.get::<_,i32>(5)});
+        let id:String=r.get(0);
+        let mut d=json!({"id":id,"ref":format!("@doc:{}/{id}",org.slug),"node":r.get::<_,String>(1),"title":r.get::<_,String>(2),"at":crate::util::iso(r.get(3)),"format":r.get::<_,String>(4),"bytes":r.get::<_,i32>(5)});
         if let Some(body)=r.get::<_,Option<String>>(6) {
             let revision:String=r.get(8);
             super::presentation_chunks::revision(req,chunk_index,&revision)?;

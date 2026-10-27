@@ -222,38 +222,40 @@ pub async fn present(engine: &Arc<Engine>, org: &Arc<OrgHandle>, p: &Presenter, 
         None => (p.id, p.name.clone(), None),
     };
     let bytes = body.len() as i32;
-    let id = match args["replaces"].as_str().filter(|s| !s.is_empty()) {
+    // A presentation's id is its slug (migration 0073, user 2026-10-27
+    // m4efbc12ac94e); `replaces` also takes the old generic id it had before.
+    let id: String = match args["replaces"].as_str().filter(|s| !s.is_empty()) {
         Some(old) => {
-            let n = client
-                .execute(
+            let row = client
+                .query_opt(
                     "UPDATE ot.documents SET title = $3, body = $4, format = $5, bytes = $6, at = now(), dismissed = false, download = $8, preview = $9,
                             presented_by = CASE WHEN $10::text IS NULL THEN presented_by ELSE $10 END
-                      WHERE org_id = $1 AND uid = $2 AND agent_id = $7",
+                      WHERE org_id = $1 AND id = ot.document_ref($1, $2) AND agent_id = $7 RETURNING slug",
                     &[&org.id, &old, &title, &body, &format, &bytes, &owner_id, &bundle_download, &bundle_preview,
                       &under.as_ref().map(|_| p.name.clone())],
                 )
                 .await?;
-            if n == 0 {
+            let Some(row) = row else {
                 match &under {
                     Some(pr) => refuse!(NotFound, "project {pr} has no presentation {old} to replace"),
                     None => refuse!(NotFound, "you have no presentation {old} to replace"),
                 }
-            }
-            old.to_string()
+            };
+            row.get(0)
         }
-        None => {
-            let id = uid("d");
-            client
-                .execute(
-                    "INSERT INTO ot.documents (uid, org_id, agent_id, node_name, title, body, format, bytes, download, preview, presented_by)
-                     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)",
-                    &[&id, &org.id, &owner_id, &owner_name, &title, &body, &format, &bytes, &bundle_download, &bundle_preview,
-                      &under.as_ref().map(|_| p.name.clone())],
-                )
-                .await?;
-            id
-        }
+        // the slug comes from the title (ot.assign_document_slug); `uid` stays
+        // an internal key
+        None => client
+            .query_one(
+                "INSERT INTO ot.documents (uid, org_id, agent_id, node_name, title, body, format, bytes, download, preview, presented_by)
+                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) RETURNING slug",
+                &[&uid("d"), &org.id, &owner_id, &owner_name, &title, &body, &format, &bytes, &bundle_download, &bundle_preview,
+                  &under.as_ref().map(|_| p.name.clone())],
+            )
+            .await?
+            .get(0),
     };
+    let reference = format!("@doc:{}/{id}", org.slug);
     let mut detail = json!({ "id": id, "title": title, "format": format, "bytes": bytes });
     if let Some(pr) = &under {
         detail["project"] = json!(pr);
@@ -268,12 +270,16 @@ pub async fn present(engine: &Arc<Engine>, org: &Arc<OrgHandle>, p: &Presenter, 
     drop(client);
     crate::runtime::watchdogs::events::emit(engine,crate::runtime::watchdogs::events::event(if args["replaces"].as_str().is_some(){"documents.updated"}else{"documents.created"},crate::runtime::watchdogs::events::Scope::Agent(org.id,owner_id),json!({"agent_id":owner_id,"document":id})));
     changes::notify(engine, org, vec![Change::Documents(owner_id), Change::Events]);
-    let mut card = json!({ "presentation": { "id": id, "title": title, "format": format } });
+    // Presentation mention chips show the current title (user 2026-10-27
+    // m7bb9eb904138) and read it again: a replace may retitle a presentation
+    // the record feed does not carry.
+    org.emit(json!({ "type": "documents_changed", "org": org.slug }));
+    let mut card = json!({ "presentation": { "id": id, "title": title, "format": format, "ref": reference } });
     if let Some(pr) = &under {
         card["presentation"]["project"] = json!(pr);
-        return Ok((format!("Presented \"{title}\" under project {pr} (id {id}; pass it as `replaces` with project={pr} to update this card)."), card));
+        return Ok((format!("Presented \"{title}\" under project {pr} (id {id}, mention {reference}; pass the id as `replaces` with project={pr} to update this card)."), card));
     }
-    Ok((format!("Presented \"{title}\" to the user (id {id}; pass it as `replaces` to update this card)."), card))
+    Ok((format!("Presented \"{title}\" to the user (id {id}, mention {reference}; pass the id as `replaces` to update this card)."), card))
 }
 
 /// `orgtree_send_file`. Returns (text, chip card).

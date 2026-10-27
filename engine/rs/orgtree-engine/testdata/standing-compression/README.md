@@ -2,9 +2,10 @@
 
 `seat-A.txt` and `seat-B.txt` are the complete, approved synthetic examples
 from the 2026-10-20 proposal (user approval 20:03Z), not snapshots regenerated
-from the implementation under test. UTF-8/LF lengths are now 10,573 and 10,585 bytes
+from the implementation under test. UTF-8/LF lengths are now 10,606 and 10,618 bytes
 (they were 10,389 and 10,401 when approved; later intentional wording updates
-include the app and panel mention sentence of 2026-10-27, user m449dc0a35cbe).
+include the app and panel mention sentence of 2026-10-27, user m449dc0a35cbe, and
+presentations in the same rule, user m669486afd267).
 The baseline at `3dc709564f7fb70e839d0a6a33606815facd9c03` rendered 11,649 and
 11,661 bytes. Both fixtures use fake identities, paths and charters.
 

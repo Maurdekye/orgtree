@@ -636,9 +636,10 @@ async fn reply_event(client: &tokio_postgres::Client, org_id: i64, org: &str, wh
     let id = reply["id"].as_str().unwrap_or("");
     match reply["kind"].as_str().unwrap_or("") {
         "document" => {
-            let r = client.query_opt("SELECT node_name, title FROM ot.documents WHERE org_id=$1 AND uid=$2", &[&org_id, &id]).await?;
+            // a presentation's slug or its old id (migration 0073); the event names the slug
+            let r = client.query_opt("SELECT node_name, title, slug FROM ot.documents WHERE org_id=$1 AND id=ot.document_ref($1, $2)", &[&org_id, &id]).await?;
             Ok(r.map(|r| crate::events::typed("reply.document", who,
-                json!({ "kind":"document", "org":org, "id":id, "node":r.get::<_, String>(0), "title":r.get::<_, String>(1) }),
+                json!({ "kind":"document", "org":org, "id":r.get::<_, String>(2), "node":r.get::<_, String>(0), "title":r.get::<_, String>(1) }),
                 json!({ "body":body }))))
         }
         "mail" => {
