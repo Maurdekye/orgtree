@@ -151,6 +151,8 @@ For the project Mail tab/window, listeners folder and queue history, see [orgtre
 
 The org inbox viewer shows external received/sent entries, network custody/read state, attachments and holders. Its unread boundary uses the stored log position, not just the currently rendered tail. Holder controls identify which agents may receive outside mail; applicable org policy can restrict grants.
 
+Contacts are shown as network contact links: click to open in Hubchat, right-click for more.
+
 Human outside composition has moved to Hubchat: the org inbox is a viewer, not a hidden second compose window. Do not suggest a removed reply/composer action. External sender authority belongs to current trust rules; a delivery/read badge does not make content authoritative. See `orgtree-mail-basics` (orgtree-working › mail) for the communication rules.
 
 ## Attachment transfers
