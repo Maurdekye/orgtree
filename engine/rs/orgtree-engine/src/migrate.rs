@@ -82,6 +82,8 @@ const MIGRATIONS: &[(&str, &str)] = &[
 
 #[cfg(test)]
 mod project_user_contact_tests;
+#[cfg(test)]
+mod document_slug_tests;
 
 #[logged]
 fn checksum(sql: &str) -> String {
