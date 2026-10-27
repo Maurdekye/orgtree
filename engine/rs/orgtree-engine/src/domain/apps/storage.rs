@@ -500,6 +500,14 @@ mod tests {
         assert!(removes_file_access(&allowed, "files.write", "ask"));
     }
     #[test]
+    fn events_keep_one_event_by_name() {
+        // User 2026-10-27 m46d1f8a8e39e: the Fire event tab lists the chosen event's
+        // fires. History keeps a fire as event.fired with the event in its payload;
+        // a message row carries its own name. No name is no filter.
+        assert_eq!(one_event(false,6),"($6::text IS NULL OR (name='event.fired' AND payload->>'event'=$6))");
+        assert_eq!(one_event(true,4),"($4::text IS NULL OR name=$4)");
+    }
+    #[test]
     fn app_and_panel_results_carry_their_mention_token() {
         assert_eq!(with_refs("acme", json!({"id":"app1","name":"Notes","capabilities":[]}))["ref"], "@app:acme/app1");
         assert_eq!(with_refs("acme", json!({"id":"panel1","app":"app1","label":"Panel 1"}))["ref"], "@panel:acme/panel1");

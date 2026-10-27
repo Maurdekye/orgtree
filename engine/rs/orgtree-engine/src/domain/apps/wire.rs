@@ -306,6 +306,21 @@ mod tests {
         let card=crate::tools::defs::list().into_iter().find(|c|c["name"]=="orgtree_apps").unwrap();
         assert_eq!(card["inputSchema"]["properties"]["before"]["type"],"integer");
     }
+    #[test] fn custom_apps_history_reads_one_event_by_name() {
+        // User 2026-10-27 m46d1f8a8e39e: "selecting an event shows that per-event fire
+        // history as a lazily-loading, scrollable list". events takes the event name
+        // the event and fire_event actions take, paged and checked the same way.
+        assert!(parse(&json!({"action":"events","panel":"p","name":"submitted","before":9,"limit":50})).is_ok());
+        assert!(parse(&json!({"action":"events","panel":"p","name":"submitted","after":9})).is_ok());
+        assert!(parse(&json!({"action":"events","panel":"p","name":"submitted","messages":true})).is_ok());
+        assert!(parse(&json!({"action":"events","panel":"p","name":null})).is_ok(),"null is no filter");
+        for name in [json!(" "),json!("x".repeat(81)),json!("a
+b"),json!(7)]{
+            assert!(parse(&json!({"action":"events","panel":"p","name":name})).is_err(),"{name} is no event name");
+        }
+        let card=crate::tools::defs::list().into_iter().find(|c|c["name"]=="orgtree_apps").unwrap();
+        assert!(card["inputSchema"]["properties"]["name"]["description"].as_str().unwrap().contains("events:"),"the card says events reads one event by name");
+    }
     #[test] fn custom_apps_listener_fires_page_like_history_and_name_one_listener() {
         // User 2026-10-27 m8ced6e920f63: a Connections row expands to its recent
         // fires, lazily paged; md11c3c790acf: the rows follow changes live.
