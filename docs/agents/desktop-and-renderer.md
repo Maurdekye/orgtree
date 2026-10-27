@@ -1742,6 +1742,9 @@ App/panel Settings and Delete… context entries use the Apps-list settings rout
 and its existing deletion confirmation; only confirming sends the revision-
 checked delete action. Preserve the pressed link's owner document before the
 metadata read, and never add actions to missing or other-org chips.
+The app menu's New panel uses panel_open closed:true: it creates a fresh saved
+copy off/closed through the agent creation path, without showing or running it.
+The Apps-list app row uses that same menu. Tool parity is agent panel_open with app.
 [decided: user 2026-10-27 mda7854f1f89b; verified: `canvas/apps/{links,ui,settings}.ts*`]
 
 ## Network mention chips (2026-10-27, 4.5.0)

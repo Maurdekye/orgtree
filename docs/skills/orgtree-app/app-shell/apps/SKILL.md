@@ -309,7 +309,10 @@ the row's tooltip. Right-click either kind for Settings (that app's App settings
 or that exact copy's Panel settings) and Delete… (the existing confirmation,
 never immediate deletion). App deletion removes its definition and all saved
 panels; panel deletion removes only that copy. A panel mention also offers the
-row's Start running or Power off. A mention of a deleted app or panel, or of another
+row's Start running or Power off. An app mention and its Apps-list row also offer
+New panel: create a fresh closed, powered-off copy without opening its window.
+Agent parity is orgtree_apps panel_open with app, which already creates closed/off.
+A mention of a deleted app or panel, or of another
 organization's, shows its token marked unavailable or other org and opens
 nothing. The composer's @ menu offers every app and saved panel by name, newest
 first; `@app:` or `@panel:` lists all of them (see orgtree-desk-chat).

@@ -584,6 +584,10 @@ departures provisional for the user.
     issuing a deletion; Cancel closes it, and only the confirmation sends the
     existing revision-checked app_delete/panel_delete. Panel power actions stay.
     [decided: user 2026-10-27 mda7854f1f89b]
+  - App menus also offer New panel (user 2026-10-27 m66a42e7ae38a):
+    `panel_open {app, closed:true}` creates a fresh off/closed copy, with no
+    show/start/stop. The Apps-list app row shares that menu. Agent parity is
+    existing panel_open with app, whose copies are already closed/off.
   Deleted and other-org targets are the existing inert chip (departure a).
 - Click: `openAppRef` calls the Apps rows' own `openAppPanel` (bring-to-front,
   @tutorial-opus): `{app}` lets the engine pick the most recently used copy or

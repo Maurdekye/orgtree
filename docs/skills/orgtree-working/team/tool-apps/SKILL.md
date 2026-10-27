@@ -94,6 +94,9 @@ panel mention opens that copy, starting it if it was off, and a copy already on
 screen comes to the front. The hover text and right-click menu are its row's:
 Settings opens App settings or that copy's Panel settings, and Delete… opens the
 existing delete confirmation. A panel also offers Start running or Power off.
+An app's New panel creates a fresh closed, powered-off saved copy without showing
+or running it, including from its Apps-list row. Agent tool parity is the existing
+panel_open with app, which already creates that closed/off copy.
 Settings entry points are display only; the existing app_get/panel_get,
 app_update/panel_update/state actions and app_delete/panel_delete provide tool
 parity with their ordinary revision and permission checks. A deleted or other-org target shows the token marked unavailable or other

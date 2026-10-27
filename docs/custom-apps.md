@@ -435,6 +435,8 @@ to the front. Hover for the row's tooltip. Right-click an app or panel mention
 for **Settings** or **Delete…**. Settings opens that app's App settings or that
 copy's Panel settings. Delete… asks for confirmation first; deleting an app
 removes all its panels, while deleting a panel removes only that copy.
+An app mention and its Apps-list row also offer **New panel**: a fresh copy saved
+powered off, without opening a window. Click its saved row when you want to run it.
 Panel mentions also offer **Start running** or **Power off**. A mention of a deleted app or panel, or of
 another organization's, shows the agent's text marked *unavailable* or *other
 org* and opens nothing.

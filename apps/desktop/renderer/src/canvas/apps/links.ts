@@ -25,7 +25,10 @@ function managementMenu(slug:string,kind:'app'|'panel',id:string,anchor:Element)
   return [{label:'Settings',onSelect:()=>manageAppLink(slug,kind,id,anchor)},'sep',
     {label:'Delete…',danger:true,onSelect:()=>manageAppLink(slug,kind,id,anchor,true)}]
 }
-export const appLinkMenu=(slug:string,id:string,anchor:Element):MenuEntry[]=>managementMenu(slug,'app',id,anchor)
+export const appLinkMenu=(slug:string,id:string,anchor:Element):MenuEntry[]=>[
+  {label:'New panel',description:'Creates a powered-off copy without opening it',onSelect:()=>void changeApps(slug,{action:'panel_open',app:id,closed:true}).catch(error=>window.dispatchEvent(new window.CustomEvent('custom-app-error',{detail:{slug,error:String(error)}})))},
+  'sep',...managementMenu(slug,'app',id,anchor)
+]
 /** A panel link's menu. Start running never shows a window; Power off stops and
  * hides it. Power changes send no revision: a running panel's saves keep bumping it. */
 export function panelLinkMenu(slug:string,p:PanelRun&{id:string},anchor:Element):MenuEntry[]{

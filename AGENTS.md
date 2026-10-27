@@ -36,6 +36,12 @@ wins and survives agent code replacement. Agents create only closed copies and
 never show windows. See [custom apps](docs/rust-engine/custom-apps.md).
 [decided: user2026-10-26; verified: `domain/apps/{policy,storage,file_scopes}.rs`]
 
+App/panel mention context menus share Apps-list settings and confirmed deletion.
+An app's New panel creates a fresh closed/off copy through panel_open closed:true,
+the same insertion path agents use, without showing or running it. See
+[app mentions](docs/rust-engine/custom-apps.md#mentions-2026-10-27).
+[decided: user 2026-10-27; verified: `canvas/apps/links.ts`, `domain/apps/storage.rs`]
+
 The Apps list shows apps newest first and each app's panels in creation order
 (`created_at`); never reorder by running, shown, hidden or used state. Renderer
 CSS must use theme variables that `styles.css` defines (`--line`, `--dim`,
