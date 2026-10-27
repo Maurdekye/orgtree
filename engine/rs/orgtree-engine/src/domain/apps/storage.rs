@@ -16,13 +16,13 @@ const APP_META:&str="jsonb_build_object('id',a.id,'origin',a.origin,'name',a.nam
 const PANEL_META:&str="jsonb_build_object('id',p.id,'app',p.app_id,'label',p.label,'rev',p.rev,'open',p.is_open,'running',p.is_running,'run_generation',p.run_generation,'placement',p.placement,'created_at',p.created_at,'updated_at',p.updated_at,'used_at',p.used_at,'event_seq',p.event_seq)";
 
 /// The desktop may explicitly choose the same closed/off creation path as an
-/// agent. A closed request never reuses or stops an existing copy.
+/// agent. A closed request never reuses or stops an existing panel.
 #[derive(Debug,PartialEq)]
 pub(super) enum PanelOpenMode { Show { fresh:bool }, CreateClosed }
 #[nolog]
 pub(super) fn panel_open_mode(agent:bool,closed:bool,fresh:bool,existing:bool)->Result<PanelOpenMode>{
-    if agent&&existing{crate::refuse!(Forbidden,"only the user may open an app window; use panel_get for an existing copy or panel_open with app to create a closed copy");}
-    if closed&&existing{crate::refuse!(BadRequest,"closed creates a new copy; leave panel out");}
+    if agent&&existing{crate::refuse!(Forbidden,"only the user may open an app window; use panel_get for an existing panel or panel_open with app to create a closed panel");}
+    if closed&&existing{crate::refuse!(BadRequest,"closed creates a new panel; leave panel out");}
     if fresh&&existing{crate::refuse!(BadRequest,"new and panel are mutually exclusive");}
     Ok(if agent||closed{PanelOpenMode::CreateClosed}else{PanelOpenMode::Show{fresh}})
 }

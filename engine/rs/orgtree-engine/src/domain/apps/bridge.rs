@@ -209,7 +209,7 @@ async fn net_fetch(bound:&Bound,call:NetCall<'_>)->Result<Value> {
     let NetCall{fetch,value,once,ticket}=call;
     let allow=|host:&str,port:u16|match super::policy::net_decision(&value,host,port){Ok("allow")=>true,Ok(_)=>once.contains(&super::policy::net_site(&value,host,port)),Err(_)=>false};
     let done=crate::trace::private_app(async{tokio::select!{
-        _=ticket.cancel.cancelled()=>Err(anyhow::Error::from(crate::domain::UserError::Forbidden("app internet request was stopped: its permission changed, or its copy was stopped or changed".into()))),
+        _=ticket.cancel.cancelled()=>Err(anyhow::Error::from(crate::domain::UserError::Forbidden("app internet request was stopped: its permission changed, or its panel was stopped or changed".into()))),
         out=super::net::fetch(fetch,&allow)=>out,
     }}).await;
     drop(ticket);let f=done?;

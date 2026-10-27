@@ -49,7 +49,7 @@ async fn owner_allowed(tx:&Transaction<'_>,org:i64,owner:i64)->Result<Option<Cal
 async fn source(tx:&Transaction<'_>,org:i64,app:&str,memo:&Value)->Result<()> {
     let Some(r)=tx.query_opt("SELECT declared_events FROM ot.custom_apps WHERE org_id=$1 AND id=$2 FOR UPDATE",&[&org,&app]).await? else{crate::refuse!(NotFound,"app listener source was removed");};
     if !declared(&r.get::<_,Value>(0),memo["event_name"].as_str().unwrap_or("")){crate::refuse!(Conflict,"app no longer declares this event");}
-    if !memo["all_panels"].as_bool().unwrap_or(false) && tx.query_opt("SELECT id FROM ot.custom_panels WHERE org_id=$1 AND app_id=$2 AND id=$3",&[&org,&app,&memo["panel"].as_str().unwrap_or("")]).await?.is_none(){crate::refuse!(NotFound,"listener panel is not a saved copy of this app");}
+    if !memo["all_panels"].as_bool().unwrap_or(false) && tx.query_opt("SELECT id FROM ot.custom_panels WHERE org_id=$1 AND app_id=$2 AND id=$3",&[&org,&app,&memo["panel"].as_str().unwrap_or("")]).await?.is_none(){crate::refuse!(NotFound,"listener panel is not a saved panel of this app");}
     Ok(())
 }
 /// An app listener may name its app and panel by slug or by the old generic id

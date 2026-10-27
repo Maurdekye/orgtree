@@ -1141,7 +1141,7 @@ fn build_tool_watchdog() -> Value {
             "kind": { "type": "string", "enum": ["file", "command", "process", "stream", "activity", "event", "usage", "fair_queue", "slot", "project_listener", "listener_watch", "app_listener", "mqtt", "websocket"] },
             "event_name":{"type":"string","description":"app_listener: exact declared event name; a panel fires its own events only while Orgtree is open, tray included"},
             "panel":{"type":"string","description":"app_listener: one saved panel ID; mutually exclusive with all_panels"},
-            "all_panels":{"type":"boolean","description":"app_listener: explicitly listen to all current and future copies of this app"},
+            "all_panels":{"type":"boolean","description":"app_listener: explicitly listen to all current and future panels of this app"},
             "batch": { "type": "integer", "minimum": 1, "maximum": 20, "description": "fair_queue only: up to this many mails per wake; ACK capacity too. Default 1." },
             "slots": { "type": "integer", "minimum": 1, "maximum": 9999999, "description": "slot only: reserve this many slots together as one lease, in strict FIFO. Default 1; at most project capacity." },
             "credentials": { "anyOf": [
@@ -2190,10 +2190,10 @@ mod mqtt_card_tests {
 #[inline(never)]
 #[nolog]
 fn build_tool_apps()->Value {
-    tool("orgtree_apps","Manage this org's app definitions and independent saved panels. Requires org-modifying tools. List pages omit HTML/state; app_get/panel_get read them. Agent panel_open creates a new closed copy; only user UI shows windows. Panels are the user's custom views and run only while Orgtree is open, tray included: Hide keeps one running, panel_stop powers it off. Mutations need the current expected_rev. Apps have implicit org access; user Deny overrides. External files need consent.",json!({
+    tool("orgtree_apps","Manage this org's app definitions and independent saved panels. Requires org-modifying tools. List pages omit HTML/state; app_get/panel_get read them. Agent panel_open creates a new closed panel; only user UI shows windows. Panels are the user's custom views and run only while Orgtree is open, tray included: Hide keeps one running, panel_stop powers it off. Mutations need the current expected_rev. Apps have implicit org access; user Deny overrides. External files need consent.",json!({
         "action":{"type":"string","enum":["list","app_get","app_create","app_update","app_delete","app_import","app_export","mark_seen","panel_open","panel_get","panel_update","panel_duplicate","panel_delete","state_set","state_patch","event","events","fire_event","listeners","listener_fires","permission_set","permission_history","panel_start","panel_stop","runtime","file_permissions","file_open","file_read","file_roots","file_list","file_child","file_write","file_delete","file_result"]},
         "apps":{"type":"array","minItems":1,"maxItems":200,"uniqueItems":true,"items":{"type":"string"},"description":"mark_seen: acknowledge these explicit app IDs for this org's New badge; does not grant actions or change app/panel revisions"},
-        "bundle":{"type":"object","description":"app_import: strict orgtree-app version1 object with definition and optional panels:[{label,state}]; up to16MiB/16 saved copies. No permissions, IDs, links or geometry."},
+        "bundle":{"type":"object","description":"app_import: strict orgtree-app version1 object with definition and optional panels:[{label,state}]; up to16MiB/16 saved panels. No permissions, IDs, links or geometry."},
         "path":{"type":"string","description":"app_import: absolute held .orgtree-app file; file_open: relative name inside root (artifacts uses retained delivery ID). No parent components or links."},
         "root":{"type":"string","enum":["scratch","uploads","artifacts"],"description":"file_open: this org's collection; implicit org access or user grant, intersected with your held folders"},
         "file":{"type":"string","description":"file_read: opaque reference from file_open or this panel's saved state; never a computer path"},
@@ -2209,7 +2209,7 @@ fn build_tool_apps()->Value {
         "app":{"type":"string","description":"app id: its slug, such as caption-board (an old generic id still works); list panels may filter by app"},
         "panel":{"type":"string","description":"saved panel id: its slug, such as caption-board-panel-1 (an old generic id still works)"},
         "listener":{"type":"string","description":"listener_fires: one listener as owner/id, as listeners shows it; its finished fires, newest first, without app data"},
-        "slug":{"type":"string","maxLength":120,"description":"app_create, or panel_open making a new copy: the id to make, cleaned to a-z, 0-9 and -, at most 48 characters, -2, -3... if taken, never changed. Default: the name (a panel: its app's slug and label). Pass a short English slug whenever the name is not in English."},
+        "slug":{"type":"string","maxLength":120,"description":"app_create, or panel_open making a new panel: the id to make, cleaned to a-z, 0-9 and -, at most 48 characters, -2, -3... if taken, never changed. Default: the name (a panel: its app's slug and label). Pass a short English slug whenever the name is not in English."},
         "after":{"description":"list: previous next_cursor string; events, permission_history and listener_fires: rows newer than this seq, oldest first"},
         "before":{"type":"integer","minimum":0,"description":"events, permission_history and listener_fires: rows older than this seq; without after, pages run newest first and next_cursor continues as before"},
         "limit":{"type":"integer","minimum":1,"maximum":200},
@@ -2220,11 +2220,11 @@ fn build_tool_apps()->Value {
         "site":{"type":"string","description":"permission_set for net.fetch: one declared site, or a host a declared *.domain or * covers; omit for the whole capability"},
         "new":{"type":"boolean","description":"panel_open: create a fresh closed saved panel; agents cannot open windows"},
         "label":{"type":"string","maxLength":120,"description":"panel_open default: Panel N, the app's lowest unused number"},
-        "open":{"type":"boolean","description":"list panels: filter visible copies; panel_update: false hides the window and keeps the panel running; agents cannot set true or move an open window"},
-        "running":{"type":"boolean","description":"list panels: filter running (true) or powered-off (false) copies; hidden copies can run"},
+        "open":{"type":"boolean","description":"list panels: filter visible panels; panel_update: false hides the window and keeps the panel running; agents cannot set true or move an open window"},
+        "running":{"type":"boolean","description":"list panels: filter running (true) or powered-off (false) panels; hidden panels can run"},
         "sample":{"type":"boolean","description":"runtime: ask the desktop for a fresh sampled CPU reading; waits up to3s"},
         "messages":{"type":"boolean","description":"events: true lists messages sent with event or orgtree.emit instead of History (fired events, starts and stops)"},
-        "delete_panels":{"type":"boolean","description":"app_delete: explicit consent to delete all its saved copies"},
+        "delete_panels":{"type":"boolean","description":"app_delete: explicit consent to delete all its saved panels"},
         "definition":{"type":"object","additionalProperties":false,"properties":{
             "name":{"type":"string","maxLength":120},"description":{"type":"string","maxLength":1000},
             "html":{"type":"string","description":"self-contained HTML up to4MiB; no network except orgtree.net.fetch to sites the user allows"},
