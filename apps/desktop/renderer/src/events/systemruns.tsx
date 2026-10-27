@@ -68,10 +68,15 @@ export function transcriptEntries(messages: ChatMessage[], offset = 0): Transcri
       const parts = segmentEntries(message.segments)
       if (!parts.length && (message.truncated || (message.steered && message.receipt)))
         return [{ key, sourceIndex, first: true, message, system: false, label: '' }]
+      // The delivered message's one token count goes on its last card that is not a
+      // foldable system notice (user 2026-10-27 m10e4ca6d8934).
+      const shown = parts.map(part => part.system).lastIndexOf(false)
+      const countAt = shown >= 0 ? shown : parts.length - 1
       return parts.map((part, i) => ({ ...part, key: part.system && part.mailKey ? part.mailKey : `${key}/${part.key}`, sourceIndex, first: i === 0,
         message: { ...message, segments: [part.segment],
           truncated: i === parts.length - 1 && message.truncated,
-          steered: i === parts.length - 1 && message.steered },
+          steered: i === parts.length - 1 && message.steered,
+          ...(message.tokens ? { tokens: i === countAt ? message.tokens : undefined } : {}) },
       }))
     }
     return [{ key, sourceIndex, first: true, message,

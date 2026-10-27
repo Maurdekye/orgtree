@@ -6532,6 +6532,11 @@ svg.MuiSvgIcon-root {
 .thoughtline:hover { color: var(--ink); }
 .token-count { white-space: nowrap; font-size: inherit; }
 .thinking-tokens { font-size: 11.5px; }
+/* A row's token count (user 2026-10-27 m10e4ca6d8934 "token counts in messages of all
+   kinds"): one small line at the row's end; centred under a system card. */
+.row-tokens-line { display: flex; justify-content: flex-end; font-size: 10.5px; line-height: 1.3; margin-top: 2px; }
+.msg.sys.row-tokens-line { justify-content: center; margin-top: 0; }
+.tool-input-tokens { font-size: inherit; }
 /* signature-only thinking: nothing to open, so nothing invites a click */
 .thoughtline.sealed { cursor: default; opacity: 0.75; }
 .thoughtline.sealed:hover { color: var(--dim); }

@@ -1085,6 +1085,9 @@ export interface ToolChip {
   writing_secs?: number
   /** Engine-supplied text-output count; missing is unknown, never zero. */
   output_tokens?: number
+  /** The call's input (its arguments), estimated once at the end of its turn. */
+  input_tokens?: number
+  input_tokens_estimated?: boolean
   output_tokens_estimated?: boolean
   output_tokens_sampled?: boolean
   /** Live generation only; never an execution start or a fabricated duration. */
@@ -1124,6 +1127,20 @@ export interface ToolChip {
 // supervisor.py read_chat message rows — several producers, optional beyond
 // role/text (every producer writes `text`, supervisor.py:2743-2972); `tools`
 // interleaves nulls (plumbing markers for user records)
+/** A conversation row's token count (user 2026-10-27 m10e4ca6d8934 "token counts in
+ *  messages of all kinds"): reported by the provider for exactly this row, estimated
+ *  by the engine (with what it covers and its parts), or why it is not counted.
+ *  Rows written before 4.5.0 have none. */
+export interface RowTokens {
+  count?: number
+  estimated?: boolean
+  sampled?: boolean
+  reported?: string
+  covers?: string
+  parts?: { label: string; count: number }[]
+  not_counted?: string
+}
+
 export interface ToolTokenCount {
   id: string
   output_tokens: number
@@ -1197,6 +1214,10 @@ export interface ChatMessage {
   think_secs?: number
   /** Provider-reported count attributed to one completed thought response. */
   thinking_tokens?: number
+  /** This row's token count; see RowTokens. */
+  tokens?: RowTokens
+  /** A provider compaction's reported context size before it ran. */
+  pre_tokens?: number
   /** the block came signature-only: it thought, the plaintext was withheld */
   thinking_sealed?: boolean
   /** preserving-oracle exchange rows (supervisor.py:2969-2973) */

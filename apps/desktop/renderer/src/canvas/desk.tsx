@@ -19,7 +19,7 @@ import { hasHelperTranscript, HelperTranscript } from './helpertranscript'
 import { LiveHelpersBadge } from './livehelpers'
 import { isFailedShellCall } from './shellerror'
 import { ToolOutputDetails } from './tooloutput'
-import { LiveTokenContext, TokenCount } from './tokencount'
+import { LiveTokenContext, RowTokenCount, TokenCount, ToolInputCount, UnreportedThinking } from './tokencount'
 import { contextReading } from '../tokenmetrics'
 import { CompactingLine, formatDuration, formatSeconds, newerStamp, RunningTurnContext, ToolTimes, TurnActiveContext, useLiveCall } from './toolclock'
 import { ToolRefs } from './toolrefs'
@@ -5278,6 +5278,7 @@ export function ToolChip({ t, slug, nid, onMailLink, onWorkLink, onOpenDoc }: To
             : <DotIcon fontSize="inherit" className="tooldot" />}
         {' '}{shortTool(t.name)}
         {toolArg ? <span className="targ"> {toolArg}</span> : null}
+        <ToolInputCount count={t.input_tokens} estimated={t.input_tokens_estimated !== false} />
         {t.file_paths?.map((file, i) => <Fragment key={`${file.path}-${i}`}>{' '}
           <ToolFilePath path={file.path} link={file.link} completed={t.ended_at}
             onContextMenu={e => { fileMenu.open(e, [], e.currentTarget) }} />
@@ -5371,8 +5372,9 @@ export const Msg = memo(function Msg({ m, slug, nid, onMailLink, onWorkLink, ref
   onLocateReply?: (r: ReplyContext) => void
 }) {
   if (m.role === 'system') {
-    if (decodeEventRow(m, 'operator').kind !== 'legacy') return <EventCard row={m} profile="operator" org={slug}
+    if (decodeEventRow(m, 'operator').kind !== 'legacy') return <><EventCard row={m} profile="operator" org={slug}
       world={refs?.world} onOpen={refs?.onOpen} actor={id => <MailFrom from={id} />} />
+      {m.tokens && <div className="msg sys row-tokens-line"><RowTokenCount tokens={m.tokens} before={m.pre_tokens} /></div>}</>
     return <SysLine m={m} />
   }
   const profile = 'operator'
@@ -5382,6 +5384,7 @@ export const Msg = memo(function Msg({ m, slug, nid, onMailLink, onWorkLink, ref
       replyAvailable={replyAvailable} onLocateReply={onLocateReply} textSourceEvent={m.event_id ?? (m.seq ? `e${m.seq}` : undefined)} />
     {m.truncated && <div className="trunc-note">Shown truncated ? the agent received the full message</div>}
     {m.steered && m.receipt && <div className="trunc-note">{m.receipt}</div>}
+    {m.tokens && <div className="row-tokens-line"><RowTokenCount tokens={m.tokens} /></div>}
   </div>
   const text = m.text
   // relative image srcs in the text (`![](outbox/plot.png)`) resolve against
@@ -5400,6 +5403,7 @@ export const Msg = memo(function Msg({ m, slug, nid, onMailLink, onWorkLink, ref
       return <Fragment key={index}>{selectThought(<div className="reply-event"
         data-reply-quote={thought}><ThoughtLine text={thought} secs={block.think_secs ?? (m.content_blocks?.filter(b => b.kind === 'thinking').length === 1 ? m.think_secs : undefined)}
           tokens={m.content_blocks?.filter(b => b.kind === 'thinking').length === 1 ? m.thinking_tokens : undefined}
+          unreported={!!m.tokens}
           sealed={block.sealed} foldKey={thoughtFoldKey(`${m.row_id ?? m.assistant_id}:thought:${index}`)} /></div>,thought,[...(m.thinking??'').slice(0,block.start)].length)}</Fragment>
     }
     const chip = m.tools?.find(tool => tool.id === block.id)
@@ -5412,7 +5416,7 @@ export const Msg = memo(function Msg({ m, slug, nid, onMailLink, onWorkLink, ref
       {orderedBlocks ?? <>
       {(m.thinking || m.thinking_sealed) &&
         selectThought(<div className="reply-event" data-reply-event={m.thinking_event_id ?? ''} data-reply-quote={m.thinking_reply_quote ?? m.thinking ?? ''}><ThoughtLine text={m.thinking} secs={m.think_secs}
-          tokens={m.thinking_tokens}
+          tokens={m.thinking_tokens} unreported={!!m.tokens}
           sealed={m.thinking_sealed} foldKey={thoughtFoldKey(m.thinking_event_id)} /></div>)}
       {/* (the string branch guards legacy live rows; the payload's tools
           rows are null-swept server-side, so no null case exists) */}
@@ -5440,6 +5444,7 @@ export const Msg = memo(function Msg({ m, slug, nid, onMailLink, onWorkLink, ref
           sentence: recorded / accepted / legacy handoff, retry, duplicate) */}
       {m.steered && m.receipt && <div className="trunc-note">{m.receipt}</div>}
       {m.oracle && <div className="tools"><SparkIcon fontSize="inherit" /> oracle exchange — not retained by the node</div>}
+      {m.tokens && !shownInline(m) && <div className="row-tokens-line"><RowTokenCount tokens={m.tokens} /></div>}
     </div>
   )
 }, (a, b) => {
@@ -5466,8 +5471,18 @@ function ThoughtBody({ text, live = false }: { text: string; live?: boolean }) {
     dangerouslySetInnerHTML={md(text, undefined, false, live)} />
 }
 
-function ThoughtLine({ text, secs, sealed, foldKey, tokens }:
-{ text?: string; secs?: number; sealed?: boolean; foldKey?: string; tokens?: number }) {
+/** A row of one element shows its count once, on that element: a thought alone
+ *  (Codex, Muse and Antigravity give each its own row) on its thought line, or that
+ *  it was not reported; a lone tool call, estimated from its input, on its chip. */
+const shownInline = (m: ChatMessage) => {
+  if (m.text?.trim()) return false
+  const tools = m.tools?.filter(Boolean) ?? [], thought = !!(m.thinking || m.thinking_sealed)
+  if (thought && !tools.length) return !!m.tokens?.not_counted || m.tokens?.count === m.thinking_tokens
+  return !thought && tools.length === 1 && !!m.tokens?.estimated && m.tokens.count === tools[0]?.input_tokens
+}
+
+function ThoughtLine({ text, secs, sealed, foldKey, tokens, unreported = false }:
+{ text?: string; secs?: number; sealed?: boolean; foldKey?: string; tokens?: number; unreported?: boolean }) {
   const [open, toggleOpen] = useFold(foldKey)
   const dur = typeof secs === 'number' && Number.isFinite(secs) && secs >= 0 ? formatSeconds(Math.floor(secs)) : 'a moment'
   if (sealed || !text) {
@@ -5477,7 +5492,7 @@ function ThoughtLine({ text, secs, sealed, foldKey, tokens }:
           title="the model's reasoning was not included in the response">
           <PsychologyIcon fontSize="inherit" />{' '}thought for {dur}
         </span>
-        <TokenCount count={tokens} thinking />
+        {tokens === undefined && unreported ? <UnreportedThinking /> : <TokenCount count={tokens} thinking />}
       </div>
     )
   }
@@ -5488,7 +5503,7 @@ function ThoughtLine({ text, secs, sealed, foldKey, tokens }:
         <PsychologyIcon fontSize="inherit" />
         {' '}thought for {dur} {open ? '▾' : '▸'}
       </button>
-      <TokenCount count={tokens} thinking />
+      {tokens === undefined && unreported ? <UnreportedThinking /> : <TokenCount count={tokens} thinking />}
       {open && <ThoughtBody text={text} />}
     </div>
   )
@@ -5514,6 +5529,7 @@ function SysLine({ m }: { m: ChatMessage }) {
       {m.compact_state
         ? <CompactingLine text={m.text} state={m.compact_state} startedAt={m.compact_started_at} endedAt={m.compact_ended_at} />
         : m.text}{m.summary && !open ? ' · summary ▶' : ''}
+      {m.tokens && <>{' · '}<RowTokenCount tokens={m.tokens} before={m.pre_tokens} /></>}
       {open && m.summary && <CopyablePre><pre className="filepre">{m.summary}</pre></CopyablePre>}
     </div>
   )
