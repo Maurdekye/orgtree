@@ -6,6 +6,7 @@ import path from 'node:path'
 import { DocReader, presentationDocument } from '../src/canvas/docs'
 import { PANEL_PROTOCOL, panelDocument } from '../src/canvas/apps/sdk'
 import { PanelHtml } from '../src/canvas/apps/host'
+import { frameTheme } from '../src/frametheme'
 import { applyTheme } from '../src/themes'
 import { applyContrast } from '../src/contrast'
 import type { CustomApp, CustomPanel } from '../src/canvas/apps/types'
@@ -196,6 +197,35 @@ test('an app panel starts with the colors and reads them from orgtree.theme, liv
   assert.equal(read('--orgtree-bg'), '#1f1f1f')
 })
 
+// Bounce 2026-10-27 (@rig-sol-b capture A3): a new panel counted two onChange
+// calls before any switch, because the host repeats the colors on connection.
+test("a panel's theme.onChange runs only when its colors change, not when the host repeats them", async (t) => {
+  look('charcoal')
+  const ports: MessagePort[] = []
+  t.after(() => { for (const port of ports) port.close() })
+  const { w } = runFrame(panelDocument('<p>panel</p>', 'repeat-channel'), t, (win) => {
+    Object.assign(win, { MessageChannel,
+      postMessage: (_m: unknown, _o: string, transfer?: MessagePort[]) => { if (transfer?.[0]) ports.push(transfer[0]) } })
+  })
+  const api = w.orgtree!.theme!
+  const seen: Theme[] = []
+  api.onChange(theme => seen.push(theme))
+  const send = async (data: object) => { ports.at(-1)!.postMessage({ protocol: PANEL_PROTOCOL, channel: 'repeat-channel', ...data }); await new Promise(r => setTimeout(r, 30)) }
+  await send({ kind: 'ready' })
+  // What the host posts on a connection: the colors the panel started with.
+  const start = frameTheme()
+  await send({ kind: 'theme', theme: start.theme, css: start.css })
+  await send({ kind: 'theme', theme: start.theme, css: start.css })
+  assert.equal(seen.length, 0, 'the colors the panel already has are not a change')
+  assert.deepEqual(JSON.parse(JSON.stringify(api.get())), CHARCOAL_CLAUDE)
+  look('light')
+  const next = frameTheme()
+  await send({ kind: 'theme', theme: next.theme, css: next.css })
+  await send({ kind: 'theme', theme: next.theme, css: next.css })
+  assert.equal(seen.length, 1, 'one switch is one call, however often its colors arrive')
+  assert.deepEqual(JSON.parse(JSON.stringify(seen[0])), LIGHT_CLAUDE)
+})
+
 function panelFixture() {
   const app = { id: 'themed-app', name: 'Board', description: '', rev: 2, permission_rev: 1, width: 360, height: 300, capabilities: [],
     permissions: {}, created_by: 'maker', updated_at: 'now', definition: { name: 'Board', description: '', html: '<p>board</p>' } } as unknown as CustomApp
@@ -242,4 +272,29 @@ test('the panel host sends the colors after the handshake and on each theme swit
   assert.match(String(themes().at(-1)!.css), /--orgtree-bg:#f6f7f9;/)
   assert.equal(view.el.querySelector('iframe'), frame, 'the same frame')
   assert.equal(frame.getAttribute('srcdoc'), srcdoc, 'no reload: the panel keeps its own state')
+})
+
+test('the panel host posts the colors once per connection, not again when the frame finishes loading', async (t) => {
+  look('charcoal')
+  const f = panelFixture(); t.after(f.restore)
+  const view = await mountView(<PanelHtml slug="themed" app={f.app} panel={f.panel} />, (el) => el)
+  t.after(() => view.unmount())
+  const tick = async () => { for (let i = 0; i < 5; i++) await flush() }
+  await inAct(tick)
+  const frame = view.el.querySelector('iframe')!
+  const channel = JSON.parse((frame.getAttribute('srcdoc') ?? '').match(/channel=("[^"]+")/)![1]!) as string
+  const win = frame.ownerDocument.defaultView!, answers: Array<Record<string, unknown>> = []
+  await inAct(async () => {
+    const e = new win.MessageEvent('message', { source: frame.contentWindow, origin: 'null', data: { protocol: PANEL_PROTOCOL, channel, id: 'ready', method: 'host.ready' } })
+    Object.defineProperty(e, 'ports', { value: [{ postMessage: (v: Record<string, unknown>) => answers.push(v), close: () => {} }] })
+    win.dispatchEvent(e); await tick()
+  })
+  // In a real frame the SDK's handshake runs while the document parses, so
+  // the frame's load event comes after it.
+  await inAct(async () => { frame.dispatchEvent(new win.Event('load')); await tick() })
+  const themes = () => answers.filter(a => a.kind === 'theme')
+  assert.equal(themes().length, 1, 'one post of the colors per connection')
+  await inAct(async () => { look('light'); await tick() })
+  assert.equal(themes().length, 2, 'one post per switch')
+  assert.deepEqual(themes()[1]!.theme, LIGHT_CLAUDE)
 })
