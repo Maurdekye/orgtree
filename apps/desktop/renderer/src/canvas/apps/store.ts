@@ -4,10 +4,10 @@ import type { AppPage, CustomApp, CustomPanel } from './types'
 
 /** loaded: the first full listing has arrived (panels it shows were restored, not started). */
 interface Snapshot {apps:CustomApp[];panels:CustomPanel[];appNext:string|null;panelNext:string|null;newCount:number;error:string;loading:boolean;loaded:boolean}
-interface Store {snapshot:Snapshot;subs:Set<()=>void>;running:Promise<void>|null;pending:boolean;active:boolean;menu:boolean;appCursors:string[];panelCursors:string[];seenEpoch:number;seenQueue:Promise<void>}
+interface Store {snapshot:Snapshot;subs:Set<()=>void>;running:Promise<void>|null;pending:boolean;active:boolean;menu:boolean;appPages:number;panelPages:number;seenEpoch:number;seenQueue:Promise<void>}
 const stores=new Map<string,Store>()
 function store(slug:string):Store {
-  let s=stores.get(slug);if(!s){s={snapshot:{apps:[],panels:[],appNext:null,panelNext:null,newCount:0,error:'',loading:false,loaded:false},subs:new Set(),running:null,pending:false,active:false,menu:false,appCursors:[],panelCursors:[],seenEpoch:0,seenQueue:Promise.resolve()};stores.set(slug,s)}return s
+  let s=stores.get(slug);if(!s){s={snapshot:{apps:[],panels:[],appNext:null,panelNext:null,newCount:0,error:'',loading:false,loaded:false},subs:new Set(),running:null,pending:false,active:false,menu:false,appPages:0,panelPages:0,seenEpoch:0,seenQueue:Promise.resolve()};stores.set(slug,s)}return s
 }
 /** Creation time in ms; payloads from before created_at sort as oldest. */
 export const createdAt=(x:{created_at?:string}):number=>(x.created_at&&Date.parse(x.created_at))||0
@@ -60,14 +60,16 @@ export async function refreshApps(slug:string):Promise<void>{
       // Running copies include the hidden ones: their HTML stays loaded.
       do{const page:AppPage<CustomPanel>=await customAppsRequest(slug,{action:'list',kind:'panels',running:true,...(after?{after}:{})});running.push(...page.items);after=page.next_cursor}while(after)
       const apps=await customAppsRequest<AppPage<CustomApp>>(slug,{action:'list',kind:'apps'})
-      for(const cursor of menu?s.appCursors:[]){if(!apps.next_cursor)break;const page=await customAppsRequest<AppPage<CustomApp>>(slug,{action:'list',kind:'apps',after:cursor});apps.items=merge(apps.items,page.items);apps.next_cursor=page.next_cursor;if(page.new_count!==undefined)apps.new_count=page.new_count}
+      // Retain how much the user loaded, not old cursor values: creates and
+      // deletes can shift every page boundary between invalidations.
+      for(let n=0;menu&&n<s.appPages&&apps.next_cursor;n++){const page=await customAppsRequest<AppPage<CustomApp>>(slug,{action:'list',kind:'apps',after:apps.next_cursor});apps.items=merge(apps.items,page.items);apps.next_cursor=page.next_cursor;if(page.new_count!==undefined)apps.new_count=page.new_count}
       let panelItems=running,panelNext=s.snapshot.panelNext
       // Once the Apps menu has been opened, refresh its saved-panel page too so
       // stopped creates, renames, power-offs and deletes appear in realtime (USER
       // 2026-10-27 m4dcfc15be8e3).
       if(menu){
         const page=await customAppsRequest<AppPage<CustomPanel>>(slug,{action:'list',kind:'panels'})
-        for(const cursor of s.panelCursors){if(!page.next_cursor)break;const more=await customAppsRequest<AppPage<CustomPanel>>(slug,{action:'list',kind:'panels',after:cursor});page.items=merge(page.items,more.items);page.next_cursor=more.next_cursor}
+        for(let n=0;n<s.panelPages&&page.next_cursor;n++){const more=await customAppsRequest<AppPage<CustomPanel>>(slug,{action:'list',kind:'panels',after:page.next_cursor});page.items=merge(page.items,more.items);page.next_cursor=more.next_cursor}
         panelItems=merge(running,page.items);panelNext=page.next_cursor
       }
       const known=new Set(apps.items.map(a=>a.id));for(const panel of running)if(!known.has(panel.app)){const app=await customAppsRequest<CustomApp>(slug,{action:'app_get',app:panel.app});apps.items.push(app);known.add(app.id)}
@@ -80,10 +82,10 @@ export async function refreshApps(slug:string):Promise<void>{
 }
 export async function loadAppsMenu(slug:string,more:'apps'|'panels'|null=null):Promise<void>{
   const s=store(slug)
-  if(!more){s.menu=true;s.appCursors=[];s.panelCursors=[];return refreshApps(slug)}
+  if(!more){s.menu=true;s.appPages=0;s.panelPages=0;return refreshApps(slug)}
   try{
-    if(more==='apps'&&s.snapshot.appNext){const cursor=s.snapshot.appNext;if(!s.appCursors.includes(cursor))s.appCursors.push(cursor);const epoch=s.seenEpoch,page=await customAppsRequest<AppPage<CustomApp>>(slug,{action:'list',kind:'apps',after:cursor});if(epoch!==s.seenEpoch){void refreshApps(slug);return}publish(s,{apps:merge(s.snapshot.apps,page.items),appNext:page.next_cursor,newCount:page.new_count??0})}
-    if(more==='panels'&&s.snapshot.panelNext){const cursor=s.snapshot.panelNext;if(!s.panelCursors.includes(cursor))s.panelCursors.push(cursor);const page=await customAppsRequest<AppPage<CustomPanel>>(slug,{action:'list',kind:'panels',after:cursor});publish(s,{panels:merge(s.snapshot.panels,newer(s.snapshot.panels,page.items)),panelNext:page.next_cursor})}
+    if(more==='apps'&&s.snapshot.appNext){const cursor=s.snapshot.appNext;const epoch=s.seenEpoch,page=await customAppsRequest<AppPage<CustomApp>>(slug,{action:'list',kind:'apps',after:cursor});if(epoch!==s.seenEpoch){void refreshApps(slug);return}s.appPages++;publish(s,{apps:merge(s.snapshot.apps,page.items),appNext:page.next_cursor,newCount:page.new_count??0})}
+    if(more==='panels'&&s.snapshot.panelNext){const cursor=s.snapshot.panelNext;const page=await customAppsRequest<AppPage<CustomPanel>>(slug,{action:'list',kind:'panels',after:cursor});s.panelPages++;publish(s,{panels:merge(s.snapshot.panels,newer(s.snapshot.panels,page.items)),panelNext:page.next_cursor})}
   }catch(error){publish(s,{error:String(error)})}
 }
 export async function markAppsSeen(slug:string,apps:string[]):Promise<void>{

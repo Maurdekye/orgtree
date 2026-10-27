@@ -703,7 +703,10 @@ never move a row (USER 2026-10-26 mf87be90ee3c8, m1e0117740c5f "newest first",
 Refresh button, and once the menu has been opened `refreshApps` (on
 `custom_apps_changed`) refreshes the saved-panel listing as well as running
 copies so creates, imports, renames, power changes and deletes from any source
-appear live (USER 2026-10-27 m4dcfc15be8e3, mcc0591ec051b). List, app_get and panel_get metadata carry created_at, but list
+appear live (USER 2026-10-27 m4dcfc15be8e3, mcc0591ec051b). Refresh retains the
+number of pages explicitly loaded and follows each response's current cursor;
+replaying old cursor values would skip rows when an insertion shifts a page.
+List, app_get and panel_get metadata carry created_at, but list
 pages stay in ID order, so past one page (100 apps) a newer app from a later
 page joins the top only after More apps. Each app and its panels form one
 bordered block with ruled panel rows (USER m68e69e302bc4; provisional;
