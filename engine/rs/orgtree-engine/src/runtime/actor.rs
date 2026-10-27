@@ -468,7 +468,7 @@ struct Turn {
     agy_response_seen: bool,
     /// Antigravity: mid-turn mail handed to the steer hook and not yet
     /// emitted: (handoff id, mail ids, the claimed mail rows)
-    agy_steer: Option<(String, Vec<i64>, Vec<Value>)>,
+    agy_steer: Option<(String, Vec<i64>, Vec<Value>, Value)>,
     /// the CLI exited before this turn's result (died in flight, P34)
     exited: bool,
     /// its CLI ran in the user's session and ended with it (`on_exit`): the
@@ -2687,7 +2687,7 @@ impl Actor {
         tracing::info!(agent = %self.name, from = %was, to = %want, fresh_session = session.is_some(), "OpenRouter harness switch at the turn boundary");
         if session.is_some() {
             let client = self.engine.db.get().await?;
-            let row = json!({ "role": "system", "kind": "compact", "ts": now_iso(),
+            let row = json!({ "role": "system", "kind": "compact", "ts": now_iso(), "tokens": token_counts::not_counted(token_counts::SUMMARY_NEXT),
                               "text": format!("Harness switch: {why}, so the agent continues on a fresh session with a summary") });
             self.convo.append(&client, row).await?;
         }
@@ -2745,7 +2745,7 @@ impl Actor {
                 &[&self.id, &session],
             )
             .await?;
-        let row = json!({ "role": "system", "kind": "compact", "ts": now_iso(),
+        let row = json!({ "role": "system", "kind": "compact", "ts": now_iso(), "tokens": token_counts::not_counted(token_counts::SUMMARY_NEXT),
                           "text": "Context compacted before this turn: the prompt cache had expired, so the agent continues on a fresh session with a summary" });
         self.convo.append(&client, row).await?;
         drop(client);
@@ -2789,7 +2789,7 @@ impl Actor {
         tx.execute("UPDATE ot.agents SET session_id=NULL,occupancy=NULL,occupancy_est=true,compacted_unrun=true,extra=jsonb_set(extra-'cache_receipt','{handoff_due}',to_jsonb($2::text)),row_version=row_version+1 WHERE id=$1", &[&self.id,&why]).await?;
         tx.execute("UPDATE ot.agent_sessions SET ended_at=now(),end_reason=$3 WHERE agent_id=$1 AND session_id=$2 AND ended_at IS NULL", &[&self.id,&session,&reason]).await?;
         tx.commit().await?;
-        let row=json!({"role":"system","kind":"compact","ts":now_iso(),"text":format!("Context compacted: {why}; continuing in a fresh session with a summary.")});
+        let row=json!({"role":"system","kind":"compact","ts":now_iso(),"tokens":token_counts::not_counted(token_counts::SUMMARY_NEXT),"text":format!("Context compacted: {why}; continuing in a fresh session with a summary.")});
         self.convo.append(&client,row).await?;
         drop(client);
         self.receipt=None;
@@ -2837,7 +2837,7 @@ impl Actor {
             Vec::new()
         };
         tx.commit().await?;
-        let row = json!({ "role": "system", "kind": "compact", "ts": now_iso(),
+        let row = json!({ "role": "system", "kind": "compact", "ts": now_iso(), "tokens": token_counts::not_counted(token_counts::SUMMARY_NEXT),
                           "text": "The context window filled up and the CLI could not compact the conversation: the agent goes on in a fresh session with a summary" });
         self.convo.append(&client, row).await?;
         drop(client);
@@ -3960,6 +3960,8 @@ impl Actor {
         if !raw.is_empty() {
             let mut row=mail_row(&raw,None);
             row["manual_read"]=json!(true);
+            // The agent read it with orgtree_inbox; that result carries its tokens.
+            row["tokens"]=token_counts::not_counted("counted in the orgtree_inbox result that returned it");
             let seq=self.convo.append(&client,row.clone()).await?;
             row["seq"]=json!(seq);row["row_id"]=json!(format!("r{seq}"));row["event_id"]=json!(format!("e{seq}"));
             if let Some(t)=self.turn.as_mut(){t.codex_row=None;}
@@ -4046,7 +4048,8 @@ impl Actor {
                 }
                 raw.truncate(take);
                 let formatted=result?;
-                let row=mail_row(&raw,Some("Admitted through the OpenCode tool-boundary mail hook."));
+                let mut row=mail_row(&raw,Some("Admitted through the OpenCode tool-boundary mail hook."));
+                row["tokens"]=self.sent_tokens(&formatted.text,formatted.parts.clone()).await;
                 let batch=mail::persist(&client,self.id,turn_id,&session,&formatted.text,&raw,&row).await?;
                 if let Some(guard)=super::watchdogs::events::alert_turn(&self.engine,self.org_id,self.id,&self.name,&raw) {
                     if let Some(t)=self.turn.as_mut(){t.alert_turn=Some(guard);}
@@ -4117,6 +4120,7 @@ impl Actor {
         if let Some(guard)=crate::runtime::watchdogs::events::alert_turn(&self.engine,self.org_id,self.id,&self.name,&raw) {
             if let Some(t)=self.turn.as_mut(){t.alert_turn=Some(guard);}
         }
+        let tokens = self.sent_tokens(&batch.text, batch.parts.clone()).await;
         let text = batch.text;
         let steered = match &self.proc {
             Some(Proc::Codex(p)) => p.steer(&codex_turn, &text).await,
@@ -4133,7 +4137,8 @@ impl Actor {
         // A successful steer is positive custody even if the model has not
         // emitted its next output yet. An error must not redeliver this batch.
         if let Some(t) = self.turn.as_mut() { t.activity = true; }
-        let row = mail_row(&raw, Some("Delivered into the running turn."));
+        let mut row = mail_row(&raw, Some("Delivered into the running turn."));
+        row["tokens"] = tokens;
         let seq = self.convo.append(&client, row.clone()).await?;
         let delivered = crate::domain::mail::acknowledge(&self.engine, &client, self.id, turn_id, &ids).await?;
         crate::runtime::watchdogs::events::mail_delivered(&self.engine,self.org_id,self.id,delivered);
@@ -4175,6 +4180,7 @@ impl Actor {
         if let Some(guard)=crate::runtime::watchdogs::events::alert_turn(&self.engine,self.org_id,self.id,&self.name,&raw) {
             if let Some(t)=self.turn.as_mut(){t.alert_turn=Some(guard);}
         }
+        let tokens = self.sent_tokens(&batch.text, batch.parts.clone()).await;
         let id = format!("t{turn_id}-m{}", ids[0]);
         let body = json!({ "id": id, "text": batch.text }).to_string();
         let tmp = dir.join("pending.tmp");
@@ -4190,7 +4196,7 @@ impl Actor {
         }
         drop(client);
         if let Some(t) = self.turn.as_mut() {
-            t.agy_steer = Some((id, ids, raw));
+            t.agy_steer = Some((id, ids, raw, tokens));
         }
         Ok(())
     }
@@ -4198,7 +4204,7 @@ impl Actor {
     /// The steer hook emitted this turn's handoff: show the mail on the desk
     /// as delivered into the running turn. True when it committed.
     async fn commit_agy_steer(&mut self) -> Result<bool> {
-        let (Some(dir), Some((id, _, _))) = (self.agy_steer_dir.clone(), self.turn.as_ref().and_then(|t| t.agy_steer.clone()))
+        let (Some(dir), Some((id, _, _, _))) = (self.agy_steer_dir.clone(), self.turn.as_ref().and_then(|t| t.agy_steer.clone()))
         else {
             return Ok(false);
         };
@@ -4209,10 +4215,11 @@ impl Actor {
         }
         let _ = std::fs::remove_file(&receipt);
         let Some(turn_id) = self.turn.as_ref().map(|t| t.id) else { return Ok(false) };
-        let Some((_, ids, raw)) = self.turn.as_mut().and_then(|t| t.agy_steer.take()) else { return Ok(false) };
+        let Some((_, ids, raw, tokens)) = self.turn.as_mut().and_then(|t| t.agy_steer.take()) else { return Ok(false) };
         if let Some(t) = self.turn.as_mut() { t.activity = true; }
         let client = self.engine.db.get().await?;
-        let row = mail_row(&raw, Some("Delivered into the running turn."));
+        let mut row = mail_row(&raw, Some("Delivered into the running turn."));
+        row["tokens"] = tokens;
         let seq = self.convo.append(&client, row.clone()).await?;
         let delivered = crate::domain::mail::acknowledge(&self.engine, &client, self.id, turn_id, &ids).await?;
         crate::runtime::watchdogs::events::mail_delivered(&self.engine,self.org_id,self.id,delivered);
@@ -4257,7 +4264,7 @@ impl Actor {
                 return Ok(());
             }
         }
-        if let Some((_, ids, _)) = self.turn.as_ref().and_then(|t| t.agy_steer.as_ref()) {
+        if let Some((_, ids, _, _)) = self.turn.as_ref().and_then(|t| t.agy_steer.as_ref()) {
             let client = self.engine.db.get().await?;
             client
                 .execute("UPDATE ot.mail SET state = 'pending', turn_id = NULL WHERE id = ANY($1) AND state = 'delivering'", &[ids])
@@ -4636,6 +4643,7 @@ impl Actor {
             Err(e) => { self.return_mail(turn_id, true).await; return Err(e); }
         };
         let alert_turn = crate::runtime::watchdogs::events::alert_turn(&self.engine,self.org_id,self.id,&self.name,&raw);
+        let tokens = self.sent_tokens(&batch.text, batch.parts.clone()).await;
         let mails = batch.mail;
         let text = batch.text;
         let followup: Vec<String> = mails.iter().filter(|m| self.followup_mail.contains(&m.uid))
@@ -4750,7 +4758,8 @@ impl Actor {
         }
         let client = self.engine.db.get().await?;
         client.execute("UPDATE ot.turns SET sent_at = now() WHERE id = $1", &[&turn_id]).await?;
-        let row = mail_row(&raw, None);
+        let mut row = mail_row(&raw, None);
+        row["tokens"] = tokens;
         self.convo.append(&client, row).await?;
         drop(client);
         self.publish();
@@ -4837,9 +4846,11 @@ impl Actor {
         if let Some(guard)=crate::runtime::watchdogs::events::alert_turn(&self.engine,self.org_id,self.id,&self.name,&raw) {
             if let Some(t)=self.turn.as_mut(){t.alert_turn=Some(guard);}
         }
+        let tokens = self.sent_tokens(&batch.text, batch.parts.clone()).await;
         let text = batch.text;
         if let Some(t) = self.turn.as_mut() { t.activity = true; }
-        let row = mail_row(&raw, Some("Delivered after a tool call."));
+        let mut row = mail_row(&raw, Some("Delivered after a tool call."));
+        row["tokens"] = tokens;
         let seq = self.convo.append(&client, row.clone()).await?;
         let ids: Vec<i64> = raw.iter().filter_map(|m| m["id"].as_i64()).collect();
         let delivered = crate::domain::mail::acknowledge(&self.engine, &client, self.id, turn_id, &ids).await?;
@@ -5408,7 +5419,7 @@ impl Actor {
                 stopped_after = muse_track_tool(&mut t.muse_tools, &id, item, done).and_then(|c| c.stop_asked).map(|(_, limit)| limit);
             }
             if kind=="reasoning" {t.token_metrics.receipt.thought(&id,done);}
-            if kind=="agentMessage" && done {t.token_metrics.receipt.text(item["text"].as_str().unwrap_or(""));}
+            if kind=="agentMessage" && done {t.token_metrics.receipt.text_of(&id,item["text"].as_str().unwrap_or(""));}
             if !done && kind=="toolCall" && !t.tools.contains_key(&id) {t.token_metrics.receipt.calls=true;}
         }
         if let Some(limit) = stopped_after {
@@ -5601,7 +5612,7 @@ impl Actor {
             return Ok(());
         }
         self.compact_settled = false;
-        let mut row = json!({ "role": "system", "text": "Compacting context", "ts": now_iso(), "kind": "compact",
+        let mut row = json!({ "role": "system", "text": "Compacting context", "ts": now_iso(), "kind": "compact", "tokens": token_counts::not_counted(token_counts::PROVIDER_SUMMARY),
                               "compact_state": "running", "compact_started_at": now_iso() });
         let client = self.engine.db.get().await?;
         let seq = self.convo.append(&client, row.clone()).await?;
@@ -5628,7 +5639,7 @@ impl Actor {
             if state != "done" {
                 return Ok(());
             }
-            let mut row = json!({ "role": "system", "text": text, "ts": now_iso(), "kind": "compact" });
+            let mut row = json!({ "role": "system", "text": text, "ts": now_iso(), "kind": "compact", "tokens": token_counts::not_counted(token_counts::PROVIDER_SUMMARY) });
             if !pre_tokens.is_null() {
                 row["pre_tokens"] = pre_tokens;
             }
@@ -6432,7 +6443,7 @@ impl Actor {
         }
         if let Some(t)=self.turn.as_mut() {
             if typ=="reasoning" {t.token_metrics.receipt.thought(&id,completed);}
-            if completed && matches!(typ,"agentMessage"|"plan") {t.token_metrics.receipt.text(item["text"].as_str().unwrap_or(""));}
+            if completed && matches!(typ,"agentMessage"|"plan") {t.token_metrics.receipt.text_of(&id,item["text"].as_str().unwrap_or(""));}
         }
         match typ {
             "userMessage" | "hookPrompt" | "contextCompaction" | "enteredReviewMode" | "exitedReviewMode" | "functionCallOutput" => {}
@@ -6596,7 +6607,7 @@ impl Actor {
             }
         };
         let text = codexrt::runner_startup_hint(can_retry, authority_known);
-        let mut row = json!({ "role": "system", "kind": "codex_runner_hint", "text": text,
+        let mut row = json!({ "role": "system", "kind": "codex_runner_hint", "text": text, "tokens": token_counts::not_counted(token_counts::NOT_SENT),
                               "ts": now_iso(), "turn_id": turn_id, "failed_item_id": item["id"],
                               "retry_allowed": can_retry, "steer_status": "pending" });
         let client = self.engine.db.get().await?;
@@ -6854,6 +6865,13 @@ impl Actor {
         }
     }
 
+    /// The count of exactly what was sent (user 2026-10-27 m10e4ca6d8934 "token counts in
+    /// messages of all kinds", mafe020c4912b "and user messages"), with its labelled parts.
+    #[nolog]
+    async fn sent_tokens(&self, text: &str, parts: Vec<(String, String)>) -> Value {
+        token_counts::row_count(text, parts, self.metrics_harness()).await
+            .unwrap_or_else(|| token_counts::not_counted("the token estimator is unavailable"))
+    }
     #[nolog]
     fn metrics_harness(&self) -> Harness {
         match self.proc { Some(Proc::Codex(_))=>Harness::Codex, Some(Proc::Agy(_))=>Harness::Agy,
@@ -6948,19 +6966,83 @@ impl Actor {
     async fn finish_usage_receipt(&mut self, reasoning: Option<u64>, output: Option<u64>) -> Result<()> {
         let harness=self.metrics_harness();
         let receipt=match self.turn.as_mut() {Some(t)=>std::mem::take(&mut t.token_metrics.receipt),None=>return Ok(())};
-        if let (Some(text),Some(output))=(receipt.complete_text(reasoning),output) {
-            token_counts::calibrate(harness,text.into(),output).await;
+        let complete=receipt.complete_text(reasoning).map(str::to_string);
+        if let (Some(text),Some(output))=(complete.clone(),output) {
+            token_counts::calibrate(harness,text,output).await;
         }
-        let update=receipt.unique_thought().zip(reasoning).and_then(|(id,count)| {
-            let t=self.turn.as_mut()?;
-            let (seq,row)=t.rows.get_mut(id)?;
-            row["thinking_tokens"]=json!(count);
-            Some((*seq,row.clone()))
-        });
-        if let Some((seq,row))=update {
-            let client=self.engine.db.get().await?; self.convo.update(&client,seq,row).await?; drop(client);
+        let mut updates=Vec::new();
+        if let Some(t)=self.turn.as_mut() {
+            if let Some((id,count))=receipt.unique_thought().zip(reasoning) {
+                if let Some((seq,row))=t.rows.get_mut(id) { row["thinking_tokens"]=json!(count); updates.push((*seq,row.clone())); }
+            }
+            // A request that produced only this text: its reported output is exactly the
+            // row's count (user 2026-10-27 m10e4ca6d8934).
+            if let (Some(_),Some(output),Some(id))=(complete.as_ref(),output,receipt.text_id.as_deref()) {
+                if let Some((seq,row))=t.rows.get_mut(id) { row["tokens"]=token_counts::reported(output,harness); updates.push((*seq,row.clone())); }
+            }
+        }
+        if !updates.is_empty() {
+            let client=self.engine.db.get().await?;
+            for (seq,row) in updates { self.convo.update(&client,seq,row).await?; }
+            drop(client);
             self.stream("token_counts",json!({}));
         }
+        Ok(())
+    }
+
+    /// Every response and tool call of the turn carries a count (user 2026-10-27
+    /// m10e4ca6d8934 "token counts in messages of all kinds"). A reported count
+    /// stays; a thought alone carries its reported reasoning or says it was not
+    /// reported; the rest are estimated once, here, from the actor's own copies, which
+    /// still hold the tool inputs. Only the count fields go onto the stored rows, so
+    /// nothing else a row gained is overwritten. Bounded by the turn's rows.
+    #[nolog]
+    async fn count_turn_rows(&mut self, turn: &Turn) -> Result<()> {
+        let harness=self.metrics_harness();
+        let mut counted:Vec<(i64,Option<Value>,Vec<(String,Value)>)>=Vec::new();
+        for (seq,row) in turn.rows.values() {
+            if *seq<=0 || row["role"]!="assistant" {continue}
+            let mut calls=Vec::new();let mut chips=Vec::new();
+            for chip in row["tools"].as_array().into_iter().flatten() {
+                let Some(input)=chip.get("input").filter(|v|!v.is_null()) else {continue};
+                let input=input.as_str().map(str::to_string).unwrap_or_else(||input.to_string());
+                let name=chip["name"].as_str().unwrap_or("tool").to_string();
+                if let (Some(id),None)=(chip["id"].as_str(),chip.get("input_tokens")) {
+                    if let Some(c)=token_counts::row_count(&input,Vec::new(),harness).await {chips.push((id.to_string(),c["count"].clone()));}
+                }
+                calls.push((format!("{name} call"),input));
+            }
+            let text=row["text"].as_str().unwrap_or("");
+            let thought=row["thinking"].as_str().is_some_and(|t|!t.is_empty()) || row["thinking_sealed"]==true;
+            let tokens=if row.get("tokens").is_some() {None} else if text.is_empty() && calls.is_empty() {
+                // A thought alone (Codex, Muse and Antigravity give each its own row): the
+                // reasoning the provider reported for it, never an estimate of its summary.
+                thought.then(||row["thinking_tokens"].as_u64().map_or_else(||token_counts::not_counted(token_counts::THINKING_UNREPORTED),|n|token_counts::reported(n,harness)))
+            } else {
+                let covers=match (text.is_empty(),calls.is_empty()) {(false,true)=>"text",(true,false)=>"tool calls",_=>"text and tool calls"};
+                let mut parts=Vec::new();
+                if !text.is_empty() {parts.push(("Text".to_string(),text.to_string()));}
+                parts.extend(calls);
+                let all=parts.iter().map(|(_,p)|p.as_str()).collect::<Vec<_>>().join("\n");
+                token_counts::row_count(&all,parts,harness).await.map(|mut c|{c["covers"]=json!(covers);c})
+            };
+            if tokens.is_some() || !chips.is_empty() {counted.push((*seq,tokens,chips));}
+        }
+        if counted.is_empty() {return Ok(())}
+        let client=self.engine.db.get().await?;
+        for (seq,tokens,chips) in counted {
+            let Some(stored)=client.query_opt("SELECT body FROM ot.convo WHERE agent_id=$1 AND seq=$2",&[&self.id,&seq]).await? else {continue};
+            let mut body:Value=stored.get(0);
+            if let Some(tokens)=tokens.filter(|_|body.get("tokens").is_none()) {body["tokens"]=tokens;}
+            for chip in body["tools"].as_array_mut().into_iter().flatten() {
+                if let Some((_,n))=chips.iter().find(|(id,_)|chip["id"].as_str()==Some(id.as_str())) {
+                    if chip.get("input_tokens").is_none() {chip["input_tokens"]=n.clone();chip["input_tokens_estimated"]=json!(true);}
+                }
+            }
+            self.convo.update(&client,seq,body).await?;
+        }
+        drop(client);
+        self.stream("token_counts",json!({}));
         Ok(())
     }
 
@@ -6972,6 +7054,8 @@ impl Actor {
             if t.token_metrics.claude_seen.len()>=1024 || !t.token_metrics.claude_seen.insert(receipt.id.clone()) { return Ok(()); }
             t.rows.get_mut(&receipt.id).map(|(seq,row)| {
                 if receipt.thoughts==1 { if let Some(count)=receipt.thinking { row["thinking_tokens"]=json!(count); } }
+                // One row is one response: its reported output is the row's count (user 2026-10-27 m10e4ca6d8934).
+                if let Some(output)=receipt.output { row["tokens"]=token_counts::reported(output,Harness::Claude); }
                 (*seq,row.clone())
             })
         } else {None};
@@ -6981,7 +7065,7 @@ impl Actor {
                     token_counts::calibrate(Harness::Claude,text.into(),output).await;
                 }
             }
-            if row.get("thinking_tokens").is_some() {
+            if row.get("thinking_tokens").is_some() || row.get("tokens").is_some() {
                 let client=self.engine.db.get().await?;self.convo.update(&client,seq,row).await?;drop(client);
                 self.stream("token_counts",json!({}));
             }
@@ -7615,6 +7699,9 @@ impl Actor {
         self.finish_queued_interrupt();
         if self.retain_incomplete().await.is_err() {tracing::warn!(agent=self.id,"unfinished response could not be saved at turn end");}
         let Some(turn) = self.take_turn() else { return Ok(()) };
+        if let Err(e) = self.count_turn_rows(&turn).await {
+            tracing::warn!(agent = %self.name, error = %format!("{e:#}"), "the turn's token counts could not be written");
+        }
         // the agent ended this turn itself and asked for a new one: exactly
         // one, as a turn is taken once; a halt takes its turn without this
         if turn.restart && !self.stopping {
@@ -7883,7 +7970,7 @@ impl Actor {
         let requeue = error.is_some() && !turn.activity
             && (turn.codex_turn.is_none() || error.as_deref().is_some_and(prompt::input_length_refusal));
         let client = self.engine.db.get().await?;
-        if let Some((_, ids, _)) = &turn.agy_steer {
+        if let Some((_, ids, _, _)) = &turn.agy_steer {
             // A failed hook settlement is not delivery. Return these rows
             // before the bulk settlement, preserving their original IDs/order.
             client.execute(
@@ -7988,16 +8075,16 @@ impl Actor {
             }
         }
         if turn.session_ended {
-            let row = json!({ "role": "system", "text": SESSION_ENDED_ROW, "ts": now_iso(), "kind": "session" });
+            let row = json!({ "role": "system", "text": SESSION_ENDED_ROW, "ts": now_iso(), "kind": "session", "tokens": token_counts::not_counted(token_counts::NOT_SENT) });
             let _ = self.convo.append(&client, row).await;
         } else if native_retry {
-            let row=json!({"role":"system","kind":"error","ts":now_iso(),"text":format!("Turn {} exceeded its context; one recovery attempt is queued.",turn.id)});
+            let row=json!({"role":"system","kind":"error","ts":now_iso(),"tokens":token_counts::not_counted(token_counts::NOT_SENT),"text":format!("Turn {} exceeded its context; one recovery attempt is queued.",turn.id)});
             let _=self.convo.append(&client,row).await;
         } else if let Some(e) = &error {
             let ev = crate::events::typed("runtime.turn_failed_terminal", "@system",
                 json!({"kind":"session","org":self.org.slug,"node":self.name,"session_id":session.clone().unwrap_or_default()}),
                 json!({"door":"turn","err":e}));
-            let row = json!({ "role": "system", "text": format!("The turn ended with an error: {e}"), "ts": now_iso(), "kind": "error", "ev":ev });
+            let row = json!({ "role": "system", "text": format!("The turn ended with an error: {e}"), "ts": now_iso(), "kind": "error", "ev":ev, "tokens": token_counts::not_counted(token_counts::NOT_SENT) });
             let _ = self.convo.append(&client, row).await;
         }
         drop(client);
@@ -8348,7 +8435,7 @@ impl Actor {
         self.activity = Some((if compact { "compacting" } else { "thinking" }.into(), None));
         if !compact {
             let client = self.engine.db.get().await?;
-            let row = json!({ "role": "user", "text": text, "ts": now_iso(), "command": true });
+            let row = json!({ "role": "user", "text": text, "ts": now_iso(), "command": true, "tokens": token_counts::not_counted(token_counts::CLI_COMMAND) });
             self.convo.append(&client, row).await?;
         }
         self.publish();

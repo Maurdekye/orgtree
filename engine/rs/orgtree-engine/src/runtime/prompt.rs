@@ -98,6 +98,8 @@ pub struct Batch {
     /// Normalized selected prefix: use this for image delivery and replay too.
     pub mail: Vec<Mail>,
     pub candidate_bytes: usize,
+    /// What `text` is made of, labelled, for its token count on the desk.
+    pub parts: Vec<(String, String)>,
 }
 
 /// Select a prefix only; the actor returns every other claimed row to pending.
@@ -130,7 +132,54 @@ pub fn batch(mail: &[Mail], context: &str, rels: &HashMap<String, String>, hando
         }
         text = next;
     }
-    Ok(Batch { text, mail: selected, candidate_bytes })
+    let parts = if steering { steer_parts(&selected, rels) } else { turn_parts(&selected, context, rels, handoff) };
+    Ok(Batch { text, mail: selected, candidate_bytes, parts })
+}
+
+/// The labelled parts of a turn's opening message, for its token count (user
+/// 2026-10-27 m10e4ca6d8934): the org state and the usage board (`context`), the
+/// org notices and each mail. Each part is the text `turn_text` puts in.
+#[nolog]
+pub fn turn_parts(mail: &[Mail], context: &str, rels: &HashMap<String, String>, handoff: Option<&str>) -> Vec<(String, String)> {
+    let mut parts = Vec::new();
+    if !context.is_empty() {
+        match context.find("[PROVIDER USAGE") {
+            Some(at) if at > 0 => { parts.push(("Org state".into(), context[..at].into())); parts.push(("Provider usage".into(), context[at..].into())); }
+            Some(_) => parts.push(("Provider usage".into(), context.into())),
+            None => parts.push(("Org state".into(), context.into())),
+        }
+    }
+    let bounded = inline_mail(mail, rels);
+    let (notices, mail) = envelope::split_notices(&bounded, handoff);
+    if !notices.is_empty() { parts.push(("Org notices".into(), envelope::notices_block(&notices))); }
+    mail_parts(&mut parts, &mail, rels, true);
+    parts
+}
+/// The labelled parts of mail handed over mid-turn: the org notices and each mail.
+#[nolog]
+pub fn steer_parts(mail: &[Mail], rels: &HashMap<String, String>) -> Vec<(String, String)> {
+    let bounded = inline_mail(mail, rels);
+    let (notices, mail) = envelope::split_notices(&bounded, None);
+    let mut parts = Vec::new();
+    if !notices.is_empty() { parts.push(("Org notices".into(), envelope::notices_block(&notices))); }
+    mail_parts(&mut parts, &mail, rels, false);
+    parts
+}
+/// One part per message, named by its sender (a watchdog fire by its dog); past the
+/// row's part limit the rest join one remainder part.
+#[nolog]
+fn mail_parts(parts: &mut Vec<(String, String)>, mail: &[&Mail], rels: &HashMap<String, String>, turn_start: bool) {
+    let room = crate::runtime::token_counts::PARTS_MAX.saturating_sub(parts.len() + 1);
+    for (i, m) in mail.iter().enumerate() {
+        if i == room && mail.len() > room + 1 {
+            parts.push((format!("{} more messages", mail.len() - room), envelope::mail_block(&mail[room..], rels, turn_start)));
+            break;
+        }
+        let from = if m.sender == "@user" { "user" } else if m.sender == "@system" { "orgtree" } else { m.sender.as_str() };
+        // A watchdog fire is sent by the dog it names.
+        let label = if m.kind == "watchdog" { format!("Watchdog {from}") } else { format!("{} from {from}", if m.notice { "Notice" } else { "Mail" }) };
+        parts.push((label, envelope::mail_block(&[*m], rels, turn_start)));
+    }
 }
 
 /// Persist only the engine-generated dynamic org-state/usage envelope under
@@ -245,6 +294,34 @@ pub fn steer_text(mail: &[Mail], rels: &HashMap<String, String>) -> String {
         blocks.join("\n\n"),
         ping
     )
+}
+
+#[cfg(test)]
+mod token_part_tests {
+    use super::*;
+    use serde_json::json;
+    fn mail(uid: &str, sender: &str, body: &str) -> Mail {
+        Mail { uid: uid.into(), sender: sender.into(), kind: "message".into(), body: body.into(),
+            at: chrono::DateTime::from_timestamp(0, 0).unwrap(), attachments: json!([]), notice: false, one_time: false, urgent: false,
+            reply_to: json!({}), replies: json!([]), ev: json!({}), via_project: None, via_project_ack: false, uncertain_mid_turn: false, private_app: false }
+    }
+    /// User 2026-10-27 m10e4ca6d8934: a delivered message's count names what it is made of.
+    #[test]
+    fn opening_and_mid_turn_messages_name_their_parts() {
+        let rels = HashMap::new();
+        let mails = [mail("m1", "@user", "Start the work."), mail("m2", "coordinator-opus", "Read the item.")];
+        let context = "[ORG STATE - now]\nreports\n[END ORG STATE]\n\n[PROVIDER USAGE - now]\nrows\n[END PROVIDER USAGE]";
+        let opening = batch(&mails, context, &rels, None, 1_000_000, false).unwrap();
+        assert_eq!(opening.parts.iter().map(|(l, _)| l.as_str()).collect::<Vec<_>>(), ["Org state", "Provider usage", "Mail from user", "Mail from coordinator-opus"]);
+        assert!(opening.parts[0].1.starts_with("[ORG STATE") && opening.parts[1].1.starts_with("[PROVIDER USAGE"));
+        assert!(opening.parts[2].1.contains("Start the work.") && opening.parts[3].1.contains("Read the item.") && opening.text.contains("Read the item."));
+        let steer = batch(&mails, "", &rels, None, 1_000_000, true).unwrap();
+        assert_eq!(steer.parts.iter().map(|(l, _)| l.as_str()).collect::<Vec<_>>(), ["Mail from user", "Mail from coordinator-opus"]);
+        let many: Vec<Mail> = (0..40).map(|i| mail(&format!("m{i}"), "worker", "x")).collect();
+        let parts = turn_parts(&many, context, &rels, None);
+        assert_eq!(parts.len(), crate::runtime::token_counts::PARTS_MAX, "a busy turn keeps a bounded list");
+        assert_eq!(parts.last().unwrap().0, "27 more messages");
+    }
 }
 
 #[cfg(test)]

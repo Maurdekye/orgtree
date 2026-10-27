@@ -19,12 +19,21 @@ const HALF: usize = 32 * 1024;
 
 #[derive(Clone, Copy)]
 pub enum Harness { Claude, Codex, Agy, Muse, Acp }
+impl Harness {
+    /// The name a reported count is attributed to.
+    #[nolog]
+    pub fn label(self) -> &'static str {
+        match self { Self::Claude=>"Claude", Self::Codex=>"Codex", Self::Agy=>"Antigravity", Self::Muse=>"Muse", Self::Acp=>"ACP" }
+    }
+}
 
 /// Response-level metadata only. Parent tool output never consumes child usage.
 #[derive(Default)]
 pub struct Receipt {
     pub thoughts: Vec<(String, bool)>,
     pub text: Option<String>,
+    /// The row the text belongs to, so a count that is exactly the text can be shown on it.
+    pub text_id: Option<String>,
     pub ambiguous: bool,
     pub calls: bool,
 }
@@ -39,6 +48,11 @@ impl Receipt {
     pub fn text(&mut self, text: &str) {
         if self.text.is_some() || text.len()>HALF*2 { self.ambiguous=true; }
         else { self.text=Some(text.into()); }
+    }
+    #[nolog]
+    pub fn text_of(&mut self, id: &str, text: &str) {
+        self.text(text);
+        if !self.ambiguous { self.text_id=Some(id.into()); }
     }
     #[nolog]
     pub fn unique_thought(&self) -> Option<&str> {
@@ -339,6 +353,42 @@ pub async fn estimate(sample: Sample, harness: Harness) -> Option<Value> {
     }).await.ok().flatten()
 }
 
+/// At most this many labelled parts per row; later mail joins one remainder part.
+pub const PARTS_MAX: usize = 16;
+
+/// A conversation row's count (user 2026-10-27 m10e4ca6d8934: "token counts in
+/// messages of all kinds"): one estimate of exactly the text given, with its
+/// labelled parts each estimated alone. Marked estimated, and sampled when only a
+/// bounded head and tail were counted. Counted once, off the actor's task.
+#[nolog]
+pub async fn row_count(text: &str, parts: Vec<(String, String)>, harness: Harness) -> Option<Value> {
+    let mut total = Sample::default(); total.replace(text);
+    let parts: Vec<(String, Sample)> = parts.into_iter().take(PARTS_MAX).map(|(label, text)| { let mut s = Sample::default(); s.replace(&text); (label, s) }).collect();
+    tokio::task::spawn_blocking(move || {
+        let factor = CORRECTIONS[harness as usize].factor();
+        let n = |s: &Sample| s.count().map(|c| (c as f64 * factor).round() as u64);
+        let mut out = json!({"count": n(&total)?, "estimated": true, "sampled": total.sampled()});
+        let listed: Vec<Value> = parts.iter().filter_map(|(label, s)| Some(json!({"label": label, "count": n(s)?}))).collect();
+        if !listed.is_empty() { out["parts"] = json!(listed); }
+        Some(out)
+    }).await.ok().flatten()
+}
+/// A count the provider reported for exactly this row.
+#[nolog]
+pub fn reported(count: u64, harness: Harness) -> Value { json!({"count": count, "reported": harness.label()}) }
+/// Why a row has no count. A display-only row never reaches the agent; an
+/// engine compaction's summary opens the next turn and is counted there; the
+/// provider keeps its own compaction summary; a slash command goes to the CLI.
+pub const NOT_SENT: &str = "not sent to the agent";
+pub const SUMMARY_NEXT: &str = "its summary opens the next turn's message and is counted there";
+pub const PROVIDER_SUMMARY: &str = "the provider keeps the compaction summary";
+pub const CLI_COMMAND: &str = "a command for the CLI, not a message to the model";
+/// A shown thought is the provider's summary, so it is never estimated.
+pub const THINKING_UNREPORTED: &str = "thinking tokens were not reported for this response";
+/// A row that is not counted says why; it never shows 0.
+#[nolog]
+pub fn not_counted(reason: &str) -> Value { json!({"not_counted": reason}) }
+
 #[nolog]
 pub async fn calibrate(harness: Harness, text: String, reported: u64) {
     if text.len() > HALF * 2 { return; } // sampled/truncated corpora never train a factor
@@ -370,6 +420,18 @@ mod tests {
         streamed.append(&"x".repeat(500_000));
         assert!(streamed.sampled());
         assert!(streamed.head.len() + streamed.tail.len() <= HALF * 2);
+    }
+    /// User 2026-10-27 m10e4ca6d8934: rows carry an estimate with its parts, a count
+    /// a provider reported for exactly that row, or why there is none.
+    #[tokio::test]
+    async fn row_counts_are_estimates_with_parts_and_reports_name_their_harness() {
+        let c = row_count("hello world", vec![("Text".into(), "hello world".into())], Harness::Codex).await.unwrap();
+        assert_eq!(c["estimated"], true); assert!(c["count"].as_u64().unwrap() >= 1);
+        assert_eq!(c["sampled"], false); assert_eq!(c["parts"][0]["label"], "Text");
+        let big = row_count(&"word ".repeat(100_000), Vec::new(), Harness::Claude).await.unwrap();
+        assert_eq!(big["sampled"], true); assert!(big.get("parts").is_none());
+        assert_eq!(reported(412, Harness::Claude), json!({"count": 412, "reported": "Claude"}));
+        assert_eq!(not_counted(NOT_SENT)["not_counted"], "not sent to the agent");
     }
     #[test]
     fn calibration_rejects_missing_tiny_and_implausible_receipts() {

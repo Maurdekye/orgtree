@@ -588,6 +588,9 @@ fn transcript_result(node: &str, access: Value, busy: bool, occupancy: Option<i3
             "thinking_truncated":thinking.chars().nth(1200).is_some(),
             "tools": m.get("tools").cloned().unwrap_or_else(|| json!([])),
             "incomplete": m["assistant_state"] == "partial",
+            // The desk's count for this row (user 2026-10-27 m10e4ca6d8934): reported or
+            // estimated, or why it is not counted; null on rows written before 4.5.0.
+            "tokens": m["tokens"],
             "interrupted": m["interrupted"].as_bool().unwrap_or(false),
         })
     }).collect();
