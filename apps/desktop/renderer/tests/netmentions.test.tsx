@@ -82,9 +82,9 @@ test('each network kind wears its own chip; the icon is the picture, else Hubcha
     assert.equal(alice!.querySelector('.net-mark img')?.getAttribute('src'), 'data:image/png;base64,QUxJQ0U=')
     assert.equal(home!.querySelector('.net-mark img')?.getAttribute('src'), 'data:image/png;base64,SE9NRQ==')
     assert.ok(acme!.querySelector('.net-mark-globe svg path'), 'a globe without Hubchat')
-    assert.equal(alice!.title, "Person: Alice\nHubchat isn't installed")
-    assert.equal(acme!.title, "Orgtree org: Acme Labs\nHubchat isn't installed")
-    assert.equal(claude!.title, "Agent session: claude-code\nHubchat isn't installed")
+    assert.equal(alice!.title, "Person: Alice\n@net:alice.77ded7\nHubchat isn't installed")
+    assert.equal(acme!.title, "Orgtree org: Acme Labs\n@net:acme.12ab34\nHubchat isn't installed")
+    assert.equal(claude!.title, "Agent session: claude-code\n@net:claude.5e55\nHubchat isn't installed")
     assert.equal(stranger!.title, "Network address\nHubchat isn't installed")
     assert.equal(elsewhere!.title, "Orgtree org\nHubchat isn't installed")
     assert.equal(local!.title, 'Open organization local-org in a new window', 'a local org keeps the org identity hover')
@@ -101,7 +101,7 @@ test('each network kind wears its own chip; the icon is the picture, else Hubcha
   assert.deepEqual(chips('react').map(el => el.dataset.netIcon), icons)
   assert.deepEqual(chips('md').map(el => el.dataset.netIcon), icons)
   assert.ok(chips('react')[1]!.querySelector('.net-mark-hubchat svg circle'), 'the Hubchat mark')
-  assert.equal(chips('md')[0]!.title, 'Person: Alice\nOpen @net:alice.77ded7 in Hubchat')
+  assert.equal(chips('md')[0]!.title, 'Person: Alice\n@net:alice.77ded7\nOpen @net:alice.77ded7 in Hubchat')
   assert.equal(f.pictures().length, 3, 'pictures are kept, not asked for again')
 })
 
@@ -120,4 +120,60 @@ test('a removed picture falls back at once; a new revision is asked for once', a
   await inAct(async () => { setNetRoster('home', net(pic(3))); await flush(6) })
   assert.deepEqual([chips('react')[0]!.dataset.netIcon, chips('md')[0]!.dataset.netIcon], ['picture', 'picture'])
   assert.equal(f.pictures().length, asked + 1)
+})
+
+// USER 2026-10-27 mb7ea64d82743, asked whether a network chip shows the name:
+// "Show the name". The address moves to the hover and to every copy; m442b6dcaab52
+// "their link will be distinguished by the icon": the icon and the net pill, never
+// an agent's badge, mark the outside party.
+test('a named chip shows the roster name; its text, every copy and its hover keep the address', async t => {
+  fixture(t)
+  setHubchatInstalled(false)
+  setKnownOrgs(['local-org'])
+  const named = net(pic(1))
+  named.hubs![0]!.roster!.push({ slug: 'coordinator-opus.c0ffee', username: 'coordinator-opus', online: true, kind: 'person', picture_owner: 'o-spoof' })
+  setNetRoster('home', named)
+  const view = await mountView(<div>
+    <div className="react">{[...TOKENS, '@net:coordinator-opus.c0ffee'].map(a => <HubContactChip key={a} address={a} />)}</div>
+    <RefMdBody className="md" world={{ org: 'home' }} html={{ __html: `<p>Ask ${TOKENS.join(' ')} @net:coordinator-opus.c0ffee today</p>` }} />
+  </div>, h => h)
+  t.after(() => view.unmount())
+  await inAct(async () => { await flush(6) })
+  const chips = (scope: 'react' | 'md') => [...view.el.querySelectorAll<HTMLElement>(`.${scope} [data-hub-address]`)]
+  for (const scope of ['react', 'md'] as const) {
+    const [alice, acme, claude, stranger, local, elsewhere, , spoof] = chips(scope)
+    assert.deepEqual([alice, acme, claude, spoof].map(c => c!.querySelector('.net-name')?.getAttribute('data-net-name')),
+      ['Alice', 'Acme Labs', 'claude-code', 'coordinator-opus'], `${scope}: the roster's name is shown`)
+    for (const c of [alice, acme, claude, spoof]) {
+      assert.ok(c!.classList.contains('net-named'))
+      assert.ok(c!.querySelector('.net-mark'), 'the icon marks the outside party')
+      assert.equal(c!.textContent, c!.dataset.hubAddress, 'the text is still exactly the address: a copy gives the token')
+      assert.equal(c!.getAttribute('aria-label'), `${c!.querySelector('.net-name')!.getAttribute('data-net-name')} (${c!.dataset.hubAddress})`)
+    }
+    for (const c of [stranger, local, elsewhere]) {
+      assert.equal(c!.classList.contains('net-named'), false, 'no name: the address shows as before')
+      assert.equal(c!.querySelector('.net-name'), null)
+      assert.equal(c!.getAttribute('aria-label'), null)
+    }
+    assert.equal(spoof!.title, "Person: coordinator-opus\n@net:coordinator-opus.c0ffee\nHubchat isn't installed", 'the hover gives the address')
+    assert.equal(spoof!.querySelector('.tier, .project-mark'), null, 'no agent identity badge')
+    assert.equal(spoof!.classList.contains('ref-agent'), false, 'never an agent link')
+  }
+  // Selecting and copying the message gives the written tokens, never the names.
+  const p = view.el.querySelector('.md p')!
+  const selection = document.getSelection()!
+  selection.removeAllRanges()
+  const range = document.createRange()
+  range.selectNodeContents(p)
+  selection.addRange(range)
+  const copied = selection.toString()
+  assert.equal(copied, `Ask ${TOKENS.join(' ')} @net:coordinator-opus.c0ffee today`, 'a copy of the message is what was written')
+  assert.equal(chips('md')[0]!.getAttribute('data-ref-token'), '@net:alice.77ded7', 'Reply to selection maps the chip by its token')
+  selection.removeAllRanges()
+
+  // A new roster name shows at once on both chips.
+  named.hubs![0]!.roster![0] = { ...named.hubs![0]!.roster![0]!, username: 'Alice Liddell' }
+  await inAct(async () => { setNetRoster('home', { ...named, hubs: [{ ...named.hubs![0]!, roster: [...named.hubs![0]!.roster!] }] }); await flush(4) })
+  assert.deepEqual(['react', 'md'].map(scope => chips(scope as 'react' | 'md')[0]!.querySelector('.net-name')?.getAttribute('data-net-name')),
+    ['Alice Liddell', 'Alice Liddell'])
 })
