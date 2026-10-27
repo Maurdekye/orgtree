@@ -107,10 +107,12 @@ pub async fn publish(tx:&Transaction<'_>,org:i64,panel:&str,name:&str,payload:&V
     let id:i64=tx.query_one("INSERT INTO ot.app_event_fires(uid,org_id,app_id,panel_id,name,payload,producer,done) VALUES($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id",&[&uid,&org,&app,&panel,&name,&payload,&producer,&empty]).await?.get(0);
     let ids:Vec<i64>=recipients.iter().map(|r|r.get(0)).collect();
     tx.execute("INSERT INTO ot.app_event_recipients(fire_id,dog_id) SELECT $1,unnest($2::bigint[])",&[&id,&ids]).await?;
-    // History shows the fire as metadata only (user 2026-10-26: events in their
-    // own History tab). The payload stays in this outbox and recipients' mail.
+    // History keeps the fire's metadata and its body exactly as it was sent: the
+    // compact JSON text received, key order kept (user 2026-10-27 mc308cabf3c5f,
+    // replacing 2026-10-26's metadata only). The outbox's jsonb copy feeds delivery.
     let actor=match producer["kind"].as_str(){Some("agent")=>producer["name"].as_str().unwrap_or("agent"),Some("app")=>"app",_=>"user"};
-    super::storage::event(tx,org,panel,FIRED,&json!({"event":name,"id":uid,"subscribers":ids.len()}),actor).await?;
+    let body=serde_json::to_string(payload)?;
+    super::storage::fired(tx,org,panel,&json!({"event":name,"id":uid,"subscribers":ids.len()}),&body,actor).await?;
     tx.execute("DELETE FROM ot.app_event_fires WHERE org_id=$1 AND app_id=$2 AND done AND id<(SELECT id FROM ot.app_event_fires WHERE org_id=$1 AND app_id=$2 AND done ORDER BY id DESC OFFSET 127 LIMIT 1)",&[&org,&app]).await?;
     Ok(json!({"accepted":true,"event":uid,"app":app,"panel":panel,"name":name,"subscribers":ids.len()}))
 }
@@ -137,8 +139,8 @@ pub async fn listener_fires(tx:&Transaction<'_>,org:i64,app:&str,listener:&str,(
     let Some((owner,uid))=listener.split_once('/').filter(|(o,u)|!o.is_empty()&&!u.is_empty()) else{crate::refuse!(BadRequest,"listener_fires needs the listener as owner/id, as listeners shows it");};
     let Some(dog)=tx.query_opt("SELECT w.id FROM ot.watchdogs w JOIN ot.agents a ON a.id=w.owner_agent_id WHERE w.org_id=$1 AND a.name=$2 AND w.uid=$3 AND w.kind='app_listener' AND w.target=$4 AND w.state IN ('armed','paused') ORDER BY w.id DESC LIMIT 1",&[&org,&owner,&uid,&app]).await? else{crate::refuse!(NotFound,"no app listener {listener} on this app");};
     let dog:i64=dog.get(0);
-    let rows=tx.query(&format!("SELECT jsonb_build_object('seq',f.id,'id',f.uid,'at',f.at,'event',f.name,'panel',f.panel_id,'panel_label',p.label,'by',CASE f.producer->>'kind' WHEN 'agent' THEN f.producer->>'name' WHEN 'app' THEN 'app' ELSE 'user' END,'delivered',r.delivery IS NOT NULL,'notice',coalesce((r.delivery->>'notice')::boolean,false)) FROM ot.app_event_fires f JOIN ot.app_event_recipients r ON r.fire_id=f.id AND r.dog_id=$3 LEFT JOIN ot.custom_panels p ON p.org_id=f.org_id AND p.id=f.panel_id WHERE f.org_id=$1 AND f.app_id=$2 AND r.done AND f.id{op}$4 ORDER BY f.id {order} LIMIT $5"),&[&org,&app,&dog,&from,&(n+1)]).await?;
-    let more=rows.len()>n as usize;let fires:Vec<Value>=rows.into_iter().take(n as usize).map(|r|r.get(0)).collect();
+    let rows=tx.query(&format!("SELECT jsonb_build_object('seq',f.id,'id',f.uid,'at',f.at,'event',f.name,'panel',f.panel_id,'panel_label',p.label,'by',CASE f.producer->>'kind' WHEN 'agent' THEN f.producer->>'name' WHEN 'app' THEN 'app' ELSE 'user' END,'delivered',r.delivery IS NOT NULL,'notice',coalesce((r.delivery->>'notice')::boolean,false),'body',(SELECT e.body FROM ot.custom_panel_events e WHERE e.org_id=f.org_id AND e.kind='history' AND e.name='event.fired' AND e.payload->>'id'=f.uid ORDER BY e.seq DESC LIMIT 1)) FROM ot.app_event_fires f JOIN ot.app_event_recipients r ON r.fire_id=f.id AND r.dog_id=$3 LEFT JOIN ot.custom_panels p ON p.org_id=f.org_id AND p.id=f.panel_id WHERE f.org_id=$1 AND f.app_id=$2 AND r.done AND f.id{op}$4 ORDER BY f.id {order} LIMIT $5"),&[&org,&app,&dog,&from,&(n+1)]).await?;
+    let (fires,more)=super::storage::within_body_budget(rows.into_iter().map(|r|r.get(0)).collect(),n as usize);
     let next=if more{fires.last().map(|v|v["seq"].clone())}else{None};
     Ok(json!({"listener":listener,"fires":fires,"next_cursor":next}))
 }

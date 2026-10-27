@@ -77,15 +77,38 @@ pub const HISTORY:[&str;3]=[super::events::FIRED,"panel.started","panel.stopped"
 /// keeps app→panel order.
 #[nolog]
 pub(super) async fn event(tx:&Transaction<'_>,org:i64,id:&str,name:&str,payload:&Value,actor:&str)->Result<i64>{
-    debug_assert!(HISTORY.contains(&name),"History records only fires, starts and stops");record(tx,org,id,"history",name,payload,actor).await
+    debug_assert!(HISTORY.contains(&name),"History records only fires, starts and stops");record(tx,org,id,"history",name,payload,None,actor).await
+}
+/// A fire's History row: its metadata, and its body exactly as it was sent
+/// (user 2026-10-27 mc308cabf3c5f "Save exactly"), kept as long as the row.
+#[nolog]
+pub(super) async fn fired(tx:&Transaction<'_>,org:i64,id:&str,payload:&Value,body:&str,actor:&str)->Result<i64>{
+    record(tx,org,id,"history",super::events::FIRED,payload,Some(body),actor).await
+}
+/// Bodies one History or fires page carries at most (a page always holds its
+/// first row): a full page of 64 KiB bodies would reach 12 MiB, for an agent's
+/// tool result as much as for the desktop. The rest continues at next_cursor.
+pub const BODY_PAGE_MAX:usize=128*1024;
+/// The first rows of a page, at most `n`, whose bodies fit BODY_PAGE_MAX, and
+/// whether more rows follow them.
+#[nolog]
+pub(super) fn within_body_budget(rows:Vec<Value>,n:usize)->(Vec<Value>,bool){
+    let mut more=rows.len()>n;let (mut kept,mut bytes)=(Vec::new(),0usize);
+    for row in rows.into_iter().take(n){
+        let size=row["body"].as_str().map_or(0,str::len);
+        if !kept.is_empty()&&bytes+size>BODY_PAGE_MAX{more=true;break}
+        bytes+=size;kept.push(row);
+    }
+    (kept,more)
 }
 /// Both stores advance the copy's event_seq, so a running host and History see
 /// new rows; each keeps its own latest 256 (provisional), so messages never push
 /// History out.
 #[nolog]
-async fn record(tx:&Transaction<'_>,org:i64,id:&str,kind:&str,name:&str,payload:&Value,actor:&str)->Result<i64>{
+async fn record(tx:&Transaction<'_>,org:i64,id:&str,kind:&str,name:&str,payload:&Value,body:Option<&str>,actor:&str)->Result<i64>{
     wire::text(name,80,"event name",false)?;wire::bounded(payload,wire::EVENT_MAX,false)?;
-    let seq:i64=tx.query_one("INSERT INTO ot.custom_panel_events(org_id,panel_id,kind,name,payload,actor) VALUES($1,$2,$3,$4,$5,$6) RETURNING seq",&[&org,&id,&kind,&name,&payload,&actor]).await?.get(0);
+    if body.is_some_and(|b|b.len()>wire::EVENT_MAX){crate::refuse!(BadRequest,"event body exceeds the {}-byte limit",wire::EVENT_MAX);}
+    let seq:i64=tx.query_one("INSERT INTO ot.custom_panel_events(org_id,panel_id,kind,name,payload,body,actor) VALUES($1,$2,$3,$4,$5,$6,$7) RETURNING seq",&[&org,&id,&kind,&name,&payload,&body,&actor]).await?.get(0);
     tx.execute("UPDATE ot.custom_panels SET event_seq=$3 WHERE org_id=$1 AND id=$2",&[&org,&id,&seq]).await?;
     tx.execute("DELETE FROM ot.custom_panel_events WHERE org_id=$1 AND panel_id=$2 AND kind=$3 AND seq < (SELECT seq FROM ot.custom_panel_events WHERE org_id=$1 AND panel_id=$2 AND kind=$3 ORDER BY seq DESC OFFSET 255 LIMIT 1)",&[&org,&id,&kind]).await?;
     Ok(seq)
@@ -370,13 +393,14 @@ pub(crate) async fn run_locked(engine:&Arc<Engine>,org:&Arc<OrgHandle>,caller:Op
             let out=update_state(&tx,org.id,&id,&state).await?;changed=true;out
         }
         Request::Event{panel:id,name,payload}=>{
-            panel(&tx,org.id,&id,true).await?;let seq=record(&tx,org.id,&id,"message",&name,&payload,&actor).await?;changed=true;json!({"panel":id,"seq":seq})
+            panel(&tx,org.id,&id,true).await?;let seq=record(&tx,org.id,&id,"message",&name,&payload,None,&actor).await?;changed=true;json!({"panel":id,"seq":seq})
         }
         Request::Events{panel:id,after,before,limit,messages,name}=>{
             panel(&tx,org.id,&id,false).await?;let n=page(limit)?;let (op,order,from)=cursor(after,before)?;
             let kind=if messages{"message"}else{"history"};
-            let rows=tx.query(&format!("SELECT jsonb_build_object('seq',seq,'name',name,'payload',payload,'actor',actor,'at',at) FROM ot.custom_panel_events WHERE org_id=$1 AND panel_id=$2 AND kind=$5 AND seq{op}$3 AND {} ORDER BY seq {order} LIMIT $4",one_event(messages,6)),&[&org.id,&id,&from,&(n+1),&kind,&name]).await?;
-            let more=rows.len()>n as usize;let events:Vec<Value>=rows.into_iter().take(n as usize).map(|r|r.get(0)).collect();let next=if more{events.last().map(|v|v["seq"].clone())}else{None};
+            // A fire's body as it was sent (user 2026-10-27 mc308cabf3c5f), for agents too; null when not kept.
+            let rows=tx.query(&format!("SELECT jsonb_build_object('seq',seq,'name',name,'payload',payload,'body',body,'actor',actor,'at',at) FROM ot.custom_panel_events WHERE org_id=$1 AND panel_id=$2 AND kind=$5 AND seq{op}$3 AND {} ORDER BY seq {order} LIMIT $4",one_event(messages,6)),&[&org.id,&id,&from,&(n+1),&kind,&name]).await?;
+            let (events,more)=within_body_budget(rows.into_iter().map(|r|r.get(0)).collect(),n as usize);let next=if more{events.last().map(|v|v["seq"].clone())}else{None};
             let oldest:Option<i64>=tx.query_one(&format!("SELECT min(seq) FROM ot.custom_panel_events WHERE org_id=$1 AND panel_id=$2 AND kind=$3 AND {}",one_event(messages,4)),&[&org.id,&id,&kind,&name]).await?.get(0);
             json!({"panel":id,"events":events,"next_cursor":next,"oldest_retained":oldest})
         }
@@ -490,6 +514,22 @@ fn removes_file_access(before:&Value,cap:&str,permission:&str)->bool{
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn a_page_carries_at_most_its_body_budget_and_always_its_first_row() {
+        let row=|seq:i64,kib:usize|json!({"seq":seq,"body":"x".repeat(kib*1024)});
+        let seqs=|rows:&[Value]|rows.iter().map(|r|r["seq"].as_i64().unwrap()).collect::<Vec<_>>();
+        // three 50 KiB bodies: two fit in 128 KiB, the third opens the next page
+        let (kept,more)=within_body_budget(vec![row(3,50),row(2,50),row(1,50)],50);
+        assert_eq!((seqs(&kept),more),(vec![3,2],true));
+        // a page always holds its first row, however large; a row without a body costs nothing
+        let (kept,more)=within_body_budget(vec![row(2,200),json!({"seq":1,"body":null})],50);
+        assert_eq!((seqs(&kept),more),(vec![2],true));
+        let (kept,more)=within_body_budget(vec![json!({"seq":3,"body":null}),row(2,100),json!({"seq":1})],50);
+        assert_eq!((seqs(&kept),more),(vec![3,2,1],false));
+        // the row limit still applies
+        let (kept,more)=within_body_budget(vec![json!({"seq":2}),json!({"seq":1})],1);
+        assert_eq!((seqs(&kept),more),(vec![2],true));
+    }
     #[test]
     fn only_a_files_permission_change_that_removes_access_ends_links() {
         // implicit org access (no stored choice): Allow keeps it; Ask and Deny remove it
