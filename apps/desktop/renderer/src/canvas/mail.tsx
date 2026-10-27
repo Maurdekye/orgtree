@@ -794,7 +794,7 @@ function TagChips({tags,onTag,preview=false,filterTags}:{tags?:string[];onTag?:(
     : []
   const matching=new Set(matches.map(mailTagKey))
   const ordered=preview?[...matches,...(tags??[]).filter(tag=>!matching.has(mailTagKey(tag)))]:tags
-  const shown=preview?ordered?.slice(0,3):ordered
+  const shown=preview?ordered?.slice(0,4):ordered
   const visible=new Set(shown?.map(mailTagKey))
   const hidden=preview?tags?.filter(tag=>!visible.has(mailTagKey(tag)))??[]:[]
   return <>{shown?.map(tag=>{

@@ -159,16 +159,16 @@ test('mail matching requires ALL selected tags without depending on their order'
   assert.equal(mailMatchesTags(undefined,['Alpha Build','Progress']),false)
 })
 
-test('mail rows show three tags and count additional tags',async()=>{
-  const tags=['build','release','a deliberately long release tag','review']
+test('mail rows show four tags and count additional tags',async()=>{
+  const tags=['build','release','a deliberately long release tag','review','engine','ready']
   const row={id:'tagged',from:'coordinator',kind:'message',at:'2026-10-17T19:50:00Z',body:'A release update',tags}
   const v=await mountView(<MailList delivered={[row]}/>,el=>el)
   try{
     const rendered=v.el.querySelector<HTMLElement>('.mailrow');assert.ok(rendered)
     assert.equal(rendered.querySelector('.mfrom')?.textContent,'coordinator')
-    assert.equal(rendered.querySelectorAll('.mail-tag[data-tag-key]').length,3,'three tags remain visible in the preview')
+    assert.equal(rendered.querySelectorAll('.mail-tag[data-tag-key]').length,4,'four tags remain visible in the preview')
     const more=rendered.querySelector('.mail-tag-more');assert.ok(more,'extra tags need a count pill')
-    assert.equal(more.textContent,'(+1)')
+    assert.equal(more.textContent,'(+2)')
   }finally{await v.unmount()}
 })
 

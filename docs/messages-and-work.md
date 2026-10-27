@@ -216,9 +216,9 @@ For ordinary unread user mail, displaying the body and then leaving the reading 
 
 Search sender/body to narrow the user Inbox. The tag filter requires **all** selected tags, ignoring case. Tag choices come from retained user mail, including older pages. Counts still describe the whole inbox, and opening an exact mail reference clears a tag filter that would hide it.
 
-Each mail list row shows up to three tags in their stored order. Active filter
-matches come first in filter order, followed by other tags to fill three places.
-With four or more tags, **(+n)** counts the tags not shown; hover it to read their
+Each mail list row shows up to four tags in their stored order. Active filter
+matches come first in filter order, followed by other tags to fill four places.
+With five or more tags, **(+n)** counts the tags not shown; hover it to read their
 names. The count does not expand on click. Open the message to see all its tags;
 the tag picker and filter bar also keep the full list.
 

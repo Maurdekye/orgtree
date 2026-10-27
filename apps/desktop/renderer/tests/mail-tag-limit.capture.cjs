@@ -8,6 +8,7 @@ const sessionId=Number(execFileSync('powershell.exe',['-NoProfile','-Command',`(
 assert.equal(sessionId,0,'Session 0 required before any window')
 app.setPath('userData',path.join(out,'profile-'+process.pid));app.setPath('sessionData',path.join(out,'session-'+process.pid))
 app.disableHardwareAcceleration()
+app.commandLine.appendSwitch('mute-audio')
 const clipboardCalls=[]
 for(const key of Object.keys(clipboard))if(typeof clipboard[key]==='function')Object.defineProperty(clipboard,key,{value:()=>{clipboardCalls.push(key);return key==='availableFormats'?[]:key==='has'?false:''}})
 fs.writeFileSync(path.join(out,'index.html'),'<!doctype html><html lang="en"><meta charset="utf-8"><link rel="stylesheet" href="probe.css"><div id="root"></div><script src="probe.js"></script></html>')
@@ -20,6 +21,7 @@ app.whenReady().then(async()=>{
   isolated.setPermissionRequestHandler((_wc,_permission,done)=>done(false))
   const win=new BrowserWindow({width:1000,height:720,show:false,frame:false,webPreferences:{offscreen:true,backgroundThrottling:false,contextIsolation:false,sandbox:false,nodeIntegration:false,preload:path.join(out,'clipboard.preload.cjs'),session:isolated}})
   const wc=win.webContents
+  wc.setAudioMuted(true)
   wc.setWindowOpenHandler(()=>({action:'deny'}))
   for(const method of ['cut','copy','paste','pasteAndMatchStyle'])wc[method]=()=>{throw Error('Clipboard command forbidden')}
   try {
@@ -33,17 +35,17 @@ app.whenReady().then(async()=>{
       const inspect=e=>({rect:rect(e),header:rect(e.querySelector('.mfrom')),tags:[...e.querySelectorAll('.l2 .mail-tag[data-tag-key]')].map(t=>({text:t.textContent,rect:rect(t)})),more:e.querySelector('.mail-tag-more')?.textContent,hidden:e.querySelector('.mail-tag-more')?.title});
       return {plain:inspect(document.querySelector('#narrow-row > .mailrow')),filtered:inspect(document.querySelector('#filtered-row .mailrow')),baseline:rect(document.querySelector('#baseline-row .mfrom')),detailTags:document.querySelectorAll('#read-pane .mailer-head .mail-tag[data-tag-key]').length,filterTags:document.querySelectorAll('#narrow-row .mail-list-controls .mail-tag-active').length,clipboardBlocked:window.__clipboardBlocked,viewport:{width:innerWidth,height:innerHeight}};
     })()`)
-    assert.deepEqual(measured.plain.tags.map(t=>t.text),['a lengthy build announcement tag','release','alpha build'])
-    assert.deepEqual(measured.filtered.tags.map(t=>t.text),['ready','review','engine'])
+    assert.deepEqual(measured.plain.tags.map(t=>t.text),['a lengthy build announcement tag','release','alpha build','review'])
+    assert.deepEqual(measured.filtered.tags.map(t=>t.text),['ready','review','engine','alpha build'])
     for(const item of [measured.plain,measured.filtered]){
-      assert.equal(item.more,'(+5)')
+      assert.equal(item.more,'(+2)')
       assert(item.rect.width>0&&item.rect.height>0)
       for(const tag of item.tags){assert(tag.rect.width>0&&tag.rect.height>0);assert(tag.rect.x>=item.rect.x-.5&&tag.rect.right<=item.rect.right+.5,'Tags stay within real narrow row')}
     }
-    assert.equal(measured.plain.hidden,'review, progress, renderer, engine, ready')
-    assert.equal(measured.filtered.hidden,'a lengthy build announcement tag, release, alpha build, progress, renderer')
+    assert.equal(measured.plain.hidden,'engine, ready')
+    assert.equal(measured.filtered.hidden,'a lengthy build announcement tag, release')
     assert(Math.abs(measured.plain.header.width-measured.baseline.width)<.5)
-    assert.equal(measured.detailTags,8);assert.equal(measured.filterTags,2)
+    assert.equal(measured.detailTags,6);assert.equal(measured.filterTags,2)
     assert.equal(measured.clipboardBlocked,true)
     // Move only the owned renderer pointer over the real overflow annotation.
     wc.debugger.attach('1.3')
@@ -52,7 +54,7 @@ app.whenReady().then(async()=>{
     await wc.executeJavaScript(`new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(()=>setTimeout(resolve,150))))`)
     fs.writeFileSync(path.join(out,'mail-tag-limit.png'),(await wc.capturePage()).toPNG())
     assert.deepEqual(clipboardCalls,[])
-    const receipt={status:'PASS',source:'Production MailRowView and MailList with the full bundled stylesheet',pid:process.pid,sessionId,clipboardInitiallyEmpty:true,clipboardPermissionsDenied:true,nativeClipboardStubbed:true,rendererClipboardBlocked:true,clipboardCalls,measured,nativeTooltipPixels:'Not measured; hidden names verified from the real overflow element title'}
+    const receipt={status:'PASS',source:'Production MailRowView and MailList with the full bundled stylesheet',pid:process.pid,sessionId,muted:wc.isAudioMuted(),clipboardInitiallyEmpty:true,clipboardPermissionsDenied:true,nativeClipboardStubbed:true,rendererClipboardBlocked:true,clipboardCalls,measured,nativeTooltipPixels:'Not measured; hidden names verified from the real overflow element title'}
     fs.writeFileSync(path.join(out,'receipt.json'),JSON.stringify(receipt,null,2))
     console.log(JSON.stringify(receipt));app.exit(0)
   }catch(error){console.error(error);app.exit(1)}

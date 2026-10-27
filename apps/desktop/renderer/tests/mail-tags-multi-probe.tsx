@@ -7,7 +7,7 @@ import { applyTheme } from '../src/themes'
 import type { MailRow } from '../src/canvas/shared'
 import replyFixture from './fixtures/events/reply.mail.json'
 import docFixture from './fixtures/events/reply.document.json'
-const tags=['a lengthy build announcement tag','release','alpha build','review','progress','renderer','engine','ready']
+const tags=['a lengthy build announcement tag','release','alpha build','review','engine','ready']
 const row:MailRow={id:'preview',from:'coordinator',kind:'message',at:'2026-10-17T19:50:00Z',body:docFixture.body,tags,ev:docFixture.private}
 const decoded=decodeEventRow(row,'operator'),view=decoded.kind==='known'?projectEvent(decoded.event):null
 const reply:MailRow={id:'reply',from:'coordinator',kind:'message',at:'2026-10-17T19:52:00Z',body:replyFixture.body,tags,ev:replyFixture.private}

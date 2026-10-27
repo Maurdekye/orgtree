@@ -125,9 +125,9 @@ or grants. Panel links and their app.event signals were removed (user
 See the same topic for cursor limits.
 [verified: `canvas/apps/actions.ts`, `canvas/apps/{host,permissions}.tsx`, `domain/apps/{bridge,files,storage,wire}.rs`; 2026-10-26]
 
-Mail list previews cap tags at three, with active filter matches first and a
+Mail list previews cap tags at four, with active filter matches first and a
 hover-only (+n) count; detail and picker tags remain uncapped. See
-[mail tags](docs/rust-engine/mail-tags.md). [decided: user 2026-10-25; verified: `canvas/mail.tsx`]
+[mail tags](docs/rust-engine/mail-tags.md). [decided: user 2026-10-25, 2026-10-27; verified: `canvas/mail.tsx`]
 
 Text-edit and spelling menus use Chromium's context flags and the originating
 webContents/session, including popouts. See [text menus](docs/agents/desktop-and-renderer.md#text-editing-and-spelling-menus-2026-10-24-445).

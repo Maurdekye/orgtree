@@ -8,10 +8,10 @@ const preview = (el: HTMLElement) => el.querySelector<HTMLElement>('.mailrow .l2
 const names = (el: HTMLElement) => [...preview(el).querySelectorAll('.mail-tag[data-tag-key]')].map(t => t.textContent)
 const filter = (selected: string[]) => ({ selected, choices: ['build', 'alpha', 'Review', 'release'], onChange: () => {} })
 
-test('an active filter leads the three-tag preview followed by other stored tags', async t => {
-  const v = await mountView(<MailList delivered={[row(['build', 'alpha', 'Review'])]} tagFilter={filter([' REVIEW '])}/>, el => el)
+test('an active filter leads the four-tag preview followed by other stored tags', async t => {
+  const v = await mountView(<MailList delivered={[row(['build', 'alpha', 'Review', 'release'])]} tagFilter={filter([' REVIEW '])}/>, el => el)
   t.after(() => v.unmount())
-  assert.deepEqual(names(v.el), ['Review', 'build', 'alpha'])
+  assert.deepEqual(names(v.el), ['Review', 'build', 'alpha', 'release'])
   assert.equal(preview(v.el).querySelector('.mail-tag-more'), null)
 })
 
@@ -19,17 +19,16 @@ test('project rows show matching filters first and fill the preview without muta
   const tags = ['build', 'alpha', 'Review', 'release']
   const v = await mountView(<MailList projectMail delivered={[row(tags)]} tagFilter={filter(['Review', 'alpha'])}/>, el => el)
   t.after(() => v.unmount())
-  assert.deepEqual(names(v.el), ['Review', 'alpha', 'build'])
-  assert.equal(preview(v.el).querySelector('.mail-tag-more')?.textContent, '(+1)')
-  assert.equal(preview(v.el).querySelector('.mail-tag-more')?.getAttribute('title'), 'release')
+  assert.deepEqual(names(v.el), ['Review', 'alpha', 'build', 'release'])
+  assert.equal(preview(v.el).querySelector('.mail-tag-more') === null, true)
   assert.equal(preview(v.el).getAttribute('title'), 'build, alpha, Review, release', 'full labels remain available on hover')
   assert.deepEqual(tags, ['build', 'alpha', 'Review', 'release'], 'display ordering never mutates the mail')
 })
 
-test('without an active filter three tags stay in stored order without overflow', async t => {
-  const v = await mountView(<MailList delivered={[row(['build', 'alpha', 'Review'])]}/>, el => el)
+test('without an active filter four tags stay in stored order without overflow', async t => {
+  const v = await mountView(<MailList delivered={[row(['build', 'alpha', 'Review', 'release'])]}/>, el => el)
   t.after(() => v.unmount())
-  assert.deepEqual(names(v.el), ['build', 'alpha', 'Review'])
+  assert.deepEqual(names(v.el), ['build', 'alpha', 'Review', 'release'])
   assert.equal(preview(v.el).querySelector('.mail-tag-more'), null)
 })
 
@@ -41,43 +40,43 @@ test('two tags follow active filter priority without overflow', async t => {
 })
 
 test('when every tag is filtered for, every tag is visible and no overflow pill remains', async t => {
-  const v = await mountView(<MailList delivered={[row(['build', 'alpha', 'Review'])]} tagFilter={filter(['Review', 'build', 'alpha'])}/>, el => el)
+  const v = await mountView(<MailList delivered={[row(['build', 'alpha', 'Review', 'release'])]} tagFilter={filter(['Review', 'build', 'alpha', 'release'])}/>, el => el)
   t.after(() => v.unmount())
-  assert.deepEqual(names(v.el), ['Review', 'build', 'alpha'])
+  assert.deepEqual(names(v.el), ['Review', 'build', 'alpha', 'release'])
   assert.equal(preview(v.el).querySelector('.mail-tag-more') === null, true)
 })
 
-test('mail previews cap stored tags at three across the zero-to-eight boundary', async t => {
+test('mail previews cap stored tags at four across the zero-to-eight boundary', async t => {
   const v = await mountView(<MailList delivered={[]}/>, el => el)
   t.after(() => v.unmount())
   const all = ['build', 'alpha', 'Review', 'release', 'engine', 'ready', 'docs', 'test']
   for (let total = 0; total <= all.length; total++) {
     const tags = all.slice(0, total)
     await v.render(<MailList delivered={[row(tags)]}/>)
-    assert.deepEqual(names(v.el), tags.slice(0, 3), `visible tags for total=${total}`)
+    assert.deepEqual(names(v.el), tags.slice(0, 4), `visible tags for total=${total}`)
     const more = preview(v.el).querySelector('.mail-tag-more')
-    assert.equal(more?.textContent ?? null, total > 3 ? `(+${total - 3})` : null)
-    assert.equal(more?.getAttribute('title') ?? null, total > 3 ? tags.slice(3).join(', ') : null)
+    assert.equal(more?.textContent ?? null, total > 4 ? `(+${total - 4})` : null)
+    assert.equal(more?.getAttribute('title') ?? null, total > 4 ? tags.slice(4).join(', ') : null)
   }
 })
 
-test('more than three matching filters are capped and normalized duplicates do not inflate the count', async t => {
-  const v = await mountView(<MailRowView m={row(['build', 'alpha', 'Review', 'release'])}
+test('more than four matching filters are capped and normalized duplicates do not inflate the count', async t => {
+  const v = await mountView(<MailRowView m={row(['build', 'alpha', 'Review', 'release', 'ready'])}
     view={null} selected={false} party="lead" onClick={() => {}}
-    filterTags={['Review', ' REVIEW ', 'release', 'alpha', 'build']}/>, el => el)
+    filterTags={['Review', ' REVIEW ', 'release', 'alpha', 'build', 'ready']}/>, el => el)
   t.after(() => v.unmount())
-  assert.deepEqual(names(v.el), ['Review', 'release', 'alpha'])
+  assert.deepEqual(names(v.el), ['Review', 'release', 'alpha', 'build'])
   assert.equal(preview(v.el).querySelector('.mail-tag-more')?.textContent, '(+1)')
-  assert.equal(preview(v.el).querySelector('.mail-tag-more')?.getAttribute('title'), 'build')
+  assert.equal(preview(v.el).querySelector('.mail-tag-more')?.getAttribute('title'), 'ready')
 })
 
 test('the open message and active filter bar retain every tag', async t => {
-  const tags = ['build', 'alpha', 'Review', 'release']
+  const tags = ['build', 'alpha', 'Review', 'release', 'engine', 'ready']
   const v = await mountView(<MailList pending={[row(tags)]}
-    tagFilter={filter(['Review', 'release', 'alpha', 'build'])} selectOldestUnread/>, el => el)
+    tagFilter={filter(['Review', 'release', 'alpha', 'build', 'engine', 'ready'])} selectOldestUnread/>, el => el)
   t.after(() => v.unmount())
-  assert.equal(v.el.querySelectorAll('.mailer-head .mail-tag[data-tag-key]').length, 4)
-  assert.equal(v.el.querySelectorAll('.mail-list-controls .mail-tag-active').length, 4)
+  assert.equal(v.el.querySelectorAll('.mailer-head .mail-tag[data-tag-key]').length, 6)
+  assert.equal(v.el.querySelectorAll('.mail-list-controls .mail-tag-active').length, 6)
   assert.equal(v.el.querySelector('.mailer-head .mail-tag-more'), null)
-  assert.equal(names(v.el).length, 3)
+  assert.equal(names(v.el).length, 4)
 })

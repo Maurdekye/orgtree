@@ -113,9 +113,9 @@ with `tags:["alpha build"]`; see `orgtree-tool-message` (orgtree-working, mail).
 The tool accepts up to eight tags for user-bound mail only; tags stay local.
 
 Tag pills are 10px, never wrap within a label, and ellipsize long labels. Every
-mail list row shows up to three tags in stored order. Active filter matches
+mail list row shows up to four tags in stored order. Active filter matches
 come first in filter order, then other stored tags fill the remaining places.
-Four or more tags show three plus **(+n)**, counting every hidden tag; hover
+Five or more tags show four plus **(+n)**, counting every hidden tag; hover
 the count for their names. It does not expand on click. Chips may wrap within
 a narrow row, preserving sender/kind/time. The open message, tag picker and
 filter bar keep all tags. User-inbox reply.mail omits the
