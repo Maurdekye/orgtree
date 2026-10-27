@@ -812,6 +812,20 @@ pub fn tool_file_paths(name: &str, input: &Value) -> Option<Value> {
     Some(json!(result))
 }
 
+/// The transcript text for an agent's own orgtree_interrupt call when the
+/// turn really ended at its request (USER 2026-10-27, proposal H). Claude
+/// Code records a call that is still open when the interrupt lands as "The
+/// user doesn't want to proceed with this tool use", an error the user then
+/// sees as a failed call. None for any other call or outcome.
+#[nolog]
+pub fn own_turn_end_text(name: &str, input: &Value, agent: &str, ended_by_self: bool, restart: bool) -> Option<&'static str> {
+    let base = name.rsplit("__").next().unwrap_or(name);
+    if !ended_by_self || base != "orgtree_interrupt" || input["node"].as_str().map(|n| n.trim_start_matches('@')) != Some(agent) {
+        return None;
+    }
+    Some(if restart { "Ended this turn as requested; the next turn starts at once." } else { "Ended this turn as requested." })
+}
+
 /// Provider-reported failed shell output only. Kept separately from chat/feed.
 #[nolog]
 pub fn retain_failed_shell_output(chip: &mut Value, text: &str, failed: bool, provider_truncated: bool) {
@@ -2903,6 +2917,24 @@ mod tool_refs_tests {
         assert_eq!(tool_refs("orgtree_work", &json!({ "action": "get", "slug": "fix-x" }), Some(out)), json!([{ "kind": "ticket", "id": "fix-x" }]));
         assert_eq!(tool_refs("orgtree_work", &json!({ "action": "list" }), Some(out)), json!([]));
         assert_eq!(tool_refs("orgtree_staff", &json!({ "action": "update", "slug": "fix-x" }), Some(out)), json!([{ "kind": "ticket", "id": "fix-x" }]));
+    }
+}
+
+#[cfg(test)]
+mod own_turn_end_tests {
+    use super::*;
+
+    #[test]
+    fn a_self_requested_turn_end_is_not_a_failed_call() {
+        let me = json!({ "node": "school-cut-opus", "restart": true });
+        assert_eq!(own_turn_end_text("mcp__orgtree__orgtree_interrupt", &me, "school-cut-opus", true, true),
+                   Some("Ended this turn as requested; the next turn starts at once."));
+        assert_eq!(own_turn_end_text("orgtree_interrupt", &json!({ "node": "@school-cut-opus" }), "school-cut-opus", true, false),
+                   Some("Ended this turn as requested."));
+        // a refused or not-yet-applied interrupt, a superior's interrupt and other tools keep their real result
+        assert_eq!(own_turn_end_text("mcp__orgtree__orgtree_interrupt", &me, "school-cut-opus", false, true), None);
+        assert_eq!(own_turn_end_text("mcp__orgtree__orgtree_interrupt", &json!({ "node": "a-report" }), "school-cut-opus", true, true), None);
+        assert_eq!(own_turn_end_text("mcp__orgtree__orgtree_work", &me, "school-cut-opus", true, true), None);
     }
 }
 

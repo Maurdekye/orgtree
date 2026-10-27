@@ -7168,10 +7168,18 @@ impl Actor {
                         if images > 0 {
                             chip["images"] = json!(images);
                         }
-                        if b["is_error"].as_bool().unwrap_or(false) {
+                        // The agent's own interrupt: Claude Code records the
+                        // still-open call as rejected, but the turn ended as asked.
+                        let own_end = b["is_error"] == true && turn.interrupted
+                            && convo::own_turn_end_text(chip["name"].as_str().unwrap_or(""), &chip["input"], &self.name,
+                                turn.restart_by.as_deref() == Some(self.name.as_str()), turn.restart).map(|end| {
+                                    chip["result"] = json!(end);
+                                    chip["result_lines"] = json!(1);
+                                }).is_some();
+                        if b["is_error"].as_bool().unwrap_or(false) && !own_end {
                             chip["error"] = json!(gist(&text, 500));
                         }
-                        convo::retain_failed_shell_output(chip, &text, b["is_error"] == true, false);
+                        convo::retain_failed_shell_output(chip, &text, b["is_error"] == true && !own_end, false);
                         if let Some(diff) = patch_of(v) {
                             chip["diff"] = diff;
                         }

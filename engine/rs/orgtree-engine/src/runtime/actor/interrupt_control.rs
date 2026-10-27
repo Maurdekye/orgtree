@@ -143,20 +143,8 @@ impl Actor {
     }
 
     pub(super) fn track_claude_interrupt(&mut self, v: &Value) {
-        if !v["parent_tool_use_id"].is_null() {
-            return;
-        }
-        if v["type"] == "assistant" {
-            for b in v
-                .pointer("/message/content")
-                .and_then(Value::as_array)
-                .into_iter()
-                .flatten()
-            {
-                if b["type"] == "tool_use" {
-                    self.track_interrupt(b["id"].as_str().map(|id| (id, false)));
-                }
-            }
+        for (id, done) in crate::runtime::interrupt::claude(v) {
+            self.track_interrupt(Some((id, done)));
         }
     }
 

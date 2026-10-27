@@ -100,6 +100,32 @@ pub fn muse<'a>(v: &'a Value, turn: Option<&str>) -> Option<(&'a str, bool)> {
     Some((i["itemId"].as_str()?, done))
 }
 
+/// Claude stream lines: a root tool_use starts work and its tool_result ends
+/// it. A failed call gets no PostToolUse hook, so its result is the only end
+/// it ever has; without it, a queued interrupt waited for the turn to end
+/// (USER 2026-10-27, proposal H). Sub-agent lines never count.
+#[nolog]
+pub fn claude(v: &Value) -> Vec<(&str, bool)> {
+    if !v["parent_tool_use_id"].is_null() {
+        return Vec::new();
+    }
+    let done = match v["type"].as_str() {
+        Some("assistant") => false,
+        Some("user") => true,
+        _ => return Vec::new(),
+    };
+    v.pointer("/message/content")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|b| match (done, b["type"].as_str()?) {
+            (false, "tool_use") => Some((b["id"].as_str()?, false)),
+            (true, "tool_result") => Some((b["tool_use_id"].as_str()?, true)),
+            _ => None,
+        })
+        .collect()
+}
+
 #[nolog]
 pub fn acp<'a>(v: &'a Value, turn: Option<&str>) -> Option<(&'a str, bool)> {
     if v["turn"].as_str() != turn || turn.is_none() {
@@ -142,6 +168,20 @@ mod tests {
         p.start("new");
         assert!(!p.finish("old"));
         assert!(p.finish("new"));
+    }
+    #[test]
+    fn claude_failed_calls_end_on_their_result() {
+        let call = json!({"type":"assistant","message":{"content":[{"type":"tool_use","id":"t1","name":"mcp__orgtree__orgtree_work"}]}});
+        let failed = json!({"type":"user","parent_tool_use_id":null,"message":{"content":[{"type":"tool_result","tool_use_id":"t1","is_error":true,"content":"refused"}]}});
+        let helper = json!({"type":"user","parent_tool_use_id":"agent-1","message":{"content":[{"type":"tool_result","tool_use_id":"t9"}]}});
+        assert_eq!(claude(&call), vec![("t1", false)]);
+        assert_eq!(claude(&failed), vec![("t1", true)]);
+        assert!(claude(&helper).is_empty());
+        let mut p = Progress::default();
+        let mut feed = |v: &Value| for (id, done) in claude(v) { if done { p.finish(id); } else { p.start(id); } };
+        feed(&call);
+        feed(&failed);
+        assert!(p.quiet(), "a failed call no longer holds a queued interrupt off for the rest of the turn");
     }
     #[test]
     fn completion_only_notices_count_once() {
