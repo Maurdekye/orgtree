@@ -32,14 +32,15 @@ test('Permission history is its own App settings tab: a live list of expandable 
   const slug='permission-history',view=await mountView(<AppSettings slug={slug} app={app} close={()=>{}}/>,e=>e);t.after(()=>view.unmount());await inAct(tick)
   const tabs=[...document.querySelectorAll<HTMLButtonElement>('[role="tab"]')]
   assert.deepEqual(tabs.map(b=>b.textContent?.trim()),['General','Events','Permissions','Permission history'],'Permission history is the last App settings tab')
-  await inAct(async()=>{tabs[1]!.click();await tick()})
+  const named=(name:string)=>tabs.find(b=>b.textContent?.trim()===name)!
+  await inAct(async()=>{named('Permissions').click();await tick()})
   const permissions=document.querySelector<HTMLElement>('[role="tabpanel"]:not([hidden])')!
   assert.match(permissions.textContent??'',/Internet access/)
   assert.equal(permissions.textContent?.includes('Permission history'),false,'the Permissions tab no longer holds the history')
   const reads=()=>calls.filter(c=>c.action==='permission_history')
   assert.equal(reads().length,0,'opening Permissions reads no history')
 
-  await inAct(async()=>{tabs[2]!.click();await tick()})
+  await inAct(async()=>{named('Permission history').click();await tick()})
   const body=document.querySelector<HTMLElement>('[role="tabpanel"]:not([hidden])')!
   assert.match(body.querySelector('p.dim')?.textContent??'',/^Permission changes and prompt answers for this app, newest first\./,'the lead line says what it lists')
   assert.equal([...body.querySelectorAll('button')].some(b=>/refresh/i.test(b.textContent??'')),false,'no Refresh button: the history is live')
