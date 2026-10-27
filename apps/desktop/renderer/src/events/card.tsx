@@ -21,7 +21,7 @@ import { WATCHDOG_CARD_LIMIT } from '../canvas/watchdoggroup'
 import { WatchdogLink } from '../canvas/watchdoglink'
 import { AnsweredAsk, AnsweredCard, ResolvedSections, batchAskQuestions, resolvedSectionKinds } from './answered'
 import { StructuredJson } from '../canvas/structuredjson'
-import { EXTERNAL_NOTE, EXTERNAL_TAG, fireActionParts, fireLineParts } from './firelines'
+import { EXTERNAL_NOTE, EXTERNAL_TAG, appEventParts, fireActionParts, fireLineParts } from './firelines'
 import type { FirePart } from './firelines'
 import { IdleDocketCards } from './idledocket'
 
@@ -67,6 +67,7 @@ function Fields({ fields, ...props }: ValueProps & { fields: EventField[] }) {
 function FireParts({ parts, ...props }: ContentProps & { parts: FirePart[] }) {
   return <>{parts.map((p, i) => p.kind === 'json'
     ? <StructuredJson key={i} value={p.value} raw={p.raw} />
+    : p.kind === 'literal' ? <div key={i} className="event-prose" style={{whiteSpace:'pre-wrap'}}>{p.text}</div>
     : <Text key={i} text={p.text} {...props} />)}</>
 }
 type DogFire = Extract<KnownEvent, { variant: 'monitor.watchdog_fired' }>
@@ -75,7 +76,8 @@ type DogFire = Extract<KnownEvent, { variant: 'monitor.watchdog_fired' }>
  *  mqtt or websocket fire's source is the header's tag, not a body line. */
 function FireBody({ event, fields, ...props }: ValueProps & { event: DogFire; fields: EventField[] }) {
   const content = { world: props.world, onOpen: props.onOpen, imgBase: props.imgBase }
-  const lines = useMemo(() => event.lines.map(line => fireLineParts(line, event.source)), [event.lines, event.source])
+  const lines = useMemo(() => event.lines.map(line => event.prefix === 'APP EVENT'
+    ? appEventParts(line) : fireLineParts(line, event.source)), [event.lines, event.source, event.prefix])
   const actions = useMemo(() => event.fire_actions ? fireActionParts(event.fire_actions) : [], [event.fire_actions])
   const labelled = fields.filter(f => f.key !== 'source').length > 1
   return <>{fields.map(f => {

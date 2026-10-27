@@ -1,3 +1,10 @@
+**App-event mail JSON payload, USER 2026-10-27 md977c9fb5590 (4.5.0):**
+"payload here should be rendered using the json renderer if it parses as json".
+APP EVENT watchdog mail renders its complete Payload with the same JSON viewer
+as Provenance; malformed or clipped JSON stays literal text. App data creates no
+links or markup, and agent-facing mail text is unchanged. See
+[custom apps](custom-apps.md#app-event-mail-payload-2026-10-27).
+
 **Changelog release emphasis, USER 2026-10-26 m91a2252773ec, m0bce503007bb (4.5.0):**
 Style major release rows more strongly than minor rows, and minor more than
 patch rows. Typography/edges and grouping prereleases by their base version are

@@ -1032,6 +1032,17 @@ revocation and the already-running DB watchdog's private-event mail path.
 Keep its raw diagnostics and positive delivery controls; unit synthetic Access
 coverage alone is not an end-to-end privacy claim.
 
+## App-event mail payload (2026-10-27)
+
+USER md977c9fb5590: "payload here should be rendered using the json renderer if it
+parses as json". The APP EVENT fire observation carries Provenance and Payload
+in one multiline field. The renderer parses each complete labelled value with
+strict JSON parsing and draws it with `StructuredJson`, including scalars and
+empty containers. Invalid or clipped values remain literal text without repair
+or partial parsing. App-controlled strings stay inert data: no Markdown, links
+or HTML. Raw shows the original JSON value; the mail body and agent-facing event
+remain unchanged. [verified: `events/card.tsx`, `events/firelines.ts`, `canvas/structuredjson.tsx`]
+
 ## Native action host implementation
 
 The SDK exposes `orgtree.call(action,args)`, forwarding only the fixed vocabulary

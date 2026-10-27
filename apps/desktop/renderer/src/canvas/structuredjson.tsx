@@ -144,7 +144,9 @@ export function StructuredJson({ value, raw, rawText, note, selection }: {
       onClick={e => { e.stopPropagation(); setShowRaw(r => !r) }}>Raw</button>
     {showRaw
       ? <SelectScalar source={selection} pointer="" text={typeof value==='string'?value:JSON.stringify(value,null,2)}><pre className="filepre respre sj-rawpre">{raw ?? rawText?.() ?? JSON.stringify(value, null, 2)}</pre></SelectScalar>
-      : <Children v={value} depth={0} collapseFrom={collapseFrom} source={selection} />}
+      : !isContainer(value) ? <SelectScalar source={selection} pointer="" text={typeof value==='string'?value:JSON.stringify(value)}><Scalar v={value} /></SelectScalar>
+        : Object.keys(value).length === 0 ? <span className="dim">{Array.isArray(value) ? '[]' : '{}'}</span>
+          : <Children v={value} depth={0} collapseFrom={collapseFrom} source={selection} />}
     {note && !showRaw && <div className="dim">{note}</div>}
   </div>
 }

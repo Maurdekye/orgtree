@@ -8,7 +8,22 @@ import { parseStructured } from '../canvas/structuredjson'
 // text that merely looks like JSON stays text.
 
 export type FireSource = 'mqtt' | 'websocket'
-export type FirePart = { kind: 'text'; text: string } | { kind: 'json'; value: unknown; raw: string }
+export type FirePart = { kind: 'text' | 'literal'; text: string } | { kind: 'json'; value: unknown; raw: string }
+
+/** App mail contains labelled JSON values in one multiline observation. Parse
+ * each complete value independently, never repair a clipped payload or interpret
+ * app-controlled strings as Markdown, links or instructions. */
+export function appEventParts(text: string): FirePart[] {
+  return text.split('\n').flatMap((line): FirePart[] => {
+    const match = /^(Provenance|Payload): (.*)$/.exec(line)
+    if (match) {
+      const raw = match[2]!
+      try { return [{ kind: 'literal', text: match[1] + ':' }, { kind: 'json', value: JSON.parse(raw), raw }] }
+      catch { /* the entire invalid value stays literal */ }
+    }
+    return [{ kind: 'literal', text: line }]
+  })
+}
 
 /** The tag an mqtt or websocket fire carries, the engine's mqtt/render.rs
  *  TAG without its brackets: it names the agents' standing EXTERNAL MAIL
