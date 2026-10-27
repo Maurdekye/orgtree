@@ -1994,6 +1994,9 @@ html.mobile .edge-jump { display: none; }
    told apart from an agent by the canvas satellite's state glyph (green while
    armed) and a dashed border — a dog is not an agent */
 .desk-dog-chip { border-style: solid; }
+/* an app event watchdog's app/panel names lead; their IDs follow, quieter */
+.wd-source { display: flex; align-items: baseline; flex-wrap: wrap; gap: 0 8px; color: var(--ink); }
+.wd-source-id, .wd-source-note { font-size: 10.5px; }
 .desk-dog-chip.oneshot { border-style: dashed; }
 .desk-dog-chip .wd-glyph { font-size: 9px; }
 .wd-next-check { font-variant-numeric: tabular-nums; white-space: nowrap; }

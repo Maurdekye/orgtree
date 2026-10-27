@@ -767,7 +767,18 @@ export interface Watchdog {
   id: string
   owner: string
   name: string
-  kind: 'file' | 'command' | 'process' | 'stream' | 'activity' | 'event' | 'usage' | 'fair_queue' | 'slot' | 'project_listener' | 'listener_watch' | 'mqtt' | 'websocket'
+  kind: 'file' | 'command' | 'process' | 'stream' | 'activity' | 'event' | 'usage' | 'fair_queue' | 'slot' | 'project_listener' | 'listener_watch' | 'mqtt' | 'websocket' | 'app_listener'
+  /** an `app_listener` (target = its app's ID): the declared event it listens
+   *  for, and one saved panel's ID or all_panels for every copy */
+  event_name?: string
+  panel?: string
+  all_panels?: boolean
+  /** an `app_listener`: its app's and panel's current names, resolved by the
+   *  engine on each read, or app_deleted/panel_deleted once they are gone */
+  app_name?: string
+  panel_name?: string
+  app_deleted?: boolean
+  panel_deleted?: boolean
   /** a `listener_watch`: armed project listeners that fire it */
   count?: number
   /** an `mqtt` or `websocket` dog: how it authenticates, never with what:

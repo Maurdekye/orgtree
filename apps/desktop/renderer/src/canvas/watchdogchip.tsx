@@ -8,9 +8,9 @@ import { isDeadLetterListener } from './listeners'
 
 // a dead-letter listener (an event dog on project.dead_letter) wears the dead-letter
 // sepia-maroon wherever it is drawn (user 2026-10-20 06:41Z)
-export const watchdogKindClass=(w:Watchdog)=>w.kind==='slot'?'slot':w.kind==='fair_queue'?'fair-queue':w.kind==='listener_watch'?'listener listener-watch':w.kind==='project_listener'?'listener':w.kind==='websocket'?'websocket':isDeadLetterListener(w)?'dead-letter':''
+export const watchdogKindClass=(w:Watchdog)=>w.kind==='slot'?'slot':w.kind==='fair_queue'?'fair-queue':w.kind==='listener_watch'?'listener listener-watch':w.kind==='project_listener'?'listener':w.kind==='websocket'?'websocket':w.kind==='app_listener'?'app-listener':isDeadLetterListener(w)?'dead-letter':''
 
-export const watchdogGlyph=(w:Watchdog)=>w.spent||w.state==='spent'?'↗':w.disabled?'⊘':w.state==='paused'?'◫':w.state!=='armed'?'✕':w.kind==='slot'&&!w.lease?'⏳':w.kind==='event'?'⚡':w.kind==='websocket'?'⇄':'◉'
+export const watchdogGlyph=(w:Watchdog)=>w.spent||w.state==='spent'?'↗':w.disabled?'⊘':w.state==='paused'?'◫':w.state!=='armed'?'✕':w.kind==='slot'&&!w.lease?'⏳':w.kind==='event'?'⚡':w.kind==='websocket'?'⇄':w.kind==='app_listener'?'▦':'◉'
 
 /** A dog's state as its chip's tooltip words it: a dog its project's
  *  event-listeners switch-off disabled says so, and why. */

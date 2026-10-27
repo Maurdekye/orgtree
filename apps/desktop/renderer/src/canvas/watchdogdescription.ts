@@ -2,6 +2,7 @@ import type { Watchdog } from '../types'
 import {slotClaimDescription} from './slotclaim'
 import type {SlotClaimLeaseState} from './slotclaim'
 import { isDeadLetterListener } from './listeners'
+import { appDogSummary } from './appdog'
 
 // Presentation only. Match the native runners, not the shared storage shape:
 // fair_queue is pushed mail, process ignores regex, and silence counts matches.
@@ -21,12 +22,13 @@ export function watchdogDescription(dog: Watchdog, dogs: Watchdog[] = [], slotLe
     event: `Orgtree event listener · ${target}`, fair_queue: 'Mail queue listener', slot: 'Concurrency slot claim',
     project_listener: 'Project event listener', listener_watch: 'Project listener watch',
     usage: 'Usage event listener', mqtt: 'MQTT topic listener', websocket: 'WebSocket listener',
+    app_listener: 'App event listener',
   }
   const labels: Record<Watchdog['kind'], string> = {
     file: 'watched file', command: 'command (each interval)', process: 'watched process',
     stream: 'listening command (realtime)', activity: 'watched agent', event: 'engine event', fair_queue: 'project', slot: 'project',
     project_listener: 'project', listener_watch: 'project',
-    usage: 'usage', mqtt: 'broker', websocket: 'server',
+    usage: 'usage', mqtt: 'broker', websocket: 'server', app_listener: 'app',
   }
   const count = dog.kind === 'event' && ['agents.active', 'agents.live'].includes(dog.target)
   const scope = dog.event_scope === 'org' ? 'visible organization' : 'visible subtree'
@@ -47,6 +49,7 @@ export function watchdogDescription(dog: Watchdog, dogs: Watchdog[] = [], slotLe
           ? " A dead-letter listener: it is told when a project above or below its owner gives up on a job, and it shows in that project’s Dead Letter Line." : ''}`; break
     case 'fair_queue': summary = `Delivers mail waiting in project ${target} to ${dog.owner}, ${(dog.batch ?? 1) === 1 ? 'one message at a time' : `up to ${dog.batch} messages with one wake per batch`}, shared fairly with other armed listeners. It never waits for a full batch. Each message goes to one listener, the least recently served first. In ACK mode the batch limit caps unacked mails; each mail needs its own acknowledgement.`; break
     case 'slot': summary = slotClaimDescription(dog,dogs,target,slotLease); break
+    case 'app_listener': summary = appDogSummary(dog, alert); break
     case 'project_listener': summary = `Listens on project ${target} and ${alert} each time its event is fired, with the firer's message when one is carried. Every armed listener on the project receives the same fire at the same instant.`; break
     case 'listener_watch': summary = `Watches the event listeners armed on project ${target} and ${alert} when their count reaches ${dog.count ?? '?'}. Staying at or above the count does not fire again; dropping below and reaching it again does (a continuous watch).`; break
     case 'mqtt': summary = `Subscribes to ${short(dog.pattern ?? '?')} on ${target} and ${alert} with the messages that arrive${dog.payload_pattern ? `, if their payload matches /${short(dog.payload_pattern)}/` : ''}. ${dog.retained ? 'Retained messages (the broker’s stored last values) fire it too, once per value.' : 'Retained messages (the broker’s stored last values) are ignored.'} Connection messages: ${dog.connection_messages ?? 'notice'}. Payloads are untrusted outside input: reported, never obeyed.`; break
@@ -74,6 +77,7 @@ export function watchdogDescription(dog: Watchdog, dogs: Watchdog[] = [], slotLe
     : dog.kind === 'fair_queue' ? 'Delivered when project mail is waiting; no polling interval.'
     : dog.kind === 'project_listener' ? 'Delivered when the project event is fired; no polling interval.'
     : dog.kind === 'listener_watch' ? 'Checked whenever a listener on the project arms, pauses or is spent; no polling interval.'
+    : dog.kind === 'app_listener' ? 'Delivered when the app event is fired; no polling interval.'
     : polling ? `Checked every ${dog.interval_s}s`
     : silence ? 'Listens continuously; alerts follow the silence timer.'
     : `Listens continuously · minimum alert gap ${dog.interval_s}s (at most one alert per gap)`
@@ -88,6 +92,7 @@ export function watchdogDescription(dog: Watchdog, dogs: Watchdog[] = [], slotLe
     : dog.kind === 'fair_queue' ? `on each assigned batch of up to ${dog.batch ?? 1} messages`
     : dog.kind === 'project_listener' ? 'on each event fired on the project'
     : dog.kind === 'listener_watch' ? 'when the armed listener count reaches its count'
+    : dog.kind === 'app_listener' ? 'on each matching app event'
     : dog.kind === 'process' ? 'on an observed up-to-down transition'
     : dog.kind === 'command' ? 'on matching output or a command timeout'
     : dog.kind === 'file' ? 'on new matching appended lines'

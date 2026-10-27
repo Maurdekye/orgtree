@@ -1,6 +1,7 @@
 import type { Watchdog } from '../types'
 import { useWatchdogCountdown } from './watchdogcountdown'
 import { useNativeTitle } from './nativetitle'
+import { appDogTitle } from './appdog'
 
 export const watchdogStateWords = (dog: Watchdog) => dog.disabled ? `disabled: ${dog.disabled}` : dog.state
 
@@ -8,7 +9,9 @@ export const watchdogStateWords = (dog: Watchdog) => dog.disabled ? `disabled: $
  * not change what the same known watchdog says on hover. */
 export function watchdogTitle(dog: Watchdog, countdown?: string): string {
   const gone = dog.spent || dog.state === 'spent'
-  const title = `${dog.once ? 'one-shot dog' : 'watchdog'} "${dog.name}" (${dog.kind}) — ${gone ? 'no longer exists' : watchdogStateWords(dog)}; ${dog.once ? 'fires once' : 'continuous'}`
+  // an app event watchdog names its app, panel and event (user 2026-10-27)
+  const kind = dog.kind === 'app_listener' ? appDogTitle(dog) : dog.kind
+  const title = `${dog.once ? 'one-shot dog' : 'watchdog'} "${dog.name}" (${kind}) — ${gone ? 'no longer exists' : watchdogStateWords(dog)}; ${dog.once ? 'fires once' : 'continuous'}`
   return countdown ? `${title} · ${countdown}` : title
 }
 

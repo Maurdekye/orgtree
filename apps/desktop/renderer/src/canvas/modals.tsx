@@ -2,6 +2,7 @@ import { agentSuperior, effectiveReports, isTopLevel } from './shared'
 import { watchdogActions } from './objectactions'
 import { WatchdogCountdown } from './watchdogcountdown'
 import { watchdogDescription } from './watchdogdescription'
+import { AppDogFields } from './appdog'
 import { setWatchdogConnectionMessages } from '../api'
 import { WatchdogLink } from './watchdoglink'
 import {useDogRoute} from './watchdogroute'
@@ -275,16 +276,16 @@ export function WatchdogPanel({ slug, dog, dogs, op, toast, close }: {
         </div>}
         <div className="field-label">owner</div>
         <div className="chip mono">{dog.owner}</div>
-        <div className="field-label">{description.targetLabel}</div>
+        {dog.kind !== 'app_listener' && <div className="field-label">{description.targetLabel}</div>}
         {dog.kind === 'usage' && <div className="wd-usage-filters">
           <div>Accounts: {dog.accounts?.join(', ') || 'any visible account'}</div>
           <div>Windows: {dog.windows?.join(', ') || 'any window'}</div>
           <div>Events: {dog.usage_events?.join(', ') || 'all detectable usage edges'}</div>
           {dog.threshold_percent != null && <div>Threshold: {dog.threshold_percent}%</div>}
         </div>}
-        <div className={'chip mono grow wd-cmd' + (expTarget ? ' wd-expand' : '')}
+        {dog.kind === 'app_listener' ? <AppDogFields dog={dog} /> : <div className={'chip mono grow wd-cmd' + (expTarget ? ' wd-expand' : '')}
           title={expTarget ? 'click to collapse' : 'click to see the full text'}
-          onClick={() => setExpTarget((v) => !v)}>{dog.target}</div>
+          onClick={() => setExpTarget((v) => !v)}>{dog.target}</div>}
         {(dog.fire_actions?.length ?? 0) > 0 && <>
           <div className="field-label">fire actions</div>
           <div className="wd-usage-filters">
