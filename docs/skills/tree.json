@@ -7863,6 +7863,18 @@
      "component": "AppFilePermissions",
      "label": "`${item.detail.operation} · ${item.agent}`",
      "line": 62
+    },
+    {
+     "file": "apps/desktop/renderer/src/canvas/apps/net-ui.tsx",
+     "component": "AppNetPermissions",
+     "label": "label(site)",
+     "line": 38
+    },
+    {
+     "file": "apps/desktop/renderer/src/canvas/apps/net-ui.tsx",
+     "component": "AppNetPermissions",
+     "label": "site",
+     "line": 39
     }
    ],
    "ui_labels": [
@@ -7870,6 +7882,11 @@
      "file": "apps/desktop/renderer/src/canvas/apps/files-ui.tsx",
      "label": "Pending changes",
      "line": 62
+    },
+    {
+     "file": "apps/desktop/renderer/src/canvas/apps/net-ui.tsx",
+     "label": "Internet access",
+     "line": 34
     },
     {
      "file": "apps/desktop/renderer/src/canvas/apps/portable.tsx",

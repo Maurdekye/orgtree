@@ -324,3 +324,40 @@ App messages, the notice of a docket item an app assigns, and app event deliveri
 also stay out of engine diagnostics when they wake an agent: the log names each
 by its message ID. The agent still receives the content, and ordinary messages
 are logged as before.
+
+## Internet access
+
+Apps can't reach the internet until you allow it. An app that needs a website
+declares the sites it uses, for example `api.example.com`, `*.example.org` for
+its subdomains, or any site. Orgtree refuses every other site without asking.
+
+The first time a copy connects to a site, a visible copy asks you: **Deny**,
+**Allow once** (until that copy is hidden or stopped) or **Always allow this
+site**. A hidden copy can't ask; show it to answer.
+
+**App settings → Permissions → Internet access** has the **Internet access** row
+(Ask, Allow listed sites, Deny) and one row per declared site (Ask, Allow,
+Deny). Deny on any row wins. **Any site** is its own row with a warning and stays
+Ask until you allow it there; allowing it lets the app connect to any website.
+A site you answered at a prompt under a wildcard gets its own row, which you can
+change or remove.
+
+Orgtree makes each request for the app: HTTPS only, without your cookies,
+sign-ins or Orgtree credentials, and never to this computer or your local
+network. Up to 1 MiB goes out, 4 MiB comes back, within 30 seconds. A site you
+allow can receive anything the app can read, including org data and files, so
+allow only apps and sites you trust.
+
+Changing an app's code clears every Allow; Ask and Deny stay. Changing a
+permission to Ask or Deny, powering a copy off or Stop all stops the app's
+requests in progress.
+
+Agents can declare sites, read permissions and the history, and set internet
+access to Ask or Deny; only you can allow it.
+
+**Permission history**, at the bottom of the Permissions tab, lists permission
+changes and prompt answers for the app, newest first (the latest 128).
+
+App code calls `orgtree.net.fetch(url, options)` instead of `fetch`; it returns a
+standard Response. Plain `fetch`, WebSocket and image URLs stay blocked: to show
+an image, fetch its bytes and use a `blob:` URL.

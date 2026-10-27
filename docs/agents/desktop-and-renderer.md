@@ -36,6 +36,9 @@ layers already reach it (the UDP policy covers a webContents' subframes, the
 session proxy covers every frame in the session). Measured with both layers
 (probe proxy bypass limited to the page server): 0 STUN, 0 ICE UDP, 0 TURN TCP
 and 0 ICE TCP packets on all four surfaces; the base had all four.
+App internet access (net.fetch, 4.5.0) keeps all of this: the panel frame stays
+offline and `orgtree.net.fetch` asks the engine, which makes the request
+([custom apps](../rust-engine/custom-apps.md#internet-access-2026-10-27)).
 [decided: coordinator 2026-10-26 assignment, user 2026-10-26 "No, 4.5.0 only"
 (m65b128578ffb); verified: `main/{windows,index}.ts`; control:
 `tests/sandboxed-html-network.test.mjs`]

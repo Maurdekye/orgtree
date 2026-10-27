@@ -78,8 +78,8 @@ An unpinned panel opens as a standard centered modal, with pop-out, a window pin
 Hide and Power off. There are two separate settings panels (user ruling2026-10-26).
 The app-row gear in Apps opens App settings: the app's description above two
 tabs, General (export and app deletion) and Permissions (Events
-allow/deny, Files grants and pending changes, with their existing app-wide
-behavior). Allow once remains
+allow/deny, Files grants and pending changes, Internet access per site, and
+Permission history at the bottom, with their existing app-wide behavior). Allow once remains
 in the active host's native prompt.
 
 Each saved-panel row has its own gear, even when closed. That gear and the open
@@ -216,3 +216,29 @@ Agent parity is orgtree_apps file_permissions/file_open/file_read/file_roots/fil
 file_child/file_write/file_delete/file_result, requiring
 the app grant AND the agent's held folders. Native picking/consent/revoke is
 user-only; agents never self-grant. See orgtree-tool-apps for exact fields/limits.
+
+## Internet access
+
+Apps have no internet access until you allow it. An app declares the sites it
+uses (a host, `*.domain` for subdomains, or any site), and anything else is
+refused without asking. A visible copy asks the first time it connects to a site:
+Deny, Allow once (until that copy is hidden or stopped) or Always allow this site.
+A hidden copy can't ask; show it to answer.
+
+App settings → Permissions → Internet access has the Internet access row (Ask,
+Allow listed sites, Deny) and a row per declared site (Ask, Allow, Deny). Deny on
+any row wins. Any site is its own row with a warning; Allow listed sites never
+includes it. Hosts answered at a prompt under a wildcard get their own rows with
+Remove.
+
+Orgtree makes each request itself, over HTTPS, without cookies or sign-ins and
+never to this computer or the local network. A site you allow can receive
+anything the app can read. A code change clears every Allow; changing a
+permission to Ask or Deny stops requests in progress.
+
+Permission history, at the bottom of the Permissions tab, lists every
+permission change and prompt answer for the app, newest first (the latest 128).
+
+Agent parity: orgtree_apps definition.sites, permission_set with site (agents may
+set Ask or Deny only) and permission_history. See orgtree-tool-apps for exact
+fields and limits.

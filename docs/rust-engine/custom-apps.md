@@ -334,6 +334,96 @@ silent MP4, agent file_open plus state_patch as the user's agent did) failed at
 the base on Hide/Show, hidden play, renewal and Allow, floating and popped out,
 and passed at the fix; power off and Deny refuse the ticket in both.
 
+## Internet access (2026-10-27)
+
+USER 2026-10-26 21:39:08Z m95c57abc95fb "build internet access as a permission
+for the apps" (after md17a57ff4b17 "can apps have internet access (as a
+permission)?"). Design note m0a85164bc1d8, accepted provisionally by the liaison
+(m232e1d1ccb57); the user may override it.
+
+Shape:
+- Capability `net.fetch` ("Internet access"). It is not in ORG_CAPABILITIES, so
+  it is off for created, imported, template and legacy apps alike.
+- `definition.sites`, at most 32: `host`, `host:port` (443 when omitted),
+  `*.domain` (subdomains, never the apex) or `*` (any site); lowercase names or
+  IP literals, IPv6 in brackets. Inert portable data like events: create, update,
+  import, export and templates carry them, never a grant; an empty list is
+  omitted from exports so an older Orgtree still imports them. Stored in
+  `custom_apps.declared_sites` (migration 0072).
+- Decision (`policy::net_decision`): no declaration covering the host refuses
+  without a prompt; capability Deny refuses; any stored row covering the host
+  that says Deny refuses (Deny wins, `*` Deny over a narrower Allow included);
+  else a covering Allow allows and a covering Ask asks; else capability Allow
+  ("Allow listed sites") allows hosts a non-`*` declaration covers; else Ask.
+  `*` needs its own Allow.
+- Rows (`custom_apps.site_permissions`, at most 128): a declared site, or a
+  concrete host a prompt answered under a `*.domain` or `*` declaration
+  (`policy::net_site`: the exact declared site that covers the host, else the
+  host itself). permission_set takes `site` and ask/allow/deny/default for
+  net.fetch; default removes a row, even one no declaration covers any more.
+- Agents: permission_set from a caller may only set net.fetch (capability or a
+  site) to ask or deny, and may not replace a stored deny. Allow, default and
+  every other capability stay the user's.
+- Prompt (visible copies only; a hidden copy gets interaction_required): method,
+  URL and the row name, never headers or body. Deny stores a site Deny and aborts
+  the app's requests in flight; Always allow stores a site Allow; Allow once is
+  held in engine memory for (panel, run generation, site) and ends on hide,
+  stop, restart, code change, delete, Stop all or a net.fetch change short of
+  Allow.
+- Permission history (`custom_app_permission_log`, migration 0072): every stored
+  permission change (via change), prompt answer including Allow once (via
+  prompt) and each Allow a code change clears (via code, permission default),
+  for every capability. Written in the change's own transaction; latest 128 per
+  app; `permission_history` reads it newest first (a GET read; agents included).
+- A code change clears every Allow, capability and site rows alike, as for
+  outside file grants; Ask and Deny stay.
+
+The request (`domain/apps/net.rs`). PANEL_CSP (connect-src 'none') and the
+window session are unchanged. orgtree.net.fetch(input, init) builds a Request in
+the frame and posts one bridge call `{action:"net.fetch", url, method,
+headers:[[name,value]], body}` (base64); the reply `{status, headers, body, url,
+redirected}` becomes a Response. Under the app gate the bridge checks the
+running generation, Stop all and the decision, admits the request (120 a minute
+and 8 in flight per app, apart from the 60/min action budget) and releases the
+gate before any I/O, so a revoke never waits behind a slow site: it cancels the
+request.
+- HTTPS only; GET, POST, PUT, PATCH, DELETE, HEAD; no Cookie, Host, Proxy-* or
+  hop-by-hop header; at most 64 headers and 64 KiB of them; URL up to 8192;
+  body up to 1 MiB (the bridge route admits 1.5 MiB for net.fetch only, every
+  other action keeps its 72 KiB bound); response up to 4 MiB; 30 s for the whole
+  request, every hop and the body included.
+- reqwest without its cookies feature (no jar; Set-Cookie dropped), no proxy, no
+  Referer, no default headers, no engine credential.
+- The resolver refuses a name if any address is non-public (the
+  `http/markdown_image.rs` classification) or this machine's own (a connected
+  UDP socket picks the address itself as its source; nothing is sent), and the
+  client connects only to the vetted address, so DNS rebinding cannot move it.
+  Redirects are followed by hand, at most 5, each hop re-checked against the
+  grant and the resolver; 307/308 keep method and body, others continue as GET;
+  Authorization is dropped when the host changes.
+- Logs name app, panel and capability only. URLs, headers and bodies are private
+  app content (`trace::private_app`; `Fetched` has an opaque Debug).
+
+Plain fetch, XHR, WebSocket, EventSource and URL images stay blocked; an app
+shows a fetched image through a blob: URL. WebSocket is out of scope.
+
+Verification (measured 2026-10-27, Session 0, one build-slot permit):
+- Engine `domain::apps` 61/61, including a local TLS server (rcgen) reached only
+  through the test-only `TEST_ROUTES`. A granted host answers, with no Cookie sent
+  and Set-Cookie dropped. Ungranted hosts, a cross-host redirect, loopback, a LAN
+  address and http are refused; Authorization does not follow a host change; a
+  revoke aborts an in-flight request.
+- The engine test binary no longer fits a 6144 MiB Job: the front end alone
+  reached 5.3 GB RSS before codegen and the Job peaked at 6.3 GB. It runs in
+  8192 MiB (coordinator, 2026-10-27). `tools::defs` has 2 failures identical at
+  base 393c80c (description total 12477 over 12000; the watchdog card snapshot).
+- `tools/rig/proofs/app-internet.mjs` 22/22 through the real bridge, storage
+  and tool routes, with nothing leaving the machine. With a renderer build it
+  also captures the real prompt and the Permissions tab in Session 0, muted,
+  with the clipboard and permissions refused.
+- Renderer `customapps*` 55/55. The new tests fail 4/4 against the base app
+  sources.
+
 ## Storage milestone
 
 Migration0058 creates org-scoped custom_apps, custom_panels and a bounded panel

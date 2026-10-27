@@ -129,7 +129,7 @@ above; declarations alone never authorize a broadcast or change panel activity.
   survives restart. Creation/import/template restoration starts new; migration
   marks existing apps new once. Provisional choice: self-imports also count.
 - app_get needs app. app_create needs definition:{name,html}; optional description,
-  initial_state, capabilities, width and height. app_update also needs app and
+  initial_state, capabilities, sites (internet access, below), width and height. app_update also needs app and
   expected_rev. Entry HTML is self-contained and bounded at4MiB. App code replacement
   revokes external grants/sessions and preserves restrictive Ask/Deny overrides.
   initial_state is an object up to2MiB, copied into the first/new:true panel.
@@ -257,6 +257,44 @@ changed/error/warning/recovery_name; never treat a pending or failed change as s
 At most64 file changes may wait per engine. Permission/grant/code/host revocation
 discards pending changes and releases pins; cancelled/expired changes write nothing.
 
+## Internet access (net.fetch)
+
+Internet access is the app capability net.fetch (user 2026-10-26). It is off for
+every app, imported ones included, until the user allows it. Declare it in
+`definition.capabilities` and list the HTTPS sites in `definition.sites` (at most
+32): `host`, `host:port` (443 when omitted), `*.domain` (its subdomains, not the
+domain itself) or `*` for any site. Lowercase names or IP addresses, IPv6 in
+brackets. Sites travel with exports and templates; grants never do. A site the
+app doesn't declare is refused without a prompt.
+
+App code calls `orgtree.net.fetch(input, init)`, which returns a standard
+Response; plain fetch, WebSocket and URL images stay blocked. The engine makes
+the request: HTTPS only, no cookies, credentials or proxy, public addresses
+only (never this computer or its LAN), at most 5 redirects, each re-checked.
+Limits: 1 MiB body, 64 headers, 4 MiB response, 30 s, 120 requests a minute and
+8 at a time per app. Cookie, Host, Proxy-* and hop-by-hop headers refuse.
+
+The user decides each site: Ask, Allow or Deny per declared site, with Deny
+winning on any row that covers the host or on the capability. The capability's
+Allow ("Allow listed sites") never covers `*`, which needs its own Allow. The
+native prompt (visible copies only; hidden ones get interaction_required) offers
+Deny, Allow once and Always allow this site; a host answered under a wildcard or
+`*` gets its own row.
+
+- app_get and list report `sites` and `site_permissions`.
+- permission_set takes `site` for net.fetch rows: a declared site, or a host a
+  declared `*.domain` or `*` covers. permission `default` removes a row.
+- An agent may set net.fetch, the capability or one site, to ask or deny, never
+  allow, and may not lift a stored deny. Ask your superior for an Allow.
+- permission_history needs app and optional limit 1-128. It returns entries,
+  newest first: seq, capability, site, permission (ask, allow, deny, default or
+  once), via (change, prompt or code), actor, panel and at. Every permission
+  change, prompt answer and code-change reset is there; the latest 128 per app
+  are kept.
+
+A code change clears every Allow; Ask and Deny stay. A change to Ask or Deny,
+a code change, power off, deletion or Stop all aborts requests in flight.
+
 ## App import and export format
 
 app_export needs app/expected_rev. include_panels defaults false; true includes
@@ -298,8 +336,10 @@ See also: [orgtree-scope-and-permissions](../scope-and-permissions/SKILL.md),
 
 app_get/list report capabilities, permissions and permission_rev. Declaring a
 capability does not change the local default policy. permission_set has app, expected_rev,
-expected_permission_rev, capability and permission:ask|allow|deny. It is user-only:
-an agent tool call is refused, even with Org-modifying tools. Ask your superior
+expected_permission_rev, capability and permission:ask|allow|deny (net.fetch also
+takes site and default). It is user-only, with one restricting exception: an agent
+may set internet access (net.fetch) to ask or deny, never allow, and never lift a
+deny. Any other agent call is refused, even with Org-modifying tools. Ask your superior
 for a user's decision; never try an as_user/caller field or a native host token.
 This is the tool parity boundary for native permission decisions, not a right
 for an agent to grant itself execution. Code replacement revokes external grants/sessions and preserves restrictive overrides.
