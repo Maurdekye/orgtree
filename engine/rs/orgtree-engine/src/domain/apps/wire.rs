@@ -139,8 +139,9 @@ pub enum Request {
     StatePatch { panel:String, expected_rev:i64, patch:Value },
     Event { panel:String, name:String, payload:Value },
     /// History by default; messages:true lists the event action's and orgtree.emit's messages.
-    /// Newest first, before walking back; after reads newer rows oldest first.
-    Events { panel:String, after:Option<i64>, before:Option<i64>, limit:Option<i64>, #[serde(default)] messages:bool },
+    /// Newest first, before walking back; after reads newer rows oldest first. name keeps
+    /// one event's rows: its fires in History, or the messages with that name.
+    Events { panel:String, after:Option<i64>, before:Option<i64>, limit:Option<i64>, #[serde(default)] messages:bool, #[serde(default)] name:Option<String> },
     FireEvent { panel:String, name:String, payload:Value },
     Listeners { app:String, panel:Option<String>, after:Option<i64>, limit:Option<i64> },
     /// One listener's (owner/id, as listeners shows it) finished deliveries, paged like Events.
@@ -172,6 +173,7 @@ pub fn parse(input:&Value) -> Result<Request> {
     if let Request::AppImport{bundle:value}=&request{bundle(value)?;}
     if matches!(&request,Request::Events{after:Some(_),before:Some(_),..}|Request::PermissionHistory{after:Some(_),before:Some(_),..}|Request::ListenerFires{after:Some(_),before:Some(_),..}){crate::refuse!(BadRequest,"{BOTH_CURSORS}");}
     if let Request::ListenerFires{listener,..}=&request{text(listener,200,"listener",false)?;}
+    if let Request::Events{name:Some(name),..}=&request{text(name,80,"event name",false)?;}
     if let Request::MarkSeen{apps}=&request{
         if apps.is_empty()||apps.len()>200{crate::refuse!(BadRequest,"mark_seen needs1-200 explicit app IDs");}
         let mut seen=std::collections::HashSet::new();

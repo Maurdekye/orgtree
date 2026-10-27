@@ -2240,7 +2240,7 @@ fn build_tool_apps()->Value {
         }},
         "state":{"type":"object","description":"state_set: replacement object, up to2MiB"},
         "patch":{"type":"object","description":"state_patch: RFC7396 merge; null removes a key"},
-        "name":{"type":"string","description":"event name,1-80characters"},
+        "name":{"type":"string","description":"event name,1-80characters; events: only that event's fires (or messages)"},
         "payload":{"description":"event JSON, up to64KiB"}
     }),&["action"])
 }

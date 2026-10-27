@@ -372,12 +372,12 @@ pub(crate) async fn run_locked(engine:&Arc<Engine>,org:&Arc<OrgHandle>,caller:Op
         Request::Event{panel:id,name,payload}=>{
             panel(&tx,org.id,&id,true).await?;let seq=record(&tx,org.id,&id,"message",&name,&payload,&actor).await?;changed=true;json!({"panel":id,"seq":seq})
         }
-        Request::Events{panel:id,after,before,limit,messages}=>{
+        Request::Events{panel:id,after,before,limit,messages,name}=>{
             panel(&tx,org.id,&id,false).await?;let n=page(limit)?;let (op,order,from)=cursor(after,before)?;
             let kind=if messages{"message"}else{"history"};
-            let rows=tx.query(&format!("SELECT jsonb_build_object('seq',seq,'name',name,'payload',payload,'actor',actor,'at',at) FROM ot.custom_panel_events WHERE org_id=$1 AND panel_id=$2 AND kind=$5 AND seq{op}$3 ORDER BY seq {order} LIMIT $4"),&[&org.id,&id,&from,&(n+1),&kind]).await?;
+            let rows=tx.query(&format!("SELECT jsonb_build_object('seq',seq,'name',name,'payload',payload,'actor',actor,'at',at) FROM ot.custom_panel_events WHERE org_id=$1 AND panel_id=$2 AND kind=$5 AND seq{op}$3 AND {} ORDER BY seq {order} LIMIT $4",one_event(messages,6)),&[&org.id,&id,&from,&(n+1),&kind,&name]).await?;
             let more=rows.len()>n as usize;let events:Vec<Value>=rows.into_iter().take(n as usize).map(|r|r.get(0)).collect();let next=if more{events.last().map(|v|v["seq"].clone())}else{None};
-            let oldest:Option<i64>=tx.query_one("SELECT min(seq) FROM ot.custom_panel_events WHERE org_id=$1 AND panel_id=$2 AND kind=$3",&[&org.id,&id,&kind]).await?.get(0);
+            let oldest:Option<i64>=tx.query_one(&format!("SELECT min(seq) FROM ot.custom_panel_events WHERE org_id=$1 AND panel_id=$2 AND kind=$3 AND {}",one_event(messages,4)),&[&org.id,&id,&kind,&name]).await?.get(0);
             json!({"panel":id,"events":events,"next_cursor":next,"oldest_retained":oldest})
         }
     };
@@ -388,6 +388,16 @@ pub(crate) async fn run_locked(engine:&Arc<Engine>,org:&Arc<OrgHandle>,caller:Op
     // No app.event signal follows a commit: panel links are gone (user
     // 2026-10-26), and agents hear from panels only through app event listeners.
     Ok(if input["action"]=="refs"{out}else{with_refs(&org.slug,out)})
+}
+
+/// events with a name keeps one event's rows (user 2026-10-27 m46d1f8a8e39e: the
+/// Fire event tab lists the chosen event's fires): History's fires of that event,
+/// whose payload names it, or the messages with that name. Parameter $p is the
+/// name; NULL keeps every row. Each store keeps 256 rows a copy, so the filter
+/// reads no further than an unfiltered page could.
+#[nolog]
+fn one_event(messages:bool,p:u8)->String{
+    if messages{format!("(${p}::text IS NULL OR name=${p})")}else{format!("(${p}::text IS NULL OR (name='{}' AND payload->>'event'=${p}))",super::events::FIRED)}
 }
 
 /// Every app and panel result carries its mention token, as docket items carry
