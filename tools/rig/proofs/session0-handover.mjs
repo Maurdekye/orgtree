@@ -53,7 +53,7 @@ import { spawn, spawnSync } from 'node:child_process'
 import fs from 'node:fs'
 import path from 'node:path'
 
-import { TOKEN_HEADER, alive, cleanEnv, stopRun, writeRun } from '../lib.mjs'
+import { TOKEN_HEADER, alive, cleanEnv, rigProfileEnv, stopRun, writeRun } from '../lib.mjs'
 import { Proof } from '../proof.mjs'
 import { brokerExe } from './credential-broker.mjs'
 
@@ -99,6 +99,7 @@ export default async function (rig) {
   fs.writeFileSync(path.join(ui, 'index.html'), '<!doctype html><title>rig</title>')
   const env = {
     ...cleanEnv(),
+    ...rigProfileEnv(data),
     ORGTREE_V2_DATA: data,
     ORGTREE_V2_UI_DIR: ui,
     ORGTREE_P03_PG_BIN: run.pgBin,

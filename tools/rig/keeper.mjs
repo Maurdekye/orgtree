@@ -11,7 +11,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import readline from 'node:readline'
 
-import { TOKEN_HEADER, alive, cleanEnv, killTree, readRun, reap, writeRun } from './lib.mjs'
+import { TOKEN_HEADER, alive, cleanEnv, killTree, readRun, reap, rigProfileEnv, writeRun } from './lib.mjs'
 
 const dir = path.resolve(process.argv[2] || '')
 const run = readRun(dir)
@@ -22,6 +22,14 @@ const started = Date.now()
 
 const env = {
   ...cleanEnv(),
+  // The run's fake profile is every child's home, whichever CLIs the run uses
+  // (USERPROFILE, HOME, HOMEDRIVE/HOMEPATH, APPDATA, LOCALAPPDATA, TEMP, TMP; the
+  // temp folder the run's `tmp`). A CLI the engine launches without its own
+  // config folder then finds the fake profile (an empty login), never the user's
+  // real ~/.claude, and a proof that writes to "home" cannot touch the real one.
+  // Claude Code keeps a folder per working folder under %TEMP%\claude, which
+  // would otherwise outlive the run on C:.
+  ...rigProfileEnv(data, { tmp: path.join(dir, 'tmp') }),
   ORGTREE_DATA: data,
   ORGTREE_V2_TOKEN: run.token,
   ORGTREE_V2_PARENT_PID: String(process.pid),
@@ -45,19 +53,6 @@ const env = {
 }
 if (run.ui) env.ORGTREE_V2_UI_DIR = run.ui
 if (run.streamProbe) env.ORGTREE_RIG_STREAM_PROBE = '1'
-// `up --real-cli`: the installed Claude Code and Codex are the agents' CLIs,
-// so every child's home is the run's fake one. A CLI the engine launches
-// without its own config folder then finds the fake profile (an empty
-// login), never the user's real ~/.claude. Their temp folders are the run's
-// too: Claude Code keeps a folder per working folder under %TEMP%\claude,
-// which would otherwise outlive the run on C:.
-if (run.realCli) {
-  env.USERPROFILE = path.join(data, 'rig-home')
-  env.HOME = env.USERPROFILE
-  env.TEMP = path.join(dir, 'tmp')
-  env.TMP = env.TEMP
-  fs.mkdirSync(env.TEMP, { recursive: true })
-}
 // `up --hub`: the engine hosts the run's own mail hub, and network mail
 // reaches that loopback hub and no other (src/rig.rs `hub`)
 if (run.hub) {

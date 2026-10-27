@@ -30,7 +30,7 @@ import { spawn, spawnSync } from 'node:child_process'
 import fs from 'node:fs'
 import path from 'node:path'
 
-import { TOKEN_HEADER, alive, cleanEnv, stopRun, writeRun } from '../lib.mjs'
+import { TOKEN_HEADER, alive, cleanEnv, rigProfileEnv, stopRun, writeRun } from '../lib.mjs'
 import { Proof } from '../proof.mjs'
 
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms))
@@ -69,6 +69,7 @@ export default async function (rig) {
   // variable instead: the host derives the engine's data, token and parent.
   const env = {
     ...cleanEnv(),
+    ...rigProfileEnv(rig.data),
     ORGTREE_V2_DATA: rig.data,
     ORGTREE_V2_UI_DIR: ui,
     ORGTREE_P03_PG_BIN: run.pgBin,

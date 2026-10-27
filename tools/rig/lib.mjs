@@ -736,6 +736,31 @@ export function cleanEnv() {
   return env
 }
 
+/** The profile a rig child sees in place of the host's. A program finds "home"
+ * through several variables (USERPROFILE, HOME, HOMEDRIVE + HOMEPATH, APPDATA,
+ * LOCALAPPDATA, TEMP, TMP), so they all move together to the run's fake profile,
+ * `<data>\rig-home` (the one the engine's own home lookups and the fake CLIs
+ * already use). Spread it after `...cleanEnv()` in every environment that
+ * launches an engine, so a proof that writes to "home" writes the run's folder
+ * and the host's profile is not in a rig child's environment at all;
+ * tools/rig/tests/rig-synthetic-home.test.mjs fails for a launch site that does
+ * not. `tmp`: the temp folder (default: the fake profile's own Local\Temp);
+ * `create: false` returns the names without making the folders. */
+export function rigProfileEnv(data, { tmp, create = true } = {}) {
+  const home = path.join(data, 'rig-home')
+  const local = path.join(home, 'AppData', 'Local')
+  const temp = tmp ?? path.join(local, 'Temp')
+  const drive = /^([A-Za-z]:)(.*)$/.exec(home)
+  const env = {
+    USERPROFILE: home, HOME: home,
+    HOMEDRIVE: drive ? drive[1] : '', HOMEPATH: drive ? drive[2] : home,
+    APPDATA: path.join(home, 'AppData', 'Roaming'), LOCALAPPDATA: local,
+    TEMP: temp, TMP: temp,
+  }
+  if (create) for (const k of ['APPDATA', 'LOCALAPPDATA', 'TEMP']) fs.mkdirSync(env[k], { recursive: true })
+  return env
+}
+
 export async function stopRun(dir, { keep = false, timeout = 90000 } = {}) {
   const run = readRun(dir)
   if (run?.keeperPid && alive(run.keeperPid)) {

@@ -6,7 +6,7 @@ import os from 'node:os'
 import crypto from 'node:crypto'
 import {spawn,spawnSync} from 'node:child_process'
 import {build} from 'esbuild'
-import {cleanEnv,stopRun,writeRun,alive} from '../lib.mjs'
+import {cleanEnv,rigProfileEnv,stopRun,writeRun,alive} from '../lib.mjs'
 import {Proof} from '../proof.mjs'
 export async function setup(){return {name:'core-recovery',fixture:'none'}}
 export default async function(rig){
@@ -19,7 +19,7 @@ export default async function(rig){
  const controller=path.join(process.env.ORGTREE_RECOVERY_OUTPUT,'recovery-desktop.cjs')
  await build({entryPoints:['tools/rig/recovery-desktop.ts'],bundle:true,platform:'node',format:'cjs',outfile:controller,logLevel:'silent'})
  p.file('provenance.json',{source:spawnSync('git',['rev-parse','HEAD'],{encoding:'utf8'}).stdout.trim(),dirty:spawnSync('git',['status','--porcelain'],{encoding:'utf8'}).stdout.trim(),engine_sha256:crypto.createHash('sha256').update(fs.readFileSync(bin)).digest('hex'),controller_sha256:crypto.createHash('sha256').update(fs.readFileSync(controller)).digest('hex')})
- const env={...cleanEnv(),ORGTREE_ENGINE_SAFE_START:'1',ORGTREE_ENGINE_RIG:'1',ORGTREE_NET_OFFLINE:'1',ORGTREE_ENGINE_ALLOW_INITDB:'1',
+ const env={...cleanEnv(),...rigProfileEnv(root),ORGTREE_ENGINE_SAFE_START:'1',ORGTREE_ENGINE_RIG:'1',ORGTREE_NET_OFFLINE:'1',ORGTREE_ENGINE_ALLOW_INITDB:'1',
  ORGTREE_P03_PG_BIN:run.pgBin,ORGTREE_CLAUDE_BIN:path.join(rig.dir,'bin','claude.exe'),ORGTREE_CODEX_BIN:path.join(rig.dir,'bin','codex.exe'),
  ORGTREE_AGY_BIN:path.join(rig.dir,'bin','agy.exe'),ORGTREE_TAILSCALE_BIN:path.join(rig.dir,'bin','tailscale.cmd'),
  ORGTREE_FAKECLI_DIR:rig.fakeDir,ORGTREE_FAKECLI_HOME:path.join(root,'rig-home')}

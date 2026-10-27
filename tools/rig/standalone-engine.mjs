@@ -24,7 +24,7 @@ import fs from 'node:fs'
 import http from 'node:http'
 import path from 'node:path'
 
-import { TOKEN_HEADER, assertSafeRoot, cleanEnv, engineExe, fakeCliExe, fakeHome, freePort, killTree, newRunId, pgBin, rigHome, runsDir, writeRun } from './lib.mjs'
+import { TOKEN_HEADER, assertSafeRoot, cleanEnv, engineExe, fakeCliExe, fakeHome, freePort, killTree, newRunId, pgBin, rigHome, rigProfileEnv, runsDir, writeRun } from './lib.mjs'
 
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms))
 const results = []
@@ -65,6 +65,7 @@ const port = await freePort()
 function startEngine(extraEnv = {}) {
   const env = {
     ...cleanEnv(),
+    ...rigProfileEnv(data, { tmp: path.join(dir, 'tmp') }),
     ORGTREE_DATA: data,
     ORGTREE_P03_PG_BIN: pg,
     ORGTREE_ENGINE_SAFE_START: '1',
@@ -77,10 +78,6 @@ function startEngine(extraEnv = {}) {
     ORGTREE_OPENCODE_BIN: fake,
     ORGTREE_FAKECLI_DIR: path.join(dir, 'fakecli'),
     ORGTREE_FAKECLI_HOME: path.join(data, 'rig-home'),
-    USERPROFILE: path.join(data, 'rig-home'),
-    HOME: path.join(data, 'rig-home'),
-    TEMP: path.join(dir, 'tmp'),
-    TMP: path.join(dir, 'tmp'),
     ...extraEnv,
   }
   const child = spawn(exe, ['standalone'], { cwd: dir, env, stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true })

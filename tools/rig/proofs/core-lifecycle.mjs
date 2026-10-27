@@ -5,7 +5,7 @@ import path from 'node:path'
 import os from 'node:os'
 import {spawn, spawnSync} from 'node:child_process'
 import {build} from 'esbuild'
-import {cleanEnv, stopRun, writeRun, alive} from '../lib.mjs'
+import {cleanEnv, rigProfileEnv, stopRun, writeRun, alive} from '../lib.mjs'
 import {Proof} from '../proof.mjs'
 import {sessionLauncher, q} from './credential-broker.mjs'
 
@@ -28,7 +28,7 @@ export default async function(rig) {
   const launcher = sessionLauncher(rig.dir, `OrgtreeRigProof-core-${path.basename(rig.dir)}`)
   const state = () => JSON.parse(fs.readFileSync(path.join(root,'core-lifecycle.json'),'utf8'))
   const descriptor = () => JSON.parse(fs.readFileSync(path.join(root,'engine-attach.json'),'utf8'))
-  const env = {...cleanEnv(), ORGTREE_V2_DATA:root, ORGTREE_V2_UI_DIR:run.ui,
+  const env = {...cleanEnv(), ...rigProfileEnv(root), ORGTREE_V2_DATA:root, ORGTREE_V2_UI_DIR:run.ui,
     ORGTREE_P03_PG_BIN:run.pgBin, ORGTREE_ENGINE_SAFE_START:'1',ORGTREE_ENGINE_RIG:'1',
     ORGTREE_ENGINE_ALLOW_INITDB:'1', ORGTREE_NET_OFFLINE:'1',
     ORGTREE_CLAUDE_BIN:path.join(rig.dir,'bin','claude.exe'),ORGTREE_CODEX_BIN:path.join(rig.dir,'bin','codex.exe'),
