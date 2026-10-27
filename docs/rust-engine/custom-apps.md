@@ -205,7 +205,22 @@ apart from History (answer "Keep, separate"); events lists History and
 messages:true lists messages. Each kind keeps its latest 256 rows and both advance
 event_seq. Migration0071 added the kind, deleted the old panel.opened,
 panel.created, panel.changed, panel.duplicated and state.changed rows ("Delete on
-upgrade") and marked the remaining non-History rows as messages. The tab lists actual scoped
+upgrade") and marked the remaining non-History rows as messages.
+History is a live list (USER 2026-10-27 md2006b10cf40, "make the hidtory tab reload in
+realtime, be more list like wity expandable rows, and lazily losd as you sfrollcdown
+(remof3 th4 refresh button)"): canvas/apps/loglist.tsx shows one row per entry that
+expands to its details and payload, reads the newest page of 50 first, then older
+pages (events before) as the list's end scrolls into view, and on each live change
+reads rows newer than its newest (events after), merged by seq; there is no Refresh
+button. events pages newest first: before walks back, after reads newer rows oldest
+first, both together are refused, and next_cursor continues the same way. Each writer
+of one copy's log holds a lock the others need before it inserts (the panel row or
+the app row for update), so its seqs commit in order and an after cursor never skips
+a row. Live changes come from the org feed: custom_apps_changed, and
+custom_apps_history {panel}, which an app's own orgtree.events.fire emits after
+commit. That fire changes no Apps row, and the custom_apps_changed store refresh
+re-posts state.changed to running apps, so an app firing on state.changed would loop.
+Panel settings lists actual scoped
 connections with bounded cursor paging on Connections, and permits explicit user
 Fire event from that saved copy on Fire event, displaying acceptance/backpressure
 without automatic retries.
@@ -454,7 +469,8 @@ The agent identity/org come from the trusted Caller, never JSON arguments. Agent
 mutations re-read live identity and inherited tool scope under canonical
 root-first scope locks, then lock app before panel. These transactions never take
 the org revision lock. After commit an org custom_apps_changed frame invalidates
-readers; reconnecting readers must perform a fresh bounded read.
+readers (an app's own fire sends custom_apps_history {panel}, which only History
+lists follow); reconnecting readers must perform a fresh bounded read.
 
 Migration0061 adds org-owned `is_new` metadata and a partial unseen-app index.
 App list pages include the org's complete `new_count`, independent of the page;
@@ -477,8 +493,9 @@ Metadata/state mutations and duplication/deletion require expected_rev (power
 changes take it optionally, see Background panels). A stale
 revision refuses409 rather than silently overwriting. State patch uses RFC7396:
 objects merge, arrays replace and null removes a key. State set can retain a null
-value inside its replacement object. Events use monotonic sequence cursors and
-retain the latest256 per panel and kind; oldest_retained makes truncation explicit.
+value inside its replacement object. Events use monotonic sequence cursors, newest
+first with before or oldest first with after, and retain the latest256 per panel and
+kind; oldest_retained makes truncation explicit.
 
 ## Provisional defaults for morning review
 
@@ -550,8 +567,8 @@ revision-checked state_set, Reload), all on their existing tool calls, with no s
 header (USER m5e1010314d2c). Connections and Fire event have their own tabs (USER
 meb312360e19f) and History comes last (USER m547bae9b0585); it holds the copy's
 log (USER mc8711410a925), merged from the former Activity view. All three stay
-per-copy, no tab repeats its name as a section header, and a fire remounts
-History so it reloads. Delete panel/app confirmations are compact content-sized
+per-copy, no tab repeats its name as a section header, and History follows the
+live change feed (no Refresh button or remount after a fire). Delete panel/app confirmations are compact content-sized
 AppDialogs (custom-app-confirm, USER mf913dbdf1494). Linked agents (USER
 m66c0f064351c) and placement (USER m79ee175a5283, m5fca61662c5b) left settings;
 placement stays on the window and in orgtree_apps. Once stays in live native

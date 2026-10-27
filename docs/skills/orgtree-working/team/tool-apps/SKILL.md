@@ -206,13 +206,16 @@ dimensions are160-4096 by120-4096. The Apps menu mounts saved open copies at the
 provides state/events and the permission-checked named action SDK.
 
 event needs panel/name/payload (up to64KiB) and sends a message: running copies
-pass it to the app's orgtree.on, and it never enters History. events needs panel,
-optional integer after sequence and limit1-200, and lists the copy's History: only
-event.fired, panel.started (reason opened when an open, show or user duplicate
+pass it to the app's orgtree.on, and it never enters History. events needs panel
+and lists the copy's History newest first, limit 1-200 (default 100): pass the
+returned next_cursor as before for older rows, or after=<seq> to read only newer
+rows, oldest first, to follow new ones (user 2026-10-27); both together are
+refused, and next_cursor continues the same way until it is null. History holds
+only event.fired, panel.started (reason opened when an open, show or user duplicate
 starts it; none for panel_start) and panel.stopped (reason stop all or code
 changed; none for panel_stop) rows (user 2026-10-26). messages:true lists messages
-instead. Each kind keeps its latest256 rows; oldest_retained identifies that
-kind's boundary. An event never impersonates an agent/user.
+instead, paged the same way. Each kind keeps its latest256 rows; oldest_retained
+identifies that kind's boundary. An event never impersonates an agent/user.
 
 List kind:panels accepts open:true/false and running:true/false to page only
 that subset. Metadata

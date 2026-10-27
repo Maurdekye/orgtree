@@ -10,7 +10,11 @@ Up: [orgtree-app-shell](../SKILL.md)
 Panel settings shows a saved copy's Connections, Fire event and History tabs
 (History last), including for closed copies. History lists only fired events agents can listen to and the copy starting and
 stopping, newest first (user ruling 2026-10-26); a fired event shows its listener
-count, never its data, and a start or stop its cause. Fire event sends the chosen
+count, never its data, and a start or stop its cause. It is a live list (user ruling
+2026-10-27): one line per entry (time, what happened, listener count or cause, who)
+that expands on click to the exact time and the row's data and collapses on a second
+click; new entries appear while the tab is open, older ones load as you scroll down
+to the oldest kept, and there is no Refresh button. Fire event sends the chosen
 name and JSON; opening the tab fires nothing. Connections are agent-owned
 app_listener watchdogs, with Refresh/More connections paging. Agents manage
 their registrations through orgtree_watchdog; orgtree_apps fire_event/listeners
@@ -142,7 +146,7 @@ prompts use Orgtree's existing modal/settings design system outside app HTML.
 
 Agent parity: orgtree_apps creates closed saved panels, starts any copy hidden
 (panel_start), powers copies off (panel_stop), lists running copies with CPU
-(runtime), and provides saved placement, label, state and event actions above; its events action reads the History log. Copy/export JSON are ordinary local file or
+(runtime), and provides saved placement, label, state and event actions above; its events action reads the History log in the same pages (newest first, before for older rows, after for newer ones). Copy/export JSON are ordinary local file or
 clipboard operations; drag/resize use panel_update placement. Apps-button/menu
 visibility and far-zoom culling are display only. See orgtree-tool-apps
 (orgtree-working > team).

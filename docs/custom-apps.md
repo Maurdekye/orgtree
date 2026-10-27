@@ -64,11 +64,14 @@ where an app wakes a selected agent without an app event.
 
 Open a saved copy's gear to reach its tabs: **Connections** lists the copy's
 listeners, **Fire event** fires a declared event with JSON data and **History**,
-the last tab, reads the copy's event history.
+the last tab, is the copy's event history.
 This works for closed saved copies. History lists only the fired events agents
-can listen to and the copy starting and stopping, newest first. A fired event shows
-its listener count, while its data goes only to the subscribed agents. A start or
-stop shows its cause: opened, Start running, Power off, Stop all or code changed.
+can listen to and the copy starting and stopping, newest first, one line each:
+when, what happened, its listener count or cause, and who. Click an entry to see
+its exact time and data, and click it again to close it. New entries appear while
+the tab is open, and older ones load as you scroll down, back to the oldest one
+Orgtree keeps. A fired event's data goes only to the subscribed agents. A start or
+stop shows its cause: Opened, Start running, Power off, Stop all or Code changed.
 Opening, renaming, moving and saving data add nothing to History.
 Refresh/More connections page the registrations; agents manage those watchdogs
 through their ordinary tools. Merely opening settings fires nothing. HTML uses
