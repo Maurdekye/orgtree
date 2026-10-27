@@ -1,5 +1,14 @@
 # Custom apps and saved panels (4.5.0)
 
+## Apps list action columns (2026-10-27)
+
+USER m75973f4fc4ca and m2e3437aa929d: app and panel Settings gears share
+one right-aligned column, and the app row's + and panel rows' Power off
+buttons share the preceding column. Matching 30 px action boxes and 8 px gaps
+keep both columns aligned without changing their actions. The panel guide
+retains its left indent and has no right inset. This is display only; existing
+Apps tools and handlers are unchanged.
+
 ## Background panels (2026-10-26)
 
 User rulings 2026-10-26 (forwarded in m904ca9fb891f, plus m74c6e82ee894, the

@@ -21,7 +21,7 @@
    its own bordered block, its panels hang off a guide line centred under the app's
    icon, and each panel row is ruled off from the one above. Theme colours only. */
 .custom-apps-menu-group+.custom-apps-menu-group { margin-top:6px }
-.custom-apps-menu-panels { margin:0 4px 4px 14px;padding-left:6px;border-left:2px solid var(--line) }
+.custom-apps-menu-panels { margin:0 0 4px 14px;padding-left:6px;border-left:2px solid var(--line) }
 .custom-apps-menu-panels>.custom-apps-saved-row+.custom-apps-saved-row { border-top:1px solid var(--line) }
 /* A window pin's surface lives in the org pin layer, a popped-out one in its own
    window; either way its placeholder takes no space. */
@@ -146,7 +146,7 @@ html.mobile .overlay.custom-app-centered.custom-app-behind { z-index:39 }
 @media(max-width:600px){.custom-app-status { font-size:10px }}
 
 /* Separate, keyboard-focusable sibling buttons: opening a saved copy is not settings. */
-.custom-apps-saved-row { display:flex;align-items:center;min-width:0 }
+.custom-apps-saved-row { display:flex;align-items:center;gap:8px;min-width:0 }
 .custom-apps-saved-row .custom-apps-saved { flex:1;min-width:0 }
 .custom-apps-saved-gear { display:flex;align-items:center;justify-content:center;flex:none;border:0;border-radius:4px;background:none;padding:6px }
 .custom-apps-saved-gear svg { width:18px;height:18px }
@@ -174,6 +174,9 @@ html.mobile .overlay.custom-app-centered.custom-app-behind { z-index:39 }
 .custom-apps-saved-power { display:flex;align-items:center;justify-content:center;flex:none;border:0;border-radius:4px;background:none;padding:6px;color:var(--dim) }
 .custom-apps-saved-power:hover { color:var(--ink) }
 .custom-apps-saved-power svg { width:16px;height:16px }
+/* USER 2026-10-27: one gear column, and one shared + / power column. */
+.custom-apps-menu :is(.custom-apps-add,.custom-apps-app-gear,.custom-apps-saved-power,.custom-apps-saved-gear) { box-sizing:border-box;flex:0 0 30px;width:30px;height:30px;padding:5px }
+.custom-apps-menu :is(.custom-apps-app-gear,.custom-apps-saved-gear) svg { width:18px;height:18px }
 .custom-app-cpu { flex:none;color:var(--dim);font-size:11px;font-variant-numeric:tabular-nums }
 /* Starting and stopping are not showing and hiding (USER 2026-10-27 m056a5c0bde3c:
    "a rapid zoom in / out"). A visible panel that starts zooms in; one powered off

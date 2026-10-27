@@ -101,7 +101,9 @@ into or out of a pop-out restarts its HTML from its saved data. Provisional:
 replacing an app's code powers off its hidden running copies.
 
 Open **Apps** in the org header, beside Presentations; **Import app** is at the
-right of the Apps header, and there is no Refresh button (new, renamed, stopped
+right of the Apps header. App and panel Settings gears share one right-aligned
+column, with app **+** and panel **Power off** aligned in the preceding column
+(user ruling 2026-10-27). There is no Refresh button (new, renamed, stopped
 or removed apps and panels appear in realtime; user rulings 2026-10-27). A click anywhere on an
 app's row opens its most recently used saved panel, wherever it is listed,
 or creates and opens its first panel when it has none. A row whose panel is
