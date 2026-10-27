@@ -6668,14 +6668,14 @@ svg.MuiSvgIcon-root {
   background: #6b6b75; pointer-events: none;
 }
 .effort-bar-dot.below { background: color-mix(in srgb, var(--provider-accent, var(--accent)) 35%, #fff); }
-/* the pip sits INSIDE the bar (12px in a 20px rail); it moves only on a press or drag, and glides when it does */
+/* the pip sits INSIDE the bar (12px in a 20px rail); it moves only on a press or drag, and glides to every level it
+   moves to: a new level restarts the transition from where the pip is, so a quick drag retargets and never queues */
 .effort-bar-pip {
   position: absolute; top: 50%; width: 12px; height: 12px; margin: -6px 0 0 -6px; border-radius: 50%;
   background: #f1f1f8; pointer-events: none; box-shadow: 0 1px 2px rgba(0, 0, 0, .4);
   transition: left .15s ease-in-out;
 }
 .effort-bar-fill { transition: width .15s ease-in-out; }
-.effort-bar.dragging .effort-bar-pip, .effort-bar.dragging .effort-bar-fill { transition: none; }
 /* The effort bar on the light surfaces (light slice 2): its #3f3f46 rail was a
    dark island there, and the deep accent partners vanished into it. It
    becomes a light control: the hover-grey rail with a hairline edge; the fill

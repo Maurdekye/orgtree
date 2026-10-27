@@ -7,6 +7,11 @@
 // Semantics kept from the dot row: `value` is the agent's OWN level ('' =
 // inheriting) and `level` is what will actually run; pressing and releasing
 // on the level that is already pinned clears it back to inherit.
+//
+// The pip and the fill glide (CSS transition, styles.css) to EVERY level a press
+// lands on or a drag crosses, not only to a click's: a change of level restarts
+// the transition from where the pip is now, so a quick drag retargets and never
+// queues (user 2026-10-27, "it should animate between every position").
 import { useEffect, useRef, useState } from 'react'
 import type { KeyboardEvent, PointerEvent } from 'react'
 import { DEFAULT_EFFORT_LEVELS, EFFORT_LEVELS } from './effortlevels'
@@ -57,9 +62,7 @@ export function EffortBar({ value, level, label, title, onSet, disabled: disable
   const [hover, setHover] = useState<number | null>(null)
   const [drag, setDrag] = useState<number | null>(null)
   const moved = useRef(false)
-  // true once a press has actually travelled to another level: only then does the pip follow the pointer with no
-  // glide (a plain click glides to its level), and `held` keeps a released pick on screen until the saved value lands
-  const [travelled, setTravelled] = useState(false)
+  // `held` keeps a released pick on screen until the saved value lands
   const [held, setHeld] = useState<number | null>(null)
   useEffect(() => { setHeld(null) }, [value, level])
   useEffect(() => {
@@ -94,7 +97,7 @@ export function EffortBar({ value, level, label, title, onSet, disabled: disable
   }
   const pct = (i: number) => `calc(10px + (100% - 20px) * ${LV.length > 1 ? i / (LV.length - 1) : 0})`
   return (
-    <div className={'effort-bar' + (none ? ' none' : '') + (compact ? ' compact' : '') + (disabled ? ' disabled' : '') + (drag !== null && travelled ? ' dragging' : '')
+    <div className={'effort-bar' + (none ? ' none' : '') + (compact ? ' compact' : '') + (disabled ? ' disabled' : '')
       + (pinned < 0 ? ' inherited' : '')} title={none ? 'This model has no effort setting' : compact && preview !== null ? text : title}>
       {!compact && <div className="effort-bar-label">{text}</div>}
       <div className="effort-bar-track" ref={track} role="slider" tabIndex={disabled ? -1 : 0}
@@ -106,7 +109,6 @@ export function EffortBar({ value, level, label, title, onSet, disabled: disable
           if (disabled || e.button !== 0) return
           e.currentTarget.setPointerCapture?.(e.pointerId)
           moved.current = false
-          setTravelled(false)
           setHeld(null)
           setDrag(at(e))
           e.preventDefault()
@@ -115,7 +117,7 @@ export function EffortBar({ value, level, label, title, onSet, disabled: disable
         onPointerMove={(e) => {
           if (disabled) return
           const i = at(e)
-          if (drag !== null) { if (i !== drag) { moved.current = true; setTravelled(true); setDrag(i) } } else setHover(i)
+          if (drag !== null) { if (i !== drag) { moved.current = true; setDrag(i) } } else setHover(i)
         }}
         onPointerLeave={() => setHover(null)}
         onPointerUp={(e) => {
@@ -124,7 +126,6 @@ export function EffortBar({ value, level, label, title, onSet, disabled: disable
           e.currentTarget.releasePointerCapture?.(e.pointerId)
           setDrag(null)
           setHover(null)
-          setTravelled(false)
           setHeld(i)
           if (i === pinned && !moved.current) onSet('')
           else if (i !== pinned) onSet(LV[i]!)
