@@ -139,3 +139,22 @@ html.mobile .overlay.custom-app-centered.custom-app-behind { z-index:39 }
 .custom-apps-saved-power:hover { color:var(--ink) }
 .custom-apps-saved-power svg { width:16px;height:16px }
 .custom-app-cpu { flex:none;color:var(--dim);font-size:11px;font-variant-numeric:tabular-nums }
+/* Starting and stopping are not showing and hiding (USER 2026-10-27 m056a5c0bde3c:
+   "a rapid zoom in / out"). A visible panel that starts zooms in; one powered off
+   zooms out, already stopped, then goes. A centred panel's backdrop fades with it.
+   Hide and show stay instant. 180 ms = PANEL_MOTION_MS in motion.ts. */
+.custom-app-window[data-motion="start"] { animation:custom-app-zoom-in 180ms cubic-bezier(.2,0,0,1) both }
+.custom-app-window[data-motion="stop"] { animation:custom-app-zoom-out 180ms cubic-bezier(.4,0,1,1) both;pointer-events:none }
+.custom-app-centered[data-motion="start"] { animation:custom-app-backdrop-in 180ms ease-out both }
+.custom-app-centered[data-motion="stop"] { animation:custom-app-backdrop-out 180ms ease-in both;pointer-events:none }
+@keyframes custom-app-zoom-in { from { scale:.5;opacity:0 } }
+@keyframes custom-app-zoom-out { to { scale:.5;opacity:0 } }
+@keyframes custom-app-backdrop-in { from { background-color:transparent } }
+@keyframes custom-app-backdrop-out { to { background-color:transparent } }
+/* Reduced motion: no zoom, only the fade. */
+@media (prefers-reduced-motion: reduce) {
+  .custom-app-window[data-motion="start"] { animation-name:custom-app-fade-in }
+  .custom-app-window[data-motion="stop"] { animation-name:custom-app-fade-out }
+}
+@keyframes custom-app-fade-in { from { opacity:0 } }
+@keyframes custom-app-fade-out { to { opacity:0 } }

@@ -15,8 +15,10 @@ import type {CustomApp,CustomPanel,PanelEvents} from './types'
  * culled, at far zoom or in a hidden owner window ("just closing their visual
  * doesnt stop them from running"). Only power off, a new execution generation
  * (a start or a code change) or a move between documents replaces it. Native
- * consent needs the panel visible: a hidden panel's prompt is refused. */
-export function PanelHtml({slug,app,panel,visible=true}:{slug:string;app:CustomApp;panel:CustomPanel;visible?:boolean}){
+ * consent needs the panel visible: a hidden panel's prompt is refused.
+ * stopping: powered off, still painted for its zoom-out (USER 2026-10-27
+ * m056a5c0bde3c); its lease, bridge and prompts end at once. */
+export function PanelHtml({slug,app,panel,visible=true,stopping=false}:{slug:string;app:CustomApp;panel:CustomPanel;visible?:boolean;stopping?:boolean}){
   const owner=useSurfaceDocument(),frame=useRef<HTMLIFrameElement>(null),replyPort=useRef<MessagePort|null>(null)
   const [definition,setDefinition]=useState<CustomApp|null>(null),[error,setError]=useState(''),[saved,setSaved]=useState(false)
   const [prompt,setPrompt]=useState<PermissionPrompt|null>(null),actions=useRef<AppActionClient|null>(null)
@@ -34,6 +36,7 @@ export function PanelHtml({slug,app,panel,visible=true}:{slug:string;app:CustomA
   const shown=useRef(visible),hiding=useRef(new Set<()=>void>());shown.current=visible
   useEffect(()=>{if(!visible)for(const refuse of [...hiding.current])refuse()},[visible])
   useEffect(()=>{
+    if(stopping)return
     const prompted=<T,>(show:(finish:(value:T|null)=>void)=>void,clear:()=>void,signal:AbortSignal)=>new Promise<T|null>((resolve,reject)=>{
       if(!shown.current){reject(Error(HIDDEN_PROMPT));return}
       if(signal.aborted){resolve(null);return}
@@ -49,10 +52,10 @@ export function PanelHtml({slug,app,panel,visible=true}:{slug:string;app:CustomA
     const fileClient=new AppFileClient(slug,app.id,panel.id,client,(request,session,signal)=>prompted<FileDecision>(finish=>setFilePrompt({request,session,finish}),()=>setFilePrompt(null),signal))
     files.current=fileClient
     return()=>{client.dispose();if(actions.current===client)actions.current=null;if(files.current===fileClient)files.current=null;replyPort.current?.close();replyPort.current=null;ready.current=false}
-  },[slug,app.id,app.rev,panel.id,channel,owner,generation])
+  },[slug,app.id,app.rev,panel.id,channel,owner,generation,stopping])
   // The engine's lease: which copies this window actually runs. A stop or a
   // newer generation elsewhere refreshes the list, which unmounts this host.
-  useEffect(()=>running&&generation?hostPanel(slug,panel.id,generation,()=>void refreshApps(slug)):undefined,[slug,panel.id,generation,running])
+  useEffect(()=>!stopping&&running&&generation?hostPanel(slug,panel.id,generation,()=>void refreshApps(slug)):undefined,[slug,panel.id,generation,running,stopping])
   useEffect(()=>{let alive=true;setDefinition(null);setError('');current.current=null;eventSeq.current=null;ready.current=false;++epoch.current
     void customAppsRequest<CustomApp>(slug,{action:'app_get',app:app.id}).then(result=>{if(alive){if(result.rev!==app.rev)throw Error('App changed; refresh its panel.');setDefinition(result)}}).catch(e=>{if(alive)setError(String(e))})
     return()=>{alive=false;++epoch.current;ready.current=false}
@@ -79,7 +82,7 @@ export function PanelHtml({slug,app,panel,visible=true}:{slug:string;app:CustomA
     return()=>{alive=false}
   },[slug,panel.id,panel.rev,panel.event_seq,app.rev,owner])
   useEffect(()=>{
-    const win=owner.defaultView;if(!win)return
+    const win=owner.defaultView;if(!win||stopping)return
     let active=true,chain=Promise.resolve(),start=Date.now(),count=0
     const listener=(event:MessageEvent)=>{
       const request=panelRequest(event,frame.current?.contentWindow??null,channel);if(!request)return
@@ -116,7 +119,7 @@ export function PanelHtml({slug,app,panel,visible=true}:{slug:string;app:CustomA
     }
     win.addEventListener('message',listener)
     return()=>{active=false;win.removeEventListener('message',listener)}
-  },[slug,panel.id,channel,owner])
+  },[slug,panel.id,channel,owner,stopping])
   const source=useMemo(()=>definition?.definition?panelDocument(definition.definition.html,channel,new URL('/api/orgs/'+encodeURIComponent(slug)+'/apps/media',window.location.href).href):'', [definition,channel,slug])
   return <div className="custom-app-host">
     {error&&<div className="custom-app-error" role="alert">{error}</div>}

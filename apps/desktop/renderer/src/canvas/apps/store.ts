@@ -2,11 +2,12 @@ import { useSyncExternalStore } from 'react'
 import { customAppsRequest } from '../../api'
 import type { AppPage, CustomApp, CustomPanel } from './types'
 
-interface Snapshot {apps:CustomApp[];panels:CustomPanel[];appNext:string|null;panelNext:string|null;newCount:number;error:string;loading:boolean}
+/** loaded: the first full listing has arrived (panels it shows were restored, not started). */
+interface Snapshot {apps:CustomApp[];panels:CustomPanel[];appNext:string|null;panelNext:string|null;newCount:number;error:string;loading:boolean;loaded:boolean}
 interface Store {snapshot:Snapshot;subs:Set<()=>void>;running:Promise<void>|null;pending:boolean;active:boolean;seenEpoch:number;seenQueue:Promise<void>}
 const stores=new Map<string,Store>()
 function store(slug:string):Store {
-  let s=stores.get(slug);if(!s){s={snapshot:{apps:[],panels:[],appNext:null,panelNext:null,newCount:0,error:'',loading:false},subs:new Set(),running:null,pending:false,active:false,seenEpoch:0,seenQueue:Promise.resolve()};stores.set(slug,s)}return s
+  let s=stores.get(slug);if(!s){s={snapshot:{apps:[],panels:[],appNext:null,panelNext:null,newCount:0,error:'',loading:false,loaded:false},subs:new Set(),running:null,pending:false,active:false,seenEpoch:0,seenQueue:Promise.resolve()};stores.set(slug,s)}return s
 }
 /** Creation time in ms; payloads from before created_at sort as oldest. */
 export const createdAt=(x:{created_at?:string}):number=>(x.created_at&&Date.parse(x.created_at))||0
@@ -50,7 +51,7 @@ export async function refreshApps(slug:string):Promise<void>{
     // Keep explicitly loaded stopped panels for the menu, drop stale running rows.
     // A read begun before an acknowledgement must not resurrect its badge.
     if(epoch!==s.seenEpoch){s.pending=true;return}
-    publish(s,{apps:apps.items,panels:merge(s.snapshot.panels.filter(p=>!isRunning(p)),panels),appNext:apps.next_cursor,newCount:apps.new_count??0,error:''})
+    publish(s,{apps:apps.items,panels:merge(s.snapshot.panels.filter(p=>!isRunning(p)),panels),appNext:apps.next_cursor,newCount:apps.new_count??0,error:'',loaded:true})
   }catch(error){publish(s,{error:String(error)})}finally{publish(s,{loading:false});s.running=null;if(s.pending&&s.active){s.pending=false;void refreshApps(slug)}}})()
   return s.running
 }

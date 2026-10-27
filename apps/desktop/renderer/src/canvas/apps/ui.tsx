@@ -11,6 +11,7 @@ import {customAppsRequest} from '../../api'
 import {activateApps,changeApps,createdAt,isRunning,loadAppsMenu,markAppsSeen,useApps} from './store'
 import {samplePanels,usePanelCpu} from './runtime'
 import {PanelHtml} from './host'
+import {usePanelMotion,type PanelMotion} from './motion'
 import {AppSettings,PanelSettings} from './settings'
 import {AppDialog as Dialog} from './dialog'
 import {PANEL_MIN,appPlacement,windowRect} from './placement'
@@ -136,8 +137,11 @@ function AppsMenu({slug,current,manage,managePanel,importApp}:{slug:string;curre
   </div>,owner.body)
 }
 
-function PanelBody({slug,app,panel,shown,behind,layer,frame}:{slug:string;app:CustomApp;panel:CustomPanel;shown:boolean;behind:boolean;layer:PinSlot|null;frame:RefObject<HTMLElement|null>}){
+function PanelBody({slug,app,panel,shown,behind,layer,frame,motion}:{slug:string;app:CustomApp;panel:CustomPanel;shown:boolean;behind:boolean;layer:PinSlot|null;frame:RefObject<HTMLElement|null>;motion?:PanelMotion}){
   const surface=useSurface(),owner=useSurfaceDocument(),[settings,setSettings]=useState(false),[error,setError]=useState('')
+  // Powered off and zooming out: already stopped, it takes no input.
+  const stopping=motion==='stop'
+  useLayoutEffect(()=>{frame.current?.toggleAttribute('inert',stopping)},[frame,stopping])
   const latest=useRef(panel);latest.current=panel
   const drag=useRef<{x:number;y:number;placement:AppPlacement;kind:'move'|'size'}|null>(null),[preview,setPreview]=useState<AppPlacement|null>(null),[free,setFree]=useState(false)
   const update=async(fields:Record<string,unknown>)=>{try{setError('');return await changeApps<CustomPanel>(slug,{action:'panel_update',panel:panel.id,expected_rev:latest.current.rev,...fields})}catch(e){setError(String(e));throw e}}
@@ -149,7 +153,7 @@ function PanelBody({slug,app,panel,shown,behind,layer,frame}:{slug:string;app:Cu
   const wasShown=useRef(shown)
   useEffect(()=>{if(shown&&!wasShown.current&&surface?.detached)surface.open();wasShown.current=shown},[shown,surface])
   // Only the front centered panel answers Esc: the others sit under its backdrop.
-  useEsc(close,shown&&panel.placement.mode==='float'&&!surface?.detached&&!settings&&!behind,owner)
+  useEsc(close,shown&&!stopping&&panel.placement.mode==='float'&&!surface?.detached&&!settings&&!behind,owner)
   // The Apps list's raise: a pop-out's own live window is restored and focused
   // (never reopened), a window pin rises above the other pinned windows, a
   // centered panel above the other centered panels. Then the panel's window
@@ -159,7 +163,7 @@ function PanelBody({slug,app,panel,shown,behind,layer,frame}:{slug:string;app:Cu
   // resizes or changes state.
   const raise=useRef(()=>{});raise.current=()=>{if(surface?.detached)revealDetachedPanel('custom-app:'+panel.id,slug);else if(layer)raisePinSurface(layer.key);else if(panel.placement.mode==='float')setFront(key(slug,panel.id),true)
     const win=frame.current;if(!win)return;if(!win.hasAttribute('tabindex')){win.tabIndex=-1;win.addEventListener('blur',()=>win.removeAttribute('tabindex'),{once:true})}win.focus({preventScroll:true})}
-  useEffect(()=>{if(!shown)return;const k=key(slug,panel.id),fn=()=>raise.current();raisers.set(k,fn);return()=>{if(raisers.get(k)===fn)raisers.delete(k)}},[slug,panel.id,shown])
+  useEffect(()=>{if(!shown||stopping)return;const k=key(slug,panel.id),fn=()=>raise.current();raisers.set(k,fn);return()=>{if(raisers.get(k)===fn)raisers.delete(k)}},[slug,panel.id,shown,stopping])
   // The pin pins the panel to the window where it is, at its size, like pinned
   // desks (user 2026-10-26: "i meant pin it to the window like other pinned
   // panels"); unpinning returns to the centered window. Canvas pins are gone.
@@ -179,7 +183,7 @@ function PanelBody({slug,app,panel,shown,behind,layer,frame}:{slug:string;app:Cu
     const g=gesture(d,event);if(!layer){void update({placement:g}).catch(()=>{});return}
     const r=windowRect(g,layer.bounds),f=snap(r,d.kind,event.shiftKey)?.rect??r
     void update({placement:{...g,x:Math.round(f.x),y:Math.round(f.y),width:Math.round(f.w),height:Math.round(f.h)}}).catch(()=>{})}
-  return <><section ref={frame} className="settings custom-app-window" data-custom-panel={panel.id} data-parked={!shown||undefined} data-detached={surface?.detached||undefined} data-centered={panel.placement.mode==='float'&&!surface?.detached||undefined} data-pinned={!!rect||undefined} style={style} onPointerDownCapture={layer?()=>raisePinSurface(layer.key):undefined} onPointerDown={e=>e.stopPropagation()} onWheel={e=>e.stopPropagation()} onKeyDown={e=>e.stopPropagation()}>
+  return <><section ref={frame} className="settings custom-app-window" data-custom-panel={panel.id} data-motion={motion} data-parked={!shown||undefined} data-detached={surface?.detached||undefined} data-centered={panel.placement.mode==='float'&&!surface?.detached||undefined} data-pinned={!!rect||undefined} style={style} onPointerDownCapture={layer?()=>raisePinSurface(layer.key):undefined} onPointerDown={e=>e.stopPropagation()} onWheel={e=>e.stopPropagation()} onKeyDown={e=>e.stopPropagation()}>
     <header className="modalpin-bar on custom-app-title" onPointerDown={e=>start(e,'move')} onPointerMove={move} onPointerUp={end} onPointerCancel={()=>{drag.current=null;setPreview(null)}}>
       <AppsIcon/><strong className="modalpin-name" title={app.name+' · '+panel.label}>{app.name} · {panel.label}</strong>
       <button type="button" className="modalpin-btn" title="Panel settings" aria-label={'Settings for '+panel.label} onClick={()=>setSettings(true)}><SettingsIcon fontSize="inherit"/></button>
@@ -188,15 +192,15 @@ function PanelBody({slug,app,panel,shown,behind,layer,frame}:{slug:string;app:Cu
       <button type="button" className="modalpin-btn" title="Hide: closes the window, keeps the panel running" aria-label={'Hide '+panel.label} onClick={close}><CloseIcon fontSize="inherit"/></button>
     </header>
     {error&&<div role="alert" className="custom-app-error">{error}</div>}{surface?.error&&<div role="alert">{surface.error}</div>}
-    <PanelHtml slug={slug} app={app} panel={panel} visible={shown}/>
+    <PanelHtml slug={slug} app={app} panel={panel} visible={shown&&!stopping} stopping={stopping}/>
     {!surface?.detached&&<div className="custom-app-resize" aria-label="Resize panel" onPointerDown={e=>start(e,'size')} onPointerMove={move} onPointerUp={end} onPointerCancel={()=>{drag.current=null;setPreview(null)}}/>}
-    {settings&&<PanelSettings slug={slug} app={app} panel={panel} close={()=>setSettings(false)}/>}
+    {settings&&!stopping&&<PanelSettings slug={slug} app={app} panel={panel} close={()=>setSettings(false)}/>}
   </section>{candidate&&<div className="pin-snap-preview" role="status" style={{left:candidate.rect.x,top:candidate.rect.y,width:candidate.rect.w,height:candidate.rect.h}}><span>{candidate.snap.target===null?candidate.label:'Snap beside pinned window'} · Shift for free placement</span></div>}</>
 }
 
-function PanelWindow({slug,panel,app}:{slug:string;panel:CustomPanel;app:CustomApp}){
+function PanelWindow({slug,panel,app,motion}:{slug:string;panel:CustomPanel;app:CustomApp;motion?:PanelMotion}){
   const latest=useRef(panel),outer=useRef<HTMLDivElement>(null),frame=useRef<HTMLElement>(null),backdrop=useRef<boolean|null>(null);latest.current=panel
-  const p=panel.placement,k=key(slug,panel.id)
+  const p=panel.placement,k=key(slug,panel.id),stopping=motion==='stop'
   // Visible => running is enforced by the caller; a hidden running copy stays
   // mounted, parked. A window pin lives in the org's pin layer with pinned
   // desks: their canvas-area coordinates, stacking and snapping.
@@ -210,15 +214,15 @@ function PanelWindow({slug,panel,app}:{slug:string;panel:CustomPanel;app:CustomA
   // does, and leaves it when it is hidden, pinned or popped out.
   useLayoutEffect(()=>{if(!centered)return;setFront(k,true);return()=>setFront(k,false)},[centered,k])
   const behind=useBehind(slug,k)
-  return <div ref={outer} className={parked?'custom-app-parked':centered?'overlay custom-app-centered'+(behind?' custom-app-behind':''):'custom-app-placeholder'+(pinned?' pinned':'')} aria-hidden={parked||undefined} style={parked?{width:p.width,height:p.height}:centered||pinned?undefined:{position:'fixed',left:effective.placement.x,top:effective.placement.y,width:p.width,height:p.height,zIndex:19}} onPointerDownCapture={e=>{backdrop.current=e.target===e.currentTarget}} onClick={e=>{if(centered&&e.target===e.currentTarget&&backdrop.current!==false)void changeApps(slug,{action:'panel_update',panel:panel.id,expected_rev:latest.current.rev,open:false}).catch(()=>{});backdrop.current=null}}>
+  return <div ref={outer} className={parked?'custom-app-parked':centered?'overlay custom-app-centered'+(behind?' custom-app-behind':''):'custom-app-placeholder'+(pinned?' pinned':'')} data-motion={motion} aria-hidden={parked||undefined} style={parked?{width:p.width,height:p.height}:centered||pinned?undefined:{position:'fixed',left:effective.placement.x,top:effective.placement.y,width:p.width,height:p.height,zIndex:19}} onPointerDownCapture={e=>{backdrop.current=e.target===e.currentTarget}} onClick={e=>{if(centered&&!stopping&&e.target===e.currentTarget&&backdrop.current!==false)void changeApps(slug,{action:'panel_update',panel:panel.id,expected_rev:latest.current.rev,open:false}).catch(()=>{});backdrop.current=null}}>
     <MovableSurface org={slug} kind={'custom-app:'+panel.id} title={app.name+' · '+panel.label} anchor={pinned?pinLayerFor(slug):undefined} parked={parked} preserveFrames
       sourceBox={()=>{const r=frame.current?.getBoundingClientRect();return r?{x:r.x,y:r.y,w:r.width,h:r.height}:null}} exactSourceBox
-      onDismiss={()=>{if(!windowExitStarted())void changeApps(slug,{action:'panel_update',panel:panel.id,expected_rev:latest.current.rev,open:false}).catch(()=>{})}}
-      onDetached={(detached,reason)=>{if(windowExitStarted()||reason==='close')return;const current=latest.current
+      onDismiss={()=>{if(!stopping&&!windowExitStarted())void changeApps(slug,{action:'panel_update',panel:panel.id,expected_rev:latest.current.rev,open:false}).catch(()=>{})}}
+      onDetached={(detached,reason)=>{if(stopping||windowExitStarted()||reason==='close')return;const current=latest.current
         if(detached){if(current.placement.mode!=='popout')returns.set(k,{...current.placement});void changeApps(slug,{action:'panel_update',panel:panel.id,expected_rev:current.rev,placement:{...current.placement,mode:'popout'}}).catch(()=>{})}
         else if(current.placement.mode==='popout')void changeApps(slug,{action:'panel_update',panel:panel.id,expected_rev:current.rev,placement:returns.get(k)??{...current.placement,mode:'float'}}).catch(()=>{})
       }} minDimensions={{width:160,height:120}}>
-      <PanelBody slug={slug} app={app} panel={effective} shown={shown} behind={centered&&behind} layer={pinned?{bounds,z:layout.z,key:layout.key}:null} frame={frame}/>
+      <PanelBody slug={slug} app={app} panel={effective} shown={shown} behind={centered&&behind} layer={pinned?{bounds,z:layout.z,key:layout.key}:null} frame={frame} motion={motion}/>
     </MovableSurface>
   </div>
 }
@@ -226,9 +230,11 @@ function PanelWindow({slug,panel,app}:{slug:string;panel:CustomPanel;app:CustomA
 export function AppsWorkspace({slug}:{slug:string}){
   const data=useApps(slug),current=useMenu(),[manage,setManage]=useState<{app:CustomApp;panel?:CustomPanel;owner:Document}|null>(null),[imported,setImported]=useState<{bundle:AppBundle;owner:Document}|null>(null),[error,setError]=useState('')
   useEffect(()=>activateApps(slug),[slug])
+  // Running copies, plus a visible one that just stopped while it zooms out.
+  const shown=usePanelMotion(data.panels,data.apps,data.loaded)
   useEffect(()=>{const failure=(e:Event)=>{const d=(e as CustomEvent).detail;if(d?.slug===slug)setError(d.error)};window.addEventListener('custom-app-error',failure);return()=>window.removeEventListener('custom-app-error',failure)},[slug])
   return <>{current?.slug===slug&&<AppsMenu slug={slug} current={current} manage={app=>setManage({app,owner:current.anchor.ownerDocument})} managePanel={(app,panel)=>setManage({app,panel,owner:current.anchor.ownerDocument})} importApp={(bundle,owner)=>setImported({bundle,owner})}/>}
-    {data.panels.filter(isRunning).map(p=>{const app=data.apps.find(a=>a.id===p.app);return app?<PanelWindow key={p.id} slug={slug} panel={p} app={app}/>:null})}
+    {shown.map(({panel,app,motion})=><PanelWindow key={panel.id} slug={slug} panel={panel} app={app} motion={motion}/>)}
     {error&&<div className="custom-app-global-error" role="alert">{error}<button onClick={()=>setError('')}>Dismiss</button></div>}
     {manage&&(manage.panel?<PanelSettings key={manage.panel.id} slug={slug} app={manage.app} panel={manage.panel} owner={manage.owner} close={()=>setManage(null)}/>:<AppSettings slug={slug} app={manage.app} owner={manage.owner} close={()=>setManage(null)}/>)}
     {imported&&<Dialog title="Import app" close={()=>setImported(null)} owner={imported.owner}><AppImport slug={slug} bundle={imported.bundle} close={()=>setImported(null)}/></Dialog>}
