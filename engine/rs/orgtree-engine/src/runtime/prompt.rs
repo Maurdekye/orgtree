@@ -98,8 +98,11 @@ pub struct Batch {
     /// Normalized selected prefix: use this for image delivery and replay too.
     pub mail: Vec<Mail>,
     pub candidate_bytes: usize,
-    /// What `text` is made of, labelled, for its token count on the desk.
-    pub parts: Vec<(String, String)>,
+    /// What the desk counts (user 2026-10-27 m7c48d80b13f4, m90b8a18987ea): each message
+    /// by its id as if it were sent alone, with the framing that always comes with it,
+    /// and the conditional parts sent with them, labelled.
+    pub own: Vec<(String, String)>,
+    pub extras: Vec<(String, String)>,
 }
 
 /// Select a prefix only; the actor returns every other claimed row to pending.
@@ -111,7 +114,7 @@ pub fn batch(mail: &[Mail], context: &str, rels: &HashMap<String, String>, hando
         let mut text = if steering { steer_text(ms, rels) } else { turn_text(ms, context, rels, handoff) };
         let remaining = mail.len().saturating_sub(ms.len());
         if remaining > 0 && !ms.is_empty() {
-            text.push_str(&format!("\n[ORGTREE MAIL CONTINUES]\n{remaining} more messages follow automatically in order, within the input byte budget. No inbox read is needed to receive them.\n[END MAIL CONTINUES]\n"));
+            text.push_str(&continues_note(remaining));
         }
         text
     };
@@ -132,15 +135,26 @@ pub fn batch(mail: &[Mail], context: &str, rels: &HashMap<String, String>, hando
         }
         text = next;
     }
-    let parts = if steering { steer_parts(&selected, rels) } else { turn_parts(&selected, context, rels, handoff) };
-    Ok(Batch { text, mail: selected, candidate_bytes, parts })
+    let remaining = mail.len().saturating_sub(selected.len());
+    let own = selected.iter().map(|m| (m.uid.clone(), if steering { steer_text(std::slice::from_ref(m), rels) }
+        else { turn_text(std::slice::from_ref(m), "", rels, None) })).collect();
+    let mut extras = if steering { Vec::new() } else { context_parts(context, handoff) };
+    if remaining > 0 && !selected.is_empty() { extras.push(("More mail follows".into(), continues_note(remaining))); }
+    Ok(Batch { text, mail: selected, candidate_bytes, own, extras })
 }
 
-/// The labelled parts of a turn's opening message, for its token count (user
-/// 2026-10-27 m10e4ca6d8934): the org state and the usage board (`context`), the
-/// org notices and each mail. Each part is the text `turn_text` puts in.
 #[nolog]
-pub fn turn_parts(mail: &[Mail], context: &str, rels: &HashMap<String, String>, handoff: Option<&str>) -> Vec<(String, String)> {
+fn continues_note(remaining: usize) -> String {
+    format!("\n[ORGTREE MAIL CONTINUES]\n{remaining} more messages follow automatically in order, within the input byte budget. No inbox read is needed to receive them.\n[END MAIL CONTINUES]\n")
+}
+
+/// What a turn's opening message carries besides its messages, each as `turn_text`
+/// puts it in (user 2026-10-27 m7c48d80b13f4 "anything extra should have an extra "+xyt"
+/// token count", m90b8a18987ea "anything that may conditionally appear which is out of
+/// the user's direct control should be in the extras count"): the org state, the usage
+/// board (`context`) and a handoff note.
+#[nolog]
+pub fn context_parts(context: &str, handoff: Option<&str>) -> Vec<(String, String)> {
     let mut parts = Vec::new();
     if !context.is_empty() {
         match context.find("[PROVIDER USAGE") {
@@ -149,37 +163,8 @@ pub fn turn_parts(mail: &[Mail], context: &str, rels: &HashMap<String, String>, 
             None => parts.push(("Org state".into(), context.into())),
         }
     }
-    let bounded = inline_mail(mail, rels);
-    let (notices, mail) = envelope::split_notices(&bounded, handoff);
-    if !notices.is_empty() { parts.push(("Org notices".into(), envelope::notices_block(&notices))); }
-    mail_parts(&mut parts, &mail, rels, true);
+    if let Some(h) = handoff { parts.push(("Handoff note".into(), h.strip_prefix("[Orgtree] ").unwrap_or(h).trim_end().into())); }
     parts
-}
-/// The labelled parts of mail handed over mid-turn: the org notices and each mail.
-#[nolog]
-pub fn steer_parts(mail: &[Mail], rels: &HashMap<String, String>) -> Vec<(String, String)> {
-    let bounded = inline_mail(mail, rels);
-    let (notices, mail) = envelope::split_notices(&bounded, None);
-    let mut parts = Vec::new();
-    if !notices.is_empty() { parts.push(("Org notices".into(), envelope::notices_block(&notices))); }
-    mail_parts(&mut parts, &mail, rels, false);
-    parts
-}
-/// One part per message, named by its sender (a watchdog fire by its dog); past the
-/// row's part limit the rest join one remainder part.
-#[nolog]
-fn mail_parts(parts: &mut Vec<(String, String)>, mail: &[&Mail], rels: &HashMap<String, String>, turn_start: bool) {
-    let room = crate::runtime::token_counts::PARTS_MAX.saturating_sub(parts.len() + 1);
-    for (i, m) in mail.iter().enumerate() {
-        if i == room && mail.len() > room + 1 {
-            parts.push((format!("{} more messages", mail.len() - room), envelope::mail_block(&mail[room..], rels, turn_start)));
-            break;
-        }
-        let from = if m.sender == "@user" { "user" } else if m.sender == "@system" { "orgtree" } else { m.sender.as_str() };
-        // A watchdog fire is sent by the dog it names.
-        let label = if m.kind == "watchdog" { format!("Watchdog {from}") } else { format!("{} from {from}", if m.notice { "Notice" } else { "Mail" }) };
-        parts.push((label, envelope::mail_block(&[*m], rels, turn_start)));
-    }
 }
 
 /// Persist only the engine-generated dynamic org-state/usage envelope under
@@ -305,22 +290,34 @@ mod token_part_tests {
             at: chrono::DateTime::from_timestamp(0, 0).unwrap(), attachments: json!([]), notice: false, one_time: false, urgent: false,
             reply_to: json!({}), replies: json!([]), ev: json!({}), via_project: None, via_project_ack: false, uncertain_mid_turn: false, private_app: false }
     }
-    /// User 2026-10-27 m10e4ca6d8934: a delivered message's count names what it is made of.
+    /// User 2026-10-27 m7c48d80b13f4, m90b8a18987ea: each message counts as if it were
+    /// sent alone, with its framing; the conditional parts sent with it are listed apart.
     #[test]
-    fn opening_and_mid_turn_messages_name_their_parts() {
+    fn each_message_counts_alone_with_its_framing_and_the_extras_are_listed_apart() {
         let rels = HashMap::new();
         let mails = [mail("m1", "@user", "Start the work."), mail("m2", "coordinator-opus", "Read the item.")];
         let context = "[ORG STATE - now]\nreports\n[END ORG STATE]\n\n[PROVIDER USAGE - now]\nrows\n[END PROVIDER USAGE]";
-        let opening = batch(&mails, context, &rels, None, 1_000_000, false).unwrap();
-        assert_eq!(opening.parts.iter().map(|(l, _)| l.as_str()).collect::<Vec<_>>(), ["Org state", "Provider usage", "Mail from user", "Mail from coordinator-opus"]);
-        assert!(opening.parts[0].1.starts_with("[ORG STATE") && opening.parts[1].1.starts_with("[PROVIDER USAGE"));
-        assert!(opening.parts[2].1.contains("Start the work.") && opening.parts[3].1.contains("Read the item.") && opening.text.contains("Read the item."));
+        let opening = batch(&mails, context, &rels, Some("[Orgtree] Resumed after a restart."), 1_000_000, false).unwrap();
+        assert_eq!(opening.own.iter().map(|(id, _)| id.as_str()).collect::<Vec<_>>(), ["m1", "m2"]);
+        let (user, other) = (&opening.own[0].1, &opening.own[1].1);
+        assert!(user.contains("[MAIL — 1 message(s)]") && user.contains("FROM user") && user.contains("Start the work.")
+            && user.contains("[END MAIL]") && user.contains(envelope::MAIL_PING), "the user's message with its own framing: {user}");
+        assert!(!user.contains("Read the item.") && !user.contains("[ORG STATE") && !user.contains("[PROVIDER USAGE") && !user.contains("Resumed"),
+            "nothing conditional and no other message in its count: {user}");
+        assert!(other.contains("FROM coordinator-opus") && other.contains("Read the item.") && !other.contains("Start the work."));
+        assert_eq!(opening.extras.iter().map(|(l, _)| l.as_str()).collect::<Vec<_>>(), ["Org state", "Provider usage", "Handoff note"]);
+        assert!(opening.extras[0].1.starts_with("[ORG STATE") && opening.extras[1].1.starts_with("[PROVIDER USAGE") && opening.extras[2].1 == "Resumed after a restart.");
+        assert!(opening.text.contains("Start the work.") && opening.text.contains("Read the item."));
         let steer = batch(&mails, "", &rels, None, 1_000_000, true).unwrap();
-        assert_eq!(steer.parts.iter().map(|(l, _)| l.as_str()).collect::<Vec<_>>(), ["Mail from user", "Mail from coordinator-opus"]);
-        let many: Vec<Mail> = (0..40).map(|i| mail(&format!("m{i}"), "worker", "x")).collect();
-        let parts = turn_parts(&many, context, &rels, None);
-        assert_eq!(parts.len(), crate::runtime::token_counts::PARTS_MAX, "a busy turn keeps a bounded list");
-        assert_eq!(parts.last().unwrap().0, "27 more messages");
+        assert!(steer.extras.is_empty(), "mid-turn mail carries nothing conditional");
+        assert!(steer.own[0].1.starts_with("[ORGTREE MAIL — delivered mid-task]") && steer.own[0].1.contains("Start the work.")
+            && !steer.own[0].1.contains("Read the item."), "its mid-task framing is its own: {}", steer.own[0].1);
+        // cut by the byte budget: the note that more follows is conditional too
+        let long = [mail("m1", "@user", "Start the work."), mail("m3", "coordinator-opus", &"long ".repeat(200))];
+        let whole = batch(&long, context, &rels, None, 1_000_000, false).unwrap();
+        let cut = batch(&long, context, &rels, None, whole.text.len() - 1, false).unwrap();
+        assert_eq!(cut.own.len(), 1);
+        assert_eq!(cut.extras.last().map(|(l, _)| l.as_str()), Some("More mail follows"));
     }
 }
 

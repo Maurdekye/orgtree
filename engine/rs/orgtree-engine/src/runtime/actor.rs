@@ -4049,7 +4049,7 @@ impl Actor {
                 raw.truncate(take);
                 let formatted=result?;
                 let mut row=mail_row(&raw,Some("Admitted through the OpenCode tool-boundary mail hook."));
-                row["tokens"]=self.sent_tokens(&formatted.text,formatted.parts.clone()).await;
+                row["tokens"]=self.sent_tokens(&formatted.text,formatted.own.clone(),formatted.extras.clone()).await;
                 let batch=mail::persist(&client,self.id,turn_id,&session,&formatted.text,&raw,&row).await?;
                 if let Some(guard)=super::watchdogs::events::alert_turn(&self.engine,self.org_id,self.id,&self.name,&raw) {
                     if let Some(t)=self.turn.as_mut(){t.alert_turn=Some(guard);}
@@ -4120,7 +4120,7 @@ impl Actor {
         if let Some(guard)=crate::runtime::watchdogs::events::alert_turn(&self.engine,self.org_id,self.id,&self.name,&raw) {
             if let Some(t)=self.turn.as_mut(){t.alert_turn=Some(guard);}
         }
-        let tokens = self.sent_tokens(&batch.text, batch.parts.clone()).await;
+        let tokens = self.sent_tokens(&batch.text, batch.own.clone(), batch.extras.clone()).await;
         let text = batch.text;
         let steered = match &self.proc {
             Some(Proc::Codex(p)) => p.steer(&codex_turn, &text).await,
@@ -4180,7 +4180,7 @@ impl Actor {
         if let Some(guard)=crate::runtime::watchdogs::events::alert_turn(&self.engine,self.org_id,self.id,&self.name,&raw) {
             if let Some(t)=self.turn.as_mut(){t.alert_turn=Some(guard);}
         }
-        let tokens = self.sent_tokens(&batch.text, batch.parts.clone()).await;
+        let tokens = self.sent_tokens(&batch.text, batch.own.clone(), batch.extras.clone()).await;
         let id = format!("t{turn_id}-m{}", ids[0]);
         let body = json!({ "id": id, "text": batch.text }).to_string();
         let tmp = dir.join("pending.tmp");
@@ -4643,7 +4643,7 @@ impl Actor {
             Err(e) => { self.return_mail(turn_id, true).await; return Err(e); }
         };
         let alert_turn = crate::runtime::watchdogs::events::alert_turn(&self.engine,self.org_id,self.id,&self.name,&raw);
-        let tokens = self.sent_tokens(&batch.text, batch.parts.clone()).await;
+        let tokens = self.sent_tokens(&batch.text, batch.own.clone(), batch.extras.clone()).await;
         let mails = batch.mail;
         let text = batch.text;
         let followup: Vec<String> = mails.iter().filter(|m| self.followup_mail.contains(&m.uid))
@@ -4846,7 +4846,7 @@ impl Actor {
         if let Some(guard)=crate::runtime::watchdogs::events::alert_turn(&self.engine,self.org_id,self.id,&self.name,&raw) {
             if let Some(t)=self.turn.as_mut(){t.alert_turn=Some(guard);}
         }
-        let tokens = self.sent_tokens(&batch.text, batch.parts.clone()).await;
+        let tokens = self.sent_tokens(&batch.text, batch.own.clone(), batch.extras.clone()).await;
         let text = batch.text;
         if let Some(t) = self.turn.as_mut() { t.activity = true; }
         let mut row = mail_row(&raw, Some("Delivered after a tool call."));
@@ -6748,12 +6748,15 @@ impl Actor {
             }
             Some("message_delta") => {
                 if let Some(t)=self.turn.as_mut() {
-                    if let Some((_,usage))=t.token_metrics.claude_stream.as_mut() {
+                    let final_usage=if let Some((id,usage))=t.token_metrics.claude_stream.as_mut() {
                         for key in ["input_tokens","cache_read_input_tokens","cache_creation_input_tokens","output_tokens","output_tokens_details"] {
                             if let Some(value)=ev["usage"].get(key) {usage[key]=value.clone();}
                         }
                         t.usage=usage.clone();
-                    }
+                        Some((id.clone(),usage["output_tokens"].as_u64(),usage.pointer("/output_tokens_details/thinking_tokens").and_then(Value::as_u64)))
+                    } else {None};
+                    // the response's final output, after its blocks' assistant events (State::claude_output)
+                    if let Some((id,output,thinking))=final_usage { t.token_metrics.claude_output(&id,output,thinking); }
                 }
             }
             Some("content_block_start") => {
@@ -6866,10 +6869,11 @@ impl Actor {
     }
 
     /// The count of exactly what was sent (user 2026-10-27 m10e4ca6d8934 "token counts in
-    /// messages of all kinds", mafe020c4912b "and user messages"), with its labelled parts.
+    /// messages of all kinds", mafe020c4912b "and user messages"), each message's own count
+    /// and the conditional parts sent with them (m7c48d80b13f4, m90b8a18987ea).
     #[nolog]
-    async fn sent_tokens(&self, text: &str, parts: Vec<(String, String)>) -> Value {
-        token_counts::row_count(text, parts, self.metrics_harness()).await
+    async fn sent_tokens(&self, text: &str, own: Vec<(String, String)>, extras: Vec<(String, String)>) -> Value {
+        token_counts::delivery_count(text, own, extras, self.metrics_harness()).await
             .unwrap_or_else(|| token_counts::not_counted("the token estimator is unavailable"))
     }
     #[nolog]
@@ -7106,8 +7110,6 @@ impl Actor {
                     .or_else(||stream_usage.and_then(|u|u.pointer("/output_tokens_details/thinking_tokens")).and_then(Value::as_u64));
                 let receipt=turn.token_metrics.claude.get_or_insert_with(||token_counts::ClaudeReceipt {
                     id:mid.clone(),thoughts:0,texts:0,calls:false,output:None,thinking:None });
-                if let Some(n)=reported_output {receipt.output=Some(n);}
-                if let Some(n)=reported_thinking {receipt.thinking=Some(n);}
                 for block in msg["content"].as_array().into_iter().flatten() {
                     match block["type"].as_str() {
                         Some("thinking"|"redacted_thinking")=>receipt.thoughts+=1,
@@ -7115,6 +7117,7 @@ impl Actor {
                         _=>receipt.calls=true,
                     }
                 }
+                turn.token_metrics.claude_output(&mid,reported_output,reported_thinking);
             }
             let (seq, mut row) = turn.rows.get(&mid).cloned().unwrap_or((
                 0,

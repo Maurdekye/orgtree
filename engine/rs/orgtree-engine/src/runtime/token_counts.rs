@@ -84,6 +84,18 @@ pub struct ClaudeReceipt {
     pub thinking: Option<u64>,
 }
 impl State {
+    /// A Claude response's output count. The CLI's assistant event for each block carries
+    /// the usage as it stood before the response finished; the response's final usage
+    /// arrives later, in its message_delta (user 2026-10-27 mf421a040506c: a reply of about
+    /// 130 tokens showed 8t). Output only grows within a response, so the largest seen is
+    /// its count; another response's usage never lands here.
+    #[nolog]
+    pub fn claude_output(&mut self, id: &str, output: Option<u64>, thinking: Option<u64>) {
+        if let Some(r) = self.claude.as_mut().filter(|r| r.id == id) {
+            if let Some(n) = output { r.output = Some(r.output.map_or(n, |o| o.max(n))); }
+            if let Some(n) = thinking { r.thinking = Some(r.thinking.map_or(n, |o| o.max(n))); }
+        }
+    }
     #[nolog]
     pub fn output(&mut self, id: &str, text: &str, append: bool, now: Instant) {
         if self.samples.len()>=64 && !self.samples.contains_key(id) { return; }
@@ -353,13 +365,13 @@ pub async fn estimate(sample: Sample, harness: Harness) -> Option<Value> {
     }).await.ok().flatten()
 }
 
-/// At most this many labelled parts per row; later mail joins one remainder part.
+/// At most this many labelled parts or itemized extras per row.
 pub const PARTS_MAX: usize = 16;
 
-/// A conversation row's count (user 2026-10-27 m10e4ca6d8934: "token counts in
-/// messages of all kinds"): one estimate of exactly the text given, with its
-/// labelled parts each estimated alone. Marked estimated, and sampled when only a
-/// bounded head and tail were counted. Counted once, off the actor's task.
+/// A response row's estimate (user 2026-10-27 m10e4ca6d8934: "token counts in messages of
+/// all kinds"): one estimate of exactly the text given, with its labelled parts each
+/// estimated alone. Marked estimated, and sampled when only a bounded head and tail were
+/// counted. Counted once, off the actor's task.
 #[nolog]
 pub async fn row_count(text: &str, parts: Vec<(String, String)>, harness: Harness) -> Option<Value> {
     let mut total = Sample::default(); total.replace(text);
@@ -370,6 +382,37 @@ pub async fn row_count(text: &str, parts: Vec<(String, String)>, harness: Harnes
         let mut out = json!({"count": n(&total)?, "estimated": true, "sampled": total.sampled()});
         let listed: Vec<Value> = parts.iter().filter_map(|(label, s)| Some(json!({"label": label, "count": n(s)?}))).collect();
         if !listed.is_empty() { out["parts"] = json!(listed); }
+        Some(out)
+    }).await.ok().flatten()
+}
+
+/// A delivered message's counts (user 2026-10-27 m7c48d80b13f4 "the token count in the
+/// message header should be only that which is directly attributable to my message.
+/// anything extra should have an extra "+xyt" token count", md965e01802ba "explaining
+/// exactly what components are carried with it", m90b8a18987ea "the mail framing
+/// itself, which always accompanies the mail, should always be included in the first
+/// count"): the whole text sent (`count`), each message as if sent alone with the framing
+/// that always comes with it, by its id (`own`), and the conditional parts sent with them,
+/// itemized (`extras`, their sum `extra`). All estimates, each counted alone; marked
+/// sampled when only a bounded head and tail were counted. Counted once, off the actor's
+/// task.
+#[nolog]
+pub async fn delivery_count(text: &str, own: Vec<(String, String)>, extras: Vec<(String, String)>, harness: Harness) -> Option<Value> {
+    let sample = |text: &str| { let mut s = Sample::default(); s.replace(text); s };
+    let total = sample(text);
+    let own: Vec<(String, Sample)> = own.into_iter().map(|(id, text)| { let s = sample(&text); (id, s) }).collect();
+    let extras: Vec<(String, Sample)> = extras.into_iter().take(PARTS_MAX).map(|(label, text)| { let s = sample(&text); (label, s) }).collect();
+    tokio::task::spawn_blocking(move || {
+        let factor = CORRECTIONS[harness as usize].factor();
+        let n = |s: &Sample| s.count().map(|c| (c as f64 * factor).round() as u64);
+        let mut out = json!({"count": n(&total)?, "estimated": true, "sampled": total.sampled()});
+        out["own"] = json!(own.iter().filter_map(|(id, s)| Some(json!({"id": id, "count": n(s)?, "estimated": true, "sampled": s.sampled()})))
+            .collect::<Vec<_>>());
+        let listed: Vec<(&String, u64)> = extras.iter().filter_map(|(label, s)| Some((label, n(s)?))).collect();
+        if !listed.is_empty() {
+            out["extra"] = json!(listed.iter().map(|(_, count)| count).sum::<u64>());
+            out["extras"] = json!(listed.iter().map(|(label, count)| json!({"label": label, "count": count})).collect::<Vec<_>>());
+        }
         Some(out)
     }).await.ok().flatten()
 }
@@ -432,6 +475,33 @@ mod tests {
         assert_eq!(big["sampled"], true); assert!(big.get("parts").is_none());
         assert_eq!(reported(412, Harness::Claude), json!({"count": 412, "reported": "Claude"}));
         assert_eq!(not_counted(NOT_SENT)["not_counted"], "not sent to the agent");
+    }
+    /// User 2026-10-27 m7c48d80b13f4, md965e01802ba, m90b8a18987ea.
+    #[tokio::test]
+    async fn delivery_counts_are_estimates_with_each_message_alone_and_itemized_extras() {
+        let c = delivery_count("hello world, and the org state", vec![("m1".into(), "hello world".into())],
+            vec![("Org state".into(), "and the org state".into()), ("Provider usage".into(), "rows".into())], Harness::Codex).await.unwrap();
+        assert_eq!(c["estimated"], true); assert!(c["count"].as_u64().unwrap() >= 1);
+        assert_eq!(c["sampled"], false);
+        assert_eq!(c["own"][0]["id"], "m1"); assert!(c["own"][0]["count"].as_u64().unwrap() >= 1); assert_eq!(c["own"][0]["estimated"], true);
+        assert_eq!(c["extras"][0]["label"], "Org state"); assert_eq!(c["extras"][1]["label"], "Provider usage");
+        assert_eq!(c["extra"].as_u64(), Some(c["extras"][0]["count"].as_u64().unwrap() + c["extras"][1]["count"].as_u64().unwrap()));
+        let big = delivery_count(&"word ".repeat(100_000), vec![("m2".into(), "word ".repeat(100_000))], Vec::new(), Harness::Claude).await.unwrap();
+        assert_eq!(big["sampled"], true); assert_eq!(big["own"][0]["sampled"], true);
+        assert!(big.get("extras").is_none() && big.get("extra").is_none(), "nothing conditional, no +N");
+    }
+    /// User 2026-10-27 mf421a040506c: the count is the response's final output, not the
+    /// snapshot a block's assistant event carried.
+    #[test]
+    fn a_claude_response_keeps_its_final_output_not_a_block_snapshot() {
+        let mut s = State::default();
+        s.claude = Some(ClaudeReceipt { id: "m".into(), thoughts: 0, texts: 1, calls: true, output: None, thinking: None });
+        s.claude_output("m", Some(8), Some(20));
+        s.claude_output("m", Some(161), None);
+        s.claude_output("m", Some(8), Some(20));
+        s.claude_output("other", Some(500), Some(90));
+        let r = s.claude.as_ref().unwrap();
+        assert_eq!((r.output, r.thinking), (Some(161), Some(20)));
     }
     #[test]
     fn calibration_rejects_missing_tiny_and_implausible_receipts() {

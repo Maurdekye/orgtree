@@ -589,7 +589,9 @@ fn transcript_result(node: &str, access: Value, busy: bool, occupancy: Option<i3
             "tools": m.get("tools").cloned().unwrap_or_else(|| json!([])),
             "incomplete": m["assistant_state"] == "partial",
             // The desk's count for this row (user 2026-10-27 m10e4ca6d8934): reported or
-            // estimated, or why it is not counted; null on rows written before 4.5.0.
+            // estimated, or why it is not counted; null on rows written before 4.5.0. A
+            // delivered message's carries each message's own count by mail id and the
+            // conditional extras sent with them (m7c48d80b13f4, m90b8a18987ea).
             "tokens": m["tokens"],
             "interrupted": m["interrupted"].as_bool().unwrap_or(false),
         })
@@ -607,12 +609,12 @@ mod transcript_token_tests {
     fn transcript_rows_carry_the_desk_token_count() {
         let rows=transcript_result("worker",json!({}),false,None,false,vec![
             json!({"role":"assistant","text":"Done.","tokens":{"count":412,"reported":"Claude"}}),
-            json!({"role":"user","text":"Start.","tokens":{"count":3400,"estimated":true,"parts":[{"label":"Org state","count":1100}]}}),
+            json!({"role":"user","text":"Start.","tokens":{"count":3400,"estimated":true,"own":[{"id":"m1","count":40,"estimated":true}],"extras":[{"label":"Org state","count":1100}],"extra":1100}}),
             json!({"role":"system","text":"Ended.","tokens":{"not_counted":"not sent to the agent"}}),
             json!({"role":"assistant","text":"Before this version."})]);
         let m=&rows["messages"];
         assert_eq!(m[0]["tokens"]["count"],412);assert_eq!(m[0]["tokens"]["reported"],"Claude");
-        assert_eq!(m[1]["tokens"]["parts"][0]["label"],"Org state");
+        assert_eq!(m[1]["tokens"]["own"][0]["count"],40);assert_eq!(m[1]["tokens"]["extras"][0]["label"],"Org state");assert_eq!(m[1]["tokens"]["extra"],1100);
         assert_eq!(m[2]["tokens"]["not_counted"],"not sent to the agent");
         assert!(m[3]["tokens"].is_null(),"rows from before 4.5.0 carry no count, never 0");
     }
