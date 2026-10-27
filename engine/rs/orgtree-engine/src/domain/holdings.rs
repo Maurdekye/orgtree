@@ -11,10 +11,12 @@
 //! - moves out of the project (it no longer reaches it): `after_move`, which also
 //!   removes the mover's WAITING slot claim from the project's line and pauses its
 //!   queue listener there (user 2026-10-27 18:01Z m603e6114476e, "Drop both");
-//! - has a turn that dies, or is cut by an engine restart: `release_after_death`.
+//! - has a turn that dies: `release_after_death`.
 //!
-//! A manual interrupt (`orgtree_interrupt`, the desk's stop, Stop all) and an
-//! agent ending its own turn are NOT deaths: those keep today's rule, the
+//! A manual interrupt (`orgtree_interrupt`, the desk's stop, Stop all), an
+//! engine restart (`runtime::recover` wakes the cut turn and gives nothing
+//! back; user 2026-10-27 22:04:54Z ma9d6ca993753, "also make engine restarts
+//! not free slots") and an agent ending its own turn are NOT deaths: those keep today's rule, the
 //! project's Ack timeout and reminders (`slots::idle_timeouts`,
 //! `projects::ack_timeouts`) on the working checkup. The checkup never reaches
 //! a frozen, halted or mid-turn holder, which is why those had to be released
@@ -125,14 +127,6 @@ pub struct Death {
     pub because: String,
 }
 
-#[nolog]
-impl Death {
-    /// The engine restarted during the holder's turn.
-    pub fn engine_restart() -> Self {
-        Self { how: HOW_RESTART, why: "the engine restarted during its turn".into(), because: "the engine restarted during your turn".into() }
-    }
-}
-
 /// Did this turn die? `None` for one that did not: it finished, the agent ended
 /// it deliberately (also asking for a restart), it was interrupted by hand, or
 /// it was a compaction.
@@ -154,10 +148,9 @@ pub fn died(end: &Ending) -> Option<Death> {
 }
 
 /// What the lease history records for a lease taken back because its holder
-/// was frozen, or because its turn died (or the engine restarted during it).
+/// was frozen, or because its turn died.
 pub const HOW_FROZEN: &str = "frozen";
 pub const HOW_DIED: &str = "turn ended abnormally";
-pub const HOW_RESTART: &str = "engine restarted during its turn";
 /// ... because the holder moved out of the project.
 pub const HOW_MOVED_OUT: &str = "moved out of the project";
 /// What a waiting slot claim records (`reason`) when its owner moved out of the project.
@@ -556,9 +549,6 @@ mod tests {
             assert!(d.because.starts_with("your turn") || d.because.starts_with("the user's"), "{name}: {}", d.because);
         }
         assert_eq!(died(&Ending { limited: true, ..end() }).unwrap().how, HOW_FROZEN, "a usage-limit refusal");
-        let restart = Death::engine_restart();
-        assert_eq!((restart.how, restart.why.as_str(), restart.because.as_str()),
-            (HOW_RESTART, "the engine restarted during its turn", "the engine restarted during your turn"));
     }
 
     #[test]

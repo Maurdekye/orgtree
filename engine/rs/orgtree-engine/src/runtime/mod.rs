@@ -632,12 +632,10 @@ pub async fn recover(engine: &Arc<Engine>) {
         .unwrap_or_default();
     for r in &interrupted {
         let (id, org): (i64, i64) = (r.get(0), r.get(1));
-        // the turn the engine cut gives back its project slots and un-acked jobs, and the
-        // wake below carries the notice of what went (domain/holdings.rs)
-        let name: String = r.get(2);
-        if let Err(e) = Box::pin(crate::domain::holdings::release_after_death(engine, org, id, &name, &crate::domain::holdings::Death::engine_restart())).await {
-            tracing::warn!(agent = id, error = %format!("{e:#}"), "giving back a cut turn's project holdings failed");
-        }
+        // The turn the engine cut keeps its project slot leases and un-acked jobs: they stay the
+        // agent's across the restart, and the wake below lets it carry on (USER 2026-10-27 22:04:54Z
+        // ma9d6ca993753 "also make engine restarts not free slots"; domain/holdings.rs). A holder
+        // that never comes back is still covered by the Ack timeout and the state-derived releases.
         if let Err(e)=crate::domain::runtime_notices::restarted(engine,org,id,true,None).await {
             tracing::warn!(agent=id,error=%format!("{e:#}"),"restart wake could not be sent");
         }
