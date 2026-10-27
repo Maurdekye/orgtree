@@ -5,6 +5,7 @@ import {readFileSync} from 'node:fs'
 import path from 'node:path'
 import {AppsButton,AppsWorkspace} from '../src/canvas/apps/ui'
 import {invalidateCustomApps} from '../src/canvas/apps/store'
+import {PANEL_MOTION_MS} from '../src/canvas/apps/motion'
 import {PANEL_PROTOCOL} from '../src/canvas/apps/sdk'
 import type {CustomApp,CustomPanel} from '../src/canvas/apps/types'
 
@@ -144,4 +145,26 @@ test('reduced motion keeps a fade and drops the zoom',()=>{
   const calm=[...reduced.matchAll(/data-motion="(?:start|stop)"\][^{]*\{[^}]*animation(?:-name)?:\s*([\w-]+)/g)].map(m=>m[1]!)
   assert.ok(calm.length>=2,'reduced motion overrides both')
   for(const n of calm){assert.equal(/\b(scale|transform|translate)\b/.test(keyframes(n)),false,n+' must not move or zoom');assert.match(keyframes(n),/opacity/,n+' fades')}
+})
+
+test('a panel started again during its zoom-out zooms back in and takes input',async t=>{
+  const f=await workspace(t,'motion-restart',[copy('clock','Clock')])
+  const section=win('clock');assert.ok(section)
+  await click(section.querySelector<HTMLButtonElement>('[aria-label="Power off Clock"]'),'the header Power off')
+  assert.equal(section.dataset.motion,'stop')
+  await f.menu()
+  await click(savedRow('Clock'),'the saved row of the stopping panel')
+  assert.equal(win('clock')===section,true,'the same window carries on')
+  assert.equal(section.dataset.motion,'start','starting it again zooms it back in')
+  assert.equal(section.hasAttribute('inert'),false,'it takes input again')
+  await wait()
+  assert.equal(win('clock')===section,true,'it stays');assert.equal(section.dataset.motion,undefined)
+})
+
+test('the zoom in apps.css lasts PANEL_MOTION_MS, the time a leaving window is kept for',()=>{
+  const css=readFileSync(path.join(__SRC_DIR__,'canvas','apps','apps.css'),'utf8').replace(/\/\*[\s\S]*?\*\//g,'')
+  for(const sel of ['.custom-app-window[data-motion="start"]','.custom-app-window[data-motion="stop"]','.custom-app-centered[data-motion="start"]','.custom-app-centered[data-motion="stop"]']){
+    const rule=css.match(new RegExp(sel.replace(/[.[\]"=]/g,'\\$&')+'\\s*\\{[^}]*animation:\\s*[\\w-]+\\s+(\\d+)ms'))
+    assert.equal(Number(rule?.[1]),PANEL_MOTION_MS,sel)
+  }
 })
