@@ -7,6 +7,7 @@ import type {SettingsTab} from '../settingskit'
 import {changeApps,useApps} from './store'
 import {AppDialog} from './dialog'
 import {AppPermissions} from './permissions'
+import {AppPermissionHistory} from './net-ui'
 import {PanelConnections,PanelFireEvent,PanelHistory} from './events'
 import {AppExport,saveAppJson} from './portable'
 import type {CustomApp,CustomPanel} from './types'
@@ -32,7 +33,8 @@ export function PanelState({slug,panel,app}:{slug:string;panel:CustomPanel;app:C
   </div>
 }
 
-const APP_TABS:SettingsTab<'general'|'permissions'>[]=[{id:'general',label:'General'},{id:'permissions',label:'Permissions'}]
+type AppTab='general'|'permissions'|'history'
+const APP_TABS:SettingsTab<AppTab>[]=[{id:'general',label:'General'},{id:'permissions',label:'Permissions'},{id:'history',label:'Permission history'}]
 // Each section of a copy has its own tab, History last (user 2026-10-26: "put
 // connections and fire event on their own tabs"; "make history the last tab";
 // "and make state its own tab").
@@ -41,12 +43,13 @@ const PANEL_TABS:SettingsTab<PanelTab>[]=[{id:'general',label:'General'},{id:'st
 
 /** App-wide settings never choose a saved copy or start its HTML. Permissions is
  * their second tab (user 2026-10-26: "for now, make permissions a second tab in
- * app settings"). The description heads the window above the tabs, and General
+ * app settings"), and Permission history the third (2026-10-27 m838e66af753b "put
+ * tgat on i6s own tab"). The description heads the window above the tabs, and General
  * has no section header or creator row (user 2026-10-26: "put the description
  * above the tabs and remove the app header"; "remove created-by"). The delete
  * confirmation fits its content. */
 export function AppSettings({slug,app,close,owner}:{slug:string;app:CustomApp;close:()=>void;owner?:Document}){
-  const currentOwner=useSurfaceDocument(),data=useApps(slug),[tab,setTab,visited]=useVisitedTabs<'general'|'permissions'>('general'),[view,setView]=useState<'delete-app'|null>(null),[error,setError]=useState('')
+  const currentOwner=useSurfaceDocument(),data=useApps(slug),[tab,setTab,visited]=useVisitedTabs<AppTab>('general'),[view,setView]=useState<'delete-app'|null>(null),[error,setError]=useState('')
   const a=data.apps.find(a=>a.id===app.id)??app,document=owner??currentOwner,idBase='custom-app-settings-'+app.id
   return <SurfaceDocumentOwner owner={document}><AppDialog title={a.name+' - App settings'} label="App settings" org={slug} kind={'custom-app-settings:'+app.id} pinnable close={close} owner={document}>
     {a.description?.trim()&&<p className="dim">{a.description}</p>}
@@ -58,6 +61,7 @@ export function AppSettings({slug,app,close,owner}:{slug:string;app:CustomApp;cl
       </div>
     </SettingsTabPanel>
     <SettingsTabPanel id="permissions" idBase={idBase} active={tab==='permissions'}>{visited('permissions')&&<AppPermissions slug={slug} app={a} close={close} embedded/>}</SettingsTabPanel>
+    <SettingsTabPanel id="history" idBase={idBase} active={tab==='history'} className="app-settings-panel custom-app-log-tab">{visited('history')&&<AppPermissionHistory key={a.id} slug={slug} app={a}/>}</SettingsTabPanel>
   </AppDialog>
   {view==='delete-app'&&<AppDialog title="Delete app" className="custom-app-confirm" close={()=>setView(null)}><p>Delete {a.name}, all its panels and their saved state?</p><div className="custom-app-dialog-actions"><button type="button" onClick={()=>setView(null)}>Cancel</button><button type="button" className="danger" onClick={()=>void changeApps(slug,{action:'app_delete',app:a.id,expected_rev:a.rev,delete_panels:true}).then(close).catch(e=>setError(String(e)))}>Delete app and panels</button></div></AppDialog>}
   </SurfaceDocumentOwner>

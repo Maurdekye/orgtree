@@ -4,7 +4,7 @@ import {changeApps} from './store'
 import {customAppsRequest} from '../../api'
 import {appCapabilities,appPermission} from './policy'
 import {AppFilePermissions} from './files-ui'
-import {AppNetPermissions,AppPermissionHistory} from './net-ui'
+import {AppNetPermissions} from './net-ui'
 import {AppDialog} from './dialog'
 import type {CustomApp} from './types'
 import type {AppPermissionRequest,PermissionChoice} from './actions'
@@ -63,7 +63,6 @@ export function AppPermissions({slug,app,close,embedded=false}:{slug:string;app:
     {appCapabilities(current).some(cap=>cap.startsWith('files.'))&&<AppFilePermissions slug={slug} app={current} save={save} disabled={busy} refresh={async()=>setCurrent(await customAppsRequest<CustomApp>(slug,{action:'app_get',app:current.id}))}/>}
     {appCapabilities(current).includes('net.fetch')&&<AppNetPermissions app={current} save={save} disabled={busy}/>}
     {error&&<p role="alert">{error}</p>}
-    <AppPermissionHistory slug={slug} app={current}/>
   </>
   return embedded?<section className="custom-app-permissions" aria-label="App permissions">{content}</section>:<AppDialog title="App permissions" close={close}>{content}</AppDialog>
 }

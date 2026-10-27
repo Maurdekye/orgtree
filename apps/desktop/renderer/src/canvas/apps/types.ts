@@ -13,4 +13,5 @@ export interface AppPage<T> { kind:string; items:T[]; next_cursor:string|null; n
 export interface PanelEvent {seq:number;name:string;payload:unknown;actor:string;at:string}
 export interface PanelEvents {panel:string;events:PanelEvent[];next_cursor:number|null;oldest_retained:number|null}
 /** One app-level Permission history entry (orgtree_apps permission_history). */
+export interface PermissionHistoryPage {app:string;entries:PermissionHistoryEntry[];next_cursor:number|null}
 export interface PermissionHistoryEntry {seq:number;capability:string;site:string|null;permission:'ask'|'allow'|'deny'|'default'|'once';via:'change'|'prompt'|'code';actor:string;panel:string|null;at:string}

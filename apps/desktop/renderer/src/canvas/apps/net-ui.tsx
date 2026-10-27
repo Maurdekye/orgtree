@@ -1,7 +1,10 @@
-import {useEffect,useState} from 'react'
 import {customAppsRequest} from '../../api'
+import {fmtFull,fmtShort} from '../../timefmt'
 import {SetGroup,SetRow} from '../settingskit'
-import type {CustomApp,PermissionHistoryEntry} from './types'
+import {LOG_PAGE,LogList} from './loglist'
+import type {LogCursor} from './loglist'
+import {useApps} from './store'
+import type {CustomApp,PermissionHistoryEntry,PermissionHistoryPage} from './types'
 
 /** host[:port] with a bracketed IPv6 literal, as the engine's net.rs reads it. */
 function hostPort(site:string):[string,number]|null{
@@ -50,19 +53,30 @@ export function describePermission(entry:PermissionHistoryEntry){
   return `${target}: ${verb}${entry.via==='prompt'?' at a prompt':''}`
 }
 
-/** The app-level Permission history at the bottom of App settings > Permissions:
- * every stored permission change, prompt answer and code-change reset. */
+const who=(actor:string)=>actor==='user'?'You':actor
+const choices:Record<PermissionHistoryEntry['permission'],string>={ask:'Ask',allow:'Allow',deny:'Deny',default:'Default',once:'Allow once'}
+const ways:Record<PermissionHistoryEntry['via'],string>={change:'Changed in Permissions',prompt:'Answered at a prompt',code:'Reset by a code change'}
+/** A Permission history row on one line: when, what changed and how, and who. */
+function permissionSummary(entry:PermissionHistoryEntry){
+  return <><time dateTime={entry.at}>{fmtShort(entry.at)}</time>{' '}<span>{describePermission(entry)}</span>{' '}<span className="dim">{who(entry.actor)}</span></>
+}
+
+/** App settings' Permission history tab, the last one (user 2026-10-27 m838e66af753b:
+ * "ssme for permission history, and put tgat on i6s own tab"): every stored
+ * permission change, prompt answer and code-change reset, as the same live list as
+ * a copy's History. It follows Apps changes; a copy's own fires change nothing here. */
 export function AppPermissionHistory({slug,app}:{slug:string;app:CustomApp}){
-  const [entries,setEntries]=useState<PermissionHistoryEntry[]|null>(null),[error,setError]=useState('')
-  useEffect(()=>{let active=true;setError('')
-    void customAppsRequest<{entries?:PermissionHistoryEntry[]}>(slug,{action:'permission_history',app:app.id}).then(v=>{if(active)setEntries(Array.isArray(v.entries)?v.entries:[])}).catch(e=>{if(active)setError(String(e))})
-    return()=>{active=false}
-  },[slug,app.id,app.rev,app.permission_rev])
-  return <SetGroup title="Permission history" note="Permission changes and prompt answers for this app, newest first. Orgtree keeps the latest 128.">
-    {error&&<p className="dim">Permission history is unavailable: {error}</p>}
-    {entries&&!entries.length&&<p>No permission changes yet.</p>}
-    {!!entries?.length&&<ol className="custom-app-permission-history" aria-label="Permission history">{entries.map(entry=><li key={entry.seq}>
-      <span>{describePermission(entry)}</span><small>{new Date(entry.at).toLocaleString()} · {entry.actor==='user'?'You':entry.actor}</small>
-    </li>)}</ol>}
-  </SetGroup>
+  const panels=useApps(slug).panels
+  const read=(cursor:LogCursor)=>customAppsRequest<PermissionHistoryPage>(slug,{action:'permission_history',app:app.id,limit:LOG_PAGE,...cursor}).then(page=>({items:page.entries??[],next_cursor:page.next_cursor??null}))
+  // An expanded row: the exact time, who, and what was set where.
+  const details=(entry:PermissionHistoryEntry)=>{const panel=entry.panel&&(panels.find(p=>p.id===entry.panel)?.label??entry.panel)
+    return <dl>
+      <dt>Time</dt><dd>{fmtFull(entry.at)}</dd><dt>By</dt><dd>{who(entry.actor)}</dd><dt>Capability</dt><dd>{entry.capability}</dd>
+      {entry.site&&<><dt>Site</dt><dd>{entry.site==='*'?'Any site':entry.site}</dd></>}
+      <dt>Permission</dt><dd>{choices[entry.permission]??entry.permission}</dd><dt>How</dt><dd>{ways[entry.via]??entry.via}</dd>
+      {panel&&<><dt>Panel</dt><dd>{panel}</dd></>}
+    </dl>}
+  return <div className="set-group custom-app-log-group"><p className="dim">Permission changes and prompt answers for this app, newest first. Orgtree keeps the latest 128. Click an entry for its details.</p>
+    <LogList slug={slug} label="Permission history" read={read} follows={change=>!change.panel} summary={permissionSummary} details={details} empty="No permission changes yet."/>
+  </div>
 }
