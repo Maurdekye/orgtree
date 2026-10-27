@@ -43,14 +43,15 @@ test('Panel settings lists connections and fires only the selected saved copy ev
   // User 2026-10-26: "put connections and fire event on their own tabs"; History keeps only the copy's log.
   const tab=async(name:string)=>{const button=[...document.querySelectorAll<HTMLButtonElement>('[role="tab"]')].find(b=>b.textContent?.trim()===name);assert.ok(!!button,name+' has its own settings tab');await inAct(async()=>{button!.click();for(let i=0;i<5;i++)await flush()});return document.querySelector<HTMLElement>('[role="tabpanel"]:not([hidden])')!}
   const connections=await tab('Connections')
-  assert.ok(connections.textContent?.includes('worker/notes'),'actual agent-owned connection is listed')
+  // User 2026-10-27 m8ced6e920f63: a row shows its agent link, panel link and event name.
+  assert.match(connections.querySelector('.ref-chip.ref-agent')?.textContent??'',/worker$/,'actual agent-owned connection is listed by its agent');assert.equal(connections.querySelector('.custom-app-connection-event')?.textContent,'submitted')
   const log=await tab('History')
   const entries=[...log.querySelectorAll('ol[aria-label="History"] > li > button')].map(e=>e.textContent??'')
   // User 2026-10-26 md6edfebc1975: only fired events agents can listen to, and the copy starting and stopping.
   assert.equal(entries.length,3,'History lists the copy log');assert.match(entries[0]!,/Stopped.*Stop all.*You/,'newest first; a stop names its cause');assert.match(entries[1]!,/Fired submitted.*1 listener.*You/,'fire metadata');assert.match(entries[2]!,/Started.*Opened.*You/,'opening a stopped copy starts it')
   assert.match(log.querySelector('.set-group > p.dim:first-child')?.textContent??'',/^Fired events agents can listen to, and this copy starting and stopping, newest first\./,'the lead line says what History records, in the lead-line style of the other tabs')
   assert.ok(calls.filter(c=>c.action==='events').every(c=>!('messages' in c)),'History reads the History listing, never messages')
-  assert.equal(log.textContent?.includes('worker/notes'),false,'connections are not on the History tab');assert.equal(!!log.querySelector('[aria-label="Declared event"]'),false,'Fire event is not on the History tab')
+  assert.equal(!!log.querySelector('.custom-app-connections'),false,'connections are not on the History tab');assert.equal(!!log.querySelector('[aria-label="Declared event"]'),false,'Fire event is not on the History tab')
   const fireTab=await tab('Fire event')
   const fire=[...fireTab.querySelectorAll<HTMLButtonElement>('button')].find(b=>b.textContent?.trim()==='Fire event');assert.ok(fire)
   assert.equal(calls.some(c=>c.action==='fire_event'),false,'opening settings never fires')
