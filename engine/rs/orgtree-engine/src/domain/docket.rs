@@ -1018,6 +1018,14 @@ fn names(v: &Value) -> Vec<String> {
 
 #[logged]
 async fn save(tx: &impl GenericClient, it: &Item) -> Result<()> {
+    // Record which guarded fields this revision changed, so a later update
+    // carrying an older expected_rev can tell a real conflict from an
+    // unrelated write (the stored row is still the before-state here).
+    let before = tx.query_opt(&format!("SELECT {COLS} FROM ot.work_items WHERE id = $1"), &[&it.id]).await?.map(|r| item_of(&r));
+    let extra = match &before {
+        Some(b) if b.rev != it.rev => record_changes(&it.extra, it.rev, &changed_fields(b, it)),
+        _ => it.extra.clone(),
+    };
     tx.execute(
         "UPDATE ot.work_items SET rev = $2, kind = $3, title = $4, objective = $5, status = $6, blocked_reason = $7,
                 dropped_reason = $8, owner = $9, owner_agent_id = $10, reviewer = $11, reviewer_agent_id = $12,
@@ -1029,7 +1037,7 @@ async fn save(tx: &impl GenericClient, it: &Item) -> Result<()> {
             &it.id, &it.rev, &it.kind, &it.title, &it.objective, &it.status, &it.blocked_reason, &it.dropped_reason,
             &it.owner, &it.owner_id, &it.reviewer, &it.reviewer_id, &it.last_updater, &it.participants, &it.parent,
             &it.dependencies, &it.superseded_by, &it.done, &it.next, &it.attention, &it.dismissals, &it.evidence,
-            &it.accepted, &it.updated_at, &it.docket_at, &it.status_at, &it.archived_at, &it.extra,
+            &it.accepted, &it.updated_at, &it.docket_at, &it.status_at, &it.archived_at, &extra,
         ],
     )
     .await?;
@@ -1423,6 +1431,143 @@ fn patch_progress(args: &Value, field: &str, keep_key: &str, append_key: &str, s
     Ok(Some(out))
 }
 
+/// How many revisions' changed fields an item keeps (`extra.changes`).
+const CHANGES_KEPT: usize = 32;
+
+/// The guarded fields one write changed, grouped as the revision check
+/// compares them: scope (title, objective), status (with its reasons and the
+/// archive), owner, reviewer, done, next and attention. Evidence, participants
+/// and links are not guarded.
+#[nolog]
+fn changed_fields(before: &Item, after: &Item) -> Vec<&'static str> {
+    let mut out = Vec::new();
+    if before.title != after.title || before.objective != after.objective {
+        out.push("scope");
+    }
+    if before.status != after.status || before.blocked_reason != after.blocked_reason
+        || before.dropped_reason != after.dropped_reason || before.archived_at != after.archived_at {
+        out.push("status");
+    }
+    if before.owner_id != after.owner_id {
+        out.push("owner");
+    }
+    if before.reviewer_id != after.reviewer_id {
+        out.push("reviewer");
+    }
+    if before.done != after.done {
+        out.push("done");
+    }
+    if before.next != after.next {
+        out.push("next");
+    }
+    if before.attention != after.attention {
+        out.push("attention");
+    }
+    out
+}
+
+/// `extra` with this revision's changed fields recorded, keeping the latest
+/// CHANGES_KEPT revisions.
+#[nolog]
+fn record_changes(extra: &Value, rev: i64, fields: &[&str]) -> Value {
+    let mut extra = if extra.is_object() { extra.clone() } else { json!({}) };
+    let mut kept: Vec<Value> = extra["changes"].as_array().cloned().unwrap_or_default();
+    kept.retain(|c| c["rev"].as_i64() != Some(rev));
+    kept.push(json!({ "rev": rev, "fields": fields }));
+    let excess = kept.len().saturating_sub(CHANGES_KEPT);
+    kept.drain(..excess);
+    extra["changes"] = json!(kept);
+    extra
+}
+
+/// The guarded fields an update writes: whole progress lists, status (with
+/// reopen and the state reasons), scope, reviewer, attention, and ownership
+/// when the update claims the item. Appends and keeps replace nothing.
+#[logged]
+fn update_writes(args: &Value, claims: bool) -> Vec<&'static str> {
+    let has = |k: &str| !args[k].is_null();
+    let mut out = Vec::new();
+    if has("done_so_far") {
+        out.push("done");
+    }
+    if has("working_on_next") {
+        out.push("next");
+    }
+    if has("status") || args["reopen"] == true || has("blocked_reason") || has("dropped_reason") {
+        out.push("status");
+    }
+    if has("title") || has("objective") {
+        out.push("scope");
+    }
+    if has("reviewer") {
+        out.push("reviewer");
+    }
+    if has("attention") || args["attention_amend"] == true {
+        out.push("attention");
+    }
+    if claims {
+        out.push("owner");
+    }
+    out
+}
+
+/// A stale `expected_rev`: Ok(None) when current; any other revision refuses.
+#[logged]
+fn revision_check(slug: &str, _extra: &Value, expected: i64, rev: i64, _writes: &[&str]) -> Result<Option<Vec<String>>> {
+    if expected == rev {
+        return Ok(None);
+    }
+    refuse!(Conflict, "{slug} moved to rev {rev} since you read it (you sent {expected}); re-read it and update again");
+}
+
+/// Ownership on update: the claim to make (the previous holder, "" for
+/// none) and a note. Your own update claims the item unless you name its
+/// holder; naming anyone else refuses.
+#[logged]
+fn update_ownership(holder: Option<&str>, caller: &str, named: Option<&str>) -> Result<(Option<String>, Option<String>)> {
+    let claim = || (holder != Some(caller)).then(|| holder.unwrap_or_default().to_string());
+    match named {
+        Some(o) if Some(o) == holder => Ok((None, None)),
+        Some(o) if o == caller => Ok((claim(), None)),
+        Some(o) => refuse!(BadRequest, "`owner` on update names the CURRENT holder ({}) to keep it with them; to hand the item to {o} use the assign action", holder.unwrap_or("nobody")),
+        None => Ok((claim(), None)),
+    }
+}
+
+/// Reopen on update: whether to reopen, and a note. Closed or archived work
+/// needs reopen; reopen on open work refuses.
+#[logged]
+fn reopen_on_update(slug: &str, closed: bool, state: &str, reopen: bool) -> Result<(bool, Option<String>)> {
+    if closed && !reopen {
+        refuse!(
+            Conflict,
+            "{slug} is {state} — to RESUME it pass reopen=true with the new status. To report on finished work without reopening it, add `evidence`"
+        );
+    }
+    if reopen && !closed {
+        refuse!(BadRequest, "{slug} is not closed; reopen is only for resuming finished work");
+    }
+    Ok((reopen, None))
+}
+
+/// Whether a participants change writes; one that adds and removes nobody refuses.
+#[logged]
+fn participants_write(added: usize, removed: usize) -> Result<bool> {
+    if added == 0 && removed == 0 {
+        refuse!(BadRequest, "nothing changed: add names agents not yet on the item, remove names agents on it");
+    }
+    Ok(true)
+}
+
+/// Whether an assignment writes; naming the current owner refuses.
+#[logged]
+fn assign_write(slug: &str, current: Option<&str>, owner: &str) -> Result<bool> {
+    if current == Some(owner) {
+        refuse!(Conflict, "{slug} is already owned by {owner}");
+    }
+    Ok(true)
+}
+
 /// Preserve the final wording and its authors whenever a flag comes down.
 #[logged]
 fn attention_archive(flag: &Value) -> Value {
@@ -1493,41 +1638,24 @@ pub(crate) async fn update_tx(tx: &impl GenericClient, org: &Arc<OrgHandle>, who
     if lv < Level::State {
         refuse!(Forbidden, "only the owner, the creator, their superiors, participants, the reviewer or the user may update {}", it.slug);
     }
-    if let Some(exp) = args["expected_rev"].as_i64() {
-        if exp != it.rev {
-            refuse!(Conflict, "{} moved to rev {} since you read it (you sent {exp}); re-read it and update again", it.slug, it.rev);
-        }
-    }
-    let reopen = args["reopen"].as_bool().unwrap_or(false);
+    let mut notes: Vec<String> = Vec::new();
     let was_archived = archived(&it, &ctx);
-    if (it.closed() || was_archived) && !reopen {
-        refuse!(
-            Conflict,
-            "{} is {} — to RESUME it pass reopen=true with the new status. To report on finished work without reopening it, add `evidence`",
-            it.slug,
-            if was_archived { "ARCHIVED".to_string() } else { it.status.clone() }
-        );
-    }
-    if reopen && !(it.closed() || was_archived) {
-        refuse!(BadRequest, "{} is not closed; reopen is only for resuming finished work", it.slug);
-    }
+    let state = if was_archived { "ARCHIVED".to_string() } else { it.status.clone() };
+    let (reopen, reopen_note) = reopen_on_update(&it.slug, it.closed() || was_archived, &state, args["reopen"].as_bool().unwrap_or(false))?;
+    notes.extend(reopen_note);
     // ownership: your own update claims the item unless you name its holder
-    let mut claim: Option<String> = None;
-    if let Who::Agent { name, .. } = who {
-        let holder = it.owner_name().map(str::to_string);
-        match text_arg(args, "owner").map(|o| o.trim_start_matches('@')) {
-            Some(o) if Some(o) == holder.as_deref() => {}
-            Some(o) if o == name.as_str() => {
-                if holder.as_deref() != Some(name.as_str()) {
-                    claim = holder.clone().or(Some(String::new()));
-                }
-            }
-            Some(o) => refuse!(BadRequest, "`owner` on update names the CURRENT holder ({}) to keep it with them; to hand the item to {o} use the assign action", holder.as_deref().unwrap_or("nobody")),
-            None => {
-                if holder.as_deref() != Some(name.as_str()) {
-                    claim = holder.clone().or(Some(String::new()));
-                }
-            }
+    let claim = match who {
+        Who::Agent { name, .. } => {
+            let (claim, note) = update_ownership(it.owner_name(), name, text_arg(args, "owner").map(|o| o.trim_start_matches('@')))?;
+            notes.extend(note);
+            claim
+        }
+        _ => None,
+    };
+    if let Some(exp) = args["expected_rev"].as_i64() {
+        if let Some(changed) = revision_check(&it.slug, &it.extra, exp, it.rev, &update_writes(args, claim.is_some()))? {
+            notes.push(format!("applied over rev {} (you read rev {exp}); since then {}", it.rev,
+                if changed.is_empty() { "only unguarded fields (evidence, participants or links) changed".to_string() } else { format!("{} changed, which this update does not replace", changed.join(", ")) }));
         }
     }
     // scope edits are owner-level
@@ -1598,12 +1726,16 @@ pub(crate) async fn update_tx(tx: &impl GenericClient, org: &Arc<OrgHandle>, who
     let substantive = progress || status.is_some() || attention.is_some() || amend || title.is_some() || objective.is_some()
         || objective_append.is_some() || reviewer.is_some() || reopen || blocked_reason.is_some() || dropped_reason.is_some();
     if !substantive {
+        if args["reopen"] == true && !reopen {
+            // only an ignored reopen: nothing to write
+            return Ok(json!({ "updated": it.slug, "rev": it.rev, "status": it.status, "owner": it.owner_name(),
+                              "manual_attention": it.attention.is_some(), "unchanged": true, "notes": notes }));
+        }
         refuse!(BadRequest, "nothing to update: send done_so_far and working_on_next, and any status, attention or scope change");
     }
     // apply
     let now = Utc::now();
     let from_status = it.status.clone();
-    let mut notes: Vec<String> = Vec::new();
     let mut attention_change = Value::Null;
     let mut amendment = None;
     if let Some(t) = title {
@@ -1831,8 +1963,9 @@ pub(crate) async fn assign_tx(tx: &impl GenericClient, org: &Arc<OrgHandle>, who
             refuse!(Forbidden, "you may assign an item to yourself or a subordinate — {owner} is neither");
         }
     }
-    if it.owner_name() == Some(owner.as_str()) {
-        refuse!(Conflict, "{} is already owned by {owner}", it.slug);
+    if !assign_write(&it.slug, it.owner_name(), &owner)? {
+        return Ok(json!({ "assigned": it.slug, "owner": owner, "status": it.status, "rev": it.rev, "unchanged": true,
+                          "notes": [format!("{owner} already owns {}; nothing changed", it.slug)] }));
     }
     let prev = it.owner_name().map(str::to_string);
     it.owner = Some(json!({ "node": owner, "generation": gen }));
@@ -1980,8 +2113,9 @@ pub async fn participants(engine: &Arc<Engine>, org: &Arc<OrgHandle>, who: &Who,
     let before = it.participants.len();
     it.participants.retain(|p| !remove.contains(p));
     let removed = before - it.participants.len();
-    if added.is_empty() && removed == 0 {
-        refuse!(BadRequest, "nothing changed: add names agents not yet on the item, remove names agents on it");
+    if !participants_write(added.len(), removed)? {
+        return Ok(json!({ "item": it.slug, "participants": it.participants, "rev": it.rev, "unchanged": true,
+                          "notes": ["nothing changed: the named agents were already on the item, or not on it to remove"] }));
     }
     added.retain(|p| it.participants.contains(p));
     it.rev += 1;
@@ -2732,5 +2866,96 @@ pub(crate) async fn recover_abandoned(engine: &Arc<Engine>, org: &Arc<OrgHandle>
         let who=super::Who::App{app:"a".into(),panel:"p".into()};
         assert_eq!(who.actor(),serde_json::json!({"app":"a","panel":"p"}));assert_eq!(who.label(),"app:a/p");
         assert_eq!(who.name(),None);assert_eq!(who.id(),None);
+    }
+}
+
+/// Fewer failed docket calls (USER 2026-10-27 m3f52496b06f6, proposals A–F of
+/// the failed-call survey): each loosening keeps the protection that matters.
+#[cfg(test)]
+mod loosening_tests {
+    use super::*;
+
+    #[test]
+    fn a_keep_and_append_need_no_revision_and_skip_entries_already_listed() {
+        let stored = json!(["measured red at base"]);
+        let out = patch_progress(&json!({ "done_append": ["green at tip"] }), "done_so_far", "keep_done", "done_append", &stored).unwrap().unwrap();
+        assert_eq!(out, vec!["measured red at base", "green at tip"]);
+        let kept = patch_progress(&json!({ "keep_next": true }), "working_on_next", "keep_next", "next_append", &json!(["next step"])).unwrap().unwrap();
+        assert_eq!(kept, vec!["next step"]);
+        // a retried append that already landed adds nothing twice
+        let retried = patch_progress(&json!({ "done_append": ["measured red at base", "new", "new"], "expected_rev": 3 }), "done_so_far", "keep_done", "done_append", &stored).unwrap().unwrap();
+        assert_eq!(retried, vec!["measured red at base", "new"]);
+        // a whole list plus a patch still refuses
+        assert!(patch_progress(&json!({ "done_so_far": ["x"], "done_append": ["y"] }), "done_so_far", "keep_done", "done_append", &stored).is_err());
+    }
+
+    #[test]
+    fn b_a_stale_revision_refuses_only_when_a_field_it_replaces_changed() {
+        // since rev 4: rev 5 replaced the done list, rev 6 added evidence
+        let extra = json!({ "changes": [{ "rev": 5, "fields": ["done"] }, { "rev": 6, "fields": [] }] });
+        assert_eq!(revision_check("item", &extra, 6, 6, &["next"]).unwrap(), None);
+        let applied = revision_check("item", &extra, 4, 6, &["next", "status"]).unwrap().expect("applied over the newer revisions");
+        assert_eq!(applied, vec!["done".to_string()]);
+        let only_evidence = revision_check("item", &extra, 5, 6, &["done"]).unwrap().expect("evidence does not conflict");
+        assert!(only_evidence.is_empty());
+        let refused = revision_check("item", &extra, 4, 6, &["done", "next"]).unwrap_err().to_string();
+        assert!(refused.contains("rev 6") && refused.contains("done"), "{refused}");
+        // a revision whose changes were not recorded, or one from the future, still refuses
+        assert!(revision_check("item", &extra, 3, 6, &["next"]).is_err());
+        assert!(revision_check("item", &json!({}), 4, 6, &[]).is_err());
+        assert!(revision_check("item", &extra, 7, 6, &[]).is_err());
+    }
+
+    #[test]
+    fn b_writes_and_changes_name_the_same_guarded_fields() {
+        assert_eq!(update_writes(&json!({ "done_append": ["x"], "keep_next": true, "objective_append": "ruling" }), false), Vec::<&str>::new());
+        assert_eq!(update_writes(&json!({ "done_so_far": ["x"], "working_on_next": ["y"], "status": "review", "reviewer": "r" }), true),
+                   vec!["done", "next", "status", "reviewer", "owner"]);
+        assert_eq!(update_writes(&json!({ "reopen": true, "title": "t", "attention_amend": true }), false), vec!["status", "scope", "attention"]);
+        let extra = record_changes(&json!({ "user_mention": { "rev": 1 } }), 2, &["done"]);
+        assert_eq!(extra["user_mention"]["rev"], 1);
+        assert_eq!(extra["changes"], json!([{ "rev": 2, "fields": ["done"] }]));
+        let mut many = json!({});
+        for rev in 1..=(CHANGES_KEPT as i64 + 5) {
+            many = record_changes(&many, rev, &[]);
+        }
+        let kept = many["changes"].as_array().unwrap();
+        assert_eq!(kept.len(), CHANGES_KEPT);
+        assert_eq!(kept[0]["rev"], 6);
+    }
+
+    #[test]
+    fn c_a_stale_owner_name_keeps_the_current_holder_with_a_note() {
+        let (claim, note) = update_ownership(Some("holder"), "caller", Some("someone-else")).unwrap();
+        assert_eq!(claim, None, "naming someone else never moves the item");
+        let note = note.expect("a note says what happened");
+        assert!(note.contains("holder") && note.contains("someone-else") && note.contains("assign"), "{note}");
+        // naming the holder or yourself, or nobody, works as before
+        assert_eq!(update_ownership(Some("holder"), "caller", Some("holder")).unwrap(), (None, None));
+        assert_eq!(update_ownership(Some("holder"), "caller", Some("caller")).unwrap(), (Some("holder".into()), None));
+        assert_eq!(update_ownership(Some("holder"), "caller", None).unwrap(), (Some("holder".into()), None));
+        assert_eq!(update_ownership(None, "caller", None).unwrap(), (Some(String::new()), None));
+        assert_eq!(update_ownership(Some("caller"), "caller", None).unwrap(), (None, None));
+    }
+
+    #[test]
+    fn e_reopen_on_open_work_is_ignored_with_a_note() {
+        let (reopen, note) = reopen_on_update("item", false, "in_progress", true).unwrap();
+        assert!(!reopen);
+        assert!(note.expect("a note").contains("not closed"));
+        // finished work still needs reopen, and reopen still resumes it
+        assert!(reopen_on_update("item", true, "done", false).is_err());
+        assert_eq!(reopen_on_update("item", true, "done", true).unwrap(), (true, None));
+        assert_eq!(reopen_on_update("item", false, "open", false).unwrap(), (false, None));
+    }
+
+    #[test]
+    fn f_calls_that_change_nothing_succeed_without_writing() {
+        assert!(!participants_write(0, 0).unwrap());
+        assert!(participants_write(1, 0).unwrap());
+        assert!(participants_write(0, 1).unwrap());
+        assert!(!assign_write("item", Some("owner"), "owner").unwrap());
+        assert!(assign_write("item", Some("owner"), "other").unwrap());
+        assert!(assign_write("item", None, "other").unwrap());
     }
 }
