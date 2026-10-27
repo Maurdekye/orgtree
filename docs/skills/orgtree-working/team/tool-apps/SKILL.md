@@ -213,13 +213,14 @@ above; declarations alone never authorize a broadcast or change panel activity.
   set open:true or place an already-open copy. open:false hides the
   window without deleting; a running copy keeps running. panel_duplicate and panel_delete need panel/expected_rev.
 
-UI parity: app-row gear opens App settings (the description above General and
-Permissions tabs). Panel-row/header gears open Panel settings for that exact copy,
+UI parity: app-row gear opens App settings (the description above General,
+Events, Permissions and Permission history tabs; Events shows the definition's
+events, as app_get returns them). Panel-row/header gears open Panel settings for that exact copy,
 including closed copies (a Name row, then General, State, Connections, Fire event and
 History tabs). These are native settings, not app HTML. Each row uses the
 lifecycle/state/permission/export action above: the Name row's Rename is
 panel_update label, State uses panel_get and state_set, Connections uses listeners,
-Fire event uses fire_event and History uses events. Showing settings/choosing a copy is read-only. The app
+Fire event uses fire_event and events with name, and History uses events. Showing settings/choosing a copy is read-only. The app
 row opens its most recently used copy by panel ID, or panel_open with only app when none
 is listed; its + is panel_open new:true. A row whose copy is already open and visible
 first brings that window to the front and focuses it, then sends the same panel_open;
@@ -251,7 +252,9 @@ pass it to the app's orgtree.on, and it never enters History. events needs panel
 and lists the copy's History newest first, limit 1-200 (default 100): pass the
 returned next_cursor as before for older rows, or after=<seq> to read only newer
 rows, oldest first, to follow new ones (user 2026-10-27); both together are
-refused, and next_cursor continues the same way until it is null. History holds
+refused, and next_cursor continues the same way until it is null. name=<event>
+keeps only that event's fires (with messages:true, the messages of that name),
+paged the same way (user 2026-10-27: the Fire event tab's list). History holds
 only event.fired, panel.started (reason opened when an open, show or user duplicate
 starts it; none for panel_start) and panel.stopped (reason stop all or code
 changed; none for panel_stop) rows (user 2026-10-26). messages:true lists messages

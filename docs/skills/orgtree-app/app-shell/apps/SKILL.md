@@ -14,8 +14,13 @@ count, never its data, and a start or stop its cause. It is a live list (user ru
 2026-10-27): one line per entry (time, what happened, listener count or cause, who)
 that expands on click to the exact time and the row's data and collapses on a second
 click; new entries appear while the tab is open, older ones load as you scroll down
-to the oldest kept, and there is no Refresh button. Fire event sends the chosen
-name and JSON; opening the tab fires nothing. Connections are agent-owned
+to the oldest kept, and there is no Refresh button. Fire event (user ruling
+2026-10-27) has the declared event and Fire on one line, the event's description
+under them and a JSON data box (empty sends {}); opening the tab fires nothing.
+Below, the chosen event's fires from this copy are a live list like History: one
+line each (time, listener count, who) that expands to History's details, with
+new fires (one sent from the tab included) arriving and older ones loading as you
+scroll. Connections are agent-owned
 app_listener watchdogs in a live list with no buttons (user ruling 2026-10-27):
 rows appear, change and disappear as agents subscribe, pause, resume or remove.
 A row shows the agent and the panel as their mention links (All copies for a
@@ -115,8 +120,10 @@ catalogue is paged: use More apps / More saved panels (user rulings 2026-10-26).
 
 An unpinned panel opens as a standard centered modal, with pop-out, a window pin,
 Hide and Power off. There are two separate settings panels (user ruling2026-10-26).
-The app-row gear in Apps opens App settings: the app's description above three
-tabs, General (export and app deletion), Permissions (Events allow/deny, Files
+The app-row gear in Apps opens App settings: the app's description above four
+tabs, General (export and app deletion), Events (each declared event with its
+description, read-only, following the definition live; user ruling 2026-10-27),
+Permissions (Events allow/deny, Files
 grants and pending changes and Internet access per site, with their existing
 app-wide behavior) and Permission history (user ruling 2026-10-27). Allow once remains
 in the active host's native prompt.

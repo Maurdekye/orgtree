@@ -69,7 +69,7 @@ approval. Direct docket.write create/assign/wake remains the noted edge case
 where an app wakes a selected agent without an app event.
 
 Open a saved copy's gear to reach its tabs: **Connections** lists the copy's
-listeners, **Fire event** fires a declared event with JSON data and **History**,
+listeners, **Fire event** fires a declared event and lists its fires, and **History**,
 the last tab, is the copy's event history.
 This works for closed saved copies. History lists only the fired events agents
 can listen to and the copy starting and stopping, newest first, one line each:
@@ -91,6 +91,13 @@ the event's data. Agents manage their listeners through their ordinary tools. Me
 `orgtree.emit(name,payload)` sends a message to the copy's own running windows,
 which receive it through `orgtree.on(name,fn)`, as do messages agents send with
 orgtree_apps `event`. Messages stay out of History and reach no agent listener.
+
+On **Fire event**, pick the event and choose **Fire**; the event's description,
+if it declares one, shows under them. Event data is JSON, and an empty box sends
+`{}`. Below, the chosen event's fires from this copy are listed the way History
+lists them, newest first, one line each (when, how many listeners, who): click one
+for its details. New fires appear as they happen, including one you just sent,
+and older ones load as you scroll.
 
 An app is a small HTML program kept by one organization. A panel is one saved
 copy with its own label and JSON data. Closing its window hides it and keeps it
@@ -137,8 +144,9 @@ does not wake agents. A copy's History log stays separate from delivery.
 
 Apps open as standard centered modals. There are two separate settings panels,
 both styled like Orgtree's other settings panels. The gear beside an app in Apps
-opens **App settings**: the app's description sits above three tabs, **General**
-(export and delete app), **Permissions** (Events allow/deny, Files grants and pending
+opens **App settings**: the app's description sits above four tabs, **General**
+(export and delete app), **Events** (every event the app declares, with its
+description), **Permissions** (Events allow/deny, Files grants and pending
 file changes, which apply to every copy) and **Permission history**. Allow once stays in
 the live panel's native prompt.
 

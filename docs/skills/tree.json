@@ -7912,11 +7912,6 @@
      "file": "apps/desktop/renderer/src/canvas/apps/settings.tsx",
      "label": "Delete panel",
      "line": 92
-    },
-    {
-     "file": "apps/desktop/renderer/src/canvas/apps/events.tsx",
-     "label": "Declared event",
-     "line": 73
     }
    ]
   }

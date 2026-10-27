@@ -256,8 +256,14 @@ watchdogs_changed. Only finished deliveries are listed: the dispatcher finishes 
 app's recipients in fire order, so an after cursor never skips one, and the app's
 newest 128 finished fires bound the read (joined through the app's fires, so no
 index or migration). A skipped delivery changes no watchdog and shows at the next
-change. Fire event fires explicitly from that saved copy, displaying
-acceptance/backpressure without automatic retries.
+change. Fire event fires explicitly from that saved copy and shows a refusal
+(backpressure included) without automatic retries. Its tab (USER m58d8efef52d9,
+m46d1f8a8e39e) is the event and Fire on one line, the declared description, the
+data (empty sends {}), then that event's fires from the copy through events
+name=<event>: History's event.fired rows whose payload names it (messages: that
+name), read no further than the 256 rows each kind keeps, so no index or
+migration. App settings has General, Events (the declared events, read-only,
+USER me1e204ce94e4), Permissions and Permission history.
 Agent parity is Apps listeners/listener_fires/fire_event; agent subscription
 ownership stays in watchdog controls. SDK orgtree.events.fire forwards only name/payload to
 the existing parent-only action client. The native broadcast prompt explicitly
