@@ -237,7 +237,8 @@ list with no buttons (USER 2026-10-27 md11c3c790acf, "actually remove the refres
 button, make new or disappearing links change in realtime as they're modified";
 m6ca9f88d5812 links; m8ced6e920f63 rows). A row is the agent's and the panel's
 mention links (RefChip through the shell's useShellRefs routes, which AppsWorkspace
-provides as AppsRefRoutes; a subscription to every copy says All copies), the event
+provides as AppsRefRoutes; this copy's link is labelled with the copy's own name, its
+app being the window's, and a subscription to every copy says All copies), the event
 name, and Paused, Notice and Once when they apply beside the fire count. A link in a
 centered settings window closes it first (closeIfCentred), as other windows do.
 Every watchdog write announces Change::Watchdogs, and changes::notify then sends the
