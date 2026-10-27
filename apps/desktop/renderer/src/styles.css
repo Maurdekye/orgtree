@@ -8816,6 +8816,7 @@ html.mobile .popout-button { display: none; }
 
 .connection-row { padding: 10px 0; border-bottom: 1px solid var(--line, #444); }
 .connection-peers { padding-left: 20px; }
+.connection-peers .ref-hub, .oi-peer .ref-hub { max-width: 100%; }
 .connection-setup label:not(.set-row) { display: grid; gap: 4px; margin: 8px 0; }
 .connection-setup input, .connection-setup textarea { width: 100%; box-sizing: border-box; }
 .connection-setup details { margin-top: 12px; }
