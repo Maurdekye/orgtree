@@ -37,6 +37,8 @@ pub mod opencode;
 pub mod opencode_mail;
 pub mod prompt;
 #[cfg(test)]
+mod agy_read_tests;
+#[cfg(test)]
 mod mail_overflow_tests;
 #[cfg(test)]
 mod message_log_tests;
