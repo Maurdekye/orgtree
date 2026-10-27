@@ -1187,7 +1187,7 @@ fn build_tool_watchdog() -> Value {
 fn build_tool_work() -> Value {
     tool(
         "orgtree_work",
-        "Docket by slug; read Guide first. Objective: problem/solution then scope. Updates claim ownership unless owner=current holder; supply lists or revision-checked keep/append. Add participants before assignment/review. Blocked/dropped need reasons. Review=agents; ask(work_item)=user questions. Delete permanent/restricted; prefer archive/drop.",
+        "Docket by slug; read Guide first. Objective: problem/solution then scope. Updates claim ownership unless owner=current holder; supply lists or keep/append. Add participants before assignment/review. Blocked/dropped need reasons. Review=agents; ask(work_item)=user questions. Delete permanent/restricted; prefer archive/drop.",
         json!({
             "action": { "type": "string", "enum": ["list", "get", "create", "update", "accept", "assign", "handoff",
                                                   "participants", "evidence", "archive", "supersede", "move", "delete"] },
@@ -1209,12 +1209,12 @@ fn build_tool_work() -> Value {
             "attention_reason": { "type": "string", "description": "the concrete thing the user must see (max 1500)" },
             "attention_amend": { "type": "boolean", "description": "update: edit the standing flag's reason without re-raising it" },
             "reopen": { "type": "boolean", "description": "update: resume a closed or archived item (with the new status)" },
-            "done_so_far": { "type": "array", "items": { "type": "string" }, "description": "what is complete, one entry each (max 500 chars, 40 entries)" },
-            "working_on_next": { "type": "array", "items": { "type": "string" }, "description": "current and next steps, one entry each" },
+            "done_so_far": { "type": "array", "items": { "type": "string", "maxLength": 500 }, "maxItems": 40, "description": "what is complete, one entry each (max 500 chars, 40 entries)" },
+            "working_on_next": { "type": "array", "items": { "type": "string", "maxLength": 500 }, "maxItems": 40, "description": "current and next steps, one entry each" },
             "keep_done": { "type": "boolean" }, "keep_next": { "type": "boolean" },
-            "done_append": { "type": "array", "items": { "type": "string" } },
-            "next_append": { "type": "array", "items": { "type": "string" } },
-            "expected_rev": { "type": "integer", "description": "update: refuse if the item moved since you read it" },
+            "done_append": { "type": "array", "items": { "type": "string", "maxLength": 500 }, "maxItems": 40, "description": "update: add to the stored list (max 500 chars each)" },
+            "next_append": { "type": "array", "items": { "type": "string", "maxLength": 500 }, "maxItems": 40, "description": "update: add to the stored list (max 500 chars each)" },
+            "expected_rev": { "type": "integer", "description": "update: refuse if a field you replace changed since this rev" },
             "participants": { "type": "array", "items": { "type": "string" }, "description": "create: collaborators" },
             "add": { "type": "array", "items": { "type": "string" }, "description": "participants: agents to add" },
             "remove": { "type": "array", "items": { "type": "string" }, "description": "participants: agents to drop" },
@@ -2023,6 +2023,17 @@ mod builder_stack_tests {
         assert!(!expected.as_array().unwrap().iter().any(|c| c["name"] == "orgtree_files"));
         let at = expected.as_array().unwrap().iter().position(|c| c["name"] == "orgtree_read_scratch").unwrap();
         expected.as_array_mut().unwrap().insert(at, super::build_tool_files());
+        // Fewer failed docket calls (USER 2026-10-27 m3f52496b06f6, proposals A
+        // and D): keep/append need no revision, and the entry limits sit in the
+        // schema. Only this clause and these five fields changed.
+        let work = expected.as_array_mut().unwrap().iter_mut().find(|c| c["name"] == "orgtree_work").unwrap();
+        let old = "supply lists or revision-checked keep/append.";
+        assert_eq!(work["description"].as_str().unwrap().matches(old).count(), 1);
+        work["description"] = serde_json::json!(work["description"].as_str().unwrap().replacen(old, "supply lists or keep/append.", 1));
+        let got = actual.iter().find(|c| c["name"] == "orgtree_work").unwrap();
+        for key in ["done_so_far", "working_on_next", "done_append", "next_append", "expected_rev"] {
+            work["inputSchema"]["properties"][key] = got["inputSchema"]["properties"][key].clone();
+        }
         assert!(serde_json::to_vec(&super::all()).unwrap() == serde_json::to_vec(&expected).unwrap(),
             "all() JSON differs from the pre-split capture beyond the approved project-presentation description");
     }

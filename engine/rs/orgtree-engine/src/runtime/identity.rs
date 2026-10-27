@@ -1208,12 +1208,12 @@ other identifier. (3) `update` at meaningful boundaries only — progress that c
 request, a delivery, a pause or a handoff; never after every tool call. EVERY update carries both lists, `done_so_far` and \
 `working_on_next`, as individual entries (either may be empty; both empty is refused). They are your latest COMPLETE \
 summary, not a fragment that depends on older text; keep them scannable and put detail in `evidence` (simple notes: kind, \
-reference, note). THAT RULE IS ABOUT WHAT IS STORED, NOT ABOUT WHAT YOU HAVE TO TYPE. On a long item, pass `expected_rev` \
-(the rev you read) with `keep_done`/`keep_next` to carry a stored list forward, or `done_append`/`next_append` to add to one: \
-the backend merges and stores the COMPLETE list either way and returns exactly what it stored. `expected_rev` is \
-compare-and-set — if somebody wrote to the item since you read it, your whole call is refused before anything changes \
-rather than interleaving with theirs — and it is required with any keep or append, because those are statements about a \
-list you have actually read. (4) Use honest statuses — backlogged|open|in_progress|blocked|review|approved|deploy_ready|done|\
+reference, note). THAT RULE IS ABOUT WHAT IS STORED, NOT ABOUT WHAT YOU HAVE TO TYPE. On a long item, use \
+`keep_done`/`keep_next` to carry a stored list forward, or `done_append`/`next_append` to add to one: the backend merges \
+and stores the COMPLETE list either way, skips an appended entry the list already holds, and returns exactly what it \
+stored. Pass `expected_rev` (the rev you read) when you replace something: if somebody has since changed a field your call \
+replaces (a whole list, the status, the scope, the reviewer or attention), your whole call is refused before anything \
+changes rather than overwriting theirs; other changes since then let it apply, with a note. (4) Use honest statuses — backlogged|open|in_progress|blocked|review|approved|deploy_ready|done|\
 dropped. `backlogged` means the work has NOT YET been approached or approved: it is kept out of the user's active count and \
 hidden behind its own toggle, so use it for work genuinely not started, and never reclassify open work that is already \
 authorised or under way. `blocked` must SAY SO: it takes a `blocked_reason` (what prevents progress, what would unblock it, \
