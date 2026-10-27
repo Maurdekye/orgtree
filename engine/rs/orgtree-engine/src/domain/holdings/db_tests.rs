@@ -146,6 +146,30 @@ impl World {
         slots::line(&**c, self.project).await.unwrap().into_iter().map(|l| l.2).collect()
     }
 
+    /// The agent was mid-turn when the engine stopped (the mark `runtime::recover` looks for), and its
+    /// actor is a stand-in whose mailbox nobody reads: a wake sends to it and starts no turn and no CLI.
+    /// Keep the returned value alive for the test.
+    #[nolog]
+    async fn cut_mid_turn(&self, agent: i64) -> Box<dyn std::any::Any + Send> {
+        self.sql("UPDATE ot.agents SET inflight_at = now() WHERE id = $1", &[&agent]).await;
+        let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
+        let handle = crate::runtime::AgentHandle {
+            id: agent, org_id: self.org.id, tx,
+            view: arc_swap::ArcSwap::from_pointee(Value::Null),
+            helpers: arc_swap::ArcSwap::from_pointee(json!({"count":0,"items":[],"truncated":false})),
+        };
+        self.e.agents.map.pin().insert(agent, Arc::new(handle));
+        Box::new(rx)
+    }
+
+    /// The restart's own continue-where-you-left-off mail to the agent.
+    #[nolog]
+    async fn told_to_continue(&self, agent: i64) -> bool {
+        let rows = self.e.db.get().await.unwrap()
+            .query("SELECT body FROM ot.mail WHERE recipient_agent_id = $1 AND sender = '@system'", &[&agent]).await.unwrap();
+        rows.iter().any(|r| r.get::<_, String>(0).contains("The engine restarted while you were working"))
+    }
+
     #[nolog]
     async fn freeze(&self, agent: i64) {
         self.sql("UPDATE ot.agents SET frozen = $2 WHERE id = $1", &[&agent, &json!({"until":"2099-01-01T00:00:00Z","limit":true,"error":"usage limit"})]).await;
@@ -271,7 +295,7 @@ async fn a_turn_that_dies_gives_back_its_leases_and_its_unacked_jobs() {
 async fn a_dead_turns_job_on_its_last_attempt_is_dead_lettered() {
     let w = world(json!({"slots_capacity":1,"mail_queue":"ack","mail_queue_max_attempts":1})).await;
     let job = w.job(w.holder, "copy-last").await;
-    let death = Death::engine_restart();
+    let death = crate::domain::holdings::died(&Ending { error: Some("the Claude process exited during the turn"), ..Ending::default() }).expect("an exit is a death");
     let given = release_after_death(&w.e, w.org.id, w.holder, "holder", &death).await.unwrap();
     // the working-checkup switch decides whether attempts count; with it on, the attempt limit applies
     let counted = crate::runtime::reminders::switches(&w.e).checkups;
@@ -400,5 +424,50 @@ async fn a_mover_is_told_about_its_lease_job_claim_and_listener_in_one_notice() 
     for needle in [lease.as_str(), "mail copy-mover", claim.as_str(), listener.as_str(), "you moved out of the project"] {
         assert!(told[0].contains(needle), "{needle}: {}", told[0]);
     }
+    w.e.shutdown.cancel();
+}
+
+/// User 2026-10-27 22:04:54Z ma9d6ca993753, "also make engine restarts not free slots": a turn the engine
+/// cut by stopping keeps the agent's slot leases and un-acked jobs, still its own, and the line behind
+/// them keeps waiting. Runs the real `runtime::recover` of the next start.
+#[tokio::test]
+#[ignore = "requires the disposable holdings_fixture DB/role; never an ambient DB"]
+async fn an_engine_restart_keeps_a_cut_turns_lease_and_unacked_job() {
+    let w = world(ack_mode()).await;
+    let lease = w.claim(w.holder).await["lease"].as_str().expect("the only slot is granted").to_string();
+    w.claim(w.waiter).await;
+    let job = w.job(w.holder, "copy-restart").await;
+    let _actor = w.cut_mid_turn(w.holder).await;
+
+    crate::runtime::recover(&w.e).await;
+
+    assert!(w.told_to_continue(w.holder).await, "control: recover really ran for the cut turn and woke it to go on");
+    assert_eq!(w.lease(&lease).await, (false, None), "the lease survives the restart");
+    assert_eq!(w.holds(w.holder).await, 1);
+    assert_eq!(w.holds(w.waiter).await, 0, "so the line behind it keeps waiting");
+    let (state, claimed, why) = w.job_state(job).await;
+    assert!(claimed, "the un-acked job is still held by the same agent (state {state}, released: {why:?})");
+    assert_eq!(why, None, "and was never given back");
+    assert!(w.took_back(w.holder).await.is_empty(), "the holder is told nothing was taken back");
+    w.e.shutdown.cancel();
+}
+
+/// Control: the rest of the release triggers still work through a restart. A holder that was halted while
+/// the engine was down loses its lease when the engine starts (`recover`, then `slots::startup`), and the
+/// next waiter is granted it.
+#[tokio::test]
+#[ignore = "requires the disposable holdings_fixture DB/role; never an ambient DB"]
+async fn a_holder_halted_through_a_restart_still_loses_its_lease_at_start() {
+    let w = world(one_slot()).await;
+    let lease = w.claim(w.holder).await["lease"].as_str().expect("the only slot is granted").to_string();
+    w.claim(w.waiter).await;
+    let _actor = w.cut_mid_turn(w.holder).await;
+    w.sql("UPDATE ot.agents SET halt = $2 WHERE id = $1", &[&w.holder, &json!({"phase":"halted"})]).await;
+
+    crate::runtime::recover(&w.e).await;
+    slots::startup(&w.e).await;
+
+    assert!(w.lease(&lease).await.0, "a halted holder's lease ends at start");
+    assert_eq!(w.holds(w.waiter).await, 1, "and the next waiter is granted it");
     w.e.shutdown.cancel();
 }
