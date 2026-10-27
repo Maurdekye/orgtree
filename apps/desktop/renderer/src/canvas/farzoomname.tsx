@@ -3,14 +3,16 @@ import type { ReactNode, RefObject } from 'react'
 import { createPortal } from 'react-dom'
 import { NODE_H, NODE_W } from './shared'
 import type { Pt } from './shared'
-import { useCardNamesAllowed } from './cardnamereveal'
 
 /** The mini-card name sits above neighbouring cards, outside their stacking
- * contexts. Only pointer/focus leave animates out; zoom/desk changes remove it
- * immediately. Agents and projects use the same presentation (user 2026-10-19). */
+ * contexts. Only pointer/focus leave animates out; a zoom change or the card's
+ * own desk removes it immediately. Agents and projects use the same presentation
+ * (user 2026-10-19). Desks open elsewhere, pinned or popped out, leave it alone:
+ * without it the name fell back into the hovered card, which mini hover drops
+ * below its neighbours, and a pinned desk sits in the pin layer above the whole
+ * world anyway (USER 2026-10-27 "nodes render overtop the hover names"; this
+ * replaces the 4.4.0 desk suppression of the plate, 0a47651). */
 export function useFarZoomReveal(eligible: boolean, wanted: boolean) {
-  const allowed = useCardNamesAllowed()
-  eligible = eligible && allowed
   wanted = wanted && eligible
   const [mounted, setMounted] = useState(false)
   const [on, setOn] = useState(false)

@@ -146,8 +146,9 @@ export function ProjectSquare({ node, pos, lod, focused, pinnedFocus, pinned, on
   const farEligible = lod === 'mini' && !focused && !pinnedFocus
   const farReveal = useFarZoomReveal(farEligible, farEligible && (nameHover || nameFocus))
   // The card carries the same folder-then-name group as the floating plate, as
-  // an agent card carries its own: its CSS hover/focus reveal names the project
-  // while a desk suppresses the plate (USER 2026-10-26 "Never hide on hover").
+  // an agent card carries its own: hidden while the plate shows, it is the CSS
+  // hover/focus reveal wherever the plate does not apply (USER 2026-10-26 "Never
+  // hide on hover").
   const farIcon = <span className="project-mark"><FolderIcon fontSize="inherit" /></span>
   // A portaled menu can disappear without pointerleave/blur. Reconcile the
   // card's real hover/focus, as agent cards do, so its label cannot get stuck.

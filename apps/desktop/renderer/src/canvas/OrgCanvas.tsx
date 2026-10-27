@@ -9,7 +9,6 @@ import { publishEpicCanvas } from '../epic/tap'
 import { fastModeSupported } from './fastmode'
 import { MoveGhost, moveGhostOffset } from './moveghost'
 import { QueuedModelBadge } from './nextturn'
-import { CardNameRevealProvider } from './cardnamereveal'
 import { userGesture } from '../historyapi'
 import { historyUndo } from '../historyregistry'
 import { toggleAgentHalt } from './haltcontrol'
@@ -4368,7 +4367,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
   })
 
   return (
-    <CardNameRevealProvider><AgentNavProvider><ObjectNavProvider>
+    <AgentNavProvider><ObjectNavProvider>
     <OrgKillswitchContext.Provider value={!!tree.killswitch}>
     <ForegroundViewContext.Provider value={tree.foreground}>
     {/* THE ORG'S ORDINARY THINKING EFFORT, for the non-default effort card on
@@ -5309,7 +5308,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
     </OrgDefaultEffort.Provider>
     </ForegroundViewContext.Provider>
     </OrgKillswitchContext.Provider>
-    </ObjectNavProvider></AgentNavProvider></CardNameRevealProvider>
+    </ObjectNavProvider></AgentNavProvider>
   )
 }
 

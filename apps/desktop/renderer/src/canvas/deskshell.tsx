@@ -9,7 +9,6 @@ import type { ReactNode } from 'react'
 import { useLayoutEffect, useRef } from 'react'
 import { installNavigationKeys } from '../shell/navigationkeys'
 import { useSurfaceDocument } from '../popout'
-import { useDeskNamePlateGuard } from './cardnamereveal'
 import PushPinIcon from '@mui/icons-material/PushPinOutlined'
 import PushPinFilledIcon from '@mui/icons-material/PushPin'
 import type { ToastFn } from '../types'
@@ -92,7 +91,6 @@ export function DeskHead({ nodeId, left, actions, tabs, rightExtras, pin, settin
   settings?: { label: string; onConfig?: () => void } | null
   meta?: ReactNode
 }) {
-  useDeskNamePlateGuard()
   return (
     <div className="cc-head">
       <div className="cc-head-top">
