@@ -19,6 +19,7 @@ import { PinFrame } from './modalpin'
 import { docStateTitle, docUnread, markDocViewed, useDocViewedVersion } from './docviewed'
 import { CloseIcon, DocIcon } from '../icons'
 import { fmtFull } from '../timefmt'
+import { frameTheme, watchFrameTheme } from '../frametheme'
 import { copyToClipboard, useContextMenu } from './contextmenu'
 import type { MenuEntry } from './contextmenu'
 import { refToken } from './reflinks'
@@ -222,7 +223,8 @@ export function MockupOpen({ slug, docId }: { slug: string; docId: string }) {
  *    and signs and permits only the app's own top frame.
  *  ONE-WAY (user 21:36:16Z m2da6e3eb205d, mc5f0c7fac8ff): presentations and
  *  apps stay separate features. Nothing in the app listens to this frame;
- *  the reader only posts its Fit width / 100% choice INTO it.
+ *  the reader only posts its Fit width / 100% choice and Orgtree's current
+ *  colors (USER 2026-10-27 m4e1fae02a0ca, m164909566caf) INTO it.
  *  Size: up to 4 MiB of stored preview, the existing HTML presentation limit
  *  (provisional, liaison/user 2026-10-26). A larger preview, possible only for
  *  a folder bundle's inlined assets, opens in its window alone. */
@@ -236,6 +238,10 @@ const PRESENTATION_CSP = "default-src 'none'; img-src data: blob:; media-src dat
   + "form-action 'none'; frame-src 'none'; base-uri about:"
 
 /** The frame's own script, first in its document.
+ *  - Theme colors: Orgtree's current colors as --orgtree-* variables in one
+ *    zero-specificity sheet ahead of the author's own (frametheme.ts), so the
+ *    page opts in and its own colors win. A theme switch arrives as a message
+ *    from the parent and replaces the sheet: the page is not reloaded.
  *  - Fit width: content wider than the frame is scaled down to the frame's
  *    width by CSS zoom on the root, measured unzoomed, and fitted again on
  *    resize, load and structural changes. The setting arrives only by a
@@ -245,11 +251,13 @@ const PRESENTATION_CSP = "default-src 'none'; img-src data: blob:; media-src dat
  *    otherwise the main session's guard would cancel it and leave an error
  *    page in the frame. Same-document #fragment and javascript: links work. */
 const FRAME_SCRIPT = "(()=>{'use strict';let fit=__FIT__;const root=document.documentElement;let queued=0;"
+  + "const sheet=document.createElement('style');sheet.textContent=__THEME__;(document.head||root).appendChild(sheet);"
   + "const apply=()=>{queued=0;root.style.removeProperty('zoom');if(!fit)return;"
   + "const w=root.scrollWidth,v=root.clientWidth;if(v>0&&w>v+1)root.style.setProperty('zoom',String(v/w))};"
   + "const later=()=>{if(!queued)queued=requestAnimationFrame(apply)};"
-  + "addEventListener('message',e=>{if(e.source!==parent||!e.data||typeof e.data.orgtreePresentationFit!=='boolean')return;"
-  + "fit=e.data.orgtreePresentationFit;apply()});"
+  + "addEventListener('message',e=>{if(e.source!==parent||!e.data)return;const d=e.data;"
+  + "if(typeof d.orgtreePresentationTheme==='string')sheet.textContent=d.orgtreePresentationTheme;"
+  + "if(typeof d.orgtreePresentationFit==='boolean'){fit=d.orgtreePresentationFit;apply()}});"
   + "addEventListener('resize',later);addEventListener('load',later);"
   + "document.addEventListener('click',e=>{const a=e.target instanceof Element?e.target.closest('a[href],area[href]'):null;"
   + "if(!a)return;let u;try{u=new URL(a.getAttribute('href'),document.baseURI)}catch{return}"
@@ -278,12 +286,14 @@ function doctypeEnd(html: string): number {
 /** The frame document: the author's doctype stays first, so standards or
  *  quirks mode is the window's; everything of ours precedes the author's
  *  first element, so the policy covers every script and resource. */
-export function presentationDocument(html: string, fit: boolean): string {
+export function presentationDocument(html: string, fit: boolean, themeCss: string = frameTheme().css): string {
   const lead = doctypeEnd(html)
+  // A JSON string literal; escaping '<' keeps it from ever closing the script.
+  const theme = JSON.stringify(themeCss).replace(/</g, '\\u003c')
   return html.slice(0, lead)
     + `<meta http-equiv="Content-Security-Policy" content="${PRESENTATION_CSP}">`
     + '<meta name="referrer" content="no-referrer"><base href="about:srcdoc">'
-    + `<script>${FRAME_SCRIPT.replace('__FIT__', String(fit))}</script>`
+    + `<script>${FRAME_SCRIPT.replace('__FIT__', String(fit)).replace('__THEME__', () => theme)}</script>`
     + html.slice(lead)
 }
 
@@ -310,7 +320,10 @@ export function HtmlPresentationView({ slug, docId, title }: { slug: string; doc
   // presentation's own state instead of reloading it.
   const srcDoc = useMemo(() => html === null ? null : presentationDocument(html, fitNow.current), [html])
   const post = () => frame.current?.contentWindow?.postMessage({ orgtreePresentationFit: fitNow.current }, '*')
+  // Colors are posted on their own: a theme switch restyles, never reloads.
+  const postTheme = (css: string) => frame.current?.contentWindow?.postMessage({ orgtreePresentationTheme: css }, '*')
   useEffect(() => { presentationFit = fit; post() }, [fit])
+  useEffect(() => watchFrameTheme(sheet => postTheme(sheet.css)), [])
   return <div className="html-presentation">
     <div className="html-presentation-bar">
       <div className="html-presentation-size" role="group" aria-label="Presentation size">
@@ -325,7 +338,8 @@ export function HtmlPresentationView({ slug, docId, title }: { slug: string; doc
     </div>
     {srcDoc !== null
       ? <iframe ref={frame} className="html-presentation-frame" title={`HTML presentation: ${title}`}
-          sandbox="allow-scripts" referrerPolicy="no-referrer" srcDoc={srcDoc} onLoad={post} />
+          sandbox="allow-scripts" referrerPolicy="no-referrer" srcDoc={srcDoc}
+          onLoad={() => { post(); postTheme(frameTheme().css) }} />
       : <div className={'html-presentation-note ' + (loaded && 'err' in loaded ? 'ask-warn' : 'dim')}>
           {!loaded ? 'Loading presentation…'
             : 'err' in loaded ? `Could not load the HTML presentation: ${loaded.err}`

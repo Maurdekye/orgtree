@@ -12,6 +12,7 @@ export type EngineStatus =
   | { state: 'unavailable' | 'stopped'; message: string }
 import type { VisualTheme } from './visual-theme'
 import type { ContrastTheme } from './contrast-theme'
+import type { FrameTheme } from './frame-theme'
 import type { AgentColorSource } from './agent-colors'
 import type { NotificationPreferences } from './notifications'
 import type { CanvasBackgroundPreference } from './canvas-background'
@@ -183,6 +184,8 @@ export interface DesktopBridge {
   setPreferences(patch: Partial<DesktopPreferences>): Promise<DesktopPreferences>
   /** Updates the in-memory native icon theme; never persists a detected default. */
   setEffectiveTheme(theme: VisualTheme): Promise<void>
+  /** The colors native injects into HTML presentation windows (frame-theme.ts). */
+  setFrameTheme(theme: FrameTheme): Promise<void>
   // Domain transport stays relative HTTP/WebSocket; no arbitrary path IPC.
   showMainWindow(): Promise<void>
   quit(): Promise<void>

@@ -23,6 +23,7 @@ import { allowPrereleaseUpdates, desktopIdentity, readBuildChannel, RELEASE_APP_
 import { closeAction, CONVERSION_FAILED, HARNESS_LINKS, resolveDataRoot, shellQuote, unsafeFolderMessage, validateDataRoot } from './policy'
 import { ConversionWindow } from './conversion-window'
 import { configureArtifactSession, configureEngineSession, configureWindow, popoutRegistry, revealPopout, sealSessionNetwork, sealWebRtc, setPanelsAwake } from './windows'
+import { artifactThemeKeeper } from './frametheme'
 import { panelCount, samplePanels } from './panel-runtime'
 import { registerHeldEventChannels } from './held-events'
 import { beginCreation, cancelCreation, openOrg, orgWindowRegistry, planRestore, resolveNativeSender } from './org-windows'
@@ -781,6 +782,8 @@ else {
     effectiveTheme = value
     rebuildTray()
   }
+  // HTML presentation windows take Orgtree's colors as the renderer reports them.
+  const artifactThemes = artifactThemeKeeper()
   /** Keep the recovery path behind an explicit user action. The app never
    * downloads or executes the release; the browser handles the official page.
    * A failed browser launch must not turn a dialog the user already dismissed
@@ -2078,6 +2081,7 @@ else {
       return setPreferences(value)
     })
     handleApp('desktop:set-effective-theme', value => setEffectiveTheme(value))
+    handleApp('desktop:set-frame-theme', value => artifactThemes.set(value))
     handle('desktop:show', caller => revealWindow(caller))
     handleApp('desktop:quit', () => { app.quit() })
     handleApp('desktop:harnesses', () => detectHarnesses())
@@ -2517,6 +2521,7 @@ else {
         viewer.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
         viewer.webContents.on('will-navigate', event => event.preventDefault())
         viewer.webContents.on('will-redirect', event => event.preventDefault())
+        artifactThemes.follow(viewer.webContents)
         // Sealed before the presentation loads; a failed seal never shows it.
         void sealSessionNetwork(artifactSession).then(() => viewer.loadURL(url)).catch(() => { if (!viewer.isDestroyed()) viewer.destroy() })
       }

@@ -3,6 +3,7 @@ import {customAppsRequest} from '../../api'
 import {useSurfaceDocument} from '../../popout'
 import {changeApps,isRunning,refreshApps} from './store'
 import {PANEL_PROTOCOL,panelDocument,panelRequest} from './sdk'
+import {frameTheme,watchFrameTheme} from '../../frametheme'
 import {AppActionClient,HIDDEN_PROMPT} from './actions'
 import {hostPanel} from './runtime'
 import {AppPermissionPrompt,type PermissionPrompt} from './permissions'
@@ -32,6 +33,10 @@ export function PanelHtml({slug,app,panel,visible=true,stopping=false}:{slug:str
   const post=(value:unknown)=>replyPort.current?.postMessage({protocol:PANEL_PROTOCOL,channel,...value as object})
   useEffect(()=>()=>{replyPort.current?.close();replyPort.current=null},[channel])
   const postRef=useRef(post);postRef.current=post
+  // Orgtree's colors (USER 2026-10-27 m4e1fae02a0ca): the document starts with
+  // them, each connection repeats them, and a theme switch restyles in place.
+  const postTheme=()=>{const {theme,css}=frameTheme();postRef.current({kind:'theme',theme,css})}
+  useEffect(()=>stopping?undefined:watchFrameTheme(({theme,css})=>{if(ready.current)postRef.current({kind:'theme',theme,css})}),[stopping])
   // Hiding refuses any open prompt; the runtime and its host session remain.
   const shown=useRef(visible),hiding=useRef(new Set<()=>void>());shown.current=visible
   useEffect(()=>{if(!visible)for(const refuse of [...hiding.current])refuse()},[visible])
@@ -88,7 +93,7 @@ export function PanelHtml({slug,app,panel,visible=true,stopping=false}:{slug:str
       const request=panelRequest(event,frame.current?.contentWindow??null,channel);if(!request)return
       if(Date.now()-start>=1000){start=Date.now();count=0}
       if(++count>30){postRef.current({id:request.id,error:'Too many panel requests; slow down.'});return}
-      if(request.method==='host.ready'){const port=event.ports?.[0];if(!port)return;replyPort.current?.close();replyPort.current=port;ready.current=true;postRef.current({kind:'ready'});return}
+      if(request.method==='host.ready'){const port=event.ports?.[0];if(!port)return;replyPort.current?.close();replyPort.current=port;ready.current=true;postRef.current({kind:'ready'});postTheme();return}
       const at=epoch.current
       chain=chain.then(async()=>{
         if(!active||at!==epoch.current)return
@@ -120,11 +125,11 @@ export function PanelHtml({slug,app,panel,visible=true,stopping=false}:{slug:str
     win.addEventListener('message',listener)
     return()=>{active=false;win.removeEventListener('message',listener)}
   },[slug,panel.id,channel,owner,stopping])
-  const source=useMemo(()=>definition?.definition?panelDocument(definition.definition.html,channel,new URL('/api/orgs/'+encodeURIComponent(slug)+'/apps/media',window.location.href).href):'', [definition,channel,slug])
+  const source=useMemo(()=>definition?.definition?panelDocument(definition.definition.html,channel,new URL('/api/orgs/'+encodeURIComponent(slug)+'/apps/media',window.location.href).href,frameTheme()):'', [definition,channel,slug])
   return <div className="custom-app-host">
     {error&&<div className="custom-app-error" role="alert">{error}</div>}
     {source?<iframe key={channel} ref={frame} title={`${app.name}: ${panel.label}`} srcDoc={source} sandbox="allow-scripts" referrerPolicy="no-referrer"
-      data-orgtree-runtime={panel.id+':'+generation} onLoad={()=>{ready.current=true;postRef.current({kind:'ready'})}}/>:<div className="custom-app-suspended">Loading app…</div>}
+      data-orgtree-runtime={panel.id+':'+generation} onLoad={()=>{ready.current=true;postRef.current({kind:'ready'});postTheme()}}/>:<div className="custom-app-suspended">Loading app…</div>}
     <div className="custom-app-status"><span>{saved?'Saved':'State saved by Orgtree'}</span></div>
     {prompt&&visible&&<AppPermissionPrompt prompt={prompt} owner={owner}/>}
     {filePrompt&&visible&&<AppFilePermissionPrompt slug={slug} prompt={filePrompt} owner={owner}/>}

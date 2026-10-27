@@ -4,6 +4,10 @@
 // game-like background work); they inherit this policy, so no network either.
 // Internet access (USER 2026-10-26 m95c57abc95fb) never opens this policy:
 // orgtree.net.fetch asks the engine, which makes the request for the app.
+// Theme colors (USER 2026-10-27 m4e1fae02a0ca, m164909566caf) only flow IN:
+// the host posts each change on the panel's own port; orgtree.theme reads them
+// and a zero-specificity sheet defines the --orgtree-* variables (frametheme.ts).
+import {frameTheme,type FrameThemeSheet} from '../../frametheme'
 export const PANEL_PROTOCOL = 'orgtree-panel-v1'
 export const PANEL_CSP = "default-src 'none'; script-src 'unsafe-inline' data:; style-src 'unsafe-inline' data:; img-src data: blob:; media-src data: blob:; font-src data:; connect-src 'none'; frame-src 'none'; worker-src blob:; object-src 'none'; base-uri 'none'; form-action 'none'"
 export interface PanelRequest {id:string;method:string;args:unknown}
@@ -16,11 +20,14 @@ export function panelRequest(event:MessageEvent,source:Window|null,channel:strin
   try{if(JSON.stringify(d).length>2*1024*1024+8192)return null}catch{return null}
   return{id:d.id,method:d.method,args:d.args}
 }
-export function panelDocument(html:string,channel:string,mediaSource?:string):string {
+export function panelDocument(html:string,channel:string,mediaSource?:string,theme:FrameThemeSheet=frameTheme()):string {
   // Prefix before ANY author markup: even a script placed before <head> must
   // follow the restrictive policy. Additional app CSP can only restrict it.
   const sdk=String.raw`(()=>{'use strict';const protocol='orgtree-panel-v1',channel=CHANNEL;
 let ready=false,seq=0;const pending=new Map(),queued=[],listeners=new Map();
+let palette=null;const themed=new Set(),sheet=typeof document==='object'&&document?document.createElement('style'):null;
+const paint=(t,css)=>{palette=Object.freeze({colorScheme:t.colorScheme==='light'?'light':'dark',colors:Object.freeze({...(t.colors||{})})});if(sheet)sheet.textContent=css};
+{const first=THEME;paint(first.theme,first.css)}if(sheet)(document.head||document.documentElement).appendChild(sheet);
 let transport;const hello=()=>{transport?.close();const link=new MessageChannel();transport=link.port1;transport.onmessage=e=>receive(e.data);transport.start();parent.postMessage({protocol,channel,id:'ready',method:'host.ready'},'*',[link.port2])};const handshake=setInterval(hello,250);hello();setTimeout(()=>clearInterval(handshake),30000);
 const send=m=>{if(ready)parent.postMessage(m,'*');else queued.push(m)};
 const call=(method,args)=>new Promise((resolve,reject)=>{if(pending.size>=64){reject(Error('Too many pending panel requests'));return}const id=String(++seq),timer=setTimeout(()=>{pending.delete(id);reject(Error('Panel request timed out'))},method==='engine.call'||method==='files.call'?150000:30000);pending.set(id,{resolve,reject,timer});send({protocol,channel,id,method,args})});
@@ -28,8 +35,10 @@ const on=(name,fn)=>{if(typeof fn!=='function')throw Error('Expected an event li
 const receive=d=>{if(!d||d.protocol!==protocol||d.channel!==channel)return;
 if(d.kind==='ready'){clearInterval(handshake);if(!ready){ready=true;for(const m of queued.splice(0))parent.postMessage(m,'*')}return}
 if(d.kind==='event'){for(const fn of listeners.get(d.name)||[])try{fn(d.payload)}catch{};return}
+if(d.kind==='theme'){if(!d.theme||typeof d.theme!=='object'||typeof d.css!=='string')return;paint(d.theme,d.css);for(const fn of themed)try{fn(palette)}catch{};return}
 const p=pending.get(d.id);if(!p)return;pending.delete(d.id);clearTimeout(p.timer);d.error?p.reject(Error(d.error)):p.resolve(d.result)};
 const state=Object.freeze({get:()=>call('state.get'),set:value=>call('state.set',value),patch:value=>call('state.patch',value),onChange:fn=>on('state.changed',fn)});
+const theme=Object.freeze({get:()=>palette,onChange:fn=>{if(typeof fn!=='function')throw Error('Expected a theme listener');themed.add(fn);return()=>themed.delete(fn)}});
 const storage=Object.freeze({getItem:async key=>{const s=await state.get();return Object.prototype.hasOwnProperty.call(s,key)?s[key]:null},setItem:async(key,value)=>{const s=await state.get();Object.defineProperty(s,String(key),{value,writable:true,enumerable:true,configurable:true});return state.set(s)},removeItem:key=>state.patch({[String(key)]:null}),clear:()=>state.set({})});
 const files=Object.freeze({choose:()=>call('files.call',{action:'choose'}),open:(root,path)=>call('files.call',{action:'open',root,path}),read:(file,options={})=>call('files.call',{action:'read',file,offset:options.offset,limit:options.limit}),media:file=>call('files.call',{action:'media',file}),roots:()=>call('files.call',{action:'roots'}),grant:(scope,mode='read')=>call('files.call',{action:'grant',scope,mode}),list:(directory,options={})=>call('files.call',{action:'list',directory,after:options.after,limit:options.limit}),collection:(root,options={})=>call('files.call',{action:'list',root,after:options.after,limit:options.limit}),child:(directory,path)=>call('files.call',{action:'child',directory,path}),write:(directory,name,base64,options={})=>call('files.call',{action:'write',directory,name,base64,replace:options.replace??false}),delete:file=>call('files.call',{action:'delete',file})});
 const b64=bytes=>{let s='';for(let i=0;i<bytes.length;i+=32768)s+=String.fromCharCode.apply(null,bytes.subarray(i,i+32768));return btoa(s)};
@@ -39,8 +48,8 @@ const out=await call('engine.call',{action:'net.fetch',args:{url:request.url,met
 const headers=new Headers();for(const [name,value] of out.headers||[])try{headers.append(name,value)}catch{}
 const response=new Response(method==='HEAD'||[204,205,304].includes(out.status)?null:unb64(out.body||''),{status:out.status,headers});
 Object.defineProperties(response,{url:{value:out.url},redirected:{value:!!out.redirected}});return response}});
-Object.defineProperty(window,'orgtree',{value:Object.freeze({version:1,state,storage,files,net,on,events:Object.freeze({fire:(name,payload)=>call('engine.call',{action:'events.fire',args:{name,payload}})}),emit:(name,payload)=>call('event.emit',{name,payload}),call:(action,args)=>call('engine.call',{action,args})}),writable:false,configurable:false});
-})();`.replace('CHANNEL',JSON.stringify(channel))
+Object.defineProperty(window,'orgtree',{value:Object.freeze({version:1,state,storage,theme,files,net,on,events:Object.freeze({fire:(name,payload)=>call('engine.call',{action:'events.fire',args:{name,payload}})}),emit:(name,payload)=>call('event.emit',{name,payload}),call:(action,args)=>call('engine.call',{action,args})}),writable:false,configurable:false});
+})();`.replace('CHANNEL',JSON.stringify(channel)).replace('THEME',()=>JSON.stringify({theme:theme.theme,css:theme.css}).replace(/</g,'\\u003c'))
   let csp=PANEL_CSP
   if(mediaSource){
     const url=new URL(mediaSource)

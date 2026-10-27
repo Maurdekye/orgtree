@@ -55,6 +55,7 @@ if (process.isMainFrame && expectedOrigin && location.origin === expectedOrigin 
     getPreferences: () => ipcRenderer.invoke('desktop:preferences'),
     setPreferences: patch => ipcRenderer.invoke('desktop:set-preferences', patch),
     setEffectiveTheme: theme => ipcRenderer.invoke('desktop:set-effective-theme', theme),
+    setFrameTheme: theme => ipcRenderer.invoke('desktop:set-frame-theme', theme),
     showMainWindow: () => ipcRenderer.invoke('desktop:show'),
     quit: () => ipcRenderer.invoke('desktop:quit'),
     minimizeWindow: () => ipcRenderer.invoke('desktop:window-minimize'),
