@@ -16,7 +16,7 @@ import { loadMoreMentions, SEARCH_KINDS, useMentionSearch } from './mentionsearc
 import type { SearchKind } from './mentionsearch'
 import { RefMark } from './refmarks'
 import type { MentionRow } from '../api'
-import { NetMark, NetName, ensureNetPicture, hubAddressTitle, netChipClass, netChipLabel, netMention, splitScheme, useNetMentionState } from './netmentions'
+import { NetMark, NetName, ensureNetPicture, hubAddressTitle, netChipClass, netChipLabel, netMention, orgNetAddress, splitScheme, useNetMentionState } from './netmentions'
 
 export interface MentionCandidate {
   id: string
@@ -691,6 +691,8 @@ const HUBCHAT_FRESH_MS = 60_000
 let hubchatCheckedAt = -Infinity
 let hubchatRevision = 0
 let hubchatRequest: Promise<void> | null = null
+/** The Hubchat person this install links as the user (Connect your phone), as `@net:<address>` in lower case. */
+let userAccount: string | null = null
 
 // Chip consumers must discover this without the phone panel. Share one read
 // across Markdown/prose/tool chips; focus refreshes a stale answer, without a
@@ -699,10 +701,10 @@ function refreshHubchatInstalled(): void {
   if (hubchatRequest || Date.now() - hubchatCheckedAt < HUBCHAT_FRESH_MS) return
   hubchatCheckedAt = Date.now()
   const revision = hubchatRevision
-  hubchatRequest = req<{ hubchat_pc?: unknown } | null>('/api/desktop/phone')
+  hubchatRequest = req<{ hubchat_pc?: unknown; link?: unknown } | null>('/api/desktop/phone')
     .then(v => {
       // A newer phone-panel read wins over this request's older snapshot.
-      if (typeof v?.hubchat_pc === 'boolean' && revision === hubchatRevision) setHubchatInstalled(v.hubchat_pc)
+      if (typeof v?.hubchat_pc === 'boolean' && revision === hubchatRevision) { setHubchatInstalled(v.hubchat_pc); noteUserAccountLink(v.link) }
     })
     .catch(() => { /* preserve the known state; a later focus can retry */ })
     .finally(() => { hubchatRequest = null })
@@ -752,6 +754,29 @@ export function hubchatDeepLink(address: string): string {
 }
 
 export const HUBCHAT_NOT_INSTALLED_TOOLTIP = "Hubchat isn't installed"
+export const OWN_ACCOUNT_CHAT_TOOLTIP = 'Open your chat with this org in Hubchat'
+export const NO_ORG_ADDRESS_TOOLTIP = 'This org has no network address yet, so there is no chat to open'
+
+/** A phone-state read's `link` (the linked Hubchat person, or null when unlinked). A malformed or missing
+ *  `link` keeps what was known, like a failed availability read. */
+export function noteUserAccountLink(link: unknown): void {
+  let next = userAccount
+  if (link === null) next = null
+  else if (typeof link === 'object') {
+    const address = (link as { address?: unknown }).address
+    const bare = typeof address === 'string' ? address.trim().toLowerCase().replace(/^@net:/, '') : ''
+    if (bare) next = '@net:' + bare
+  }
+  if (next === userAccount) return
+  userAccount = next
+  notifyHubState()
+}
+
+/** The user's own account. Hubchat answers a self-target with the personal settings page. */
+function isUserAccount(address: string): boolean {
+  const a = address.trim().toLowerCase()
+  return userAccount !== null && a === userAccount
+}
 
 export function resolveHubAddressAction(
   address: string,
@@ -764,6 +789,12 @@ export function resolveHubAddressAction(
     }
   }
   if (hubchatPcInstalled) {
+    // The user's own account opens the DM with the org the link is shown in (the org on screen: an org switch
+    // remounts every surface), the place a DM with it starts when none exists; USER 2026-10-27 m17f65d1effdf.
+    if (isUserAccount(address)) {
+      const org = orgNetAddress()
+      return org ? { kind: 'hubchat', url: hubchatDeepLink(org), title: OWN_ACCOUNT_CHAT_TOOLTIP } : { kind: 'inert', title: NO_ORG_ADDRESS_TOOLTIP }
+    }
     return { kind: 'hubchat', url: hubchatDeepLink(address), title: `Open ${address} in Hubchat` }
   }
   return { kind: 'inert', title: HUBCHAT_NOT_INSTALLED_TOOLTIP }

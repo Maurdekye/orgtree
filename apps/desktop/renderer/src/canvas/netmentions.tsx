@@ -88,6 +88,11 @@ export function setNetRoster(org: string, net: NetBlock | null | undefined): voi
   notify()
 }
 
+/** The on-screen org's own address (`@net:<slug>`), or null before its network block arrives or when it has none. */
+export function orgNetAddress(): string | null {
+  return ownAddress
+}
+
 function sameRoster(a: Map<string, RosterEntry>, b: Map<string, RosterEntry>): boolean {
   if (a.size !== b.size) return false
   for (const [k, v] of a) {
