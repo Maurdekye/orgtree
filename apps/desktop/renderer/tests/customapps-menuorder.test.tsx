@@ -149,7 +149,7 @@ test('the Apps header right-aligns Import app with no Refresh button, and app an
 
 for(const kind of ['apps','panels'] as const)test(`live ${kind} refresh follows new page boundaries after insertion`,async t=>{
  const f=await workspace(t,'menu-live-boundary-'+kind,2);await f.toggle()
- for(const label of ['More apps','More panels'])await inAct(async()=>{const more=[...f.menu().querySelectorAll<HTMLButtonElement>('button')].find(b=>b.textContent===label)!;assert.ok(Boolean(more),label+' available');more.click();await tick()})
+ for(const label of ['More apps','More saved panels'])await inAct(async()=>{const more=[...f.menu().querySelectorAll<HTMLButtonElement>('button')].find(b=>b.textContent===label)!;assert.ok(Boolean(more),label+' available');more.click();await tick()})
  assert.deepEqual(f.rows('Beta'),['Runner'],'loaded running row before external change')
  // Its old running row must now be read from the saved listing, while an
  // insertion shifts the previous first-page cursor to the second page.
