@@ -14,7 +14,10 @@ or bridge, and the app never listens to their frame. Apps reach agents only thro
 declared events (user: "i want to keep agent notification purely through the event
 system, no targeting agents directly (makes them more portable and easier to
 manipulwte)"); mail.send is removed (old declarations import, never granted). See [inline presentations](docs/agents/docket-and-presentations.md#inline-html-presentations-2026-10-26).
-[decided: user 2026-10-26; verified: `canvas/{docs,gallery}.tsx`, `domain/apps/{wire,policy,bridge}.rs`]
+Apps are custom UIs for the user to manipulate data in a structured way, not
+persistent program environments (user 2026-10-27); panels run only while the main
+window is open, as the Apps menu and the tool texts say.
+[decided: user 2026-10-26, 2026-10-27; verified: `canvas/{docs,gallery}.tsx`, `canvas/apps/ui.tsx`, `domain/apps/{wire,policy,bridge}.rs`]
 
 Read this file before working in this repository. It is the startup guide, not a landing log. Detailed rules, source references and the complete earlier notes live in the [topic index](docs/agents/README.md).
 
@@ -95,12 +98,8 @@ App events carry privacy across subscriber/overflow handoffs; authorized deliver
 keeps content while watchdog diagnostic output/history omit it.
 Hide refuses prompts but keeps the running session; power off and replacement
 discard prompts and authority, while grant edits use a separate revision from code. Portable version1 app bundles never carry grants/IDs/links or
-machine placement; imports get fresh closed copies and implicit local org authority. The
-provisional bundle bounds are16MiB/16 saved copies. Agent exports create a fresh
-private-scratch file; imports pin original held roots without canonicalizing links.
-Windows uses handle-relative no-reparse opens plus data-write/delete sharing
-exclusion and final handle-path checks; portable
-native exports cap exact compact bytes. See [custom apps](docs/rust-engine/custom-apps.md).
+machine placement; imports get fresh closed copies and implicit local org authority.
+Bundle bounds, export files and import pinning are in [custom apps](docs/rust-engine/custom-apps.md#whole-app-portability-backend).
 Templates carry only inert app definitions/initial data; restore creates no copies
 or grants. Panel links and their app.event signals were removed (user
 2026-10-26); agents follow copies only through app_listener subscriptions.
