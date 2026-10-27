@@ -40,7 +40,7 @@ import { useContextMenu } from './contextmenu'
 import { USER_IDENTITY_TITLE, userMenuEntries } from './useridentity'
 import { localFileLinkAt } from './localfile'
 import { createRefMarkEl, hasRefMark } from './refmarks'
-import { createNetMarkEl, ensureNetPicture, hubAddressTitle, netChipClass, netChipSig, netMention, splitScheme, useNetMentionState } from './netmentions'
+import { createNetMarkEl, createNetNameEls, ensureNetPicture, hubAddressTitle, netChipClass, netChipLabel, netChipSig, netMention, splitScheme, useNetMentionState } from './netmentions'
 
 /** the attribute that makes an injected chip findable again on the next pass.
  *  It holds the ORIGINAL TOKEN, so undoing the injection is exact — the chip's
@@ -124,6 +124,9 @@ function hubChipEl(doc: Document, token: string): HTMLElement {
   }
   span.appendChild(doc.createTextNode(rest))
   el.appendChild(span)
+  el.append(...createNetNameEls(doc, info))
+  const label = netChipLabel(info)
+  if (label) el.setAttribute('aria-label', label)
   return el
 }
 

@@ -12,6 +12,13 @@
 // else the Hubchat mark when Hubchat is installed, else a globe. The React chip
 // and the DOM chip the Markdown walk builds draw the SAME element and share ONE
 // tooltip, like every other mention.
+//
+// A party the roster names shows that name (USER 2026-10-27 mb7ea64d82743 "Show
+// the name", told of the impersonation risk). The chip's TEXT stays the address
+// token, so a copy, Reply to selection and the written mention all keep the
+// address; the name is drawn from data-net-name, and the hover gives the
+// address. The icon and the kind's tinted, outlined pill mark the outside party
+// (USER 2026-10-27 m442b6dcaab52 "their link will be distinguished by the icon").
 import { useEffect, useState } from 'react'
 import { getMentionPicture } from '../api'
 import type { NetBlock, NetPeer } from '../types'
@@ -154,17 +161,30 @@ export function hubAddressTitle(address: string): string {
   const info = netMention(address)
   const action = resolveHubAddressAction(info.address).title
   if (info.local) return action
-  return `${netKindLabel(info)}${info.name ? `: ${info.name}` : ''}\n${action}`
+  const name = shownName(info)
+  return name ? `${netKindLabel(info)}: ${name}\n${info.address}\n${action}` : `${netKindLabel(info)}\n${action}`
+}
+
+/** The name a chip shows instead of its address: the roster's, for a party
+ *  outside this PC. A local org keeps its address, as its org rows do. */
+export function shownName(info: NetMention): string | null {
+  return info.local ? null : info.name
+}
+
+/** A named chip's accessible name: the name, then the address it stands for. */
+export function netChipLabel(info: NetMention): string | undefined {
+  const name = shownName(info)
+  return name ? `${name} (${info.address})` : undefined
 }
 
 /** The chip's classes after `ref-chip ref-hub`. */
 export function netChipClass(info: NetMention): string {
-  return `net-chip net-${info.kind}${info.local ? ' net-local' : ''}`
+  return `net-chip net-${info.kind}${info.local ? ' net-local' : ''}${shownName(info) ? ' net-named' : ''}`
 }
 
 /** What the Markdown walk compares before rebuilding a chip. */
 export function netChipSig(info: NetMention): string {
-  return [info.kind, info.local ? 1 : 0, info.icon, info.pictureKey ?? ''].join(':')
+  return [info.kind, info.local ? 1 : 0, info.icon, info.pictureKey ?? '', shownName(info) ?? ''].join(':')
 }
 
 export function useNetMentionState(): number {
@@ -243,6 +263,24 @@ export function NetMark({ info }: { info: NetMention }) {
           </svg>}
     </span>
   )
+}
+
+/** A named chip's name, as DOM. CSS draws it from the attribute, so the chip's
+ *  text, and every copy of it, stays the address. */
+export function createNetNameEls(doc: Document, info: NetMention): HTMLElement[] {
+  const name = shownName(info)
+  if (!name) return []
+  const shown = doc.createElement('span')
+  shown.className = 'net-name'
+  shown.setAttribute('data-net-name', name)
+  shown.setAttribute('aria-hidden', 'true')
+  return [shown]
+}
+
+/** The same in React. */
+export function NetName({ info }: { info: NetMention }) {
+  const name = shownName(info)
+  return name ? <span className="net-name" data-net-name={name} aria-hidden="true" /> : null
 }
 
 /** The address with its scheme set apart (`@net:` / `@org:`): the text stays

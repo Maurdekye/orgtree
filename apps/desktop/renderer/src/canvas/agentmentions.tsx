@@ -14,7 +14,7 @@ import { objectTooltipProps } from './objecttooltip'
 import { refToken } from './reflinks'
 import { useTicketMentionCandidates } from './ticketmentions'
 import { usePresentationMentionCandidates } from './presentationmentions'
-import { NetMark, ensureNetPicture, hubAddressTitle, netChipClass, netMention, splitScheme, useNetMentionState } from './netmentions'
+import { NetMark, NetName, ensureNetPicture, hubAddressTitle, netChipClass, netChipLabel, netMention, splitScheme, useNetMentionState } from './netmentions'
 
 export interface MentionCandidate {
   id: string
@@ -731,6 +731,7 @@ export function HubContactChip({ address, className }: { address: string; classN
       data-net-kind={info.kind}
       data-net-icon={info.icon}
       aria-disabled={inert ? 'true' : undefined}
+      aria-label={netChipLabel(info)}
       title={hubAddressTitle(address)}
       onClick={e => {
         e.stopPropagation()
@@ -739,6 +740,7 @@ export function HubContactChip({ address, className }: { address: string; classN
     >
       <NetMark info={info} />
       <span className="ref-id">{scheme && <span className="net-scheme">{scheme}</span>}{rest}</span>
+      <NetName info={info} />
     </button>{menu.node}</>
   )
 }

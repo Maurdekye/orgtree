@@ -40,6 +40,21 @@ button.ref-chip.ref-chip.ref-hub.net-chip.live:is(:hover, :focus-visible) {
 .net-chip .ref-id { min-width: 0; overflow-wrap: anywhere; }
 .net-chip .net-scheme { color: var(--dim); }
 .net-chip.live:is(:hover, :focus-visible) .net-scheme { color: inherit; }
+/* A NAMED chip (USER 2026-10-27 mb7ea64d82743 "Show the name"): the roster's name
+   is drawn from data-net-name, and the address stays the chip's text out of sight,
+   so selecting or copying the chip gives the address token. Its icon and the kind's
+   tinted, outlined pill mark the outside party (m442b6dcaab52 "their link will be
+   distinguished by the icon"); an agent's link has neither. */
+.ref-chip.ref-chip.ref-hub.net-chip.net-named {
+  position: relative;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--net-fg) 55%, transparent);
+}
+.net-chip.net-named .ref-id {
+  position: absolute; width: 1px; height: 1px; overflow: hidden;
+  clip-path: inset(50%); white-space: nowrap;
+}
+.net-chip .net-name { min-width: 0; overflow-wrap: anywhere; unicode-bidi: isolate; }
+.net-chip .net-name::before { content: attr(data-net-name); }
 .net-mark {
   flex: none; align-self: center; display: inline-grid; place-items: center;
   width: 1.15em; height: 1.15em; border-radius: 28%; overflow: hidden;
