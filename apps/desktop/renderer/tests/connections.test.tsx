@@ -8,6 +8,8 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { useState } from 'react'
 import { Connections } from '../src/canvas/connections'
+import { setNetRoster } from '../src/canvas/netmentions'
+import { checkContactList } from './net-contact-lists.check'
 import type { TreePayload } from '../src/types'
 
 const g = globalThis as unknown as Record<string, unknown>
@@ -58,6 +60,7 @@ test('the secret appears only after an explicit reveal, from the reveal endpoint
 })
 
 test('hub rows speak the real ladder and surface stuck mail with its reason', async () => {
+  setNetRoster(TREE.slug, TREE.net)
   const view = await mountView(<Fixture tree={TREE} />, el => el)
   try {
     const text = view.el.textContent!
@@ -66,11 +69,13 @@ test('hub rows speak the real ladder and surface stuck mail with its reason', as
     assert.match(text, /3 queued/)
     assert.match(text, /⚠ 2 failing — hub unreachable/)   // the rollup
     assert.match(text, /Connect to this computer's mail hub/)
-    assert.match(text, /Other/)
-    assert.match(text, /\(chat\)/)                        // kinds stay visible
+    assert.equal(view.el.querySelector('[data-hub-address="@net:other.user.d4e5f6"] .net-name')?.getAttribute('data-net-name'), 'Other')
+    assert.equal(view.el.querySelector('[data-hub-address="@net:notes.user.778899"]')?.getAttribute('data-net-kind'), 'chat')
     assert.match(text, /Online/)
   } finally { await view.unmount() }
 })
+
+test('network contact links retain each roster entry and presence', t => checkContactList('connections', t))
 
 test('removing a working connection states its scope first; cancel changes nothing', async () => {
   const asked: string[] = []

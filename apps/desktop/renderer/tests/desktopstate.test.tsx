@@ -119,12 +119,13 @@ test('Connections renders real peers and sends sanitized remote settings without
   ] } } as unknown as TreePayload
   const v = await mountView(<Connections tree={tree} toast={() => {}} adding="" setAdding={() => {}} />, el => el)
   try {
-    assert.match(v.el.textContent!, /Other org.*friend.*Online/)
+    assert.equal(v.el.querySelector('[data-hub-address="@net:friend"]')?.textContent, '@net:friend')
+    assert.match(v.el.querySelector('.connection-peers')?.textContent ?? '', /friend.*Online/)
     assert.match(v.el.textContent!, /2 queued/)
     assert.doesNotMatch(v.el.textContent!, /must-never-render|reveal secret/)
     const toggles = v.el.querySelectorAll<HTMLInputElement>('input[type="checkbox"]')
     await inAct(async () => { toggles[1]!.click(); await flush(5) })
-    assert.deepEqual(requests.find(r => r.url !== '/api/desktop/hub')!.body, { net_hubs: [{ id: 'peer', address: 'https://peer.example', enabled: false }] })
+    assert.deepEqual(requests.find(r => r.url.endsWith('/settings'))!.body, { net_hubs: [{ id: 'peer', address: 'https://peer.example', enabled: false }] })
     assert.ok(requests.every(r => !r.url.endsWith('/net')))
   } finally { await v.unmount(); globalThis.fetch = original }
 })

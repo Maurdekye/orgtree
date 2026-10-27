@@ -27,6 +27,7 @@ import { useState } from 'react'
 import type { TestContext } from 'node:test'
 import assert from 'node:assert/strict'
 import { OrgInboxModal } from '../src/canvas/mail'
+import { checkContactList } from './net-contact-lists.check'
 import type { NetHub, OrgInboxEntry, TreePayload } from '../src/types'
 import type { CanvasNode } from '../src/canvas/shared'
 
@@ -223,6 +224,8 @@ uiTest('§9.5 the mailservers tab totals the failures per hub',
       `and the newest reason: ${txt(line[0]!)}`)
     assert.ok(txt(el).includes('3 queued outbound'), 'beside the queue depth')
   })
+
+test('§9.5 network contact links retain each roster entry and presence', t => checkContactList('mailservers', t))
 
 uiTest('§9.6 …and it does so for the hub that mail actually queues on',
   async ({ mount }) => {
