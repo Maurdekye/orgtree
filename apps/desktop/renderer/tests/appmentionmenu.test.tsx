@@ -25,3 +25,16 @@ for(const markdown of [false,true])for(const kind of ['app','panel'] as const)te
   await rightClick(chip());await choose('Delete…');await clickButton(kind==='app'?'Delete app and panels':'Delete panel')
   assert.deepEqual(engine.deletes(),[kind==='app'?{action:'app_delete',app:engine.app.id,expected_rev:5,delete_panels:true}:{action:'panel_delete',panel:engine.panel.id,expected_rev:7}])
 })
+
+for(const surface of ['React','Markdown','Apps list'])test(`${surface} app New panel creates one off copy without opening or stopping`,async t=>{
+  const engine=mentionMenuEngine();t.after(engine.restore)
+  const slug='new-panel-'+surface.toLowerCase().replace(' ','-'),view=await mountView(<MentionMenuFixture slug={slug} markdown={surface==='Markdown'} appsButton={surface==='Apps list'}/>,el=>el);t.after(()=>view.unmount());await inAct(tick)
+  if(surface==='Apps list')await inAct(async()=>{view.el.querySelector<HTMLButtonElement>('button[aria-label="Apps"]')!.click();await tick()})
+  const target=surface==='Apps list'?document.querySelector<HTMLElement>('.custom-apps-menu-app')!:view.el.querySelector<HTMLElement>('.ref-app')!
+  await rightClick(target);assert.ok(labels().includes('New panel'),'New panel exists')
+  await choose('New panel')
+  assert.deepEqual(engine.calls.filter(c=>['panel_open','panel_start','panel_stop','panel_update'].includes(c.action)),[{action:'panel_open',app:engine.app.id,closed:true}])
+  assert.equal(document.querySelectorAll('iframe').length,0,'No app HTML or window starts')
+  assert.equal(engine.deletes().length,0)
+  if(surface==='Apps list')await inAct(async()=>{document.dispatchEvent(new window.KeyboardEvent('keydown',{bubbles:true,key:'Escape'}));await tick()})
+})

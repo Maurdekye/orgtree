@@ -4,7 +4,7 @@ import {RefMdBody} from '../src/canvas/refmd'
 import {ObjectNavProvider} from '../src/canvas/objectnav'
 import {ObjectNavHost} from '../src/canvas/objectnavhost'
 import {ObjectMenuBoundary} from '../src/canvas/contextmenu'
-import {AppsWorkspace} from '../src/canvas/apps/ui'
+import {AppsButton,AppsWorkspace} from '../src/canvas/apps/ui'
 import {md} from '../src/canvas/shared'
 
 /** In-memory Apps boundary only: the fixture never contacts an engine or runs app HTML. */
@@ -21,6 +21,9 @@ export function mentionMenuEngine(){
       case 'list':result={items:input.kind==='apps'?(deletedApp?[]:[app]):(deletedApp||deletedPanel?[]:[panel]),next_cursor:null,new_count:0};break
       case 'app_get':if(input.app!==app.id||deletedApp)throw Error('Missing app');result=app;break
       case 'panel_get':if(input.panel!==panel.id||deletedPanel||deletedApp)throw Error('Missing panel');result=panel;break
+      case 'panel_open':
+        if(input.app!==app.id||input.closed!==true||input.panel)throw Error('Fixture permits closed/off creation only');
+        result={...panel,id:'recipe-book-panel-2',label:'Panel 2',rev:1};break
       case 'app_delete':deletedApp=true;result={deleted:true};break
       case 'panel_delete':deletedPanel=true;result={deleted:true};break
       case 'events':result={events:[],next_cursor:null,oldest_retained:null};break
@@ -38,8 +41,8 @@ function Chips({slug,markdown}:{slug:string;markdown:boolean}){
   return markdown?<RefMdBody className="md" html={md(text)} world={refs.world} onOpen={refs.onOpen}/>:<p><RefProse text={text} world={refs.world} onOpen={refs.onOpen}/></p>
 }
 const noop=()=>{}
-export function MentionMenuFixture({slug,markdown=false}:{slug:string;markdown?:boolean}){
+export function MentionMenuFixture({slug,markdown=false,appsButton=false}:{slug:string;markdown?:boolean;appsButton?:boolean}){
   return <ObjectNavProvider><ObjectNavHost org={slug} dogs={[]} openDog={noop} toast={noop}/><ObjectMenuBoundary>
-    <section className="mention-menu-fixture"><h2>{markdown?'Markdown mentions':'React mentions'}</h2><Chips slug={slug} markdown={markdown}/></section>
+    <section className="mention-menu-fixture"><h2>{markdown?'Markdown mentions':'React mentions'}</h2><Chips slug={slug} markdown={markdown}/>{appsButton&&<AppsButton slug={slug}/>}</section>
   </ObjectMenuBoundary><AppsWorkspace slug={slug}/></ObjectNavProvider>
 }
