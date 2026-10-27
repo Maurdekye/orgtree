@@ -23,7 +23,7 @@ The Implementer and Integrator charter presets carry the role text; see orgtree-
 
 ## The job mail
 
-One job per item, posted to the queue project with `orgtree_message` kind=request. The body names every field below, so an integrator that has never seen the conversation can run it:
+One job per item, posted to the queue project with `orgtree_message` kind=request. Before posting, make sure each integrator can read the item: the item's owner, creator or a superior adds the pool as participants (see orgtree-tool-work in orgtree-working › docket). The body names every field below, so an integrator that has never seen the conversation can run it:
 
 | Field | Content |
 | --- | --- |
@@ -56,7 +56,7 @@ notes: <anything else, or none>
 
 ## How an integrator runs a job
 
-1. Read the job and the item's full scope. Add yourself as a participant if the docket requires it.
+1. Read the job and the item's full scope. You can read the item only if its owner, creator or one of their superiors, or the user, already added you as a participant; an integrator cannot add itself. If the read is refused, bounce the job as missing access, naming the item, instead of working around it.
 2. Fetch, make a private worktree, check out the tip detached and rebase it onto the target on a new branch. Resolve a conflict only when it is purely mechanical (both sides kept verbatim, such as adjacent list lines). Anything touching logic, tests or wording: abort and bounce. After the rebase, look for mangled text and for shared notes that grew past their size limit; either is a bounce.
 3. Claim a build permit as the [build-slots](../build-slots/SKILL.md) page describes, read fresh free memory against the project's current Summary, then run red at the base, green at the rebased tip, compile or typecheck and the audits, one run each, and release the permit at once.
 4. Run the capture checklist if there is one, isolated and muted. View every image and record each line as pass or fail.
@@ -87,7 +87,7 @@ The mechanics live in other pages; this pattern only chooses settings.
 1. Choose or create the queue project and place the integrators below it, or the project below a manager who reaches both sides. Configure ACK mode, ack timeout, reminders and `max_attempts`.
 2. Confirm the build project's permits and put the current resource policy in its Summary; orgtree-builds-under-the-lock (orgtree-working › workspace) holds the claim and release mechanics.
 3. Hire the integrators with the Integrator charter and give them edit and bash for their own harness and evidence folders, without any push or release authority. Keep the implementers on the Implementer charter and tell them a pool exists.
-4. Put the job format above, the target line and the bounce rule in the queue project's Summary, so it is one standing home rather than a repeated message.
+4. Put the job format above, the target line and the bounce rule in the queue project's Summary, so it is one standing home rather than a repeated message. Say there that the poster grants docket access first and that an integrator bounces a job whose item it cannot read.
 5. Have each integrator arm its listener. Post one job per item; watch the project desk's mail tab and the dead-letter watchdog.
 
 ## See also

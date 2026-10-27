@@ -7819,7 +7819,7 @@
    "must_cover": [
     "when to use it: costlier models write code, a cheaper pool does the mechanical overhead",
     "roles: implementer, integrator pool, integration owner; integrators never edit product code or tests",
-    "the job mail's required fields and a skeleton",
+    "the job mail's required fields and a skeleton; the poster grants the integrators docket access first, and an integrator bounces a job whose item it cannot read",
     "integrator run: rebase, mechanical conflicts only, red/green/compile/audits, capture, evidence, hand-in or bounce",
     "queue mechanics by link: ACK mode, fair_queue listeners batch 1, FIFO handout, ACK means handled, ack timeout, max attempts, dead letters",
     "build permits from the same or a sibling project, claimed per heavy phase",
