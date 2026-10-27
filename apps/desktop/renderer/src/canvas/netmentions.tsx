@@ -216,9 +216,9 @@ export function createNetMarkEl(doc: Document, info: NetMention): HTMLElement {
     bubble.setAttribute('fill', '#d97757')
     bubble.setAttribute('d', HUBCHAT_BUBBLE)
     const pupil = doc.createElementNS(SVG, 'circle')
-    for (const [k, v] of [['cx', '128'], ['cy', '120'], ['r', '54'], ['fill', '#17191d']]) pupil.setAttribute(k, v)
+    for (const [k, v] of Object.entries({ cx: '128', cy: '120', r: '54', fill: '#17191d' })) pupil.setAttribute(k, v)
     const iris = doc.createElementNS(SVG, 'circle')
-    for (const [k, v] of [['cx', '128'], ['cy', '120'], ['r', '23'], ['fill', '#d97757']]) iris.setAttribute(k, v)
+    for (const [k, v] of Object.entries({ cx: '128', cy: '120', r: '23', fill: '#d97757' })) iris.setAttribute(k, v)
     g.append(bubble, pupil, iris)
     svg.appendChild(g)
   }
