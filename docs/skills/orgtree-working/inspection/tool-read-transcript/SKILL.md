@@ -61,6 +61,13 @@ that a reasoning step occurred. Encrypted reasoning is never reconstructed.
 
 Each message's text is limited to 1,200 Unicode characters. Stored tool/card objects are retained, but separately stored on-demand tool input/output is not reconstructed by this projection. There is no `before`, `after`, cursor, or older-page parameter, and increasing `last` cannot exceed 80. The runtime can attempt an earlier-history import; failure to import does not manufacture missing historical rows.
 
+Each message has `tokens`, the count the desk shows (4.5.0): `{count,
+reported}` when the provider reported it for that row; `{count, estimated,
+sampled, covers, parts}` for an engine estimate (`parts` lists what a delivered
+message was sent as, such as `Org state` and each mail); or `{not_counted}` with
+the reason. It is `null` on rows written before 4.5.0, never 0. Tool objects can
+carry `input_tokens` beside `output_tokens`.
+
 Each message also has `incomplete` and `interrupted` booleans. Unfinished
 streamed replies retained when a turn ends have `incomplete: true`; interruption
 or killing also sets `interrupted: true`. They remain ordinary assistant text,

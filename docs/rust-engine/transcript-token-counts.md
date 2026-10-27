@@ -100,6 +100,45 @@ retiring prose/thought partials, fetching `/chat`, or invalidating the tree.
 Terminal estimates live on ordinary durable chips. HTTP supplies live overlays
 for a desk opened mid-call; older HTTP snapshots cannot replace newer counts.
 
+## Row counts (4.5.0)
+
+USER 2026-10-27 m10e4ca6d8934, "token counts in messages of all kinds (agent,
+monitor event, system, etc)", and mafe020c4912b, "and user messages"; design
+approved by the coordinator (m179c9d46b166). Every conversation row the actor
+writes carries a `tokens` object in its `ot.convo` body (no migration):
+
+- `{count, reported}`: the provider reported this count for exactly this row.
+  Claude reports each response's output, and one row is one response, so its
+  `count` covers that response's thinking, text and tool calls. A Codex or Muse
+  request that produced only the reply (no reasoning, no calls) puts its
+  reported output on that reply's row (`Receipt::text_of`).
+- `{count, estimated, sampled, covers?, parts?}`: the engine's estimate (the
+  calibrated public BPE above, on the blocking pool, bounded per row).
+  Delivered messages are counted as exactly the text sent (the turn's opening
+  message, a mid-turn or hook delivery), with `parts` from `prompt::Batch`:
+  `Org state`, `Provider usage`, `Org notices`, one part per mail named by its
+  sender, and at most 16 parts (the rest join one `N more messages` part). Text
+  the CLI adds itself is not visible to the engine and is not counted. Response
+  rows without a reported count are estimated once at turn end
+  (`count_turn_rows`; `covers` names `text`, `tool calls` or both), and each tool
+  chip gains `input_tokens`/`input_tokens_estimated` for its call input. Shown
+  thinking is a provider summary, so it is never estimated: unreported thinking
+  says so. A thought alone (Codex, Muse and Antigravity give each reasoning item
+  its own row) carries the reasoning the provider reported for it, or
+  `not_counted`, and the desk shows it once, on the thought line.
+- `{not_counted}`: why the row has no count, never 0. Display-only rows (`not
+  sent to the agent`), engine compactions (their summary opens the next turn
+  and is counted there), provider compactions (the provider keeps the summary;
+  `pre_tokens` keeps its reported context size before), slash commands for the
+  CLI, and mail the agent fetched itself (counted in that orgtree_inbox result).
+
+Counts are written once by the actor (the only writer): mail rows when they are
+appended, response rows at their receipt or at turn end, onto the stored row's
+count fields only. Reads (desk pages, orgtree_read_transcript) project stored
+fields; nothing rereads or recounts history and there is no backfill, so rows
+written before 4.5.0 have no `tokens` and show nothing. orgtree_read_transcript
+rows carry the same `tokens` object (a result change only; no tool text).
+
 ## Live occupancy
 
 Occupancy always uses the latest reported input/context snapshot, never an

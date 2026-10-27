@@ -87,6 +87,13 @@ inspector never launches a helper or reads native transcript files.
 
 File tool rows show the attempted path. An existing file can be opened or revealed; an unavailable path retains copy actions and its status explanation. Reading a tool result and checking the actual current file are different ways to verify an outcome.
 
+Every conversation row also ends with a token count (4.5.0): a plain number
+when the provider reported it (Claude reports each response), `~` when Orgtree
+estimated it, and a dash with the reason when the row is not counted (rows only
+shown to you, compactions, slash commands), never 0. Hover a delivered message's
+count to see its parts: org state, provider usage, notices and each message.
+Rows from before 4.5.0 show none.
+
 The I-beam mark with `t` or `kt` is a tool's observed text-output token estimate; `~` stays an estimate even after completion, and hover shows the full number. It differs from billed usage and context occupancy. A file-read count uses the returned text or slice, rather than the short summary or the file's total line count. Large outputs use bounded sampling. If retained read text is unavailable, its count stays unknown; Orgtree does not reopen the file to estimate an older read. Live shell previews retain at most 32 KiB per tool and eight tools per agent, with an omission marker when clipped. Codex/Muse can supply live output; OpenCode does not currently emit shell progress snapshots, and Claude/Antigravity have no live shell preview here. Final results replace these transient previews.
 
 New Muse thoughts also retain the measured interval between Muse's reported

@@ -141,6 +141,9 @@ Tool-row output estimates use an I-beam token mark, `t`/`kt` and `~`; these
 are separate from this header's input/context occupancy and provider usage.
 See [tool-output counts](../desk-chat/SKILL.md#tool-output-token-counts) for
 hover precision, thinking receipts and missing observations.
+Every conversation row also ends with its own count, reported or `~`
+estimated, or a dash with the reason it is not counted; see
+[row token counts](../desk-chat/SKILL.md#row-token-counts-450).
 
 - [Chat](../desk-chat/SKILL.md): conversation and composing.
 - [Mail](../inbox-screens/SKILL.md): the agent's mailbox, with its inbox and sent folders.
