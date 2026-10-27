@@ -176,7 +176,10 @@ lifecycle/state/permission/export action above: the Name row's Rename is
 panel_update label, State uses panel_get and state_set, Connections uses listeners,
 Fire event uses fire_event and History uses events. Showing settings/choosing a copy is read-only. The app
 row opens its most recently used copy by panel ID, or panel_open with only app when none
-is listed; its + is panel_open new:true. Placement float is the standard centered
+is listed; its + is panel_open new:true. A row whose copy is already open and visible
+first brings that window to the front and focuses it, then sends the same panel_open;
+the raise is display-only, and agents have no equivalent because only user UI opens or
+shows windows (agent panel_open with a panel ID refuses). Placement float is the standard centered
 modal; window pins the panel to the window like a pinned desk, at x/y pixels
 from the canvas area's top-left. The header pin stores the panel's current box
 and unpins to float; agent placement uses the supplied x/y.

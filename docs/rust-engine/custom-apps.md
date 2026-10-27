@@ -478,7 +478,17 @@ then ID), or sends panel_open with only the app when it lists none, so the
 engine creates the first; its + sends new=true and always creates another.
 USER2026-10-26 m0d853b77c816 named the first listed copy, which was the most
 recently used; since panels now list in creation order, @coordinator-opus
-2026-10-26 keeps the most recently used one (provisional). A new panel without an explicit label is
+2026-10-26 keeps the most recently used one (provisional). A row whose panel is
+open and visible first brings it to the front (USER 2026-10-27 mffd8da23dc8f): a
+pop-out's live window is revealed (restored and focused, never reopened), a window
+pin raised in the pin layer, a centered panel put in front of the other centered
+panels, which take .custom-app-behind (z 29, 39 on mobile) and stop answering Esc
+(provisional stacking); then its window takes the focus, so Esc still hides a centered
+one and Tab enters its content. The click still sends only
+panel_open, the use, so used_at and the app row follow it. Rows go through
+openAppPanel(slug, {panel} or {app}) in `canvas/apps/ui.tsx`, the one entry point
+mentions reuse; for an app it raises the engine's pick only if that copy was
+already visible. A new panel without an explicit label is
 named "Panel N", the app's lowest unused positive number among exact automatic
 labels, chosen under the app row lock (USER me02e165c08fe;
 `domain/apps/labels.rs`). Existing, explicit, imported and duplicated labels never

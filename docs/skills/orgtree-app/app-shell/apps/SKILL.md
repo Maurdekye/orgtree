@@ -69,7 +69,14 @@ replacing an app's code powers off its hidden running copies.
 
 Open **Apps** in the org header, beside Presentations. A click anywhere on an
 app's row opens its most recently used saved panel, wherever it is listed,
-or creates and opens its first panel when it has none. The **+** on the app's row
+or creates and opens its first panel when it has none. A row whose panel is
+already open and visible (a saved panel's row, or an app row whose most recently
+used panel is) brings that panel to the front and focuses it: a window pin rises
+above the other pinned windows and desks, a centered panel above the other
+centered panels, and a pop-out's own window is restored if minimized and focused.
+It still counts as a use; nothing closes, reopens, moves or resizes (user ruling
+2026-10-27). Centered panels stack like window pins: the one shown or raised last
+is in front, and Esc hides that one. The **+** on the app's row
 always creates and opens a new panel. New panels are named Panel 1, Panel 2 and
 so on, with the app's lowest unused number; other names never change. Saved
 panels are listed under their app; the dot shows whether each runs visibly,

@@ -82,7 +82,12 @@ Definitions and committed data live in Orgtree's database across restarts.
 
 Open **Apps** beside Presentations in the org header. A click anywhere on an
 app's row opens its most recently used saved panel, wherever it is listed,
-or creates and opens its first panel when it has none. The **+** on the app's row
+or creates and opens its first panel when it has none. Clicking the row of a
+panel that is already open and visible, or an app row whose most recently used
+panel is, brings that panel to the front and focuses it: a pinned panel comes in
+front of the other pinned windows, a centered panel in front of the other centered
+panels, and a popped-out panel's window is restored if minimized and brought
+forward. Nothing closes, reopens or moves. The **+** on the app's row
 always creates and opens a new panel from the initial state. Saved panels are
 listed under their app, and each panel's light shows whether it runs visibly,
 runs hidden or is off; the tooltip names the state (see Running in the
