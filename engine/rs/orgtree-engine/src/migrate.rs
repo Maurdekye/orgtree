@@ -81,6 +81,7 @@ const MIGRATIONS: &[(&str, &str)] = &[
     ("0073_document_slugs", include_str!("../migrations/0073_document_slugs.sql")),
     ("0074_requested_document_slugs", include_str!("../migrations/0074_requested_document_slugs.sql")),
     ("0075_app_panel_slugs", include_str!("../migrations/0075_app_panel_slugs.sql")),
+    ("0076_mention_recency", include_str!("../migrations/0076_mention_recency.sql")),
 ];
 
 #[cfg(test)]
@@ -89,6 +90,8 @@ mod project_user_contact_tests;
 mod document_slug_tests;
 #[cfg(test)]
 mod app_slug_tests;
+#[cfg(test)]
+mod mention_recency_tests;
 
 #[logged]
 fn checksum(sql: &str) -> String {

@@ -22,6 +22,7 @@ pub mod reply_sources;
 pub mod lifecycle;
 pub mod notices;
 pub mod mention_navigation;
+pub mod mention_candidates;
 pub mod node_kind;
 pub mod runtime_notices;
 pub mod ops;
