@@ -1744,3 +1744,14 @@ picture's arrival rebuilds it. Styles live in `canvas/netmentions.css`
 See [mention pictures](../rust-engine/profile-pictures.md#mention-pictures-450).
 [decided: user 2026-10-27 m08fbc691a349, mc96766993067, m82cf84439a0d,
 ma1f33944e69d, mf8697b8ba8fc; verified: `canvas/{netmentions,agentmentions,refmd,objectactions}.ts*`]
+
+A party the roster names shows that name instead of its address (user
+2026-10-27 mb7ea64d82743 "Show the name"). A `.net-named` chip draws the name
+from `data-net-name` in CSS, on the kind's outlined pill; the icon marks the
+outside party (m442b6dcaab52 "their link will be distinguished by the icon").
+The address stays the chip's only text, out of sight, so `Selection.toString`,
+a copy, Reply to selection (`data-ref-token`) and the written token keep the
+address. The hover is kind: name, the address, then the click, and the
+accessible name `name (address)`. A local org and `@org:` take no roster name.
+The Markdown signature carries the name, so a rename rebuilds the chip.
+[decided: user 2026-10-27 mb7ea64d82743; verified: `canvas/{netmentions,agentmentions,refmd}.ts*`, `canvas/netmentions.css`]
