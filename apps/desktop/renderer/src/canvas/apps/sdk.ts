@@ -7,6 +7,8 @@
 // Theme colors (USER 2026-10-27 m4e1fae02a0ca, m164909566caf) only flow IN:
 // the host posts each change on the panel's own port; orgtree.theme reads them
 // and a zero-specificity sheet defines the --orgtree-* variables (frametheme.ts).
+// A repeat of the colors a panel already has (each connection repeats them)
+// changes nothing and calls no onChange listener.
 import {frameTheme,type FrameThemeSheet} from '../../frametheme'
 export const PANEL_PROTOCOL = 'orgtree-panel-v1'
 export const PANEL_CSP = "default-src 'none'; script-src 'unsafe-inline' data:; style-src 'unsafe-inline' data:; img-src data: blob:; media-src data: blob:; font-src data:; connect-src 'none'; frame-src 'none'; worker-src blob:; object-src 'none'; base-uri 'none'; form-action 'none'"
@@ -25,8 +27,8 @@ export function panelDocument(html:string,channel:string,mediaSource?:string,the
   // follow the restrictive policy. Additional app CSP can only restrict it.
   const sdk=String.raw`(()=>{'use strict';const protocol='orgtree-panel-v1',channel=CHANNEL;
 let ready=false,seq=0;const pending=new Map(),queued=[],listeners=new Map();
-let palette=null;const themed=new Set(),sheet=typeof document==='object'&&document?document.createElement('style'):null;
-const paint=(t,css)=>{palette=Object.freeze({colorScheme:t.colorScheme==='light'?'light':'dark',colors:Object.freeze({...(t.colors||{})})});if(sheet)sheet.textContent=css};
+let palette=null,painted='';const themed=new Set(),sheet=typeof document==='object'&&document?document.createElement('style'):null;
+const paint=(t,css)=>{const next=Object.freeze({colorScheme:t.colorScheme==='light'?'light':'dark',colors:Object.freeze({...(t.colors||{})})}),key=JSON.stringify([next,css]);if(key===painted)return false;painted=key;palette=next;if(sheet)sheet.textContent=css;return true};
 {const first=THEME;paint(first.theme,first.css)}if(sheet)(document.head||document.documentElement).appendChild(sheet);
 let transport;const hello=()=>{transport?.close();const link=new MessageChannel();transport=link.port1;transport.onmessage=e=>receive(e.data);transport.start();parent.postMessage({protocol,channel,id:'ready',method:'host.ready'},'*',[link.port2])};const handshake=setInterval(hello,250);hello();setTimeout(()=>clearInterval(handshake),30000);
 const send=m=>{if(ready)parent.postMessage(m,'*');else queued.push(m)};
@@ -35,7 +37,7 @@ const on=(name,fn)=>{if(typeof fn!=='function')throw Error('Expected an event li
 const receive=d=>{if(!d||d.protocol!==protocol||d.channel!==channel)return;
 if(d.kind==='ready'){clearInterval(handshake);if(!ready){ready=true;for(const m of queued.splice(0))parent.postMessage(m,'*')}return}
 if(d.kind==='event'){for(const fn of listeners.get(d.name)||[])try{fn(d.payload)}catch{};return}
-if(d.kind==='theme'){if(!d.theme||typeof d.theme!=='object'||typeof d.css!=='string')return;paint(d.theme,d.css);for(const fn of themed)try{fn(palette)}catch{};return}
+if(d.kind==='theme'){if(!d.theme||typeof d.theme!=='object'||typeof d.css!=='string')return;if(paint(d.theme,d.css))for(const fn of themed)try{fn(palette)}catch{};return}
 const p=pending.get(d.id);if(!p)return;pending.delete(d.id);clearTimeout(p.timer);d.error?p.reject(Error(d.error)):p.resolve(d.result)};
 const state=Object.freeze({get:()=>call('state.get'),set:value=>call('state.set',value),patch:value=>call('state.patch',value),onChange:fn=>on('state.changed',fn)});
 const theme=Object.freeze({get:()=>palette,onChange:fn=>{if(typeof fn!=='function')throw Error('Expected a theme listener');themed.add(fn);return()=>themed.delete(fn)}});

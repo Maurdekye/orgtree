@@ -34,7 +34,8 @@ export function PanelHtml({slug,app,panel,visible=true,stopping=false}:{slug:str
   useEffect(()=>()=>{replyPort.current?.close();replyPort.current=null},[channel])
   const postRef=useRef(post);postRef.current=post
   // Orgtree's colors (USER 2026-10-27 m4e1fae02a0ca): the document starts with
-  // them, each connection repeats them, and a theme switch restyles in place.
+  // them, each connection (host.ready) repeats them once, and a theme switch
+  // restyles in place. Load comes after the handshake: it posts no colors.
   const postTheme=()=>{const {theme,css}=frameTheme();postRef.current({kind:'theme',theme,css})}
   useEffect(()=>stopping?undefined:watchFrameTheme(({theme,css})=>{if(ready.current)postRef.current({kind:'theme',theme,css})}),[stopping])
   // Hiding refuses any open prompt; the runtime and its host session remain.
@@ -129,7 +130,7 @@ export function PanelHtml({slug,app,panel,visible=true,stopping=false}:{slug:str
   return <div className="custom-app-host">
     {error&&<div className="custom-app-error" role="alert">{error}</div>}
     {source?<iframe key={channel} ref={frame} title={`${app.name}: ${panel.label}`} srcDoc={source} sandbox="allow-scripts" referrerPolicy="no-referrer"
-      data-orgtree-runtime={panel.id+':'+generation} onLoad={()=>{ready.current=true;postRef.current({kind:'ready'});postTheme()}}/>:<div className="custom-app-suspended">Loading app…</div>}
+      data-orgtree-runtime={panel.id+':'+generation} onLoad={()=>{ready.current=true;postRef.current({kind:'ready'})}}/>:<div className="custom-app-suspended">Loading app…</div>}
     <div className="custom-app-status"><span>{saved?'Saved':'State saved by Orgtree'}</span></div>
     {prompt&&visible&&<AppPermissionPrompt prompt={prompt} owner={owner}/>}
     {filePrompt&&visible&&<AppFilePermissionPrompt slug={slug} prompt={filePrompt} owner={owner}/>}
