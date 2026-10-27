@@ -562,7 +562,7 @@ fn all() -> Vec<Value> {
 fn build_tool_org_logo() -> Value {
     tool(
         "orgtree_org_logo",
-        "Set/remove your org's Logo immediately; requires org-modifying tools, no user/inbox audience. Set reads a held local PNG/JPEG/WebP, ≤5 MiB and 16 MP; normalizes to square PNG ≤512px/256KiB. Optional crop fractions use 0..1 travel and 0.1..1 size. Remove restores the letter. Logged and undoable; returns no image bytes.",
+        "Set/remove your org's Logo immediately; requires org-modifying tools, no user/inbox audience. Set reads a held local PNG/JPEG/WebP, ≤5 MiB and 16 MP, stored as a square PNG; crop: Guide. Remove restores the letter. Logged and undoable; returns no image bytes.",
         json!({
             "action": {"type":"string", "enum":["set","remove"]},
             "path": {"type":"string", "description":"set: local image file in your folders"},
@@ -608,7 +608,7 @@ fn build_tool_next_turn() -> Value {
 fn build_tool_session() -> Value {
     tool(
         "orgtree_session",
-        "Read sign-in state and current/next turn placement. Session 0 has no desktop. prefer changes placement preference; use selects one next-turn session id (0=Session 0). Self interrupt with restart applies it now when allowed. No args only reads.",
+        "Read sign-in state and current/next turn placement. Session 0 has no desktop. prefer/use set placement; self interrupt with restart applies it now when allowed. No args only reads.",
         json!({
             "prefer": { "type": "string", "description": "signed-in (default: any of the user's sessions), session0, console, remote, or an ordered list such as \"remote,console\"; Session 0 is always the fallback" },
             "use": { "type": "integer", "description": "a session id from sessions for your next turn only; 0 for Session 0" },
@@ -633,7 +633,7 @@ fn build_tool_transfers() -> Value {
 fn build_tool_inbox() -> Value {
     tool(
         "orgtree_inbox",
-        "Own mail: list previews, fetch<=20 IDs, chunk bodies, conversation recall. Fetch/chunk consume; previews do not. Project reads never claim/ack; keep project/folder/status on cursors. Org inbox: extern holders use settings, list org_inbox=true, or pull (consumes org-wide). Mode writes user-only. Guide: limits/continuations.",
+        "Own mail: list previews, fetch<=20 IDs, chunk bodies, conversation recall. Fetch/chunk consume; previews do not. Project reads never claim/ack; keep project/folder/status on cursors. Org inbox: extern holders use settings, list org_inbox=true, or pull (consumes org-wide). Mode writes user-only.",
         json!({
             "action": { "type": "string", "enum": ["list", "fetch", "chunk", "conversation", "settings", "pull"] },
             "org_inbox": {"type":"boolean","description":"list only: true previews held outside mail; current extern audience required; previews do not consume"},
@@ -657,7 +657,7 @@ fn build_tool_inbox() -> Value {
 fn build_tool_chart() -> Value {
     tool(
         "orgtree_chart",
-        "Read the org within your visibility: tiers, credits, status, age and effective audiences with project sources. include_archived reveals retired agents; check them before hiring because rehire restores context. Team charters default on.",
+        "Read the org within your visibility: tiers, credits, status, age and effective audiences with project sources. include_archived reveals retired agents; check them before hiring because rehire restores context.",
         json!({
             "include_archived": { "type": "boolean" },
             "include_standing_charter": { "type": "boolean", "description": "include team charters (default true)" },
@@ -686,7 +686,7 @@ fn build_tool_state_inspect() -> Value {
 fn build_tool_usage() -> Value {
     tool(
         "orgtree_usage",
-        "Read cached provider usage with exact account/provider/window filters; missing/stale stays explicit. refresh needs inspection+runtime, one explicit active account; floors 60s (Google 300) and provider cooldowns apply. No inference/account switch. Account pages≤100, windows/account≤64; truncation explicit.",
+        "Read cached provider usage with exact account/provider/window filters; missing/stale stays explicit. refresh floors 60s (Google 300) and provider cooldowns apply. No inference/account switch. Windows/account≤64; truncation explicit.",
         json!({
             "accounts":{"type":"array","items":{"type":"string"},"minItems":1,"maxItems":32},
             "providers":{"type":"array","items":{"type":"string","enum":["claude","openai","google","muse","openrouter","langserver"]},"minItems":1,"maxItems":32},
@@ -717,7 +717,7 @@ fn build_tool_list_orgs() -> Value {
 fn build_tool_read_transcript() -> Value {
     tool(
         "orgtree_read_transcript",
-        "Read recent conversation rows, supplied thinking and sealed markers for yourself or an agent below you; last defaults 30, maximum 80. helpers lists observed helper agents; helper reads one retained helper transcript.",
+        "Read recent conversation rows, supplied thinking and sealed markers for yourself or an agent below you. helpers lists observed helper agents; helper reads one retained helper transcript.",
         json!({
             "node": { "type": "string" },
             "last": { "type": "integer", "minimum": 1, "maximum": 80, "description": "how many recent rows (default 30)" },
@@ -732,7 +732,7 @@ fn build_tool_read_transcript() -> Value {
 #[nolog]
 fn build_tool_read_reply_source() -> Value {
     tool("orgtree_read_reply_source",
-        "Read canonical reply-source parts (max4096 UTF-8 bytes/window). Inspection required: own mail, settled self/downward transcripts, readable tickets, authored/reachable project Markdown only. No consume/viewed effects. Continue with returned SHA256; changed digests refuse. Selection-reply fields/limits: Guide.",
+        "Read canonical reply-source parts (max4096 UTF-8 bytes/window). Inspection required: own mail, settled self/downward transcripts, readable tickets, authored/reachable project Markdown only. No consume/viewed effects. Continue with returned SHA256; changed digests refuse.",
         json!({"target":reply_identity_schema(),
             "part":{"type":"object","additionalProperties":false,"required":["part"],"properties":selection_part_properties()},
             "offset":{"type":"integer","minimum":0,"description":"Unicode-scalar offset, default 0"},
@@ -815,7 +815,7 @@ fn build_tool_continue_on() -> Value {
 fn build_tool_account_mark() -> Value {
     tool(
         "orgtree_account_mark",
-        "Inspect capacity marks or clear one using its exact expected values. A changed/missing mark writes nothing. Clearing is audited, adds no capacity and resumes nobody; frozen_here still needs unstick. Only org-visible accounts. reason required for clear.",
+        "Inspect capacity marks or clear one using its exact expected values. A changed/missing mark writes nothing. Clearing is audited, adds no capacity and resumes nobody; frozen_here still needs unstick. Only org-visible accounts.",
         json!({
             "action": { "type": "string", "enum": ["inspect", "clear"] },
             "account": { "type": "string", "description": "inspect: account id or name. clear: the exact `account` of the mark entry" },
@@ -933,7 +933,7 @@ fn build_tool_hire() -> Value {
 fn build_tool_project() -> Value {
     let mut project = tool(
         "orgtree_project",
-        "Read/use projects above/below; only ancestors/user change settings/name/order or purge. create needs name/index, parent defaults you; above wraps node; initial settings atomic (name/description top-level). settings reads; configure atomic. Broadcast checks recipient authority; purge unclaimed only. Chunked presentations. Claim via slot watchdog; slots lists holders/line; release_slot releases yours. Ancestors force/unqueue.",
+        "Read/use projects above/below; only ancestors/user change settings/name/order or purge. create needs name/index, parent defaults you; above wraps node; initial settings atomic (name/description top-level). settings reads; configure atomic. Broadcast checks recipient authority; purge unclaimed only. Claim via slot watchdog; slots lists holders/line; release_slot releases yours. Ancestors force/unqueue.",
         json!({
             "action": { "type": "string", "enum": ["create","describe","settings","configure","slots","release_slot","unqueue_slot","purge_waiting","dead_letters","retry_dead_letter","drop_dead_letter","broadcast","fire_event","listeners","presentations","read_presentation"] },
             "id": {"type":"string","description":"dead_letters: read this dead letter in full; retry_dead_letter/drop_dead_letter: its mail id"},
@@ -974,7 +974,7 @@ fn build_tool_project() -> Value {
 fn build_tool_rehire() -> Value {
     tool(
         "orgtree_rehire",
-        "Restore a retired agent/project; target/hire_type set placement. Projects keep policy, cost no seat and reject model/scope/grant overrides. Agents retain omitted values; folders replace. kickoff sends first mail. Credit/authority limits apply.",
+        "Restore a retired agent/project; target/hire_type set placement. Projects keep policy, cost no seat and reject model/scope/grant overrides. kickoff sends first mail. Credit/authority limits apply.",
         merge(
             json!({ "node": { "type": "string" }, "grant": { "type": "integer" }, "target": { "type": "string" },
                     "hire_type": { "type": "string", "enum": ["subordinate", "superior"] }, "name": { "type": "string" },
@@ -1112,7 +1112,7 @@ fn build_tool_request_scope() -> Value {
 fn build_tool_audience() -> Value {
     tool(
         "orgtree_audience",
-        "Manage directional audiences; requests grant nothing. request target/from managed project; grant from; deny requester; revoke grantee. Project grants reach direct live members, never nested; reverse needs its own grant. User contact does not add personal access while inherited; manual Acquire can. Project decisions go to nearest agent superior (user if none). External/org-inbox remains agent-only. Read guide for grant authority.",
+        "Manage directional audiences; requests grant nothing. Project grants reach direct live members, never nested; reverse needs its own grant. User contact does not add personal access while inherited; manual Acquire can. Project decisions go to nearest agent superior (user if none). External/org-inbox remains agent-only. Read guide for grant authority.",
         json!({ "action": { "type": "string", "enum": ["request", "grant", "deny", "revoke"] },
                 "target": { "type": "string", "description": "request: agent/project/user/extern sought; grant/revoke: agent/project grantor when not you" },
                 "from": { "type": "string", "description": "grant: agent/project receiving it; request: project you manage; deny: the requester" },
@@ -1127,7 +1127,7 @@ fn build_tool_audience() -> Value {
 fn build_tool_watchdog() -> Value {
     tool(
         "orgtree_watchdog",
-        "Proactively await builds, files, processes, mail/events or usage thresholds; never poll/sleep-wait. Uncapped/paged. create kind/target (usage default), command regex. command/stream smoke-run as you (cmd.exe or shell=bash). Ready once command/process/usage/slot/fair_queue: inline effects/actions; else register. usage cached, no probes. slot grants lease; other kinds/fire_actions: Guide. mqtt/websocket send needs live connection (MQTT topic). configure health mail (default notice), no reconnect.",
+        "Proactively await builds, files, processes, mail/events or usage thresholds; never poll/sleep-wait. Uncapped/paged. create kind/target (usage default), command regex. command/stream smoke-run as you (cmd.exe or shell=bash). Ready once command/process/usage/slot/fair_queue: inline effects/actions; else register. usage cached, no probes. slot grants lease; other kinds/fire_actions: Guide.",
         json!({
             "action": { "type": "string", "enum": ["create", "list", "pause", "resume", "remove", "send", "configure"] },
             "cursor": {"type":"string","description":"list: next_cursor from the preceding page"},
@@ -1236,7 +1236,7 @@ fn build_tool_work() -> Value {
 fn build_tool_staff() -> Value {
     tool(
         "orgtree_staff",
-        "Create/update a docket item and hire/rehire its owner atomically; assignment mail starts work. parent is the WORK ITEM; target/hire_type place the seat. Live agent: use work assign. Requires docket+team permissions; credit/scope limits match hire/rehire. Omitted progress keeps stored lists. Read guide before assigning.",
+        "Create/update a docket item and hire/rehire its owner atomically; assignment mail starts work. Live agent: use work assign. Requires docket+team permissions; credit/scope limits match hire/rehire. Omitted progress keeps stored lists. Read guide before assigning.",
         merge(
             json!({ "action": { "type": "string", "enum": ["create", "update"] }, "slug": { "type": "string" },
                     "title": { "type": "string" }, "objective": { "type": "string" },
@@ -1874,6 +1874,54 @@ mod builder_stack_tests {
         let interrupt=expected.as_array_mut().unwrap().iter_mut().find(|c|c["name"]=="orgtree_interrupt").unwrap();
         interrupt["inputSchema"]["properties"]["restart"]=serde_json::json!({"type":"boolean","description":"start one next turn after this turn settles"});
         interrupt["inputSchema"]["properties"]["queued"]=serde_json::json!({"type":"boolean","description":"wait for a completion boundary before interrupting this turn"});
+        // Approved 4.5.0 startup-card trim (coordinator 2026-10-27, docket
+        // 4-5-0-two-pre-existing-tools-defs-test-failures-s): text repeating a
+        // card's own fields or Guide pointer leaves the card, and Logo's output
+        // limits are left to its Guide, so the description total fits 12,000 bytes.
+        // Schemas and order stay guarded.
+        for (name, old, new) in [
+            ("orgtree_watchdog",
+             " mqtt/websocket send needs live connection (MQTT topic). configure health mail (default notice), no reconnect.",
+             ""),
+            ("orgtree_audience",
+             " request target/from managed project; grant from; deny requester; revoke grantee.",
+             ""),
+            ("orgtree_staff",
+             " parent is the WORK ITEM; target/hire_type place the seat.",
+             ""),
+            ("orgtree_inbox",
+             " Guide: limits/continuations.",
+             ""),
+            ("orgtree_account_mark",
+             " reason required for clear.",
+             ""),
+            ("orgtree_org_logo",
+             "Set reads a held local PNG/JPEG/WebP, ≤5 MiB and 16 MP; normalizes to square PNG ≤512px/256KiB. Optional crop fractions use 0..1 travel and 0.1..1 size.",
+             "Set reads a held local PNG/JPEG/WebP, ≤5 MiB and 16 MP, stored as a square PNG; crop: Guide."),
+            ("orgtree_project",
+             " Chunked presentations.",
+             ""),
+            ("orgtree_chart",
+             " Team charters default on.",
+             ""),
+            ("orgtree_read_transcript",
+             "; last defaults 30, maximum 80.",
+             "."),
+            ("orgtree_usage",
+             " refresh needs inspection+runtime, one explicit active account; floors 60s (Google 300) and provider cooldowns apply. No inference/account switch. Account pages≤100, windows/account≤64;",
+             " refresh floors 60s (Google 300) and provider cooldowns apply. No inference/account switch. Windows/account≤64;"),
+            ("orgtree_rehire",
+             " Agents retain omitted values; folders replace.",
+             ""),
+            ("orgtree_session",
+             " prefer changes placement preference; use selects one next-turn session id (0=Session 0). Self interrupt with restart applies it now when allowed.",
+             " prefer/use set placement; self interrupt with restart applies it now when allowed."),
+        ] {
+            let card = expected.as_array_mut().unwrap().iter_mut().find(|c| c["name"] == name).unwrap();
+            let description = card["description"].as_str().unwrap();
+            assert_eq!(description.matches(old).count(), 1, "{name}");
+            card["description"] = serde_json::json!(description.replacen(old, new, 1));
+        }
         // the edited cards must match in content (keys in any order); their
         // key order is the builder's
         for name in ["orgtree_project", "orgtree_watchdog", "orgtree_audience", "orgtree_inbox", "orgtree_message"] {
