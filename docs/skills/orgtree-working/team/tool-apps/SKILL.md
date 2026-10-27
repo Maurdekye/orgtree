@@ -303,8 +303,9 @@ synchronously, frozen: the same colors under camelCase names (`accent`,
 `accentHover`, `accentSoft`, `accentText`, `bg`, `sidebar`, `card`, `hover`, `input`,
 `text`, `textStrong`, `textDim`, `border`, `borderSoft`, `success`, `danger`,
 `warning`); a color Orgtree could not resolve is absent. `orgtree.theme.onChange(fn)`
-calls `fn` with the new value after each switch and returns a function that stops
-it. A switch restyles a running copy in place, hidden ones included: it is not
+calls `fn` with the new value after each switch, only when the colors change (never
+at start: read `get()` first), and returns a function that stops it. A switch
+restyles a running copy in place, hidden ones included: it is not
 reloaded and keeps its state. Use onChange for what CSS can't follow, such as a
 canvas:
 
