@@ -56,6 +56,26 @@ module.exports = async (page, { args }) => {
   await page.mouse('mousePressed', hb.x + hb.w - 10, hb.y)
   await page.mouse('mouseReleased', hb.x + hb.w - 10, hb.y)
   out.glide = await sampler
+  // drag glide (user 2026-10-27): press at the far left and drag across the other four levels, one leg at a time,
+  // sampling the pip every frame; each leg must pass through positions between its two levels, not jump
+  out.dragGlide = []
+  const levelX = (i) => hb.x + 10 + (hb.w - 20) * (i / 4)
+  const legSamples = (ms) => page.eval((span) => new Promise((res) => {
+    const pip = [...document.querySelectorAll('.effort-bar-pip')].pop(); const s = []; const t0 = performance.now()
+    const tick = () => { s.push([Math.round(performance.now() - t0), Math.round(pip.getBoundingClientRect().left * 10) / 10]); if (performance.now() - t0 < span) requestAnimationFrame(tick); else res(s) }
+    requestAnimationFrame(tick)
+  }), ms)
+  await page.mouse('mouseMoved', levelX(0), hb.y)
+  await page.mouse('mousePressed', levelX(0), hb.y)
+  await page.sleep(500)
+  for (let i = 1; i <= 4; i++) {
+    const leg = legSamples(450)
+    await page.mouse('mouseMoved', levelX(i), hb.y)
+    out.dragGlide.push(await leg)
+  }
+  await page.screenshot('drag-glide-end')
+  await page.mouse('mouseReleased', levelX(4), hb.y)
+  await page.sleep(500)
   // click a level anywhere along the bar (between dots): selects the nearest
   const r = await page.eval(() => { const t = [...document.querySelectorAll('.effort-bar-track')].pop(); const b = t.getBoundingClientRect(); return { x: b.left, y: b.top + b.height / 2, w: b.width } })
   await page.click({ x: r.x + r.w * 0.8, y: r.y })

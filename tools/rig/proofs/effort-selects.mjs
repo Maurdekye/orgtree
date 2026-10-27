@@ -28,6 +28,9 @@ export default async function (rig) {
         (v.fill ?? []).length === 5 && v.fill.every((x) => x.padR >= 3.5 && x.padR <= 4.5 && x.fillL === 0), v.fill)
       const gx = (v.glide ?? []).map((q) => q[1]); const gmin = Math.min(...gx), gmax = Math.max(...gx)
       p.check(`${theme}: a click glides the pip (intermediate positions between the two levels)`, gx.some((x) => x > gmin + 5 && x < gmax - 5) && gmax - gmin > 40, v.glide)
+      const legs = v.dragGlide ?? []
+      p.check(`${theme}: every level a drag crosses glides the pip (positions between the two levels on each of 4 legs)`,
+        legs.length === 4 && legs.every((leg) => { const xs = leg.map((q) => q[1]); const lo = Math.min(...xs), hi = Math.max(...xs); return hi - lo > 15 && xs.some((x) => x > lo + 3 && x < hi - 3) }), legs)
       p.check(`${theme}: hovering does not move the pip`, v.pipBefore != null && v.pipBefore === v.pipHover, [v.pipBefore, v.pipHover])
       p.check(`${theme}: a click between dots sets a level; a second click on it clears to inherit`,
         !!v.agentAfterClick?.[0]?.pinned && v.agentAfterClear?.[0]?.pinned === '', v)
