@@ -21,6 +21,11 @@ import { RefProse, useRefRoutes } from '../src/canvas/reflinks'
 import { refNames } from '../src/canvas/refnames'
 import { extractMentionRecency, filterMentionCandidates, mentionText, useAgentMentions } from '../src/canvas/agentmentions'
 import type { MentionCandidate } from '../src/canvas/agentmentions'
+import { useObjectComposer } from '../src/canvas/composerobjects'
+import type { ComposerObject } from '../src/canvas/composerobjects'
+import { ObjectNavProvider } from '../src/canvas/objectnav'
+import { ObjectNavHost } from '../src/canvas/objectnavhost'
+import { ObjectMenuBoundary } from '../src/canvas/contextmenu'
 
 const tick = async () => { for (let i = 0; i < 8; i++) await flush() }
 const noop = () => {}
@@ -158,12 +163,14 @@ test('§5 without a title the chip keeps its slug and stays a link: a name read 
 })
 
 /** A composer as the desks wire it, with its org: the box and its @-completion. */
-function Composer({ org, transcript = [] }: { org: string; transcript?: string[] }) {
+function Composer({ org, transcript = [], onReply }: { org: string; transcript?: string[]; onReply?: (target: ComposerObject) => void }) {
   const [text, setText] = useState('')
   const box = useRef<HTMLTextAreaElement | null>(null)
   const candidates = useMemo<MentionCandidate[]>(() => [{ id: 'writer', tier: 'sol', kind: 'agent' }], [])
   const mentions = useAgentMentions({ value: text, onChange: setText, inputRef: box, candidates, org,
     transcriptTexts: () => transcript })
+  useObjectComposer(box, { key: org, mention: mentions.captureMention, down: mentions.noteRightClickDown,
+    reply: target => { onReply?.(target) } }, 'desk')
   return <div><textarea className="fake-composer" ref={box} value={text} onChange={e => setText(e.target.value)}
     onKeyDown={e => { mentions.onKeyDown(e) }} />{mentions.menu}</div>
 }
@@ -230,4 +237,43 @@ test('§8 a presentation mentioned in the open transcript is offered first, by i
     { id: 'launch-deck', tier: 'presentation', kind: 'presentation', org, title: 'Launch deck' },
     { id: 'launch-plan', tier: 'presentation', kind: 'presentation', org, title: 'Launch plan' }]
   assert.deepEqual(filterMentionCandidates(candidates, 'launch', recency).map(c => c.id), ['launch-plan', 'launch-deck'])
+})
+
+async function rightClick(el: Element) {
+  await inAct(async () => {
+    el.dispatchEvent(new window.MouseEvent('pointerdown', { bubbles: true, cancelable: true, button: 2 }))
+    el.dispatchEvent(new window.MouseEvent('mousedown', { bubbles: true, cancelable: true, button: 2 }))
+    el.dispatchEvent(new window.MouseEvent('contextmenu', { bubbles: true, cancelable: true, button: 2, clientX: 40, clientY: 40 }))
+    await tick()
+  })
+}
+const menuItem = (label: string) => [...document.querySelectorAll<HTMLButtonElement>('.ctxmenu:not(.ctxmenu-submenu) [role="menuitem"]')]
+  .find(b => b.textContent?.trim() === label)
+
+test('§9 right-clicking an old @doc:<org>/<uid> link mentions, copies, replies to and opens the presentation by its readable slug', async t => {
+  const org = 'slugs-old-menu'
+  engine(t)
+  const opened: string[] = [], replied: ComposerObject[] = []
+  const view = await mountView(<ObjectNavProvider>
+    <ObjectNavHost org={org} dogs={[]} openDog={noop} openDocument={id => { opened.push(id) }} toast={noop} />
+    <ObjectMenuBoundary><div className="desk-body">
+      <Composer org={org} onReply={target => { replied.push(target) }} />
+      <Prose slug={org} text={`See @doc:${org}/d00000000c001.`} />
+    </div></ObjectMenuBoundary>
+  </ObjectNavProvider>, el => el)
+  t.after(() => view.unmount())
+  await inAct(tick)
+  const chip = view.el.querySelector<HTMLElement>('.ref-chip.ref-doc')!
+  const box = view.el.querySelector<HTMLTextAreaElement>('.fake-composer')!
+  await rightClick(chip)
+  assert.equal(menuItem('Copy reference')?.getAttribute('title'), `@doc:${org}/weekly-status`,
+    'Copy reference offers the readable slug, never the legacy uid')
+  await inAct(async () => { menuItem('Mention')!.click(); await tick() })
+  assert.equal(box.value, `@doc:${org}/weekly-status `, 'Mention inserts the readable slug reference')
+  await rightClick(chip)
+  await inAct(async () => { menuItem('Reply')!.click(); await tick() })
+  assert.deepEqual(replied, [{ kind: 'document', org, id: 'weekly-status', title: 'Weekly status', sender: 'writer' }])
+  await rightClick(chip)
+  await inAct(async () => { menuItem('Open reader')!.click(); await tick() })
+  assert.deepEqual(opened, ['weekly-status'])
 })

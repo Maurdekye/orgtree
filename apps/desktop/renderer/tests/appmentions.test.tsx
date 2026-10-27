@@ -1,6 +1,6 @@
 // tests/appmentions.test.tsx — @item:orgtree/4-5-0-apps-and-specific-panels-can-be-mentioned-t.
 // USER 2026-10-27 m449dc0a35cbe: "also allow apps or spedific panels to be mentioned to the user". Agents write
-// @app:<org>/<app-id> and @panel:<org>/<panel-id>; the chip shows the current name (a panel with its app's,
+// @app:<org>/<slug> and @panel:<org>/<slug>; the chip shows the current name (a panel with its app's,
 // since labels default to "Panel N"), clicking does what the Apps menu row does through its own openAppPanel,
 // the hover text and a panel's menu are the row's, and a deleted or other-org target is an inert chip.
 // Each test uses its own org slug: answers are kept per org.

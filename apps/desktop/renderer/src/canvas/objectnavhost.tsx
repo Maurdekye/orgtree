@@ -16,6 +16,7 @@ import { useAgentNavRegistry } from './agentnav'
 import { useProvideObjectNav } from './objectnav'
 import { appRefRow, panelRefRow } from './apprefs'
 import { appLinkMenu, panelLinkMenu } from './apps/links'
+import { refNames } from './refnames'
 
 /** The current org's existing routes, shared by links and direct object menus. */
 export function ObjectNavHost({ org, dogs, openDog, openTicket, openDocument, openMail, focusAgent, toast, isProject }:
@@ -47,14 +48,19 @@ export function ObjectNavHost({ org, dogs, openDog, openTicket, openDocument, op
       })
     }
     if (kind === 'document') {
-      const composer = captureObjectActions(anchor, refToken({ kind: 'doc', org, id }))
-      return getDocument(org, id).then(doc => presentationMenu(anchor, org, { ...doc, id }, {
-        composer,
-        // A host without a reader route can still copy/download; never
-        // manufacture an operative Open action for a read-only embedding.
-        open: openDocument ? () => openDocument(id) : undefined,
-        nodeMenu: (name, el) => agents?.current?.(name, el) ?? [], toast,
-      }))
+      const slug = (refNames.row(org, 'doc', id) as { id?: string } | undefined)?.id || id
+      const composer = captureObjectActions(anchor, refToken({ kind: 'doc', org, id: slug }))
+      return getDocument(org, id).then(doc => {
+        const docId = doc.id || slug
+        const nextComposer = docId === slug ? composer : captureObjectActions(anchor, refToken({ kind: 'doc', org, id: docId }))
+        return presentationMenu(anchor, org, { ...doc, id: docId }, {
+          composer: nextComposer.mention ? nextComposer : composer,
+          // A host without a reader route can still copy/download; never
+          // manufacture an operative Open action for a read-only embedding.
+          open: openDocument ? () => openDocument(docId) : undefined,
+          nodeMenu: (name, el) => agents?.current?.(name, el) ?? [], toast,
+        })
+      })
     }
     if (kind === 'watchdog') {
       const dog = dogs.find(d => d.id === id)

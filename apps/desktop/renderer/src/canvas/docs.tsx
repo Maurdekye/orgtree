@@ -178,7 +178,13 @@ export function PresentationCard({ slug, doc, onOpen, onReply, replyLabel, class
     // their recorded attribution on demand; append is guarded by this opening.
     if (opening !== undefined && (!doc.node || !doc.presented_by)) {
       void getDocument(slug, doc.id).then(meta => {
-        menu.replace(presentationMenu(anchor, slug, { ...doc, ...meta }, actions), opening)
+        const nextId = meta.id || doc.id
+        const nextComposer = nextId === doc.id ? actions.composer : captureObjectActions(anchor, refToken({ kind: 'doc', org: slug, id: nextId }))
+        menu.replace(presentationMenu(anchor, slug, { ...doc, ...meta, id: nextId }, {
+          ...actions,
+          composer: nextComposer.mention ? nextComposer : actions.composer,
+          open: () => onOpen(nextId),
+        }), opening)
       }).catch(() => {}) // existing reader/copy/download actions remain available
     }
   }
