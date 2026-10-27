@@ -4,7 +4,7 @@ import assert from 'node:assert/strict'
 import {readFileSync} from 'node:fs'
 import path from 'node:path'
 import {AppsButton,AppsWorkspace} from '../src/canvas/apps/ui'
-import {invalidateCustomApps} from '../src/canvas/apps/store'
+import {customAppsFeed,invalidateCustomApps} from '../src/canvas/apps/store'
 import type {CustomApp,CustomPanel} from '../src/canvas/apps/types'
 
 declare const __SRC_DIR__:string
@@ -39,7 +39,7 @@ function fixture(t:test.TestContext){
   else throw Error('Unexpected fixture operation '+input.action)
   return new Response(JSON.stringify(out),{headers:{'Content-Type':'application/json'}})
  };t.after(()=>{globalThis.fetch=original;delete (document as unknown as Record<string,unknown>).hidden})
- return{panels,calls}
+ return{app,panel,apps,panels,calls}
 }
 async function workspace(t:test.TestContext,slug:string){
  const f=fixture(t),view=await mountView(<><AppsButton slug={slug}/><AppsWorkspace slug={slug}/></>,e=>e);t.after(()=>view.unmount());await inAct(tick)
@@ -51,7 +51,8 @@ async function workspace(t:test.TestContext,slug:string){
   rows:(app:string)=>[...group(app).querySelectorAll('.custom-apps-saved span:nth-child(2)')].map(e=>e.textContent),
   opener:(app:string)=>group(app).querySelector('.custom-apps-open')!.getAttribute('title'),
   // what the engine's custom_apps_changed event does after every change
-  changed:()=>inAct(async()=>{invalidateCustomApps(slug);await tick()})}
+  changed:()=>inAct(async()=>{invalidateCustomApps(slug);await tick()}),
+  feed:()=>inAct(async()=>{assert.equal(customAppsFeed(slug,{type:'custom_apps_changed'}),true);await tick()})}
 }
 
 // USER 2026-10-26 mf87be90ee3c8: "the ordering of the apps in the list shouldnt change as panels are turned onca or off";
@@ -113,4 +114,31 @@ test('the Apps list carries no annotation about when panels run',async t=>{
  assert.ok(f.menu().querySelectorAll('.custom-apps-saved-row').length>0,'panels are listed, the case that showed the note')
  assert.equal(f.menu().querySelectorAll('.custom-apps-note').length,0,'no note element')
  assert.equal(/run only while|custom views|tray included/i.test(f.menu().textContent??''),false,'no wording about when panels run')
+})
+
+// USER 2026-10-27 m4dcfc15be8e3: "remove the refresh button here, new or removed apps / panels should appear in realtime";
+// mcc0591ec051b: "replace it with the import button right-aligned in its place".
+test('the Apps header right-aligns Import app with no Refresh button, and app and panel changes appear live in stable order',async t=>{
+ const f=await workspace(t,'menu-live');await f.toggle()
+ const header=f.menu().querySelector<HTMLElement>(':scope>header')!
+ assert.equal([...f.menu().querySelectorAll('button')].some(b=>/refresh/i.test((b.textContent??'')+(b.getAttribute('aria-label')??'')+(b.title??''))),false,'no Refresh button in the Apps menu')
+ assert.deepEqual([...header.children].map(e=>[e.tagName,e.className,e.textContent?.trim()]),[['STRONG','','Apps'],['LABEL','custom-app-import-file','Import app']],'Import app sits at the right end of the Apps header where Refresh was')
+ // External creates (e.g. an agent's app_create/app_import and closed panel_open) arrive through custom_apps_changed while the menu is open.
+ f.apps.push(f.app('app0delta','Delta','2026-10-27T09:00:00Z'))
+ f.panels.push(f.panel('pc1','app3clock','Panel 3',false,false,'2026-10-25T10:00:00Z','2026-10-25T10:00:00Z'))
+ await f.feed()
+ assert.deepEqual(f.order(),['Delta','Alpha','Clock','Beta'],'new app appears live at the top (newest first)')
+ assert.deepEqual(f.rows('Clock'),['Panel 1','Panel 2','Panel 3'],'new stopped panel appears live in creation order without Refresh')
+ // External rename and external power-off (e.g. an agent's panel_update/panel_stop or Stop all) update in place without dropping or moving the row.
+ Object.assign(f.panels.find(p=>p.id==='pc1')!,{label:'Summary',rev:2})
+ Object.assign(f.panels.find(p=>p.id==='pc2')!,{open:false,running:false,rev:2,run_generation:2})
+ await f.feed()
+ assert.deepEqual(f.rows('Clock'),['Panel 1','Panel 2','Summary'],'renamed stopped panel updates in place and powered-off panel stays listed')
+ assert.equal(f.group('Clock').querySelectorAll('.custom-apps-saved')[1]!.getAttribute('title'),'Off','powered-off panel light updates live to Off')
+ // External deletes of a stopped panel and an app remove them live.
+ f.panels.splice(f.panels.findIndex(p=>p.id==='pc9'),1)
+ f.apps.splice(f.apps.findIndex(a=>a.id==='app0delta'),1)
+ await f.feed()
+ assert.deepEqual(f.order(),['Alpha','Clock','Beta'],'deleted app disappears live')
+ assert.deepEqual(f.rows('Clock'),['Panel 2','Summary'],'deleted stopped panel disappears live')
 })
