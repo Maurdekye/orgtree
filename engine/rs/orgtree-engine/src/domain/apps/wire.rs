@@ -259,6 +259,16 @@ mod tests {
         let card=crate::tools::defs::list().into_iter().find(|c|c["name"]=="orgtree_apps").unwrap();
         assert_eq!(card["inputSchema"]["properties"]["messages"]["type"],"boolean");
     }
+    #[test] fn custom_apps_history_pages_newest_first_and_follows_new_rows() {
+        // User 2026-10-27 md2006b10cf40 ("reload in realtime", "lazily load as you
+        // scroll down"): History reads newest first, before walks back to older rows
+        // and after follows newer ones; a page reads one way.
+        assert!(parse(&json!({"action":"events","panel":"p","before":9,"limit":50})).is_ok());
+        assert!(parse(&json!({"action":"events","panel":"p","after":9,"limit":50})).is_ok());
+        assert!(parse(&json!({"action":"events","panel":"p","after":3,"before":9})).is_err());
+        let card=crate::tools::defs::list().into_iter().find(|c|c["name"]=="orgtree_apps").unwrap();
+        assert_eq!(card["inputSchema"]["properties"]["before"]["type"],"integer");
+    }
     #[test] fn custom_apps_named_listener_has_explicit_tool_vocabulary() {
         let card=crate::tools::defs::list().into_iter().find(|c|c["name"]=="orgtree_watchdog").unwrap();
         let p=&card["inputSchema"]["properties"];

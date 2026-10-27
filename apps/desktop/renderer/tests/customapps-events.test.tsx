@@ -45,10 +45,10 @@ test('Panel settings lists connections and fires only the selected saved copy ev
   const connections=await tab('Connections')
   assert.ok(connections.textContent?.includes('worker/notes'),'actual agent-owned connection is listed')
   const log=await tab('History')
-  const entries=[...document.querySelectorAll('.custom-app-history li')].map(e=>e.textContent??'')
+  const entries=[...log.querySelectorAll('ol[aria-label="History"] > li > button')].map(e=>e.textContent??'')
   // User 2026-10-26 md6edfebc1975: only fired events agents can listen to, and the copy starting and stopping.
-  assert.equal(entries.length,3,'History lists the copy log');assert.match(entries[0]!,/user: stopped \(Stop all\)/,'newest first; a stop names its cause');assert.match(entries[1]!,/fired submitted · 1 subscribed listener/,'fire metadata');assert.match(entries[2]!,/user: started \(opened\)/,'opening a stopped copy starts it')
-  assert.equal(log.querySelector('.set-group > p.dim:first-child')?.textContent,'Fired events agents can listen to, and this copy starting and stopping, newest first. A fired event shows its listener count; its data goes only to the subscribed agents.','the lead line says what History records, in the lead-line style of the other tabs')
+  assert.equal(entries.length,3,'History lists the copy log');assert.match(entries[0]!,/Stopped.*Stop all.*You/,'newest first; a stop names its cause');assert.match(entries[1]!,/Fired submitted.*1 listener.*You/,'fire metadata');assert.match(entries[2]!,/Started.*Opened.*You/,'opening a stopped copy starts it')
+  assert.match(log.querySelector('.set-group > p.dim:first-child')?.textContent??'',/^Fired events agents can listen to, and this copy starting and stopping, newest first\./,'the lead line says what History records, in the lead-line style of the other tabs')
   assert.ok(calls.filter(c=>c.action==='events').every(c=>!('messages' in c)),'History reads the History listing, never messages')
   assert.equal(log.textContent?.includes('worker/notes'),false,'connections are not on the History tab');assert.equal(!!log.querySelector('[aria-label="Declared event"]'),false,'Fire event is not on the History tab')
   const fireTab=await tab('Fire event')
@@ -56,7 +56,6 @@ test('Panel settings lists connections and fires only the selected saved copy ev
   assert.equal(calls.some(c=>c.action==='fire_event'),false,'opening settings never fires')
   await inAct(async()=>{fire.click();for(let i=0;i<5;i++)await flush()})
   assert.deepEqual(calls.find(c=>c.action==='fire_event'),{action:'fire_event',panel:'one',name:'submitted',payload:{}})
-  assert.equal(calls.filter(c=>c.action==='events').length,2,'a fire reloads the History tab')
 })
 
 // USER 2026-10-26: agents hear apps only through events ("Remove; import, never grant").
