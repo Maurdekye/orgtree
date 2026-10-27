@@ -255,7 +255,7 @@ export function moveKeepingFrames(target: HTMLElement, node: HTMLElement): void 
 /** Stable portal target, physically adopted between documents. React never
  * receives a different target and never owns/removes the hand-built shell. */
 export function MovableSurface({ kind, title, org = null, editable = true, children,
-  anchor, onDetached, onDismiss, flush, restore, sourceBox, minDimensions, exactSourceBox = false, parked = false, preserveFrames = false }: {
+  anchor, onDetached, onDismiss, flush, restore, sourceBox, minDimensions, exactSourceBox = false, parked = false, preserveFrames = false, windowed = false }: {
   kind: string; title: ReactNode; org?: string | null; editable?: boolean
   children: ReactNode; anchor?: HTMLElement | null; restore?: WindowRestore
   onDetached?: (detached: boolean, reason?: 'close' | 'return') => void; flush?: () => void
@@ -272,6 +272,12 @@ export function MovableSurface({ kind, title, org = null, editable = true, child
   /** Same-document moves use Node.moveBefore, which keeps live iframes and
    *  their scripts instead of reloading them; other moves are unchanged. */
   preserveFrames?: boolean
+  /** The owner keeps this surface in a window of its own (an app panel whose
+   *  placement is popout). Whenever it is visible, docked and windows may be
+   *  restored, it opens there: at its saved window's place and size, or over
+   *  where it shows when it has none. A failed open returns it as any failed
+   *  pop-out does, and is not tried again until the owner asks again. */
+  windowed?: boolean
   /** This surface's own box in its window, for the shape AND the place a
    *  first pop-out opens at (see `popupSize` and `popupPlacement`). A
    *  surface whose visible panel is NOT the whole of its DOM has to say so:
@@ -723,6 +729,15 @@ export function MovableSurface({ kind, title, org = null, editable = true, child
       }
     }
   }, [anchor, parent?.document, parts])
+  // A windowed surface goes back to its own window before the first paint, so
+  // it never shows docked first. Its closed saved row still holds the window's
+  // last place and size (the unmount below captures them before it closes the
+  // row), and only an explicit restore reads a closed row's rect.
+  useLayoutEffect(() => {
+    if (!ready || !windowed || parked || !restoreAllowed || child.current) return
+    restored.current = true
+    open(savedWindows().some(r => r.key === layoutKey))
+  }, [ready, windowed, parked, restoreAllowed, layoutKey])
   useEffect(() => {
     if (!ready || !restoreAllowed || parked || restored.current) return
     restored.current = true

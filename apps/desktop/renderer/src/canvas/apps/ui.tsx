@@ -216,26 +216,39 @@ function PanelBody({slug,app,panel,shown,behind,layer,frame,motion}:{slug:string
 
 function PanelWindow({slug,panel,app,motion}:{slug:string;panel:CustomPanel;app:CustomApp;motion?:PanelMotion}){
   const latest=useRef(panel),outer=useRef<HTMLDivElement>(null),frame=useRef<HTMLElement>(null),backdrop=useRef<boolean|null>(null);latest.current=panel
-  const p=panel.placement,k=key(slug,panel.id),stopping=motion==='stop'
+  const k=key(slug,panel.id),stopping=motion==='stop',popout=panel.placement.mode==='popout'
+  // Whether the surface is in its own window now; the record says where it belongs.
+  const [out,setOut]=useState(false)
+  // USER 2026-10-27 m1a23cd457070: "if i shut down a popped panel and reopen it,
+  // it doesnt appear as popped out, and is undraggable". A popped-out panel goes
+  // back to its own window whenever it shows, a reopen after Power off included.
+  // Without that window (until it opens, or where none can) it shows where Return
+  // puts it: the place it had before it popped out, else centered. Never a box
+  // fixed at the record's x/y that looked pinned (m4691725be7a7) but had no drag
+  // and an unlit pin.
+  const p=popout&&!out?returns.get(k)??{...panel.placement,mode:'float' as const}:panel.placement
   // Visible => running is enforced by the caller; a hidden running copy stays
   // mounted, parked. A window pin lives in the org's pin layer with pinned
   // desks: their canvas-area coordinates, stacking and snapping.
   const shown=panel.open,parked=!shown,centered=p.mode==='float'&&shown,pinned=p.mode==='window'&&shown
   const bounds=useCanvasBox(document,pinned?slug:null)
   const layout=usePinSurface(pinned?slug:null,'custom-app:'+panel.id,pinned?windowRect(p,bounds):null,true)
-  const effective=pinned?panel:{...panel,placement:{...p,x:Math.max(8,Math.min(p.x,window.innerWidth-80)),y:Math.max(8,Math.min(p.y,window.innerHeight-40))}}
+  const effective=pinned?(p===panel.placement?panel:{...panel,placement:p}):{...panel,placement:{...p,x:Math.max(8,Math.min(p.x,window.innerWidth-80)),y:Math.max(8,Math.min(p.y,window.innerHeight-40))}}
   // React 18 has no inert prop: a parked panel takes no focus or input.
   useLayoutEffect(()=>{outer.current?.toggleAttribute('inert',parked)},[parked])
   // A centered panel enters the centered stack in front, as a new window pin
   // does, and leaves it when it is hidden, pinned or popped out.
   useLayoutEffect(()=>{if(!centered)return;setFront(k,true);return()=>setFront(k,false)},[centered,k])
   const behind=useBehind(slug,k)
-  return <div ref={outer} className={parked?'custom-app-parked':centered?'overlay custom-app-centered'+(behind?' custom-app-behind':''):'custom-app-placeholder'+(pinned?' pinned':'')} data-motion={motion} aria-hidden={parked||undefined} style={parked?{width:p.width,height:p.height}:centered||pinned?undefined:{position:'fixed',left:effective.placement.x,top:effective.placement.y,width:p.width,height:p.height,zIndex:19}} onPointerDownCapture={e=>{backdrop.current=e.target===e.currentTarget}} onClick={e=>{if(centered&&!stopping&&e.target===e.currentTarget&&backdrop.current!==false)void changeApps(slug,{action:'panel_update',panel:panel.id,expected_rev:latest.current.rev,open:false}).catch(()=>{});backdrop.current=null}}>
-    <MovableSurface org={slug} kind={'custom-app:'+panel.id} title={app.name+' · '+panel.label} anchor={pinned?pinLayerFor(slug):undefined} parked={parked} preserveFrames
-      sourceBox={()=>{const r=frame.current?.getBoundingClientRect();return r?{x:r.x,y:r.y,w:r.width,h:r.height}:null}} exactSourceBox
+  // Popped out, it leaves no box behind in the main window (popped-out: display:contents).
+  return <div ref={outer} className={parked?'custom-app-parked':centered?'overlay custom-app-centered'+(behind?' custom-app-behind':''):'custom-app-placeholder'+(pinned?' pinned':' popped-out')} data-motion={motion} aria-hidden={parked||undefined} style={parked?{width:p.width,height:p.height}:undefined} onPointerDownCapture={e=>{backdrop.current=e.target===e.currentTarget}} onClick={e=>{if(centered&&!stopping&&e.target===e.currentTarget&&backdrop.current!==false)void changeApps(slug,{action:'panel_update',panel:panel.id,expected_rev:latest.current.rev,open:false}).catch(()=>{});backdrop.current=null}}>
+    <MovableSurface org={slug} kind={'custom-app:'+panel.id} title={app.name+' · '+panel.label} anchor={pinned?pinLayerFor(slug):undefined} parked={parked} preserveFrames windowed={popout&&!stopping}
+      // the panel's own box, without the scale of a zoom-in that has just begun (it keeps its centre)
+      sourceBox={()=>{const f=frame.current,r=f?.getBoundingClientRect();if(!f||!r)return null;const w=f.offsetWidth||r.width,h=f.offsetHeight||r.height;return {x:r.x+(r.width-w)/2,y:r.y+(r.height-h)/2,w,h}}} exactSourceBox
       onDismiss={()=>{if(!stopping&&!windowExitStarted())void changeApps(slug,{action:'panel_update',panel:panel.id,expected_rev:latest.current.rev,open:false}).catch(()=>{})}}
-      onDetached={(detached,reason)=>{if(stopping||windowExitStarted()||reason==='close')return;const current=latest.current
-        if(detached){if(current.placement.mode!=='popout')returns.set(k,{...current.placement});void changeApps(slug,{action:'panel_update',panel:panel.id,expected_rev:current.rev,placement:{...current.placement,mode:'popout'}}).catch(()=>{})}
+      onDetached={(detached,reason)=>{setOut(detached);if(stopping||windowExitStarted()||reason==='close')return;const current=latest.current
+        // back in the window its record names (opened again after Power off): nothing to record
+        if(detached){if(current.placement.mode==='popout')return;returns.set(k,{...current.placement});void changeApps(slug,{action:'panel_update',panel:panel.id,expected_rev:current.rev,placement:{...current.placement,mode:'popout'}}).catch(()=>{})}
         else if(current.placement.mode==='popout')void changeApps(slug,{action:'panel_update',panel:panel.id,expected_rev:current.rev,placement:returns.get(k)??{...current.placement,mode:'float'}}).catch(()=>{})
       }} minDimensions={{width:160,height:120}}>
       <PanelBody slug={slug} app={app} panel={effective} shown={shown} behind={centered&&behind} layer={pinned?{bounds,z:layout.z,key:layout.key}:null} frame={frame} motion={motion}/>

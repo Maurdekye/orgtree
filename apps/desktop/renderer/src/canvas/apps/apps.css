@@ -24,8 +24,9 @@
 .custom-apps-menu-panels { margin:0 4px 4px 14px;padding-left:6px;border-left:2px solid var(--line) }
 .custom-apps-menu-panels>.custom-apps-saved-row+.custom-apps-saved-row { border-top:1px solid var(--line) }
 .custom-apps-note { margin:8px 4px 2px;font-size:11.5px;line-height:1.35 }
-/* A window pin's surface lives in the org pin layer; its placeholder takes no space. */
-.custom-app-placeholder.pinned { display:contents }
+/* A window pin's surface lives in the org pin layer, a popped-out one in its own
+   window; either way its placeholder takes no space. */
+.custom-app-placeholder.pinned,.custom-app-placeholder.popped-out { display:contents }
 .custom-app-window.settings { display:flex;flex-direction:column;position:relative;box-sizing:border-box;pointer-events:auto;overflow:visible;min-width:160px;min-height:120px;padding:0;gap:0;margin:0;--panel-pad-x:0px;--panel-pad-y:0px }
 .custom-app-centered { z-index:30 }
 /* Centered panels stack like window pins (user 2026-10-27): the one shown or brought to the
