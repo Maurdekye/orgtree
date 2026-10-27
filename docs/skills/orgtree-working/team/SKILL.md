@@ -47,4 +47,4 @@ Tool calls and operating rules are in orgtree-working; screens and settings are 
 
 - [orgtree-tool-fast-defaults](tool-fast-defaults/SKILL.md): Read hiring-speed defaults; top-level agents can patch them.
 
-- [orgtree-tool-apps](tool-apps/SKILL.md): Org app definitions, independent saved panels, JSON state and recent events.
+- [orgtree-tool-apps](tool-apps/SKILL.md): App-creation instructions (app, its panel, a listener on that panel); org app definitions, independent saved panels, JSON state and recent events.

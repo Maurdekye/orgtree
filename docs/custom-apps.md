@@ -40,6 +40,13 @@ with normal notice/one-shot/action choices. A listener added later does not get
 an older fire. Removed sources pause affected listeners; restoring a declaration
 does not silently rearm them. Subscriptions and actions are not exported.
 
+When an agent builds an app for you, it follows Orgtree's app-creation
+instructions (user 2026-10-27): it creates the app with its declared events,
+creates a panel for it and listens to that panel's events, not to every copy.
+The new panel waits closed in Apps; open it there. Each declared event that
+copy fires reaches the agent; a copy you make later is not heard until the
+agent listens to it too.
+
 Agents publish with `orgtree_apps action=fire_event`, naming a saved panel and
 declared name plus JSON data. A closed copy is valid. HTML uses `events.fire`
 with its effective broadcast permission, without choosing agents or acting as

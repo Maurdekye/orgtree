@@ -28,6 +28,13 @@ export/import and templates retain these declarations. Declarations alone do
 not grant permissions, create listeners or wake agents; durable named-event
 delivery uses explicit app_listener subscriptions.
 
+An agent that builds an app for you follows the app-creation instructions in
+`orgtree-tool-apps` (orgtree-working > team; user 2026-10-27): it creates the
+app with its declared events, creates one panel for you and listens to that
+panel's events, not to every copy. The new panel waits closed in Apps; open it
+there. Its Connections tab lists the agent's listener, and each declared event
+that copy fires reaches the agent.
+
 The header Apps button counts new apps with the unread attention-mail highlight.
 Each new menu entry is marked New. Only entries visible in the menu clear from
 the count; scrolling and More apps expose the rest. Labels remain for that visit.

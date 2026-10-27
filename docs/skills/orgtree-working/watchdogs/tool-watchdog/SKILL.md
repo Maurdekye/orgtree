@@ -18,6 +18,10 @@ once, notice and explicit fire_actions retain their usual semantics. No regex
 or silence mode applies. `orgtree_apps action=listeners` lists connections;
 `action=fire_event` publishes from a retained copy without running its HTML.
 
+For an app you build for the user, follow the app-creation instructions in
+[orgtree-tool-apps](../../team/tool-apps/SKILL.md#creating-an-app-for-the-user):
+create the app, create its panel, then listen on that panel, not `all_panels:true`.
+
 Each accepted fire snapshots armed matching registrations. New or resumed dogs
 do not join earlier snapshots; delivery rechecks current live owner/tools and
 armed state. Removing an app, event or selected copy pauses its listeners with

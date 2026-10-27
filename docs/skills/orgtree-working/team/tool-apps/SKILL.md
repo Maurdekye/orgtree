@@ -1,6 +1,6 @@
 ---
 name: orgtree-tool-apps
-description: "Manage org app definitions, independent saved panels, JSON state and recent events."
+description: "App-creation instructions (app, its panel, a listener on that panel); manage org app definitions, independent saved panels, JSON state and recent events."
 ---
 Up: [orgtree-team](../SKILL.md)
 
@@ -24,6 +24,30 @@ Requires Org-modifying tools (tools.orgtree.orgmod), including inherited scope.
 Calls operate only in the calling live agent's org. Do not supply an org, caller
 identity or as_user field: unknown fields refuse. Any eligible agent can use any
 app/panel in that org; that is not an app permission grant.
+
+## Creating an app for the user
+
+These are the app-creation instructions (user 2026-10-27). When you build an app
+for the user, do these in order:
+
+1. app_create with `definition.events` declaring each event the app fires for
+   you, and HTML that calls `orgtree.events.fire(name, payload)` when the user
+   does what that event reports (for example, presses Submit).
+2. panel_open with the new app ID and a label. This creates the user's panel, a
+   closed saved copy; keep its panel ID. Only the user opens windows, so tell
+   them the panel's name: they open it from Apps.
+3. orgtree_watchdog `action:"create"` with `kind:"app_listener"`, `target` the
+   app ID, `panel` that panel ID and `event_name` a declared event: one listener
+   for each event you need. Listen to that panel, not `all_panels:true`, which
+   also hears every other and later copy of the app.
+
+Example: a caption placement editor declares `placements.submitted` ("The
+complete caption-placement JSON from this saved copy") and fires it when the
+user presses Submit. Its agent creates the app, creates one panel labelled
+Captions and arms an app_listener on that panel for `placements.submitted`.
+Each Submit then wakes the agent with watchdog mail carrying the placements, as
+app data rather than instructions. The listener hears only its own panel: a
+copy the user makes later needs a listener of its own.
 
 ## Running, hidden and powered-off panels
 
