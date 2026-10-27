@@ -108,6 +108,44 @@ impl World {
         crate::domain::ops::run(&self.e, &self.org, crate::domain::ops::Actor::User, &json!({"op":"move","node":node,"new_parent":to})).await.unwrap();
     }
 
+    /// A new live agent under `parent` (the fixture's third and fourth seats).
+    #[nolog]
+    async fn agent(&self, name: &str, parent: Option<i64>) -> i64 {
+        self.e.db.get().await.unwrap().query_one(
+            "INSERT INTO ot.agents(org_id,name,parent_id,tier,state,born) VALUES($1,$2,$3,'sol','live','2026-10-27') RETURNING id",
+            &[&self.org.id, &name, &parent]).await.unwrap().get(0)
+    }
+
+    /// A passive queue listener on the project, the agent's one share of its mail.
+    #[nolog]
+    async fn listen(&self, agent: i64) -> Value {
+        crate::runtime::watchdogs::create(&self.e, self.org.id, agent, &json!({"kind":"fair_queue","target":"build","notice":true})).await.unwrap()
+    }
+
+    /// (uid, state, memo) of the agent's newest dog of that kind.
+    #[nolog]
+    async fn dog(&self, agent: i64, kind: &str) -> (String, String, Value) {
+        let r = self.e.db.get().await.unwrap()
+            .query_one("SELECT uid, state, memo FROM ot.watchdogs WHERE owner_agent_id = $1 AND kind = $2 ORDER BY id DESC LIMIT 1", &[&agent, &kind]).await.unwrap();
+        (r.get(0), r.get(1), r.get(2))
+    }
+
+    /// The "took back what you held" notices an agent will read at its next turn (the move's own
+    /// "The user moved you" notice is another one and not counted).
+    #[nolog]
+    async fn took_back(&self, agent: i64) -> Vec<String> {
+        self.e.db.get().await.unwrap()
+            .query("SELECT body FROM ot.mail WHERE recipient_agent_id = $1 AND sender = '@system' AND notice AND body LIKE 'Orgtree took back%' ORDER BY id", &[&agent]).await.unwrap()
+            .iter().map(|r| r.get(0)).collect()
+    }
+
+    /// Who stands in the project's slot line, first first.
+    #[nolog]
+    async fn line(&self) -> Vec<String> {
+        let c = self.e.db.get().await.unwrap();
+        slots::line(&**c, self.project).await.unwrap().into_iter().map(|l| l.2).collect()
+    }
+
     #[nolog]
     async fn freeze(&self, agent: i64) {
         self.sql("UPDATE ot.agents SET frozen = $2 WHERE id = $1", &[&agent, &json!({"until":"2099-01-01T00:00:00Z","limit":true,"error":"usage limit"})]).await;
@@ -274,5 +312,93 @@ async fn an_interrupt_or_a_deliberate_end_keeps_the_holdings() {
     projects::dispatch(&w.e, w.org.id, w.project).await.unwrap();
     assert_eq!(w.lease(&lease).await, (false, None));
     assert_eq!(w.job_state(job).await.1, true);
+    w.e.shutdown.cancel();
+}
+
+/// User 2026-10-27 18:01Z m603e6114476e ("Drop both"): an agent moved out of a project also loses its
+/// WAITING slot claim there and has its queue listener there paused, and is told in ONE notice. The
+/// move stays the real op; moving back re-arms nothing by itself.
+#[tokio::test]
+#[ignore = "requires the disposable holdings_fixture DB/role; never an ambient DB"]
+async fn moving_out_of_the_project_drops_the_waiting_claim_and_pauses_the_queue_listener() {
+    let w = world(ack_mode()).await;
+    let third = w.agent("third", Some(w.project)).await;
+    let lease = w.claim(w.holder).await["lease"].as_str().expect("the only slot is granted").to_string();
+    w.claim(w.waiter).await;
+    w.claim(third).await;
+    w.listen(w.waiter).await;
+    assert_eq!(w.line().await, ["waiter", "third"], "both stand in line");
+    let (claim, state, _) = w.dog(w.waiter, "slot").await;
+    assert_eq!(state, "armed");
+    let (listener, state, _) = w.dog(w.waiter, "fair_queue").await;
+    assert_eq!(state, "armed");
+
+    w.mv("waiter", "elsewhere").await;
+
+    assert_eq!(w.line().await, ["third"], "the mover's waiting claim left the line");
+    let (_, state, memo) = w.dog(w.waiter, "slot").await;
+    assert_eq!(state, "removed");
+    assert!(memo["reason"].as_str().unwrap_or("").contains("moved out of the project"), "{memo}");
+    let (_, state, memo) = w.dog(w.waiter, "fair_queue").await;
+    assert_eq!(state, "paused", "the listener is paused, not removed");
+    assert!(memo["paused_why"].as_str().unwrap_or("").contains("moved out of the project"), "{memo}");
+    assert_eq!(w.lease(&lease).await, (false, None), "the holder, who stayed, keeps its lease");
+    let told = w.took_back(w.waiter).await;
+    assert_eq!(told.len(), 1, "one notice: {told:?}");
+    for needle in ["you moved out of the project", &claim, &listener, "paused", "resume"] {
+        assert!(told[0].contains(needle), "{needle}: {}", told[0]);
+    }
+
+    // moving back re-arms nothing: the claim is gone (a new one is admitted) and the listener stays paused
+    w.mv("waiter", "build").await;
+    assert_eq!(w.dog(w.waiter, "fair_queue").await.1, "paused", "moving back does not resume the listener");
+    w.claim(w.waiter).await;
+    assert_eq!(w.line().await, ["third", "waiter"], "the old claim no longer counts: a new one joins at the back");
+    crate::runtime::watchdogs::act(&w.e, w.org.id, Some(w.waiter), &listener, "resume", None).await.unwrap();
+    assert_eq!(w.dog(w.waiter, "fair_queue").await.1, "armed", "the agent re-arms it itself");
+    w.e.shutdown.cancel();
+}
+
+/// Control: a move that stays below the project drops and pauses nothing.
+#[tokio::test]
+#[ignore = "requires the disposable holdings_fixture DB/role; never an ambient DB"]
+async fn a_move_inside_the_project_keeps_the_waiting_claim_and_the_listener() {
+    let w = world(ack_mode()).await;
+    w.agent("third", Some(w.project)).await;
+    w.claim(w.holder).await;
+    w.claim(w.waiter).await;
+    w.listen(w.waiter).await;
+    w.mv("waiter", "third").await;
+    assert_eq!(w.line().await, ["waiter"]);
+    assert_eq!(w.dog(w.waiter, "slot").await.1, "armed");
+    assert_eq!(w.dog(w.waiter, "fair_queue").await.1, "armed");
+    assert!(w.took_back(w.waiter).await.is_empty(), "nothing was taken back");
+    w.e.shutdown.cancel();
+}
+
+/// A mover that held a lease and a job and also waited and listened is told about all four in ONE notice.
+#[tokio::test]
+#[ignore = "requires the disposable holdings_fixture DB/role; never an ambient DB"]
+async fn a_mover_is_told_about_its_lease_job_claim_and_listener_in_one_notice() {
+    let w = world(json!({"slots_capacity":2,"mail_queue":"ack"})).await;
+    let lease = w.claim(w.holder).await["lease"].as_str().unwrap().to_string();
+    w.claim(w.waiter).await;
+    w.claim(w.holder).await;
+    w.listen(w.holder).await;
+    w.job(w.holder, "copy-mover").await;
+    assert_eq!(w.line().await, ["holder"], "its second claim waits: both slots are taken");
+    let (claim, _, _) = w.dog(w.holder, "slot").await;
+    let (listener, _, _) = w.dog(w.holder, "fair_queue").await;
+
+    w.mv("holder", "elsewhere").await;
+
+    assert_eq!(w.lease(&lease).await, (true, Some("moved out of the project".into())));
+    assert!(w.line().await.is_empty());
+    assert_eq!(w.dog(w.holder, "fair_queue").await.1, "paused");
+    let told = w.took_back(w.holder).await;
+    assert_eq!(told.len(), 1, "everything it lost reaches it in one notice: {told:?}");
+    for needle in [lease.as_str(), "mail copy-mover", claim.as_str(), listener.as_str(), "you moved out of the project"] {
+        assert!(told[0].contains(needle), "{needle}: {}", told[0]);
+    }
     w.e.shutdown.cancel();
 }
