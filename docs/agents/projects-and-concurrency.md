@@ -2230,3 +2230,12 @@ tooltips and standalone window controls use events too. The `event_listeners`
 field, `listeners` tab id, `project-listeners` panel kind, watchdog kinds and
 tool parameters remain unchanged; the Mail tab’s listeners folder is separate.
 [verified: `canvas/modals.tsx`, `deskshell.tsx`, `agentmenu.tsx`, `panelcorner.tsx`; 2026-10-22]
+
+The implement/integrate split (implementers post one self-contained job per item to an
+ACK-mode project queue; a small pool of integrators listens with batch 1, rebases, verifies,
+and hands in or bounces) is documented as the workflow leaf `orgtree-implement-integrate`
+(orgtree-workflows > collaboration-patterns). It chooses existing queue, listener, dead-letter
+and build-permit settings and adds no engine behaviour; the queue pages keep the mechanics.
+An acknowledgement means the job was handled (handed in or bounced), not that it passed.
+[decided: user 2026-10-27 17:24:03Z "document this implement / integrste split in the glossary's
+workflows"; verified: `docs/skills/orgtree-workflows/collaboration-patterns/implement-integrate/SKILL.md`]

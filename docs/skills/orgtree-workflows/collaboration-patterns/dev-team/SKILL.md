@@ -64,6 +64,7 @@ Ground truth: `engine/docs/templates/devteam-{claude,codex,antigravity,muse}.jso
 
 - [orgtree-iterative-development](../iterative-development/SKILL.md): a suggested process for feedback builds, hardening and release lines.
 - [orgtree-committee-mode](../committee-mode/SKILL.md)
+- [orgtree-implement-integrate](../implement-integrate/SKILL.md): hand rebasing, builds, test runs and captures to a queued integrator pool while the implementer keeps the code.
 - `orgtree-tool-hire` and `orgtree-delegating` (orgtree-working › team): staffing and one accountable owner per piece.
 - `orgtree-tool-message` and `orgtree-tool-audience` (orgtree-working › mail): coordinate within actual reach and authority.
 - `orgtree-tool-work` (orgtree-working › docket): descriptions, ownership, status and evidence.

@@ -35,3 +35,4 @@ Use [work](../../docket/tool-work/SKILL.md) for the durable scope and access bef
 - [orgtree-tool-retool](../tool-retool/SKILL.md)
 - `orgtree-org-charter-md` (orgtree-app › org-settings)
 - `orgtree-agent-charter-tab` (orgtree-app › agent-settings)
+- `orgtree-implement-integrate` (orgtree-workflows › collaboration-patterns): the implement/integrate split that the Implementer and Integrator presets serve.

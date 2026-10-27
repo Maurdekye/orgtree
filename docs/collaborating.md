@@ -12,6 +12,8 @@ The bundled development layouts demonstrate a coordinator with implementer, redt
 
 For a decision by committee, have different models make independent proposals under one supervisor. Turn peer mail off at their common host before starting, and check for existing audience routes. The supervisor collects the full round, checks for consensus, then shares all answers for revision if needed. A dedicated manager can host a large committee without voting. Use a round limit and record an explicit undetermined outcome if consensus is not reached; a majority is not automatically consensus. The committee answers the decision, rather than silently implementing it.
 
+When implementers cost more than the mechanical work around their changes, a team can split the two: the implementer writes the change and the test that defines it, then posts one self-contained integration job to a project queue. A small pool of cheaper integrators takes jobs one at a time, rebases, builds, runs the named checks and hands in the verified commit, or sends the implementer a bounce with the exact failing output. Integrators never edit the code, and the split needs the project queue and build permits set up first; the Integrator and Implementer charter presets carry the role text. It adds a handoff, so it suits larger changes better than one-line fixes.
+
 For software work, a useful progression is rapid specification/feedback first, then an explicit feature freeze and hardening when you are ready. Keep implementation, verification, integration and publication states distinct. The [supplemental development guide](development.md) describes this repository's contributor setup; your own team's policies can differ.
 
 ## Understand who can message whom

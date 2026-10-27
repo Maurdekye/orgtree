@@ -5,10 +5,10 @@
  "counts": {
   "categories": 3,
   "sections": 19,
-  "leaves": 186,
+  "leaves": 187,
   "tools": 49,
-  "concepts": 56,
-  "total": 208
+  "concepts": 57,
+  "total": 209
  },
  "leaves_per_writer": {
   "org-sol": 33,
@@ -30,7 +30,8 @@
   "helper-transcript-sol": 1,
   "template-dogs-sol": 1,
   "desk-parity-opus": 1,
-  "canvas-sol": 2
+  "canvas-sol": 2,
+  "presets-docs-sonnet": 1
  },
  "nodes": [
   {
@@ -759,7 +760,8 @@
    "see_also": [
     "tool-retool",
     "org-charter-md",
-    "agent-charter-tab"
+    "agent-charter-tab",
+    "implement-integrate"
    ],
    "writer": "org-sol",
    "status": "fixed"
@@ -7433,7 +7435,8 @@
     "iterative-development",
     "work-queues",
     "build-slots",
-    "concurrency-primitives"
+    "concurrency-primitives",
+    "implement-integrate"
    ],
    "writer": "skilltree-opus",
    "status": "fixed"
@@ -7523,7 +7526,8 @@
     "reviews-and-landing",
     "org-templates",
     "create-organization",
-    "iterative-development"
+    "iterative-development",
+    "implement-integrate"
    ],
    "writer": "skilltree-opus",
    "status": "fixed"
@@ -7660,7 +7664,8 @@
    "see_also": [
     "projects",
     "tool-watchdog",
-    "tool-message"
+    "tool-message",
+    "implement-integrate"
    ],
    "writer": "project-nodes-opus",
    "status": "fixed"
@@ -7799,6 +7804,53 @@
     "work-queues"
    ],
    "writer": "skilltree-opus",
+   "status": "fixed"
+  },
+  {
+   "path": "orgtree-workflows/collaboration-patterns/implement-integrate",
+   "name": "orgtree-implement-integrate",
+   "level": 3,
+   "kind": "concept",
+   "registered": false,
+   "covers": [
+    "workflow:implement-integrate"
+   ],
+   "purpose": "Splitting implementation from integration: self-contained integration jobs on an ACK-mode project queue, a small pool of integrators who never edit product code, bounces with exact output and the trade-offs.",
+   "must_cover": [
+    "when to use it: costlier models write code, a cheaper pool does the mechanical overhead",
+    "roles: implementer, integrator pool, integration owner; integrators never edit product code or tests",
+    "the job mail's required fields and a skeleton",
+    "integrator run: rebase, mechanical conflicts only, red/green/compile/audits, capture, evidence, hand-in or bounce",
+    "queue mechanics by link: ACK mode, fair_queue listeners batch 1, FIFO handout, ACK means handled, ack timeout, max attempts, dead letters",
+    "build permits from the same or a sibling project, claimed per heavy phase",
+    "trade-offs: handoff overhead, bounce cost, pool size against permits, ordering and conflicts, verification is not review",
+    "Implementer and Integrator charter presets supply text only",
+    "setup recipe; no new build, push or release authority"
+   ],
+   "sources": [
+    "User rulings 2026-10-27 me2bc950602b8, m10f1cbe8a2a7, m5b4887f76611 (implement/integrate split with a queued integrator pool) and mac432f0c0e84 (document it in the glossary's workflows)",
+    "engine/docs/charters/implementer.md",
+    "engine/docs/charters/integrator.md",
+    "engine/rs/orgtree-engine/src/domain/projects.rs",
+    "engine/rs/orgtree-engine/src/domain/mail.rs",
+    "engine/rs/orgtree-engine/src/domain/slots.rs"
+   ],
+   "see_also": [
+    "dev-team",
+    "work-queues",
+    "concurrency-primitives",
+    "build-slots",
+    "iterative-development",
+    "charters",
+    "app-charters-and-templates",
+    "tool-message",
+    "tool-watchdog",
+    "tool-project",
+    "tool-work",
+    "reviews-and-landing",
+    "builds-under-the-lock"
+   ],
+   "writer": "presets-docs-sonnet",
    "status": "fixed"
   },
   {
