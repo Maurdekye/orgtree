@@ -65,11 +65,26 @@ The file's total size and the tool's input arguments are not counted.
 
 Claude Code's native text-read result supplies `file.content`. It belongs only
 to the single matching root result in that envelope; parallel results and errors
-cannot borrow it. Antigravity uses the exact completed `view_file` step from
-the process's bound conversation and selected history home. The existing
-indexed, read-only snapshot, zero lock wait and 2 MiB step limit also apply to
-this read. Its native `CortexStep.view_file` (field 14), `content` (field 4)
-holds the retained slice; raw file paths are never reopened.
+cannot borrow it. Antigravity uses the exact completed tool step from the
+process's bound conversation and selected history home. The existing indexed,
+read-only snapshot, zero lock wait and 2 MiB step limit also apply to this
+read. Raw file paths are never reopened.
+
+Antigravity stores a read as a generic tool step, as it does every native tool
+(USER 2026-10-27 m30b9178ed978; shape measured the same day on nine real
+histories, 2,291 tool steps): the payload's field 1 is 132, the call is
+field 5 -> 4 with the tool name in its field 2, and the text the model was
+given is field 140 -> 2 -> 1, each field once and UTF-8. `read_file` and
+`view_file` both use it; `CortexStep.view_file` (field 14) never occurs, which
+is why file-read rows had no count before 4.5.0 (the reader looked there). The
+step's own tool name must be a file read, so a stale index never lends another
+tool's text to a read row; a step with no field 140 -> 2 -> 1 (an error, a
+media-only result) has no read-content count.
+
+The same step also counts any other Antigravity tool whose stream carried no
+output text (`result`, `output` or `response`): `run_command`, MCP calls, edits
+and the rest read their field 140 -> 2 -> 1 when the stream is silent. A stream
+that does carry output keeps it, and a file read never falls back to the stream.
 
 Muse's `visibleOutput` is a bounded display surface. Completed native reads
 instead use the same session/item's available `outputRef` through
@@ -90,7 +105,7 @@ still require the release's hands-on verification.
 | --- | --- | --- |
 | Claude Code | Complete root `tool_result` text; child events stay private | Group response fragments by `message.id`; finalize at a later response/result boundary. Use optional `usage.output_tokens_details.thinking_tokens` only with one thought block |
 | Codex | Command output deltas and complete command/dynamic/MCP/result text; omit synthesized file-change/status labels and query-as-output fallbacks | `last.reasoningOutputTokens`, only with one completed reasoning item since the preceding receipt and the matching turn |
-| Antigravity | Actual completed tool result/output/response text | Recovered thought rows exist; no thinking-count attribution is implemented in this adapter yet, so omit |
+| Antigravity | Actual completed tool result/output/response text; when the stream has none, the completed native step's result text (always, for file reads) | Recovered thought rows exist; no thinking-count attribution is implemented in this adapter yet, so omit |
 | Muse | Visible tool-output deltas/snapshots and complete visible results | Completion `usage.reasoningTokens`, only with one completed reasoning item in that scope |
 | OpenCode ACP | Original tool-content snapshots before preview clipping | No attributed field in the captured protocol, so omit |
 

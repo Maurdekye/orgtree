@@ -239,7 +239,7 @@ Tool and supplied-thought durations use seconds for short runs and minutes/secon
 Read / read_file / view_file counts describe the returned file text or slice,
 not the short read summary or the whole file's line total. They remain `~`
 estimates. Claude uses its native text-read result; Antigravity uses the exact
-completed step in its selected session; Muse uses retained output from that
+completed tool step in its selected session (also for any Antigravity tool whose stream carried no output text); Muse uses retained output from that
 session and item. If retained text is unavailable, Antigravity/Muse omit the
 count. Large outputs use bounded sampling. No file is reopened to invent a
 historical count. This is display information and adds no tool action.
