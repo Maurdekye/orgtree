@@ -11,6 +11,8 @@ pub const BUNDLE_MAX: usize = 16 * 1024 * 1024;
 pub const BUNDLE_PANELS: usize = 16;
 /// Provisional bounded event catalog; declarations carry no execution grant.
 pub const DECLARED_EVENTS_MAX: usize = 64;
+/// IDs one refs read resolves for mention chips (apps and panels together).
+pub const REFS_MAX: usize = 64;
 
 #[derive(Clone, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
@@ -110,6 +112,9 @@ pub enum Request {
     /// Powers a copy off and hides it; expected_rev is optional as above.
     PanelStop { panel:String, expected_rev:Option<i64> },
     AppGet { app:String },
+    /// Mention chips (@app:, @panel:): the current names of these exact IDs,
+    /// and only what an Apps menu row shows. IDs not in this org are left out.
+    Refs { #[serde(default)] apps:Vec<String>, #[serde(default)] panels:Vec<String> },
     MarkSeen { apps:Vec<String> },
     AppExport { app:String, expected_rev:i64, #[serde(default)] include_panels:bool },
     AppImport { bundle:Bundle },
@@ -149,6 +154,11 @@ pub fn parse(input:&Value) -> Result<Request> {
         if apps.is_empty()||apps.len()>200{crate::refuse!(BadRequest,"mark_seen needs1-200 explicit app IDs");}
         let mut seen=std::collections::HashSet::new();
         for id in apps{text(id,120,"app ID",false)?;if !seen.insert(id){crate::refuse!(BadRequest,"mark_seen app IDs must be unique");}}
+    }
+    if let Request::Refs{apps,panels}=&request{
+        let n=apps.len()+panels.len();
+        if n==0||n>REFS_MAX{crate::refuse!(BadRequest,"refs needs 1-{REFS_MAX} app or panel IDs");}
+        for id in apps.iter().chain(panels){text(id,120,"app or panel ID",false)?;}
     }
     Ok(request)
 }

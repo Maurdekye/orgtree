@@ -211,6 +211,15 @@ pub(crate) async fn run_locked(engine:&Arc<Engine>,org:&Arc<OrgHandle>,caller:Op
             json!({"app":id,"entries":entries,"next_cursor":next})
         }
         Request::AppGet{app:id}=>app(&tx,org.id,&id,true,false).await?,
+        // Mention chips show what an Apps menu row shows: an app's name and its
+        // most recently used copy (the copy an app row click opens), a panel's
+        // label, app and run state. Never HTML, state or permissions. A missing
+        // ID is left out, which is how a chip learns its target is gone.
+        Request::Refs{apps,panels}=>{
+            let apps=tx.query("SELECT jsonb_build_object('id',a.id,'name',a.name,'recent',(SELECT p.label FROM ot.custom_panels p WHERE p.org_id=a.org_id AND p.app_id=a.id ORDER BY p.used_at DESC,p.id DESC LIMIT 1)) FROM ot.custom_apps a WHERE a.org_id=$1 AND a.id=ANY($2) ORDER BY a.id",&[&org.id,&apps]).await?;
+            let panels=tx.query("SELECT jsonb_build_object('id',p.id,'app',p.app_id,'app_name',a.name,'label',p.label,'open',p.is_open,'running',p.is_running) FROM ot.custom_panels p JOIN ot.custom_apps a ON a.org_id=p.org_id AND a.id=p.app_id WHERE p.org_id=$1 AND p.id=ANY($2) ORDER BY p.id",&[&org.id,&panels]).await?;
+            json!({"apps":apps.iter().map(|r|r.get::<_,Value>(0)).collect::<Vec<_>>(),"panels":panels.iter().map(|r|r.get::<_,Value>(0)).collect::<Vec<_>>()})
+        }
         Request::AppExport{app:id,expected_rev,include_panels}=>{
             // All panel writers first share-lock the app. Its exclusive lock
             // gives this export one consistent definition/panel snapshot.
@@ -369,7 +378,25 @@ pub(crate) async fn run_locked(engine:&Arc<Engine>,org:&Arc<OrgHandle>,caller:Op
     if dogs_named{crate::changes::notify_id(engine,org.id,vec![crate::changes::Change::Watchdogs]);}
     // No app.event signal follows a commit: panel links are gone (user
     // 2026-10-26), and agents hear from panels only through app event listeners.
-    Ok(out)
+    Ok(if input["action"]=="refs"{out}else{with_refs(&org.slug,out)})
+}
+
+/// Every app and panel result carries its mention token, as docket items carry
+/// `ref`, so an agent writes the exact @app:/@panel: reference for the user
+/// (USER 2026-10-27 m449dc0a35cbe). Apps are the rows with capabilities;
+/// panels name their app and have a label.
+#[nolog]
+fn with_refs(slug:&str,mut out:Value)->Value{
+    fn one(slug:&str,v:&mut Value){
+        let Some(o)=v.as_object_mut() else{return};
+        let Some(id)=o.get("id").and_then(Value::as_str).map(str::to_owned) else{return};
+        let kind=if o.contains_key("capabilities"){"app"}else if o.get("app").is_some_and(Value::is_string)&&o.contains_key("label"){"panel"}else{return};
+        o.insert("ref".into(),json!(format!("@{kind}:{slug}/{id}")));
+    }
+    one(slug,&mut out);
+    if let Some(v)=out.get_mut("app"){one(slug,v);}
+    for key in ["items","panels"]{if let Some(rows)=out.get_mut(key).and_then(Value::as_array_mut){for v in rows{one(slug,v);}}}
+    out
 }
 
 /// All paths acquire this gate before root-first agent/database locks. No PG
@@ -380,7 +407,7 @@ pub async fn run(engine:&Arc<Engine>,org:&Arc<OrgHandle>,caller:Option<&Caller>,
     if caller.is_some_and(|c|c.org_id!=org.id){crate::refuse!(Forbidden,"Apps caller belongs to another organization");}
     if let Request::Runtime{after,limit,sample}=request{return super::runtime::list(engine,org,caller,after,limit,sample).await;}
     let action=input["action"].as_str().unwrap_or("");
-    if ["list","app_get","panel_get","events","app_create","app_import","app_export","mark_seen","listeners","permission_history"].contains(&action){return run_locked(engine,org,caller,input).await;}
+    if ["list","app_get","panel_get","refs","events","app_create","app_import","app_export","mark_seen","listeners","permission_history"].contains(&action){return run_locked(engine,org,caller,input).await;}
     let app=if let Some(app)=input["app"].as_str(){app.to_owned()}else{
         let client=engine.db.get().await?;let panel=input["panel"].as_str().unwrap_or("");
         let row=client.query_opt("SELECT app_id FROM ot.custom_panels WHERE org_id=$1 AND id=$2",&[&org.id,&panel]).await?;
@@ -442,5 +469,22 @@ mod tests {
         // a write change is judged on write access alone
         assert!(!removes_file_access(&allowed, "files.write", "allow"));
         assert!(removes_file_access(&allowed, "files.write", "ask"));
+    }
+    #[test]
+    fn app_and_panel_results_carry_their_mention_token() {
+        assert_eq!(with_refs("acme", json!({"id":"app1","name":"Notes","capabilities":[]}))["ref"], "@app:acme/app1");
+        assert_eq!(with_refs("acme", json!({"id":"panel1","app":"app1","label":"Panel 1"}))["ref"], "@panel:acme/panel1");
+        let list = with_refs("acme", json!({"kind":"panels","items":[{"id":"panel2","app":"app1","label":"Panel 2"}],"next_cursor":null}));
+        assert_eq!(list["items"][0]["ref"], "@panel:acme/panel2");
+        let apps = with_refs("acme", json!({"kind":"apps","items":[{"id":"app2","capabilities":["events.fire"]}],"new_count":0}));
+        assert_eq!(apps["items"][0]["ref"], "@app:acme/app2");
+        let import = with_refs("acme", json!({"imported":"app3","app":{"id":"app3","capabilities":[]},"panels":[{"id":"panel3","app":"app3","label":"Panel 1"}]}));
+        assert_eq!(import["app"]["ref"], "@app:acme/app3");
+        assert_eq!(import["panels"][0]["ref"], "@panel:acme/panel3");
+        // a deletion, an export's panel count, history and events stay as they are
+        for other in [json!({"deleted":"panel1"}), json!({"panels":2,"bundle":{"format":"orgtree-app"}}),
+            json!({"app":"app1","entries":[]}), json!({"panel":"panel1","events":[],"next_cursor":null})] {
+            assert_eq!(with_refs("acme", other.clone()), other);
+        }
     }
 }

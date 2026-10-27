@@ -41,4 +41,14 @@ pub use storage::run;
         assert!(super::wire::parse(&json!({"action":"mark_seen","apps":["x"],"permissions":{"org.read":"allow"}})).is_err());
         assert!(crate::http::apps::read_input(r#"{"action":"mark_seen","apps":["x"]}"#).is_err());
     }
+    #[test] fn custom_apps_refs_is_a_bounded_read_of_exact_ids(){
+        assert!(super::wire::parse(&json!({"action":"refs","apps":["app1"],"panels":["panel1"]})).is_ok());
+        assert!(super::wire::parse(&json!({"action":"refs","panels":["panel1"]})).is_ok());
+        let full=json!({"action":"refs","apps":vec!["app";32],"panels":vec!["panel";32]});
+        assert!(super::wire::parse(&full).is_ok(),"64 IDs together is the bound");
+        for bad in [json!({"action":"refs"}),json!({"action":"refs","apps":[],"panels":[]}),
+            json!({"action":"refs","apps":vec!["app";33],"panels":vec!["panel";32]}),json!({"action":"refs","apps":[""]}),
+            json!({"action":"refs","apps":["app1"],"state":{}})]{assert!(super::wire::parse(&bad).is_err(),"{bad}");}
+        assert!(crate::http::apps::read_input(r#"{"action":"refs","apps":["app1"]}"#).is_ok(),"refs is a read");
+    }
 }

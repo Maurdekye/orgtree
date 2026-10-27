@@ -1316,7 +1316,7 @@ respect normal turn-admission limits; they are not a precise timer or a guarante
 // names the skill page that holds the rest (docs/skills/INSTRUCTIONS-TRIM.md on the
 // design branch; every user ruling's full text lives on the page named here).
 
-const MENTIONS: &str = "MENTIONS: whenever you name an agent, project or docket item in text a person or agent will read (your replies, mail, docket descriptions, presentations), write @name or @item:<org>/<slug> as plain text, never in backticks or code spans. A bare name is wrong.";
+const MENTIONS: &str = "MENTIONS: whenever you name an agent, project or docket item in text a person or agent will read (your replies, mail, docket descriptions, presentations), write @name or @item:<org>/<slug> as plain text, never in backticks or code spans. A bare name is wrong. Point the user at an app or one of its panels with @app:<org>/<app-id> or @panel:<org>/<panel-id>.";
 
 const TRIM_LIVE_STATE: &str = "Read your reports, peers, chart, credits and open question from this turn's [ORG STATE], not here.\n";
 
@@ -1452,7 +1452,7 @@ mod trim_tests {
 
     #[test]
     fn mentions_rule_is_exact_and_unconditional_on_every_profile() {
-        let expected = "MENTIONS: whenever you name an agent, project or docket item in text a person or agent will read (your replies, mail, docket descriptions, presentations), write @name or @item:<org>/<slug> as plain text, never in backticks or code spans. A bare name is wrong.";
+        let expected = "MENTIONS: whenever you name an agent, project or docket item in text a person or agent will read (your replies, mail, docket descriptions, presentations), write @name or @item:<org>/<slug> as plain text, never in backticks or code spans. A bare name is wrong. Point the user at an app or one of its panels with @app:<org>/<app-id> or @panel:<org>/<panel-id>.";
         for lane in [Lane::Claude, Lane::Codex, Lane::Antigravity, Lane::Muse, Lane::OpenCode] {
             for top in [false, true] {
                 for trim in [false, true] {
