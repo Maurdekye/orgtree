@@ -236,6 +236,10 @@ export interface TypedRef {
   org: string
   /** item slug · document id · node id · mail id · app id · panel id */
   id: string
+  /** a node written in its project form, `@project:<org>/<name>` (USER
+   *  2026-10-27 md30a04a62550): it names a project or nothing, so one that
+   *  does not name a live project stays plain text (reflinks `projectFormPlain`) */
+  as?: 'project'
   /** mail only */
   box?: MailBox
   /** mail in a node's box only */
@@ -263,13 +267,13 @@ const NODE = '[a-z0-9-]+(?:@[0-9]+)?'
  *  (so a match cannot be the prefix of a longer name), and a bare `@` — except
  *  when it opens another canonical token, because `…/alpha@item:org/beta` is
  *  two adjacent references and both must survive. */
-const END = '(?![A-Za-z0-9_/-])(?!@(?!(?:item|doc|agent|mail|app|panel):))'
+const END = '(?![A-Za-z0-9_/-])(?!@(?!(?:item|doc|agent|project|mail|app|panel):))'
 
 /** the family, for scanning prose. Only the node positions admit `@`, and
  *  only as `@<digits>`, so a following `@item:…` is never swallowed. */
 export const REF_TOKEN_RE = new RegExp(
   `@(?:(item|doc|app|panel):(${SEG}/${SEG})`
-  + `|(agent):(${SEG}/${NODE})`
+  + `|(agent|project):(${SEG}/${NODE})`
   + `|(mail):(${SEG}/(?:user|org)/${SEG}|${SEG}/node/${NODE}/${SEG}))`
   + END, 'g')
 
@@ -335,8 +339,11 @@ export function findRefs(text: string): [string, string][] {
 export function parseRef(token: string): TypedRef | null {
   const m = new RegExp(`^${REF_TOKEN_RE.source}$`).exec(String(token ?? ''))
   if (!m) return null
-  const kind = (m[1] ?? m[3] ?? m[5]) as RefKind
+  const written = m[1] ?? m[3] ?? m[5]
   const seg = String(m[2] ?? m[4] ?? m[6]).split('/')
+  // a project's long form is a node reference that must name a project
+  if (written === 'project') return { kind: 'agent', org: seg[0] as string, id: seg[1] as string, as: 'project' }
+  const kind = written as RefKind
   if (kind !== 'mail') {
     return { kind, org: seg[0] as string, id: seg[1] as string }
   }

@@ -253,6 +253,7 @@ function itemTitle(answer: RefNameAnswer | undefined): string | undefined {
  *  and `absent` chips, where showing an id with no type would be a claim we
  *  have not earned. */
 export function refToken(ref: TypedRef): string {
+  if (ref.kind === 'agent' && ref.as === 'project') return `@project:${ref.org}/${ref.id}`
   if (ref.kind !== 'mail') return `@${ref.kind}:${ref.org}/${ref.id}`
   if (ref.box === 'node') {
     return `@mail:${ref.org}/node/${ref.node}/${ref.id}`
@@ -568,6 +569,15 @@ function appendPlainWithMentions(chunk: string, world: RefWorld, out: RefRun[]):
   if (last < chunk.length) pushPlainRun(out, chunk.slice(last))
 }
 
+/** A project's long form, `@project:<org>/<name>` (USER 2026-10-27
+ *  md30a04a62550), that names no live project here stays as written, plain
+ *  text, as an unknown `@name` does (a nonexistent name such as build-slots,
+ *  or an agent's). Another org's, or one still loading, keeps its chip. */
+export function projectFormPlain(r: ResolvedRef): boolean {
+  return r.ref.kind === 'agent' && r.ref.as === 'project'
+    && (r.outcome === 'absent' || (r.outcome === 'ready' && r.tier !== 'project'))
+}
+
 function splitTypedRefsSegment(s: string, world: RefWorld, out: RefRun[]): void {
   if (!s) return
   let last = 0
@@ -576,7 +586,9 @@ function splitTypedRefsSegment(s: string, world: RefWorld, out: RefRun[]): void 
   // and a renderer with its own loop is a renderer that can miss one of them.
   for (const hit of scanRefs(s)) {
     if (hit.index > last) appendPlainWithMentions(s.slice(last, hit.index), world, out)
-    out.push({ text: hit.token, ref: resolveRef(hit.ref, world) })
+    const r = resolveRef(hit.ref, world)
+    if (projectFormPlain(r)) pushPlainRun(out, hit.token)
+    else out.push({ text: hit.token, ref: r })
     last = hit.index + hit.token.length
   }
   if (last < s.length) appendPlainWithMentions(s.slice(last), world, out)

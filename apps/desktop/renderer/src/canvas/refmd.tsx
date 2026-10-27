@@ -31,7 +31,7 @@ import { createNodeLinkEl } from './identity'
 import { objectNavProps } from './objectnav'
 import { mailLinkProps } from './mailidentity'
 import { useEffect, useRef } from 'react'
-import { refChipTitle, resolveRef, refToken, scanInlineMentions } from './reflinks'
+import { projectFormPlain, refChipTitle, resolveRef, refToken, scanInlineMentions } from './reflinks'
 import type { RefOutcome, RefWorld, ResolvedRef } from './reflinks'
 import { ticketFlare } from './docketstatus'
 import { parseRef, scanRefs, splitRefs } from './workrefs'
@@ -473,8 +473,13 @@ export function linkifyRefs(host: HTMLElement, world: RefWorld,
     // that can miss one of them.
     for (const hit of scanRefs(s)) {
       if (hit.index > last) plain(s.slice(last, hit.index))
-      parts.push(chipEl(doc, resolveRef(hit.ref, world), clickable))
-      made += 1
+      const r = resolveRef(hit.ref, world)
+      // a project's long form naming no live project stays as written
+      if (projectFormPlain(r)) parts.push(doc.createTextNode(hit.token))
+      else {
+        parts.push(chipEl(doc, r, clickable))
+        made += 1
+      }
       last = hit.index + hit.token.length
     }
     if (last < s.length) plain(s.slice(last))
