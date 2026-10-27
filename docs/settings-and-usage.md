@@ -60,7 +60,7 @@ These presentation preferences do not change agent prompts. Some are stored per 
 
 Open **Runtime > Notifications**. The master switch pauses native alerts without forgetting the selected categories. Questions, urgent mail, terminal failures, docket attention and mentions start on. Routine **All mail**, new presentations, frozen-agent alerts and **Notify while Orgtree is focused** start off; older saved preferences can differ.
 
-By default a focused visible Orgtree window suppresses desktop banners, even if another organization is in the background. Enable the focused option if you want those banners while working in Orgtree. The **Open questions** preference chooses whether taskbar question entries focus the asking desk or open questions as mail.
+By default a focused visible Orgtree window suppresses desktop banners, even if another organization is in the background. Clicking a question banner brings its organization window forward; if the asking agent's desk is already open as a floating desk, a desk pin, on its zoomed canvas card or switchboard panel or in the Attention agent desk, that desk comes to the front with the question focused instead of the Inbox. Enable the focused option if you want those banners while working in Orgtree. The **Open questions** preference chooses whether taskbar question entries focus the asking desk or open questions as mail.
 
 The persistent taskbar attention dot is separate from banner preferences. On Windows it matches Hubchat's red dot with a light rim and no number. It follows unresolved questions, urgent/user-mention mail, docket flags and user mentions; ordinary unread mail does not add it. Resolve the underlying attention to clear it. Neither a native banner nor a read badge implies approval of the work.
 

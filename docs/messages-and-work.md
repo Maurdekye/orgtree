@@ -230,7 +230,7 @@ The outside-org inbox is a viewer. Human outside composition belongs in [Hubchat
 
 ## Answer questions and permission requests
 
-Open question/request cards appear in the conversation, Inbox or Attention. Choose the offered option(s) and add free text where available, then submit. A draft selection is not a recorded answer. Dismissal is a distinct outcome reported to the agent.
+Open question/request cards appear in the conversation, Inbox or Attention. Clicking a question's desktop notification goes to the asking agent's desk when it is already open as a floating desk, a desk pin, on its zoomed canvas card or switchboard panel or in the Attention agent desk, and focuses the question there; otherwise the question opens in the Inbox, or in the Attention queue. Choose the offered option(s) and add free text where available, then submit. A draft selection is not a recorded answer. Dismissal is a distinct outcome reported to the agent.
 
 A batch can mix questions, credit decisions and scope requests. Decide or explicitly skip every tab before submitting. Credit requests allow a grant, denial or counteroffer within the shown limits. Scope requests name the specific folder, tool, MCP server or permission being requested.
 

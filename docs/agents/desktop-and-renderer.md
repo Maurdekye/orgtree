@@ -537,6 +537,32 @@ operations; no engine mutation or agent tool was added.
 [verified: `canvas/copytext.ts`, `desk.tsx`, `mail.tsx`, `mailreply.tsx`,
 `replypreview.tsx`, `objectnavhost.tsx`; decided: coordinator 2026-10-21 hardening assignment]
 
+## A question notification goes to the asker's open desk (2026-10-27)
+
+Before the Attention queue and the Inbox, App's banner-click effect asks
+`claimQuestionDesk(slug, agent)` (`canvas/deskhosts.tsx`) for a question whose
+`agent` and `generation` match the tree. It reads the organization's one desk
+registry (`orgDesks`, set while `DeskHosts` is mounted) and answers where the
+desk is open: `popout` (a live `desk:<identity>` window), `floating` (the Open
+desk modal's `borrow` slot), or a slot marked `openIn` (`'pin'` from
+`pins.tsx`, `'attention'` from `AgentDeskPanel`, `'card'` from the agent's
+zoomed card and its switchboard panel in `cards.tsx`, which now share the
+card's `eligible = !worldHidden`) that is eligible.
+Open in more than one, the slot holding the live desk (`entry.last`) wins; if
+only placeholders are open, a pin, else the Attention desk, else the card takes
+it through `moveHere`, never by writing ownership directly. App then reveals the
+window (`revealExistingDesk`), shows the pin (`showPin`: raise, keep on screen,
+pulse) or raises the Attention desk panel (`raisePinnedModal`); a zoomed card is
+already at the camera's centre. After the commit `focusQuestionCard`
+(`notification-visibility.ts`) focuses the card inside that slot, preferring a
+desk's card over the inbox's. `openIn` draws nothing and plays no part in
+`pick`. Main already shows the organization window before delivering the click
+(`revealInOrgWindow`). A taskbar click and a question open nowhere keep their
+routes. [decided: user 2026-10-27
+m007c48d12f28, m41e0735bee13, m1a947c081d09; verified: `src/App.tsx`, `src/canvas/{deskhosts,desk,pins,cards,OrgCanvas,elicitation}.tsx`,
+`src/attention/AgentDeskPanel.tsx`, `src/notification-visibility.ts`,
+`tests/questionnotificationdesk.test.tsx`; 2026-10-27]
+
 ## Transcript mention notification identity (2026-10-22)
 
 Both native-banner and taskbar/forced-desk App routes use the clicked notice's

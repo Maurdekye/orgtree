@@ -13,7 +13,7 @@ Runtime > Notifications controls native desktop alerts for every organization on
 | --- | --- | --- | --- |
 | Open questions | `np:questionTarget` | focus the agent desk | Taskbar question entries focus the asking agent; an existing pin or popped-out desk comes to the front. Choose **Open questions as mail** to open the question in the inbox instead. Independent of banner switches. |
 | Notifications | `np:notificationsEnabled` | On | Master gate. Off suspends all listed desktop alerts and disables their subordinate controls without erasing their selections. |
-| Questions | `np:notifyQuestions` | On | Desktop question/request alerts. |
+| Questions | `np:notifyQuestions` | On | Desktop question/request alerts. A click goes to the asker's desk when it is already open (below), otherwise to the inbox or the Attention queue. |
 | Urgent mail | `np:notifyUrgentMail` | On | Mail marked urgent for the user. All mail also permits this kind. |
 | Terminal failures | `np:notifyTerminalFailures` | On | Terminal-failure alerts. |
 | Docket attention | `np:notifyDocketAttention` | On | Work-item attention alerts. |
@@ -28,6 +28,15 @@ The focus check considers any visible, non-minimized Orgtree window. With the de
 Suggest individual kinds according to what the user wants to notice. All mail is a broad opt-in, not a requirement for Questions or Docket attention. Turning the master Off is appropriate when the user wants to pause desktop banners while retaining the underlying work and mail.
 
 Native alerts have stable identities to avoid duplicate banners, and resolved attention removes corresponding native alerts where supported. The desktop closes pending/shown alerts for kinds disabled by a changed preference. OS support and native delivery still matter: the engine recording mail or attention does not prove a banner appeared, and a banner does not establish that the user read or approved it.
+
+Clicking a question banner when the asking agent's desk is already open as a
+floating desk (the Open desk modal or a popped-out desk window), a desk pin, on
+a zoomed canvas card (the agent's own, or its panel on the zoomed switchboard)
+or in the Attention agent desk brings that desk forward and focuses the question
+card there. The inbox does not open and the Attention queue keeps its
+selection. Open in more than one of these, the one holding the live desk wins.
+Otherwise the click opens the question in the inbox, or selects it in the
+Attention queue.
 
 Clicking a transcript mention banner or taskbar entry keeps that notification's
 mention and source-event identity. If the agent has since mentioned you again,
