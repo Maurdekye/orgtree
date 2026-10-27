@@ -18,7 +18,7 @@ pub struct EventDeclaration {
     pub name: String,
     #[serde(default)] pub description: String,
 }
-pub const CAPABILITIES: &[&str] = &["org.read", "docket.write", "events.fire", "files.read", "files.write"];
+pub const CAPABILITIES: &[&str] = &["org.read", "docket.write", "events.fire", "files.read", "files.write", "net.fetch"];
 /// Capabilities older definitions may still declare (user 2026-10-26: "Remove;
 /// import, never grant"): accepted on input so the app imports and runs, then
 /// dropped before storage and from app metadata. Never granted.
@@ -45,6 +45,11 @@ pub struct Definition {
     #[serde(default = "empty")] pub initial_state: Value,
     #[serde(default)] pub capabilities: Vec<String>,
     #[serde(default)] pub events: Vec<EventDeclaration>,
+    /// Hosts the app's net.fetch may reach, inert until the user grants them.
+    /// Each is a host, host:port, or `*` (any site); `*.` leads a subdomain
+    /// wildcard. Portable like events; grants nothing. Omitted when empty, so
+    /// an export without sites still imports into an older Orgtree.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")] pub sites: Vec<String>,
     #[serde(default = "width")] pub width: i32,
     #[serde(default = "height")] pub height: i32,
 }
@@ -106,7 +111,11 @@ pub enum Request {
     MarkSeen { apps:Vec<String> },
     AppExport { app:String, expected_rev:i64, #[serde(default)] include_panels:bool },
     AppImport { bundle:Bundle },
-    PermissionSet { app:String, expected_rev:i64, expected_permission_rev:i64, capability:String, permission:String },
+    /// site: one internet (net.fetch) row: a declared site, or a host a declared
+    /// wildcard covers; "default" removes that row.
+    PermissionSet { app:String, expected_rev:i64, expected_permission_rev:i64, capability:String, permission:String, #[serde(default)] site:Option<String> },
+    /// The app-level Permission history, newest first (latest 128 retained).
+    PermissionHistory { app:String, limit:Option<i64> },
     AppCreate { definition:Definition },
     AppUpdate { app:String, expected_rev:i64, definition:Definition },
     AppDelete { app:String, expected_rev:i64, #[serde(default)] delete_panels:bool },
@@ -172,6 +181,12 @@ pub fn definition(value:&Definition) -> Result<()> {
     let mut seen=std::collections::HashSet::new();
     for cap in &value.capabilities {
         if !(CAPABILITIES.contains(&cap.as_str()) || RETIRED_CAPABILITIES.contains(&cap.as_str())) || !seen.insert(cap) { crate::refuse!(BadRequest,"unknown or duplicate app capability {cap}"); }
+    }
+    if value.sites.len()>super::net::SITES_MAX {crate::refuse!(BadRequest,"at most {} declared sites",super::net::SITES_MAX);}
+    let mut hosts=std::collections::HashSet::new();
+    for site in &value.sites {
+        super::net::valid_site(site)?;
+        if !hosts.insert(site) {crate::refuse!(BadRequest,"declared sites must be unique");}
     }
     Ok(())
 }
@@ -326,6 +341,38 @@ mod tests {
     #[test] fn custom_apps_permission_changes_have_explicit_revision_checked_vocabulary() {
         assert!(super::parse(&serde_json::json!({"action":"permission_set","app":"a","expected_rev":1,"expected_permission_rev":1,"capability":"org.read","permission":"ask"})).is_ok());
         assert!(super::parse(&serde_json::json!({"action":"permission_set","app":"a","expected_rev":1,"capability":"org.read","permission":"allow","as_user":true})).is_err());
+    }
+}
+
+#[cfg(test)] mod internet_access {
+    use serde_json::json;
+    // USER 2026-10-26 m95c57abc95fb; design m232e1d1ccb57: sites are portable,
+    // inert declarations (max 32); grants stay local and never travel.
+    #[test] fn custom_apps_declared_sites_are_bounded_portable_and_grant_nothing(){
+        let raw=json!({"name":"Feed","html":"<p>feed</p>","capabilities":["net.fetch"],"sites":["api.example.com","*.example.org","*"]});
+        let def:super::Definition=serde_json::from_value(raw.clone()).unwrap();super::definition(&def).unwrap();
+        assert_eq!(serde_json::to_value(&def).unwrap()["sites"],raw["sites"],"sites travel in exports");
+        let check=|sites:serde_json::Value|{let mut v=raw.clone();v["sites"]=sites;serde_json::from_value::<super::Definition>(v).is_ok_and(|d|super::definition(&d).is_ok())};
+        assert!(!check(json!(["api.example.com","api.example.com"])),"duplicates");
+        assert!(!check(json!(["https://api.example.com"])),"a scheme");
+        assert!(!check(json!((0..33).map(|i|format!("s{i}.example.com")).collect::<Vec<_>>())),"more than 32");
+        assert!(check(json!((0..32).map(|i|format!("s{i}.example.com")).collect::<Vec<_>>())));
+        let legacy:super::Definition=serde_json::from_value(json!({"name":"Old","html":"<p>old</p>"})).unwrap();assert!(legacy.sites.is_empty());
+        for (key,value) in [("site_permissions",json!({"api.example.com":"allow"})),("permissions",json!({"net.fetch":"allow"}))]{
+            let mut bad=json!({"format":"orgtree-app","version":1,"definition":raw.clone()});bad["definition"][key]=value;assert!(super::parse(&json!({"action":"app_import","bundle":bad})).is_err(),"{key} never imports");
+        }
+    }
+    #[test] fn custom_apps_site_permissions_and_history_have_explicit_vocabulary(){
+        assert!(super::parse(&json!({"action":"permission_set","app":"a","expected_rev":1,"expected_permission_rev":1,"capability":"net.fetch","permission":"deny","site":"api.example.com"})).is_ok());
+        assert!(super::parse(&json!({"action":"permission_set","app":"a","expected_rev":1,"expected_permission_rev":1,"capability":"net.fetch","permission":"ask"})).is_ok());
+        assert!(super::parse(&json!({"action":"permission_history","app":"a","limit":128})).is_ok());
+        assert!(super::parse(&json!({"action":"permission_history","app":"a","after":3})).is_err());
+        let card=crate::tools::defs::list().into_iter().find(|c|c["name"]=="orgtree_apps").unwrap();let p=&card["inputSchema"]["properties"];
+        assert!(p["action"]["enum"].as_array().unwrap().iter().any(|a|a=="permission_history"),"tool parity needs permission_history");
+        assert!(p["capability"]["enum"].as_array().unwrap().iter().any(|a|a=="net.fetch"));
+        assert!(p["definition"]["properties"]["capabilities"]["items"]["enum"].as_array().unwrap().iter().any(|a|a=="net.fetch"));
+        assert_eq!(p["definition"]["properties"]["sites"]["maxItems"],32);
+        assert!(p.get("site").is_some()&&p["permission"]["enum"].as_array().unwrap().iter().any(|a|a=="default"));
     }
 }
 

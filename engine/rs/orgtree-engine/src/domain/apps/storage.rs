@@ -8,7 +8,7 @@ use tokio_postgres::Transaction;
 use crate::{engine::Engine, orgs::OrgHandle, runtime::Caller};
 use super::wire::{self, Definition, Placement, Request};
 
-const APP_META:&str="jsonb_build_object('id',a.id,'origin',a.origin,'name',a.name,'description',a.description,'capabilities',a.capabilities,'events',a.declared_events,'width',a.width,'height',a.height,'rev',a.rev,'permissions',a.permissions,'permission_rev',a.permission_rev,'is_new',a.is_new,'created_by',a.created_by,'created_at',a.created_at,'updated_at',a.updated_at)";
+const APP_META:&str="jsonb_build_object('id',a.id,'origin',a.origin,'name',a.name,'description',a.description,'capabilities',a.capabilities,'events',a.declared_events,'width',a.width,'height',a.height,'rev',a.rev,'permissions',a.permissions,'permission_rev',a.permission_rev,'sites',a.declared_sites,'site_permissions',a.site_permissions,'is_new',a.is_new,'created_by',a.created_by,'created_at',a.created_at,'updated_at',a.updated_at)";
 // Panel links were removed (user 2026-10-26): the inert linked_agents column is
 // never read or written; agents follow a panel's events with app_listener dogs.
 // created_at orders the Apps list: apps newest first, each app's panels in
@@ -43,7 +43,7 @@ fn revision(actual:&Value,wanted:i64) -> Result<()> {
 }
 #[nolog]
 async fn app(tx:&Transaction<'_>,org:i64,id:&str,full:bool,write:bool) -> Result<Value> {
-    let extra=if full{" || jsonb_build_object('definition',jsonb_build_object('name',a.name,'description',a.description,'html',a.html,'initial_state',a.initial_state,'capabilities',a.capabilities,'events',a.declared_events,'width',a.width,'height',a.height))"}else{""};
+    let extra=if full{" || jsonb_build_object('definition',jsonb_build_object('name',a.name,'description',a.description,'html',a.html,'initial_state',a.initial_state,'capabilities',a.capabilities,'events',a.declared_events,'sites',a.declared_sites,'width',a.width,'height',a.height))"}else{""};
     let lock=if write{"UPDATE"}else{"SHARE"};
     let row=tx.query_opt(&format!("SELECT {APP_META}{extra} FROM ot.custom_apps a WHERE a.org_id=$1 AND a.id=$2 FOR {lock} OF a"),&[&org,&id]).await?;
     let Some(row)=row else {crate::refuse!(NotFound,"app not found in this organization");};Ok(super::policy::metadata(row.get(0)))
@@ -86,6 +86,57 @@ async fn update_state(tx:&Transaction<'_>,org:i64,id:&str,state:&Value)->Result<
     panel(tx,org,id,false).await
 }
 
+/// The app-level Permission history (design m232e1d1ccb57): every stored
+/// permission change, native prompt answer and code-change reset, written in
+/// the change's own transaction. Latest 128 per app (provisional).
+pub const PERMISSION_HISTORY:i64=128;
+#[nolog]
+async fn log_permission(tx:&Transaction<'_>,org:i64,app:&str,capability:&str,site:Option<&str>,permission:&str,via:&str,actor:&str,panel:Option<&str>)->Result<()>{
+    tx.execute("INSERT INTO ot.custom_app_permission_log(org_id,app_id,capability,site,permission,via,actor,panel_id) VALUES($1,$2,$3,$4,$5,$6,$7,$8)",&[&org,&app,&capability,&site,&permission,&via,&actor,&panel]).await?;
+    tx.execute("DELETE FROM ot.custom_app_permission_log WHERE org_id=$1 AND app_id=$2 AND seq < (SELECT seq FROM ot.custom_app_permission_log WHERE org_id=$1 AND app_id=$2 ORDER BY seq DESC OFFSET $3 LIMIT 1)",&[&org,&app,&(PERMISSION_HISTORY-1)]).await?;
+    Ok(())
+}
+/// One stored permission choice, for a whole capability or (internet access
+/// only) one site row, with its history entry. The caller holds the app row
+/// lock and has checked both revisions.
+#[nolog]
+async fn set_permission(tx:&Transaction<'_>,org:i64,id:&str,old:&Value,capability:&str,site:Option<&str>,permission:&str,via:&str,actor:&str,panel:Option<&str>)->Result<()>{
+    if wire::RETIRED_CAPABILITIES.contains(&capability){crate::refuse!(BadRequest,"{}",wire::MAIL_SEND_REMOVED);}
+    if !wire::CAPABILITIES.contains(&capability)||!super::policy::available(old,capability){crate::refuse!(BadRequest,"app does not declare that capability");}
+    match site{
+        None=>{
+            if !["ask","allow","deny"].contains(&permission){crate::refuse!(BadRequest,"permission must be ask, allow or deny");}
+            let mut permissions=old["permissions"].clone();permissions[capability]=json!(permission);
+            if ["files.read","files.write"].contains(&capability)&&permission!="allow"{let mode=capability.strip_prefix("files.").expect("file capability");tx.execute("DELETE FROM ot.custom_app_file_grants WHERE org_id=$1 AND app_id=$2 AND mode=$3",&[&org,&id,&mode]).await?;}
+            tx.execute("UPDATE ot.custom_apps SET permissions=$3,permission_rev=permission_rev+1,updated_at=now() WHERE org_id=$1 AND id=$2",&[&org,&id,&permissions]).await?;
+        }
+        Some(site)=>{
+            if capability!=super::net::CAPABILITY{crate::refuse!(BadRequest,"only internet access (net.fetch) has per-site permissions");}
+            if !["ask","allow","deny","default"].contains(&permission){crate::refuse!(BadRequest,"a site permission must be ask, allow, deny or default");}
+            let mut rows=old["site_permissions"].as_object().cloned().unwrap_or_default();
+            // A stored row can always be removed, even one a code change left undeclared.
+            if !(permission=="default"&&rows.contains_key(site)){super::policy::net_row(old,site)?;}
+            if permission=="default"{rows.remove(site);}else{rows.insert(site.to_owned(),json!(permission));}
+            if rows.len()>super::net::SITE_CHOICES_MAX{crate::refuse!(Conflict,"an app keeps at most {} site choices; remove some first",super::net::SITE_CHOICES_MAX);}
+            tx.execute("UPDATE ot.custom_apps SET site_permissions=$3,permission_rev=permission_rev+1,updated_at=now() WHERE org_id=$1 AND id=$2",&[&org,&id,&Value::Object(rows)]).await?;
+        }
+    }
+    log_permission(tx,org,id,capability,site,permission,via,actor,panel).await
+}
+/// The user's answer to a native app prompt. Always allow and Deny store the
+/// choice (internet access: on the host's site row); Allow once only records
+/// itself. One transaction with its history entry; the caller holds the gate.
+#[nolog]
+pub(super) async fn prompt_answer(engine:&Arc<Engine>,org:&Arc<OrgHandle>,id:&str,expected:(i64,i64),capability:&str,site:Option<&str>,permission:&str,panel:&str)->Result<()>{
+    let mut client=engine.db.get().await?;let tx=client.transaction().await?;
+    let old=app(&tx,org.id,id,false,true).await?;revision(&old,expected.0)?;
+    if old["permission_rev"].as_i64()!=Some(expected.1){crate::refuse!(Conflict,"app permissions changed; read and reconcile");}
+    if permission=="once"{log_permission(&tx,org.id,id,capability,site,"once","prompt","user",Some(panel)).await?;}
+    else{set_permission(&tx,org.id,id,&old,capability,site,permission,"prompt","user",Some(panel)).await?;}
+    tx.commit().await?;drop(client);
+    org.emit(json!({"type":"custom_apps_changed","org":org.slug}));Ok(())
+}
+
 #[nolog]
 pub(crate) async fn run_locked(engine:&Arc<Engine>,org:&Arc<OrgHandle>,caller:Option<&Caller>,input:&Value)->Result<Value>{
     let request=wire::parse(input)?;
@@ -122,17 +173,27 @@ pub(crate) async fn run_locked(engine:&Arc<Engine>,org:&Arc<OrgHandle>,caller:Op
             let count:i64=tx.query_one("SELECT count(*) FROM ot.custom_apps WHERE org_id=$1 AND is_new",&[&org.id]).await?.get(0);
             json!({"seen":ids,"new_count":count})
         }
-        Request::PermissionSet{app:id,expected_rev,expected_permission_rev,capability,permission}=>{
-            if caller.is_some(){crate::refuse!(Forbidden,"only the user may decide app execution permissions; ask your superior instead");}
+        Request::PermissionSet{app:id,expected_rev,expected_permission_rev,capability,permission,site}=>{
+            // Agents may restrict internet access but never grant it or lift a
+            // Deny (design m232e1d1ccb57); every other choice is the user's.
+            if caller.is_some(){
+                if capability!=super::net::CAPABILITY{crate::refuse!(Forbidden,"only the user may decide app execution permissions; ask your superior instead");}
+                if !["ask","deny"].contains(&permission.as_str()){crate::refuse!(Forbidden,"agents may set internet access to ask or deny, never allow; ask your superior to allow it");}
+            }
             let old=app(&tx,org.id,&id,false,true).await?;revision(&old,expected_rev)?;
             if old["permission_rev"].as_i64()!=Some(expected_permission_rev){crate::refuse!(Conflict,"app permissions changed; read and reconcile");}
-            if wire::RETIRED_CAPABILITIES.contains(&capability.as_str()){crate::refuse!(BadRequest,"{}",wire::MAIL_SEND_REMOVED);}
-            if !wire::CAPABILITIES.contains(&capability.as_str())||!super::policy::available(&old,&capability){crate::refuse!(BadRequest,"app does not declare that capability");}
-            if !["ask","allow","deny"].contains(&permission.as_str()){crate::refuse!(BadRequest,"permission must be ask, allow or deny");}
-            let mut permissions=old["permissions"].clone();permissions[&capability]=json!(permission);
-            if ["files.read","files.write"].contains(&capability.as_str())&&permission!="allow"{let mode=capability.strip_prefix("files.").expect("file capability");tx.execute("DELETE FROM ot.custom_app_file_grants WHERE org_id=$1 AND app_id=$2 AND mode=$3",&[&org.id,&id,&mode]).await?;}
-            tx.execute("UPDATE ot.custom_apps SET permissions=$3,permission_rev=permission_rev+1,updated_at=now() WHERE org_id=$1 AND id=$2",&[&org.id,&id,&permissions]).await?;
+            if caller.is_some(){
+                let current=match &site{Some(site)=>old["site_permissions"][site.as_str()].as_str(),None=>old["permissions"][capability.as_str()].as_str()};
+                if current==Some("deny")&&permission!="deny"{crate::refuse!(Forbidden,"only the user may lift an internet access Deny");}
+            }
+            set_permission(&tx,org.id,&id,&old,&capability,site.as_deref(),&permission,"change",&actor,None).await?;
             changed=true;app(&tx,org.id,&id,false,false).await?
+        }
+        Request::PermissionHistory{app:id,limit}=>{
+            app(&tx,org.id,&id,false,false).await?;let n=limit.unwrap_or(PERMISSION_HISTORY);
+            if !(1..=PERMISSION_HISTORY).contains(&n){crate::refuse!(BadRequest,"limit must be 1-128");}
+            let rows=tx.query("SELECT jsonb_build_object('seq',seq,'capability',capability,'site',site,'permission',permission,'via',via,'actor',actor,'panel',panel_id,'at',at) FROM ot.custom_app_permission_log WHERE org_id=$1 AND app_id=$2 ORDER BY seq DESC LIMIT $3",&[&org.id,&id,&n]).await?;
+            json!({"app":id,"entries":rows.iter().map(|r|r.get::<_,Value>(0)).collect::<Vec<_>>()})
         }
         Request::AppGet{app:id}=>app(&tx,org.id,&id,true,false).await?,
         Request::AppExport{app:id,expected_rev,include_panels}=>{
@@ -147,8 +208,8 @@ pub(crate) async fn run_locked(engine:&Arc<Engine>,org:&Arc<OrgHandle>,caller:Op
             wire::bundle(&value)?;json!({"panels":value.panels.len(),"bundle":value})
         }
         Request::AppImport{bundle:value}=>{
-            let id=crate::util::uid("app");let def=&value.definition;let caps=json!(wire::current_capabilities(&def.capabilities));let declarations=json!(def.events);
-            tx.execute("INSERT INTO ot.custom_apps(org_id,id,name,description,html,initial_state,capabilities,width,height,created_by,declared_events,origin) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,'imported')",&[&org.id,&id,&def.name,&def.description,&def.html,&def.initial_state,&caps,&def.width,&def.height,&actor,&declarations]).await?;
+            let id=crate::util::uid("app");let def=&value.definition;let caps=json!(wire::current_capabilities(&def.capabilities));let declarations=json!(def.events);let sites=json!(def.sites);
+            tx.execute("INSERT INTO ot.custom_apps(org_id,id,name,description,html,initial_state,capabilities,width,height,created_by,declared_events,origin,declared_sites) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,'imported',$12)",&[&org.id,&id,&def.name,&def.description,&def.html,&def.initial_state,&caps,&def.width,&def.height,&actor,&declarations,&sites]).await?;
             let mut saved=Vec::new();
             for p in &value.panels{
                 let pid=crate::util::uid("panel");let place=serde_json::to_value(Placement{width:def.width,height:def.height,..Placement::default()})?;
@@ -158,15 +219,20 @@ pub(crate) async fn run_locked(engine:&Arc<Engine>,org:&Arc<OrgHandle>,caller:Op
             changed=true;json!({"imported":id,"app":app(&tx,org.id,&id,false,false).await?,"panels":saved,"warning":"Apps imported from outside this org have full access to it and its state. Be careful importing apps from untrustworthy sources."})
         }
         Request::AppCreate{definition:def}=>{
-            wire::definition(&def)?;let id=crate::util::uid("app");let caps=json!(wire::current_capabilities(&def.capabilities));let declarations=json!(def.events);
-            tx.execute("INSERT INTO ot.custom_apps(org_id,id,name,description,html,initial_state,capabilities,width,height,created_by,declared_events,origin) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,'created')",&[&org.id,&id,&def.name,&def.description,&def.html,&def.initial_state,&caps,&def.width,&def.height,&actor,&declarations]).await?;
+            wire::definition(&def)?;let id=crate::util::uid("app");let caps=json!(wire::current_capabilities(&def.capabilities));let declarations=json!(def.events);let sites=json!(def.sites);
+            tx.execute("INSERT INTO ot.custom_apps(org_id,id,name,description,html,initial_state,capabilities,width,height,created_by,declared_events,origin,declared_sites) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,'created',$12)",&[&org.id,&id,&def.name,&def.description,&def.html,&def.initial_state,&caps,&def.width,&def.height,&actor,&declarations,&sites]).await?;
             changed=true;app(&tx,org.id,&id,false,false).await?
         }
         Request::AppUpdate{app:id,expected_rev,definition:def}=>{
             wire::definition(&def)?;let old=app(&tx,org.id,&id,false,true).await?;revision(&old,expected_rev)?;let caps=json!(wire::current_capabilities(&def.capabilities));let declarations=json!(def.events);let restrictive=super::policy::restrictive_overrides(&old["permissions"]);
             tx.execute("DELETE FROM ot.custom_app_file_grants WHERE org_id=$1 AND app_id=$2",&[&org.id,&id]).await?;
-            // Code replacement revokes external grants; user Ask/Deny stays restrictive.
-            tx.execute("UPDATE ot.custom_apps SET name=$3,description=$4,html=$5,initial_state=$6,capabilities=$7,width=$8,height=$9,declared_events=$10,permissions=$11,permission_rev=permission_rev+1,rev=rev+1,updated_at=now() WHERE org_id=$1 AND id=$2",&[&org.id,&id,&def.name,&def.description,&def.html,&def.initial_state,&caps,&def.width,&def.height,&declarations,&restrictive]).await?;
+            // Code replacement revokes external grants and every Allow, internet
+            // site rows included (design m232e1d1ccb57); user Ask/Deny stays
+            // restrictive. Permission history records each cleared Allow.
+            let sites=json!(def.sites);let site_rows=super::policy::restrictive_overrides(&old["site_permissions"]);
+            for (cap,choice) in old["permissions"].as_object().into_iter().flatten(){if choice=="allow"{log_permission(&tx,org.id,&id,cap,None,"default","code",&actor,None).await?;}}
+            for (site,choice) in old["site_permissions"].as_object().into_iter().flatten(){if choice=="allow"{log_permission(&tx,org.id,&id,super::net::CAPABILITY,Some(site.as_str()),"default","code",&actor,None).await?;}}
+            tx.execute("UPDATE ot.custom_apps SET name=$3,description=$4,html=$5,initial_state=$6,capabilities=$7,width=$8,height=$9,declared_events=$10,permissions=$11,declared_sites=$12,site_permissions=$13,permission_rev=permission_rev+1,rev=rev+1,updated_at=now() WHERE org_id=$1 AND id=$2",&[&org.id,&id,&def.name,&def.description,&def.html,&def.initial_state,&caps,&def.width,&def.height,&declarations,&restrictive,&sites,&site_rows]).await?;
             // PROVISIONAL code-changed rule, not a user ruling: visible copies reload
             // the new code as before; a hidden running copy powers off rather than
             // silently running code nobody started, and stays off after a restart.
@@ -294,7 +360,7 @@ pub async fn run(engine:&Arc<Engine>,org:&Arc<OrgHandle>,caller:Option<&Caller>,
     if caller.is_some_and(|c|c.org_id!=org.id){crate::refuse!(Forbidden,"Apps caller belongs to another organization");}
     if let Request::Runtime{after,limit,sample}=request{return super::runtime::list(engine,org,caller,after,limit,sample).await;}
     let action=input["action"].as_str().unwrap_or("");
-    if ["list","app_get","panel_get","events","app_create","app_import","app_export","mark_seen","listeners"].contains(&action){return run_locked(engine,org,caller,input).await;}
+    if ["list","app_get","panel_get","events","app_create","app_import","app_export","mark_seen","listeners","permission_history"].contains(&action){return run_locked(engine,org,caller,input).await;}
     let app=if let Some(app)=input["app"].as_str(){app.to_owned()}else{
         let client=engine.db.get().await?;let panel=input["panel"].as_str().unwrap_or("");
         let row=client.query_opt("SELECT app_id FROM ot.custom_panels WHERE org_id=$1 AND id=$2",&[&org.id,&panel]).await?;
@@ -311,6 +377,9 @@ pub async fn run(engine:&Arc<Engine>,org:&Arc<OrgHandle>,caller:Option<&Caller>,
     }else{None};
     let out=run_locked(engine,org,caller,input).await?;
     if ["app_update","app_delete"].contains(&action){engine.custom_apps.revoke(org.id,Some(&app),None)?;engine.custom_apps.runtime.revoke_app(org.id,&app)?;}
+    // Anything short of Allow ends this app's internet requests in flight and
+    // its Allow once answers (Deny wins over temporary grants).
+    if action=="permission_set"&&input["capability"]==super::net::CAPABILITY&&input["permission"]!="allow"{engine.custom_apps.net.revoke(org.id,Some(&app),None);}
     if let (Some(cap),Some(before))=(file_cap,before.as_ref()){
         if removes_file_access(before,cap,input["permission"].as_str().unwrap_or("")){engine.custom_apps.file_access.forget(org.id,Some(&app),None)?;}
     }
@@ -318,7 +387,7 @@ pub async fn run(engine:&Arc<Engine>,org:&Arc<OrgHandle>,caller:Option<&Caller>,
     // runtime with its file and media links, so hidden media keeps playing
     // (USER 2026-10-26 mf7add4fda093); it ends only open questions.
     if action=="panel_delete"||action=="panel_stop"{engine.custom_apps.revoke(org.id,None,input["panel"].as_str())?;engine.custom_apps.runtime.revoke(org.id,input["panel"].as_str())?;}
-    if action=="panel_update"&&input["open"]==false{engine.custom_apps.file_access.forget_prompts(org.id,None,input["panel"].as_str(),None)?;}
+    if action=="panel_update"&&input["open"]==false{engine.custom_apps.file_access.forget_prompts(org.id,None,input["panel"].as_str(),None)?;engine.custom_apps.net.forget_once(org.id,input["panel"].as_str().unwrap_or(""));}
     Ok(out)
 }
 

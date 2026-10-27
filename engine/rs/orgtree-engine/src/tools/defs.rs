@@ -2075,7 +2075,7 @@ mod mqtt_card_tests {
 #[nolog]
 fn build_tool_apps()->Value {
     tool("orgtree_apps","Manage this org's app definitions and independent saved panels. Requires org-modifying tools. List pages omit HTML/state; app_get/panel_get read them. Agent panel_open creates a new closed copy; only user UI shows windows. Hide keeps a panel running; panel_stop powers it off. Mutations need the current expected_rev. Apps have implicit org access; user Deny overrides. External files need consent.",json!({
-        "action":{"type":"string","enum":["list","app_get","app_create","app_update","app_delete","app_import","app_export","mark_seen","panel_open","panel_get","panel_update","panel_duplicate","panel_delete","state_set","state_patch","event","events","fire_event","listeners","permission_set","panel_start","panel_stop","runtime","file_permissions","file_open","file_read","file_roots","file_list","file_child","file_write","file_delete","file_result"]},
+        "action":{"type":"string","enum":["list","app_get","app_create","app_update","app_delete","app_import","app_export","mark_seen","panel_open","panel_get","panel_update","panel_duplicate","panel_delete","state_set","state_patch","event","events","fire_event","listeners","permission_set","permission_history","panel_start","panel_stop","runtime","file_permissions","file_open","file_read","file_roots","file_list","file_child","file_write","file_delete","file_result"]},
         "apps":{"type":"array","minItems":1,"maxItems":200,"uniqueItems":true,"items":{"type":"string"},"description":"mark_seen: acknowledge these explicit app IDs for this org's New badge; does not grant actions or change app/panel revisions"},
         "bundle":{"type":"object","description":"app_import: strict orgtree-app version1 object with definition and optional panels:[{label,state}]; up to16MiB/16 saved copies. No permissions, IDs, links or geometry."},
         "path":{"type":"string","description":"app_import: absolute held .orgtree-app file; file_open: relative name inside root (artifacts uses retained delivery ID). No parent components or links."},
@@ -2096,8 +2096,9 @@ fn build_tool_apps()->Value {
         "limit":{"type":"integer","minimum":1,"maximum":200},
         "expected_rev":{"type":"integer","minimum":1},
         "expected_permission_rev":{"type":"integer","minimum":1},
-        "capability":{"type":"string","enum":["org.read","docket.write","events.fire","files.read","files.write"]},
-        "permission":{"type":"string","enum":["ask","allow","deny"],"description":"permission_set is user-only; agents may inspect declarations/grants but cannot grant themselves execution"},
+        "capability":{"type":"string","enum":["org.read","docket.write","events.fire","files.read","files.write","net.fetch"]},
+        "permission":{"type":"string","enum":["ask","allow","deny","default"],"description":"permission_set decisions are the user's; agents may only set net.fetch (or one of its sites) to ask or deny, never allow or lift a deny. default removes a site row"},
+        "site":{"type":"string","description":"permission_set for net.fetch: one declared site, or a host a declared *.domain or * covers; omit for the whole capability"},
         "new":{"type":"boolean","description":"panel_open: create a fresh closed saved panel; agents cannot open windows"},
         "label":{"type":"string","maxLength":120,"description":"panel_open default: Panel N, the app's lowest unused number"},
         "open":{"type":"boolean","description":"list panels: filter visible copies; panel_update: false hides the window and keeps the panel running; agents cannot set true or move an open window"},
@@ -2107,10 +2108,11 @@ fn build_tool_apps()->Value {
         "delete_panels":{"type":"boolean","description":"app_delete: explicit consent to delete all its saved copies"},
         "definition":{"type":"object","additionalProperties":false,"properties":{
             "name":{"type":"string","maxLength":120},"description":{"type":"string","maxLength":1000},
-            "html":{"type":"string","description":"self-contained HTML up to4MiB; no network"},
+            "html":{"type":"string","description":"self-contained HTML up to4MiB; no network except orgtree.net.fetch to sites the user allows"},
             "initial_state":{"type":"object","description":"independent initial JSON object, up to2MiB"},
             "events":{"type":"array","maxItems":64,"description":"inert portable event declarations; unique exact names, no surrounding whitespace or execution grant","items":{"type":"object","additionalProperties":false,"properties":{"name":{"type":"string","minLength":1,"maxLength":80},"description":{"type":"string","maxLength":1000}},"required":["name"]}},
-            "capabilities":{"type":"array","uniqueItems":true,"items":{"enum":["org.read","docket.write","events.fire","files.read","files.write"]}},
+            "capabilities":{"type":"array","uniqueItems":true,"items":{"enum":["org.read","docket.write","events.fire","files.read","files.write","net.fetch"]}},
+            "sites":{"type":"array","maxItems":32,"uniqueItems":true,"items":{"type":"string","maxLength":255},"description":"net.fetch: HTTPS sites the app may ask for (host, host:port, *.domain, or * for any site); inert until the user allows them"},
             "width":{"type":"integer","minimum":160,"maximum":4096},"height":{"type":"integer","minimum":120,"maximum":4096}
         },"required":["name","html"]},
         "placement":{"type":"object","additionalProperties":false,"description":"float: the centered window; window: pinned to the window like pinned desks, x,y px from the canvas area's top-left; popout: its own native window","properties":{

@@ -19,7 +19,7 @@ pub fn read_input(raw:&str)->Result<Value,super::error::ApiError>{
     if raw.len()>8192{return Err(super::error::ApiError::bad_request("Apps read request is too large"));}
     let input:Value=serde_json::from_str(raw).map_err(|_|super::error::ApiError::bad_request("invalid Apps read request"))?;
     use crate::domain::apps::wire::Request;
-    if !matches!(crate::domain::apps::wire::parse(&input).map_err(|_|super::error::ApiError::bad_request("invalid Apps read request"))?,Request::List{..}|Request::AppGet{..}|Request::PanelGet{..}|Request::Events{..}|Request::Listeners{..}){
+    if !matches!(crate::domain::apps::wire::parse(&input).map_err(|_|super::error::ApiError::bad_request("invalid Apps read request"))?,Request::List{..}|Request::AppGet{..}|Request::PanelGet{..}|Request::Events{..}|Request::Listeners{..}|Request::PermissionHistory{..}){
         return Err(super::error::ApiError::bad_request("GET only supports Apps reads"));
     }
     Ok(input)
@@ -34,6 +34,7 @@ pub async fn read(State(engine):State<Arc<Engine>>,Path(slug):Path<String>,axum:
     #[test] fn custom_apps_get_cannot_mutate_or_choose_identity(){
         for input in [serde_json::json!({"action":"panel_delete","panel":"p","expected_rev":1}),serde_json::json!({"action":"list","org":"other"})]{assert!(read_input(&input.to_string()).is_err());}
         assert!(read_input(r#"{"action":"list","kind":"panels","open":true}"#).is_ok());
+        assert!(read_input(r#"{"action":"permission_history","app":"a"}"#).is_ok(),"Permission history is a read");
     }
 }
 
