@@ -147,6 +147,8 @@ import { DocGalleryModal } from './canvas/gallery'
 import { HistoryView } from './history'
 import { DocketModal, DocketToolbarButton } from './canvas/docket'
 import { AppsButton, AppsWorkspace } from './canvas/apps/ui'
+import { DeskDogsProvider } from './canvas/watchdogroute'
+import type { DeskDogs } from './canvas/watchdogroute'
 import { customAppsFeed, invalidateCustomApps } from './canvas/apps/store'
 import { docketFeed } from './canvas/itemrefs'
 import { documentsFeed } from './canvas/docrefs'
@@ -609,6 +611,10 @@ export default function App() {
   // from the node chips), so this travels the same way the mail pointer does
   // rather than growing a second reader up here.
   const [docJump, setDocJump] = useState<string | null>(null)
+  // and a watchdog, from an Apps window's Connections row (user 2026-10-27
+  // mbf41fed391e2). The canvas owns the watchdog windows, so the id travels
+  // the same one-shot way as the document pointer.
+  const [dogJump, setDogJump] = useState<string | null>(null)
   // the SAME world the user's inbox uses, for the other panel that renders
   // prose somebody wrote: a presented document. One builder, so the two
   // cannot answer differently about the same token (see `useShellRefs`).
@@ -631,6 +637,10 @@ export default function App() {
   const appsRefs = useShellRefs(slug ?? '', tree ?? null, {
     onFocusAgent: (id) => setFocusAgent(id),
   })
+  // and its watchdog link (WatchdogLink) reads the tree's dogs here, outside
+  // the canvas's own route, and opens the dog through the canvas (dogJump)
+  const appsDogs = useMemo<DeskDogs>(() => ({ org: slug ?? undefined, dogs: tree?.watchdogs ?? [],
+    counts: tree?.watchdog_counts, open: (id) => setDogJump(id) }), [slug, tree?.watchdogs, tree?.watchdog_counts])
   // the usage button GLOWS once a lane nears its wall (user feature
   // 2026-08-19), so a freeze stops being the first notice. It rides
   // the cache-only usage peek because this reader runs whether
@@ -2059,6 +2069,8 @@ export default function App() {
                 onOpenMailHandled={() => setMailJump(null)}
                 openDocAt={docJump}
                 onOpenDocHandled={() => setDocJump(null)}
+                openDogAt={dogJump}
+                onOpenDogHandled={() => setDogJump(null)}
                 onAccounts={openAccounts}
                 /* the eye's ⚙ and its context menu open the WHOLE settings
                    modal (user ruling 2026-09-11), not the Hire defaults tab
@@ -2180,7 +2192,7 @@ export default function App() {
           refs={galleryRefs}
           close={() => setShowGallery(false)} />
       )}
-      {slug && tree && <AppsWorkspace key={slug} slug={slug} refs={appsRefs} />}
+      {slug && tree && <DeskDogsProvider value={appsDogs}><AppsWorkspace key={slug} slug={slug} refs={appsRefs} /></DeskDogsProvider>}
       {showDocket && slug && tree && (
         <DocketModal slug={slug} toast={toast} tree={tree}
           jumpTo={docketJump?.id ?? null} jumpSeq={docketJump?.seq}

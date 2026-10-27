@@ -30,14 +30,14 @@ export function AppPermissionPrompt({prompt,owner}:{prompt:PermissionPrompt;owne
         <pre>{String(p.request.method??'GET')} {String(p.request.url??'')}</pre>
         <p className="dim">Orgtree makes the request for the app, without your cookies or sign-ins. The app can send this site anything it can read, including org data and files.</p>
         <small>App {p.app} · Panel {p.panel}</small>
-        <p>Always allow and Deny apply to <code>{p.site}</code> for every copy of this app. Allow once lasts until this copy is hidden or stopped. Cancel leaves permissions unchanged.</p>
+        <p>Always allow and Deny apply to <code>{p.site}</code> for every panel of this app. Allow once lasts until this panel is hidden or stopped. Cancel leaves permissions unchanged.</p>
       </>:<>
         <p><strong>{p.name}</strong> · {p.label}</p>
         <p>Capability: <code>{p.capability}</code></p><p className="dim">App content acts as this app, with its own permission. It cannot approve work or impersonate you.</p>
         {p.capability==='docket.write'&&<p>This creates an open work item, assigns it to the selected local agent and wakes that agent. Its description remains app content.</p>}
-        {p.capability==='events.fire'&&<p>This broadcasts a declared event from this saved copy to every eligible subscribed agent. The app cannot choose recipients. Delivered data is not your instruction or approval.</p>}
+        {p.capability==='events.fire'&&<p>This broadcasts a declared event from this saved panel to every eligible subscribed agent. The app cannot choose recipients. Delivered data is not your instruction or approval.</p>}
         <pre>{JSON.stringify(p.request,null,2)}</pre><small>App {p.app} · Panel {p.panel}</small>
-        <p>Always allow and Deny apply to every copy of this app. Cancel leaves permissions unchanged.</p>
+        <p>Always allow and Deny apply to every panel of this app. Cancel leaves permissions unchanged.</p>
       </>}
       <div className="custom-app-dialog-actions"><button type="button" onClick={()=>prompt.finish(null)}>Cancel</button><span/>
         <button type="button" onClick={()=>prompt.finish('deny')}>Deny</button><button type="button" onClick={()=>prompt.finish('once')}>Allow once</button><button type="button" className="primary" onClick={()=>prompt.finish('always')}>{net?'Always allow this site':'Always allow'}</button></div>
@@ -57,9 +57,9 @@ export function AppPermissions({slug,app,close,embedded=false}:{slug:string;app:
     catch(e){setError(String(e))}finally{setBusy(false)}
   }
   const content=<>
-    <p>Changes save immediately and apply to every copy of {current.name}. Org-internal actions and Orgtree files are allowed by default; internet access is not. Explicit Ask or Deny overrides the default and survives code replacement. Outside file grants and every Allow reset when code changes.</p>
+    <p>Changes save immediately and apply to every panel of {current.name}. Org-internal actions and Orgtree files are allowed by default; internet access is not. Explicit Ask or Deny overrides the default and survives code replacement. Outside file grants and every Allow reset when code changes.</p>
     {!appCapabilities(current).length&&<p>This app declares no engine actions.</p>}
-    {appCapabilities(current).filter(cap=>!cap.startsWith('files.')&&cap!=='net.fetch').map(cap=><label className="custom-app-permission-row" key={cap}><span>{cap}{cap==='docket.write'&&<small>Creates and assigns work; wakes the selected local agent.</small>}{cap==='events.fire'&&<small>Broadcasts declared events to this copy's subscribed agents.</small>}</span><select aria-label={`${cap} permission`} disabled={busy} value={appPermission(current,cap)} onChange={e=>void save(cap,e.target.value)}><option value="ask">Ask</option><option value="allow">Allow</option><option value="deny">Deny</option></select></label>)}
+    {appCapabilities(current).filter(cap=>!cap.startsWith('files.')&&cap!=='net.fetch').map(cap=><label className="custom-app-permission-row" key={cap}><span>{cap}{cap==='docket.write'&&<small>Creates and assigns work; wakes the selected local agent.</small>}{cap==='events.fire'&&<small>Broadcasts declared events to each panel's subscribed agents.</small>}</span><select aria-label={`${cap} permission`} disabled={busy} value={appPermission(current,cap)} onChange={e=>void save(cap,e.target.value)}><option value="ask">Ask</option><option value="allow">Allow</option><option value="deny">Deny</option></select></label>)}
     {appCapabilities(current).some(cap=>cap.startsWith('files.'))&&<AppFilePermissions slug={slug} app={current} save={save} disabled={busy} refresh={async()=>setCurrent(await customAppsRequest<CustomApp>(slug,{action:'app_get',app:current.id}))}/>}
     {appCapabilities(current).includes('net.fetch')&&<AppNetPermissions app={current} save={save} disabled={busy}/>}
     {error&&<p role="alert">{error}</p>}

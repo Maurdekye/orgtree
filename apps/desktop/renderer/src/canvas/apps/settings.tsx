@@ -10,11 +10,12 @@ import {AppDialog} from './dialog'
 import {AppPermissions} from './permissions'
 import {AppPermissionHistory} from './net-ui'
 import {AppEvents,PanelConnections,PanelFireEvent,PanelHistory} from './events'
+import type {FireChoice} from './events'
 import {AppExport,saveAppJson} from './portable'
 import type {CustomApp,CustomPanel} from './types'
 
 /** Panel settings' State tab (user 2026-10-26: "and make state its own tab"): the
- * copy's own JSON data, edited in place. Save is revision-checked and reports a
+ * panel's own JSON data, edited in place. Save is revision-checked and reports a
  * conflict if another edit arrived; Reload reads the saved data again. Import is a
  * button like the other five (user 2026-10-27 m531629c33a06 "why is the import
  * button styled differently"): it opens a hidden file picker, which is cleared
@@ -39,13 +40,13 @@ export function PanelState({slug,panel,app}:{slug:string;panel:CustomPanel;app:C
 
 type AppTab='general'|'events'|'permissions'|'history'
 const APP_TABS:SettingsTab<AppTab>[]=[{id:'general',label:'General'},{id:'events',label:'Events'},{id:'permissions',label:'Permissions'},{id:'history',label:'Permission history'}]
-// Each section of a copy has its own tab, History last (user 2026-10-26: "put
+// Each section of a panel has its own tab, History last (user 2026-10-26: "put
 // connections and fire event on their own tabs"; "make history the last tab";
 // "and make state its own tab").
 type PanelTab='general'|'state'|'connections'|'fire'|'history'
 const PANEL_TABS:SettingsTab<PanelTab>[]=[{id:'general',label:'General'},{id:'state',label:'State'},{id:'connections',label:'Connections'},{id:'fire',label:'Fire event'},{id:'history',label:'History'}]
 
-/** App-wide settings never choose a saved copy or start its HTML. Permissions has
+/** App-wide settings never choose a saved panel or start its HTML. Permissions has
  * its own tab (user 2026-10-26: "for now, make permissions a second tab in app
  * settings"), as does Permission history, last (2026-10-27 m838e66af753b "put tgat
  * on i6s own tab"); Events, after General, lists the declared events (2026-10-27
@@ -74,20 +75,23 @@ export function AppSettings({slug,app,close,owner,confirmDelete=false}:{slug:str
   </SurfaceDocumentOwner>
 }
 
-/** A panel gear is bound to that exact copy, including a closed copy. Its Name
+/** A panel gear is bound to that exact panel, including a closed one. Its Name
  * row is the Agent settings rename (user 2026-10-26: "make rename work the same
  * way renaming agents does"): an inline field above the tabs whose Rename button
  * is always shown and enabled once the trimmed text is a different, non-empty
  * name (renameReady), and applies at once, with no Enter submit; the engine
  * validates, a refusal toasts its error, and a rename toasts and closes the
- * window. General holds the copy's own actions under no section header (user
+ * window. General holds the panel's own actions under no section header (user
  * 2026-10-26: remove the "This panel" title); State, Connections, Fire event and
  * History (last) each have a tab; History follows the live change feed, a fire
- * included. Placement lives on the window itself and in orgtree_apps, not here;
+ * included, and a Connections row's event opens Fire event with that event chosen
+ * (user 2026-10-27 m930f15583b2c). Placement lives on the window itself and in
+ * orgtree_apps, not here;
  * remembered grants stay app-wide, and Allow once still belongs to the live
  * host's native prompt. The delete confirmation fits its content. */
 export function PanelSettings({slug,app,panel,close,owner,confirmDelete=false}:{slug:string;app:CustomApp;panel:CustomPanel;close:()=>void;owner?:Document;confirmDelete?:boolean}){
   const currentOwner=useSurfaceDocument(),data=useApps(slug),[tab,setTab,visited]=useVisitedTabs<PanelTab>('general'),[view,setView]=useState<'delete-panel'|null>(confirmDelete?'delete-panel':null),[nameEdit,setNameEdit]=useState<string>(),[error,setError]=useState('')
+  const [fireChoice,setFireChoice]=useState<FireChoice|null>(null),fireEvent=(name:string)=>{setFireChoice(c=>({name,seq:(c?.seq??0)+1}));setTab('fire')}
   const a=data.apps.find(a=>a.id===app.id)??app,p=data.panels.find(p=>p.id===panel.id&&p.app===app.id)??panel,document=owner??currentOwner,idBase='custom-panel-settings-'+p.id,name=nameEdit??p.label
   // The app's toast, which ObjectMenuBoundary provides at the window root, as Agent settings receives it.
   const toast=useCopyFeedback()
@@ -102,12 +106,12 @@ export function PanelSettings({slug,app,panel,close,owner,confirmDelete=false}:{
     <SettingsTabPanel id="general" idBase={idBase} active={tab==='general'}>
       <div className="set-group">
         <SetRow label="Duplicate"><button type="button" onClick={()=>void changeApps(slug,{action:'panel_duplicate',panel:p.id,expected_rev:p.rev}).catch(e=>setError(String(e)))}>Duplicate</button></SetRow>
-        <SetRow label="Delete panel" hint="Removes this copy and its saved data."><button type="button" className="danger" onClick={()=>show('delete-panel')}>Delete panel…</button></SetRow>
+        <SetRow label="Delete panel" hint="Removes this panel and its saved data."><button type="button" className="danger" onClick={()=>show('delete-panel')}>Delete panel…</button></SetRow>
       </div>
     </SettingsTabPanel>
     <SettingsTabPanel id="state" idBase={idBase} active={tab==='state'} className="app-settings-panel custom-app-state-tab">{visited('state')&&<PanelState key={p.id} slug={slug} app={a} panel={p}/>}</SettingsTabPanel>
-    <SettingsTabPanel id="connections" idBase={idBase} active={tab==='connections'}>{visited('connections')&&<PanelConnections key={p.id} slug={slug} app={a} panel={p} leave={()=>closeIfCentred('custom-panel-settings:'+p.id,close,slug)}/>}</SettingsTabPanel>
-    <SettingsTabPanel id="fire" idBase={idBase} active={tab==='fire'} className="app-settings-panel custom-app-log-tab">{visited('fire')&&<PanelFireEvent key={p.id} slug={slug} app={a} panel={p}/>}</SettingsTabPanel>
+    <SettingsTabPanel id="connections" idBase={idBase} active={tab==='connections'}>{visited('connections')&&<PanelConnections key={p.id} slug={slug} app={a} panel={p} fireEvent={fireEvent} leave={()=>closeIfCentred('custom-panel-settings:'+p.id,close,slug)}/>}</SettingsTabPanel>
+    <SettingsTabPanel id="fire" idBase={idBase} active={tab==='fire'} className="app-settings-panel custom-app-log-tab">{visited('fire')&&<PanelFireEvent key={p.id} slug={slug} app={a} panel={p} choice={fireChoice}/>}</SettingsTabPanel>
     <SettingsTabPanel id="history" idBase={idBase} active={tab==='history'} className="app-settings-panel custom-app-log-tab">{visited('history')&&<PanelHistory key={p.id} slug={slug} panel={p}/>}</SettingsTabPanel>
   </AppDialog>
   {view==='delete-panel'&&<AppDialog title="Delete panel" className="custom-app-confirm" close={cancelDelete}><p>Delete {p.label} and its saved state?</p><div className="custom-app-dialog-actions"><button type="button" onClick={cancelDelete}>Cancel</button><button type="button" className="danger" onClick={()=>void changeApps(slug,{action:'panel_delete',panel:p.id,expected_rev:p.rev}).then(close).catch(e=>setError(String(e)))}>Delete panel</button></div></AppDialog>}

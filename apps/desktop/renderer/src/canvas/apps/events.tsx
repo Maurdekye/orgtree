@@ -5,7 +5,8 @@ import {useLoadWhenSeen} from '../loadmore'
 import {RefChip,resolveRef} from '../reflinks'
 import type {RefRoutes,RefWorld} from '../reflinks'
 import {useRefNames} from '../refnames'
-import {openAppRef} from '../apprefs'
+import {WatchdogLink} from '../watchdoglink'
+import {useDogRoute} from '../watchdogroute'
 import {LOG_PAGE,LogList} from './loglist'
 import type {LogCursor} from './loglist'
 import {onAppsLog} from './store'
@@ -17,6 +18,8 @@ interface Connections {items:Connection[];next_cursor:number|null}
  * with the fire's body as its History entry keeps it. */
 interface Fire {seq:number;id:string;at:string;event:string;panel:string;panel_label?:string|null;by:string;delivered:boolean;notice:boolean;body?:string|null}
 interface Fires {fires:Fire[];next_cursor:number|null}
+/** A Connections row's event handed to Fire event; a new seq repeats a choice. */
+export interface FireChoice {name:string;seq:number}
 
 /** The engine's History row for one fired event: its metadata, and its body as
  * it was sent (user 2026-10-27 mc308cabf3c5f, replacing 2026-10-26's metadata only). */
@@ -81,27 +84,27 @@ function historyDetails(e:PanelEvent){
 
 /** Panel settings' History tab, the last one (user 2026-10-26: "remove activity
  * and put events on its own tab, as history"; "make history the last tab"): the
- * copy's fires, starts and stops as a live list (2026-10-27 md2006b10cf40). It
- * follows Apps changes and this copy's own fires; Connections and Fire event
+ * panel's fires, starts and stops as a live list (2026-10-27 md2006b10cf40). It
+ * follows Apps changes and this panel's own fires; Connections and Fire event
  * have their own tabs. */
 export function PanelHistory({slug,panel}:{slug:string;panel:CustomPanel}){
   const read=(cursor:LogCursor)=>customAppsRequest<PanelEvents>(slug,{action:'events',panel:panel.id,limit:LOG_PAGE,...cursor}).then(page=>({items:page.events,next_cursor:page.next_cursor}))
-  return <div className="set-group custom-app-log-group"><p className="dim">Fired events agents can listen to, and this copy starting and stopping, newest first. Click an entry for its details, and a fired event's body as it was sent.</p>
-    <LogList slug={slug} label="History" read={read} follows={change=>!change.listeners&&(!change.panel||change.panel===panel.id)} summary={historySummary} details={historyDetails} empty="Nothing has fired, started or stopped in this copy yet."/>
+  return <div className="set-group custom-app-log-group"><p className="dim">Fired events agents can listen to, and this panel starting and stopping, newest first. Click an entry for its details, and a fired event's body as it was sent.</p>
+    <LogList slug={slug} label="History" read={read} follows={change=>!change.listeners&&(!change.panel||change.panel===panel.id)} summary={historySummary} details={historyDetails} empty="Nothing has fired, started or stopped in this panel yet."/>
   </div>
 }
 
 /** The shell's reference routes, handed down by AppsWorkspace (App's tree and
  * its agent focus): a Connections row's agent is a link like every agent link
  * (user 2026-10-27 m6ca9f88d5812). Without them the agent shows as identity
- * only, and the panel link still opens its panel. */
+ * only. */
 export const AppsRefRoutes=createContext<RefRoutes|null>(null)
 
 const delivery=(f:Fire)=>f.delivered?f.notice?'Delivered as a notice':'Delivered':'Not delivered'
 /** A subscription's fire on one line, like a History row: when, the event (and the
- * copy, for a subscription to all copies), how it was delivered, and who fired it. */
+ * panel, for a subscription to all panels), how it was delivered, and who fired it. */
 const fireSummary=(all:boolean)=>(f:Fire)=><><time dateTime={f.at}>{fmtShort(f.at)}</time>{' '}<span>Fired <strong>{f.event}</strong>{all&&<> in {f.panel_label??f.panel}</>}</span>{' '}<span className="dim">{delivery(f)}</span>{' '}<span className="dim">{who(f.by)}</span></>
-/** An expanded fire, like an expanded History row: the exact time, who, the copy,
+/** An expanded fire, like an expanded History row: the exact time, who, the panel,
  * how it was delivered, and the fire's body as it was sent. */
 function fireDetails(f:Fire){
   return <dl>
@@ -114,17 +117,22 @@ function fireDetails(f:Fire){
 
 /** One subscription (user 2026-10-27 m8ced6e920f63: "each row of the connections
  * list shows an agent link, a panel link, an event name, and can be expanded to see
- * a list of recent fires"). The agent and the panel are their mention links; a
- * subscription to every copy names no panel. Paused, Notice and Once show only
- * when they apply, beside the fire count. Expanded, the row lists its fires like
- * History: newest first, older ones as the list scrolls, new ones as they arrive. */
-function ConnectionRow({slug,app,panel,row,world,focus,leave}:{slug:string;app:CustomApp;panel:CustomPanel;row:Connection;world:RefWorld;focus?:RefRoutes['onOpen'];leave:()=>void}){
+ * a list of recent fires"). The agent is its mention link, and the watchdog its
+ * watchdog link (mbf41fed391e2: "include a link tomthe watchdog in the
+ * conneftioncrow"), which opens the watchdog's window through the shell's
+ * watchdog route and offers the watchdog menu. The list is one panel's
+ * own, holding its subscriptions and those to every panel, so a row names no panel
+ * (alpha.7 mbb46eeca4b5d: "dont acyually need the panel link here, the panel is
+ * implicit"); a subscription to every panel says all panels, which is not implicit
+ * (m55abf5a34460: "use panel nomenclature everywhere; say "all panels"").
+ * The event is a link to Fire event (m930f15583b2c), which chooses it there unless
+ * the app no longer declares it. Paused, Notice and Once show only when they
+ * apply, beside the fire count. Expanded, the row lists its fires like History:
+ * newest first, older ones as the list scrolls, new ones as they arrive. */
+function ConnectionRow({slug,app,row,world,focus,leave,fireEvent}:{slug:string;app:CustomApp;row:Connection;world:RefWorld;focus?:RefRoutes['onOpen'];leave:()=>void;fireEvent:(name:string)=>void}){
   const [open,setOpen]=useState(false),region=useId()
-  const agent=resolveRef({kind:'agent',org:slug,id:row.owner},world)
-  const named=row.all_panels?null:resolveRef({kind:'panel',org:slug,id:row.panel??panel.id},world)
-  // This copy's link names the copy: its app is this window's, and the mention's
-  // "App · Panel" label would crowd the agent's name out of the row.
-  const target=named?.outcome==='ready'&&named.ref.id===panel.id?{...named,label:panel.label}:named
+  const agent=resolveRef({kind:'agent',org:slug,id:row.owner},world),dogs=useDogRoute()
+  const declared=(app.events??[]).some(e=>e.name===row.event_name)
   const flags=[row.state==='paused'&&'Paused',row.notice&&'Notice',row.once&&'Once',plural(row.fired,'fire')].filter(Boolean).join(' · ')
   const read=(cursor:LogCursor)=>customAppsRequest<Fires>(slug,{action:'listener_fires',app:app.id,listener:row.id,limit:LOG_PAGE,...cursor}).then(page=>({items:page.fires,next_cursor:page.next_cursor}))
   return <li className={open?'open':undefined}>
@@ -132,8 +140,9 @@ function ConnectionRow({slug,app,panel,row,world,focus,leave}:{slug:string;app:C
     <div className="custom-app-connection" onClick={e=>{if(!(e.target as Element).closest('button,a,input'))setOpen(o=>!o)}}>
       <button type="button" className="custom-app-connection-toggle" aria-expanded={open} aria-controls={open?region:undefined} aria-label={(open?'Hide':'Show')+' the fires of '+row.id} title={(open?'Hide':'Show')+' recent fires'} onClick={()=>setOpen(o=>!o)}/>
       <RefChip r={agent} onOpen={focus&&(r=>{leave();focus(r)})}/>
-      {target?<RefChip r={target} onOpen={r=>{leave();openAppRef(slug,r.ref)}}/>:<span className="custom-app-connection-all">All copies</span>}
-      <span className="custom-app-connection-event" title="Event">{row.event_name}</span>
+      <WatchdogLink id={row.id} name={row.name} org={slug} onOpen={dogs?(id=>{leave();dogs.open(id)}):undefined}/>
+      {row.all_panels&&<span className="custom-app-connection-all">all panels</span>}
+      <button type="button" className="custom-app-connection-event" title={declared?`Open Fire event with ${row.event_name} chosen`:`Open Fire event: this app no longer declares ${row.event_name}`} onClick={()=>fireEvent(row.event_name)}>{row.event_name}</button>
       <span className="custom-app-connection-meta" title={row.reason??undefined}>{flags}</span>
     </div>
     {open&&<div id={region} className="custom-app-connection-fires">
@@ -144,15 +153,16 @@ function ConnectionRow({slug,app,panel,row,world,focus,leave}:{slug:string;app:C
 }
 
 /** Panel settings' Connections tab (user 2026-10-26: "put connections and fire
- * event on their own tabs"): the agent-owned listeners on this copy or on all
- * copies. Agents own their subscriptions; this tab only lists them. It is live
+ * event on their own tabs"): the agent-owned listeners on this panel or on all
+ * panels. Agents own their subscriptions; this tab only lists them. It is live
  * and has no buttons (user 2026-10-27 md11c3c790acf: "actually remove the refresh
  * button, make new or disappearing links change in realtime as they're
  * modified"): every watchdog write and every Apps change reads the loaded pages
  * again, one read at a time, and further pages load as the list's end comes into
- * view. A link leaves this window first when it sits in the middle of the screen,
- * as other windows do, so the agent or panel it opens is not hidden behind it. */
-export function PanelConnections({slug,app,panel,leave=()=>{}}:{slug:string;app:CustomApp;panel:CustomPanel;leave?:()=>void}){
+ * view. The agent and watchdog links leave this window first when it sits in the
+ * middle of the screen, as other windows do, so what they open is not hidden
+ * behind it; an event link stays, handing its event to fireEvent (Panel settings' Fire event tab). */
+export function PanelConnections({slug,app,panel,fireEvent,leave=()=>{}}:{slug:string;app:CustomApp;panel:CustomPanel;fireEvent:(name:string)=>void;leave?:()=>void}){
   const routes=useContext(AppsRefRoutes),refName=useRefNames(slug)
   const world=useMemo<RefWorld>(()=>routes?.world??{org:slug,refName},[routes,slug,refName])
   const [rows,setRows]=useState<Connection[]|null>(null),[next,setNext]=useState<number|null>(null),[error,setError]=useState('')
@@ -185,9 +195,9 @@ export function PanelConnections({slug,app,panel,leave=()=>{}}:{slug:string;app:
   return <>
     <div className="set-group"><p className="dim">Agents subscribe with an app_listener watchdog. Pause, resume and remove use the agent's watchdog controls. The list follows them as they change; expand one to see its recent fires.</p>
       {rows===null?(!error&&<p className="dim">Loading…</p>):rows.length?<ul className="custom-app-connections" aria-label="Connections">
-        {rows.map(row=><ConnectionRow key={row.id} slug={slug} app={app} panel={panel} row={row} world={world} focus={routes?.onOpen} leave={leave}/>)}
+        {rows.map(row=><ConnectionRow key={row.id} slug={slug} app={app} row={row} world={world} focus={routes?.onOpen} leave={leave} fireEvent={fireEvent}/>)}
         {next!==null&&<li ref={end} className="custom-app-log-more" role="status">Loading more connections as you scroll</li>}
-      </ul>:<p>No connected listeners for this copy.</p>}
+      </ul>:<p>No connected listeners for this panel.</p>}
     </div>
     {error&&<p role="alert">{error}</p>}
   </>
@@ -204,13 +214,20 @@ function eventFireSummary(e:PanelEvent){
  * tab, remove redundant or irrelevant information, streamline the interface"): the
  * event and Fire on one line, the event's declared description as the only hint,
  * then its data, where an empty box sends {}. Below are that event's fires from
- * this copy (m46d1f8a8e39e: "selecting an event shows that per-event fire history
+ * this panel (m46d1f8a8e39e: "selecting an event shows that per-event fire history
  * as a lazily-loading, scrollable list, similar to the history tabs"): History's
  * list and details, read for that event only and followed live, a fire from here
- * included. It never chooses an agent identity or grants a wake or action. */
-export function PanelFireEvent({slug,app,panel}:{slug:string;app:CustomApp;panel:CustomPanel}){
-  const events=app.events??[]
-  const [name,setName]=useState(events[0]?.name??''),[draft,setDraft]=useState({key:'',value:'',edited:false}),[busy,setBusy]=useState(false),[error,setError]=useState('')
+ * included. It never chooses an agent identity or grants a wake or action. A
+ * Connections row's event arrives as a new choice (user 2026-10-27 m930f15583b2c:
+ * "opens the fire event tab and preselects the chosen event"): a declared event is
+ * chosen as the picker chooses it, its data template included; an undeclared one
+ * leaves the choice alone. Either way the picker takes the focus. */
+export function PanelFireEvent({slug,app,panel,choice}:{slug:string;app:CustomApp;panel:CustomPanel;choice?:FireChoice|null}){
+  const events=app.events??[],declares=(name?:string)=>events.some(e=>e.name===name)
+  const [name,setName]=useState(choice&&declares(choice.name)?choice.name:events[0]?.name??''),[draft,setDraft]=useState({key:'',value:'',edited:false}),[busy,setBusy]=useState(false),[error,setError]=useState('')
+  const [taken,setTaken]=useState(choice?.seq),picker=useRef<HTMLSelectElement>(null)
+  if(choice&&choice.seq!==taken){setTaken(choice.seq);if(declares(choice.name)){setName(choice.name);setError('')}}
+  useEffect(()=>{if(choice)picker.current?.focus()},[choice?.seq])
   // The choice holds while its event is still declared; the declarations are live.
   const event=events.find(e=>e.name===name)??events[0]
   const key=JSON.stringify([slug,app.id,panel.id,event?.name]),latest=useRef({key,seq:-1})
@@ -235,13 +252,13 @@ export function PanelFireEvent({slug,app,panel}:{slug:string;app:CustomApp;panel
   })
   return <div className="set-group custom-app-log-group custom-app-fire">
     <div className="custom-app-fire-bar">
-      <select aria-label="Declared event" value={event.name} disabled={busy} onChange={e=>{setName(e.target.value);setError('')}}>{events.map(e=><option key={e.name} value={e.name}>{e.name}</option>)}</select>
+      <select ref={picker} aria-label="Declared event" value={event.name} disabled={busy} onChange={e=>{setName(e.target.value);setError('')}}>{events.map(e=><option key={e.name} value={e.name}>{e.name}</option>)}</select>
       <button type="button" className="primary" disabled={busy} title="Send this event and its data to the agents listening for it" onClick={()=>void fire()}>Fire</button>
     </div>
     {event.description&&<p className="dim">{event.description}</p>}
     <textarea aria-label="Event JSON data" placeholder="Event data as JSON; empty sends {}" spellCheck={false} value={payload} disabled={busy} onChange={e=>{setDraft({key,value:e.target.value,edited:true});setError('')}}/>
     {error&&<p role="alert">{error}</p>}
-    <p className="dim custom-app-fire-caption">Fires from this copy</p>
+    <p className="dim custom-app-fire-caption">Fires from this panel</p>
     <LogList key={event.name} slug={slug} label={'Fires of '+event.name} read={read} follows={change=>!change.listeners&&(!change.panel||change.panel===panel.id)} summary={eventFireSummary} details={historyDetails} empty="None yet."/>
   </div>
 }

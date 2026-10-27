@@ -11,7 +11,7 @@ type PanelRun=Pick<CustomPanel,'open'|'running'>
 export function panelRunState(p:PanelRun):{cls:string;word:string}{
   return isRunning(p)?(p.open?{cls:'open',word:'Running · visible'}:{cls:'running',word:'Running · hidden'}):{cls:'',word:'Off'}
 }
-/** An app link's hover text: the copy a click opens, or the one it creates. */
+/** An app link's hover text: the panel a click opens, or the one it creates. */
 export const appLinkTitle=(name:string,recent:string|null|undefined):string=>recent?`Open ${recent}`:`Create a panel for ${name}`
 /** A panel link's hover text is its run state; its label is on the link. */
 export const panelLinkTitle=(p:PanelRun):string=>panelRunState(p).word
@@ -26,7 +26,7 @@ function managementMenu(slug:string,kind:'app'|'panel',id:string,anchor:Element)
     {label:'Delete…',danger:true,onSelect:()=>manageAppLink(slug,kind,id,anchor,true)}]
 }
 export const appLinkMenu=(slug:string,id:string,anchor:Element):MenuEntry[]=>[
-  {label:'New panel',description:'Creates a powered-off copy without opening it',onSelect:()=>void changeApps(slug,{action:'panel_open',app:id,closed:true}).catch(error=>window.dispatchEvent(new window.CustomEvent('custom-app-error',{detail:{slug,error:String(error)}})))},
+  {label:'New panel',description:'Creates a powered-off panel without opening it',onSelect:()=>void changeApps(slug,{action:'panel_open',app:id,closed:true}).catch(error=>window.dispatchEvent(new window.CustomEvent('custom-app-error',{detail:{slug,error:String(error)}})))},
   'sep',...managementMenu(slug,'app',id,anchor)
 ]
 /** A panel link's menu. Start running never shows a window; Power off stops and

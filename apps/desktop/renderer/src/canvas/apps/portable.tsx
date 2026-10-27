@@ -50,15 +50,15 @@ export function saveAppJson(owner:Document,name:string,value:unknown,portable=fa
 export function AppImport({slug,bundle,close}:{slug:string;bundle:AppBundle;close:()=>void}){
   const [busy,setBusy]=useState(false),[error,setError]=useState('')
   const importApp=async()=>{setBusy(true);setError('');try{await changeApps(slug,{action:'app_import',bundle});await loadAppsMenu(slug);close()}catch(e){setError(String(e))}finally{setBusy(false)}}
-  const copies=bundle.panels?.length??0,description=(bundle.definition.description||'').trim()
+  const saved=bundle.panels?.length??0,description=(bundle.definition.description||'').trim()
   // Imported apps hold org authority whatever they declare (user 2026-10-26;
   // engine apps/policy.rs), so the preview lists no declared capabilities: it
   // names only what still asks first, files outside this org.
   return <><p>Name: <b>{bundle.definition.name}</b></p>{description&&<p>{description}</p>}
-    <p>Apps imported from outside this org have full access to it and its state. Be careful importing apps from untrustworthy sources. Saved copies stay closed until you open them. Importing does not run the app.</p>
+    <p>Apps imported from outside this org have full access to it and its state. Be careful importing apps from untrustworthy sources. Saved panels stay closed until you open them. Importing does not run the app.</p>
     <p>The app still asks before reading or changing files outside this org, such as a chosen folder or the whole computer.</p>
     {!!bundle.definition.sites?.length&&<p>It asks before connecting to the internet{bundle.definition.sites.includes('*')?', and it asks to reach any site':''}: {bundle.definition.sites.map(s=>s==='*'?'any site':s).join(', ')}.</p>}
-    <p>{copies===0?'No saved copies':copies===1?'1 saved copy':`${copies} saved copies`}. IDs and permissions from another org are not retained.</p>
+    <p>{saved===0?'No saved panels':saved===1?'1 saved panel':`${saved} saved panels`}. IDs and permissions from another org are not retained.</p>
     {!!bundle.panels?.length&&<ul className="custom-app-import-copies">{bundle.panels.map((p,i)=><li key={i}>{p.label}</li>)}</ul>}
     {error&&<p role="alert">{error}</p>}
     <div className="custom-app-dialog-actions"><button type="button" disabled={busy} onClick={close}>Cancel</button><button type="button" className="primary" disabled={busy} onClick={()=>void importApp()}>Import app</button></div></>
@@ -66,7 +66,7 @@ export function AppImport({slug,bundle,close}:{slug:string;bundle:AppBundle;clos
 export function AppExport({slug,app,owner}:{slug:string;app:CustomApp;owner:Document}){
   const [include,setInclude]=useState(false),[busy,setBusy]=useState(false),[error,setError]=useState('')
   const exportApp=async()=>{setBusy(true);setError('');try{const out=await customAppsRequest<{bundle:AppBundle}>(slug,{action:'app_export',app:app.id,expected_rev:app.rev,include_panels:include});saveAppJson(owner,app.name+'.orgtree-app',out.bundle,true)}catch(e){setError(String(e))}finally{setBusy(false)}}
-  return <SetRow label="Export app" hint={<>Exports never include execution permissions. Maximum 16 MiB and 16 saved copies; leave data unchecked for a definition-only export.{error&&<span role="alert"> {error}</span>}</>}>
+  return <SetRow label="Export app" hint={<>Exports never include execution permissions. Maximum 16 MiB and 16 saved panels; leave data unchecked for a definition-only export.{error&&<span role="alert"> {error}</span>}</>}>
     <label className="custom-app-include"><input type="checkbox" aria-label="Include saved panel data" checked={include} disabled={busy} onChange={e=>setInclude(e.target.checked)}/>Include saved panel data</label>
     <button type="button" disabled={busy} onClick={()=>void exportApp()}>Export app</button></SetRow>
 }

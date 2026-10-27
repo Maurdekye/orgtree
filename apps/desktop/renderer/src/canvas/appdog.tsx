@@ -35,7 +35,7 @@ export function AppDogFields({ dog }: { dog: Watchdog }) {
     <div className="chip grow wd-source">{source(dog.app_name, dog.target, !!dog.app_deleted, 'app')}</div>
     <div className="field-label">panel</div>
     <div className="chip grow wd-source">{dog.all_panels
-      ? <>all panels<span className="dim wd-source-note">every copy, including later ones</span></>
+      ? <>all panels<span className="dim wd-source-note">every panel, including later ones</span></>
       : source(dog.panel_name, dog.panel, !!dog.panel_deleted, 'panel')}</div>
     <div className="field-label">event</div>
     <div className="chip mono grow wd-source">{dog.event_name ?? '?'}</div>

@@ -235,6 +235,11 @@ export interface OrgCanvasProps {
    *  guessed at up front. */
   openDocAt?: string | null
   onOpenDocHandled?: () => void
+  /** open one watchdog's window, from a panel outside the canvas (an Apps
+   *  window's Connections row) — the same one-shot route as `openDocAt`. An id
+   *  outside the tree's preview still opens: the window reads that exact dog. */
+  openDogAt?: string | null
+  onOpenDogHandled?: () => void
 }
 
 /** has this spring arrived? Both the spring loop (which snaps to the target on
@@ -535,7 +540,7 @@ function DocOpening({ slug, docId, close, onLoaded }: {
 
 export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, onPresentations, onOrgSettings, onWorkItem,
   onAccounts, focusAgent, focusAgentDesk, onFocusAgentHandled, openMailAt,
-  onOpenMailHandled, openDocAt, onOpenDocHandled, canvasShortcuts,
+  onOpenMailHandled, openDocAt, onOpenDocHandled, openDogAt, onOpenDogHandled, canvasShortcuts,
   renderOrgSlot, canvasContent = 'shown', agentList, activeAgentsOnly = false,
   onActiveAgentsOnly }: OrgCanvasProps) {
   const worldHidden = canvasContent === 'hidden'
@@ -1178,6 +1183,11 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
     openDocView(openDocAt)
     onOpenDocHandled?.()
   }, [openDocAt, onOpenDocHandled, openDocView])
+  useEffect(() => {
+    if (!openDogAt) return
+    toggleDog(openDogAt, true)
+    onOpenDogHandled?.()
+  }, [openDogAt, onOpenDogHandled, toggleDog])
   // THE DOCKET LIVES IN APP, so a work link is handed straight up rather than
   // half-handled here. The canvas owns the inbox modals and genuinely routes
   // mail; it owns nothing of the docket and should not pretend to.
