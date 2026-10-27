@@ -13,17 +13,23 @@ export const beginWindowExit = () => { exiting = true }
  *  engine it cannot confirm has stopped puts the app back. Without this the
  *  flag stayed latched and the window silently stopped saving its layout. */
 export const endWindowExit = () => { exiting = false }
+/** Bridges that have said restoring is on. The main process only ever turns it
+ *  on (main/index.ts: off for a --background start until the main window is
+ *  first shown), so a surface mounted after one heard it starts with it instead
+ *  of waiting for its own answer: a panel going back to its own window
+ *  (MovableSurface `windowed`) opens before its first paint, not after it has
+ *  shown docked for an IPC round trip. */
+const restoreHeard = new WeakSet<object>()
 export function useRestoreWindows() {
   const bridge = desktop()
-  const [allowed, setAllowed] = useState<boolean>(() => !!bridge && !bridge.getWindowState)
+  const [allowed, setAllowed] = useState<boolean>(() => !!bridge && (!bridge.getWindowState || restoreHeard.has(bridge)))
   useEffect(() => {
     if (!bridge?.getWindowState) return
     let alive = true
-    void bridge.getWindowState().then(state => { if (alive) setAllowed(state.restoreWindows) }).catch(() => {})
+    const heard = (on: boolean) => { if (on) restoreHeard.add(bridge); if (alive) setAllowed(on) }
+    void bridge.getWindowState().then(state => heard(state.restoreWindows)).catch(() => {})
     const unsubscribe = bridge.onEvent(event => {
-      if ((event.type as string) === 'main-window-shown' && alive) {
-        setAllowed((event.data as { restoreWindows?: boolean })?.restoreWindows === true)
-      }
+      if ((event.type as string) === 'main-window-shown') heard((event.data as { restoreWindows?: boolean })?.restoreWindows === true)
     })
     return () => { alive = false; unsubscribe() }
   }, [bridge])
