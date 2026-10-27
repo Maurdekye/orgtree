@@ -1764,6 +1764,15 @@ mod builder_stack_tests {
             .replace("stream/activity:", "stream/activity/mqtt/websocket:"));
         dschema["properties"]["id"]["description"] = serde_json::json!(dschema["properties"]["id"]["description"].as_str().unwrap()
             .replace("pause/resume/remove:", "pause/resume/remove/send/configure:"));
+        // app event watchdogs (4.5.0 custom apps, 7ec8edb 2026-10-26; the
+        // event_name clause is user 2026-10-27, a175058): the kind, before
+        // mqtt, and its three fields
+        let kinds = dschema["properties"]["kind"]["enum"].as_array_mut().unwrap();
+        let at = kinds.iter().position(|k| k == "mqtt").unwrap();
+        kinds.insert(at, serde_json::json!("app_listener"));
+        dschema["properties"]["event_name"] = serde_json::json!({"type":"string","description":"app_listener: exact declared event name; a panel fires its own events only while the Orgtree main window is open"});
+        dschema["properties"]["panel"] = serde_json::json!({"type":"string","description":"app_listener: one saved panel ID; mutually exclusive with all_panels"});
+        dschema["properties"]["all_panels"] = serde_json::json!({"type":"boolean","description":"app_listener: explicitly listen to all current and future copies of this app"});
         let card = expected.as_array_mut().unwrap().iter_mut().find(|c| c["name"] == "orgtree_audience").unwrap();
         card["description"] = serde_json::json!("Manage directional audiences: agent/project endpoints, request target (optional from=managed project), grant from, deny requester, revoke grantee. Projects pass their explicit grants to live direct members as their own; no nested relay. An audience with a project also reaches its direct agents; reverse access needs a reverse grant. User project mail/broadcast grants only the project; members inherit without personal grants. Direct contact adds no user grant while effective access exists; manual Acquire audience can. Project decisions belong to their nearest agent superior (user if none). External/org-inbox access remains agent-only. Requests do not grant access.\nGuide: orgtree-tool-audience.");
         let card = expected.as_array_mut().unwrap().iter_mut().find(|c| c["name"] == "orgtree_chart").unwrap();
@@ -1873,6 +1882,21 @@ mod builder_stack_tests {
             assert_eq!(*want, *got, "{name}: differs beyond the approved slot changes");
             *want = got.clone();
         }
+        // Custom apps (user 2026-10-25, cf463f4; DECISIONS "Custom apps"): the
+        // deferred orgtree_apps card after the mail cards, whose contract its own
+        // tests cover; the org-modifying tools group, which holds Logo, in
+        // scope requests; and Logo's requirement named after that group.
+        assert!(!expected.as_array().unwrap().iter().any(|c| c["name"] == "orgtree_apps"));
+        let at = expected.as_array().unwrap().iter().position(|c| c["name"] == "orgtree_send_notice").unwrap() + 1;
+        expected.as_array_mut().unwrap().insert(at, super::build_tool_apps());
+        let scope = expected.as_array_mut().unwrap().iter_mut().find(|c| c["name"] == "orgtree_request_scope").unwrap();
+        let groups = scope["inputSchema"]["properties"]["items"]["items"]["properties"]["tool"]["enum"].as_array_mut().unwrap();
+        let at = groups.iter().position(|g| g == "orgtree.logo").unwrap();
+        groups.insert(at, serde_json::json!("orgtree.orgmod"));
+        let logo = expected.as_array_mut().unwrap().iter_mut().find(|c| c["name"] == "orgtree_org_logo").unwrap();
+        let old = "requires logo tools,";
+        assert!(logo["description"].as_str().unwrap().contains(old));
+        logo["description"] = serde_json::json!(logo["description"].as_str().unwrap().replace(old, "requires org-modifying tools,"));
         // Approved fast-mode additions: one card after hire and one shared
         // boolean on the four seat cards. Preserve every other byte.
         let fast=actual.iter().find(|c|c["name"]=="orgtree_fast_defaults").unwrap();
@@ -1882,6 +1906,8 @@ mod builder_stack_tests {
             let want=expected.as_array_mut().unwrap().iter_mut().find(|c|c["name"]==name).unwrap();
             let got=actual.iter().find(|c|c["name"]==name).unwrap();
             want["inputSchema"]["properties"]["fast_mode"]=got["inputSchema"]["properties"]["fast_mode"].clone();
+            // Custom apps (cf463f4): the org-modifying tools group.
+            want["inputSchema"]["properties"]["tools"]["properties"]["orgtree"]["properties"]["orgmod"]=serde_json::json!({"type":"boolean"});
             // Approved native replacement switch already in the assigned base.
             want["inputSchema"]["properties"]["tools"]["properties"]["orgtree_disabled"]=serde_json::json!({"type":"boolean","description":"Restore Orgtree-disabled native tools; fresh hire omission=false, rehire/retool omission preserves. Parent-clamped; does not change defaults or other permissions. See orgtree-agent-tools-tab."});
             if matches!(name, "orgtree_hire" | "orgtree_staff") {
