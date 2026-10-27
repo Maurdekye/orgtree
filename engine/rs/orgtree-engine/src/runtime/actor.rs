@@ -660,6 +660,13 @@ enum Proc {
 
 #[logged]
 impl Proc {
+    /// An Antigravity process launched on the default sign-in under another
+    /// credential stamp than `stamp` (a profile login has its own credential).
+    #[nolog]
+    fn agy_before(&self, stamp: crate::providers::agy_auth::Stamp) -> bool {
+        matches!(self, Proc::Agy(a) if a.primary && a.auth_stamp != stamp)
+    }
+
     #[nolog]
     fn process(&self) -> uuid::Uuid {
         match self {
@@ -1602,6 +1609,19 @@ impl Actor {
                 boxed(|| self.replace_idle_process()).await;
                 boxed(|| self.update_forecast()).await;
                 self.publish();
+            }
+            AgentMsg::AgyLoginChanged(stamp) => {
+                // the old login's process must not stay warm (it can write
+                // that login back): replace it now when idle, after the turn
+                // when busy; background work keeps it until that work is over
+                if self.proc.as_ref().is_some_and(|p| p.agy_before(stamp)) {
+                    self.reconfigured = true;
+                    if !self.held {
+                        boxed(|| self.replace_idle_process()).await;
+                    }
+                    boxed(|| self.update_forecast()).await;
+                    self.publish();
+                }
             }
             AgentMsg::ApplyQueued => {
                 // a running turn's end applies it; an idle agent takes it now

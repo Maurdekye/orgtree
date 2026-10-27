@@ -114,6 +114,10 @@ pub enum AgentMsg {
     Process { action: String, reply: oneshot::Sender<Value> },
     /// scope/model/account/charter changed: the next turn needs a fresh process
     Reconfigured,
+    /// the default Antigravity sign-in moved to another account, checked at
+    /// this credential stamp: an Antigravity process launched on the default
+    /// sign-in under an older stamp is replaced like a reconfiguration
+    AgyLoginChanged(crate::providers::agy_auth::Stamp),
     /// a switch or account was queued because a turn is on record: an idle
     /// agent applies it now (decision 62)
     ApplyQueued,
@@ -175,6 +179,7 @@ impl std::fmt::Debug for AgentMsg {
             Self::Effort(..) => "Effort",
             Self::Process { .. } => "Process",
             Self::Reconfigured => "Reconfigured",
+            Self::AgyLoginChanged(..) => "AgyLoginChanged",
             Self::ApplyQueued => "ApplyQueued",
             Self::Claude(..) => "Claude",
             Self::Codex(..) => "Codex",
@@ -204,6 +209,20 @@ pub struct Envelope {
 }
 
 pub type AgentTx = mpsc::UnboundedSender<Envelope>;
+
+/// The default Antigravity sign-in moved to a different account. A running
+/// agy keeps the login it started with and saves its refreshed token over the
+/// shared credential, which put the old account back 6.5 minutes after the
+/// user signed in as another (measured 2026-10-27). Every agent replaces an
+/// Antigravity process launched on the default sign-in before `stamp`: an
+/// idle one now, a busy one after its turn (user 2026-10-27 mb2fa30fd31fd,
+/// "Yes, restart them"). The next turn starts on the new login.
+#[nolog] // runs under the sign-in check; names no account
+pub fn agy_login_changed(engine: &Engine, stamp: crate::providers::agy_auth::Stamp) {
+    let agents = engine.agents.map.pin();
+    let told = agents.values().filter(|h| h.send(AgentMsg::AgyLoginChanged(stamp))).count();
+    tracing::info!(agents = told, "Antigravity sign-in moved to another account: replacing processes on the old login");
+}
 
 /// A stream can close before the OS reports the exit. Bound the wait and
 /// distinguish that uncertainty from an actual process exit code.

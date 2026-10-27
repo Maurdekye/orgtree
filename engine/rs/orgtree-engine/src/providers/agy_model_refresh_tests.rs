@@ -295,3 +295,50 @@ async fn auth_refusals_clear_and_later_errors_do_not_resurrect_catalog() {
         assert!(listed_in_payload(&engine), "a later successful catalog may restore Argon");
     }
 }
+
+type Inbox = tokio::sync::mpsc::UnboundedReceiver<crate::runtime::Envelope>;
+
+/// A stand-in agent: the registry entry every running agent has.
+fn listener(engine: &Engine) -> Inbox {
+    let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
+    engine.agents.map.pin().insert(4242, std::sync::Arc::new(crate::runtime::AgentHandle {
+        id: 4242, org_id: 1, tx,
+        view: arc_swap::ArcSwap::from_pointee(serde_json::Value::Null),
+        helpers: arc_swap::ArcSwap::from_pointee(serde_json::json!({"count":0,"items":[],"truncated":false})),
+    }));
+    rx
+}
+
+fn restarts(rx: &mut Inbox) -> Vec<agy_auth::Stamp> {
+    let mut out = Vec::new();
+    while let Ok(e) = rx.try_recv() {
+        if let crate::runtime::AgentMsg::AgyLoginChanged(stamp) = e.msg { out.push(stamp); }
+    }
+    out
+}
+
+#[tokio::test]
+async fn a_sign_in_to_another_account_replaces_processes_on_the_old_login() {
+    // Live 2026-10-27: warm agy seats launched as A saved A back over the
+    // user's sign-in as B 6.5 minutes later (USER mb2fa30fd31fd "Yes, restart them").
+    let engine = engine();
+    let mut rx = listener(&engine);
+    identity(&engine, 2, Some(" A@EXAMPLE.INVALID "));
+    assert!(restarts(&mut rx).is_empty(), "a token rotation keeps every process");
+    identity(&engine, 3, Some("b@example.invalid"));
+    assert_eq!(restarts(&mut rx), vec![agy_auth::Stamp(3)], "B: replace what was launched before stamp 3");
+    identity(&engine, 4, None);
+    agy_auth::catalog_test_metadata(&engine, Ok(None));
+    agy_auth::record_catalog_identity(&engine, agy_auth::Stamp(0), None);
+    assert!(restarts(&mut rx).is_empty(), "unnamed and signed-out answers replace nothing");
+    identity(&engine, 5, Some("a@example.invalid"));
+    assert_eq!(restarts(&mut rx), vec![agy_auth::Stamp(5)], "back to A after an unnamed gap is a change too");
+}
+
+#[tokio::test]
+async fn the_first_checked_login_replaces_nothing() {
+    let engine = Engine::for_tests(std::path::PathBuf::new());
+    let mut rx = listener(&engine);
+    identity(&engine, 1, Some("a@example.invalid"));
+    assert!(restarts(&mut rx).is_empty());
+}

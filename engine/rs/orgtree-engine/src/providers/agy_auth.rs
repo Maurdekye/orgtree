@@ -111,6 +111,9 @@ pub struct AuthGate {
     profiles: Mutex<HashMap<String, (Stamp, Refusal, SystemTime)>>,
     // The default sign-in's last stable silent-check identity. Never logged or persisted.
     principal: Mutex<Option<CatalogIdentity>>,
+    // The last account a passing check NAMED for the default sign-in, kept
+    // across unnamed and signed-out answers. Never logged or persisted.
+    named: Mutex<Option<Principal>>,
     #[cfg(test)]
     catalog_test_metadata: Mutex<Option<Result<Option<Stamp>, Failure>>>,
 }
@@ -162,6 +165,14 @@ pub(super) fn record_catalog_identity(engine: &Engine, stamp: Stamp, who: Option
         });
     }
     if changed { super::publish(engine); }
+    // A sign-in to a different account (not a token rotation, an unnamed or a
+    // signed-out answer): processes still on the old login are replaced.
+    if let Some(now) = principal {
+        let before = std::mem::replace(&mut *engine.providers.agy_auth.named.lock().unwrap_or_else(|p| p.into_inner()), Some(now));
+        if before.is_some_and(|b| b != now) {
+            crate::runtime::agy_login_changed(engine, stamp);
+        }
+    }
     identity
 }
 

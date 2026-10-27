@@ -88,6 +88,10 @@ pub struct AgyProc {
     pipe: CancellationToken,
     pub model: String,
     pub auth_stamp: crate::providers::agy_auth::Stamp,
+    /// launched on the user's own (default) sign-in, not a profile login
+    pub primary: bool,
+    /// the durable kill record's name for it
+    who: String,
     /// Home selected at launch, never an actor's later account binding.
     pub history_home: Option<PathBuf>,
     pub conversation: Option<String>,
@@ -213,7 +217,9 @@ impl AgyProc {
             crate::providers::agy_auth::Login::Primary => crate::rig::home_dir(),
             crate::providers::agy_auth::Login::Profile { home, .. } => Some(home.clone()),
         };
-        Ok(AgyProc { pid, process, stdin: tx, child: Some(child), job, pipe, model: spec.model, auth_stamp,
+        let primary = spec.login == crate::providers::agy_auth::Login::Primary;
+        let who = format!("agent {} (#{})", caller.name, caller.agent_id);
+        Ok(AgyProc { pid, process, stdin: tx, child: Some(child), job, pipe, model: spec.model, auth_stamp, primary, who,
             history_home, conversation: spec.conversation, thinking_warned: false })
     }
 
@@ -248,8 +254,12 @@ impl AgyProc {
         let (tx, _) = mpsc::unbounded_channel();
         self.stdin = tx;
         if let Some(mut c) = self.child.take() {
+            let started = std::time::Instant::now();
             let status = c.wait_exit(self.pid, self.process, "close requested", Duration::from_secs(5)).await;
             if status.starts_with("exit status unavailable") {
+                // graceful first; a forced end goes to the durable kill record
+                crate::codex_kills::force(self.pid, self.job.is_some(), &self.who, "Antigravity close requested", true,
+                    started.elapsed().as_millis() as u64);
                 if let Some(job) = &self.job {
                     job.terminate();
                 }
