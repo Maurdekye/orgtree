@@ -63,6 +63,10 @@ Each Submit then wakes the agent with watchdog mail carrying the placements, as
 app data rather than instructions. The listener hears only its own panel: a
 copy the user makes later needs a listener of its own.
 
+Style the HTML with Orgtree's theme colors (see Theme colors) so the panel matches
+the user's visual theme and contrast color, unless the app's own look is the point,
+as in a game or a preview of another product.
+
 ## Ids are readable slugs
 
 An app's and a panel's id is a readable slug (user 2026-10-27): the name's
@@ -279,6 +283,38 @@ List kind:panels accepts open:true/false and running:true/false to page only
 that subset. Metadata
 includes event_seq; HTML/state remain excluded. All unruled defaults are
 provisional for the user's morning review.
+
+## Theme colors
+
+A panel receives Orgtree's current colors (user 2026-10-27 m4e1fae02a0ca, m164909566caf): the
+visual theme's accent family and the contrast theme's surfaces, text, borders and
+status colors. Use them when relevant, with fallbacks, as for HTML presentations;
+[orgtree-tool-present](../../user/tool-present/SKILL.md#theme-colors) describes each
+variable and has an example. In CSS: `--orgtree-accent`, `--orgtree-accent-hover`,
+`--orgtree-accent-soft`, `--orgtree-accent-text`, `--orgtree-bg`, `--orgtree-sidebar`,
+`--orgtree-card`, `--orgtree-hover`, `--orgtree-input`, `--orgtree-text`,
+`--orgtree-text-strong`, `--orgtree-text-dim`, `--orgtree-border`,
+`--orgtree-border-soft`, `--orgtree-success`, `--orgtree-danger`, `--orgtree-warning`
+and `--orgtree-color-scheme` (`dark` or `light`). They sit in one zero-specificity
+rule, so the app's own values win.
+
+In script, `orgtree.theme.get()` returns the current `{colorScheme, colors}`
+synchronously, frozen: the same colors under camelCase names (`accent`,
+`accentHover`, `accentSoft`, `accentText`, `bg`, `sidebar`, `card`, `hover`, `input`,
+`text`, `textStrong`, `textDim`, `border`, `borderSoft`, `success`, `danger`,
+`warning`); a color Orgtree could not resolve is absent. `orgtree.theme.onChange(fn)`
+calls `fn` with the new value after each switch and returns a function that stops
+it. A switch restyles a running copy in place, hidden ones included: it is not
+reloaded and keeps its state. Use onChange for what CSS can't follow, such as a
+canvas:
+
+```js
+const paint = ({colors}) => { ctx.fillStyle = colors.card ?? '#ffffff'; ctx.fillRect(0, 0, w, h) }
+paint(orgtree.theme.get()); orgtree.theme.onChange(paint)
+```
+
+The colors only flow into the panel: they add no capability, permission or
+network access.
 
 ## App files
 

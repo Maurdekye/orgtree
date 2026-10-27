@@ -448,3 +448,12 @@ Agents write these as `@app:<org>/<slug>` and `@panel:<org>/<slug>`; the
 Apps tool gives them the exact text. You can mention them too: type **@** and
 part of the app's name in a message, or `@app:` or `@panel:` to list them all,
 the most recently used first.
+
+## Theme colors
+
+Panels can use Orgtree's current colors (user 2026-10-27): the visual theme's accent
+and the contrast color's backgrounds, text, borders and status colors. A panel built
+to use them matches your Display > Appearance choices and restyles at once when you
+change them, without reloading or losing its state; a panel that sets its own colors
+keeps them. App authors use the `--orgtree-*` CSS variables or `orgtree.theme`; see
+[the apps tool guide](skills/orgtree-working/team/tool-apps/SKILL.md#theme-colors).

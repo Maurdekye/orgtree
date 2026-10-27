@@ -39,8 +39,26 @@ presentation's own state, and the choice carries to the next presentation opened
 that window. A link click that would leave the document does nothing, as in the
 window viewer, while #fragment and javascript: links work; a navigation started by a
 script is cancelled by the guard and leaves an error page in the frame, where the
-window keeps its page. That parent-to-frame post is the only message: the app registers no
-`message` listener for presentation frames.
+window keeps its page. Those parent-to-frame posts (Fit width and theme colors) are the
+only messages: the app registers no `message` listener for presentation frames.
+
+**Theme colors** (user 2026-10-27 m4e1fae02a0ca, m164909566caf): the frame script first adds
+a `<style>` holding Orgtree's current colors as `--orgtree-*` custom properties in one
+`:where(:root)` rule (zero specificity: the author's own values win), embedded as a JSON
+string with `<` escaped. `frametheme.ts` reads the app's resolved root tokens through a
+hidden probe element, so the light-contrast partners and custom and rainbow accents
+arrive as `#rrggbb` or `rgba()`; `packages/contracts/frame-theme.ts` owns the names,
+validation and sheet text. It watches `orgtree:visual-theme-changed` and
+`orgtree:contrast-changed`, and polls every 250 ms only while `.rainbow-theme` is on.
+The reader posts each change as `{orgtreePresentationTheme: css}`, apart from the Fit
+width post, and again on load; the frame replaces the sheet, so a switch never reloads.
+The window viewer has no bridge: the renderer reports each change over
+`desktop:set-frame-theme` (`setFrameTheme`), and `main/frametheme.ts` inserts the same
+sheet into each artifact viewer on dom-ready and replaces it in place, one insertion at a
+time per viewer, dropping one still in flight across a reload. A page that doesn't use the
+variables is unchanged: no `color-scheme` or default colors are imposed.
+[decided: user 2026-10-27 m4e1fae02a0ca, m164909566caf; verified: `canvas/docs.tsx`, `frametheme.ts`,
+`main/frametheme.ts`, `tests/{htmltheme,artifacttheme}.test.ts(x)`; 2026-10-27]
 
 Presentations are one-way and custom apps are the two-way feature; the two stay
 separate (user 2026-10-26 21:36:16Z m2da6e3eb205d, mc5f0c7fac8ff). App-to-agent

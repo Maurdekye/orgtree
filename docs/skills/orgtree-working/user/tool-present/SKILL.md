@@ -63,6 +63,40 @@ not just the entry HTML. Correct the reference or supply the asset, then retry.
 
 The preview embeds captured resources in an isolated sandbox with scripts allowed, but no network connections (WebRTC included), form submission or app access. Prefer inline scripts/styles and local resources; a remote CDN/API dependency is not a working offline preview. The captured preview is separately size-bounded to 25 MiB. The download is HTML for a single file, or a ZIP with original relative layout for an asset bundle. Later source edits do not change either stored capture.
 
+## Theme colors
+
+An HTML presentation receives Orgtree's current colors as CSS custom properties (user 2026-10-27: "feed the current theme coloring into html presentations and apps", for "both the main visual theme color and the contrast theme colors"). Use them when the page should look at home in Orgtree, as reports, dashboards, tables and notes usually should. Keep your own colors where the look is the point: a mockup of another product, a brand, print, or colors that carry meaning in a chart. Give every use a fallback, which a downloaded copy uses: `var(--orgtree-bg, #ffffff)`.
+
+| Variable | Color |
+| --- | --- |
+| `--orgtree-accent` | The visual theme's accent: links, highlights, primary buttons |
+| `--orgtree-accent-hover` | The accent on hover |
+| `--orgtree-accent-soft` | A translucent accent tint: selected rows, badges |
+| `--orgtree-accent-text` | Text on an accent fill |
+| `--orgtree-bg` | The contrast theme's page background |
+| `--orgtree-sidebar` | Side panels |
+| `--orgtree-card` | Cards and widgets |
+| `--orgtree-hover` | Hover and raised surfaces |
+| `--orgtree-input` | Input fields |
+| `--orgtree-text` | Body text |
+| `--orgtree-text-strong` | Headings and emphasis |
+| `--orgtree-text-dim` | Secondary text |
+| `--orgtree-border` | Borders |
+| `--orgtree-border-soft` | Subtle dividers |
+| `--orgtree-success`, `--orgtree-danger`, `--orgtree-warning` | Status colors |
+| `--orgtree-color-scheme` | `dark` or `light` (the Light and Solarized Light contrast colors are light) |
+
+Each color is concrete, `#rrggbb` or `rgba(r, g, b, a)`, and follows the user's current choices: a custom accent, and the deeper accent and status partners Orgtree uses on the light contrast colors. A minimal themed page:
+
+```css
+:root { color-scheme: var(--orgtree-color-scheme, light); }
+body { background: var(--orgtree-bg, #ffffff); color: var(--orgtree-text, #1f2328); }
+a { color: var(--orgtree-accent, #b5532f); }
+.card { background: var(--orgtree-card, #f6f7f9); border: 1px solid var(--orgtree-border, #d0d7de); }
+```
+
+The variables sit in one zero-specificity rule ahead of the page's own CSS, so the page's own values and `:root` rules always win, and nothing else changes on a page that doesn't use them. They work in the reader and in **Open in a new window**. When the user changes the visual theme or contrast color, an open presentation restyles in place without reloading. A script that paints with them, on a canvas for example, reads them when it draws (`getComputedStyle(document.documentElement).getPropertyValue('--orgtree-accent')`); no event announces a switch. App panels get the same variables and a script API ([orgtree-tool-apps](../../team/tool-apps/SKILL.md#theme-colors)).
+
 ## What reaches the user
 
 The successful result returns the presentation's id and mention reference, and a card. Canvas/desk compact surfaces show recent presentations; the wider gallery opens the collection. Markdown uses the reader. HTML presentations carry an **HTML** tag (`</> HTML`, or `</>` on compact chips). Direct HTML chips open the presentation in its own window. Gallery readers show the selected presentation inline in the same sandbox, with **Fit width**/**100%** and an **Open in a new window** link; a captured preview over 4 MiB opens only in its window. The user can interact with an HTML presentation, but it cannot send anything back to you: presentations are one-way. Available menus include title/reference copying and format-specific downloads. Closing the reader differs from dismissing a card.

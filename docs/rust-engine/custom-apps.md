@@ -1,5 +1,26 @@
 # Custom apps and saved panels (4.5.0)
 
+## Theme colors (2026-10-27)
+
+USER 2026-10-27 m4e1fae02a0ca ("feed the current theme coloring into html
+presentations and apps, and encourage agents creating html presentations and apps to
+use orgtree's theme colors when relevant") and m164909566caf ("both the main visual
+theme color and the contrast theme colors"). `panelDocument` embeds the current colors
+in the SDK prefix (`frameTheme()` from renderer `frametheme.ts`; the names, validation
+and sheet text are `packages/contracts/frame-theme.ts`). The SDK appends one `<style>`
+holding a `:where(:root)` rule of `--orgtree-*` custom properties before any author
+markup, and exposes `orgtree.theme.get()` (frozen `{colorScheme, colors}`, camelCase
+names) and `orgtree.theme.onChange(fn)` (returns its stop function; a listener set of
+its own, so no app event name can collide). PanelHtml posts `{kind:'theme', theme, css}`
+on the panel's reply port after every handshake (host.ready and load) and on each
+change while the copy runs, hidden included; the SDK replaces the sheet and calls the
+listeners, so a switch never reloads the panel. The theme code tolerates a missing
+`document` (tests run the SDK in a bare vm context). Colors only flow in: no
+capability, permission, CSP or network change. Presentations share the sheet
+([inline HTML presentations](../agents/docket-and-presentations.md#inline-html-presentations-2026-10-26));
+agents read [orgtree-tool-apps](../skills/orgtree-working/team/tool-apps/SKILL.md#theme-colors).
+[verified: `canvas/apps/{sdk,host}.ts(x)`, `frametheme.ts`, `tests/htmltheme.test.tsx`; 2026-10-27]
+
 ## Apps list action columns (2026-10-27)
 
 USER m75973f4fc4ca and m2e3437aa929d: app and panel Settings gears share
