@@ -49,10 +49,10 @@ export default async function(rig){
   const refs=await read({action:'refs',apps:[app.id,'app000000000000',elsewhere.id],panels:[first.id,second.id,'panel000000000000']})
   const byId=Object.fromEntries(refs.panels.map(x=>[x.id,x]))
   p.check('refs names the app by its current name with the copy its row opens, and leaves out unknown and other-org IDs',
-    same(refs.apps,[{id:app.id,name:'Caption board',recent:'Panel 2'}]),refs.apps)
+    same(refs.apps,[{asked:app.id,id:app.id,name:'Caption board',recent:'Panel 2'}]),refs.apps)
   p.check('refs names each panel with its app and run state, as its Apps row shows them',refs.panels.length===2
-    &&same(byId[first.id],{id:first.id,app:app.id,app_name:'Caption board',label:'Panel 1',open:false,running:false})
-    &&same(byId[second.id],{id:second.id,app:app.id,app_name:'Caption board',label:'Panel 2',open:true,running:true}),refs.panels)
+    &&same(byId[first.id],{asked:first.id,id:first.id,app:app.id,app_name:'Caption board',label:'Panel 1',open:false,running:false})
+    &&same(byId[second.id],{asked:second.id,id:second.id,app:app.id,app_name:'Caption board',label:'Panel 2',open:true,running:true}),refs.panels)
   p.check('refs carries no HTML, state, permissions, grants or tokens',!/board<\/p>|"state"|permissions|"ref"/.test(JSON.stringify(refs)),refs)
   // the GET read refuses any invalid request in general words; the POST route says why
   const tooMany={action:'refs',apps:Array.from({length:33},(_,i)=>'app'+i),panels:Array.from({length:32},(_,i)=>'panel'+i)}
