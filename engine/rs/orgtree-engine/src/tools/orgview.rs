@@ -596,6 +596,26 @@ fn transcript_result(node: &str, access: Value, busy: bool, occupancy: Option<i3
 }
 
 #[cfg(test)]
+mod transcript_token_tests {
+    use super::*;
+    /// User 2026-10-27 m10e4ca6d8934 ("token counts in messages of all kinds"):
+    /// orgtree_read_transcript rows carry the same count the desk shows.
+    #[test]
+    fn transcript_rows_carry_the_desk_token_count() {
+        let rows=transcript_result("worker",json!({}),false,None,false,vec![
+            json!({"role":"assistant","text":"Done.","tokens":{"count":412,"reported":"Claude"}}),
+            json!({"role":"user","text":"Start.","tokens":{"count":3400,"estimated":true,"parts":[{"label":"Org state","count":1100}]}}),
+            json!({"role":"system","text":"Ended.","tokens":{"not_counted":"not sent to the agent"}}),
+            json!({"role":"assistant","text":"Before this version."})]);
+        let m=&rows["messages"];
+        assert_eq!(m[0]["tokens"]["count"],412);assert_eq!(m[0]["tokens"]["reported"],"Claude");
+        assert_eq!(m[1]["tokens"]["parts"][0]["label"],"Org state");
+        assert_eq!(m[2]["tokens"]["not_counted"],"not sent to the agent");
+        assert!(m[3]["tokens"].is_null(),"rows from before 4.5.0 carry no count, never 0");
+    }
+}
+
+#[cfg(test)]
 mod reply_selection_thinking_bridge_tests {
     use super::*;
     #[test]
