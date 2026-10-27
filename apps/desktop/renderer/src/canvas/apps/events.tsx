@@ -1,7 +1,6 @@
 import {createContext,useContext,useEffect,useId,useMemo,useRef,useState} from 'react'
 import {customAppsRequest} from '../../api'
 import {fmtFull,fmtShort} from '../../timefmt'
-import {SetRow} from '../settingskit'
 import {useLoadWhenSeen} from '../loadmore'
 import {RefChip,resolveRef} from '../reflinks'
 import type {RefRoutes,RefWorld} from '../reflinks'
@@ -166,23 +165,52 @@ export function PanelConnections({slug,app,panel,leave=()=>{}}:{slug:string;app:
   </>
 }
 
-/** Panel settings' Fire event tab: the native control that broadcasts one
- * declared event from this copy. It never chooses an agent identity or silently
- * grants a wake or action; History shows the fire through the live change feed. */
+/** A fire of the chosen event on one line, as History shows it less the event:
+ * when, how many listeners it reached, and who fired it. */
+function eventFireSummary(e:PanelEvent){
+  const {payload}=facts(e)
+  return <><time dateTime={e.at}>{fmtShort(e.at)}</time>{' '}<span>{plural(Number(payload.subscribers??0),'listener')}</span>{' '}<span className="dim">{who(e.actor)}</span></>
+}
+
+/** Panel settings' Fire event tab (user 2026-10-27 m58d8efef52d9: "clean up this
+ * tab, remove redundant or irrelevant information, streamline the interface"): the
+ * event and Fire on one line, the event's declared description as the only hint,
+ * then its data, where an empty box sends {}. Below are that event's fires from
+ * this copy (m46d1f8a8e39e: "selecting an event shows that per-event fire history
+ * as a lazily-loading, scrollable list, similar to the history tabs"): History's
+ * list and details, read for that event only and followed live, a fire from here
+ * included. It never chooses an agent identity or grants a wake or action. */
 export function PanelFireEvent({slug,app,panel}:{slug:string;app:CustomApp;panel:CustomPanel}){
-  const [name,setName]=useState(app.events?.[0]?.name??''),[payload,setPayload]=useState('{}'),[busy,setBusy]=useState(false),[error,setError]=useState(''),[result,setResult]=useState('')
+  const events=app.events??[]
+  const [name,setName]=useState(events[0]?.name??''),[payload,setPayload]=useState(''),[busy,setBusy]=useState(false),[error,setError]=useState('')
+  // The choice holds while its event is still declared; the declarations are live.
+  const event=events.find(e=>e.name===name)??events[0]
+  if(!event)return <div className="set-group"><p>This app declares no events.</p></div>
   const fire=async()=>{
-    setBusy(true);setError('');setResult('')
-    try{const value=JSON.parse(payload);if(new TextEncoder().encode(JSON.stringify(value)).length>64*1024)throw Error('Event data exceeds 64 KiB.');const out=await customAppsRequest<{accepted:boolean;subscribers:number}>(slug,{action:'fire_event',panel:panel.id,name,payload:value});setResult(`Accepted for ${plural(out.subscribers,'subscribed listener')}.`)}catch(e){setError(String(e))}finally{setBusy(false)}
+    setBusy(true);setError('')
+    try{const value:unknown=payload.trim()?JSON.parse(payload):{};if(new TextEncoder().encode(JSON.stringify(value)).length>64*1024)throw Error('Event data exceeds 64 KiB.');await customAppsRequest(slug,{action:'fire_event',panel:panel.id,name:event.name,payload:value})}catch(e){setError(String(e))}finally{setBusy(false)}
   }
-  return <>
-    <div className="set-group"><p className="dim">From {panel.label}. This sends app data to eligible agents subscribed to this copy or all copies. Opening this tab fires nothing.</p>
-      {app.events?.length?<><SetRow label="Declared event"><select aria-label="Declared event" value={name} disabled={busy} onChange={e=>setName(e.target.value)}>{app.events.map(e=><option key={e.name} value={e.name}>{e.name}</option>)}</select></SetRow>
-        <p className="dim">{app.events.find(e=>e.name===name)?.description}</p>
-        <label>Event data<textarea aria-label="Event JSON data" spellCheck={false} value={payload} disabled={busy} onChange={e=>setPayload(e.target.value)}/></label>
-        <div className="custom-app-dialog-actions"><span/><button type="button" className="primary" disabled={busy||!name} onClick={()=>void fire()}>Fire event</button></div></>:<p>This app declares no named events.</p>}
-      {result&&<p role="status">{result}</p>}
+  const read=(cursor:LogCursor)=>customAppsRequest<PanelEvents>(slug,{action:'events',panel:panel.id,name:event.name,limit:LOG_PAGE,...cursor}).then(page=>({items:page.events,next_cursor:page.next_cursor}))
+  return <div className="set-group custom-app-log-group custom-app-fire">
+    <div className="custom-app-fire-bar">
+      <select aria-label="Declared event" value={event.name} disabled={busy} onChange={e=>{setName(e.target.value);setError('')}}>{events.map(e=><option key={e.name} value={e.name}>{e.name}</option>)}</select>
+      <button type="button" className="primary" disabled={busy} title="Send this event and its data to the agents listening for it" onClick={()=>void fire()}>Fire</button>
     </div>
+    {event.description&&<p className="dim">{event.description}</p>}
+    <textarea aria-label="Event JSON data" placeholder="Event data as JSON; empty sends {}" spellCheck={false} value={payload} disabled={busy} onChange={e=>{setPayload(e.target.value);setError('')}}/>
     {error&&<p role="alert">{error}</p>}
-  </>
+    <p className="dim custom-app-fire-caption">Fires from this copy</p>
+    <LogList key={event.name} slug={slug} label={'Fires of '+event.name} read={read} follows={change=>!change.listeners&&(!change.panel||change.panel===panel.id)} summary={eventFireSummary} details={historyDetails} empty="None yet."/>
+  </div>
+}
+
+/** App settings' Events tab (user 2026-10-27 me1e204ce94e4: "add an "events" tab
+ * to the custom app settings panel that lists all of an app's declared events"):
+ * each declared event's name and description, in declaration order, read-only.
+ * The app comes from the live store, so the list follows its definition. */
+export function AppEvents({app}:{app:CustomApp}){
+  const events=app.events??[]
+  return <div className="set-group">{events.length?<ul className="custom-app-events" aria-label="Declared events">
+    {events.map(e=><li key={e.name}><span className="custom-app-event-name">{e.name}</span>{e.description&&<span className="custom-app-event-description">{e.description}</span>}</li>)}
+  </ul>:<p>This app declares no events.</p>}</div>
 }

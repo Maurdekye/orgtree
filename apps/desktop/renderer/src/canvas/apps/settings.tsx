@@ -9,7 +9,7 @@ import {changeApps,useApps} from './store'
 import {AppDialog} from './dialog'
 import {AppPermissions} from './permissions'
 import {AppPermissionHistory} from './net-ui'
-import {PanelConnections,PanelFireEvent,PanelHistory} from './events'
+import {AppEvents,PanelConnections,PanelFireEvent,PanelHistory} from './events'
 import {AppExport,saveAppJson} from './portable'
 import type {CustomApp,CustomPanel} from './types'
 
@@ -37,18 +37,19 @@ export function PanelState({slug,panel,app}:{slug:string;panel:CustomPanel;app:C
   </div>
 }
 
-type AppTab='general'|'permissions'|'history'
-const APP_TABS:SettingsTab<AppTab>[]=[{id:'general',label:'General'},{id:'permissions',label:'Permissions'},{id:'history',label:'Permission history'}]
+type AppTab='general'|'events'|'permissions'|'history'
+const APP_TABS:SettingsTab<AppTab>[]=[{id:'general',label:'General'},{id:'events',label:'Events'},{id:'permissions',label:'Permissions'},{id:'history',label:'Permission history'}]
 // Each section of a copy has its own tab, History last (user 2026-10-26: "put
 // connections and fire event on their own tabs"; "make history the last tab";
 // "and make state its own tab").
 type PanelTab='general'|'state'|'connections'|'fire'|'history'
 const PANEL_TABS:SettingsTab<PanelTab>[]=[{id:'general',label:'General'},{id:'state',label:'State'},{id:'connections',label:'Connections'},{id:'fire',label:'Fire event'},{id:'history',label:'History'}]
 
-/** App-wide settings never choose a saved copy or start its HTML. Permissions is
- * their second tab (user 2026-10-26: "for now, make permissions a second tab in
- * app settings"), and Permission history the third (2026-10-27 m838e66af753b "put
- * tgat on i6s own tab"). The description heads the window above the tabs, and General
+/** App-wide settings never choose a saved copy or start its HTML. Permissions has
+ * its own tab (user 2026-10-26: "for now, make permissions a second tab in app
+ * settings"), as does Permission history, last (2026-10-27 m838e66af753b "put tgat
+ * on i6s own tab"); Events, after General, lists the declared events (2026-10-27
+ * me1e204ce94e4). The description heads the window above the tabs, and General
  * has no section header or creator row (user 2026-10-26: "put the description
  * above the tabs and remove the app header"; "remove created-by"). The delete
  * confirmation fits its content. */
@@ -64,6 +65,7 @@ export function AppSettings({slug,app,close,owner}:{slug:string;app:CustomApp;cl
         <SetRow label="Delete app" hint="Removes the definition and every saved panel."><button type="button" className="danger" onClick={()=>setView('delete-app')}>Delete app…</button></SetRow>
       </div>
     </SettingsTabPanel>
+    <SettingsTabPanel id="events" idBase={idBase} active={tab==='events'}>{visited('events')&&<AppEvents app={a}/>}</SettingsTabPanel>
     <SettingsTabPanel id="permissions" idBase={idBase} active={tab==='permissions'}>{visited('permissions')&&<AppPermissions slug={slug} app={a} close={close} embedded/>}</SettingsTabPanel>
     <SettingsTabPanel id="history" idBase={idBase} active={tab==='history'} className="app-settings-panel custom-app-log-tab">{visited('history')&&<AppPermissionHistory key={a.id} slug={slug} app={a}/>}</SettingsTabPanel>
   </AppDialog>
@@ -103,7 +105,7 @@ export function PanelSettings({slug,app,panel,close,owner}:{slug:string;app:Cust
     </SettingsTabPanel>
     <SettingsTabPanel id="state" idBase={idBase} active={tab==='state'} className="app-settings-panel custom-app-state-tab">{visited('state')&&<PanelState key={p.id} slug={slug} app={a} panel={p}/>}</SettingsTabPanel>
     <SettingsTabPanel id="connections" idBase={idBase} active={tab==='connections'}>{visited('connections')&&<PanelConnections key={p.id} slug={slug} app={a} panel={p} leave={()=>closeIfCentred('custom-panel-settings:'+p.id,close,slug)}/>}</SettingsTabPanel>
-    <SettingsTabPanel id="fire" idBase={idBase} active={tab==='fire'}>{visited('fire')&&<PanelFireEvent key={p.id} slug={slug} app={a} panel={p}/>}</SettingsTabPanel>
+    <SettingsTabPanel id="fire" idBase={idBase} active={tab==='fire'} className="app-settings-panel custom-app-log-tab">{visited('fire')&&<PanelFireEvent key={p.id} slug={slug} app={a} panel={p}/>}</SettingsTabPanel>
     <SettingsTabPanel id="history" idBase={idBase} active={tab==='history'} className="app-settings-panel custom-app-log-tab">{visited('history')&&<PanelHistory key={p.id} slug={slug} panel={p}/>}</SettingsTabPanel>
   </AppDialog>
   {view==='delete-panel'&&<AppDialog title="Delete panel" className="custom-app-confirm" close={()=>setView(null)}><p>Delete {p.label} and its saved state?</p><div className="custom-app-dialog-actions"><button type="button" onClick={()=>setView(null)}>Cancel</button><button type="button" className="danger" onClick={()=>void changeApps(slug,{action:'panel_delete',panel:p.id,expected_rev:p.rev}).then(close).catch(e=>setError(String(e)))}>Delete panel</button></div></AppDialog>}

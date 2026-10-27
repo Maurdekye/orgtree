@@ -131,6 +131,18 @@ html.mobile .overlay.custom-app-centered.custom-app-behind { z-index:39 }
 .custom-app-connection-fires>p { margin:0;color:var(--dim);overflow-wrap:anywhere }
 .custom-app-connection-fires>.custom-app-log { max-height:240px }
 .custom-app-connections>.custom-app-log-more { border-top:1px solid var(--line) }
+/* The Fire event tab (user 2026-10-27 m58d8efef52d9 "streamline the interface", m46d1f8a8e39e): the
+   event and Fire on one line, a short data box, then that event's fires filling the rest of the tab. */
+.custom-app-fire-bar { display:flex;align-items:center;gap:6px }
+.custom-app-fire-bar>select { flex:1;min-width:0 }
+.custom-app-dialog .custom-app-fire textarea { flex:none;height:84px;min-height:52px;resize:vertical }
+.custom-app-dialog .custom-app-fire>p.custom-app-fire-caption { margin-top:12px;font-size:11.5px }
+/* App settings' Events tab (user 2026-10-27 me1e204ce94e4): each declared event, read-only. */
+.custom-app-events { list-style:none;margin:0;padding:0;border:1px solid var(--line);border-radius:5px;font-size:12px }
+.custom-app-events>li { display:grid;gap:2px;padding:6px 10px }
+.custom-app-events>li+li { border-top:1px solid var(--line) }
+.custom-app-event-name { font-family:var(--mono,monospace);overflow-wrap:anywhere }
+.custom-app-event-description { color:var(--dim);overflow-wrap:anywhere }
 @media(max-width:600px){.custom-app-status { font-size:10px }}
 
 /* Separate, keyboard-focusable sibling buttons: opening a saved copy is not settings. */
