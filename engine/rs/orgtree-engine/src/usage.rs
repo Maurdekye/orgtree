@@ -2040,6 +2040,13 @@ async fn publish_due(engine: &std::sync::Arc<Engine>, last: &mut std::collection
         }
         last.insert("google", Instant::now());
     }
+    // A sign-in to another account cleared the old login's model list when it
+    // was checked: read the new login's now, not at the next model choice
+    // (user 2026-10-27 m4db0526e54f1). Off this loop, once per checked login.
+    if st.agy.installed && crate::providers::agy_models_recheck_due(engine) {
+        let engine = engine.clone();
+        tokio::spawn(async move { crate::providers::refresh_agy_models(&engine).await });
+    }
     if (rig || st.muse.installed) && lane_due(engine, last, misses, "muse", &muse_key(None), 300) {
         // the cache as it stands: discovery and live sessions feed it
         let v = muse(engine, "muse/primary", None, false).await;

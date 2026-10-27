@@ -468,6 +468,9 @@ pub async fn list_tiers(engine: &Arc<Engine>, args: &Value) -> Result<Done> {
     }
     if args["refresh"].as_bool() == Some(true) {
         crate::providers::refresh_status(engine, crate::providers::status_refresh::Scope::All).await;
+        // the Antigravity model list too: the status pass never reads it, so a
+        // refresh after a sign-in change listed no Argon (2026-10-27)
+        crate::providers::refresh_agy_models(engine).await;
     }
     let mut out = Vec::new();
     for t in catalog::listed().iter().copied().filter(|t| !t.legacy) {

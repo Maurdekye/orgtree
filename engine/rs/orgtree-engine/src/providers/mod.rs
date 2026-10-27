@@ -88,6 +88,9 @@ pub struct Providers {
     /// when `agy models` was last read: held across a read, so at most one
     /// runs and a caller arriving meanwhile reuses its answer
     agy_models_read: tokio::sync::Mutex<Option<(std::time::Instant, Option<agy_auth::Principal>)>>,
+    /// the checked sign-in (login and credential) the registry was last re-read
+    /// for on its own, after a sign-in change: at most one such read each
+    agy_models_rechecked: std::sync::Mutex<Option<agy_auth::CatalogIdentity>>,
 }
 
 /// One registered Muse login's catalog as its own metadata read last saw it.
@@ -1390,6 +1393,26 @@ pub async fn refresh_agy_models(engine: &Engine) {
     }
     apply_agy_model_read(engine, result);
     *last = Some((std::time::Instant::now(), agy_auth::catalog_identity(engine).map(|i| i.principal)));
+}
+
+/// Whether the checked default sign-in has no registry list of its own and
+/// its read was not started on its own yet; true marks it started. A sign-in
+/// to a different account clears the old login's list (263dc18), and nothing
+/// else reads the new login's until a model choice opens (user 2026-10-27
+/// m4db0526e54f1: "it should recheck when the account changes"). One read per
+/// checked login and credential: a sign-in change, never a poll.
+#[nolog] // compares principal fingerprints: never log them
+pub(crate) fn agy_models_recheck_due(engine: &Engine) -> bool {
+    let Some(current) = agy_auth::catalog_identity(engine) else { return false };
+    if engine.providers.state.load().agy_model_principal == Some(current.principal) {
+        return false;
+    }
+    let mut started = engine.providers.agy_models_rechecked.lock().unwrap_or_else(|p| p.into_inner());
+    if *started == Some(current) {
+        return false;
+    }
+    *started = Some(current);
+    true
 }
 
 #[cfg(test)]

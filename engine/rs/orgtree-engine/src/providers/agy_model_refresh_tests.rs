@@ -238,6 +238,50 @@ async fn catalog_attempt_reuse_is_bound_to_the_checked_principal() {
 }
 
 #[tokio::test]
+async fn a_sign_in_to_another_login_makes_one_catalog_read_due() {
+    // Live 2026-10-27: the sign-in moved to another account, its old list was
+    // cleared, and nothing read the new login's list until a model choice
+    // opened (USER m4db0526e54f1 "it should recheck when the account changes").
+    let engine = engine();
+    confirmed(&engine);
+    assert!(!agy_models_recheck_due(&engine), "the checked login has its own list");
+    identity(&engine, 2, Some("b@example.invalid"));
+    assert!(!agy_offered(&engine, "argon"), "263dc18: B never uses A's list");
+    assert!(agy_models_recheck_due(&engine), "B's own list is read with no model choice opened");
+    assert!(!agy_models_recheck_due(&engine), "once per checked login: never a poll");
+    confirmed(&engine);
+    assert!(!agy_models_recheck_due(&engine), "B's own list arrived");
+    identity(&engine, 3, Some("a@example.invalid"));
+    assert!(agy_models_recheck_due(&engine), "signing back in as A reads A's list again");
+}
+
+#[tokio::test]
+async fn token_rotation_unnamed_and_signed_out_logins_make_no_catalog_read_due() {
+    let engine = engine();
+    confirmed(&engine);
+    identity(&engine, 2, Some(" A@EXAMPLE.INVALID "));
+    assert!(agy_offered(&engine, "argon"), "control: a same-login rotation keeps the list");
+    assert!(!agy_models_recheck_due(&engine), "a token rotation is not a sign-in change");
+    identity(&engine, 3, None);
+    assert!(!agy_models_recheck_due(&engine), "an unnamed login has no list to read for");
+    agy_auth::catalog_test_metadata(&engine, Ok(None));
+    assert!(!agy_models_recheck_due(&engine), "signed out");
+}
+
+#[tokio::test]
+async fn a_failed_read_for_a_new_login_waits_for_its_next_credential() {
+    let engine = engine();
+    confirmed(&engine);
+    identity(&engine, 2, Some("b@example.invalid"));
+    assert!(agy_models_recheck_due(&engine));
+    apply_agy_model_read(&engine, Err(ReadError::Auth(Failure::Timeout)));
+    assert!(!agy_offered(&engine, "argon"));
+    assert!(!agy_models_recheck_due(&engine), "a failed automatic read is not retried in a loop");
+    identity(&engine, 3, Some("b@example.invalid"));
+    assert!(agy_models_recheck_due(&engine), "B's next credential gets one more read");
+}
+
+#[tokio::test]
 async fn auth_refusals_clear_and_later_errors_do_not_resurrect_catalog() {
     for failure in [Failure::SignedOut, Failure::NotIsolated] {
         let engine = engine();
