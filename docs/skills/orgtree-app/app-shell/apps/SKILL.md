@@ -77,8 +77,8 @@ backdrop fades with it. A stopping panel is already off while it zooms out: it
 takes no input and its app reaches nothing. Hide and show stay instant, starting
 or stopping a hidden panel shows nothing, and panels restored at launch appear
 without a zoom. A popped-out panel zooms out inside its own window, which then
-closes; opened again, it starts in the main window. With the system's
-reduce-motion setting the zoom is a plain fade. Display only: orgtree_apps
+closes; opened again, it comes back popped out and zooms in there. With the
+system's reduce-motion setting the zoom is a plain fade. Display only: orgtree_apps
 panel_start and panel_stop are unchanged.
 
 Panels are custom views, not background programs (user 2026-10-27): they run
@@ -141,6 +141,10 @@ centered modal. Drag a pinned title or resize its corner. Canvas pins are gone
 orgtree_apps refuses mode canvas. The pin is hidden in a pop-out.
 The pin shows filled and highlighted while the panel is pinned.
 Returning from a pop-out restores its preceding placement for this session.
+A popped-out panel stays popped out (user 2026-10-27): powered off and opened
+again, it opens its own window again at that window's last place and size. Where
+that window cannot open (pop-ups blocked, or no desktop), it shows at its
+preceding placement, else centered.
 Stored placements and running or open copies are restored after restart. Reopen a panel
 from Apps if its canvas position is outside the current view.
 

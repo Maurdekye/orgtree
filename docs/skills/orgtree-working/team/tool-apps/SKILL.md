@@ -228,7 +228,9 @@ shows windows (agent panel_open with a panel ID refuses). Placement float is the
 modal; window pins the panel to the window like a pinned desk, at x/y pixels
 from the canvas area's top-left. The header pin stores the panel's current box
 and unpins to float; agent placement uses the supplied x/y.
-Pinned and popped-out copies reopen in their previous position provisionally.
+Pinned copies reopen in their previous position (provisional). A popout copy
+opens in its own window whenever the user shows it, a reopen after power off
+included, at that window's last place and size (user 2026-10-27).
 
 ## State, placement and events
 

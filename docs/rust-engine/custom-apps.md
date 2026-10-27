@@ -691,7 +691,20 @@ Apps store never replaces a panel with an older revision of itself (same
 undo it. Proof: `tests/customapps-pinrelease.test.tsx` and the per-frame capture
 `tools/rig/pinrelease-visual.mjs`. Unpin returns to float;
 the pin is hidden in a pop-out, and native pop-outs keep the existing
-saved-window lifecycle. Canvas placement is retired (USER 2026-10-26
+saved-window lifecycle. A popout copy goes back to its own window whenever it
+shows (USER 2026-10-27 m1a23cd457070, "if i shut down a popped panel and reopen
+it, it doesnt appear as popped out, and is undraggable"): Power off keeps mode
+popout and the surface's unmount closes its saved window row, keeping the rect.
+PanelWindow passes MovableSurface `windowed`, whose layout effect opens a
+visible, docked surface before the first paint, at that row's rect (only an
+explicit restore reads a closed row) or exactly over its docked box when there
+is no row; a failed open redocks once, as any failed pop-out. Without its window
+the copy renders at the placement Return restores (this session), else float.
+Before, a docked popout copy was a box fixed at its record's x/y, neither
+centered nor a window pin: no drag rect and an unlit pin (m4691725be7a7).
+Reopening into its window writes nothing. useRestoreWindows starts allowed for
+a bridge that has already said restoring is on (main only ever turns it on), so
+the reopen waits for no window-state IPC first. Canvas placement is retired (USER 2026-10-26
 m2b682426170d, "Remove canvas pinning"): the wire refuses mode canvas, the
 retired mode screen (pointing at window) and any node anchor; the anchor field
 still parses as null for older clients. Migration0069 reopens stored canvas

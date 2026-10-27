@@ -162,8 +162,10 @@ to move it or its corner to resize it; it snaps to the canvas edges and to other
 pinned windows (hold Shift to place it freely), and pressing it brings it in
 front of other pinned windows. It keeps its place when hidden and shown again
 and after a restart. Unpinning returns the panel to the centered modal. Panels
-no longer pin to the canvas; one pinned there before reopens centered. Pop-outs
-use the existing saved-window restoration (provisional reopen default), and the
+no longer pin to the canvas; one pinned there before reopens centered. A
+popped-out panel stays popped out: power it off and open it again, and it comes
+back in its own window, where that window last was and at its size. If that
+window cannot open, the panel shows where it was before you popped it out. The
 pin is hidden in a popped-out window. The pin shows filled and highlighted while
 the panel is pinned.
 The title's pop-out opens a separate window; Return restores its previous place.
@@ -215,8 +217,8 @@ it takes no clicks and its app can no longer reach Orgtree. **Hide** and showing
 a hidden panel stay instant, and starting or stopping a hidden panel shows
 nothing. Panels that Orgtree restores when it starts appear without the zoom. A
 panel in its own window zooms out inside that window, which then closes; when you
-open it again, it starts in the main window. If your system asks apps to reduce
-motion, the zoom becomes a plain fade.
+open it again, it comes back in its own window and zooms in there. If your system
+asks apps to reduce motion, the zoom becomes a plain fade.
 
 Panels are custom views for working with your data, not programs that run on
 their own (user 2026-10-27), so they run only while Orgtree is open, tray
