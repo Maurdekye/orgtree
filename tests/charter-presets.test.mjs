@@ -87,3 +87,21 @@ test('Heavy dev shop inherits the standalone Developer without lower-note role d
   assert.match(notes.shared, /Report done or blocked through orgtree_status/)
   assert.match(notes.shared, /Every hand-in names the exact SHA\/ref/)
 })
+
+test('Integrator is a complete queue-driven integration charter that never edits product code', () => {
+  const text = readFileSync(path.join(root, 'engine/docs/charters/integrator.md'), 'utf8')
+  const plain = text.replace(/\s+/g, ' ')
+  assert.ok(Buffer.byteLength(text) >= 2500 && Buffer.byteLength(text) <= 3600, 'role should be comparable in size to Implementer and Developer')
+  assert.match(text, /^# The Integrator charter\r?\n/)
+  assert.match(text.split(/\r?\n---\r?\n/, 1)[0].replace(/\s+/g, ' '), /edit and bash ON/i, 'introduction states the capabilities the role needs')
+  for (const requirement of [/one job at a time/, /in queue order/, /exact commit/, /private worktree/, /rebase/, /purely mechanical/, /bounce/, /never edit product code or tests/i, /exact failing command/, /output/, /capture/, /measured or inferred/, /release the build permit/, /handed in or bounced/, /never "passed"/, /hand-in/, /integration owner/, /coordination, never authority/]) assert.match(plain, requirement)
+  assert.doesNotMatch(text, /\b(?:Sol|Opus|Sonnet|Luna|Astra|Argon|build-slot|integ\/\d)\b|[A-Za-z]:[\/]|@[a-z]/, 'preset wording stays generic: no agent, account, model, path or line names')
+})
+
+test('Implementer keeps integration unless the team runs an integrator pool', () => {
+  const text = readFileSync(path.join(root, 'engine/docs/charters/implementer.md'), 'utf8')
+  const plain = text.replace(/\s+/g, ' ')
+  assert.match(plain, /Never hand off the final integration of your own work — assembling the pieces IS the job, not overhead around it\./, 'the default rule stands verbatim')
+  for (const requirement of [/team that runs an integrator pool/, /one self-contained job/, /the item/, /exact commit, branch and base/, /test commands/, /capture checklist with pass criteria/, /docs expectations/, /where bounces go/, /keep ownership of the code and the defining failing test/, /fix every bounce yourself/, /Without a pool/]) assert.match(plain, requirement)
+  assert.doesNotMatch(text, /\b(?:Sol|Opus|Sonnet|Luna|Astra|Argon|build-slot|integ\/\d)\b/, 'preset wording stays generic')
+})
