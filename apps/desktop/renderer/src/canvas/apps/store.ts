@@ -19,7 +19,24 @@ const merge=<T extends {id:string}>(old:T[],items:T[]):T[]=>[...new Map([...old,
 /** Execution intent; older payloads without it ran exactly while open. */
 export const isRunning=(p:CustomPanel):boolean=>p.running??p.open
 export function useApps(slug:string):Snapshot {const s=store(slug);return useSyncExternalStore(fn=>{s.subs.add(fn);return()=>s.subs.delete(fn)},()=>s.snapshot)}
-export function invalidateCustomApps(slug:string):void {const s=store(slug);if(s.active)void refreshApps(slug)}
+export function invalidateCustomApps(slug:string):void {const s=store(slug);if(s.active)void refreshApps(slug);changed(slug,{})}
+/** What a live change touched: one copy's History (an app's own fire), or anything in Apps. */
+export interface AppsLogChange {panel?:string}
+const logs=new Map<string,Set<(change:AppsLogChange)=>void>>()
+const changed=(slug:string,change:AppsLogChange)=>{for(const fn of [...logs.get(slug)??[]])fn(change)}
+/** History and Permission history follow the live change feed (user 2026-10-27
+ * md2006b10cf40: "make the hidtory tab reload in realtime"). Returns the unsubscribe. */
+export function onAppsLog(slug:string,fn:(change:AppsLogChange)=>void):()=>void {
+  const set=logs.get(slug)??new Set<(change:AppsLogChange)=>void>();logs.set(slug,set);set.add(fn)
+  return()=>{set.delete(fn);if(!set.size&&logs.get(slug)===set)logs.delete(slug)}
+}
+/** The org feed's Apps frames: custom_apps_changed refreshes the store and every open
+ * log; custom_apps_history, an app's own fire, reaches only that copy's History. */
+export function customAppsFeed(slug:string,data:{type?:unknown;panel?:unknown}|null):boolean {
+  if(data?.type==='custom_apps_changed'){invalidateCustomApps(slug);return true}
+  if(data?.type==='custom_apps_history'){changed(slug,{panel:typeof data.panel==='string'?data.panel:undefined});return true}
+  return false
+}
 export function activateApps(slug:string):()=>void {const s=store(slug);s.active=true;void refreshApps(slug);return()=>{s.active=false;s.pending=false;stores.delete(slug)}}
 export async function refreshApps(slug:string):Promise<void>{
   const s=store(slug);if(s.running){s.pending=true;return s.running}

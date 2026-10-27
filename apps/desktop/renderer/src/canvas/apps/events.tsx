@@ -1,6 +1,9 @@
 import {useEffect,useState} from 'react'
 import {customAppsRequest} from '../../api'
+import {fmtFull,fmtShort} from '../../timefmt'
 import {SetRow} from '../settingskit'
+import {LOG_PAGE,LogList} from './loglist'
+import type {LogCursor} from './loglist'
 import type {CustomApp,CustomPanel,PanelEvent,PanelEvents} from './types'
 
 interface Connection {id:string;owner:string;event_name:string;panel:string|null;all_panels?:boolean;state:string;once:boolean;notice:boolean;fired:number;reason?:string|null}
@@ -11,44 +14,44 @@ interface Connections {items:Connection[];next_cursor:number|null}
 const FIRED='event.fired'
 const plural=(n:number,one:string)=>`${n} ${one}${n===1?'':'s'}`
 
-/** The copy's History (the engine keeps its latest 256 rows apart from messages), read
- * in at most two pages and shown newest first. */
-async function loadHistory(slug:string,panel:string){
-  const page=await customAppsRequest<PanelEvents>(slug,{action:'events',panel,limit:200});let all=page.events
-  if(page.next_cursor!==null)all=[...all,...(await customAppsRequest<PanelEvents>(slug,{action:'events',panel,after:page.next_cursor,limit:200})).events]
-  return all.reverse()
+/** The cause of a start or stop: the reason the engine records, else the control. */
+const CAUSE:Record<string,string>={opened:'Opened','stop all':'Stop all','code changed':'Code changed'}
+const who=(actor:string)=>actor==='user'?'You':actor
+const facts=(e:PanelEvent)=>{
+  const payload=(e.payload??{}) as {event?:unknown;subscribers?:unknown;reason?:unknown;id?:unknown}
+  const reason=typeof payload.reason==='string'?CAUSE[payload.reason]??payload.reason:null
+  return {payload,cause:e.name==='panel.started'?reason??'Start running':e.name==='panel.stopped'?reason??'Power off':null}
 }
-
-/** The control or cause behind a start or stop; a reason the engine records wins. */
-const CAUSE:Record<string,string>={'panel.started':'Start running','panel.stopped':'Power off','stop all':'Stop all'}
-/** History's rows (user 2026-10-26 md6edfebc1975): a fire as its metadata, and
- * the copy starting or stopping with its cause. Anything else (an older engine's
- * row) shows by name. */
-function HistoryEntry({event}:{event:PanelEvent}){
-  const payload=event.payload as {event?:unknown;subscribers?:unknown;reason?:unknown}|null
-  const power=event.name==='panel.started'?'started':event.name==='panel.stopped'?'stopped':null
-  const reason=typeof payload?.reason==='string'?payload.reason:null,cause=reason?CAUSE[reason]??reason:CAUSE[event.name]
-  const empty=event.payload===null||(typeof event.payload==='object'&&!Array.isArray(event.payload)&&!Object.keys(event.payload as object).length)
-  return <li><time dateTime={event.at}>{new Date(event.at).toLocaleString()}</time> {event.actor}: {event.name===FIRED
-    ?<>fired <strong>{String(payload?.event??'event')}</strong> · {plural(Number(payload?.subscribers??0),'subscribed listener')}</>
-    :power?<>{power} ({cause})</>
-    :<>{event.name}{!empty&&<pre>{JSON.stringify(event.payload,null,2)}</pre>}</>}</li>
+/** A History row on one line (user 2026-10-26 md6edfebc1975; 2026-10-27
+ * md2006b10cf40 "more list like"): when, a fire with its event or a start or stop,
+ * its listener count or cause, and who. An older engine's row shows by name. */
+function historySummary(e:PanelEvent){
+  const {payload,cause}=facts(e)
+  const what=e.name===FIRED?<>Fired <strong>{String(payload.event??'event')}</strong></>:e.name==='panel.started'?'Started':e.name==='panel.stopped'?'Stopped':e.name
+  // Spaces between the cells keep the row's text and accessible name readable; grid ignores them.
+  return <><time dateTime={e.at}>{fmtShort(e.at)}</time>{' '}<span>{what}</span>{' '}<span className="dim">{e.name===FIRED?plural(Number(payload.subscribers??0),'listener'):cause}</span>{' '}<span className="dim">{who(e.actor)}</span></>
+}
+/** An expanded History row: the exact time, who, and the row's own data. */
+function historyDetails(e:PanelEvent){
+  const {payload,cause}=facts(e)
+  return <dl>
+    <dt>Time</dt><dd>{fmtFull(e.at)}</dd><dt>By</dt><dd>{who(e.actor)}</dd>
+    {e.name===FIRED?<><dt>Event</dt><dd>{String(payload.event??'')}</dd><dt>Listeners</dt><dd>{Number(payload.subscribers??0)}</dd>{typeof payload.id==='string'&&<><dt>Event ID</dt><dd>{payload.id}</dd></>}</>
+      :cause&&<><dt>Cause</dt><dd>{cause}</dd></>}
+    <pre>{JSON.stringify(e.payload,null,2)}</pre>
+  </dl>
 }
 
 /** Panel settings' History tab, the last one (user 2026-10-26: "remove activity
  * and put events on its own tab, as history"; "make history the last tab"): the
- * copy's log, newest first. Connections and Fire event have their own tabs. */
+ * copy's fires, starts and stops as a live list (2026-10-27 md2006b10cf40). It
+ * follows Apps changes and this copy's own fires; Connections and Fire event
+ * have their own tabs. */
 export function PanelHistory({slug,panel}:{slug:string;panel:CustomPanel}){
-  const [history,setHistory]=useState<PanelEvent[]|null>(null),[error,setError]=useState('')
-  const refresh=async()=>{try{setHistory(await loadHistory(slug,panel.id))}catch(e){setError(String(e))}}
-  useEffect(()=>{let alive=true;void loadHistory(slug,panel.id).then(all=>{if(alive)setHistory(all)}).catch(e=>{if(alive)setError(String(e))});return()=>{alive=false}},[slug,panel.id,panel.event_seq])
-  return <>
-    <div className="set-group"><p className="dim">Fired events agents can listen to, and this copy starting and stopping, newest first. A fired event shows its listener count; its data goes only to the subscribed agents.</p>
-      {history===null?<p className="dim">Loading history…</p>:history.length?<ol className="custom-app-activity custom-app-history">{history.map(e=><HistoryEntry key={e.seq} event={e}/>)}</ol>:<p className="dim">Nothing has fired, started or stopped in this copy yet.</p>}
-      <div className="custom-app-dialog-actions"><button type="button" onClick={()=>void refresh()}>Refresh history</button></div>
-    </div>
-    {error&&<p role="alert">{error}</p>}
-  </>
+  const read=(cursor:LogCursor)=>customAppsRequest<PanelEvents>(slug,{action:'events',panel:panel.id,limit:LOG_PAGE,...cursor}).then(page=>({items:page.events,next_cursor:page.next_cursor}))
+  return <div className="set-group custom-app-log-group"><p className="dim">Fired events agents can listen to, and this copy starting and stopping, newest first. Click an entry for its details; a fired event's data goes only to the subscribed agents.</p>
+    <LogList slug={slug} label="History" read={read} follows={change=>!change.panel||change.panel===panel.id} summary={historySummary} details={historyDetails} empty="Nothing has fired, started or stopped in this copy yet."/>
+  </div>
 }
 
 /** Panel settings' Connections tab (user 2026-10-26: "put connections and fire
@@ -69,12 +72,12 @@ export function PanelConnections({slug,app,panel}:{slug:string;app:CustomApp;pan
 
 /** Panel settings' Fire event tab: the native control that broadcasts one
  * declared event from this copy. It never chooses an agent identity or silently
- * grants a wake or action; `fired` lets the History tab reload its log. */
-export function PanelFireEvent({slug,app,panel,fired}:{slug:string;app:CustomApp;panel:CustomPanel;fired:()=>void}){
+ * grants a wake or action; History shows the fire through the live change feed. */
+export function PanelFireEvent({slug,app,panel}:{slug:string;app:CustomApp;panel:CustomPanel}){
   const [name,setName]=useState(app.events?.[0]?.name??''),[payload,setPayload]=useState('{}'),[busy,setBusy]=useState(false),[error,setError]=useState(''),[result,setResult]=useState('')
   const fire=async()=>{
     setBusy(true);setError('');setResult('')
-    try{const value=JSON.parse(payload);if(new TextEncoder().encode(JSON.stringify(value)).length>64*1024)throw Error('Event data exceeds 64 KiB.');const out=await customAppsRequest<{accepted:boolean;subscribers:number}>(slug,{action:'fire_event',panel:panel.id,name,payload:value});setResult(`Accepted for ${plural(out.subscribers,'subscribed listener')}.`);fired()}catch(e){setError(String(e))}finally{setBusy(false)}
+    try{const value=JSON.parse(payload);if(new TextEncoder().encode(JSON.stringify(value)).length>64*1024)throw Error('Event data exceeds 64 KiB.');const out=await customAppsRequest<{accepted:boolean;subscribers:number}>(slug,{action:'fire_event',panel:panel.id,name,payload:value});setResult(`Accepted for ${plural(out.subscribers,'subscribed listener')}.`)}catch(e){setError(String(e))}finally{setBusy(false)}
   }
   return <>
     <div className="set-group"><p className="dim">From {panel.label}. This sends app data to eligible agents subscribed to this copy or all copies. Opening this tab fires nothing.</p>

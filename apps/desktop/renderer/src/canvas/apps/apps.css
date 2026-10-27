@@ -73,9 +73,25 @@ html.mobile .overlay.custom-app-centered.custom-app-behind { z-index:39 }
 .custom-app-dialog .custom-app-include { flex:none;flex-direction:row;align-items:center;gap:6px }
 .custom-app-portable-export { display:flex;flex-direction:column;align-items:flex-start;gap:8px;padding:10px 0;border-block:1px solid var(--line) }
 .custom-app-import-copies { margin:0;padding-left:20px;max-height:130px;overflow:auto;font-size:12px }
-.custom-app-activity { padding-left:20px;overflow:auto;font-size:12px }
-.custom-app-activity time { color:var(--dim) }
-.custom-app-activity pre { white-space:pre-wrap;overflow-wrap:anywhere }
+/* History and Permission history (user 2026-10-27 md2006b10cf40 "more list like wity expandable rows",
+   m838e66af753b): a list filling its tab that scrolls by itself, one line per entry, each row
+   expanding to its details. Older pages load as its end scrolls into view. Row rules take two
+   classes: `.settings button` (0,1,1) would otherwise set 14px text and 7px 15px padding. */
+.custom-app-log-tab:not([hidden]),.custom-app-log-group { flex:1;min-height:0 }
+.custom-app-log { list-style:none;margin:0;padding:0;flex:1;min-height:0;overflow:auto;border:1px solid var(--line);border-radius:5px;font-size:12px }
+.custom-app-log>li+li { border-top:1px solid var(--line) }
+.custom-app-log .custom-app-log-row { display:grid;grid-template-columns:auto auto minmax(0,1fr) auto auto;gap:10px;align-items:baseline;width:100%;box-sizing:border-box;min-height:26px;padding:4px 10px;border:0;border-radius:0;background:none;color:inherit;font:inherit;text-align:left;cursor:pointer }
+.custom-app-log-row::before { content:'\25B8';color:var(--dim) }
+.custom-app-log-row[aria-expanded="true"]::before { content:'\25BE' }
+.custom-app-log .custom-app-log-row:hover,.custom-app-log>li.open>.custom-app-log-row { background:var(--panel-2) }
+.custom-app-log-row>* { min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis }
+.custom-app-log-row time,.custom-app-log-row .dim { color:var(--dim) }
+.custom-app-log-details dl,.custom-app-log-details { margin:0 }
+.custom-app-log-details>dl { display:grid;grid-template-columns:auto minmax(0,1fr);gap:2px 12px;padding:4px 10px 8px 28px;user-select:text }
+.custom-app-log-details dt { color:var(--dim) }
+.custom-app-log-details dd { margin:0;overflow-wrap:anywhere }
+.custom-app-log-details pre { grid-column:1/-1;margin:4px 0 0;padding:6px 8px;background:var(--bg);border-radius:4px;white-space:pre-wrap;overflow-wrap:anywhere;max-height:240px;overflow:auto }
+.custom-app-log-more { padding:6px 10px;color:var(--dim) }
 .custom-app-global-error { position:fixed;left:15%;right:15%;bottom:16px;z-index:2600;background:var(--panel);color:var(--danger,#e88);padding:12px;border:1px solid var(--line);border-radius:6px }
 .custom-app-permission-backdrop { position:fixed;inset:0;z-index:5000;background:#0009;display:grid;place-items:center;padding:12px;box-sizing:border-box }
 .custom-app-permission>div:last-child { display:flex;flex-direction:column;gap:14px }
@@ -115,7 +131,6 @@ html.mobile .overlay.custom-app-centered.custom-app-behind { z-index:39 }
 .custom-apps-menu-app { cursor:pointer;border-radius:4px }
 .custom-apps-menu-app:hover { background:var(--panel-2) }
 .custom-apps-menu-app>.custom-apps-add { flex:none;display:inline-flex;align-items:center;justify-content:center;border:0;border-radius:4px;background:none;padding:5px }
-.custom-app-history pre { margin:4px 0 0 }
 /* Running but not visible (user 2026-10-26: hidden panels keep running). Chromium
    throttles a cross-origin frame that is display:none, visibility:hidden or outside
    the viewport, so a parked panel stays in the viewport at its size, transparent,

@@ -70,12 +70,12 @@ export function AppSettings({slug,app,close,owner}:{slug:string;app:CustomApp;cl
  * engine validates, a refusal toasts its error, and a rename toasts and closes
  * the window. General holds the copy's own actions under no section header (user
  * 2026-10-26: remove the "This panel" title); State, Connections, Fire event and
- * History (last) each have a tab, and a fire remounts History so it reloads the
- * log. Placement lives on the window itself and in orgtree_apps, not here;
+ * History (last) each have a tab; History follows the live change feed, a fire
+ * included. Placement lives on the window itself and in orgtree_apps, not here;
  * remembered grants stay app-wide, and Allow once still belongs to the live
  * host's native prompt. The delete confirmation fits its content. */
 export function PanelSettings({slug,app,panel,close,owner}:{slug:string;app:CustomApp;panel:CustomPanel;close:()=>void;owner?:Document}){
-  const currentOwner=useSurfaceDocument(),data=useApps(slug),[tab,setTab,visited]=useVisitedTabs<PanelTab>('general'),[view,setView]=useState<'delete-panel'|null>(null),[nameEdit,setNameEdit]=useState<string>(),[error,setError]=useState(''),[fired,setFired]=useState(0)
+  const currentOwner=useSurfaceDocument(),data=useApps(slug),[tab,setTab,visited]=useVisitedTabs<PanelTab>('general'),[view,setView]=useState<'delete-panel'|null>(null),[nameEdit,setNameEdit]=useState<string>(),[error,setError]=useState('')
   const a=data.apps.find(a=>a.id===app.id)??app,p=data.panels.find(p=>p.id===panel.id&&p.app===app.id)??panel,document=owner??currentOwner,idBase='custom-panel-settings-'+p.id,name=nameEdit??p.label
   // The app's toast, which ObjectMenuBoundary provides at the window root, as Agent settings receives it.
   const toast=useCopyFeedback()
@@ -94,8 +94,8 @@ export function PanelSettings({slug,app,panel,close,owner}:{slug:string;app:Cust
     </SettingsTabPanel>
     <SettingsTabPanel id="state" idBase={idBase} active={tab==='state'} className="app-settings-panel custom-app-state-tab">{visited('state')&&<PanelState key={p.id} slug={slug} app={a} panel={p}/>}</SettingsTabPanel>
     <SettingsTabPanel id="connections" idBase={idBase} active={tab==='connections'}>{visited('connections')&&<PanelConnections key={p.id} slug={slug} app={a} panel={p}/>}</SettingsTabPanel>
-    <SettingsTabPanel id="fire" idBase={idBase} active={tab==='fire'}>{visited('fire')&&<PanelFireEvent key={p.id} slug={slug} app={a} panel={p} fired={()=>setFired(n=>n+1)}/>}</SettingsTabPanel>
-    <SettingsTabPanel id="history" idBase={idBase} active={tab==='history'}>{visited('history')&&<PanelHistory key={p.id+'/'+fired} slug={slug} panel={p}/>}</SettingsTabPanel>
+    <SettingsTabPanel id="fire" idBase={idBase} active={tab==='fire'}>{visited('fire')&&<PanelFireEvent key={p.id} slug={slug} app={a} panel={p}/>}</SettingsTabPanel>
+    <SettingsTabPanel id="history" idBase={idBase} active={tab==='history'} className="app-settings-panel custom-app-log-tab">{visited('history')&&<PanelHistory key={p.id} slug={slug} panel={p}/>}</SettingsTabPanel>
   </AppDialog>
   {view==='delete-panel'&&<AppDialog title="Delete panel" className="custom-app-confirm" close={()=>setView(null)}><p>Delete {p.label} and its saved state?</p><div className="custom-app-dialog-actions"><button type="button" onClick={()=>setView(null)}>Cancel</button><button type="button" className="danger" onClick={()=>void changeApps(slug,{action:'panel_delete',panel:p.id,expected_rev:p.rev}).then(close).catch(e=>setError(String(e)))}>Delete panel</button></div></AppDialog>}
   </SurfaceDocumentOwner>
