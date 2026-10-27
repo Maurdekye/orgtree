@@ -19,6 +19,7 @@ Required tool group: `user`, through the ancestor chain. With `project=<P>`, an 
 | `body` | Markdown text, at most 64 KiB of UTF-8 bytes. Use exactly one of body or path. |
 | `path` | Existing `.md`/`.markdown`, or `.html`/`.htm`, instead of body. Relative paths start at your scratch folder; absolute paths still require authority. |
 | `replaces` | Optional existing presentation id (its slug; the generic id an older card had still works) in the same destination bucket: your own agent's gallery, or the selected project's gallery. Updates that card in place instead of creating another. Empty value behaves as omitted. |
+| `slug` | Optional, new presentations only: the id to give the card, a short English slug such as `weekly-status`. Pass one whenever the title isn't in English; the title itself can be in any language (user 2026-10-27). It is cleaned the way a title becomes a slug (below) and gets `-2`, `-3`... when the organization already has it; the result names the id it got. Refused together with `replaces` (a slug stays fixed once made), and refused when it has no ASCII letter or digit, since nothing would be left. Empty value behaves as omitted. |
 | `project` | Optional live project node name. The card goes under that project instead of beside your seat; you must be above or below it ([orgtree-projects](../../team/projects/SKILL.md)). Members, including nested descendants, need no user audience for this project; agents above it still need one. |
 
 Minimal call:
@@ -39,7 +40,7 @@ Folder authority and membership in an ancestor project resolve through the compl
 
 ## Presentation ids
 
-A presentation's id is a readable slug made from its title when it is first presented (user 2026-10-27): lowercase ASCII words joined by `-`, at most 48 characters, then `-2`, `-3`... when the organization already has that slug, and `presentation` for a title with no ASCII letter or digit. It is unique in the organization and never changes, even when `replaces` gives the card a new title. Presentations made before 4.5.0 got slugs the same way on upgrade. The generic id they had before (`d` and 12 hex digits) keeps working wherever an id is accepted, so older mail, mentions and `replaces` calls still find them.
+A presentation's id is a readable slug made from its title when it is first presented (user 2026-10-27): lowercase ASCII words joined by `-`, at most 48 characters, then `-2`, `-3`... when the organization already has that slug, and `presentation` for a title with no ASCII letter or digit. It is unique in the organization and never changes, even when `replaces` gives the card a new title. Pass `slug` to choose the id instead, in English whenever the title isn't: a title in Hebrew, for example, keeps its own language but would otherwise get `presentation`, `presentation-2`... (user 2026-10-27: "use an english name for the slug, the actual name can be whatever it needs to be in any language"). A requested slug gets the same cleanup and suffixes. Presentations made before 4.5.0 got slugs the same way on upgrade. The generic id they had before (`d` and 12 hex digits) keeps working wherever an id is accepted, so older mail, mentions and `replaces` calls still find them.
 
 Mention a presentation as `@doc:<org>/<id>`, never by its bare title: the result names that reference, and the card and `read_presentation` entries carry it as `ref`. The link shows the presentation's current title.
 
@@ -68,7 +69,7 @@ The successful result returns the presentation's id and mention reference, and a
 
 A successful transcript call has its ordinary timed, expandable tool row followed by the untimed presentation card; failures remain tool rows. User viewed/new/updated indicators are separate from tool success. A presented document is not proof of reading, agreement, deployment or functional verification of an HTML presentation.
 
-Common refusals include missing title, giving both/neither body and path, exceeding the Markdown/HTML/capture bounds, non-UTF-8 Markdown, unsupported extension, out-of-scope path, missing assets, invalid replaces ID and missing user audience. Correct the named problem before retrying; when updating, reuse replaces rather than creating duplicate cards.
+Common refusals include missing title, giving both/neither body and path, exceeding the Markdown/HTML/capture bounds, non-UTF-8 Markdown, unsupported extension, out-of-scope path, missing assets, invalid replaces ID, a `slug` given with `replaces` or with no ASCII letter or digit, and missing user audience. Correct the named problem before retrying; when updating, reuse replaces rather than creating duplicate cards.
 
 ## See also
 

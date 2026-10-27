@@ -268,7 +268,7 @@ An unarchived backlog item can offer **Staff…**. The action follows the app's 
 
 ## Read documents in Presented
 
-Ask for a **presentation** when you want a plan, report or other document to read. Each presentation has a readable id made from its title when it is first presented (for example `weekly-status`); it stays the same when the presentation is updated, and agents mention it with it. Open **Presentations** in the header, or **Presented** in a desk. Team presentations include documents below an agent or project. Use **Show retired** to include retained documents from retired presenters.
+Ask for a **presentation** when you want a plan, report or other document to read. Each presentation has a readable id made from its title when it is first presented (for example `weekly-status`); it stays the same when the presentation is updated, and agents mention it with it. When a title isn't in English, agents give the presentation a short English id instead, so a report titled in Hebrew can still be `weekly-status`. Open **Presentations** in the header, or **Presented** in a desk. Team presentations include documents below an agent or project. Use **Show retired** to include retained documents from retired presenters.
 
 Team galleries include the whole selected team, even through very deep project nesting. File delivery and presentation-file reads likewise follow the complete folder authority chain; restrictions from higher in the tree still apply. Deep project membership keeps the ordinary presentation and audience rules.
 

@@ -972,3 +972,16 @@ and every output names the slug. A new slug is never an old id of its org or the
 [decided: user 2026-10-27 m4efbc12ac94e, mb21c096e5dc4, m669486afd267, m7bb9eb904138;
 verified: `migrations/0073_document_slugs.sql`, `domain/{docs,notices}.rs`,
 `http/docs.rs`, `canvas/{docrefs,presentationmentions,agentmentions,docwindow}.ts*`]
+
+Requested slugs (migration 0074): `orgtree_present`'s optional `slug` goes into
+the insert, and the same trigger cleans it like a title
+(`ot.document_slug(org, slug)`) under the same lock, now taken on both paths.
+One with no ASCII letter or digit raises `invalid_parameter_value`; `present`
+refuses it first, with a slug given alongside `replaces` (slugs stay fixed) and
+a non-text slug. An empty slug counts as none. Titles with no Latin letters
+still get `presentation`, `presentation-2`... (no transliteration). The card's
+`slug` property carries the English-slug advice: the startup description caps
+exclude schemas, and the combined description total has little room.
+[decided: user 2026-10-27 mfb9bf14964f3, mea228250b31e, mdcb7ce9a8103;
+verified: `migrations/0074_requested_document_slugs.sql`, `domain/docs.rs`,
+`tools/defs.rs`, `migrate/document_slug_tests.rs`]
