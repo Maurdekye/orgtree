@@ -1,3 +1,11 @@
+**Fire event data template, USER 2026-10-27 m7d208a00e16a, md8a919fdb119 (4.5.0):**
+"this textbox should have a template of the structure of the data the event
+expects", choosing "Last fire only". The Fire event editor offers the selected
+event's most recent fire body from this copy as editable JSON. No fire or no kept
+body leaves the box empty. Only untouched drafts follow event choices or newer
+fires; typed or cleared drafts survive. No schema or description parsing. See
+[custom apps](custom-apps.md#fire-event-data-template-2026-10-27).
+
 **App-event mail JSON payload, USER 2026-10-27 md977c9fb5590 (4.5.0):**
 "payload here should be rendered using the json renderer if it parses as json".
 APP EVENT watchdog mail renders its complete Payload with the same JSON viewer

@@ -210,22 +210,36 @@ function eventFireSummary(e:PanelEvent){
  * included. It never chooses an agent identity or grants a wake or action. */
 export function PanelFireEvent({slug,app,panel}:{slug:string;app:CustomApp;panel:CustomPanel}){
   const events=app.events??[]
-  const [name,setName]=useState(events[0]?.name??''),[payload,setPayload]=useState(''),[busy,setBusy]=useState(false),[error,setError]=useState('')
+  const [name,setName]=useState(events[0]?.name??''),[draft,setDraft]=useState({key:'',value:'',edited:false}),[busy,setBusy]=useState(false),[error,setError]=useState('')
   // The choice holds while its event is still declared; the declarations are live.
   const event=events.find(e=>e.name===name)??events[0]
+  const key=JSON.stringify([slug,app.id,panel.id,event?.name]),latest=useRef({key,seq:-1})
+  if(latest.current.key!==key)latest.current={key,seq:-1}
+  const selection=latest.current,payload=draft.edited||draft.key===key?draft.value:''
   if(!event)return <div className="set-group"><p>This app declares no events.</p></div>
   const fire=async()=>{
     setBusy(true);setError('')
     try{const value:unknown=payload.trim()?JSON.parse(payload):{};if(new TextEncoder().encode(JSON.stringify(value)).length>64*1024)throw Error('Event data exceeds 64 KiB.');await customAppsRequest(slug,{action:'fire_event',panel:panel.id,name:event.name,payload:value})}catch(e){setError(String(e))}finally{setBusy(false)}
   }
-  const read=(cursor:LogCursor)=>customAppsRequest<PanelEvents>(slug,{action:'events',panel:panel.id,name:event.name,limit:LOG_PAGE,...cursor}).then(page=>({items:page.events,next_cursor:page.next_cursor}))
+  const read=(cursor:LogCursor)=>customAppsRequest<PanelEvents>(slug,{action:'events',panel:panel.id,name:event.name,limit:LOG_PAGE,...cursor}).then(page=>{
+    // Reuse this list's newest body, never an older page or an obsolete choice.
+    // A typed draft (even one the user cleared) is never replaced by history.
+    const newest=page.events.reduce<PanelEvent|undefined>((a,b)=>!a||b.seq>a.seq?b:a,undefined)
+    if(!('before' in cursor)&&latest.current===selection&&newest&&newest.seq>selection.seq){
+      selection.seq=newest.seq
+      let value=''
+      if(newest.body!=null){try{JSON.parse(newest.body);value=layoutJson(newest.body)}catch{/* old invalid data offers no template */}}
+      setDraft(old=>old.edited?old:{key,value,edited:false})
+    }
+    return {items:page.events,next_cursor:page.next_cursor}
+  })
   return <div className="set-group custom-app-log-group custom-app-fire">
     <div className="custom-app-fire-bar">
       <select aria-label="Declared event" value={event.name} disabled={busy} onChange={e=>{setName(e.target.value);setError('')}}>{events.map(e=><option key={e.name} value={e.name}>{e.name}</option>)}</select>
       <button type="button" className="primary" disabled={busy} title="Send this event and its data to the agents listening for it" onClick={()=>void fire()}>Fire</button>
     </div>
     {event.description&&<p className="dim">{event.description}</p>}
-    <textarea aria-label="Event JSON data" placeholder="Event data as JSON; empty sends {}" spellCheck={false} value={payload} disabled={busy} onChange={e=>{setPayload(e.target.value);setError('')}}/>
+    <textarea aria-label="Event JSON data" placeholder="Event data as JSON; empty sends {}" spellCheck={false} value={payload} disabled={busy} onChange={e=>{setDraft({key,value:e.target.value,edited:true});setError('')}}/>
     {error&&<p role="alert">{error}</p>}
     <p className="dim custom-app-fire-caption">Fires from this copy</p>
     <LogList key={event.name} slug={slug} label={'Fires of '+event.name} read={read} follows={change=>!change.listeners&&(!change.panel||change.panel===panel.id)} summary={eventFireSummary} details={historyDetails} empty="None yet."/>

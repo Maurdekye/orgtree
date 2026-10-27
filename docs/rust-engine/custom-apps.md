@@ -1032,6 +1032,19 @@ revocation and the already-running DB watchdog's private-event mail path.
 Keep its raw diagnostics and positive delivery controls; unit synthetic Access
 coverage alone is not an end-to-end privacy claim.
 
+## Fire event data template (2026-10-27)
+
+USER m7d208a00e16a requested an event-data template and chose "Last fire only"
+(md8a919fdb119). The Fire event editor reuses the latest body from the existing
+per-event history read for this copy, laid out as editable JSON. A never-fired
+event, or a latest body that was not kept, leaves the original empty placeholder.
+Untouched templates follow newer fires and event choices; typing or clearing
+the editor protects that draft for the rest of the mounted tab. Older pages and
+delayed responses from prior selections never replace it. Opening the tab fires
+nothing and needs no extra history read, manifest field or description parser.
+Tool parity already exists through `orgtree_apps events` (last body) and
+`fire_event` (edited data). [verified: `canvas/apps/events.tsx`]
+
 ## App-event mail payload (2026-10-27)
 
 USER md977c9fb5590: "payload here should be rendered using the json renderer if it
