@@ -19,9 +19,9 @@ const panel={id:'caption-placement-panel-1',app:'caption-placement',label:'Orgtr
 type Sub={id:string;owner:string;name:string;event_name:string;panel:string|null;all_panels:boolean;state:string;once:boolean;notice:boolean;fired:number;reason?:string|null}
 const liaison:Sub={id:'liaison-opus/caption-placements-test',owner:'liaison-opus',name:'caption-placements-test',event_name:'placements.submitted',panel:panel.id,all_panels:false,state:'armed',once:false,notice:false,fired:1}
 const worker:Sub={id:'worker/every-copy',owner:'worker',name:'every-copy',event_name:'placements.submitted',panel:null,all_panels:true,state:'paused',once:true,notice:true,fired:0,reason:'app event or saved panel was removed'}
-type Fire={seq:number;id:string;at:string;event:string;panel:string;panel_label:string;by:string;delivered:boolean;notice:boolean}
+type Fire={seq:number;id:string;at:string;event:string;panel:string;panel_label:string;by:string;delivered:boolean;notice:boolean;body:string|null}
 const t0=Date.UTC(2026,9,27,12,0,0)
-const fire=(seq:number):Fire=>({seq,id:'app-event-'+seq,at:new Date(t0+seq*60000).toISOString(),event:'placements.submitted',panel:panel.id,panel_label:panel.label,by:seq%3===0?'app':seq%3===1?'user':'liaison-opus',delivered:seq!==2,notice:false})
+const fire=(seq:number):Fire=>({seq,body:seq===1?null:JSON.stringify({placements:[{line:seq,x:12.5}]}),id:'app-event-'+seq,at:new Date(t0+seq*60000).toISOString(),event:'placements.submitted',panel:panel.id,panel_label:panel.label,by:seq%3===0?'app':seq%3===1?'user':'liaison-opus',delivered:seq!==2,notice:false})
 // the live tree's agents, as App's shell routes hold them
 const agents=new Map([['liaison-opus',{tier:'opus'}],['worker',{tier:'sonnet'}]])
 
@@ -120,8 +120,10 @@ test('A Connections row expands to its fires: newest first, older ones on scroll
   const first=items()[0]!
   await inAct(async()=>{first.click();await tick()})
   const details=document.getElementById(first.getAttribute('aria-controls')??'')!
-  assert.match(details.textContent??'',/Delivery.*Woke the agent with the event in its mail/);assert.match(details.textContent??'',/"id": "app-event-60"/)
-  assert.equal(details.textContent?.includes('payload'),false,'no app data: it stays with the subscribed agent')
+  assert.match(details.textContent??'',/Delivery.*Woke the agent with the event in its mail/);assert.match(details.textContent??'',/Event IDapp-event-60/)
+  // the fire's body as it was sent, as its History entry keeps it (USER 2026-10-27 mc308cabf3c5f)
+  assert.equal(details.querySelector('pre[aria-label="Event body"]')?.textContent,'{\n  "placements": [\n    {\n      "line": 60,\n      "x": 12.5\n    }\n  ]\n}')
+  assert.match(details.textContent??'',/Body37 bytes as sent/)
 
   // A newly delivered fire arrives without any action.
   state.fires.push({...fire(61),by:'user'})

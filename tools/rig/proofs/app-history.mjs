@@ -11,6 +11,10 @@
 // permission history, and put tgat on i6s own tab"): both logs page newest first
 // with before, follow new rows with after and refuse both, through the route and
 // the agent tool; an app's own fire reaches an open History tab live.
+// USER 2026-10-27 mda08162683ef ("this should show the event's body as it was
+// transmitted") and mc308cabf3c5f ("Save exactly", "Agents see bodies"): a fire's
+// History row keeps its body exactly as sent, agents read it too, a page carries
+// at most 128 KiB of bodies, and an expanded fire shows it.
 // tools/rig/desktop/app-history.cjs then captures both tabs, muted. Build first
 // with tools/rig/app-background-ui.mjs and pass its folder in
 // APP_BACKGROUND_BUILD. Session 0 only; fake CLIs; synthetic org only.
@@ -55,7 +59,8 @@ export default async function(rig){
   const sent=await tool({action:'event',panel:copy.id,name:'ping',payload:{n:1}})
   const seq=(await apps({action:'panel_get',panel:copy.id})).event_seq
   p.check("an agent's message is listed with messages:true, never in History, and advances event_seq",JSON.stringify(await messages(copy.id))===JSON.stringify([['ping','boss']])&&(await history(copy.id)).length===1&&seq>=sent.seq,{messages:await messages(copy.id),seq,sent})
-  const fired=await apps({action:'fire_event',panel:copy.id,name:'submitted',payload:{note:'private'}})
+  const sentPayload={z:'private',a:{y:'é',b:[1,2.5,null,true]}}
+  const fired=await apps({action:'fire_event',panel:copy.id,name:'submitted',payload:sentPayload})
   copy=await apps({action:'panel_stop',panel:copy.id})
   copy=await tool({action:'panel_start',panel:copy.id})
   copy=await apps({action:'panel_stop',panel:copy.id})
@@ -63,10 +68,15 @@ export default async function(rig){
   const expected=[['panel.started','opened','user'],['event.fired','submitted','user'],['panel.stopped',null,'user'],['panel.started',null,'boss'],['panel.stopped',null,'user'],['panel.started','opened','user']]
   p.check('History holds exactly the fire, the starts (opened, Start running) and the stops (Power off)',fired.accepted&&JSON.stringify(await history(copy.id))===JSON.stringify(expected),{history:await history(copy.id),expected})
   const fireRow=(await apps({action:'events',panel:copy.id,after:0,limit:200})).events.find(e=>e.name==='event.fired')
-  p.check("a fire's History row is metadata only",JSON.stringify(fireRow?.payload??{}).includes('private')===false&&fireRow?.payload?.subscribers===0,fireRow)
+  p.check("a fire's History row keeps its metadata, and its body exactly as sent (key order, numbers, text)",fireRow?.body===JSON.stringify(sentPayload)&&JSON.stringify(fireRow?.payload??{}).includes('private')===false&&fireRow?.payload?.subscribers===0,fireRow)
   const twin=await apps({action:'panel_duplicate',panel:copy.id,expected_rev:copy.rev})
   p.check("the user's duplicate starts running and records panel.started, cause opened",JSON.stringify(await history(twin.id))===JSON.stringify([['panel.started','opened','user']]),await history(twin.id))
   await apps({action:'panel_stop',panel:twin.id})
+  // A page carries at most 128 KiB of bodies, for the desktop and an agent alike; the rest follows next_cursor.
+  for(let n=1;n<=3;n++)await apps({action:'fire_event',panel:twin.id,name:'submitted',payload:{n,blob:'x'.repeat(50*1024)}})
+  const big=await apps({action:'events',panel:twin.id,limit:50}),rest=await apps({action:'events',panel:twin.id,limit:50,before:big.next_cursor??0}),agentBig=await tool({action:'events',panel:twin.id,limit:50})
+  p.check('a page of 50 KiB bodies holds two and continues at next_cursor, for an agent too',big.events.length===2&&big.next_cursor===big.events[1].seq&&rest.events.length===3&&rest.next_cursor===null&&JSON.parse(rest.events[0].body).n===1&&agentBig.events.length===2,
+    {big:big.events.map(e=>[e.seq,e.body?.length??null]),next:big.next_cursor,rest:rest.events.map(e=>[e.seq,e.name]),agent:agentBig.events.length})
   // Hidden, still running: no centered window covers the Apps button in the capture.
   copy=await apps({action:'panel_update',panel:copy.id,expected_rev:copy.rev,open:false})
   p.check('hiding a running copy records nothing',JSON.stringify(await history(copy.id))===JSON.stringify(expected),await history(copy.id))
@@ -88,7 +98,7 @@ DELETE FROM public.ot_migrations WHERE name='0071_custom_panel_history';`)
   const stored=(await apps({action:'events',panel:copy.id,after:0,limit:200})).events.map(e=>e.seq)
   const first=await apps({action:'events',panel:copy.id,limit:50}),seqs=page=>page.events.map(e=>e.seq)
   p.check('events reads the newest 50 first, newest first, next_cursor at its oldest',first.events.length===50&&first.events[0].seq===stored.at(-1)&&desc(seqs(first))&&first.next_cursor===first.events.at(-1).seq,{first:seqs(first),next:first.next_cursor,newest:stored.at(-1)})
-  for(let n=1;n<=2;n++)await apps({action:'fire_event',panel:copy.id,name:'submitted',payload:{n}})
+  for(let n=1;n<=2;n++)await apps({action:'fire_event',panel:copy.id,name:'submitted',payload:{n,text:'caption '+n,words:['bonjour','é']}})
   const older=await apps({action:'events',panel:copy.id,limit:50,before:first.next_cursor})
   const newer=await apps({action:'events',panel:copy.id,limit:50,after:first.events[0].seq})
   p.check('before continues with older rows only; after reads just the two rows written since, oldest first',older.events.length===stored.length-50&&older.next_cursor===null&&desc(seqs(older))&&seqs(older)[0]<first.next_cursor&&newer.events.length===2&&asc(seqs(newer))&&newer.next_cursor===null,{older:seqs(older),newer:seqs(newer)})
@@ -96,6 +106,7 @@ DELETE FROM public.ot_migrations WHERE name='0071_custom_panel_history';`)
   p.check('the pages and the live read hold every stored row exactly once',new Set(union).size===union.length&&JSON.stringify([...union].sort((a,b)=>a-b))===JSON.stringify(now),{union:union.length,stored:now.length})
   const agentPage=await tool({action:'events',panel:copy.id,limit:50})
   p.check("an agent's events page is the same newest-first page",JSON.stringify(seqs(agentPage))===JSON.stringify([...seqs(newer)].reverse().concat(seqs(first)).slice(0,50)),seqs(agentPage))
+  p.check("an agent reads each fire's body as sent",agentPage.events[0]?.body==='{"n":2,"text":"caption 2","words":["bonjour","é"]}',agentPage.events[0])
   const both=await refused({action:'events',panel:copy.id,after:1,before:9})
   p.check('after and before together are refused',/not both/.test(both??''),both)
 
@@ -120,7 +131,7 @@ DELETE FROM public.ot_migrations WHERE name='0071_custom_panel_history';`)
   p.check('clipboard isolated: every page clipboard path refused, none used, no permission granted',R.installed.clipboardStub&&R.clipboard.calls.length===0&&R.clipboard.requests.length===0,R.clipboard)
   p.check('History is the last Panel settings tab, says what it records and has no Refresh button',R.panelTabs.at(-1)==='History'&&/^Fired events agents can listen to, and this copy starting and stopping, newest first\./.test(H.lead??'')&&H.refresh===false,{tabs:R.panelTabs,lead:H.lead,refresh:H.refresh})
   p.check('History shows its newest 50 as one-line rows in its own scrolling list, collapsed',H.first.rows===50&&H.first.more&&H.first.scrolls&&H.first.maxRow<34&&H.first.expanded===0&&/Fired submitted.*You/.test(H.first.top??''),H.first)
-  p.check('a row expands to its details and metadata payload (never the fired data) and collapses again',H.expanded.state==='true'&&/"event": "submitted"/.test(H.expanded.text??'')&&!/"n"/.test(H.expanded.text??'')&&/Listeners/.test(H.expanded.text??'')&&H.collapsed==='false',{expanded:H.expanded,collapsed:H.collapsed})
+  p.check("a row expands to its details and the fire's body as it was sent, and collapses again",H.expanded.state==='true'&&/"n": 2,\s*"text": "caption 2",\s*"words": \[\s*"bonjour",\s*"é"\s*\]/.test(H.expanded.text??'')&&/Body\d+ bytes as sent/.test(H.expanded.text??'')&&/Listeners/.test(H.expanded.text??'')&&H.collapsed==='false',{expanded:H.expanded,collapsed:H.collapsed})
   const latest=(await apps({action:'events',panel:copy.id,limit:1})).events[0]
   p.check("the app's own fire appears at the top of the open tab without a click, and is the app's",H.live.ok&&/Fired submitted.*app/.test(H.live.top??'')&&latest?.actor==='app'&&latest?.payload?.event==='submitted',{live:H.live,latest})
   const total=(await apps({action:'events',panel:copy.id,after:0,limit:200})).events.length

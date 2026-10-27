@@ -8,9 +8,9 @@ import {PanelSettings} from '../src/canvas/apps/settings'
 // reload in realtime, be more list like wity expandable rows, and lazily losd as you
 // sfrollcdown (remof3 th4 refresh button)".
 const tick=async()=>{for(let i=0;i<6;i++)await flush()}
-type Row={seq:number;name:string;payload:Record<string,unknown>;actor:string;at:string}
+type Row={seq:number;name:string;payload:Record<string,unknown>;body?:string|null;actor:string;at:string}
 const t0=Date.UTC(2026,9,27,6,0,0),at=(seq:number)=>new Date(t0+seq*1000).toISOString()
-const fired=(seq:number):Row=>({seq,name:'event.fired',payload:{event:'e'+seq,id:'fire-'+seq,subscribers:seq%2},actor:seq%2?'boss':'app',at:at(seq)})
+const fired=(seq:number):Row=>({seq,name:'event.fired',payload:{event:'e'+seq,id:'fire-'+seq,subscribers:seq%2},body:JSON.stringify({line:seq,text:'caption '+seq}),actor:seq%2?'boss':'app',at:at(seq)})
 const bottom=async(list:HTMLElement)=>{
   Object.defineProperties(list,{scrollHeight:{configurable:true,value:2000},clientHeight:{configurable:true,value:400},scrollTop:{configurable:true,value:1600}})
   await inAct(async()=>{list.dispatchEvent(new window.Event('scroll',{bubbles:true}));await tick()})
@@ -55,7 +55,8 @@ test('History is a live list: compact rows expand, older pages load on scroll, n
   assert.equal(first.getAttribute('aria-expanded'),'true')
   const details=document.getElementById(first.getAttribute('aria-controls')??'')
   assert.ok(details&&list.contains(details),'the row controls its own details')
-  assert.match(details!.textContent??'',/"event": "e120"/,'the expanded row shows the payload');assert.match(details!.textContent??'',/"subscribers": 0/)
+  // the fire's body as it was sent (USER 2026-10-27 mc308cabf3c5f), beside its listener count
+  assert.match(details!.textContent??'',/"line": 120,\s*"text": "caption 120"/,'the expanded row shows the body');assert.match(details!.textContent??'',/Listeners0/)
   await inAct(async()=>{first.click();await tick()})
   assert.equal(first.getAttribute('aria-expanded'),'false');assert.equal(document.getElementById(first.getAttribute('aria-controls')??''),null,'clicking again collapses it')
 

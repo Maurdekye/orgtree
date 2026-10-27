@@ -13,13 +13,13 @@ import type {CustomApp,CustomPanel,PanelEvent,PanelEvents} from './types'
 
 interface Connection {id:string;owner:string;name?:string;event_name:string;panel:string|null;all_panels?:boolean;state:string;once:boolean;notice:boolean;fired:number;reason?:string|null}
 interface Connections {items:Connection[];next_cursor:number|null}
-/** One finished delivery of a subscription's event (the engine's listener_fires):
- * metadata only; the app data and the mail stay with the subscribed agent. */
-interface Fire {seq:number;id:string;at:string;event:string;panel:string;panel_label?:string|null;by:string;delivered:boolean;notice:boolean}
+/** One finished delivery of a subscription's event (the engine's listener_fires),
+ * with the fire's body as its History entry keeps it. */
+interface Fire {seq:number;id:string;at:string;event:string;panel:string;panel_label?:string|null;by:string;delivered:boolean;notice:boolean;body?:string|null}
 interface Fires {fires:Fire[];next_cursor:number|null}
 
-/** The engine's metadata row for one fired event; its data went only to the
- * subscribed listeners' mail, never into this log. */
+/** The engine's History row for one fired event: its metadata, and its body as
+ * it was sent (user 2026-10-27 mc308cabf3c5f, replacing 2026-10-26's metadata only). */
 const FIRED='event.fired'
 const plural=(n:number,one:string)=>`${n} ${one}${n===1?'':'s'}`
 
@@ -40,14 +40,42 @@ function historySummary(e:PanelEvent){
   // Spaces between the cells keep the row's text and accessible name readable; grid ignores them.
   return <><time dateTime={e.at}>{fmtShort(e.at)}</time>{' '}<span>{what}</span>{' '}<span className="dim">{e.name===FIRED?plural(Number(payload.subscribers??0),'listener'):cause}</span>{' '}<span className="dim">{who(e.actor)}</span></>
 }
-/** An expanded History row: the exact time, who, and the row's own data. */
+/** A JSON text laid out two spaces a level without changing one token: strings,
+ * numbers and key order stay exactly as sent; only the space between tokens changes. */
+export function layoutJson(text:string){
+  let out='',depth=0
+  const line=()=>'\n'+'  '.repeat(depth)
+  for(let i=0;i<text.length;i++){
+    const c=text[i]!
+    if(c==='"'){let j=i+1;while(j<text.length&&text[j]!=='"')j+=text[j]==='\\'?2:1;out+=text.slice(i,j+1);i=j;continue}
+    if(c===' '||c==='\n'||c==='\r'||c==='\t')continue
+    if(c==='{'||c==='['){
+      // an empty object or array stays on its line
+      let j=i+1;while(/\s/.test(text[j]??''))j++
+      if(text[j]===(c==='{'?'}':']')){out+=c+text[j];i=j;continue}
+      depth++;out+=c+line();continue
+    }
+    if(c==='}'||c===']'){depth=Math.max(0,depth-1);out+=line()+c;continue}
+    out+=c===','?','+line():c===':'?': ':c
+  }
+  return out
+}
+const bytes=(text:string)=>new TextEncoder().encode(text).length
+/** A fire's body (user 2026-10-27 mda08162683ef "this should show the event's body as
+ * it was transmitted"): its size and its text, laid out, scrolling when long; a fire
+ * from before bodies were kept, or whose entry outlived it, says so. */
+const bodyDetails=(body:string|null|undefined)=><>
+  <dt>Body</dt><dd>{body==null?'Not kept':`${plural(bytes(body),'byte')} as sent`}</dd>
+  {body!=null&&<pre className="custom-app-event-body" aria-label="Event body" tabIndex={0}>{layoutJson(body)}</pre>}
+</>
+/** An expanded History row: the exact time, who, and the row's own data; a fire's
+ * body as it was sent. */
 function historyDetails(e:PanelEvent){
   const {payload,cause}=facts(e)
   return <dl>
     <dt>Time</dt><dd>{fmtFull(e.at)}</dd><dt>By</dt><dd>{who(e.actor)}</dd>
-    {e.name===FIRED?<><dt>Event</dt><dd>{String(payload.event??'')}</dd><dt>Listeners</dt><dd>{Number(payload.subscribers??0)}</dd>{typeof payload.id==='string'&&<><dt>Event ID</dt><dd>{payload.id}</dd></>}</>
-      :cause&&<><dt>Cause</dt><dd>{cause}</dd></>}
-    <pre>{JSON.stringify(e.payload,null,2)}</pre>
+    {e.name===FIRED?<><dt>Event</dt><dd>{String(payload.event??'')}</dd><dt>Listeners</dt><dd>{Number(payload.subscribers??0)}</dd>{typeof payload.id==='string'&&<><dt>Event ID</dt><dd>{payload.id}</dd></>}{bodyDetails(e.body)}</>
+      :<>{cause&&<><dt>Cause</dt><dd>{cause}</dd></>}<pre>{JSON.stringify(e.payload,null,2)}</pre></>}
   </dl>
 }
 
@@ -58,7 +86,7 @@ function historyDetails(e:PanelEvent){
  * have their own tabs. */
 export function PanelHistory({slug,panel}:{slug:string;panel:CustomPanel}){
   const read=(cursor:LogCursor)=>customAppsRequest<PanelEvents>(slug,{action:'events',panel:panel.id,limit:LOG_PAGE,...cursor}).then(page=>({items:page.events,next_cursor:page.next_cursor}))
-  return <div className="set-group custom-app-log-group"><p className="dim">Fired events agents can listen to, and this copy starting and stopping, newest first. Click an entry for its details; a fired event's data goes only to the subscribed agents.</p>
+  return <div className="set-group custom-app-log-group"><p className="dim">Fired events agents can listen to, and this copy starting and stopping, newest first. Click an entry for its details, and a fired event's body as it was sent.</p>
     <LogList slug={slug} label="History" read={read} follows={change=>!change.listeners&&(!change.panel||change.panel===panel.id)} summary={historySummary} details={historyDetails} empty="Nothing has fired, started or stopped in this copy yet."/>
   </div>
 }
@@ -74,13 +102,13 @@ const delivery=(f:Fire)=>f.delivered?f.notice?'Delivered as a notice':'Delivered
  * copy, for a subscription to all copies), how it was delivered, and who fired it. */
 const fireSummary=(all:boolean)=>(f:Fire)=><><time dateTime={f.at}>{fmtShort(f.at)}</time>{' '}<span>Fired <strong>{f.event}</strong>{all&&<> in {f.panel_label??f.panel}</>}</span>{' '}<span className="dim">{delivery(f)}</span>{' '}<span className="dim">{who(f.by)}</span></>
 /** An expanded fire, like an expanded History row: the exact time, who, the copy,
- * how it was delivered and the fire's own metadata. */
+ * how it was delivered, and the fire's body as it was sent. */
 function fireDetails(f:Fire){
   return <dl>
     <dt>Time</dt><dd>{fmtFull(f.at)}</dd><dt>By</dt><dd>{who(f.by)}</dd><dt>Event</dt><dd>{f.event}</dd><dt>Panel</dt><dd>{f.panel_label??f.panel}</dd>
     <dt>Delivery</dt><dd>{f.delivered?f.notice?"A notice, read at the agent's next turn":'Woke the agent with the event in its mail':'Not delivered: when it came due, the subscription was not armed, its agent could not receive app events, or the app no longer declared the event'}</dd>
     <dt>Event ID</dt><dd>{f.id}</dd>
-    <pre>{JSON.stringify({event:f.event,id:f.id,panel:f.panel,by:f.by,delivered:f.delivered,notice:f.notice},null,2)}</pre>
+    {bodyDetails(f.body)}
   </dl>
 }
 

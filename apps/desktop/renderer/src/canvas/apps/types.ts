@@ -10,7 +10,8 @@ export interface CustomPanel { id:string; app:string; label:string; rev:number; 
 /** One running copy with its actual desktop state (orgtree_apps runtime). */
 export interface PanelRuntime { panel:string; app:string; app_name:string; label:string; visible:boolean; run_generation:number; status:'running'|'error'|'not hosted'; error:string|null; cpu_percent:number|null; cpu_method:string|null; measured_at:string|null }
 export interface AppPage<T> { kind:string; items:T[]; next_cursor:string|null; new_count?:number }
-export interface PanelEvent {seq:number;name:string;payload:unknown;actor:string;at:string}
+/** `body`: a fire's data exactly as it was sent (JSON text), null when not kept. */
+export interface PanelEvent {seq:number;name:string;payload:unknown;body?:string|null;actor:string;at:string}
 export interface PanelEvents {panel:string;events:PanelEvent[];next_cursor:number|null;oldest_retained:number|null}
 /** One app-level Permission history entry (orgtree_apps permission_history). */
 export interface PermissionHistoryPage {app:string;entries:PermissionHistoryEntry[];next_cursor:number|null}
