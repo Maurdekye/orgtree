@@ -123,6 +123,11 @@ only a reader already at the bottom (USER 2026-10-24). See
 
 ## Object actions belong to a composer (2026-10-22)
 
+Legacy presentation references resolve to readable slugs without recapturing
+the composer or its caret after the asynchronous metadata read. The captured
+mention reads only the resolved token when selected.
+[verified: `canvas/{objectnavhost,composerobjects,agentmentions}.tsx`; 2026-10-27]
+
 Ticket/presentation Mention and Reply capture the nearest owning message box
 before asynchronous metadata reads. `canvas/composerobjects.tsx` registers
 desk bodies and mail readers; Quick chat registers only the canvas-world in

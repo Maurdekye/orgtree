@@ -298,7 +298,7 @@ export function useAgentMentions({
   onKeyDown: (e: React.KeyboardEvent<HTMLInputElement | HTMLTextAreaElement>) => boolean
   syncCaret: () => void
   menu: ReactNode
-  captureMention: (agentId: string) => (() => void) | null
+  captureMention: (agentId: string | (() => string)) => (() => void) | null
   noteRightClickDown: () => void
 } {
   const emit = onChange ?? setValue
@@ -337,9 +337,9 @@ export function useAgentMentions({
     preRightClickSnapRef.current = { focused, start, end, ts: Date.now() }
   }, [inputRef])
 
-  const captureMention = useCallback((agentId: string): (() => void) | null => {
-    const id = agentId.trim().replace(/^@+/, '')
-    if (!id || disabledRef.current) return null
+  const captureMention = useCallback((agentId: string | (() => string)): (() => void) | null => {
+    const readId = () => (typeof agentId === 'function' ? agentId() : agentId).trim().replace(/^@+/, '')
+    if (!readId() || disabledRef.current) return null
     const el = inputRef.current
     if (!el || el.disabled) return null
     const doc = el.ownerDocument ?? document
@@ -358,6 +358,8 @@ export function useAgentMentions({
       ? (typeof el.selectionEnd === 'number' ? el.selectionEnd : rawStart)
       : usePre ? pre!.end : rawStart
     return () => {
+      const id = readId()
+      if (!id) return
       const target = inputRef.current
       if (!target || target.disabled || disabledRef.current) return
       const current = target.value ?? valueRef.current
@@ -644,10 +646,10 @@ export function placeMentionList(box: { left: number; top: number; bottom: numbe
 }
 
 export const DESK_MENTION_ATTR = 'data-desk-mention-scope'
-const deskMentionScopes = new WeakMap<Element, (agentId: string) => (() => void) | null>()
+const deskMentionScopes = new WeakMap<Element, (agentId: string | (() => string)) => (() => void) | null>()
 
 export function useDeskMentionScope(
-  captureMention: ((agentId: string) => (() => void) | null) | null,
+  captureMention: ((agentId: string | (() => string)) => (() => void) | null) | null,
   noteRightClickDown?: () => void,
 ) {
   const fnRef = useRef(captureMention)
@@ -656,7 +658,7 @@ export function useDeskMentionScope(
   downRef.current = noteRightClickDown
   const ref = useCallback((el: HTMLElement | null) => {
     if (!el) return
-    deskMentionScopes.set(el, (agentId: string) => (fnRef.current ? fnRef.current(agentId) : null))
+    deskMentionScopes.set(el, (agentId: string | (() => string)) => (fnRef.current ? fnRef.current(agentId) : null))
   }, [])
   const onRightDown = useCallback((e: React.MouseEvent<HTMLElement> | React.PointerEvent<HTMLElement>) => {
     if (e.button === 2) downRef.current?.()
@@ -671,7 +673,7 @@ export function useDeskMentionScope(
 
 export function captureDeskMentionAt(
   target: EventTarget | null,
-  agentId: string | null | undefined,
+  agentId: string | (() => string) | null | undefined,
 ): (() => void) | null {
   if (!agentId || !target || typeof (target as Element).closest !== 'function') return null
   const scope = (target as Element).closest(`[${DESK_MENTION_ATTR}]`)

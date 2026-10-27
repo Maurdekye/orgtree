@@ -24,6 +24,7 @@ import type { MentionCandidate } from '../src/canvas/agentmentions'
 import { useObjectComposer } from '../src/canvas/composerobjects'
 import type { ComposerObject } from '../src/canvas/composerobjects'
 import { ObjectNavProvider } from '../src/canvas/objectnav'
+import { objectNavProps } from '../src/canvas/objectnav'
 import { ObjectNavHost } from '../src/canvas/objectnavhost'
 import { ObjectMenuBoundary } from '../src/canvas/contextmenu'
 
@@ -163,8 +164,8 @@ test('§5 without a title the chip keeps its slug and stays a link: a name read 
 })
 
 /** A composer as the desks wire it, with its org: the box and its @-completion. */
-function Composer({ org, transcript = [], onReply }: { org: string; transcript?: string[]; onReply?: (target: ComposerObject) => void }) {
-  const [text, setText] = useState('')
+function Composer({ org, transcript = [], onReply, initial = '' }: { org: string; transcript?: string[]; onReply?: (target: ComposerObject) => void; initial?: string }) {
+  const [text, setText] = useState(initial)
   const box = useRef<HTMLTextAreaElement | null>(null)
   const candidates = useMemo<MentionCandidate[]>(() => [{ id: 'writer', tier: 'sol', kind: 'agent' }], [])
   const mentions = useAgentMentions({ value: text, onChange: setText, inputRef: box, candidates, org,
@@ -276,4 +277,37 @@ test('§9 right-clicking an old @doc:<org>/<uid> link mentions, copies, replies 
   await rightClick(chip)
   await inAct(async () => { menuItem('Open reader')!.click(); await tick() })
   assert.deepEqual(opened, ['weekly-status'])
+})
+
+test('§10 an uncached legacy document resolves slowly without recapturing the composer caret', async t => {
+  const org = 'slugs-slow-menu'
+  engine(t)
+  const fetchNow = globalThis.fetch
+  let finish!: () => void
+  globalThis.fetch = (async (raw: RequestInfo | URL) => {
+    if (String(raw).endsWith('/documents/d00000000c001')) {
+      await new Promise<void>(resolve => { finish = resolve })
+    }
+    return fetchNow(raw)
+  }) as typeof fetch
+  let now = Date.now()
+  t.mock.method(Date, 'now', () => now)
+  const view = await mountView(<ObjectNavProvider>
+    <ObjectNavHost org={org} dogs={[]} openDog={noop} openDocument={noop} toast={noop} />
+    <ObjectMenuBoundary><div className="desk-body">
+      <Composer org={org} initial="before after" />
+      <button {...objectNavProps('document', 'd00000000c001', org)}>Old link</button>
+    </div></ObjectMenuBoundary>
+  </ObjectNavProvider>, el => el)
+  t.after(() => view.unmount())
+  const box = view.el.querySelector<HTMLTextAreaElement>('.fake-composer')!
+  box.focus()
+  box.setSelectionRange(7, 7)
+  await rightClick(view.el.querySelector('button')!)
+  box.blur()
+  now += 2000 // past the right-click snapshot's lifetime
+  await inAct(async () => { finish(); await tick() })
+  assert.equal(menuItem('Copy reference')?.getAttribute('title'), `@doc:${org}/weekly-status`)
+  await inAct(async () => { menuItem('Mention')!.click(); await tick() })
+  assert.equal(box.value, `before @doc:${org}/weekly-status after`)
 })

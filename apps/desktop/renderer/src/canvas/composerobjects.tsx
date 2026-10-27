@@ -11,7 +11,7 @@ export const composerTarget = (target: ComposerObject): ReplyTarget => target.ki
   : { kind: 'document', org: target.org, id: target.id }
 type Composer = {
   key: string
-  mention: (text: string) => (() => void) | null
+  mention: (text: string | (() => string)) => (() => void) | null
   down: () => void
   reply: (target: ComposerObject) => void
   disabled?: boolean
@@ -45,7 +45,7 @@ export function useObjectComposer(input: RefObject<HTMLInputElement | HTMLTextAr
   })
 }
 
-export function captureObjectActions(anchor: Element | null, reference: string): {
+export function captureObjectActions(anchor: Element | null, reference: string | (() => string)): {
   mention: (() => void) | null; reply: ((target: ComposerObject) => void) | null
 } {
   for (let scope = anchor; scope; scope = scope.parentElement) {

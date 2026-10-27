@@ -48,13 +48,15 @@ export function ObjectNavHost({ org, dogs, openDog, openTicket, openDocument, op
       })
     }
     if (kind === 'document') {
-      const slug = (refNames.row(org, 'doc', id) as { id?: string } | undefined)?.id || id
-      const composer = captureObjectActions(anchor, refToken({ kind: 'doc', org, id: slug }))
+      let slug = (refNames.row(org, 'doc', id) as { id?: string } | undefined)?.id || id
+      // Capture the owning composer and caret before the read; only the token
+      // changes when an uncached legacy id resolves to its canonical slug.
+      const composer = captureObjectActions(anchor, () => refToken({ kind: 'doc', org, id: slug }))
       return getDocument(org, id).then(doc => {
         const docId = doc.id || slug
-        const nextComposer = docId === slug ? composer : captureObjectActions(anchor, refToken({ kind: 'doc', org, id: docId }))
+        slug = docId
         return presentationMenu(anchor, org, { ...doc, id: docId }, {
-          composer: nextComposer.mention ? nextComposer : composer,
+          composer,
           // A host without a reader route can still copy/download; never
           // manufacture an operative Open action for a read-only embedding.
           open: openDocument ? () => openDocument(docId) : undefined,
