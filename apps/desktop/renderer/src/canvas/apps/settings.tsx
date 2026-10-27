@@ -53,9 +53,10 @@ const PANEL_TABS:SettingsTab<PanelTab>[]=[{id:'general',label:'General'},{id:'st
  * has no section header or creator row (user 2026-10-26: "put the description
  * above the tabs and remove the app header"; "remove created-by"). The delete
  * confirmation fits its content. */
-export function AppSettings({slug,app,close,owner}:{slug:string;app:CustomApp;close:()=>void;owner?:Document}){
-  const currentOwner=useSurfaceDocument(),data=useApps(slug),[tab,setTab,visited]=useVisitedTabs<AppTab>('general'),[view,setView]=useState<'delete-app'|null>(null),[error,setError]=useState('')
+export function AppSettings({slug,app,close,owner,confirmDelete=false}:{slug:string;app:CustomApp;close:()=>void;owner?:Document;confirmDelete?:boolean}){
+  const currentOwner=useSurfaceDocument(),data=useApps(slug),[tab,setTab,visited]=useVisitedTabs<AppTab>('general'),[view,setView]=useState<'delete-app'|null>(confirmDelete?'delete-app':null),[error,setError]=useState('')
   const a=data.apps.find(a=>a.id===app.id)??app,document=owner??currentOwner,idBase='custom-app-settings-'+app.id
+  const cancelDelete=()=>confirmDelete?close():setView(null)
   return <SurfaceDocumentOwner owner={document}><AppDialog title={a.name+' - App settings'} label="App settings" org={slug} kind={'custom-app-settings:'+app.id} pinnable close={close} owner={document}>
     {a.description?.trim()&&<p className="dim">{a.description}</p>}
     {error&&<p role="alert">{error}</p>}
@@ -69,7 +70,7 @@ export function AppSettings({slug,app,close,owner}:{slug:string;app:CustomApp;cl
     <SettingsTabPanel id="permissions" idBase={idBase} active={tab==='permissions'}>{visited('permissions')&&<AppPermissions slug={slug} app={a} close={close} embedded/>}</SettingsTabPanel>
     <SettingsTabPanel id="history" idBase={idBase} active={tab==='history'} className="app-settings-panel custom-app-log-tab">{visited('history')&&<AppPermissionHistory key={a.id} slug={slug} app={a}/>}</SettingsTabPanel>
   </AppDialog>
-  {view==='delete-app'&&<AppDialog title="Delete app" className="custom-app-confirm" close={()=>setView(null)}><p>Delete {a.name}, all its panels and their saved state?</p><div className="custom-app-dialog-actions"><button type="button" onClick={()=>setView(null)}>Cancel</button><button type="button" className="danger" onClick={()=>void changeApps(slug,{action:'app_delete',app:a.id,expected_rev:a.rev,delete_panels:true}).then(close).catch(e=>setError(String(e)))}>Delete app and panels</button></div></AppDialog>}
+  {view==='delete-app'&&<AppDialog title="Delete app" className="custom-app-confirm" close={cancelDelete}><p>Delete {a.name}, all its panels and their saved state?</p><div className="custom-app-dialog-actions"><button type="button" onClick={cancelDelete}>Cancel</button><button type="button" className="danger" onClick={()=>void changeApps(slug,{action:'app_delete',app:a.id,expected_rev:a.rev,delete_panels:true}).then(close).catch(e=>setError(String(e)))}>Delete app and panels</button></div></AppDialog>}
   </SurfaceDocumentOwner>
 }
 
@@ -85,13 +86,14 @@ export function AppSettings({slug,app,close,owner}:{slug:string;app:CustomApp;cl
  * included. Placement lives on the window itself and in orgtree_apps, not here;
  * remembered grants stay app-wide, and Allow once still belongs to the live
  * host's native prompt. The delete confirmation fits its content. */
-export function PanelSettings({slug,app,panel,close,owner}:{slug:string;app:CustomApp;panel:CustomPanel;close:()=>void;owner?:Document}){
-  const currentOwner=useSurfaceDocument(),data=useApps(slug),[tab,setTab,visited]=useVisitedTabs<PanelTab>('general'),[view,setView]=useState<'delete-panel'|null>(null),[nameEdit,setNameEdit]=useState<string>(),[error,setError]=useState('')
+export function PanelSettings({slug,app,panel,close,owner,confirmDelete=false}:{slug:string;app:CustomApp;panel:CustomPanel;close:()=>void;owner?:Document;confirmDelete?:boolean}){
+  const currentOwner=useSurfaceDocument(),data=useApps(slug),[tab,setTab,visited]=useVisitedTabs<PanelTab>('general'),[view,setView]=useState<'delete-panel'|null>(confirmDelete?'delete-panel':null),[nameEdit,setNameEdit]=useState<string>(),[error,setError]=useState('')
   const a=data.apps.find(a=>a.id===app.id)??app,p=data.panels.find(p=>p.id===panel.id&&p.app===app.id)??panel,document=owner??currentOwner,idBase='custom-panel-settings-'+p.id,name=nameEdit??p.label
   // The app's toast, which ObjectMenuBoundary provides at the window root, as Agent settings receives it.
   const toast=useCopyFeedback()
   const rename=async()=>{const from=p.label;try{const r=await changeApps<CustomPanel>(slug,{action:'panel_update',panel:p.id,expected_rev:p.rev,label:name.trim()});toast?.([`renamed ${from} → ${r.label}`]);close()}catch(e){if(toast)toast([`error: ${e instanceof Error?e.message:String(e)}`]);else setError(String(e))}}
   const show=(next:typeof view)=>{setView(next);setError('')}
+  const cancelDelete=()=>confirmDelete?close():setView(null)
   return <SurfaceDocumentOwner owner={document}><AppDialog title={p.label+' - Panel settings'} label="Panel settings" org={slug} kind={'custom-panel-settings:'+p.id} pinnable close={close} owner={document}>
     {error&&<p role="alert">{error}</p>}
     <SetRow label="Name"><span className="agent-identity-row"><input type="text" aria-label="Panel name" placeholder="Panel name" value={name} onChange={e=>setNameEdit(e.target.value)}/>
@@ -108,6 +110,6 @@ export function PanelSettings({slug,app,panel,close,owner}:{slug:string;app:Cust
     <SettingsTabPanel id="fire" idBase={idBase} active={tab==='fire'} className="app-settings-panel custom-app-log-tab">{visited('fire')&&<PanelFireEvent key={p.id} slug={slug} app={a} panel={p}/>}</SettingsTabPanel>
     <SettingsTabPanel id="history" idBase={idBase} active={tab==='history'} className="app-settings-panel custom-app-log-tab">{visited('history')&&<PanelHistory key={p.id} slug={slug} panel={p}/>}</SettingsTabPanel>
   </AppDialog>
-  {view==='delete-panel'&&<AppDialog title="Delete panel" className="custom-app-confirm" close={()=>setView(null)}><p>Delete {p.label} and its saved state?</p><div className="custom-app-dialog-actions"><button type="button" onClick={()=>setView(null)}>Cancel</button><button type="button" className="danger" onClick={()=>void changeApps(slug,{action:'panel_delete',panel:p.id,expected_rev:p.rev}).then(close).catch(e=>setError(String(e)))}>Delete panel</button></div></AppDialog>}
+  {view==='delete-panel'&&<AppDialog title="Delete panel" className="custom-app-confirm" close={cancelDelete}><p>Delete {p.label} and its saved state?</p><div className="custom-app-dialog-actions"><button type="button" onClick={cancelDelete}>Cancel</button><button type="button" className="danger" onClick={()=>void changeApps(slug,{action:'panel_delete',panel:p.id,expected_rev:p.rev}).then(close).catch(e=>setError(String(e)))}>Delete panel</button></div></AppDialog>}
   </SurfaceDocumentOwner>
 }

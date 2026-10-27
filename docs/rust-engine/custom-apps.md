@@ -571,8 +571,14 @@ departures provisional for the user.
 - Chips: an app shows its name; a panel shows `<app name> · <panel label>`
   (labels default to "Panel N"). The hover text and a panel's menu are its Apps
   menu row's, from `canvas/apps/links.ts` (`appLinkTitle`, `panelLinkTitle`,
-  `panelLinkMenu`, `panelRunState`); a panel chip carries the `panel` object-nav
-  kind so the shared menu host builds it; app rows and app chips have no menu.
+    `appLinkMenu`, `panelLinkMenu`, `panelRunState`); both builders carry their
+    `app` or `panel` object-nav kind so the shared menu host builds it.
+    Settings and Delete… share the Apps gears' `manageAppLink` request, resolve
+    current metadata and render the existing AppSettings/PanelSettings in the
+    pressed link's document. Delete… starts their existing confirmation without
+    issuing a deletion; Cancel closes it, and only the confirmation sends the
+    existing revision-checked app_delete/panel_delete. Panel power actions stay.
+    [decided: user 2026-10-27 mda7854f1f89b]
   Deleted and other-org targets are the existing inert chip (departure a).
 - Click: `openAppRef` calls the Apps rows' own `openAppPanel` (bring-to-front,
   @tutorial-opus): `{app}` lets the engine pick the most recently used copy or

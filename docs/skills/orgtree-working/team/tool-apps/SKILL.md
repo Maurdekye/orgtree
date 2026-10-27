@@ -91,8 +91,12 @@ it. The user's chip shows the app's current name, or for a panel its app's name
 and its label, with the app's icon on the left, and opens it the way its Apps menu
 row does: an app mention opens the most recently used copy (or creates one), a
 panel mention opens that copy, starting it if it was off, and a copy already on
-screen comes to the front. The hover text and a panel's right-click menu are its
-row's. A deleted or other-org target shows the token marked unavailable or other
+screen comes to the front. The hover text and right-click menu are its row's:
+Settings opens App settings or that copy's Panel settings, and Delete… opens the
+existing delete confirmation. A panel also offers Start running or Power off.
+Settings entry points are display only; the existing app_get/panel_get,
+app_update/panel_update/state actions and app_delete/panel_delete provide tool
+parity with their ordinary revision and permission checks. A deleted or other-org target shows the token marked unavailable or other
 org. A mention opens nothing by itself: only the user's click shows a window.
 
 ## Running, hidden and powered-off panels

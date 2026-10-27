@@ -1730,13 +1730,19 @@ both builders add `ref-flare <cls>` and `refChipTitle` (`<tip> · <title>`), and
 `chipSig` includes it. `name(kind, row, org)` may read local state;
 `refNames.touch()` re-decides chips with no read (docrefs calls it on every
 viewed mark). Clicks go through the Apps rows'
-`openAppPanel`, and their hover text and a panel's menu through
+`openAppPanel`, and their hover text and app/panel menus through
 `canvas/apps/links.ts`, which the rows use too. Every ready chip except mail
 leads with its kind's mark (`canvas/refmarks.tsx`, one element for both
 builders; agents and projects keep their identity badge); failed chips keep the
 token and verdict with no mark. See [custom apps](../rust-engine/custom-apps.md#mentions-2026-10-27).
 [decided: user 2026-10-27 m449dc0a35cbe, m6d0cdc7a2be6, m33e4a043b457; verified:
 `canvas/{workrefs,reflinks,refmd,refmarks,apprefs,objectnavhost}.ts*`, `canvas/apps/{links,ui}.ts*`]
+
+App/panel Settings and Delete… context entries use the Apps-list settings route
+and its existing deletion confirmation; only confirming sends the revision-
+checked delete action. Preserve the pressed link's owner document before the
+metadata read, and never add actions to missing or other-org chips.
+[decided: user 2026-10-27 mda7854f1f89b; verified: `canvas/apps/{links,ui,settings}.ts*`]
 
 ## Network mention chips (2026-10-27, 4.5.0)
 

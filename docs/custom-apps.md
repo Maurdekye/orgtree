@@ -431,8 +431,11 @@ or the panel's app and label (for example **Caption board · Panel 1**), with th
 Apps icon or a window icon on its left. Clicking it does what the app's or the
 panel's row in **Apps** does: an app opens the copy you used most recently, or a
 new one; a panel opens, and starts if it was off; a copy already on screen comes
-to the front. Hover for the row's tooltip; right-click a panel mention for
-**Start running** or **Power off**. A mention of a deleted app or panel, or of
+to the front. Hover for the row's tooltip. Right-click an app or panel mention
+for **Settings** or **Delete…**. Settings opens that app's App settings or that
+copy's Panel settings. Delete… asks for confirmation first; deleting an app
+removes all its panels, while deleting a panel removes only that copy.
+Panel mentions also offer **Start running** or **Power off**. A mention of a deleted app or panel, or of
 another organization's, shows the agent's text marked *unavailable* or *other
 org* and opens nothing.
 

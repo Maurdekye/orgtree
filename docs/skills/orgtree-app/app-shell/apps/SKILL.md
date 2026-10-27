@@ -305,8 +305,11 @@ name, or the panel's app and label (for example Caption board · Panel 1), with
 the Apps icon or a window icon on its left. Click it to do what its row in Apps
 does: an app opens its most recently used copy, or a new one; a panel opens, and
 starts if it was off; a copy already on screen comes to the front. Hovering shows
-the row's tooltip, and right-clicking a panel mention offers the row's Start
-running or Power off. A mention of a deleted app or panel, or of another
+the row's tooltip. Right-click either kind for Settings (that app's App settings
+or that exact copy's Panel settings) and Delete… (the existing confirmation,
+never immediate deletion). App deletion removes its definition and all saved
+panels; panel deletion removes only that copy. A panel mention also offers the
+row's Start running or Power off. A mention of a deleted app or panel, or of another
 organization's, shows its token marked unavailable or other org and opens
 nothing. The composer's @ menu offers every app and saved panel by name, newest
 first; `@app:` or `@panel:` lists all of them (see orgtree-desk-chat).

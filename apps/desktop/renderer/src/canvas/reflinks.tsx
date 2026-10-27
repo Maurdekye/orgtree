@@ -653,8 +653,7 @@ export function RefChip({ r, onOpen }: {
       <button type="button" {...copy}
         {...(r.ref.kind === 'item' ? objectNavProps('ticket', r.ref.id, r.ref.org)
           : r.ref.kind === 'doc' ? objectNavProps('document', r.ref.id, r.ref.org)
-          // a panel link's menu is its Apps menu row's; an app row has none
-          : r.ref.kind === 'panel' ? objectNavProps('panel', r.ref.id, r.ref.org)
+          : r.ref.kind === 'app' || r.ref.kind === 'panel' ? objectNavProps(r.ref.kind, r.ref.id, r.ref.org)
           : r.ref.kind === 'mail' && r.ref.box ? mailLinkProps({ ...r.ref, box: r.ref.box }) : {})}
         className={cls} title={refChipTitle(r)}
         onMouseDown={(e) => { if (e.button !== 0) e.stopPropagation() }}

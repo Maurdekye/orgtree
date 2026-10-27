@@ -48,6 +48,9 @@ refNames.register({
 onAppsInvalidated((org) => refNames.invalidate(org, ['app', 'panel']))
 
 /** The current answer for a panel mention, for its menu. */
+export function appRefRow(org: string, id: string): AppRefRow | null {
+  return (refNames.row(org, 'app', id) as AppRefRow | undefined) ?? null
+}
 export function panelRefRow(org: string, id: string): PanelRefRow | null {
   return (refNames.row(org, 'panel', id) as PanelRefRow | undefined) ?? null
 }
