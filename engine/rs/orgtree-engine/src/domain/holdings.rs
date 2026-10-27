@@ -32,6 +32,9 @@ use anyhow::Result;
 use crate::domain::{projects, slots};
 use crate::engine::Engine;
 
+#[cfg(test)]
+mod db_tests;
+
 /// A lease that was taken back, as the holder's notice names it.
 #[derive(Debug, Clone, Default)]
 pub struct GivenLease {
