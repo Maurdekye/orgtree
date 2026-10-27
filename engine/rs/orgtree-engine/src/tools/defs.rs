@@ -1410,6 +1410,21 @@ mod startup_card_tests {
             "Ask the user for a larger TOTAL grant with a reason.\nGuide: orgtree-tool-request-credits.");
     }
 
+    /// User 2026-10-27 mea228250b31e ("encourage agents to use an english name
+    /// for the slug") and mdcb7ce9a8103 ("Add the field"): an optional slug
+    /// for a new card, asked for in English when the title isn't.
+    #[test]
+    fn present_card_takes_an_optional_english_slug_for_new_cards() {
+        let card = build_tool_present();
+        let slug = &card["inputSchema"]["properties"]["slug"];
+        assert_eq!(slug["type"], "string", "slug parameter");
+        let hint = slug["description"].as_str().unwrap_or_default();
+        for needed in ["English", "title", "replaces"] {
+            assert!(hint.contains(needed), "slug description lacks {needed}: {hint}");
+        }
+        assert_eq!(card["inputSchema"]["required"], json!(["title"]), "slug stays optional");
+    }
+
     #[test]
     fn startup_card_measurements() {
         if let Some(file) = std::env::var_os("ORGTREE_TOOL_CARDS_FILE") {

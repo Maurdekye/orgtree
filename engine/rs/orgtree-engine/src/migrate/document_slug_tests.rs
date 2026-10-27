@@ -2,6 +2,8 @@
 //! 2026-10-27 m4efbc12ac94e). The native checks stage a pre-0073 database in an
 //! owned disposable rig cluster (never live data), fill it with real-shaped
 //! presentations, upgrade it, and resolve the old generic ids on every route.
+//! Migration 0074: orgtree_present may ask for a slug, cleaned and made free
+//! by the same trigger (user 2026-10-27 mdcb7ce9a8103).
 use std::sync::Arc;
 
 use axum::extract::{Path, Query, State};
@@ -27,6 +29,25 @@ fn document_slugs_migration_is_registered_with_trigger_and_resolver() {
         // an old id and the `viewed` route segment are never handed out as slugs
         "candidate = 'viewed' OR EXISTS", "(d.slug = candidate OR d.uid = candidate)"] {
         assert!(sql.contains(needle), "0073 lacks {needle}");
+    }
+}
+
+#[test]
+#[nolog]
+fn requested_document_slugs_migration_is_registered() {
+    let at = |name: &str| super::MIGRATIONS.iter().position(|(n, _)| *n == name);
+    let requested = at("0074_requested_document_slugs").expect("0074 registered");
+    assert!(requested > at("0073_document_slugs").unwrap(), "after 0073");
+    let sql = super::MIGRATIONS[requested].1;
+    for needle in ["CREATE OR REPLACE FUNCTION ot.assign_document_slug() RETURNS trigger",
+        // one lock for both paths, so a requested slug never races a title
+        "PERFORM pg_advisory_xact_lock(hashtextextended('ot.documents.slug/' || NEW.org_id, 0));",
+        "NEW.slug := ot.document_slug(NEW.org_id, NEW.title);",
+        // a requested slug gets the title's cleanup and clash suffixes
+        "NEW.slug := ot.document_slug(NEW.org_id, NEW.slug);",
+        // and one the cleanup leaves empty is refused, never `presentation`
+        "RAISE EXCEPTION"] {
+        assert!(sql.contains(needle), "0074 lacks {needle}");
     }
 }
 
@@ -340,6 +361,104 @@ async fn new_presentations_get_free_slugs_one_org_at_a_time() {
     second_task.await.unwrap();
     std::fs::write(fixture.engine_root("document-slugs").join("present.json"),
         json!({ "made": made, "concurrent": [held, raced] }).to_string()).unwrap();
+    drop(e);
+    drop(c);
+    task.await.unwrap();
+}
+
+/// orgtree_present as an agent calls it.
+#[nolog]
+async fn present(e: &Arc<Engine>, o: &Arc<OrgHandle>, p: &crate::domain::docs::Presenter, args: Value) -> anyhow::Result<(String, Value)> {
+    crate::domain::docs::present(e, o, p, &args).await
+}
+
+/// User 2026-10-27 mea228250b31e: "just encourage agents to use an english
+/// name for the slug, the actual name can be whatever it needs to be in any
+/// language"; mdcb7ce9a8103: "Add the field (recommended)".
+#[tokio::test]
+#[ignore = "requires an owned disposable rig cluster (native fixture); never an ambient DB"]
+#[nolog]
+async fn requested_slugs_name_new_presentations_only() {
+    let (fixture, cfg, mut c, task) = staged("requested").await;
+    super::run(&mut c, &|_| {}).await.unwrap();
+    let a = one_i64(&c, "INSERT INTO ot.orgs (uuid, slug, name) VALUES (gen_random_uuid(), 'requested-a', 'Requested A') RETURNING id", &[]).await;
+    let writer = one_i64(&c, "INSERT INTO ot.agents (org_id, name, tier, state, born) VALUES ($1, 'writer', 'sol', 'live', 'synthetic') RETURNING id", &[&a]).await;
+    c.execute("INSERT INTO ot.documents (uid, org_id, agent_id, node_name, title, body) VALUES ('d00000000f001', $1, $2, 'writer', 'Old one', 'x')", &[&a, &writer]).await.unwrap();
+    let e = engine(&fixture, &cfg, "document-requested", &[(a, "requested-a")]);
+    let o = org(&e, "requested-a");
+    let p = crate::domain::docs::presenter_in(&e, &o, writer, &c).await.unwrap();
+    let title = "דוח שבועי";
+    let (text, card) = present(&e, &o, &p, json!({ "title": title, "body": "b", "slug": "weekly-report" })).await.unwrap();
+    assert_eq!((card["presentation"]["id"].as_str(), card["presentation"]["title"].as_str()), (Some("weekly-report"), Some(title)),
+        "an English slug names a Hebrew title");
+    assert_eq!(card["presentation"]["ref"], "@doc:requested-a/weekly-report");
+    assert!(text.contains("id weekly-report"), "{text}");
+    // the title's cleanup and clash suffixes; an empty slug is no slug
+    let x48 = "x".repeat(48);
+    let mut made = Vec::new();
+    for slug in [json!("weekly-report"), json!("  Weekly Report!  "), json!("viewed"), json!("d00000000f001"), json!("old-one"),
+                 json!("x".repeat(60)), json!("Résumé 2026"), json!(""), json!("   "), Value::Null] {
+        let (_, card) = present(&e, &o, &p, json!({ "title": title, "body": "b", "slug": slug })).await.unwrap();
+        made.push(card["presentation"]["id"].as_str().unwrap().to_string());
+    }
+    let (_, card) = present(&e, &o, &p, json!({ "title": title, "body": "b" })).await.unwrap();
+    made.push(card["presentation"]["id"].as_str().unwrap().to_string());
+    assert_eq!(made, ["weekly-report-2", "weekly-report-3", "viewed-2", "d00000000f001-2", "old-one-2", x48.as_str(), "r-sum-2026",
+        "presentation", "presentation-2", "presentation-3", "presentation-4"]);
+    // refused: a slug with replaces (slugs stay fixed once made), one the
+    // cleanup leaves empty (never a silent `presentation`), one that is no text
+    let before = one_i64(&c, "SELECT count(*) FROM ot.documents WHERE org_id = $1", &[&a]).await;
+    let refused = |r: anyhow::Result<(String, Value)>| r.err().map(|e| e.to_string()).unwrap_or_default();
+    let mut refusals = Vec::new();
+    let fixed = refused(present(&e, &o, &p, json!({ "title": "Weekly report", "body": "c", "slug": "weekly-report", "replaces": "weekly-report" })).await);
+    assert!(fixed.contains("slug") && fixed.contains("replaces"), "{fixed:?}");
+    refusals.push(fixed);
+    for slug in ["שלום", "—", "-- __ --"] {
+        let empty = refused(present(&e, &o, &p, json!({ "title": title, "body": "b", "slug": slug })).await);
+        assert!(empty.contains("English"), "{slug:?}: {empty:?}");
+        refusals.push(empty);
+    }
+    let wrong = refused(present(&e, &o, &p, json!({ "title": title, "body": "b", "slug": 7 })).await);
+    assert!(wrong.contains("slug"), "{wrong:?}");
+    refusals.push(wrong);
+    assert_eq!(one_i64(&c, "SELECT count(*) FROM ot.documents WHERE org_id = $1", &[&a]).await, before, "a refused call makes nothing");
+    assert_eq!(c.query_one("SELECT title FROM ot.documents WHERE org_id = $1 AND slug = 'weekly-report'", &[&a]).await.unwrap().get::<_, String>(0), title,
+        "the refused replace changed nothing");
+    // a replace without a slug keeps the slug, as before
+    let (_, kept) = present(&e, &o, &p, json!({ "title": "Weekly report", "body": "c", "replaces": "weekly-report" })).await.unwrap();
+    assert_eq!(kept["presentation"]["id"], "weekly-report");
+    // the database names every insert, so another path's requested slug is cleaned there too
+    let sql: String = c.query_one("INSERT INTO ot.documents (uid, org_id, agent_id, node_name, title, body, slug) VALUES ('d00000000f101', $1, $2, 'writer', 'שלום', 'x', 'Weekly Report') RETURNING slug",
+        &[&a, &writer]).await.unwrap().get(0);
+    assert_eq!(sql, "weekly-report-4");
+    let err = c.execute("INSERT INTO ot.documents (uid, org_id, agent_id, node_name, title, body, slug) VALUES ('d00000000f102', $1, $2, 'writer', 'x', 'x', 'שלום')",
+        &[&a, &writer]).await.unwrap_err();
+    let raised = err.as_db_error().map(|d| d.message().to_string()).unwrap_or_default();
+    assert!(raised.contains("ASCII letter or digit"), "{err:?}");
+    // one lock for both paths: a requested slug waits while a title holds it
+    let (mut first, conn) = cfg.connect(NoTls).await.unwrap();
+    let first_task = tokio::spawn(async move { let _ = conn.await; });
+    let (second, conn) = cfg.connect(NoTls).await.unwrap();
+    let second_task = tokio::spawn(async move { let _ = conn.await; });
+    let tx = first.transaction().await.unwrap();
+    let held: String = tx.query_one("INSERT INTO ot.documents (uid, org_id, agent_id, node_name, title, body) VALUES ('d00000000f201', $1, $2, 'writer', 'Mixed race', 'x') RETURNING slug",
+        &[&a, &writer]).await.unwrap().get(0);
+    let racer = tokio::spawn(async move {
+        let slug: String = second.query_one("INSERT INTO ot.documents (uid, org_id, agent_id, node_name, title, body, slug) VALUES ('d00000000f202', $1, $2, 'writer', 'שלום', 'x', 'mixed-race') RETURNING slug",
+            &[&a, &writer]).await.unwrap().get(0);
+        drop(second);
+        slug
+    });
+    tokio::time::sleep(std::time::Duration::from_millis(400)).await;
+    assert!(!racer.is_finished(), "the requested slug waits for the org's slug lock");
+    tx.commit().await.unwrap();
+    let raced = racer.await.unwrap();
+    assert_eq!((held.as_str(), raced.as_str()), ("mixed-race", "mixed-race-2"));
+    drop(first);
+    first_task.await.unwrap();
+    second_task.await.unwrap();
+    std::fs::write(fixture.engine_root("document-slugs").join("requested.json"),
+        json!({ "first": "weekly-report", "made": made, "refusals": refusals, "sql": [sql, raised], "concurrent": [held, raced] }).to_string()).unwrap();
     drop(e);
     drop(c);
     task.await.unwrap();
