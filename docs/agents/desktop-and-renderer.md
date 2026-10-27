@@ -1708,7 +1708,15 @@ target absent. `@app:`/`@panel:` read the Apps `refs` (`canvas/apprefs.ts`,
 re-read on `custom_apps_changed`); `@item:` reads the work-item references for
 the item's current title (`canvas/itemrefs.ts`, re-read on the engine's
 `docket_changed` frame from `domain/docket.rs` changed(); user 2026-10-27
-m7bb9eb904138), and a title never decides an item's outcome. Clicks go through the Apps rows'
+m7bb9eb904138), and a title never decides an item's outcome. A reader's answer may
+carry a `flare` (`RefFlare` {cls, tip}): `itemrefs.ts` the item's status
+(`docketstatus.tsx` ticketFlare, the `status-*` palette), `docrefs.ts`
+unread/modified from the `?refs=` answer's `at`/`viewed_at` through
+`docviewed.ts` docUnread; `resolveRef` copies it onto ready item/doc chips only,
+both builders add `ref-flare <cls>` and `refChipTitle` (`<tip> · <title>`), and
+`chipSig` includes it. `name(kind, row, org)` may read local state;
+`refNames.touch()` re-decides chips with no read (docrefs calls it on every
+viewed mark). Clicks go through the Apps rows'
 `openAppPanel`, and their hover text and a panel's menu through
 `canvas/apps/links.ts`, which the rows use too. Every ready chip except mail
 leads with its kind's mark (`canvas/refmarks.tsx`, one element for both

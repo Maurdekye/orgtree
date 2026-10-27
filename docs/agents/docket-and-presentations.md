@@ -947,6 +947,30 @@ bounded work-item-references read). The chip's token, Copy slug and the shared
 [decided: user 2026-10-27 m7bb9eb904138; verified: `domain/docket.rs`,
 `canvas/{itemrefs,refnames,reflinks}.ts*`, `App.tsx`]
 
+## Ticket and presentation links show state flares (2026-10-27, 4.5.0)
+
+Every ticket link (typed mention, bare docket name, tool-call chip) wears its
+docket status as the `status-*` palette's left edge, the tool-call chips' own
+(`.ref-flare` joins the palette's `:is()` list); the status rides the same
+bounded name read as the title, so it follows `docket_changed`. Tool-call
+tickets (`canvas/toolrefs.tsx`) and idle-docket cards render `RefChip` itself,
+no box of their own (user m0baa7d0b5a61, mffa2a51ed1b1, md478a732e0c0): the
+tool row keeps its live read (record cursor, live bumps) for title and status;
+the card shows the recorded title and status until the surface's name read
+answers. `.tool-ticket` and the card's own edge are gone.
+A presentation link or card flares while unread (accent) or modified since read
+(duller accent): the `?refs=` answer carries `at`/`viewed_at`
+(`http/docs.rs` refs), judged by `docviewed.ts` docUnread with this origin's
+marks, so opening one clears every flare through `refNames.touch()` with no
+read. A tool row's card reads the same answer (`useDocumentRef`) for its current
+title and state; gallery rows get a dot, since their edge marks HTML. Hovers
+lead with the words (`Unread · `, `Modified since you last read it · `,
+`objecttooltip.ts` from its fresh read). Proof: `tests/refflares.test.tsx`,
+`tools/rig/proofs/ref-flares.mjs`, capture `tools/rig/refflares-visual.mjs`.
+[decided: user 2026-10-27 m43beb8089dd4, m3eb804e5023a, m919f12828686,
+mc1c4ab23c4bf; verified: `http/docs.rs`, `canvas/{refnames,itemrefs,docrefs,
+docketstatus,reflinks,refmd,toolrefs,docs,gallery,objecttooltip}.ts*`]
+
 ## Presentations are identified by a readable slug (2026-10-27, 4.5.0)
 
 A presentation's id is `ot.documents.slug` (migration 0073): made from the title
