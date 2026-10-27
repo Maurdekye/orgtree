@@ -112,9 +112,24 @@ html.mobile .overlay.custom-app-centered.custom-app-behind { z-index:39 }
 .custom-app-file-picker p { overflow-wrap:anywhere;font-size:12px }
 .custom-app-file-change { display:flex;flex-direction:column;gap:10px;min-width:0 }
 .custom-app-file-change code { overflow-wrap:anywhere;user-select:text }
-.custom-app-connections { list-style:none;padding:0;margin:0;display:grid;gap:10px }
-.custom-app-connections li { display:grid;gap:3px;overflow-wrap:anywhere }
-.custom-app-connections span,.custom-app-connections small { color:var(--dim);font-size:11px }
+/* Connections (user 2026-10-27 m6ca9f88d5812, md11c3c790acf, m8ced6e920f63): a live
+   list like History. A row links its agent and panel, names its event, and expands
+   to its subscription's fires, a History list of their own. */
+.custom-app-connections { list-style:none;margin:0;padding:0;border:1px solid var(--line);border-radius:5px;font-size:12px }
+.custom-app-connections>li+li { border-top:1px solid var(--line) }
+.custom-app-connection { display:flex;align-items:center;gap:8px;min-height:30px;padding:3px 10px 3px 4px;cursor:pointer }
+.custom-app-connection:hover,.custom-app-connections>li.open>.custom-app-connection { background:var(--panel-2) }
+.custom-app-connections .custom-app-connection-toggle { flex:none;width:20px;height:20px;min-height:0;padding:0;border:0;border-radius:3px;background:none;color:var(--dim);font:inherit;line-height:1;cursor:pointer }
+.custom-app-connection-toggle::before { content:'\25B8' }
+.custom-app-connection-toggle[aria-expanded="true"]::before { content:'\25BE' }
+.custom-app-connection>.ref-chip { flex:0 1 auto;min-width:0;max-width:38%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap }
+.custom-app-connection-all { flex:none;color:var(--dim) }
+.custom-app-connection-event { flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:var(--mono,monospace) }
+.custom-app-connection-meta { flex:none;margin-left:auto;padding-left:6px;color:var(--dim);white-space:nowrap }
+.custom-app-connection-fires { display:grid;gap:6px;padding:2px 10px 10px 28px }
+.custom-app-connection-fires>p { margin:0;color:var(--dim);overflow-wrap:anywhere }
+.custom-app-connection-fires>.custom-app-log { max-height:240px }
+.custom-app-connections>.custom-app-log-more { border-top:1px solid var(--line) }
 @media(max-width:600px){.custom-app-status { font-size:10px }}
 
 /* Separate, keyboard-focusable sibling buttons: opening a saved copy is not settings. */

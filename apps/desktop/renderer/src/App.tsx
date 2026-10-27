@@ -622,6 +622,11 @@ export default function App() {
     onOpenDoc: (id) => { setShowGallery(false); setDocJump(id) },
     onOpenMail: (r) => { setShowGallery(false); setMailJump({ ...mailRefTarget(r), seq: jumpTo(r.id).seq }) },
   })
+  // Apps windows: a Connections row's agent link focuses that agent on the
+  // canvas like the shell's other agent links (user 2026-10-27 m6ca9f88d5812)
+  const appsRefs = useShellRefs(slug ?? '', tree ?? null, {
+    onFocusAgent: (id) => setFocusAgent(id),
+  })
   // the usage button GLOWS once a lane nears its wall (user feature
   // 2026-08-19), so a freeze stops being the first notice. It rides
   // the cache-only usage peek because this reader runs whether
@@ -2143,7 +2148,7 @@ export default function App() {
           refs={galleryRefs}
           close={() => setShowGallery(false)} />
       )}
-      {slug && tree && <AppsWorkspace key={slug} slug={slug} />}
+      {slug && tree && <AppsWorkspace key={slug} slug={slug} refs={appsRefs} />}
       {showDocket && slug && tree && (
         <DocketModal slug={slug} toast={toast} tree={tree}
           jumpTo={docketJump?.id ?? null} jumpSeq={docketJump?.seq}

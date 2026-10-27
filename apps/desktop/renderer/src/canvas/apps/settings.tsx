@@ -3,6 +3,7 @@ import {customAppsRequest} from '../../api'
 import {SurfaceDocumentOwner,useSurfaceDocument} from '../../popout'
 import {SetRow,SettingsTabPanel,SettingsTabs,useVisitedTabs} from '../settingskit'
 import {useCopyFeedback} from '../contextmenu'
+import {closeIfCentred} from '../modalpin'
 import type {SettingsTab} from '../settingskit'
 import {changeApps,useApps} from './store'
 import {AppDialog} from './dialog'
@@ -97,7 +98,7 @@ export function PanelSettings({slug,app,panel,close,owner}:{slug:string;app:Cust
       </div>
     </SettingsTabPanel>
     <SettingsTabPanel id="state" idBase={idBase} active={tab==='state'} className="app-settings-panel custom-app-state-tab">{visited('state')&&<PanelState key={p.id} slug={slug} app={a} panel={p}/>}</SettingsTabPanel>
-    <SettingsTabPanel id="connections" idBase={idBase} active={tab==='connections'}>{visited('connections')&&<PanelConnections key={p.id} slug={slug} app={a} panel={p}/>}</SettingsTabPanel>
+    <SettingsTabPanel id="connections" idBase={idBase} active={tab==='connections'}>{visited('connections')&&<PanelConnections key={p.id} slug={slug} app={a} panel={p} leave={()=>closeIfCentred('custom-panel-settings:'+p.id,close,slug)}/>}</SettingsTabPanel>
     <SettingsTabPanel id="fire" idBase={idBase} active={tab==='fire'}>{visited('fire')&&<PanelFireEvent key={p.id} slug={slug} app={a} panel={p}/>}</SettingsTabPanel>
     <SettingsTabPanel id="history" idBase={idBase} active={tab==='history'} className="app-settings-panel custom-app-log-tab">{visited('history')&&<PanelHistory key={p.id} slug={slug} panel={p}/>}</SettingsTabPanel>
   </AppDialog>

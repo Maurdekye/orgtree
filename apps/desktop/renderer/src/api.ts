@@ -1724,7 +1724,7 @@ export const changeMailTransfer = (slug: string, id: string, action: 'retry' | '
  * the whole agent chart or invalidate every archived node detail. */
 export const customAppsRequest = <T,>(slug:string,input:Record<string,unknown>):Promise<T> => {
   const path='/api/orgs/'+encodeURIComponent(slug)+'/apps'
-  if(['list','app_get','panel_get','refs','events','permission_history'].includes(String(input.action)))
+  if(['list','app_get','panel_get','refs','events','permission_history','listener_fires'].includes(String(input.action)))
     return req<T>(path+'?request='+encodeURIComponent(JSON.stringify(input)))
   return req<T>(path,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(input)},DEFAULT_TIMEOUT_MS,[],false)
 }

@@ -77,6 +77,6 @@ export function AppPermissionHistory({slug,app}:{slug:string;app:CustomApp}){
       {panel&&<><dt>Panel</dt><dd>{panel}</dd></>}
     </dl>}
   return <div className="set-group custom-app-log-group"><p className="dim">Permission changes and prompt answers for this app, newest first. Orgtree keeps the latest 128. Click an entry for its details.</p>
-    <LogList slug={slug} label="Permission history" read={read} follows={change=>!change.panel} summary={permissionSummary} details={details} empty="No permission changes yet."/>
+    <LogList slug={slug} label="Permission history" read={read} follows={change=>!change.panel&&!change.listeners} summary={permissionSummary} details={details} empty="No permission changes yet."/>
   </div>
 }

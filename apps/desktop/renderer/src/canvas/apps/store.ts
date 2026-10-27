@@ -24,8 +24,9 @@ const invalidated=new Set<(slug:string)=>void>()
 /** Told of every app change for an org, active or not: mention chips re-read their names. */
 export function onAppsInvalidated(fn:(slug:string)=>void):()=>void {invalidated.add(fn);return()=>invalidated.delete(fn)}
 export function invalidateCustomApps(slug:string):void {const s=store(slug);if(s.active)void refreshApps(slug);changed(slug,{});for(const fn of invalidated)fn(slug)}
-/** What a live change touched: one copy's History (an app's own fire), or anything in Apps. */
-export interface AppsLogChange {panel?:string}
+/** What a live change touched: one copy's History (an app's own fire), anything in
+ * Apps, or a watchdog (listeners: Connections lists and their subscriptions' fires). */
+export interface AppsLogChange {panel?:string;listeners?:boolean}
 const logs=new Map<string,Set<(change:AppsLogChange)=>void>>()
 const changed=(slug:string,change:AppsLogChange)=>{for(const fn of [...logs.get(slug)??[]])fn(change)}
 /** History and Permission history follow the live change feed (user 2026-10-27
@@ -35,10 +36,13 @@ export function onAppsLog(slug:string,fn:(change:AppsLogChange)=>void):()=>void 
   return()=>{set.delete(fn);if(!set.size&&logs.get(slug)===set)logs.delete(slug)}
 }
 /** The org feed's Apps frames: custom_apps_changed refreshes the store and every open
- * log; custom_apps_history, an app's own fire, reaches only that copy's History. */
+ * log; custom_apps_history, an app's own fire, reaches only that copy's History;
+ * watchdogs_changed, any watchdog write, reaches the open Connections lists and their
+ * subscriptions' fires (user 2026-10-27 md11c3c790acf: they change in realtime). */
 export function customAppsFeed(slug:string,data:{type?:unknown;panel?:unknown}|null):boolean {
   if(data?.type==='custom_apps_changed'){invalidateCustomApps(slug);return true}
   if(data?.type==='custom_apps_history'){changed(slug,{panel:typeof data.panel==='string'?data.panel:undefined});return true}
+  if(data?.type==='watchdogs_changed'){changed(slug,{listeners:true});return true}
   return false
 }
 export function activateApps(slug:string):()=>void {const s=store(slug);s.active=true;void refreshApps(slug);return()=>{s.active=false;s.pending=false;stores.delete(slug)}}

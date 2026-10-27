@@ -3,6 +3,7 @@ import type {CSSProperties,PointerEvent as ReactPointerEvent,RefObject} from 're
 import {createPortal} from 'react-dom'
 import {AddIcon,AppsIcon,CloseIcon,PowerIcon,SettingsIcon,PinIcon} from '../../icons'
 import PinOutlinedIcon from '@mui/icons-material/PushPinOutlined'
+import type {RefRoutes} from '../reflinks'
 import {MovableSurface,PopoutButton,useSurface,useSurfaceDocument} from '../../popout'
 import {desktop} from '../../desktop'
 import {useContextMenu,type MenuEntry} from '../contextmenu'
@@ -13,6 +14,7 @@ import {samplePanels,usePanelCpu} from './runtime'
 import {PanelHtml} from './host'
 import {usePanelMotion,type PanelMotion} from './motion'
 import {AppSettings,PanelSettings} from './settings'
+import {AppsRefRoutes} from './events'
 import {AppDialog as Dialog} from './dialog'
 import {PANEL_MIN,appPlacement,windowRect} from './placement'
 import {appLinkTitle,panelLinkMenu,panelRunState} from './links'
@@ -229,16 +231,18 @@ function PanelWindow({slug,panel,app,motion}:{slug:string;panel:CustomPanel;app:
   </div>
 }
 
-export function AppsWorkspace({slug}:{slug:string}){
+/** refs: the shell's reference routes, so links in Apps windows (a Connections
+ * row's agent) behave like the shell's other agent links. */
+export function AppsWorkspace({slug,refs}:{slug:string;refs?:RefRoutes}){
   const data=useApps(slug),current=useMenu(),[manage,setManage]=useState<{app:CustomApp;panel?:CustomPanel;owner:Document}|null>(null),[imported,setImported]=useState<{bundle:AppBundle;owner:Document}|null>(null),[error,setError]=useState('')
   useEffect(()=>activateApps(slug),[slug])
   // Running copies, plus a visible one that just stopped while it zooms out.
   const shown=usePanelMotion(data.panels,data.apps,data.loaded)
   useEffect(()=>{const failure=(e:Event)=>{const d=(e as CustomEvent).detail;if(d?.slug===slug)setError(d.error)};window.addEventListener('custom-app-error',failure);return()=>window.removeEventListener('custom-app-error',failure)},[slug])
-  return <>{current?.slug===slug&&<AppsMenu slug={slug} current={current} manage={app=>setManage({app,owner:current.anchor.ownerDocument})} managePanel={(app,panel)=>setManage({app,panel,owner:current.anchor.ownerDocument})} importApp={(bundle,owner)=>setImported({bundle,owner})}/>}
+  return <AppsRefRoutes.Provider value={refs??null}>{current?.slug===slug&&<AppsMenu slug={slug} current={current} manage={app=>setManage({app,owner:current.anchor.ownerDocument})} managePanel={(app,panel)=>setManage({app,panel,owner:current.anchor.ownerDocument})} importApp={(bundle,owner)=>setImported({bundle,owner})}/>}
     {shown.map(({panel,app,motion})=><PanelWindow key={panel.id} slug={slug} panel={panel} app={app} motion={motion}/>)}
     {error&&<div className="custom-app-global-error" role="alert">{error}<button onClick={()=>setError('')}>Dismiss</button></div>}
     {manage&&(manage.panel?<PanelSettings key={manage.panel.id} slug={slug} app={manage.app} panel={manage.panel} owner={manage.owner} close={()=>setManage(null)}/>:<AppSettings slug={slug} app={manage.app} owner={manage.owner} close={()=>setManage(null)}/>)}
     {imported&&<Dialog title="Import app" close={()=>setImported(null)} owner={imported.owner}><AppImport slug={slug} bundle={imported.bundle} close={()=>setImported(null)}/></Dialog>}
-  </>
+  </AppsRefRoutes.Provider>
 }
