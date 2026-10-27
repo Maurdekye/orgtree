@@ -2934,7 +2934,7 @@ pub async fn list(engine: &Engine, agent: i64, args: &Value) -> Result<Value> {
             }
         }
     }
-    let dogs: Vec<Value> = rows
+    let mut dogs: Vec<Value> = rows
         .iter()
         .map(|r| {
             let d = dog_of(r);
@@ -2979,6 +2979,10 @@ pub async fn list(engine: &Engine, agent: i64, args: &Value) -> Result<Value> {
                 put("slots", json!(crate::domain::slots::requested(&d.memo)));
             }
             put("fire_actions", d.memo["fire_actions"].clone());
+            if d.kind == "app_listener" {
+                // what it listens to; the app and panel names follow (one read per page)
+                for key in ["event_name", "panel", "all_panels"] { put(key, d.memo[key].clone()); }
+            }
             if d.state == "paused" { put("paused_why", d.memo["paused_why"].clone()); }
             if d.memo["template_needs_credentials"] == true { put("needs_credentials", json!(true)); }
             if d.kind == "mqtt" {
@@ -3013,6 +3017,9 @@ pub async fn list(engine: &Engine, agent: i64, args: &Value) -> Result<Value> {
             v
         })
         .collect();
+    if let Some(org) = rows.first().map(|r| dog_of(r).org_id) {
+        crate::domain::apps::events::listener_names(&**client, org, &mut dogs).await?;
+    }
     Ok(json!({ "watchdogs": dogs, "next_cursor": next_cursor }))
 }
 

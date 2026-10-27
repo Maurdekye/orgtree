@@ -6,7 +6,7 @@ use anyhow::Result;
 use serde::{Deserialize,Serialize};
 use serde_json::{json,Value};
 use tokio::{sync::Notify,task::JoinSet};
-use tokio_postgres::Transaction;
+use tokio_postgres::{GenericClient,Transaction};
 use crate::{changes::{self,Change},engine::Engine,runtime::Caller};
 use super::wire;
 
@@ -113,6 +113,40 @@ pub async fn listeners(tx:&Transaction<'_>,org:i64,app:&str,panel:Option<&str>,a
     Ok(json!({"items":rows.into_iter().take(n as usize).map(|r|r.get::<_,Value>(1)).collect::<Vec<_>>(),"next_cursor":next}))
 }
 
+/// Current names behind shown app_listener dogs (USER 2026-10-27 m7a692fd13b1d:
+/// a dog shows that it is an app event watchdog, its app, panel and event, by
+/// name with IDs secondary). One bounded read per shown page; a missing row
+/// means that app or panel was deleted, so a rename shows at the next read.
+#[nolog]
+pub async fn listener_names(client:&impl GenericClient,org:i64,dogs:&mut [Value])->Result<()>{
+    let listening=|d:&Value|d["kind"]=="app_listener"&&d["target"].is_string();
+    let mut apps:Vec<String>=dogs.iter().filter(|d|listening(&**d)).filter_map(|d|d["target"].as_str().map(str::to_owned)).collect();
+    if apps.is_empty(){return Ok(())}
+    let mut panels:Vec<String>=dogs.iter().filter(|d|listening(&**d)&&d["all_panels"]!=true).filter_map(|d|d["panel"].as_str().map(str::to_owned)).collect();
+    apps.sort();apps.dedup();panels.sort();panels.dedup();
+    let app_names:HashMap<String,String>=client.query("SELECT id,name FROM ot.custom_apps WHERE org_id=$1 AND id=ANY($2)",&[&org,&apps]).await?.iter().map(|r|(r.get(0),r.get(1))).collect();
+    let panel_names:HashMap<(String,String),String>=if panels.is_empty(){HashMap::new()}else{
+        client.query("SELECT app_id,id,label FROM ot.custom_panels WHERE org_id=$1 AND id=ANY($2)",&[&org,&panels]).await?.iter().map(|r|((r.get(0),r.get(1)),r.get(2))).collect()
+    };
+    for d in dogs.iter_mut().filter(|d|listening(&**d)){name_listener(d,&app_names,&panel_names);}
+    Ok(())
+}
+/// Adds app_name and panel_name, or app_deleted and panel_deleted, to one dog.
+/// A panel of another app never lends its name.
+#[nolog]
+fn name_listener(d:&mut Value,apps:&HashMap<String,String>,panels:&HashMap<(String,String),String>){
+    let app=d["target"].as_str().unwrap_or_default().to_owned();
+    match apps.get(&app){Some(name)=>d["app_name"]=json!(name),None=>d["app_deleted"]=json!(true)}
+    if d["all_panels"]==true{return}
+    let Some(panel)=d["panel"].as_str().map(str::to_owned) else{return};
+    match panels.get(&(app,panel)){Some(name)=>d["panel_name"]=json!(name),None=>d["panel_deleted"]=json!(true)}
+}
+/// Whether renaming or deleting this app or one of its panels changes a shown dog.
+#[nolog]
+pub async fn has_listeners(tx:&Transaction<'_>,org:i64,app:&str)->Result<bool>{
+    Ok(tx.query_one("SELECT EXISTS(SELECT 1 FROM ot.watchdogs WHERE org_id=$1 AND kind='app_listener' AND target=$2 AND state IN ('armed','paused'))",&[&org,&app]).await?.get(0))
+}
+
 /// Opaque durable outbox, shared action-result semantics with project listeners.
 #[derive(Serialize,Deserialize)]
 struct Delivery {dog:i64,uid:String,name:String,owner:i64,owner_name:String,notice:bool,once:bool,mail:String,actions:Vec<Value>}
@@ -207,5 +241,24 @@ pub fn start(engine:&Arc<Engine>){
         assert!(selector(&json!({"event_name":"submit","panel":"one"})).is_ok());assert!(selector(&json!({"event_name":"submit","all_panels":true})).is_ok());
         for bad in [json!({"event_name":"submit"}),json!({"event_name":"submit","panel":"one","all_panels":true}),json!({"event_name":" submit","panel":"one"}),json!({"event_name":"submit","panel":"one","pattern":".*"}),json!({"event_name":"submit","all_panels":"yes"})]{assert!(selector(&bad).is_err());}
         assert!(declared(&json!([{"name":"submit"}]),"submit"));assert!(!declared(&json!([{"name":"submit"}]),"Submit"));
+    }
+    #[test]fn app_listener_dogs_show_current_names_or_say_deleted(){
+        let apps=HashMap::from([("app-cap".to_string(),"Caption placement (events)".to_string()),("app-other".to_string(),"Other".to_string())]);
+        let panels=HashMap::from([(("app-cap".to_string(),"panel-school".to_string()),"Orgtree School 1 captions".to_string()),(("app-other".to_string(),"panel-foreign".to_string()),"Foreign".to_string())]);
+        let mut one=json!({"kind":"app_listener","target":"app-cap","panel":"panel-school","all_panels":false,"event_name":"placements.submitted"});
+        name_listener(&mut one,&apps,&panels);
+        assert_eq!(one["app_name"],"Caption placement (events)");assert_eq!(one["panel_name"],"Orgtree School 1 captions");
+        assert!(one.get("app_deleted").is_none()&&one.get("panel_deleted").is_none(),"{one}");
+        let mut every=json!({"kind":"app_listener","target":"app-cap","panel":null,"all_panels":true});
+        name_listener(&mut every,&apps,&panels);
+        assert_eq!(every["app_name"],"Caption placement (events)");
+        assert!(every.get("panel_name").is_none()&&every.get("panel_deleted").is_none(),"every copy has no panel name: {every}");
+        let mut gone=json!({"kind":"app_listener","target":"app-removed","panel":"panel-removed","all_panels":false});
+        name_listener(&mut gone,&apps,&panels);
+        assert_eq!(gone["app_deleted"],true);assert_eq!(gone["panel_deleted"],true);
+        assert!(gone.get("app_name").is_none()&&gone.get("panel_name").is_none(),"{gone}");
+        let mut foreign=json!({"kind":"app_listener","target":"app-cap","panel":"panel-foreign","all_panels":false});
+        name_listener(&mut foreign,&apps,&panels);
+        assert_eq!(foreign["panel_deleted"],true,"another app's panel never lends its name: {foreign}");
     }
 }

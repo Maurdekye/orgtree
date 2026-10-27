@@ -88,6 +88,7 @@ pub async fn snapshot(client: &Client, engine: &Engine, org: i64) -> Result<Valu
         }
         links.push(metadata);
     }
+    crate::domain::apps::events::listener_names(client,org,&mut dogs).await?;
     Ok(json!({"watchdogs":dogs,"watchdog_counts":counts,"watchdog_project_links":links}))
 }
 
@@ -102,7 +103,8 @@ pub async fn page(client:&Client,engine:&Engine,org:i64,owner:&str,cursor:i64,li
     let count_sql=format!("SELECT count(*) FROM ot.watchdogs w JOIN ot.agents a ON a.id=w.owner_agent_id
         WHERE w.org_id=$1 AND a.name=$2 AND {CURRENT} AND (NOT $3 OR w.state<>'spent')");
     let total:i64=client.query_one(&count_sql,&[&org,&owner,&kept]).await?.get(0);
-    let dogs:Vec<_>=rows.iter().map(|r|shown(engine,&r.get::<_,Value>(0),&r.get::<_,String>(1))).collect();
+    let mut dogs:Vec<_>=rows.iter().map(|r|shown(engine,&r.get::<_,Value>(0),&r.get::<_,String>(1))).collect();
+    crate::domain::apps::events::listener_names(client,org,&mut dogs).await?;
     Ok(json!({"watchdogs":dogs,"total":total,"next_cursor":next}))
 }
 
@@ -114,6 +116,7 @@ pub async fn exact(client:&Client,engine:&Engine,org:i64,handle:&str)->Result<Va
     let rows=client.query("SELECT to_jsonb(w),a.name FROM ot.watchdogs w JOIN ot.agents a ON a.id=w.owner_agent_id
         WHERE w.org_id=$1 AND a.name=$2 AND w.uid=$3 AND w.state<>'removed'
         ORDER BY w.state='spent',w.id DESC LIMIT 1",&[&org,&owner,&uid]).await?;
-    let dogs:Vec<_>=rows.iter().map(|r|shown(engine,&r.get::<_,Value>(0),&r.get::<_,String>(1))).collect();
+    let mut dogs:Vec<_>=rows.iter().map(|r|shown(engine,&r.get::<_,Value>(0),&r.get::<_,String>(1))).collect();
+    crate::domain::apps::events::listener_names(client,org,&mut dogs).await?;
     Ok(json!({"watchdogs":dogs,"next_cursor":null}))
 }

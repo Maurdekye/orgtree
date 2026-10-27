@@ -142,6 +142,8 @@ pub(crate) async fn run_locked(engine:&Arc<Engine>,org:&Arc<OrgHandle>,caller:Op
     let request=wire::parse(input)?;
     let mut client=engine.db.get().await?;let tx=client.transaction().await?;
     let actor=authorize(&tx,org.id,caller).await?;let mut changed=false;
+    // A rename or deletion changes what shown app event watchdogs name (USER 2026-10-27).
+    let mut dogs_named=false;
     let out=match request {
         Request::Listeners{app:id,panel,after,limit}=>super::events::listeners(&tx,org.id,&id,panel.as_deref(),after,limit).await?,
         Request::FireEvent{panel,name,payload}=>{
@@ -238,12 +240,14 @@ pub(crate) async fn run_locked(engine:&Arc<Engine>,org:&Arc<OrgHandle>,caller:Op
             // silently running code nobody started, and stays off after a restart.
             let restarted=tx.query("UPDATE ot.custom_panels SET is_running=is_open,run_generation=run_generation+1,rev=rev+1,updated_at=now() WHERE org_id=$1 AND app_id=$2 AND is_running RETURNING id,is_open",&[&org.id,&id]).await?;
             for row in &restarted{if !row.get::<_,bool>(1){event(&tx,org.id,row.get::<_,&str>(0),"panel.stopped",&json!({"reason":"code changed"}),&actor).await?;}}
+            dogs_named=super::events::has_listeners(&tx,org.id,&id).await?;
             super::events::invalidate(&tx,org.id,&id,None,Some(&declarations)).await?;
             changed=true;app(&tx,org.id,&id,false,false).await?
         }
         Request::AppDelete{app:id,expected_rev,delete_panels}=>{
             revision(&app(&tx,org.id,&id,false,true).await?,expected_rev)?;
             if !delete_panels && tx.query_opt("SELECT 1 FROM ot.custom_panels WHERE org_id=$1 AND app_id=$2 LIMIT 1",&[&org.id,&id]).await?.is_some(){crate::refuse!(Conflict,"app has saved panels; explicitly set delete_panels to remove them");}
+            dogs_named=super::events::has_listeners(&tx,org.id,&id).await?;
             super::events::invalidate(&tx,org.id,&id,None,None).await?;
             tx.execute("DELETE FROM ot.custom_apps WHERE org_id=$1 AND id=$2",&[&org.id,&id]).await?;changed=true;json!({"deleted":id})
         }
@@ -292,6 +296,7 @@ pub(crate) async fn run_locked(engine:&Arc<Engine>,org:&Arc<OrgHandle>,caller:Op
             // Hide keeps the runtime; Show (user only) starts a stopped copy.
             if open&&old["running"]!=true{super::runtime::can_start(&tx,org.id).await?;}
             tx.execute("UPDATE ot.custom_panels SET label=$3,is_open=$4,is_running=is_running OR $4,run_generation=run_generation+($4 AND NOT is_running)::int,placement=$5,rev=rev+1,updated_at=now() WHERE org_id=$1 AND id=$2",&[&org.id,&id,&label,&open,&place]).await?;
+            if label!=old["label"].as_str().unwrap_or(""){dogs_named=super::events::has_listeners(&tx,org.id,old["app"].as_str().unwrap_or("")).await?;}
             if open&&old["running"]!=true{event(&tx,org.id,&id,"panel.started",&json!({"reason":"opened"}),&actor).await?;}changed=true;panel(&tx,org.id,&id,false).await?
         }
         Request::PanelDuplicate{panel:id,expected_rev}=>{
@@ -304,6 +309,7 @@ pub(crate) async fn run_locked(engine:&Arc<Engine>,org:&Arc<OrgHandle>,caller:Op
         }
         Request::PanelDelete{panel:id,expected_rev}=>{
             let old=panel(&tx,org.id,&id,true).await?;revision(&old,expected_rev)?;
+            dogs_named=super::events::has_listeners(&tx,org.id,old["app"].as_str().unwrap_or("")).await?;
             super::events::invalidate(&tx,org.id,old["app"].as_str().unwrap_or(""),Some(&id),None).await?;
             tx.execute("DELETE FROM ot.custom_panels WHERE org_id=$1 AND id=$2",&[&org.id,&id]).await?;changed=true;json!({"deleted":id})
         }
@@ -347,6 +353,7 @@ pub(crate) async fn run_locked(engine:&Arc<Engine>,org:&Arc<OrgHandle>,caller:Op
     tx.commit().await?;drop(client);
     if input["action"]=="fire_event"{super::events::notify(engine);}
     if changed{org.emit(json!({"type":"custom_apps_changed","org":org.slug}));}
+    if dogs_named{crate::changes::notify_id(engine,org.id,vec![crate::changes::Change::Watchdogs]);}
     // No app.event signal follows a commit: panel links are gone (user
     // 2026-10-26), and agents hear from panels only through app event listeners.
     Ok(out)
