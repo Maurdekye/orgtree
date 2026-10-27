@@ -13,8 +13,11 @@ import { appLinkTitle, panelLinkTitle } from './apps/links'
 import { refKey, refNames } from './refnames'
 import type { TypedRef } from './workrefs'
 
-export interface AppRefRow { id: string; name: string; recent?: string | null }
-export interface PanelRefRow { id: string; app: string; app_name: string; label: string; open: boolean; running?: boolean }
+/** `asked` is the id the mention was written with: the slug, or the old
+ *  generic id an app or panel had before slugs (engine migration 0075). `id` is
+ *  its slug now. */
+export interface AppRefRow { asked?: string; id: string; name: string; recent?: string | null }
+export interface PanelRefRow { asked?: string; id: string; app: string; app_name: string; label: string; open: boolean; running?: boolean }
 
 refNames.register({
   kinds: ['app', 'panel'],
@@ -26,8 +29,9 @@ refNames.register({
     const answer = await customAppsRequest<{ apps?: AppRefRow[]; panels?: PanelRefRow[] }>(org,
       { action: 'refs', ...(apps.length ? { apps } : {}), ...(panels.length ? { panels } : {}) })
     const found = new Map<string, unknown>()
-    for (const row of answer.apps ?? []) found.set(refKey('app', row.id), row)
-    for (const row of answer.panels ?? []) found.set(refKey('panel', row.id), row)
+    // keyed by the id each chip asked with, so an older mention keeps its name
+    for (const row of answer.apps ?? []) found.set(refKey('app', row.asked ?? row.id), row)
+    for (const row of answer.panels ?? []) found.set(refKey('panel', row.asked ?? row.id), row)
     return found
   },
   name(kind, row) {

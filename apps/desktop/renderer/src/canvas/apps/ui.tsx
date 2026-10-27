@@ -56,7 +56,9 @@ function useBehind(slug:string,k:string):boolean{
  *  too. A copy that was already open and visible comes to the front and takes the
  *  focus; the request is the same panel_open, the use. Refusals reject. */
 export async function openAppPanel(slug:string,target:{panel:string}|{app:string}):Promise<CustomPanel>{
-  if('panel' in target){raisers.get(key(slug,target.panel))?.();return changeApps<CustomPanel>(slug,{action:'panel_open',panel:target.panel})}
+  // an older mention names a panel by the generic id it had before slugs
+  // (engine migration 0075): raise it by the slug the answer carries
+  if('panel' in target){raisers.get(key(slug,target.panel))?.();const opened=await changeApps<CustomPanel>(slug,{action:'panel_open',panel:target.panel});if(opened.id!==target.panel)raisers.get(key(slug,opened.id))?.();return opened}
   const shown=new Set(raisers.keys()),opened=await changeApps<CustomPanel>(slug,{action:'panel_open',app:target.app})
   if(shown.has(key(slug,opened.id)))raisers.get(key(slug,opened.id))?.()
   return opened
