@@ -197,11 +197,22 @@ shutdown-bound dispatcher recovers pending work and caps concurrent app drains
 at four. Mail uniqueness is event×listener; diagnostics contain metadata only.
 Authorized mail retains JSON and server-derived org/app/panel/event/time/producer
 provenance. App content is not user instruction or approval. `listeners` lists
-registrations in bounded pages. Each accepted fire also appends a metadata-only
-`event.fired` row (`{event,id,subscribers}`, actor user/agent/app) to that copy's
-bounded panel log inside the publishing transaction, after the app row lock. The
-payload never enters that log, and the host does not relay the row into the app
-(USER2026-10-26 mc8711410a925, History tab).
+registrations in bounded pages. Each accepted fire also appends an `event.fired`
+row (`{event,id,subscribers}`, actor user/agent/app) to that copy's bounded panel
+log inside the publishing transaction, after the app row lock, and the host does
+not relay the row into the app (USER2026-10-26 mc8711410a925, History tab).
+The row's `body` is the fire's data exactly as sent: `serde_json::to_string` of
+the received payload, which `preserve_order` keeps as the compact text received,
+key order included (USER 2026-10-27 mc308cabf3c5f "Save exactly" and "Agents see
+bodies", replacing 2026-10-26's metadata-only row; migration 0077). It lives as
+long as the row (256 per copy). The outbox's jsonb copy (newest 128 finished
+fires per app) is normalized and feeds delivery only. `events` returns `body` to
+the desktop and agents alike; `listener_fires` takes it from the History row by
+fire id (index `custom_panel_events_fire`). Either page holds at most 128 KiB of
+bodies (`storage::BODY_PAGE_MAX`, always its first row) and continues at
+next_cursor. 0077 backfilled older rows from the outbox's kept fires as jsonb
+prints them; the rest are null, shown as Not kept. Proof:
+`migrate/fire_body_tests.rs` (native, staged pre-0077) and `proofs/app-history.mjs`.
 
 By the user's2026-10-26 ruling, docket.write create/assign/wake remains the
 documented edge case that wakes a selected local agent without an app event.

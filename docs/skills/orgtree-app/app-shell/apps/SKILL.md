@@ -10,7 +10,9 @@ Up: [orgtree-app-shell](../SKILL.md)
 Panel settings shows a saved copy's Connections, Fire event and History tabs
 (History last), including for closed copies. History lists only fired events agents can listen to and the copy starting and
 stopping, newest first (user ruling 2026-10-26); a fired event shows its listener
-count, never its data, and a start or stop its cause. It is a live list (user ruling
+count, and expanded, its body exactly as it was sent with its size (user ruling
+2026-10-27; Not kept for a fire from before 4.5.0 that Orgtree no longer holds),
+and a start or stop its cause. It is a live list (user ruling
 2026-10-27): one line per entry (time, what happened, listener count or cause, who)
 that expands on click to the exact time and the row's data and collapses on a second
 click; new entries appear while the tab is open, older ones load as you scroll down
@@ -29,8 +31,8 @@ apply beside its fire count. The agent link focuses that agent on the canvas and
 the panel link opens the panel or brings it to the front; from a centered
 settings window either closes it first. Clicking a row lists that listener's
 delivered fires like History: newest first, older ones on scroll, new ones live,
-each expanding to its time, who fired it, its copy, its delivery and event ID,
-never its data. Agents manage their registrations through orgtree_watchdog;
+each expanding to its time, who fired it, its copy, its delivery, event ID and
+body as sent. Agents manage their registrations through orgtree_watchdog;
 orgtree_apps fire_event/listeners/listener_fires provide publication/list parity. HTML orgtree.events.fire(name,payload) uses
 the permission-checked broadcast; orgtree.emit sends a message to the copy's own
 running windows (orgtree.on) and never enters History.

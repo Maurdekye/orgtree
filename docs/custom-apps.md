@@ -76,7 +76,9 @@ can listen to and the copy starting and stopping, newest first, one line each:
 when, what happened, its listener count or cause, and who. Click an entry to see
 its exact time and data, and click it again to close it. New entries appear while
 the tab is open, and older ones load as you scroll down, back to the oldest one
-Orgtree keeps. A fired event's data goes only to the subscribed agents. A start or
+Orgtree keeps. An opened fired event shows its body exactly as it was sent, with
+its size; agents can read it too. A fire from before 4.5.0 shows its body only if
+Orgtree still had it then, otherwise *Not kept*. A start or
 stop shows its cause: Opened, Start running, Power off, Stop all or Code changed.
 Opening, renaming, moving and saving data add nothing to History.
 Connections updates by itself as agents subscribe, pause, resume or remove their
@@ -85,8 +87,8 @@ copy says All copies), the event's name, and Paused, Notice or Once when they
 apply, with its number of fires. Click the agent to go to it on the canvas, or the
 panel to open it or bring it to the front. Click a row to see that listener's
 recent fires, newest first: older ones load as you scroll, new ones appear as they
-are delivered, and each one opens to its details like a History entry, without
-the event's data. Agents manage their listeners through their ordinary tools. Merely opening settings fires nothing. HTML uses
+are delivered, and each one opens to its details like a History entry, with the
+body that was sent. Agents manage their listeners through their ordinary tools. Merely opening settings fires nothing. HTML uses
 `orgtree.events.fire(name,payload)` (or `orgtree.call('events.fire',{name,payload})`).
 `orgtree.emit(name,payload)` sends a message to the copy's own running windows,
 which receive it through `orgtree.on(name,fn)`, as do messages agents send with

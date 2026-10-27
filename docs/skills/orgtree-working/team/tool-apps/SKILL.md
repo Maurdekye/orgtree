@@ -12,10 +12,14 @@ named event with server-derived producer identity. Closed saved copies work.
 and paused subscriptions. `listener_fires app=<ID> listener=<owner/id>
 before|after=<seq> limit=1..200` reads one listed subscription's delivered fires,
 newest first, as the user's Connections tab shows them: time, event, copy, who
-fired it and whether it was delivered or delivered as a notice, never the data. Agent subscriptions use orgtree_watchdog app_listener;
+fired it, whether it was delivered or delivered as a notice, and `body`. Agent subscriptions use orgtree_watchdog app_listener;
 panel links were removed (user 2026-10-26). This differs from `event`/`events`,
 the copy's History log. Each accepted fire adds an `event.fired` History row with
-its event name, ID and subscriber count, never the payload.
+its event name, ID and subscriber count in `payload`, and in `body` its data exactly
+as it was sent: the compact JSON text Orgtree received, key order kept, as a string,
+kept as long as the row (user 2026-10-27). `body` is null for other rows, and for a
+fire from before 4.5.0 that Orgtree no longer holds. An `events` or `listener_fires`
+page carries at most 128 KiB of bodies (always its first row); next_cursor continues.
 Payload limit64KiB, shared60/minute admission across copies, at most128 pending
 fires and4096 registrations per app (provisional). Backpressure refuses before
 acceptance; zero subscribers succeeds. HTML cannot select a recipient or caller.
