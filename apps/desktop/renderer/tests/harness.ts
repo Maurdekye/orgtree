@@ -154,6 +154,36 @@ export class FakeServer {
   workBacklogged: unknown[] = []
   /** metadata returned by the agent-scoped document gallery endpoint */
   documents: unknown[] = []
+  /** the org's apps and saved panels, as the @ list's engine read offers them */
+  apps: { id: string; name: string; at?: string }[] = []
+  panels: { id: string; app: string; label: string; at?: string }[] = []
+  /** `GET /mention-candidates`, the @ list's engine read (domain/mention_candidates.rs):
+   *  live things only (tickets outside the archive, presentations not dismissed),
+   *  every typed word in the name or id, newest first then by name; `after` is
+   *  an offset here */
+  mentionCandidates(u: URL) {
+    const kinds = (u.searchParams.get('kinds') || 'item,doc,app,panel').split(',')
+    const words = (u.searchParams.get('q') ?? '').toLowerCase().split(/[-_./\s]+/).filter(Boolean)
+    const when = (s?: string) => s ?? '2026-10-22T10:00:00Z'
+    const rows: { kind: string; id: string; label: string; at: string; [k: string]: unknown }[] = []
+    if (kinds.includes('item')) for (const r of [...this.workItems, ...this.workBacklogged] as any[]) {
+      if (!r.archived) rows.push({ kind: 'item', id: r.slug, label: r.title ?? r.slug, at: when(r.docket_at ?? r.updated_at), status: r.status })
+    }
+    if (kinds.includes('doc')) for (const d of this.documents as any[]) {
+      if (!d.dismissed) rows.push({ kind: 'doc', id: d.id, label: d.title ?? d.id, at: when(d.at), format: d.format })
+    }
+    if (kinds.includes('app')) for (const a of this.apps) rows.push({ kind: 'app', id: a.id, label: a.name, at: when(a.at) })
+    if (kinds.includes('panel')) for (const p of this.panels) {
+      const app = this.apps.find(a => a.id === p.app)
+      rows.push({ kind: 'panel', id: p.id, label: `${app?.name ?? p.app} · ${p.label}`, at: when(p.at), app: p.app, app_name: app?.name, panel_label: p.label })
+    }
+    const found = rows.filter(r => words.every(w => `${r.label} ${r.id}`.toLowerCase().includes(w)))
+      .sort((a, b) => Date.parse(b.at) - Date.parse(a.at) || (a.label.toLowerCase() < b.label.toLowerCase() ? -1 : a.label.toLowerCase() > b.label.toLowerCase() ? 1 : 0)
+        || (a.kind < b.kind ? -1 : a.kind > b.kind ? 1 : 0) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
+    const limit = Number(u.searchParams.get('limit') ?? 20), from = Number(u.searchParams.get('after') ?? 0)
+    return { items: found.slice(from, from + limit), next_cursor: from + limit < found.length ? String(from + limit) : null,
+      ...(from ? {} : { nodes: [] }) }
+  }
   /** This fixture models one node. Multi-node/team cases supply their scoped
    * endpoint explicitly rather than treating unrelated org rows as its team. */
   readerAvailability(nid:string,archived:boolean,backlogged:boolean,retired:boolean) {
@@ -348,6 +378,7 @@ export function installFetch(server: FakeServer): Transport {
           : /\/reader-availability$/.test(u.pathname)
             ? server.readerAvailability(decodeURIComponent(u.pathname.split('/').at(-2)!),
                 u.searchParams.get('archived')==='true',u.searchParams.get('backlogged')==='true',u.searchParams.get('retired')==='true')
+          : /\/mention-candidates$/.test(u.pathname) ? server.mentionCandidates(u)
           : /\/documents$/.test(u.pathname)
             ? { documents: server.documents, total: server.documents.length, next_offset: null }
           : /\/work-items\/[^/]+$/.test(u.pathname)

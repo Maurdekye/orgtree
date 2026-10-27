@@ -6,8 +6,9 @@
 //         path for the exact references on screen and again on every documents_changed frame; an old id shows the
 //         same title; without an answer the chip keeps its slug and stays a link;
 //   §6-§8 the composer's @ list offers presentations (USER mb21c096e5dc4): shown by title with the document icon,
-//         found by title or slug words, after tickets; completing one inserts @doc:<org>/<slug>; one mentioned in the
-//         transcript is offered first.
+//         found by title or slug words, newest first among every kind (m79e889ce1609, the engine's
+//         mention-candidates read); completing one inserts @doc:<org>/<slug>; one mentioned in the transcript is
+//         offered first.
 // Each test uses its own org slug: answers are kept per org.
 import { flush, inAct, mountView } from './harness'
 import test from 'node:test'
@@ -50,6 +51,16 @@ function engine(t: TestContext, rows: DocRow[] = ROWS) {
     if (one) {
       const r = s.rows.find(x => x.id === slugOf(decodeURIComponent(one[1]!)))
       return r ? json({ ...r, body: `body of ${r.id}` }) : json({ detail: 'that document no longer exists' }, 404)
+    }
+    // the @ list's read (mention-candidates): presentations by every typed word, newest first
+    if (path.endsWith('/mention-candidates')) {
+      const q = url.searchParams.get('q') ?? ''
+      s.searches.push(q)
+      const words = q.toLowerCase().split(/[-_./\s]+/).filter(Boolean)
+      const kinds = (url.searchParams.get('kinds') ?? '').split(',')
+      const found = kinds.includes('doc') ? s.rows.filter(r => words.every(w => `${r.title} ${r.id}`.toLowerCase().includes(w)))
+        .sort((a, b) => Date.parse(b.at) - Date.parse(a.at)) : []
+      return json({ items: found.map(r => ({ kind: 'doc', id: r.id, label: r.title, at: r.at, format: r.format })), next_cursor: null, nodes: [] })
     }
     if (!path.endsWith('/documents')) return json({})
     const refs = url.searchParams.get('refs')
@@ -192,7 +203,7 @@ test('§6 typing @ offers presentations by title with the document icon; Tab ins
   assert.equal(box.value, `see @doc:${org}/launch-plan `)
 })
 
-test('§7 every typed word finds a presentation in its title or slug, and the list keeps agents nearest the box', async t => {
+test('§7 every typed word finds a presentation in its title or slug, and the list is newest first across kinds', async t => {
   const org = 'slugs-words'
   engine(t)
   const view = await mountView(<Composer org={org} />, el => el)
@@ -204,9 +215,9 @@ test('§7 every typed word finds a presentation in its title or slug, and the li
   await typeInto(box, 'see @status-week')
   assert.equal(presentationRows().length, 2, 'words in any order, as the engine\'s search matched them')
   await typeInto(box, 'see @w')
-  const last = items().at(-1)!
-  assert.equal(last.querySelector('.agent-mention-name')?.textContent, '@writer',
-    'drawn bottom-up, the agent stays nearest the box; presentations come after agents (and tickets)')
+  assert.deepEqual(items().map(r => r.querySelector('.agent-mention-name')?.textContent), ['@writer', 'Weekly status', 'Weekly status'],
+    'drawn bottom-up, newest nearest the box (USER m79e889ce1609): the 09:00 presentation, the 07:00 one, then an agent with no known activity')
+  assert.equal(items().at(-1)!.getAttribute('aria-label'), 'presentation Weekly status')
   assert.equal(mentionText({ id: 'weekly-status', tier: 'presentation', kind: 'presentation', org, title: 'Weekly status' }),
     `@doc:${org}/weekly-status`)
 })

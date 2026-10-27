@@ -810,13 +810,33 @@ export interface DocumentRef { ref: string; id: string; title: string; format?: 
 export const getDocumentRefs = (slug: string, refs: string[]): Promise<DocumentRef[]> =>
   req<{ refs: DocumentRef[] }>(`/api/orgs/${encodeURIComponent(slug)}/documents?refs=${encodeURIComponent(refs.join(','))}`)
     .then(body => { if (!Array.isArray(body?.refs)) throw new Error('Invalid presentation reference response'); return body.refs })
-/** A presentation the composer's @ list offers (USER 2026-10-27 mb21c096e5dc4). */
-export interface DocumentHit { id: string; title: string; format?: 'markdown' | 'html'; node: string }
-/** The org's gallery presentations whose title or slug holds every typed word,
- *  newest first, at most 20 (the engine's SEARCH_MAX). */
-export const searchDocuments = (slug: string, text: string): Promise<DocumentHit[]> =>
-  req<{ documents: DocumentHit[] }>(`/api/orgs/${encodeURIComponent(slug)}/documents?search=${encodeURIComponent(text)}`)
-    .then(body => { if (!Array.isArray(body?.documents)) throw new Error('Invalid presentation search response'); return body.documents })
+/** One thing the @ list may offer from the engine's bounded read (USER
+ *  2026-10-27 m042c82fb0228, mdb3b4aef1062, m79e889ce1609): `at` is the latest
+ *  of its last mention, use or presenting. A ticket carries its status, a
+ *  presentation its format, a panel its app. */
+export interface MentionRow {
+  kind: 'item' | 'doc' | 'app' | 'panel'
+  id: string
+  label: string
+  at: string
+  status?: string
+  format?: string
+  app?: string
+  app_name?: string
+  panel_label?: string
+}
+export interface MentionPage {
+  items: MentionRow[]
+  next_cursor: string | null
+  /** a first page only: the newest mention time of each node name mentioned */
+  nodes?: { name: string; at: string }[]
+}
+/** The engine's ranked, paged read for the @ list: live things only, newest
+ *  first, every typed word in the name or id. */
+export const getMentionCandidates = (slug: string, kinds: readonly string[], text: string, after?: string | null, limit = 20): Promise<MentionPage> =>
+  req<MentionPage>(`/api/orgs/${encodeURIComponent(slug)}/mention-candidates?${new URLSearchParams({
+    kinds: kinds.join(','), q: text, limit: String(limit), ...(after ? { after } : {}) })}`)
+    .then(body => { if (!Array.isArray(body?.items)) throw new Error('Invalid mention candidates response'); return body })
 /** `limit` is the size of the WINDOW the caller is holding, not a page size:
  *  the gallery reads from offset 0 and grows the window as the reader scrolls,
  *  so every response is a complete newest-first prefix (canvas/gallery.tsx).

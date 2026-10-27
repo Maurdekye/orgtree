@@ -3,8 +3,9 @@
 // isolated rig engine; input goes only through CDP in this window.
 // Quick chat: type args.quick.type, read the @ list, Tab, read the box, then
 // Enter (Quick chat hires an agent with that kickoff and focuses its desk) and
-// read the sent message's chip. Then that desk's composer, the same with
-// args.desk, sent with Enter.
+// read the sent message's chip. Then that desk's composer: args.desk.kinds.type
+// (every kind found by a word) is read, captured and erased, then args.desk the
+// same way as Quick chat, sent with Enter.
 // Refuses outside Session 0, refuses every permission, replaces each page
 // clipboard path with a refusal, and is SILENT: every webContents is muted.
 'use strict'
@@ -74,6 +75,18 @@ module.exports = async (page, { org, args }) => {
   // one composer: type, read the list once it holds the wanted presentations, Tab, Enter, read the chip
   async function complete(where, composer, want) {
     await page.click(composer)
+    let kinds = null
+    if (want.kinds) {
+      // every kind found by one word, captured, then the word erased
+      await page.type(want.kinds.type)
+      await until(probe, composer, v => v.rows.length >= want.kinds.rows.length)
+      await paint()
+      kinds = await page.eval(probe, composer)
+      note(where + ' kinds', { rows: kinds.rows.map(r => [r.kind, r.name]) })
+      await page.screenshot(`${where}-0-kinds`)
+      for (let i = 0; i < want.kinds.erase; i++) await page.press('Backspace')
+      await paint()
+    }
     await page.type(want.type)
     const listed = await until(probe, composer, v => v.rows.filter(r => r.kind === 'presentation').length >= want.rows.length)
     await paint()
@@ -91,7 +104,8 @@ module.exports = async (page, { org, args }) => {
     await paint()
     note(where + ' chip', sent)
     await page.screenshot(`${where}-3-sent`)
-    return { menu: shown.menu, below: shown.below, view: shown.view, rows: shown.rows, composer: shown.composer, completed, chip: sent }
+    return { menu: shown.menu, below: shown.below, view: shown.view, rows: shown.rows, composer: shown.composer, completed, chip: sent,
+      ...(kinds ? { kinds: { rows: kinds.rows, menu: kinds.menu, below: kinds.below } } : {}) }
   }
   R.quick = await complete('quick', '.quickchat-input', args.quick)
   // Quick chat focused the new agent's desk: its composer is the next one

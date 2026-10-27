@@ -12,31 +12,72 @@ import { requestOpenOrg } from '../shell/openorg'
 import { DocIcon, DocketIcon } from '../icons'
 import { objectTooltipProps } from './objecttooltip'
 import { refToken } from './reflinks'
-import { useTicketMentionCandidates } from './ticketmentions'
-import { usePresentationMentionCandidates } from './presentationmentions'
+import { loadMoreMentions, SEARCH_KINDS, useMentionSearch } from './mentionsearch'
+import type { SearchKind } from './mentionsearch'
+import { RefMark } from './refmarks'
+import type { MentionRow } from '../api'
 import { NetMark, NetName, ensureNetPicture, hubAddressTitle, netChipClass, netChipLabel, netMention, splitScheme, useNetMentionState } from './netmentions'
 
 export interface MentionCandidate {
   id: string
   tier: string
-  kind: 'agent' | 'project' | 'ticket' | 'presentation'
-  /** a ticket's or presentation's org: completing it inserts its reference */
+  kind: 'agent' | 'project' | 'ticket' | 'presentation' | 'app' | 'panel'
+  /** a ticket's, presentation's, app's or panel's org: completing it inserts its reference */
   org?: string
-  /** a ticket's or presentation's title, matched as well as its slug */
+  /** the name shown and matched as well as the id: a ticket's or
+   *  presentation's title, an app's name, a panel's "<app> · <label>" */
   title?: string
+  /** the latest of its last mention, use or presenting (ms), when known */
+  at?: number
 }
 
-/** What completing a candidate inserts: `@<name>`, a ticket's reference
- *  `@item:<org>/<slug>` or a presentation's `@doc:<org>/<slug>` (the forms
- *  Copy reference copies). */
+/** What completing a candidate inserts: `@<name>` for an agent or project,
+ *  else the thing's reference: `@item:<org>/<slug>`, `@doc:<org>/<slug>`,
+ *  `@app:<org>/<slug>` or `@panel:<org>/<slug>` (the forms Copy reference
+ *  copies). */
 export function mentionText(c: MentionCandidate): string {
   if (c.kind === 'ticket' && c.org) return refToken({ kind: 'item', org: c.org, id: c.id })
   if (c.kind === 'presentation' && c.org) return refToken({ kind: 'doc', org: c.org, id: c.id })
+  if ((c.kind === 'app' || c.kind === 'panel') && c.org) return refToken({ kind: c.kind, org: c.org, id: c.id })
   return `@${c.id}`
 }
 
 /** One entry's identity in the list: a ticket and an agent may share a name. */
 const mentionKey = (c: MentionCandidate): string => c.kind + ':' + c.id
+
+/** A kind prefix narrows the list to that kind and lists all of it, newest
+ *  first (USER 2026-10-27 mdb3b4aef1062 "if i write @doc: then it should list
+ *  all presentations, if i write @item: it should list all tickets, and if i
+ *  write @agent: it should list all agents"; m35d9b7cf74f6 "Yes, all kinds").
+ *  One line per kind: agents and projects come from the window's own tree,
+ *  the rest from the engine's bounded read (`search`, mentionsearch.ts). */
+export const MENTION_PREFIXES: Readonly<Record<string, { kind: MentionCandidate['kind']; search?: SearchKind }>> = {
+  agent: { kind: 'agent' },
+  project: { kind: 'project' },
+  item: { kind: 'ticket', search: 'item' },
+  doc: { kind: 'presentation', search: 'doc' },
+  app: { kind: 'app', search: 'app' },
+  panel: { kind: 'panel', search: 'panel' },
+}
+/** each kind's own reference, as a transcript names it (extractMentionRecency) */
+const OWN_TOKEN: Partial<Record<MentionCandidate['kind'], string>> = { ticket: 'item', presentation: 'doc', app: 'app', panel: 'panel' }
+
+/** An engine row as a list entry. */
+function rowCandidate(r: MentionRow, org: string): MentionCandidate {
+  const kind = r.kind === 'item' ? 'ticket' : r.kind === 'doc' ? 'presentation' : r.kind
+  return { id: r.id, kind, tier: kind, org, title: r.label, at: Date.parse(r.at) || 0 }
+}
+
+type NodeActivity = { created?: string; last_status?: { at?: unknown } | null; inflight_at?: string | null; turns?: readonly { at: string }[] }
+/** When a node last worked, as far as the window knows: its newest turn,
+ *  status report or turn in flight, else its creation (ms; 0 when unknown). */
+export function nodeActivity(n: NodeActivity): number {
+  let at = 0
+  const take = (s: unknown) => { const t = typeof s === 'string' ? Date.parse(s) : NaN; if (t > at) at = t }
+  take(n.created); take(n.last_status?.at); take(n.inflight_at)
+  for (const t of n.turns ?? []) take(t.at)
+  return at
+}
 
 const orgCandidates = new Map<string, MentionCandidate[]>()
 const candidateListeners = new Set<() => void>()
@@ -55,7 +96,7 @@ export function liveMentionCandidatesFromTree(tree?: TreePayload | null): Mentio
       if (n.id && n.id !== 'user' && n.state === 'live' && !seen.has(n.id)) {
         seen.add(n.id)
         const kind = n.kind === 'project' ? 'project' : 'agent'
-        out.push({ id: n.id, tier: kind === 'project' ? 'project' : (n.tier || 'haiku'), kind })
+        out.push({ id: n.id, tier: kind === 'project' ? 'project' : (n.tier || 'haiku'), kind, at: nodeActivity(n) })
       }
       if (n.children?.length) walk(n.children)
     }
@@ -65,7 +106,7 @@ export function liveMentionCandidatesFromTree(tree?: TreePayload | null): Mentio
 }
 
 export function liveMentionCandidatesFromMap(
-  map?: ReadonlyMap<string, { id: string; state?: string; tier?: string | null; kind?: string }> | null,
+  map?: ReadonlyMap<string, { id: string; state?: string; tier?: string | null; kind?: string } & NodeActivity> | null,
 ): MentionCandidate[] {
   if (!map) return []
   const out: MentionCandidate[] = []
@@ -74,7 +115,7 @@ export function liveMentionCandidatesFromMap(
     if (n.id && n.id !== 'user' && n.state === 'live' && !seen.has(n.id)) {
       seen.add(n.id)
       const kind = n.kind === 'project' ? 'project' : 'agent'
-      out.push({ id: n.id, tier: kind === 'project' ? 'project' : (n.tier || 'haiku'), kind })
+      out.push({ id: n.id, tier: kind === 'project' ? 'project' : (n.tier || 'haiku'), kind, at: nodeActivity(n) })
     }
   }
   return out
@@ -90,7 +131,7 @@ export function setOrgMentionCandidates(org: string, candidates: MentionCandidat
 export function useOrgMentionCandidates(
   org?: string | null,
   tree?: TreePayload | null,
-  map?: ReadonlyMap<string, { id: string; state?: string; tier?: string | null; kind?: string }> | null,
+  map?: ReadonlyMap<string, { id: string; state?: string; tier?: string | null; kind?: string } & NodeActivity> | null,
 ): MentionCandidate[] {
   const [, bump] = useState(0)
   useEffect(() => {
@@ -112,24 +153,36 @@ export function useOrgMentionCandidates(
 }
 
 export interface MentionQueryMatch {
+  /** the text matched against names and ids (after a kind prefix and any org) */
   query: string
   start: number
   end: number
+  /** the kind a prefix (`@doc:`) narrowed the list to */
+  kind?: MentionCandidate['kind']
 }
 
-/** Match an active `@<prefix>` token immediately before `caret`.
- *  Bare words never match; email-like `a@b` tokens never match. */
+/** Match an active `@<prefix>` token immediately before `caret`, or a kind
+ *  prefix being typed (`@doc:`, `@doc:week`, `@doc:<org>/week`; MENTION_PREFIXES).
+ *  Bare words never match; email-like `a@b` tokens and other `@word:` forms
+ *  (`@net:`) never match. */
 export function matchMentionQuery(value: string, caret: number): MentionQueryMatch | null {
   const pos = Math.max(0, Math.min(value.length, caret))
   const before = value.slice(0, pos)
-  const m = /(?:^|[\s([{<"'`])@([a-z0-9._@-]*)$/i.exec(before)
+  const m = /(?:^|[\s([{<"'`])@(?:([a-z]+):([a-z0-9._@/-]*)|([a-z0-9._@-]*))$/i.exec(before)
   if (!m) return null
-  const query = m[1] ?? ''
+  if (m[1] !== undefined) {
+    const prefix = m[1].toLowerCase()
+    const kind = MENTION_PREFIXES[prefix]?.kind
+    if (!kind) return null
+    const raw = m[2] ?? ''
+    return { query: raw.slice(raw.lastIndexOf('/') + 1), start: pos - raw.length - prefix.length - 2, end: pos, kind }
+  }
+  const query = m[3] ?? ''
   const start = pos - query.length - 1
   return { query, start, end: pos }
 }
 
-const TRANSCRIPT_MENTION_RE = /@(?:(agent|item|doc):([a-z0-9-]+)\/([a-z0-9-]+(?:@[0-9]+)?)|([a-z0-9][a-z0-9_-]*(?:@[0-9]+)?))/gi
+const TRANSCRIPT_MENTION_RE = /@(?:(agent|project|item|doc|app|panel):([a-z0-9-]+)\/([a-z0-9-]+(?:@[0-9]+)?)|([a-z0-9][a-z0-9_-]*(?:@[0-9]+)?))/gi
 
 function isLeftBoundary(s: string, atIndex: number, lastEnd: number): boolean {
   if (atIndex <= 0 || atIndex === lastEnd) return true
@@ -140,7 +193,7 @@ function isRightBoundary(s: string, endIndex: number): boolean {
   if (endIndex >= s.length) return true
   const next = s[endIndex]!
   if (/[0-9A-Za-z_/-]/.test(next)) return false
-  if (next === '@' && !/^@(?:item|doc|agent|mail):/i.test(s.slice(endIndex))) return false
+  if (next === '@' && !/^@(?:item|doc|agent|project|app|panel|mail):/i.test(s.slice(endIndex))) return false
   if (next === '.' && endIndex + 1 < s.length && /[0-9A-Za-z]/.test(s[endIndex + 1]!)) return false
   return true
 }
@@ -184,39 +237,41 @@ export function extractMentionRecency(texts: Iterable<string>): ReadonlyMap<stri
   return recency
 }
 
+/** The entries matching `query`, best first. Every typed word must appear in
+ *  the entry's name or id (a slug's words find it, as a title's do). Things
+ *  mentioned in the open conversation come first, the latest mention first;
+ *  then everything else newest first by the latest of its last mention (in
+ *  mail, by anyone: `mentioned`, for agents and projects; the engine folds it
+ *  in for the rest), use or presenting, then by name (USER 2026-10-27
+ *  m79e889ce1609 "and ofc sort all items by most recently mentioned / operated
+ *  on / presented"). Typing narrows the list; it never reorders it. */
 export function filterMentionCandidates(
   candidates: MentionCandidate[],
   query: string,
   recency?: ReadonlyMap<string, number> | null,
+  mentioned?: ReadonlyMap<string, number> | null,
 ): MentionCandidate[] {
-  const q = query.toLowerCase()
-  const mentioned: Array<{ c: MentionCandidate; seq: number }> = []
-  const prefix: MentionCandidate[] = []
-  const substring: MentionCandidate[] = []
+  const words = query.toLowerCase().split(/[-_./\s]+/).filter(Boolean)
+  const inTranscript: Array<{ c: MentionCandidate; seq: number }> = []
+  const rest: Array<{ c: MentionCandidate; at: number; name: string }> = []
   for (const c of candidates) {
     const id = c.id.toLowerCase()
-    const ticket = c.kind === 'ticket'
-    const presentation = c.kind === 'presentation'
-    const isPrefix = !q || id.startsWith(q)
-    // a ticket's title words find it too: a slug is a cut-down title
-    const isMatch = isPrefix || id.includes(q) || (ticket && !!c.title?.toLowerCase().includes(q))
-      // a presentation as the engine's search found it: every typed word in its title or slug
-      || (presentation && q.split(/[-_.\s]+/).filter(Boolean).every(w => `${c.title ?? ''} ${id}`.toLowerCase().includes(w)))
-    if (!isMatch) continue
-    // a ticket or presentation counts as mentioned by its own reference, never by a same-named agent
-    const own = ticket ? 'item' : presentation ? 'doc' : ''
+    const name = (c.title ?? c.id).toLowerCase()
+    if (!words.every(w => name.includes(w) || id.includes(w))) continue
+    // a ticket, presentation, app or panel counts as mentioned by its own reference, never by a same-named agent
+    const own = OWN_TOKEN[c.kind]
     const seq = recency?.get(own ? `${own}:${(c.org ?? '').toLowerCase()}/${id}` : id)
-    if (seq !== undefined) {
-      mentioned.push({ c, seq })
-    } else if (isPrefix) {
-      prefix.push(c)
-    } else {
-      substring.push(c)
-    }
+    if (seq !== undefined) inTranscript.push({ c, seq })
+    else rest.push({ c, name, at: Math.max(c.at ?? 0, own ? 0 : mentioned?.get(id) ?? 0) })
   }
-  mentioned.sort((a, b) => b.seq - a.seq)
-  return [...mentioned.map(m => m.c), ...prefix, ...substring]
+  inTranscript.sort((a, b) => b.seq - a.seq)
+  rest.sort((a, b) => b.at - a.at || (a.name < b.name ? -1 : a.name > b.name ? 1 : 0)
+    || (a.c.kind < b.c.kind ? -1 : a.c.kind > b.c.kind ? 1 : 0) || (a.c.id < b.c.id ? -1 : a.c.id > b.c.id ? 1 : 0))
+  return [...inTranscript.map(x => x.c), ...rest.map(x => x.c)]
 }
+
+/** entries drawn at first, and added each time the reader nears the end */
+const MENU_STEP = 60
 
 export function useAgentMentions({
   value,
@@ -235,9 +290,9 @@ export function useAgentMentions({
   candidates: MentionCandidate[]
   disabled?: boolean
   transcriptTexts?: () => Iterable<string>
-  /** the org whose docket tickets (USER 2026-10-22 18:16:44Z) and
-   *  presentations (USER 2026-10-27 mb21c096e5dc4) the list also offers;
-   *  omitted, it offers agents and projects only */
+  /** the org whose docket tickets (USER 2026-10-22 18:16:44Z), presentations
+   *  (USER 2026-10-27 mb21c096e5dc4), apps and panels (m042c82fb0228) the
+   *  list also offers; omitted, it offers agents and projects only */
   org?: string | null
 }): {
   onKeyDown: (e: React.KeyboardEvent<HTMLInputElement | HTMLTextAreaElement>) => boolean
@@ -352,7 +407,7 @@ export function useAgentMentions({
   }, [value, inputRef])
 
   const activeQuery = useMemo(() => matchMentionQuery(value, caret), [value, caret])
-  const queryKey = activeQuery ? `${activeQuery.start}:${activeQuery.query}` : null
+  const queryKey = activeQuery ? `${activeQuery.start}:${activeQuery.kind ?? ''}:${activeQuery.query}` : null
   const canShow = !disabled && activeQuery !== null && dismissedKey !== queryKey
 
   if (!canShow) {
@@ -365,24 +420,45 @@ export function useAgentMentions({
     }
   }
   const activeRecency = recencySessionRef.current?.recency ?? null
-  // tickets FOLLOW the agents and projects, and presentations the tickets: at
-  // an equal match the list keeps agents nearest the box, as it draws bottom-up
-  const tickets = useTicketMentionCandidates(org, canShow && activeQuery ? activeQuery.query : null)
-  const presentations = usePresentationMentionCandidates(org, canShow && activeQuery ? activeQuery.query : null)
-  const offered = useMemo(() => tickets.length || presentations.length ? [...candidates, ...tickets, ...presentations] : candidates,
-    [candidates, tickets, presentations])
+  // Agents and projects are the window's own; tickets, presentations, apps and
+  // panels come from the engine's one bounded read, ranked there. A kind
+  // prefix asks for that kind only, and the read pages as the list is read.
+  const prefix = activeQuery?.kind
+  const searchKinds = useMemo<readonly SearchKind[] | null>(() => {
+    if (!prefix) return SEARCH_KINDS
+    const search = Object.values(MENTION_PREFIXES).find(p => p.kind === prefix)?.search
+    return search ? [search] : null
+  }, [prefix])
+  const searchText = canShow && activeQuery && org ? activeQuery.query : null
+  const found = useMentionSearch(org, searchKinds, searchText)
+  const offered = useMemo(() => {
+    const local = prefix ? candidates.filter(c => c.kind === prefix) : candidates
+    return found.rows.length && org ? [...local, ...found.rows.map(r => rowCandidate(r, org))] : local
+  }, [candidates, found.rows, prefix, org])
+  const [shown, setShown] = useState(MENU_STEP)
 
   useEffect(() => {
     if (selection.key !== null && selection.key !== queryKey) {
       setSelection({ key: null, index: -1 })
     }
     if (dismissedKey && dismissedKey !== queryKey) setDismissedKey(null)
+    setShown(MENU_STEP)
   }, [queryKey, dismissedKey, selection.key])
 
-  const matches = useMemo(
-    () => (canShow && activeQuery ? filterMentionCandidates(offered, activeQuery.query, activeRecency).reverse() : []),
-    [canShow, activeQuery, offered, activeRecency],
+  const ranked = useMemo(
+    () => (canShow && activeQuery ? filterMentionCandidates(offered, activeQuery.query, activeRecency, found.nodes) : []),
+    [canShow, activeQuery, offered, activeRecency, found.nodes],
   )
+  // drawn bottom-up (the best match last, next to the box), the oldest first
+  const matches = useMemo(() => ranked.slice(0, shown).reverse(), [ranked, shown])
+  const more = ranked.length > shown || found.more
+  /** Nearing the oldest entry drawn: draw more, and ask the engine for its
+   *  next page once the rows it sent are all drawn. */
+  const extend = useCallback(() => {
+    if (!more) return
+    setShown(n => n + MENU_STEP)
+    if (found.more && org && searchKinds && searchText !== null && ranked.length <= shown + MENU_STEP) loadMoreMentions(org, searchKinds, searchText)
+  }, [more, found.more, org, searchKinds, searchText, ranked.length, shown])
   if (!matches.length) {
     recencySessionRef.current = null
   }
@@ -453,6 +529,8 @@ export function useAgentMentions({
       const step = (e.key === 'ArrowDown') === !rect?.below ? 1 : -1
       const next = (clampedIndex + step + matches.length) % matches.length
       setSelection({ key: queryKey, index: next, pick: mentionKey(matches[next]!) })
+      // the oldest entries are drawn first: walking toward them draws more
+      if (next <= 2) extend()
       return true
     }
     if (e.key === 'Escape') {
@@ -463,7 +541,7 @@ export function useAgentMentions({
       return true
     }
     return false
-  }, [open, matches, clampedIndex, complete, queryKey, rect?.below])
+  }, [open, matches, clampedIndex, complete, queryKey, rect?.below, extend])
 
   const menuRef = useRef<HTMLDivElement | null>(null)
   useLayoutEffect(() => {
@@ -471,6 +549,18 @@ export function useAgentMentions({
     const active = menuRef.current.querySelector('.agent-mention-item.active') as HTMLElement | null
     active?.scrollIntoView?.({ block: 'nearest' })
   }, [open, clampedIndex, queryKey])
+  // scrolled to the oldest end (the marker drawn before the oldest entry)
+  const moreRef = useRef<HTMLDivElement | null>(null)
+  const extendRef = useRef(extend)
+  extendRef.current = extend
+  useEffect(() => {
+    const root = menuRef.current, marker = moreRef.current
+    const Observer = root?.ownerDocument?.defaultView?.IntersectionObserver
+    if (!open || !more || !root || !marker || !Observer) return
+    const seen = new Observer(entries => { if (entries.some(e => e.isIntersecting)) extendRef.current() }, { root })
+    seen.observe(marker)
+    return () => seen.disconnect()
+  }, [open, more, matches.length])
 
   const portalBody = inputRef.current?.ownerDocument?.body ?? (typeof document !== 'undefined' ? document.body : null)
   const menu = open && portalBody
@@ -479,23 +569,26 @@ export function useAgentMentions({
           ref={menuRef}
           className={'agent-mentions' + (rect?.below ? ' below' : '')}
           role="listbox"
-          aria-label="Agent, project, ticket and presentation mentions"
+          aria-label="Mentions: agents, projects, tickets, presentations, apps and panels"
           style={rect ? {
             position: 'fixed', left: rect.left, minWidth: rect.width, maxHeight: rect.maxHeight, zIndex: 10000,
             ...(rect.below ? { top: rect.top } : { bottom: rect.bottom }),
           } : undefined}
         >
+          {more && <div ref={moreRef} className="agent-mention-more" aria-hidden="true" />}
           {matches.map((c, idx) => (
             <button
               key={mentionKey(c)}
               type="button"
               role="option"
               aria-selected={idx === clampedIndex}
-              className={'agent-mention-item' + (c.kind === 'ticket' ? ' mention-ticket' : c.kind === 'presentation' ? ' mention-presentation' : '')
+              className={'agent-mention-item' + (c.kind === 'agent' || c.kind === 'project' ? '' : ` mention-${c.kind}`)
                 + (idx === clampedIndex ? ' active on' : '')}
-              // a ticket hovers with the one ticket identity every ticket link shows, a presentation with its own
+              // a ticket hovers with the one ticket identity every ticket link shows, a presentation with its own;
+              // an app or panel with the reference it inserts
               {...(c.kind === 'ticket' ? { ...objectTooltipProps('ticket', c.id, c.org), 'aria-label': `ticket ${c.id}` }
-                : c.kind === 'presentation' ? { ...objectTooltipProps('document', c.id, c.org), 'aria-label': `presentation ${c.title || c.id}` } : {})}
+                : c.kind === 'presentation' ? { ...objectTooltipProps('document', c.id, c.org), 'aria-label': `presentation ${c.title || c.id}` }
+                  : c.kind === 'app' || c.kind === 'panel' ? { title: mentionText(c), 'aria-label': `${c.kind} ${c.title || c.id}` } : {})}
               onMouseDown={e => {
                 e.preventDefault()
                 e.stopPropagation()
@@ -506,9 +599,11 @@ export function useAgentMentions({
                 ? <span className="mention-ticket-mark" aria-hidden="true"><DocketIcon fontSize="inherit" /></span>
                 : c.kind === 'presentation'
                   ? <span className="mention-presentation-mark" aria-hidden="true"><DocIcon fontSize="inherit" /></span>
-                  : <TierChip tier={c.kind === 'project' ? 'project' : c.tier} />}
-              {/* a presentation is shown by its title; completing it inserts its slug's reference */}
-              <span className="agent-mention-name">{c.kind === 'ticket' ? c.id : c.kind === 'presentation' ? c.title || c.id : '@' + c.id}</span>
+                  : c.kind === 'app' || c.kind === 'panel'
+                    ? <span className={`mention-${c.kind}-mark`} aria-hidden="true"><RefMark kind={c.kind} /></span>
+                    : <TierChip tier={c.kind === 'project' ? 'project' : c.tier} />}
+              {/* a presentation, app or panel is shown by its name; completing it inserts its slug's reference */}
+              <span className="agent-mention-name">{c.kind === 'agent' || c.kind === 'project' ? '@' + c.id : c.kind === 'ticket' ? c.id : c.title || c.id}</span>
             </button>
           ))}
         </div>,

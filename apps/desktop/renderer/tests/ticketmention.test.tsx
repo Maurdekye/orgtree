@@ -284,13 +284,14 @@ test('the agent desk: its transcript ticket chip and its Docket tab row offer Me
   assert.equal(box.value, '@item:tm-desk/desk-ticket ')
 })
 
-test('the agent desk @-completion offers current and backlogged tickets after agents; Tab inserts @item:<org>/<slug>', async t => {
+test('the agent desk @-completion offers current and backlogged tickets, newest first among agents; Tab inserts @item:<org>/<slug>', async t => {
   localStorage.clear(); resetConvos()
   const org = 'tm-complete'
   const alpha = mkNode('worker-alpha'), beta = mkNode('worker-beta', 'haiku')
   const server = new FakeServer()
   server.messages = [{ role: 'assistant', text: 'Hello.', seq: 0, event_id: 'r-1' }]
-  server.workItems = [ticket('parity-ticket', { title: 'Composer completes tickets' }), ticket('worker-guide')]
+  // the parity ticket changed last (the engine's read ranks by the latest change or mention)
+  server.workItems = [ticket('parity-ticket', { title: 'Composer completes tickets', docket_at: '2026-10-22T10:05:00Z' }), ticket('worker-guide')]
   server.workBacklogged = [ticket('parity-backlog', { status: 'backlogged' })]
   server.workArchived = [ticket('parity-archived', { status: 'done', archived: true })]
   const previous = globalThis.fetch
@@ -322,11 +323,12 @@ test('the agent desk @-completion offers current and backlogged tickets after ag
   await typeInto(box, 'Ask @composer')
   assert.deepEqual(ticketRows(), ['parity-ticket'], 'title words match')
 
-  // agents keep their place: a ticket matching the same way ranks above (further from the box than) the agents
+  // newest first across kinds (USER 2026-10-27 m79e889ce1609): a ticket changed on Oct 22 comes before
+  // agents with no known activity, which follow by name; drawn bottom-up, the best sits nearest the box
   await typeInto(box, 'Ask @worker-')
-  assert.deepEqual(rowNames(), ['worker-guide', '@worker-beta', '@worker-alpha'], `agents stay nearest the box (${JSON.stringify(rowNames())})`)
+  assert.deepEqual(rowNames(), ['@worker-beta', '@worker-alpha', 'worker-guide'], `newest first, then by name (${JSON.stringify(rowNames())})`)
   await press(box, 'Tab')
-  assert.equal(box.value, 'Ask @worker-alpha ', 'Tab still completes the agent first')
+  assert.equal(box.value, 'Ask @item:tm-complete/worker-guide ', 'Tab completes the newest')
 })
 
 test('a ticket mentioned in the open transcript is offered first, like a recently mentioned agent', async t => {
@@ -381,25 +383,20 @@ test('the project desk composer offers tickets in its @-completion', async t => 
   assert.equal(box.value, 'Team, see @item:tm-project/project-ticket ')
 })
 
-test('Quick chat offers tickets in its @-completion and reads only the current and backlogged groups', async t => {
+test('Quick chat offers tickets in its @-completion from the engine\'s read of live things, never the archive', async t => {
   const org = 'tm-quick'
   const requests: string[] = []
-  const groups: Record<string, WorkItem[]> = {
-    items: [ticket('quick-ticket')], backlogged: [ticket('quick-backlog', { status: 'backlogged' })],
-    archived: [ticket('quick-archived', { status: 'done', archived: true })],
-  }
+  // the engine's read leaves the docket's archive out; the fake serves what the docket lists
+  const server = new FakeServer()
+  server.workItems = [ticket('quick-ticket', { docket_at: '2026-10-22T10:05:00Z' })]
+  server.workBacklogged = [ticket('quick-backlog', { status: 'backlogged' })]
+  server.workArchived = [ticket('quick-archived', { status: 'done', archived: true })]
   const old = globalThis.fetch
   globalThis.fetch = legacyAppBackend((async (input: RequestInfo | URL) => {
     const url = new URL(String(input), 'http://localhost')
-    if (url.pathname.endsWith('/work-items-page')) {
-      requests.push(url.searchParams.get('group') ?? '')
-      const group = url.searchParams.get('group') ?? 'items'
-      const query = (url.searchParams.get('query') ?? '').toLowerCase()
-      const found = (groups[group] ?? []).filter(row => !query || `${row.slug}\n${row.title}`.toLowerCase().includes(query))
-      return new Response(JSON.stringify({ format: 'orgtree.work-page/v1', group, rows: found, total: found.length,
-        totals: { items: 1, archived: 1, backlogged: 1 }, matched: { items: 1, archived: 1, backlogged: 1 },
-        counts: { active: 1, attention: 0, archived: 1, backlogged: 1 }, next_offset: null, revision: 'r1',
-        at: '2026-10-22T10:00:00Z' }), { status: 200 })
+    if (url.pathname.endsWith('/mention-candidates')) {
+      requests.push(url.searchParams.get('kinds') ?? '')
+      return new Response(JSON.stringify(server.mentionCandidates(url)), { status: 200 })
     }
     return new Response(JSON.stringify({ providers: [] }), { status: 200 })
   }) as typeof fetch)
@@ -411,7 +408,7 @@ test('Quick chat offers tickets in its @-completion and reads only the current a
   const box = view.el.querySelector<HTMLInputElement>('.quickchat-input')!
   await typeInto(box, 'ping @quick')
   assert.deepEqual(ticketRows().sort(), ['quick-backlog', 'quick-ticket'], `quick chat lists tickets (${JSON.stringify(rowNames())})`)
-  assert.equal(requests.includes('archived'), false, 'archived tickets are never read for completion')
+  assert.ok(requests.length && requests.every(k => k === 'item,doc,app,panel'), `one read for every kind the engine offers (${requests})`)
   await press(box, 'Tab')
-  assert.equal(box.value, 'ping @item:tm-quick/quick-ticket ')
+  assert.equal(box.value, 'ping @item:tm-quick/quick-ticket ', 'the newest ticket completes first')
 })

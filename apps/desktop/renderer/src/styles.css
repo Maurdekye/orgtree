@@ -9896,16 +9896,23 @@ button.mail-tag-link:hover, .settings button.mail-tag-link:hover { background:no
   color: var(--ink-strong);
 }
 .agent-mention-item .tier, .agent-mention-item .project-mark, .agent-mention-item .mention-ticket-mark,
-.agent-mention-item .mention-presentation-mark {
+.agent-mention-item .mention-presentation-mark, .agent-mention-item .mention-app-mark, .agent-mention-item .mention-panel-mark {
   width: 16px; height: 16px; font-size: 9.5px; border-radius: 3px; flex: none;
   display: inline-grid; place-items: center;
 }
 /* a ticket offered beside agents and projects: the docket's own icon in place of a model badge;
-   a presentation: the presentations' document icon (USER 2026-10-27 mb21c096e5dc4) */
-.agent-mention-item .mention-ticket-mark, .agent-mention-item .mention-presentation-mark { font-size: 13px; color: var(--dim); }
+   a presentation: the presentations' document icon (USER 2026-10-27 mb21c096e5dc4); an app and
+   a panel: the marks their mention chips wear (m042c82fb0228) */
+.agent-mention-item .mention-ticket-mark, .agent-mention-item .mention-presentation-mark,
+.agent-mention-item .mention-app-mark, .agent-mention-item .mention-panel-mark { font-size: 13px; color: var(--dim); }
 .agent-mention-item.on .mention-ticket-mark, .agent-mention-item.active .mention-ticket-mark,
 .agent-mention-item:hover .mention-ticket-mark, .agent-mention-item.on .mention-presentation-mark,
-.agent-mention-item.active .mention-presentation-mark, .agent-mention-item:hover .mention-presentation-mark { color: var(--ink-strong); }
+.agent-mention-item.active .mention-presentation-mark, .agent-mention-item:hover .mention-presentation-mark,
+.agent-mention-item.on .mention-app-mark, .agent-mention-item.active .mention-app-mark, .agent-mention-item:hover .mention-app-mark,
+.agent-mention-item.on .mention-panel-mark, .agent-mention-item.active .mention-panel-mark,
+.agent-mention-item:hover .mention-panel-mark { color: var(--ink-strong); }
+/* the end of what is drawn: reaching it draws (and reads) more (agentmentions.tsx extend) */
+.agent-mention-more { flex: none; height: 1px; }
 .agent-mention-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .project-mark {
   color: var(--org-accent, var(--accent));
