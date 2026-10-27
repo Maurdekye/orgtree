@@ -328,7 +328,7 @@ function ProjectComposer({ node, slug, tree, map, toast, members, recipients, ba
   onLocateReply: (r: ReplyContext) => void
   docTitle: (id: string) => string | undefined
   focusRequest: number
-  onRegisterMention?: (capture: ((agentId: string) => (() => void) | null) | null, noteRightDown: () => void) => void
+  onRegisterMention?: (capture: ((agentId: string | (() => string)) => (() => void) | null) | null, noteRightDown: () => void) => void
   /** the desk's drop zone hands its files to the box's own upload */
   onRegisterAttach?: (attach: ((file: File) => void) | null) => void
 }) {
@@ -713,11 +713,11 @@ export function ProjectDesk({ node, slug, tree, map, op, toast, refs, bare, focu
   const [asking, setAsking] = useState<'halt' | 'unhalt' | 'dissolve' | null>(null)
   const fallbackMenu = useContextMenu(toast)
   const mentionRef = useRef<{
-    capture: ((agentId: string) => (() => void) | null) | null
+    capture: ((agentId: string | (() => string)) => (() => void) | null) | null
     noteRightDown: (() => void) | null
   }>({ capture: null, noteRightDown: null })
   const mentionScope = useDeskMentionScope(
-    (agentId: string) => mentionRef.current.capture?.(agentId) ?? null,
+    (agentId: string | (() => string)) => mentionRef.current.capture?.(agentId) ?? null,
     () => mentionRef.current.noteRightDown?.(),
   )
   // the docket tab: the items attached to this project (slice 2), one poll,
