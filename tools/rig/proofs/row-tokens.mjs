@@ -34,12 +34,18 @@ export default async function (rig) {
     output_tokens: output, output_tokens_details: { thinking_tokens: thinking } })
   const assistant = (id, content, u, stop = 'tool_use') => ({ raw: { type: 'assistant', parent_tool_use_id: null,
     message: { id, role: 'assistant', content, usage: u, stop_reason: stop } } })
+  const stream = event => ({ raw: { type: 'stream_event', parent_tool_use_id: null, event } })
   // Each script runs once, on a word no org-state header holds (the org slug has "row-tokens").
   rig.scenario({ agents: {
     'claude-worker': { turns: [{ match: 'COUNT-EVERY-ROW', once: true, steps: [
-      assistant('row-one', [{ type: 'thinking', thinking: 'Planning the synthetic check.' }], usage(64, 20)),
-      assistant('row-one', [{ type: 'text', text: 'Checking the synthetic files.' }], usage(64, 20)),
-      assistant('row-one', [{ type: 'tool_use', id: 'row-call', name: 'Bash', input: { command: 'echo synthetic-only' } }], usage(64, 20)),
+      // The CLI's order (USER 2026-10-27 mf421a040506c: a reply of about 130 tokens showed 8t):
+      // each block's assistant event carries the usage as it stood before the response
+      // finished; the response's final output comes in its message_delta.
+      stream({ type: 'message_start', message: { id: 'row-one', usage: usage(1, 0) } }),
+      assistant('row-one', [{ type: 'thinking', thinking: 'Planning the synthetic check.' }], usage(8, 20)),
+      assistant('row-one', [{ type: 'text', text: 'Checking the synthetic files.' }], usage(8, 20)),
+      assistant('row-one', [{ type: 'tool_use', id: 'row-call', name: 'Bash', input: { command: 'echo synthetic-only' } }], usage(8, 20)),
+      stream({ type: 'message_delta', delta: { stop_reason: 'tool_use' }, usage: { output_tokens: 64 } }),
       { raw: { type: 'user', parent_tool_use_id: null, message: { content: [{ type: 'tool_result', tool_use_id: 'row-call', content: 'synthetic line\n'.repeat(40) }] } } },
       assistant('row-two', [{ type: 'text', text: 'ROW-TOKENS-DONE' }], usage(9, 0), 'end_turn'),
       { raw: { type: 'system', subtype: 'compact_boundary', compact_metadata: { trigger: 'auto', pre_tokens: 150000 } } },
@@ -73,13 +79,25 @@ export default async function (rig) {
 
   const C = (await chat('claude-worker')).messages, X = (await chat('codex-worker')).messages
   p.file('claude-rows.json', C); p.file('codex-rows.json', X)
-  const parts = row => (row?.tokens?.parts ?? []).map(part => part.label)
-  const delivered = C.find(row => row.role === 'user' && parts(row).includes('Mail from user'))
-  p.check("Claude: the delivered message counts exactly what was sent, with the user's message, the notice and the watchdog fire as parts",
+  // USER 2026-10-27 m7c48d80b13f4, md965e01802ba, m90b8a18987ea: each message's own count,
+  // and the conditional parts sent with them itemized apart.
+  const cards = row => (row?.segments ?? []).flatMap(s => s.kind === 'mail' ? s.rows : [])
+  const owns = row => row?.tokens?.own ?? []
+  const extras = row => (row?.tokens?.extras ?? []).map(part => part.label)
+  const sent = (r, from) => r.from === from || (from === '@user' && r.from === 'user')
+  const ownOf = (row, from) => owns(row).find(o => o.id === cards(row).find(r => sent(r, from))?.id)?.count
+  const asked = row => row.role === 'user' && cards(row).some(r => String(r.body ?? '').includes('COUNT-EVERY-ROW'))
+  const delivered = C.find(asked)
+  const summed = row => (row?.tokens?.extras ?? []).reduce((n, part) => n + part.count, 0)
+  p.check("Claude: the delivered message counts each card alone (the user's message, the notice and the watchdog fire) and lists the envelope apart",
     delivered?.tokens?.estimated === true && delivered.tokens.count > 0
-    && ['Org state', 'Provider usage', 'Mail from user', 'Notice from boss', 'Watchdog codex-turns'].every(label => parts(delivered).includes(label)), delivered?.tokens)
+    && cards(delivered).every(r => owns(delivered).some(o => o.id === r.id && o.count > 0))
+    && ['@user', 'boss', 'codex-turns'].every(from => ownOf(delivered, from) > 0) && ownOf(delivered, '@user') < 200
+    && ['Org state', 'Provider usage'].every(label => extras(delivered).includes(label))
+    && delivered.tokens.extra === summed(delivered) && delivered.tokens.extra > 0,
+    delivered && { tokens: delivered.tokens, cards: cards(delivered).map(r => ({ id: r.id, from: r.from })) })
   const one = C.find(row => row.assistant_id === 'row-one'), two = C.find(row => row.assistant_id === 'row-two')
-  p.check('Claude: each response shows the output Claude reported for it, and its thought the reported thinking',
+  p.check("Claude: each response keeps the final output Claude reported for it (its message_delta, not a block's earlier 8), and its thought the reported thinking",
     one?.tokens?.reported === 'Claude' && one.tokens.count === 64 && two?.tokens?.reported === 'Claude' && two.tokens.count === 9 && one.thinking_tokens === 20,
     { one: one?.tokens, two: two?.tokens, thinking: one?.thinking_tokens })
   const call = one?.tools?.find(tool => tool.id === 'row-call')
@@ -88,8 +106,9 @@ export default async function (rig) {
   const compact = C.find(row => row.role === 'system' && row.kind === 'compact')
   p.check('Claude: the compaction is not counted, says why and keeps the context size Claude reported before it',
     compact?.tokens?.not_counted === 'the provider keeps the compaction summary' && compact.pre_tokens === 150000, compact)
-  const xmail = X.find(row => row.role === 'user' && parts(row).includes('Mail from user'))
-  p.check('Codex: the delivered message is counted with its parts', xmail?.tokens?.estimated === true && xmail.tokens.count > 0 && parts(xmail).includes('Org state'), xmail?.tokens)
+  const xmail = X.find(asked)
+  p.check("Codex: the delivered message has the user's own count and the envelope apart",
+    xmail?.tokens?.estimated === true && xmail.tokens.count > 0 && ownOf(xmail, '@user') > 0 && extras(xmail).includes('Org state'), xmail?.tokens)
   const reply = X.find(row => row.role === 'assistant' && row.text === 'A reply and nothing else.')
   p.check("Codex: a reply that was its request's only output shows the count Codex reported", reply?.tokens?.reported === 'Codex' && reply.tokens.count === 9, reply?.tokens)
   const work = X.find(row => row.role === 'assistant' && /Checking the synthetic files/.test(row.text ?? ''))
@@ -107,7 +126,7 @@ export default async function (rig) {
   const own = await rig.tool('claude-worker', 'orgtree_read_transcript', { node: 'claude-worker', last: 40 })
   const listed = own.json?.messages ?? []
   p.check('orgtree_read_transcript rows carry the same counts', read.ok && own.ok && listed.some(row => row.tokens?.reported === 'Claude' && row.tokens.count === 64)
-    && listed.some(row => row.tokens?.parts?.some(part => part.label === 'Watchdog codex-turns')), listed.map(row => row.tokens ?? null))
+    && listed.some(row => row.tokens?.own?.some(o => o.count > 0) && row.tokens.extras?.some(part => part.label === 'Org state')), listed.map(row => row.tokens ?? null))
 
   // Both desks in the real renderer, muted.
   const run = await runDesktop(rig, path.join(REPO, 'tools', 'rig', 'desktop', 'row-tokens.cjs'), { preset: 'wide', out: path.join(p.dir, 'desktop'), timeout: 240000,
@@ -119,17 +138,19 @@ export default async function (rig) {
   p.check('clipboard isolated: every page clipboard path refused, none used, no permission granted', R.installed.clipboardStub && R.clipboard.calls.length === 0 && R.clipboard.requests.length === 0, R.clipboard)
   for (const agent of ['claude-worker', 'codex-worker']) {
     const D = R.desks[agent] ?? {}
-    p.check(`${agent}: the desk shows a count on its delivered message, its responses and its system rows`,
-      D.rows?.some(r => r.where === 'mail' && /^~[\d.]+k?t$/.test(r.text) && /Org state: about/.test(r.title))
-      && D.rows?.some(r => r.where === 'reply' && /t$/.test(r.text)) && D.rows?.some(r => r.text === '—' && /not counted/.test(r.title))
-      && D.inputs?.length > 0, D)
-    // A delivered message is drawn as one card per mail; its count is shown once.
-    const mails = (D.rows ?? []).filter(r => r.where === 'mail').map(r => r.title)
-    p.check(`${agent}: each delivered message shows its count once`, mails.length > 0 && new Set(mails).size === mails.length, mails)
+    // USER 2026-10-27 m4bad9bdbd3a1: the count in a message's header next to its time,
+    // nothing anywhere else but tool and thought lines.
+    p.check(`${agent}: each message card shows its own count right after its time`,
+      D.owns?.length > 0 && D.owns.every(r => r.afterTime && /^~[\d.]+k?t$/.test(r.text) && /this message: about/.test(r.title)), D.owns)
+    p.check(`${agent}: a delivery's last card shows +N for the turn envelope, its parts itemized on hover`,
+      D.envelopes?.length > 0 && D.envelopes.length <= D.owns.length && D.envelopes.every(r => r.afterTime
+        && /^\+[\d.]+k?t$/.test(r.text) && /surrounding data hidden in the turn envelope/.test(r.title))
+      && D.envelopes.some(r => /Org state: about/.test(r.title) && /Provider usage: about/.test(r.title)), D.envelopes)
+    p.check(`${agent}: replies, system rows and compactions show no count and nothing sits in the margin`,
+      D.margins === 0 && D.stray?.length === 0 && D.inputs?.length > 0, { margins: D.margins, stray: D.stray })
   }
   const X1 = R.desks['codex-worker'] ?? {}
-  p.check('the Codex command row shows its estimate once, on its chip',
-    X1.inputs?.length === 1 && !X1.rows?.some(r => r.text === X1.inputs[0].text), { inputs: X1.inputs, rows: X1.rows?.map(r => r.text) })
+  p.check('the Codex command keeps its estimate on its chip', X1.inputs?.length === 1, { inputs: X1.inputs })
   p.check('the Claude thought shows the thinking Claude reported, and the Codex thought alone a dash',
     R.desks['claude-worker']?.thinking?.some(r => r.text === '20t') && R.desks['codex-worker']?.thinking?.some(r => r.text === '—' && /not reported/.test(r.title)),
     { claude: R.desks['claude-worker']?.thinking, codex: R.desks['codex-worker']?.thinking })

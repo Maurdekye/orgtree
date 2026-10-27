@@ -1,7 +1,8 @@
 // tools/rig/desktop/row-tokens.cjs: the window half of tools/rig/proofs/row-tokens.mjs.
 // USER 2026-10-27 m10e4ca6d8934: "token counts in messages of all kinds (agent, monitor
-// event, system, etc)"; mafe020c4912b: "and user messages". Opens each agent's desk,
-// reads every row count with its tooltip and screenshots it. The real renderer bundle
+// event, system, etc)"; m4bad9bdbd3a1: counts in the message header, next to the time, and
+// m7c48d80b13f4: "+xyt" for the turn envelope. Opens each agent's desk, reads every count
+// with its tooltip and where it sits, and screenshots it. The real renderer bundle
 // runs against the isolated rig engine; input goes only through CDP to this window.
 // Refuses outside Session 0, refuses every permission request, replaces each page
 // clipboard path with a refusal, and is SILENT: every webContents is muted.
@@ -49,15 +50,20 @@ module.exports = async (page, { org, args }) => {
     const desk = items.find(t => /desk/i.test(t))
     if (!desk) throw new Error('no desk item in ' + JSON.stringify(items))
     await page.click({ selector: 'button.ctxmenu-item', text: `^${desk.replace(/[.*+?^${}()|[\]\\]/g, c => '\\' + c)}$`, regex: true })
-    await page.waitFor(() => document.querySelectorAll('.row-tokens').length >= 3, { timeout: 30000 })
+    await page.waitFor(() => document.querySelectorAll('.own-tokens').length >= 2, { timeout: 30000 })
     await sleep(800)
     R.desks[agent] = await page.eval(() => {
-      const where = el => el.closest('.typed-input') ? 'mail' : el.closest('.msg.sys') ? 'system' : el.closest('.msg.assistant') ? 'reply' : el.closest('.msg.user') ? 'user' : 'other'
-      const read = el => ({ text: el.textContent.replace(/\s+/g, ' ').trim().replace(/^·\s*/, ''), title: el.getAttribute('title') ?? '', where: where(el) })
-      return { rows: [...document.querySelectorAll('.row-tokens')].map(read), inputs: [...document.querySelectorAll('.tool-input-tokens')].map(read),
+      const read = el => ({ text: el.textContent.replace(/\s+/g, ' ').trim().replace(/^·\s*/, ''), title: el.getAttribute('title') ?? '',
+        afterTime: el.closest('.msg-tokens')?.previousElementSibling?.tagName === 'TIME' && !!el.closest('.turn-mail-head') })
+      const counts = [...document.querySelectorAll('.token-count')]
+      return { owns: [...document.querySelectorAll('.own-tokens')].map(read), envelopes: [...document.querySelectorAll('.envelope-tokens')].map(read),
+        margins: document.querySelectorAll('.row-tokens, .row-tokens-line').length,
+        // a count anywhere but a message header, a tool chip or a thought line
+        stray: counts.filter(el => !el.closest('.turn-mail-head') && !el.matches('.thinking-tokens, .tool-input-tokens, .tool-output-tokens')).map(read),
+        inputs: [...document.querySelectorAll('.tool-input-tokens')].map(read),
         thinking: [...document.querySelectorAll('.thinking-tokens')].map(read), outputs: [...document.querySelectorAll('.tool-output-tokens')].map(read) }
     })
-    await page.eval(() => { const rows = [...document.querySelectorAll('.row-tokens')]; rows[0]?.scrollIntoView({ block: 'start' }) })
+    await page.eval(() => { const at = document.querySelector('.envelope-tokens') ?? document.querySelector('.own-tokens'); at?.closest('.turn-mail')?.scrollIntoView({ block: 'start' }) })
     await sleep(500)
     await page.screenshot(`${agent}-desk`)
   }
