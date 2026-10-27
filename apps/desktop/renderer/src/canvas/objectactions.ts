@@ -3,6 +3,7 @@ import { USER_IDENTITY_TITLE, userMenuEntries } from './useridentity'
 import type { MenuEntry } from './contextmenu'
 import { agentLinkMenuEntries } from './contextmenu'
 import type { ToastFn, Watchdog } from '../types'
+import { hubAddressTitle } from './netmentions'
 
 /** Canonical node-link submenu, primary Focus action and tooltip, shared by
  * tickets, presentations and generic agent/project links. */
@@ -38,7 +39,7 @@ export function senderMenuAction(anchor: Element | null, sender: string | undefi
   const isExternal = raw.startsWith('@net:') || raw.startsWith('@org:')
   if (isExternal) {
     const action = resolveHubAddressAction(raw)
-    return { label: 'Sender…', title: action.title,
+    return { label: 'Sender…', title: hubAddressTitle(raw),
       children: hubAddressMenuEntries(anchor ?? document.body, raw), actionDisabled: action.kind === 'inert',
       onSelect: () => { triggerHubAddress(raw) } }
   }

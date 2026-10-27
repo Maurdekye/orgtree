@@ -1514,6 +1514,10 @@ export interface OrgPicture { revision: string; sha256: string | null; width: nu
 export interface OrgPictureCrop { x: number; y: number; size: number }
 export const getOrgPicture = (slug: string): Promise<{ owner: number; picture: OrgPicture | null }> =>
   req(`/api/orgs/${slug}/profile-picture`)
+/** The picture an `@net:`/`@org:` mention shows in this org's views: a local
+ *  org's logo or a hub-advertised picture, verified by the engine. */
+export const getMentionPicture = (slug: string, address: string): Promise<{ picture: OrgPicture | null }> =>
+  req(`/api/orgs/${slug}/net/profile-picture?address=${encodeURIComponent(address)}`)
 export const previewOrgPicture = (slug: string, data: string): Promise<{ data: string; width: number; height: number }> =>
   req(`/api/orgs/${slug}/profile-picture/preview`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ data }) })
 export const setOrgPicture = (slug: string, owner: number, data: string | null, crop?: OrgPictureCrop): Promise<OrgPicture> =>

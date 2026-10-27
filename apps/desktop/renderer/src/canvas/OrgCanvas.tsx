@@ -80,6 +80,7 @@ import { ForegroundViewContext, mailRefTarget, useRefRoutes } from './reflinks'
 import type { ResolvedRef } from './reflinks'
 import type { TypedRef } from './workrefs'
 import { liveMentionCandidatesFromTree, noteKnownOrg, setOrgMentionCandidates } from './agentmentions'
+import { setNetRoster } from './netmentions'
 import { NodeInboxModal, OrgInboxModal } from './mail'
 import { AgentDocketModal } from './agentdocket'
 import { ProjectSlotsModal } from './slotspanel'
@@ -879,6 +880,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
   useEffect(() => {
     noteKnownOrg(slug)
     setOrgMentionCandidates(slug, liveMentionCandidatesFromTree(tree))
+    setNetRoster(slug, tree.net)
   }, [slug, tree])
   usePersistedModalOpen('lineage', slug, lineageId !== null, lineageId ? { agent: lineageId, generation: map.get(lineageId)?.generation } : undefined)
   // ---- THE PER-TARGET MODALS, several at once (docket

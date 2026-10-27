@@ -39,6 +39,7 @@ import { useContextMenu } from './contextmenu'
 import { USER_IDENTITY_TITLE, userMenuEntries } from './useridentity'
 import { localFileLinkAt } from './localfile'
 import { createRefMarkEl, hasRefMark } from './refmarks'
+import { createNetMarkEl, ensureNetPicture, hubAddressTitle, netChipClass, netChipSig, netMention, splitScheme, useNetMentionState } from './netmentions'
 
 /** the attribute that makes an injected chip findable again on the next pass.
  *  It holds the ORIGINAL TOKEN, so undoing the injection is exact — the chip's
@@ -85,20 +86,24 @@ function chipSig(r: ResolvedRef, live: boolean): string {
 
 function hubChipSig(address: string): string {
   const action = resolveHubAddressAction(address.toLowerCase())
-  return ['hub', action.kind, action.title].join('|')
+  ensureNetPicture(address)
+  return ['hub', action.kind, hubAddressTitle(address), netChipSig(netMention(address))].join('|')
 }
 
 function hubChipEl(doc: Document, token: string): HTMLElement {
   const addr = token.toLowerCase()
   const action = resolveHubAddressAction(addr)
   const inert = action.kind === 'inert'
+  const info = netMention(addr)
   const el = doc.createElement('button')
   el.type = 'button'
-  el.className = `ref-chip ref-hub ${inert ? 'inert' : 'live'}`
-  el.title = action.title
+  el.className = `ref-chip ref-hub ${inert ? 'inert' : 'live'} ${netChipClass(info)}`
+  el.title = hubAddressTitle(addr)
   el.setAttribute(TOK, token)
   el.setAttribute('data-hub-ref', addr)
   el.setAttribute('data-hub-address', addr)
+  el.setAttribute('data-net-kind', info.kind)
+  el.setAttribute('data-net-icon', info.icon)
   if (inert) el.setAttribute('aria-disabled', 'true')
   el.setAttribute(SIG, hubChipSig(token))
   el.addEventListener('click', e => {
@@ -106,9 +111,17 @@ function hubChipEl(doc: Document, token: string): HTMLElement {
     e.preventDefault()
     if (!inert) triggerHubAddress(addr)
   })
+  el.appendChild(createNetMarkEl(doc, info))
   const span = doc.createElement('span')
   span.className = 'ref-id'
-  span.textContent = token
+  const [scheme, rest] = splitScheme(token)
+  if (scheme) {
+    const dim = doc.createElement('span')
+    dim.className = 'net-scheme'
+    dim.textContent = scheme
+    span.appendChild(dim)
+  }
+  span.appendChild(doc.createTextNode(rest))
   el.appendChild(span)
   return el
 }
@@ -550,6 +563,7 @@ export function useRefMd(world: RefWorld | null | undefined,
   onOpen?: (r: ResolvedRef) => void,
   mentions?: MentionWorld | null) {
   useHubAddressState()
+  useNetMentionState()
   const host = useRef<HTMLDivElement | null>(null)
   const worldRef = useRef(world)
   worldRef.current = world

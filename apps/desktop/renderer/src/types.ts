@@ -270,6 +270,10 @@ export interface NetPeer {
   online: boolean
   last_seen?: string | null
   kind?: 'org' | 'chat' | 'person'  // FR-06: independent chats are clients too; person: a Hubchat user (mail hub v2)
+  /** mail hub 2.2: the identity's picture metadata (no bytes; a removal has
+   *  no sha256) and the owner token pictures are bound to */
+  picture?: { revision: string; sha256: string | null; width: number; height: number; bytes: number } | null
+  picture_owner?: string
   /** user spec 2026-08-05: which transports resolve this recipient —
    *  derived server-side from the same data the bare-name resolver uses */
   transports?: string[]

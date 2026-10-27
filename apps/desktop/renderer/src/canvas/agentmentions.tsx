@@ -14,6 +14,7 @@ import { objectTooltipProps } from './objecttooltip'
 import { refToken } from './reflinks'
 import { useTicketMentionCandidates } from './ticketmentions'
 import { usePresentationMentionCandidates } from './presentationmentions'
+import { NetMark, ensureNetPicture, hubAddressTitle, netChipClass, netMention, splitScheme, useNetMentionState } from './netmentions'
 
 export interface MentionCandidate {
   id: string
@@ -690,9 +691,13 @@ export function useHubAddressState(): number {
 export function HubContactChip({ address, className }: { address: string; className?: string }) {
   const menu = useContextMenu()
   useHubAddressState()
+  useNetMentionState()
+  useEffect(() => { ensureNetPicture(address) })
   const action = resolveHubAddressAction(address)
   const inert = action.kind === 'inert'
-  const cls = ['ref-chip', 'ref-hub', inert ? 'inert' : 'live', className].filter(Boolean).join(' ')
+  const info = netMention(address)
+  const [scheme, rest] = splitScheme(address)
+  const cls = ['ref-chip', 'ref-hub', inert ? 'inert' : 'live', netChipClass(info), className].filter(Boolean).join(' ')
   return (
     <><button
       type="button"
@@ -700,14 +705,17 @@ export function HubContactChip({ address, className }: { address: string; classN
       onContextMenu={e => menu.open(e, hubAddressMenuEntries(e.currentTarget, address))}
       data-hub-address={address}
       data-hub-ref={address}
+      data-net-kind={info.kind}
+      data-net-icon={info.icon}
       aria-disabled={inert ? 'true' : undefined}
-      title={action.title}
+      title={hubAddressTitle(address)}
       onClick={e => {
         e.stopPropagation()
         if (!inert) triggerHubAddress(address)
       }}
     >
-      <span className="ref-id">{address}</span>
+      <NetMark info={info} />
+      <span className="ref-id">{scheme && <span className="net-scheme">{scheme}</span>}{rest}</span>
     </button>{menu.node}</>
   )
 }
