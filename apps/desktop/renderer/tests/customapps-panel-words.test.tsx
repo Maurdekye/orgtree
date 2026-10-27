@@ -137,7 +137,8 @@ test('the import preview, the app and panel menus and an app event watchdog say 
   const anchor=document.body
   const menu=[...appLinkMenu('panel-words','notes',anchor),...panelLinkMenu('panel-words',{id:'first',open:false,running:false},anchor),...panelLinkMenu('panel-words',{id:'second',open:true,running:true},anchor)].flatMap(e=>typeof e==='string'?[]:[e.label,e.description??''])
   assert.ok(menu.includes('Creates a powered-off panel without opening it'),'New panel says what it creates')
-  assert.deepEqual(hits(menu),[],'the app and panel menus call a panel a copy')
+  // the entry Copy mention copies a mention token (USER 2026-10-27), not a panel, so it is the one "copy" these menus may say
+  assert.deepEqual(hits(menu.filter(label=>label!=='Copy mention')),[],'the app and panel menus call a panel a copy')
   const all=dog(everywhere)
   await mounted(<div><AppDogFields dog={all}/></div>,root=>{
     assert.ok(root.textContent!.includes('all panels'),'the panel field says all panels')
