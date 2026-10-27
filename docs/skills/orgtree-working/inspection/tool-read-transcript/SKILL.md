@@ -61,12 +61,17 @@ that a reasoning step occurred. Encrypted reasoning is never reconstructed.
 
 Each message's text is limited to 1,200 Unicode characters. Stored tool/card objects are retained, but separately stored on-demand tool input/output is not reconstructed by this projection. There is no `before`, `after`, cursor, or older-page parameter, and increasing `last` cannot exceed 80. The runtime can attempt an earlier-history import; failure to import does not manufacture missing historical rows.
 
-Each message has `tokens`, the count the desk shows (4.5.0): `{count,
-reported}` when the provider reported it for that row; `{count, estimated,
-sampled, covers, parts}` for an engine estimate (`parts` lists what a delivered
-message was sent as, such as `Org state` and each mail); or `{not_counted}` with
-the reason. It is `null` on rows written before 4.5.0, never 0. Tool objects can
-carry `input_tokens` beside `output_tokens`.
+Each message has `tokens` (4.5.0): `{count, reported}` when the provider
+reported it for that row (for Claude, the response's final output); `{count,
+estimated, sampled, covers}` for an engine estimate; or `{not_counted}` with the
+reason. A delivered message's `tokens` also has `own`, one `{id, count,
+estimated, sampled}` per mail: the count the desk shows in that message's
+header, the message as if sent alone with its framing. Its `extras` list the
+parts sent with them that appear only sometimes (`Org state`, `Provider usage`,
+`Handoff note`, `More mail follows`), and `extra` is their sum, the desk's `+N`.
+`count` stays the whole text sent. Messages delivered before own counts carry
+`parts` instead. It is `null` on rows written before 4.5.0, never 0. Tool
+objects can carry `input_tokens` beside `output_tokens`.
 
 Each message also has `incomplete` and `interrupted` booleans. Unfinished
 streamed replies retained when a turn ends have `incomplete: true`; interruption

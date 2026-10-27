@@ -109,16 +109,28 @@ writes carries a `tokens` object in its `ot.convo` body (no migration):
 
 - `{count, reported}`: the provider reported this count for exactly this row.
   Claude reports each response's output, and one row is one response, so its
-  `count` covers that response's thinking, text and tool calls. A Codex or Muse
+  `count` covers that response's thinking, text and tool calls. It is the
+  response's final output: the CLI's assistant event for each block carries the
+  usage as it stood before the response finished (a reply of about 130 tokens
+  showed 8t, USER 2026-10-27 mf421a040506c), so `State::claude_output` keeps the
+  largest output seen for the response and its `message_delta` supplies the
+  final one. A Codex or Muse
   request that produced only the reply (no reasoning, no calls) puts its
   reported output on that reply's row (`Receipt::text_of`).
 - `{count, estimated, sampled, covers?, parts?}`: the engine's estimate (the
   calibrated public BPE above, on the blocking pool, bounded per row).
-  Delivered messages are counted as exactly the text sent (the turn's opening
-  message, a mid-turn or hook delivery), with `parts` from `prompt::Batch`:
-  `Org state`, `Provider usage`, `Org notices`, one part per mail named by its
-  sender, and at most 16 parts (the rest join one `N more messages` part). Text
-  the CLI adds itself is not visible to the engine and is not counted. Response
+  A delivered message (the turn's opening message, a mid-turn or hook delivery)
+  keeps `count`, exactly the text sent, and from `prompt::Batch` carries `own`,
+  each mail by id counted as if it were sent alone with the framing that always
+  comes with it (`turn_text` of that mail alone, or its mid-task wrapper), and
+  `extras`, the parts sent with them that appear only sometimes and that the
+  sender does not control (`prompt::context_parts`: `Org state`, `Provider
+  usage`, `Handoff note`, and `More mail follows` when the byte budget cut the
+  batch), with `extra` their sum (USER 2026-10-27 m7c48d80b13f4, md965e01802ba,
+  m90b8a18987ea). Each is estimated alone, so they need not add up exactly to
+  `count`: framing shared by several messages is counted with each. Rows from
+  the first 4.5.0 alphas carry `parts` instead. Text the CLI adds itself is not
+  visible to the engine and is not counted. Response
   rows without a reported count are estimated once at turn end
   (`count_turn_rows`; `covers` names `text`, `tool calls` or both), and each tool
   chip gains `input_tokens`/`input_tokens_estimated` for its call input. Shown
@@ -131,6 +143,14 @@ writes carries a `tokens` object in its `ot.convo` body (no migration):
   and is counted there), provider compactions (the provider keeps the summary;
   `pre_tokens` keeps its reported context size before), slash commands for the
   CLI, and mail the agent fetched itself (counted in that orgtree_inbox result).
+
+The desk (USER 2026-10-27 m4bad9bdbd3a1, "for messages, like user messages, place
+the count in the header, next to the time. or everything else jkust omit it")
+shows a message card's own count after its time, and `+N` with the extras
+itemized on the delivery's last mail card that is not a folded system notice
+(`transcriptEntries` hands every card the counts and only that card the extras).
+Rows without a timed header (replies, system cards and lines, compactions) show
+none; tool chips and thought lines keep their inline counts.
 
 Counts are written once by the actor (the only writer): mail rows when they are
 appended, response rows at their receipt or at turn end, onto the stored row's

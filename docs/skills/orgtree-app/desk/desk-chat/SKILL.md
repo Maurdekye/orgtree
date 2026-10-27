@@ -257,35 +257,37 @@ An absent/unattributed observation stays absent rather than becoming zero.
 Completed thinking can show a reported count only when one completed thought
 unambiguously owns the response's reasoning receipt.
 
-## Row token counts (4.5.0)
+## Token counts in messages (4.5.0)
 
-Every conversation row now ends with its token count beside the same I-beam
-mark (user 2026-10-27: "token counts in messages of all kinds"; "and user
-messages"), so you can see what fills an agent's context:
+A message's card shows its token count in its header, right after its time,
+beside the same I-beam mark (user 2026-10-27: "for messages, like user messages,
+place the count in the header, next to the time. or everything else just omit
+it"), so you can see what each message adds to an agent's context:
 
-- **Agent responses:** Claude reports each response's output, so the count is
-  plain (`412t`; hover: "412 output tokens reported by Claude for this
-  response", covering its thinking, text and tool calls). Codex and Muse report
-  a reply's count when the request produced only that reply; otherwise the
-  response is estimated (`~`) from its text and tool calls.
-- **Delivered messages:** your messages, agents' mail, watchdog and monitor
-  events and org notices show an estimate of exactly what Orgtree sent the
-  agent. A delivery shown as several cards has one count, under its last card
-  that is not a folded system notice. Hover lists the parts: org state, provider
-  usage, org notices and each message by sender. Text the CLI adds by itself is
-  not included.
-- **Tool calls:** the call's input count sits beside its arguments; the
-  result's count stays with its timings. A row that is only one estimated call,
-  or only one thought, shows its count there and not again below.
-- **Not counted:** a dash with the reason on hover, never 0: rows only shown to
-  you, compactions (a provider compaction also shows the context size it
-  reported before compacting), slash commands, and mail the agent fetched with
-  orgtree_inbox (counted in that tool result). Thinking whose tokens were not
-  reported shows a dash too.
+- **The message's own count** (`~41t`): the message as the agent would have
+  received it alone, its text with the framing that always comes with it (the
+  mail header, a quoted reply, attachment lines, the delivery wrapper). Hover:
+  "this message: about 41 tokens, estimated".
+- **`+N` for the turn envelope** (`+380t`), on the delivery's last card that is
+  not a folded system notice: the parts sent along that appear only sometimes
+  and that the sender does not control, hidden in the turn envelope. Hover
+  explains this and lists each part with its count: org state, provider usage,
+  a handoff note, and the note that more mail follows. Other messages and
+  notices in the same delivery show their own counts on their own cards, so
+  nothing is counted twice.
 
-Rows from before 4.5.0 show no count. Agents read the same counts as each
-row's `tokens` in orgtree_read_transcript; see `orgtree-tool-read-transcript`
-(orgtree-working › inspection).
+Every card with a timed header has one: your messages, agents' mail, watchdog
+and monitor events, app events and org notices. Rows without a timed header
+show no count: agent replies, system cards and lines, and compactions. Tool
+calls keep the input count beside their arguments and the result count with
+its timings, and a thought keeps the thinking the provider reported for it (a
+dash when that was not reported). The counts estimate what Orgtree sent; text
+the CLI adds by itself is not included. Messages delivered before this version
+show no count.
+
+Agents read the same counts as each message's `tokens` in
+orgtree_read_transcript, with every message's own count and the envelope
+parts; see `orgtree-tool-read-transcript` (orgtree-working › inspection).
 
 These counts are separate from billed usage, provider allowance and the live
 header's input/context occupancy. See the [desk indicators](../agent-desk/SKILL.md)
