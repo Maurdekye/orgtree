@@ -1407,7 +1407,10 @@ async fn participation_notices_tx(tx: &impl GenericClient, post: &mut AfterCommi
     Ok(out)
 }
 
-/// Materialize a complete progress list without interleaving a stale patch.
+/// Materialize a complete progress list: the whole list sent, or the stored
+/// list kept or added to. Keeps and appends need no revision (USER 2026-10-27,
+/// proposal A): they apply to the list as stored, and an entry already in the
+/// list is not added twice, so a retried append cannot duplicate it.
 #[logged]
 fn patch_progress(args: &Value, field: &str, keep_key: &str, append_key: &str, stored: &Value) -> Result<Option<Vec<String>>> {
     let keep = args[keep_key].as_bool().unwrap_or(false);
@@ -1418,12 +1421,13 @@ fn patch_progress(args: &Value, field: &str, keep_key: &str, append_key: &str, s
     if !args[field].is_null() {
         refuse!(BadRequest, "pass either the whole {field} or {keep_key}/{append_key}, not both");
     }
-    if args["expected_rev"].as_i64().is_none() {
-        refuse!(BadRequest, "{keep_key}/{append_key} needs expected_rev: name the revision of the list you read");
-    }
     let mut out: Vec<String> = stored.as_array().map(|a| a.iter().map(|v| v.as_str().map(str::to_string).unwrap_or_else(|| v.to_string())).collect()).unwrap_or_default();
     if append {
-        out.extend(entries(append_key, &args[append_key])?.unwrap_or_default());
+        for entry in entries(append_key, &args[append_key])?.unwrap_or_default() {
+            if !out.contains(&entry) {
+                out.push(entry);
+            }
+        }
     }
     if out.len() > ENTRIES_MAX {
         refuse!(BadRequest, "{field} holds at most {ENTRIES_MAX} entries after the patch");
@@ -1511,31 +1515,62 @@ fn update_writes(args: &Value, claims: bool) -> Vec<&'static str> {
     out
 }
 
-/// A stale `expected_rev`: Ok(None) when current; any other revision refuses.
+/// A stale `expected_rev` (USER 2026-10-27, proposal B). Ok(None) when it is
+/// current. Otherwise Ok(Some(the guarded fields changed since)) when none of
+/// them is a field this write replaces, so the write applies over the newer
+/// revisions. It refuses when one of them is, when a newer revision's changes
+/// were not recorded, or when the revision is ahead of the item.
 #[logged]
-fn revision_check(slug: &str, _extra: &Value, expected: i64, rev: i64, _writes: &[&str]) -> Result<Option<Vec<String>>> {
+fn revision_check(slug: &str, extra: &Value, expected: i64, rev: i64, writes: &[&str]) -> Result<Option<Vec<String>>> {
     if expected == rev {
         return Ok(None);
     }
-    refuse!(Conflict, "{slug} moved to rev {rev} since you read it (you sent {expected}); re-read it and update again");
+    if expected > rev || rev - expected > CHANGES_KEPT as i64 {
+        refuse!(Conflict, "{slug} moved to rev {rev} since you read it (you sent {expected}); re-read it and update again");
+    }
+    let recorded: HashMap<i64, Vec<String>> = extra["changes"].as_array().map(|kept| kept.iter().filter_map(|c| {
+        let fields = c["fields"].as_array()?.iter().filter_map(|f| f.as_str().map(str::to_string)).collect();
+        Some((c["rev"].as_i64()?, fields))
+    }).collect()).unwrap_or_default();
+    let mut changed: Vec<String> = Vec::new();
+    for r in expected + 1..=rev {
+        let Some(fields) = recorded.get(&r) else {
+            refuse!(Conflict, "{slug} moved to rev {rev} since you read it (you sent {expected}); re-read it and update again");
+        };
+        for f in fields {
+            if !changed.contains(f) {
+                changed.push(f.clone());
+            }
+        }
+    }
+    let clash: Vec<&str> = changed.iter().map(String::as_str).filter(|f| writes.contains(f)).collect();
+    if !clash.is_empty() {
+        refuse!(Conflict, "{slug} moved to rev {rev} since you read it (you sent {expected}) and its {} changed since then, which this update also replaces; re-read it and update again", clash.join(", "));
+    }
+    Ok(Some(changed))
 }
 
 /// Ownership on update: the claim to make (the previous holder, "" for
 /// none) and a note. Your own update claims the item unless you name its
-/// holder; naming anyone else refuses.
+/// holder. Naming anyone else keeps the current holder and says so (USER
+/// 2026-10-27, proposal C): ownership moves only by assign or by naming yourself.
 #[logged]
 fn update_ownership(holder: Option<&str>, caller: &str, named: Option<&str>) -> Result<(Option<String>, Option<String>)> {
     let claim = || (holder != Some(caller)).then(|| holder.unwrap_or_default().to_string());
     match named {
         Some(o) if Some(o) == holder => Ok((None, None)),
         Some(o) if o == caller => Ok((claim(), None)),
-        Some(o) => refuse!(BadRequest, "`owner` on update names the CURRENT holder ({}) to keep it with them; to hand the item to {o} use the assign action", holder.unwrap_or("nobody")),
+        Some(o) => Ok((None, Some(format!(
+            "owner kept: {} holds the item (you named {o}); the rest of the update applied. To hand it to {o}, use the assign action",
+            holder.unwrap_or("nobody")
+        )))),
         None => Ok((claim(), None)),
     }
 }
 
 /// Reopen on update: whether to reopen, and a note. Closed or archived work
-/// needs reopen; reopen on open work refuses.
+/// needs reopen; reopen on open work is ignored with a note (USER 2026-10-27,
+/// proposal E).
 #[logged]
 fn reopen_on_update(slug: &str, closed: bool, state: &str, reopen: bool) -> Result<(bool, Option<String>)> {
     if closed && !reopen {
@@ -1545,27 +1580,23 @@ fn reopen_on_update(slug: &str, closed: bool, state: &str, reopen: bool) -> Resu
         );
     }
     if reopen && !closed {
-        refuse!(BadRequest, "{slug} is not closed; reopen is only for resuming finished work");
+        return Ok((false, Some(format!("{slug} is not closed, so reopen was ignored"))));
     }
     Ok((reopen, None))
 }
 
-/// Whether a participants change writes; one that adds and removes nobody refuses.
+/// Whether a participants change writes; one that changes nobody succeeds
+/// without writing (USER 2026-10-27, proposal F).
 #[logged]
 fn participants_write(added: usize, removed: usize) -> Result<bool> {
-    if added == 0 && removed == 0 {
-        refuse!(BadRequest, "nothing changed: add names agents not yet on the item, remove names agents on it");
-    }
-    Ok(true)
+    Ok(added > 0 || removed > 0)
 }
 
-/// Whether an assignment writes; naming the current owner refuses.
+/// Whether an assignment writes; naming the current owner succeeds without
+/// writing (USER 2026-10-27, proposal F).
 #[logged]
-fn assign_write(slug: &str, current: Option<&str>, owner: &str) -> Result<bool> {
-    if current == Some(owner) {
-        refuse!(Conflict, "{slug} is already owned by {owner}");
-    }
-    Ok(true)
+fn assign_write(_slug: &str, current: Option<&str>, owner: &str) -> Result<bool> {
+    Ok(current != Some(owner))
 }
 
 /// Preserve the final wording and its authors whenever a flag comes down.
@@ -1668,9 +1699,18 @@ pub(crate) async fn update_tx(tx: &impl GenericClient, org: &Arc<OrgHandle>, who
     if objective.is_some() && objective_append.is_some() {
         refuse!(BadRequest, "pass either `objective` (replacing the description) or `objective_append`, not both");
     }
-    // A patch describes a list the caller read, so it needs the checked revision.
+    // A keep or append applies to the list as stored; whole lists replace it.
     let done = patch_progress(args, "done_so_far", "keep_done", "done_append", &it.done)?;
     let next = patch_progress(args, "working_on_next", "keep_next", "next_append", &it.next)?;
+    for (append_key, field, stored, patched) in [("done_append", "done_so_far", &it.done, &done), ("next_append", "working_on_next", &it.next, &next)] {
+        if let (Some(list), Ok(Some(asked))) = (patched, entries(append_key, &args[append_key])) {
+            let added = list.len().saturating_sub(stored.as_array().map_or(0, Vec::len));
+            let skipped = asked.len().saturating_sub(added);
+            if skipped > 0 {
+                notes.push(format!("{skipped} {append_key} entr{} already in {field}, not added again", if skipped == 1 { "y was" } else { "ies were" }));
+            }
+        }
+    }
     let progress = done.is_some() || next.is_some();
     if progress {
         let d = done.clone().unwrap_or_default();

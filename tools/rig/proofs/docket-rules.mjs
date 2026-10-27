@@ -5,6 +5,10 @@
 //   alice's update with a stale expected_rev is refused and changes nothing;
 //   with the fresh rev it lands. boss's update naming owner=alice keeps alice.
 //   A participant added by alice may read and update.
+//   Proposals A-F (USER 2026-10-27): keep/append need no revision and skip
+//   entries already listed; a stale rev lands unless a field it replaces
+//   changed; a wrong owner name keeps the holder; reopen on open work is
+//   ignored; no-op participants/assign succeed without writing.
 // Run: node tools/rig/rig.mjs run tools/rig/proofs/docket-rules.mjs
 
 import { Proof } from '../proof.mjs'
@@ -44,12 +48,38 @@ export default async function (rig) {
   const fresh = await rig.tool('alice', 'orgtree_work', { action: 'update', slug, expected_rev: rev + 1,
     done_so_far: ['boss: scoped the work', 'alice: built it'], working_on_next: ['alice: hand it in'] })
   p.check('alice\'s update with the fresh rev lands', fresh.ok && row().rev === rev + 2, { ok: fresh.ok, rev: row().rev, text: fresh.text.slice(0, 200) })
+  // Fewer failed docket calls (USER 2026-10-27 m3f52496b06f6, proposals A-F)
   const keep = await rig.tool('alice', 'orgtree_work', { action: 'update', slug, keep_done: true, next_append: ['alice: tidy up'] })
-  p.check('keep/append without expected_rev is refused', !keep.ok && /needs expected_rev/.test(keep.text), keep.text)
+  p.check('A: keep/append without expected_rev lands on the list as stored', keep.ok && row().working_on_next.includes('alice: tidy up'), keep.text)
+  const again = await rig.tool('alice', 'orgtree_work', { action: 'update', slug, keep_done: true, next_append: ['alice: tidy up'] })
+  p.check('A: a retried append adds nothing twice and says so',
+    again.ok && row().working_on_next.filter(x => x === 'alice: tidy up').length === 1 && /already in working_on_next/.test(again.text), again.text)
+  const readB = (await rig.tool('alice', 'orgtree_work', { action: 'get', slug })).json?.rev
+  const note = await rig.tool('boss', 'orgtree_work', { action: 'evidence', slug, kind: 'note', note: 'boss: a synthetic note' })
+  p.check('B setup: boss adds evidence, moving the rev', note.ok && row().rev === readB + 1, note.text)
+  const over = await rig.tool('alice', 'orgtree_work', { action: 'update', slug, expected_rev: readB, keep_done: true, working_on_next: ['alice: after the note'] })
+  p.check('B: a stale rev lands when only unguarded fields changed since, and says so',
+    over.ok && /applied over rev/.test(over.text) && row().working_on_next[0] === 'alice: after the note', over.text)
+  const readClash = row().rev
+  const plan = await rig.tool('boss', 'orgtree_work', { action: 'update', slug, owner: 'alice', keep_done: true, working_on_next: ['boss: changed the plan'] })
+  const clash = await rig.tool('alice', 'orgtree_work', { action: 'update', slug, expected_rev: readClash, keep_done: true, working_on_next: ['alice: the old plan'] })
+  p.check('B: a stale rev still refuses when a field it replaces changed, naming the field',
+    plan.ok && !clash.ok && /its next changed since then/.test(clash.text) && row().working_on_next[0] === 'boss: changed the plan', clash.text)
+  const named = await rig.tool('boss', 'orgtree_work', { action: 'update', slug, owner: 'bob', keep_done: true, next_append: ['boss: named the wrong owner'] })
+  p.check('C: naming someone other than the holder keeps the holder, applies the rest and says so',
+    named.ok && row().owner === 'alice' && /owner kept: alice/.test(named.text) && row().working_on_next.includes('boss: named the wrong owner'), named.text)
+  const reopen = await rig.tool('alice', 'orgtree_work', { action: 'update', slug, reopen: true, keep_done: true, next_append: ['alice: reopen ignored'] })
+  p.check('E: reopen on open work is ignored with a note and the rest applies',
+    reopen.ok && /reopen was ignored/.test(reopen.text) && row().working_on_next.includes('alice: reopen ignored'), reopen.text)
 
   // ---------------------------------------------------------------- participants
   const add = await rig.tool('alice', 'orgtree_work', { action: 'participants', slug, add: ['carol'] })
   p.check('alice adds carol as a participant', add.ok, add.text)
+  const revF = row().rev
+  const addAgain = await rig.tool('alice', 'orgtree_work', { action: 'participants', slug, add: ['carol'] })
+  p.check('F: adding a participant already on the item succeeds without writing', addAgain.ok && addAgain.json?.unchanged === true && row().rev === revF, addAgain.text)
+  const assignSame = await rig.tool('boss', 'orgtree_work', { action: 'assign', slug, owner: 'alice' })
+  p.check('F: assigning the item to its current owner succeeds without writing', assignSame.ok && assignSame.json?.unchanged === true && row().rev === revF, assignSame.text)
   const carolRead2 = await rig.tool('carol', 'orgtree_work', { action: 'get', slug })
   p.check('carol (now a participant) can read it', carolRead2.ok && carolRead2.json?.slug === slug, carolRead2.ok ? 'ok' : carolRead2.text)
   const r2 = row()
