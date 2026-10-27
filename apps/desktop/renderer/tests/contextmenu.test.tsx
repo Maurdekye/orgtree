@@ -879,7 +879,7 @@ uiTest('§B4 ticket row: canonical copies, bottom fold and Owner registry action
   assert.ok(!labels().includes('Hide 1 sub-item'))
 })
 
-uiTest('§B4b ticket row: the slug-copy double-click leaves no selection behind, so the SAME row\'s menu opens at once', async (t) => {
+uiTest('§B4b ticket row: the mention-copy double-click leaves no selection behind, so the SAME row\'s menu opens at once', async (t) => {
   // USER REPORT 2026-09-12: "double-clicking a ticket to copy its slug leaves
   // that ticket in a temporary interaction state where right-click cannot open
   // its context menu until the operator opens another menu or clicks a
@@ -927,9 +927,12 @@ uiTest('§B4b ticket row: the slug-copy double-click leaves no selection behind,
       { bubbles: true, cancelable: true, clientX: 12, clientY: 8 }))
   })
   await flush(3)
-  // the copy itself is UNCHANGED — the exact slug, and the bubble that only
-  // appears once the write resolved
-  assert.deepEqual(clip.writes, ['parent-item'], 'the double-click still copies the exact slug')
+  // WHAT IT COPIES CHANGED, HOW IT REPORTS DID NOT. 2026-09-07 it copied the
+  // bare slug; USER 2026-10-27 ("also double clicking a docket item should copy
+  // its mention") it copies the mention token, exactly as agents write it. The
+  // bubble still appears only once the write resolved, and the menu's own
+  // "Copy slug" below still copies the slug.
+  assert.deepEqual(clip.writes, ['@item:org1/parent-item'], 'the double-click copies the mention of the item')
   assert.ok(row.querySelector('.docket-copied'), 'and still reports it with the Copied! bubble')
   assert.ok(sel.isCollapsed || sel.rangeCount === 0,
     'the gesture the app took no longer leaves the browser\'s selection behind')
