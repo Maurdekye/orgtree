@@ -347,7 +347,8 @@ pub async fn held_in_org(client: &impl GenericClient, org_id: i64) -> Result<Vec
 }
 
 /// End a lease: `how` is recorded (released, released (forced by …),
-/// halted, retired, idle …) with who ended it. Runs in the caller's
+/// halted, frozen, moved out of the project, turn ended abnormally,
+/// retired, idle …) with who ended it. Runs in the caller's
 /// transaction; the caller grants after commit. False when it had ended.
 #[logged]
 pub async fn end(tx: &impl GenericClient, lease_id: i64, how: &str, by: &str) -> Result<bool> {

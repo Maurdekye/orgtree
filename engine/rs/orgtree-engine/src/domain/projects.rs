@@ -15,7 +15,8 @@
 //! as it arrives; ack mode caps unacked mails at each watcher's batch size
 //! (default one). Each mail needs its own completion record, a reply sent
 //! to the project's mailbox. An un-acked mail goes back to the front of the
-//! queue when its holder is retired, halted or stops watching.
+//! queue when its holder is retired, halted, frozen, moved out of the project,
+//! loses its turn (`domain/holdings.rs`) or stops watching.
 
 use std::{collections::HashMap, sync::Arc};
 
@@ -739,7 +740,7 @@ pub async fn below(client: &impl GenericClient, agent: i64) -> Result<Vec<(i64, 
 
 /// Ack mode: put every un-acked mail whose holder is gone back at the front
 /// of the queue (it keeps its id, and the queue hands out oldest first).
-/// Gone means retired, halted, or without an armed fair_queue dog on the
+/// Gone means retired, halted, frozen, moved out of the project, or without an armed fair_queue dog on the
 /// project it still reaches (coordinator 2026-10-18, open to change). The
 /// project's copy records who held it and why; the holder's copy is marked
 /// released. One short transaction per mail.
