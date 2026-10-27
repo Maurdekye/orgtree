@@ -50,11 +50,14 @@ the same insertion path agents use, without showing or running it. See
 [decided: user 2026-10-27; verified: `canvas/apps/links.ts`, `domain/apps/storage.rs`]
 
 The Apps list shows apps newest first and each app's panels in creation order
-(`created_at`); never reorder by running, shown, hidden or used state. Renderer
+(`created_at`); never reorder by running, shown, hidden or used state. Its
+header right-aligns Import app with no Refresh button; app and panel creates,
+imports, renames, deletes and run/show changes update live from
+`custom_apps_changed`. Renderer
 CSS must use theme variables that `styles.css` defines (`--line`, `--dim`,
 `--panel-2`, `--ink`, ...): an undefined `var()` silently drops its declaration,
 as `--border/--muted/--hover/--text` did in `apps.css`. See [custom apps](docs/rust-engine/custom-apps.md).
-[decided: user 2026-10-26 "the ordering of the apps in the list shouldnt change as panels are turned onca or off", "newest first", "Fixed order"; verified: `canvas/apps/{store.ts,ui.tsx,apps.css}`, `domain/apps/storage.rs`; 2026-10-26]
+[decided: user 2026-10-26 "the ordering of the apps in the list shouldnt change as panels are turned onca or off", "newest first", "Fixed order"; 2026-10-27 m4dcfc15be8e3, mcc0591ec051b; verified: `canvas/apps/{store.ts,ui.tsx,apps.css}`, `domain/apps/storage.rs`; 2026-10-27]
 
 Custom app actions use parent-only, code/panel-bound sessions and native owning-document
 permission prompts; sandbox HTML never receives a credential or permission method.

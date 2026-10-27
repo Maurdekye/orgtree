@@ -107,7 +107,9 @@ copy with its own label and JSON data. Closing its window hides it and keeps it
 running; Power off stops it; deleting removes it.
 Definitions and committed data live in Orgtree's database across restarts.
 
-Open **Apps** beside Presentations in the org header. A click anywhere on an
+Open **Apps** beside Presentations in the org header (**Import app** sits at the
+right of the Apps header; new, renamed, stopped and deleted apps and panels
+update in realtime without a Refresh button). A click anywhere on an
 app's row opens its most recently used saved panel, wherever it is listed,
 or creates and opens its first panel when it has none. Clicking the row of a
 panel that is already open and visible, or an app row whose most recently used
