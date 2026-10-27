@@ -9,6 +9,10 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { EffortBar, nearestLevel } from '../src/canvas/effortbar'
 import { DEFAULT_EFFORT_LEVELS } from '../src/canvas/effortlevels'
+import { readFileSync } from 'node:fs'
+import path from 'node:path'
+
+declare const __SRC_DIR__: string
 
 // the track is 132 wide with an 8px inset: levels sit at 8, 40.5, 66+, … of 116 usable px
 // (a bar given no levels offers Claude Code's five)
@@ -168,4 +172,44 @@ test('a tier with no effort setting disables the bar', async () => {
   assert.equal(view.el.querySelector('.effort-bar-label')!.textContent, 'No effort setting')
   assert.ok(view.el.querySelector('.effort-bar.disabled'))
   await view.unmount()
+})
+
+// The pip and the fill glide to EVERY level a drag crosses, not only on a click (user 2026-10-27, alpha.7: "when
+// dragging the effort slider between notches, it should animate between every position, not just on the first
+// click"). The real styles.css cascade decides the transition; a changed level restarts a CSS transition from where
+// the pip is now, so a quick drag retargets and never queues.
+test('every level a drag crosses glides the pip and the fill', async () => {
+  const style = document.createElement('style')
+  style.textContent = readFileSync(path.join(__SRC_DIR__, 'styles.css'), 'utf8')
+  document.head.appendChild(style)
+  const sets: string[] = []
+  const view = await mountBar('low', 'low', sets)
+  try {
+    const t = track(view)
+    /** the duration in ms of the transition on `prop`, 0 when it has none */
+    const glide = (el: Element, prop: string) => {
+      const m = new RegExp('(?:^|,)\\s*' + prop + '\\s+([\\d.]+)(m?s)').exec(window.getComputedStyle(el).transition)
+      return m ? parseFloat(m[1]!) * (m[2] === 's' ? 1000 : 1) : 0
+    }
+    const pip = () => view.el.querySelector('.effort-bar-pip') as HTMLElement
+    const fill = () => view.el.querySelector('.effort-bar-fill') as HTMLElement
+    const gliding = (why: string) => {
+      assert.ok(glide(pip(), 'left') > 0, `the pip glides ${why}`)
+      assert.ok(glide(fill(), 'width') > 0, `the fill glides ${why}`)
+    }
+    gliding('when idle')
+    await fire(t, 'pointerdown', x(0))
+    gliding('on the press')
+    for (const i of [1, 2, 3, 4, 3, 1]) {
+      await fire(t, 'pointermove', x(i))
+      assert.equal(pip().dataset.level, DEFAULT_EFFORT_LEVELS[i], `the pip follows the drag to ${DEFAULT_EFFORT_LEVELS[i]}`)
+      gliding(`while the drag is at ${DEFAULT_EFFORT_LEVELS[i]}`)
+    }
+    await fire(t, 'pointerup', x(1))
+    gliding('after the release')
+    assert.deepEqual(sets, ['medium'])  // the release commits the level it ends on, once
+  } finally {
+    style.remove()
+    await view.unmount()
+  }
 })
