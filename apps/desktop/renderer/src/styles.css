@@ -8928,9 +8928,17 @@ main:has(> .orgbar.native-header) > .error {
    THE AGENT DESK'S PRESENTED TAB IS THE SAME COLLECTION (user report
    2026-09-16 — it had inherited the docket's deliberately list-heavy 52% and
    was unreadable). It joins this selector instead of restating the fraction,
-   so there is exactly one place the gallery's split is decided. */
+   so there is exactly one place the gallery's split is decided.
+   THE THIRD STOPS AT 400PX (USER 2026-10-27 mb56fc243d55d: "give this left
+   list panel a maximum width so that there's plenty of room for the
+   presentation if the user maximizess the window"). The flex basis is still
+   the third and the max width clamps it, so a narrower panel keeps its third.
+   The centred window is at most 1250px (`.settings.wide`): its list is a third
+   of a 1196px reading surface, 398px (measured), so it does not change. A
+   pinned or popped-out window or a desk stretched across a maximised screen
+   gives every pixel past 400 to the presentation. */
 .settings.gallery-modal .mailer-list,
-.gallery-agent .mailer-list { width: 33.333333%; max-width: 33.333333%; min-width: 0; flex: 0 0 33.333333%; }
+.gallery-agent .mailer-list { width: 33.333333%; max-width: 400px; min-width: 0; flex: 0 0 33.333333%; }
 /* THE CHANGELOG'S VERSION LIST IS NARROWER THAN THAT THIRD (USER 2026-10-25
    10:14:15Z, on alpha.6: "narrow the list significantly, bolden and increase
    the size of the verison number, put the timestamp on a new line

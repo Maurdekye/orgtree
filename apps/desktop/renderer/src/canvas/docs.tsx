@@ -53,12 +53,15 @@ export function presentationIdentityActions(el: Element | null,
 }
 
 /** Stored HTML format has the same compact identity on every presentation surface.
- *  Users see "HTML presentation", never "mockup" (user 2026-10-26 21:34Z
- *  mb8b511d41e12); the component, class and route names stay internal. */
+ *  Users see "</> HTML" ("</>" compact), never "mockup" (user 2026-10-26 21:34Z
+ *  mb8b511d41e12) and no longer "presentation" either (user 2026-10-27
+ *  mbebb35945cb1, "remove the word presentation from here"); the accessible
+ *  name still says "HTML presentation". The component, class and route names
+ *  stay internal. */
 export function MockupBadge({ compact = false }: { compact?: boolean }) {
   return <span className={'mockup-format' + (compact ? ' compact' : '')}
     aria-label="HTML presentation"><span aria-hidden="true">{'</>'}</span>
-    {!compact && ' HTML presentation'}</span>
+    {!compact && ' HTML'}</span>
 }
 
 /** Both source formats use the engine attachment route and its filename. */

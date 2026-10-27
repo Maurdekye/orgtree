@@ -104,7 +104,9 @@ test('gallery mockup cards select their preview in the same collection', async (
 })
 
 // User 2026-10-26 21:34Z mb8b511d41e12: "also rename them to just html
-// presentations, remove the word mockup from their tag".
+// presentations, remove the word mockup from their tag"; 2026-10-27
+// mbebb35945cb1: "remove the word presentation from here" (the chip reads
+// "</> HTML", its accessible name stays "HTML presentation").
 test('HTML presentations are labelled HTML presentation, never mockup or prototype', async (t) => {
   const doc = { ...htmlDoc, title: 'Release dashboard' }
   serveDoc({ ...doc, node: 'agent', body: '<p>dashboard</p>' }, '<p>dashboard</p>')
@@ -118,7 +120,7 @@ test('HTML presentations are labelled HTML presentation, never mockup or prototy
   await flush(); await flush()
   const badge = view.el.querySelector('.doc-badge .mockup-format')
   assert.equal(badge?.getAttribute('aria-label'), 'HTML presentation')
-  assert.equal(badge?.textContent, '</> HTML presentation')
+  assert.equal(badge?.textContent, '</> HTML')
   assert.equal(view.el.querySelector('.doc-chip .mockup-format.compact')?.getAttribute('aria-label'), 'HTML presentation')
   const menu = presentationMenu(null, 'org', doc, {}).flatMap((e) => e === 'sep' ? [] : [e.label])
   assert.ok(menu.includes('Open HTML presentation in a new window'), menu.join(' | '))
