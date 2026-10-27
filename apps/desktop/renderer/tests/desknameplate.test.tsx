@@ -9,8 +9,15 @@ import type { CanvasNode } from '../src/canvas/shared'
 
 const noop = () => {}
 const hover = (el: Element) => inAct(() => el.dispatchEvent(new MouseEvent('pointerover', { bubbles: true })))
+// React derives onPointerLeave from pointerout
+const leave = (el: Element) => inAct(() => el.dispatchEvent(new MouseEvent('pointerout', { bubbles: true, relatedTarget: document.body })))
 
-for (const kind of ['agent', 'project'] as const) test(`${kind} desk window suppresses own and neighbouring far names, including focus and desk-content hover`, async t => {
+// USER 2026-10-27 maf032f443c8c ("nodes render overtop the hover names"), after 2026-10-26 "Never hide on
+// hover": a mini node's hover or focus name is the floating plate, drawn in the world layer above every
+// card, also while desks are open. This replaces the 4.4.0 desk suppression of the plate (0a47651): with
+// the plate gone, the name fell back into the hovered card, which mini hover drops below its neighbours. A
+// pinned desk lives in the pin layer above the whole world, so the plate never paints over it.
+for (const kind of ['agent', 'project'] as const) test(`${kind} desk window keeps far names above every card on hover and focus, and its content reveals none`, async t => {
   const fetch = globalThis.fetch
   installFetch(new FakeServer())
   localStorage.clear(); forgetPins('bunch-fixture')
@@ -20,25 +27,41 @@ for (const kind of ['agent', 'project'] as const) test(`${kind} desk window supp
   const view = await mountView(<OrgCanvas tree={tree} slug={tree.slug} op={async () => ({ ok: true } as never)} toast={noop} mailEvt={null} />, el => el)
   t.after(async () => { await view.unmount(); forgetPins(tree.slug); localStorage.clear(); globalThis.fetch = fetch })
   const card = (id: string) => [...view.el.querySelectorAll<HTMLElement>('.space .sq')].find(el => el.dataset.firstUseAgent === id || el.dataset.copyAgentName === id)!
+  const plates = () => [...view.el.querySelectorAll('.sq-far-ghost.on .sq-far-name')].map(el => el.textContent)
   await hover(card('neighbour-agent'))
-  assert.equal(view.el.querySelectorAll('.sq-far-ghost.on').length, 1, 'closed-desk positive hover control')
+  assert.deepEqual(plates(), ['neighbour-agent'], 'closed-desk positive hover control')
   await inAct(() => { assert.equal(addPin(tree.slug, owner.id, { x: 10, y: 10, w: 600, h: 480 }).ok, true) })
-  assert.ok(document.querySelector('.pinwin .cc-head'), 'real desk window mounted')
-  assert.equal(view.el.querySelectorAll('.sq-far-ghost').length, 0, 'opening a desk immediately removes a previously revealed neighbouring plate')
-  for (const id of [owner.id, 'neighbour-agent', 'neighbour-project']) {
+  const desk = document.querySelector('.pinwin .cc-head')
+  assert.ok(desk, 'real desk window mounted')
+  assert.deepEqual(plates(), ['neighbour-agent'], "opening a desk keeps the hovered neighbour's plate")
+  assert.ok(view.el.querySelector('.sq-far-ghost.on')!.closest('.space'), 'the plate is in the world layer')
+  assert.ok(desk!.closest('.pin-layer'), 'the desk window is in the pin layer above it')
+  await leave(card('neighbour-agent'))
+  for (const id of ['neighbour-agent', 'neighbour-project']) {
     await hover(card(id))
+    assert.deepEqual(plates(), [id], `${id}: hover shows its plate while a desk is open`)
+    assert.equal(card(id).classList.contains('far-ghosted'), true, `${id}: the in-card copy hides while the plate shows`)
+    await leave(card(id))
+    assert.deepEqual(plates(), [], `${id}: leaving retracts it`)
     await inAct(() => card(id).dispatchEvent(new MouseEvent('focusin', { bubbles: true })))
-    assert.equal(view.el.querySelectorAll('.sq-far-ghost').length, 0, `${id}: no own or background plate while desk is open`)
+    assert.deepEqual(plates(), [id], `${id}: focus shows it too`)
+    await inAct(() => card(id).dispatchEvent(new MouseEvent('focusout', { bubbles: true })))
   }
-  await hover(document.querySelector('.pinwin .cc-head')!)
-  assert.equal(view.el.querySelectorAll('.sq-far-ghost').length, 0, 'hover inside desk stays silent')
+  // away from the camera's focus the pinned desk's own card is an ordinary mini node (its placeholder only
+  // stands in while the camera is on it), so it names itself as well
+  await hover(card(owner.id))
+  assert.deepEqual(plates(), [owner.id], "the pinned desk's own mini card names itself too")
+  await leave(card(owner.id))
+  await hover(desk!)
+  assert.deepEqual(plates(), [], 'hovering inside the desk reveals no canvas plate')
   await inAct(() => { assert.equal(addPin(tree.slug, 'neighbour-agent', { x: 620, y: 10, w: 360, h: 480 }).ok, true) })
   await inAct(() => removePin(tree.slug, owner.id))
   await hover(card('neighbour-project'))
-  assert.equal(view.el.querySelectorAll('.sq-far-ghost').length, 0, 'closing one of two desks keeps the remaining desk protected')
+  assert.deepEqual(plates(), ['neighbour-project'], 'with one of two desks closed, hover still shows the plate')
+  await leave(card('neighbour-project'))
   await inAct(() => removePin(tree.slug, 'neighbour-agent'))
   await hover(card('neighbour-project'))
-  assert.ok(view.el.querySelector('.sq-far-ghost.on'), 'normal far hover returns after the last desk closes')
+  assert.deepEqual(plates(), ['neighbour-project'], 'and after the last desk closes, as always')
 })
 
 test('embedded project desk never reveals its clipped underlying normal-card name', async t => {
