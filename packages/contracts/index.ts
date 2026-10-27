@@ -98,6 +98,11 @@ export interface PopoutWindowState {
    *  and recording them as deliberately closed is what would stop them. An
    *  absent value reads as `user`. */
   reason?: 'user' | 'parent-teardown'
+  /** The window's own content box in screen DIPs, as the native window reports
+   *  it. Its saved place is this box: the renderer's screenX/outerWidth include
+   *  Windows' invisible frame, and a place saved from them reopened 8 px left
+   *  and 16x8 px larger every time. */
+  bounds?: { x: number; y: number; width: number; height: number }
 }
 export type UpdateState = 'idle' | 'checking' | 'downloading' | 'pending-idle' | 'up-to-date' | 'unavailable' | 'failed'
 /** `recheck` is the outcome of a check that ran WHILE an update was already

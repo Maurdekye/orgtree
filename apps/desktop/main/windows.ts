@@ -92,7 +92,9 @@ type TrackPopout = (name: string, window: BrowserWindow) => void
 export interface PopoutWindowLike {
   isDestroyed(): boolean
   isMaximized(): boolean
-  on(event: 'maximize' | 'unmaximize' | 'minimize' | 'restore', listener: () => void): unknown
+  /** The window's own content box in screen DIPs, where it can tell. */
+  getContentBounds?(): Electron.Rectangle
+  on(event: 'maximize' | 'unmaximize' | 'minimize' | 'restore' | 'move' | 'moved' | 'resize' | 'resized', listener: () => void): unknown
   once(event: 'closed', listener: () => void): unknown
 }
 
@@ -106,7 +108,7 @@ export interface PopoutWindowLike {
  *  the window. An unknown name, a non-string, or a window that has since gone
  *  resolves to nothing and the command does nothing: where the alternative is
  *  acting on the wrong window, refusing is always right. */
-export function popoutRegistry<W extends PopoutWindowLike>(publish: (state: { name: string; present: boolean; maximized: boolean }) => void) {
+export function popoutRegistry<W extends PopoutWindowLike>(publish: (state: { name: string; present: boolean; maximized: boolean; bounds?: Electron.Rectangle }) => void) {
   const windows = new Map<string, W>()
   const live = (name: unknown): W | undefined => {
     const window = typeof name === 'string' ? windows.get(name) : undefined
@@ -114,7 +116,8 @@ export function popoutRegistry<W extends PopoutWindowLike>(publish: (state: { na
   }
   const state = (name: string) => {
     const window = live(name)
-    return { name, present: !!window, maximized: !!window && window.isMaximized() }
+    const bounds = window?.getContentBounds?.()
+    return { name, present: !!window, maximized: !!window && window.isMaximized(), ...(bounds ? { bounds } : {}) }
   }
   return {
     state,
@@ -131,9 +134,24 @@ export function popoutRegistry<W extends PopoutWindowLike>(publish: (state: { na
       window.on('unmaximize', report)
       window.on('minimize', report)
       window.on('restore', report)
+      // ⚠ ITS OWN BOX IS ITS SAVED PLACE (docket
+      // 4-5-0-a-saved-pop-out-window-reopens-8-px-off-an). The renderer's
+      // screenX/outerWidth include Windows' invisible frame, so a place saved
+      // from them reopened 8 px left and 16x8 px larger each time. Published
+      // once now, at the end of a move or resize gesture at once, and after any
+      // other move or resize (setBounds, snapping, a display change) settles.
+      let settle: ReturnType<typeof setTimeout> | undefined
+      if (window.getContentBounds) {
+        const later = () => { if (settle) clearTimeout(settle); settle = setTimeout(() => { settle = undefined; report() }, 100) }
+        window.on('moved', report)
+        window.on('resized', report)
+        window.on('move', later)
+        window.on('resize', later)
+        report()
+      }
       // Only if it is still THIS window: a later popout may have taken the name
       // back, and dropping its entry would silently disable its controls.
-      window.once('closed', () => { if (windows.get(name) === window) windows.delete(name) })
+      window.once('closed', () => { if (settle) clearTimeout(settle); if (windows.get(name) === window) windows.delete(name) })
     },
   }
 }
@@ -205,6 +223,13 @@ export function exactPopoutBounds(features?: string,
   const rect = {x: read('left'), y: read('top'), width: read('width'), height: read('height')}
   return Object.values(rect).every(value => Number.isSafeInteger(value) && Math.abs(value) <= 2147483647)
     && rect.width > 0 && rect.height > 0 ? rect : null
+}
+
+/** A restore's rect is the window's own content box as it reported it (the
+ *  popout-state bounds), already in screen DIPs: it goes back as it is, never
+ *  through the owner window's display mapping. */
+export function nativePopoutRect(features?: string): boolean {
+  return (features ?? '').split(',').some(part => part.trim().toLowerCase() === 'orgtreenativerect=1')
 }
 
 export function setExactPopoutBounds(window: Pick<BrowserWindow, 'setContentBounds' | 'getContentBounds'>, rect: Electron.Rectangle): void {
@@ -310,7 +335,7 @@ export function configureWindow(window: BrowserWindow, liveOrigin: Live, isMain:
     // in styles.css, without which the window cannot be moved at all.
     const minDims = parsePopoutFeatures(details.features)
     const requested = exactPopoutBounds(details.features, window)
-    const mapped = requested && process.platform === 'win32' && screen
+    const mapped = requested && process.platform === 'win32' && screen && !nativePopoutRect(details.features)
       ? popoutDisplayBounds(window, requested, screen) : requested
     const exact = mapped && screen ? tabPopoutBounds(details.features, mapped, screen) : mapped
     if (exact) exactPlacements.set(details.frameName, exact)
