@@ -1,5 +1,6 @@
 // Presentations identified by a readable slug (migration 0073, user 2026-10-27
-// m4efbc12ac94e). Runs the engine's native document-slug tests against this
+// m4efbc12ac94e) and the slug orgtree_present may ask for (migration 0074,
+// user mdcb7ce9a8103). Runs the engine's native document-slug tests against this
 // run's disposable cluster: each makes its own database there and stages a
 // pre-0073 schema with real-shaped presentations. No live data is read.
 // Inputs, owned by ORGTREE_AGENT under C:/orgtree-build/<agent>:
@@ -49,14 +50,14 @@ export default async function (rig) {
   p.check('the fixture refuses absent, foreign, live and non-disposable inputs', passed(guards, 1))
   if (!passed(guards, 1)) return p.summary()
   const slugs = run('slugs', ['migrate::document_slug_tests::'])
-  p.check('staged pre-0073 upgrade, old ids on every route, free slugs under concurrency (3 native tests)', passed(slugs, 3),
+  p.check('staged pre-0073 upgrade, old ids on every route, free slugs under concurrency, requested slugs (4 native tests)', passed(slugs, 4),
     { status: slugs.status, results: (slugs.stdout.match(/^test .*$/gm) || []).slice(0, 10) })
   // the opening read's own hand-built schema, with 0073's resolver, in a fresh database
   rig.exec('CREATE DATABASE opening_fixture')
   const opening = run('opening', ['http::docs::opening_tests::oldest_unread_read_is_scoped_and_uses_modified_fallback', '--exact'],
     { ORGTREE_OPENING_TEST_PG: url('opening_fixture') })
   p.check('the opening read restores a reader by its old id', passed(opening, 1))
-  for (const f of ['upgrade.json', 'routes.json', 'present.json']) {
+  for (const f of ['upgrade.json', 'routes.json', 'present.json', 'requested.json']) {
     const file = path.join(output, 'document-slugs', f)
     if (fs.existsSync(file)) p.file(f, JSON.parse(fs.readFileSync(file, 'utf8')))
   }
