@@ -56,9 +56,12 @@ function runFrame(doc: string, t: { after: (fn: () => void) => void }, beforePar
   const read = (name: string) => w.getComputedStyle(w.document.documentElement).getPropertyValue(name).trim()
   return { w, read }
 }
+// jsdom drops the spaces in a custom property's rgba() (Chromium keeps them);
+// the exact sheet text is pinned by the posted-message and host checks.
+const tight = (value: string | undefined) => (value ?? '').replace(/\s+/g, '')
 function assertColors(read: (name: string) => string, theme: Theme, label: string, except: string[] = []) {
   for (const [name, property] of Object.entries(VARS)) {
-    if (!except.includes(name)) assert.equal(read(property), theme.colors[name], `${label}: ${property}`)
+    if (!except.includes(name)) assert.equal(tight(read(property)), tight(theme.colors[name]), `${label}: ${property}`)
   }
   assert.equal(read('--orgtree-color-scheme'), theme.colorScheme, `${label}: --orgtree-color-scheme`)
 }
