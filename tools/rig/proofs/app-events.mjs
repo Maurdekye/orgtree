@@ -68,13 +68,21 @@ export default async function(rig){
   // that a previous-release binary was upgraded in this proof.
   rig.exec(fs.readFileSync(new URL('../../../engine/rs/orgtree-engine/migrations/0063_custom_app_event_delivery.sql',import.meta.url),'utf8').split('CREATE TABLE')[0])
   app=await get(app.id)
-  p.check('legacy target-specific grant reset SQL requires fresh Ask and preserves other grants',!app.permissions['events.fire']&&app.permissions['docket.write']==='allow'&&app.permission_rev===beforeGrant+1)
+  p.check('legacy target-specific grant reset SQL clears the old grant and preserves other grants',!app.permissions['events.fire']&&app.permissions['docket.write']==='allow'&&app.permission_rev===beforeGrant+1)
+  // An agent's copy is made stopped (0067: only a shown copy runs), a host
+  // session needs a running copy and a permission prompt a shown one: the user
+  // opens the copy, which shows and starts it, before its host opens.
+  p.check('a stopped copy opens no host session until it is started',await reject(()=>bridge({action:'session_open',panel:b.id}),409))
+  await apps({action:'panel_open',panel:b.id})
+  // A created app has org authority by default (4798d52, USER 2026-10-26); the
+  // user's own Ask brings the native prompt back for this capability.
+  app=await apps({action:'permission_set',app:app.id,expected_rev:app.rev,expected_permission_rev:app.permission_rev,capability:'events.fire',permission:'ask'})
   const host=await bridge({action:'session_open',panel:b.id}),action={action:'events.fire',name:'submitted',payload:{native:canary}}
   p.check('old target-selector HTML vocabulary is refused',await reject(()=>bridge({action:'call',session:host.session,request:{...action,target:'watcher'}}),400))
   const asked=await bridge({action:'call',session:host.session,request:action});assert(asked.permission_required)
   p.check('native Ask is required and agents cannot grant execution',asked.permission_required.capability==='events.fire'&&!(await rig.tool('boss','orgtree_apps',{action:'permission_set',app:app.id,expected_rev:app.rev,expected_permission_rev:app.permission_rev,capability:'events.fire',permission:'allow'})).ok)
   const once=await bridge({action:'decide',session:host.session,challenge:asked.permission_required.challenge,choice:'once'});await wait(once.event,2)
-  p.check('bound native broadcast reaches listeners and Once remains one-shot',once.accepted&&await reject(()=>bridge({action:'decide',session:host.session,challenge:asked.permission_required.challenge,choice:'once'}),403)&&!(await get(app.id)).permissions['events.fire'])
+  p.check('bound native broadcast reaches listeners and Once remains one-shot',once.accepted&&await reject(()=>bridge({action:'decide',session:host.session,challenge:asked.permission_required.challenge,choice:'once'}),403)&&(await get(app.id)).permissions['events.fire']==='ask')
   const deniedAsk=await bridge({action:'call',session:host.session,request:action});assert(deniedAsk.permission_required)
   p.check('native Deny prevents publication',await reject(()=>bridge({action:'decide',session:host.session,challenge:deniedAsk.permission_required.challenge,choice:'deny'}),403))
   const boss=rig.one("SELECT id FROM ot.agents WHERE name='boss'").id,release=await holdOwner(rig,boss);let queued
