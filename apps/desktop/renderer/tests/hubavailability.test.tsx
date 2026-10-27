@@ -69,7 +69,7 @@ test('genuinely absent Hubchat keeps external chips inert while local organizati
   assert.equal(f.requests.length, 1, 'absence is checked independently of phone UI')
   const remote = view.el.querySelector<HTMLButtonElement>('[data-hub-address="@net:alice.123456"]')!
   assert.equal(remote.getAttribute('aria-disabled'), 'true')
-  assert.equal(remote.title, "Hubchat isn't installed")
+  assert.equal(remote.title, "Network address\nHubchat isn't installed")
   remote.click()
   assert.deepEqual(f.opened, [])
   assert.equal(view.el.querySelector('[data-hub-address="@org:local-org"]')?.hasAttribute('aria-disabled'), false)

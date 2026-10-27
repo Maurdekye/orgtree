@@ -6,6 +6,7 @@ import { RefMdBody } from '../src/canvas/refmd'
 import { ToolRefs } from '../src/canvas/toolrefs'
 import { useContextMenu } from '../src/canvas/contextmenu'
 import { senderMenuAction } from '../src/canvas/objectactions'
+import { hubAddressTitle } from '../src/canvas/netmentions'
 
 function Sender() { const menu = useContextMenu(); return <><button className="sender-test" onContextMenu={e => {
   const entry = senderMenuAction(e.currentTarget, '@net:sample.123456', []); menu.open(e, entry ? [entry] : [])
@@ -20,7 +21,8 @@ for (const installed of [false, true]) test(`remote contact menus and tooltips a
   t.after(() => v.unmount()); await inAct(async () => { await flush(2) })
   const links = [...v.el.querySelectorAll<HTMLElement>('[data-hub-address]')]; assert.equal(links.length, 3)
   for (const link of links) {
-    assert.equal(link.title, resolveHubAddressAction(address).title)
+    assert.equal(link.title, hubAddressTitle(address))
+    assert.ok(link.title.endsWith(resolveHubAddressAction(address).title))
     const event = new MouseEvent('contextmenu', { bubbles: true, cancelable: true })
     await inAct(() => link.dispatchEvent(event)); assert.equal(event.defaultPrevented, true)
     const items = [...document.querySelectorAll<HTMLButtonElement>('.ctxmenu [role="menuitem"]')]

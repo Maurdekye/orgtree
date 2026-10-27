@@ -158,8 +158,8 @@ test('@net: and @org: hub contacts render as links in Markdown, plain text, and 
   assert.ok(localBtn&&netBtn&&remoteBtn,'all @net: and @org: tokens linkify')
   assert.equal(localBtn.getAttribute('aria-disabled'),null,'installed @org: is active even without Hubchat')
   assert.equal(netBtn.getAttribute('aria-disabled'),'true','@net: is inert when Hubchat is not installed')
-  assert.equal(netBtn.title,"Hubchat isn't installed")
-  assert.equal(remoteBtn.title,"Hubchat isn't installed")
+  assert.equal(netBtn.title,"Network address\nHubchat isn't installed")
+  assert.equal(remoteBtn.title,"Orgtree org\nHubchat isn't installed")
 
   await inAct(async()=>{
     setHubchatInstalled(true)
