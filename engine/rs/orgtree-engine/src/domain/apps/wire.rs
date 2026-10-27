@@ -124,10 +124,13 @@ pub enum Request {
     /// The app-level Permission history (latest 128 retained), paged like Events:
     /// newest first, before walking back; after reads newer entries oldest first.
     PermissionHistory { app:String, after:Option<i64>, before:Option<i64>, limit:Option<i64> },
-    AppCreate { definition:Definition },
+    /// slug: the id asked for (migration 0075), cleaned and suffixed like a
+    /// name; without one the name makes it.
+    AppCreate { definition:Definition, #[serde(default)] slug:Option<String> },
     AppUpdate { app:String, expected_rev:i64, definition:Definition },
     AppDelete { app:String, expected_rev:i64, #[serde(default)] delete_panels:bool },
-    PanelOpen { app:Option<String>, panel:Option<String>, #[serde(default)] new:bool, label:Option<String> },
+    /// slug: the id asked for a NEW copy; without one its app and label make it.
+    PanelOpen { app:Option<String>, panel:Option<String>, #[serde(default)] new:bool, label:Option<String>, #[serde(default)] slug:Option<String> },
     PanelGet { panel:String },
     PanelUpdate { panel:String, expected_rev:i64, label:Option<String>, open:Option<bool>, placement:Option<Placement> },
     PanelDuplicate { panel:String, expected_rev:i64 },
@@ -147,7 +150,23 @@ pub enum Request {
 pub fn parse(input:&Value) -> Result<Request> {
     // Panel links were removed (user 2026-10-26); tell a stale caller where to go.
     if input.get("linked_agents").is_some(){crate::refuse!(BadRequest,"panel links were removed; agents follow a panel's declared events with an app_listener watchdog");}
-    let request:Request=serde_json::from_value(input.clone()).map_err(|e|crate::domain::UserError::BadRequest(format!("invalid Apps request: {e}")))?;
+    // An app or panel is named once, when it is made (migration 0075): a slug
+    // anywhere else is refused, and a blank one is no slug at all. Read as
+    // orgtree_present reads its own (docs::requested_slug); the database cleans
+    // and suffixes it.
+    let slug=crate::domain::docs::requested_slug(input)?.map(str::to_owned);
+    let mut input=input.clone();
+    if let Some(map)=input.as_object_mut(){
+        if slug.is_some()&&!matches!(map.get("action").and_then(Value::as_str),Some("app_create"|"panel_open")){
+            crate::refuse!(BadRequest,"slug names a new app (app_create) or a new panel (panel_open) only: an app or panel keeps its slug once made");
+        }
+        if slug.is_some()&&map.get("panel").is_some_and(|p|!p.is_null()){
+            crate::refuse!(BadRequest,"slug names a new panel only: an existing panel keeps its slug, so leave slug out when you pass panel");
+        }
+        map.remove("slug");
+    }
+    let mut request:Request=serde_json::from_value(input).map_err(|e|crate::domain::UserError::BadRequest(format!("invalid Apps request: {e}")))?;
+    match &mut request{Request::AppCreate{slug:s,..}|Request::PanelOpen{slug:s,..}=>*s=slug,_=>{}}
     if let Request::AppImport{bundle:value}=&request{bundle(value)?;}
     if matches!(&request,Request::Events{after:Some(_),before:Some(_),..}|Request::PermissionHistory{after:Some(_),before:Some(_),..}){crate::refuse!(BadRequest,"{BOTH_CURSORS}");}
     if let Request::MarkSeen{apps}=&request{

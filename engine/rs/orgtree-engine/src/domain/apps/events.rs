@@ -52,6 +52,17 @@ async fn source(tx:&Transaction<'_>,org:i64,app:&str,memo:&Value)->Result<()> {
     if !memo["all_panels"].as_bool().unwrap_or(false) && tx.query_opt("SELECT id FROM ot.custom_panels WHERE org_id=$1 AND app_id=$2 AND id=$3",&[&org,&app,&memo["panel"].as_str().unwrap_or("")]).await?.is_none(){crate::refuse!(NotFound,"listener panel is not a saved copy of this app");}
     Ok(())
 }
+/// An app listener may name its app and panel by slug or by the old generic id
+/// each had before migration 0075; the dog stores the current ids. A name that
+/// matches nothing is kept, for the registration's own refusal.
+#[nolog]
+pub async fn current_source(engine:&Arc<Engine>,org:i64,app:&str,args:&Value)->Result<(String,Option<Value>)>{
+    let client=engine.db.get().await?;
+    let row=client.query_one("SELECT ot.custom_app_ref($1,$2),ot.custom_panel_ref($1,$3)",&[&org,&app,&args["panel"].as_str()]).await?;
+    let app=row.get::<_,Option<String>>(0).unwrap_or_else(||app.to_owned());
+    let args=row.get::<_,Option<String>>(1).map(|panel|{let mut a=args.clone();a["panel"]=json!(panel);a});
+    Ok((app,args))
+}
 /// Called inside create/resume before the watchdog is written. Stable IDs only;
 /// linking or importing an app creates no subscription or permission.
 #[nolog]

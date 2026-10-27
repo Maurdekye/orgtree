@@ -2113,6 +2113,14 @@ async fn create_mode(engine: &Arc<Engine>, org_id: i64, owner: i64, args: &Value
     if target.is_empty() {
         refuse!(BadRequest, "target is required — the path, command, agent, pid:N / port:N, mqtt:// broker or ws:// URL to watch");
     }
+    // An app listener names its app and panel by slug, or by the old generic
+    // ids they had before migration 0075; the dog keeps their current ids.
+    let (target, current_args) = if kind == "app_listener" {
+        crate::domain::apps::events::current_source(engine, org_id, &target, args).await?
+    } else {
+        (target, None)
+    };
+    let args = current_args.as_ref().unwrap_or(args);
     // the id is made from the name, or from the kind and target without one
     // (an mqtt dog from its topic filter: its broker is shared by many)
     let named = dog_name(args["name"].as_str().unwrap_or(""));

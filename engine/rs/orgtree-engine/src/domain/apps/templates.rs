@@ -42,7 +42,8 @@ pub async fn capture(engine:&Engine,org:i64,root:&mut Value)->Result<()> {
 #[nolog]
 pub async fn restore(tx:&tokio_postgres::Transaction<'_>,org:i64,apps:&[App])->Result<usize> {
     for app in apps {
-        let def=&app.0;wire::definition(def)?;let caps=json!(wire::current_capabilities(&def.capabilities));let declarations=json!(def.events);let sites=json!(def.sites);let id=crate::util::uid("app");
-        tx.execute("INSERT INTO ot.custom_apps(org_id,id,name,description,html,initial_state,capabilities,width,height,created_by,declared_events,origin,declared_sites) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,'template',$10,'template',$11)",&[&org,&id,&def.name,&def.description,&def.html,&def.initial_state,&caps,&def.width,&def.height,&declarations,&sites]).await?;
+        let def=&app.0;wire::definition(def)?;let caps=json!(wire::current_capabilities(&def.capabilities));let declarations=json!(def.events);let sites=json!(def.sites);
+        // the database makes the id from the name (migration 0075)
+        tx.execute("INSERT INTO ot.custom_apps(org_id,name,description,html,initial_state,capabilities,width,height,created_by,declared_events,origin,declared_sites) VALUES($1,$2,$3,$4,$5,$6,$7,$8,'template',$9,'template',$10)",&[&org,&def.name,&def.description,&def.html,&def.initial_state,&caps,&def.width,&def.height,&declarations,&sites]).await?;
     }Ok(apps.len())
 }

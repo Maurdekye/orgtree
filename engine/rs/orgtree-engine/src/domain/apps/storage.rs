@@ -215,9 +215,11 @@ pub(crate) async fn run_locked(engine:&Arc<Engine>,org:&Arc<OrgHandle>,caller:Op
         // most recently used copy (the copy an app row click opens), a panel's
         // label, app and run state. Never HTML, state or permissions. A missing
         // ID is left out, which is how a chip learns its target is gone.
+        // `asked` is the id as asked: a mention written with an app's or
+        // panel's old generic id (before migration 0075) finds its row by it.
         Request::Refs{apps,panels}=>{
-            let apps=tx.query("SELECT jsonb_build_object('id',a.id,'name',a.name,'recent',(SELECT p.label FROM ot.custom_panels p WHERE p.org_id=a.org_id AND p.app_id=a.id ORDER BY p.used_at DESC,p.id DESC LIMIT 1)) FROM ot.custom_apps a WHERE a.org_id=$1 AND a.id=ANY($2) ORDER BY a.id",&[&org.id,&apps]).await?;
-            let panels=tx.query("SELECT jsonb_build_object('id',p.id,'app',p.app_id,'app_name',a.name,'label',p.label,'open',p.is_open,'running',p.is_running) FROM ot.custom_panels p JOIN ot.custom_apps a ON a.org_id=p.org_id AND a.id=p.app_id WHERE p.org_id=$1 AND p.id=ANY($2) ORDER BY p.id",&[&org.id,&panels]).await?;
+            let apps=tx.query("SELECT jsonb_build_object('asked',r.ref,'id',a.id,'name',a.name,'recent',(SELECT p.label FROM ot.custom_panels p WHERE p.org_id=a.org_id AND p.app_id=a.id ORDER BY p.used_at DESC,p.id DESC LIMIT 1)) FROM unnest($2::text[]) WITH ORDINALITY AS r(ref,n) JOIN ot.custom_apps a ON a.org_id=$1 AND a.id=ot.custom_app_ref($1,r.ref) ORDER BY r.n",&[&org.id,&apps]).await?;
+            let panels=tx.query("SELECT jsonb_build_object('asked',r.ref,'id',p.id,'app',p.app_id,'app_name',a.name,'label',p.label,'open',p.is_open,'running',p.is_running) FROM unnest($2::text[]) WITH ORDINALITY AS r(ref,n) JOIN ot.custom_panels p ON p.org_id=$1 AND p.id=ot.custom_panel_ref($1,r.ref) JOIN ot.custom_apps a ON a.org_id=p.org_id AND a.id=p.app_id ORDER BY r.n",&[&org.id,&panels]).await?;
             json!({"apps":apps.iter().map(|r|r.get::<_,Value>(0)).collect::<Vec<_>>(),"panels":panels.iter().map(|r|r.get::<_,Value>(0)).collect::<Vec<_>>()})
         }
         Request::AppExport{app:id,expected_rev,include_panels}=>{
@@ -232,19 +234,22 @@ pub(crate) async fn run_locked(engine:&Arc<Engine>,org:&Arc<OrgHandle>,caller:Op
             wire::bundle(&value)?;json!({"panels":value.panels.len(),"bundle":value})
         }
         Request::AppImport{bundle:value}=>{
-            let id=crate::util::uid("app");let def=&value.definition;let caps=json!(wire::current_capabilities(&def.capabilities));let declarations=json!(def.events);let sites=json!(def.sites);
-            tx.execute("INSERT INTO ot.custom_apps(org_id,id,name,description,html,initial_state,capabilities,width,height,created_by,declared_events,origin,declared_sites) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,'imported',$12)",&[&org.id,&id,&def.name,&def.description,&def.html,&def.initial_state,&caps,&def.width,&def.height,&actor,&declarations,&sites]).await?;
+            // The database makes every id from the name (migration 0075).
+            let def=&value.definition;let caps=json!(wire::current_capabilities(&def.capabilities));let declarations=json!(def.events);let sites=json!(def.sites);
+            let id:String=tx.query_one("INSERT INTO ot.custom_apps(org_id,name,description,html,initial_state,capabilities,width,height,created_by,declared_events,origin,declared_sites) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'imported',$11) RETURNING id",&[&org.id,&def.name,&def.description,&def.html,&def.initial_state,&caps,&def.width,&def.height,&actor,&declarations,&sites]).await?.get(0);
             let mut saved=Vec::new();
             for p in &value.panels{
-                let pid=crate::util::uid("panel");let place=serde_json::to_value(Placement{width:def.width,height:def.height,..Placement::default()})?;
-                tx.execute("INSERT INTO ot.custom_panels(org_id,id,app_id,label,state,placement,is_open) VALUES($1,$2,$3,$4,$5,$6,false)",&[&org.id,&pid,&id,&p.label,&p.state,&place]).await?;
+                let place=serde_json::to_value(Placement{width:def.width,height:def.height,..Placement::default()})?;
+                let pid:String=tx.query_one("INSERT INTO ot.custom_panels(org_id,app_id,label,state,placement,is_open) VALUES($1,$2,$3,$4,$5,false) RETURNING id",&[&org.id,&id,&p.label,&p.state,&place]).await?.get(0);
                 let mut meta=panel(&tx,org.id,&pid,false).await?;meta.as_object_mut().unwrap().remove("state");saved.push(meta);
             }
             changed=true;json!({"imported":id,"app":app(&tx,org.id,&id,false,false).await?,"panels":saved,"warning":"Apps imported from outside this org have full access to it and its state. Be careful importing apps from untrustworthy sources."})
         }
-        Request::AppCreate{definition:def}=>{
-            wire::definition(&def)?;let id=crate::util::uid("app");let caps=json!(wire::current_capabilities(&def.capabilities));let declarations=json!(def.events);let sites=json!(def.sites);
-            tx.execute("INSERT INTO ot.custom_apps(org_id,id,name,description,html,initial_state,capabilities,width,height,created_by,declared_events,origin,declared_sites) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,'created',$12)",&[&org.id,&id,&def.name,&def.description,&def.html,&def.initial_state,&caps,&def.width,&def.height,&actor,&declarations,&sites]).await?;
+        // The id is the slug asked for, else the name's (migration 0075); the
+        // database cleans it and adds -2, -3... when it is taken.
+        Request::AppCreate{definition:def,slug}=>{
+            wire::definition(&def)?;let caps=json!(wire::current_capabilities(&def.capabilities));let declarations=json!(def.events);let sites=json!(def.sites);
+            let id:String=tx.query_one("INSERT INTO ot.custom_apps(org_id,id,name,description,html,initial_state,capabilities,width,height,created_by,declared_events,origin,declared_sites) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,'created',$12) RETURNING id",&[&org.id,&slug,&def.name,&def.description,&def.html,&def.initial_state,&caps,&def.width,&def.height,&actor,&declarations,&sites]).await?.get(0);
             changed=true;app(&tx,org.id,&id,false,false).await?
         }
         Request::AppUpdate{app:id,expected_rev,definition:def}=>{
@@ -273,7 +278,9 @@ pub(crate) async fn run_locked(engine:&Arc<Engine>,org:&Arc<OrgHandle>,caller:Op
             super::events::invalidate(&tx,org.id,&id,None,None).await?;
             tx.execute("DELETE FROM ot.custom_apps WHERE org_id=$1 AND id=$2",&[&org.id,&id]).await?;changed=true;json!({"deleted":id})
         }
-        Request::PanelOpen{app:app_id,panel:panel_id,new,label}=>{
+        Request::PanelOpen{app:app_id,panel:panel_id,new,label,slug}=>{
+            // a slug names a new copy (wire::parse refuses it beside panel)
+            let new=new||slug.is_some();
             if caller.is_some()&&panel_id.is_some(){crate::refuse!(Forbidden,"only the user may open an app window; use panel_get for an existing copy or panel_open with app to create a closed copy");}
             if new && panel_id.is_some(){crate::refuse!(BadRequest,"new and panel are mutually exclusive");}
             let id=if let Some(ref panel_id)=panel_id{
@@ -294,7 +301,7 @@ pub(crate) async fn run_locked(engine:&Arc<Engine>,org:&Arc<OrgHandle>,caller:Op
                 tx.execute("UPDATE ot.custom_panels SET is_open=true,is_running=true,run_generation=run_generation+(NOT is_running)::int,used_at=now(),updated_at=now(),rev=rev+1 WHERE org_id=$1 AND id=$2",&[&org.id,&pid]).await?;(pid,!running)
             }else{
                 if caller.is_none(){super::runtime::can_start(&tx,org.id).await?;}
-                let pid=crate::util::uid("panel");let def:Definition=serde_json::from_value(a["definition"].clone())?;
+                let def:Definition=serde_json::from_value(a["definition"].clone())?;
                 // "Panel N", never the app's name (user 2026-10-26). The app row
                 // lock above serializes numbering; existing labels never change.
                 let label=match label{Some(label)=>label,None=>{
@@ -302,7 +309,8 @@ pub(crate) async fn run_locked(engine:&Arc<Engine>,org:&Arc<OrgHandle>,caller:Op
                     super::labels::default_panel_label(rows.iter().map(|r|r.get::<_,&str>(0)))
                 }};wire::text(&label,120,"panel label",false)?;
                 let placement=serde_json::to_value(Placement{width:def.width,height:def.height,..Placement::default()})?;
-                tx.execute("INSERT INTO ot.custom_panels(org_id,id,app_id,label,state,placement,is_open,is_running) VALUES($1,$2,$3,$4,$5,$6,$7,$7)",&[&org.id,&pid,&id,&label,&def.initial_state,&placement,&caller.is_none()]).await?;(pid,caller.is_none())
+                // the slug asked for, else its app's slug and label (migration 0075)
+                let pid:String=tx.query_one("INSERT INTO ot.custom_panels(org_id,id,app_id,label,state,placement,is_open,is_running) VALUES($1,$2,$3,$4,$5,$6,$7,$7) RETURNING id",&[&org.id,&slug,&id,&label,&def.initial_state,&placement,&caller.is_none()]).await?.get(0);(pid,caller.is_none())
             };
             // Opening a stopped copy starts it (user 2026-10-26 mcbcd7b3cb6c0); showing
             // a running one and an agent's closed copy record nothing.
@@ -322,11 +330,11 @@ pub(crate) async fn run_locked(engine:&Arc<Engine>,org:&Arc<OrgHandle>,caller:Op
             if open&&old["running"]!=true{event(&tx,org.id,&id,"panel.started",&json!({"reason":"opened"}),&actor).await?;}changed=true;panel(&tx,org.id,&id,false).await?
         }
         Request::PanelDuplicate{panel:id,expected_rev}=>{
-            let old=panel(&tx,org.id,&id,true).await?;revision(&old,expected_rev)?;let pid=crate::util::uid("panel");
+            let old=panel(&tx,org.id,&id,true).await?;revision(&old,expected_rev)?;
             let label:String=format!("{} copy",old["label"].as_str().unwrap_or("Panel")).chars().take(120).collect();
             let mut place:Placement=serde_json::from_value(old["placement"].clone())?;place.mode="float".into();place.anchor=None;place.x+=24.;place.y+=24.;let place=serde_json::to_value(place)?;
             if caller.is_none(){super::runtime::can_start(&tx,org.id).await?;}
-            tx.execute("INSERT INTO ot.custom_panels(org_id,id,app_id,label,state,placement,is_open,is_running) VALUES($1,$2,$3,$4,$5,$6,$7,$7)",&[&org.id,&pid,&old["app"].as_str().unwrap_or(""),&label,&old["state"],&place,&caller.is_none()]).await?;
+            let pid:String=tx.query_one("INSERT INTO ot.custom_panels(org_id,app_id,label,state,placement,is_open,is_running) VALUES($1,$2,$3,$4,$5,$6,$6) RETURNING id",&[&org.id,&old["app"].as_str().unwrap_or(""),&label,&old["state"],&place,&caller.is_none()]).await?.get(0);
             if caller.is_none(){event(&tx,org.id,&pid,"panel.started",&json!({"reason":"opened"}),&actor).await?;}changed=true;panel(&tx,org.id,&pid,false).await?
         }
         Request::PanelDelete{panel:id,expected_rev}=>{
@@ -399,12 +407,32 @@ fn with_refs(slug:&str,mut out:Value)->Value{
     out
 }
 
+/// An app or panel a request names by its old generic id (before migration
+/// 0075) is named by its current id from here on, so gates, hosts, locks and
+/// answers all see one id. A name that matches nothing is left as it is, for
+/// the action's own refusal. Refs keep the asked names: their answer echoes
+/// each one (`asked`).
+#[nolog]
+async fn current_ids(engine:&Arc<Engine>,org:i64,input:&Value)->Result<Value>{
+    let mut out=input.clone();
+    let app=input["app"].as_str();let panel=input["panel"].as_str();
+    let apps:Vec<String>=if input["action"]=="mark_seen"{input["apps"].as_array().into_iter().flatten().filter_map(Value::as_str).map(str::to_owned).collect()}else{Vec::new()};
+    if app.is_none()&&panel.is_none()&&apps.is_empty(){return Ok(out)}
+    let client=engine.db.get().await?;
+    let row=client.query_one("SELECT ot.custom_app_ref($1,$2),ot.custom_panel_ref($1,$3),(SELECT array_agg(coalesce(ot.custom_app_ref($1,u.a),u.a) ORDER BY u.n) FROM unnest($4::text[]) WITH ORDINALITY AS u(a,n))",&[&org,&app,&panel,&apps]).await?;
+    if let Some(id)=row.get::<_,Option<String>>(0){out["app"]=json!(id);}
+    if let Some(id)=row.get::<_,Option<String>>(1){out["panel"]=json!(id);}
+    if let Some(ids)=row.get::<_,Option<Vec<String>>>(2){out["apps"]=json!(ids);}
+    Ok(out)
+}
+
 /// All paths acquire this gate before root-first agent/database locks. No PG
 /// connection is held while an action dispatch calls another domain service.
 #[nolog]
 pub async fn run(engine:&Arc<Engine>,org:&Arc<OrgHandle>,caller:Option<&Caller>,input:&Value)->Result<Value>{
     let request=wire::parse(input)?;
     if caller.is_some_and(|c|c.org_id!=org.id){crate::refuse!(Forbidden,"Apps caller belongs to another organization");}
+    let input=&current_ids(engine,org.id,input).await?;
     if let Request::Runtime{after,limit,sample}=request{return super::runtime::list(engine,org,caller,after,limit,sample).await;}
     let action=input["action"].as_str().unwrap_or("");
     if ["list","app_get","panel_get","refs","events","app_create","app_import","app_export","mark_seen","listeners","permission_history"].contains(&action){return run_locked(engine,org,caller,input).await;}

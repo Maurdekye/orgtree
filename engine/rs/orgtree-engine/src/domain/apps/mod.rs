@@ -41,6 +41,24 @@ pub use storage::run;
         assert!(super::wire::parse(&json!({"action":"mark_seen","apps":["x"],"permissions":{"org.read":"allow"}})).is_err());
         assert!(crate::http::apps::read_input(r#"{"action":"mark_seen","apps":["x"]}"#).is_err());
     }
+    /// An app or panel asks for its slug only when it is made (migration 0075),
+    /// read by orgtree_present's own docs::requested_slug.
+    #[test] fn custom_apps_slug_is_asked_only_when_an_app_or_panel_is_made(){
+        use super::wire::{parse,Request};
+        let def=json!({"name":"לוח","html":"<p>x</p>"});
+        match parse(&json!({"action":"app_create","definition":def,"slug":"  Weekly board "})).unwrap(){Request::AppCreate{slug,..}=>assert_eq!(slug.as_deref(),Some("Weekly board")),_=>panic!("app_create")}
+        match parse(&json!({"action":"app_create","definition":def,"slug":" "})).unwrap(){Request::AppCreate{slug,..}=>assert!(slug.is_none(),"a blank slug is none"),_=>panic!("app_create")}
+        match parse(&json!({"action":"app_create","definition":def})).unwrap(){Request::AppCreate{slug,..}=>assert!(slug.is_none()),_=>panic!("app_create")}
+        match parse(&json!({"action":"panel_open","app":"notes","slug":"desk"})).unwrap(){Request::PanelOpen{slug,..}=>assert_eq!(slug.as_deref(),Some("desk")),_=>panic!("panel_open")}
+        for (bad,words) in [(json!({"action":"app_create","definition":def,"slug":"שבועי"}),"no ASCII letter or digit"),
+            (json!({"action":"app_create","definition":def,"slug":["x"]}),"slug is text"),
+            (json!({"action":"app_update","app":"notes","expected_rev":1,"definition":def,"slug":"x"}),"keeps its slug once made"),
+            (json!({"action":"panel_update","panel":"notes-panel-1","expected_rev":1,"slug":"x"}),"keeps its slug once made"),
+            (json!({"action":"panel_open","panel":"notes-panel-1","slug":"x"}),"existing panel keeps its slug")]{
+            let err=parse(&bad).err().expect("refused").to_string();assert!(err.contains(words),"{bad}: {err}");
+        }
+        assert!(parse(&json!({"action":"app_get","app":"notes","slug":null})).is_ok(),"no slug beside a read is no slug");
+    }
     #[test] fn custom_apps_refs_is_a_bounded_read_of_exact_ids(){
         assert!(super::wire::parse(&json!({"action":"refs","apps":["app1"],"panels":["panel1"]})).is_ok());
         assert!(super::wire::parse(&json!({"action":"refs","panels":["panel1"]})).is_ok());

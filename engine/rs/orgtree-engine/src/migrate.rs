@@ -80,12 +80,15 @@ const MIGRATIONS: &[(&str, &str)] = &[
     ("0072_custom_app_internet_access", include_str!("../migrations/0072_custom_app_internet_access.sql")),
     ("0073_document_slugs", include_str!("../migrations/0073_document_slugs.sql")),
     ("0074_requested_document_slugs", include_str!("../migrations/0074_requested_document_slugs.sql")),
+    ("0075_app_panel_slugs", include_str!("../migrations/0075_app_panel_slugs.sql")),
 ];
 
 #[cfg(test)]
 mod project_user_contact_tests;
 #[cfg(test)]
 mod document_slug_tests;
+#[cfg(test)]
+mod app_slug_tests;
 
 #[logged]
 fn checksum(sql: &str) -> String {
