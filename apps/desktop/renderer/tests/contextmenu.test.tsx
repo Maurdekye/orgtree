@@ -698,11 +698,17 @@ uiTest('§B3c org gallery row: Close closes the OPEN document and nothing else �
   // document open (user report 2026-09-12): the label flipped on selection but
   // the action re-selected the row it was already on, so the menu shut and
   // nothing moved. Both halves are pinned here — the label AND the effect.
+  //
+  // A fresh opening selects the oldest unread presentation, then the last one
+  // viewed, then the topmost (reader opening priority, user 2026-10-23). Both
+  // cards are read and nothing is remembered, so the newest opens. The test
+  // used to rely on earlier tests in this file having opened both.
+  localStorage.clear()
   const calls: { method: string; url: string }[] = []
   const had = (globalThis as { fetch?: typeof fetch }).fetch
   const docs = [
-    { id: 'd1', node: 'me', title: 'First plan', at: '2026-09-07T10:00:00Z', evicted: false, node_state: 'live', tier: 'haiku' },
-    { id: 'd2', node: 'you', title: 'Second plan', at: '2026-09-07T09:00:00Z', evicted: false, node_state: 'live', tier: 'haiku' },
+    { id: 'd1', node: 'me', title: 'First plan', at: '2026-09-07T10:00:00Z', viewed_at: '2026-09-07T10:00:00Z', evicted: false, node_state: 'live', tier: 'haiku' },
+    { id: 'd2', node: 'you', title: 'Second plan', at: '2026-09-07T09:00:00Z', viewed_at: '2026-09-07T09:00:00Z', evicted: false, node_state: 'live', tier: 'haiku' },
   ]
   ;(globalThis as unknown as { fetch: typeof fetch }).fetch = withoutMailTransfers(((url: string, init?: RequestInit) => {
     const method = init?.method ?? 'GET'
