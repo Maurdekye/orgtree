@@ -416,7 +416,7 @@ pub async fn check(engine: &Arc<Engine>, org_id: i64, project: i64) -> Result<()
                 let lease = crate::domain::holdings::GivenLease { project: pname.clone(), lease: g.get(1), slots: g.get(2) };
                 match tell.iter_mut().find(|t| t.0 == name && t.1 == why) {
                     Some(t) => t.2.leases.push(lease),
-                    None => tell.push((name, why, crate::domain::holdings::Given { leases: vec![lease], jobs: Vec::new() })),
+                    None => tell.push((name, why, crate::domain::holdings::Given { leases: vec![lease], ..Default::default() })),
                 }
             }
         }

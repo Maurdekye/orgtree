@@ -8,7 +8,9 @@
 //! - is retired, halted or frozen (a usage limit, a provider refusal that
 //!   freezes, no allowed account): the state-derived pass, `slots::check` and
 //!   `projects::release_stale`, run by `projects::recheck_holder`;
-//! - moves out of the project (it no longer reaches it): `after_move`;
+//! - moves out of the project (it no longer reaches it): `after_move`, which also
+//!   removes the mover's WAITING slot claim from the project's line and pauses its
+//!   queue listener there (user 2026-10-27 18:01Z m603e6114476e, "Drop both");
 //! - has a turn that dies, or is cut by an engine restart: `release_after_death`.
 //!
 //! A manual interrupt (`orgtree_interrupt`, the desk's stop, Stop all) and an
@@ -23,12 +25,14 @@
 //! attempt/dead-letter rules (`projects::reclaim_in`). The holder gets one
 //! passive System notice naming what was released, so it takes a new slot (or
 //! waits for its job) before continuing. A frozen or halted holder reads it at
-//! the turn that releases the hold.
+//! the turn that releases the hold. A move sends ONE notice per holder for all of
+//! it (lease, job, claim, listener), collected in a batch (`BATCH`).
 
-use std::sync::Arc;
+use std::{cell::RefCell, collections::HashMap, sync::Arc};
 
 use anyhow::Result;
 
+use crate::changes::{self, Change};
 use crate::domain::{projects, slots};
 use crate::engine::Engine;
 
@@ -53,17 +57,44 @@ pub struct GivenJob {
     pub dead: bool,
 }
 
+/// A claim that stood in a project's slot line and was removed from it, as the
+/// holder's notice names it (an agent that moved out of the project).
+#[derive(Debug, Clone, Default)]
+pub struct GivenClaim {
+    pub project: String,
+    pub claim: String,
+}
+
+/// A project queue listener that was paused, as the holder's notice names it
+/// (an agent that moved out of the project).
+#[derive(Debug, Clone, Default)]
+pub struct GivenListener {
+    pub project: String,
+    pub listener: String,
+}
+
 /// Everything one release took back from one holder.
 #[derive(Debug, Clone, Default)]
 pub struct Given {
     pub leases: Vec<GivenLease>,
     pub jobs: Vec<GivenJob>,
+    pub claims: Vec<GivenClaim>,
+    pub listeners: Vec<GivenListener>,
 }
 
 impl Given {
     #[nolog]
     pub fn is_empty(&self) -> bool {
-        self.leases.is_empty() && self.jobs.is_empty()
+        self.leases.is_empty() && self.jobs.is_empty() && self.claims.is_empty() && self.listeners.is_empty()
+    }
+
+    /// Add what `other` took back to this.
+    #[nolog]
+    fn merge(&mut self, other: Given) {
+        self.leases.extend(other.leases);
+        self.jobs.extend(other.jobs);
+        self.claims.extend(other.claims);
+        self.listeners.extend(other.listeners);
     }
 }
 
@@ -129,6 +160,10 @@ pub const HOW_DIED: &str = "turn ended abnormally";
 pub const HOW_RESTART: &str = "engine restarted during its turn";
 /// ... because the holder moved out of the project.
 pub const HOW_MOVED_OUT: &str = "moved out of the project";
+/// What a waiting slot claim records (`reason`) when its owner moved out of the project.
+const CLAIM_REASON: &str = "removed from the line: its owner moved out of the project";
+/// What a queue listener records (`paused_why`) when its owner moved out of the project.
+const LISTENER_WHY: &str = "its owner moved out of the project; resume it when it should listen again";
 
 /// A short, single-line form of an error text for a notice.
 #[nolog]
@@ -170,21 +205,62 @@ pub fn notice_body(because: &str, given: &Given) -> String {
         }
         out.push_str("\nStop working on them: an ack of a released job is refused. The queue hands out a job again by its normal rules.");
     }
+    if !given.claims.is_empty() {
+        out.push_str("\n\nWaiting concurrency slot claims removed from the FIFO line:");
+        for c in &given.claims {
+            out.push_str(&format!("\n- claim {} on project {}", c.claim, c.project));
+        }
+    }
+    if !given.listeners.is_empty() {
+        out.push_str("\n\nProject queue listeners paused:");
+        for l in &given.listeners {
+            out.push_str(&format!("\n- listener {} on project {}", l.listener, l.project));
+        }
+        out.push_str("\nA paused listener is handed no mail, and moving back does not resume it: when you reach the project again and want its mail, resume it with orgtree_watchdog action=resume id=<the listener's id>.");
+    }
     if !given.leases.is_empty() {
         out.push_str("\n\nIf you still need a slot, take a new one with a slot watchdog before you continue the work it covered.");
+    } else if !given.claims.is_empty() {
+        out.push_str("\n\nYour place in the line is gone: if you still need a slot, claim again with a slot watchdog once you reach the project.");
     }
     out
 }
 
+/// What one holder lost during a batched pass: who, why (each distinct reason once), what.
+type Told = Vec<(String, Vec<String>, Given)>;
+
+tokio::task_local! {
+    /// While a move's pass runs, [`tell`] collects here instead of sending, so a
+    /// holder that lost a lease, a job, a claim and a listener reads ONE notice.
+    static BATCH: RefCell<Told>;
+}
+
 /// Tell a holder what was released, as a passive System notice: it rides the
 /// holder's next turn and wakes nobody. A failure is logged, never raised: the
-/// release itself has already committed.
+/// release itself has already committed. Inside a move's pass (`after_move`) it
+/// only collects: that pass sends one notice per holder when it ends.
 #[logged]
 pub async fn tell(engine: &Arc<Engine>, org_id: i64, to: &str, because: &str, given: &Given) {
     if given.is_empty() {
         return;
     }
-    slots::notify(engine, org_id, to, &notice_body(because, given)).await;
+    let collected = BATCH.try_with(|batch| {
+        let mut batch = batch.borrow_mut();
+        let at = match batch.iter().position(|t| t.0 == to) {
+            Some(at) => at,
+            None => {
+                batch.push((to.to_string(), Vec::new(), Given::default()));
+                batch.len() - 1
+            }
+        };
+        if !batch[at].1.iter().any(|b| b == because) {
+            batch[at].1.push(because.to_string());
+        }
+        batch[at].2.merge(given.clone());
+    });
+    if collected.is_err() {
+        slots::notify(engine, org_id, to, &notice_body(because, given)).await;
+    }
 }
 
 /// Give back everything `agent` holds in projects, because its turn died.
@@ -282,15 +358,32 @@ async fn release_in(engine: &Arc<Engine>, org_id: i64, project: i64, agent: i64,
 }
 
 /// Nodes moved in the tree (the moved node and everything under it): every
-/// project where one of them holds a lease or an un-acked job, and every moved
-/// project, is re-checked, so a holder that no longer reaches its project loses
-/// what it held there (`slots::check`, `projects::release_stale`) and the line
-/// and queue go on. Reads bounded keyset pages of project ids.
+/// project where one of them holds a lease or an un-acked job or waits in the
+/// slot line or listens on the queue, and every moved project, is re-checked, so
+/// a holder that no longer reaches its project loses what it held there
+/// (`slots::check`, `projects::release_stale`), its waiting claim leaves the line
+/// and its queue listener is paused (`drop_unreached_dogs`), and the line and
+/// queue go on. Each holder is told once, when the pass ends. Reads bounded
+/// keyset pages of project ids.
 #[logged]
 pub async fn after_move(engine: &Arc<Engine>, org_id: i64, moved: &[i64]) {
     if moved.is_empty() {
         return;
     }
+    let told = BATCH
+        .scope(RefCell::new(Vec::new()), async {
+            moved_pass(engine, org_id, moved).await;
+            BATCH.with(|batch| std::mem::take(&mut *batch.borrow_mut()))
+        })
+        .await;
+    for (to, because, given) in told {
+        slots::notify(engine, org_id, &to, &notice_body(&because.join("; "), &given)).await;
+    }
+}
+
+/// [`after_move`]'s work, run inside its notice batch.
+#[logged]
+async fn moved_pass(engine: &Arc<Engine>, org_id: i64, moved: &[i64]) {
     let mut after = 0_i64;
     loop {
         let page: Result<Vec<i64>> = async {
@@ -304,6 +397,13 @@ pub async fn after_move(engine: &Arc<Engine>, org_id: i64, moved: &[i64]) {
                                  WHERE m.org_id = $1 AND (m.extra->'claimed'->>'by_id')::bigint = ANY($2) AND {o}
                                 UNION SELECT m.recipient_agent_id FROM ot.mail m
                                  WHERE m.org_id = $1 AND m.recipient_agent_id = ANY($2) AND {o}
+                                UNION SELECT (w.memo->>'target_id')::bigint FROM ot.watchdogs w
+                                 WHERE w.org_id = $1 AND w.owner_agent_id = ANY($2) AND w.memo ? 'target_id'
+                                   AND ((w.kind = 'slot' AND w.state IN ('armed', 'paused') AND NOT w.memo ? 'lease')
+                                     OR (w.kind = 'fair_queue' AND w.state = 'armed'))
+                                UNION SELECT (w.memo->>'target_id')::bigint FROM ot.watchdogs w
+                                 WHERE w.org_id = $1 AND w.kind IN ('slot', 'fair_queue') AND w.state = 'armed'
+                                   AND (w.memo->>'target_id')::bigint = ANY($2)
                               ) touched WHERE project_id > $3 ORDER BY project_id LIMIT 64", o = projects::OUTSTANDING),
                     &[&org_id, &moved, &after],
                 )
@@ -321,6 +421,9 @@ pub async fn after_move(engine: &Arc<Engine>, org_id: i64, moved: &[i64]) {
         };
         for &project in &page {
             after = project;
+            if let Err(e) = drop_unreached_dogs(engine, org_id, project).await {
+                tracing::warn!(project, error = %format!("{e:#}"), "dropping a mover's slot claim and queue listener failed");
+            }
             if let Err(e) = Box::pin(slots::check(engine, org_id, project)).await {
                 tracing::warn!(project, error = %format!("{e:#}"), "rechecking project slots after a move failed");
             }
@@ -332,6 +435,97 @@ pub async fn after_move(engine: &Arc<Engine>, org_id: i64, moved: &[i64]) {
             break;
         }
     }
+}
+
+/// Agents that no longer reach `project` lose the places they kept in it without
+/// holding anything: a claim WAITING in its slot line is removed (the owner
+/// claims again when it reaches the project), and a queue listener on it is
+/// paused (not removed: moving back does not resume it, the owner resumes it).
+/// User 2026-10-27 18:01Z m603e6114476e, "Drop both". The project row is locked
+/// first, as `slots::grant` and the hand-out lock it. Each owner is told through
+/// [`tell`]; the line is re-run by the caller's `slots::check`.
+#[logged]
+async fn drop_unreached_dogs(engine: &Arc<Engine>, org_id: i64, project: i64) -> Result<()> {
+    let mut client = engine.db.get().await?;
+    let tx = client.transaction().await?;
+    let Some(p) = tx.query_opt("SELECT name FROM ot.agents WHERE id = $1 AND kind = 'project' FOR NO KEY UPDATE", &[&project]).await? else {
+        return Ok(());
+    };
+    let pname: String = p.get(0);
+    let mut reach: HashMap<i64, bool> = HashMap::new();
+    // (dog row, owner, owner's name, what it lost)
+    let mut dropped: Vec<(i64, i64, String, Given)> = Vec::new();
+    let mut after = 0_i64;
+    loop {
+        let rows = tx
+            .query(
+                "SELECT w.id, w.uid::text, w.kind::text, a.id, a.name::text FROM ot.watchdogs w JOIN ot.agents a ON a.id = w.owner_agent_id
+                  WHERE w.org_id = $1 AND (w.memo->>'target_id')::bigint = $2 AND w.id > $3
+                    AND ((w.kind = 'slot' AND w.state IN ('armed', 'paused') AND NOT w.memo ? 'lease')
+                      OR (w.kind = 'fair_queue' AND w.state = 'armed'))
+                  ORDER BY w.id LIMIT 200",
+                &[&org_id, &project, &after],
+            )
+            .await?;
+        for r in &rows {
+            let (row, uid, kind, owner, name): (i64, String, String, i64, String) = (r.get(0), r.get(1), r.get(2), r.get(3), r.get(4));
+            after = row;
+            let reaches = match reach.get(&owner) {
+                Some(r) => *r,
+                None => {
+                    let r = projects::reaches(&*tx, owner, project).await?;
+                    reach.insert(owner, r);
+                    r
+                }
+            };
+            if reaches {
+                continue;
+            }
+            let mut lost = Given::default();
+            if kind == "slot" {
+                let n = tx
+                    .execute(
+                        "UPDATE ot.watchdogs SET state = 'removed', memo = memo || jsonb_build_object('reason', $2::text)
+                          WHERE id = $1 AND state IN ('armed', 'paused')",
+                        &[&row, &CLAIM_REASON],
+                    )
+                    .await?;
+                if n == 1 {
+                    lost.claims.push(GivenClaim { project: pname.clone(), claim: uid });
+                }
+            } else {
+                let n = tx
+                    .execute(
+                        "UPDATE ot.watchdogs SET state = 'paused', memo = memo || jsonb_build_object('paused_why', $2::text)
+                          WHERE id = $1 AND state = 'armed'",
+                        &[&row, &LISTENER_WHY],
+                    )
+                    .await?;
+                if n == 1 {
+                    lost.listeners.push(GivenListener { project: pname.clone(), listener: uid });
+                }
+            }
+            if !lost.is_empty() {
+                dropped.push((row, owner, name, lost));
+            }
+        }
+        if rows.len() < 200 {
+            break;
+        }
+    }
+    tx.commit().await?;
+    drop(client);
+    if dropped.is_empty() {
+        return Ok(());
+    }
+    let mut ch = vec![Change::Watchdogs, Change::Agent(project)];
+    for (row, owner, name, lost) in dropped {
+        crate::runtime::watchdogs::disarm(engine, row);
+        ch.push(Change::Agent(owner));
+        tell(engine, org_id, &name, &you(projects::MOVED_OUT), &lost).await;
+    }
+    changes::notify_id(engine, org_id, ch);
+    Ok(())
 }
 
 #[cfg(test)]
@@ -382,6 +576,7 @@ mod tests {
         let given = Given {
             leases: vec![GivenLease { project: "build".into(), lease: "s1".into(), slots: 1 }, GivenLease { project: "build".into(), lease: "s2".into(), slots: 2 }],
             jobs: vec![GivenJob { project: "dev".into(), job: "m9".into(), dead: false }, GivenJob { project: "dev".into(), job: "m10".into(), dead: true }],
+            ..Default::default()
         };
         let text = notice_body(&you("was frozen by a usage limit"), &given);
         assert!(text.contains("because you were frozen by a usage limit."), "{text}");
@@ -392,10 +587,37 @@ mod tests {
         assert!(text.contains("take a new one with a slot watchdog"), "{text}");
         assert!(text.contains("an ack of a released job is refused"), "{text}");
         // a notice about leases alone does not talk about jobs, and the reverse
-        let leases = notice_body("x", &Given { leases: given.leases.clone(), jobs: Vec::new() });
+        let leases = notice_body("x", &Given { leases: given.leases.clone(), ..Default::default() });
         assert!(!leases.contains("mail jobs"), "{leases}");
-        let jobs = notice_body("x", &Given { leases: Vec::new(), jobs: given.jobs.clone() });
+        let jobs = notice_body("x", &Given { jobs: given.jobs.clone(), ..Default::default() });
         assert!(!jobs.contains("slot"), "{jobs}");
+    }
+
+    #[test]
+    fn the_notice_names_a_removed_claim_and_a_paused_listener() {
+        let given = Given {
+            claims: vec![GivenClaim { project: "build".into(), claim: "w1".into() }],
+            listeners: vec![GivenListener { project: "dev".into(), listener: "q1".into() }],
+            ..Default::default()
+        };
+        let text = notice_body(&you("moved out of the project"), &given);
+        assert!(text.contains("because you moved out of the project."), "{text}");
+        assert!(text.contains("claim w1 on project build"), "{text}");
+        assert!(text.contains("listener q1 on project dev"), "{text}");
+        assert!(text.contains("orgtree_watchdog action=resume"), "{text}");
+        assert!(text.contains("claim again with a slot watchdog"), "{text}");
+        assert!(!text.contains("mail jobs"), "{text}");
+        // a listener alone says nothing about slots
+        let listener = notice_body("x", &Given { listeners: given.listeners.clone(), ..Default::default() });
+        assert!(!listener.contains("slot"), "{listener}");
+        assert!(Given::default().is_empty() && !given.is_empty());
+    }
+
+    #[test]
+    fn merging_adds_every_kind() {
+        let mut a = Given { leases: vec![GivenLease::default()], ..Default::default() };
+        a.merge(Given { jobs: vec![GivenJob::default()], claims: vec![GivenClaim::default()], listeners: vec![GivenListener::default()], ..Default::default() });
+        assert_eq!((a.leases.len(), a.jobs.len(), a.claims.len(), a.listeners.len()), (1, 1, 1, 1));
     }
 
     #[test]
