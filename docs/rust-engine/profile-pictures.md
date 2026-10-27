@@ -116,6 +116,25 @@ Per-hub acknowledgements and roster revisions avoid repeatedly transferring
 unchanged bytes. Incoming updates do not mint a new revision. The older state
 retained at a disconnected hub cannot overwrite a newer locally learned state.
 
+## Mention pictures (4.5.0)
+
+A network mention chip shows the party's picture (USER 2026-10-27
+mf8697b8ba8fc). `GET /api/orgs/{slug}/net/profile-picture?address=` answers
+`{picture}` for `@org:<slug>` or `@net:<address>`; `null` keeps the chip's
+fallback icon, and the route's `profile-picture` segment keeps its bodies out
+of wire logs. A local org's logo (by slug, or by a participating org's network
+identity) comes from its own record without network. Otherwise a hub this org
+is registered on must advertise the picture in its roster: the newest
+revision with a hash, and the identity's `picture_owner` token. The engine then
+reads `/api/profile-picture?slug=<address>` from that hub as the org, through
+the shared isolation gate and membership check, and accepts the answer only
+from the same owner, at that revision or newer, with bytes that pass the size,
+hash and normalized-PNG checks. A removal is no picture, and a paused network
+(`offline()`) answers none. Answers are kept per org and address (256 at most,
+oldest out) and asked again only for a newer revision or another owner, or a
+minute after a failure; at most four fetches run at once. Hubs without
+`profile_pictures` are skipped by capability (`net/pictures.rs` `peer`).
+
 ## Verification checkpoint
 
 The user paused builds/tests at 10:48Z on 2026-10-12, then explicitly restored

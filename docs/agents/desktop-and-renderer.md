@@ -1716,3 +1716,23 @@ builders; agents and projects keep their identity badge); failed chips keep the
 token and verdict with no mark. See [custom apps](../rust-engine/custom-apps.md#mentions-2026-10-27).
 [decided: user 2026-10-27 m449dc0a35cbe, m6d0cdc7a2be6, m33e4a043b457; verified:
 `canvas/{workrefs,reflinks,refmd,refmarks,apprefs,objectnavhost}.ts*`, `canvas/apps/{links,ui}.ts*`]
+
+## Network mention chips (2026-10-27, 4.5.0)
+
+`@net:`/`@org:` chips (`HubContactChip` and refmd `hubChipEl`, one element)
+take their kind, icon and hover from `canvas/netmentions.tsx`. The kind is the
+hub roster's (`org`, `person`, or `chat`: an agent session), read from the
+on-screen org's `tree.net` (fed in `OrgCanvas`); `@org:` is always an org and an
+address no roster lists is `unknown`. The icon is the picture, else the
+Hubchat mark when `hubchat_pc` says installed, else a globe. Pictures come only
+from the engine (`GET /api/orgs/{slug}/net/profile-picture?address=`), never
+from renderer URLs: asked once per advertised revision, for the org's own logo
+and for local orgs (every two minutes), never for an unlisted address or a
+removal. ONE hover, `hubAddressTitle`, serves both chips and the Sender
+submenu; an org on this PC keeps `orgTitle`, which its org rows share. The
+Markdown chip's signature carries kind, icon and picture revision, so a
+picture's arrival rebuilds it. Styles live in `canvas/netmentions.css`
+(Hubchat's kind palette, light themes included). Clicks and menus are unchanged.
+See [mention pictures](../rust-engine/profile-pictures.md#mention-pictures-450).
+[decided: user 2026-10-27 m08fbc691a349, mc96766993067, m82cf84439a0d,
+ma1f33944e69d, mf8697b8ba8fc; verified: `canvas/{netmentions,agentmentions,refmd,objectactions}.ts*`]
