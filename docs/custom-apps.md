@@ -79,8 +79,14 @@ the tab is open, and older ones load as you scroll down, back to the oldest one
 Orgtree keeps. A fired event's data goes only to the subscribed agents. A start or
 stop shows its cause: Opened, Start running, Power off, Stop all or Code changed.
 Opening, renaming, moving and saving data add nothing to History.
-Refresh/More connections page the registrations; agents manage those watchdogs
-through their ordinary tools. Merely opening settings fires nothing. HTML uses
+Connections updates by itself as agents subscribe, pause, resume or remove their
+listeners. Each row shows the agent and the panel as links (a listener on every
+copy says All copies), the event's name, and Paused, Notice or Once when they
+apply, with its number of fires. Click the agent to go to it on the canvas, or the
+panel to open it or bring it to the front. Click a row to see that listener's
+recent fires, newest first: older ones load as you scroll, new ones appear as they
+are delivered, and each one opens to its details like a History entry, without
+the event's data. Agents manage their listeners through their ordinary tools. Merely opening settings fires nothing. HTML uses
 `orgtree.events.fire(name,payload)` (or `orgtree.call('events.fire',{name,payload})`).
 `orgtree.emit(name,payload)` sends a message to the copy's own running windows,
 which receive it through `orgtree.on(name,fn)`, as do messages agents send with

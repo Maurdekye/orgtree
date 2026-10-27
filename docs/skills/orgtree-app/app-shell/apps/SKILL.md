@@ -16,9 +16,17 @@ that expands on click to the exact time and the row's data and collapses on a se
 click; new entries appear while the tab is open, older ones load as you scroll down
 to the oldest kept, and there is no Refresh button. Fire event sends the chosen
 name and JSON; opening the tab fires nothing. Connections are agent-owned
-app_listener watchdogs, with Refresh/More connections paging. Agents manage
-their registrations through orgtree_watchdog; orgtree_apps fire_event/listeners
-provide publication/list parity. HTML orgtree.events.fire(name,payload) uses
+app_listener watchdogs in a live list with no buttons (user ruling 2026-10-27):
+rows appear, change and disappear as agents subscribe, pause, resume or remove.
+A row shows the agent and the panel as their mention links (All copies for a
+listener on every copy), the event name, and Paused, Notice or Once when they
+apply beside its fire count. The agent link focuses that agent on the canvas and
+the panel link opens the panel or brings it to the front; from a centered
+settings window either closes it first. Clicking a row lists that listener's
+delivered fires like History: newest first, older ones on scroll, new ones live,
+each expanding to its time, who fired it, its copy, its delivery and event ID,
+never its data. Agents manage their registrations through orgtree_watchdog;
+orgtree_apps fire_event/listeners/listener_fires provide publication/list parity. HTML orgtree.events.fire(name,payload) uses
 the permission-checked broadcast; orgtree.emit sends a message to the copy's own
 running windows (orgtree.on) and never enters History.
 App data is not a user instruction or approval. Direct docket.write assignment

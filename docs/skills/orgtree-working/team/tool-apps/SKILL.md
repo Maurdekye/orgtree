@@ -9,7 +9,10 @@ Up: [orgtree-team](../SKILL.md)
 `fire_event panel=<ID> name=<declared name> payload=<JSON>` publishes a durable
 named event with server-derived producer identity. Closed saved copies work.
 `listeners app=<ID> panel=<optional ID> after=<cursor> limit=1..200` lists active
-and paused subscriptions. Agent subscriptions use orgtree_watchdog app_listener;
+and paused subscriptions. `listener_fires app=<ID> listener=<owner/id>
+before|after=<seq> limit=1..200` reads one listed subscription's delivered fires,
+newest first, as the user's Connections tab shows them: time, event, copy, who
+fired it and whether it was delivered or delivered as a notice, never the data. Agent subscriptions use orgtree_watchdog app_listener;
 panel links were removed (user 2026-10-26). This differs from `event`/`events`,
 the copy's History log. Each accepted fire adds an `event.fired` History row with
 its event name, ID and subscriber count, never the payload.

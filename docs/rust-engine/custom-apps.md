@@ -232,12 +232,32 @@ a row. Live changes come from the org feed: custom_apps_changed, and
 custom_apps_history {panel}, which an app's own orgtree.events.fire emits after
 commit. That fire changes no Apps row, and the custom_apps_changed store refresh
 re-posts state.changed to running apps, so an app firing on state.changed would loop.
-Panel settings lists actual scoped
-connections with bounded cursor paging on Connections, and permits explicit user
-Fire event from that saved copy on Fire event, displaying acceptance/backpressure
-without automatic retries.
-Agent parity is Apps listeners/fire_event; agent subscription ownership stays
-in watchdog controls. SDK orgtree.events.fire forwards only name/payload to
+Panel settings' Connections tab lists the copy's scoped subscriptions as a live
+list with no buttons (USER 2026-10-27 md11c3c790acf, "actually remove the refresh
+button, make new or disappearing links change in realtime as they're modified";
+m6ca9f88d5812 links; m8ced6e920f63 rows). A row is the agent's and the panel's
+mention links (RefChip through the shell's useShellRefs routes, which AppsWorkspace
+provides as AppsRefRoutes; a subscription to every copy says All copies), the event
+name, and Paused, Notice and Once when they apply beside the fire count. A link in a
+centered settings window closes it first (closeIfCentred), as other windows do.
+Every watchdog write announces Change::Watchdogs, and changes::notify then sends the
+org frame watchdogs_changed once per notify: the record feed skips an unchanged
+watchdogs group, which previews only 8 dogs per owner, so it cannot say this (the
+docket_changed precedent). The tab reads its loaded listeners pages again on that
+frame and on custom_apps_changed, one read at a time, and loads more pages as the
+list's end comes into view; History and Permission history ignore the frame. A row
+expands to `listener_fires app listener=<owner/id>`: that subscription's finished
+deliveries (`{seq,id,at,event,panel,panel_label,by,delivered,notice}`, never the
+payload or the mail id), paged like events (limit 1-200, default 100; before or
+after, never both), in the same LogList as History and followed on
+watchdogs_changed. Only finished deliveries are listed: the dispatcher finishes an
+app's recipients in fire order, so an after cursor never skips one, and the app's
+newest 128 finished fires bound the read (joined through the app's fires, so no
+index or migration). A skipped delivery changes no watchdog and shows at the next
+change. Fire event fires explicitly from that saved copy, displaying
+acceptance/backpressure without automatic retries.
+Agent parity is Apps listeners/listener_fires/fire_event; agent subscription
+ownership stays in watchdog controls. SDK orgtree.events.fire forwards only name/payload to
 the existing parent-only action client. The native broadcast prompt explicitly
 identifies every-listener delivery; no recipient/caller selector is accepted.
 
