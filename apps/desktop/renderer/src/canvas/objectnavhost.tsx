@@ -14,6 +14,8 @@ import type { QuickStaffPreview } from './quickstaff'
 import { peekQuickStaff, prefetchQuickStaff } from './staffingoptions'
 import { useAgentNavRegistry } from './agentnav'
 import { useProvideObjectNav } from './objectnav'
+import { panelRefRow } from './apprefs'
+import { panelLinkMenu } from './apps/links'
 
 /** The current org's existing routes, shared by links and direct object menus. */
 export function ObjectNavHost({ org, dogs, openDog, openTicket, openDocument, openMail, focusAgent, toast, isProject }:
@@ -76,6 +78,12 @@ export function ObjectNavHost({ org, dogs, openDog, openTicket, openDocument, op
       }
       return !dog && anchor.getAttribute('data-object-stale') !== 'true'
         ? getWatchdog(org,id).then(page=>menu(page.watchdogs.find(w=>w.id===id))) : menu(dog)
+    }
+    // A panel link's menu is its Apps menu row's (Power off or Start running),
+    // from the state its mention chip shows. A panel that has gone has none.
+    if (kind === 'panel') {
+      const row = panelRefRow(org, id)
+      return row ? panelLinkMenu(org, row) : []
     }
     if (!openTicket || id.includes('/')) return []
     // before the read: the caret it inserts at is the one the right-click found

@@ -69,6 +69,7 @@ import { peekQuickStaff, prefetchQuickStaff, queueStaffingWarm } from './staffin
 import type { QuickStaffPreview } from './quickstaff'
 import type { MenuEntry } from './contextmenu'
 import type { RefRoutes, RefWorld, ResolvedRef } from './reflinks'
+import { openAppRef, useAppRefs } from './apprefs'
 import type { RefKind, TypedRef } from './workrefs'
 import { statusLabel } from './docketstatus'
 
@@ -1215,8 +1216,10 @@ export function DocketModal({ slug, toast, close, tree, onFocusAgent,
   // an unresolved placeholder is not evidence the agent exists
   const settled = useMemo(() => new Map([...facts].filter(([, f]) => !f.unresolved)), [facts])
   const agentOutcome = useAgentOutcome(slug, settled, tree?.foreground)
+  const appRef = useAppRefs(slug)
   const refWorld = useMemo<RefWorld>(() => {
-    const handles = new Set<RefKind>(['item', 'agent', 'doc'])
+    // apps and panels open from anywhere (`useRefRoutes`): one engine request
+    const handles = new Set<RefKind>(['item', 'agent', 'doc', 'app', 'panel'])
     if (onOpenMail) handles.add('mail')
     return {
       org: slug,
@@ -1226,6 +1229,7 @@ export function DocketModal({ slug, toast, close, tree, onFocusAgent,
       itemTitles: new Map([...allKnown].map(([s, item]) => [s, item.title])),
       agents: new Map([...facts.keys()].map((id) => [id, id])),
       ...(agentOutcome ? { agentOutcome } : {}),
+      appRef,
       // ⚠ A NODE'S INBOX IS ONLY REAL IF THE NODE IS. The user's box and the
       // org's box always exist; a NODE box named after somebody this org has
       // never had (or who was dissolved out of the tree) does not, and the
@@ -1238,7 +1242,7 @@ export function DocketModal({ slug, toast, close, tree, onFocusAgent,
           : facts.has(String(r.node ?? '')) ? 'ready' : 'absent'),
       handles,
     }
-  }, [slug, data, allKnown, facts, onOpenMail, agentOutcome])
+  }, [slug, data, allKnown, facts, onOpenMail, agentOutcome, appRef])
   const [flash, setFlash] = useState<string | null>(null)
   const rows = useRef(new Map<string, HTMLDivElement>())
   const captureRow = useCallback((id: string, el: HTMLDivElement | null) => {
@@ -1339,6 +1343,7 @@ export function DocketModal({ slug, toast, close, tree, onFocusAgent,
       else if (!revealDetachedDocument(slug, r.ref.id)) setDocView(r.ref.id)
     }
     else if (r.ref.kind === 'mail') onOpenMail?.(r.ref)
+    else if (r.ref.kind === 'app' || r.ref.kind === 'panel') openAppRef(slug, r.ref)
   }, [goToItem, onFocusAgent, onOpenMail, onOpenDoc, slug])
 
   // the flash is a hint, not a state: it clears itself and never survives to

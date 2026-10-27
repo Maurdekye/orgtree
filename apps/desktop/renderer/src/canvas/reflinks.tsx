@@ -31,6 +31,8 @@ import { mailLinkProps } from './mailidentity'
 import { WorkRefText, parseRef, scanRefs } from './workrefs'
 import { splitInlineCodeSpans } from './shared'
 import { useHistoricalWorkReferences } from './workrefresolve'
+import { openAppRef, useAppRefs } from './apprefs'
+import type { AppRefAnswer } from './apprefs'
 import { agentReferences } from '../api'
 import type { TreePayload } from '../types'
 import type { MentionIndex, RefKind, TypedRef } from './workrefs'
@@ -71,6 +73,11 @@ export interface RefWorld {
    *  surface answers for the BOX (can I address it at all?) and the mail list
    *  answers for the message once it has loaded one. */
   mail?: (ref: TypedRef) => RefOutcome
+  /** what an app or panel mention names now, and its hover text (`apprefs.ts`:
+   *  one bounded read of the exact IDs on screen). Omitted means this surface
+   *  cannot say: the chip stays clickable, labelled with its ID, and the engine
+   *  refuses a target that has gone. */
+  appRef?: (ref: TypedRef) => AppRefAnswer
   /** THE AGENT WHOSE SURFACE THIS IS, when the surface has one.
    *
    *  A reference to the agent whose focused desk you are already reading is
@@ -120,7 +127,7 @@ export interface ResolvedRef {
 }
 
 const KIND_WORD: Record<TypedRef['kind'], string> = {
-  item: 'docket item', doc: 'document', agent: 'agent', mail: 'mail',
+  item: 'docket item', doc: 'document', agent: 'agent', mail: 'mail', app: 'app', panel: 'panel',
 }
 
 function boxWord(ref: TypedRef): string {
@@ -159,6 +166,16 @@ export function resolveRef(ref: TypedRef, world: RefWorld): ResolvedRef {
       ...(ref.kind === 'item' && world.itemTitles?.has(ref.id)
         ? { copyTitle: world.itemTitles.get(ref.id)! } : {}),
       why: `this ${kind} is not opened from this panel` }
+  }
+  // AN APP OR A PANEL is shown by its current name, and its hover text is the
+  // one its Apps menu row shows (USER 2026-10-27 m449dc0a35cbe; one link, one
+  // behaviour). A panel's label alone ("Panel 2") would not say which app.
+  if (ref.kind === 'app' || ref.kind === 'panel') {
+    const answer = world.appRef?.(ref) ?? { outcome: 'ready' as const }
+    return { ref, token, outcome: answer.outcome, label: answer.label ?? ref.id,
+      why: answer.outcome === 'ready' ? answer.title ?? `open the ${kind} ${ref.id}`
+        : answer.outcome === 'pending' ? `still loading this org's apps`
+          : `no ${kind} ${ref.id} in this org` }
   }
   if (ref.kind === 'mail') {
     const outcome = world.mail ? world.mail(ref) : 'ready'
@@ -322,18 +339,24 @@ export function useRefRoutes(org: string, agents: ReadonlyMap<string, unknown> |
   const inherited = useContext(ForegroundViewContext)
   const view = 'view' in routes ? routes.view : inherited
   const agentOutcome = useAgentOutcome(org, agents, view)
+  const appRef = useAppRefs(org)
   const world = useMemo<RefWorld>(() => {
     const handles = new Set<RefKind>()
     if (onOpenItem) handles.add('item')
     if (onFocusAgent) handles.add('agent')
     if (onOpenDoc) handles.add('doc')
     if (onOpenMail) handles.add('mail')
+    // EVERY SURFACE CAN OPEN AN APP OR A PANEL: it is one engine request that
+    // needs only the org, and the copy shows wherever its own window lives.
+    handles.add('app')
+    handles.add('panel')
     return {
       org,
       agents: agents
         ? new Map([...agents.keys()].map((id) => [id, id]))
         : 'loading',
       ...(agentOutcome ? { agentOutcome } : {}),
+      appRef,
       mail: (r) => (r.box !== 'node' ? 'ready'
         : !agents ? 'pending'
           : agentOutcome ? agentOutcome(String(r.node ?? ''))
@@ -343,7 +366,7 @@ export function useRefRoutes(org: string, agents: ReadonlyMap<string, unknown> |
       handles,
     }
   }, [org, agents, onOpenItem, onFocusAgent, onOpenDoc, onOpenMail,
-    destination, effectiveTierOf, agentOutcome])
+    destination, effectiveTierOf, agentOutcome, appRef])
   const onOpen = useCallback((r: ResolvedRef) => {
     // ⚠ THE DESTINATION IS NOT A ROUTE. A chip at its own desk renders inert,
     // but a click can still arrive — a keyboard, an old chip, a caller that
@@ -354,7 +377,8 @@ export function useRefRoutes(org: string, agents: ReadonlyMap<string, unknown> |
     else if (r.ref.kind === 'agent') onFocusAgent?.(r.ref.id)
     else if (r.ref.kind === 'doc') onOpenDoc?.(r.ref.id)
     else if (r.ref.kind === 'mail') onOpenMail?.(r.ref)
-  }, [onOpenItem, onFocusAgent, onOpenDoc, onOpenMail])
+    else if (r.ref.kind === 'app' || r.ref.kind === 'panel') openAppRef(org, r.ref)
+  }, [org, onOpenItem, onFocusAgent, onOpenDoc, onOpenMail])
   // ⚠ CALLERS PASS INLINE ARROWS, so `routes` is a fresh object each render
   // and this memo recomputes with it. Downstream compares by rendered
   // OUTCOME, so a new world object costs no rebuild; pinning the identity
@@ -585,6 +609,8 @@ export function RefChip({ r, onOpen }: {
       <button type="button" {...copy}
         {...(r.ref.kind === 'item' ? objectNavProps('ticket', r.ref.id, r.ref.org)
           : r.ref.kind === 'doc' ? objectNavProps('document', r.ref.id, r.ref.org)
+          // a panel link's menu is its Apps menu row's; an app row has none
+          : r.ref.kind === 'panel' ? objectNavProps('panel', r.ref.id, r.ref.org)
           : r.ref.kind === 'mail' && r.ref.box ? mailLinkProps({ ...r.ref, box: r.ref.box }) : {})}
         className={cls} title={r.ref.kind === 'item' ? r.copyTitle : r.ref.kind === 'doc' ? r.label : r.why}
         onMouseDown={(e) => { if (e.button !== 0) e.stopPropagation() }}

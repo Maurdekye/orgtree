@@ -152,6 +152,10 @@ function chipEl(doc: Document, r: ResolvedRef,
   if (live && r.ref.kind === 'doc') for (const [key, value] of Object.entries(objectNavProps('document', r.ref.id, r.ref.org))) {
     if (value !== undefined) el.setAttribute(key, value)
   }
+  // a panel link's menu is its Apps menu row's; an app row has none
+  if (live && r.ref.kind === 'panel') for (const [key, value] of Object.entries(objectNavProps('panel', r.ref.id, r.ref.org))) {
+    if (value !== undefined) el.setAttribute(key, value)
+  }
   if (live && r.ref.kind === 'mail' && r.ref.box) for (const [key, value] of Object.entries(mailLinkProps({ ...r.ref, box: r.ref.box }))) {
     if (value !== undefined) el.setAttribute(key, value)
   }

@@ -217,13 +217,13 @@ export function WorkRefText({ text, index, onPick, onFocusAgent }: {
 // id. A token whose org is not the one on screen must NEVER be resolved
 // locally — it is reported as belonging elsewhere.
 
-export type RefKind = 'item' | 'doc' | 'agent' | 'mail'
+export type RefKind = 'item' | 'doc' | 'agent' | 'mail' | 'app' | 'panel'
 export type MailBox = 'user' | 'org' | 'node'
 
 export interface TypedRef {
   kind: RefKind
   org: string
-  /** item slug · document id · node id · mail id */
+  /** item slug · document id · node id · mail id · app id · panel id */
   id: string
   /** mail only */
   box?: MailBox
@@ -252,12 +252,12 @@ const NODE = '[a-z0-9-]+(?:@[0-9]+)?'
  *  (so a match cannot be the prefix of a longer name), and a bare `@` — except
  *  when it opens another canonical token, because `…/alpha@item:org/beta` is
  *  two adjacent references and both must survive. */
-const END = '(?![A-Za-z0-9_/-])(?!@(?!(?:item|doc|agent|mail):))'
+const END = '(?![A-Za-z0-9_/-])(?!@(?!(?:item|doc|agent|mail|app|panel):))'
 
 /** the family, for scanning prose. Only the node positions admit `@`, and
  *  only as `@<digits>`, so a following `@item:…` is never swallowed. */
 export const REF_TOKEN_RE = new RegExp(
-  `@(?:(item|doc):(${SEG}/${SEG})`
+  `@(?:(item|doc|app|panel):(${SEG}/${SEG})`
   + `|(agent):(${SEG}/${NODE})`
   + `|(mail):(${SEG}/(?:user|org)/${SEG}|${SEG}/node/${NODE}/${SEG}))`
   + END, 'g')

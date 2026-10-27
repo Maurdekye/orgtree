@@ -15,6 +15,7 @@ import {usePanelMotion,type PanelMotion} from './motion'
 import {AppSettings,PanelSettings} from './settings'
 import {AppDialog as Dialog} from './dialog'
 import {PANEL_MIN,appPlacement,windowRect} from './placement'
+import {appLinkTitle,panelLinkMenu,panelRunState} from './links'
 import {pinSnapOn,useEsc} from '../shared'
 import {APP_BUNDLE_MAX,AppImport,parseAppBundle} from './portable'
 import type {AppBundle} from './portable'
@@ -60,10 +61,9 @@ export async function openAppPanel(slug:string,target:{panel:string}|{app:string
   if(shown.has(key(slug,opened.id)))raisers.get(key(slug,opened.id))?.()
   return opened
 }
-/** Visible => running; a hidden panel may still run (user 2026-10-26). */
-export function panelRunState(p:CustomPanel):{cls:string;word:string}{
-  return isRunning(p)?(p.open?{cls:'open',word:'Running · visible'}:{cls:'running',word:'Running · hidden'}):{cls:'',word:'Off'}
-}
+// The rows' hover text and panel menu are the app and panel LINKS', shared with
+// @app:/@panel: mention chips (one link, one behaviour).
+export {panelRunState}
 const cpuText=(cpu:number|null|undefined,method:string|null|undefined)=>cpu===null||cpu===undefined?'':`${cpu<10?cpu.toFixed(1):Math.round(cpu)}% CPU${method==='shared process CPU'?' (shared)':''}`
 function setMenu(value:Menu){menu=value;for(const fn of menuSubs)fn()}
 function useMenu(){return useSyncExternalStore(fn=>{menuSubs.add(fn);return()=>menuSubs.delete(fn)},()=>menu)}
@@ -111,13 +111,13 @@ function AppsMenu({slug,current,manage,managePanel,importApp}:{slug:string;curre
   // Start running never shows a window; Power off stops and hides it. Power
   // changes send no revision: a running panel's own saves keep bumping it.
   const power=async(p:CustomPanel,action:'panel_start'|'panel_stop')=>{try{await changeApps(slug,{action,panel:p.id})}catch(e){window.dispatchEvent(new CustomEvent('custom-app-error',{detail:{slug,error:String(e)}}))}}
-  const rowEntries=(p:CustomPanel):MenuEntry[]=>isRunning(p)?[{label:'Power off',onSelect:()=>void power(p,'panel_stop'),description:'Stops this panel and closes its window'}]:[{label:'Start running',onSelect:()=>void power(p,'panel_start'),description:'Runs this panel hidden, without opening its window'}]
+  const rowEntries=(p:CustomPanel):MenuEntry[]=>panelLinkMenu(slug,p)
   return createPortal(<div ref={ref} className="ctxmenu custom-apps-menu" role="dialog" aria-label="Apps" style={style}>
     <header><strong>Apps</strong><label className="custom-app-import-file">Import app<input type="file" aria-label="Import app" accept=".orgtree-app,.json,application/json" hidden onChange={async e=>{const file=e.target.files?.[0];e.target.value='';if(!file)return;try{if(file.size>APP_BUNDLE_MAX)throw Error('App bundle exceeds 16 MiB.');const bundle=parseAppBundle(await file.text());setMenu(null);importApp(bundle,owner)}catch(error){window.dispatchEvent(new CustomEvent('custom-app-error',{detail:{slug,error:String(error)}}))}}}/></label><button type="button" onClick={()=>void loadAppsMenu(slug)}>Refresh</button></header>
     {data.error&&<p role="alert">{data.error}</p>}
     {!data.apps.length&&!data.loading&&<p className="dim">Your apps will appear here.</p>}
     {data.apps.map(app=>{const rows=listed(app),recent=mostRecent(rows);return <section key={app.id} className="custom-apps-menu-group">
-      <div className="custom-apps-menu-app" data-new-app={app.is_new?app.id:undefined} onClick={()=>show(recent?{panel:recent.id}:{app:app.id})}><button type="button" className="custom-apps-open" title={recent?`Open ${recent.label}`:`Create a panel for ${app.name}`}><AppsIcon/><span><b>{app.name}</b><small>{app.description}</small></span></button>
+      <div className="custom-apps-menu-app" data-new-app={app.is_new?app.id:undefined} onClick={()=>show(recent?{panel:recent.id}:{app:app.id})}><button type="button" className="custom-apps-open" title={appLinkTitle(app.name,recent?.label)}><AppsIcon/><span><b>{app.name}</b><small>{app.description}</small></span></button>
         {(app.is_new||seenHere.has(app.id))&&<b className="custom-app-new-label">New</b>}
         <button type="button" className="custom-apps-add" title="New panel" aria-label={`New panel for ${app.name}`} onClick={e=>{e.stopPropagation();void open({action:'panel_open',app:app.id,new:true})}}><AddIcon/></button>
         <button type="button" title={`App settings: ${app.name}`} aria-label={`Settings for ${app.name}`} onClick={e=>{e.stopPropagation();setMenu(null);manage(app)}}><SettingsIcon/></button></div>

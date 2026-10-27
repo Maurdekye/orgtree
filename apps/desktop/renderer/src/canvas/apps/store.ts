@@ -18,9 +18,12 @@ const newestFirst=<T extends {id:string;created_at?:string}>(items:T[]):T[]=>[..
 function publish(s:Store,next:Partial<Snapshot>){if(next.apps)next={...next,apps:newestFirst(next.apps)};s.snapshot={...s.snapshot,...next};for(const fn of s.subs)fn()}
 const merge=<T extends {id:string}>(old:T[],items:T[]):T[]=>[...new Map([...old,...items].map(x=>[x.id,x])).values()]
 /** Execution intent; older payloads without it ran exactly while open. */
-export const isRunning=(p:CustomPanel):boolean=>p.running??p.open
+export const isRunning=(p:Pick<CustomPanel,'open'|'running'>):boolean=>p.running??p.open
 export function useApps(slug:string):Snapshot {const s=store(slug);return useSyncExternalStore(fn=>{s.subs.add(fn);return()=>s.subs.delete(fn)},()=>s.snapshot)}
-export function invalidateCustomApps(slug:string):void {const s=store(slug);if(s.active)void refreshApps(slug);changed(slug,{})}
+const invalidated=new Set<(slug:string)=>void>()
+/** Told of every app change for an org, active or not: mention chips re-read their names. */
+export function onAppsInvalidated(fn:(slug:string)=>void):()=>void {invalidated.add(fn);return()=>invalidated.delete(fn)}
+export function invalidateCustomApps(slug:string):void {const s=store(slug);if(s.active)void refreshApps(slug);changed(slug,{});for(const fn of invalidated)fn(slug)}
 /** What a live change touched: one copy's History (an app's own fire), or anything in Apps. */
 export interface AppsLogChange {panel?:string}
 const logs=new Map<string,Set<(change:AppsLogChange)=>void>>()
