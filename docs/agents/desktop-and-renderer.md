@@ -277,7 +277,9 @@ Three user requests, one rule: a mention is one gesture away.
 The two row gestures share `canvas/rowcopy.tsx` (`useRowCopy`): the guard for
 embedded controls, the selection clear, the clipboard write on the row's own
 window and the `Copied!` bubble, moved out of `DocketRow` unchanged. The row needs
-`position: relative` (`.docket-row`, `.doc-gallery-row`). Tests:
+`position: relative` (`.docket-row`, `.doc-gallery-row`), and no wrapping rule may reach the
+bubble: `.desk-presented-card span` excludes it (`:not(.docket-copied)`), after it broke into
+three lines in the scaled desk row (capture, 2026-10-28). Tests:
 `tests/mentioncopy.test.tsx`, `tests/contextmenu.test.tsx` §B4b,
 `tests/appmentions.test.tsx`; clipboard stubbed.
 [verified: `canvas/rowcopy.tsx`, `canvas/docket.tsx`, `canvas/gallery.tsx`, `canvas/apps/links.ts`]

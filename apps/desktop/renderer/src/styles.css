@@ -2920,7 +2920,7 @@ button.cc-name:focus-visible {
   padding: 1px 4px 4px 0;
 }
 .desk-presented-card { max-width: 100%; }
-.desk-presented-card span { overflow-wrap: anywhere; white-space: normal; }
+.desk-presented-card span:not(.docket-copied) { overflow-wrap: anywhere; white-space: normal; }  /* not the Copied! bubble (rowcopy.tsx): wrapped here it broke into three lines */
 .desk-presented-empty { margin: 0; }
 .doc-reader { width: min(760px, 92vw); display: flex;
   flex-direction: column; }
