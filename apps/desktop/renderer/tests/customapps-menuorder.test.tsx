@@ -105,3 +105,12 @@ test('each app and its panels form one block, and its panel rows sit in their ow
  assert.ok(menuRules.length>10)
  for(const rule of menuRules)assert.doesNotMatch(rule,/var\(--(border|muted|hover|text)\)/,`undefined theme colour in ${rule.split('{')[0].trim()}`)
 })
+
+// USER 2026-10-27 m45499a3c150f, on the in-app note "Panels are custom views; they run only while Orgtree is open, tray
+// included.": "remove this annotation". The fact stays in the agent tool text, the glossary and the user docs.
+test('the Apps list carries no annotation about when panels run',async t=>{
+ const f=await workspace(t,'menu-no-note');await f.toggle()
+ assert.ok(f.menu().querySelectorAll('.custom-apps-saved-row').length>0,'panels are listed, the case that showed the note')
+ assert.equal(f.menu().querySelectorAll('.custom-apps-note').length,0,'no note element')
+ assert.equal(/run only while|custom views|tray included/i.test(f.menu().textContent??''),false,'no wording about when panels run')
+})
