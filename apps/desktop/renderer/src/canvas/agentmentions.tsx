@@ -262,7 +262,7 @@ export function useAgentMentions({
   // opens, and an arrival must not move the highlight to another entry
   const [selection, setSelection] = useState<{ key: string | null; index: number; pick?: string }>({ key: null, index: -1 })
   const [dismissedKey, setDismissedKey] = useState<string | null>(null)
-  const [rect, setRect] = useState<{ left: number; bottom: number; width: number } | null>(null)
+  const [rect, setRect] = useState<MentionListPlace | null>(null)
 
   const syncCaret = useCallback(() => {
     const el = inputRef.current
@@ -404,11 +404,7 @@ export function useAgentMentions({
     const update = () => {
       const r = el.getBoundingClientRect()
       const win = el.ownerDocument?.defaultView ?? window
-      setRect({
-        left: Math.max(8, r.left),
-        bottom: Math.max(8, win.innerHeight - r.top + 4),
-        width: Math.max(180, Math.min(320, r.width || 220)),
-      })
+      setRect(placeMentionList(r, win.innerHeight))
     }
     update()
     window.addEventListener('resize', update)
@@ -449,17 +445,13 @@ export function useAgentMentions({
       complete(pick)
       return true
     }
-    if (e.key === 'ArrowDown') {
+    // the arrows follow the screen: a list below its box shows the entries
+    // the other way up (the best match next to the box), so they swap
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
       e.preventDefault()
       e.stopPropagation()
-      const next = (clampedIndex + 1) % matches.length
-      setSelection({ key: queryKey, index: next, pick: mentionKey(matches[next]!) })
-      return true
-    }
-    if (e.key === 'ArrowUp') {
-      e.preventDefault()
-      e.stopPropagation()
-      const next = (clampedIndex - 1 + matches.length) % matches.length
+      const step = (e.key === 'ArrowDown') === !rect?.below ? 1 : -1
+      const next = (clampedIndex + step + matches.length) % matches.length
       setSelection({ key: queryKey, index: next, pick: mentionKey(matches[next]!) })
       return true
     }
@@ -471,7 +463,7 @@ export function useAgentMentions({
       return true
     }
     return false
-  }, [open, matches, clampedIndex, complete, queryKey])
+  }, [open, matches, clampedIndex, complete, queryKey, rect?.below])
 
   const menuRef = useRef<HTMLDivElement | null>(null)
   useLayoutEffect(() => {
@@ -485,10 +477,13 @@ export function useAgentMentions({
     ? createPortal(
         <div
           ref={menuRef}
-          className="agent-mentions"
+          className={'agent-mentions' + (rect?.below ? ' below' : '')}
           role="listbox"
           aria-label="Agent, project, ticket and presentation mentions"
-          style={rect ? { position: 'fixed', left: rect.left, bottom: rect.bottom, minWidth: rect.width, zIndex: 10000 } : undefined}
+          style={rect ? {
+            position: 'fixed', left: rect.left, minWidth: rect.width, maxHeight: rect.maxHeight, zIndex: 10000,
+            ...(rect.below ? { top: rect.top } : { bottom: rect.bottom }),
+          } : undefined}
         >
           {matches.map((c, idx) => (
             <button
@@ -522,6 +517,34 @@ export function useAgentMentions({
     : null
 
   return { onKeyDown, syncCaret, menu, captureMention, noteRightClickDown }
+}
+
+/** Where the @ list sits: above its box, the best match (the last entry)
+ *  next to the box; or, with too little room above, below it, the other way
+ *  up (`.agent-mentions.below`, column-reverse) so the best match is next to
+ *  the box again. Quick chat in the window's header has no room above (alpha.5
+ *  hands-on check 2026-10-27: the list opened off the top of the window). */
+export interface MentionListPlace {
+  left: number; width: number; maxHeight: number; below: boolean
+  /** from the window's bottom edge, above the box */
+  bottom?: number
+  /** from the window's top edge, below the box */
+  top?: number
+}
+/** the list's tallest (styles.css `.agent-mentions` max-height) */
+export const MENTION_LIST_MAX = 220
+
+export function placeMentionList(box: { left: number; top: number; bottom: number; width: number }, viewHeight: number): MentionListPlace {
+  const room = { above: box.top - 12, below: viewHeight - box.bottom - 12 }
+  // a box with no height has no layout (jsdom, a hidden composer): above, as ever
+  const below = box.bottom > box.top && room.above < MENTION_LIST_MAX && room.below > room.above
+  return {
+    left: Math.max(8, box.left),
+    width: Math.max(180, Math.min(320, box.width || 220)),
+    maxHeight: Math.max(48, Math.min(MENTION_LIST_MAX, below ? room.below : room.above)),
+    below,
+    ...(below ? { top: box.bottom + 4 } : { bottom: Math.max(8, viewHeight - box.top + 4) }),
+  }
 }
 
 export const DESK_MENTION_ATTR = 'data-desk-mention-scope'

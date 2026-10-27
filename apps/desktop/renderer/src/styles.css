@@ -9866,6 +9866,10 @@ button.mail-tag-link:hover, .settings button.mail-tag-link:hover { background:no
   background: var(--panel); border: 1px solid var(--line);
   box-shadow: 0 8px 24px rgba(0, 0, 0, .45);
 }
+/* below its box (no room above, as for Quick chat in the header): the other
+   way up, so the best match, the last entry, is next to the box
+   (agentmentions.tsx placeMentionList) */
+.agent-mentions.below { flex-direction: column-reverse; }
 .agent-mention-item {
   display: flex; align-items: center; gap: 6px;
   width: 100%; padding: 4px 8px; border-radius: 4px;
