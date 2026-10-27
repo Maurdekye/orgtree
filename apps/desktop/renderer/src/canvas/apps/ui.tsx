@@ -129,6 +129,9 @@ function AppsMenu({slug,current,manage,managePanel,importApp}:{slug:string;curre
     </section>})}
     {data.appNext&&<button type="button" onClick={()=>void loadAppsMenu(slug,'apps')}>More apps</button>}
     {data.panelNext&&<button type="button" onClick={()=>void loadAppsMenu(slug,'panels')}>More saved panels</button>}
+    {/* User 2026-10-27: panels are custom views for the user, not background
+        programs, and run only while the main window is open (m49226c1da1fb, me7bdb85fd566). */}
+    {data.panels.length>0&&<p className="dim custom-apps-note">Panels are custom views; they run only while the Orgtree main window is open.</p>}
     {rowMenu.node}
   </div>,owner.body)
 }
