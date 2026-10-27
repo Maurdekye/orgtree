@@ -56,7 +56,7 @@ export default async function(rig){
 
   // the engine's bounded read
   const read=q=>rig.api('GET',`${root}/mention-candidates?${new URLSearchParams(q)}`)
-  const shown=i=>i.kind==='item'?i.id:i.label   // as the list names each row
+  const shown=i=>i.label   // as the list names each row: a ticket by its full title too
   const capt=await read({q:'capt'})
   const captOrder=(capt.items??[]).map(i=>`${i.kind}:${i.id}`)
   // the app and its copy share the copy's last use (then by name); the ticket and the deck were made before

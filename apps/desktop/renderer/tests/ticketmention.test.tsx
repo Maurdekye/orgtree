@@ -309,24 +309,25 @@ test('the agent desk @-completion offers current and backlogged tickets, newest 
 
   await typeInto(box, 'Ask @parity')
   assert.ok(document.querySelector('.agent-mentions'), 'the @ list opened')
-  assert.deepEqual(ticketRows().sort(), ['parity-backlog', 'parity-ticket'], `current and backlogged tickets, never archived (${JSON.stringify(rowNames())})`)
-  const row = rows().find(r => r.querySelector('.agent-mention-name')?.textContent === 'parity-ticket')!
+  // each ticket by its full title (USER 2026-10-27 m3eb804e5023a); its slug is what completing it inserts
+  assert.deepEqual(ticketRows().sort(), ['Composer completes tickets', 'Title of parity-backlog'], `current and backlogged tickets, never archived (${JSON.stringify(rowNames())})`)
+  const row = rows().find(r => r.querySelector('.agent-mention-name')?.textContent === 'Composer completes tickets')!
   assert.equal(row.getAttribute('data-object-tooltip-kind'), 'ticket', 'a ticket row hovers with the shared ticket identity')
   assert.equal(row.getAttribute('data-object-tooltip-id'), 'parity-ticket')
   assert.equal(row.getAttribute('data-object-tooltip-org'), org)
-  assert.equal(rowNames().at(-1), 'parity-ticket', 'the most recently updated current ticket sits nearest the box')
+  assert.equal(rowNames().at(-1), 'Composer completes tickets', 'the most recently updated current ticket sits nearest the box')
   await press(box, 'Tab')
   assert.equal(box.value, 'Ask @item:tm-complete/parity-ticket ', 'Tab inserts the ticket reference')
   assert.equal(document.querySelector('.agent-mentions'), null, 'the list closes on completion')
 
   // a title word finds the ticket too
   await typeInto(box, 'Ask @composer')
-  assert.deepEqual(ticketRows(), ['parity-ticket'], 'title words match')
+  assert.deepEqual(ticketRows(), ['Composer completes tickets'], 'title words match')
 
   // newest first across kinds (USER 2026-10-27 m79e889ce1609): a ticket changed on Oct 22 comes before
   // agents with no known activity, which follow by name; drawn bottom-up, the best sits nearest the box
   await typeInto(box, 'Ask @worker-')
-  assert.deepEqual(rowNames(), ['@worker-beta', '@worker-alpha', 'worker-guide'], `newest first, then by name (${JSON.stringify(rowNames())})`)
+  assert.deepEqual(rowNames(), ['@worker-beta', '@worker-alpha', 'Title of worker-guide'], `newest first, then by name (${JSON.stringify(rowNames())})`)
   await press(box, 'Tab')
   assert.equal(box.value, 'Ask @item:tm-complete/worker-guide ', 'Tab completes the newest')
 })
@@ -350,7 +351,7 @@ test('a ticket mentioned in the open transcript is offered first, like a recentl
   await inAct(async () => { await refreshConvo(org, 'worker-alpha'); await flush(8) })
   const box = v.el.querySelector<HTMLTextAreaElement>('fieldset.desk-control-scope textarea')!
   await typeInto(box, '@parity')
-  assert.equal(rowNames().at(-1), 'parity-backlog', `the transcript's ticket sits nearest the box (${JSON.stringify(rowNames())})`)
+  assert.equal(rowNames().at(-1), 'Title of parity-backlog', `the transcript's ticket sits nearest the box (${JSON.stringify(rowNames())})`)
   await press(box, 'Enter')
   assert.equal(box.value, '@item:tm-recent/parity-backlog ')
 })
@@ -378,7 +379,7 @@ test('the project desk composer offers tickets in its @-completion', async t => 
   const box = v.el.querySelector<HTMLTextAreaElement>('.project-composer textarea')!
   assert.ok(box, 'project composer rendered')
   await typeInto(box, 'Team, see @project-t')
-  assert.deepEqual(ticketRows(), ['project-ticket'], `project composer lists the ticket (${JSON.stringify(rowNames())})`)
+  assert.deepEqual(ticketRows(), ['Title of project-ticket'], `project composer lists the ticket (${JSON.stringify(rowNames())})`)
   await press(box, 'Tab')
   assert.equal(box.value, 'Team, see @item:tm-project/project-ticket ')
 })
@@ -407,7 +408,7 @@ test('Quick chat offers tickets in its @-completion from the engine\'s read of l
   t.after(() => view.unmount())
   const box = view.el.querySelector<HTMLInputElement>('.quickchat-input')!
   await typeInto(box, 'ping @quick')
-  assert.deepEqual(ticketRows().sort(), ['quick-backlog', 'quick-ticket'], `quick chat lists tickets (${JSON.stringify(rowNames())})`)
+  assert.deepEqual(ticketRows().sort(), ['Title of quick-backlog', 'Title of quick-ticket'], `quick chat lists tickets (${JSON.stringify(rowNames())})`)
   assert.ok(requests.length && requests.every(k => k === 'item,doc,app,panel'), `one read for every kind the engine offers (${requests})`)
   await press(box, 'Tab')
   assert.equal(box.value, 'ping @item:tm-quick/quick-ticket ', 'the newest ticket completes first')

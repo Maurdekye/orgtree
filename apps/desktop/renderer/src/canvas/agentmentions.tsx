@@ -586,7 +586,7 @@ export function useAgentMentions({
                 + (idx === clampedIndex ? ' active on' : '')}
               // a ticket hovers with the one ticket identity every ticket link shows, a presentation with its own;
               // an app or panel with the reference it inserts
-              {...(c.kind === 'ticket' ? { ...objectTooltipProps('ticket', c.id, c.org), 'aria-label': `ticket ${c.id}` }
+              {...(c.kind === 'ticket' ? { ...objectTooltipProps('ticket', c.id, c.org), 'aria-label': `ticket ${c.title || c.id}` }
                 : c.kind === 'presentation' ? { ...objectTooltipProps('document', c.id, c.org), 'aria-label': `presentation ${c.title || c.id}` }
                   : c.kind === 'app' || c.kind === 'panel' ? { title: mentionText(c), 'aria-label': `${c.kind} ${c.title || c.id}` } : {})}
               onMouseDown={e => {
@@ -602,8 +602,9 @@ export function useAgentMentions({
                   : c.kind === 'app' || c.kind === 'panel'
                     ? <span className={`mention-${c.kind}-mark`} aria-hidden="true"><RefMark kind={c.kind} /></span>
                     : <TierChip tier={c.kind === 'project' ? 'project' : c.tier} />}
-              {/* a presentation, app or panel is shown by its name; completing it inserts its slug's reference */}
-              <span className="agent-mention-name">{c.kind === 'agent' || c.kind === 'project' ? '@' + c.id : c.kind === 'ticket' ? c.id : c.title || c.id}</span>
+              {/* a ticket (by its full title, USER 2026-10-27 m3eb804e5023a), presentation, app or panel is shown by
+                  its name; completing it inserts its slug's reference */}
+              <span className="agent-mention-name">{c.kind === 'agent' || c.kind === 'project' ? '@' + c.id : c.title || c.id}</span>
             </button>
           ))}
         </div>,

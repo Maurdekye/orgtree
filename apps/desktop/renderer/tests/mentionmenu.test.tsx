@@ -111,7 +111,7 @@ test('§2 one order for every kind: the latest mention, use or presenting first,
   // boss worked at 10:20; writer last worked at 09:00 but was mentioned in mail at 10:07; the project has no time
   const box = await mount(t, 'acme', [agent('boss', '2026-10-27T10:20:00Z'), agent('writer', '2026-10-27T09:00:00Z'), project('launch')])
   await typeInto(box, '@')
-  assert.deepEqual(ranked(), ['@boss', 'Notes', '@writer', 'fix-login', 'Weekly status', '@launch'],
+  assert.deepEqual(ranked(), ['@boss', 'Notes', '@writer', 'Fix the login page', 'Weekly status', '@launch'],
     'boss worked 10:20, the Notes app changed 10:10, writer was mentioned 10:07, the ticket changed 10:05, the presentation 10:00; '
     + 'the project with no known time last; the dismissed Draft is never offered')
 })
@@ -136,7 +136,7 @@ test('§3 a kind prefix lists only that kind, all of it; text after the colon fi
   await press(box, 'Tab')
   assert.equal(box.value, 'see @doc:acme/weekly-status ', 'picking inserts the normal mention')
   await typeInto(box, 'see @item:')
-  assert.deepEqual([kinds(), ranked()], [['ticket'], ['fix-login', 'weekly-plan']])
+  assert.deepEqual([kinds(), ranked()], [['ticket'], ['Fix the login page', 'Weekly plan']], 'tickets by their full titles')
   await typeInto(box, 'see @app:')
   assert.deepEqual([kinds(), ranked()], [['app'], ['Notes']])
   await typeInto(box, 'see @panel:')

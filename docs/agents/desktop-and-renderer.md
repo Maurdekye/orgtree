@@ -1786,7 +1786,8 @@ name.
   engine page, as do the arrow keys near the end.
 - The menu ranks with the window's rows: a typed word narrows without
   reordering, and the engine's `q` filter is the same every-word-in-name-or-id
-  rule.
+  rule. A row shows a ticket's full title, like a presentation's (USER
+  m3eb804e5023a); the slug stays in its tooltip and in what Tab inserts.
 - `@project:<org>/<name>` (USER md30a04a62550) parses as a node reference with
   `as: 'project'`; `projectFormPlain` leaves it plain text unless it names a
   live project here (another org's keeps its chip); `refToken` keeps the form.
