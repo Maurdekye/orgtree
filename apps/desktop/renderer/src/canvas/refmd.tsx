@@ -38,6 +38,7 @@ import type { MentionRef } from './workrefs'
 import { useContextMenu } from './contextmenu'
 import { USER_IDENTITY_TITLE, userMenuEntries } from './useridentity'
 import { localFileLinkAt } from './localfile'
+import { createRefMarkEl, hasRefMark } from './refmarks'
 
 /** the attribute that makes an injected chip findable again on the next pass.
  *  It holds the ORIGINAL TOKEN, so undoing the injection is exact — the chip's
@@ -160,6 +161,8 @@ function chipEl(doc: Document, r: ResolvedRef,
     if (value !== undefined) el.setAttribute(key, value)
   }
   if (r.copyTitle !== undefined) el.setAttribute('data-copy-ticket-title', r.copyTitle)
+  // the kind's mark on the left of a resolved chip, as `RefChip` draws it
+  if (r.outcome === 'ready' && hasRefMark(r.ref.kind)) el.appendChild(createRefMarkEl(doc, r.ref.kind))
   // ⚠ APPENDED, NOT ASSIGNED: `textContent =` wipes the model icon above.
   //
   // ⚠ THE TOKEN IS SHOWN ON A FAILED REF, the label only on a live one —
@@ -298,7 +301,9 @@ function mentionEl(doc: Document, ref: MentionRef,
   if (ref.kind === 'item' && ref.title !== undefined) {
     el.setAttribute('data-copy-ticket-title', ref.title)
   }
-  el.textContent = slug
+  // a live ticket link wears the docket mark, as `WorkRefText` draws it
+  if (live) el.appendChild(createRefMarkEl(doc, 'item'))
+  el.appendChild(doc.createTextNode(slug))
   return el
 }
 

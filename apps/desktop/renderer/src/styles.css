@@ -9928,6 +9928,31 @@ button.node-link.node-link:focus-visible {
   flex: none; display: inline-grid; place-items: center;
   vertical-align: middle; margin: 0; text-decoration: none;
 }
+/* EVERY MENTION WEARS ITS KIND ON THE LEFT (USER 2026-10-27 m6d0cdc7a2be6
+   "style the mention uniquely ... like how agent mentions are styled",
+   m33e4a043b457 "tickets / presentations ... with an icon to the left"): a
+   ticket, a document, an app and a panel each show their own icon (refmarks.tsx)
+   the way an agent shows its model badge and a project its folder, in the
+   theme's accent like that folder. The name reads like an agent's: strong at
+   rest, the link colour and an underline only while hovered or focused.
+   Baseline-aligned so the name sits on the sentence's line; the mark centres. */
+.ref-chip.ref-chip.ref-ready:is(.ref-item, .ref-doc, .ref-app, .ref-panel),
+.docket-modal .docket-ref.docket-ref:has(> .ref-mark) {
+  display: inline-flex; align-items: baseline; gap: 0.3em;
+  vertical-align: baseline; max-width: 100%;
+  color: var(--ink-strong); text-decoration: none;
+}
+button.ref-chip.ref-chip.ref-ready:is(.ref-item, .ref-doc, .ref-app, .ref-panel):is(:hover, :focus-visible),
+.docket-modal .docket-ref.docket-ref:has(> .ref-mark):is(:hover, :focus-visible) {
+  color: var(--agent-accent-text, var(--accent));
+  text-decoration: underline; text-underline-offset: 2px;
+}
+.ref-mark {
+  flex: none; align-self: center; display: inline-grid; place-items: center;
+  width: 1.15em; height: 1.15em; font-size: 1.1em; line-height: 1;
+  color: var(--org-accent, var(--accent)); text-decoration: none;
+}
+.ref-mark svg { width: 1em; height: 1em; }
 .ref-chip.ref-hub { cursor: pointer; }
 .ref-chip.ref-hub.inert, .ref-chip.ref-hub:disabled {
   opacity: .72; cursor: not-allowed; text-decoration: none;

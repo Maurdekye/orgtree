@@ -29,6 +29,7 @@ import { UserIdentityLink } from './useridentity'
 import { objectNavProps } from './objectnav'
 import { mailLinkProps } from './mailidentity'
 import { WorkRefText, parseRef, scanRefs } from './workrefs'
+import { RefMark, hasRefMark } from './refmarks'
 import { splitInlineCodeSpans } from './shared'
 import { useHistoricalWorkReferences } from './workrefresolve'
 import { openAppRef, useAppRefs } from './apprefs'
@@ -615,13 +616,14 @@ export function RefChip({ r, onOpen }: {
         className={cls} title={r.ref.kind === 'item' ? r.copyTitle : r.ref.kind === 'doc' ? r.label : r.why}
         onMouseDown={(e) => { if (e.button !== 0) e.stopPropagation() }}
         onClick={(e) => { e.stopPropagation(); onOpen(r) }}>
-        {r.label}
+        {hasRefMark(r.ref.kind) && <RefMark kind={r.ref.kind} />}{r.label}
       </button>
     )
   }
   if (r.outcome === 'ready') {
     return <span {...copy} className={cls} title={r.why}
-      onMouseDown={(e) => { if (e.button !== 0) e.stopPropagation() }}>{r.label}</span>
+      onMouseDown={(e) => { if (e.button !== 0) e.stopPropagation() }}>
+      {hasRefMark(r.ref.kind) && <RefMark kind={r.ref.kind} />}{r.label}</span>
   }
   // ⚠ THE TOKEN IS SHOWN ON A FAILED REF, not the bare id. Whoever has to fix
   // the reference needs to see what was actually written, and on `foreign`

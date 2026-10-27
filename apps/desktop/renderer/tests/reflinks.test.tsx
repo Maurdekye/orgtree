@@ -344,6 +344,9 @@ test('§10b a chip\'s only element child is its LAST one', async () => {
   // which is a structural fact, so it is asserted rather than left to a page
   // that happens not to punctuate. (refchip_probe measures the rendered half
   // in a real browser; this is the half that needs no Edge.)
+  // A RESOLVED chip's one element is its kind's mark, on the left (USER
+  // 2026-10-27 m33e4a043b457); the name after it is text, so the mark is still
+  // the chip's last element and nothing can be painted between its parts.
   for (const w of [world({ items: new Map() }), world({ items: 'loading' }),
     world()] as RefWorld[]) {
     const r = decide(`@item:${HERE}/alpha`, w)
@@ -353,8 +356,9 @@ test('§10b a chip\'s only element child is its LAST one', async () => {
     assert.ok(chip.children.length <= 1,
       `${r.outcome}: ${chip.children.length} element children`)
     if (chip.children.length === 1) {
-      assert.ok(chip.lastElementChild!.classList.contains('ref-why'),
-        `${r.outcome}: the element inside the chip is not the verdict`)
+      const one = r.outcome === 'ready' ? 'ref-mark' : 'ref-why'
+      assert.ok(chip.lastElementChild!.classList.contains(one),
+        `${r.outcome}: the element inside the chip is not the ${r.outcome === 'ready' ? 'mark' : 'verdict'}`)
     }
     await view.unmount()
   }
