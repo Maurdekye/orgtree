@@ -182,6 +182,9 @@ pub const REFS_MAX: usize = 64;
 
 /// The presentations these references name in this org, with their slug and
 /// current title. A reference that names none is left out of the answer.
+/// `at` (moved by every replace) and `viewed_at` (the user's last open) are the
+/// gallery rows' own, so a mention can say unread or modified since read
+/// (USER 2026-10-27 m919f12828686; canvas/docviewed.ts).
 #[logged]
 async fn refs(client: &tokio_postgres::Client, org_id: i64, raw: &str) -> ApiResult<Json<Value>> {
     let asked: Vec<String> = raw.split(',').map(str::trim).filter(|s| !s.is_empty()).map(str::to_string).collect();
@@ -190,7 +193,7 @@ async fn refs(client: &tokio_postgres::Client, org_id: i64, raw: &str) -> ApiRes
     }
     let rows = client
         .query(
-            "SELECT r.ref, d.slug, d.title, d.format FROM unnest($2::text[]) WITH ORDINALITY AS r(ref, n)
+            "SELECT r.ref, d.slug, d.title, d.format, d.at, d.viewed_at FROM unnest($2::text[]) WITH ORDINALITY AS r(ref, n)
                JOIN ot.documents d ON d.id = ot.document_ref($1, r.ref) ORDER BY r.n",
             &[&org_id, &asked],
         )
@@ -198,7 +201,7 @@ async fn refs(client: &tokio_postgres::Client, org_id: i64, raw: &str) -> ApiRes
     let found: Vec<Value> = rows
         .iter()
         .map(|r| json!({ "ref": r.get::<_, String>(0), "id": r.get::<_, String>(1), "title": r.get::<_, String>(2),
-                         "format": r.get::<_, String>(3) }))
+                         "format": r.get::<_, String>(3), "at": iso(r.get(4)), "viewed_at": iso_opt(r.get(5)) }))
         .collect();
     Ok(Json(json!({ "refs": found })))
 }

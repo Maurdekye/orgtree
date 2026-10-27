@@ -241,9 +241,13 @@ async fn old_ids_resolve_on_every_route_after_the_upgrade() {
     assert!(page["documents"].as_array().unwrap().iter().all(|d| !d["id"].as_str().unwrap().starts_with("d00000000")), "the gallery lists slugs");
     let Json(refs) = crate::http::docs::list(State(e.clone()), Path(slug.clone()),
         q(json!({ "refs": format!("{old},launch-deck,missing,d00000000c009") }))).await.unwrap();
-    assert_eq!(refs["refs"], json!([
-        { "ref": old, "id": "weekly-status", "title": "Weekly status", "format": "markdown" },
-        { "ref": "launch-deck", "id": "launch-deck", "title": "Launch deck", "format": "html" }]));
+    let labels: Vec<Value> = refs["refs"].as_array().unwrap().iter()
+        .map(|r| json!({ "ref": r["ref"], "id": r["id"], "title": r["title"], "format": r["format"] })).collect();
+    assert_eq!(labels, vec![
+        json!({ "ref": old, "id": "weekly-status", "title": "Weekly status", "format": "markdown" }),
+        json!({ "ref": "launch-deck", "id": "launch-deck", "title": "Launch deck", "format": "html" })]);
+    // the read times a mention tells unread from modified with (ref flares)
+    assert!(refs["refs"].as_array().unwrap().iter().all(|r| r["at"].is_string() && r.get("viewed_at").is_some()), "{refs}");
     // one more than http::docs::REFS_MAX (64)
     let many = (0..=64).map(|n| format!("r{n}")).collect::<Vec<_>>().join(",");
     assert!(crate::http::docs::list(State(e.clone()), Path(slug.clone()), q(json!({ "refs": many }))).await.is_err(), "bounded");
