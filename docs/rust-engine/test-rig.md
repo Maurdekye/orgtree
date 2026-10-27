@@ -711,7 +711,14 @@ after seeding. Migrated templates are cached under `<rig home>\pg\template30-*` 
 
 - Git Bash rewrites `/api/...` arguments into `C:/Program Files/Git/api/...`; `rig api` undoes it,
   other tools need `MSYS_NO_PATHCONV=1`.
-- A turn's prompt is long (ORG STATE, mail envelopes); match on a token you put in the mail.
+- A turn's prompt is long (ORG STATE, mail envelopes); match on a token you put in the mail,
+  and not on a word from the org's name: its slug is in every full ORG STATE header, so a
+  `ROW-TOKENS` match in an org named "Synthetic row tokens" ran on every first turn
+  (2026-10-27). `once: true` keeps a script to one turn.
+- A proof whose seats take turns, run in Session 0 while the user is signed in (as window
+  captures must be), has no sign-in helper: measured 2026-10-27, the first Codex turn waited
+  31 s for one, then failed to launch with `snapshot reference registration stopped`. Unless
+  the proof is about placement, return `session0: '0'` from its `setup()` (`--session0 0`).
 - The engine log carries prompt text too: logged functions log their return values, so an
   agent's instructions ("as it was when your CLI started") appear under its name. Match an
   engine line by its target and message, e.g. a harness launch by
