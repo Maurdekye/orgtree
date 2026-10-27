@@ -57,7 +57,9 @@ process), and a Power off button. Right-click a row for Start running (stopped
 rows; runs it without opening its window) or Power off (running rows). Opening a stopped panel starts it. Stop all powers off every app panel;
 releasing Stop all starts none of them.
 
-Panels run only while the desktop app is open, including in the tray. Hidden
+Panels are custom views, not background programs (user 2026-10-27): they run
+only while the Orgtree main window is open, including in the tray, as the Apps
+menu notes under the saved panels. Hidden
 panels keep their timers, messages and Dedicated Workers running at full speed; a
 window that hosts running panels is never throttled. Animation frames run only
 while a panel shows, so apps tick game loops from timers. Closing one of several org windows that runs

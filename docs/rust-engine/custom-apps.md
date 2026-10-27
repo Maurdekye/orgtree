@@ -12,6 +12,16 @@ only in the desktop app, including the tray, with no count cap. The window
 header's Hide is its far-right X, after Power off (USER2026-10-26 m02d3caf61db2,
 m4bff476c3659).
 
+USER 2026-10-27 (m49226c1da1fb "for now make sure its known that rhey only run
+while the main window is open"; principle me7bdb85fd566: apps are a custom UI for
+the user to manipulate data in a structured way, not persistent program
+environments): the Apps menu shows "Panels are custom views; they run only while
+the Orgtree main window is open." under the saved panels, and the orgtree_apps
+description and the app_listener event_name field carry the same clause. A main
+window closed to the tray stays alive and keeps its panels running
+(`main/window-close.ts`, `main/windows.ts`); quitting stops them. Running after
+the main window closes is backlogged.
+
 Migration 0067 adds is_running and run_generation (>0) with CHECK (NOT is_open
 OR is_running); copies open at migration become running. Panel metadata reports
 running/run_generation and list kind:panels filters running. Under the existing

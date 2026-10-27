@@ -43,8 +43,10 @@ Wherever the listener's watchdog is shown, it names its app, its panel (or all
 panels) and its event by their current names (user 2026-10-27).
 
 When an agent builds an app for you, it follows Orgtree's app-creation
-instructions (user 2026-10-27): it creates the app with its declared events,
-creates a panel for it and listens to that panel's events, not to every copy.
+instructions (user 2026-10-27). An app is a custom view for working with your
+data in a structured way, not a program that keeps running on its own. The agent
+creates the app with its declared events, creates a panel for it and listens to
+that panel's events, not to every copy.
 The new panel waits closed in Apps; open it there. Each declared event that
 copy fires reaches the agent; a copy you make later is not heard until the
 agent listens to it too.
@@ -188,8 +190,10 @@ core; "(shared)" means the figure covers the whole renderer process that the
 panel shares with others. Right-click a stopped panel's row and choose **Start
 running** to run it without opening its window. Opening a stopped panel starts it.
 
-Panels run only while Orgtree's desktop app is open, including when it sits in the
-tray; quitting stops them. When you start Orgtree again, each panel comes back as
+Panels are custom views for working with your data, not programs that run on
+their own (user 2026-10-27), so they run only while Orgtree's main window is
+open, including when it sits in the tray; the Apps menu says so under your saved
+panels. Quitting Orgtree stops them. When you start Orgtree again, each panel comes back as
 it was: running hidden, visible where you placed it, or off. Hidden panels keep
 their timers, messages and background work running at full speed, also while
 Orgtree sits in the tray. Animation frames (`requestAnimationFrame`) run only while
@@ -260,8 +264,8 @@ Agents follow a copy only through its declared events, with an `app_listener`
 watchdog (see above). Panel links were removed (user 2026-10-26): there is no
 Linked agents setting, orgtree_apps refuses `linked_agents`, and state saves no
 longer signal `app.event` watchers. An agent that needs current data reads
-panel_get or events. Hidden running panels keep their timers while the desktop
-app runs; use an engine watchdog for work that must continue without it.
+panel_get or events. Hidden running panels keep their timers while the main
+window is open; use an engine watchdog for work that must continue without it.
 
 Try the portable [Annotation notes example](examples/apps/annotation-notes.orgtree-app):
 import it through Apps, open a copy, save notes, and choose **Share notes** to fire its

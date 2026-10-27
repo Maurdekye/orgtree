@@ -27,8 +27,11 @@ app/panel in that org; that is not an app permission grant.
 
 ## Creating an app for the user
 
-These are the app-creation instructions (user 2026-10-27). When you build an app
-for the user, do these in order:
+These are the app-creation instructions (user 2026-10-27). An app is a custom UI
+for the user to work with data in a structured way, not a persistent program
+environment: its panels run only while the Orgtree main window is open, so keep
+work that must go on without it in agents or engine watchdogs. When you build an
+app for the user, do these in order:
 
 1. app_create with `definition.events` declaring each event the app fires for
    you, and HTML that calls `orgtree.events.fire(name, payload)` when the user
@@ -58,9 +61,12 @@ Dedicated Workers and file and media links at full speed. requestAnimationFrame 
 shows (a parked frame gets animation frames only when its window repaints, and
 none while the window is hidden), so app loops should tick from setTimeout,
 setInterval or a MessageChannel, reconcile elapsed time with performance.now() and
-draw in animation frames. Execution happens only in the Orgtree desktop app, including while it
-sits in the tray; restart restores each copy as it was (running hidden, visible
-in its placement, or off). There is no count cap.
+draw in animation frames. Panels are the user's custom views, not background
+programs (user 2026-10-27), so they run only while the Orgtree main window is
+open, including while it sits in the tray. When Orgtree quits nothing runs them:
+runtime reports not hosted and they fire no events of their own. Restart
+restores each copy as it was (running hidden, visible in its placement, or off).
+There is no count cap.
 
 - panel_start needs panel; expected_rev is optional and refuses only when given
   and stale, because a running copy's own state saves keep bumping its revision.
