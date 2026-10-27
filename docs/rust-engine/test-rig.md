@@ -177,7 +177,9 @@ engine (a copy of node that records its environment) and a sentinel host profile
 profile variable the child sees is the host's, is outside the run, or if any variable mentions
 the host profile, and it fails for any rig script that builds an engine environment from
 `cleanEnv()` without the helper (0 pass / 3 fail at the base, 3 pass at the fix). It starts no
-engine, database or window. Not covered: the `desktop.mjs` Electron driver (it launches no engine
+engine, database or window. `agy-auth.mjs` adds the end-to-end check through the real engine:
+every launch of the default sign-in's fake AGY (it inherits the engine's environment) logs the
+run's fake home as its `USERPROFILE`. Not covered: the `desktop.mjs` Electron driver (it launches no engine
 and keeps its profile in its own `electron-profiles` folder) and `git-askpass.mjs` (its askpass
 copy runs with `GIT_CONFIG_*` disabled). Windows known folders are not environment variables: the
 engine reads them only to refuse a live data root and, outside rig mode, to find installed CLIs

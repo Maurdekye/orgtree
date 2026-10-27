@@ -26,6 +26,10 @@ export default async function (rig) {
   let v = await usage()
   p.check('measured signed-in check reply authorizes usage (actual 25% result)', v.available && v.limits?.[0]?.percent === 25, v)
   p.check('silent checks precede version and usage launches', count('check') >= 2 && count('usage') >= 1, calls())
+  // the default sign-in's CLI inherits the engine's environment: the run's fake profile, never the host's
+  const fakeHome = path.resolve(rig.data, 'rig-home').toLowerCase()
+  p.check('the default sign-in CLI ran on the fake home of the run', calls().length > 0 && calls().every(x => path.resolve(x.home || '').toLowerCase() === fakeHome),
+    { fakeHome, homes: [...new Set(calls().map(x => x.home))] })
   await rig.op({ op: 'hire', name: 'auth-held', parent: 'boss', tier: 'flash', title: 'AGY auth gate fixture' })
   metadata({ present: false })
   const beforeAbsent = calls().length
