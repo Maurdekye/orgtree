@@ -193,6 +193,24 @@ existing local overrides and live charters are not rewritten. See
 [charters](../skills/orgtree-working/team/charters/SKILL.md) and
 engine/docs/charters/liaison.md.
 
+**Integrator charter preset (user 2026-10-27 17:43:43Z, m8f7fbfcfe81c; 17:43:53Z,
+mca1b76ab1ff2; 17:49:15Z, m8a1e68159947):** "perhaps we should add an \"integrator\" charter
+preset" and "an implementer preset alresdy exists", then "yes, go ahead" to the proposed
+pair, assigned by @coordinator-opus (m76fd725a3b78). Integrator is the eighth bundled role:
+a cheaper seat that turns an implementer's finished commit into a landed change. It takes one
+queued job at a time in order, rebases the exact commit, runs the job's named tests, audits
+and capture checklist, and hands the verified commit to the integration owner. It never edits
+product code or tests: any failure (or a conflict that is not purely mechanical) goes back to
+the implementer with the exact output, and an acknowledgement means handled (handed in or
+bounced), not passed. Implementer rule 1 ("never hand off the final integration") stands
+unchanged except in a team that runs such a pool, where the implementer hands integration
+over through one self-contained job and keeps the code and the defining failing test.
+Preset wording is generic: no agent, account or organization names. The preset supplies text
+only; the queue, listener and build permits are separate setup. One `BUNDLED` entry in
+`http/settings.rs` is the whole registration: the hire form's picker, `GET /api/charters`
+and Populate all read it. See [charters](../skills/orgtree-working/team/charters/SKILL.md)
+and engine/docs/charters/integrator.md.
+
 **Ticket identity status prefix (user 2026-10-21 17:38:28Z,
 m312db362c183):** every ticket link's shared native tooltip begins with its
 current docket status label and ` · ` before the full title. Unknown status

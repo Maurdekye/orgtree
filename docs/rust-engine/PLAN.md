@@ -459,6 +459,14 @@ Preset introductions describe selection/capabilities without manual-copy
 instructions; whole-file insertion and local override behavior stay intact.
 See [charters](../skills/orgtree-working/team/charters/SKILL.md).
 
+Charter presets (user 2026-10-27 17:43Z/17:49Z, 4.5.0): Integrator is the eighth
+bundled role, a queue-driven seat that rebases, tests and captures an implementer's
+exact commit, never edits product code or tests, bounces failures with exact output
+and hands verified commits to the integration owner. Implementer rule 1 keeps
+integration with the implementer unless the team runs an integrator pool, which it
+then hands integration to through one self-contained job. Registration is one
+`BUNDLED` entry. See [charters](../skills/orgtree-working/team/charters/SKILL.md).
+
 Docket/Presentation opening (user 2026-10-23, 4.4.4; replaces 2026-10-21): every org, agent, team and project
 docket selects topmost manual attention, then remembered eligible item, then first shown; presentations choose oldest unread/changed before their scoped last view. A
 specific ticket/document link supplies the target. Continued readers retain selection; tab return is fresh. This replaces the org-only active-row

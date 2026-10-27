@@ -100,7 +100,7 @@ domain/template_notes.rs, http/templates.rs, http/orgops.rs]
 The hire form joins each selected preset's full content before manual text;
 headings, introductory paragraphs and separators remain in the agent charter.
 Keep all preset prose suitable for that agent; do not add manual-copy setup
-instructions or silently strip content at a separator. The six bundled roles
+instructions or silently strip content at a separator. The bundled roles
 include Liaison, inserted above an existing coordinator for large orgs. It owns
 user conversation and decision records; its single coordinator report owns
 execution and staffing. User-local copies shadow bundled files and Populate
@@ -109,6 +109,19 @@ See [charters](../skills/orgtree-working/team/charters/SKILL.md).
 [decided: user 2026-10-21 18:33:44Z and 18:36:18Z; verified:
 engine/rs/orgtree-engine/src/http/settings.rs BUNDLED/charters/charters_populate,
 apps/desktop/renderer/src/canvas/cards.tsx finalCharter]
+
+## Integrator charter preset (2026-10-27)
+
+Integrator is the eighth bundled role: a queue-driven seat that rebases, tests and
+captures an implementer's exact commit and hands the verified result to the integration
+owner, never editing product code or tests. Implementer rule 1 hands integration to such
+a pool only when the team runs one. A new bundled preset needs the file in
+`engine/docs/charters/` and one `BUNDLED` entry in `http/settings.rs`; the hire form picker,
+`GET /api/charters` and Populate read that list, and `tests/charter-presets.test.mjs` fails
+when the two differ. Keep preset wording generic (no agent, account or organization names).
+See [charters](../skills/orgtree-working/team/charters/SKILL.md).
+[decided: user 2026-10-27 17:43:43Z, 17:49:15Z; verified:
+engine/rs/orgtree-engine/src/http/settings.rs BUNDLED, tests/charter-presets.test.mjs]
 
 ## Plain mention guidance (2026-10-20)
 
