@@ -77,7 +77,7 @@ running hidden, a hollow grey ring for off; the tooltip says Running · visible,
 Running · hidden or Off. Running rows show their CPU, sampled every 3 seconds while
 Apps is open (100% = one core; "shared" marks a figure for the whole renderer
 process), and a Power off button. Right-click a row for Start running (stopped
-rows; runs it without opening its window) or Power off (running rows). Opening a stopped panel starts it. Stop all powers off every app panel;
+rows; runs it without opening its window) or Power off (running rows). Right-click an app or a panel row, or an `@app:`/`@panel:` chip, for **Copy mention**, which copies its `@app:<org>/<slug>` or `@panel:<org>/<slug>` mention. Opening a stopped panel starts it. Stop all powers off every app panel;
 releasing Stop all starts none of them.
 
 Starting and stopping look different from showing and hiding (user 2026-10-27).

@@ -75,6 +75,8 @@ Quick chat footer; standalone galleries retain their existing actions. See
 
 Document menus can copy title/reference, open/close, download Markdown or the HTML presentation (**Download HTML presentation**: a ZIP when it captured local files), stage a reply in the desk composer (`Reply` on presentation chips in an agent's desk header and rows in its Presented tab), and dismiss when the surface permits it. Replies in a live message box keep that box's recipient and support attachments where available. A failed reply does not amend the document.
 
+Double-click a row in the organization or desk **Presented** list to copy its mention (`@doc:<org>/<slug>`); a brief **Copied!** appears where you clicked, and a single click still opens or selects the row as before.
+
 Download saves a file; it is not proof the user read the card or that a file was sent through a different delivery route. File cards/images have their own view/download behavior and custody. Do not suggest that moving a scratch file into a folder will make it appear in Presented.
 
 For the agent-side publishing contract see `orgtree-tool-present` (orgtree-working › user); for an installer/log/export/image wanted as a file see `orgtree-tool-send-file` there. Those pages own limits and supported input formats.

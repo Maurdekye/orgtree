@@ -36,8 +36,11 @@ entry as rows. Existing request/direct modes, model/effort/account gates,
 idempotent submission and commit-time revalidation remain in `quickstaff.ts` and
 the engine's quick-staff endpoint.
 
-Left clicks still toggle docket selection, and double-click still copies the
-slug with its existing success bubble and selection cleanup. The context-menu
+Left clicks still toggle docket selection, and double-click copies the item's
+mention `@item:<org>/<slug>` (USER 2026-10-27; the bare slug before) with its
+existing success bubble and selection cleanup, now shared with the Presented rows
+in `canvas/rowcopy.tsx`; the unscoped standalone row, with no org to write, still
+copies the slug. The context-menu
 Open details route uses the latest selection so it never closes an open ticket.
 Copy slug keeps its existing row feedback; title copy uses the canonical value
 and feedback. Normal product row callers supply org. The unscoped standalone

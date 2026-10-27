@@ -1,4 +1,4 @@
-"""Double-clicking a docket row copies its slug — driven in a real browser.
+"""Double-clicking a docket row copies its mention (@item:<org>/<slug>) — driven in a real browser.
 
     node tests/copyslug-build.mjs && python -B tests/copyslug_probe.py
 
@@ -22,7 +22,7 @@ against the production `styles.css`, with real `dblclick` from Playwright's
 mouse and the clipboard read back through the browser's own API.
 
 Checks:
-  1. a double-click on a row puts the EXACT slug on the clipboard
+  1. a double-click on a row puts the EXACT mention (@item:fixture/<slug>) on the clipboard
   2. "Copied!" appears, sits within the row, and is near the pointer both
      horizontally and vertically — not pinned to a corner or to the row's edge
   3. it goes away on its own, and a repeat at the SAME point restarts both its
@@ -145,8 +145,8 @@ def main() -> int:
             except Exception:                                    # noqa: BLE001
                 shown = False
             clip = page.evaluate("navigator.clipboard.readText()")
-            if clip != SLUG:
-                failures.append(f"clipboard holds {clip!r}, expected the exact slug {SLUG!r}")
+            if clip != f"@item:fixture/{SLUG}":
+                failures.append(f"clipboard holds {clip!r}, expected the exact mention @item:fixture/{SLUG}")
             if not shown:
                 failures.append("no Copied! appeared after a successful copy")
             else:

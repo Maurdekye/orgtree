@@ -258,6 +258,30 @@ a press drags across five levels; `tools/rig/proofs/effort-selects.mjs` samples
 the pip every frame on each leg of a real drag (needs the engine and a UI bundle).
 [verified: `canvas/effortbar.tsx`, `styles.css`, `tests/effortbar.test.tsx`, `tools/rig/desktop/effort-selects.cjs`]
 
+## Mention copy gestures (2026-10-27, 4.5.0)
+
+Three user requests, one rule: a mention is one gesture away.
+
+- **Docket rows** (`DocketRow`: org Docket view, desk Docket tabs, attention
+  list): double-click copies `@item:<org>/<slug>`. It copied the bare slug from
+  2026-09-07; the menu's Copy slug keeps the slug. With no `org` prop the row
+  still copies the slug (no token with a guessed org).
+- **Presented rows** (`GalleryEntry`: the org-wide list and the desk tab):
+  double-click copies `@doc:<org>/<id>`. The single click is unchanged.
+- **Apps and panels**: `appLinkMenu` and `panelLinkMenu` (`canvas/apps/links.ts`,
+  shared by the Apps list rows and the `@app:`/`@panel:` chips) gain **Copy
+  mention** (`@app:<org>/<slug>`, `@panel:<org>/<slug>`) above Settings, built
+  by `mentionCopyEntry` beside `agentCopyEntry`, toast "copied mention". The
+  panel window's header has no context menu and gets none.
+
+The two row gestures share `canvas/rowcopy.tsx` (`useRowCopy`): the guard for
+embedded controls, the selection clear, the clipboard write on the row's own
+window and the `Copied!` bubble, moved out of `DocketRow` unchanged. The row needs
+`position: relative` (`.docket-row`, `.doc-gallery-row`). Tests:
+`tests/mentioncopy.test.tsx`, `tests/contextmenu.test.tsx` §B4b,
+`tests/appmentions.test.tsx`; clipboard stubbed.
+[verified: `canvas/rowcopy.tsx`, `canvas/docket.tsx`, `canvas/gallery.tsx`, `canvas/apps/links.ts`]
+
 ## Queue-group disclosure defaults (2026-10-23)
 
 Every nonempty `PendingRun` exposes its native summary. The 2026-10-24 user
