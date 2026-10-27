@@ -148,8 +148,18 @@ pub fn closed_attempt(extra: &str, how: &str, why: &str) -> String {
              ELSE {extra} END")
 }
 
+/// Why a job (or a lease: `slots::check`) went back, as `reclaim_in`'s `why`;
+/// `holdings::you` turns it into the notice to the holder. Halted, frozen by a
+/// usage limit, or moved out of the project (user 2026-10-27 16:15Z-16:18Z).
+pub(crate) const HALTED: &str = "was halted";
+pub(crate) const FROZEN: &str = "was frozen by a usage limit";
+pub(crate) const MOVED_OUT: &str = "moved out of the project";
+
+/// [`reclaim_in`]'s `ending` for a job taken back because its holder's turn died.
+pub(crate) const ENDING_DIED: &str = "died";
+
 /// SQL: a project mail (alias `m`) handed in ack mode and not acked yet.
-const OUTSTANDING: &str = "m.state = 'read' AND coalesce((m.extra->'claimed'->>'ack')::boolean, false)
+pub(crate) const OUTSTANDING: &str = "m.state = 'read' AND coalesce((m.extra->'claimed'->>'ack')::boolean, false)
     AND m.extra->'claimed'->>'acked_at' IS NULL";
 
 /// A project node, as the mail and watchdog paths need it.
@@ -443,7 +453,7 @@ async fn hand_batch_in(tx: &impl GenericClient, org_id: i64, project: i64, limit
                                 ELSE (m.extra->'claimed'->>'by_id')::bigint = a.id END AND {OUTSTANDING}) held
               WHERE w.org_id = $1 AND w.kind = 'fair_queue' AND w.state = 'armed'
                 AND (w.memo->>'target_id')::bigint = $2
-                AND (w.owner_kind = 'user' OR (a.state = 'live' AND a.kind = 'agent' AND (NOT $3 OR a.halt IS NULL)))
+                AND (w.owner_kind = 'user' OR (a.state = 'live' AND a.kind = 'agent' AND (NOT $3 OR (a.halt IS NULL AND a.frozen IS NULL))))
                 AND NOT EXISTS (SELECT 1 FROM ot.watchdogs older WHERE older.org_id=w.org_id
                       AND older.kind='fair_queue' AND older.state='armed' AND older.id<w.id
                       AND older.owner_agent_id IS NOT DISTINCT FROM w.owner_agent_id
@@ -497,7 +507,7 @@ async fn hand_batch_in(tx: &impl GenericClient, org_id: i64, project: i64, limit
         if tx.query_opt("SELECT 1 FROM ot.watchdogs WHERE kind='fair_queue' AND owner_agent_id=$1 AND state IN ('armed','paused') AND (memo->>'target_id')::bigint=$2 LIMIT 1", &[&owner,&project]).await?.is_some() {
             crate::refuse!(Conflict,"you already watch this project's mailbox; keep using that listener");
         }
-        let active = tx.query_opt("SELECT 1 FROM ot.agents WHERE id=$1 AND state='live' AND kind='agent' AND (NOT $2 OR halt IS NULL)", &[&owner,&ack]).await?.is_some();
+        let active = tx.query_opt("SELECT 1 FROM ot.agents WHERE id=$1 AND state='live' AND kind='agent' AND (NOT $2 OR (halt IS NULL AND frozen IS NULL))", &[&owner,&ack]).await?.is_some();
         if active && reaches(tx, owner, project).await? {
             if ack {
                 let held: i64 = tx.query_one(&format!("SELECT count(*) FROM ot.mail m WHERE m.recipient_agent_id=$1 AND (m.extra->'claimed'->>'by_id')::bigint=$2 AND {OUTSTANDING}"), &[&project,&owner]).await?.get(0);
@@ -754,7 +764,8 @@ pub async fn release_stale(engine: &Arc<Engine>, org_id: i64, project: i64) -> R
     for h in &held {
         let (row, holder): (i64, Option<i64>) = (h.get(0), h.get(1));
         let Some(holder) = holder else { continue };
-        let a = client.query_opt("SELECT state, halt IS NOT NULL FROM ot.agents WHERE id = $1", &[&holder]).await?;
+        let a = client.query_opt("SELECT state, halt IS NOT NULL, frozen IS NOT NULL FROM ot.agents WHERE id = $1", &[&holder]).await?;
+        let reach = reaches(&**client, holder, project).await?;
         let listening = (h.get::<_,Option<bool>>(5).unwrap_or(false) || client
             .query_opt(
                 // a one-shot dog that handed this very mail is spent, and still counts
@@ -765,11 +776,13 @@ pub async fn release_stale(engine: &Arc<Engine>, org_id: i64, project: i64) -> R
             )
             .await?
             .is_some())
-            && reaches(&**client, holder, project).await?;
+            && reach;
         let why = match a {
             None => "is gone",
             Some(r) if r.get::<_, String>(0) != "live" => "was retired",
-            Some(r) if r.get::<_, bool>(1) => "was halted",
+            Some(r) if r.get::<_, bool>(1) => HALTED,
+            Some(r) if r.get::<_, bool>(2) => FROZEN,
+            _ if !reach => MOVED_OUT,
             _ if !listening => "stopped watching the project",
             _ => continue,
         };
@@ -778,22 +791,42 @@ pub async fn release_stale(engine: &Arc<Engine>, org_id: i64, project: i64) -> R
     drop(client);
     let mut released = Vec::new();
     for (row, holder, by, why, copy) in gone {
-        if reclaim(engine, org_id, project, row, holder, &by, why, "released", copy.as_deref()).await?.is_some() {
+        let taken = reclaim(engine, org_id, project, row, holder, &by, why, "released", copy.as_deref()).await?;
+        if let Some(dead) = taken {
+            // a retired or vanished holder has nobody to tell; the others learn
+            // at their next turn which job went back (user 2026-10-27 16:18Z)
+            if !matches!(why, "is gone" | "was retired") {
+                if let (Some(to), Some(pname)) = (node_name(engine, holder).await, node_name(engine, project).await) {
+                    let given = crate::domain::holdings::Given {
+                        jobs: vec![crate::domain::holdings::GivenJob { project: pname, job: copy.clone().unwrap_or_default(), dead }],
+                        ..Default::default() };
+                    crate::domain::holdings::tell(engine, org_id, &to, why, &given).await;
+                }
+            }
             released.push(by);
         }
     }
     Ok(released)
 }
 
+/// A node's current name (the name a notice is addressed to).
+#[logged]
+pub(crate) async fn node_name(engine: &Arc<Engine>, id: i64) -> Option<String> {
+    let client = engine.db.get().await.ok()?;
+    client.query_opt("SELECT name FROM ot.agents WHERE id = $1", &[&id]).await.ok().flatten().map(|r| r.get(0))
+}
+
 /// Revalidate abandonment using the CURRENT holder/claim under the job lock.
 #[nolog]
 async fn stale_claim_reason(tx:&impl GenericClient,org_id:i64,project:i64,holder:i64,claimed:&Value)->Result<Option<&'static str>> {
-    let Some(a)=tx.query_opt("SELECT state,halt IS NOT NULL FROM ot.agents WHERE id=$1",&[&holder]).await? else{return Ok(Some("is gone"))};
+    let Some(a)=tx.query_opt("SELECT state,halt IS NOT NULL,frozen IS NOT NULL FROM ot.agents WHERE id=$1",&[&holder]).await? else{return Ok(Some("is gone"))};
     if a.get::<_,String>(0)!="live"{return Ok(Some("was retired"))}
-    if a.get::<_,bool>(1){return Ok(Some("was halted"))}
+    if a.get::<_,bool>(1){return Ok(Some(HALTED))}
+    if a.get::<_,bool>(2){return Ok(Some(FROZEN))}
+    if !reaches(tx,holder,project).await?{return Ok(Some(MOVED_OUT))}
     let dog=claimed["dog"].as_str().unwrap_or("");
     let listening=claimed["inline"]==true || tx.query_opt("SELECT 1 FROM ot.watchdogs WHERE org_id=$1 AND kind='fair_queue' AND owner_agent_id=$2 AND (memo->>'target_id')::bigint=$3 AND (state='armed' OR (state='spent' AND uid=$4)) LIMIT 1",&[&org_id,&holder,&project,&dog]).await?.is_some();
-    if !listening || !reaches(tx,holder,project).await?{return Ok(Some("stopped watching the project"))}
+    if !listening{return Ok(Some("stopped watching the project"))}
     Ok(None)
 }
 
@@ -860,7 +893,12 @@ pub async fn reclaim_in(tx: &impl GenericClient, org_id: i64, project: i64, row:
     if claimed["by_id"].as_i64()!=Some(holder) || claimed["copy"].as_str()!=expected_copy {
         return Ok(None);
     }
-    let current_why = if ending=="failed" {
+    // `ENDING_DIED`: the holder's turn ended abnormally (domain/holdings.rs), so
+    // there is no state to revalidate; the engine records it as a failed job
+    // like every other release it makes.
+    let died = ending == ENDING_DIED;
+    let ending = if died { "failed" } else { ending };
+    let current_why = if ending=="failed" && !died {
         if !ack_mode(&scope) {return Ok(None)}
         if how=="timed_out" {
             if !ack_reminders_exhausted(&scope,claimed["wakes"].as_i64().unwrap_or(0)){return Ok(None)}

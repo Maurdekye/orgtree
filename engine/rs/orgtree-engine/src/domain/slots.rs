@@ -6,10 +6,13 @@
 //! otherwise the armed dog is its place in the line and fires when it is
 //! granted. A lease (`ot.slot_leases`) holds all requested slots; ended leases are the
 //! history. Release is explicit (`orgtree_project action=release_slot`).
-//! Reclaim reuses the mail queue's ack-mode machinery: a retired or halted
-//! holder loses its slot at once, and an idle holder gets the 20-minute
+//! Reclaim reuses the mail queue's ack-mode machinery: a retired, halted or
+//! frozen holder, or one that moved out of the project, loses its slot at
+//! once (`check`; user 2026-10-27 16:15Z-16:17Z), so does one whose turn died
+//! (`domain/holdings.rs`), and an idle holder gets the 20-minute
 //! checkup up to the project's reminder count (default 3), then the slot is taken back (only while that
-//! checkup and the project's ack-timeout setting are on).
+//! checkup and the project's ack-timeout setting are on). The checkup never
+//! reaches a frozen or halted holder, hence the immediate release for them.
 //!
 //! Only agents above or below the project may claim (the mail queue's reach
 //! rule). The line is strictly first-come: armed `slot` dogs ordered by
@@ -185,7 +188,7 @@ async fn grant_in(tx: &impl GenericClient, org_id: i64, project: i64, inline: Op
                 .query(
                     "SELECT w.id, w.owner_agent_id, coalesce(w.memo->>'reason', w.name, ''), (w.memo->>'queued_at')::bigint, w.memo FROM ot.watchdogs w LEFT JOIN ot.agents a ON a.id = w.owner_agent_id
                       WHERE w.kind = 'slot' AND w.state = 'armed' AND (w.memo->>'target_id')::bigint = $1 AND NOT w.memo ? 'lease'
-                        AND (w.owner_kind = 'user' OR (a.state = 'live' AND a.kind = 'agent' AND a.halt IS NULL))
+                        AND (w.owner_kind = 'user' OR (a.state = 'live' AND a.kind = 'agent' AND a.halt IS NULL AND a.frozen IS NULL))
                       ORDER BY (w.memo->>'queued_at')::bigint, w.id LIMIT 200",
                     &[&project],
                 )
@@ -194,7 +197,7 @@ async fn grant_in(tx: &impl GenericClient, org_id: i64, project: i64, inline: Op
                 .map(|w| (w.get(0), w.get(1), w.get(2), w.get(3), w.get(4))).collect();
             if waiting.len() < 200 {
                 if let Some((owner, memo)) = inline {
-                    let active = tx.query_opt("SELECT 1 FROM ot.agents WHERE id=$1 AND state='live' AND kind='agent' AND halt IS NULL", &[&owner]).await?.is_some();
+                    let active = tx.query_opt("SELECT 1 FROM ot.agents WHERE id=$1 AND state='live' AND kind='agent' AND halt IS NULL AND frozen IS NULL", &[&owner]).await?.is_some();
                     if active {
                         waiting.push((0, Some(owner), memo["reason"].as_str().unwrap_or("").to_string(), memo["queued_at"].as_i64(), memo.clone()));
                         waiting.sort_by_key(|w| (w.3, if w.0 == 0 { i64::MAX } else { w.0 }));
@@ -357,11 +360,14 @@ pub async fn end(tx: &impl GenericClient, lease_id: i64, how: &str, by: &str) ->
         == 1)
 }
 
-/// Take back the slots of holders that are gone (retired) or halted, tell
-/// a halted holder why, then grant (user 2026-10-18 08:40Z: reclaim as ack
-/// mode does). Runs on halt, retire and engine start. The join on the holder
-/// agent is deliberate: the user's hold has no agent row and is never
-/// reclaimed (it lasts until the user releases it).
+/// Take back the slots of holders that cannot hold them any more: retired,
+/// halted, frozen by a usage limit, or moved out of the project (they no
+/// longer reach it); tell the live ones why, then grant (user 2026-10-18
+/// 08:40Z: reclaim as ack mode does; 2026-10-27 16:15Z-16:17Z: frozen and
+/// moved out, at once with no grace). Runs on halt, unhalt, freeze, thaw,
+/// retire, a move and engine start. The join on the holder agent is
+/// deliberate: the user's hold has no agent row and is never reclaimed (it
+/// lasts until the user releases it).
 #[logged]
 pub async fn check(engine: &Arc<Engine>, org_id: i64, project: i64) -> Result<()> {
     let mut client = engine.db.get().await?;
@@ -371,27 +377,54 @@ pub async fn check(engine: &Arc<Engine>, org_id: i64, project: i64) -> Result<()
         .await?
         .map(|r| r.get(0));
     let Some(pname) = pname else { return Ok(()) };
-    let gone = tx
-        .query(
-            "SELECT l.id, l.uid, l.slot_count, a.id, a.name, a.state, a.halt IS NOT NULL FROM ot.slot_leases l JOIN ot.agents a ON a.id = l.holder_agent_id
-              WHERE l.project_id = $1 AND l.ended_at IS NULL AND (a.state <> 'live' OR a.halt IS NOT NULL)",
-            &[&project],
-        )
-        .await?;
-    let mut tell = Vec::new();
-    for g in &gone {
-        let how = if g.get::<_, String>(5) != "live" { "retired" } else { "halted" };
-        if end(&*tx, g.get(0), how, "orgtree").await? && how == "halted" {
-            tell.push((g.get::<_, String>(4), g.get::<_, String>(1), g.get::<_, i32>(2)));
+    // who to tell: holder name -> (what it lost, why)
+    let mut tell: Vec<(String, &'static str, crate::domain::holdings::Given)> = Vec::new();
+    let mut reach: std::collections::HashMap<i64, bool> = std::collections::HashMap::new();
+    let mut after = 0_i64;
+    loop {
+        let rows = tx
+            .query(
+                "SELECT l.id, l.uid, l.slot_count, a.id, a.name, a.state, a.halt IS NOT NULL, a.frozen IS NOT NULL
+                   FROM ot.slot_leases l JOIN ot.agents a ON a.id = l.holder_agent_id
+                  WHERE l.project_id = $1 AND l.ended_at IS NULL AND l.id > $2 ORDER BY l.id LIMIT 200",
+                &[&project, &after],
+            )
+            .await?;
+        for g in &rows {
+            after = g.get(0);
+            let (agent, name, state): (i64, String, String) = (g.get(3), g.get(4), g.get(5));
+            let (how, why) = if state != "live" {
+                ("retired", "")
+            } else if g.get::<_, bool>(6) {
+                ("halted", crate::domain::projects::HALTED)
+            } else if g.get::<_, bool>(7) {
+                (crate::domain::holdings::HOW_FROZEN, crate::domain::projects::FROZEN)
+            } else {
+                let reaches = match reach.get(&agent) {
+                    Some(r) => *r,
+                    None => {
+                        let r = crate::domain::projects::reaches(&*tx, agent, project).await?;
+                        reach.insert(agent, r);
+                        r
+                    }
+                };
+                if reaches { continue }
+                (crate::domain::holdings::HOW_MOVED_OUT, crate::domain::projects::MOVED_OUT)
+            };
+            if end(&*tx, g.get(0), how, "orgtree").await? && !why.is_empty() {
+                let lease = crate::domain::holdings::GivenLease { project: pname.clone(), lease: g.get(1), slots: g.get(2) };
+                match tell.iter_mut().find(|t| t.0 == name && t.1 == why) {
+                    Some(t) => t.2.leases.push(lease),
+                    None => tell.push((name, why, crate::domain::holdings::Given { leases: vec![lease], jobs: Vec::new() })),
+                }
+            }
         }
+        if rows.len() < 200 { break }
     }
     tx.commit().await?;
     drop(client);
-    for (who, lease, count) in tell {
-        let held = quantity(count);
-        notify(engine, org_id, &who, &format!(
-            "Your lease for {held} of project {pname} (lease {lease}) was taken back because you were halted; all its slots are released and the FIFO queue is checked. \
-             Claim again with a slot watchdog when you are unhalted.")).await;
+    for (who, why, given) in tell {
+        crate::domain::holdings::tell(engine, org_id, &who, &crate::domain::holdings::you(why), &given).await;
     }
     Box::pin(grant(engine, org_id, project)).await?;
     Ok(())
@@ -399,7 +432,7 @@ pub async fn check(engine: &Arc<Engine>, org_id: i64, project: i64) -> Result<()
 
 /// A System notice to a holder about its slot.
 #[logged]
-async fn notify(engine: &Arc<Engine>, org_id: i64, to: &str, body: &str) {
+pub(crate) async fn notify(engine: &Arc<Engine>, org_id: i64, to: &str, body: &str) {
     let mut out = crate::domain::mail::Outgoing::new(crate::domain::mail::From::System, to, body);
     out.notice = true;
     out.grant_reply_audience = false;

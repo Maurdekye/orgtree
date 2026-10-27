@@ -8199,6 +8199,18 @@ impl Actor {
             }
         }
         self.changed(ch);
+        // A turn that died (anything but a manual interrupt or the agent ending it
+        // itself) gives back the project slots and un-acked jobs it held, at once;
+        // its next turn is told what went (domain/holdings.rs; user 2026-10-27 16:18Z)
+        let ending = crate::domain::holdings::Ending {
+            interrupted: turn.interrupted, compact: turn.compact, session_ended: turn.session_ended,
+            error: error.as_deref(), limited: limit.is_some(), frozen: freeze_rec.is_some(),
+        };
+        if let Some(death) = crate::domain::holdings::died(&ending) {
+            if let Err(e) = boxed(|| crate::domain::holdings::release_after_death(&self.engine, self.org_id, self.id, &self.name, &death)).await {
+                tracing::warn!(agent = %self.name, error = %format!("{e:#}"), "giving back a dead turn's project holdings failed");
+            }
+        }
         // a listener's turn ended still holding an un-acked project job (ack mode): one reminder
         // turn right away (project setting, on by default); a failed, limited or frozen turn
         // and an interrupt are not "ended its turn"

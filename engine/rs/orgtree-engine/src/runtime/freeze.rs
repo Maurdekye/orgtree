@@ -210,6 +210,8 @@ pub async fn thaw_matching(engine: &Arc<Engine>, org_id: i64, agent_id: i64, exp
     let retry = expected.is_some() && old["connection"].as_bool().unwrap_or(false) && !old["limit"].as_bool().unwrap_or(false);
     tracing::info!(org = org_id, agent = agent_id, automatic = expected.is_some(), retry, "freeze released; waking agent");
     changes::notify_id(engine, org_id, vec![Change::Agent(agent_id), Change::History(agent_id)]);
+    // a frozen agent was skipped in every project line; its place is live again
+    crate::domain::projects::recheck_holder(engine, org_id, agent_id).await;
     if !retry {
         if let Err(e)=crate::domain::runtime_notices::released(engine, org_id, agent_id, expected.is_some()).await {
             tracing::warn!(agent=agent_id,error=%format!("{e:#}"),"release notice could not be sent");

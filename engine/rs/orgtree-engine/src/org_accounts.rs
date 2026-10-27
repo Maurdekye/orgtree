@@ -297,6 +297,8 @@ pub async fn leave(engine: &Arc<Engine>, org_id: i64, org_slug: &str, agent_id: 
         Ok(n) if n > 0 => {
             tracing::info!(agent = agent_id, lane, "no allowed account left for this agent: frozen");
             crate::changes::notify_id(engine, org_id, vec![crate::changes::Change::Agent(agent_id), crate::changes::Change::History(agent_id)]);
+            // a frozen agent gives back its project slots and un-acked jobs at once
+            crate::domain::projects::recheck_holder(engine, org_id, agent_id).await;
         }
         Ok(_) => {}
         Err(e) => tracing::warn!(agent = agent_id, error = %format!("{e:#}"), "the agent could not be frozen for want of an allowed account"),

@@ -611,6 +611,12 @@ pub async fn recover(engine: &Arc<Engine>) {
         .unwrap_or_default();
     for r in &interrupted {
         let (id, org): (i64, i64) = (r.get(0), r.get(1));
+        // the turn the engine cut gives back its project slots and un-acked jobs, and the
+        // wake below carries the notice of what went (domain/holdings.rs)
+        let name: String = r.get(2);
+        if let Err(e) = Box::pin(crate::domain::holdings::release_after_death(engine, org, id, &name, &crate::domain::holdings::Death::engine_restart())).await {
+            tracing::warn!(agent = id, error = %format!("{e:#}"), "giving back a cut turn's project holdings failed");
+        }
         if let Err(e)=crate::domain::runtime_notices::restarted(engine,org,id,true,None).await {
             tracing::warn!(agent=id,error=%format!("{e:#}"),"restart wake could not be sent");
         }

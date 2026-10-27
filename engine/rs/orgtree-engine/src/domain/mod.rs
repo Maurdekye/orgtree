@@ -13,6 +13,7 @@ pub mod deliveries;
 pub mod dnd;
 pub mod html_bundle;
 pub mod hire_requirements;
+pub mod holdings;
 pub mod mail;
 pub mod mail_attention;
 pub mod mail_history;

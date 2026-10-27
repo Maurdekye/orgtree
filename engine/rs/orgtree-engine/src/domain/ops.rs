@@ -73,6 +73,9 @@ pub(crate) struct Effects {
     slot_grants: Vec<i64>,
     /// retirement targets captured before their owners' waiting dogs are paused/removed
     slot_rechecks: BTreeSet<i64>,
+    /// nodes a move put under a new chain (each moved node and its subtree): a holder that no
+    /// longer reaches its project gives back what it held there after commit (`holdings::after_move`)
+    moved: Vec<i64>,
     /// projects whose listener count or watches changed through the user's own
     /// registrations (no runner re-checks them): evaluated after commit (`listeners::evaluate`)
     listener_evals: Vec<i64>,
@@ -1082,6 +1085,11 @@ pub(crate) async fn apply_effects(engine: &Arc<Engine>, org: &Arc<OrgHandle>, fx
         if let Err(e) = Box::pin(crate::domain::slots::check(engine, org.id, *p)).await {
             tracing::warn!(project = p, error = %format!("{e:#}"), "rechecking project slots after retirement failed");
         }
+    }
+    // an agent moved out of a project gives back every slot and un-acked job it held there
+    // at once (user 2026-10-27 16:17Z): the FIFO line and the queue go on
+    if !fx.moved.is_empty() {
+        crate::domain::holdings::after_move(engine, org.id, &fx.moved).await;
     }
     for p in &fx.queue_runs {
         if let Err(e) = Box::pin(crate::domain::projects::dispatch(engine, org.id, *p)).await {
@@ -2324,7 +2332,10 @@ async fn move_planned(org: &Arc<OrgHandle>, tx: &Transaction<'_>, actor: &Actor,
     }
     // its effective scope now comes from a new chain
     fx.reconfigure.push(n.id);
-    fx.reconfigure.extend(subtree(tx, n.id).await?);
+    let under = subtree(tx, n.id).await?;
+    fx.reconfigure.extend(under.iter().copied());
+    fx.moved.push(n.id);
+    fx.moved.extend(under);
     fx.events = true;
     let mut out = json!({ "node": n.name, "cascaded": raised });
     if !live {
