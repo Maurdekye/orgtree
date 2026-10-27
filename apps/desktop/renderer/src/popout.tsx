@@ -1,4 +1,4 @@
-import type { ModalDimensions, WindowRestore } from './windowlayout'
+import type { ModalDimensions, WindowRect, WindowRestore } from './windowlayout'
 import { captureWindow, closeSavedWindow, popupFeatures, restoredWindows, savedWindows, useRestoreWindows, windowExitStarted, windowLayoutKey } from './windowlayout'
 import { openLightboxIfEligibleImage } from './canvas/lightbox'
 import { copyCodeFromEvent, markdownImageFailed, revealFileFromEvent } from './canvas/shared'
@@ -314,6 +314,10 @@ export function MovableSurface({ kind, title, org = null, editable = true, child
   const initialOwner = useRef(owner)
   const popoutName = useRef('')
   if (!popoutName.current) popoutName.current = `orgtree-popout-${++popoutSeq}`
+  // The open window's own content box as main last reported it (popout-state
+  // bounds): what its saved row records, Windows' invisible frame excluded.
+  const nativeBox = useRef<WindowRect | null>(null)
+  const capture = (w: Window) => captureWindow(layoutKey, kind, org, w, true, latest.current.restore, nativeBox.current)
 
   // The emergency box is a LAST RESORT, held only while nothing else can
   // host the surface. The moment any real destination is found — here or in
@@ -402,7 +406,7 @@ export function MovableSurface({ kind, title, org = null, editable = true, child
     if (!dismiss) { returnHome(false, 'close'); return }
     latest.current.flush?.()
     const w = child.current
-    if (w && !w.closed) captureWindow(layoutKey, kind, org, w, true, latest.current.restore)
+    if (w && !w.closed) capture(w)
     child.current = null; pendingRestore.current = null; epoch.current++
     closeSavedWindow(layoutKey)
     for (const fn of cleanups.current.splice(0).reverse()) { try { fn() } catch { /* disposed */ } }
@@ -506,7 +510,7 @@ export function MovableSurface({ kind, title, org = null, editable = true, child
     // after which the real bounds are unrecoverable and the return would
     // restore the previous SAMPLE instead of where the window actually was.
     // The unmount path already does exactly this, for exactly this reason.
-    captureWindow(layoutKey, kind, org, w, true, latest.current.restore)
+    capture(w)
     returnHome(true)
     // ⚠ THE EPOCH AFTER THE BORROW'S OWN INCREMENT IS WHAT MAKES A STALE
     // HANDLE INERT. A `done` flag alone only stops this handle being used
@@ -561,6 +565,10 @@ export function MovableSurface({ kind, title, org = null, editable = true, child
     if (child.current && !child.current.closed) { reveal(); return }
     const transaction = ++epoch.current
     const restore = preservePosition(parts.container)
+    const saved = !origin && (!latest.current.exactSourceBox || restoring)
+      ? savedWindows().find(r => r.key === layoutKey)
+      : undefined
+    nativeBox.current = saved?.exact && saved.rect && (restoring || saved.open) ? { ...saved.rect } : null
     let w: Window | null = null
     let committed = false
     try {
@@ -595,7 +603,7 @@ export function MovableSurface({ kind, title, org = null, editable = true, child
       }
       w.addEventListener('pagehide', onGone)
       cleanups.current.push(() => w?.removeEventListener('pagehide', onGone))
-      const poll = window.setInterval(() => { if (w?.closed) onGone(); else if (w) captureWindow(layoutKey, kind, org, w, true, latest.current.restore) }, 250)
+      const poll = window.setInterval(() => { if (w?.closed) onGone(); else if (w) capture(w) }, 250)
       cleanups.current.push(() => window.clearInterval(poll))
       d.title = typeof title === 'string' ? `${title} · Orgtree` : 'Orgtree'
       const base = d.createElement('base'); base.href = document.baseURI; d.head.appendChild(base)
@@ -697,8 +705,8 @@ export function MovableSurface({ kind, title, org = null, editable = true, child
       parts.container.classList.add('detached')
       cleanups.current.push(registerWindow({ id: `${kind}:${transaction}:${Math.random()}`, kind, org,
         editable, window: w, redock, reveal, borrow, identity: () => latest.current.restore,
-        flush: () => { captureWindow(layoutKey, kind, org, w!, true, latest.current.restore); latest.current.flush?.() } }))
-      captureWindow(layoutKey, kind, org, w, true, latest.current.restore)
+        flush: () => { capture(w!); latest.current.flush?.() } }))
+      capture(w)
       setOwner(d); setDetached(true); setError(''); latest.current.onDetached?.(true)
       committed = true
       restore(); w.focus()
@@ -712,6 +720,23 @@ export function MovableSurface({ kind, title, org = null, editable = true, child
     }
   }
 
+  // main reports each popout's own content box (popout-state bounds) when it
+  // opens and after every move or resize; only this surface's window name
+  // counts. Subscribe in a layout effect before the open effects below, and
+  // re-save when a live window's bounds arrive after open's initial capture.
+  useLayoutEffect(() => {
+    const bridge = desktop()
+    if (!bridge?.onEvent) return
+    return bridge.onEvent(event => {
+      if (event.type !== 'popout-state') return
+      const state = event.data as PopoutWindowState
+      if (state?.name !== popoutName.current) return
+      const b = state.present ? state.bounds : undefined
+      nativeBox.current = b && [b.x, b.y, b.width, b.height].every(Number.isFinite) && b.width > 0 && b.height > 0
+        ? { x: b.x, y: b.y, width: b.width, height: b.height } : null
+      if (nativeBox.current && child.current && !child.current.closed) capture(child.current)
+    })
+  }, [])
   useLayoutEffect(() => {
     if (!child.current) {
       const a = (anchor === undefined ? placeholder.current : anchor) ?? claimDestination()
@@ -744,7 +769,7 @@ export function MovableSurface({ kind, title, org = null, editable = true, child
     if (restoredWindows(org).some(r => r.key === layoutKey)) open(true)
   }, [ready, restoreAllowed, parked, layoutKey, org])
   useEffect(() => () => {
-    if (child.current && !child.current.closed) captureWindow(layoutKey, kind, org, child.current, true, latest.current.restore)
+    if (child.current && !child.current.closed) capture(child.current)
     closeSavedWindow(layoutKey)
     epoch.current++
     for (const fn of cleanups.current.splice(0).reverse()) { try { fn() } catch { /* disposed */ } }

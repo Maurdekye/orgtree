@@ -5,7 +5,10 @@ import { baseKind, instanceKind, instanceTarget, isInstanceKind, migratedKind } 
 export const WINDOW_LAYOUT_KEY = 'orgtree-desktop-windows-v1'
 export interface WindowRect { x: number; y: number; width: number; height: number }
 export interface WindowRestore { agent?: string; generation?: number; document?: string; selection?: string; watchdog?: string; team?: boolean }
-export interface SavedWindow { restore?: WindowRestore; key: string; kind: string; org: string | null; open: boolean; rect: WindowRect }
+/** `exact`: `rect` is the native window's own content box (main's popout-state
+ *  bounds), which a restore places exactly; without it, `rect` is the
+ *  renderer's screenX/outerWidth view, which includes Windows' invisible frame. */
+export interface SavedWindow { restore?: WindowRestore; key: string; kind: string; org: string | null; open: boolean; rect: WindowRect; exact?: boolean }
 let exiting = false
 export const windowExitStarted = () => exiting
 export const beginWindowExit = () => { exiting = true }
@@ -76,6 +79,7 @@ const valid = (v: unknown): v is SavedWindow => {
   return typeof r.key === 'string' && r.key.length < 1024 && typeof r.kind === 'string'
     && (r.org === null || typeof r.org === 'string') && typeof r.open === 'boolean'
     && (r.restore === undefined || validRestore(r.restore))
+    && (r.exact === undefined || typeof r.exact === 'boolean')
     && !!r.rect && [r.rect.x, r.rect.y, r.rect.width, r.rect.height].every(Number.isFinite)
     && r.rect.width >= 200 && r.rect.height >= 150 && r.rect.width <= 20000 && r.rect.height <= 20000
 }
@@ -204,12 +208,14 @@ export const restoredWindows = (org: string | null) =>
   desktop() ? savedWindows().filter(r => r.open && r.org === org) : []
 export const restoreWindowKind = (kind: string, org: string | null) =>
   restoredWindows(org).some(r => r.kind === kind)
-export function captureWindow(key: string, kind: string, org: string | null, w: Window, open = true, restore?: WindowRestore) {
+/** `native` is the window's own content box as main last reported it (see
+ *  SavedWindow `exact`). Until a report arrives, the renderer's view is kept. */
+export function captureWindow(key: string, kind: string, org: string | null, w: Window, open = true, restore?: WindowRestore, native?: WindowRect | null) {
   if (!desktop()) return
   try {
-    saveWindow({ key, kind, org, open, ...(restore ? { restore } : {}), rect: {
+    saveWindow({ key, kind, org, open, ...(restore ? { restore } : {}), ...(native ? { rect: { ...native }, exact: true } : { rect: {
       x: w.screenX, y: w.screenY, width: w.outerWidth || 900, height: w.outerHeight || 760,
-    } })
+    } }) })
   } catch { /* a closing native window can lose its document first */ }
 }
 export function closeSavedWindow(key: string) {
@@ -392,7 +398,11 @@ export function popupFeatures(key: string,
       height = Math.max(minDimensions.height, height)
     }
     const minSuffix = minDimensions ? `,minWidth=${minDimensions.width},minHeight=${minDimensions.height}` : ''
-    return `popup,left=${Math.round(x)},top=${Math.round(y)},width=${Math.round(width)},height=${Math.round(height)}${minSuffix}`
+    // A native box goes back exactly: main sets the content bounds and measures
+    // away the frame allowance (setExactPopoutBounds), and keeps it off the
+    // owner's display mapping (nativePopoutRect in main/windows.ts).
+    const exact = saved.exact ? 'orgtreeExactRect=1,orgtreeNativeRect=1,' : ''
+    return `popup,${exact}left=${Math.round(x)},top=${Math.round(y)},width=${Math.round(width)},height=${Math.round(height)}${minSuffix}`
   }
 
   // Ordinary pop-out: initialize from modal's current in-app geometry
