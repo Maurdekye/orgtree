@@ -43,6 +43,17 @@ all locks every app row in ID order and powers off every copy with panel.stopped
 {reason:"stop all"}, so a racing start sees the latch or is stopped. Release
 starts nothing.
 
+Start/stop motion (USER 2026-10-27 m056a5c0bde3c: "a rapid zoom in / out", to
+tell starting and stopping from opening and closing): display only, no engine or
+tool change. usePanelMotion (canvas/apps/motion.ts) derives during render, from
+consecutive listings, which copies started (running and open now, not running
+before) or stopped (running and open before, not running now). Starts zoom in;
+the first full listing (the store's `loaded`) restores and plays nothing. A
+stopped copy keeps rendering its last running snapshot for PANEL_MOTION_MS (CSS
+in apps.css matches) at its previous list index, since a DOM move reloads a
+centred panel's iframe; PanelHtml's `stopping` releases its lease, bridge and
+prompts at once, and the window is inert. Reduced motion keeps only the fade.
+
 PROVISIONAL, not a user ruling: app_update restarts running copies with a new
 generation. Visible ones reload the new code as before; hidden ones power off
 with panel.stopped {reason:"code changed"} and stay off after a restart.

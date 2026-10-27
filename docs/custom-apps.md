@@ -194,6 +194,18 @@ core; "(shared)" means the figure covers the whole renderer process that the
 panel shares with others. Right-click a stopped panel's row and choose **Start
 running** to run it without opening its window. Opening a stopped panel starts it.
 
+Starting and stopping a panel look different from showing and hiding it. When a
+panel starts visibly, because you opened a stopped panel or created a new one, it
+zooms in quickly. When a visible panel stops, through **Power off**, **Stop
+all**, an agent or deleting it, it zooms out and is gone. A centred panel's dimmed
+background fades in and out with it. The panel is already off while it zooms out:
+it takes no clicks and its app can no longer reach Orgtree. **Hide** and showing
+a hidden panel stay instant, and starting or stopping a hidden panel shows
+nothing. Panels that Orgtree restores when it starts appear without the zoom. A
+panel in its own window zooms out inside that window, which then closes; when you
+open it again, it starts in the main window. If your system asks apps to reduce
+motion, the zoom becomes a plain fade.
+
 Panels are custom views for working with your data, not programs that run on
 their own (user 2026-10-27), so they run only while Orgtree's main window is
 open, including when it sits in the tray; the Apps menu says so under your saved

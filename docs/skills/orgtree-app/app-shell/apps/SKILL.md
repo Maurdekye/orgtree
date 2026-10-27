@@ -61,6 +61,18 @@ process), and a Power off button. Right-click a row for Start running (stopped
 rows; runs it without opening its window) or Power off (running rows). Opening a stopped panel starts it. Stop all powers off every app panel;
 releasing Stop all starts none of them.
 
+Starting and stopping look different from showing and hiding (user 2026-10-27).
+A panel that starts visibly (a stopped panel opened, or a new one) zooms in
+quickly, and a visible panel that stops (Power off, Stop all, an agent's power
+off or deletion) zooms out, each in about 180 ms. A centred panel's dimmed
+backdrop fades with it. A stopping panel is already off while it zooms out: it
+takes no input and its app reaches nothing. Hide and show stay instant, starting
+or stopping a hidden panel shows nothing, and panels restored at launch appear
+without a zoom. A popped-out panel zooms out inside its own window, which then
+closes; opened again, it starts in the main window. With the system's
+reduce-motion setting the zoom is a plain fade. Display only: orgtree_apps
+panel_start and panel_stop are unchanged.
+
 Panels are custom views, not background programs (user 2026-10-27): they run
 only while the Orgtree main window is open, including in the tray, as the Apps
 menu notes under the saved panels. Hidden
