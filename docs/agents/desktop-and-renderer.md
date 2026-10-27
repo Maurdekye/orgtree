@@ -243,6 +243,21 @@ label when pressing the pinned level clears the override. Keep hover previews,
 dragging, keyboard behavior and the existing single commit unchanged.
 [verified: `canvas/effortbar.tsx`, `tests/effortbar.test.tsx`]
 
+## Effort bar glide (2026-10-27, 4.5.0)
+
+The pip and the fill glide (`transition: left/width .15s ease-in-out`) to every
+level a press lands on or a drag crosses, in every place the bar appears (desk
+pop-out, agent settings, hire sheet, org defaults, Quick chat). The old
+`.effort-bar.dragging` rule set `transition: none` once a press had travelled,
+so only a plain click glided (USER 2026-10-27, "it should animate between every
+position, not just on the first click"). A new level restarts the CSS transition
+from where the pip is, so a quick drag retargets and never queues; keyboard steps
+glide the same way, and `prefers-reduced-motion` still turns the transition off.
+`tests/effortbar.test.tsx` reads the real `styles.css` cascade through jsdom while
+a press drags across five levels; `tools/rig/proofs/effort-selects.mjs` samples
+the pip every frame on each leg of a real drag (needs the engine and a UI bundle).
+[verified: `canvas/effortbar.tsx`, `styles.css`, `tests/effortbar.test.tsx`, `tools/rig/desktop/effort-selects.cjs`]
+
 ## Queue-group disclosure defaults (2026-10-23)
 
 Every nonempty `PendingRun` exposes its native summary. The 2026-10-24 user
