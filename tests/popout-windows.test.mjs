@@ -24,7 +24,7 @@ const stubElectron = {
   },
 }
 await build({ entryPoints: ['apps/desktop/main/windows.ts'], outfile: out, bundle: true, platform: 'node', format: 'cjs', plugins: [stubElectron] })
-const { popoutRegistry, parsePopoutFeatures, exactPopoutBounds, setExactPopoutBounds, configureWindow, revealPopout } = createRequire(import.meta.url)(out)
+const { popoutRegistry, parsePopoutFeatures, exactPopoutBounds, setExactPopoutBounds, configureWindow, revealPopout, nativePopoutRect } = createRequire(import.meta.url)(out)
 
 /** A native window reduced to what the registry reads, plus the levers a test
  *  needs: it can be maximized, it can be destroyed, and it can fire its own
@@ -129,6 +129,45 @@ test('closing forgets the window - but only if it is still the one holding the n
   reopened.fire('closed')
   assert.equal(registry.window('orgtree-popout-2'), replaced,
     'the earlier window closing must not disable the controls of the one that took its name')
+})
+
+// docket 4-5-0-a-saved-pop-out-window-reopens-8-px-off-an: a popout's saved
+// place is its own content box. The renderer's screenX/outerWidth include
+// Windows' invisible frame, and a place saved from them reopened 8 px left and
+// 16x8 px larger every time (measured in a Session 0 capture, 2026-10-27).
+test('a window that reports its own box publishes it when tracked, when a move or resize ends, and once after others settle', async () => {
+  const published = []
+  const registry = popoutRegistry(state => published.push(state))
+  const window = fakeWindow()
+  let box = { x: 340, y: 180, width: 560, height: 400 }
+  window.getContentBounds = () => ({ ...box })
+  registry.track('orgtree-popout-1', window)
+  assert.deepEqual(published.at(-1), { name: 'orgtree-popout-1', present: true, maximized: false, bounds: { x: 340, y: 180, width: 560, height: 400 } }, 'its box as it opens')
+  box = { x: 400, y: 200, width: 560, height: 400 }; window.fire('moved')
+  assert.deepEqual(published.at(-1)?.bounds, box, 'at the end of a move')
+  box = { x: 400, y: 200, width: 640, height: 480 }; window.fire('resized')
+  assert.deepEqual(published.at(-1)?.bounds, box, 'at the end of a resize')
+  const before = published.length
+  box = { x: 10, y: 20, width: 640, height: 480 }; window.fire('move'); window.fire('move'); window.fire('resize')
+  assert.equal(published.length, before, 'a move or resize in progress waits')
+  await new Promise(r => setTimeout(r, 160))
+  assert.equal(published.length, before + 1, 'then it publishes once')
+  assert.deepEqual(published.at(-1)?.bounds, box)
+  assert.deepEqual(registry.state('orgtree-popout-1').bounds, box, 'and the state answers the same box')
+  window.fire('move'); window.destroyed = true; window.fire('closed')
+  await new Promise(r => setTimeout(r, 160))
+  assert.equal(published.length, before + 1, 'nothing is published for a window that has gone')
+})
+
+test('a native box goes back as the content box, never through the owner display', () => {
+  assert.equal(typeof nativePopoutRect, 'function', 'main can tell a restore\'s native box')
+  const native = 'popup,orgtreeExactRect=1,orgtreeNativeRect=1,left=340,top=180,width=560,height=400,minWidth=160,minHeight=120'
+  assert.equal(nativePopoutRect(native), true)
+  assert.deepEqual(exactPopoutBounds(native), { x: 340, y: 180, width: 560, height: 400 }, 'placed exactly, as its content box')
+  assert.equal(nativePopoutRect('popup,orgtreeExactRect=1,orgtreeClientX=10,orgtreeClientY=20,orgtreeClientWidth=300,orgtreeClientHeight=200,left=10,top=20,width=300,height=200'), false,
+    'a first pop-out still maps its owner\'s client rect')
+  assert.equal(nativePopoutRect('popup,left=1,top=2,width=300,height=200'), false)
+  assert.equal(nativePopoutRect(undefined), false)
 })
 
 test('parsePopoutFeatures extracts minWidth and minHeight from popout features string', () => {
