@@ -571,7 +571,9 @@ mod tests {
         let dir=root.join(".gemini/antigravity-cli/conversations");std::fs::create_dir_all(&dir).unwrap();
         let db=rusqlite::Connection::open(dir.join(format!("{session}.db"))).unwrap();
         db.execute_batch("CREATE TABLE steps(idx INTEGER PRIMARY KEY,step_payload BLOB)").unwrap();
-        let bytes=|field:u8,s:&[u8]|{let mut v=vec![(field<<3)|2];let mut n=s.len();while n>=128{v.push((n as u8&127)|128);n>>=7;}v.push(n as u8);v.extend(s);v};
+        // protobuf length-delimited fields; the tag is a varint (field 140's takes two bytes)
+        let varint=|mut n:usize|{let mut v=Vec::new();while n>=128{v.push((n as u8&127)|128);n>>=7;}v.push(n as u8);v};
+        let bytes=|field:usize,s:&[u8]|{let mut v=varint((field<<3)|2);v.extend(varint(s.len()));v.extend(s);v};
         // the stored shape of a native read: a generic tool step (field 1 = 132), call 5 -> 4 -> 2, result 140 -> 2 -> 1
         let payload=[vec![8,132,1],bytes(5,&bytes(4,&bytes(2,b"read_file"))),bytes(140,&bytes(2,&bytes(1,content.as_bytes())))].concat();
         db.execute("INSERT INTO steps VALUES (6,?1)",[payload]).unwrap();drop(db);
