@@ -1765,12 +1765,12 @@ mod builder_stack_tests {
         dschema["properties"]["id"]["description"] = serde_json::json!(dschema["properties"]["id"]["description"].as_str().unwrap()
             .replace("pause/resume/remove:", "pause/resume/remove/send/configure:"));
         // app event watchdogs (4.5.0 custom apps, 7ec8edb 2026-10-26; the
-        // event_name clause is user 2026-10-27, a175058): the kind, before
+        // event_name clause is user 2026-10-27, a175058, worded m281f01b7bf36): the kind, before
         // mqtt, and its three fields
         let kinds = dschema["properties"]["kind"]["enum"].as_array_mut().unwrap();
         let at = kinds.iter().position(|k| k == "mqtt").unwrap();
         kinds.insert(at, serde_json::json!("app_listener"));
-        dschema["properties"]["event_name"] = serde_json::json!({"type":"string","description":"app_listener: exact declared event name; a panel fires its own events only while the Orgtree main window is open"});
+        dschema["properties"]["event_name"] = serde_json::json!({"type":"string","description":"app_listener: exact declared event name; a panel fires its own events only while Orgtree is open, tray included"});
         dschema["properties"]["panel"] = serde_json::json!({"type":"string","description":"app_listener: one saved panel ID; mutually exclusive with all_panels"});
         dschema["properties"]["all_panels"] = serde_json::json!({"type":"boolean","description":"app_listener: explicitly listen to all current and future copies of this app"});
         let card = expected.as_array_mut().unwrap().iter_mut().find(|c| c["name"] == "orgtree_audience").unwrap();
