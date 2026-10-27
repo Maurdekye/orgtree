@@ -94,7 +94,10 @@ function fireDetails(f:Fire){
 function ConnectionRow({slug,app,panel,row,world,focus,leave}:{slug:string;app:CustomApp;panel:CustomPanel;row:Connection;world:RefWorld;focus?:RefRoutes['onOpen'];leave:()=>void}){
   const [open,setOpen]=useState(false),region=useId()
   const agent=resolveRef({kind:'agent',org:slug,id:row.owner},world)
-  const target=row.all_panels?null:resolveRef({kind:'panel',org:slug,id:row.panel??panel.id},world)
+  const named=row.all_panels?null:resolveRef({kind:'panel',org:slug,id:row.panel??panel.id},world)
+  // This copy's link names the copy: its app is this window's, and the mention's
+  // "App · Panel" label would crowd the agent's name out of the row.
+  const target=named?.outcome==='ready'&&named.ref.id===panel.id?{...named,label:panel.label}:named
   const flags=[row.state==='paused'&&'Paused',row.notice&&'Notice',row.once&&'Once',plural(row.fired,'fire')].filter(Boolean).join(' · ')
   const read=(cursor:LogCursor)=>customAppsRequest<Fires>(slug,{action:'listener_fires',app:app.id,listener:row.id,limit:LOG_PAGE,...cursor}).then(page=>({items:page.fires,next_cursor:page.next_cursor}))
   return <li className={open?'open':undefined}>

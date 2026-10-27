@@ -65,7 +65,7 @@ test('Connections rows link their agent and panel, name their event, and follow 
   const agent=row!.querySelector<HTMLButtonElement>('button.ref-chip.ref-agent')
   assert.ok(agent,'the agent is an agent link');assert.match(agent!.textContent??'',/liaison-opus$/)
   const target=row!.querySelector<HTMLButtonElement>('button.ref-chip.ref-panel')
-  assert.ok(target,'the panel is a panel link');assert.equal(target!.textContent,'Caption placement · Orgtree School 1 captions','a panel link shows its mention label')
+  assert.ok(target,'the panel is a panel link');assert.equal(target!.textContent,'Orgtree School 1 captions',"this copy's link names the copy: its app is the window's")
   assert.equal(row!.querySelector('.custom-app-connection-event')?.textContent,'placements.submitted','the row names its event')
   assert.equal(row!.querySelector('.custom-app-connection-meta')?.textContent,'1 fire','armed and wake are the defaults: only the count shows')
   assert.equal(row!.textContent?.includes('caption-placements-test'),false,'the watchdog handle waits in the expanded row')
