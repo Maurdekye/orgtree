@@ -13,8 +13,10 @@
 //     read with no model choice opened; Argon is offered again and no
 //     further read follows (never a poll); the next turn runs a new process
 //   - orgtree_list_tiers refresh=true re-reads the catalog
-//   - a full Argon weekly bucket (gemini-argon-wtu-weekly) refuses an Argon
-//     hire with that window's reason, while Flash is still hired
+//   - with Argon's own weekly bucket (gemini-argon-wtu-weekly) full, a hire
+//     naming the default login is refused with that window's reason, a hire
+//     naming no account is placed and its turn is held with the same reason,
+//     and Flash is still hired
 // Run: node tools/rig/rig.mjs run tools/rig/proofs/agy-login-change.mjs
 
 import fs from 'node:fs'
@@ -127,10 +129,22 @@ export default async function (rig) {
   const usage = await rig.api('GET', '/api/antigravity/usage?force=true')
   p.check('control: the reading carries the full Argon window',
     (usage.limits ?? []).some((l) => l.group === 'gemini-argon-wtu-weekly' && l.percent >= 100), usage.limits)
-  const r = await refusal(rig.op({ op: 'hire', name: 'arg-full', parent: 'boss', tier: 'argon', title: 'Argon seat' }))
-  p.check('a hire naming Argon is refused with its own window as the reason',
+  // naming the default login: refused at the hire with the window's reason
+  const r = await refusal(rig.op({ op: 'hire', name: 'arg-full', parent: 'boss', tier: 'argon', title: 'Argon seat',
+    account: 'google/primary' }))
+  p.check('a hire naming Argon on the default login is refused with its own window as the reason',
     r?.status === 409 && /gemini-argon-wtu-weekly/.test(r.message), r)
   p.check('control: the refused hire created no agent', rig.sql("SELECT 1 FROM ot.agents WHERE name = 'arg-full'").length === 0)
+  // naming no account: placed; the turn gate holds its turns with the same reason
+  const placed = await refusal(rig.op({ op: 'hire', name: 'arg-wait', parent: 'boss', tier: 'argon', title: 'Argon seat' }))
+  p.check('a hire naming no account is placed', placed === null, placed)
+  await rig.userMail('arg-wait', 'HELD-BY-THE-ARGON-WINDOW')
+  const held = await rig.waitFor(async () => {
+    const e = (await rig.api('GET', `/api/orgs/${rig.org}/nodes/arg-wait/chat?last=1`))?.last_error ?? ''
+    return /gemini-argon-wtu-weekly/.test(e) ? e : null
+  }, { what: 'the turn gate to hold arg-wait', timeout: 20000 }).catch(() => null)
+  p.check('its turn is held with its own window as the reason, and no turn ran',
+    !!held && rig.turns('arg-wait').length === 0, { held, turns: rig.turns('arg-wait') })
   const f = await refusal(rig.op({ op: 'hire', name: 'flash-ok', parent: 'boss', tier: 'flash', title: 'Flash seat' }))
   p.check('Flash is still hired: Argon\'s bucket is not the Gemini pool', f === null, f)
 
