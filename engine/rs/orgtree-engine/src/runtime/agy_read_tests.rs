@@ -1,5 +1,5 @@
 //! Antigravity file-read content, read from the shapes real AGY histories store.
-//! Measured 2026-10-27 on nine real conversations (2,291 tool steps): read_file and
+//! Measured 2026-10-27 on ten real conversations (2,291 tool steps): read_file and
 //! view_file are generic tool steps (field 1 = 132) whose call is field 5 -> 4 (tool
 //! name = field 2) and whose result is field 140 -> 2 -> 1; field 14 never occurs.
 use super::agy_thinking::{read_tool_output, Skip};

@@ -1,6 +1,6 @@
 // Antigravity tool rows are counted from the native step real histories store.
 // A synthetic conversation history in the rig home holds generic tool steps in the shape
-// measured on real Antigravity histories (2026-10-27, nine conversations, 2,291 tool steps:
+// measured on real Antigravity histories (2026-10-27, ten conversations, 2,291 tool steps:
 // field 1 = 132, tool name 5 -> 4 -> 2, result text 140 -> 2 -> 1; CortexStep.view_file
 // (14) never occurs). Raw stream events play the tools through the real actor, with the
 // stream carrying no output text for most of them, as the real CLI does for file reads.

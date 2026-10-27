@@ -71,7 +71,7 @@ read-only snapshot, zero lock wait and 2 MiB step limit also apply to this
 read. Raw file paths are never reopened.
 
 Antigravity stores a read as a generic tool step, as it does every native tool
-(USER 2026-10-27 m30b9178ed978; shape measured the same day on nine real
+(USER 2026-10-27 m30b9178ed978; shape measured the same day on ten real
 histories, 2,291 tool steps): the payload's field 1 is 132, the call is
 field 5 -> 4 with the tool name in its field 2, and the text the model was
 given is field 140 -> 2 -> 1, each field once and UTF-8. `read_file` and

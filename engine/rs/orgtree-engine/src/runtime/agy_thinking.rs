@@ -24,7 +24,7 @@ pub struct ToolStep {
 }
 
 /// The exact native tool step, never a current file read.
-/// Measured 2026-10-27 on nine real AGY histories (2,291 tool steps, read_file and view_file
+/// Measured 2026-10-27 on ten real AGY histories (2,291 tool steps, read_file and view_file
 /// among them): every native tool is one generic step (field 1 = 132) whose call is field 5 -> 4
 /// (tool name = field 2) and whose result is field 140 -> 2 -> 1, UTF-8, each field once.
 /// `CortexStep.view_file` (14) never occurs there, so reading it counted nothing.
