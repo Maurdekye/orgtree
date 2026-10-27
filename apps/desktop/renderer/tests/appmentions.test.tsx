@@ -155,7 +155,7 @@ test("a panel chip's menu keeps its power action alongside shared Settings and D
  const m=await mount(t,slug,`@app:${slug}/notes and @panel:${slug}/one`)
  const [app,panel]=[...m.view.el.querySelectorAll<HTMLButtonElement>('button.ref-chip')]
  await rightClick(panel!)
- assert.deepEqual(menuLabels(),['Start running','Settings','Delete…'],'a stopped copy can start hidden and manage its own settings')
+ assert.deepEqual(menuLabels(),['Start running','Copy mention','Settings','Delete…'],'a stopped copy can start hidden, copy its mention and manage its own settings')
  const mark=m.calls.length
  await inAct(async()=>{const b=[...top()!.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find(x=>x.textContent?.trim()==='Start running')!
   b.dispatchEvent(new window.MouseEvent('pointerdown',{bubbles:true,cancelable:true,button:0}));b.click();await tick()})
@@ -164,6 +164,7 @@ test("a panel chip's menu keeps its power action alongside shared Settings and D
  assert.equal(top(),null,'choosing closes the menu')
  await rightClick(app!)
  assert.ok(!menuLabels().some(l=>l==='Start running'||l==='Power off'),'no panel entries on an app')
+ assert.deepEqual(menuLabels(),['New panel','Copy mention','Settings','Delete…'],'an app can copy its mention too')
 })
 
 test('a refused open shows in the apps error banner',async t=>{

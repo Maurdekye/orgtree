@@ -946,7 +946,7 @@ uiTest('§B4b ticket row: the mention-copy double-click leaves no selection behi
   assert.equal(await rightClick(row), true,
     'the row\'s own menu takes the right-click that follows a slug copy')
   assert.ok(labels().includes('Copy slug'), JSON.stringify(labels()))
-  assert.deepEqual(clip.writes, ['parent-item'],
+  assert.deepEqual(clip.writes, ['@item:org1/parent-item'],
     'and the right-click itself copies nothing — Copy slug is an entry, not a side effect')
 
   // …AND THE RULE IT MUST NOT BREAK (§A2): a selection the READER made is
