@@ -90,14 +90,15 @@ usage limit, is **halted**, **moves out of the project** (it no longer reaches
 it), or has a **turn that dies**: anything except a manual interrupt
 (`orgtree_interrupt`, the desk's stop, Stop all) or the agent ending its own
 turn. A dead turn is a crash, an idle or time-limit kill, a provider or harness
-error, the CLI exiting, the user's Windows session ending, a freeze, or an
-engine restart in the middle of the turn. The line is checked in strict FIFO
+error, the CLI exiting, the user's Windows session ending or a freeze. An
+**engine restart** is not a dead turn: a turn it cut keeps its leases and
+un-acked jobs, still held by the same agent, which carries on after the
+restart. The line is checked in strict FIFO
 order and the next waiter is granted; a released job goes back to the front of
 the queue under the project's attempt and dead-letter rules. The holder reads one
 passive notice at its next turn naming every lease and job released, so it takes
 a new slot before it continues. Recent holds show `frozen`, `halted`,
-`moved out of the project`, `turn ended abnormally` or
-`engine restarted during its turn` as the end reason. A frozen or halted
+`moved out of the project` or `turn ended abnormally` as the end reason. A frozen or halted
 claimant waiting in line is passed over until it can run again, and keeps its
 place. An agent that **moves out of a project** also loses its WAITING claim in that
 project's line (the line goes on without it) and has its queue listener there

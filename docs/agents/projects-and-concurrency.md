@@ -40,14 +40,18 @@ run get no new mechanism: the checkup's Ack timeout and reminders (`slots::idle_
 next checkup) still apply, only while Runtime working checkups and the project's Ack
 timeout are on. A manual interrupt (`turn.interrupted`: `orgtree_interrupt`, the desk's
 stop, Stop all, halt) and an agent ending its own turn (including asking for a restart)
-are not deaths.
+are not deaths. Neither is an engine restart (user 2026-10-27 22:04:54Z ma9d6ca993753,
+"also make engine restarts not free slots"): `runtime::recover` wakes a turn the stopped
+engine cut and gives nothing back, so its slot leases and un-acked jobs stay with the same
+holder across the restart. `slots::startup` still re-checks every project at start for
+holders that are retired, halted, frozen or moved out, and the Ack timeout covers one that
+never returns.
 
 Paths: state-derived (`slots::check`, `projects::release_stale`, run by
 `projects::recheck_holder` on halt, unhalt, freeze, thaw and retire, and at engine
 start) ends leases as `retired`, `halted`, `frozen` or `moved out of the project` and
 returns jobs `was halted`, `was frozen by a usage limit` or `moved out of the project`;
-event-driven (`holdings::release_after_death`) runs at `Actor::end_turn` and in
-`runtime::recover` for agents whose turn the engine cut. A move runs
+event-driven (`holdings::release_after_death`) runs at `Actor::end_turn`. A move runs
 `holdings::after_move` after commit for the moved node and its whole subtree
 (`Effects.moved`), rechecking every project where one of them holds a lease or job,
 waits in the slot line or listens on the queue, and every project that moved. For each,
@@ -64,7 +68,7 @@ is simply claimed again (admission counts only armed and paused claims). `holdin
 not a compaction, and a `limit`, a freeze record, `session_ended` or an `error`. That
 covers the idle watchdog and time limit, a CLI exit, provider and harness errors, a
 context-overflow retry, the user's Windows session ending and a freeze; an engine restart
-is separate (`Death::engine_restart`, agents with `inflight_at` set). Each release locks the
+is not a death (above). Each release locks the
 project row first (as `grant`), ends the leases, takes jobs back through
 `projects::reclaim_in` with ending `died` (no state to revalidate; recorded `failed`,
 attempt and dead-letter rules unchanged), commits, then runs `slots::grant` (strict FIFO) and
@@ -75,9 +79,10 @@ thaw or unhalt rechecks it. Not covered: the org's Stop all (a manual stop, leas
 18:01:13Z m603e6114476e, "Keep slots"). A job released after a dead turn goes back to the
 queue's plain FIFO and may reach the same listener again (same answer, "Plain FIFO").
 [decided: user 2026-10-27 16:15:14Z m739ebe27c924, 16:17:09Z mc608eb4330a0, 16:18:01Z mea799ba1df7c,
-18:01:13Z m603e6114476e (moved out: "Drop both");
+18:01:13Z m603e6114476e (moved out: "Drop both"), 22:04:54Z ma9d6ca993753 (engine restarts do not free slots);
 verified: `domain/{holdings,slots,projects,ops}.rs`, `runtime/{actor,freeze,mod}.rs`,
-`org_accounts.rs`; disposable-PG tests `domain::holdings`, red control at base]
+`org_accounts.rs`; disposable-PG tests `domain::holdings`, red control at base; `an_engine_restart_keeps_a_cut_turns_lease_and_unacked_job`
+runs the real `runtime::recover`]
 
 ## Full-depth project reporting (2026-10-22)
 
