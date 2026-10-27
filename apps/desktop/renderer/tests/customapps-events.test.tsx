@@ -53,7 +53,7 @@ test('Panel settings lists connections and fires only the selected saved copy ev
   assert.ok(calls.filter(c=>c.action==='events').every(c=>!('messages' in c)),'History reads the History listing, never messages')
   assert.equal(!!log.querySelector('.custom-app-connections'),false,'connections are not on the History tab');assert.equal(!!log.querySelector('[aria-label="Declared event"]'),false,'Fire event is not on the History tab')
   const fireTab=await tab('Fire event')
-  const fire=[...fireTab.querySelectorAll<HTMLButtonElement>('button')].find(b=>b.textContent?.trim()==='Fire event');assert.ok(fire)
+  const fire=[...fireTab.querySelectorAll<HTMLButtonElement>('button')].find(b=>b.textContent?.trim()==='Fire');assert.ok(fire)
   assert.equal(calls.some(c=>c.action==='fire_event'),false,'opening settings never fires')
   await inAct(async()=>{fire.click();for(let i=0;i<5;i++)await flush()})
   assert.deepEqual(calls.find(c=>c.action==='fire_event'),{action:'fire_event',panel:'one',name:'submitted',payload:{}})
