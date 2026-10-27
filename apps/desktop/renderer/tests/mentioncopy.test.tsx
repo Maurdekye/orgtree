@@ -13,6 +13,10 @@ import { AgentGalleryView, DocGalleryModal } from '../src/canvas/gallery'
 import { galleryRows, installGalleryFixture } from './galleryrows-fixture'
 import { appLinkMenu, panelLinkMenu } from '../src/canvas/apps/links'
 import type { MenuEntry } from '../src/canvas/contextmenu'
+import { readFileSync } from 'node:fs'
+import path from 'node:path'
+
+declare const __SRC_DIR__: string
 
 function stubClipboard(): { writes: string[]; restore: () => void } {
   const writes: string[] = []
@@ -56,6 +60,32 @@ for (const surface of ['modal', 'desk'] as const) {
     assert.equal(row.querySelector('.docket-copied')!.textContent, 'Copied!')
   })
 }
+
+// BOUNCE 2026-10-28 (capture, desk Presented): `.desk-presented-card span { white-space: normal;
+// overflow-wrap: anywhere }` out-ranked the bubble's nowrap, so Copied! broke into 'Cop' / 'ied' /
+// '!' in the scaled desk row. The real styles.css cascade decides, as in effortbar.test.tsx.
+test('desk: the Copied! bubble stays on one line inside a Presented row', async t => {
+  useFakeClock(); installGalleryFixture()
+  const clip = stubClipboard(); t.after(clip.restore)
+  const style = document.createElement('style')
+  style.textContent = readFileSync(path.join(__SRC_DIR__, 'styles.css'), 'utf8')
+  document.head.appendChild(style); t.after(() => style.remove())
+  const v = await mountView(<AgentGalleryView slug="synthetic" toast={() => {}} onFocusAgent={() => {}} nid="test-project"
+    node={{ id: 'test-project', kind: 'project' } as any} />, host => host)
+  t.after(async () => { await v.unmount(); realClock() })
+  await flush()
+  const row = v.el.querySelector<HTMLElement>('.desk-presented-card')!
+  assert.ok(row, 'positive control: the desk Presented row rendered')
+  await inAct(() => {
+    row.dispatchEvent(new window.MouseEvent('dblclick', { bubbles: true, cancelable: true, clientX: 12, clientY: 8 }))
+  })
+  await flush(3)
+  const bubble = row.querySelector<HTMLElement>('.docket-copied')
+  assert.ok(bubble, 'positive control: the bubble appeared')
+  const css = window.getComputedStyle(bubble)
+  assert.equal(css.getPropertyValue('white-space'), 'nowrap', 'one line, as in the docket row')
+  assert.notEqual(css.getPropertyValue('overflow-wrap'), 'anywhere', 'and no break inside the word')
+})
 
 const entry = (entries: MenuEntry[], label: string) =>
   entries.find((e): e is Exclude<MenuEntry, 'sep'> => e !== 'sep' && e.label === label)
