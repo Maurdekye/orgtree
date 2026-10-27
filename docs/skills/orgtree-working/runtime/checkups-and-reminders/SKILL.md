@@ -13,7 +13,7 @@ Automatic reminders help work resume after an agent has become idle. They are wa
 
 The reminder sweep runs about every 20 seconds. A reminder becomes due only after **more than 20 minutes** since the relevant activity anchor. Recent turns, status reports and automatic-wake stamps defer it. An agent with no previous anchor is stamped first and waits its interval.
 
-Candidates must be live, not halted/frozen/limit-locked, without an unfinished turn or waking/delivering mail, in an org whose stop latch is clear. Busy actors, slot waiters and actors running a cache keepalive are skipped. Passive notices are not waking mail and do not block an otherwise eligible wake.
+Candidates must be live, not halted/frozen/limit-locked, without an unfinished turn or waking/delivering mail, in an org whose stop latch is clear. Because of that gate the checkup's Ack timeout never reaches a frozen or halted holder: its project slot leases and un-acked jobs are released at once when it freezes or halts (see `orgtree-projects`). Busy actors, slot waiters and actors running a cache keepalive are skipped. Passive notices are not waking mail and do not block an otherwise eligible wake.
 
 The engine reserves a durable timestamp before sending and rechecks eligibility. If real work wins the race, the automatic wake is withdrawn when still pending; the timestamp remains as its cooldown. A restart therefore does not mean every old reminder is sent again immediately.
 

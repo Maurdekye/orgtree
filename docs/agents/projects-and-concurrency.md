@@ -25,6 +25,48 @@ reclaim path and user-owned leases are unchanged.
 2026-10-22, dissolve/delete scope; verified: `domain/{ops,slots}.rs`, focused
 `tools/rig/proofs/project-retirement-slots.mjs`]
 
+## Holdings when an agent cannot run, loses a turn or leaves a project (2026-10-27)
+
+A project's **slot leases** and un-acked **ack-mode mail jobs** are an agent's
+holdings (`domain/holdings.rs`). They are taken back at once, with no grace
+period, when the holder is retired, halted or **frozen** (any `frozen` record: a
+usage limit, a provider refusal that freezes, no allowed account), when it **moves
+out of the project** (`projects::reaches` is false), and when its **turn dies**.
+The working checkup cannot cover these holders: its sweep and `claim` skip halted,
+frozen and mid-turn agents, and an org with Stop all latched, which is how two
+frozen seats kept two of three build slots for 16 minutes. Idle holders that can
+run get no new mechanism: the checkup's Ack timeout and reminders (`slots::idle_timeouts`,
+`projects::ack_timeouts`, default three 20-minute reminders then release on the
+next checkup) still apply, only while Runtime working checkups and the project's Ack
+timeout are on. A manual interrupt (`turn.interrupted`: `orgtree_interrupt`, the desk's
+stop, Stop all, halt) and an agent ending its own turn (including asking for a restart)
+are not deaths.
+
+Paths: state-derived (`slots::check`, `projects::release_stale`, run by
+`projects::recheck_holder` on halt, unhalt, freeze, thaw and retire, and at engine
+start) ends leases as `retired`, `halted`, `frozen` or `moved out of the project` and
+returns jobs `was halted`, `was frozen by a usage limit` or `moved out of the project`;
+event-driven (`holdings::release_after_death`) runs at `Actor::end_turn` and in
+`runtime::recover` for agents whose turn the engine cut. A move runs
+`holdings::after_move` after commit for the moved node and its whole subtree
+(`Effects.moved`), rechecking every project where one of them holds a lease or job and
+every moved project. `holdings::died` decides which turn ends count: not interrupted,
+not a compaction, and a `limit`, a freeze record, `session_ended` or an `error`. That
+covers the idle watchdog and time limit, a CLI exit, provider and harness errors, a
+context-overflow retry, the user's Windows session ending and a freeze; an engine restart
+is separate (`Death::engine_restart`, agents with `inflight_at` set). Each release locks the
+project row first (as `grant`), ends the leases, takes jobs back through
+`projects::reclaim_in` with ending `died` (no state to revalidate; recorded `failed`,
+attempt and dead-letter rules unchanged), commits, then runs `slots::grant` (strict FIFO) and
+`projects::dispatch`, and sends ONE passive System notice naming every lease and job, which
+rides the holder's next turn (`holdings::notice_body`). A frozen or halted claimant in the line
+(`slots::grant_in`) or ack hand-out (`projects::hand_batch`) is skipped, keeps its place, and
+thaw or unhalt rechecks it. Not covered: the org's Stop all (a manual stop, leases stay held);
+waiting claims and listener dogs of an agent that moved out are left as they were.
+[decided: user 2026-10-27 16:15:14Z m739ebe27c924, 16:17:09Z mc608eb4330a0, 16:18:01Z mea799ba1df7c;
+verified: `domain/{holdings,slots,projects,ops}.rs`, `runtime/{actor,freeze,mod}.rs`,
+`org_accounts.rs`; disposable-PG tests `domain::holdings`, red control at base]
+
 ## Full-depth project reporting (2026-10-22)
 
 Migration 0052 replaces the fixed-depth `superior_of` and `live_superior_of`

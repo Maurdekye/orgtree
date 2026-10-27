@@ -64,6 +64,13 @@ holds preserve each lease and quantity with `retired` as the end reason.
 User-owned holds are unaffected. Automatic bookkeeping release does not itself
 stop protected work or grant permission to overlap an old process.
 
+A frozen, halted or moved-out holder, and a holder whose turn died (anything but a
+manual interrupt or ending its own turn), also loses every lease and un-acked mail job
+at once; its next turn gets one notice naming what was released, and the next waiter is
+granted in FIFO order. A claimant that is frozen or halted is passed over in the line and
+keeps its place. Recent holds' end reasons then read `frozen`, `halted`,
+`moved out of the project` or `turn ended abnormally`.
+
 ```json
 {"action":"release_slot","lease":"s3f1c2a9b0d4e","note":"build ok"}
 ```

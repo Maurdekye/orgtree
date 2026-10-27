@@ -83,6 +83,26 @@ lease quantity with `retired` as its end reason. User-owned holds are unaffected
 This bookkeeping does not prove the former holder's protected work has stopped;
 the agreed process-containment and shutdown rules still apply.
 
+A holder that cannot run gives its holdings back at once, with no grace period
+(user 2026-10-27). A project's **slot leases** and the un-acked mail jobs of an
+ack-mode queue are released immediately when their holder is **frozen** by a
+usage limit, is **halted**, **moves out of the project** (it no longer reaches
+it), or has a **turn that dies**: anything except a manual interrupt
+(`orgtree_interrupt`, the desk's stop, Stop all) or the agent ending its own
+turn. A dead turn is a crash, an idle or time-limit kill, a provider or harness
+error, the CLI exiting, the user's Windows session ending, a freeze, or an
+engine restart in the middle of the turn. The line is checked in strict FIFO
+order and the next waiter is granted; a released job goes back to the front of
+the queue under the project's attempt and dead-letter rules. The holder reads one
+passive notice at its next turn naming every lease and job released, so it takes
+a new slot before it continues. Recent holds show `frozen`, `halted`,
+`moved out of the project`, `turn ended abnormally` or
+`engine restarted during its turn` as the end reason. A frozen or halted
+claimant waiting in line is passed over until it can run again, and keeps its
+place. This replaces waiting for the checkup, which never reaches a frozen,
+halted or mid-turn agent: an **idle** holder that can run still has the
+project's Ack timeout and reminders (20-minute checkups, count 1-10, default 3).
+
 ## Read/write agreement: one slot per reader, all slots per writer
 
 An authorized supervisor creates an N-slot project above the workers. For
