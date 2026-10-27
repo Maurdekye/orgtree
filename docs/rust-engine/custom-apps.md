@@ -723,7 +723,12 @@ Before, a docked popout copy was a box fixed at its record's x/y, neither
 centered nor a window pin: no drag rect and an unlit pin (m4691725be7a7).
 Reopening into its window writes nothing. useRestoreWindows starts allowed for
 a bridge that has already said restoring is on (main only ever turns it on), so
-the reopen waits for no window-state IPC first. Canvas placement is retired (USER 2026-10-26
+the reopen waits for no window-state IPC first. The saved window row stores
+main's reported `getContentBounds()` (`popout-state` `bounds`, `exact: true`)
+and restores it with `orgtreeExactRect=1,orgtreeNativeRect=1`, so reopening
+after Power off or restart does not add Windows' 8 px invisible frame on each
+cycle (`tests/popout-windows.test.mjs`, `tests/popoutnativebox.test.tsx`,
+`tests/panelreopen-capture.cjs`). Canvas placement is retired (USER 2026-10-26
 m2b682426170d, "Remove canvas pinning"): the wire refuses mode canvas, the
 retired mode screen (pointing at window) and any node anchor; the anchor field
 still parses as null for older clients. Migration0069 reopens stored canvas

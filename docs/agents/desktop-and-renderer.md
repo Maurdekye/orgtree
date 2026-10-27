@@ -596,6 +596,18 @@ over a closed alias when migration produces the same key. No storage schema
 change is needed. [decided: user 2026-10-20, DECISIONS 92; verified:
 `windowlayout.ts`, `tests/windowretention.test.ts`; 2026-10-21]
 
+Each saved pop-out row records the native window's own content box (`exact:
+true`) when main reports it (`popout-state` `bounds` from `popoutRegistry`'s
+`getContentBounds()`, published when tracked, on `moved`/`resized` and 100 ms
+after `move`/`resize` settles), rather than the renderer's `screenX`/`outerWidth`
+(which on Windows include the 8 px invisible frame on left, right and bottom).
+Restoring an `exact` row passes `orgtreeExactRect=1,orgtreeNativeRect=1` to
+`window.open`; main skips `popoutDisplayBounds` (already screen DIPs) and
+applies `setExactPopoutBounds`, so a reopened or startup-restored pop-out lands
+where it was left without drifting 8 px left and 16x8 px larger each time.
+[verified: `main/windows.ts`, `popout.tsx`, `windowlayout.ts`,
+`tests/popout-windows.test.mjs`, `tests/popoutnativebox.test.tsx`; 2026-10-27]
+
 Pinned agent and team presentation readers report their current selected
 document to the canvas's marker owner. Selection changes and opening another
 reader preserve that document in the pinned open marker; reload restores it
