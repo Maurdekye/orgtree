@@ -95,7 +95,7 @@ fn legacy_profiles_change_only_approved_mentions_and_claude_loading() {
         // scopes list it. Unrelated wording remains pinned to the original
         // fingerprint.
         let text = text.replace(
-            "MENTIONS: whenever you name an agent, project, docket item or presentation in text a person or agent will read (your replies, mail, docket descriptions, presentations), write @name, @item:<org>/<slug> or @doc:<org>/<slug> as plain text, never in backticks or code spans. A bare name is wrong. Point the user at an app or one of its panels with @app:<org>/<app-id> or @panel:<org>/<panel-id>.",
+            "MENTIONS: whenever you name an agent, project, docket item or presentation in text a person or agent will read (your replies, mail, docket descriptions, presentations), write @name, @item:<org>/<slug> or @doc:<org>/<slug> as plain text, never in backticks or code spans. A bare name is wrong. Point the user at an app or one of its panels with @app:<org>/<slug> or @panel:<org>/<slug>.",
             "MENTIONS: whenever you name an agent, project or docket item in text a person or agent will read (your replies, mail, docket descriptions, presentations), write it as a mention: `@name`, or `@item:<org>/<slug>`. A bare name is wrong. Don't put mentions inside code spans.",
         ).replace(
             "Write @user (plain text, never in backticks) in replies, mail, presented documents or docket updates to notify the user: 'I need you to see this'. Anything needing an answer still goes by mail or question.",
