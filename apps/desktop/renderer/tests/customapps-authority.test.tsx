@@ -20,7 +20,7 @@ test('whole-app import warns about full org authority without running the import
  assert.match(view.el.textContent!,/untrustworthy/i)
  assert.equal(view.el.querySelector('iframe'),null)
 })
-test('the import preview labels the app, names what still asks first and counts copies without a capability list',async t=>{
+test('the import preview labels the app, names what still asks first and counts saved panels without a capability list',async t=>{
  // USER 2026-10-26: created and imported apps hold org authority whatever they declare (engine policy.rs), so a
  // declared-capability list beside the full-access warning misleads; only outside files still ask first.
  const definition={name:'Org notes',description:'',html:'<p>Notes</p>',initial_state:{},capabilities:[],width:400,height:300}
@@ -30,7 +30,8 @@ test('the import preview labels the app, names what still asks first and counts 
  assert.equal(/still asks before reading or changing files outside this org/i.test(text),true,'the preview names what still asks for consent')
  assert.equal(text.includes('Name: Org notes'),true,'the app name is labelled, not a bare heading')
  assert.equal([...none.el.querySelectorAll('p')].filter(p=>!p.textContent!.trim()).length,0,'an empty description leaves no blank paragraph')
- assert.equal(text.includes('No saved copies.'),true)
- const one=await mount([{label:'Draft',state:{}}]);assert.equal(one.el.textContent!.includes('1 saved copy.'),true)
- const two=await mount([{label:'A',state:{}},{label:'B',state:{}}]);assert.equal(two.el.textContent!.includes('2 saved copies.'),true)
+ // USER m55abf5a34460: "use panel nomenclature everywhere".
+ assert.equal(text.includes('No saved panels.'),true)
+ const one=await mount([{label:'Draft',state:{}}]);assert.equal(one.el.textContent!.includes('1 saved panel.'),true)
+ const two=await mount([{label:'A',state:{}},{label:'B',state:{}}]);assert.equal(two.el.textContent!.includes('2 saved panels.'),true)
 })

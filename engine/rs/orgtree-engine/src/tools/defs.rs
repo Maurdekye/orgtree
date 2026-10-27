@@ -1803,7 +1803,7 @@ mod builder_stack_tests {
         kinds.insert(at, serde_json::json!("app_listener"));
         dschema["properties"]["event_name"] = serde_json::json!({"type":"string","description":"app_listener: exact declared event name; a panel fires its own events only while Orgtree is open, tray included"});
         dschema["properties"]["panel"] = serde_json::json!({"type":"string","description":"app_listener: one saved panel ID; mutually exclusive with all_panels"});
-        dschema["properties"]["all_panels"] = serde_json::json!({"type":"boolean","description":"app_listener: explicitly listen to all current and future copies of this app"});
+        dschema["properties"]["all_panels"] = serde_json::json!({"type":"boolean","description":"app_listener: explicitly listen to all current and future panels of this app"});
         let card = expected.as_array_mut().unwrap().iter_mut().find(|c| c["name"] == "orgtree_audience").unwrap();
         card["description"] = serde_json::json!("Manage directional audiences: agent/project endpoints, request target (optional from=managed project), grant from, deny requester, revoke grantee. Projects pass their explicit grants to live direct members as their own; no nested relay. An audience with a project also reaches its direct agents; reverse access needs a reverse grant. User project mail/broadcast grants only the project; members inherit without personal grants. Direct contact adds no user grant while effective access exists; manual Acquire audience can. Project decisions belong to their nearest agent superior (user if none). External/org-inbox access remains agent-only. Requests do not grant access.\nGuide: orgtree-tool-audience.");
         let card = expected.as_array_mut().unwrap().iter_mut().find(|c| c["name"] == "orgtree_chart").unwrap();
@@ -2243,4 +2243,37 @@ fn build_tool_apps()->Value {
         "name":{"type":"string","description":"event name,1-80characters; events: only that event's fires (or messages)"},
         "payload":{"description":"event JSON, up to64KiB"}
     }),&["action"])
+}
+
+#[cfg(test)]
+mod panel_word_tests {
+    use serde_json::Value;
+    /// USER 2026-10-27 22:32:48Z m55abf5a34460, verbatim: "use panel
+    /// nomenclature everywhere; say "all panels"." A saved instance of an app
+    /// is a panel in every card text agents read, never a copy.
+    fn copy_word(text: &str) -> bool {
+        text.split(|c: char| !c.is_ascii_alphabetic()).any(|w| w.eq_ignore_ascii_case("copy") || w.eq_ignore_ascii_case("copies"))
+    }
+    fn strings<'a>(value: &'a Value, out: &mut Vec<&'a str>) {
+        match value {
+            Value::String(s) => out.push(s),
+            Value::Array(items) => items.iter().for_each(|v| strings(v, out)),
+            Value::Object(map) => map.values().for_each(|v| strings(v, out)),
+            _ => {}
+        }
+    }
+    #[test]
+    fn the_apps_and_watchdog_cards_call_saved_panels_panels() {
+        for (name, card) in [("orgtree_apps", super::build_tool_apps()), ("orgtree_watchdog", super::build_tool_watchdog())] {
+            let mut texts = Vec::new();
+            strings(&card, &mut texts);
+            let found: Vec<_> = texts.into_iter().filter(|t| copy_word(t)).collect();
+            assert!(found.is_empty(), "{name} calls a panel a copy: {found:?}");
+        }
+        let dog = super::build_tool_watchdog();
+        assert_eq!(dog["inputSchema"]["properties"]["all_panels"]["description"], "app_listener: explicitly listen to all current and future panels of this app");
+        let apps = super::build_tool_apps();
+        let description = apps["description"].as_str().unwrap();
+        assert!(description.contains("Agent panel_open creates a new closed panel;"), "{description}");
+    }
 }

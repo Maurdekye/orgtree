@@ -60,6 +60,22 @@ pub use storage::run;
         assert!(mode(json!({"action":"panel_open","panel":"existing","new":true}),false).is_err());
         assert!(parse(&json!({"action":"panel_open","app":"notes","closed":"true"})).is_err(),"flag is a boolean");
     }
+    /// USER 2026-10-27 22:32:48Z m55abf5a34460: "use panel nomenclature
+    /// everywhere". The panel_open refusals agents read say panel, never copy.
+    #[test] fn custom_apps_panel_open_refusals_say_panel(){
+        use super::{storage::panel_open_mode,wire::{parse,Request}};
+        let refusal=|input,agent|{
+            let Request::PanelOpen{closed,new,slug,panel,..}=parse(&input).unwrap() else{panic!("panel_open")};
+            panel_open_mode(agent,closed,new||slug.is_some(),panel.is_some()).unwrap_err().to_string()
+        };
+        let shown=refusal(json!({"action":"panel_open","panel":"existing"}),true);
+        assert!(shown.contains("use panel_get for an existing panel or panel_open with app to create a closed panel"),"{shown}");
+        let closed=refusal(json!({"action":"panel_open","panel":"existing","closed":true}),false);
+        assert!(closed.contains("closed creates a new panel; leave panel out"),"{closed}");
+        for text in [&shown,&closed]{
+            assert!(!text.split(|c:char|!c.is_ascii_alphabetic()).any(|w|w.eq_ignore_ascii_case("copy")||w.eq_ignore_ascii_case("copies")),"{text}");
+        }
+    }
     #[test] fn custom_apps_seen_is_explicit_bounded_and_not_an_authority_grant(){
         assert!(super::wire::parse(&json!({"action":"mark_seen","apps":["app-one","app-two"]})).is_ok());
         for apps in [json!([]),json!(["same","same"]),json!([""]),json!(vec!["x";201])]{assert!(super::wire::parse(&json!({"action":"mark_seen","apps":apps})).is_err());}

@@ -24,7 +24,7 @@ import assert from 'node:assert/strict'
 import { mailRefTarget } from '../src/canvas/reflinks'
 import { parseRef } from '../src/canvas/workrefs'
 import type { TypedRef } from '../src/canvas/workrefs'
-import type { TreePayload } from '../src/types'
+import type { TreePayload, Watchdog } from '../src/types'
 
 // Inbox restore state belongs to one opening, not to the next test case.
 beforeEach(() => window.sessionStorage.clear())
@@ -215,6 +215,28 @@ uiTest('§5b a DOCUMENT pointer opens the reader on that id, once',
         openDocAt="d7" onOpenDocHandled={() => { handled += 1 }} />)
     await flush()
     assert.ok(document.querySelector('.gallery-modal'), 'the document reader opened')
+    assert.equal(handled, 1, 'the pointer is consumed exactly once')
+  })
+
+uiTest('§5c a WATCHDOG pointer opens that watchdog in its own window, once',
+  async (mount) => {
+    // from an Apps window's Connections row (user 2026-10-27 mbf41fed391e2)
+    quietServer()
+    const { OrgCanvas } = await import('../src/canvas/OrgCanvas')
+    let handled = 0
+    const dog = { id: 'ceo/flappy-scores', owner: 'ceo', name: 'flappy-scores', kind: 'app_listener',
+      target: 'flappy', state: 'armed', interval_s: 0, fired: 0, once: false, spent: false,
+      at: '2026-10-27T07:00:00Z', events: [], event_name: 'run.ended', panel: 'little-wings',
+      all_panels: false, app_name: 'Flappy', panel_name: 'Little wings' } as unknown as Watchdog
+    await mount(
+      <OrgCanvas tree={{ ...tree(['ceo']), watchdogs: [dog] }} op={() => Promise.resolve({} as never)}
+        slug="mine" toast={noop} mailEvt={null}
+        openDogAt="ceo/flappy-scores" onOpenDogHandled={() => { handled += 1 }} />)
+    await flush(); await flush()
+    const win = document.querySelector('.watchdog-detail')
+    assert.ok(win, 'the watchdog window opened')
+    assert.match(win!.textContent ?? '', /flappy-scores/)
+    assert.match(win!.textContent ?? '', /Little wings/, 'its window still names the panel')
     assert.equal(handled, 1, 'the pointer is consumed exactly once')
   })
 
