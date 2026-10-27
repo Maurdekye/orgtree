@@ -9,8 +9,11 @@ Up: [orgtree-watchdogs](../SKILL.md)
 
 ## Named app events
 
-Create `kind:"app_listener", target:"<stable app ID>", event_name:"submitted"`
-with `panel:"<saved copy ID>"` by default, or explicit `all_panels:true` instead.
+Create `kind:"app_listener", target:"<app id>", event_name:"submitted"`
+with `panel:"<saved copy id>"` by default, or explicit `all_panels:true` instead.
+Ids are the readable slugs orgtree_apps answers with (`caption-board`,
+`caption-board-panel-1`); an app's or panel's older generic id also works, and
+the watchdog keeps the slug.
 The source must declare the exact name. Its agent owner needs watchdog and
 Org-modifying tools; creator identity grants nothing. One owner cannot
 register overlapping selectors for the same app/event. Pause/resume/remove,

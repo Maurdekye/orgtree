@@ -471,6 +471,45 @@ Verification (measured 2026-10-27, Session 0, one build-slot permit):
 - Renderer `customapps*` 55/55. The new tests fail 4/4 against the base app
   sources.
 
+## Readable ids (2026-10-27)
+
+USER 2026-10-27 mc70ab563f21d: "apps and panels should have slug based
+identifiers as well". Migration 0075 (`0075_app_panel_slugs.sql`):
+
+- An app's and a panel's `id` IS its slug, `[a-z0-9-]` from the name through
+  `ot.slug_base` (0073) at 48, `-2`, `-3`... when taken, `app` / `panel` for a
+  name with no ASCII letter or digit. A panel's base is its app's slug (cut to
+  32) and its label: `caption-board-panel-1`, unique in the whole org
+  (coordinator m73a8dfbe169f: mentions, watchdogs and tools name a panel
+  without its app).
+- The BEFORE INSERT triggers make every id under a per-org advisory lock
+  (`ot.custom_apps.slug/<org>`, `ot.custom_panels.slug/<org>`): every insert
+  path passes NULL (from the name) or the requested slug, which is cleaned and
+  suffixed the same way; one with nothing left after the cleanup RAISEs. A
+  CHECK keeps every id in the slug alphabet. No code makes `uid("app")` or
+  `uid("panel")` ids any more (`migrate/app_slug_tests.rs` guards it).
+- `slug` on app_create and panel_open (a new copy only; it makes a new copy
+  when given) is read by orgtree_present's own `docs::requested_slug`: blank
+  is none, non-text and no ASCII letter or digit refuse; `wire::parse` refuses
+  it on anything but a creation.
+- The upgrade rewrites each id once, oldest first per org, and every key
+  holding it: panels' app, History and messages, event fires, file grants and
+  links, permission history (including its plain panel column) and
+  app_listener watchdogs' target and panel. Foreign keys that point at apps,
+  panels or file grants are found in the catalog, set aside and restored with
+  their exact definitions.
+- `legacy_id` keeps the old generic id: `ot.custom_app_ref` /
+  `ot.custom_panel_ref` resolve an id or an old id in one org. `storage::run`
+  names the request's `app`, `panel` and mark_seen `apps` by their current ids
+  before anything reads them (gates, hosts, locks and answers see one id);
+  `refs` resolves each asked id itself and echoes it as `asked`, which the
+  renderer's `apprefs.ts` keys its answers by; app_listener creation resolves
+  its target and panel (`events::current_source`). An old id is taken, so a new
+  slug never captures an old reference.
+- The renderer and the desktop use whatever id the engine answers with; after
+  the upgrade that is the slug. Fire mails and History written before it keep
+  the old ids they quoted.
+
 ## Mentions (2026-10-27)
 
 USER 2026-10-27 m449dc0a35cbe: "also allow apps or spedific panels to be

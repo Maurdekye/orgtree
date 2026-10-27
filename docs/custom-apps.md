@@ -17,6 +17,12 @@ exported permissions, paths and references never grant it. The user accepts that
 an app created by a subagent can affect a superior's state, as terminal access can.
 App-origin content still has no user instruction or approval authority.
 
+Every app and panel has a readable id made from its name, such as
+`caption-board` for an app named Caption board and `caption-board-panel-1` for
+its first panel. It never changes, even when you rename the app or panel. An
+agent making an app with a name in another language gives it a short English
+id. Ids from before 4.5.0 keep working.
+
 Agent panel_open with an app ID always creates a fresh CLOSED saved panel;
 panel-ID reopen and panel_update open:true refuse. Agent duplicates stay closed.
 Placement edits may change a closed copy but cannot expose/move an already-open

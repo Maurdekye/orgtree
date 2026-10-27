@@ -36,12 +36,12 @@ app for the user, do these in order:
 1. app_create with `definition.events` declaring each event the app fires for
    you, and HTML that calls `orgtree.events.fire(name, payload)` when the user
    does what that event reports (for example, presses Submit).
-2. panel_open with the new app ID and a label. This creates the user's panel, a
-   closed saved copy; keep its panel ID. Only the user opens windows, so tell
+2. panel_open with the new app's id and a label. This creates the user's panel, a
+   closed saved copy; keep its id. Only the user opens windows, so tell
    them the panel's name and mention it with its `ref` (see Mentions): one
    click on the mention opens it, as does its row in Apps.
 3. orgtree_watchdog `action:"create"` with `kind:"app_listener"`, `target` the
-   app ID, `panel` that panel ID and `event_name` a declared event: one listener
+   app's id, `panel` that panel's id and `event_name` a declared event: one listener
    for each event you need. Listen to that panel, not `all_panels:true`, which
    also hears every other and later copy of the app.
 
@@ -53,10 +53,32 @@ Each Submit then wakes the agent with watchdog mail carrying the placements, as
 app data rather than instructions. The listener hears only its own panel: a
 copy the user makes later needs a listener of its own.
 
+## Ids are readable slugs
+
+An app's and a panel's id is a readable slug (user 2026-10-27): the name's
+ASCII letters and digits in lower case, words joined by `-`, at most 48
+characters, with `-2`, `-3`... when taken. A panel's comes from its app's slug
+and its label, so Caption board's first panel is `caption-board-panel-1`;
+panel ids are unique in the whole org. A name with no Latin letters or digits
+gets `app` or `panel`. An id never changes once made, not even when the app or
+panel is renamed.
+
+Ask for one with `slug` on app_create, or on panel_open (which then makes a
+new copy). The slug is cleaned the same way and suffixed when taken. **Whenever
+the name is not in English, pass a short English slug** (for example
+`slug:"caption-board"` for an app named "לוח כתוביות"): the name can be in any
+language, the id should say what the app is to anyone who reads it. A slug
+with no ASCII letter or digit, a slug that is not text, or a slug on anything
+but a creation is refused.
+
+Ids made before slugs (`app` or `panel` and 12 hex digits) still work
+everywhere an id is taken: tools, app_listener watchdogs and mentions resolve
+them to the slug, and answers always show the slug.
+
 ## Mentions
 
 Every app and panel result carries `ref`, its mention token: `@app:<org>/<app-id>`
-or `@panel:<org>/<panel-id>` (user 2026-10-27). Write it as plain text, never in
+or `@panel:<org>/<panel-id>` (user 2026-10-27), with the slug as the id. Write it as plain text, never in
 backticks, in mail, chat, presented documents or docket text to point the user at
 it. The user's chip shows the app's current name, or for a panel its app's name
 and its label, with the app's icon on the left, and opens it the way its Apps menu
