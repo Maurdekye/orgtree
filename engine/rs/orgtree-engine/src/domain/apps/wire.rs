@@ -372,11 +372,17 @@ mod tests {
             let mut bad=json!({"format":"orgtree-app","version":1,"definition":raw.clone()});bad["definition"][key]=value;assert!(super::parse(&json!({"action":"app_import","bundle":bad})).is_err(),"{key} never imports");
         }
     }
+    #[test] fn custom_apps_permission_history_pages_like_history(){
+        // User 2026-10-27 m838e66af753b "ssme for permission history": the same
+        // newest-first pages with before, and after for newer entries.
+        assert!(super::parse(&json!({"action":"permission_history","app":"a","before":9,"limit":50})).is_ok());
+        assert!(super::parse(&json!({"action":"permission_history","app":"a","after":3,"limit":200})).is_ok());
+        assert!(super::parse(&json!({"action":"permission_history","app":"a","after":3,"before":9})).is_err());
+    }
     #[test] fn custom_apps_site_permissions_and_history_have_explicit_vocabulary(){
         assert!(super::parse(&json!({"action":"permission_set","app":"a","expected_rev":1,"expected_permission_rev":1,"capability":"net.fetch","permission":"deny","site":"api.example.com"})).is_ok());
         assert!(super::parse(&json!({"action":"permission_set","app":"a","expected_rev":1,"expected_permission_rev":1,"capability":"net.fetch","permission":"ask"})).is_ok());
         assert!(super::parse(&json!({"action":"permission_history","app":"a","limit":128})).is_ok());
-        assert!(super::parse(&json!({"action":"permission_history","app":"a","after":3})).is_err());
         let card=crate::tools::defs::list().into_iter().find(|c|c["name"]=="orgtree_apps").unwrap();let p=&card["inputSchema"]["properties"];
         assert!(p["action"]["enum"].as_array().unwrap().iter().any(|a|a=="permission_history"),"tool parity needs permission_history");
         assert!(p["capability"]["enum"].as_array().unwrap().iter().any(|a|a=="net.fetch"));

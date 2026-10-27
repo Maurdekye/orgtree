@@ -10,7 +10,7 @@ import type {CustomApp,CustomPanel} from '../src/canvas/apps/types'
 
 // USER 2026-10-26 m95c57abc95fb "build internet access as a permission for the
 // apps"; design accepted m232e1d1ccb57: the frame stays offline and asks the
-// engine through orgtree.net.fetch; per-site Ask/Allow/Deny; Permission history.
+// engine through orgtree.net.fetch; per-site Ask/Allow/Deny (Permission history has its own tab).
 const tick=async()=>{for(let i=0;i<5;i++)await flush()}
 const b64=(text:string)=>Buffer.from(text).toString('base64')
 
@@ -85,13 +85,12 @@ test('a declared site asks natively, names the site and never shows headers or b
   assert.match(String((answers.find(x=>x.id==='big') as {error:unknown})?.error),/exceeds 1 MiB/);assert.equal(f.calls.length,before)
 })
 
-test('Permissions shows internet access per site, Any site with a warning, prompt rows and Permission history',async t=>{
+test('Permissions shows internet access per site, Any site with a warning and prompt rows',async t=>{
   const app={id:'feed',name:'Feed',description:'',rev:3,permission_rev:9,width:400,height:300,capabilities:['net.fetch','docket.write'],sites:['api.example.com','*.example.org','*'],permissions:{},site_permissions:{'news.example.org':'allow','gone.example.net':'deny'},default_permissions:{'docket.write':'allow'},origin:'created',created_by:'maker',updated_at:''} as CustomApp
-  const history=[{seq:4,capability:'net.fetch',site:'news.example.org',permission:'allow',via:'prompt',actor:'user',panel:'p1',at:'2026-10-27T01:00:00Z'},{seq:3,capability:'net.fetch',site:'api.example.com',permission:'default',via:'code',actor:'builder',panel:null,at:'2026-10-27T00:59:00Z'},{seq:2,capability:'net.fetch',site:null,permission:'deny',via:'change',actor:'builder',panel:null,at:'2026-10-27T00:58:00Z'}]
-  const sets:Record<string,unknown>[]=[]
+  const sets:Record<string,unknown>[]=[];let historyReads=0
   const old=globalThis.fetch;globalThis.fetch=async(raw,init)=>{
     const url=new URL(String(raw),'http://local'),input=init?.method==='POST'?JSON.parse(String(init.body)):JSON.parse(url.searchParams.get('request')??'{}')
-    if(input.action==='permission_history'){assert.equal(init?.method??'GET','GET','history is a read');return new Response(JSON.stringify({app:app.id,entries:history}))}
+    if(input.action==='permission_history'){historyReads++;return new Response(JSON.stringify({app:app.id,entries:[],next_cursor:null}))}
     if(input.action==='permission_set'){sets.push(input);return new Response(JSON.stringify({...app,permission_rev:10}))}
     throw Error('Unexpected '+JSON.stringify(input))
   };t.after(()=>{globalThis.fetch=old})
@@ -109,11 +108,8 @@ test('Permissions shows internet access per site, Any site with a warning, promp
   assert.deepEqual(sets.at(-1),{action:'permission_set',app:'feed',expected_rev:3,expected_permission_rev:9,capability:'net.fetch',permission:'deny',site:'api.example.com'})
   await inAct(async()=>{document.querySelector<HTMLButtonElement>('button[aria-label="Remove gone.example.net"]')!.click();await tick()})
   assert.deepEqual(sets.at(-1),{action:'permission_set',app:'feed',expected_rev:3,expected_permission_rev:10,capability:'net.fetch',permission:'default',site:'gone.example.net'})
-  const rows=[...document.querySelectorAll('[aria-label="Permission history"] li')].map(li=>li.textContent)
-  assert.equal(rows.length,3)
-  assert.match(rows[0]!,/news\.example\.org: allowed at a prompt/);assert.match(rows[0]!,/You/)
-  assert.match(rows[1]!,/api\.example\.com: Allow cleared by a code change/);assert.match(rows[1]!,/builder/)
-  assert.match(rows[2]!,/Internet access: denied/)
+  // User 2026-10-27 m838e66af753b: Permission history has its own App settings tab.
+  assert.equal(view.el.textContent?.includes('Permission history'),false,'Permission history is not on the Permissions tab');assert.equal(historyReads,0,'Permissions reads no history')
 })
 
 test('import accepts declared sites, names them, and Any site needs its own row',async t=>{

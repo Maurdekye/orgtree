@@ -45,8 +45,8 @@ test('app-list gear opens only app-wide settings and preserves Files and event p
  assert.equal(!!button(app,'State…'),false,'panel actions do not belong in App settings')
  for(const name of ['Export app','Delete app…'])assert.ok(app.textContent?.includes(name))
  assert.equal(app.textContent?.includes('Created by'),false,'no creator row (user 2026-10-26: "remove created-by")')
- // User 2026-10-26: Permissions is App settings' second tab, not a separate dialog.
- assert.deepEqual([...app.querySelectorAll('[role="tab"]')].map(e=>e.textContent),['General','Permissions']);assert.equal(!!button(app,'Permissions…'),false)
+ // User 2026-10-26: Permissions is App settings' second tab, not a separate dialog; 2026-10-27 m838e66af753b: Permission history is its own tab.
+ assert.deepEqual([...app.querySelectorAll('[role="tab"]')].map(e=>e.textContent),['General','Permissions','Permission history']);assert.equal(!!button(app,'Permissions…'),false)
  // User 2026-10-26: "put the description above the tabs and remove the app header".
  const description=[...app.querySelectorAll('p')].find(p=>p.textContent==='Saved notes');assert.ok(description,'the app description is shown')
  assert.equal(!!description.closest('[role="tabpanel"]'),false,'the description belongs to the whole window, not one tab')
