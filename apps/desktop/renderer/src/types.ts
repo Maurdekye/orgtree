@@ -1141,9 +1141,15 @@ export interface RowTokens {
   sampled?: boolean
   reported?: string
   covers?: string
-  parts?: { label: string; count: number }[]
+  /** A delivered message: each message's own count by mail id, as if sent alone with the
+   *  framing that always comes with it (user 2026-10-27 m7c48d80b13f4, m90b8a18987ea)... */
+  own?: OwnTokens[]
+  /** ...and the conditional parts sent with them, itemized, and their sum (md965e01802ba). */
+  extras?: { label: string; count: number }[]
+  extra?: number
   not_counted?: string
 }
+export interface OwnTokens { id: string; count: number; estimated?: boolean; sampled?: boolean }
 
 export interface ToolTokenCount {
   id: string

@@ -1,6 +1,6 @@
 import { createContext } from 'react'
 import SvgIcon from '@mui/material/SvgIcon'
-import type { RowTokens, ToolTokenCount } from '../types'
+import type { OwnTokens, RowTokens, ToolTokenCount } from '../types'
 
 export const LiveTokenContext = createContext<Record<string, ToolTokenCount>>({})
 
@@ -49,25 +49,25 @@ export function ToolInputCount({ count, estimated = true }: { count?: number; es
   </span>
 }
 
-/** A conversation row's count (user 2026-10-27 m10e4ca6d8934 "token counts in messages
- *  of all kinds", mafe020c4912b "and user messages"): what the provider reported for
- *  exactly this row, the engine's estimate marked ~ with what it covers and the parts
- *  it was sent as, or a dash and why the row is not counted. Never 0 for something
- *  uncounted; rows from before 4.5.0 carry nothing and show nothing. */
-export function RowTokenCount({ tokens, before }: { tokens?: RowTokens; before?: number }) {
-  if (!tokens || typeof tokens !== 'object') return null
-  if (!counted(tokens.count)) {
-    if (!tokens.not_counted) return null
-    const title = `tokens not counted: ${tokens.not_counted}${counted(before) ? `\ncontext was ${full(before)} tokens before, reported` : ''}`
-    return <span className="dim token-count row-tokens" title={title} aria-label={`tokens not counted: ${tokens.not_counted}`}><TokenGlyph /> —</span>
-  }
-  const n = tokens.count
-  if (tokens.reported) {
-    const title = `${full(n)} output tokens reported by ${tokens.reported} for this response`
-    return <span className="dim token-count row-tokens" title={title} aria-label={title}><TokenGlyph /> {compactTokens(n)}</span>
-  }
-  const lines = [`about ${full(n)} tokens, estimated${tokens.covers ? ` (${tokens.covers})` : ''}`]
-  if (tokens.sampled) lines.push('counted from the start and end of a long text')
-  for (const part of tokens.parts ?? []) if (counted(part.count)) lines.push(`${part.label}: about ${full(part.count)}`)
-  return <span className="dim token-count row-tokens" title={lines.join('\n')} aria-label={lines[0]}><TokenGlyph /> ~{compactTokens(n)}</span>
+/** A message's count in its card header, right after its time (user 2026-10-27
+ *  m4bad9bdbd3a1 "for messages, like user messages, place the count in the header, next to
+ *  the time. or everything else jkust omit it."): what the message itself adds, its text
+ *  with the framing that always comes with it (m7c48d80b13f4, m90b8a18987ea), and on the
+ *  delivery's last card `+N` for the conditional parts sent with it, itemized on hover
+ *  (md965e01802ba). Engine estimates; a message delivered before own counts shows none. */
+export function MessageTokens({ own, envelope }: { own?: OwnTokens; envelope?: RowTokens }) {
+  const mine = own && counted(own.count) ? own : undefined
+  const extra = envelope?.extra
+  const plus = counted(extra) && extra > 0 ? extra : undefined
+  if (!mine && plus === undefined) return null
+  const ownTitle = mine ? [`this message: about ${full(mine.count)} tokens, estimated`, 'its text with the framing that always comes with it',
+    ...(mine.sampled ? ['counted from the start and end of a long text'] : [])].join('\n') : ''
+  const plusTitle = plus === undefined ? '' : [`+${full(plus)} tokens, estimated: surrounding data hidden in the turn envelope, sent with this message but not part of it`,
+    ...(envelope?.extras ?? []).filter(part => counted(part.count)).map(part => `${part.label}: about ${full(part.count)}`)].join('\n')
+  return <span className="dim token-count msg-tokens">{' · '}<TokenGlyph />
+    {mine && <span className="own-tokens" title={ownTitle} aria-label={`this message: about ${full(mine.count)} tokens`}>
+      {' '}{mine.estimated !== false ? '~' : ''}{compactTokens(mine.count)}</span>}
+    {plus !== undefined && <span className="envelope-tokens" title={plusTitle} aria-label={`plus about ${full(plus)} tokens of surrounding data hidden in the turn envelope`}>
+      {' '}+{compactTokens(plus)}</span>}
+  </span>
 }

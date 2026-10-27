@@ -20,6 +20,8 @@ import { AttachThumb, fmtBytes, isImg } from '../canvas/img'
 import { MediaCard, mediaFormat } from '../canvas/media'
 import { DownloadIcon } from '../icons'
 import { fmtFull } from '../timefmt'
+import { MessageTokens } from '../canvas/tokencount'
+import type { OwnTokens, RowTokens } from '../types'
 import type { ReplyContext } from '../eventReply'
 
 /** Approved machine-only composition is retained for agents and storage,
@@ -66,6 +68,10 @@ export function SegmentAttachments({ values, slug, nid }: { values?: unknown[]; 
   })}</div>
 }
 interface SegmentProps { textSourceEvent?:string; bundle?: boolean; segments: AnySegment[]; profile: EventProfile; slug: string; nid: string
+  /** The delivered row's counts: each message finds its own by id, and the delivery's
+   *  last card that is not a folded system notice shows the extras (user 2026-10-27
+   *  m7c48d80b13f4). */
+  tokens?: RowTokens
   world?: RefWorld | null; onOpen?: (ref: ResolvedRef) => void; actor?: (id: string) => ReactNode
   /** A quoted source has no transcript anchors or further reply annotations. */
   annotation?: boolean
@@ -80,11 +86,13 @@ interface SegmentProps { textSourceEvent?:string; bundle?: boolean; segments: An
   replyAvailable?: (r: ReplyContext) => boolean
   onLocateReply?: (r: ReplyContext) => void }
 export function SegmentList({ segments, profile, slug, nid, world, onOpen, actor,
-  replyAvailable, onLocateReply, annotation, bundle = true, textSourceEvent }: SegmentProps) {
+  replyAvailable, onLocateReply, annotation, bundle = true, textSourceEvent, tokens }: SegmentProps) {
   const base = fileBase(slug, nid)
   const card = (row: unknown, preview: boolean, part?: "header" | "body", headerMeta?: ReactNode) => <EventCard row={row} profile={profile} org={slug}
     preview={preview} part={part} headerMeta={headerMeta} world={world} onOpen={onOpen} actor={actor} imgBase={base} />
   const entries = segmentEntries(segments)
+  const mails = entries.filter(entry => entry.segment.kind === 'mail')
+  const carrier = tokens?.extra ? (mails.filter(entry => !entry.system).pop() ?? mails[mails.length - 1])?.key : undefined
   const textOffsets=new Map<AnySegment,number>();const textParts:string[]=[]
   for(const s of segments){
     if(s.kind==='text'){textOffsets.set(s,textParts.length?[...textParts.join('\n\n')].length+2:0);textParts.push(s.text)}
@@ -113,7 +121,8 @@ export function SegmentList({ segments, profile, slug, nid, world, onOpen, actor
       case 'mail': return <div key={i} className="event-mail">{segment.rows.map((row, j) =>
         <MailMessage key={row.id ?? j} row={row} profile={profile} slug={slug} nid={nid}
           world={world} onOpen={onOpen} actor={actor}
-          replyAvailable={replyAvailable} onLocateReply={onLocateReply} annotation={annotation} />)}</div>
+          replyAvailable={replyAvailable} onLocateReply={onLocateReply} annotation={annotation}
+          own={row.id ? tokens?.own?.find(o => o.id === row.id) : undefined} envelope={i === carrier ? tokens : undefined} />)}</div>
     }
     const unhandled: never = segment
     return unhandled
@@ -130,7 +139,9 @@ export function SegmentList({ segments, profile, slug, nid, world, onOpen, actor
  *  adds joins the strip where metadata already lives instead of reserving a
  *  side column that made every pending card narrower than its settled twin. */
 export function MailMessage({ row, profile, slug, nid, world, onOpen, actor,
-  replyAvailable, onLocateReply, meta, annotation, foldKey }: Omit<SegmentProps, 'segments'> & { meta?: ReactNode; foldKey?: string | readonly string[]; row: {
+  replyAvailable, onLocateReply, meta, annotation, foldKey, own, envelope }: Omit<SegmentProps, 'segments' | 'tokens'> & { meta?: ReactNode; foldKey?: string | readonly string[]
+  /** this message's own count, and on the delivery's last card its envelope extras */
+  own?: OwnTokens; envelope?: RowTokens; row: {
     id?: string | null; from: string; kind?: string; notice?: boolean; body: string; at: string;
     relationship?: string | null; attachments?: unknown[]; attachments_missing?: string[];
     urgent?: boolean; urgent_reason?: string;
@@ -164,7 +175,7 @@ export function MailMessage({ row, profile, slug, nid, world, onOpen, actor,
         {...surface} className={'turn-mail ' + surface.className + (isNotice ? ' passive event-notice' : '') + (row.urgent ? ' urgent-mail' : '')} data-mail-id={annotation ? undefined : row.id ?? undefined}
         data-reply-mail={annotation ? undefined : row.id ?? undefined} data-reply-event={!annotation && row.id ? `mail:${row.id}` : undefined}
         data-reply-sender={row.from} data-reply-quote={row.body}>
-        <header className="turn-mail-head event-head">{card(row, false, "header")}{row.urgent && <span className="urgentkind" title={row.urgent_reason ? `urgent — ${row.urgent_reason}` : 'urgent'}>urgent</span>}<time>{fmtFull(row.at)}</time>
+        <header className="turn-mail-head event-head">{card(row, false, "header")}{row.urgent && <span className="urgentkind" title={row.urgent_reason ? `urgent — ${row.urgent_reason}` : 'urgent'}>urgent</span>}<time>{fmtFull(row.at)}</time><MessageTokens own={own} envelope={envelope} />
           {decoded.kind !== 'known' && !ordinaryLegacy && <>
             {/* label-subordinate-messages-and-link-their-sender: an untyped
                 row (most agent-to-agent mail — plain body, no schema'd `ev`)

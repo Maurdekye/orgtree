@@ -68,15 +68,17 @@ export function transcriptEntries(messages: ChatMessage[], offset = 0): Transcri
       const parts = segmentEntries(message.segments)
       if (!parts.length && (message.truncated || (message.steered && message.receipt)))
         return [{ key, sourceIndex, first: true, message, system: false, label: '' }]
-      // The delivered message's one token count goes on its last card that is not a
-      // foldable system notice (user 2026-10-27 m10e4ca6d8934).
-      const shown = parts.map(part => part.system).lastIndexOf(false)
-      const countAt = shown >= 0 ? shown : parts.length - 1
+      // Every card keeps the delivery's counts and finds its own by mail id; the extras
+      // sent with them go only with its last mail card that is not a foldable system
+      // notice (user 2026-10-27 m10e4ca6d8934, m7c48d80b13f4).
+      const shown = parts.map(part => part.segment.kind === 'mail' && !part.system).lastIndexOf(true)
+      const countAt = shown >= 0 ? shown : parts.map(part => part.segment.kind === 'mail').lastIndexOf(true)
+      const rest = message.tokens && { ...message.tokens, extras: undefined, extra: undefined }
       return parts.map((part, i) => ({ ...part, key: part.system && part.mailKey ? part.mailKey : `${key}/${part.key}`, sourceIndex, first: i === 0,
         message: { ...message, segments: [part.segment],
           truncated: i === parts.length - 1 && message.truncated,
           steered: i === parts.length - 1 && message.steered,
-          ...(message.tokens ? { tokens: i === countAt ? message.tokens : undefined } : {}) },
+          ...(message.tokens ? { tokens: i === countAt ? message.tokens : rest } : {}) },
       }))
     }
     return [{ key, sourceIndex, first: true, message,

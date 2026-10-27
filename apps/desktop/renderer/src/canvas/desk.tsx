@@ -19,7 +19,7 @@ import { hasHelperTranscript, HelperTranscript } from './helpertranscript'
 import { LiveHelpersBadge } from './livehelpers'
 import { isFailedShellCall } from './shellerror'
 import { ToolOutputDetails } from './tooloutput'
-import { LiveTokenContext, RowTokenCount, TokenCount, ToolInputCount, UnreportedThinking } from './tokencount'
+import { LiveTokenContext, TokenCount, ToolInputCount, UnreportedThinking } from './tokencount'
 import { contextReading } from '../tokenmetrics'
 import { CompactingLine, formatDuration, formatSeconds, newerStamp, RunningTurnContext, ToolTimes, TurnActiveContext, useLiveCall } from './toolclock'
 import { ToolRefs } from './toolrefs'
@@ -5380,19 +5380,18 @@ export const Msg = memo(function Msg({ m, slug, nid, onMailLink, onWorkLink, ref
   onLocateReply?: (r: ReplyContext) => void
 }) {
   if (m.role === 'system') {
-    if (decodeEventRow(m, 'operator').kind !== 'legacy') return <><EventCard row={m} profile="operator" org={slug}
+    // A row without a timed header shows no token count (user 2026-10-27 m4bad9bdbd3a1).
+    if (decodeEventRow(m, 'operator').kind !== 'legacy') return <EventCard row={m} profile="operator" org={slug}
       world={refs?.world} onOpen={refs?.onOpen} actor={id => <MailFrom from={id} />} />
-      {m.tokens && <div className="msg sys row-tokens-line"><RowTokenCount tokens={m.tokens} before={m.pre_tokens} /></div>}</>
     return <SysLine m={m} />
   }
   const profile = 'operator'
   if (m.role === 'user' && isSegments(m.segments, profile)) return <div className="typed-input">
     <SegmentList bundle={!systemPart} segments={m.segments} profile={profile} slug={slug} nid={nid}
       world={refs?.world} onOpen={refs?.onOpen} actor={id => <MailFrom from={id} />}
-      replyAvailable={replyAvailable} onLocateReply={onLocateReply} textSourceEvent={m.event_id ?? (m.seq ? `e${m.seq}` : undefined)} />
+      replyAvailable={replyAvailable} onLocateReply={onLocateReply} textSourceEvent={m.event_id ?? (m.seq ? `e${m.seq}` : undefined)} tokens={m.tokens} />
     {m.truncated && <div className="trunc-note">Shown truncated ? the agent received the full message</div>}
     {m.steered && m.receipt && <div className="trunc-note">{m.receipt}</div>}
-    {m.tokens && <div className="row-tokens-line"><RowTokenCount tokens={m.tokens} /></div>}
   </div>
   const text = m.text
   // relative image srcs in the text (`![](outbox/plot.png)`) resolve against
@@ -5452,7 +5451,6 @@ export const Msg = memo(function Msg({ m, slug, nid, onMailLink, onWorkLink, ref
           sentence: recorded / accepted / legacy handoff, retry, duplicate) */}
       {m.steered && m.receipt && <div className="trunc-note">{m.receipt}</div>}
       {m.oracle && <div className="tools"><SparkIcon fontSize="inherit" /> oracle exchange — not retained by the node</div>}
-      {m.tokens && !shownInline(m) && <div className="row-tokens-line"><RowTokenCount tokens={m.tokens} /></div>}
     </div>
   )
 }, (a, b) => {
@@ -5482,13 +5480,6 @@ function ThoughtBody({ text, live = false }: { text: string; live?: boolean }) {
 /** A row of one element shows its count once, on that element: a thought alone
  *  (Codex, Muse and Antigravity give each its own row) on its thought line, or that
  *  it was not reported; a lone tool call, estimated from its input, on its chip. */
-const shownInline = (m: ChatMessage) => {
-  if (m.text?.trim()) return false
-  const tools = m.tools?.filter(Boolean) ?? [], thought = !!(m.thinking || m.thinking_sealed)
-  if (thought && !tools.length) return !!m.tokens?.not_counted || m.tokens?.count === m.thinking_tokens
-  return !thought && tools.length === 1 && !!m.tokens?.estimated && m.tokens.count === tools[0]?.input_tokens
-}
-
 function ThoughtLine({ text, secs, sealed, foldKey, tokens, unreported = false }:
 { text?: string; secs?: number; sealed?: boolean; foldKey?: string; tokens?: number; unreported?: boolean }) {
   const [open, toggleOpen] = useFold(foldKey)
@@ -5537,7 +5528,6 @@ function SysLine({ m }: { m: ChatMessage }) {
       {m.compact_state
         ? <CompactingLine text={m.text} state={m.compact_state} startedAt={m.compact_started_at} endedAt={m.compact_ended_at} />
         : m.text}{m.summary && !open ? ' · summary ▶' : ''}
-      {m.tokens && <>{' · '}<RowTokenCount tokens={m.tokens} before={m.pre_tokens} /></>}
       {open && m.summary && <CopyablePre><pre className="filepre">{m.summary}</pre></CopyablePre>}
     </div>
   )
