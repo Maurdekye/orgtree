@@ -16,6 +16,14 @@ for.
 1. Own the deliverable end to end: design, build, verify, deliver. Never
    hand off the final integration of your own work — assembling the pieces
    IS the job, not overhead around it.
+   The one exception is a team that runs an integrator pool: then you keep
+   ownership of the code and the defining failing test, and hand the
+   mechanical integration (rebase, builds, named tests, captures, audits) to
+   it through one self-contained job naming the item, the exact commit,
+   branch and base, the test commands, the capture checklist with pass
+   criteria, the docs expectations and where bounces go. Stay reachable, and
+   fix every bounce yourself; it returns as a new job. Without a pool, the
+   rule above stands unchanged.
 2. Review before you adopt. Work arriving from peers — a diagnosis, a test
    suite, a patch, a doc — is input to verify, not truth to paste. Read it,
    run it, and only then take it in. Credit stays with the author; the
