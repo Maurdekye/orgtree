@@ -4704,7 +4704,7 @@ main.solo { width: 100%; }
 .gallery-modal .mailrow.unread .l2 { color: var(--ink); }
 /* HTML rows are native links; block layout keeps their hover background
    and hit area on one complete row, just like the markdown div rows. */
-.doc-gallery-row { display: block; text-decoration: none; }
+.doc-gallery-row { display: block; text-decoration: none; position: relative; }  /* relative: the double-click's Copied! bubble (rowcopy.tsx) */
 .doc-gallery-row .l2 {
   display: flex; align-items: center; gap: 6px; font-family: inherit;
   height: 22px; min-width: 0; flex-wrap: nowrap;

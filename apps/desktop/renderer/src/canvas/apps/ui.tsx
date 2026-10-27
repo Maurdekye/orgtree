@@ -23,6 +23,7 @@ import {pinSnapOn,useEsc} from '../shared'
 import {APP_BUNDLE_MAX,AppImport,parseAppBundle} from './portable'
 import type {AppBundle} from './portable'
 import type {AppPlacement,CustomApp,CustomPanel} from './types'
+import type {ToastFn} from '../../types'
 import {canvasBox,pinLayerFor,pinSnapId,raisePinSurface,readPinSurfaces,useCanvasBox,usePinSurface} from '../pinspace'
 import {revealDetachedPanel} from '../../windowlife'
 import type {CanvasBox} from '../pinspace'
@@ -78,7 +79,7 @@ export function AppsButton({slug}:{slug:string}){
     onClick={e=>setMenu(current?.slug===slug?null:{slug,anchor:e.currentTarget})}><AppsIcon fontSize="inherit"/>{newCount>0&&<b className="eye-count asks">{newCount}</b>}</button>
 }
 
-function AppsMenu({slug,current,manage,managePanel,importApp}:{slug:string;current:NonNullable<Menu>;manage:(app:CustomApp)=>void;managePanel:(app:CustomApp,panel:CustomPanel)=>void;importApp:(bundle:AppBundle,owner:Document)=>void}){
+function AppsMenu({slug,current,manage,managePanel,importApp,toast}:{slug:string;current:NonNullable<Menu>;manage:(app:CustomApp)=>void;managePanel:(app:CustomApp,panel:CustomPanel)=>void;importApp:(bundle:AppBundle,owner:Document)=>void;toast?:ToastFn}){
   const data=useApps(slug),ref=useRef<HTMLDivElement>(null),owner=current.anchor.ownerDocument,cpu=usePanelCpu(slug),rowMenu=useContextMenu()
   const [style,setStyle]=useState<CSSProperties>({visibility:'hidden'})
   const [seenHere,setSeenHere]=useState<Set<string>>(()=>new Set()),pending=useRef(new Set<string>())
@@ -116,13 +117,13 @@ function AppsMenu({slug,current,manage,managePanel,importApp}:{slug:string;curre
   // Start running never shows a window; Power off stops and hides it. Power
   // changes send no revision: a running panel's own saves keep bumping it.
   const power=async(p:CustomPanel,action:'panel_start'|'panel_stop')=>{try{await changeApps(slug,{action,panel:p.id})}catch(e){window.dispatchEvent(new CustomEvent('custom-app-error',{detail:{slug,error:String(e)}}))}}
-  const rowEntries=(p:CustomPanel):MenuEntry[]=>panelLinkMenu(slug,p,current.anchor)
+  const rowEntries=(p:CustomPanel):MenuEntry[]=>panelLinkMenu(slug,p,current.anchor,toast)
   return createPortal(<div ref={ref} className="ctxmenu custom-apps-menu" role="dialog" aria-label="Apps" style={style}>
     <header><strong>Apps</strong><label className="custom-app-import-file">Import app<input type="file" aria-label="Import app" accept=".orgtree-app,.json,application/json" hidden onChange={async e=>{const file=e.target.files?.[0];e.target.value='';if(!file)return;try{if(file.size>APP_BUNDLE_MAX)throw Error('App bundle exceeds 16 MiB.');const bundle=parseAppBundle(await file.text());setMenu(null);importApp(bundle,owner)}catch(error){window.dispatchEvent(new CustomEvent('custom-app-error',{detail:{slug,error:String(error)}}))}}}/></label></header>
     {data.error&&<p role="alert">{data.error}</p>}
     {!data.apps.length&&!data.loading&&<p className="dim">No apps yet. Ask an agent to make an app for you, and it will appear here.</p>}
     {data.apps.map(app=>{const rows=listed(app),recent=mostRecent(rows);return <section key={app.id} className="custom-apps-menu-group">
-      <div className="custom-apps-menu-app" data-new-app={app.is_new?app.id:undefined} onContextMenu={e=>rowMenu.open(e,()=>appLinkMenu(slug,app.id,current.anchor))} onClick={()=>show(recent?{panel:recent.id}:{app:app.id})}><button type="button" className="custom-apps-open" title={appLinkTitle(app.name,recent?.label)}><AppsIcon/><span><b>{app.name}</b><small>{app.description}</small></span></button>
+      <div className="custom-apps-menu-app" data-new-app={app.is_new?app.id:undefined} onContextMenu={e=>rowMenu.open(e,()=>appLinkMenu(slug,app.id,current.anchor,toast))} onClick={()=>show(recent?{panel:recent.id}:{app:app.id})}><button type="button" className="custom-apps-open" title={appLinkTitle(app.name,recent?.label)}><AppsIcon/><span><b>{app.name}</b><small>{app.description}</small></span></button>
         {(app.is_new||seenHere.has(app.id))&&<b className="custom-app-new-label">New</b>}
         <button type="button" className="custom-apps-add" title="New panel" aria-label={`New panel for ${app.name}`} onClick={e=>{e.stopPropagation();void open({action:'panel_open',app:app.id,new:true})}}><AddIcon/></button>
         <button type="button" className="custom-apps-app-gear" title={`App settings: ${app.name}`} aria-label={`Settings for ${app.name}`} onClick={e=>{e.stopPropagation();setMenu(null);manage(app)}}><SettingsIcon/></button></div>
@@ -256,7 +257,7 @@ function PanelWindow({slug,panel,app,motion}:{slug:string;panel:CustomPanel;app:
 
 /** refs: the shell's reference routes, so links in Apps windows (a Connections
  * row's agent) behave like the shell's other agent links. */
-export function AppsWorkspace({slug,refs}:{slug:string;refs?:RefRoutes}){
+export function AppsWorkspace({slug,refs,toast}:{slug:string;refs?:RefRoutes;toast?:ToastFn}){
   const data=useApps(slug),current=useMenu(),[manage,setManage]=useState<{app:CustomApp;panel?:CustomPanel;owner:Document;confirmDelete?:boolean}|null>(null),[imported,setImported]=useState<{bundle:AppBundle;owner:Document}|null>(null),[error,setError]=useState('')
   useEffect(()=>activateApps(slug),[slug])
   useEffect(()=>{
@@ -275,7 +276,7 @@ export function AppsWorkspace({slug,refs}:{slug:string;refs?:RefRoutes}){
   // Running copies, plus a visible one that just stopped while it zooms out.
   const shown=usePanelMotion(data.panels,data.apps,data.loaded)
   useEffect(()=>{const failure=(e:Event)=>{const d=(e as CustomEvent).detail;if(d?.slug===slug)setError(d.error)};window.addEventListener('custom-app-error',failure);return()=>window.removeEventListener('custom-app-error',failure)},[slug])
-  return <AppsRefRoutes.Provider value={refs??null}>{current?.slug===slug&&<AppsMenu slug={slug} current={current} manage={app=>manageAppLink(slug,'app',app.id,current.anchor)} managePanel={(_app,panel)=>manageAppLink(slug,'panel',panel.id,current.anchor)} importApp={(bundle,owner)=>setImported({bundle,owner})}/>}
+  return <AppsRefRoutes.Provider value={refs??null}>{current?.slug===slug&&<AppsMenu slug={slug} current={current} manage={app=>manageAppLink(slug,'app',app.id,current.anchor)} managePanel={(_app,panel)=>manageAppLink(slug,'panel',panel.id,current.anchor)} importApp={(bundle,owner)=>setImported({bundle,owner})} toast={toast}/>}
     {shown.map(({panel,app,motion})=><PanelWindow key={panel.id} slug={slug} panel={panel} app={app} motion={motion}/>)}
     {error&&<div className="custom-app-global-error" role="alert">{error}<button onClick={()=>setError('')}>Dismiss</button></div>}
     {manage&&(manage.panel?<PanelSettings key={manage.panel.id+':'+manage.confirmDelete} slug={slug} app={manage.app} panel={manage.panel} owner={manage.owner} confirmDelete={manage.confirmDelete} close={()=>setManage(null)}/>:<AppSettings key={manage.app.id+':'+manage.confirmDelete} slug={slug} app={manage.app} owner={manage.owner} confirmDelete={manage.confirmDelete} close={()=>setManage(null)}/>)}

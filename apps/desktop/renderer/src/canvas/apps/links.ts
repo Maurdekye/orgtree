@@ -2,7 +2,10 @@
 // (USER 2026-10-27 m449dc0a35cbe) share this hover text and this menu: one link,
 // one behaviour (user 2026-10-21). Settings and Delete use the same native
 // settings/confirmation routes as the Apps list gears (user 2026-10-27).
+import {mentionCopyEntry} from '../contextmenu'
 import type {MenuEntry} from '../contextmenu'
+import {refToken} from '../reflinks'
+import type {ToastFn} from '../../types'
 import {changeApps,isRunning} from './store'
 import type {CustomPanel} from './types'
 
@@ -25,13 +28,15 @@ function managementMenu(slug:string,kind:'app'|'panel',id:string,anchor:Element)
   return [{label:'Settings',onSelect:()=>manageAppLink(slug,kind,id,anchor)},'sep',
     {label:'Delete…',danger:true,onSelect:()=>manageAppLink(slug,kind,id,anchor,true)}]
 }
-export const appLinkMenu=(slug:string,id:string,anchor:Element):MenuEntry[]=>[
+/** Both link menus offer Copy mention, `@app:org/slug` and `@panel:org/slug`
+ * (USER 2026-10-27), above Settings; `toast` confirms it where the surface has one. */
+export const appLinkMenu=(slug:string,id:string,anchor:Element,toast?:ToastFn):MenuEntry[]=>[
   {label:'New panel',description:'Creates a powered-off panel without opening it',onSelect:()=>void changeApps(slug,{action:'panel_open',app:id,closed:true}).catch(error=>window.dispatchEvent(new window.CustomEvent('custom-app-error',{detail:{slug,error:String(error)}})))},
-  'sep',...managementMenu(slug,'app',id,anchor)
+  'sep',mentionCopyEntry(anchor,refToken({kind:'app',org:slug,id}),toast),'sep',...managementMenu(slug,'app',id,anchor)
 ]
 /** A panel link's menu. Start running never shows a window; Power off stops and
  * hides it. Power changes send no revision: a running panel's saves keep bumping it. */
-export function panelLinkMenu(slug:string,p:PanelRun&{id:string},anchor:Element):MenuEntry[]{
+export function panelLinkMenu(slug:string,p:PanelRun&{id:string},anchor:Element,toast?:ToastFn):MenuEntry[]{
   const power=(action:'panel_start'|'panel_stop')=>void changeApps(slug,{action,panel:p.id}).catch(error=>window.dispatchEvent(new window.CustomEvent('custom-app-error',{detail:{slug,error:String(error)}})))
-  return [...(isRunning(p)?[{label:'Power off',onSelect:()=>power('panel_stop'),description:'Stops this panel and closes its window'}]:[{label:'Start running',onSelect:()=>power('panel_start'),description:'Runs this panel hidden, without opening its window'}]),'sep',...managementMenu(slug,'panel',p.id,anchor)]
+  return [...(isRunning(p)?[{label:'Power off',onSelect:()=>power('panel_stop'),description:'Stops this panel and closes its window'}]:[{label:'Start running',onSelect:()=>power('panel_start'),description:'Runs this panel hidden, without opening its window'}]),'sep',mentionCopyEntry(anchor,refToken({kind:'panel',org:slug,id:p.id}),toast),'sep',...managementMenu(slug,'panel',p.id,anchor)]
 }

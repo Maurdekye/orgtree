@@ -91,11 +91,11 @@ export function ObjectNavHost({ org, dogs, openDog, openTicket, openDocument, op
     // target has no actions; deletion re-reads it before showing a confirmation.
     if (kind === 'app') {
       const row = appRefRow(org, id)
-      return row ? appLinkMenu(org, row.id, anchor) : []
+      return row ? appLinkMenu(org, row.id, anchor, toast) : []
     }
     if (kind === 'panel') {
       const row = panelRefRow(org, id)
-      return row ? panelLinkMenu(org, row, anchor) : []
+      return row ? panelLinkMenu(org, row, anchor, toast) : []
     }
     if (!openTicket || id.includes('/')) return []
     // before the read: the caret it inserts at is the one the right-click found

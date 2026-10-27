@@ -50,7 +50,8 @@ import { CollapsibleMailer, NARROW_DOCS_WIDTH } from './narrowlist'
 import { usePanelSteps } from './panelsteps'
 import { RefMdBody } from './refmd'
 import type { RefWorld, ResolvedRef } from './reflinks'
-import { resolveRef } from './reflinks'
+import { refToken, resolveRef } from './reflinks'
+import { useRowCopy } from './rowcopy'
 import { openLightboxIfEligibleImage } from './lightbox'
 import { fmtFull } from '../timefmt'
 import { MailReplyBox } from './mail'
@@ -571,11 +572,16 @@ function GalleryEntry({ slug, row, children, ...props }: {
 }) {
   useDocViewedVersion()
   const unread = row.evicted ? null : docUnread(slug, row.id, row.at, row.viewed_at)
+  // DOUBLE-CLICK COPIES THE MENTION (USER 2026-10-27, "double clicking a
+  // presentation in the list should also copy its mention"): `@doc:org/id`, the
+  // docket row's gesture and bubble (rowcopy.tsx). The single click is unchanged.
+  const rowCopy = useRowCopy()
   // mail's unread styling, plus a flare that tells unread from modified since
   // read, named first in the hover (USER 2026-10-27 mc1c4ab23c4bf)
   return <div {...props} className={props.className + (unread ? ` unread doc-${unread}` : '')}
     title={docStateTitle(unread, props.title)}
-    data-doc-id={row.id} data-doc-unread={unread ?? undefined}>{children}</div>
+    onDoubleClick={(e) => rowCopy.onDoubleClick(e, refToken({ kind: 'doc', org: slug, id: row.id }))}
+    data-doc-id={row.id} data-doc-unread={unread ?? undefined}>{children}{rowCopy.bubble}</div>
 }
 
 /** the right-hand viewer: the same fetch and the same dismiss the overlay

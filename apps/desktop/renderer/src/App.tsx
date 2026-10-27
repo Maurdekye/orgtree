@@ -2192,7 +2192,7 @@ export default function App() {
           refs={galleryRefs}
           close={() => setShowGallery(false)} />
       )}
-      {slug && tree && <DeskDogsProvider value={appsDogs}><AppsWorkspace key={slug} slug={slug} refs={appsRefs} /></DeskDogsProvider>}
+      {slug && tree && <DeskDogsProvider value={appsDogs}><AppsWorkspace key={slug} slug={slug} refs={appsRefs} toast={toast} /></DeskDogsProvider>}
       {showDocket && slug && tree && (
         <DocketModal slug={slug} toast={toast} tree={tree}
           jumpTo={docketJump?.id ?? null} jumpSeq={docketJump?.seq}

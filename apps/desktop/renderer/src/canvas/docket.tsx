@@ -62,7 +62,8 @@ import { buildMentionIndex } from './workrefs'
 import type { MentionIndex } from './workrefs'
 import { ForegroundViewContext, RefProse, refToken, resolveRef, useAgentOutcome } from './reflinks'
 import { DocketDescription } from './docketdesc'
-import { copyToClipboard, useContextMenu } from './contextmenu'
+import { useContextMenu } from './contextmenu'
+import { useRowCopy } from './rowcopy'
 import { quickStaffPath } from './quickstaff'
 import { captureTicketMention, ticketMenuEntries, ticketStaffable, ticketStaffEntry } from './ticketmenu'
 import { peekQuickStaff, prefetchQuickStaff, queueStaffingWarm } from './staffingoptions'
@@ -2094,11 +2095,6 @@ export function AgentDocketView({ slug, nid, mine, facts, toast, onFocusAgent,
   )
 }
 
-/** One number per successful copy, anywhere in the docket — see the `id` note
- *  in DocketRow. It only has to DIFFER from the row's previous value, so a
- *  module counter is enough and needs no reset. */
-let copyTicket = 0
-
 export const DocketRow = memo(function DocketRow({ item, selected, onClick, onDismiss, facts, onFocusAgent,
   close, flash, rowRef, depth = 0, kids = 0, folded = false, onFold,
   foldLocked = false, ageMode = 'updated', org, toast }: {
@@ -2155,80 +2151,15 @@ export const DocketRow = memo(function DocketRow({ item, selected, onClick, onDi
     depth > 0 ? 'docket-child' : '',
     kids > 0 ? 'docket-parent' : ''].filter(Boolean).join(' ')
   const label = attention ? 'Needs attention' : statusLabel(item.status)
-  // DOUBLE-CLICK COPIES THE SLUG (user 2026-09-07 15:41Z). `Copied!` appears
-  // only after the write RESOLVES: a clipboard that is absent, blocked or
-  // denied says nothing rather than lying about what is on the clipboard.
-  //
-  // The position is stored as FRACTIONS of the row's box, not as pixels. This
-  // modal renders in more than one place — the app's own overlay, a portal,
-  // and a popped-out window — and inside the canvas a CSS `transform: scale()`
-  // applies, under which `getBoundingClientRect()` is scaled while an
-  // absolutely positioned child is laid out unscaled. A ratio cancels the
-  // scale, so the bubble lands under the pointer in all of them.
-  //
-  // ⚠ TWO SEPARATE THINGS MAKE A REPEAT AT THE SAME PIXEL WORK, and they are
-  // easy to confuse (root review 2026-09-07 16:32Z; the first cut stored a
-  // bare number and had neither):
-  //   * the state is an OBJECT, so a second success is never `Object.is` the
-  //     first even at identical coordinates. React therefore does not bail
-  //     out, the effect below re-runs, and the timer restarts — without this
-  //     the first copy's timer would still fire and clear the second message.
-  //   * `id` differs every time and the element is KEYED on it, so React
-  //     remounts the span and the CSS animation replays from the start.
-  //     Without it the bubble would sit there mid-animation, already faded.
-  // Measured: a mutant that freezes `id` keeps the timer restart and loses
-  // only the replay, which is why the suite checks the animation's own clock.
-  const [copied, setCopied] = useState<{ id: number; x: number; y: number } | null>(null)
-  useEffect(() => {
-    if (!copied) return
-    const t = setTimeout(() => setCopied(null), 900)
-    return () => clearTimeout(t)
-  }, [copied])
-  // the write and the bubble, shared by the double-click and the context
-  // menu's "Copy slug" (which anchors the bubble at the press that opened it)
-  const copySlugAt = (row: HTMLElement, clientX: number, clientY: number) => {
-    // the row's OWN window, not the global one: in a popped-out surface the
-    // module-level `navigator` belongs to the opener (the same house pattern
-    // as shared.ts's copyCodeFromEvent and deskhosts.tsx)
-    const clip = row.ownerDocument.defaultView?.navigator?.clipboard
-    if (!clip) return
-    const rect = row.getBoundingClientRect()
-    const ratio = (value: number, size: number) =>
-      size ? Math.min(1, Math.max(0, value / size)) : 0.5
-    const x = ratio(clientX - rect.left, rect.width)
-    const y = ratio(clientY - rect.top, rect.height)
-    // the EXACT slug off the item — never the rendered text
-    void clip.writeText(item.slug)
-      .then(() => setCopied({ id: ++copyTicket, x, y }))
-      .catch(() => {})
-  }
-  const copySlug = (e: React.MouseEvent<HTMLDivElement>) => {
-    // an embedded control owns its own double-click. `stopPropagation` on
-    // those buttons' `click` does NOT stop `dblclick`, so the guard is here.
-    if ((e.target as Element | null)?.closest?.(
-      'button, input, textarea, select, a, .docket-copied')) return
-    // ⚠ THE GESTURE IS OURS, SO ITS SELECTION IS OURS TO CLEAR (user report
-    // 2026-09-12: "double-clicking a ticket to copy its slug leaves that
-    // ticket in a temporary interaction state where right-click cannot open
-    // its context menu until the operator opens another menu or clicks a
-    // different ticket").
-    //
-    // A double-click is the browser's select-the-word gesture as well as our
-    // copy, and the word it selects lies inside this row. A live selection
-    // touching the object is EXACTLY when the context menu stands aside for
-    // the browser's own (`nativeMenuPreferred`, canvas/contextmenu.tsx) — so
-    // the selection this gesture left behind suppressed the row's own menu
-    // until some later press collapsed it, which is why clicking another
-    // ticket "fixed" it.
-    //
-    // Cleared HERE and nowhere wider, because the rule it works around is a
-    // good one: a selection the READER made deliberately must still keep the
-    // browser's menu, with its Copy and its search. This clears only the
-    // selection the app's own gesture just caused. The row's OWN window, for
-    // the reason `copySlugAt` gives below.
-    e.currentTarget.ownerDocument.defaultView?.getSelection()?.removeAllRanges()
-    copySlugAt(e.currentTarget, e.clientX, e.clientY)
-  }
+  // DOUBLE-CLICK COPIES THE MENTION (USER 2026-10-27; the bare slug before
+  // that, user 2026-09-07 15:41Z). Everything about the gesture and its `Copied!`
+  // bubble lives in canvas/rowcopy.tsx, shared with the Presented rows. The menu's
+  // "Copy slug" still copies the slug and anchors the bubble at the press that
+  // opened it. Without an org there is no token to write, so the slug stays.
+  const rowCopy = useRowCopy()
+  const mention = org ? refToken({ kind: 'item', org, id: item.slug }) : item.slug
+  const copySlugAt = (row: HTMLElement, clientX: number, clientY: number) =>
+    rowCopy.copyAt(row, clientX, clientY, item.slug)  // the EXACT slug off the item — never the rendered text
   // USER 2026-10-20: the row and all ticket links use one complete item menu.
   // Only an actual list supplies its local Fold action. Click still toggles
   // selection; the menu's Open details always opens or keeps it open.
@@ -2282,7 +2213,7 @@ export const DocketRow = memo(function DocketRow({ item, selected, onClick, onDi
     <div data-copy-ticket-title={item.title} data-docket-measure={'row:' + item.slug}
       {...objectTooltipProps('ticket', item.slug, org)}
       className={cls} title={item.title} onClick={pickTimed}
-      onDoubleClick={copySlug} ref={capture}
+      onDoubleClick={(e) => rowCopy.onDoubleClick(e, mention)} ref={capture}
       // ⚠ THE STAFFING LOAD STARTS HERE, NOT ON THE MENU (user requirement
       // 2026-09-15). Hovering or focusing a row precedes the right-click that
       // opens its menu, so by the time the menu exists the request is already
@@ -2310,10 +2241,7 @@ export const DocketRow = memo(function DocketRow({ item, selected, onClick, onDi
       style={depth ? { '--docket-depth': depth } as React.CSSProperties : undefined}>
       {menu.node}
       {staffFeedback && <span className="docket-staff-feedback" role="status">{staffFeedback}</span>}
-      {copied && (
-        <span key={copied.id} className="docket-copied" role="status"
-          style={{ left: `${copied.x * 100}%`, top: `${copied.y * 100}%` }}>Copied!</span>
-      )}
+      {rowCopy.bubble}
       <div className="l1">
         {/* TWO SEPARATE CLICK TARGETS (the approved design's own note): the
             arrow folds, the row selects. A parent's own details stay reachable

@@ -179,9 +179,16 @@ function copyObjectAt(target: EventTarget | null, within?: Element): Element | n
  *  for the targets that carry no copy object of their own. Kept beside
  *  `objectCopyEntry` so the two labels and the two toasts cannot drift. */
 export function agentCopyEntry(el: Element, name: string, toast?: ToastFn): MenuItem {
-  const mention = name.startsWith('@') ? name : `@${name}`
+  return mentionCopyEntry(el, name.startsWith('@') ? name : `@${name}`, toast)
+}
+
+/** `Copy mention` for any typed object (`@app:org/slug`, `@panel:org/slug`, ...):
+ *  the token exactly as agents write it, with the one label and toast every
+ *  mention copy uses (USER 2026-10-27, "add a context menu entry to copy an app
+ *  or panel's mention"). */
+export function mentionCopyEntry(el: Element, token: string, toast?: ToastFn): MenuItem {
   return { label: 'Copy mention', onSelect: () => {
-    void copyToClipboard(el, mention).then(ok => toast?.([
+    void copyToClipboard(el, token).then(ok => toast?.([
       ok ? 'copied mention' : 'could not copy — clipboard unavailable',
     ]))
   } }
