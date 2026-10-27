@@ -15,8 +15,8 @@ declared events (user: "i want to keep agent notification purely through the eve
 system, no targeting agents directly (makes them more portable and easier to
 manipulwte)"); mail.send is removed (old declarations import, never granted). See [inline presentations](docs/agents/docket-and-presentations.md#inline-html-presentations-2026-10-26).
 Apps are custom UIs for the user to manipulate data in a structured way, not
-persistent program environments (user 2026-10-27); panels run only while the main
-window is open, as the Apps menu and the tool texts say.
+persistent program environments (user 2026-10-27); panels run only while Orgtree
+is open, tray included, as the Apps menu and the tool texts say.
 [decided: user 2026-10-26, 2026-10-27; verified: `canvas/{docs,gallery}.tsx`, `canvas/apps/ui.tsx`, `domain/apps/{wire,policy,bridge}.rs`]
 
 Read this file before working in this repository. It is the startup guide, not a landing log. Detailed rules, source references and the complete earlier notes live in the [topic index](docs/agents/README.md).
