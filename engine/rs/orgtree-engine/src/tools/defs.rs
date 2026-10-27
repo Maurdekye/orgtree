@@ -2191,7 +2191,7 @@ mod mqtt_card_tests {
 #[nolog]
 fn build_tool_apps()->Value {
     tool("orgtree_apps","Manage this org's app definitions and independent saved panels. Requires org-modifying tools. List pages omit HTML/state; app_get/panel_get read them. Agent panel_open creates a new closed copy; only user UI shows windows. Panels are the user's custom views and run only while Orgtree is open, tray included: Hide keeps one running, panel_stop powers it off. Mutations need the current expected_rev. Apps have implicit org access; user Deny overrides. External files need consent.",json!({
-        "action":{"type":"string","enum":["list","app_get","app_create","app_update","app_delete","app_import","app_export","mark_seen","panel_open","panel_get","panel_update","panel_duplicate","panel_delete","state_set","state_patch","event","events","fire_event","listeners","permission_set","permission_history","panel_start","panel_stop","runtime","file_permissions","file_open","file_read","file_roots","file_list","file_child","file_write","file_delete","file_result"]},
+        "action":{"type":"string","enum":["list","app_get","app_create","app_update","app_delete","app_import","app_export","mark_seen","panel_open","panel_get","panel_update","panel_duplicate","panel_delete","state_set","state_patch","event","events","fire_event","listeners","listener_fires","permission_set","permission_history","panel_start","panel_stop","runtime","file_permissions","file_open","file_read","file_roots","file_list","file_child","file_write","file_delete","file_result"]},
         "apps":{"type":"array","minItems":1,"maxItems":200,"uniqueItems":true,"items":{"type":"string"},"description":"mark_seen: acknowledge these explicit app IDs for this org's New badge; does not grant actions or change app/panel revisions"},
         "bundle":{"type":"object","description":"app_import: strict orgtree-app version1 object with definition and optional panels:[{label,state}]; up to16MiB/16 saved copies. No permissions, IDs, links or geometry."},
         "path":{"type":"string","description":"app_import: absolute held .orgtree-app file; file_open: relative name inside root (artifacts uses retained delivery ID). No parent components or links."},
@@ -2208,9 +2208,10 @@ fn build_tool_apps()->Value {
         "kind":{"type":"string","enum":["apps","panels"],"description":"list: apps by default"},
         "app":{"type":"string","description":"app id: its slug, such as caption-board (an old generic id still works); list panels may filter by app"},
         "panel":{"type":"string","description":"saved panel id: its slug, such as caption-board-panel-1 (an old generic id still works)"},
+        "listener":{"type":"string","description":"listener_fires: one listener as owner/id, as listeners shows it; its finished fires, newest first, without app data"},
         "slug":{"type":"string","maxLength":120,"description":"app_create, or panel_open making a new copy: the id to make, cleaned to a-z, 0-9 and -, at most 48 characters, -2, -3... if taken, never changed. Default: the name (a panel: its app's slug and label). Pass a short English slug whenever the name is not in English."},
-        "after":{"description":"list: previous next_cursor string; events and permission_history: rows newer than this seq, oldest first"},
-        "before":{"type":"integer","minimum":0,"description":"events and permission_history: rows older than this seq; without after, pages run newest first and next_cursor continues as before"},
+        "after":{"description":"list: previous next_cursor string; events, permission_history and listener_fires: rows newer than this seq, oldest first"},
+        "before":{"type":"integer","minimum":0,"description":"events, permission_history and listener_fires: rows older than this seq; without after, pages run newest first and next_cursor continues as before"},
         "limit":{"type":"integer","minimum":1,"maximum":200},
         "expected_rev":{"type":"integer","minimum":1},
         "expected_permission_rev":{"type":"integer","minimum":1},

@@ -68,6 +68,7 @@ pub fn notify(engine: &Engine, org: &OrgHandle, changes: Vec<Change>) {
     let mut keys: Vec<Key> = Vec::with_capacity(changes.len() + 2);
     let mut app = false;
     let mut registry = false;
+    let mut watchdogs = false;
     for c in changes {
         crate::runtime::watchdogs::events::change(engine,org.id,&c);
         match c {
@@ -110,7 +111,10 @@ pub fn notify(engine: &Engine, org: &OrgHandle, changes: Vec<Change>) {
                 keys.push(Key::Group("work_summary"));
                 app = true;
             }
-            Change::Watchdogs => keys.push(Key::Group("watchdogs")),
+            Change::Watchdogs => {
+                keys.push(Key::Group("watchdogs"));
+                watchdogs = true;
+            }
             Change::Documents(id) => {
                 keys.push(Key::Agent(id));
                 app = true;
@@ -132,6 +136,13 @@ pub fn notify(engine: &Engine, org: &OrgHandle, changes: Vec<Change>) {
     }
     if !keys.is_empty() {
         org.invalidate(keys);
+    }
+    // Every watchdog write tells the org's windows: a panel's Connections list
+    // and its subscriptions' fires follow app_listener dogs live (USER
+    // 2026-10-27 md11c3c790acf). The record feed skips an unchanged watchdogs
+    // group, and that group previews only 8 dogs per owner, so it cannot say this.
+    if watchdogs {
+        org.emit(json!({ "type": "watchdogs_changed", "org": org.slug }));
     }
     if app {
         engine.app.org_changed(org.id);

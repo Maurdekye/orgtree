@@ -157,6 +157,7 @@ pub(crate) async fn run_locked(engine:&Arc<Engine>,org:&Arc<OrgHandle>,caller:Op
     let mut dogs_named=false;
     let out=match request {
         Request::Listeners{app:id,panel,after,limit}=>super::events::listeners(&tx,org.id,&id,panel.as_deref(),after,limit).await?,
+        Request::ListenerFires{app:id,listener,after,before,limit}=>super::events::listener_fires(&tx,org.id,&id,&listener,cursor(after,before)?,page(limit)?).await?,
         Request::FireEvent{panel,name,payload}=>{
             let producer=if let Some(caller)=caller{json!({"kind":"agent","id":caller.agent_id,"name":caller.name})}else{json!({"kind":"user"})};
             let out=super::events::publish(&tx,org.id,&panel,&name,&payload,producer).await?;changed=true;out
@@ -435,7 +436,7 @@ pub async fn run(engine:&Arc<Engine>,org:&Arc<OrgHandle>,caller:Option<&Caller>,
     let input=&current_ids(engine,org.id,input).await?;
     if let Request::Runtime{after,limit,sample}=request{return super::runtime::list(engine,org,caller,after,limit,sample).await;}
     let action=input["action"].as_str().unwrap_or("");
-    if ["list","app_get","panel_get","refs","events","app_create","app_import","app_export","mark_seen","listeners","permission_history"].contains(&action){return run_locked(engine,org,caller,input).await;}
+    if ["list","app_get","panel_get","refs","events","app_create","app_import","app_export","mark_seen","listeners","listener_fires","permission_history"].contains(&action){return run_locked(engine,org,caller,input).await;}
     let app=if let Some(app)=input["app"].as_str(){app.to_owned()}else{
         let client=engine.db.get().await?;let panel=input["panel"].as_str().unwrap_or("");
         let row=client.query_opt("SELECT app_id FROM ot.custom_panels WHERE org_id=$1 AND id=$2",&[&org.id,&panel]).await?;

@@ -143,6 +143,8 @@ pub enum Request {
     Events { panel:String, after:Option<i64>, before:Option<i64>, limit:Option<i64>, #[serde(default)] messages:bool },
     FireEvent { panel:String, name:String, payload:Value },
     Listeners { app:String, panel:Option<String>, after:Option<i64>, limit:Option<i64> },
+    /// One listener's (owner/id, as listeners shows it) finished deliveries, paged like Events.
+    ListenerFires { app:String, listener:String, after:Option<i64>, before:Option<i64>, limit:Option<i64> },
 }
 
 // These arguments can contain private app HTML/state. Do not trace their values.
@@ -168,7 +170,8 @@ pub fn parse(input:&Value) -> Result<Request> {
     let mut request:Request=serde_json::from_value(input).map_err(|e|crate::domain::UserError::BadRequest(format!("invalid Apps request: {e}")))?;
     match &mut request{Request::AppCreate{slug:s,..}|Request::PanelOpen{slug:s,..}=>*s=slug,_=>{}}
     if let Request::AppImport{bundle:value}=&request{bundle(value)?;}
-    if matches!(&request,Request::Events{after:Some(_),before:Some(_),..}|Request::PermissionHistory{after:Some(_),before:Some(_),..}){crate::refuse!(BadRequest,"{BOTH_CURSORS}");}
+    if matches!(&request,Request::Events{after:Some(_),before:Some(_),..}|Request::PermissionHistory{after:Some(_),before:Some(_),..}|Request::ListenerFires{after:Some(_),before:Some(_),..}){crate::refuse!(BadRequest,"{BOTH_CURSORS}");}
+    if let Request::ListenerFires{listener,..}=&request{text(listener,200,"listener",false)?;}
     if let Request::MarkSeen{apps}=&request{
         if apps.is_empty()||apps.len()>200{crate::refuse!(BadRequest,"mark_seen needs1-200 explicit app IDs");}
         let mut seen=std::collections::HashSet::new();
@@ -302,6 +305,20 @@ mod tests {
         assert!(parse(&json!({"action":"events","panel":"p","after":3,"before":9})).is_err());
         let card=crate::tools::defs::list().into_iter().find(|c|c["name"]=="orgtree_apps").unwrap();
         assert_eq!(card["inputSchema"]["properties"]["before"]["type"],"integer");
+    }
+    #[test] fn custom_apps_listener_fires_page_like_history_and_name_one_listener() {
+        // User 2026-10-27 m8ced6e920f63: a Connections row expands to its recent
+        // fires, lazily paged; md11c3c790acf: the rows follow changes live.
+        assert!(parse(&json!({"action":"listener_fires","app":"notes","listener":"worker/notes","before":9,"limit":50})).is_ok());
+        assert!(parse(&json!({"action":"listener_fires","app":"notes","listener":"worker/notes","after":9})).is_ok());
+        let both=parse(&json!({"action":"listener_fires","app":"notes","listener":"worker/notes","after":3,"before":9})).err().unwrap().to_string();
+        assert!(both.contains("not both"),"{both}");
+        assert!(parse(&json!({"action":"listener_fires","app":"notes","listener":" "})).is_err(),"a blank listener names nothing");
+        assert!(parse(&json!({"action":"listener_fires","app":"notes"})).is_err(),"the listener is required");
+        let card=crate::tools::defs::list().into_iter().find(|c|c["name"]=="orgtree_apps").unwrap();let p=&card["inputSchema"]["properties"];
+        assert!(p["action"]["enum"].as_array().unwrap().iter().any(|v|v=="listener_fires"),"agents read the same fires (tool parity)");
+        assert_eq!(p["listener"]["type"],"string");
+        assert!(p["before"]["description"].as_str().unwrap().contains("listener_fires"));
     }
     #[test] fn custom_apps_named_listener_has_explicit_tool_vocabulary() {
         let card=crate::tools::defs::list().into_iter().find(|c|c["name"]=="orgtree_watchdog").unwrap();

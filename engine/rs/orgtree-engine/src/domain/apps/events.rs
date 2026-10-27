@@ -124,6 +124,25 @@ pub async fn listeners(tx:&Transaction<'_>,org:i64,app:&str,panel:Option<&str>,a
     Ok(json!({"items":rows.into_iter().take(n as usize).map(|r|r.get::<_,Value>(1)).collect::<Vec<_>>(),"next_cursor":next}))
 }
 
+/// One subscription's recent fires, for its Connections row (USER 2026-10-27
+/// m8ced6e920f63: a row "can be expanded to see a list of recent fires (which is
+/// a scrollable and lazily loads more as you move, each one expandable like in
+/// event history)"). Paged like History: newest first, before walks back, after
+/// follows newer fires oldest first. Only finished deliveries are listed:
+/// delivery runs in fire order per app, so a reader following after its newest
+/// row never skips one. The app keeps its newest 128 finished fires, which bounds
+/// the read. Metadata only: the app data and the mail stay with the recipient.
+#[nolog]
+pub async fn listener_fires(tx:&Transaction<'_>,org:i64,app:&str,listener:&str,(op,order,from):(&str,&str,i64),n:i64)->Result<Value>{
+    let Some((owner,uid))=listener.split_once('/').filter(|(o,u)|!o.is_empty()&&!u.is_empty()) else{crate::refuse!(BadRequest,"listener_fires needs the listener as owner/id, as listeners shows it");};
+    let Some(dog)=tx.query_opt("SELECT w.id FROM ot.watchdogs w JOIN ot.agents a ON a.id=w.owner_agent_id WHERE w.org_id=$1 AND a.name=$2 AND w.uid=$3 AND w.kind='app_listener' AND w.target=$4 AND w.state IN ('armed','paused') ORDER BY w.id DESC LIMIT 1",&[&org,&owner,&uid,&app]).await? else{crate::refuse!(NotFound,"no app listener {listener} on this app");};
+    let dog:i64=dog.get(0);
+    let rows=tx.query(&format!("SELECT jsonb_build_object('seq',f.id,'id',f.uid,'at',f.at,'event',f.name,'panel',f.panel_id,'panel_label',p.label,'by',CASE f.producer->>'kind' WHEN 'agent' THEN f.producer->>'name' WHEN 'app' THEN 'app' ELSE 'user' END,'delivered',r.delivery IS NOT NULL,'notice',coalesce((r.delivery->>'notice')::boolean,false)) FROM ot.app_event_fires f JOIN ot.app_event_recipients r ON r.fire_id=f.id AND r.dog_id=$3 LEFT JOIN ot.custom_panels p ON p.org_id=f.org_id AND p.id=f.panel_id WHERE f.org_id=$1 AND f.app_id=$2 AND r.done AND f.id{op}$4 ORDER BY f.id {order} LIMIT $5"),&[&org,&app,&dog,&from,&(n+1)]).await?;
+    let more=rows.len()>n as usize;let fires:Vec<Value>=rows.into_iter().take(n as usize).map(|r|r.get(0)).collect();
+    let next=if more{fires.last().map(|v|v["seq"].clone())}else{None};
+    Ok(json!({"listener":listener,"fires":fires,"next_cursor":next}))
+}
+
 /// Current names behind shown app_listener dogs (USER 2026-10-27 m7a692fd13b1d:
 /// a dog shows that it is an app event watchdog, its app, panel and event, by
 /// name with IDs secondary). One bounded read per shown page; a missing row
