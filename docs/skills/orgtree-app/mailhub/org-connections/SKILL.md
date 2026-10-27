@@ -23,7 +23,7 @@ The organization has a permanent public network address. **Copy address** copies
 
 Remote rows have an enabled toggle. Rows show Connected with hub version, Disabled, Connecting, or Retrying with the error; queued/stuck counts and a peer roster appear when available. Missing version is shown as unknown. Roster entries distinguish organizations, chats and persons and show online state. A connection being reachable does not imply that the target org's external-inbox policy permits mail.
 
-Contacts are shown as network contact links: click to open in Hubchat, right-click for more.
+Contacts are shown as network contact links: click to open in Hubchat, right-click for more. Your own account's link is the exception: it opens your chat with the org it is shown in, never your Hubchat settings.
 
 Adding, enabling, disabling or removing a connection applies immediately; they do not wait for another submission. Removing a working connection or one with queued outgoing mail asks for confirmation. Queued mail can move to another enabled connection or wait with no route. Removal does not erase the org's address/identity.
 

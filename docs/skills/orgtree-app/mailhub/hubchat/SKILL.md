@@ -16,7 +16,12 @@ In Hubchat use **Settings > Hubs > Add a hub** with the operator's relay-only ad
 In Orgtree, a remote person/org address link opens the corresponding Hubchat
 conversation when the desktop client is installed. Installation is discovered
 independently of opening Connect your phone, with one shared cached check and
-stale refresh on focus. You do not have to link a phone to enable desktop
+stale refresh on focus. The exception is a link to your own account (the person
+Connect your phone linked): Hubchat answers a link to its own account with your
+settings, so Orgtree opens your chat with the organization the link is shown in
+instead, which starts empty when you have not written yet. If that organization
+has no network address yet the link stays inert and says so. Other people's links
+are unchanged. You do not have to link a phone to enable desktop
 Hubchat links. A missing client leaves the link inert with **Hubchat isn't
 installed**; discovery failure retains the last known state and is not proof
 of an uninstallation. Local org links open the local org instead. Verified

@@ -483,6 +483,26 @@ fact. Installed contacts keep the existing Hubchat conversation deep link;
 local organizations keep their local opener and missing installs stay inert.
 See `canvas/agentmentions.tsx` and `tests/hubavailability.test.tsx`.
 
+**A link to the user's own account opens the DM with the org it is shown in, user
+2026-10-27 21:29:15Z m17f65d1effdf:** "if i click a net link to my own account and
+it opens hubchat, it should open the dm with the org the link is rendered in, not
+my personal settings page". Hubchat opens Settings > Profile for a `to=` naming
+its own account and has no self-DM form (confirmed from Hubchat's source,
+@hubchat-design-opus and @mention-reply-sol 2026-10-27), so Orgtree substitutes
+the on-screen org's own `tree.net.slug` (`hubchat://chat?to=@net:<slug>`, the
+peer Hubchat knows the org as). "Own account" is the Hubchat person Connect your
+phone linked: `link.address` of the `/api/desktop/phone` read the availability
+check already makes (the phone panel's reads update it too; unlinking clears it).
+The org is the one on screen: an org switch remounts every surface, so Markdown,
+prose, tool chips, mail senders, both roster lists and the link's menu share the
+one resolver (`resolveHubAddressAction`, `netmentions.orgNetAddress`). Hubchat
+opens an empty conversation when none exists yet, which is the place a DM starts.
+An org without a network address (`tree.net.slug` null) has no peer, so the link
+is inert with "This org has no network address yet, so there is no chat to open";
+`hubchat://view?name=newchat` was the alternative (open New chat) and was not
+taken. Every other `@net:`/`@org:` link and Copy identity are unchanged. No
+Hubchat change. See `tests/ownaccountlink.test.tsx`.
+
 **Panel activation and button toggles, user 2026-10-18 12:09Z/16:42Z:**
 global inbox/docket/presentations openers, node Open menus and desk tabs raise
 the existing detached panel and restore it if minimized, without opening a
