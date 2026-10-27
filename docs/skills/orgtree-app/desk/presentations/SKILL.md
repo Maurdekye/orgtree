@@ -59,8 +59,11 @@ listed if its snapshot was removed externally; a failed download does not
 recreate the file. Project document placement is unchanged.
 
 In a live message-box context, presentation cards and reference links put
-**Mention** and **Reply** first. Mention inserts the same `@doc:` reference
-that Copy reference copies. Reply prepares an answer about that presentation
+**Mention** and **Reply** first. Mention inserts the same `@doc:<org>/<id>`
+reference that Copy reference copies; the id is the presentation's readable slug
+(an older link written with its earlier generic id still opens it). A
+presentation link shows the presentation's current title, and typing `@` in a
+message box offers presentations by title. Reply prepares an answer about that presentation
 in the nearest owning composer without sending. Canvas content can use its
 Quick chat footer; standalone galleries retain their existing actions. See
 [composer routing](../desk-chat/SKILL.md#composer).

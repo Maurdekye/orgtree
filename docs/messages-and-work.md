@@ -112,9 +112,9 @@ separate Files list keep their compact layout.
 
 ## References, replies and formatting
 
-Type **@** for completion of agents, projects, available hub contacts and current/backlogged docket tickets. Search tickets by slug or title words. Tab or Enter completes the selected reference without sending. Archived tickets are omitted from completion.
+Type **@** for completion of agents, projects, available hub contacts, current/backlogged docket tickets and presentations. Search tickets by slug or title words, and presentations by title or slug words. Tab or Enter completes the selected reference without sending. Archived tickets are omitted from completion.
 
-Mentions in messages, mail, work descriptions and presentations show what they point at with an icon on the left: an agent's model badge, a project's folder, the docket icon for a ticket, the document icon for a presentation, the Apps icon for an app and a window icon for a panel. A ticket mention shows the item's current title and follows renames; its slug is still under **Copy slug** in its menu. Agents can mention an app or one of its panels; click it to open it, as its row in **Apps** does ([Custom apps](custom-apps.md#mentions)). A mention that can't be followed shows the text as written, marked *unavailable*, *other org* or *not from here*.
+Mentions in messages, mail, work descriptions and presentations show what they point at with an icon on the left: an agent's model badge, a project's folder, the docket icon for a ticket, the document icon for a presentation, the Apps icon for an app and a window icon for a panel. A ticket mention shows the item's current title and follows renames; its slug is still under **Copy slug** in its menu. A presentation mention shows the presentation's current title too. Agents can mention an app or one of its panels; click it to open it, as its row in **Apps** does ([Custom apps](custom-apps.md#mentions)). A mention that can't be followed shows the text as written, marked *unavailable*, *other org* or *not from here*.
 
 Ticket and presentation cards/links offer **Mention** and **Reply** in every live message-box context: agent/project desks, mail reply panes and canvas content sharing Quick chat. Mention inserts the object's reference at the caret, or appends when unfocused. Reply stages that exact object while keeping your draft text. Neither sends. Agent/project links retain their Mention action too.
 
@@ -257,7 +257,7 @@ An unarchived backlog item can offer **Staff…**. The action follows the app's 
 
 ## Read documents in Presented
 
-Ask for a **presentation** when you want a plan, report or other document to read. Open **Presentations** in the header, or **Presented** in a desk. Team presentations include documents below an agent or project. Use **Show retired** to include retained documents from retired presenters.
+Ask for a **presentation** when you want a plan, report or other document to read. Each presentation has a readable id made from its title when it is first presented (for example `weekly-status`); it stays the same when the presentation is updated, and agents mention it with it. Open **Presentations** in the header, or **Presented** in a desk. Team presentations include documents below an agent or project. Use **Show retired** to include retained documents from retired presenters.
 
 Team galleries include the whole selected team, even through very deep project nesting. File delivery and presentation-file reads likewise follow the complete folder authority chain; restrictions from higher in the tree still apply. Deep project membership keeps the ordinary presentation and audience rules.
 

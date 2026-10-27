@@ -946,3 +946,29 @@ bounded work-item-references read). The chip's token, Copy slug and the shared
 `Status · title` hover keep the slug available; prose slugs stay as written.
 [decided: user 2026-10-27 m7bb9eb904138; verified: `domain/docket.rs`,
 `canvas/{itemrefs,refnames,reflinks}.ts*`, `App.tsx`]
+
+## Presentations are identified by a readable slug (2026-10-27, 4.5.0)
+
+A presentation's id is `ot.documents.slug` (migration 0073): made from the title
+by the database alone (`ot.slug_base`, util::slugify's shape, then
+`ot.document_slug` for the first free -2, -3...), on insert by a BEFORE INSERT
+trigger under a per-org advisory lock, and never changed. `uid` is the internal
+key and the alias of presentations made before 4.5.0: every input resolves an id
+through `ot.document_ref(org, ref)` (slug first, then old id, in that org only),
+and every output names the slug. A new slug is never an old id of its org or the
+`viewed` route segment, so an old reference cannot change target.
+
+- Notices keep their `doc:<uid>` / `mention:doc:<uid>` keys (desktop dedup), and
+  open by the slug (`source_id`). `notices::all_rows` pages by its query's LAST
+  column, the row id: a new column goes before it.
+- The gallery read answers `located_id` (the slug a located old id stands for),
+  `refs` (titles of at most 64 exact references, for mention labels) and
+  `search` (the composer's @ list: title and slug words, gallery presentations
+  only, newest first, at most 20). Renderer jumps select `locatedId`.
+- `orgtree_present` emits `{"type":"documents_changed"}` on the org socket;
+  `canvas/docrefs.ts` reads the titles on screen again.
+- Proof: `migrate/document_slug_tests.rs` (native fixture, staged pre-0073
+  database) through `tools/rig/proofs/document-slugs.mjs`.
+[decided: user 2026-10-27 m4efbc12ac94e, mb21c096e5dc4, m669486afd267, m7bb9eb904138;
+verified: `migrations/0073_document_slugs.sql`, `domain/{docs,notices}.rs`,
+`http/docs.rs`, `canvas/{docrefs,presentationmentions,agentmentions,docwindow}.ts*`]

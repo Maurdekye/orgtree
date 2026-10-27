@@ -18,7 +18,7 @@ Required tool group: `user`, through the ancestor chain. With `project=<P>`, an 
 | `title` | Required nonblank title. Trimmed, retained up to 120 characters. |
 | `body` | Markdown text, at most 64 KiB of UTF-8 bytes. Use exactly one of body or path. |
 | `path` | Existing `.md`/`.markdown`, or `.html`/`.htm`, instead of body. Relative paths start at your scratch folder; absolute paths still require authority. |
-| `replaces` | Optional existing presentation ID in the same destination bucket: your own agent's gallery, or the selected project's gallery. Updates that card in place instead of creating another. Empty value behaves as omitted. |
+| `replaces` | Optional existing presentation id (its slug; the generic id an older card had still works) in the same destination bucket: your own agent's gallery, or the selected project's gallery. Updates that card in place instead of creating another. Empty value behaves as omitted. |
 | `project` | Optional live project node name. The card goes under that project instead of beside your seat; you must be above or below it ([orgtree-projects](../../team/projects/SKILL.md)). Members, including nested descendants, need no user audience for this project; agents above it still need one. |
 
 Minimal call:
@@ -31,11 +31,17 @@ For a Markdown file, the engine reads UTF-8 text and removes a leading UTF-8 BOM
 
 ## Snapshot and replacement
 
-The stored body is a snapshot. Editing the original file does not update the card. Preserve the returned document ID and use it as replaces when revising that document. Replacement updates title/body/format/time, recaptures any HTML resources, and clears dismissal. In your own gallery, the ID must belong to your agent. A project is a shared destination: any agent currently authorized to present into that project can replace an existing presentation in that project's bucket, including one originally presented by another agent. The project remains the displayed owner and the **presented by** attribution switches to the replacing agent. An ID from a different agent/project bucket is refused.
+The stored body is a snapshot. Editing the original file does not update the card. Preserve the returned presentation id and use it as replaces when revising that document. Replacement updates title/body/format/time, recaptures any HTML resources, and clears dismissal. In your own gallery, the ID must belong to your agent. A project is a shared destination: any agent currently authorized to present into that project can replace an existing presentation in that project's bucket, including one originally presented by another agent. The project remains the displayed owner and the **presented by** attribution switches to the replacing agent. An ID from a different agent/project bucket is refused.
 
 Paths are canonicalized and checked inside your scratch or effectively held folders, with organization/ancestor scope clamps and your held organization/shared/team workspaces. Symlinks do not grant access outside those roots. An inaccessible/missing file refuses instead of presenting whatever a path happened to name.
 
 Folder authority and membership in an ancestor project resolve through the complete chain, including more than 1,024 nested projects. Root scope restrictions still apply; an ancestry cycle or missing root refuses folder authority. Reaching a project below you still needs the ordinary user audience to present there; deep membership adds no broader audience or file grant.
+
+## Presentation ids
+
+A presentation's id is a readable slug made from its title when it is first presented (user 2026-10-27): lowercase ASCII words joined by `-`, at most 48 characters, then `-2`, `-3`... when the organization already has that slug, and `presentation` for a title with no ASCII letter or digit. It is unique in the organization and never changes, even when `replaces` gives the card a new title. Presentations made before 4.5.0 got slugs the same way on upgrade. The generic id they had before (`d` and 12 hex digits) keeps working wherever an id is accepted, so older mail, mentions and `replaces` calls still find them.
+
+Mention a presentation as `@doc:<org>/<id>`, never by its bare title: the result names that reference, and the card and `read_presentation` entries carry it as `ref`. The link shows the presentation's current title.
 
 ## HTML capture and preview
 
@@ -58,7 +64,7 @@ The preview embeds captured resources in an isolated sandbox with scripts allowe
 
 ## What reaches the user
 
-The successful result returns a presentation ID and card. Canvas/desk compact surfaces show recent presentations; the wider gallery opens the collection. Markdown uses the reader. HTML presentations carry an **HTML presentation** tag (`</>` on compact chips). Direct HTML chips open the presentation in its own window. Gallery readers show the selected presentation inline in the same sandbox, with **Fit width**/**100%** and an **Open in a new window** link; a captured preview over 4 MiB opens only in its window. The user can interact with an HTML presentation, but it cannot send anything back to you: presentations are one-way. Available menus include title/reference copying and format-specific downloads. Closing the reader differs from dismissing a card.
+The successful result returns the presentation's id and mention reference, and a card. Canvas/desk compact surfaces show recent presentations; the wider gallery opens the collection. Markdown uses the reader. HTML presentations carry an **HTML presentation** tag (`</>` on compact chips). Direct HTML chips open the presentation in its own window. Gallery readers show the selected presentation inline in the same sandbox, with **Fit width**/**100%** and an **Open in a new window** link; a captured preview over 4 MiB opens only in its window. The user can interact with an HTML presentation, but it cannot send anything back to you: presentations are one-way. Available menus include title/reference copying and format-specific downloads. Closing the reader differs from dismissing a card.
 
 A successful transcript call has its ordinary timed, expandable tool row followed by the untimed presentation card; failures remain tool rows. User viewed/new/updated indicators are separate from tool success. A presented document is not proof of reading, agreement, deployment or functional verification of an HTML presentation.
 

@@ -506,3 +506,25 @@ seat fixtures carry the sentence.
 The identity budget already counts MENTIONS by its length; no other allowance
 moves. Every agent's standing prefix changes once, at its first start on the
 new build; no cache hit is promised.
+
+## 17. Presentation mentions (2026-10-27)
+
+USER 2026-10-27 m669486afd267 ("and encourage agents to mention them when
+referrintnto them"), with presentations identified by a readable slug
+(m4efbc12ac94e): the MENTIONS rule, unconditional on every lane and profile,
+names presentations beside agents, projects and docket items, and their token:
+"whenever you name an agent, project, docket item or presentation ... write
+@name, @item:<org>/<slug> or @doc:<org>/<slug>". It names no tool; agents copy
+the slug from orgtree_present's result or a `ref` field. The mail-basics page
+gives the same rule. The legacy test normalizes the new MENTIONS text like the
+earlier replacements, and both approved seat fixtures carry it.
+
+| Synthetic compressed example | Before | After | Change |
+| --- | ---: | ---: | ---: |
+| Seat A | 10,573 B | 10,606 B | +33 B |
+| Seat B | 10,585 B | 10,618 B | +33 B |
+
+The identity budget already counts MENTIONS by its length; no other allowance
+moves. 4.5.0 changes this line once more than its apps sentence did, so an agent
+upgrading from 4.4.x meets one changed prefix at its first start on the new
+build; between 4.5.0 alphas it is one more change. No cache hit is promised.
