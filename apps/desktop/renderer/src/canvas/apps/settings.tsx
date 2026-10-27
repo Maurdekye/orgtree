@@ -1,4 +1,4 @@
-import {useEffect,useState} from 'react'
+import {useEffect,useRef,useState} from 'react'
 import {customAppsRequest} from '../../api'
 import {SurfaceDocumentOwner,useSurfaceDocument} from '../../popout'
 import {SetRow,SettingsTabPanel,SettingsTabs,renameReady,useVisitedTabs} from '../settingskit'
@@ -15,9 +15,12 @@ import type {CustomApp,CustomPanel} from './types'
 
 /** Panel settings' State tab (user 2026-10-26: "and make state its own tab"): the
  * copy's own JSON data, edited in place. Save is revision-checked and reports a
- * conflict if another edit arrived; Reload reads the saved data again. */
+ * conflict if another edit arrived; Reload reads the saved data again. Import is a
+ * button like the other five (user 2026-10-27 m531629c33a06 "why is the import
+ * button styled differently"): it opens a hidden file picker, which is cleared
+ * after each choice so the same file can be imported again. */
 export function PanelState({slug,panel,app}:{slug:string;panel:CustomPanel;app:CustomApp}){
-  const owner=useSurfaceDocument(),[text,setText]=useState(''),[error,setError]=useState(''),[status,setStatus]=useState(''),[busy,setBusy]=useState(true),[rev,setRev]=useState(panel.rev)
+  const owner=useSurfaceDocument(),picker=useRef<HTMLInputElement>(null),[text,setText]=useState(''),[error,setError]=useState(''),[status,setStatus]=useState(''),[busy,setBusy]=useState(true),[rev,setRev]=useState(panel.rev)
   const load=async(alive=()=>true)=>{setBusy(true);setError('');setStatus('');try{const p=await customAppsRequest<CustomPanel>(slug,{action:'panel_get',panel:panel.id});if(alive()){setText(JSON.stringify(p.state??{},null,2));setRev(p.rev)}}catch(e){if(alive())setError(String(e))}finally{if(alive())setBusy(false)}}
   useEffect(()=>{let alive=true;void load(()=>alive);return()=>{alive=false}},[slug,panel.id])
   const value=()=>{if(new TextEncoder().encode(text).length>2*1024*1024)throw Error('State exceeds 2 MiB.');const v:unknown=JSON.parse(text);if(!v||Array.isArray(v)||typeof v!=='object')throw Error('State must be a JSON object.');return v}
@@ -26,7 +29,7 @@ export function PanelState({slug,panel,app}:{slug:string;panel:CustomPanel;app:C
     <p className="dim">Each panel keeps its own JSON data. Save reports a conflict if another edit arrived; Reload reads the saved data again.</p>
     <textarea aria-label="Panel JSON state" spellCheck={false} value={text} disabled={busy} onChange={e=>{setText(e.target.value);setStatus('')}}/>
     {error&&<p role="alert">{error}</p>}{status&&<p role="status">{status}</p>}
-    <div className="custom-app-dialog-actions"><label className="button">Import<input type="file" accept="application/json,.json" hidden onChange={async e=>{try{const f=e.target.files?.[0];if(!f)return;if(f.size>2*1024*1024)throw Error('State exceeds 2 MiB.');const text=await f.text();JSON.parse(text);setText(text);setError('')}catch(error){setError(String(error))}}}/></label>
+    <div className="custom-app-dialog-actions"><button type="button" onClick={()=>picker.current?.click()}>Import</button><input ref={picker} type="file" accept="application/json,.json" hidden onChange={async e=>{const input=e.currentTarget;try{const f=input.files?.[0];if(!f)return;if(f.size>2*1024*1024)throw Error('State exceeds 2 MiB.');const text=await f.text();JSON.parse(text);setText(text);setError('')}catch(error){setError(String(error))}finally{input.value=''}}}/>
       <button type="button" onClick={()=>{try{saveAppJson(owner,panel.label+'.json',value())}catch(e){setError(String(e))}}}>Export</button>
       <button type="button" onClick={async()=>{try{await owner.defaultView?.navigator.clipboard.writeText(JSON.stringify(value(),null,2))}catch(e){setError(String(e))}}}>Copy</button>
       <button type="button" onClick={async()=>{try{const a=await customAppsRequest<CustomApp>(slug,{action:'app_get',app:app.id});setText(JSON.stringify(a.definition?.initial_state??{},null,2))}catch(e){setError(String(e))}}}>Reset</button>
