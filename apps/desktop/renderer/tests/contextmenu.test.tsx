@@ -619,7 +619,10 @@ uiTest('§B3d agent desk presentations: header chips and Presented tab rows offe
         json: () => Promise.resolve({ accepted: true, id: 'm-sent', queued: 0 }) })
     }
     const one = path.match(/\/documents\/([^/?]+)$/)
+    // The desk shows Presented only while the engine reports presentations in
+    // its own or team scope (desk reader tabs, user 2026-10-23, dcbd963).
     const body = method !== 'GET' ? {}
+      : path.includes('/nodes/me/reader-availability') ? { work: { own: false, team: false }, presented: { own: true, team: false } }
       : one ? { ...docs.find((d) => d.id === one[1]!), body: `body of ${one[1]}` }
         : path.includes('/documents') ? { documents: docs, total: docs.length } : {}
     return Promise.resolve({ ok: true, status: 200, headers: new Headers(),
@@ -640,23 +643,26 @@ uiTest('§B3d agent desk presentations: header chips and Presented tab rows offe
   const textarea = v.el.querySelector<HTMLTextAreaElement>('textarea')!
   assert.equal(document.activeElement === textarea, false, 'baseline: bare desk does not autofocus on mount')
 
+  // In a live message box, the box's own Mention and Reply lead the menu, and
+  // its Reply stages the presentation's identity in place of the desk's former
+  // Reply entry (user 2026-10-22 21:47:56Z, 21:48:13Z, 21:49:14Z; d92b998).
   await rightClick(chips[0]!)
-  assert.deepEqual(labels(), ['Open reader', 'Reply', 'Presenter… ▸', '· Mention', '· Copy mention', 'Copy title', 'Copy reference', 'Download as Markdown'])
+  assert.deepEqual(labels(), ['Mention', 'Reply', 'Open reader', 'Presenter… ▸', '· Mention', '· Copy mention', 'Copy title', 'Copy reference', 'Download as Markdown'])
   await pick('Reply')
   await advance(50, 16); await flush(2)
   assert.equal(document.activeElement === textarea, true, 'Reply on a desk header chip focuses the desk message box')
   assert.deepEqual(readReplies(draftKey('org', 'me', 2)).map((r) => ({ eventId: r.eventId, docId: r.docId, quote: r.quote })),
-    [{ eventId: 'doc:d1', docId: 'd1', quote: 'document: Architecture Plan' }])
+    [{ eventId: 'document:d1', docId: 'd1', quote: 'Architecture Plan' }])
   const previews = () => [...v.el.querySelectorAll('.reply-preview.reply-preview-composing')] as HTMLElement[]
   assert.equal(previews().length, 1)
-  assert.match(previews()[0]!.textContent ?? '', /document: Architecture Plan/)
+  assert.match(previews()[0]!.textContent ?? '', /Architecture Plan/)
   const jumpBtn = previews()[0]!.querySelector<HTMLButtonElement>('.reply-preview-jump')!
   assert.equal(jumpBtn.disabled, false, 'composing reply chip jump control is enabled')
   await inAct(() => { jumpBtn.click() })
   assert.deepEqual(opened, ['d1'], 'clicking the reply chip jump control opens the presentation')
 
   await rightClick(chips[1]!)
-  assert.deepEqual(labels(), ['Open reader', 'Open HTML presentation in a new window', 'Reply', 'Presenter… ▸', '· Mention', '· Copy mention', 'Copy title', 'Copy reference', 'Download HTML presentation'])
+  assert.deepEqual(labels(), ['Mention', 'Reply', 'Open reader', 'Open HTML presentation in a new window', 'Presenter… ▸', '· Mention', '· Copy mention', 'Copy title', 'Copy reference', 'Download HTML presentation'])
   await key(document.body, 'Escape')
 
   const presentedTab = [...v.el.querySelectorAll<HTMLButtonElement>('.cc-tabs button')]
@@ -667,7 +673,7 @@ uiTest('§B3d agent desk presentations: header chips and Presented tab rows offe
   assert.equal(rows.length, 2, 'positive control: Presented tab rows rendered')
   assert.ok(rows[1]!.classList.contains('on'), 'the oldest unread presentation is selected on open')
   await rightClick(rows[1]!)
-  assert.deepEqual(labels(), ['Close', 'Open HTML presentation in a new window', 'Reply', 'Presenter… ▸', '· Mention', '· Copy mention', 'Copy title', 'Copy reference', 'Download HTML presentation', 'Dismiss'])
+  assert.deepEqual(labels(), ['Mention', 'Reply', 'Close', 'Open HTML presentation in a new window', 'Presenter… ▸', '· Mention', '· Copy mention', 'Copy title', 'Copy reference', 'Download HTML presentation', 'Dismiss'])
   await pick('Reply')
   await advance(50, 16); await flush(2)
   assert.equal(previews().length, 2, 'Reply in Presented tab appends to the desk message box reply targets')
