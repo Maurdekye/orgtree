@@ -2,9 +2,10 @@
 // (USER 2026-10-27 m4db0526e54f1 "it should recheck when the account changes",
 // m396ea354d094, mb2fa30fd31fd "Yes, restart them"; docket
 // argon-keeps-disappearing-from-the-user-s-usable-a). Fake CLI only: the
-// default login is named by <rig-home>/.gemini/rig-agy-identity (absent:
-// rig-user@example.invalid), and agy-auth-metadata.json's stamp stands in for
-// the shared credential's last write. No real sign-in, credential or network.
+// shared default sign-in is named by the fake's agy-auth.json `identity`
+// (absent: rig-user@example.invalid), and agy-auth-metadata.json's stamp
+// stands in for the shared credential's last write. Nothing is written to any
+// home folder. No real sign-in, credential or network.
 //   - a token rotation (new stamp, same account) reads no catalog and
 //     replaces no process
 //   - a sign-in to another account (new stamp, new name) closes the warm
@@ -39,12 +40,8 @@ export default async function (rig) {
     return fs.existsSync(f) ? fs.readFileSync(f, 'utf8').trim().split('\n').filter(Boolean).map((l) => JSON.parse(l)) : []
   }
   const metadata = (stamp) => fs.writeFileSync(path.join(rig.data, 'agy-auth-metadata.json'), JSON.stringify({ stamp }))
-  const signIn = (who) => {
-    const dir = path.join(rig.data, 'rig-home', '.gemini')
-    fs.mkdirSync(dir, { recursive: true })
-    fs.writeFileSync(path.join(dir, 'rig-agy-identity'), who)
-  }
   const auth = (v) => fs.writeFileSync(path.join(rig.fakeDir, 'agy-auth.json'), JSON.stringify(v))
+  const LOGIN_B = 'second@example.invalid'
   const since = (at) => rig.engineLog().slice(at)
   const posts = (text) => (text.match(/POST \/api\/providers\/agy-models\/refresh/g) ?? []).length
   const pids = (name) => rig.fakeLog(name).filter((e) => e.kind === 'start').map((e) => e.pid)
@@ -86,7 +83,7 @@ export default async function (rig) {
   // 2. a sign-in to another account
   at = rig.engineLog().length
   mark = reads().length
-  signIn('second@example.invalid')
+  auth({ identity: LOGIN_B })
   metadata(3)
   await rig.waitFor(() => REPLACING.test(since(at)), { what: 'the engine to notice another account', timeout: 45000 })
   await rig.waitFor(() => reads().length > mark, { what: 'the new login catalog read', timeout: 45000 })
@@ -120,7 +117,7 @@ export default async function (rig) {
 
   // 4. Argon's own weekly bucket at 100% refuses Argon only
   const reset = new Date(Date.now() + 5 * 24 * 3600 * 1000).toISOString()
-  auth({ usage_groups: [
+  auth({ identity: LOGIN_B, usage_groups: [
     { name: 'Gemini Models', buckets: [
       { id: 'gemini-5h', name: 'Five Hour Limit Remaining', remaining_fraction: 0.99, window: '5h', reset_time: reset },
       { id: 'gemini-weekly', name: 'Weekly Limit Remaining', remaining_fraction: 0.93, window: 'weekly', reset_time: reset }] },

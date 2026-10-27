@@ -65,12 +65,16 @@ pub fn auth_check() -> i32 {
         // Like real AGY 1.3.5 (measured 2026-10-16), the sign-in does not
         // follow USERPROFILE: every home names the same account, unless a
         // proof writes `<USERPROFILE>\.gemini\rig-agy-identity` to model an
-        // AGY that keeps a home's own sign-in.
+        // AGY that keeps a home's own sign-in. That shared sign-in is named by
+        // agy-auth.json `identity` (a proof signs in as another account
+        // there: the engine's own USERPROFILE may be the real user's home,
+        // which a proof must never write).
         _ => {
             let own = std::env::var("USERPROFILE").ok()
                 .and_then(|h| std::fs::read_to_string(Path::new(&h).join(".gemini").join("rig-agy-identity")).ok())
                 .map(|s| s.trim().to_string()).filter(|s| !s.is_empty());
-            println!("Already authenticated as {}", own.as_deref().unwrap_or("rig-user@example.invalid"));
+            let shared = v["identity"].as_str().map(str::trim).filter(|s| !s.is_empty());
+            println!("Already authenticated as {}", own.as_deref().or(shared).unwrap_or("rig-user@example.invalid"));
             0
         }
     }
