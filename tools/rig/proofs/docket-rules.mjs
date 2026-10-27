@@ -29,6 +29,12 @@ export default async function (rig) {
   const bobUpd = await rig.tool('bob', 'orgtree_work', { action: 'update', slug, done_so_far: ['bob was here'], working_on_next: [] })
   p.check('bob (the owner\'s report) cannot update it', !bobUpd.ok && /may update/.test(bobUpd.text), bobUpd.text)
   p.check('refused updates changed nothing', row().rev === start.rev, { before: start.rev, after: row().rev })
+  const typo = await rig.tool('alice', 'orgtree_work', { action: 'get', slug: 'rig-smoke-iten' })
+  p.check('G: a misspelt slug names the nearest item the caller may read', !typo.ok && /did you mean rig-smoke-item\?/.test(typo.text), typo.text)
+  const typoHidden = await rig.tool('carol', 'orgtree_work', { action: 'get', slug: 'rig-smoke-iten' })
+  p.check('G: the hint never names an item the caller may not read',
+    !typoHidden.ok && /no docket item named/.test(typoHidden.text) && !/did you mean/.test(typoHidden.text), typoHidden.text)
+  p.check('G: the not-readable refusal says whom to ask', /ask the agent who gave you the slug/.test(carolRead.text), carolRead.text)
 
   // ---------------------------------------------------------------- stale revision
   const read = await rig.tool('alice', 'orgtree_work', { action: 'get', slug })

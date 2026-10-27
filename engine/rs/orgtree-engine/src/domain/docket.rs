@@ -2522,6 +2522,66 @@ pub async fn agent_list(engine: &Engine, org: &OrgHandle, who: &Who, args: &Valu
     Ok(out)
 }
 
+/// Character edit distance between two short names (Levenshtein).
+#[logged]
+fn edit_distance(a: &str, b: &str) -> usize {
+    let b: Vec<char> = b.chars().collect();
+    let mut row: Vec<usize> = (0..=b.len()).collect();
+    for (i, ca) in a.chars().enumerate() {
+        let mut prev = row[0];
+        row[0] = i + 1;
+        for (j, cb) in b.iter().enumerate() {
+            let here = row[j + 1];
+            row[j + 1] = (prev + usize::from(ca != *cb)).min(row[j] + 1).min(here + 1);
+            prev = here;
+        }
+    }
+    row[b.len()]
+}
+
+/// The readable item slug nearest to one that names no item (USER
+/// 2026-10-27, proposal G), so a misspelt or half-remembered slug can be
+/// retried. Only a live item the caller may read is ever named: the read
+/// covers unarchived items only, so it does not grow with inactive history.
+#[logged]
+pub(crate) async fn closest_readable_slug(engine: &Engine, org: &OrgHandle, who: &Who, missing: &str) -> Result<Option<String>> {
+    let missing = missing.trim().trim_start_matches("@item:");
+    let missing = missing.rsplit('/').next().unwrap_or(missing).to_lowercase();
+    if missing.is_empty() {
+        return Ok(None);
+    }
+    let client = engine.db.get().await?;
+    let mut near: Vec<(usize, String)> = client
+        .query(
+            "SELECT slug FROM ot.work_items
+              WHERE org_id = $1 AND archived_at IS NULL AND NOT coalesce((extra->>'deleted')::boolean, false)",
+            &[&org.id],
+        )
+        .await?
+        .iter()
+        .map(|r| r.get::<_, String>(0))
+        .map(|slug| (edit_distance(&missing, &slug), slug))
+        .collect();
+    near.sort();
+    let limit = (missing.chars().count() / 3).max(2);
+    let mut ctx = ctx(&**client, org).await?;
+    let under = match who.id() {
+        Some(id) => below(&**client, id).await?,
+        None => HashSet::new(),
+    };
+    restrict_links(&mut ctx, who, &under);
+    for (distance, slug) in near.into_iter().take(5) {
+        if distance > limit {
+            break;
+        }
+        let Ok(it) = load(&**client, org.id, &slug, false).await else { continue };
+        if matches!(who, Who::User) || level(who, &it, &ctx, &under) != Level::None {
+            return Ok(Some(slug));
+        }
+    }
+    Ok(None)
+}
+
 /// `get`: one item (compact by default).
 #[logged]
 pub async fn agent_get(engine: &Engine, org: &OrgHandle, who: &Who, slug: &str, args: &Value) -> Result<Value> {
@@ -2534,7 +2594,7 @@ pub async fn agent_get(engine: &Engine, org: &OrgHandle, who: &Who, slug: &str, 
     };
     restrict_links(&mut ctx, who, &under);
     if level(who, &it, &ctx, &under) == Level::None && !matches!(who, Who::User) {
-        refuse!(Forbidden, "{} is not readable to you (owner, creator, their superiors, participants and the reviewer read it)", it.slug);
+        refuse!(Forbidden, "{} is not readable to you (owner, creator, their superiors, participants and the reviewer read it); ask the agent who gave you the slug for what you need, or to add you as a participant", it.slug);
     }
     let projection = if args["compact"].as_bool().unwrap_or(false) { "compact" } else { args["projection"].as_str().unwrap_or("compact") };
     let (h, a) = if projection == "full" { detail(&**client, &it).await? } else { (Vec::new(), Vec::new()) };
@@ -2987,6 +3047,15 @@ mod loosening_tests {
         assert!(reopen_on_update("item", true, "done", false).is_err());
         assert_eq!(reopen_on_update("item", true, "done", true).unwrap(), (true, None));
         assert_eq!(reopen_on_update("item", false, "open", false).unwrap(), (false, None));
+    }
+
+    #[test]
+    fn g_edit_distance_finds_near_slugs() {
+        assert_eq!(edit_distance("rig-smoke-iten", "rig-smoke-item"), 1);
+        assert_eq!(edit_distance("rig-smoke-item", "rig-smoke-item"), 0);
+        assert_eq!(edit_distance("", "abc"), 3);
+        assert_eq!(edit_distance("4-5-0-docket", "4-5-0-dockets"), 1);
+        assert!(edit_distance("rig-smoke-item", "unrelated-other-work") > ("rig-smoke-item".len() / 3).max(2));
     }
 
     #[test]

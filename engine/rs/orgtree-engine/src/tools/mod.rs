@@ -716,7 +716,7 @@ pub(crate) async fn work_with(engine: &Arc<Engine>, org: &Arc<crate::orgs::OrgHa
             _ => Vec::new(),
         }
     };
-    let v = match action {
+    let run = async { Ok::<Value, anyhow::Error>(match action {
         "list" => docket::agent_list(engine, org, who, args).await?,
         "get" => docket::agent_get(engine, org, who, need()?, args).await?,
         "create" => docket::create(engine, org, who, args).await?,
@@ -740,6 +740,26 @@ pub(crate) async fn work_with(engine: &Arc<Engine>, org: &Arc<crate::orgs::OrgHa
             "`{action}` is not part of the docket any more: acceptance checks, review seats and verdicts, receipts, artifacts, findings, claims and addenda were removed. Record evidence notes, and use the review / approved / done statuses (a reviewer is named with `reviewer` on update)"
         ),
         other => crate::refuse!(BadRequest, "unknown docket action {other:?} (list, get, create, update, assign, handoff, participants, evidence, archive, supersede, move, delete)"),
+    }) };
+    let v = match run.await {
+        Ok(v) => v,
+        Err(e) => return Err(slug_hint(engine, org, who, slug, e).await),
     };
     Done::json(&v)
+}
+
+/// A slug that names no item gets the nearest one the caller may read
+/// (USER 2026-10-27, proposal G); every other refusal passes through.
+#[logged]
+async fn slug_hint(engine: &Arc<Engine>, org: &Arc<crate::orgs::OrgHandle>, who: &crate::domain::docket::Who, slug: Option<&str>, e: anyhow::Error) -> anyhow::Error {
+    use crate::domain::UserError;
+    let missing = match (slug, e.downcast_ref::<UserError>()) {
+        (Some(slug), Some(UserError::NotFound(msg))) if msg.starts_with("no docket item named") => Some((slug, msg.clone())),
+        _ => None,
+    };
+    let Some((slug, msg)) = missing else { return e };
+    match crate::domain::docket::closest_readable_slug(engine, org, who, slug).await {
+        Ok(Some(near)) => anyhow::Error::new(UserError::NotFound(format!("{msg}; did you mean {near}?"))),
+        _ => e,
+    }
 }
