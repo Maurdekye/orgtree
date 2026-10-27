@@ -411,12 +411,13 @@ export function DocGalleryModal({ slug, toast, close, onFocusAgent, onReply,
     if (!jumpTo || w.seq !== jumpTo.seq) return
     if (w.error) { toast([w.error]); jumpHandled?.(); return }
     if (w.located !== jumpTo.id) return
-    const row = w.rows?.find(r => r.id === jumpTo.id && !r.evicted)
+    // an old generic id finds the presentation by its slug (migration 0073)
+    const row = w.rows?.find(r => r.id === (w.locatedId || jumpTo.id) && !r.evicted)
     if (!row) return
     setShowRetired(on => on || !isHired(row))
     setSelId(row.id)
     jumpHandled?.()
-  }, [w.rows, w.seq, w.error, w.located, jumpTo, jumpHandled, toast])
+  }, [w.rows, w.seq, w.error, w.located, w.locatedId, jumpTo, jumpHandled, toast])
   useReaderHandle(slug, { kind: 'global' }, () => selId, (doc) => {
     const row = all?.find(r => r.id === doc)
     if (row) { setShowRetired(on => on || !isHired(row)); setSelId(doc) }
@@ -851,11 +852,12 @@ export function AgentGalleryView({ slug, nid, node, toast, onFocusAgent, onReply
   useEffect(() => {
     if (!jumpTo || answered.current === jumpTo.seq || w.seq !== jumpTo.seq) return
     if (w.error) { answered.current = jumpTo.seq; toast([w.error]); return }
-    if (w.located !== jumpTo.id || !w.rows?.some(r => r.id === jumpTo.id)) return
+    const id = w.locatedId || jumpTo.id
+    if (w.located !== jumpTo.id || !w.rows?.some(r => r.id === id)) return
     answered.current = jumpTo.seq
     opening.current.pending = false
-    setSelId(jumpTo.id)
-  }, [jumpTo, w.seq, w.error, w.located, w.rows, toast])
+    setSelId(id)
+  }, [jumpTo, w.seq, w.error, w.located, w.locatedId, w.rows, toast])
   const cur = rows.find((r) => r.id === selId)
   useEffect(() => { if (cur) rememberReaderItem(scope,cur.id) }, [scope,cur?.id])
   // Clear an out-of-scope or missing selection once authoritative rows arrive.

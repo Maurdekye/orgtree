@@ -34,6 +34,7 @@ import { splitInlineCodeSpans } from './shared'
 import { useHistoricalWorkReferences } from './workrefresolve'
 import { openAppRef } from './apprefs'
 import './itemrefs'
+import './docrefs'
 import { useRefNames } from './refnames'
 import type { RefNameAnswer } from './refnames'
 import { agentReferences } from '../api'
@@ -215,13 +216,18 @@ export function resolveRef(ref: TypedRef, world: RefWorld): ResolvedRef {
   // m7bb9eb904138): the surface's own list first, else the bounded name read,
   // and the slug until either answers. The slug stays in the ticket menu's
   // Copy slug and the hover keeps the shared `Status · title`.
+  // A PRESENTATION does the same through its own reader (docrefs.ts): its
+  // title, else the slug, which stays in the hover and the copied token. An
+  // old generic id shows the title of the presentation it named.
   // ⚠ THE TITLE IS A LABEL, NOT A VERDICT. Whether the item exists stays the
-  // docket's to judge (outcome above): a name read never makes a ticket absent.
-  const named = ref.kind === 'item' && outcome === 'ready'
-    ? world.itemTitles?.get(ref.id) ?? itemTitle(world.refName?.(ref)) : undefined
+  // docket's to judge (outcome above): a name read never makes a ticket absent,
+  // and a presentation's chip stays the reader's to answer when it is opened.
+  const named = outcome !== 'ready' ? undefined
+    : ref.kind === 'item' ? world.itemTitles?.get(ref.id) ?? itemTitle(world.refName?.(ref))
+      : ref.kind === 'doc' ? itemTitle(world.refName?.(ref)) : undefined
   return {
     ref, token, outcome, label: named ?? label ?? ref.id, tier, atDestination,
-    ...(named !== undefined ? { copyTitle: named } : {}),
+    ...(ref.kind === 'item' && named !== undefined ? { copyTitle: named } : {}),
     why: atDestination ? `${ref.id} — this is its own desk`
       : outcome === 'ready' ? `open the ${tier === 'project' ? 'project' : kind} ${ref.id}`
         : outcome === 'pending' ? `still loading this org's ${kind}s`

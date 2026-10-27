@@ -9865,14 +9865,17 @@ button.mail-tag-link:hover, .settings button.mail-tag-link:hover { background:no
   border-color: color-mix(in srgb, var(--accent) 45%, var(--line));
   color: var(--ink-strong);
 }
-.agent-mention-item .tier, .agent-mention-item .project-mark, .agent-mention-item .mention-ticket-mark {
+.agent-mention-item .tier, .agent-mention-item .project-mark, .agent-mention-item .mention-ticket-mark,
+.agent-mention-item .mention-presentation-mark {
   width: 16px; height: 16px; font-size: 9.5px; border-radius: 3px; flex: none;
   display: inline-grid; place-items: center;
 }
-/* a ticket offered beside agents and projects: the docket's own icon in place of a model badge */
-.agent-mention-item .mention-ticket-mark { font-size: 13px; color: var(--dim); }
+/* a ticket offered beside agents and projects: the docket's own icon in place of a model badge;
+   a presentation: the presentations' document icon (USER 2026-10-27 mb21c096e5dc4) */
+.agent-mention-item .mention-ticket-mark, .agent-mention-item .mention-presentation-mark { font-size: 13px; color: var(--dim); }
 .agent-mention-item.on .mention-ticket-mark, .agent-mention-item.active .mention-ticket-mark,
-.agent-mention-item:hover .mention-ticket-mark { color: var(--ink-strong); }
+.agent-mention-item:hover .mention-ticket-mark, .agent-mention-item.on .mention-presentation-mark,
+.agent-mention-item.active .mention-presentation-mark, .agent-mention-item:hover .mention-presentation-mark { color: var(--ink-strong); }
 .agent-mention-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .project-mark {
   color: var(--org-accent, var(--accent));

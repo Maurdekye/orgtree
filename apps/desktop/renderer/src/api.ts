@@ -798,11 +798,26 @@ export interface DocRow {
   presented_by?: string
   presenter_tier?: string | null
 }
+/** A presentation a mention names: `ref` as written (its slug, or the old
+ *  generic id it had before migration 0073), `id` its slug. */
+export interface DocumentRef { ref: string; id: string; title: string; format?: 'markdown' | 'html' }
+/** The current titles of the exact presentation references on screen (at most
+ *  64, the engine's REFS_MAX); a reference that names none is left out. */
+export const getDocumentRefs = (slug: string, refs: string[]): Promise<DocumentRef[]> =>
+  req<{ refs: DocumentRef[] }>(`/api/orgs/${encodeURIComponent(slug)}/documents?refs=${encodeURIComponent(refs.join(','))}`)
+    .then(body => { if (!Array.isArray(body?.refs)) throw new Error('Invalid presentation reference response'); return body.refs })
+/** A presentation the composer's @ list offers (USER 2026-10-27 mb21c096e5dc4). */
+export interface DocumentHit { id: string; title: string; format?: 'markdown' | 'html'; node: string }
+/** The org's gallery presentations whose title or slug holds every typed word,
+ *  newest first, at most 20 (the engine's SEARCH_MAX). */
+export const searchDocuments = (slug: string, text: string): Promise<DocumentHit[]> =>
+  req<{ documents: DocumentHit[] }>(`/api/orgs/${encodeURIComponent(slug)}/documents?search=${encodeURIComponent(text)}`)
+    .then(body => { if (!Array.isArray(body?.documents)) throw new Error('Invalid presentation search response'); return body.documents })
 /** `limit` is the size of the WINDOW the caller is holding, not a page size:
  *  the gallery reads from offset 0 and grows the window as the reader scrolls,
  *  so every response is a complete newest-first prefix (canvas/gallery.tsx).
  *  Omitted, the server's own default applies. */
-export const getDocuments = (slug: string, offset = 0, node = '', locate = '', limit = 0, team = false, opening = false, hired = false, previous = '', visible = false): Promise<{ documents: DocRow[]; total: number; next_offset: number | null; offset?: number; located?: string; opening_id?: string | null; opening_position?: number | null }> =>
+export const getDocuments = (slug: string, offset = 0, node = '', locate = '', limit = 0, team = false, opening = false, hired = false, previous = '', visible = false): Promise<{ documents: DocRow[]; total: number; next_offset: number | null; offset?: number; located?: string; located_id?: string; opening_id?: string | null; opening_position?: number | null }> =>
   req(`/api/orgs/${slug}/documents?offset=${offset}&node=${encodeURIComponent(node)}`
     + (limit > 0 ? `&limit=${limit}` : '')
     + (team ? '&team=1' : '')

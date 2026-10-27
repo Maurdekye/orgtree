@@ -9,25 +9,29 @@ import { useContextMenu, copyToClipboard } from './contextmenu'
 import type { MenuEntry } from './contextmenu'
 import { orgMenuEntries, orgTitle } from './orgidentity'
 import { requestOpenOrg } from '../shell/openorg'
-import { DocketIcon } from '../icons'
+import { DocIcon, DocketIcon } from '../icons'
 import { objectTooltipProps } from './objecttooltip'
 import { refToken } from './reflinks'
 import { useTicketMentionCandidates } from './ticketmentions'
+import { usePresentationMentionCandidates } from './presentationmentions'
 
 export interface MentionCandidate {
   id: string
   tier: string
-  kind: 'agent' | 'project' | 'ticket'
-  /** a ticket's org: completing it inserts the ticket's reference */
+  kind: 'agent' | 'project' | 'ticket' | 'presentation'
+  /** a ticket's or presentation's org: completing it inserts its reference */
   org?: string
-  /** a ticket's title, matched as well as its slug */
+  /** a ticket's or presentation's title, matched as well as its slug */
   title?: string
 }
 
-/** What completing a candidate inserts: `@<name>`, or a ticket's reference
- *  `@item:<org>/<slug>` (the form Copy reference copies). */
+/** What completing a candidate inserts: `@<name>`, a ticket's reference
+ *  `@item:<org>/<slug>` or a presentation's `@doc:<org>/<slug>` (the forms
+ *  Copy reference copies). */
 export function mentionText(c: MentionCandidate): string {
-  return c.kind === 'ticket' && c.org ? refToken({ kind: 'item', org: c.org, id: c.id }) : `@${c.id}`
+  if (c.kind === 'ticket' && c.org) return refToken({ kind: 'item', org: c.org, id: c.id })
+  if (c.kind === 'presentation' && c.org) return refToken({ kind: 'doc', org: c.org, id: c.id })
+  return `@${c.id}`
 }
 
 /** One entry's identity in the list: a ticket and an agent may share a name. */
@@ -124,7 +128,7 @@ export function matchMentionQuery(value: string, caret: number): MentionQueryMat
   return { query, start, end: pos }
 }
 
-const TRANSCRIPT_MENTION_RE = /@(?:(agent|item):([a-z0-9-]+)\/([a-z0-9-]+(?:@[0-9]+)?)|([a-z0-9][a-z0-9_-]*(?:@[0-9]+)?))/gi
+const TRANSCRIPT_MENTION_RE = /@(?:(agent|item|doc):([a-z0-9-]+)\/([a-z0-9-]+(?:@[0-9]+)?)|([a-z0-9][a-z0-9_-]*(?:@[0-9]+)?))/gi
 
 function isLeftBoundary(s: string, atIndex: number, lastEnd: number): boolean {
   if (atIndex <= 0 || atIndex === lastEnd) return true
@@ -191,12 +195,16 @@ export function filterMentionCandidates(
   for (const c of candidates) {
     const id = c.id.toLowerCase()
     const ticket = c.kind === 'ticket'
+    const presentation = c.kind === 'presentation'
     const isPrefix = !q || id.startsWith(q)
     // a ticket's title words find it too: a slug is a cut-down title
     const isMatch = isPrefix || id.includes(q) || (ticket && !!c.title?.toLowerCase().includes(q))
+      // a presentation as the engine's search found it: every typed word in its title or slug
+      || (presentation && q.split(/[-_.\s]+/).filter(Boolean).every(w => `${c.title ?? ''} ${id}`.toLowerCase().includes(w)))
     if (!isMatch) continue
-    // a ticket counts as mentioned by its own reference, never by a same-named agent
-    const seq = recency?.get(ticket ? `item:${(c.org ?? '').toLowerCase()}/${id}` : id)
+    // a ticket or presentation counts as mentioned by its own reference, never by a same-named agent
+    const own = ticket ? 'item' : presentation ? 'doc' : ''
+    const seq = recency?.get(own ? `${own}:${(c.org ?? '').toLowerCase()}/${id}` : id)
     if (seq !== undefined) {
       mentioned.push({ c, seq })
     } else if (isPrefix) {
@@ -226,8 +234,9 @@ export function useAgentMentions({
   candidates: MentionCandidate[]
   disabled?: boolean
   transcriptTexts?: () => Iterable<string>
-  /** the org whose docket tickets the list also offers (USER 2026-10-22
-   *  18:16:44Z); omitted, it offers agents and projects only */
+  /** the org whose docket tickets (USER 2026-10-22 18:16:44Z) and
+   *  presentations (USER 2026-10-27 mb21c096e5dc4) the list also offers;
+   *  omitted, it offers agents and projects only */
   org?: string | null
 }): {
   onKeyDown: (e: React.KeyboardEvent<HTMLInputElement | HTMLTextAreaElement>) => boolean
@@ -355,10 +364,12 @@ export function useAgentMentions({
     }
   }
   const activeRecency = recencySessionRef.current?.recency ?? null
-  // tickets FOLLOW the agents and projects: at an equal match the list keeps
-  // agents nearest the box, as it draws bottom-up
+  // tickets FOLLOW the agents and projects, and presentations the tickets: at
+  // an equal match the list keeps agents nearest the box, as it draws bottom-up
   const tickets = useTicketMentionCandidates(org, canShow && activeQuery ? activeQuery.query : null)
-  const offered = useMemo(() => tickets.length ? [...candidates, ...tickets] : candidates, [candidates, tickets])
+  const presentations = usePresentationMentionCandidates(org, canShow && activeQuery ? activeQuery.query : null)
+  const offered = useMemo(() => tickets.length || presentations.length ? [...candidates, ...tickets, ...presentations] : candidates,
+    [candidates, tickets, presentations])
 
   useEffect(() => {
     if (selection.key !== null && selection.key !== queryKey) {
@@ -475,7 +486,7 @@ export function useAgentMentions({
           ref={menuRef}
           className="agent-mentions"
           role="listbox"
-          aria-label="Agent, project and ticket mentions"
+          aria-label="Agent, project, ticket and presentation mentions"
           style={rect ? { position: 'fixed', left: rect.left, bottom: rect.bottom, minWidth: rect.width, zIndex: 10000 } : undefined}
         >
           {matches.map((c, idx) => (
@@ -484,9 +495,11 @@ export function useAgentMentions({
               type="button"
               role="option"
               aria-selected={idx === clampedIndex}
-              className={'agent-mention-item' + (c.kind === 'ticket' ? ' mention-ticket' : '') + (idx === clampedIndex ? ' active on' : '')}
-              // a ticket hovers with the one ticket identity every ticket link shows
-              {...(c.kind === 'ticket' ? { ...objectTooltipProps('ticket', c.id, c.org), 'aria-label': `ticket ${c.id}` } : {})}
+              className={'agent-mention-item' + (c.kind === 'ticket' ? ' mention-ticket' : c.kind === 'presentation' ? ' mention-presentation' : '')
+                + (idx === clampedIndex ? ' active on' : '')}
+              // a ticket hovers with the one ticket identity every ticket link shows, a presentation with its own
+              {...(c.kind === 'ticket' ? { ...objectTooltipProps('ticket', c.id, c.org), 'aria-label': `ticket ${c.id}` }
+                : c.kind === 'presentation' ? { ...objectTooltipProps('document', c.id, c.org), 'aria-label': `presentation ${c.title || c.id}` } : {})}
               onMouseDown={e => {
                 e.preventDefault()
                 e.stopPropagation()
@@ -495,8 +508,11 @@ export function useAgentMentions({
             >
               {c.kind === 'ticket'
                 ? <span className="mention-ticket-mark" aria-hidden="true"><DocketIcon fontSize="inherit" /></span>
-                : <TierChip tier={c.kind === 'project' ? 'project' : c.tier} />}
-              <span className="agent-mention-name">{c.kind === 'ticket' ? c.id : '@' + c.id}</span>
+                : c.kind === 'presentation'
+                  ? <span className="mention-presentation-mark" aria-hidden="true"><DocIcon fontSize="inherit" /></span>
+                  : <TierChip tier={c.kind === 'project' ? 'project' : c.tier} />}
+              {/* a presentation is shown by its title; completing it inserts its slug's reference */}
+              <span className="agent-mention-name">{c.kind === 'ticket' ? c.id : c.kind === 'presentation' ? c.title || c.id : '@' + c.id}</span>
             </button>
           ))}
         </div>,

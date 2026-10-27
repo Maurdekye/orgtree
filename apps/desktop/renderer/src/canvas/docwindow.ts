@@ -12,7 +12,9 @@ type Range = { start: number; size: number }
 type Packet = Awaited<ReturnType<typeof getDocuments>>
 export interface DocWindow {
   rows: DocRow[] | null; total: number; more: boolean; busy: boolean; error: string
-  located: string; seq: unknown; openingId?: string | null
+  /** the jump the response answered, as requested; `locatedId` is the id the
+   *  list holds it by (an old generic id names the presentation's slug) */
+  located: string; locatedId: string; seq: unknown; openingId?: string | null
   grow: () => void; retry: () => void
   gapBefore: string[]; fillGap: (id: string) => void
   newer: boolean; growNewer: () => void
@@ -29,7 +31,7 @@ function merged(ranges: Range[]): Range[] {
 const fresh = (): Range[] => [{ start: 0, size: DOC_PAGE }]
 const keyOf = (ranges: Range[]) => JSON.stringify(ranges)
 type Loaded = { ident: string; rows: DocRow[] | null; total: number; more: boolean;
-  error: string; located: string; seq: unknown; openingId?: string | null; plan: string; gapBefore: string[] }
+  error: string; located: string; locatedId: string; seq: unknown; openingId?: string | null; plan: string; gapBefore: string[] }
 
 /** Each HTTP read is <=200 rows, including later growth. No opening reads a
  * history-wide prefix. Sparse gaps remain explicit and fill on scroll/click. */
@@ -40,7 +42,7 @@ export function useDocWindow(slug: string, node: string, locate = '', seq: unkno
   if (plan.current.ident !== ident) plan.current = { ident, ranges: fresh(), opened: false, aim: '', anchor: '' }
   const [attempt, setAttempt] = useState(0)
   const [last, setLast] = useState<Loaded>({ ident: '', rows: null, total: 0, more: false,
-    error: '', located: '', seq: undefined, plan: '', gapBefore: [] })
+    error: '', located: '', locatedId: '', seq: undefined, plan: '', gapBefore: [] })
   useEffect(() => {
     let dead = false, active = false, pending = false
     const tick = async () => {
@@ -53,16 +55,19 @@ export function useDocWindow(slug: string, node: string, locate = '', seq: unkno
         const opening = !state.opened && autoOpen && !locate
         let ranges = state.ranges, first: Packet | undefined
         let anchor = state.anchor
+        // a presentation's slug, also when the jump named its old generic id
+        let target = locate
         if (!state.opened || jump) {
           if (opening) await syncDocViewed(slug)
           if (dead) return
           first = await getDocuments(slug, 0, node, jump ? locate : '', DOC_PAGE, team, opening, hired, opening ? lastReaderItem(readerScope('presented',slug,node,team)) ?? '' : '',visible)
           const offset = first.offset ?? 0
-          if (jump && !first.documents.some(r => r.id === locate)) throw Error('that document is too far down the list to open from here')
+          if (jump && first.located_id) target = first.located_id
+          if (jump && !first.documents.some(r => r.id === target)) throw Error('that document is too far down the list to open from here')
           ranges = offset + DOC_PAGE <= DOC_OPEN_PREFIX
             ? [{ start: 0, size: offset + DOC_PAGE }]
             : [{ start: 0, size: DOC_PAGE }, { start: offset, size: DOC_PAGE }]
-          anchor = ranges.length > 1 ? (jump ? locate : first.opening_id ?? '') : ''
+          anchor = ranges.length > 1 ? (jump ? target : first.opening_id ?? '') : ''
         } else if (anchor && ranges.length > 1) {
           // New presentations shift numeric offsets. Re-locate the target
           // page by identity so a boundary target cannot disappear on poll.
@@ -92,12 +97,13 @@ export function useDocWindow(slug: string, node: string, locate = '', seq: unkno
         const tail = parts.at(-1)?.at(-1)
         state.ranges = ranges; state.opened = true; state.anchor = ranges.length > 1 ? anchor : ''; if (jump) state.aim = aim
         setLast(p => ({ ident, rows, total, more: tail?.next_offset != null,
-          error: '', located: jump ? first?.located ?? '' : p.ident === ident ? p.located : '', seq,
+          error: '', located: jump ? first?.located ?? '' : p.ident === ident ? p.located : '',
+          locatedId: jump ? (first?.located ? target : '') : p.ident === ident ? p.locatedId : '', seq,
           openingId: opening ? first?.opening_id : p.ident === ident ? p.openingId : undefined,
           plan: keyOf(ranges), gapBefore }))
       } catch (e) {
         if (!dead) setLast(p => ({ ...(p.ident === ident ? p : {
-          rows: null, total: 0, more: false, located: '', plan: '', gapBefore: [], openingId: undefined,
+          rows: null, total: 0, more: false, located: '', locatedId: '', plan: '', gapBefore: [], openingId: undefined,
         }), ident, seq, error: String((e as Error)?.message ?? e) }))
       } finally {
         active = false
@@ -119,7 +125,7 @@ export function useDocWindow(slug: string, node: string, locate = '', seq: unkno
     plan.current.ranges = merged(ranges); setAttempt(n => n + 1)
   }
   return { rows: last.ident === ident ? last.rows : null, total: last.total, more: last.more,
-    busy, error: last.error, located: last.located, seq: last.seq,
+    busy, error: last.error, located: last.located, locatedId: last.locatedId, seq: last.seq,
     openingId: last.ident === ident ? last.openingId : undefined,
     gapBefore: last.gapBefore, fillGap,
     grow: () => {
