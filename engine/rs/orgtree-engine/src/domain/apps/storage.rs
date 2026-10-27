@@ -202,11 +202,13 @@ pub(crate) async fn run_locked(engine:&Arc<Engine>,org:&Arc<OrgHandle>,caller:Op
             set_permission(&tx,org.id,&id,&old,&capability,site.as_deref(),&permission,"change",&actor,None).await?;
             changed=true;app(&tx,org.id,&id,false,false).await?
         }
-        Request::PermissionHistory{app:id,limit}=>{
-            app(&tx,org.id,&id,false,false).await?;let n=limit.unwrap_or(PERMISSION_HISTORY);
-            if !(1..=PERMISSION_HISTORY).contains(&n){crate::refuse!(BadRequest,"limit must be 1-128");}
-            let rows=tx.query("SELECT jsonb_build_object('seq',seq,'capability',capability,'site',site,'permission',permission,'via',via,'actor',actor,'panel',panel_id,'at',at) FROM ot.custom_app_permission_log WHERE org_id=$1 AND app_id=$2 ORDER BY seq DESC LIMIT $3",&[&org.id,&id,&n]).await?;
-            json!({"app":id,"entries":rows.iter().map(|r|r.get::<_,Value>(0)).collect::<Vec<_>>()})
+        // Paged like History (user 2026-10-27 m838e66af753b "ssme for permission
+        // history"); every writer holds the app row for update, so seqs commit in order.
+        Request::PermissionHistory{app:id,after,before,limit}=>{
+            app(&tx,org.id,&id,false,false).await?;let n=page(limit)?;let (op,order,from)=cursor(after,before)?;
+            let rows=tx.query(&format!("SELECT jsonb_build_object('seq',seq,'capability',capability,'site',site,'permission',permission,'via',via,'actor',actor,'panel',panel_id,'at',at) FROM ot.custom_app_permission_log WHERE org_id=$1 AND app_id=$2 AND seq{op}$3 ORDER BY seq {order} LIMIT $4"),&[&org.id,&id,&from,&(n+1)]).await?;
+            let more=rows.len()>n as usize;let entries:Vec<Value>=rows.into_iter().take(n as usize).map(|r|r.get(0)).collect();let next=if more{entries.last().map(|v|v["seq"].clone())}else{None};
+            json!({"app":id,"entries":entries,"next_cursor":next})
         }
         Request::AppGet{app:id}=>app(&tx,org.id,&id,true,false).await?,
         Request::AppExport{app:id,expected_rev,include_panels}=>{

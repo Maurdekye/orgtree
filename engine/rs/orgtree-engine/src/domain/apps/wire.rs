@@ -116,8 +116,9 @@ pub enum Request {
     /// site: one internet (net.fetch) row: a declared site, or a host a declared
     /// wildcard covers; "default" removes that row.
     PermissionSet { app:String, expected_rev:i64, expected_permission_rev:i64, capability:String, permission:String, #[serde(default)] site:Option<String> },
-    /// The app-level Permission history, newest first (latest 128 retained).
-    PermissionHistory { app:String, limit:Option<i64> },
+    /// The app-level Permission history (latest 128 retained), paged like Events:
+    /// newest first, before walking back; after reads newer entries oldest first.
+    PermissionHistory { app:String, after:Option<i64>, before:Option<i64>, limit:Option<i64> },
     AppCreate { definition:Definition },
     AppUpdate { app:String, expected_rev:i64, definition:Definition },
     AppDelete { app:String, expected_rev:i64, #[serde(default)] delete_panels:bool },
@@ -143,7 +144,7 @@ pub fn parse(input:&Value) -> Result<Request> {
     if input.get("linked_agents").is_some(){crate::refuse!(BadRequest,"panel links were removed; agents follow a panel's declared events with an app_listener watchdog");}
     let request:Request=serde_json::from_value(input.clone()).map_err(|e|crate::domain::UserError::BadRequest(format!("invalid Apps request: {e}")))?;
     if let Request::AppImport{bundle:value}=&request{bundle(value)?;}
-    if let Request::Events{after:Some(_),before:Some(_),..}=&request{crate::refuse!(BadRequest,"{BOTH_CURSORS}");}
+    if matches!(&request,Request::Events{after:Some(_),before:Some(_),..}|Request::PermissionHistory{after:Some(_),before:Some(_),..}){crate::refuse!(BadRequest,"{BOTH_CURSORS}");}
     if let Request::MarkSeen{apps}=&request{
         if apps.is_empty()||apps.len()>200{crate::refuse!(BadRequest,"mark_seen needs1-200 explicit app IDs");}
         let mut seen=std::collections::HashSet::new();
