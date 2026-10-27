@@ -16,9 +16,10 @@ USER 2026-10-27 (m49226c1da1fb "for now make sure its known that rhey only run
 while the main window is open"; principle me7bdb85fd566: apps are a custom UI for
 the user to manipulate data in a structured way, not persistent program
 environments; wording m281f01b7bf36, the user's choice "While Orgtree is open"):
-the Apps menu shows "Panels are custom views; they run only while Orgtree is
-open, tray included." under the saved panels, and the orgtree_apps description
-and the app_listener event_name field carry the same clause. A main window
+the orgtree_apps description and the app_listener event_name field say "they run
+only while Orgtree is open, tray included". The Apps menu briefly showed the
+same line under the saved panels; USER 2026-10-27 m45499a3c150f ("remove this
+annotation") took it off the screen, so the menu carries no such note. A main window
 closed to the tray stays alive and keeps its panels running
 (`main/window-close.ts`, `main/windows.ts`); quitting stops them. Running panels
 without the desktop app is backlogged.

@@ -222,7 +222,7 @@ asks apps to reduce motion, the zoom becomes a plain fade.
 
 Panels are custom views for working with your data, not programs that run on
 their own (user 2026-10-27), so they run only while Orgtree is open, tray
-included; the Apps menu says so under your saved panels. Quitting Orgtree stops
+included. Quitting Orgtree stops
 them. When you start Orgtree again, each panel comes back as
 it was: running hidden, visible where you placed it, or off. Hidden panels keep
 their timers, messages and background work running at full speed, also while
