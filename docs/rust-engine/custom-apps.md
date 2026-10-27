@@ -682,7 +682,14 @@ the org canvas area's top-left plus width/height. A window pin renders in the
 org pin layer (pinLayerFor) and shares canvas-area coordinates, stacking
 (usePinSurface, raised on press) and snapping (findPinSnap, Shift for free
 placement) with pinned desks; render and commit clamp it into the canvas area,
-and a drag commits once, from where the pointer ended. Unpin returns to float;
+and a drag commits once, from where the pointer ended. The released drop stays on
+screen until that commit's answer is in and the panel carries its revision
+(PanelBody `held`), so no frame shows the panel back where the drag began (USER
+2026-10-27 m061e2860fd9b); a refused drop goes back to the committed place. The
+Apps store never replaces a panel with an older revision of itself (same
+`created_at`), so a list read begun before a drop and answered after it cannot
+undo it. Proof: `tests/customapps-pinrelease.test.tsx` and the per-frame capture
+`tools/rig/pinrelease-visual.mjs`. Unpin returns to float;
 the pin is hidden in a pop-out, and native pop-outs keep the existing
 saved-window lifecycle. Canvas placement is retired (USER 2026-10-26
 m2b682426170d, "Remove canvas pinning"): the wire refuses mode canvas, the
