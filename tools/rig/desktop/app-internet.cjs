@@ -71,13 +71,15 @@ module.exports = async (page, { org, args }) => {
   await sleep(800)
   await js(press('Permissions'), true)
   const ready = await until(() => js(`!!document.querySelector('select[aria-label="Internet access permission"]')`), v => v === true, 15000)
-  await until(() => js(`!!document.querySelector('[aria-label="Permission history"] li')`), v => v === true, 10000)
   R.permissions = await js(`(() => { const s = document.querySelector('section.custom-app-permissions'); const rows = {}
     for (const sel of document.querySelectorAll('select[aria-label$=" internet permission"]')) rows[sel.getAttribute('aria-label').replace(/ internet permission$/, '')] = sel.value
     return { capability: document.querySelector('select[aria-label="Internet access permission"]')?.value ?? null, rows, text: s ? s.textContent : document.body.textContent.slice(0, 4000) } })()`)
   R.permissions.ready = ready.ok
   R.permissions_shot = await page.screenshot('app-internet-permissions')
-  await js(`(() => { const h = document.querySelector('[aria-label="Permission history"]'); if (h) h.scrollIntoView({ block: 'center' }); return !!h })()`)
+  // Permission history has its own App settings tab (USER 2026-10-27 m838e66af753b).
+  await js(press('Permission history'), true)
+  await until(() => js(`!!document.querySelector('[aria-label="Permission history"] li')`), v => v === true, 10000)
+  R.permissions.history = await js(`document.querySelector('[aria-label="Permission history"]')?.textContent ?? ''`)
   await sleep(300)
   R.history_shot = await page.screenshot('app-internet-permission-history')
   note('permissions', { capability: R.permissions.capability, rows: R.permissions.rows })
