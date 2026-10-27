@@ -8,7 +8,7 @@ Up: [orgtree-docket](../SKILL.md)
 
 ## Call contract
 
-Manage durable work by readable slug. create requires objective (problem/solution first, full scope after). update supplies both progress lists or revision-checked keep/append; it CLAIMS ownership unless owner=current holder. blocked/dropped need reasons. Add participants before assignment/review requests. Review is agent review; user questions use ask(work_item), nonquestion attention needs a reason. delete is permanent, limited to user/owner's superior/top-level owner and refused with children/open questions; prefer archive/dropped. Read guide before first docket write.
+Manage durable work by readable slug. create requires objective (problem/solution first, full scope after). update supplies both progress lists or keep/append; it CLAIMS ownership unless owner=current holder. blocked/dropped need reasons. Add participants before assignment/review requests. Review is agent review; user questions use ask(work_item), nonquestion attention needs a reason. delete is permanent, limited to user/owner's superior/top-level owner and refused with children/open questions; prefer archive/dropped. Read guide before first docket write.
 
 Requires `docket`. Use for substantive work whose scope, ownership, progress and evidence must survive a session. Start by listing existing readable items; continue the same item through review, handoff and resumed work. A request to "dock" a feature means create its item, not automatically implement or deploy it.
 
@@ -22,9 +22,9 @@ Requires `docket`. Use for substantive work whose scope, ownership, progress and
 | `get` | Read slug, optional projection/fields. Read the full current objective before acting. |
 | `create` | Required title/objective; optional kind, owner, participants, parent, dependencies, initial status/reason and progress. Defaults kind code, status open, owner yourself. |
 | `update` | Current progress plus status/scope/reviewer/attention changes; optional revision guard. An agent update claims ownership unless it explicitly preserves the current owner. |
-| `assign` | Required owner (yourself or a live descendant agent); changes ownership only, preserving status/progress. Same owner is a conflict. |
+| `assign` | Required owner (yourself or a live descendant agent); changes ownership only, preserving status/progress. Naming the current owner changes nothing and succeeds with `unchanged: true`. |
 | `handoff` | Optional target/reason: owner requests transfer to its immediate superior; default that superior, or user for a top-level owner. Ownership stays unchanged until assignment. Closed items cannot request handoff. |
-| `participants` | Add/remove live collaborators using add/remove lists; changes access, not ownership. A no-change request is refused. |
+| `participants` | Add/remove live collaborators using add/remove lists; changes access, not ownership. A request that changes nobody succeeds without writing (`unchanged: true`). |
 | `evidence` | One kind/ref/note entry or items batch; add support without reopening closed work. |
 | `accept` | Complete as done, preserving the locked progress lists; optional note appends completion evidence to done_so_far. Normal update claiming applies; use update with explicit owner to preserve someone else's ownership. |
 | `archive` | Archive a closed done/superseded/dropped item early, retaining status. Open work or any pending attention source is refused. Already archived is a no-op. |
@@ -51,16 +51,16 @@ These are action-specific fields, not a universal object to pass on every call. 
 | `title` | create/update concrete title, at most 200 Unicode scalar characters; not an identity change. |
 | `objective`, `objective_append` | create requires nonblank objective; update replaces it or appends text, mutually exclusive. No docket text truncation cap. |
 | `kind` | create code/non-code (code default); evidence note/link/file/commit/log (note default). It is not a mail kind. |
-| `owner` | create/assign chooses yourself or a live descendant agent; update names CURRENT holder to leave it with them or yourself to claim. Use assign for a different new holder. |
+| `owner` | create/assign chooses yourself or a live descendant agent; update names CURRENT holder to leave it with them or yourself to claim. On update, a name that is neither (for example a holder who has since changed) keeps the current holder, applies the rest and returns an "owner kept" note; it never moves the item. Use assign for a different new holder. |
 | `reviewer` | update names another live agent; owner cannot review its own work. Reviewer receives access, not ownership. |
 | `status` | See status table; create defaults open. Omitted update status retains it, except reopen defaults in_progress. |
 | `blocked_reason`, `dropped_reason` | Required for the corresponding state, maximum 2,000/1,500 characters. Each clears on leaving that state. |
 | `attention`, `attention_reason`, `attention_amend` | Manual user attention; true raises, false retracts, omitted preserves; amendment edits a standing flag. Reason max 1,500 characters. |
-| `reopen` | update true resumes closed/archived work; false default. Refused if the item is not closed/archived. |
-| `done_so_far`, `working_on_next` | Complete progress arrays, each at most 40 nonblank entries, each entry at most 500 characters. Keep both complete, either may be empty but not both. |
-| `keep_done`, `keep_next` | update true retains the corresponding list read at expected_rev. |
-| `done_append`, `next_append` | update appends to the corresponding read list; requires expected_rev; merged result must fit list limits. |
-| `expected_rev` | update compare-and-set against the read rev; mandatory for keep/append, optional otherwise. Also accepted by accept. Mismatch refuses the whole mutation. |
+| `reopen` | update true resumes closed/archived work; false default. On open work it is ignored with a note, and the rest of the update applies. |
+| `done_so_far`, `working_on_next` | Complete progress arrays, each at most 40 nonblank entries, each entry at most 500 characters (the schema states both limits). Keep both complete, either may be empty but not both. |
+| `keep_done`, `keep_next` | update true keeps the corresponding stored list; no revision needed. |
+| `done_append`, `next_append` | update adds to the corresponding stored list; no revision needed. An entry the list already holds is not added again (a retried append cannot duplicate it, and a note counts the skipped entries); the merged list must fit the limits. |
+| `expected_rev` | update: optional guard. Against a newer item it refuses the whole call only when a field this call replaces changed after that revision: a whole progress list, the status or its reasons (reopen included), title/objective, reviewer, attention, or the ownership your update would claim. Appends, keeps, objective_append, evidence and participants never clash, so the update applies with an "applied over rev N" note. The refusal names the changed field; changes beyond the newest 32 revisions refuse as before. Also accepted by accept. |
 | `participants` | create collaborators; owner is not duplicated here. Later edits use participants action. |
 | `add`, `remove` | participants action lists; no ownership transfer or implicit reply audience. |
 | `dependencies` | create other item slugs needed by this work; no automatic completion or landing proof. |
@@ -82,7 +82,9 @@ Read rev before using a patch:
 {"action":"update","slug":"example-work","owner":"current-owner","expected_rev":7,"keep_done":true,"working_on_next":["Check the revised draft against source."],"status":"in_progress"}
 ```
 
-The example assumes the actual item read at revision 7. Supplying a whole list and keep/append for that same list is refused. If a revision changed, read and reconcile before retrying. If a mutation timed out, re-read first: a lost response is not proof nothing was written.
+The example assumes the actual item read at revision 7: it keeps done_so_far and replaces working_on_next and the status, so it is refused only if working_on_next or the status changed after revision 7. Supplying a whole list and keep/append for that same list is refused. If the refusal names a changed field, read and reconcile before retrying. If a mutation timed out, re-read first: a lost response is not proof nothing was written.
+
+Refusals point at the fix: a slug that names no item suggests the nearest live (unarchived) item you may read ("did you mean …?"; an item you may not read is never named), and an unreadable item says to ask the agent who gave you the slug, or to be added as a participant. (User 2026-10-27, from a survey of failed docket calls.)
 
 **Omitting owner on your update takes the item.** Reviewers/participants must pass the current holder when preserving ownership. Assignment mail starts the new owner. Item-linked user replies default to the current manual-attention raiser when one exists, otherwise the owner; the user may choose another eligible recipient. Plain assign retains backlog status; staffing through [staff](../tool-staff/SKILL.md) or hire/rehire work_item opens the staffed backlog. A backlog assignment is not permission to start it.
 

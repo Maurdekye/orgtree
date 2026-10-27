@@ -45,7 +45,7 @@ The **Notice** control makes the next message passive: it waits for a later turn
 
 ## Read the transcript
 
-Chat contains delivered messages, thoughts when supplied, tool calls/results, event cards, attachments and pending messages. Expand a tool row to inspect its arguments and result. A spinner or a call being written is not a completed operation. A live command preview is output so far, not an exit result.
+Chat contains delivered messages, thoughts when supplied, tool calls/results, event cards, attachments and pending messages. Expand a tool row to inspect its arguments and result. A spinner or a call being written is not a completed operation. A live command preview is output so far, not an exit result. When an agent ends its own turn (for example to restart in another session), its interrupt call reads "Ended this turn as requested", not an error, although Claude Code's own log records it as "The user doesn't want to proceed with this tool use".
 
 When an earlier message from you is above the visible transcript, **↑ you**
 previews one message and jumps back to its delivered batch. If that batch
@@ -235,6 +235,8 @@ Native requests allow one to four questions and up to 16 options per question; a
 Use the header's **Work** control for the organization docket, the agent's **Docket** tab for associated work, or **Team docket** for a subtree's ownership view. Search and the archive/backlog inclusion controls help find older work. Group by status or agent, and sort by last update, creation or status change. Hidden groups and unloaded pages are not proof an item is absent.
 
 A useful item states the problem, desired result and scope in its description, then records the owner, current progress, next steps and evidence. Parent items, dependencies and participants preserve context across conversations. Ask the agent to keep these records current at milestones rather than relying on a long transcript alone.
+
+Agents' docket updates refuse only when something real is at stake (2026-10-27). Adding progress to a list needs no revision number, and an entry already listed is not added twice. An update made from an older read is refused only when someone changed the same field since. Naming the wrong owner keeps the current one. Calls that would change nothing succeed. A mistyped item name suggests the nearest live item the agent may read. Ownership still moves only when an agent assigns the item, or takes it on with its own update.
 
 | State | Meaning |
 | --- | --- |

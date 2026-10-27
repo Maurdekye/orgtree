@@ -21,7 +21,10 @@ Self-interruption needs no runtime permission.
 For a pending account/model/session change or retool, use
 `{"node":"worker","queued":true,"restart":true}` to apply it promptly.
 Background work refuses queued/restart requests; finish or stop it first.
-Immediate self-interrupt also retains that guard.
+Immediate self-interrupt also retains that guard. A background task that
+finished during this turn still counts until its completion note is delivered,
+normally when the turn ends: to restart anyway, end the turn and let a `once`
+watchdog wake the next one.
 
 ## Harness boundaries
 
@@ -35,7 +38,9 @@ Immediate self-interrupt also retains that guard.
 
 Codex, Muse and ACP completion notices are asynchronous: the next step may
 already have started and be cut off near its start. This trade-off is intentional
-(user 2026-10-20). Other observed active parallel calls must finish first.
+(user 2026-10-20). Other observed active parallel calls must finish first; a
+Claude call that failed ends with its result, since Claude sends no PostToolUse
+callback for it.
 The result's `boundary` describes the current harness, not a pending model switch.
 
 If the turn finishes naturally first, the queued stop is a no-op;
@@ -52,6 +57,13 @@ work settled or a replacement turn started. `restart` describes the requested
 wake; normal halt, placement, usage and admission rules still apply. A lost
 process or runtime handoff reports a reason. Timeouts are uncertain: inspect
 before retrying. An interrupt does not undo a tool's external effects.
+
+On Claude Code, interrupting yourself (immediately, or queued and applied at
+this call's own PostToolUse callback) lands while the call is still open, so
+Claude Code records it as "The user doesn't want to proceed with this tool use"
+and adds "[Request interrupted by user]". That is Claude Code's own display, not
+a failure: the turn ended as asked. Orgtree's transcript shows the call as
+"Ended this turn as requested" (user 2026-10-27).
 
 `orgtree_state_inspect` includes the visible agent's latest runtime `interrupt`
 record: `status` (`queued`, `applied`, `noop`, `refused`, `cancelled`, `restart_failed`), `turn_id`,
