@@ -11,6 +11,9 @@ The baseline at `3dc709564f7fb70e839d0a6a33606815facd9c03` rendered 11,649 and
 `legacy-3dc7095.json` records the baseline renderer's UTF-8 byte lengths and
 SHA-256 fingerprints for 20 no-skills profiles. It protects legacy wording,
 notes, paths and lane-specific behavior from accidental edits to shared text.
+The test first undoes the approved later changes: the mention passages, the
+Claude tool-loading correction, and the `orgtree_apps` entry that custom apps
+(2026-10-25) add to the tool list of read-only scopes.
 The matrix covers five lanes, top-level/subordinate seats and writable/
 read-only scopes. Trimmed counterparts bring the render evidence to 40 profiles.
 

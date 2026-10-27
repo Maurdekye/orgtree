@@ -89,8 +89,11 @@ fn legacy_profiles_change_only_approved_mentions_and_claude_loading() {
     let mut checked = 0;
     for (key,text) in profiles().into_iter().filter(|(key,_)| key.ends_with("trimfalse")) {
         // The 21:44Z follow-up changes the two mention passages on legacy
-        // profiles too. Also undo the 2026-10-23 Claude loading correction;
-        // unrelated wording remains pinned to the original fingerprint.
+        // profiles too. Also undo the 2026-10-23 Claude loading correction
+        // and the custom apps tool (cf463f4, USER 2026-10-25): orgtree_apps
+        // shares Logo's org-modifying group, on by default, so read-only
+        // scopes list it. Unrelated wording remains pinned to the original
+        // fingerprint.
         let text = text.replace(
             "MENTIONS: whenever you name an agent, project or docket item in text a person or agent will read (your replies, mail, docket descriptions, presentations), write @name or @item:<org>/<slug> as plain text, never in backticks or code spans. A bare name is wrong. Point the user at an app or one of its panels with @app:<org>/<app-id> or @panel:<org>/<panel-id>.",
             "MENTIONS: whenever you name an agent, project or docket item in text a person or agent will read (your replies, mail, docket descriptions, presentations), write it as a mention: `@name`, or `@item:<org>/<slug>`. A bare name is wrong. Don't put mentions inside code spans.",
@@ -100,10 +103,13 @@ fn legacy_profiles_change_only_approved_mentions_and_claude_loading() {
         ).replace(
             "Act on the org with the orgtree tools, named mcp__orgtree__orgtree_status and so on. Some load up front; others are deferred. Fetch them with ToolSearch by full name. ",
             "Act on the org with the orgtree tools. Their full names carry the server prefix — mcp__orgtree__orgtree_status and so on — and they are always loaded, never deferred. ",
+        ).replace(
+            "orgtree_session, orgtree_apps, orgtree_org_logo",
+            "orgtree_session, orgtree_org_logo",
         );
         assert_eq!(json!(text.len()), expected[&key]["bytes"], "{key}: byte length");
         assert_eq!(json!(format!("{:x}", Sha256::digest(text.as_bytes()))),
-            expected[&key]["sha256"], "{key}: unchanged legacy text outside approved mentions/loading");
+            expected[&key]["sha256"], "{key}: unchanged legacy text outside approved mentions/loading/apps");
         checked += 1;
     }
     assert_eq!(checked, 20);
