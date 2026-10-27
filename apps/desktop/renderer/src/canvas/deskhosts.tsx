@@ -332,11 +332,73 @@ class Desks {
 const DeskContext = createContext<Desks | null>(null)
 const DeskMapReady = createContext(true)
 
+/** EACH ORGANIZATION'S ONE REGISTRY, for a caller outside `DeskHosts` that
+ *  has to decide during a click: a question's desktop notification chooses
+ *  between the asker's open desk and the inbox in one handler (App.tsx).
+ *  Present while that organization's `DeskHosts` is mounted. */
+const orgDesks = new Map<string, Desks>()
+
+/** where a question's desktop notification found the asker's open desk */
+export type QuestionDeskPlace = 'popout' | 'floating' | 'pin' | 'attention' | 'card'
+
+/**
+ * THE ASKER'S DESK IS ALREADY OPEN: SAY WHERE, WITH THE LIVE DESK THERE.
+ *
+ * USER 2026-10-27 13:25:36Z m007c48d12f28: "also if the asking agent's desk of
+ * a question is pinned anywhre, open either as a floating panel, a desk pin,
+ * or open in the attention agent desk, then dont open the question in the
+ * inbox when clicking a desktop notification for it"; 19:00Z m41e0735bee13:
+ * "a desk on a zoomed canvas card should count"; 19:10Z m1a947c081d09: the
+ * switchboard's panels count too ("Count the switchboard").
+ *
+ * Open means one of these places:
+ *   popout     its own native window, which holds the live desk outright
+ *   floating   the Open desk modal, which borrows the live desk (`borrow`)
+ *   pin        a desk pin (`openIn: 'pin'`)
+ *   attention  the Attention agent desk (`openIn: 'attention'`), only while
+ *              eligible: its view presented, or its panel pinned or popped out
+ *   card       a zoomed canvas card (`openIn: 'card'`): the agent's own, or
+ *              its panel on the zoomed switchboard, only while eligible: the
+ *              canvas is not behind the presented Attention view.
+ *
+ * OPEN IN MORE THAN ONE, THE PLACE HOLDING THE LIVE DESK WINS. That is the
+ * "most recently used" one (@coordinator-opus, 2026-10-27): the registry hands
+ * the one desk to the place it was last opened in, moved to or returned to.
+ * When only placeholders are open (another surface holds the desk), a desk
+ * pin, else the Attention desk, else the card takes it through `moveHere`, the
+ * placeholder's own "Move desk here", whose refusals still apply.
+ *
+ * Returns null when no such place is open, and the caller keeps its old path.
+ * `within` is the slot holding the desk, where the question card is. Bringing
+ * the window or panel forward is the caller's job.
+ */
+export function claimQuestionDesk(slug: string, node: Pick<CanvasNode, 'id' | 'generation'>):
+  { place: QuestionDeskPlace; within: HTMLElement | null } | null {
+  if (typeof node.generation !== 'number' || !Number.isSafeInteger(node.generation) || node.generation < 0) return null
+  const key = deskIdentity(slug, node)
+  if (deskSurface(key)) return { place: 'popout', within: null }
+  const desks = orgDesks.get(slug)
+  const e = desks?.entries.get(key)
+  if (!desks || !e || e.invalidated || e.pendingRename || e.detached) return null
+  const borrower = e.borrowedBy ? e.slots.get(e.borrowedBy) : undefined
+  if (borrower) return { place: 'floating', within: borrower.anchor }
+  const open = [...e.slots.values()].filter((s) => s.props.openIn && eligible(s))
+  const chosen = open.find((s) => s.id === e.last.id) ?? open.find((s) => s.props.openIn === 'pin')
+    ?? open.find((s) => s.props.openIn === 'attention') ?? open[0]
+  if (!chosen?.props.openIn) return null
+  if (chosen.id !== e.last.id) desks.moveHere(key, chosen.id)
+  return { place: chosen.props.openIn, within: chosen.anchor }
+}
+
 export function DeskHosts({ children, map, slug, treeSlug = slug, popoutDesk }: {
   children: ReactNode; map: Map<string, CanvasNode>; slug: string; treeSlug?: string
   popoutDesk?: (node: CanvasNode) => DeskChatProps
 }) {
   const [desks] = useState(() => new Desks())
+  useLayoutEffect(() => {
+    orgDesks.set(slug, desks)
+    return () => { if (orgDesks.get(slug) === desks) orgDesks.delete(slug) }
+  }, [desks, slug])
   useEffect(() => {
     const rename = (event: Event) => {
       const d = (event as CustomEvent<{ slug: string; from: string; to: string }>).detail

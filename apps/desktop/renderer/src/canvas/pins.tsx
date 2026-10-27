@@ -697,7 +697,7 @@ function PinWindow({ pin, node, vp, onUnpin, slug, op, toast,
           compactAt={compactAt} maxTop={maxTop} pxc={pxc}
           onMailLink={onMailLink} onWorkLink={onWorkLink} onOpenDoc={onOpenDoc}
           onLineage={() => onLineage(pin.id)} onConfig={() => onConfig(pin.id)}
-          onJump={onJump}
+          onJump={onJump} openIn="pin"
           onDismiss={onDismiss ? () => onDismiss(pin.id) : undefined} />}
       </div>
     </div>

@@ -57,6 +57,10 @@ import { ShellAction, ShellHeader } from './shell/header'
 import { OrgHeaderLogo } from './shell/orgheaderlogo'
 import { TranscriptMentionButton } from './shell/mentionbutton'
 import { dismissUserMention, requestMentionHighlight } from './canvas/agentmentions'
+import { claimQuestionDesk, revealExistingDesk } from './canvas/deskhosts'
+import { showPin } from './canvas/pins'
+import { canvasBox } from './canvas/pinspace'
+import { focusQuestionCard } from './notification-visibility'
 import { MentionNavigator, readMention } from './shell/mentionnavigation'
 import type { NavigationMention } from './shell/mentionnavigation'
 import { requestMentionLanding } from './canvas/mentionlanding'
@@ -76,7 +80,7 @@ import { useButtonColours } from './buttoncolours'
 import type { OrgView } from './attention/mode'
 import { QuickChat, type AgentListSource } from './QuickChatBox'
 import { useQuickChatPosition } from './quickchat'
-import { AttentionView } from './attention/AttentionView'
+import { AttentionView, DESK_KIND } from './attention/AttentionView'
 import type { AttentionNotificationFocus } from './attention/AttentionQueue'
 import { openOrgEffect, requestOpenOrg } from './shell/openorg'
 import { identityOrg, identityView } from './shell/identity'
@@ -780,6 +784,34 @@ export default function App() {
       }
       setNativeTarget(null)
       return
+    }
+    // THE ASKER'S DESK IS ALREADY OPEN (USER 2026-10-27 13:25:36Z m007c48d12f28:
+    // "if the asking agent's desk of a question is pinned anywhre, open either as
+    // a floating panel, a desk pin, or open in the attention agent desk, then dont
+    // open the question in the inbox when clicking a desktop notification for
+    // it"; 19:00Z m41e0735bee13: "a desk on a zoomed canvas card should count",
+    // the switchboard's panels included, 19:10Z m1a947c081d09).
+    // That desk comes forward with its question card focused, instead of the
+    // inbox and instead of the Attention queue's entry; a zoomed card or
+    // switchboard is already at the camera's centre, so it only takes the focus. Open in more than one
+    // place, the one holding the live desk wins (`claimQuestionDesk`); open
+    // nowhere, everything below is unchanged. A taskbar click keeps its routes.
+    if (nativeTarget.kind === 'question' && nativeTarget.agent && !nativeTarget.fromTaskbar) {
+      const agent = flatNodes(tree).get(nativeTarget.agent)
+      const open = agent && (nativeTarget.generation === undefined || (agent.generation ?? 0) === nativeTarget.generation)
+        ? claimQuestionDesk(slug, agent) : null
+      if (agent && open) {
+        if (open.place === 'popout') revealExistingDesk(slug, agent)
+        else if (open.place === 'pin') {
+          const box = canvasBox(document, slug)
+          showPin(slug, agent.id, box && { w: box.w, h: box.h })
+        } else if (open.place === 'attention') raisePinnedModal(DESK_KIND, slug)
+        const ask = nativeTarget.source_id ?? nativeTarget.id.replace(/^ask:/, '')
+        // after the commit that moves a claimed desk into its slot
+        setTimeout(() => focusQuestionCard(slug, ask, open.within), 0)
+        setNativeTarget(null)
+        return
+      }
     }
     if (!nativeTarget.fromTaskbar && v3 && viewMode === 'attention' && attentionNotification.current?.(nativeTarget)) {
       setNativeTarget(null)

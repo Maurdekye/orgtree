@@ -111,6 +111,9 @@ interface UserNodeProps {
   onMailLink: MailLinkFn
   onWorkLink: WorkLinkFn
   focused: boolean
+  /** the switchboard panels' `eligible`, as an agent card's desk: false while
+   *  the canvas is behind the presented Attention view (DeskChatProps.eligible) */
+  deskEligible?: boolean
   eyeW: number
   onFocus?: () => void
   posX: (id: string) => number
@@ -138,7 +141,7 @@ export function UserNode({ pos, isDrop, stats, pip, seats, codexHire, claudeHire
   antigravityHire, openrouterHire, langserverHire, museHire,
   pxc, zoom, onInbox, onDocket, onPresentations, onGear, onSpawn, onAgents,
   onMailLink, onWorkLink,
-  focused, eyeW, onFocus, posX, onJump, map, op, slug, toast, quickChatDefaults,
+  focused, deskEligible = true, eyeW, onFocus, posX, onJump, map, op, slug, toast, quickChatDefaults,
   compactAt, maxTop, onOpenDoc, onNodeLineage, onNodeConfig,
   pinnedIds, onShowPin, onNewProject }: UserNodeProps) {
   // the eye's hire chips collapse behind the same far-zoom ⋯ toggle as every
@@ -324,7 +327,7 @@ export function UserNode({ pos, isDrop, stats, pip, seats, codexHire, claudeHire
         onProject={onNewProject}
         onToggleExpanded={() => setExpandedHire((v) => !v)} />
       {focused && (
-        <EyeDesk map={map} op={op} slug={slug} toast={toast}
+        <EyeDesk map={map} op={op} slug={slug} toast={toast} deskEligible={deskEligible}
           onGeneralContextMenu={(e) => menu.open(e, menuEntries)}
           /* `onFocus` IS `centerOn(USER)` — the very glide an unfocused eye
              gets from the click below. Re-centring is that same action asked
@@ -372,6 +375,8 @@ export function UserNode({ pos, isDrop, stats, pip, seats, codexHire, claudeHire
 // closing that tab RESCINDS the grant (top-level lines are permanent).
 interface EyeDeskProps {
   onGeneralContextMenu?: (event: MouseEvent) => void
+  /** the panels' `eligible` (UserNode's `deskEligible`); absent means eligible */
+  deskEligible?: boolean
   map: Map<string, CanvasNode>
   op: OpFn
   slug: string
@@ -404,7 +409,7 @@ interface EyeDeskProps {
   onShowPin?: (id: string) => void
 }
 
-export function EyeDesk({ map, op, slug, toast,
+export function EyeDesk({ map, op, slug, toast, deskEligible = true,
   eyeW, posX, onJump, compactAt, maxTop, pxc,
   onMailLink, onWorkLink, onOpenDoc, onNodeLineage, onNodeConfig, onRecenter,
   pinnedIds, onShowPin, onGeneralContextMenu }: EyeDeskProps) {
@@ -600,6 +605,7 @@ export function EyeDesk({ map, op, slug, toast,
           {open.map((a) => (
             <div className="eye-panel" key={a.id}>
               <DeskChat node={a} map={map} op={op} slug={slug}
+                eligible={deskEligible} openIn="card"
                 toast={toast} bare compact compactAt={compactAt}
                 onJump={onJump} maxTop={maxTop} pxc={pxc} onMailLink={onMailLink}
                 onWorkLink={onWorkLink}
@@ -2115,7 +2121,7 @@ export function NodeSquare({ node, pos, lod, focused: deskOpen, dragging, isDrop
       </CardFace>}
       {deskOpen && (
         <DeskChat node={node} map={map} op={op} slug={slug}
-          eligible={deskEligible}
+          eligible={deskEligible} openIn="card"
           toast={toast}
           onLineage={onLineage} onConfig={onConfig} compactAt={compactAt}
           onRecenter={onRecenter} onJump={onJump} maxTop={maxTop} pxc={pxc}

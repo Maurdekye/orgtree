@@ -4556,7 +4556,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
               claudeHire={claudeHire} onNoHarness={onAccounts}
               stats={orgStats}
               pxc={pxPerCredit} zoom={view.z}
-              focused={focusId === USER} eyeW={Math.max(eyeW, USER_W)}
+              focused={focusId === USER} deskEligible={!worldHidden} eyeW={Math.max(eyeW, USER_W)}
               onFocus={() => centerOn(USER)}
               posX={(id) => posOf(id)?.x ?? 0}
               onJump={(id) => centerOn(id)}

@@ -44,7 +44,8 @@ export function ElicitationAsk({ ask, slug, toast }: { ask: AskInfo; slug: strin
     } finally { setSending(false) }
   }
   if (resolved) return null
-  return <form ref={visibility} className="askcard elicitation-card" data-elicitation-id={ask.id}
+  // tabIndex -1 like every ask card: a question's notification focuses it
+  return <form ref={visibility} className="askcard elicitation-card" data-elicitation-id={ask.id} tabIndex={-1}
     onSubmit={ev => { ev.preventDefault(); void submit('accept') }}>
     <div className="ask-head"><strong>{e.native_tool ? e.server : `MCP permission · ${e.server}`}</strong></div>
     <p className="ask-q">{e.message}</p>

@@ -45,3 +45,19 @@ export function questionVisible(org: string, id: string): boolean {
     return right > left && bottom > top
   })
 }
+
+/** Scroll a question's card into view and give it the focus: the asker's open
+ *  desk a question's desktop notification brought forward (USER 2026-10-27
+ *  m007c48d12f28). The inbox and the Attention queue draw the same card, so
+ *  the one inside `within` (the slot holding the desk) comes first, then one on
+ *  any desk, a popped-out desk's included. */
+export function focusQuestionCard(org: string, id: string, within?: Element | null): boolean {
+  const live = [...cards].filter(element => element.isConnected
+    && element.dataset.questionOrg === org && element.dataset.questionId === id)
+  const card = (within ? live.find(element => within.contains(element)) : undefined)
+    ?? live.find(element => element.closest('.desk-control-scope'))
+  if (!card) return false
+  card.scrollIntoView?.({ block: 'nearest' })
+  card.focus({ preventScroll: true })
+  return true
+}

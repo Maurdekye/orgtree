@@ -1820,6 +1820,16 @@ export interface DeskChatProps {
    *  the registry's `remove` path, so a dismissal, an unmount, a route change
    *  and an error teardown all return it without the caller remembering to. */
   borrow?: boolean
+  /** THIS SLOT IS A PLACE THE USER OPENED THE DESK: a desk pin, the
+   *  Attention agent desk, or a zoomed canvas card (the agent's own, or its
+   *  switchboard panel). A question's desktop notification brings the asker's
+   *  desk forward here instead of opening the inbox (USER 2026-10-27
+   *  m007c48d12f28; the card m41e0735bee13, the switchboard m1a947c081d09;
+   *  deskhosts.tsx `claimQuestionDesk`). The floating desk is
+   *  the `borrow` slot and a popped-out desk is its own window, so neither
+   *  needs this. It draws nothing and plays no part in which slot owns the
+   *  desk. */
+  openIn?: 'pin' | 'attention' | 'card'
   /** The temporary host supplies its outer frame, measured before adoption. */
   temporaryPlacement?: {
     sourceBox: () => { x: number; y: number; w: number; h: number } | null
