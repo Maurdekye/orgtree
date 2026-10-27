@@ -44,7 +44,7 @@ import type { HireProviders, ProviderPresence } from './shared'
 import type { CanvasNode, DraftScope, DraftState, OpFn, Pile } from './shared'
 import { ModalOverPins, PinFrame } from './modalpin'
 import { instanceKind } from '../modalkinds'
-import { SetBlock, SetGroup, SetRow, SetToggle, SettingsTabs, SettingsTabPanel, useSettingsTarget } from './settingskit'
+import { SetBlock, SetGroup, SetRow, SetToggle, SettingsTabs, SettingsTabPanel, renameReady, useSettingsTarget } from './settingskit'
 import type { SettingsTarget } from './settingskit'
 import { fmtStamp } from '../timefmt'
 import { AccountSelect } from './accountselect'
@@ -1280,9 +1280,9 @@ function ProjectConfig({node,map,tree,slug,op,toast,onScratchFolder,refs,onFocus
       <span className="agent-identity-row">
         <input type="text" aria-label="Project name" placeholder="Project name" value={name}
           onChange={(e) => setName(e.target.value)} />
-        {name !== node.id && <button onClick={() => op({ op: 'rename', node: node.id, name })
-          .then((r) => { toast([`renamed ${node.id} → ${String(r?.node ?? name)}`]); close() })
-          .catch((e: Error) => toast([`error: ${e.message}`]))}>Rename</button>}
+        <button disabled={!renameReady(name, node.id)} onClick={() => op({ op: 'rename', node: node.id, name: name.trim() })
+          .then((r) => { toast([`renamed ${node.id} → ${String(r?.node ?? name.trim())}`]); close() })
+          .catch((e: Error) => toast([`error: ${e.message}`]))}>Rename</button>
       </span>
     </SetRow>
     <SetRow label="Project actions" hint="Retire or restore the project; agents under it are retired with it and keep their context.">
@@ -1688,18 +1688,16 @@ function AgentConfig({ node, map, tree, slug, op, toast, claudeProvider, codexPr
             <input type="text" aria-label="Agent name" placeholder="Agent name"
               value={val('rename', node.id)}
               onChange={(e) => set('rename', node.id)(e.target.value)} />
-            {val('rename', node.id) !== node.id && (
-              <button onClick={() =>
-                op({ op: 'rename', node: node.id,
-                     name: String(val('rename', node.id)) })
-                  .then((r) => {
-                    toast([`renamed ${node.id} → ${String(r?.node ?? '')}`,
-                           ...((r?.warnings as string[] | undefined) ?? [])])
-                    close()
-                  })
-                  .catch((e: Error) => toast([`error: ${e.message}`]))}>
-                Rename</button>
-            )}
+            <button disabled={!renameReady(String(val('rename', node.id)), node.id)} onClick={() =>
+              op({ op: 'rename', node: node.id,
+                   name: String(val('rename', node.id)).trim() })
+                .then((r) => {
+                  toast([`renamed ${node.id} → ${String(r?.node ?? '')}`,
+                         ...((r?.warnings as string[] | undefined) ?? [])])
+                  close()
+                })
+                .catch((e: Error) => toast([`error: ${e.message}`]))}>
+              Rename</button>
           </span></SetRow>
         )}
 

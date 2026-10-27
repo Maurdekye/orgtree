@@ -1,7 +1,7 @@
 import {useEffect,useState} from 'react'
 import {customAppsRequest} from '../../api'
 import {SurfaceDocumentOwner,useSurfaceDocument} from '../../popout'
-import {SetRow,SettingsTabPanel,SettingsTabs,useVisitedTabs} from '../settingskit'
+import {SetRow,SettingsTabPanel,SettingsTabs,renameReady,useVisitedTabs} from '../settingskit'
 import {useCopyFeedback} from '../contextmenu'
 import {closeIfCentred} from '../modalpin'
 import type {SettingsTab} from '../settingskit'
@@ -71,9 +71,10 @@ export function AppSettings({slug,app,close,owner}:{slug:string;app:CustomApp;cl
 /** A panel gear is bound to that exact copy, including a closed copy. Its Name
  * row is the Agent settings rename (user 2026-10-26: "make rename work the same
  * way renaming agents does"): an inline field above the tabs whose Rename button
- * appears once the text differs and applies at once, with no Enter submit; the
- * engine validates, a refusal toasts its error, and a rename toasts and closes
- * the window. General holds the copy's own actions under no section header (user
+ * is always shown and enabled once the trimmed text is a different, non-empty
+ * name (renameReady), and applies at once, with no Enter submit; the engine
+ * validates, a refusal toasts its error, and a rename toasts and closes the
+ * window. General holds the copy's own actions under no section header (user
  * 2026-10-26: remove the "This panel" title); State, Connections, Fire event and
  * History (last) each have a tab; History follows the live change feed, a fire
  * included. Placement lives on the window itself and in orgtree_apps, not here;
@@ -84,12 +85,12 @@ export function PanelSettings({slug,app,panel,close,owner}:{slug:string;app:Cust
   const a=data.apps.find(a=>a.id===app.id)??app,p=data.panels.find(p=>p.id===panel.id&&p.app===app.id)??panel,document=owner??currentOwner,idBase='custom-panel-settings-'+p.id,name=nameEdit??p.label
   // The app's toast, which ObjectMenuBoundary provides at the window root, as Agent settings receives it.
   const toast=useCopyFeedback()
-  const rename=async()=>{const from=p.label;try{const r=await changeApps<CustomPanel>(slug,{action:'panel_update',panel:p.id,expected_rev:p.rev,label:name});toast?.([`renamed ${from} → ${r.label}`]);close()}catch(e){if(toast)toast([`error: ${e instanceof Error?e.message:String(e)}`]);else setError(String(e))}}
+  const rename=async()=>{const from=p.label;try{const r=await changeApps<CustomPanel>(slug,{action:'panel_update',panel:p.id,expected_rev:p.rev,label:name.trim()});toast?.([`renamed ${from} → ${r.label}`]);close()}catch(e){if(toast)toast([`error: ${e instanceof Error?e.message:String(e)}`]);else setError(String(e))}}
   const show=(next:typeof view)=>{setView(next);setError('')}
   return <SurfaceDocumentOwner owner={document}><AppDialog title={p.label+' - Panel settings'} label="Panel settings" org={slug} kind={'custom-panel-settings:'+p.id} pinnable close={close} owner={document}>
     {error&&<p role="alert">{error}</p>}
     <SetRow label="Name"><span className="agent-identity-row"><input type="text" aria-label="Panel name" placeholder="Panel name" value={name} onChange={e=>setNameEdit(e.target.value)}/>
-      {name!==p.label&&<button type="button" onClick={()=>void rename()}>Rename</button>}</span></SetRow>
+      <button type="button" disabled={!renameReady(name,p.label)} onClick={()=>void rename()}>Rename</button></span></SetRow>
     <SettingsTabs tabs={PANEL_TABS} tab={tab} setTab={setTab} idBase={idBase} label="Panel settings sections"/>
     <SettingsTabPanel id="general" idBase={idBase} active={tab==='general'}>
       <div className="set-group">

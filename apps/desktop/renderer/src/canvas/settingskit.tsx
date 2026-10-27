@@ -258,6 +258,16 @@ export function SetGroup({ title, note, subtitle, children }: {
 /** a non-boolean setting: label on the rail, control in the right column.
  *  The lead slot is left empty — the grid column is still there, so this
  *  row's label starts exactly where a toggle row's label does. */
+/** Whether a Name row's Rename button is enabled: the trimmed text is a
+ *  different, non-empty name. The button itself is always shown (USER
+ *  2026-10-27 ma5cdb4296475 "make the rename button always visible, just
+ *  disabled unless the name is changed"; mf059ecf9c6ea "same for agent /
+ *  project renaming"), on the panel, agent and project Name rows alike. */
+export function renameReady(text: string, current: string): boolean {
+  const name = text.trim()
+  return name !== '' && name !== current
+}
+
 export function SetRow({ label, hint, children, field }: {
   label: ReactNode
   hint?: ReactNode
