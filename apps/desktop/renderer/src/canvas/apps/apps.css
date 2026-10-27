@@ -144,7 +144,15 @@ html.mobile .overlay.custom-app-centered.custom-app-behind { z-index:39 }
    creates one when the app has none; + always creates a new panel. */
 .custom-apps-menu-app { cursor:pointer;border-radius:4px }
 .custom-apps-menu-app:hover { background:var(--panel-2) }
-.custom-apps-menu-app>.custom-apps-add { flex:none;display:inline-flex;align-items:center;justify-content:center;border:0;border-radius:4px;background:none;padding:5px }
+.custom-apps-menu-app>:is(.custom-apps-add,.custom-apps-app-gear) { flex:none;display:inline-flex;align-items:center;justify-content:center;border:0;border-radius:4px;background:none;padding:5px }
+/* + and the gears light up on hover and keyboard focus (USER 2026-10-27
+   mdba9ae69ac16 "these buttons should highlight when hovered (+, gear)"): a step
+   past the hovered row's --panel-2, which hid the generic button hover, with the
+   strong ink. 20% ink stands out from the row at least as much as the row's own
+   hover does from the menu in every theme (measured; 14% fell short in Solarized
+   light). Focus keeps the app's button focus ring. The app gear takes the same
+   box as +, so their fills match. */
+.custom-apps-menu :is(.custom-apps-add,.custom-apps-app-gear,.custom-apps-saved-gear):is(:hover,:focus-visible) { background:color-mix(in srgb,var(--ink) 20%,var(--panel-2));color:var(--ink-strong) }
 /* Running but not visible (user 2026-10-26: hidden panels keep running). Chromium
    throttles a cross-origin frame that is display:none, visibility:hidden or outside
    the viewport, so a parked panel stays in the viewport at its size, transparent,

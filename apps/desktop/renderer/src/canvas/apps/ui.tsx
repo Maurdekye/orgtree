@@ -124,7 +124,7 @@ function AppsMenu({slug,current,manage,managePanel,importApp}:{slug:string;curre
       <div className="custom-apps-menu-app" data-new-app={app.is_new?app.id:undefined} onClick={()=>show(recent?{panel:recent.id}:{app:app.id})}><button type="button" className="custom-apps-open" title={appLinkTitle(app.name,recent?.label)}><AppsIcon/><span><b>{app.name}</b><small>{app.description}</small></span></button>
         {(app.is_new||seenHere.has(app.id))&&<b className="custom-app-new-label">New</b>}
         <button type="button" className="custom-apps-add" title="New panel" aria-label={`New panel for ${app.name}`} onClick={e=>{e.stopPropagation();void open({action:'panel_open',app:app.id,new:true})}}><AddIcon/></button>
-        <button type="button" title={`App settings: ${app.name}`} aria-label={`Settings for ${app.name}`} onClick={e=>{e.stopPropagation();setMenu(null);manage(app)}}><SettingsIcon/></button></div>
+        <button type="button" className="custom-apps-app-gear" title={`App settings: ${app.name}`} aria-label={`Settings for ${app.name}`} onClick={e=>{e.stopPropagation();setMenu(null);manage(app)}}><SettingsIcon/></button></div>
       {/* User 2026-10-26: no Open/Closed word; the light alone shows state, named in the tooltip.
           The app's panels are their own group under it ("more visual delineation", provisional). */}
       {rows.length>0&&<div className="custom-apps-menu-panels" role="group" aria-label={`Panels of ${app.name}`}>{rows.map(p=>{const state=panelRunState(p),usage=isRunning(p)?cpuText(cpu.get(p.id)?.cpu,cpu.get(p.id)?.method):''
