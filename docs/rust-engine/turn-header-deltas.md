@@ -24,11 +24,33 @@ Visibility remains the same as the existing chart and roster; self-only readers
 also receive their own safety state. A relationship delta names individual
 reports/peers instead of repeating the entire roster.
 
-Usage keys include five-percent bands, reset dates rounded to the nearest minute and whether the reset
-has passed (checked at full precision), fresh/stale class, unavailable/unknown state and limit marks. Subsecond
-deadline jitter and runtime start-time changes without a sampled busy/waiting
-transition do not resend a row. A
-100% window and openai-1 weekly >=80% surface immediately. The latter names the
+Usage keys include five-percent bands, the reset (to the minute) bucketed by the
+window's own length and whether the reset has passed (checked at full precision),
+fresh/stale class, unavailable/unknown state and limit marks. Subsecond deadline
+jitter, a rolling window's reset moving forward and runtime start-time changes
+without a sampled busy/waiting transition do not resend a row. A
+100% window and openai-1 weekly >=80% surface immediately.
+
+**Only changes in usage, user 2026-10-27 (4.5.0).** "we should update provider
+usage to only carry changes in usage in the mail framing, it seems to add around
+300-400 extra tokens per message i send just from that" (m2a9b4d2d29ae), and "the
+full usage appears only at the beginning of the first turn, after compaction, and
+when the agent requests it via an explicit tool call" (m20e4a014a8e4). Measured
+by the liaison: most delta rows were rolling windows (google/primary Five Hour
+and Weekly, openai-1 5 h and 7 d) whose reset is a fixed span after now, so the
+minute-rounded reset changed every minute. The reset now counts only when it
+leaves its bucket: five hours for a session window, seven days for a weekly one,
+a day for any other, offset half a window so a round reset time sits mid-bucket.
+A fixed window moves its reset only when it rolls over, by at least its own
+length, so a rollover is still resent; a rolling window's drift resends a row at
+most once per window length. Used band, state, freshness, amount, a passed reset
+and the turn account are material as before. The full board is sent at the first
+delivery of a session, which covers the first turn, a fresh session and
+compaction; nothing else sends it. `orgtree_usage` returns every account's
+current windows on demand. Proof: `usage/header_delta_tests.rs` (rolling drift
+is not resent; a used-band step or a rollover is; jitter and an hour of drift
+are not new resets) and its `rolling-reset-drift` measurement fixture.
+ The latter names the
 policy restriction; this does not change account eligibility or the user's
 separate openai/primary extra-credit ruling. Every usage reference still names
 the current account and tier. Cache reads never probe providers, change account
