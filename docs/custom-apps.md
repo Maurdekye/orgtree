@@ -207,9 +207,9 @@ open it again, it starts in the main window. If your system asks apps to reduce
 motion, the zoom becomes a plain fade.
 
 Panels are custom views for working with your data, not programs that run on
-their own (user 2026-10-27), so they run only while Orgtree's main window is
-open, including when it sits in the tray; the Apps menu says so under your saved
-panels. Quitting Orgtree stops them. When you start Orgtree again, each panel comes back as
+their own (user 2026-10-27), so they run only while Orgtree is open, tray
+included; the Apps menu says so under your saved panels. Quitting Orgtree stops
+them. When you start Orgtree again, each panel comes back as
 it was: running hidden, visible where you placed it, or off. Hidden panels keep
 their timers, messages and background work running at full speed, also while
 Orgtree sits in the tray. Animation frames (`requestAnimationFrame`) run only while
@@ -280,8 +280,8 @@ Agents follow a copy only through its declared events, with an `app_listener`
 watchdog (see above). Panel links were removed (user 2026-10-26): there is no
 Linked agents setting, orgtree_apps refuses `linked_agents`, and state saves no
 longer signal `app.event` watchers. An agent that needs current data reads
-panel_get or events. Hidden running panels keep their timers while the main
-window is open; use an engine watchdog for work that must continue without it.
+panel_get or events. Hidden running panels keep their timers while Orgtree is
+open, tray included; use an engine watchdog for work that must continue without it.
 
 Try the portable [Annotation notes example](examples/apps/annotation-notes.orgtree-app):
 import it through Apps, open a copy, save notes, and choose **Share notes** to fire its

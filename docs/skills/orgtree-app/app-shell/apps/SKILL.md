@@ -74,8 +74,8 @@ reduce-motion setting the zoom is a plain fade. Display only: orgtree_apps
 panel_start and panel_stop are unchanged.
 
 Panels are custom views, not background programs (user 2026-10-27): they run
-only while the Orgtree main window is open, including in the tray, as the Apps
-menu notes under the saved panels. Hidden
+only while Orgtree is open, tray included, as the Apps menu notes under the
+saved panels. Hidden
 panels keep their timers, messages and Dedicated Workers running at full speed; a
 window that hosts running panels is never throttled. Animation frames run only
 while a panel shows, so apps tick game loops from timers. Closing one of several org windows that runs
