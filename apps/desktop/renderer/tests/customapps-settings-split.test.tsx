@@ -24,8 +24,9 @@ async function setup(t:test.TestContext,slug:string,open=false,toast?:(lines?:st
    else if(input.action==='app_get')out=app
    else if(input.action==='session_close')out={}
    else if(input.action==='permission_set'){app.permissions[input.capability as 'events.fire']=input.permission;app.permission_rev++;out=app}
-   // Like the engine (wire::text): a saved-panel label must not be blank.
+   // Like the engine (wire::text): a saved-panel label must not be blank, nor longer than 120 characters.
    else if(input.action==='panel_update'&&input.label!==undefined&&!String(input.label).trim())return new Response(JSON.stringify({detail:'panel label must not be blank'}),{status:400,headers:{'Content-Type':'application/json'}})
+   else if(input.action==='panel_update'&&input.label!==undefined&&String(input.label).length>120)return new Response(JSON.stringify({detail:'panel label needs 1-120 characters without control characters'}),{status:400,headers:{'Content-Type':'application/json'}})
    else if(input.action==='panel_update'){const p=panels.find(p=>p.id===input.panel)!;assert.equal(input.expected_rev,p.rev);Object.assign(p,input);p.rev++;out=p}
    else if(input.action==='state_set'){const p=panels.find(p=>p.id===input.panel)!;assert.equal(input.expected_rev,p.rev);p.state=input.state;p.rev++;out=p}
    else if(input.action==='events')out={events:[],next_cursor:null}
@@ -107,23 +108,28 @@ test('open-panel header gear opens panel-only settings with every retained copy 
  for(const name of ['State','Connections','Fire event','History']){await inAct(async()=>{button(settings!,name).click();await tick()});assert.equal(visible().querySelectorAll('.set-group-head').length,0,name+' repeats no section header')}
 })
 
-test('panel rename works like agent rename: a Name field above the tabs, Rename once it differs, a toast, and the window closes',async t=>{
- // User 2026-10-26: "make rename work the same way renaming agents does": the Agent settings Name row (input, a Rename button shown
- // only after the text differs, no Enter submit, engine validation surfaced as an error toast, and the window closes with a toast).
+test('panel rename works like agent rename: a Name field above the tabs, Rename enabled once it differs, a toast, and the window closes',async t=>{
+ // User 2026-10-26: "make rename work the same way renaming agents does": the Agent settings Name row (input, a Rename button,
+ // no Enter submit, engine validation surfaced as an error toast, and the window closes with a toast). User 2026-10-27
+ // ma5cdb4296475: "make the rename button always visible, just disabled unless the name is changed".
  const toasts:string[][]=[],{view,calls}=await setup(t,'settings-rename',true,lines=>{toasts.push(lines??[])})
  await inAct(async()=>{view.el.querySelector<HTMLButtonElement>('[data-custom-panel="one"] [aria-label="Settings for First notes"]')!.click();await tick()})
  const settings=dialog('Panel settings')!,input=settings.querySelector<HTMLInputElement>('input[aria-label="Panel name"]')!
  assert.equal(input.value,'First notes');assert.equal(input.closest('[role="tabpanel"]'),null,'the Name row heads the window, outside the tabs')
  assert.equal((input.compareDocumentPosition(settings.querySelector('[role="tablist"]')!)&window.Node.DOCUMENT_POSITION_FOLLOWING)!==0,true,'the Name row sits above the tab row')
- assert.equal(!!button(settings,'Rename'),false,'Rename shows only once the text differs')
+ const rename=()=>button(settings,'Rename') as HTMLButtonElement
+ assert.ok(rename(),'Rename is always shown');assert.equal(rename().disabled,true,'disabled while the name is unchanged')
  const type=async(value:string)=>inAct(async()=>{Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype,'value')!.set!.call(input,value);input.dispatchEvent(new Event('input',{bubbles:true}));await tick()})
- await type('   ');await inAct(async()=>{button(settings,'Rename').click();await tick()})
- assert.deepEqual(toasts.at(-1),['error: panel label must not be blank']);assert.ok(dialog('Panel settings'),'a refused rename keeps the window open')
- await type('Morning notes');assert.ok(button(settings,'Rename'))
+ const updates=()=>calls.filter(c=>c.action==='panel_update').length
+ for(const same of ['   ','',' First notes  ']){await type(same);assert.equal(rename().disabled,true,`disabled for ${JSON.stringify(same)}: blank, or the current name once trimmed`)}
+ await inAct(async()=>{rename().click();await tick()});assert.equal(updates(),0,'a disabled Rename sends nothing')
+ await type('x'.repeat(121));assert.equal(rename().disabled,false);await inAct(async()=>{rename().click();await tick()})
+ assert.deepEqual(toasts.at(-1),['error: panel label needs 1-120 characters without control characters']);assert.ok(dialog('Panel settings'),'a refused rename keeps the window open')
+ await type('  Morning notes ');assert.equal(rename().disabled,false,'enabled once the trimmed name differs')
  await inAct(async()=>{input.dispatchEvent(new window.KeyboardEvent('keydown',{key:'Enter',bubbles:true}));await tick()})
  assert.equal(calls.some(c=>c.action==='panel_update'&&c.label==='Morning notes'),false,'as in agent rename, Enter does not submit')
  await inAct(async()=>{button(settings,'Rename').click();await tick()})
- assert.ok(calls.some(c=>c.action==='panel_update'&&c.panel==='one'&&c.label==='Morning notes'&&c.expected_rev===1))
+ assert.ok(calls.some(c=>c.action==='panel_update'&&c.panel==='one'&&c.label==='Morning notes'&&c.expected_rev===1),'the trimmed name is sent')
  assert.deepEqual(toasts.at(-1),['renamed First notes → Morning notes']);assert.equal(dialog('Panel settings'),null,'a rename closes the window, as agent rename does')
 })
 

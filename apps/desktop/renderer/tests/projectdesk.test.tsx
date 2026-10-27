@@ -820,10 +820,11 @@ test('§6b open settings follow the project: a remote description change is not 
   await inAct(async () => { save.click(); await flush(4) })
   assert.deepEqual(ops, [], 'nothing edited, nothing sent: the remote change stands')
   // renamed elsewhere: the untouched name field follows, and offers no rename back
+  // (USER 2026-10-27 ma5cdb4296475: Rename stays visible, disabled while unchanged)
   await view.render(cfg(project({ id: 'site', title: 'site' } as never)))
   const name = document.querySelector<HTMLInputElement>('input[aria-label="Project name"]')!
   assert.equal(name.value, 'site')
-  assert.equal([...document.querySelectorAll('button')].some((b) => b.textContent === 'Rename'), false)
+  assert.equal([...document.querySelectorAll<HTMLButtonElement>('button')].find((b) => b.textContent === 'Rename')?.disabled, true)
 })
 
 /* ─── §7 the card's count and the app header ────────────────────────────── */
