@@ -17,8 +17,6 @@ struct World {
     project: i64,
     holder: i64,
     waiter: i64,
-    /// a top-level agent: a place to move the holder to that is neither above nor below the project
-    elsewhere: i64,
 }
 
 #[nolog]
@@ -41,12 +39,13 @@ async fn world(scope: Value) -> World {
     };
     let holder = agent("holder", Some(project)).await;
     let waiter = agent("waiter", Some(project)).await;
-    let elsewhere = agent("elsewhere", None).await;
+    // a top-level agent: a place to move the holder to that is neither above nor below the project
+    agent("elsewhere", None).await;
     let mut engine = Engine::for_tests(std::path::PathBuf::from(std::env::var("ORGTREE_HOLDINGS_TEST_ROOT").expect("owned engine root")));
     let mgr = deadpool_postgres::Manager::from_config(cfg, NoTls, deadpool_postgres::ManagerConfig { recycling_method: deadpool_postgres::RecyclingMethod::Fast });
     Arc::get_mut(&mut engine).unwrap().db = deadpool_postgres::Pool::builder(mgr).max_size(4).runtime(deadpool_postgres::Runtime::Tokio1).build().unwrap();
     let org = crate::orgs::provisional(id, "fixture".into(), "holdings-fixture".into(), "fixture".into());
-    World { e: engine, org, project, holder, waiter, elsewhere }
+    World { e: engine, org, project, holder, waiter }
 }
 
 impl World {
@@ -98,6 +97,12 @@ impl World {
     async fn job_state(&self, row: i64) -> (String, bool, Option<String>) {
         let r = self.e.db.get().await.unwrap().query_one("SELECT state, extra ? 'claimed', extra->'released'->>'why' FROM ot.mail WHERE id = $1", &[&row]).await.unwrap();
         (r.get(0), r.get(1), r.get(2))
+    }
+
+    /// Move `node` under `to` through the real op, so its after-commit effects run.
+    #[nolog]
+    async fn mv(&self, node: &str, to: &str) {
+        crate::domain::ops::run(&self.e, &self.org, crate::domain::ops::Actor::User, &json!({"op":"move","node":node,"new_parent":to})).await.unwrap();
     }
 
     #[nolog]
@@ -187,15 +192,13 @@ async fn moving_out_of_the_project_gives_back_the_lease_and_a_move_inside_keeps_
     let lease = w.claim(w.holder).await["lease"].as_str().unwrap().to_string();
     w.claim(w.waiter).await;
     // inside: under the waiter, still below the project
-    let run = |node: &str, to: &str| crate::domain::ops::run(&w.e, &w.org, crate::domain::ops::Actor::User, &json!({"op":"move","node":node,"new_parent":to}));
-    run("holder", "waiter").await.unwrap();
+    w.mv("holder", "waiter").await;
     assert_eq!(w.lease(&lease).await, (false, None), "a move that stays below the project keeps the lease");
     // outside: under an agent that is neither above nor below the project
-    run("holder", "elsewhere").await.unwrap();
+    w.mv("holder", "elsewhere").await;
     assert_eq!(w.lease(&lease).await, (true, Some("moved out of the project".into())), "the move ends the lease at once");
     assert_eq!(w.holds(w.waiter).await, 1, "and the next waiter is granted it");
     assert!(w.told(w.holder, &[&lease, "you moved out of the project"]).await);
-    let _ = w.elsewhere;
     w.e.shutdown.cancel();
 }
 

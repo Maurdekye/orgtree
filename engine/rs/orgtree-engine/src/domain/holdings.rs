@@ -199,7 +199,7 @@ pub async fn release_after_death(engine: &Arc<Engine>, org_id: i64, agent: i64, 
     let mut given = Given::default();
     let mut after = 0_i64;
     loop {
-        let projects: Vec<i64> = {
+        let held: Vec<i64> = {
             let client = engine.db.get().await?;
             client
                 .query(
@@ -215,13 +215,13 @@ pub async fn release_after_death(engine: &Arc<Engine>, org_id: i64, agent: i64, 
                 .map(|r| r.get(0))
                 .collect()
         };
-        for &project in &projects {
+        for &project in &held {
             after = project;
             if let Err(e) = release_in(engine, org_id, project, agent, name, death, counted, &mut given).await {
                 tracing::warn!(project, agent = name, error = %format!("{e:#}"), "taking back a holder's project holdings failed");
             }
         }
-        if projects.len() < 64 {
+        if held.len() < 64 {
             break;
         }
     }
