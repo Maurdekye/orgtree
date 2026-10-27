@@ -54,7 +54,9 @@ The Apps list shows apps newest first and each app's panels in creation order
 header right-aligns Import app with no Refresh button; app and panel creates,
 imports, renames, deletes and run/show changes update live from
 `custom_apps_changed`. App and panel gears share one right-aligned column;
-the app + and panel power buttons share the preceding column. Renderer
+the app + and panel power buttons share the preceding column. An empty Apps
+list says "No apps yet. Ask an agent to make an app for you, and it will appear
+here."; the existing live list hides it when an app appears. Renderer
 CSS must use theme variables that `styles.css` defines (`--line`, `--dim`,
 `--panel-2`, `--ink`, ...): an undefined `var()` silently drops its declaration,
 as `--border/--muted/--hover/--text` did in `apps.css`. See [custom apps](docs/rust-engine/custom-apps.md).

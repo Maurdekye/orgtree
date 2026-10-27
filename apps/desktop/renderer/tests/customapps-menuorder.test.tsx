@@ -161,3 +161,17 @@ for(const kind of ['apps','panels'] as const)test(`live ${kind} refresh follows 
  assert.deepEqual(f.rows('Beta'),['Runner'],'stopped row remains present at the shifted page boundary')
  assert.equal(f.group('Beta').querySelector('.custom-apps-saved')!.getAttribute('title'),'Off')
 })
+
+test('an empty Apps list explains app creation and the message follows live arrivals and removals',async t=>{
+ const f=await workspace(t,'menu-empty-help');f.apps.splice(0);f.panels.splice(0);await f.feed();await f.toggle()
+ const message='No apps yet. Ask an agent to make an app for you, and it will appear here.'
+ const empty=()=>f.menu().querySelector(':scope>p.dim')
+ assert.equal(empty()?.textContent,message)
+ assert.deepEqual(f.order(),[])
+ f.apps.push(f.app('first','First app','2026-10-27T15:55:00Z'));await f.feed()
+ assert.equal(empty(),null)
+ assert.deepEqual(f.order(),['First app'])
+ f.apps.splice(0);await f.feed()
+ assert.equal(empty()?.textContent,message)
+ assert.deepEqual(f.order(),[])
+})

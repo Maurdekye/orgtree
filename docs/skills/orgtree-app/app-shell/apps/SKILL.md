@@ -103,7 +103,9 @@ replacing an app's code powers off its hidden running copies.
 Open **Apps** in the org header, beside Presentations; **Import app** is at the
 right of the Apps header. App and panel Settings gears share one right-aligned
 column, with app **+** and panel **Power off** aligned in the preceding column
-(user ruling 2026-10-27). There is no Refresh button (new, renamed, stopped
+(user ruling 2026-10-27). An empty org shows "No apps yet. Ask an agent to make
+an app for you, and it will appear here."; the message disappears when an app
+appears in the live list. There is no Refresh button (new, renamed, stopped
 or removed apps and panels appear in realtime; user rulings 2026-10-27). A click anywhere on an
 app's row opens its most recently used saved panel, wherever it is listed,
 or creates and opens its first panel when it has none. A row whose panel is

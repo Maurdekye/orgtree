@@ -9,6 +9,14 @@ keep both columns aligned without changing their actions. The panel guide
 retains its left indent and has no right inset. This is display only; existing
 Apps tools and handlers are unchanged.
 
+## Empty Apps list (2026-10-27)
+
+USER m7197a089458f: when the loaded list has no apps, it says exactly
+"No apps yet. Ask an agent to make an app for you, and it will appear here."
+The existing live-list condition removes it as soon as an app appears and
+restores it when the final app is removed. This is text only; no API or tool
+behavior changes.
+
 ## Background panels (2026-10-26)
 
 User rulings 2026-10-26 (forwarded in m904ca9fb891f, plus m74c6e82ee894, the
