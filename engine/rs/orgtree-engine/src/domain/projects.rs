@@ -800,7 +800,7 @@ pub async fn release_stale(engine: &Arc<Engine>, org_id: i64, project: i64) -> R
                     let given = crate::domain::holdings::Given {
                         jobs: vec![crate::domain::holdings::GivenJob { project: pname, job: copy.clone().unwrap_or_default(), dead }],
                         ..Default::default() };
-                    crate::domain::holdings::tell(engine, org_id, &to, why, &given).await;
+                    crate::domain::holdings::tell(engine, org_id, &to, &crate::domain::holdings::you(why), &given).await;
                 }
             }
             released.push(by);
