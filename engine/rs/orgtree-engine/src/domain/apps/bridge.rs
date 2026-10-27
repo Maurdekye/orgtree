@@ -305,7 +305,12 @@ async fn execute_private(engine:&Arc<Engine>,org:&Arc<OrgHandle>,bound:&Bound,ac
         Action::EventsFire{name,payload}=>{
             let mut c=engine.db.get().await?;let tx=c.transaction().await?;
             let out=super::events::publish(&tx,org.id,&bound.panel,name,payload,json!({"kind":"app","app":bound.app,"panel":bound.panel,"app_rev":bound.rev})).await?;
-            tx.commit().await?;drop(c);super::events::notify(engine);Ok(out)
+            tx.commit().await?;drop(c);super::events::notify(engine);
+            // Open History lists read the new row (user 2026-10-27 md2006b10cf40 "reload
+            // in realtime"). Not custom_apps_changed: no Apps row changed, and that
+            // refresh re-posts state.changed to running apps, so an app firing on
+            // state.changed would fire forever.
+            org.emit(json!({"type":"custom_apps_history","org":org.slug,"panel":bound.panel}));Ok(out)
         },
         // Internet requests run in net_fetch, outside the app gate.
         Action::NetFetch{..}=>crate::refuse!(BadRequest,"app internet requests do not run here"),

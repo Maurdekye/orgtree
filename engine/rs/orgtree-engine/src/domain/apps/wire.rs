@@ -23,6 +23,8 @@ pub const CAPABILITIES: &[&str] = &["org.read", "docket.write", "events.fire", "
 /// import, never grant"): accepted on input so the app imports and runs, then
 /// dropped before storage and from app metadata. Never granted.
 pub const RETIRED_CAPABILITIES: &[&str] = &["mail.send"];
+/// A log page reads one way: after (newer rows) or before (older rows).
+pub const BOTH_CURSORS: &str = "pass after (newer rows) or before (older rows), not both";
 /// Why an app's mail.send call fails: apps reach agents only through events.
 pub const MAIL_SEND_REMOVED: &str = "mail.send was removed: apps notify agents only through events. Declare the event, fire it with orgtree.events.fire(name, payload), and agents subscribe with an app_listener watchdog.";
 /// The declared capabilities that are stored; retired ones are dropped.
@@ -128,7 +130,8 @@ pub enum Request {
     StatePatch { panel:String, expected_rev:i64, patch:Value },
     Event { panel:String, name:String, payload:Value },
     /// History by default; messages:true lists the event action's and orgtree.emit's messages.
-    Events { panel:String, after:Option<i64>, limit:Option<i64>, #[serde(default)] messages:bool },
+    /// Newest first, before walking back; after reads newer rows oldest first.
+    Events { panel:String, after:Option<i64>, before:Option<i64>, limit:Option<i64>, #[serde(default)] messages:bool },
     FireEvent { panel:String, name:String, payload:Value },
     Listeners { app:String, panel:Option<String>, after:Option<i64>, limit:Option<i64> },
 }
@@ -140,6 +143,7 @@ pub fn parse(input:&Value) -> Result<Request> {
     if input.get("linked_agents").is_some(){crate::refuse!(BadRequest,"panel links were removed; agents follow a panel's declared events with an app_listener watchdog");}
     let request:Request=serde_json::from_value(input.clone()).map_err(|e|crate::domain::UserError::BadRequest(format!("invalid Apps request: {e}")))?;
     if let Request::AppImport{bundle:value}=&request{bundle(value)?;}
+    if let Request::Events{after:Some(_),before:Some(_),..}=&request{crate::refuse!(BadRequest,"{BOTH_CURSORS}");}
     if let Request::MarkSeen{apps}=&request{
         if apps.is_empty()||apps.len()>200{crate::refuse!(BadRequest,"mark_seen needs1-200 explicit app IDs");}
         let mut seen=std::collections::HashSet::new();

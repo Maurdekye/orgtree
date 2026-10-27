@@ -37,6 +37,17 @@ async fn authorize(tx:&Transaction<'_>,org:i64,caller:Option<&Caller>) -> Result
 fn page(limit:Option<i64>) -> Result<i64> {
     let n=limit.unwrap_or(100);if !(1..=200).contains(&n){crate::refuse!(BadRequest,"limit must be 1-200");}Ok(n)
 }
+/// One page of a log (user 2026-10-27 md2006b10cf40: History should "reload in
+/// realtime" and "lazily load as you scroll down"): newest first, before walking
+/// back to older rows, or after reading newer rows oldest first to follow new
+/// ones. Each writer of one copy's log holds a row lock the others need before it
+/// inserts, so its seqs commit in order and neither cursor skips a row; retention
+/// only ends the walk back sooner. Returns the comparison, order and bound.
+#[nolog]
+fn cursor(after:Option<i64>,before:Option<i64>) -> Result<(&'static str,&'static str,i64)> {
+    if after.or(before).is_some_and(|c|c<0){crate::refuse!(BadRequest,"cursor must be nonnegative");}
+    Ok(match after{Some(a)=>(">","ASC",a),None=>("<","DESC",before.unwrap_or(i64::MAX))})
+}
 #[nolog]
 fn revision(actual:&Value,wanted:i64) -> Result<()> {
     if wanted<1 || actual["rev"].as_i64()!=Some(wanted) {crate::refuse!(Conflict,"panel or app changed; read its current revision and retry");}Ok(())
@@ -341,10 +352,10 @@ pub(crate) async fn run_locked(engine:&Arc<Engine>,org:&Arc<OrgHandle>,caller:Op
         Request::Event{panel:id,name,payload}=>{
             panel(&tx,org.id,&id,true).await?;let seq=record(&tx,org.id,&id,"message",&name,&payload,&actor).await?;changed=true;json!({"panel":id,"seq":seq})
         }
-        Request::Events{panel:id,after,limit,messages}=>{
-            panel(&tx,org.id,&id,false).await?;let n=page(limit)?;let after=after.unwrap_or(0);if after<0{crate::refuse!(BadRequest,"event cursor must be nonnegative");}
+        Request::Events{panel:id,after,before,limit,messages}=>{
+            panel(&tx,org.id,&id,false).await?;let n=page(limit)?;let (op,order,from)=cursor(after,before)?;
             let kind=if messages{"message"}else{"history"};
-            let rows=tx.query("SELECT jsonb_build_object('seq',seq,'name',name,'payload',payload,'actor',actor,'at',at) FROM ot.custom_panel_events WHERE org_id=$1 AND panel_id=$2 AND kind=$5 AND seq>$3 ORDER BY seq LIMIT $4",&[&org.id,&id,&after,&(n+1),&kind]).await?;
+            let rows=tx.query(&format!("SELECT jsonb_build_object('seq',seq,'name',name,'payload',payload,'actor',actor,'at',at) FROM ot.custom_panel_events WHERE org_id=$1 AND panel_id=$2 AND kind=$5 AND seq{op}$3 ORDER BY seq {order} LIMIT $4"),&[&org.id,&id,&from,&(n+1),&kind]).await?;
             let more=rows.len()>n as usize;let events:Vec<Value>=rows.into_iter().take(n as usize).map(|r|r.get(0)).collect();let next=if more{events.last().map(|v|v["seq"].clone())}else{None};
             let oldest:Option<i64>=tx.query_one("SELECT min(seq) FROM ot.custom_panel_events WHERE org_id=$1 AND panel_id=$2 AND kind=$3",&[&org.id,&id,&kind]).await?.get(0);
             json!({"panel":id,"events":events,"next_cursor":next,"oldest_retained":oldest})
