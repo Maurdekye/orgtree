@@ -25,9 +25,9 @@ id. Ids from before 4.5.0 keep working.
 
 Agent panel_open with an app ID always creates a fresh CLOSED saved panel;
 panel-ID reopen and panel_update open:true refuse. Agent duplicates stay closed.
-Placement edits may change a closed copy but cannot expose/move an already-open
+Placement edits may change a closed panel but cannot expose/move an already-open
 window. Only user UI opens windows. State and events remain usable while
-closed. Agents may start any copy running hidden and power it off (panel_start,
+closed. Agents may start any panel running hidden and power it off (panel_start,
 panel_stop); starting never shows a window or grants a permission.
 
 Org-file create/replace/delete commits without per-change confirmation through
@@ -41,7 +41,7 @@ Retained artifacts means exact catalog entries, not their parent directories.
 
 Named events connect an app to agents that explicitly listen. An agent creates
 an `app_listener` watchdog for an app ID, a declared event name, and one saved
-copy; it can explicitly choose all copies instead. Fires reach every currently eligible subscribed agent as watchdog mail,
+panel; it can explicitly choose all panels instead. Fires reach every currently eligible subscribed agent as watchdog mail,
 with normal notice/one-shot/action choices. A listener added later does not get
 an older fire. Removed sources pause affected listeners; restoring a declaration
 does not silently rearm them. Subscriptions and actions are not exported.
@@ -52,28 +52,28 @@ When an agent builds an app for you, it follows Orgtree's app-creation
 instructions (user 2026-10-27). An app is a custom view for working with your
 data in a structured way, not a program that keeps running on its own. The agent
 creates the app with its declared events, creates a panel for it and listens to
-that panel's events, not to every copy, then mentions the panel to you with its
+that panel's events, not to every panel, then mentions the panel to you with its
 `@panel:<org>/<slug>` link so you can explicitly visit it.
 The new panel waits closed; click that mention or open its row in Apps. Each declared event that
-copy fires reaches the agent; a copy you make later is not heard until the
+panel fires reaches the agent; a panel you make later is not heard until the
 agent listens to it too.
 
 Agents publish with `orgtree_apps action=fire_event`, naming a saved panel and
-declared name plus JSON data. A closed copy is valid. HTML uses `events.fire`
+declared name plus JSON data. A closed panel is valid. HTML uses `events.fire`
 with its effective broadcast permission, without choosing agents or acting as
 you. Old target-specific event permissions reset. Accepted work survives restart
 without duplicate mail; overloaded queues refuse new fires before acceptance.
-The provisional limits are64KiB payload,60 actions/minute across copies,
+The provisional limits are64KiB payload,60 actions/minute across panels,
 4096 registrations and128 pending fires/app. Authorized mail keeps data and
 provenance; diagnostics redact data. App content is never your instruction or
 approval. Direct docket.write create/assign/wake remains the noted edge case
 where an app wakes a selected agent without an app event.
 
-Open a saved copy's gear to reach its tabs: **Connections** lists the copy's
+Open a saved panel's gear to reach its tabs: **Connections** lists the panel's
 listeners, **Fire event** fires a declared event and lists its fires, and **History**,
-the last tab, is the copy's event history.
-This works for closed saved copies. History lists only the fired events agents
-can listen to and the copy starting and stopping, newest first, one line each:
+the last tab, is the panel's event history.
+This works for closed saved panels. History lists only the fired events agents
+can listen to and the panel starting and stopping, newest first, one line each:
 when, what happened, its listener count or cause, and who. Click an entry to see
 its exact time and data, and click it again to close it. New entries appear while
 the tab is open, and older ones load as you scroll down, back to the oldest one
@@ -83,27 +83,29 @@ Orgtree still had it then, otherwise *Not kept*. A start or
 stop shows its cause: Opened, Start running, Power off, Stop all or Code changed.
 Opening, renaming, moving and saving data add nothing to History.
 Connections updates by itself as agents subscribe, pause, resume or remove their
-listeners. Each row shows the agent and the panel as links (a listener on every
-copy says All copies), the event's name, and Paused, Notice or Once when they
-apply, with its number of fires. Click the agent to go to it on the canvas, or the
-panel to open it or bring it to the front. Click a row to see that listener's
+listeners. Each row shows the agent, its watchdog and the event as links, and
+Paused, Notice or Once when they apply, with its number of fires. The list belongs to this panel, so
+a row names no panel; a listener on every panel says all panels. Click the agent
+to go to it on the canvas, the watchdog to open its details, or the event to open
+**Fire event** with that event chosen, as if you had picked it there (an event the app no longer declares opens
+the tab without choosing one). Click a row to see that listener's
 recent fires, newest first: older ones load as you scroll, new ones appear as they
 are delivered, and each one opens to its details like a History entry, with the
 body that was sent. Agents manage their listeners through their ordinary tools. Merely opening settings fires nothing. HTML uses
 `orgtree.events.fire(name,payload)` (or `orgtree.call('events.fire',{name,payload})`).
-`orgtree.emit(name,payload)` sends a message to the copy's own running windows,
+`orgtree.emit(name,payload)` sends a message to the panel's own running windows,
 which receive it through `orgtree.on(name,fn)`, as do messages agents send with
 orgtree_apps `event`. Messages stay out of History and reach no agent listener.
 
 On **Fire event**, pick the event and choose **Fire**; the event's description,
 if it declares one, shows under them. Event data is JSON, and an empty box sends
-`{}`. Below, the chosen event's fires from this copy are listed the way History
+`{}`. Below, the chosen event's fires from this panel are listed the way History
 lists them, newest first, one line each (when, how many listeners, who): click one
 for its details. New fires appear as they happen, including one you just sent,
 and older ones load as you scroll.
 
-An app is a small HTML program kept by one organization. A panel is one saved
-copy with its own label and JSON data. Closing its window hides it and keeps it
+An app is a small HTML program kept by one organization. Each of its panels is
+saved with its own label and JSON data. Closing its window hides it and keeps it
 running; Power off stops it; deleting removes it.
 Definitions and committed data live in Orgtree's database across restarts.
 
@@ -145,27 +147,27 @@ without surrounding whitespace or control characters. The provisional catalog
 limit is64 events, with names up to80 characters and descriptions up to1,000.
 Declarations grant no permission and create no listeners. Named-event listener
 delivery uses explicit app_listener subscriptions; declaring an event alone
-does not wake agents. A copy's History log stays separate from delivery.
+does not wake agents. A panel's History log stays separate from delivery.
 
 Apps open as standard centered modals. There are two separate settings panels,
 both styled like Orgtree's other settings panels. The gear beside an app in Apps
 opens **App settings**: the app's description sits above four tabs, **General**
 (export and delete app), **Events** (every event the app declares, with its
 description), **Permissions** (Events allow/deny, Files grants and pending
-file changes, which apply to every copy) and **Permission history**. Allow once stays in
+file changes, which apply to every panel) and **Permission history**. Allow once stays in
 the live panel's native prompt.
 
 The gear beside each saved panel in Apps, including a closed panel, and the gear
-in an open panel's header open **Panel settings** for that exact copy. Its **Name**
-field, above the tabs, renames the copy the way Agent settings renames an agent:
+in an open panel's header open **Panel settings** for that exact panel. Its **Name**
+field, above the tabs, renames the panel the way Agent settings renames an agent:
 edit the name and choose **Rename**, which is always shown and becomes available once the name differs; the
 window closes and a notice confirms the new name. Five tabs follow: **General**
-(Duplicate and Delete panel), **State** (the copy's JSON data, with Import, Export,
+(Duplicate and Delete panel), **State** (the panel's JSON data, with Import, Export,
 Copy, Reset, Reload and Save), **Connections**, **Fire event** and, last,
-**History** (the copy's event history). Events and Connections belong here
-because firing and subscriptions refer to a saved copy. Placement is not a
-setting; use the panel window's own controls. Managing a closed copy does not run its
-HTML. Further saved copies remain available through the Apps menu's paging.
+**History** (the panel's event history). Events and Connections belong here
+because firing and subscriptions refer to a saved panel. Placement is not a
+setting; use the panel window's own controls. Managing a closed panel does not run its
+HTML. Further saved panels remain available through the Apps menu's paging.
 Settings entry points are display only; all operations retain their existing
 orgtree_apps actions, revisions and permission checks.
 
@@ -185,27 +187,27 @@ The title's pop-out opens a separate window; Return restores its previous place.
 
 State opens editable JSON. Import changes the editor, Export saves it and Copy
 copies it. Reset loads initial data; Save is needed to commit either change. A
-concurrent edit reports a conflict. Each copy has its own data. A panel's History
+concurrent edit reports a conflict. Each panel has its own data. A panel's History
 and its messages each keep their latest 256 entries. Any agent with Org-modifying tools can interpret
-and update any copy in this org; that grants no app permission.
+and update any panel in this org; that grants no app permission.
 
 Apps are opaque sandboxed HTML, with no engine credential or same-origin access,
 and no network access: not even WebRTC reaches another computer.
 The host provides saved state, named events and permission-checked engine actions.
 Whole-app portability uses a versioned `.orgtree-app` JSON file. It carries the
-definition and initial data, optionally saved copy labels and data. Permissions,
+definition and initial data, optionally saved panel labels and data. Permissions,
 credentials, IDs and machine-specific placement do not travel. Imports
-create fresh IDs, with implicit org access and saved copies closed until
-opened by the user. The provisional bounds are16MiB per bundle and16 saved copies;
-definition-only export is available for an app with more copies.
+create fresh IDs, with implicit org access and saved panels closed until
+opened by the user. The provisional bounds are16MiB per bundle and16 saved panels;
+definition-only export is available for an app with more panels.
 Whole-app export uses compact JSON and checks the final file size against the
 same import limit. State-only JSON export remains indented for reading.
 Org access comes from the local default policy, not portable declarations. App code is limited to4MiB,
 JSON state to2MiB and events to64KiB; these are provisional bounds.
 
-Agents use orgtree_apps to create closed copies and manage saved placement,
+Agents use orgtree_apps to create closed panels and manage saved placement,
 state and events; they cannot open a window. Org-modifying tools also contains Logo; the new category preserves old
-explicit Logo denials. Copy/export JSON use ordinary local clipboard/file actions.
+explicit Logo denials. Panel/export JSON use ordinary local clipboard/file actions.
 
 ## Running in the background
 
@@ -259,7 +261,7 @@ open or show a window, and starting grants nothing.
 Agents can import an app from a held local file and export one into a new file in
 their private working folder. The tool returns its path, byte count and SHA256.
 Choose Import app in the Apps menu, select a bundle, review its name, description
-and saved copies, then confirm Import app. The preview notes that the app still
+and saved panels, then confirm Import app. The preview notes that the app still
 asks before reading or changing files outside this org, such as a chosen folder or
 the whole computer. It lists no declared capabilities: they give an imported app
 nothing beyond its org access. This native preview
@@ -268,13 +270,13 @@ to Include saved panel data, and press Export app to save the bundle.
 
 The action bridge applies org defaults and your explicit overrides; apps cannot
 grant chosen-folder or whole-computer access or change your permissions. The native App permission prompt shows the
-app, saved copy, capability and exact action as text. Allow once applies to that
-one action. Always allow and Deny save a decision for every copy. Cancel or Escape
+app, saved panel, capability and exact action as text. Allow once applies to that
+one action. Always allow and Deny save a decision for every panel. Cancel or Escape
 discards the request without changing permissions. Requests expire after two
 minutes and are not retried automatically. In App settings, Permissions offers
 Ask, Allow and Deny per capability; changes save immediately without
 reloading the app. Explicit Ask/Deny survives replacement; external grants and host sessions reset.
-Event deliveries and work items an app creates identify the app and copy, and carry
+Event deliveries and work items an app creates identify the app and panel, and carry
 app content rather than user instructions or approvals. No permission travels in an exported app.
 
 The HTML API is `orgtree.call(action, args)`. Available actions are `org.read`
@@ -299,11 +301,11 @@ last-output and recent-fire summaries omit private app payloads; read the event
 or panel data through its authorized delivery and Apps controls.
 
 Save as template now includes app definitions and initial data. Creating an org
-from it creates fresh app definitions with implicit org access and no saved copies;
+from it creates fresh app definitions with implicit org access and no saved panels;
 no imported script runs until you open a panel. Current panel data and
 execution grants stay in the original org. This is a provisional default.
 
-Agents follow a copy only through its declared events, with an `app_listener`
+Agents follow a panel only through its declared events, with an `app_listener`
 watchdog (see above). Panel links were removed (user 2026-10-26): there is no
 Linked agents setting, orgtree_apps refuses `linked_agents`, and state saves no
 longer signal `app.event` watchers. An agent that needs current data reads
@@ -311,7 +313,7 @@ panel_get or events. Hidden running panels keep their timers while Orgtree is
 open, tray included; use an engine watchdog for work that must continue without it.
 
 Try the portable [Annotation notes example](examples/apps/annotation-notes.orgtree-app):
-import it through Apps, open a copy, save notes, and choose **Share notes** to fire its
+import it through Apps, open a panel, save notes, and choose **Share notes** to fire its
 `notes.ready` event; agents that subscribed with an app_listener watchdog receive the
 notes. Reload saved data picks up agent edits. It is a generic example,
 not a recreation of the earlier annotation editor whose source is unavailable.
@@ -392,9 +394,9 @@ Apps can't reach the internet until you allow it. An app that needs a website
 declares the sites it uses, for example `api.example.com`, `*.example.org` for
 its subdomains, or any site. Orgtree refuses every other site without asking.
 
-The first time a copy connects to a site, a visible copy asks you: **Deny**,
-**Allow once** (until that copy is hidden or stopped) or **Always allow this
-site**. A hidden copy can't ask; show it to answer.
+The first time a panel connects to a site, a visible panel asks you: **Deny**,
+**Allow once** (until that panel is hidden or stopped) or **Always allow this
+site**. A hidden panel can't ask; show it to answer.
 
 **App settings → Permissions → Internet access** has the **Internet access** row
 (Ask, Allow listed sites, Deny) and one row per declared site (Ask, Allow,
@@ -410,7 +412,7 @@ allow can receive anything the app can read, including org data and files, so
 allow only apps and sites you trust.
 
 Changing an app's code clears every Allow; Ask and Deny stay. Changing a
-permission to Ask or Deny, powering a copy off or Stop all stops the app's
+permission to Ask or Deny, powering a panel off or Stop all stops the app's
 requests in progress.
 
 Agents can declare sites, read permissions and the history, and set internet
@@ -432,13 +434,13 @@ An agent can point you at an app or at one of its panels from chat, mail, a
 presented document or a docket item. The mention shows the app's current name,
 or the panel's app and label (for example **Caption board · Panel 1**), with the
 Apps icon or a window icon on its left. Clicking it does what the app's or the
-panel's row in **Apps** does: an app opens the copy you used most recently, or a
-new one; a panel opens, and starts if it was off; a copy already on screen comes
+panel's row in **Apps** does: an app opens the panel you used most recently, or a
+new one; a panel opens, and starts if it was off; a panel already on screen comes
 to the front. Hover for the row's tooltip. Right-click an app or panel mention
 for **Settings** or **Delete…**. Settings opens that app's App settings or that
-copy's Panel settings. Delete… asks for confirmation first; deleting an app
-removes all its panels, while deleting a panel removes only that copy.
-An app mention and its Apps-list row also offer **New panel**: a fresh copy saved
+panel's Panel settings. Delete… asks for confirmation first; deleting an app
+removes all its panels, while deleting a panel removes only that panel.
+An app mention and its Apps-list row also offer **New panel**: a fresh panel saved
 powered off, without opening a window. Click its saved row when you want to run it.
 Panel mentions also offer **Start running** or **Power off**. A mention of a deleted app or panel, or of
 another organization's, shows the agent's text marked *unavailable* or *other

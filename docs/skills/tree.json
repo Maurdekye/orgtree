@@ -7895,7 +7895,7 @@
    ],
    "purpose": "Apps menu, independent saved HTML panels and JSON state.",
    "must_cover": [
-    "app row opens the first listed copy or creates one; + creates",
+    "app row opens the first listed panel or creates one; + creates",
     "float/canvas/popout placement",
     "App settings and Panel settings tabs, including History",
     "state menus and revisions",

@@ -10,7 +10,7 @@ Up: [orgtree-watchdogs](../SKILL.md)
 ## Named app events
 
 Create `kind:"app_listener", target:"<app id>", event_name:"submitted"`
-with `panel:"<saved copy id>"` by default, or explicit `all_panels:true` instead.
+with `panel:"<saved panel id>"` by default, or explicit `all_panels:true` instead.
 Ids are the readable slugs orgtree_apps answers with (`caption-board`,
 `caption-board-panel-1`); an app's or panel's older generic id also works, and
 the watchdog keeps the slug.
@@ -19,11 +19,11 @@ Org-modifying tools; creator identity grants nothing. One owner cannot
 register overlapping selectors for the same app/event. Pause/resume/remove,
 once, notice and explicit fire_actions retain their usual semantics. No regex
 or silence mode applies. `orgtree_apps action=listeners` lists connections;
-`action=fire_event` publishes from a retained copy without running its HTML.
+`action=fire_event` publishes from a retained panel without running its HTML.
 
 `list` returns an app_listener's `event_name` and its `panel` or `all_panels`,
 with the current `app_name` and `panel_name` read at each call, so a rename
-shows at once. `app_deleted` or `panel_deleted` marks a deleted app or copy; the
+shows at once. `app_deleted` or `panel_deleted` marks a deleted app or panel; the
 listener is then paused with a reason. The desktop shows the same (user
 2026-10-27): an armed chip shows ▦, and every chip's tooltip and the detail panel
 name the app, the panel or all panels, and the event, with IDs after the names.
@@ -38,7 +38,7 @@ agent's `fire_event` works at any time.
 
 Each accepted fire snapshots armed matching registrations. New or resumed dogs
 do not join earlier snapshots; delivery rechecks current live owner/tools and
-armed state. Removing an app, event or selected copy pauses its listeners with
+armed state. Removing an app, event or selected panel pauses its listeners with
 a reason; recreating a same-named app does not reconnect them. Declarations
 travel in imports/templates, subscriptions/actions do not. Authorized mail
 retains JSON/provenance with an app-content warning; diagnostics omit payload.
@@ -379,7 +379,7 @@ Events are pushed. Creation smoke reports current exact conditions where availab
 | `credits.changed` | Visible agent grant/free-credit changes. |
 | `project.dead_letter` | An ack-queue job ran out of attempts and became a dead letter (see [orgtree-tool-project](../../team/tool-project/SKILL.md)); only agents above or below the project see it. Payload: project, mail id, sender, attempts, last holder, reason. `pattern=<project>` narrows it to one project. |
 | `project.event` | A project's event was fired to its listeners (`orgtree_project action=fire_event`); only agents above or below the project see it. Payload: project, project_id, by, delivered count, has_message — never the message text. `pattern=<project>` narrows it to one project. |
-| `app.event` | Retired with panel links (user 2026-10-26): Orgtree no longer emits it, so a watcher on it never fires. Follow a saved copy with an `app_listener` watchdog for its declared events instead; read its data with Apps tools. |
+| `app.event` | Retired with panel links (user 2026-10-26): Orgtree no longer emits it, so a watcher on it never fires. Follow a saved panel with an `app_listener` watchdog for its declared events instead; read its data with Apps tools. |
 | `documents.created`, `documents.updated`, `documents.changed` | Presentation create/update/feed change, without document body. |
 | `audience.requested`, `audience.granted`, `audience.denied`, `audience.revoked` | Committed audience changes. |
 | `cli.started`, `cli.ready`, `cli.cold`, `cli.evicted` | Another visible agent's process/warmth transitions. |

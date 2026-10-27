@@ -39,12 +39,12 @@ replaces 0a47651). Never hide or cover it. See [identity hover](docs/rust-engine
 [decided: user 2026-10-26 "Never hide on hover"; 2026-10-27 names above nodes; verified: `canvas/farzoomname.tsx`; 2026-10-27]
 
 Apps derive org-internal capability/file defaults from origin policy; user Deny
-wins and survives agent code replacement. Agents create only closed copies and
+wins and survives agent code replacement. Agents create only closed panels and
 never show windows. See [custom apps](docs/rust-engine/custom-apps.md).
 [decided: user2026-10-26; verified: `domain/apps/{policy,storage,file_scopes}.rs`]
 
 App/panel mention context menus share Apps-list settings and confirmed deletion.
-An app's New panel creates a fresh closed/off copy through panel_open closed:true,
+An app's New panel creates a fresh closed/off panel through panel_open closed:true,
 the same insertion path agents use, without showing or running it. See
 [app mentions](docs/rust-engine/custom-apps.md#mentions-2026-10-27).
 [decided: user 2026-10-27; verified: `canvas/apps/links.ts`, `domain/apps/storage.rs`]
@@ -80,7 +80,7 @@ App files use native read grants, opaque per-panel references and bounded reads.
 Folder/computer scopes and separate write grants retain paths in native code;
 outside-org file changes need one-shot native confirmation; org changes do not. Agent writes also require
 live writable folder/edit scope. See the same file-access topic.
-Only the exact media GET route substitutes an asset ticket of the running copy
+Only the exact media GET route substitutes an asset ticket of the running panel
 for desktop authentication; no general engine credential enters HTML. Hide and
 session renewal keep links; revocation cancels active bodies. Agents require both app grants and their current folders.
 See the file-access section in [custom apps](docs/rust-engine/custom-apps.md).
@@ -92,10 +92,10 @@ are acknowledged, with orgtree_apps mark_seen parity. See
 App panels default to centered modals; the pin pins one to the window like a
 pinned desk, in the org pin layer (canvas pins were retired 2026-10-26; migration
 0069 floats old ones). Native Apps chrome uses
-the shared modal/settings kit. The app row opens its most recently used copy or creates
-one, + always creates, and new copies are named Panel N. App-row gears open
+the shared modal/settings kit. The app row opens its most recently used panel or creates
+one, + always creates, and new panels are named Panel N. App-row gears open
 app-wide settings (description above General/Permissions tabs); saved-panel and
-open-header gears open settings for that exact copy (the Agent settings Name row,
+open-header gears open settings for that exact panel (the Agent settings Name row,
 then General/State/Connections/Fire event/History tabs, no section headers),
 including closed panels
 without running HTML. See the same custom-app topic for placement, permission
@@ -109,7 +109,7 @@ refresh re-posts state.changed, so an app firing on it would loop.
 A visible app panel is always running; a hidden one need not be stopped (DB
 CHECK, migration 0067). Hide keeps the runtime; Power off and Stop all bump
 run_generation, which fences bridge sessions and desktop leases. Hidden running
-copies stay mounted and parked inside the viewport, never display:none or
+panels stay mounted and parked inside the viewport, never display:none or
 offscreen, because Chromium throttles such frames. See
 [custom apps](docs/rust-engine/custom-apps.md#background-panels-2026-10-26).
 [decided: user 2026-10-26; verified: `domain/apps/{runtime,storage,bridge}.rs`, `canvas/apps/ui.tsx`]
@@ -117,11 +117,11 @@ App events carry privacy across subscriber/overflow handoffs; authorized deliver
 keeps content while watchdog diagnostic output/history omit it.
 Hide refuses prompts but keeps the running session; power off and replacement
 discard prompts and authority, while grant edits use a separate revision from code. Portable version1 app bundles never carry grants/IDs/links or
-machine placement; imports get fresh closed copies and implicit local org authority.
+machine placement; imports get fresh closed panels and implicit local org authority.
 Bundle bounds, export files and import pinning are in [custom apps](docs/rust-engine/custom-apps.md#whole-app-portability-backend).
-Templates carry only inert app definitions/initial data; restore creates no copies
+Templates carry only inert app definitions/initial data; restore creates no panels
 or grants. Panel links and their app.event signals were removed (user
-2026-10-26); agents follow copies only through app_listener subscriptions.
+2026-10-26); agents follow panels only through app_listener subscriptions.
 See the same topic for cursor limits.
 [verified: `canvas/apps/actions.ts`, `canvas/apps/{host,permissions}.tsx`, `domain/apps/{bridge,files,storage,wire}.rs`; 2026-10-26]
 

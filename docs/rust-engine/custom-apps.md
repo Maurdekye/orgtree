@@ -13,7 +13,7 @@ markup, and exposes `orgtree.theme.get()` (frozen `{colorScheme, colors}`, camel
 names) and `orgtree.theme.onChange(fn)` (returns its stop function; a listener set of
 its own, so no app event name can collide). PanelHtml posts `{kind:'theme', theme, css}`
 on the panel's reply port once per handshake (host.ready; the frame's load follows it
-and posts no colors) and on each change while the copy runs, hidden included. The SDK
+and posts no colors) and on each change while the panel runs, hidden included. The SDK
 ignores colors it already has, else replaces the sheet and calls the listeners, so
 onChange runs only on a real change and a switch never reloads the panel. The theme
 code tolerates a missing `document` (tests run the SDK in a bare vm context). Colors
@@ -44,9 +44,9 @@ behavior changes.
 User rulings 2026-10-26 (forwarded in m904ca9fb891f, plus m74c6e82ee894, the
 answers m6ba7f81fde6c and the light ruling m5ff0338a79da):
 closing a panel's visual does not stop it; a visible panel is always running and
-a hidden one need not be stopped. Opening starts a copy, Start running (saved-row
+a hidden one need not be stopped. Opening starts a panel, Start running (saved-row
 context menu) starts it hidden, Power off (row and header) stops and hides it and
-Stop all powers off every app. Restart restores each copy as it was. Panels run
+Stop all powers off every app. Restart restores each panel as it was. Panels run
 only in the desktop app, including the tray, with no count cap. The window
 header's Hide is its far-right X, after Power off (USER2026-10-26 m02d3caf61db2,
 m4bff476c3659).
@@ -64,47 +64,47 @@ closed to the tray stays alive and keeps its panels running
 without the desktop app is backlogged.
 
 Migration 0067 adds is_running and run_generation (>0) with CHECK (NOT is_open
-OR is_running); copies open at migration become running. Panel metadata reports
+OR is_running); panels open at migration become running. Panel metadata reports
 running/run_generation and list kind:panels filters running. Under the existing
 app-then-panel locks: Open/Show sets both flags and bumps the generation only for
-a stopped copy, so showing a hidden copy reveals the same runtime. Hide
+a stopped panel, so showing a hidden panel reveals the same runtime. Hide
 (panel_update open:false) clears only is_open: it keeps host sessions and the
-copy's file and media links, so hidden media keeps playing, and ends only
+panel's file and media links, so hidden media keeps playing, and ends only
 pending file requests and changes; the desktop refuses its open prompts (see
-[links of a running copy](#links-of-a-running-copy-2026-10-26), which replaced
-"Hide ends playback"). panel_start runs any copy hidden (user
+[links of a running panel](#links-of-a-running-panel-2026-10-26), which replaced
+"Hide ends playback"). panel_start runs any panel hidden (user
 or agent; running is a no-op). panel_stop clears both, bumps the
 generation and revokes sessions, file links and the runtime lease. Both take an
 optional expected_rev, checked only when given: power changes carry no data, and a
-running copy's own state saves bump its revision faster than an agent can read and
+running panel's own state saves bump its revision faster than an agent can read and
 act (author decision, phase 1; not a user ruling). User duplicates
-open and run; agent-created/duplicated and imported copies stay closed and off.
+open and run; agent-created/duplicated and imported panels stay closed and off.
 Starts lock their app row, then refuse while the org killswitch is latched; Stop
-all locks every app row in ID order and powers off every copy with panel.stopped
+all locks every app row in ID order and powers off every panel with panel.stopped
 {reason:"stop all"}, so a racing start sees the latch or is stopped. Release
 starts nothing.
 
 Start/stop motion (USER 2026-10-27 m056a5c0bde3c: "a rapid zoom in / out", to
 tell starting and stopping from opening and closing): display only, no engine or
 tool change. usePanelMotion (canvas/apps/motion.ts) derives during render, from
-consecutive listings, which copies started (running and open now, not running
+consecutive listings, which panels started (running and open now, not running
 before) or stopped (running and open before, not running now). Starts zoom in;
 the first full listing (the store's `loaded`) restores and plays nothing. A
-stopped copy keeps rendering its last running snapshot for PANEL_MOTION_MS (CSS
+stopped panel keeps rendering its last running snapshot for PANEL_MOTION_MS (CSS
 in apps.css matches) at its previous list index, since a DOM move reloads a
 centred panel's iframe; PanelHtml's `stopping` releases its lease, bridge and
 prompts at once, and the window is inert. Reduced motion keeps only the fade.
 
-PROVISIONAL, not a user ruling: app_update restarts running copies with a new
+PROVISIONAL, not a user ruling: app_update restarts running panels with a new
 generation. Visible ones reload the new code as before; hidden ones power off
 with panel.stopped {reason:"code changed"} and stay off after a restart.
 
 Bridge sessions bind the execution generation (session_open takes an optional
 generation; absent binds the current one). The snapshot admits a running current
 generation of the bound code without a latch, replacing the open check. A hidden
-copy's consent request refuses with interaction_required before any Ask challenge,
+panel's consent request refuses with interaction_required before any Ask challenge,
 file grant or HTML file-change confirmation is recorded; agent file changes still
-wait under Pending changes. Agent scoped file calls need a running copy (formerly
+wait under Pending changes. Agent scoped file calls need a running panel (formerly
 an open one).
 
 domain/apps/runtime.rs holds desktop leases per org/panel: one window owner per
@@ -112,12 +112,12 @@ generation, 20 s, renewed by POST apps/runtime heartbeat (desktop root header,
 at most 4096 items). A heartbeat for a stopped/replaced generation
 or a duplicate window gets that panel back in stop. Reports carry on-demand CPU
 {cpu_percent, method: sampled CPU | shared process CPU}. orgtree_apps runtime
-pages running copies with status running, error or not hosted plus the last CPU
+pages running panels with status running, error or not hosted plus the last CPU
 report; sample:true emits custom_apps_sample and waits up to 3 s without holding
 a database client. Leases never survive an engine restart; saved intent does.
 The 4096 host-session bound stays a registry safety bound, not a panel cap.
 
-Desktop: AppsWorkspace mounts every running copy. A hidden one is parked at its
+Desktop: AppsWorkspace mounts every running panel. A hidden one is parked at its
 own size, fixed in the viewport, transparent, inert and under everything, because
 Chromium throttles cross-origin frames that are display:none, visibility:hidden or
 outside the viewport (measured: display:none and offscreen sandboxed frames got 0
@@ -137,18 +137,18 @@ is open or a tool asks. Chromium runs a window's sandboxed panel frames out of
 process, all in one renderer process (measured, Electron 44.2.0). Each frame root's
 own script time (CDP Performance ScriptDuration over about 1 s) is attributed
 through the owner iframe's data-orgtree-runtime attribute (DOM.getFrameOwner).
-Stack-sampling profiles cannot separate copies: copies of one app share compiled
-scripts in that process, and a concurrent profile charged 1 of 8 busy copies with
+Stack-sampling profiles cannot separate panels: panels of one app share compiled
+scripts in that process, and a concurrent profile charged 1 of 8 busy panels with
 everything (measured). Otherwise the cumulative CPU time of the processes hosting
 the window's frames is reported, labelled shared and never divided;
 getAppMetrics' percentCPUUsage is not used because it averages since whichever
 call came before. Dedicated workers are not attributed per panel.
 
 Measured 2026-10-26 (Session 0, a real 1024x768 window, Electron 44.2.0, 16
-logical processors): the panel process used 28-34 MB private memory for 1 copy and
-63-71 MB for 8 (each copy with a Dedicated Worker); a timer-driven loop doing 1 ms
-of work every 20 ms cost 5% of one core per copy (sampled 4.7-5.0%) and 40% for 8,
-the same with the window hidden. Idle copies with 100 ms timers sampled 0.02%
+logical processors): the panel process used 28-34 MB private memory for 1 panel and
+63-71 MB for 8 (each panel with a Dedicated Worker); a timer-driven loop doing 1 ms
+of work every 20 ms cost 5% of one core per panel (sampled 4.7-5.0%) and 40% for 8,
+the same with the window hidden. Idle panels with 100 ms timers sampled 0.02%
 each. Hidden native windows: throttling on gave 1 timer tick a second and no
 frames; throttling off gave 100 ticks and 60 frames a second for a plain page.
 
@@ -175,13 +175,13 @@ App-origin content still has no user instruction or approval authority.
 Agent panel_open with an app ID always creates a fresh CLOSED saved panel;
 panel-ID reopen and panel_update open:true refuse. Agent duplicates stay closed.
 The desktop may also request `panel_open {app, closed:true}` to make a fresh
-closed, powered-off copy through that same insertion path. It never reuses an
+closed, powered-off panel through that same insertion path. It never reuses an
 existing panel, passes the running-capacity gate or records panel.started.
 `closed` defaults to false, preserving desktop click/+ show-and-start behavior;
-`closed:true` with `panel` refuses instead of changing an existing copy.
-Placement edits may change a closed copy but cannot expose/move an already-open
+`closed:true` with `panel` refuses instead of changing an existing panel.
+Placement edits may change a closed panel but cannot expose/move an already-open
 window. Only user UI opens windows. State and events remain usable while
-closed. Agents may start any copy running hidden and power it off (panel_start,
+closed. Agents may start any panel running hidden and power it off (panel_start,
 panel_stop); starting never shows a window or grants a permission.
 
 Org-file create/replace/delete commits without per-change confirmation through
@@ -207,7 +207,7 @@ also protects read results and reflected refusals; ordinary tools retain normal
 diagnostics. Independent dispatch tasks establish their own private scope.
 
 `orgtree_apps fire_event` takes a saved `panel`, exact declared `name` and JSON
-`payload` (64 KiB). Agents publish with org-modifying tools; a closed copy is
+`payload` (64 KiB). Agents publish with org-modifying tools; a closed panel is
 valid. HTML uses its bound `events.fire` action with no recipient or caller
 selector. Migration0063 removes previous target-specific events.fire decisions;
 broadcast uses effective defaults/overrides. Definition replacement
@@ -242,14 +242,14 @@ at four. Mail uniqueness is event×listener; diagnostics contain metadata only.
 Authorized mail retains JSON and server-derived org/app/panel/event/time/producer
 provenance. App content is not user instruction or approval. `listeners` lists
 registrations in bounded pages. Each accepted fire also appends an `event.fired`
-row (`{event,id,subscribers}`, actor user/agent/app) to that copy's bounded panel
+row (`{event,id,subscribers}`, actor user/agent/app) to that panel's own bounded
 log inside the publishing transaction, after the app row lock, and the host does
 not relay the row into the app (USER2026-10-26 mc8711410a925, History tab).
 The row's `body` is the fire's data exactly as sent: `serde_json::to_string` of
 the received payload, which `preserve_order` keeps as the compact text received,
 key order included (USER 2026-10-27 mc308cabf3c5f "Save exactly" and "Agents see
 bodies", replacing 2026-10-26's metadata-only row; migration 0077). It lives as
-long as the row (256 per copy). The outbox's jsonb copy (newest 128 finished
+long as the row (256 per panel). The outbox's jsonb copy (newest 128 finished
 fires per app) is normalized and feeds delivery only. `events` returns `body` to
 the desktop and agents alike; `listener_fires` takes it from the History row by
 fire id (index `custom_panel_events_fire`). Either page holds at most 128 KiB of
@@ -261,13 +261,13 @@ prints them; the rest are null, shown as Not kept. Proof:
 By the user's2026-10-26 ruling, docket.write create/assign/wake remains the
 documented edge case that wakes a selected local agent without an app event.
 
-Native Panel settings shows the copy's History on its History tab: only event.fired,
+Native Panel settings shows the panel's History on its History tab: only event.fired,
 panel.started and panel.stopped rows (USER 2026-10-26 md6edfebc1975, "make it only
 for fired events agents can listen to and starting / stopping, dont record anything
 else"; answers mcbcd7b3cb6c0). Opening, showing or a user duplicate starting a
-stopped copy records panel.started {reason:"opened"}; Start running records it
+stopped panel records panel.started {reason:"opened"}; Start running records it
 without a reason; Power off, Stop all and code changes record panel.stopped. Opens of
-running copies, agent-created closed copies, label/placement changes and state
+running panels, agent-created closed panels, label/placement changes and state
 saves record nothing. The event action and orgtree.emit store kind message rows
 apart from History (answer "Keep, separate"); events lists History and
 messages:true lists messages. Each kind keeps its latest 256 rows and both advance
@@ -282,21 +282,29 @@ pages (events before) as the list's end scrolls into view, and on each live chan
 reads rows newer than its newest (events after), merged by seq; there is no Refresh
 button. events pages newest first: before walks back, after reads newer rows oldest
 first, both together are refused, and next_cursor continues the same way. Each writer
-of one copy's log holds a lock the others need before it inserts (the panel row or
+of one panel's log holds a lock the others need before it inserts (the panel row or
 the app row for update), so its seqs commit in order and an after cursor never skips
 a row. Live changes come from the org feed: custom_apps_changed, and
 custom_apps_history {panel}, which an app's own orgtree.events.fire emits after
 commit. That fire changes no Apps row, and the custom_apps_changed store refresh
 re-posts state.changed to running apps, so an app firing on state.changed would loop.
-Panel settings' Connections tab lists the copy's scoped subscriptions as a live
+Panel settings' Connections tab lists the panel's scoped subscriptions as a live
 list with no buttons (USER 2026-10-27 md11c3c790acf, "actually remove the refresh
 button, make new or disappearing links change in realtime as they're modified";
-m6ca9f88d5812 links; m8ced6e920f63 rows). A row is the agent's and the panel's
-mention links (RefChip through the shell's useShellRefs routes, which AppsWorkspace
-provides as AppsRefRoutes; this copy's link is labelled with the copy's own name, its
-app being the window's, and a subscription to every copy says All copies), the event
-name, and Paused, Notice and Once when they apply beside the fire count. A link in a
-centered settings window closes it first (closeIfCentred), as other windows do.
+m6ca9f88d5812 links; m8ced6e920f63 rows). A row is the agent's mention link (RefChip
+through the shell's useShellRefs routes, which AppsWorkspace provides as
+AppsRefRoutes), all panels for a subscription to every panel, the event name, and
+Paused, Notice and Once when they apply beside the fire count. Since alpha.7 a row
+names no panel: listeners(panel) returns only this panel's subscriptions and those
+to every panel, so the panel is implicit (USER mbb46eeca4b5d). The event is a
+button (m930f15583b2c): PanelSettings keeps a FireChoice {name, seq} and switches
+to Fire event, whose PanelFireEvent applies each new seq as its picker would
+(declared events only; an undeclared one leaves the choice alone) and focuses the
+picker. The row's watchdog is a WatchdogLink (mbf41fed391e2): App wraps
+AppsWorkspace in a DeskDogsProvider over the tree's dogs whose open hands the id
+to OrgCanvas as openDogAt, the same one-shot pointer as openDocAt. The agent and
+watchdog links in a centered settings window close it first (closeIfCentred), as
+other windows do.
 Every watchdog write announces Change::Watchdogs, and changes::notify then sends the
 org frame watchdogs_changed once per notify: the record feed skips an unchanged
 watchdogs group, which previews only 8 dogs per owner, so it cannot say this (the
@@ -311,10 +319,10 @@ watchdogs_changed. Only finished deliveries are listed: the dispatcher finishes 
 app's recipients in fire order, so an after cursor never skips one, and the app's
 newest 128 finished fires bound the read (joined through the app's fires, so no
 index or migration). A skipped delivery changes no watchdog and shows at the next
-change. Fire event fires explicitly from that saved copy and shows a refusal
+change. Fire event fires explicitly from that saved panel and shows a refusal
 (backpressure included) without automatic retries. Its tab (USER m58d8efef52d9,
 m46d1f8a8e39e) is the event and Fire on one line, the declared description, the
-data (empty sends {}), then that event's fires from the copy through events
+data (empty sends {}), then that event's fires from the panel through events
 name=<event>: History's event.fired rows whose payload names it (messages: that
 name), read no further than the 256 rows each kind keeps, so no index or
 migration. App settings has General, Events (the declared events, read-only,
@@ -335,14 +343,14 @@ The provisional catalog limit is64. Declarations contain no grants, listeners,
 recipients or fire actions. Old bundles without the field remain valid.
 
 Declarations alone create no listeners. Durable publication and effective
-broadcast permission use the separate explicit paths described above; the copy's
+broadcast permission use the separate explicit paths described above; the panel's
 History log remains separate. The user explicitly retains docket
 create/assign/wake as the direct-wake edge case without an app event
 (USER2026-10-26 m556cde76bd33).
 
 Source ruling: USER2026-10-25, custom panels headline. An org owns app definitions;
 each app has zero or more saved panels. Every panel owns an independent JSON
-object. Any live agent with org-modifying tools can operate on any copy in its
+object. Any live agent with org-modifying tools can operate on any panel in its
 current org. An app's author does not acquire user authority.
 
 ## File access (2026-10-26)
@@ -350,10 +358,10 @@ current org. An app's author does not acquire user authority.
 Migration0064 stores app/code-bound native read grants and panel-bound opaque
 references. Files are chosen in native Orgtree UI or opened from this org's
 scratch/uploads/retained-delivery catalog. Native paths never enter the iframe
-SDK or portable bundles. Once grants live in engine memory with the running copy;
+SDK or portable bundles. Once grants live in engine memory with the running panel;
 Always grants persist in PG. Ask/Deny overrides org defaults; grant revoke/code
 replacement clears external authority. Links outlive Hide, pop-out and host-session
-renewal (see [links of a running copy](#links-of-a-running-copy-2026-10-26)).
+renewal (see [links of a running panel](#links-of-a-running-panel-2026-10-26)).
 Imported/duplicated state cannot reuse a file id
 from another panel. Files settings live in App settings' Permissions tab.
 
@@ -366,10 +374,10 @@ artifacts means this org's retained deliveries, not a global output directory.
 
 Sandbox frames never receive desktop headers. Only exact GET apps/media bypasses
 the general header check and independently validates a64-hex asset ticket bound
-to the running copy (org/app/code/panel/execution generation) and its file
-grant. Each range revalidates, under the app gate, that the copy still runs with
+to the running panel (org/app/code/panel/execution generation) and its file
+grant. Each range revalidates, under the app gate, that the panel still runs with
 the same code and generation and still has file authority; active bodies end
-when the copy's links end. A copy keeps its64 newest tickets. CSP adds only the exact generated
+when the panel's links end. A panel keeps its64 newest tickets. CSP adds only the exact generated
 host media endpoint; connect stays none and other API paths remain blocked.
 Private-app logging omits ticket queries and file/stream data. Opened handles
 use the existing ancestor-pinned no-reparse IO. No PG handle/transaction spans
@@ -381,7 +389,7 @@ current Windows user, without elevation (its readable-data-plus-mail.send warnin
 with mail.send, USER 2026-10-26). A chosen folder covers descendants; links/reparse points are refused.
 Read and write remain separately overridable capabilities. Grant limits128/app,
 refs1024/panel, registry4096/class; prompts120s, host sessions30min (renewal
-keeps links); media tickets live with their running copy, 64 per copy.
+keeps links); media tickets live with their running panel, 64 per panel.
 
 files.grant(scope,mode) requests native consent for orgtree/folder/computer and
 read/write. It returns opaque directory roots; persist these in that panel's
@@ -418,7 +426,7 @@ Agents get a pending confirmation ID and can read their own one-shot result for
 120s after a decision. They never choose roots, grant permission or confirm a
 change. All callbacks recheck the saved panel/code/grant and live caller scope.
 
-## Links of a running copy (2026-10-26)
+## Links of a running panel (2026-10-26)
 
 USER 2026-10-26 22:09Z mf7add4fda093 "yes please", via @coordinator-opus
 me5464e3d35c4 and @liaison-opus m5bc999edb0cc. The user rejected an SDK notice event
@@ -428,8 +436,8 @@ replaces "Hide ends playback" and "Closing/hiding ends host links". [decided:
 user 2026-10-26]
 
 An app's file and media links (Once grants and Once references, media tickets)
-belong to the running copy: its panel, code revision and execution generation,
-not the host session that asked for them. Any host of that copy can use them; agents
+belong to the running panel: its panel ID, code revision and execution generation,
+not the host session that asked for them. Any host of that panel can use them; agents
 never see Once links.
 
 | Event | Links |
@@ -445,9 +453,9 @@ Ended links refuse at once, and active media bodies stop. Hide and a closed,
 expired or renewed session end pending file requests and changes, because those
 are questions for one host. A permission change is judged on effective access
 (`policy::org_allowed`) before and after; Deny always ends links, since it also
-overrides Once grants. Each media range revalidates the copy (running, same
+overrides Once grants. Each media range revalidates the panel (running, same
 generation and code) and its file authority under the app gate. A ticket no longer
-expires with its session; a copy keeps its64 newest, and a newer one ends the
+expires with its session; a panel keeps its64 newest, and a newer one ends the
 oldest. [verified: `domain/apps/{file_access,file_scopes,bridge,storage}.rs`,
 `http/{app_files,media_file}.rs`]
 
@@ -490,7 +498,7 @@ Shape:
 - Agents: permission_set from a caller may only set net.fetch (capability or a
   site) to ask or deny, and may not replace a stored deny. Allow, default and
   every other capability stay the user's.
-- Prompt (visible copies only; a hidden copy gets interaction_required): method,
+- Prompt (visible panels only; a hidden panel gets interaction_required): method,
   URL and the row name, never headers or body. Deny stores a site Deny and aborts
   the app's requests in flight; Always allow stores a site Allow; Allow once is
   held in engine memory for (panel, run generation, site) and ends on hide,
@@ -571,7 +579,7 @@ identifiers as well". Migration 0075 (`0075_app_panel_slugs.sql`):
   suffixed the same way; one with nothing left after the cleanup RAISEs. A
   CHECK keeps every id in the slug alphabet. No code makes `uid("app")` or
   `uid("panel")` ids any more (`migrate/app_slug_tests.rs` guards it).
-- `slug` on app_create and panel_open (a new copy only; it makes a new copy
+- `slug` on app_create and panel_open (a new panel only; it makes a new panel
   when given) is read by orgtree_present's own `docs::requested_slug`: blank
   is none, non-text and no ASCII letter or digit refuse; `wire::parse` refuses
   it on anything but a creation.
@@ -609,7 +617,7 @@ departures provisional for the user.
   (store `onAppsInvalidated`), keeping the old answer on screen meanwhile. Only
   an answered read makes a target `absent`; a failed read stays `pending` and is
   not retried for 10 s. `refs` returns an app's name and the label of its most
-  recently used copy (`custom_panels_app_recent`), a panel's label, app, app name
+  recently used panel (`custom_panels_app_recent`), a panel's label, app, app name
   and run state; never HTML, state, permissions or tokens; IDs not in this org
   are left out.
 - Chips: an app shows its name; a panel shows `<app name> · <panel label>`
@@ -624,13 +632,13 @@ departures provisional for the user.
     existing revision-checked app_delete/panel_delete. Panel power actions stay.
     [decided: user 2026-10-27 mda7854f1f89b]
   - App menus also offer New panel (user 2026-10-27 m66a42e7ae38a):
-    `panel_open {app, closed:true}` creates a fresh off/closed copy, with no
+    `panel_open {app, closed:true}` creates a fresh off/closed panel, with no
     show/start/stop. The Apps-list app row shares that menu. Agent parity is
-    existing panel_open with app, whose copies are already closed/off.
+    existing panel_open with app, whose panels are already closed/off.
   Deleted and other-org targets are the existing inert chip (departure a).
 - Click: `openAppRef` calls the Apps rows' own `openAppPanel` (bring-to-front,
-  @tutorial-opus): `{app}` lets the engine pick the most recently used copy or
-  create one, `{panel}` opens that copy and starts it if off. Refusals go to the
+  @tutorial-opus): `{app}` lets the engine pick the most recently used panel or
+  create one, `{panel}` opens that panel and starts it if off. Refusals go to the
   apps error banner. Every `useRefRoutes` world and the docket's own world handle
   `app`/`panel`. Agents still never show a window.
 - Agent parity: every app and panel result of the Apps request (agent tool and
@@ -660,7 +668,7 @@ on integ adaab07):
 - `tools/rig/proofs/app-mentions.mjs` 14/14 on the real engine and isolated PG,
   with the Session 0 window: the mail's chips show the current names with their
   marks and the Apps rows' hover text; clicking the app shows its most recently
-  used (hidden) copy, and clicking the panel starts and opens the stopped one.
+  used (hidden) panel, and clicking the panel starts and opens the stopped one.
 - Renderer focused set 273/275; the two failures (contextmenu §B3c, §B3d) are
   identical at base b0ea3a1. The new tests fail 10/11 against the base grammar,
   resolver and chip sources (the eleventh reads only styles.css).
@@ -674,7 +682,7 @@ Migration0058 creates org-scoped custom_apps, custom_panels and a bounded panel
 event stream. Composite foreign keys prohibit cross-org panel/app references.
 Code and state are separate columns: paged catalog queries exclude both. Closing
 sets open=false; it does not delete a panel. Explicit panel deletion removes its
-events. App deletion refuses saved copies unless delete_panels=true.
+events. App deletion refuses saved panels unless delete_panels=true.
 
 The authenticated user route is POST /api/orgs/{slug}/apps; orgtree_apps is the
 agent parity route. Both parse the same deny-unknown-fields request vocabulary.
@@ -713,10 +721,10 @@ kind; oldest_retained makes truncation explicit.
 ## Provisional defaults for morning review
 
 The app row opens its most recently used panel by explicit panel ID, wherever
-the list shows it (the copy panel_open with only the app would pick: used_at,
+the list shows it (the panel that panel_open with only the app would pick: used_at,
 then ID), or sends panel_open with only the app when it lists none, so the
 engine creates the first; its + sends new=true and always creates another.
-USER2026-10-26 m0d853b77c816 named the first listed copy, which was the most
+USER2026-10-26 m0d853b77c816 named the first listed panel, which was the most
 recently used; since panels now list in creation order, @coordinator-opus
 2026-10-26 keeps the most recently used one (provisional). A row whose panel is
 open and visible first brings it to the front (USER 2026-10-27 mffd8da23dc8f): a
@@ -727,7 +735,7 @@ panels, which take .custom-app-behind (z 29, 39 on mobile) and stop answering Es
 one and Tab enters its content. The click still sends only
 panel_open, the use, so used_at and the app row follow it. Rows go through
 openAppPanel(slug, {panel} or {app}) in `canvas/apps/ui.tsx`, the one entry point
-mentions reuse; for an app it raises the engine's pick only if that copy was
+mentions reuse; for an app it raises the engine's pick only if that panel was
 already visible. A new panel without an explicit label is
 named "Panel N", the app's lowest unused positive number among exact automatic
 labels, chosen under the app row lock (USER me02e165c08fe;
@@ -741,7 +749,7 @@ never move a row (USER 2026-10-26 mf87be90ee3c8, m1e0117740c5f "newest first",
 "Fixed order"). Its header right-aligns Import app in place of the removed
 Refresh button, and once the menu has been opened `refreshApps` (on
 `custom_apps_changed`) refreshes the saved-panel listing as well as running
-copies so creates, imports, renames, power changes and deletes from any source
+panels so creates, imports, renames, power changes and deletes from any source
 appear live (USER 2026-10-27 m4dcfc15be8e3, mcc0591ec051b). Refresh retains the
 number of pages explicitly loaded and follows each response's current cursor;
 replaying old cursor values would skip rows when an insertion shifts a page.
@@ -755,7 +763,7 @@ only when a new panel is created. The focused apps-new real-PG proof covers this
 
 The signed centered-modal rule supersedes the original fixed floating default:
 placement float renders a viewport-centered overlay (stored x/y are unused in
-that mode). The header pin pins the copy to the window like a pinned desk (USER
+that mode). The header pin pins the panel to the window like a pinned desk (USER
 2026-10-26 m5bf326d39c4b, "i meant pin it to the window like other pinned
 panels"): mode window stores the panel's current on-screen box as x/y pixels from
 the org canvas area's top-left plus width/height. A window pin renders in the
@@ -771,7 +779,7 @@ Apps store never replaces a panel with an older revision of itself (same
 undo it. Proof: `tests/customapps-pinrelease.test.tsx` and the per-frame capture
 `tools/rig/pinrelease-visual.mjs`. Unpin returns to float;
 the pin is hidden in a pop-out, and native pop-outs keep the existing
-saved-window lifecycle. A popout copy goes back to its own window whenever it
+saved-window lifecycle. A popout panel goes back to its own window whenever it
 shows (USER 2026-10-27 m1a23cd457070, "if i shut down a popped panel and reopen
 it, it doesnt appear as popped out, and is undraggable"): Power off keeps mode
 popout and the surface's unmount closes its saved window row, keeping the rect.
@@ -779,8 +787,8 @@ PanelWindow passes MovableSurface `windowed`, whose layout effect opens a
 visible, docked surface before the first paint, at that row's rect (only an
 explicit restore reads a closed row) or exactly over its docked box when there
 is no row; a failed open redocks once, as any failed pop-out. Without its window
-the copy renders at the placement Return restores (this session), else float.
-Before, a docked popout copy was a box fixed at its record's x/y, neither
+the panel renders at the placement Return restores (this session), else float.
+Before, a docked popout panel was a box fixed at its record's x/y, neither
 centered nor a window pin: no drag rect and an unlit pin (m4691725be7a7).
 Reopening into its window writes nothing. useRestoreWindows starts allowed for
 a bridge that has already said restoring is on (main only ever turns it on), so
@@ -802,7 +810,7 @@ above the tab row, export/delete in its General tab with no section header or
 creator row (USER2026-10-26 m7d07ebe438b4, mc6d6096f5206) and the embedded
 AppPermissions in a second Permissions tab (USER2026-10-26 m1fcbeca9488e): Files grants, pending
 changes and events.fire allow/deny. Panel-row and open-header gears open
-PanelSettings bound to one explicit panel ID, including closed copies; no MRU
+PanelSettings bound to one explicit panel ID, including closed panels; no MRU
 selection, HTML startup or app actions. Its Name row reuses the Agent settings
 rename row (USER md4315f720ecc): panel_update label on Rename, which shows once the
 text differs, then the app toast (ObjectMenuBoundary's CopyFeedback) and close; no
@@ -810,9 +818,9 @@ Enter submit, and refusals toast the engine's message. Its General tab keeps
 duplicate/delete and its State tab (USER m1d9d1f971c9a) the JSON editor (panel_get,
 revision-checked state_set, Reload), all on their existing tool calls, with no section
 header (USER m5e1010314d2c). Connections and Fire event have their own tabs (USER
-meb312360e19f) and History comes last (USER m547bae9b0585); it holds the copy's
+meb312360e19f) and History comes last (USER m547bae9b0585); it holds the panel's
 log (USER mc8711410a925), merged from the former Activity view. All three stay
-per-copy, no tab repeats its name as a section header, and History follows the
+per-panel, no tab repeats its name as a section header, and History follows the
 live change feed (no Refresh button or remount after a fire). Delete panel/app confirmations are compact content-sized
 AppDialogs (custom-app-confirm, USER mf913dbdf1494). Linked agents (USER
 m66c0f064351c) and placement (USER m79ee175a5283, m5fca61662c5b) left settings;
@@ -837,7 +845,7 @@ category. orgtree.logo scope requests resolve to the canonical orgmod grant.
 
 Other provisional choices retained for the next slices: per-app default/Ask/Allow/Deny
 outside HTML, exact-request Allow once, no network/no same-origin, suspend hidden
-scripts (superseded 2026-10-26: running copies keep running hidden, see Background
+scripts (superseded 2026-10-26: running panels keep running hidden, see Background
 panels), optional accumulated state in export, no portable execution grants,
 and template definitions/initial state only.
 Mail identity and creator-retirement policy remain morning questions; no default
@@ -846,7 +854,7 @@ may silently turn an agent panel into general user authority.
 ## Apps host milestone
 
 Migration0059 adds a panel event high-water mark and an open-panel partial index.
-The active workspace pages open:true; historical saved copies are fetched only
+The active workspace pages open:true; historical saved panels are fetched only
 when the menu is opened. GET /api/orgs/{slug}/apps?request=<JSON> whitelists list,
 app_get, panel_get and events; mutations remain POST. The renderer uses dedicated
 custom_apps_changed invalidation, not the generic live-bump loop on every edit.
@@ -854,8 +862,8 @@ custom_apps_changed invalidation, not the generic live-bump loop on every edit.
 AppsButton/AppsWorkspace own one org menu and stable per-panel MovableSurfaces.
 Window pins join the org pin layer, not the chart, so they add no chart nodes
 and never change tree layout; the canvas wheel ignores a panel's frame and title
-bar. A hidden running copy is parked (Background panels).
-Panel state, not renderer geometry globals, persists placements and open copies.
+bar. A hidden running panel is parked (Background panels).
+Panel state, not renderer geometry globals, persists placements and open panels.
 
 PanelHtml uses sandbox=allow-scripts (no same-origin), an opaque-origin exact-frame
 message check, a per-mount random channel and a restrictive prefixed CSP.
@@ -879,8 +887,8 @@ JSON, not strings only. State patch follows RFC7396; null removes keys. The host
 does not replay retained messages on opening. It reads new messages (events
 messages:true) after that panel's initial event_seq and forwards each to on();
 History rows never reach the app. Until 2026-10-26 hidden/closed
-frame scripts were discarded; a hidden running copy now keeps its scripts and
-timers (Background panels). A powered-off copy reconstructs from committed state.
+frame scripts were discarded; a hidden running panel now keeps its scripts and
+timers (Background panels). A powered-off panel reconstructs from committed state.
 
 ## Permission-checked backend bridge milestone
 
@@ -892,7 +900,7 @@ Sessions are bound to org, panel and app code revision, expire after30 minutes,
 and revoke on host close, power off (panel close until 2026-10-26), panel delete
 and app code replacement/delete.
 A closed, expired or renewed session ends only its own open questions; its
-copy's file and media links stay (since 2026-10-26, [links of a running copy](#links-of-a-running-copy-2026-10-26)).
+panel's file and media links stay (since 2026-10-26, [links of a running panel](#links-of-a-running-panel-2026-10-26)).
 No session survives engine restart. The registry holds at most4096 sessions.
 
 Local org policy derives defaults; explicit stored choices override them. A Call validates a strict
@@ -902,7 +910,7 @@ per-app async gate. Permission, code and panel mutations acquire that same gate
 BEFORE agent/database locks. The gate remains held through dispatch; no database
 client is held while another domain service acquires its own. Weak gate entries
 are pruned rather than growing with inactive app history. Per-app action rate is
-provisionally60 dispatch attempts/minute across all its copies. One admission
+provisionally60 dispatch attempts/minute across all its panels. One admission
 point covers direct Allow and successful Once/Always decisions immediately before
 dispatch. Ask/Cancel/Deny do not execute. Rate history survives the last session
 and weak gate; only inactive histories past the full60s window are pruned.
@@ -990,14 +998,14 @@ instruction/approval authority. The user explicitly retains this direct-wake edg
 ## Whole-app portability backend
 
 Provisional version1 `.orgtree-app` JSON carries format/version, a strict
-Definition and optional `{label,state}` copies. Limits:16MiB serialized bundle,
-16 copies, existing4MiB HTML/2MiB state/depth bounds. Imports validate before DB
-access, generate new IDs, derive local org authority without portable grants, and create copies closed
+Definition and optional `{label,state}` panels. Limits:16MiB serialized bundle,
+16 panels, existing4MiB HTML/2MiB state/depth bounds. Imports validate before DB
+access, generate new IDs, derive local org authority without portable grants, and create panels closed
 with default placement. Neither script execution nor host creation happens on
 import. No runtime IDs, grants, sessions, geometry or credentials travel.
 
 Export takes expected_rev and the app row lock shared by all panel writers,
-giving one app/copy snapshot. It refuses more than16 selected copies rather than
+giving one app/panel snapshot. It refuses more than16 selected panels rather than
 silently truncating; definition-only export is still available. Import is atomic.
 HTTP uses strict app_import/app_export requests. Agent tools share that service,
 adding import path or export as_file (defaulttrue) adapters with fresh live/orgmod
@@ -1013,7 +1021,7 @@ components. Imports stay within held roots, bounded by both file metadata and
 actual bytes. Exports create_new only in the agent's existing private scratch,
 returning path/bytes/SHA256; no DB connection or lock spans file IO. Native Apps-menu
 file selection shows a plaintext preview before app_import (labelled name, any
-description, the outside-file consent note and the saved-copy count; no declared
+description, the outside-file consent note and the saved-panel count; no declared
 capabilities, which add nothing to an imported app's org authority);
 it mounts no imported HTML. Manage app exports through the same app_export route
 with an unchecked-by-default saved-data option and an owning-document file anchor.
@@ -1025,7 +1033,7 @@ These defaults await morning review.
 ## Templates and the retired panel links
 
 Provisional Save as template carries strict app definitions/initial state only,
-within its existing16MiB total file bound. It does not query saved copies,
+within its existing16MiB total file bound. It does not query saved panels,
 permissions or runtime IDs. Template App has opaque Debug and generic
 validation errors, including when a logged template service returns it. The
 new-org transaction inserts fresh implicit-org-authority definitions atomically alongside
@@ -1058,7 +1066,7 @@ coverage alone is not an end-to-end privacy claim.
 
 USER m7d208a00e16a requested an event-data template and chose "Last fire only"
 (md8a919fdb119). The Fire event editor reuses the latest body from the existing
-per-event history read for this copy, laid out as editable JSON. A never-fired
+per-event history read for this panel, laid out as editable JSON. A never-fired
 event, or a latest body that was not kept, leaves the original empty placeholder.
 Untouched templates follow newer fires and event choices; typing or clearing
 the editor protects that draft for the rest of the mounted tab. Older pages and
@@ -1099,7 +1107,7 @@ close reply ports and sessions, and close a delayed session_open result before i
 can dispatch. Since 2026-10-26 Hide only refuses open prompts (interaction_required)
 and keeps the session.
 Permission edits use their separate revision and do not reload code. Native
-Permissions saves Ask/Allow/Deny immediately for all copies. Real-PostgreSQL
+Permissions saves Ask/Allow/Deny immediately for all panels. Real-PostgreSQL
 persistence and capability execution/refusals remain part of the proof before alpha.
 
 The provisional queue also caps pending recipient deliveries at8,192 per app;

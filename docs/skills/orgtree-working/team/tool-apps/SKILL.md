@@ -7,20 +7,20 @@ Up: [orgtree-team](../SKILL.md)
 # orgtree_apps
 
 `fire_event panel=<ID> name=<declared name> payload=<JSON>` publishes a durable
-named event with server-derived producer identity. Closed saved copies work.
+named event with server-derived producer identity. Closed saved panels work.
 `listeners app=<ID> panel=<optional ID> after=<cursor> limit=1..200` lists active
 and paused subscriptions. `listener_fires app=<ID> listener=<owner/id>
 before|after=<seq> limit=1..200` reads one listed subscription's delivered fires,
-newest first, as the user's Connections tab shows them: time, event, copy, who
+newest first, as the user's Connections tab shows them: time, event, panel, who
 fired it, whether it was delivered or delivered as a notice, and `body`. Agent subscriptions use orgtree_watchdog app_listener;
 panel links were removed (user 2026-10-26). This differs from `event`/`events`,
-the copy's History log. Each accepted fire adds an `event.fired` History row with
+the panel's History log. Each accepted fire adds an `event.fired` History row with
 its event name, ID and subscriber count in `payload`, and in `body` its data exactly
 as it was sent: the compact JSON text Orgtree received, key order kept, as a string,
 kept as long as the row (user 2026-10-27). `body` is null for other rows, and for a
 fire from before 4.5.0 that Orgtree no longer holds. An `events` or `listener_fires`
 page carries at most 128 KiB of bodies (always its first row); next_cursor continues.
-Payload limit64KiB, shared60/minute admission across copies, at most128 pending
+Payload limit64KiB, shared60/minute admission across panels, at most128 pending
 fires and4096 registrations per app (provisional). Backpressure refuses before
 acceptance; zero subscribers succeeds. HTML cannot select a recipient or caller.
 Native events.fire uses implicit org authority unless a user override restricts it.
@@ -44,24 +44,24 @@ app for the user, do these in order:
    you, and HTML that calls `orgtree.events.fire(name, payload)` when the user
    does what that event reports (for example, presses Submit).
 2. panel_open with the new app's id and a label. This creates the user's panel, a
-   closed saved copy; keep its id. Only the user opens windows.
+   closed saved panel; keep its id. Only the user opens windows.
 3. orgtree_watchdog `action:"create"` with `kind:"app_listener"`, `target` the
    app's id, `panel` that panel's id and `event_name` a declared event: one listener
    for each event you need. Listen to that panel, not `all_panels:true`, which
-   also hears every other and later copy of the app.
+   also hears every other and later panel of the app.
 4. Mention the panel to the user using its returned `ref`,
    `@panel:<org>/<slug>` (see Mentions), as plain text. They get a clickable
-   link to explicitly visit that panel; clicking it opens the saved copy, as
+   link to explicitly visit that panel; clicking it opens the saved panel, as
    does its row in Apps.
 
 Example: a caption placement editor declares `placements.submitted` ("The
-complete caption-placement JSON from this saved copy") and fires it when the
+complete caption-placement JSON from this saved panel") and fires it when the
 user presses Submit. Its agent creates the app, creates one panel labelled
 Captions, arms an app_listener on that panel for `placements.submitted`, then
 mentions the panel to the user so they can open it.
 Each Submit then wakes the agent with watchdog mail carrying the placements, as
 app data rather than instructions. The listener hears only its own panel: a
-copy the user makes later needs a listener of its own.
+panel the user makes later needs a listener of its own.
 
 Style the HTML with Orgtree's theme colors (see Theme colors) so the panel matches
 the user's visual theme and contrast color, unless the app's own look is the point,
@@ -78,7 +78,7 @@ gets `app` or `panel`. An id never changes once made, not even when the app or
 panel is renamed.
 
 Ask for one with `slug` on app_create, or on panel_open (which then makes a
-new copy). The slug is cleaned the same way and suffixed when taken. **Whenever
+new panel). The slug is cleaned the same way and suffixed when taken. **Whenever
 the name is not in English, pass a short English slug** (for example
 `slug:"caption-board"` for an app named "לוח כתוביות"): the name can be in any
 language, the id should say what the app is to anyone who reads it. A slug
@@ -96,14 +96,14 @@ or `@panel:<org>/<slug>` (user 2026-10-27), with the slug as the id. Write it as
 backticks, in mail, chat, presented documents or docket text to point the user at
 it. The user's chip shows the app's current name, or for a panel its app's name
 and its label, with the app's icon on the left, and opens it the way its Apps menu
-row does: an app mention opens the most recently used copy (or creates one), a
-panel mention opens that copy, starting it if it was off, and a copy already on
+row does: an app mention opens the most recently used panel (or creates one), a
+panel mention opens that panel, starting it if it was off, and a panel already on
 screen comes to the front. The hover text and right-click menu are its row's:
-Settings opens App settings or that copy's Panel settings, and Delete… opens the
+Settings opens App settings or that panel's Panel settings, and Delete… opens the
 existing delete confirmation. A panel also offers Start running or Power off.
-An app's New panel creates a fresh closed, powered-off saved copy without showing
+An app's New panel creates a fresh closed, powered-off saved panel without showing
 or running it, including from its Apps-list row. Agent tool parity is the existing
-panel_open with app, which already creates that closed/off copy.
+panel_open with app, which already creates that closed/off panel.
 Settings entry points are display only; the existing app_get/panel_get,
 app_update/panel_update/state actions and app_delete/panel_delete provide tool
 parity with their ordinary revision and permission checks. A deleted or other-org target shows the token marked unavailable or other
@@ -113,8 +113,8 @@ org. A mention opens nothing by itself: only the user's click shows a window.
 
 User 2026-10-26: a visible panel is always running; a hidden one need not be
 stopped. Hiding (panel_update open:false, or the window's Hide, X, Escape or
-backdrop) keeps the copy running with its timers, messages, async work,
-Dedicated Workers and file and media links at full speed. requestAnimationFrame runs only while the copy
+backdrop) keeps the panel running with its timers, messages, async work,
+Dedicated Workers and file and media links at full speed. requestAnimationFrame runs only while the panel
 shows (a parked frame gets animation frames only when its window repaints, and
 none while the window is hidden), so app loops should tick from setTimeout,
 setInterval or a MessageChannel, reconcile elapsed time with performance.now() and
@@ -122,41 +122,41 @@ draw in animation frames. Panels are the user's custom views, not background
 programs (user 2026-10-27), so they run only while Orgtree is open, tray
 included. When Orgtree quits nothing runs them:
 runtime reports not hosted and they fire no events of their own. Restart
-restores each copy as it was (running hidden, visible in its placement, or off).
+restores each panel as it was (running hidden, visible in its placement, or off).
 There is no count cap.
 
 - panel_start needs panel; expected_rev is optional and refuses only when given
-  and stale, because a running copy's own state saves keep bumping its revision.
-  It runs any copy hidden, for the user or any agent with Apps tools, never shows
-  a window and grants nothing. An already running copy is unchanged. History
+  and stale, because a running panel's own state saves keep bumping its revision.
+  It runs any panel hidden, for the user or any agent with Apps tools, never shows
+  a window and grants nothing. An already running panel is unchanged. History
   records panel.started.
-- panel_stop needs panel, with the same optional expected_rev. It powers the copy off and hides it, ending
+- panel_stop needs panel, with the same optional expected_rev. It powers the panel off and hides it, ending
   its host session, Once file links, playback, prompts and workers. History
   records panel.stopped. Saved state and placement stay.
-- runtime pages running copies: after (previous next_cursor), limit 1-200
+- runtime pages running panels: after (previous next_cursor), limit 1-200
   (default 100), sample (default false). Each item has panel, app, app_name,
   label, visible, run_generation and status: running, error (with error) or not
   hosted (no desktop window runs it now, for example the desktop app is closed).
   cpu_percent is the last sampled CPU (100 = one core; null until sampled) with
-  measured_at; cpu_method is sampled CPU (that copy's own script time over about
+  measured_at; cpu_method is sampled CPU (that panel's own script time over about
   1 s; its Dedicated Workers are not included) or shared process CPU (the
-  renderer processes hosting the window's panels, shared by their copies and
+  renderer processes hosting the window's panels, shared by those panels and
   never divided). sample:true asks the desktop for a fresh reading and waits up to
-  3 s; sampled is then true when every hosted copy on the page answered in time
+  3 s; sampled is then true when every hosted panel on the page answered in time
   (null without sample).
 - list kind:panels accepts running:true|false as well as open.
 
-Stop all (the org killswitch) powers off every panel, hidden copies included.
+Stop all (the org killswitch) powers off every panel, hidden panels included.
 While it is latched, opening, showing and starting refuse and app actions refuse;
-releasing it starts nothing. A hidden copy never opens a native prompt: an action
+releasing it starts nothing. A hidden panel never opens a native prompt: an action
 or file request that needs consent fails with interaction_required, and the user
 answers after showing the panel. PROVISIONAL, not a user ruling: replacing an
-app's code reloads its visible copies and powers off its hidden running ones
+app's code reloads its visible panels and powers off its hidden running ones
 (panel.stopped, reason code changed), which stay off after a restart.
 
 UI parity: Start running (saved-row context menu) is panel_start; Power off (row
 button and the window's Power off) is panel_stop; Hide is panel_update open:false;
-the running rows' state dot and CPU are runtime. Opening a copy remains user-only.
+the running rows' state dot and CPU are runtime. Opening a panel remains user-only.
 
 ## Org access and agent window boundary
 
@@ -177,9 +177,9 @@ App-origin content still has no user instruction or approval authority.
 
 Agent panel_open with an app ID always creates a fresh CLOSED saved panel;
 panel-ID reopen and panel_update open:true refuse. Agent duplicates stay closed.
-Placement edits may change a closed copy but cannot expose/move an already-open
+Placement edits may change a closed panel but cannot expose/move an already-open
 window. Only user UI opens windows. State and events remain usable while
-closed. Agents may start any copy running hidden and power it off (panel_start,
+closed. Agents may start any panel running hidden and power it off (panel_start,
 panel_stop); starting never shows a window or grants a permission.
 
 Org-file create/replace/delete commits without per-change confirmation through
@@ -190,7 +190,7 @@ Direct agent file tools also require current org-modifying tools, held folders
 and edit/RW scope for writes. App defaults never expand the caller's folders.
 Retained artifacts means exact catalog entries, not their parent directories.
 
-## Definitions and saved copies
+## Definitions and saved panels
 
 `definition.events` optionally declares up to64 named events as
 `{name,description?}`. Names are exact and unique,1–80 characters without
@@ -201,7 +201,7 @@ identity, listeners or fire actions. Omitted events means an empty catalog.
 Publication uses fire_event and explicit app_listener subscriptions as described
 above; declarations alone never authorize a broadcast or change panel activity.
 
-- list defaults to kind:apps. Use kind:panels and optional app to list copies.
+- list defaults to kind:apps. Use kind:panels and optional app to list panels.
   limit defaults100, maximum200; after takes the previous next_cursor string.
   Lists omit executable HTML and saved JSON state.
 - App and panel metadata include created_at. List pages stay in ID order; the
@@ -220,34 +220,34 @@ above; declarations alone never authorize a broadcast or change panel activity.
   expected_rev. Entry HTML is self-contained and bounded at4MiB. App code replacement
   revokes external grants/sessions and preserves restrictive Ask/Deny overrides.
   initial_state is an object up to2MiB, copied into the first/new:true panel.
-  An app_update changing it affects only future copies, not existing state.
+  An app_update changing it affects only future panels, not existing state.
 - app_delete needs app/expected_rev; existing panels refuse unless delete_panels:true.
-- Agent panel_open needs app and creates a fresh closed saved copy, even without
+- Agent panel_open needs app and creates a fresh closed saved panel, even without
   new:true. A panel ID refuses; only user UI opens/reuses windows. Optional label
-  names the new copy; the default is "Panel N", the app's lowest unused number. Agent panel_duplicate also creates a closed copy.
+  names the new panel; the default is "Panel N", the app's lowest unused number. Agent panel_duplicate also creates a closed panel.
 - panel_get needs panel and includes its state. panel_update needs panel and
   expected_rev; optional label, open or placement. linked_agents refuses: links
   were removed (user 2026-10-26). Agents cannot
-  set open:true or place an already-open copy. open:false hides the
-  window without deleting; a running copy keeps running. panel_duplicate and panel_delete need panel/expected_rev.
+  set open:true or place an already-open panel. open:false hides the
+  window without deleting; a running panel keeps running. panel_duplicate and panel_delete need panel/expected_rev.
 
 UI parity: app-row gear opens App settings (the description above General,
 Events, Permissions and Permission history tabs; Events shows the definition's
-events, as app_get returns them). Panel-row/header gears open Panel settings for that exact copy,
-including closed copies (a Name row, then General, State, Connections, Fire event and
+events, as app_get returns them). Panel-row/header gears open Panel settings for that exact panel,
+including closed panels (a Name row, then General, State, Connections, Fire event and
 History tabs). These are native settings, not app HTML. Each row uses the
 lifecycle/state/permission/export action above: the Name row's Rename is
 panel_update label, State uses panel_get and state_set, Connections uses listeners,
-Fire event uses fire_event and events with name, and History uses events. Showing settings/choosing a copy is read-only. The app
-row opens its most recently used copy by panel ID, or panel_open with only app when none
-is listed; its + is panel_open new:true. A row whose copy is already open and visible
+Fire event uses fire_event and events with name, and History uses events. Showing settings/choosing a panel is read-only. The app
+row opens its most recently used panel by panel ID, or panel_open with only app when none
+is listed; its + is panel_open new:true. A row whose panel is already open and visible
 first brings that window to the front and focuses it, then sends the same panel_open;
 the raise is display-only, and agents have no equivalent because only user UI opens or
 shows windows (agent panel_open with a panel ID refuses). Placement float is the standard centered
 modal; window pins the panel to the window like a pinned desk, at x/y pixels
 from the canvas area's top-left. The header pin stores the panel's current box
 and unpins to float; agent placement uses the supplied x/y.
-Pinned copies reopen in their previous position (provisional). A popout copy
+Pinned panels reopen in their previous position (provisional). A popout panel
 opens in its own window whenever the user shows it, a reopen after power off
 included, at that window's last place and size (user 2026-10-27).
 
@@ -262,12 +262,12 @@ placement:{mode,x,y,width,height} distinguishes float/window/popout. Mode canvas
 refuses: canvas pins were removed (user 2026-10-26), and stored ones reopen as
 float. Mode screen refuses with a pointer to window, and a node anchor refuses
 (panels no longer attach to nodes). Coordinates must be finite;
-dimensions are160-4096 by120-4096. The Apps menu mounts saved open copies at these placements. The opaque host
+dimensions are160-4096 by120-4096. The Apps menu mounts saved open panels at these placements. The opaque host
 provides state/events and the permission-checked named action SDK.
 
-event needs panel/name/payload (up to64KiB) and sends a message: running copies
+event needs panel/name/payload (up to64KiB) and sends a message: running panels
 pass it to the app's orgtree.on, and it never enters History. events needs panel
-and lists the copy's History newest first, limit 1-200 (default 100): pass the
+and lists the panel's History newest first, limit 1-200 (default 100): pass the
 returned next_cursor as before for older rows, or after=<seq> to read only newer
 rows, oldest first, to follow new ones (user 2026-10-27); both together are
 refused, and next_cursor continues the same way until it is null. name=<event>
@@ -305,7 +305,7 @@ synchronously, frozen: the same colors under camelCase names (`accent`,
 `warning`); a color Orgtree could not resolve is absent. `orgtree.theme.onChange(fn)`
 calls `fn` with the new value after each switch, only when the colors change (never
 at start: read `get()` first), and returns a function that stops it. A switch
-restyles a running copy in place, hidden ones included: it is not
+restyles a running panel in place, hidden ones included: it is not
 reloaded and keeps its state. Use onChange for what CSS can't follow, such as a
 canvas:
 
@@ -321,7 +321,7 @@ network access.
 
 The fixed file SDK has implicit access to this org's scratch/uploads/exact
 retained-delivery files. Outside files/folders/computer need native consent.
-Allow once lasts while that copy runs, hidden or popped out included; Always allow
+Allow once lasts while that panel runs, hidden or popped out included; Always allow
 persists per app/code revision. File and media links survive Hide, pop-out and host
 session renewal (user 2026-10-26); Deny, a change to Ask that removes access, code
 replacement, per-grant Revoke and power off end them and cancel active media bodies. Chosen folders (with descendants) and
@@ -367,7 +367,7 @@ or decide consent. Persist the opaque id in that panel's state; media returns a
 fresh temporary URL on reopen. References are org/app/code-revision/panel bound:
 copying JSON to another panel/import does not copy authority. Native grants and
 paths stay outside portable data. Media is byte-range streamed up to256MiB;
-the exact media GET route uses an asset ticket of the running copy, never a root credential.
+the exact media GET route uses an asset ticket of the running panel, never a root credential.
 No DB transaction spans disk IO or playback. Paths reject traversal/reparse links;
 chunk allocation is bounded64KiB. Limits:128 persisted grants/app,1024 refs/panel,
 4096 pending/temporary/media records per engine; prompts expire120s and host
@@ -408,7 +408,7 @@ Limits: 1 MiB body, 64 headers, 4 MiB response, 30 s, 120 requests a minute and
 The user decides each site: Ask, Allow or Deny per declared site, with Deny
 winning on any row that covers the host or on the capability. The capability's
 Allow ("Allow listed sites") never covers `*`, which needs its own Allow. The
-native prompt (visible copies only; hidden ones get interaction_required) offers
+native prompt (visible panels only; hidden ones get interaction_required) offers
 Deny, Allow once and Always allow this site; a host answered under a wildcard or
 `*` gets its own row.
 
@@ -431,15 +431,15 @@ a code change, power off, deletion or Stop all aborts requests in flight.
 ## App import and export format
 
 app_export needs app/expected_rev. include_panels defaults false; true includes
-saved copy labels and JSON data. as_file defaults true: write a fresh
+saved panel labels and JSON data. as_file defaults true: write a fresh
 `app-export-*.orgtree-app` in your existing private scratch and return path,
-bytes, SHA256 and copy count. No destination or overwrite field is accepted.
+bytes, SHA256 and panel count. No destination or overwrite field is accepted.
 as_file:false returns the bundle inline instead. Export is a consistent snapshot
 and does not change the source app.
 
 app_import takes EITHER path (an absolute file in your held folders/private
 scratch) OR bundle (an inline JSON object). It creates a new app with fresh IDs,
-implicit local org access and closed saved copies. Only user UI opens a copy.
+implicit local org access and closed saved panels. Only user UI opens a panel.
 Reading a file does not execute HTML. Both actions require the same live-org
 Org-modifying tools authority as other Apps mutations; no database lock spans IO.
 File access refuses original links/reparse points, including held-root links,
@@ -449,14 +449,14 @@ no-reparse opens, excludes data-write/delete handles and verifies the final path
 
 The strict provisional format is `{format:"orgtree-app",version:1,definition,
 panels:[{label,state}]}`. Unknown/version/authority fields refuse. Bundle maximum
-16MiB, saved copies maximum16; use definition-only export for a larger app.
+16MiB, saved panels maximum16; use definition-only export for a larger app.
 The existing4MiB HTML/2MiB state/depth limits still apply. No grants, sessions,
 credentials, links, IDs, open flags or machine geometry travel. A key named
 permissions inside a saved JSON state remains ordinary app data, never a grant.
 
 User parity: Apps → Import app shows a native preview before confirmation;
 Manage app → Export app offers the same optional saved-data choice. File
-selection/download is ordinary local UI; import never opens a saved copy; its warning explains full implicit org access,
+selection/download is ordinary local UI; import never opens a saved panel; its warning explains full implicit org access,
 and the preview notes that files outside this org still ask first (it lists no declared capabilities).
 Whole-app exports are compact JSON with the same exact16MiB byte cap as import;
 ordinary panel-state JSON export keeps its readable formatting.
@@ -479,9 +479,9 @@ for an agent to grant itself execution. Code replacement revokes external grants
 
 The engine backend has revision-bound expiring parent-only sessions and exact
 one-shot permission challenges. HTML calls `orgtree.call(action,args)`; the native
-owning-document prompt displays exact app/copy/action text and offers Allow once,
+owning-document prompt displays exact app/panel/action text and offers Allow once,
 Always allow, Deny or Cancel. Cancel/Escape/expiry discards without a denial. Native
-Permissions edits save immediately for all copies, without reloading app code.
+Permissions edits save immediately for all panels, without reloading app code.
 Hidden hosts refuse prompts but keep their session; powered-off and replaced
 hosts discard sessions and prompts. No HTML permission API,
 host session, arbitrary route, caller or cross-panel selector is exposed. Named actions are bounded
@@ -512,17 +512,17 @@ each by mail ID only, including the recipient's turn-start logs. Ordinary mail i
 logged as before. An item an app created is ordinary docket content when it is
 read back later.
 
-## Following a copy, and templates
+## Following a panel, and templates
 
 Panel links were removed (user 2026-10-26, "Remove completely"): there is no
 linked_agents field, and state saves or explicit event writes no longer signal
-app.event watchdogs. To follow a copy, subscribe to its declared events with an
+app.event watchdogs. To follow a panel, subscribe to its declared events with an
 orgtree_watchdog app_listener (above). Use panel_get/events to reconcile through
 the latest256 retained History entries (fired events, starts and stops).
 
 Provisional org templates carry app definitions and initial JSON, never current
-saved copy data, IDs or grants. Creation installs new implicit-org-authority definitions and
-no open panels. After the user opens a new copy, recreate any app_listener that
+saved panel data, IDs or grants. Creation installs new implicit-org-authority definitions and
+no open panels. After the user opens a new panel, recreate any app_listener that
 refers to old app/panel IDs. Apps file import/export remains the
 autonomous agent parity path for moving definitions and optional saved data.
 
