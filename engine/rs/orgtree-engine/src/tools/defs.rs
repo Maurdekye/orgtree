@@ -1127,7 +1127,7 @@ fn build_tool_audience() -> Value {
 fn build_tool_watchdog() -> Value {
     tool(
         "orgtree_watchdog",
-        "Proactively await builds, files, processes, mail/events or usage thresholds; never poll/sleep-wait. Uncapped/paged. create kind/target (usage default), command regex. command/stream smoke-run as you (cmd.exe or shell=bash). Ready once command/process/usage/slot/fair_queue: inline effects/actions; else register. usage cached, no probes. slot grants lease; other kinds/fire_actions: Guide.",
+        "Proactively await builds, files, processes, mail/events or usage thresholds; never poll/sleep-wait. Uncapped/paged. create kind/target (usage default), command regex. command/stream smoke-run as you (cmd.exe or shell=bash). Ready once command/process/usage/slot/fair_queue: inline effects/actions; else register. usage cached, no probes. slot grants lease; other kinds/fire_actions: Guide. mqtt/websocket send needs live connection (MQTT topic).",
         json!({
             "action": { "type": "string", "enum": ["create", "list", "pause", "resume", "remove", "send", "configure"] },
             "cursor": {"type":"string","description":"list: next_cursor from the preceding page"},
@@ -1881,7 +1881,7 @@ mod builder_stack_tests {
         // Schemas and order stay guarded.
         for (name, old, new) in [
             ("orgtree_watchdog",
-             " mqtt/websocket send needs live connection (MQTT topic). configure health mail (default notice), no reconnect.",
+             " configure health mail (default notice), no reconnect.",
              ""),
             ("orgtree_audience",
              " request target/from managed project; grant from; deny requester; revoke grantee.",
