@@ -1522,7 +1522,9 @@ read the new login's catalog, so Argon stayed hidden for both logins.
   ("Gemini 4 Argon Weekly Limit"). A conditional tier spends a window whose group
   id has its name as one dash-separated part, besides its pool's 5 h and weekly
   windows. Staffing still omits a tier its login cannot run (user 2026-09-15:
-  no disabled rows); a hire is refused with the window's reason.
+  no disabled rows). A hire naming the default login is refused with the
+  window's reason; a hire naming no account is placed, and its turns wait for
+  the window to reset (the turn gate gives the same reason).
 [verified: `providers/{agy_auth,mod}.rs`, `runtime/{mod,actor,agy}.rs`, `usage.rs`,
 `providers/agy_model_refresh_tests.rs`, `usage/agy_reading_tests.rs`; 2026-10-27]
 
