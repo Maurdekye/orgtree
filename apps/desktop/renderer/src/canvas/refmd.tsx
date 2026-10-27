@@ -40,6 +40,8 @@ import { useContextMenu } from './contextmenu'
 import { USER_IDENTITY_TITLE, userMenuEntries } from './useridentity'
 import { localFileLinkAt } from './localfile'
 import { createRefMarkEl, hasRefMark } from './refmarks'
+import { createObjectMentionButton, MENTION_WRAP_KEY, objectMentionsWrap } from './mentionwrap'
+import { useAppValue } from '../appfeed'
 import { createNetMarkEl, createNetNameEls, ensureNetPicture, hubAddressTitle, netChipClass, netChipLabel, netChipSig, netMention, splitScheme, useNetMentionState } from './netmentions'
 
 /** the attribute that makes an injected chip findable again on the next pass.
@@ -152,8 +154,9 @@ function chipEl(doc: Document, r: ResolvedRef,
     el.setAttribute(SIG, chipSig(r, live))
     return el
   }
-  const el: HTMLElement = doc.createElement(live ? 'button' : 'span')
-  if (live) (el as HTMLButtonElement).type = 'button'
+  const el: HTMLElement = live && hasRefMark(r.ref.kind) ? createObjectMentionButton(doc)
+    : doc.createElement(live ? 'button' : 'span')
+  if (live && el.tagName === 'BUTTON') (el as HTMLButtonElement).type = 'button'
   el.className = cls
   // a ready ticket or presentation: its title, led by its flare's words
   if ((r.ref.kind === 'item' || r.ref.kind === 'doc') && r.outcome === 'ready') {
@@ -268,12 +271,12 @@ Map<string, MentionRef> | null {
  *  of docket items, and a multi-kilobyte attribute on a rendered description
  *  is a poor place for a cache. Absence can only cost one extra rebuild, so
  *  the record failing to be there is always safe. */
-const SCANNED = new WeakMap<HTMLElement, { names: Set<string>; agents: Set<string> | null; live: boolean }>()
+const SCANNED = new WeakMap<HTMLElement, { names: Set<string>; agents: Set<string> | null; live: boolean; wrap: boolean }>()
 
 function sameScan(host: HTMLElement, items: Map<string, MentionRef> | null,
   live: boolean, world: RefWorld): boolean {
   const prev = SCANNED.get(host)
-  if (!prev || prev.live !== live) return false
+  if (!prev || prev.live !== live || prev.wrap !== objectMentionsWrap(host.ownerDocument)) return false
   if (prev.names.size !== (items ? items.size : 0)) return false
   if (items) for (const name of items.keys()) if (!prev.names.has(name)) return false
   const curAgents = world.agents instanceof Map ? world.agents : null
@@ -288,7 +291,8 @@ function sameScan(host: HTMLElement, items: Map<string, MentionRef> | null,
 function rememberScan(host: HTMLElement, items: Map<string, MentionRef> | null,
   live: boolean, world: RefWorld): void {
   const curAgents = world.agents instanceof Map ? new Set(world.agents.keys()) : null
-  SCANNED.set(host, { names: new Set(items ? items.keys() : []), agents: curAgents, live })
+  SCANNED.set(host, { names: new Set(items ? items.keys() : []), agents: curAgents, live,
+    wrap: objectMentionsWrap(host.ownerDocument) })
 }
 
 /** everything one mention chip renders, for the cheap exit — the mirror of
@@ -306,14 +310,14 @@ function mentionEl(doc: Document, ref: MentionRef,
   onPick?: (slug: string) => void, org?: string): HTMLElement {
   const slug = ref.kind === 'item' ? ref.slug : ''
   const live = !!onPick
-  const el = doc.createElement(live ? 'button' : 'span')
+  const el = live ? createObjectMentionButton(doc) : doc.createElement('span')
   // a live ticket link shows the item's title and wears its status flare, as
   // `WorkRefText` does (USER 2026-10-27 m3eb804e5023a, m43beb8089dd4); MEN
   // keeps the name the prose holds, so undoing the chip stays exact
   const title = live && ref.kind === 'item' && ref.title?.trim() ? ref.title : undefined
   const flare = live && ref.kind === 'item' ? ticketFlare(ref) : undefined
   if (live) {
-    (el as HTMLButtonElement).type = 'button'
+    if (el.tagName === 'BUTTON') (el as HTMLButtonElement).type = 'button'
     el.className = 'docket-ref' + (flare ? ` ref-flare ${flare.cls}` : '')
     if (title) el.title = flare ? `${flare.tip} · ${title}` : title
   }
@@ -580,6 +584,7 @@ export function useRefMd(world: RefWorld | null | undefined,
   mentions?: MentionWorld | null) {
   useHubAddressState()
   useNetMentionState()
+  useAppValue<boolean>(MENTION_WRAP_KEY)
   const host = useRef<HTMLDivElement | null>(null)
   const worldRef = useRef(world)
   worldRef.current = world

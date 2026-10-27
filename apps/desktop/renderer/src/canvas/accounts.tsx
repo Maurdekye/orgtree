@@ -21,7 +21,7 @@ import type {
   TierStanding, ToastFn, UsageCredits, UsageLimit,
 } from '../types'
 import {
-  getProviders, peekProviders, getRuntimeSettings, setEnterKeyBehavior,
+  getProviders, peekProviders, getRuntimeSettings, setEnterKeyBehavior, setWrapObjectMentions,
   setAntigravityClaudeEnabled,
   setIdleDocketRemindersEnabled, setBlockedDocketRemindersEnabled,
   setMaxConcurrentTurns,
@@ -711,6 +711,7 @@ export function AccountsPanel({ toast, close, initialTab, target }: {
   const [discovering, setDiscovering] = useState(true)
   const pushedProviders = useAppValue<ProvidersPayload>('providers')
   const enterKey = useAppValue<EnterKeyBehavior>('enter_key_behavior')
+  const wrapMentions = useAppValue<boolean>('wrap_object_mentions')
   useEffect(() => {
     if (!pushedProviders) return
     setProviders(pushedProviders.providers)
@@ -952,6 +953,11 @@ export function AccountsPanel({ toast, close, initialTab, target }: {
     <SettingsTabPanel id="display" idBase="app-settings" active={tab === 'display'}>
       <ThemeSetting />
       <CanvasBackgroundSetting />
+      <SetGroup title="Text">
+        <SetToggle label="Wrap object mentions" checked={(wrapMentions ?? runtime?.wrap_object_mentions) === true}
+          disabled={!runtime || busy} onChange={v => changeRuntime(setWrapObjectMentions, v)}
+          hint="Let long ticket, presentation, app and panel links continue onto the next line within a sentence. Off by default." />
+      </SetGroup>
       <SetGroup title="Desk"><ChartLayoutSetting /><NewHirePositionSetting /><HireAutoFocusSetting /><ProjectBunchSetting /><ProjectBunchRearrangeSetting /><DeskTextSize /><CrowdStackToggle /><HideRetiredToggle /><AgentShortcutsToggle /><ModalOverlapSettings /><PinSnapToggle /><JumpFoldToggle /><CanvasAnchorSettings /></SetGroup>
       <SetGroup title="Quick chat"><QuickChatPositionSetting /></SetGroup>
       <SetGroup title="Typing">

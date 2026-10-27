@@ -571,6 +571,7 @@ async fn runtime_payload(engine: &Engine) -> Value {
         .collect();
     json!({
         "enter_key_behavior": engine.settings.enter_key_behavior(),
+        "wrap_object_mentions": engine.settings.wrap_object_mentions(),
         "quick_staff_behavior": engine.settings.quick_staff_behavior(),
         "quick_staff_request_accounts": false,
         "git_periodic_fetch_enabled": false,
@@ -606,8 +607,8 @@ pub async fn put_runtime(State(e): State<Arc<Engine>>, Json(b): Json<Map<String,
     let mut warming = None;
     for (k, v) in &b {
         match k.as_str() {
-            "antigravity_claude_enabled" => {
-                let on = v.as_bool().ok_or_else(|| ApiError::bad_request("antigravity_claude_enabled is true or false"))?;
+            "antigravity_claude_enabled" | "wrap_object_mentions" => {
+                let on = v.as_bool().ok_or_else(|| ApiError::bad_request(format!("{k} is true or false")))?;
                 rt.insert(k.clone(), json!(on));
             }
             "enter_key_behavior" => {
@@ -694,6 +695,9 @@ pub async fn put_runtime(State(e): State<Arc<Engine>>, Json(b): Json<Map<String,
     }
     if b.contains_key("enter_key_behavior") {
         e.app.set_value("enter_key_behavior", json!(e.settings.enter_key_behavior()));
+    }
+    if b.contains_key("wrap_object_mentions") {
+        e.app.set_value("wrap_object_mentions", json!(e.settings.wrap_object_mentions()));
     }
     if let Some(on) = verbose {
         crate::trace::apply_verbose(on);

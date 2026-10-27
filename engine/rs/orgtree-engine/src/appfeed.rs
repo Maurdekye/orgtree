@@ -99,6 +99,7 @@ pub fn start(engine: &Arc<Engine>, inbox: AppFeedInbox) {
     };
     tokio::spawn(actor.run(rx));
     engine.app.set_value("enter_key_behavior", json!(engine.settings.enter_key_behavior()));
+    engine.app.set_value("wrap_object_mentions", json!(engine.settings.wrap_object_mentions()));
     engine.app.registry_changed();
     for org in engine.orgs.all() {
         engine.app.org_changed(org.id);

@@ -1,5 +1,24 @@
 # Desktop and renderer
 
+## Inline object-mention wrapping (2026-10-27)
+
+USER mc116439e87c9 makes Display > Text > Wrap object mentions opt-in (off by
+default), superseding the earlier on-by-default interpretation. The persisted
+runtime boolean `wrap_object_mentions` is read/configured through the ordinary
+runtime endpoint and user `orgtree_settings` tool and pushed through app-feed.
+Canonical ticket/document/app/panel links and legacy docket title links share
+the opt-in behavior, including sanitized Markdown. Root-class mirroring keeps
+browser popouts synchronized. Theme preferences and message text are unchanged.
+
+Chromium buttons remain atomic even with display:inline. When enabled, shared
+object controls therefore use inline spans with role=button, tabIndex and
+Enter/Space activation, retaining object navigation/tooltip/copy attributes.
+Off uses the original buttons. CSS uses normal word/dash breaking and
+overflow-wrap:anywhere as a fallback; cloned decorations keep flares and hover
+underlines on each fragment. Markdown's cheap-exit identity includes wrapping
+mode, so unchanged reads preserve selection and a toggle rebuilds the controls.
+[verified: `canvas/{mentionwrap,reflinks,refmd,workrefs}.tsx`, `styles.css`]
+
 ## Sandboxed agent HTML has no network, WebRTC included (2026-10-27, 4.5.0)
 
 Four surfaces run agent script with CSP `connect-src 'none'`: app panel frames,

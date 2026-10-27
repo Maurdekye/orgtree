@@ -2089,6 +2089,8 @@ export interface RuntimeSettingsPayload {
   /** Separate Antigravity Claude 5.5 tiers; off by default. */
   antigravity_claude_enabled?: boolean
   enter_key_behavior?: import('./composerkeys').EnterKeyBehavior
+  /** Opt-in inline wrapping of object mentions; absent is off. */
+  wrap_object_mentions?: boolean
   quick_staff_behavior?: 'request' | 'under_assignee' | 'top_level'
   /** Default off: Request staffing offers no account choice until the user
    *  turns on "Include account selection when requesting staffing". Absent

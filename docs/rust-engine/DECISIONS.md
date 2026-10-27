@@ -37,6 +37,14 @@ policy remain physical, per the user's explicit exceptions.
 
 # Orgtree 4 rewrite — the user's standing decisions
 
+**Inline object mentions, USER 2026-10-27 mb4e9d847b189, mf60b0dccded8,
+mde7f2ccab6c1, mc116439e87c9 (4.5.0):** long object links can break across
+lines within surrounding text, with their decorations following each piece.
+Display > Text > Wrap object mentions turns it on. Default OFF, per the final
+ruling (supersedes the liaison's on-by-default interpretation). Existing user
+settings-tool parity is runtime `wrap_object_mentions`. See
+[renderer behavior](../agents/desktop-and-renderer.md#inline-object-mention-wrapping-2026-10-27).
+
 **Mini hover names, USER 2026-10-26 ma16fa7e484e6 + 2026-10-27 maf032f443c8c (4.5.0):**
 hovering or focusing a mini agent or project node always shows its name ("Never
 hide on hover"), on the floating plate above every card, also while desks are

@@ -25,6 +25,7 @@ import type { WorkItem } from '../types'
 import { AgentName } from './identity'
 import { objectNavProps } from './objectnav'
 import { RefMark } from './refmarks'
+import { ObjectMentionButton } from './mentionwrap'
 import { ticketFlare } from './docketstatus'
 
 /** The names that may be matched, and what each one resolves to. A Map is
@@ -204,12 +205,12 @@ export function WorkRefText({ text, index, onPick, onFocusAgent }: {
     const flare = ticketFlare(ref)
     return onPick
       ? (
-        <button key={key} type="button" {...objectNavProps('ticket', ref.slug, org ?? undefined)} data-copy-ticket-title={ref.title}
+        <ObjectMentionButton key={key} {...objectNavProps('ticket', ref.slug, org ?? undefined)} data-copy-ticket-title={ref.title}
           className={'docket-ref' + (flare ? ` ref-flare ${flare.cls}` : '')}
           title={title && flare ? `${flare.tip} · ${title}` : title}
           onClick={(e) => { e.stopPropagation(); onPick(ref.slug) }}>
           <RefMark kind="item" />{title ?? shown}
-        </button>
+        </ObjectMentionButton>
       )
       : <span key={key} data-copy-ticket-title={ref.title}>{shown}</span>
   }

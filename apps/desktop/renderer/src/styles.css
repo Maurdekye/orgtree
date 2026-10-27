@@ -10004,6 +10004,23 @@ button.ref-chip.ref-chip.ref-ready:is(.ref-item, .ref-doc, .ref-app, .ref-panel)
 }
 .ref-flare.doc-new { --ref-flare-color: var(--accent); }
 .ref-flare.doc-updated { --ref-flare-color: color-mix(in srgb, var(--accent) 45%, transparent); }
+/* Opt-in (user 2026-10-27): genuine inline fragments, not a multiline atomic
+   button. Natural word/dash breaks win; an unbroken identifier can still fit. */
+.wrap-object-mentions .ref-chip.ref-chip.ref-ready:is(.ref-item, .ref-doc, .ref-app, .ref-panel),
+.wrap-object-mentions .docket-modal .docket-ref.docket-ref:has(> .ref-mark) {
+  display: inline; white-space: normal; overflow-wrap: anywhere; word-break: normal;
+  box-decoration-break: clone; -webkit-box-decoration-break: clone;
+}
+.wrap-object-mentions :is(.ref-chip, .docket-ref) > .ref-mark { margin-right: 0.3em; }
+.wrap-object-mentions :is(.ref-chip.ref-chip, .docket-modal .docket-ref.docket-ref)[role="button"] {
+  cursor: pointer;
+}
+.wrap-object-mentions :is(.ref-chip.ref-chip, .docket-modal .docket-ref.docket-ref)[role="button"]:is(:hover, :focus-visible) {
+  color: var(--agent-accent-text, var(--accent)); text-decoration: underline; text-underline-offset: 2px;
+}
+.wrap-object-mentions :is(.ref-chip, .docket-ref)[role="button"]:focus-visible {
+  outline: 1px solid currentColor; outline-offset: 2px;
+}
 .ref-chip.ref-hub { cursor: pointer; }
 .ref-chip.ref-hub.inert, .ref-chip.ref-hub:disabled {
   opacity: .72; cursor: not-allowed; text-decoration: none;

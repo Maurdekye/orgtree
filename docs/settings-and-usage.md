@@ -18,6 +18,14 @@ Do not close a form assuming every visible edit was saved. A failed multi-part s
 
 ## Make the workspace comfortable
 
+In **App settings > Display > Text**, turn on **Wrap object mentions** to let a
+long ticket, presentation, app or panel link continue on the next line within
+its sentence. Wrapping prefers words and dashes, with a fallback for unbroken
+names. The link keeps its icon, status flare, hover underline and actions.
+The switch defaults off; turning it off restores the existing unbroken links.
+It saves immediately across the engine's windows. The user settings tool can
+make the same change with runtime `wrap_object_mentions: true` (or false).
+
 **Display > Appearance** separates accent from contrast. Choose a provider-colored or custom accent, and a light/dark contrast scheme. Automatic appearance can follow an installed harness until you make an explicit choice. Agent color can follow the provider or the organization. These choices do not change an account, model or work state.
 
 The named presets are Claude Terracotta, Codex Teal, Antigravity Navy, Muse Eggshell, OpenRouter Lavender and LMS Gold, plus Custom. If Rainbow has already been revealed in this profile, choosing Custom also offers the saved **Rainbow** switch. It animates the accent; turning it off restores the static custom color. The former Orgtree Grey choice is retired: an explicitly saved old selection becomes **Custom #b6bdc8**, preserving its base RGB. An old unset/automatic preference keeps provider detection instead. No separate agent, organization or template theme field is introduced by that migration.

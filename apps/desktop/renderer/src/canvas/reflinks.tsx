@@ -26,6 +26,7 @@ import type { ReactNode } from 'react'
 import { HubContactChip } from './agentmentions'
 import { NodeLink, nodeTierOf } from './identity'
 import { UserIdentityLink } from './useridentity'
+import { ObjectMentionButton } from './mentionwrap'
 import { objectNavProps } from './objectnav'
 import { mailLinkProps } from './mailidentity'
 import { WorkRefText, parseRef, scanRefs } from './workrefs'
@@ -650,7 +651,7 @@ export function RefChip({ r, onOpen }: {
   }
   if (r.outcome === 'ready' && onOpen && !r.atDestination) {
     return (
-      <button type="button" {...copy}
+      <ObjectMentionButton wrappable={hasRefMark(r.ref.kind)} {...copy}
         {...(r.ref.kind === 'item' ? objectNavProps('ticket', r.ref.id, r.ref.org)
           : r.ref.kind === 'doc' ? objectNavProps('document', r.ref.id, r.ref.org)
           : r.ref.kind === 'app' || r.ref.kind === 'panel' ? objectNavProps(r.ref.kind, r.ref.id, r.ref.org)
@@ -659,7 +660,7 @@ export function RefChip({ r, onOpen }: {
         onMouseDown={(e) => { if (e.button !== 0) e.stopPropagation() }}
         onClick={(e) => { e.stopPropagation(); onOpen(r) }}>
         {hasRefMark(r.ref.kind) && <RefMark kind={r.ref.kind} />}{r.label}
-      </button>
+      </ObjectMentionButton>
     )
   }
   if (r.outcome === 'ready') {

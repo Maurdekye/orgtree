@@ -285,6 +285,11 @@ still resume, so the agents themselves remember).
 
 ## 10. User-facing differences — complete ledger
 
+Object-mention wrapping (USER2026-10-27): Display > Text > Wrap object mentions
+opts into links continuing inline across lines. Default off retains existing
+unbroken controls. Existing user `orgtree_settings` runtime scope exposes
+`wrap_object_mentions`; changes persist and reach open windows immediately.
+
 Live helper inspector (USER 2026-10-26 m95e7ead06333, 4.5.0): a desk-header
 count opens helper details and captured live transcripts. Explicit native
 Claude/Codex/Muse lifecycle observations only; other harness transcripts remain

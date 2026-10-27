@@ -1238,6 +1238,11 @@ export const createOllamaVariant = (body: {
   })
 export const getRuntimeSettings = (): Promise<RuntimeSettingsPayload> =>
   req('/api/app-settings/runtime')
+export const setWrapObjectMentions = (wrap_object_mentions: boolean): Promise<RuntimeSettingsPayload> =>
+  req('/api/app-settings/runtime', {
+    method: 'PUT', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ wrap_object_mentions }),
+  })
 export const setAntigravityClaudeEnabled = (antigravity_claude_enabled: boolean): Promise<RuntimeSettingsPayload> =>
   req('/api/app-settings/runtime', {
     method: 'PUT', headers: { 'Content-Type': 'application/json' },

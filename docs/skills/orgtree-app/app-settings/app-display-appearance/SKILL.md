@@ -7,6 +7,21 @@ Up: [orgtree-app-settings](../SKILL.md)
 
 # Appearance
 
+## Object mentions
+
+Display > Text > **Wrap object mentions** is off by default. Turn it on to let
+long ticket, presentation, app and panel links continue inline across lines,
+preferring spaces and dashes and breaking an unbroken name only when needed.
+The icon, state flare, hover underline, navigation and context menu stay with
+the link. Off restores the existing unbroken control. It applies immediately
+across windows and persists engine-wide, independently of theme preferences.
+
+The existing user settings tool has parity:
+`orgtree_settings(scope:"runtime",action:"configure",settings:{wrap_object_mentions:true})`;
+use false to turn it off, or get the runtime scope to read it. This is a user
+tool, retaining its existing authority; an agent does not acquire settings
+permission by suggesting the change.
+
 Display > Appearance and Display > Canvas background control presentation across this desktop profile. Agents explain or suggest these controls; they do not change settings themselves. Changes apply immediately without restarting agents or rewriting their prompts. A theme or background choice is not a provider/account selection and does not alter work-state meaning.
 
 | Control | Storage | Choices and initial behavior |

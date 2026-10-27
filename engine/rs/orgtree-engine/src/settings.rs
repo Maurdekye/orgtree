@@ -66,6 +66,11 @@ impl AppSettings {
         self.runtime().get("antigravity_claude_enabled").and_then(Value::as_bool).unwrap_or(false)
     }
 
+    /// Object links wrap only after the user opts in (user 2026-10-27).
+    pub fn wrap_object_mentions(&self) -> bool {
+        self.runtime().get("wrap_object_mentions").and_then(Value::as_bool).unwrap_or(false)
+    }
+
     /// Message composers share this app-wide choice; old installations send on Enter.
     pub fn enter_key_behavior(&self) -> &'static str {
         if self.runtime().get("enter_key_behavior").and_then(Value::as_str) == Some("newline") {
