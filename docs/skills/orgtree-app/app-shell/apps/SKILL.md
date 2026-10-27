@@ -51,7 +51,7 @@ An agent that builds an app for you follows the app-creation instructions in
 `orgtree-tool-apps` (orgtree-working > team; user 2026-10-27): it creates the
 app with its declared events, creates one panel for you and listens to that
 panel's events, not to every copy, then mentions the panel to you with its
-`@panel:<org>/<panel-id>` ref. The new panel waits closed; click that mention
+`@panel:<org>/<slug>` ref. The new panel waits closed; click that mention
 to visit it, or open its row in Apps. Its Connections tab lists the agent's listener, and each declared event
 that copy fires reaches the agent.
 

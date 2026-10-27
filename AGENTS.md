@@ -8,7 +8,7 @@ and DB connections are released. See [Apps](docs/rust-engine/custom-apps.md).
 
 App creation for the user: (1) app_create declaring events, (2) panel_open to
 create its closed panel, (3) arm an app_listener on that exact panel/event,
-(4) mention the panel to the user with its returned @panel:<org>/<panel-id> ref
+(4) mention the panel to the user with its returned @panel:<org>/<slug> ref
 so they can explicitly visit it. Never listen on all panels for this workflow.
 See [app-creation instructions](docs/skills/orgtree-working/team/tool-apps/SKILL.md#creating-an-app-for-the-user).
 [decided: user 2026-10-27]

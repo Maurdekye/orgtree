@@ -50,7 +50,7 @@ app for the user, do these in order:
    for each event you need. Listen to that panel, not `all_panels:true`, which
    also hears every other and later copy of the app.
 4. Mention the panel to the user using its returned `ref`,
-   `@panel:<org>/<panel-id>` (see Mentions), as plain text. They get a clickable
+   `@panel:<org>/<slug>` (see Mentions), as plain text. They get a clickable
    link to explicitly visit that panel; clicking it opens the saved copy, as
    does its row in Apps.
 
@@ -87,8 +87,8 @@ them to the slug, and answers always show the slug.
 
 ## Mentions
 
-Every app and panel result carries `ref`, its mention token: `@app:<org>/<app-id>`
-or `@panel:<org>/<panel-id>` (user 2026-10-27), with the slug as the id. Write it as plain text, never in
+Every app and panel result carries `ref`, its mention token: `@app:<org>/<slug>`
+or `@panel:<org>/<slug>` (user 2026-10-27), with the slug as the id. Write it as plain text, never in
 backticks, in mail, chat, presented documents or docket text to point the user at
 it. The user's chip shows the app's current name, or for a panel its app's name
 and its label, with the app's icon on the left, and opens it the way its Apps menu

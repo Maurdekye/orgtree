@@ -560,8 +560,8 @@ USER 2026-10-27 m449dc0a35cbe: "also allow apps or spedific panels to be
 mentioned to the user". Design approved by @coordinator-opus (m3e712903173d),
 departures provisional for the user.
 
-- Tokens: `@app:<org>/<app-id>` and `@panel:<org>/<panel-id>`, the engine's own
-  IDs, in the one shared grammar (`canvas/workrefs.tsx` REF_TOKEN_RE) with the
+- Tokens: `@app:<org>/<slug>` and `@panel:<org>/<slug>`, the engine's own
+  readable slug IDs (old generic IDs before migration 0075 keep resolving), in the one shared grammar (`canvas/workrefs.tsx` REF_TOKEN_RE) with the
   same boundaries and code-span exclusion as `@item:`/`@doc:`. Another org's
   token is `foreign` before any lookup.
 - Names: `canvas/apprefs.ts` asks the engine's `refs` read for the exact IDs on

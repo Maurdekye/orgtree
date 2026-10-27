@@ -42,7 +42,7 @@ Folder authority and membership in an ancestor project resolve through the compl
 
 A presentation's id is a readable slug made from its title when it is first presented (user 2026-10-27): lowercase ASCII words joined by `-`, at most 48 characters, then `-2`, `-3`... when the organization already has that slug, and `presentation` for a title with no ASCII letter or digit. It is unique in the organization and never changes, even when `replaces` gives the card a new title. Pass `slug` to choose the id instead, in English whenever the title isn't: a title in Hebrew, for example, keeps its own language but would otherwise get `presentation`, `presentation-2`... (user 2026-10-27: "use an english name for the slug, the actual name can be whatever it needs to be in any language"). A requested slug gets the same cleanup and suffixes. Presentations made before 4.5.0 got slugs the same way on upgrade. The generic id they had before (`d` and 12 hex digits) keeps working wherever an id is accepted, so older mail, mentions and `replaces` calls still find them.
 
-Mention a presentation as `@doc:<org>/<id>`, never by its bare title: the result names that reference, and the card and `read_presentation` entries carry it as `ref`. The link shows the presentation's current title.
+Mention a presentation as `@doc:<org>/<slug>`, never by its bare title: the result names that reference, and the card and `read_presentation` entries carry it as `ref`. The link shows the presentation's current title.
 
 ## HTML capture and preview
 

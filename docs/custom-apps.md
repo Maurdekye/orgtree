@@ -53,7 +53,7 @@ instructions (user 2026-10-27). An app is a custom view for working with your
 data in a structured way, not a program that keeps running on its own. The agent
 creates the app with its declared events, creates a panel for it and listens to
 that panel's events, not to every copy, then mentions the panel to you with its
-`@panel:<org>/<panel-id>` link so you can explicitly visit it.
+`@panel:<org>/<slug>` link so you can explicitly visit it.
 The new panel waits closed; click that mention or open its row in Apps. Each declared event that
 copy fires reaches the agent; a copy you make later is not heard until the
 agent listens to it too.
@@ -442,7 +442,7 @@ Panel mentions also offer **Start running** or **Power off**. A mention of a del
 another organization's, shows the agent's text marked *unavailable* or *other
 org* and opens nothing.
 
-Agents write these as `@app:<org>/<app-id>` and `@panel:<org>/<panel-id>`; the
+Agents write these as `@app:<org>/<slug>` and `@panel:<org>/<slug>`; the
 Apps tool gives them the exact text. You can mention them too: type **@** and
 part of the app's name in a message, or `@app:` or `@panel:` to list them all,
 the most recently used first.

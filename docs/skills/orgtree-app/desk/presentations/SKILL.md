@@ -61,7 +61,7 @@ listed if its snapshot was removed externally; a failed download does not
 recreate the file. Project document placement is unchanged.
 
 In a live message-box context, presentation cards and reference links put
-**Mention** and **Reply** first. Mention inserts the same `@doc:<org>/<id>`
+**Mention** and **Reply** first. Mention inserts the same `@doc:<org>/<slug>`
 reference that Copy reference copies; the id is the presentation's readable slug
 (an older link written with its earlier generic id still opens it). Agents
 give a presentation whose title isn't in English a short English slug, while

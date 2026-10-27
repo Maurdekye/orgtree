@@ -490,9 +490,10 @@ the next launch; no cache hit is promised.
 ## 16. App and panel mentions (2026-10-27)
 
 USER 2026-10-27 m449dc0a35cbe ("also allow apps or spedific panels to be
-mentioned to the user"): the MENTIONS rule, unconditional on every lane and
+mentioned to the user"), with apps and panels identified by readable slugs
+(mc70ab563f21d, m37fe645819cf): the MENTIONS rule, unconditional on every lane and
 profile, gains one sentence: "Point the user at an app or one of its panels
-with @app:<org>/<app-id> or @panel:<org>/<panel-id>." It names no tool, so it
+with @app:<org>/<slug> or @panel:<org>/<slug>." It names no tool, so it
 stays true for seats without the Apps tool; agents with it copy the token from
 each result's `ref`. The mail-basics page gives the same rule. The legacy test
 normalizes the new MENTIONS text like the 21:44Z replacement, and both approved
@@ -500,8 +501,8 @@ seat fixtures carry the sentence.
 
 | Synthetic compressed example | Before | After | Change |
 | --- | ---: | ---: | ---: |
-| Seat A | 10,474 B | 10,573 B | +99 B |
-| Seat B | 10,486 B | 10,585 B | +99 B |
+| Seat A | 10,474 B | 10,567 B | +93 B |
+| Seat B | 10,486 B | 10,579 B | +93 B |
 
 The identity budget already counts MENTIONS by its length; no other allowance
 moves. Every agent's standing prefix changes once, at its first start on the
@@ -521,8 +522,8 @@ earlier replacements, and both approved seat fixtures carry it.
 
 | Synthetic compressed example | Before | After | Change |
 | --- | ---: | ---: | ---: |
-| Seat A | 10,573 B | 10,606 B | +33 B |
-| Seat B | 10,585 B | 10,618 B | +33 B |
+| Seat A | 10,567 B | 10,600 B | +33 B |
+| Seat B | 10,579 B | 10,612 B | +33 B |
 
 The identity budget already counts MENTIONS by its length; no other allowance
 moves. 4.5.0 changes this line once more than its apps sentence did, so an agent
