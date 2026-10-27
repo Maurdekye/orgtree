@@ -94,10 +94,13 @@ pub fn background_control(raw: &[String]) -> bool {
         return true;
     }
     if !usage { return false; }
+    // `usage_groups` in agy-auth.json replaces the default groups (the shape
+    // real /usage prints, e.g. Argon's own gemini-argon-wtu-weekly bucket)
+    let groups = v.get("usage_groups").filter(|g| g.is_array()).cloned().unwrap_or_else(|| json!([{"name":"Gemini","buckets":[
+            {"id":"session","name":"Session","remaining_fraction":0.75,"window":"5h"}]}]));
     println!("{}", json!({"event":"result","result":{"status":"SUCCESS","conversation_id":"","num_turns":0,
         "usage":{"input_tokens":0,"output_tokens":0,"thinking_tokens":0,"cache_read_tokens":0,"total_tokens":0},
-        "command":{"name":"usage","data":{"groups":[{"name":"Gemini","buckets":[
-            {"id":"session","name":"Session","remaining_fraction":0.75,"window":"5h"}]}]}}}}));
+        "command":{"name":"usage","data":{"groups":groups}}}}));
     true
 }
 
