@@ -859,6 +859,10 @@ fn build_tool_withdraw_ask() -> Value {
     tool("orgtree_withdraw_ask", "Withdraw your open question card.", json!({}), &[])
 }
 
+/// orgtree_present's optional slug (user 2026-10-27 mdcb7ce9a8103, "Add the
+/// field"; mea228250b31e, "encourage agents to use an english name for the slug").
+const PRESENT_SLUG: &str = "New presentations only (refused with replaces): a short English id such as weekly-status. Pass one whenever the title isn't in English. Omitted: made from the title.";
+
 #[inline(never)]
 #[nolog]
 fn build_tool_present() -> Value {
@@ -867,6 +871,7 @@ fn build_tool_present() -> Value {
         "Present documents the user should READ (reports, plans, Markdown). project places it under a reachable project; members (nested included) need no user audience for their own project. Otherwise requires user audience/top-level authority. body or .md path≤64KiB; self-contained HTML path≤4MiB, sandboxed without network. replaces updates a card. Otherwise send to your superior.",
         json!({ "title": { "type": "string" }, "body": { "type": "string" }, "path": { "type": "string" },
                 "replaces": { "type": "string" },
+                "slug": { "type": "string", "description": PRESENT_SLUG },
                 "project": { "type": "string", "description": "a project's name: present under that project" } }),
         &["title"],
     )
@@ -1698,6 +1703,17 @@ mod builder_stack_tests {
             "Present documents the user should READ (reports, plans, Markdown). project places it under a reachable project; members (nested included) need no user audience for their own project. Otherwise requires user audience/top-level authority. body or .md path≤64KiB; self-contained HTML path≤4MiB, sandboxed without network. replaces updates a card. Otherwise send to your superior.",
             "\nGuide: orgtree-tool-present."
         ));
+        // an optional English slug for a new card, after replaces (user
+        // 2026-10-27 mdcb7ce9a8103); the bytes compare in key order
+        let mut properties = serde_json::Map::new();
+        for (key, value) in present["inputSchema"]["properties"].as_object().unwrap().clone() {
+            let replaces = key == "replaces";
+            properties.insert(key, value);
+            if replaces {
+                properties.insert("slug".into(), serde_json::json!({"type":"string","description":"New presentations only (refused with replaces): a short English id such as weekly-status. Pass one whenever the title isn't in English. Omitted: made from the title."}));
+            }
+        }
+        present["inputSchema"]["properties"] = Value::Object(properties);
         // project slots (user 2026-10-18 08:37Z-08:42Z, docket
         // project-slots-first-come-permits-claimed-through): orgtree_project
         // lists and releases slots, and orgtree_watchdog has the slot kind

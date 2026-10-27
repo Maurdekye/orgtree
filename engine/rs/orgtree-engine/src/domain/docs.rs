@@ -154,6 +154,26 @@ fn markdown_file(f: &Path, raw: &str) -> Result<String> {
     Ok(text.to_string())
 }
 
+/// A tool's optional `slug` (user 2026-10-27 mdcb7ce9a8103): text, trimmed, and
+/// an empty one counts as none. One with no ASCII letter or digit is refused:
+/// the database's cleanup (`ot.slug_base`) would leave nothing of it. The
+/// database makes the slug from it, with -2, -3... when it is taken.
+/// Argument parsing inside a logged tool call, so not logged again.
+#[nolog]
+pub(crate) fn requested_slug(args: &Value) -> Result<Option<&str>> {
+    let slug = match &args["slug"] {
+        Value::Null => None,
+        Value::String(s) => Some(s.trim()).filter(|s| !s.is_empty()),
+        _ => refuse!(BadRequest, "slug is text: a short English name such as weekly-status"),
+    };
+    if let Some(slug) = slug {
+        if !slug.chars().any(|c| c.is_ascii_alphanumeric()) {
+            refuse!(BadRequest, "slug {slug:?} has no ASCII letter or digit, so nothing is left after cleanup; pass a short English slug such as weekly-status");
+        }
+    }
+    Ok(slug)
+}
+
 /// `orgtree_present`. Returns (text, chip card).
 #[logged]
 pub async fn present(engine: &Arc<Engine>, org: &Arc<OrgHandle>, p: &Presenter, args: &Value) -> Result<(String, Value)> {
@@ -165,6 +185,13 @@ pub async fn present(engine: &Arc<Engine>, org: &Arc<OrgHandle>, p: &Presenter, 
     let Some(title) = title else { refuse!(BadRequest, "a document needs a title") };
     let title: String = title.chars().take(TITLE_MAX).collect();
     let title = title.trim_end();
+    // A new presentation may be named (user 2026-10-27 mdcb7ce9a8103), in
+    // English when the title isn't (mea228250b31e); the database cleans it like
+    // a title (migration 0074). A slug stays fixed once made.
+    let slug = requested_slug(args)?;
+    if slug.is_some() && args["replaces"].as_str().is_some_and(|s| !s.is_empty()) {
+        refuse!(BadRequest, "slug names a new presentation only: a presentation keeps its slug once made, so leave slug out when you pass replaces");
+    }
     let mut bundle_download: Option<Vec<u8>> = None;
     let mut bundle_preview: Option<String> = None;
     let (body, format) = match (args["body"].as_str(), args["path"].as_str()) {
@@ -243,14 +270,14 @@ pub async fn present(engine: &Arc<Engine>, org: &Arc<OrgHandle>, p: &Presenter, 
             };
             row.get(0)
         }
-        // the slug comes from the title (ot.assign_document_slug); `uid` stays
-        // an internal key
+        // the database makes the slug from the requested one or the title
+        // (ot.assign_document_slug); `uid` stays an internal key
         None => client
             .query_one(
-                "INSERT INTO ot.documents (uid, org_id, agent_id, node_name, title, body, format, bytes, download, preview, presented_by)
-                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) RETURNING slug",
+                "INSERT INTO ot.documents (uid, org_id, agent_id, node_name, title, body, format, bytes, download, preview, presented_by, slug)
+                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) RETURNING slug",
                 &[&uid("d"), &org.id, &owner_id, &owner_name, &title, &body, &format, &bytes, &bundle_download, &bundle_preview,
-                  &under.as_ref().map(|_| p.name.clone())],
+                  &under.as_ref().map(|_| p.name.clone()), &slug],
             )
             .await?
             .get(0),
@@ -336,4 +363,27 @@ pub async fn send_file(engine: &Arc<Engine>, org: &Arc<OrgHandle>, p: &Presenter
     let card = json!({ "file": { "name": name, "path": row.get::<_,String>(1), "bytes": bytes, "note": row.get::<_,Option<String>>(3), "delivery_id": did } });
     if inserted > 0 { changes::notify(engine, org, vec![Change::Events, Change::History(p.id)]); }
     Ok((format!("Delivered {name} ({bytes} bytes) to the user as a download card (delivery {did})."), card))
+}
+
+#[cfg(test)]
+mod requested_slug_tests {
+    use serde_json::json;
+
+    /// User 2026-10-27 mdcb7ce9a8103: an optional slug, cleaned by the
+    /// database; nothing left after the cleanup is refused, never a fallback.
+    #[test]
+    fn requested_slug_is_optional_text_with_an_ascii_letter_or_digit() {
+        for (args, want) in [(json!({}), None), (json!({ "slug": null }), None), (json!({ "slug": "" }), None),
+            (json!({ "slug": "   " }), None), (json!({ "slug": " Weekly Report! " }), Some("Weekly Report!")),
+            (json!({ "slug": "q3" }), Some("q3")), (json!({ "slug": "דוח 2" }), Some("דוח 2"))] {
+            assert_eq!(super::requested_slug(&args).unwrap(), want, "{args}");
+        }
+        for args in [json!({ "slug": "שלום" }), json!({ "slug": "—" }), json!({ "slug": "-- __ --" })] {
+            let refused = super::requested_slug(&args).unwrap_err().to_string();
+            assert!(refused.contains("no ASCII letter or digit") && refused.contains("English"), "{args}: {refused}");
+        }
+        for args in [json!({ "slug": 7 }), json!({ "slug": ["a"] }), json!({ "slug": true })] {
+            assert!(super::requested_slug(&args).unwrap_err().to_string().starts_with("slug is text"), "{args}");
+        }
+    }
 }
