@@ -1134,7 +1134,7 @@ fn build_tool_watchdog() -> Value {
             "limit": {"type":"integer","minimum":1,"maximum":100,"description":"list: page size (default 50, max 100)"},
             "name": { "type": "string", "description": "create: a short name, e.g. build-watch; its slug becomes the dog's id" },
             "kind": { "type": "string", "enum": ["file", "command", "process", "stream", "activity", "event", "usage", "fair_queue", "slot", "project_listener", "listener_watch", "app_listener", "mqtt", "websocket"] },
-            "event_name":{"type":"string","description":"app_listener: exact declared event name; a panel fires its own events only while the Orgtree main window is open"},
+            "event_name":{"type":"string","description":"app_listener: exact declared event name; a panel fires its own events only while Orgtree is open, tray included"},
             "panel":{"type":"string","description":"app_listener: one saved panel ID; mutually exclusive with all_panels"},
             "all_panels":{"type":"boolean","description":"app_listener: explicitly listen to all current and future copies of this app"},
             "batch": { "type": "integer", "minimum": 1, "maximum": 20, "description": "fair_queue only: up to this many mails per wake; ACK capacity too. Default 1." },
@@ -2148,7 +2148,7 @@ mod mqtt_card_tests {
 #[inline(never)]
 #[nolog]
 fn build_tool_apps()->Value {
-    tool("orgtree_apps","Manage this org's app definitions and independent saved panels. Requires org-modifying tools. List pages omit HTML/state; app_get/panel_get read them. Agent panel_open creates a new closed copy; only user UI shows windows. Panels are the user's custom views and run only while the Orgtree main window is open: Hide keeps one running, panel_stop powers it off. Mutations need the current expected_rev. Apps have implicit org access; user Deny overrides. External files need consent.",json!({
+    tool("orgtree_apps","Manage this org's app definitions and independent saved panels. Requires org-modifying tools. List pages omit HTML/state; app_get/panel_get read them. Agent panel_open creates a new closed copy; only user UI shows windows. Panels are the user's custom views and run only while Orgtree is open, tray included: Hide keeps one running, panel_stop powers it off. Mutations need the current expected_rev. Apps have implicit org access; user Deny overrides. External files need consent.",json!({
         "action":{"type":"string","enum":["list","app_get","app_create","app_update","app_delete","app_import","app_export","mark_seen","panel_open","panel_get","panel_update","panel_duplicate","panel_delete","state_set","state_patch","event","events","fire_event","listeners","permission_set","permission_history","panel_start","panel_stop","runtime","file_permissions","file_open","file_read","file_roots","file_list","file_child","file_write","file_delete","file_result"]},
         "apps":{"type":"array","minItems":1,"maxItems":200,"uniqueItems":true,"items":{"type":"string"},"description":"mark_seen: acknowledge these explicit app IDs for this org's New badge; does not grant actions or change app/panel revisions"},
         "bundle":{"type":"object","description":"app_import: strict orgtree-app version1 object with definition and optional panels:[{label,state}]; up to16MiB/16 saved copies. No permissions, IDs, links or geometry."},
