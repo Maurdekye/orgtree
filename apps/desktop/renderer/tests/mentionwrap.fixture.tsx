@@ -12,7 +12,7 @@ export const refs: TypedRef[] = [
   { kind: 'app', org: 'wrap-fixture', id: 'app-fixture' },
   { kind: 'panel', org: 'wrap-fixture', id: 'panel-fixture' },
 ]
-export const world: RefWorld = { org: 'wrap-fixture', items: new Set([ticket]), docs: new Set(['presentation-fixture']),
+export const world: RefWorld = { org: 'wrap-fixture', items: new Map([[ticket, title]]), docs: new Map([['presentation-fixture', docTitle]]),
   refName: ref => ({ outcome: 'ready', label: ref.kind === 'item' ? title : ref.kind === 'doc' ? docTitle
     : ref.kind === 'app' ? 'An app with a deliberately long name for inline wrapping' : 'unbroken'.repeat(11),
     flare: ref.kind === 'item' ? { cls: 'status-in_progress', tip: 'In progress' }
