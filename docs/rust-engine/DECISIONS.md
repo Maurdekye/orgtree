@@ -37,11 +37,18 @@ policy remain physical, per the user's explicit exceptions.
 
 # Orgtree 4 rewrite — the user's standing decisions
 
+**Mini hover names, USER 2026-10-26 ma16fa7e484e6 + 2026-10-27 maf032f443c8c (4.5.0):**
+hovering or focusing a mini agent or project node always shows its name ("Never
+hide on hover"), on the floating plate above every card, also while desks are
+open, pinned or popped out ("nodes render overtop the hover names"). This
+replaces the rest of the 0a47651/4.4.0 desk suppression. A desk's own card and
+header are unchanged. See [identity hover](agent-identity-tooltip.md).
+
 **Normal-card name reveal, USER 2026-10-26 (4.4.5):** clipped agent/project names
 show their existing background plate when any part of the normal card is hovered,
 including badges. Another open or popped-out desk does not suppress that plate.
-This supersedes only normal-zoom suppression from 0a47651/4.4.0; mini names remain
-suppressed while desks are open and desks keep their own headers. See
+This supersedes only normal-zoom suppression from 0a47651/4.4.0; desks keep their
+own headers (mini names: see Mini hover names above). See
 [identity hover](agent-identity-tooltip.md).
 
 **Text context menus, USER 2026-10-24 m43ff979b165c (4.4.5):** editable text

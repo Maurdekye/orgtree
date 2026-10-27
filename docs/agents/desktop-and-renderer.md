@@ -47,16 +47,16 @@ offline and `orgtree.net.fetch` asks the engine, which makes the request
 
 Hovering the whole normal agent/project card, including its body and effort
 chip, reveals a genuinely clipped name on its existing static background plate.
-Normal reveal is independent of the canvas desk counter: a desk retained in a
-popped-out window can leave no visible desk in the main document while that
-counter remains nonzero. The user explicitly keeps normal names available in
-this case and while another desk is visible, superseding only the normal part
-of the 4.4.0 suppression rule. Floating mini-name suppression and a desk's own
-header remain unchanged; hovering a mini node still reveals its in-card name,
-which is never hidden (user 2026-10-26). No card layout, motion, hit target or
-fit measurement changes.
-[decided: user 2026-10-26; verified: canvas/{cardname,cardnamereveal,cards}.tsx;
-controls: namehover.test.tsx, desknameplate.test.tsx, cardhoverfit.test.tsx]
+Normal reveal ignores open desks: the user keeps normal names available while a
+desk is open here or popped out into another window, superseding the normal
+part of the 4.4.0 suppression rule. Since 2026-10-27 mini names ignore open
+desks too: hovering or focusing a mini node shows the floating plate above every
+card (user 2026-10-26 never hide on hover; 2026-10-27 names above nodes). That
+replaces the rest of the rule (0a47651), and its desk counter
+(cardnamereveal.tsx) is gone. A desk's own header remains unchanged. No card
+layout, motion, hit target or fit measurement changes.
+[decided: user 2026-10-26, 2026-10-27; verified: canvas/{cardname,farzoomname,cards}.tsx;
+controls: namehover.test.tsx, desknameplate.test.tsx, mininameguard.test.tsx, cardhoverfit.test.tsx]
 
 ## Text editing and spelling menus (2026-10-24, 4.4.5)
 

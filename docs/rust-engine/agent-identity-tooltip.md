@@ -8,14 +8,19 @@ name stays plain. This supersedes the normal-zoom part of the 4.4.0 desk-open
 suppression rule (0a47651). [decided: user 2026-10-26; verified:
 canvas/cardname.tsx, cards.tsx, projectcard.tsx]
 
-While an agent or project desk is open, floating far-zoom name plates remain
-suppressed; closing the last desk restores them. Hovering or focusing a mini
-agent or project node still reveals its name in the card, with or without open
-desks, pinned or popped out: that reveal is never hidden. A desk's own header does not
-reveal its underlying normal-card name; ordinary native identity tooltips inside
-the desk remain available. [decided: user 2026-10-26, never hide on hover;
-verified: 2026-10-26, canvas/cardnamereveal.tsx, cards.tsx, projectcard.tsx,
-farzoomname.tsx, deskshell.tsx, styles.css]
+Hovering or focusing a mini agent or project node shows its name on the
+floating far-zoom plate, drawn in the world layer above every card, with or
+without open desks, pinned or popped out: that reveal is never hidden or
+covered. This replaces the 4.4.0 desk suppression of the plate (0a47651): with
+the plate suppressed, the name fell back into the hovered card, which mini
+hover drops below its neighbours so that its hire token never takes a
+neighbour's press. A pinned desk sits in the pin layer above the whole world,
+so the plate never paints over it. A desk's own card (open, or the pinned
+desk's placeholder) shows no plate, and a desk's own header does not reveal its
+underlying normal-card name; ordinary native identity tooltips inside the desk
+remain available. [decided: user 2026-10-26, never hide on hover; user
+2026-10-27, names above nodes; verified: 2026-10-27, canvas/farzoomname.tsx,
+cards.tsx, projectcard.tsx, styles.css]
 
 
 Renderer agent links use the operating system's native title tooltip so a

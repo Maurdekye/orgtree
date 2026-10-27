@@ -26,10 +26,10 @@ runner redirects `LOCALAPPDATA`; never relax product attach ACL checks. See
 [native test homes](docs/agents/development-and-verification.md#portable-root-test-output).
 [verified: `tests/installer-elevation.test.mjs`; 2026-10-26]
 
-Hovering or focusing a mini node, agent or project, always reveals its name in the
-card, also while desks are open (local, pinned or popped out); only the floating
-far-zoom plate stays suppressed. Never hide the hover reveal. See [identity hover](docs/rust-engine/agent-identity-tooltip.md).
-[decided: user 2026-10-26 "Never hide on hover", projects too; verified: `canvas/{cards,projectcard}.tsx`, `styles.css`; 2026-10-26]
+Hovering or focusing a mini node, agent or project, always shows its name on the
+floating plate above every card, also while desks are open (pinned or popped out;
+replaces 0a47651). Never hide or cover it. See [identity hover](docs/rust-engine/agent-identity-tooltip.md).
+[decided: user 2026-10-26 "Never hide on hover"; 2026-10-27 names above nodes; verified: `canvas/farzoomname.tsx`; 2026-10-27]
 
 Apps derive org-internal capability/file defaults from origin policy; user Deny
 wins and survives agent code replacement. Agents create only closed copies and
