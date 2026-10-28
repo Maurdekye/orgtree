@@ -1099,6 +1099,8 @@ mod tls_tests {
                         "/loop" => reply("302 Found", "Location: /loop\r\n", b""),
                         "/to-ok" => reply("302 Found", "Location: /ok\r\n", b""),
                         p if p.starts_with("/hop/") => reply("302 Found", &format!("Location: https://{}:{port}/ok\r\n", &p[5..]), b""),
+                        p if p.starts_with("/307/") => reply("307 Temporary Redirect", &format!("Location: https://{}:{port}/ok\r\n", &p[5..]), b""),
+                        p if p.starts_with("/303/") => reply("303 See Other", &format!("Location: https://{}:{port}/ok\r\n", &p[5..]), b""),
                         "/big" => reply("200 OK", "", &vec![b'x'; RESPONSE_MAX + 1]),
                         "/slow" => {
                             tokio::time::sleep(Duration::from_secs(20)).await;
@@ -1297,6 +1299,93 @@ mod tls_tests {
         for kept in ["accept: application/json", "accept-language: en"] {
             assert!(second.contains(kept), "{kept} missing after the redirect: {second}");
         }
+    }
+
+    /// Review of d3dd69a (B8 follow-up): the cross-site filter read header names
+    /// only, so a 307 to another host carried `Content-Type: application/json;
+    /// api-key=...` and any other value an app hid a credential in. A hop keeps
+    /// a header only when fetch would call it CORS-safelisted, value included.
+    #[tokio::test]
+    async fn a_redirect_to_another_host_keeps_only_cors_safelisted_values() {
+        let s = serve(&["values-a.test", "values-b.test"]).await;
+        let port = s.port;
+        let both = move |h: &str, p: u16| (h == "values-a.test" || h == "values-b.test") && p == port;
+        let post = |path: &str, headers: &[(&str, &str)]| Fetch {
+            url: format!("https://values-a.test:{port}{path}").parse().unwrap(),
+            method: "POST".into(),
+            headers: headers
+                .iter()
+                .map(|(n, v)| (n.to_string(), v.to_string()))
+                .collect(),
+            body: Some(b"x=1".to_vec()),
+        };
+        let last = || s.heads.lock().unwrap().last().unwrap().to_ascii_lowercase();
+        // A 307 keeps the method and the body, so only the values decide.
+        let unsafe_values = fetch(
+            post(
+                "/307/values-b.test",
+                &[
+                    ("Content-Type", "application/json; api-key=app-key"),
+                    ("Accept", "application/json; key=\"app-key\""),
+                    ("Accept-Language", "en_US/app-key"),
+                ],
+            ),
+            &both,
+        )
+        .await
+        .unwrap();
+        assert_eq!((unsafe_values.status, unsafe_values.redirected), (200, true));
+        let head = last();
+        assert!(
+            head.starts_with("post /ok ") && head.contains("host: values-b.test"),
+            "{head}"
+        );
+        assert!(!head.contains("app-key"), "an unsafe value followed the redirect: {head}");
+        assert!(!head.contains("content-type:"), "{head}");
+        // Safelisted values go on.
+        let safe = fetch(
+            post(
+                "/307/values-b.test",
+                &[
+                    ("Content-Type", "text/plain;charset=utf-8"),
+                    ("Accept", "application/json"),
+                    ("Accept-Language", "en-US,en;q=0.9"),
+                ],
+            ),
+            &both,
+        )
+        .await
+        .unwrap();
+        assert_eq!((safe.status, safe.redirected), (200, true));
+        let head = last();
+        for kept in [
+            "content-type: text/plain;charset=utf-8",
+            "accept: application/json",
+            "accept-language: en-us,en;q=0.9",
+        ] {
+            assert!(head.contains(kept), "{kept} missing after the redirect: {head}");
+        }
+        // Over 1024 bytes together, none of them is safelisted any more.
+        let wide = "a".repeat(120);
+        let many: Vec<(&str, &str)> = (0..9).map(|_| ("Accept", wide.as_str())).collect();
+        let crowded = fetch(post("/307/values-b.test", &many), &both).await.unwrap();
+        assert_eq!((crowded.status, crowded.redirected), (200, true));
+        let head = last();
+        assert!(!head.contains(&wide), "1080 bytes of Accept followed the redirect: {head}");
+        // A redirect that turns the request into a bodyless GET (303 here, as
+        // 301 and 302 do) drops Content-Type, safelisted or not.
+        let get = fetch(
+            post("/303/values-b.test", &[("Content-Type", "text/plain")]),
+            &both,
+        )
+        .await
+        .unwrap();
+        assert_eq!((get.status, get.redirected), (200, true));
+        let head = last();
+        assert!(
+            head.starts_with("get /ok ") && !head.contains("content-type:"),
+            "{head}"
+        );
     }
 
     #[tokio::test]
