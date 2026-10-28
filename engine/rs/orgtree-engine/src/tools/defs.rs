@@ -423,12 +423,16 @@ static TO: std::sync::LazyLock<Value> = std::sync::LazyLock::new(|| {
     ], "description": "agent name, 'user', '@org:<slug>' or '@net:<slug>'; or a list of up to 10 of them" })
 });
 
+/// orgtree_ask's options. A description renders like chat and a label is
+/// short button text that keeps mentions as text (USER 2026-10-28
+/// m5952056229d3, "also allow question bodies to have formstted msrkdown,
+/// latex, and mentionnlinks embedded").
 static OPTIONS: std::sync::LazyLock<Value> = std::sync::LazyLock::new(|| {
     json!({ "type": "array", "maxItems": 4,
             "description": "2-4 answer options; omit for a free-response question",
             "items": { "type": "object", "properties": {
-                "label": { "type": "string", "description": "concise choice (1-5 words)" },
-                "description": { "type": "string", "description": "what picking it means" } },
+                "label": { "type": "string", "description": "concise choice (1-5 words); mentions stay text" },
+                "description": { "type": "string", "description": "what picking it means; Markdown, LaTeX and @mentions render" } },
                 "required": ["label"] } })
 });
 const VIS: &[&str] = &["self", "team", "subtree", "full"];
@@ -835,9 +839,9 @@ fn build_tool_ask() -> Value {
     // ---- arriving with build step 5
     tool(
         "orgtree_ask",
-        "Ask up to 4 user questions with2-4 options or free text. One open request; later calls add/amend tabs. End your turn; answers arrive as mail. Without user audience/top-level authority, routes to your superior. Withdraw moot questions.",
+        "Ask up to 4 user questions with2-4 options or free text. Questions/descriptions render Markdown, LaTeX, @mentions. One open request; later calls add/amend tabs. End your turn; answers arrive as mail. Without user audience/top-level authority, routes to your superior. Withdraw moot questions.",
         json!({
-            "question": { "type": "string", "description": "the complete question (or use `questions`)" },
+            "question": { "type": "string", "description": "the complete question (or use `questions`); Markdown, LaTeX and @mentions render as in chat" },
             "header": { "type": "string", "description": "very short label chip (max ~12 chars)" },
             "options": OPTIONS.clone(),
             "multi": { "type": "boolean", "description": "several options may be selected" },
