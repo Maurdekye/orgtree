@@ -98,11 +98,13 @@ hit-testing, text selection and the pin layer are unaffected by the theme.
   (it pans/zooms like a floor; at view 0,0 zoom 1 frames coincide with
   the reference's pane-anchored original). At far zoom-out, world-space
   sampling clamps zoom at `z >= 0.35` (`worldScale = z * dpr`), while
-  `gridFor` keeps `gridScale = Math.max(1, z) * dpr` (`cellWidth = 7` px at
-  `dpr = 1`, `13` px at `dpr = 2`) and `buildAtlas` caches `AtlasData` per
-  `(cellWidth, cellHeight)` so zoom-out never shrinks glyphs to faint 4 px
-  sub-pixel strokes or triggers WebGL backbuffer/2D-canvas atlas rebuilds
-  on every zoom step below `z = 1`. Where WebGL2 or a
+  `zoomGridFor` (`asciifield.ts`) keeps the z = 1 grid below `z = 1` (exactly
+  `gridFor(w, h, dpr)`: `cellWidth = 7` px at `dpr = 1`, `13` px at `dpr = 2`)
+  and `buildAtlas` caches `AtlasData` per `(cellWidth, cellHeight)` so
+  zoom-out never shrinks glyphs to faint 4 px sub-pixel strokes or triggers
+  WebGL backbuffer/2D-canvas atlas rebuilds on every zoom step below
+  `z = 1`; above `z = 1` the cell is drawn at the continuous size `n0 * z`
+  on one world lattice (see the zoom flicker fix below). Where WebGL2 or a
   hardware GL pipeline is unavailable, under `prefers-contrast: more` or
   forced colours, or below a minimum grid, the layer simply does not appear.
 - **Motion discipline and load resilience.** The ASCII scheduler mirrors
@@ -338,6 +340,55 @@ Measured under the machine lock on branch `backdrop-argon/backdrop-fixes`:
   - Red test first (`C:/orgtree-build/backdrop-argon/offset-logs/red-canvasbg-test.log`): at `v = { x: -720, y: -180, z: 0.24 }`, a click at `clientX = 520, clientY = 240` rendered at `screenX = 1088.33 px` (`+568.33 px` right of the cursor), failing `28 pass / 1 fail`.
   - Green unit/component suite (`C:/orgtree-build/backdrop-argon/offset-logs/green-canvasbg-test.log`): **29/29 pass (0 fail)** across `canvasbg.test.tsx` and `canvasbg-setting.test.tsx`, verifying zero cursor offset (`< 1e-3 px`) for taps, pointer wakes, and calm center at `z = 0.24`, `z = 0.35`, and `z = 0.12`, plus `bgGeometry()` phase alignment across all CSS backdrops at `z = 0.24` and `z = 0.35`.
   - Electron visual captures (`C:/orgtree-build/backdrop-argon/offset-visual/receipts.json`): `ascii-tap-minzoom.png` (`z = 0.24`, click at `(520, 340)`, `distinct = 23`, `minZoomCursorAligned: true`), `ascii-tap-zoomstep.png` (`z = 0.35`, click at `(520, 340)`, `distinct = 27`, `zoomStepCursorAligned: true`), and `ascii-drag-zoomout.png` (`z = 1.2 → 0.15`, `distinct = 23`, `maxStepMs = 5.7 ms`, `minCellWidth = 7`, `nonZeroWind = 3696`, `dragZoomAlive: true`) all PASS.
+
+### Zoom flicker fix (2026-10-29, on top of `823f7fa` = v4.5.1)
+
+USER 2026-10-28 22:52:55Z mfaa7411710fb ("the claude waves background is abbit glitchy when zooming the canvas in and out") and
+22:53:05Z mf070ca638693 ("it tenss to flicker"). Three measured causes, three commits (red tests first):
+
+1. **The sampling lattice dilated with 1/z above z = 1.** The cell was an integer device size (`round(6.5 * z * dpr)`) and the
+   world length it sampled, `cellWidth / (z * dpr)`, shrank with z and stepped at every integer size, so each zoom-in step
+   re-sampled the whole glyph field. `zoomGridFor` now draws the cell at the continuous size `n0 * z` (`n0` = the z = 1 cell), so the
+   field is sampled on ONE world lattice (`n0 / dpr` world units per cell) and zooming scales it like a floor; only the glyph
+   raster is an integer (`round(n0 * z)`), the canvas scales that bitmap by `drawn / raster` (<= 1.07, exactly 1 at z = 1), and one
+   extra column and row cover the viewport from a lattice-aligned corner. `z <= 1` is `gridFor(w, h, dpr)` unchanged.
+2. **The canvas only moved when the layer drew.** The layer redraws on its own 40 ms timer (about 50 ms measured, three displayed
+   frames) while the camera moves every frame, and the wheel writes `viewRef` ahead of React's commit. Between draws the canvas now
+   carries a compositor-only transform (`translate(...) scale(k)` about its top-left corner, `k = committed.z / drawn.z`), set in a
+   layout effect on the committed `view` in the same commit as the cards, and re-derived by every draw: cleared when the camera
+   drawn is the committed one, a map from the drawn camera to the committed one when the wheel was ahead.
+3. **The layer vanished at the grid minimum.** Zoomed so far in that fewer than `minRows` (8) or `minCols` (24) cells fit,
+   `computeLayout` is null; the layer used to go `display: none` and pop back at full strength. It now reports `unseen`, fades to
+   opacity 0 over the 250 ms the layer already uses for going away, and fades back in over 250 ms (the stale frame keeps tracking
+   the camera while it fades).
+
+**Measured, and what the measurements are.** Session 0 on this machine gave Electron no usable GPU process when this was
+investigated (`GPU process exited unexpectedly: exit_code=34` at window creation, for the probe and for
+`tests/canvasbg-capture.cjs` alike, at 3072 and 6144 MiB Job limits), and the layer refuses software renderers by design
+(`failIfMajorPerformanceCaveat` plus a renderer-name test in `asciigl.ts`). The probe (`tests/wavezoom.visual.tsx`,
+`tests/wavezoom.capture.cjs`, CDP wheel input, Session 0, muted, clipboard denied) therefore runs SwiftShader software WebGL2 with
+the FIXTURE, not the product, shimming that gate (`&sw=1`, `WAVEZOOM_SW=1`). Geometry, layout and painted pixels are the real
+layer's; **frame timing is software timing and says nothing about a real GPU. The real-GPU load path (the 83 ms backoff and the
+opacity-0 `busy-off` retry) was not measured: the first run of the fix on a real GPU is that proof.** Ink is compared in screen
+space (every bitmap pixel placed where its canvas's CSS box puts it, over fixed viewport bins; Bray-Curtis distance, 0 identical
+to 1 nothing in common), because comparing canvas bitmaps is wrong once the canvas resizes or the browser scales it (the first
+metric did that and overstated the effect at integer cell-size steps).
+
+| measure (SwiftShader, real layer) | before | after |
+| --- | --- | --- |
+| ink change per 0.8% zoom-in step, z 1 to 4, mean (p90, max) | 0.43 (0.64, 0.69) | 0.15 (0.20, 0.21) |
+| the same for a plain 4 px pan / the animation itself per frame | 0.15 / 0.015 | unchanged |
+| canvas top-left vs where the cards put its world position, live wheel zoom | up to 67 px; over 1 px in 52 of 210 frames (notches), 141 of 277 (trackpad-like) | at most 0.016 px; 0 frames over 1 px |
+| displayed frames with the layer `display: none` in one zoom gesture | 84 and 102 | 0 (opacity ramps 0.78 to 0 in about 15 frames and back) |
+| `z <= 1` pixels | | 28 camera views x 2 field times: identical drawing-buffer hash, canvas box and grid shape |
+
+Zoom-out (`z < 1`) is unchanged by design (0.20 per 1.2% step, the same before and after). Per-draw ink change in live wheel
+scenes is dominated by the size of one notch (12.7%) or four trackpad events, so the controlled sweep is the continuity
+measure and the live scenes are used for the offset, visibility and state measures only. Evidence (not in the repository):
+`C:/orgtree-build/lease-release-sonnet/wavezoom/` (`p8`, `p9`, `a2`, `b2`, `c0`-`c2`, `d1` result files; `s-before` and
+`s-after` contact sheets: the layer's own pixels with alpha x40 on black, because the real ink is faint by design). Run the
+probe with `_teams/1633/waves-zoom-probe/run_wavezoom.ps1` (README there); `canvasbg-build.mjs` fails on the current
+`node_modules` (the katex CSS needs font loaders) and was left alone.
 
 ## Limits
 
