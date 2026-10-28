@@ -2588,14 +2588,33 @@ button.cc-name:focus-visible {
   --tier-argon: #ff2bd6;
   /* Barium green, user 2026-10-05; conditional like Argon. */
   --tier-barium: #8FFF9F;
-  /* carbon (speculative Gemini 4 Carbon, user 2026-10-10; conditional like
-     Argon and Barium): electric chartreuse. MEASURED, NOT CHOSEN BY TASTE: a
-     graphite grey reads (8.6:1) but sits ΔE 17-18 from flash, luna and astra,
-     a neutral band that is already full. #c6ff00 is ΔE >= 54 from every tier
-     colour (nearest barium 54, terra 62), >= 31 under deuteranopia (sol, fable)
-     and >= 46 under protanopia (fable, barium); 12.9:1 on --panel and 11.0:1
-     on --input. The C letter stays the redundant glyph. */
-  --tier-carbon: #c6ff00;
+  /* carbon (speculative Gemini 4 Carbon, conditional like Argon and Barium):
+     LIGHT CHARCOAL GREY, to the user's spec (2026-10-28 m09d1c2c45be4: "i want
+     its model color to be a light charcoal grey"). It was electric chartreuse
+     #c6ff00 (2026-10-10, colour left to the implementer) because grey is the
+     band this palette crowds: --dim, --ink, luna, astra, flash and the edges.
+     The user's grey wins, so this is the grey that keeps the most distance
+     there. MEASURED, NOT CHOSEN BY TASTE (CIE76 dE, D65; Machado 2009 CVD;
+     swept L* 46-75, chroma 2-12, every hue, then the sRGB grid):
+     - charcoal (#36454F) is a slate, so the cool tilt stays (Lab hue 253,
+       chroma 10: --dim is 0) and L* 52 sits in the one gap of the grey band,
+       between --tether-edge (L* 38) and --dim (L* 65). A lighter grey closes
+       on --dim: at chroma 9, L* 58 is dE 11.5 and L* 62 is 9.6.
+     - dE >= 16.3 from every tier colour, provider accent and dark-theme
+       neutral (nearest --dim 16.3, --tether-edge 16.4, luna 24.8, flash 36.9,
+       astra 43.6). Colour-blind: deuteranopia >= 16.0, protanopia >= 14.9
+       (--dim), tritanopia >= 16.6.
+     - 3.66:1 on --panel and 3.11:1 on the --input badge fill (pro is 2.51 and
+       2.14), 4.54 and 4.28 on obsidian, 4.19 on white. Under this file's 4.5:1
+       text floor on charcoal: no grey that far from --dim reaches it, so the
+       floor is traded for distance, as pro does; the C letter stays the
+       redundant glyph.
+     - the card's 3px top edge (tier 55% over --line) is dE 16-19 from a plain
+       --line edge in all four themes; flash is 9.5 and astra 8.0 on light.
+     ⚠ NOT CLEAR OF EVERYTHING: the light themes' --dim text (#57606a,
+     #52656b) is dE 11.5-12.1 away. That is text, never drawn beside a tier
+     token, and the tier badge is a grey #ccc on #313131 there anyway. */
+  --tier-carbon: #6d7e8c;
   /* the provider ACCENT — the teal counterpart of --accent: desk border,
      desk shadow ring and busy border for codex agents (the class comes from
      cards.tsx `prov-openai`).
