@@ -114,14 +114,15 @@ test('§2 an option description takes chips and math; its label stays plain; a c
   assert.deepEqual(opened.map((r) => r.token), ['@bob'], 'and opened nothing')
 })
 
-test('§2b CONTROL: the pick button picks once per click, and the other rows stay buttons', async (t) => {
+test('§2b the pick button picks once per click, and the other rows stay buttons', async (t) => {
   const ask = question('Which?', [{ label: 'One', description: 'the first' }, { label: 'Two' }])
   const el = await mount(t, <AskCard ask={ask} slug={ORG} toast={() => {}} refs={routes().refs} />)
   const [one] = [...el.querySelectorAll('.ask-row')] as HTMLElement[]
-  const pick = one!.querySelector('.ask-row-pick') as HTMLButtonElement
-  await inAct(() => { pick.click() })
+  const pick = one!.querySelector('.ask-row-pick') as HTMLButtonElement | null
+  assert.ok(pick, 'the option has a pick button')
+  await inAct(() => { pick!.click() })
   assert.equal(one!.classList.contains('on'), true, 'one click picks')
-  await inAct(() => { pick.click() })
+  await inAct(() => { pick!.click() })
   assert.equal(one!.classList.contains('on'), false, 'the next unpicks: the row did not also toggle')
   const other = [...el.querySelectorAll('.ask-row')].find((r) => r.textContent?.trim() === 'Other')
   assert.equal(other?.tagName, 'BUTTON', 'Other is still one button')
