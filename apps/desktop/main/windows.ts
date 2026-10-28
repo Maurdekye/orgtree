@@ -1,4 +1,5 @@
 import { BrowserWindow, screen, shell, type Session } from 'electron'
+import { createServer, type AddressInfo } from 'node:net'
 import { attachEditMenu } from './editmenu'
 import { externalHttpUrl, hubchatChatUrl, isHoldingUrl, scopedHeaders, trustedUiUrl } from './policy'
 
@@ -20,22 +21,52 @@ const live = (value: Live): string => typeof value === 'function' ? value() : va
  *  - every webContents gets the `disable_non_proxied_udp` IP handling policy
  *    (sealWebRtc, from the app-wide web-contents-created hook): no UDP at all,
  *    because no proxy here carries UDP;
- *  - every session that renders agent HTML gets a proxy that does not exist
- *    (sealSessionNetwork, awaited before that session loads anything), so the
- *    TCP that WebRTC must route through the session's proxy never connects,
- *    with no fallback to a direct connection. `<-loopback>` drops Chromium's
- *    implicit loopback bypass; only 127.0.0.1, where the desktop's engine
- *    always listens, stays direct, on any port, because a recovered engine
- *    may come back on another one.
+ *  - every session that renders agent HTML sends all its traffic to a dead
+ *    proxy (sealSessionNetwork, awaited before that session loads anything),
+ *    so the TCP that WebRTC must route through the session's proxy never
+ *    connects, with no fallback to a direct connection. The dead proxy is a
+ *    listener this process holds on 127.0.0.1, at a port the OS picks, that
+ *    closes every connection unanswered. A port that is only vacant (it was
+ *    127.0.0.1:1, 4.5.0 review B6) can be taken by a local proxy that relays.
+ *    `<-loopback>` drops Chromium's implicit loopback bypass, and only the
+ *    engine's own current host:port stays direct: a bypass of all of
+ *    127.0.0.1 (review B7) let WebRTC reach a local TURN server or relay on
+ *    any port. An engine recovered in this process on another port gets the
+ *    session sealed again for that port before a window loads from it.
  *  Orgtree's own renderer talks only to that engine, so its UI is unaffected.
- *  What remains: TCP to other ports of 127.0.0.1 itself, never off the machine. */
+ *  What remains: TCP to the engine's own port, never off the machine. */
 export const SANDBOXED_WEBRTC_POLICY = 'disable_non_proxied_udp'
-export const SANDBOXED_PROXY = { mode: 'fixed_servers', proxyRules: '127.0.0.1:1', proxyBypassRules: '<-loopback>;127.0.0.1' } as const
 export function sealWebRtc(contents: Pick<Electron.WebContents, 'setWebRTCIPHandlingPolicy'>): void {
   contents.setWebRTCIPHandlingPolicy(SANDBOXED_WEBRTC_POLICY)
 }
-export function sealSessionNetwork(session: Pick<Session, 'setProxy'>): Promise<void> {
-  return session.setProxy({ ...SANDBOXED_PROXY })
+let deadProxy: Promise<number> | undefined
+/** The dead proxy's port. Made on first use, then held for the life of the
+ *  process and never closed, so no other program can listen there. A failed
+ *  listen fails that seal, and the next seal tries again. */
+function deadProxyPort(): Promise<number> {
+  deadProxy ??= new Promise<number>((resolve, reject) => {
+    const server = createServer(socket => socket.destroy())
+    const failed = (error: Error) => { deadProxy = undefined; reject(error) }
+    server.once('error', failed)
+    server.listen(0, '127.0.0.1', () => {
+      server.off('error', failed)
+      server.on('error', () => {})
+      server.unref()
+      resolve((server.address() as AddressInfo).port)
+    })
+  })
+  return deadProxy
+}
+/** The engine's port, from its origin `http://127.0.0.1:<port>`. Any other
+ *  origin names nothing to bypass. */
+function enginePort(origin: string): number | undefined {
+  const port = Number(/^http:\/\/127\.0\.0\.1:(\d{1,5})$/.exec(origin)?.[1])
+  return port >= 1 && port <= 65535 ? port : undefined
+}
+export async function sealSessionNetwork(session: Pick<Session, 'setProxy'>, engineOrigin: string): Promise<void> {
+  const port = enginePort(engineOrigin)
+  await session.setProxy({ mode: 'fixed_servers', proxyRules: `127.0.0.1:${await deadProxyPort()}`,
+    proxyBypassRules: ['<-loopback>', ...port ? [`127.0.0.1:${port}`] : []].join(';') })
 }
 
 export function assertNativeSender(event: Electron.IpcMainInvokeEvent, main: BrowserWindow | undefined, origin: string): void {

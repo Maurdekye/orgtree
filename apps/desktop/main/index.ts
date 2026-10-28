@@ -2401,7 +2401,7 @@ else {
       if (coreLifecycle) { await coreLifecycle.complete(); coreLifecycle.start() }
       const browserSession = session.fromPartition('persist:orgtree-v2')
       // App panels and chat HTML replies render here: no WebRTC TCP either.
-      await sealSessionNetwork(browserSession)
+      await sealSessionNetwork(browserSession, engine.origin)
       // The preload origin is fixed per window; session signing reads LIVE
       // engine values so a recovered attachment's new token keeps working.
       const initialOrigin = engine.origin
@@ -2523,7 +2523,7 @@ else {
         viewer.webContents.on('will-redirect', event => event.preventDefault())
         artifactThemes.follow(viewer.webContents)
         // Sealed before the presentation loads; a failed seal never shows it.
-        void sealSessionNetwork(artifactSession).then(() => viewer.loadURL(url)).catch(() => { if (!viewer.isDestroyed()) viewer.destroy() })
+        void sealSessionNetwork(artifactSession, engine.origin).then(() => viewer.loadURL(url)).catch(() => { if (!viewer.isDestroyed()) viewer.destroy() })
       }
       placement = new OrgPlacement(path.join(app.getPath('userData'), 'window-state.json'))
       const displays = () => screen.getAllDisplays().map(display => display.workArea)
@@ -2776,6 +2776,8 @@ else {
           // Rebuild only browser windows for a changed preload origin. Electron
           // main (tray, recovery ownership, settings) remains the SAME process.
           await bounded(saveWindowLayout(), UPDATE_LAYOUT_MS)
+          // The window session's one direct port moves with the engine (windows.ts).
+          await sealSessionNetwork(browserSession, engine.origin)
           const replace = [...records.values()].map(record => ({record, identity: windows.get(record.id)}))
           for (const {record, identity} of replace) {
             if (!identity) continue
