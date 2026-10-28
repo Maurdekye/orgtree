@@ -229,8 +229,8 @@ fn settle(pending:&Pending)->Result<()>{
             let mut bytes=Vec::new();(&target).take(WRITE_MAX as u64+1).read_to_end(&mut bytes)?;
             if hex::encode(Sha256::digest(&bytes))==pending.sha256{delete_handle(&backup)?;}Ok(())
         },
-        // another file holds the name: the original stays beside it
-        Err(_)=>Ok(()),
+        // the name cannot be read now (say, another program holds it): wait for a later start
+        Err(error)=>Err(error),
     }
 }
 /// Outside Windows commit refuses every change, so no record exists.
