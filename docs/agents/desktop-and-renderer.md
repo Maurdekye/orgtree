@@ -21,7 +21,13 @@ description), and the description renders beside that button. A chip's click
 stops at the description, so it opens the reference without picking. CSS keeps
 the row's look: the pick button is unstyled, and the busy fade
 (`aria-disabled`) and the focus ring (`:has(... :focus-visible)`) are the
-row's. Other, Skip, credit and scope rows stay one button. The answered card
+row's. Contextual button rules reached the old row button, so the container
+repeats them: `.settings button` (14px, `7px 15px`, radius 6px in the inbox,
+docket and Attention panels) and `html.mobile button` (min-height 32px).
+Measured at `ab8cc3f` without the copies: in the inbox the pick button took
+that padding and the labels dropped below their dots. `questionmentions.test`
+§10 holds each copy to its original. Other, Skip, credit and scope rows stay
+one button. The answered card
 (the transcript's `answer.ask`/`answer.batch` events, the inbox's resolved
 rows and skipped batch sections) renders question text and descriptions the
 same way, through the event card's `world`/`onOpen`/`imgBase`. A single
