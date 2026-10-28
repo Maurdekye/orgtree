@@ -61,11 +61,11 @@ test('a runtime publish with helper_count 1 reaches the projected node and shows
   const records=new RecordStore().change([...treeOrgGroups.map(id=>({entity:'org',id,body:id==='settings'?{slug:'org'}:{},set:'shared'})),
     {entity:'agent',id:'7',body:{id:'worker',parent_id:null,state:'live',ui_order:0,created:'',ord:0,helper_count:0},set:'shared'}]).records
   const live=new RecordOverlay(identity).receive(frame(1,true,{busy:true,helper_count:1}),true)
-  const node=projectTree(records,{runtime:live.values}).roots[0]
+  const node=projectTree(records,{runtime:live.values}).roots[0]!
   assert.equal(node.helper_count,1,'the runtime overlay carries the live helper count')
   const view=await mountView(<LiveHelpersBadge slug="org" nid={node.id} count={node.helper_count}/>,e=>e.textContent);t.after(()=>view.unmount())
   assert.equal(view.last(),'1 helper');assert.equal(view.el.querySelector('.live-helpers-badge')?.getAttribute('aria-label'),'1 live helper')
-  const done=projectTree(records,{runtime:live.receive(frame(2,false,{helper_count:0})).values}).roots[0]
+  const done=projectTree(records,{runtime:live.receive(frame(2,false,{helper_count:0})).values}).roots[0]!
   assert.equal(done.helper_count,0);await view.render(<LiveHelpersBadge slug="org" nid={done.id} count={done.helper_count}/>)
   assert.equal(view.el.querySelector('.live-helpers-badge'),null)
 })
