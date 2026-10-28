@@ -30,7 +30,7 @@
  * EPIC Mode needs nothing from this layer: its stage is a fixed overlay
  * far above the canvas (epic/stage.ts), so the two coexist as independent,
  * separately bounded painters. */
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { CSSProperties } from 'react'
 import { useCanvasBackground } from '../canvasbgpref'
 import { DEFAULT_CANVAS_INTENSITIES } from '../../../../../packages/contracts/canvas-background'
@@ -226,6 +226,13 @@ export function AsciiLayer({ view, viewRef, hidden, intensity, pin, onReady }: {
   const live = useRef({ hidden, intensity })
   live.current = { hidden, intensity }
   const stillRef = useRef<(() => void) | null>(null)
+  // The camera the DOM last COMMITTED (what the cards are drawn with); `viewRef` is written ahead of the commit by the wheel.
+  const committed = useRef(view)
+  committed.current = view
+  const trackRef = useRef<(() => void) | null>(null)
+  // Between the layer's own redraws (a 40 ms timer, about 3 displayed frames) the canvas follows the committed camera in the
+  // same commit as the cards: a compositor-only transform on the stale bitmap, cleared by the next draw.
+  useLayoutEffect(() => { trackRef.current?.() }, [view])
   const [reduced] = useState(() =>
     typeof window !== 'undefined' && typeof window.matchMedia === 'function'
     && window.matchMedia('(prefers-reduced-motion: reduce)').matches)
@@ -356,6 +363,25 @@ export function AsciiLayer({ view, viewRef, hidden, intensity, pin, onReady }: {
         cssW: grid.columns * cellWorldW * z, cssH: grid.rows * cellWorldH * z,
       }
     }
+    // The camera the bitmap on screen was drawn with. The canvas box (left/top/width/height) is the layer's own as of that
+    // draw; this transform moves and scales it, about its top-left corner, to where the committed camera puts the world
+    // under it: screen = k * (drawn screen point) + (v.x - k * drawn.x) with k = v.z / drawn.z, so the cards and the
+    // background move together in every displayed frame. No transform when the two cameras are the same.
+    let drawnView: View | null = null
+    const trackCamera = (): void => {
+      if (!renderer || !drawnView || !(drawnView.z > 0)) return
+      const v = committed.current
+      const c = renderer.canvas
+      const k = v.z / drawnView.z
+      if (k === 1 && v.x === drawnView.x && v.y === drawnView.y) {
+        if (c.style.transform) c.style.transform = ''
+        return
+      }
+      const left = lastLayout?.cssLeft ?? 0, top = lastLayout?.cssTop ?? 0
+      c.style.transformOrigin = '0 0'
+      c.style.transform = `translate(${(k - 1) * left + v.x - k * drawnView.x}px, ${(k - 1) * top + v.y - k * drawnView.y}px) scale(${k})`
+    }
+    trackRef.current = trackCamera
     const drawOnce = (time: number, reveal: number): boolean => {
       if (!renderer || dead || contextLost) return false
       const lay = computeLayout()
@@ -381,6 +407,8 @@ export function AsciiLayer({ view, viewRef, hidden, intensity, pin, onReady }: {
         calmCx: (host.clientWidth / 2 - v.x) / z,
         calmCy: (cfg.card.centerY * host.clientHeight - v.y) / z,
       })
+      drawnView = { x: v.x, y: v.y, z: v.z }
+      trackCamera()
       if (!shown) {
         shown = true
         renderer.canvas.style.transition = firstShow ? 'opacity 3000ms' : 'opacity 600ms'
@@ -703,6 +731,7 @@ export function AsciiLayer({ view, viewRef, hidden, intensity, pin, onReady }: {
         renderer.destroy()
       }
       if (stillRef.current === drawStill) stillRef.current = null
+      if (trackRef.current === trackCamera) trackRef.current = null
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [reduced, viewRef])
