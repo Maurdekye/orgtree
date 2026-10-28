@@ -83,6 +83,17 @@ Starts lock their app row, then refuse while the org killswitch is latched; Stop
 all locks every app row in ID order and powers off every panel with panel.stopped
 {reason:"stop all"}, so a racing start sees the latch or is stopped. Release
 starts nothing.
+Stop all commits its latch, that power-off and its watchdog pause as one
+transaction before any agent wait (2026-10-28, 4.5.0 review B10: the power-off
+used to follow the agent waits in a transaction of its own, so a failure or
+restart in between left a latched org with panels still marked to run, which a
+release handed back). It takes app rows, then the org row, then panels and
+watchdogs, the order app event delivery and project listeners take; a start
+reads the latch with FOR SHARE after its app and panel rows, so a start racing
+the uncommitted latch waits for it and is refused. A failed power-off latches
+nothing. Native proof: `tools/rig/proofs/stop-all-atomic.mjs`
+(`http/orgops/stop_all_tests.rs`). [verified: `http/orgops.rs`,
+`domain/apps/runtime.rs`; 2026-10-28]
 
 Start/stop motion (USER 2026-10-27 m056a5c0bde3c: "a rapid zoom in / out", to
 tell starting and stopping from opening and closing): display only, no engine or
