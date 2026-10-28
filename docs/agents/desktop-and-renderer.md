@@ -45,7 +45,7 @@ Main closes it in two layers (`main/windows.ts`), and each alone left one
 transport open (measured):
 - `sealWebRtc`: every webContents gets the `disable_non_proxied_udp` IP
   handling policy from the app-wide `web-contents-created` hook. No UDP leaves.
-- `sealSessionNetwork(session, engine.origin)`: the window session
+- `sealSessionNetwork(session, engine.origin, shut)`: the window session
   (`persist:orgtree-v2`, which renders app panels, chat HTML replies and the
   inline presentation frame) and each presentation viewer window's own session
   get a `fixed_servers` proxy that is a dead listener main itself holds on
@@ -53,19 +53,29 @@ transport open (measured):
   life of the process, and closes every connection unanswered. The bypass is
   `<-loopback>` plus the engine's own host:port, nothing else. WebRTC's TCP
   must go through the session proxy, so it never connects and never falls back
-  to direct. The seal is awaited before the session loads anything; a viewer
-  whose seal fails is destroyed unshown.
+  to direct. The seal is awaited before the session loads anything. `shut`
+  closes everything that renders in the session; it runs whenever a seal of
+  that session fails.
 - Every sealed session follows the engine. The Engine announces each change
   of its origin ('origin', '' when it is lost), and main reseals every sealed
-  session for it (`resealSandboxedSessions`, in the order asked): nothing is
-  direct while the engine is lost, and once it is back only its new port is.
-  Main waits for these seals (`sandboxSealed`) before it reloads or rebuilds
-  windows after a recovery, and forgets a viewer's session when the viewer
-  closes. Until 2026-10-28 only the window session was resealed, and only for
-  an engine that came back on another port: an open viewer kept a lost
-  engine's port direct, and a local relay could take that freed port (review
-  of 7924322). What remains is the gap between an engine's exit and the
-  desktop noticing it.
+  session for it (`resealSandboxedSessions`): nothing is direct while the
+  engine is lost, and once it is back only its new port is. Seals run one step
+  at a time, and a step ends only when every update it started has settled,
+  so the last seal asked for is the one in force. Main forgets a viewer's
+  session when the viewer closes. Until 2026-10-28 only the window session was
+  resealed, and only for an engine that came back on another port: an open
+  viewer kept a lost engine's port direct, and a local relay could take that
+  freed port (review of 7924322). What remains is the gap between an engine's
+  exit and the desktop noticing it.
+- A failed seal fails closed. The session's `shut` runs before the step ends:
+  a viewer is destroyed and its session forgotten; every window on the window
+  session, main windows and popouts alike, is destroyed, and one error dialog
+  says why. The window session stays unsealed until a seal of it applies, and
+  `sandboxSealed()` is false meanwhile. Main reloads or rebuilds windows after
+  a recovery, and opens a new one, only when it is true. Until 2026-10-28 a
+  failed reseal was only logged and `sandboxSealed` settled anyway, and
+  Promise.all let the next seal begin while a slower update was still
+  pending, which could then land last (review of f6e8a6c).
 
 Until 2026-10-28 the proxy was `127.0.0.1:1` with bypass
 `<-loopback>;127.0.0.1` (4.5.0 review B6/B7, c3068e98c63c F1/F2). Port 1 was
