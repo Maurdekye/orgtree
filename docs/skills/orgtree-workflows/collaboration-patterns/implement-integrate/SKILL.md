@@ -96,6 +96,7 @@ The mechanics live in other pages; this pattern only chooses settings.
 - [orgtree-work-queues](../work-queues/SKILL.md) and [orgtree-concurrency-primitives](../concurrency-primitives/SKILL.md): the queue settings, ACK semantics and worked calls.
 - [orgtree-build-slots](../build-slots/SKILL.md): permits for the integrators' heavy phases.
 - [orgtree-iterative-development](../iterative-development/SKILL.md): where hand-ins sit in a release process.
+- [orgtree-queue-review](../queue-review/SKILL.md): the sibling pattern for reading a long list of commits one per job.
 - `orgtree-charters` (orgtree-working › team) and `orgtree-app-charters-and-templates` (orgtree-app › app-settings): the Implementer and Integrator presets.
 - `orgtree-tool-message` (orgtree-working › mail), `orgtree-tool-watchdog` (orgtree-working › watchdogs), `orgtree-tool-project` (orgtree-working › team) and `orgtree-tool-work` (orgtree-working › docket): posting and acknowledging jobs, listening, queue settings and evidence on the item.
 - `orgtree-reviews-and-landing` and `orgtree-builds-under-the-lock` (orgtree-working › workspace): exact-commit evidence and permit mechanics.

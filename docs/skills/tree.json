@@ -5,10 +5,10 @@
  "counts": {
   "categories": 3,
   "sections": 19,
-  "leaves": 187,
+  "leaves": 188,
   "tools": 49,
-  "concepts": 57,
-  "total": 209
+  "concepts": 58,
+  "total": 210
  },
  "leaves_per_writer": {
   "org-sol": 33,
@@ -31,7 +31,7 @@
   "template-dogs-sol": 1,
   "desk-parity-opus": 1,
   "canvas-sol": 2,
-  "presets-docs-sonnet": 1
+  "presets-docs-sonnet": 2
  },
  "nodes": [
   {
@@ -7436,7 +7436,8 @@
     "work-queues",
     "build-slots",
     "concurrency-primitives",
-    "implement-integrate"
+    "implement-integrate",
+    "queue-review"
    ],
    "writer": "skilltree-opus",
    "status": "fixed"
@@ -7665,7 +7666,8 @@
     "projects",
     "tool-watchdog",
     "tool-message",
-    "implement-integrate"
+    "implement-integrate",
+    "queue-review"
    ],
    "writer": "project-nodes-opus",
    "status": "fixed"
@@ -7848,7 +7850,50 @@
     "tool-project",
     "tool-work",
     "reviews-and-landing",
-    "builds-under-the-lock"
+    "builds-under-the-lock",
+    "queue-review"
+   ],
+   "writer": "presets-docs-sonnet",
+   "status": "fixed"
+  },
+  {
+   "path": "orgtree-workflows/collaboration-patterns/queue-review",
+   "name": "orgtree-queue-review",
+   "level": 3,
+   "kind": "concept",
+   "registered": false,
+   "covers": [
+    "workflow:queue-review"
+   ],
+   "purpose": "Reviewing a long list of commits one per job through an ACK-mode project queue, with a fixed review file, then collating and classifying findings per group before routing defects.",
+   "must_cover": [
+    "when to use it and why a queue beats fixed batches: one commit per turn, balanced load, speed is not the goal",
+    "roles: coordinator, reviewer pool, checker, implementer; model choices are examples",
+    "the pieces: review project in ACK mode, manifest in groups, output folder, read-only repository access",
+    "the job mail's fields and a skeleton",
+    "reviewer run: one persistent fair_queue listener with batch 1, read the whole commit and its surroundings, defects only, independent review, file written before the acknowledgement, then end the turn",
+    "the fixed review file format and severity definitions",
+    "escalation only for unreadable jobs and high-severity security or data-loss findings",
+    "collation per group, the five classifications, the packet layout and routing confirmed open defects",
+    "trade-offs: cost, duplicates, ack timeouts, pool size, review is not integration",
+    "setup recipe; no build, push or release authority"
+   ],
+   "sources": [
+    "User rulings 2026-10-28 m72a78af04314, m3d100302c387, m861f966c4a79 (review each commit independently, one at a time, through the mail queue) and mf18dc11608e9 (record this workflow in the glossary)",
+    "engine/rs/orgtree-engine/src/domain/projects.rs",
+    "engine/rs/orgtree-engine/src/domain/mail.rs"
+   ],
+   "see_also": [
+    "dev-team",
+    "work-queues",
+    "concurrency-primitives",
+    "implement-integrate",
+    "iterative-development",
+    "tool-message",
+    "tool-watchdog",
+    "tool-project",
+    "tool-work",
+    "reviews-and-landing"
    ],
    "writer": "presets-docs-sonnet",
    "status": "fixed"

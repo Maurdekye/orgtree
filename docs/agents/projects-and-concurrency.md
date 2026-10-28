@@ -2298,3 +2298,12 @@ and build-permit settings and adds no engine behaviour; the queue pages keep the
 An acknowledgement means the job was handled (handed in or bounced), not that it passed.
 [decided: user 2026-10-27 17:24:03Z "document this implement / integrste split in the glossary's
 workflows"; verified: `docs/skills/orgtree-workflows/collaboration-patterns/implement-integrate/SKILL.md`]
+
+Per-commit review through a queue (a coordinator posts one job per commit to a review project in ACK mode;
+each reviewer arms one persistent `fair_queue` listener with batch 1, writes one review file and acknowledges
+with `DONE <sha12> CLEAN|FINDINGS(n)`; a checker collates a group's files and classifies every finding
+CONFIRMED-OPEN, CONFIRMED-FIXED, NOT-A-DEFECT, DUPLICATE or UNSURE) is the workflow leaf `orgtree-queue-review`
+(orgtree-workflows > collaboration-patterns). It adds no engine behaviour: queue mode, ack timeout and dead
+letters stay in the queue pages, and a slow review needs a generous ack timeout.
+[decided: user 2026-10-28 "record this workflow in the glossary" (mf18dc11608e9), after "Redo via queue"
+(m861f966c4a79); verified: `docs/skills/orgtree-workflows/collaboration-patterns/queue-review/SKILL.md`]
