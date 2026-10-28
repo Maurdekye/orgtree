@@ -36,6 +36,7 @@ pub mod next_turn;
 pub mod opencode;
 pub mod opencode_mail;
 pub mod prompt;
+pub mod rate_limit;
 #[cfg(test)]
 mod agy_read_tests;
 #[cfg(test)]

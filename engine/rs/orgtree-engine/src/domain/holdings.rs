@@ -115,6 +115,8 @@ pub struct Ending<'a> {
     pub limited: bool,
     /// the agent was frozen at the end of this turn
     pub frozen: bool,
+    /// ... and that freeze is the short retry of a request-rate 429 (a usage limit it is not)
+    pub rate_limited: bool,
 }
 
 /// Why an agent's holdings were taken back for a dead turn: what the lease
@@ -549,6 +551,21 @@ mod tests {
             assert!(d.because.starts_with("your turn") || d.because.starts_with("the user's"), "{name}: {}", d.because);
         }
         assert_eq!(died(&Ending { limited: true, ..end() }).unwrap().how, HOW_FROZEN, "a usage-limit refusal");
+    }
+
+    /// User 2026-10-28 10:07:18Z mb1ca1568502c: a request-rate 429 is retried after a few minutes; the
+    /// holder is told it was a rate limit, never that a usage limit froze it.
+    #[test]
+    fn a_rate_limit_retry_freeze_is_not_called_a_usage_limit() {
+        let d = died(&Ending { frozen: true, rate_limited: true, ..end() }).expect("the retry freeze takes the holdings back");
+        assert_eq!(d.how, HOW_FROZEN);
+        assert!(d.why.starts_with("its turn") && d.why.contains("rate limit") && d.why.contains("429"), "{}", d.why);
+        assert!(d.because.starts_with("your turn") && d.because.contains("rate limit") && d.because.contains("429"), "{}", d.because);
+        assert!(!d.why.contains("usage limit") && !d.because.contains("usage limit"), "{} / {}", d.why, d.because);
+        // a real usage limit still reads as one, whatever else is set
+        let u = died(&Ending { limited: true, frozen: true, ..end() }).unwrap();
+        assert!(u.why.contains("usage limit") && u.because.contains("usage limit"));
+        assert!(died(&Ending { interrupted: true, frozen: true, rate_limited: true, ..end() }).is_none());
     }
 
     #[test]

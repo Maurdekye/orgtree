@@ -8228,7 +8228,7 @@ impl Actor {
         // its next turn is told what went (domain/holdings.rs; user 2026-10-27 16:18Z)
         let ending = crate::domain::holdings::Ending {
             interrupted: turn.interrupted, compact: turn.compact, session_ended: turn.session_ended,
-            error: error.as_deref(), limited: limit.is_some(), frozen: freeze_rec.is_some(),
+            error: error.as_deref(), limited: limit.is_some(), frozen: freeze_rec.is_some(), rate_limited: false,
         };
         if let Some(death) = crate::domain::holdings::died(&ending) {
             if let Err(e) = boxed(|| crate::domain::holdings::release_after_death(&self.engine, self.org_id, self.id, &self.name, &death)).await {

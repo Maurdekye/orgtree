@@ -253,7 +253,7 @@ impl<'a> Tree<'a> {
             if r.halted {
                 tags.push("halted — explicit unhalt required".into());
             }
-            if r.frozen { tags.push("frozen (usage limit)".into()); }
+            if r.frozen { tags.push(frozen_tag(false).into()); }
             let state = if tags.is_empty() { String::new() } else { format!(" ({})", tags.join(", ")) };
             let note = status_note(r, self.live.get(&r.id).copied().unwrap_or_default(), self.now);
             let note = if note.is_empty() { String::new() } else { format!(" · {note}") };
@@ -263,6 +263,13 @@ impl<'a> Tree<'a> {
             self.queue_level(&kids, indent + 1, &mut pending);
         }
     }
+}
+
+/// What the org chart calls a frozen agent: a request-rate 429 is retried in minutes and is no
+/// usage limit (user 2026-10-28 10:07:18Z mb1ca1568502c).
+#[nolog]
+fn frozen_tag(_rate_limited: bool) -> &'static str {
+    "frozen (usage limit)"
 }
 
 #[nolog]
@@ -502,7 +509,7 @@ fn render(f: &Facts, live: &HashMap<i64, Live>, now: DateTime<Utc>) -> OrgState 
         let parent_name = r.parent.and_then(|id| tree.by_id.get(&id)).map(|p| p.name.as_str()).unwrap_or("user");
         let text = format!("- {} [{}], parent {parent_name}, state {}{}{} · {}", r.name, r.tier, r.state,
             if r.halted { ", halted — explicit unhalt required" } else { "" },
-            if r.frozen { ", frozen (usage limit)" } else { "" }, status_note(r, live, now));
+            if r.frozen { format!(", {}", frozen_tag(false)) } else { String::new() }, status_note(r, live, now));
         let before_last = matches!((r.status.as_ref().and_then(|v| ts(v,"at")), r.last_turn), (Some(a),Some(t)) if t>a);
         let semantic = json!([r.name,r.parent,parent_name,r.tier,r.state,r.halted,r.frozen,r.status,live.busy,live.waiting,r.inflight_at.is_some(),before_last]);
         entries.insert(format!("agent:{}",r.id), delta::Entry::new(&r.name, &semantic, text.clone()));
@@ -775,3 +782,15 @@ pub fn mail_block(mail: &[&Mail], rels: &HashMap<String, String>, turn_start: bo
     format!("[MAIL — {} message(s)]\n{}\n[END MAIL]", mail.len(), blocks.join("\n---\n"))
 }
 
+#[cfg(test)]
+mod frozen_tag_tests {
+    use super::frozen_tag;
+
+    #[test]
+    fn a_rate_limit_retry_is_not_called_a_usage_limit() {
+        assert_eq!(frozen_tag(false), "frozen (usage limit)");
+        let t = frozen_tag(true);
+        assert!(t.starts_with("frozen") && t.contains("rate-limited") && t.contains("retrying"), "{t}");
+        assert!(!t.contains("usage"), "{t}");
+    }
+}
