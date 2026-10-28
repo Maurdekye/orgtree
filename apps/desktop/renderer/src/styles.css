@@ -2982,18 +2982,24 @@ button.cc-name:focus-visible {
 .ask-row.on { background: var(--accent-soft); }
 /* An option row is a container around its pick button and its description
    (asks.tsx OptionRow, 2026-10-28), drawn exactly as the single button it
-   replaced: the pick button is unstyled, and the busy fade and the keyboard
-   focus ring are the row's, as they were the button's. */
-.ask-row[aria-disabled="true"] { opacity: .45; cursor: default; }
-.ask-row-pick {
-  display: block; width: 100%; padding: 0; border: none; border-radius: 0;
-  background: none; color: inherit; font: inherit; text-align: left; cursor: inherit;
-}
-.ask-row-pick:hover, .ask-row-pick:disabled { background: none; opacity: 1; cursor: inherit; }
-.ask-row-pick:focus-visible { outline: none; }
-.ask-row:has(> .ask-row-body > .ask-row-pick:focus-visible) {
+   replaced. So it repeats what the button rules gave that button: the hover
+   transition, the busy fade and the focus ring (`button`), the panel size in
+   the inbox, docket and Attention panels (`.settings button`) and the mobile
+   floor (`html.mobile button`); questionmentions.test §10 holds the copies to
+   their originals. The pick button inside resets every one of them. */
+div.ask-row { transition: background .12s, border-color .12s; }
+div.ask-row[aria-disabled="true"] { opacity: .45; cursor: default; }
+div.ask-row:has(> .ask-row-body > .ask-row-pick:focus-visible) {
   outline: 1px solid var(--button-accent); outline-offset: -1px;
 }
+.settings div.ask-row { font-size: 14px; padding: 7px 15px; border-radius: 6px; }
+html.mobile div.ask-row { min-height: 32px; }
+.ask-row .ask-row-pick {
+  display: block; width: 100%; min-height: 0; margin: 0; padding: 0; border: none; border-radius: 0;
+  background: none; color: inherit; font: inherit; text-align: left; cursor: inherit; transition: none;
+}
+.ask-row .ask-row-pick:hover, .ask-row .ask-row-pick:disabled { background: none; opacity: 1; cursor: inherit; }
+.ask-row .ask-row-pick:focus-visible { outline: none; }
 .ask-dot {
   flex: none; width: 13px; height: 13px; margin-top: 2px;
   border: 1.5px solid var(--dim); border-radius: 50%;
