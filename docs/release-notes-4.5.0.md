@@ -36,6 +36,7 @@ Orgtree 4.5.0 adds custom apps: small HTML tools that agents build for you, with
 - **Antigravity follows your sign-in.** After you sign in to another Google account, Orgtree reads the new login's model list by itself and restarts Antigravity processes still on the old login. Argon has its own weekly usage window, and a full one holds back only Argon.
 - **Agents' context stays smaller.** The provider-usage block is resent only for rows whose usage changed.
 - **An agent ending its own turn reads "Ended this turn as requested"** instead of an error.
+- **The intro tutorial's note has a Dismiss button** that ends the tutorial for good.
 - **Integrator charter preset.** A new preset for the seat that rebases, builds and tests an implementer's work; the Implementer preset can now hand integration to such a pool, and the workflows guide describes the pattern.
 - **Org-modifying tools.** Agents' tool settings gain this group for apps and the organization logo, on by default. An older explicit logo denial still applies.
 - **Settings tabs and Org settings are tidier.** The intro paragraph at the top of each App settings and Panel settings tab is gone, and Org settings no longer has a footer Close button.
@@ -49,6 +50,14 @@ Orgtree 4.5.0 adds custom apps: small HTML tools that agents build for you, with
 - **The @ list opens below its box when there is no room above.**
 - **A popped-out app panel fills its window.**
 - **Agent-made HTML pages in the reader cannot use WebRTC** to reach the network.
+- **App panels' sandbox is tighter.** The network seal uses a port only Orgtree holds and lets only its own engine through directly; a redirect to another site keeps only the headers a browser would send there; and if sealing a window ever fails, the window closes instead of running unsealed.
+- **An app's saved data no longer loses a write** when a panel saves two keys at the same time.
+- **An interrupted file replacement is undone.** If Orgtree stops while an app replaces a file, the original is back under its name at the next start.
+- **Stop All powers off panels in the same step,** so a crash part-way through can't leave panels set to start again.
+- **Allow once now says what it does:** it lasts until the panel is powered off, even while hidden.
+- **File change prompts read "none (new file)" or "none (deleted)"** instead of "New file bytes".
+- **An agent's status line in the agents list stays on one line,** ending in "…" when a long ticket title doesn't fit.
+- **The Apps list shows running panels' CPU** even when the first reading was empty.
 
 ## Notes
 
