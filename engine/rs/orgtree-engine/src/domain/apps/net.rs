@@ -42,16 +42,68 @@ const WINDOW: Duration = Duration::from_secs(60);
 /// Methods an app may use. No CONNECT/TRACE; nothing that is not a plain fetch.
 pub const METHODS: &[&str] = &["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD"];
 
-/// The only request headers a redirect carries to another site: the
-/// CORS-safelisted names, which a browser sends to any origin without asking
-/// it. Any other header an app sets may hold a credential (Authorization,
-/// X-API-Key, a session token), so a hop to another host or port drops it.
-pub const CROSS_SITE_HEADERS: &[&str] = &[
-    "accept",
-    "accept-language",
-    "content-language",
-    "content-type",
-];
+/// Whether fetch calls `name: value` a CORS-safelisted request-header, one a
+/// browser sends to any origin without asking it: Accept, Accept-Language,
+/// Content-Language, or Content-Type whose essence is
+/// application/x-www-form-urlencoded, multipart/form-data or text/plain. The
+/// value is at most 128 bytes and has none of the bytes fetch calls CORS-unsafe;
+/// the language headers allow only letters, digits and ` *,-.;=`.
+#[nolog]
+pub fn cors_safelisted(name: &str, value: &str) -> bool {
+    let unsafe_byte = |b: u8| (b < 0x20 && b != b'\t') || b"\"():<>?@[\\]{}\x7f".contains(&b);
+    if value.len() > 128 {
+        return false;
+    }
+    match name.to_ascii_lowercase().as_str() {
+        "accept" => !value.bytes().any(unsafe_byte),
+        "accept-language" | "content-language" => value
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b" *,-.;=".contains(&b)),
+        "content-type" => {
+            !value.bytes().any(unsafe_byte)
+                && mime_essence(value).is_some_and(|essence| {
+                    matches!(
+                        essence.as_str(),
+                        "application/x-www-form-urlencoded" | "multipart/form-data" | "text/plain"
+                    )
+                })
+        }
+        _ => false,
+    }
+}
+
+/// A MIME type's essence, `type/subtype` in lowercase, as fetch parses it; None
+/// when it does not parse.
+#[nolog]
+fn mime_essence(value: &str) -> Option<String> {
+    let token = |s: &str| {
+        !s.is_empty()
+            && s.bytes()
+                .all(|b| b.is_ascii_alphanumeric() || b"!#$%&'*+-.^_`|~".contains(&b))
+    };
+    let space: &[char] = &['\t', '\n', '\r', ' '];
+    let (kind, rest) = value.trim_matches(space).split_once('/')?;
+    let sub = rest.split(';').next().unwrap_or_default().trim_end_matches(space);
+    (token(kind) && token(sub))
+        .then(|| format!("{}/{}", kind.to_ascii_lowercase(), sub.to_ascii_lowercase()))
+}
+
+/// The headers a redirect carries to another host or port: the CORS-safelisted
+/// ones, and none of them when their values exceed fetch's 1024 bytes together.
+/// Any other header an app sets may hold a credential (Authorization,
+/// X-API-Key, a session token, or a token in a Content-Type parameter).
+#[nolog]
+pub fn cross_site_headers(headers: Vec<(String, String)>) -> Vec<(String, String)> {
+    let kept: Vec<(String, String)> = headers
+        .into_iter()
+        .filter(|(name, value)| cors_safelisted(name, value))
+        .collect();
+    if kept.iter().map(|(_, value)| value.len()).sum::<usize>() > 1024 {
+        Vec::new()
+    } else {
+        kept
+    }
+}
 
 /// Headers an app may never set: identity/routing the engine owns, and the
 /// hop-by-hop set reqwest manages. Matched case-insensitively.
@@ -521,14 +573,11 @@ pub async fn fetch(mut f: Fetch, allow: &(dyn Fn(&str, u16) -> bool + Sync)) -> 
                     .retain(|(n, _)| !n.eq_ignore_ascii_case("content-type"));
             }
             // Credentials the app chose for one site never follow it elsewhere:
-            // a hop to another host or port keeps only the CORS-safelisted
-            // headers (review B8: dropping Authorization alone sent X-API-Key on).
+            // a hop to another host or port keeps only CORS-safelisted headers,
+            // judged by name and value (review B8: dropping Authorization alone
+            // sent X-API-Key on; names alone sent a token in Content-Type on).
             if url_host_port(&next)? != (host.clone(), port) {
-                f.headers.retain(|(n, _)| {
-                    CROSS_SITE_HEADERS
-                        .iter()
-                        .any(|safe| n.eq_ignore_ascii_case(safe))
-                });
+                f.headers = cross_site_headers(std::mem::take(&mut f.headers));
             }
             f.url = next;
             continue;
@@ -943,6 +992,56 @@ mod tests {
         ] {
             assert!(validate_fetch(&bad).is_err());
         }
+    }
+
+    #[test]
+    fn cors_safelisted_headers_follow_fetch() {
+        for (name, value) in [
+            ("Accept", "application/json"),
+            ("accept", "*/*"),
+            ("Accept-Language", "en-US,en;q=0.9"),
+            ("Content-Language", "de-DE"),
+            ("Content-Type", "text/plain"),
+            ("content-type", "Text/Plain; charset=UTF-8"),
+            ("Content-Type", "multipart/form-data; boundary=x-1"),
+            ("Content-Type", " application/x-www-form-urlencoded "),
+        ] {
+            assert!(cors_safelisted(name, value), "{name}: {value}");
+        }
+        let long = format!("text/plain;{}", "a=b;".repeat(30));
+        for (name, value) in [
+            ("Content-Type", "application/json"),
+            ("Content-Type", "application/json; api-key=k"),
+            ("Content-Type", "text/plain; key=\"k\""),
+            ("Content-Type", "text /plain"),
+            ("Content-Type", "text"),
+            ("Content-Type", long.as_str()),
+            ("Accept", "application/json; key=\"k\""),
+            ("Accept", "text/html\u{1}"),
+            ("Accept-Language", "en_US"),
+            ("Content-Language", "de/DE"),
+            ("Authorization", "Bearer k"),
+            ("X-API-Key", "k"),
+            ("Range", "bytes=0-1"),
+        ] {
+            assert!(!cors_safelisted(name, value), "{name}: {value}");
+        }
+        let h = |n: &str, v: &str| (n.to_string(), v.to_string());
+        assert_eq!(
+            cross_site_headers(vec![
+                h("Accept", "a"),
+                h("X-API-Key", "k"),
+                h("Content-Type", "application/json"),
+            ]),
+            vec![h("Accept", "a")]
+        );
+        // 1024 bytes of values together are kept; past that, none is.
+        let wide = "a".repeat(128);
+        assert_eq!(
+            cross_site_headers((0..8).map(|_| h("Accept", &wide)).collect()).len(),
+            8
+        );
+        assert!(cross_site_headers((0..9).map(|_| h("Accept", &wide)).collect()).is_empty());
     }
 
     #[test]
