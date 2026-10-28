@@ -187,9 +187,14 @@ test('the live geometry is captured BEFORE the window is closed', () => {
   // returnHome closes the child, after which the real bounds are gone. The
   // return would then restore the previous SAMPLE rather than where the
   // window actually was.
-  assert.match(popout, /captureWindow\(layoutKey, kind, org, w, true, latest\.current\.restore\)\s+returnHome\(true\)/,
+  // Every capture goes through `capture(w)` since 08bd6c1 (2026-10-27, a saved
+  // pop-out keeps the window's own box): the same live capture, plus the
+  // content box main last reported for that window.
+  assert.match(popout, /const capture = \(w: Window\) => captureWindow\(layoutKey, kind, org, w, true, latest\.current\.restore, nativeBox\.current\)/,
+    'capture is the full live capture of the window')
+  assert.match(popout, /capture\(w\)\s+returnHome\(true\)/,
     'capture first, then close — in that order, which is the whole fix')
-  assert.match(popout, /window\.setInterval\(\(\) => \{ if \(w\?\.closed\) onGone\(\); else if \(w\) captureWindow/,
+  assert.match(popout, /window\.setInterval\(\(\) => \{ if \(w\?\.closed\) onGone\(\); else if \(w\) capture\(w\)/,
     'the 250ms sampling this compensates for still exists')
 })
 
