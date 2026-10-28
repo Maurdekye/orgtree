@@ -308,7 +308,8 @@ async fn run_with_cluster(
             tracing::warn!(error = %e, "the templates folder could not be seeded");
         }
     });
-    // app file replacements a stop interrupted put their originals back (4.5.0 review C12)
+    // app file replacements a stop interrupted put their originals back (4.5.0 review C12);
+    // only an earlier run's, so panels may be served meanwhile (C12 F1)
     tokio::spawn({
         let (journal, run) = (engine.cfg.path(domain::apps::files::RECOVERY), engine.boot.id.clone());
         async move {

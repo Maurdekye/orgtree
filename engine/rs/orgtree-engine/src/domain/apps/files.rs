@@ -8,7 +8,8 @@ use super::wire::BUNDLE_MAX;
 /// The engine data folder that records app file replacements in progress.
 pub(crate) const RECOVERY:&str=io::RECOVERY;
 /// Engine start: settles app file replacements a stop interrupted (4.5.0
-/// review C12). Answers how many records were settled and how many wait.
+/// review C12), leaving this engine `run`'s own records to its live changes.
+/// Answers how many records were settled and how many wait.
 #[nolog]
 pub(crate) fn recover_changes(journal:&Path,run:&str)->(usize,usize){io::recover(journal,run)}
 

@@ -102,14 +102,16 @@ pub(in crate::domain::apps) fn prepare(path:&Path,data:Option<Vec<u8>>,replace:b
 /// A replacement moves the confirmed original aside before it publishes the
 /// staged bytes. Before anything is staged or moved, this record names both in
 /// the engine's recovery folder, flushed, so a start after a stop can settle
-/// the change (4.5.0 review C12). The change removes it when it ends.
+/// the change (4.5.0 review C12). The change removes it when it ends. Its file
+/// name starts with the engine run (boot id) that wrote it, so a start settles
+/// only the records an earlier run left (C12 F1).
 #[derive(serde::Serialize,serde::Deserialize)]
 struct Pending{directory:PathBuf,name:String,stage:String,backup:String,sha256:String}
 #[cfg(windows)]
 #[nolog]
-fn record(journal:&Path,_run:&str,pending:&Pending)->Result<PathBuf>{
+fn record(journal:&Path,run:&str,pending:&Pending)->Result<PathBuf>{
     std::fs::create_dir_all(journal).context("app file recovery folder")?;
-    let path=journal.join(crate::util::uid("replace-")+".json");
+    let path=journal.join(format!("{run}-{}.json",crate::util::uid("replace-")));
     let mut file=OpenOptions::new().write(true).create_new(true).open(&path).context("create app file recovery record")?;
     file.write_all(&serde_json::to_vec(pending)?).context("write app file recovery record")?;file.sync_all().context("flush app file recovery record")?;Ok(path)
 }
@@ -191,11 +193,14 @@ fn commit_with(change:Change,journal:&Path,run:&str,recorded:impl FnOnce(),betwe
 /// name; a replacement already published drops the original, as the change
 /// would have; staged bytes never published are removed. A record whose
 /// folder cannot be opened now (say, a drive not connected) waits for a later
-/// start. Answers how many records were settled and how many wait.
+/// start. Panels may already be served, so the records `run` (this engine
+/// run) wrote are never touched: they belong to live changes, half-written
+/// ones included (C12 F1). Answers how many records were settled and how many
+/// wait.
 #[nolog]
-pub(in crate::domain::apps) fn recover(journal:&Path,_run:&str)->(usize,usize){
-    let Ok(records)=std::fs::read_dir(journal) else{return (0,0)};let (mut settled,mut waiting)=(0,0);
-    for path in records.flatten().map(|e|e.path()).filter(|p|p.extension().is_some_and(|e|e=="json")){
+pub(in crate::domain::apps) fn recover(journal:&Path,run:&str)->(usize,usize){
+    let Ok(records)=std::fs::read_dir(journal) else{return (0,0)};let (mut settled,mut waiting)=(0,0);let live=format!("{run}-");
+    for path in records.flatten().map(|e|e.path()).filter(|p|p.extension().is_some_and(|e|e=="json")&&!p.file_name().is_some_and(|n|n.to_string_lossy().starts_with(&live))){
         let done=match std::fs::read(&path){
             Err(_)=>false,
             // flushed before anything was staged or moved: a cut record moved nothing
