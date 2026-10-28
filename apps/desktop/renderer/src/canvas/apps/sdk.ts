@@ -9,6 +9,9 @@
 // and a zero-specificity sheet defines the --orgtree-* variables (frametheme.ts).
 // A repeat of the colors a panel already has (each connection repeats them)
 // changes nothing and calls no onChange listener.
+// storage.setItem and removeItem change one key: the host applies each in
+// request order from the state revision it read, re-reading on a conflict, so
+// calls in flight never drop each other's keys (4.5.0 review C11).
 import {frameTheme,type FrameThemeSheet} from '../../frametheme'
 export const PANEL_PROTOCOL = 'orgtree-panel-v1'
 export const PANEL_CSP = "default-src 'none'; script-src 'unsafe-inline' data:; style-src 'unsafe-inline' data:; img-src data: blob:; media-src data: blob:; font-src data:; connect-src 'none'; frame-src 'none'; worker-src blob:; object-src 'none'; base-uri 'none'; form-action 'none'"
@@ -41,7 +44,7 @@ if(d.kind==='theme'){if(!d.theme||typeof d.theme!=='object'||typeof d.css!=='str
 const p=pending.get(d.id);if(!p)return;pending.delete(d.id);clearTimeout(p.timer);d.error?p.reject(Error(d.error)):p.resolve(d.result)};
 const state=Object.freeze({get:()=>call('state.get'),set:value=>call('state.set',value),patch:value=>call('state.patch',value),onChange:fn=>on('state.changed',fn)});
 const theme=Object.freeze({get:()=>palette,onChange:fn=>{if(typeof fn!=='function')throw Error('Expected a theme listener');themed.add(fn);return()=>themed.delete(fn)}});
-const storage=Object.freeze({getItem:async key=>{const s=await state.get();return Object.prototype.hasOwnProperty.call(s,key)?s[key]:null},setItem:async(key,value)=>{const s=await state.get();Object.defineProperty(s,String(key),{value,writable:true,enumerable:true,configurable:true});return state.set(s)},removeItem:key=>state.patch({[String(key)]:null}),clear:()=>state.set({})});
+const storage=Object.freeze({getItem:async key=>{const s=await state.get();return Object.prototype.hasOwnProperty.call(s,key)?s[key]:null},setItem:async(key,value)=>call('storage.setItem',{key:String(key),value}),removeItem:async key=>call('storage.removeItem',{key:String(key)}),clear:()=>state.set({})});
 const files=Object.freeze({choose:()=>call('files.call',{action:'choose'}),open:(root,path)=>call('files.call',{action:'open',root,path}),read:(file,options={})=>call('files.call',{action:'read',file,offset:options.offset,limit:options.limit}),media:file=>call('files.call',{action:'media',file}),roots:()=>call('files.call',{action:'roots'}),grant:(scope,mode='read')=>call('files.call',{action:'grant',scope,mode}),list:(directory,options={})=>call('files.call',{action:'list',directory,after:options.after,limit:options.limit}),collection:(root,options={})=>call('files.call',{action:'list',root,after:options.after,limit:options.limit}),child:(directory,path)=>call('files.call',{action:'child',directory,path}),write:(directory,name,base64,options={})=>call('files.call',{action:'write',directory,name,base64,replace:options.replace??false}),delete:file=>call('files.call',{action:'delete',file})});
 const b64=bytes=>{let s='';for(let i=0;i<bytes.length;i+=32768)s+=String.fromCharCode.apply(null,bytes.subarray(i,i+32768));return btoa(s)};
 const unb64=text=>{const raw=atob(text),out=new Uint8Array(raw.length);for(let i=0;i<raw.length;i++)out[i]=raw.charCodeAt(i);return out};

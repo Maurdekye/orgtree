@@ -10,7 +10,7 @@ import {AppPermissionPrompt,type PermissionPrompt} from './permissions'
 import {AppFileClient,type FileDecision,type FilePrompt} from './files'
 import type {PermissionChoice} from './actions'
 import {AppFilePermissionPrompt} from './files-ui'
-import type {CustomApp,CustomPanel,PanelEvents} from './types'
+import type {AppState,CustomApp,CustomPanel,PanelEvents} from './types'
 
 /** USER 2026-10-26: a running panel keeps ONE browsing context while hidden,
  * culled, at far zoom or in a hidden owner window ("just closing their visual
@@ -108,6 +108,24 @@ export function PanelHtml({slug,app,panel,visible=true,stopping=false}:{slug:str
             const next=await changeApps<CustomPanel>(slug,{action:request.method==='state.set'?'state_set':'state_patch',panel:panel.id,expected_rev:p.rev,[field]:request.args})
             if(!active||at!==epoch.current)return
             current.current=next;setSaved(true);result=next.state??{};postRef.current({kind:'event',name:'state.changed',payload:result})
+          }else if(request.method==='storage.setItem'||request.method==='storage.removeItem'){
+            // One key per change (4.5.0 review C11): computed here, in request
+            // order, from the revision it read; a conflict re-reads and retries.
+            const args=request.args as {key?:unknown;value?:unknown}|null
+            if(!args||typeof args.key!=='string')throw Error('Storage needs a key.')
+            for(let attempt=1;;attempt++){
+              const state:AppState={...p.state}
+              if(request.method==='storage.setItem'&&args.value!==undefined)Object.defineProperty(state,args.key,{value:args.value,writable:true,enumerable:true,configurable:true})
+              else delete state[args.key]
+              try{
+                const next=await changeApps<CustomPanel>(slug,{action:'state_set',panel:panel.id,expected_rev:p.rev,state})
+                if(!active||at!==epoch.current)return
+                current.current=next;setSaved(true);result=next.state??{};postRef.current({kind:'event',name:'state.changed',payload:result});break
+              }catch(e){
+                if(attempt>=3||(e as {status?:unknown}).status!==409)throw e
+                p=await customAppsRequest<CustomPanel>(slug,{action:'panel_get',panel:panel.id});if(!active||at!==epoch.current)return;current.current=p
+              }
+            }
           }else if(request.method==='event.emit'){
             const args=request.args as {name?:unknown;payload?:unknown}|null
             if(!args||typeof args.name!=='string')throw Error('Event needs a name and JSON payload.')
