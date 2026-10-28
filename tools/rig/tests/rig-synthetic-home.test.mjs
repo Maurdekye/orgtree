@@ -47,8 +47,18 @@ test('the keeper hands its engine the run\'s fake profile, not the host\'s', win
   lib.writeRun(dir, { id: 'synthetic-home', dir, data, token: 'synthetic-token', pgBin: path.join(dir, 'no-pg'), status: 'starting', stopKillMs: 100 })
   const standIn = path.join(dir, 'bin', 'orgtree-engine.exe')
   try { fs.linkSync(process.execPath, standIn) } catch { fs.copyFileSync(process.execPath, standIn) }
-  fs.writeFileSync(path.join(dir, 'serve.js'),
-    "require('fs').writeFileSync('child-env.json', JSON.stringify({ env: process.env, cwd: process.cwd() }))\n")
+  // The stand-in records the profile variables (paths of this synthetic run)
+  // and the NAMES of any variable that mentions the host profile; it never
+  // writes the environment itself, which can hold credentials cleanEnv's
+  // denylist does not know (E15). The host path reaches it hex-encoded, so
+  // that variable is not itself a mention.
+  fs.writeFileSync(path.join(dir, 'serve.js'), [
+    "const host = Buffer.from(process.env.RIG_TEST_HOST_PROFILE_HEX || '', 'hex').toString('utf8').toLowerCase()",
+    `const keep = ${JSON.stringify([...PROFILE_VARS, 'HOMEDRIVE', 'HOMEPATH', ...CONFIG_VARS])}`,
+    "const profile = Object.fromEntries(keep.filter(k => process.env[k] !== undefined).map(k => [k, process.env[k]]))",
+    "const leaks = host ? Object.keys(process.env).filter(k => String(process.env[k]).toLowerCase().includes(host)) : null",
+    "require('fs').writeFileSync('child-env.json', JSON.stringify({ profile, leaks, cwd: process.cwd() }))",
+  ].join('\n') + '\n')
 
   const hostEnv = { ...process.env, USERPROFILE: hostProfile, HOME: hostProfile, ...drivePath(hostProfile),
     APPDATA: path.join(hostProfile, 'AppData', 'Roaming'), LOCALAPPDATA: path.join(hostProfile, 'AppData', 'Local'),
@@ -56,7 +66,9 @@ test('the keeper hands its engine the run\'s fake profile, not the host\'s', win
     XDG_CONFIG_HOME: path.join(hostProfile, '.config'), XDG_DATA_HOME: path.join(hostProfile, '.local', 'share'),
     XDG_CACHE_HOME: path.join(hostProfile, '.cache'), XDG_STATE_HOME: path.join(hostProfile, '.local', 'state'),
     OPENCODE_CONFIG_DIR: path.join(hostProfile, '.config', 'opencode'),
-    RIG_SENTINEL_SECRET_ACCESS_KEY: SENTINEL }
+    RIG_SENTINEL_SECRET_ACCESS_KEY: SENTINEL, RIG_TEST_HOST_PROFILE_HEX: Buffer.from(hostProfile, 'utf8').toString('hex'),
+    // the leak check's positive control: a variable no rig code moves, naming the host profile
+    RIG_TEST_HOST_MENTION: path.join(hostProfile, 'planted') }
   delete hostEnv.RIG_PROTECTED_ROOTS
   const r = childProcess.spawnSync(process.execPath, [path.join(RIG, 'keeper.mjs'), dir],
     { env: hostEnv, cwd: dir, encoding: 'utf8', timeout: 120000, windowsHide: true })
@@ -64,7 +76,7 @@ test('the keeper hands its engine the run\'s fake profile, not the host\'s', win
 
   const record = fs.readFileSync(path.join(dir, 'child-env.json'), 'utf8')
   assert.ok(!record.includes(SENTINEL), 'the stand-in wrote the engine\'s environment to disk, a credential included')
-  const seen = JSON.parse(record).env
+  const { profile: seen, leaks } = JSON.parse(record)
   for (const k of [...PROFILE_VARS, ...CONFIG_VARS]) {
     assert.ok(seen[k], `${k} reaches the engine`)
     assert.ok(under(seen[k], dir), `${k} stays inside the run (${seen[k]})`)
@@ -72,8 +84,9 @@ test('the keeper hands its engine the run\'s fake profile, not the host\'s', win
   }
   assert.equal(path.resolve((seen.HOMEDRIVE ?? '') + (seen.HOMEPATH ?? '')).toLowerCase(), path.resolve(seen.USERPROFILE).toLowerCase(),
     'HOMEDRIVE + HOMEPATH name the same fake home')
-  const leaks = Object.entries(seen).filter(([, v]) => String(v).toLowerCase().includes(hostProfile.toLowerCase())).map(([k]) => k)
-  assert.deepEqual(leaks, [], 'no variable the engine sees mentions the host profile')
+  assert.ok(Array.isArray(leaks), 'the stand-in checked every variable for the host profile')
+  assert.deepEqual(leaks.map(k => k.toUpperCase()), ['RIG_TEST_HOST_MENTION'],
+    'no variable the engine sees mentions the host profile, except the planted control (so the check sees every variable)')
   for (const k of ['APPDATA', 'LOCALAPPDATA', 'TEMP']) assert.ok(fs.statSync(seen[k]).isDirectory(), `${k} folder exists`)
 })
 
