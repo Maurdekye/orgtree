@@ -11,8 +11,17 @@ with `mailRefs` or the view's `refs`) and on a docket item (`refWorld` and
 `onOpenRef`), so each surface passes its own routes. A surface without them
 leaves mentions as written text, as `RefMdBody` does anywhere. Option labels
 are button text: they keep their inline Markdown (`inlineMd`) and get no chips.
-A description chip sits inside the option's button; the chip pass stops its
-click, so it opens the reference without picking the option. The answered card
+The chip pass builds no control under a `BUTTON` or `A` ancestor, at any depth
+("a control inside a link is two destinations in one target"), and an option
+row used to be one button, so its description could not hold chips (measured:
+the two description-chip tests failed until the row changed). An option row
+(`OptionRow`) is now a container that still picks on any click: its control is
+a pick button holding the label (`aria-pressed`, `aria-describedby` the
+description), and the description renders beside that button. A chip's click
+stops at the description, so it opens the reference without picking. CSS keeps
+the row's look: the pick button is unstyled, and the busy fade
+(`aria-disabled`) and the focus ring (`:has(... :focus-visible)`) are the
+row's. Other, Skip, credit and scope rows stay one button. The answered card
 (the transcript's `answer.ask`/`answer.batch` events, the inbox's resolved
 rows and skipped batch sections) renders question text and descriptions the
 same way, through the event card's `world`/`onOpen`/`imgBase`. A single
