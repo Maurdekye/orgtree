@@ -16,6 +16,13 @@ import * as lib from '../lib.mjs'
 const windows = { skip: process.platform !== 'win32' }
 const RIG = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const PROFILE_VARS = ['USERPROFILE', 'HOME', 'APPDATA', 'LOCALAPPDATA', 'TEMP', 'TMP']
+// Where provider discovery looks for configuration and skills besides the home
+// (engine providers/skills.rs and providers/mcp.rs): these move with the profile
+// too (4.5.0 high E16, review alpha8 b7e8e4998677 F1).
+const CONFIG_VARS = ['XDG_CONFIG_HOME', 'XDG_DATA_HOME', 'XDG_CACHE_HOME', 'XDG_STATE_HOME', 'OPENCODE_CONFIG_DIR']
+// A credential cleanEnv's denylist does not know (4.5.0 high E15, review alpha8
+// ba1d8c7a1b50 F1): the stand-in must never write it to disk.
+const SENTINEL = 'rig-synthetic-home-sentinel-not-a-real-secret'
 
 const under = (p, root) => {
   const rel = path.relative(root, path.resolve(p))
@@ -45,14 +52,20 @@ test('the keeper hands its engine the run\'s fake profile, not the host\'s', win
 
   const hostEnv = { ...process.env, USERPROFILE: hostProfile, HOME: hostProfile, ...drivePath(hostProfile),
     APPDATA: path.join(hostProfile, 'AppData', 'Roaming'), LOCALAPPDATA: path.join(hostProfile, 'AppData', 'Local'),
-    TEMP: path.join(hostProfile, 'Temp'), TMP: path.join(hostProfile, 'Temp') }
+    TEMP: path.join(hostProfile, 'Temp'), TMP: path.join(hostProfile, 'Temp'),
+    XDG_CONFIG_HOME: path.join(hostProfile, '.config'), XDG_DATA_HOME: path.join(hostProfile, '.local', 'share'),
+    XDG_CACHE_HOME: path.join(hostProfile, '.cache'), XDG_STATE_HOME: path.join(hostProfile, '.local', 'state'),
+    OPENCODE_CONFIG_DIR: path.join(hostProfile, '.config', 'opencode'),
+    RIG_SENTINEL_SECRET_ACCESS_KEY: SENTINEL }
   delete hostEnv.RIG_PROTECTED_ROOTS
   const r = childProcess.spawnSync(process.execPath, [path.join(RIG, 'keeper.mjs'), dir],
     { env: hostEnv, cwd: dir, encoding: 'utf8', timeout: 120000, windowsHide: true })
   assert.equal(r.status, 0, `keeper exited ${r.status}: ${r.stderr}\n${fs.existsSync(path.join(dir, 'keeper.log')) ? '' : r.stdout}`)
 
-  const seen = JSON.parse(fs.readFileSync(path.join(dir, 'child-env.json'), 'utf8')).env
-  for (const k of PROFILE_VARS) {
+  const record = fs.readFileSync(path.join(dir, 'child-env.json'), 'utf8')
+  assert.ok(!record.includes(SENTINEL), 'the stand-in wrote the engine\'s environment to disk, a credential included')
+  const seen = JSON.parse(record).env
+  for (const k of [...PROFILE_VARS, ...CONFIG_VARS]) {
     assert.ok(seen[k], `${k} reaches the engine`)
     assert.ok(under(seen[k], dir), `${k} stays inside the run (${seen[k]})`)
     assert.ok(!under(seen[k], hostProfile) && path.resolve(seen[k]) !== hostProfile, `${k} is not the host's (${seen[k]})`)
@@ -76,6 +89,12 @@ test('rigProfileEnv moves every profile variable together under the run', window
   assert.deepEqual([env.TEMP, env.TMP], ['Z:\\runs\\r1\\tmp', 'Z:\\runs\\r1\\tmp'])
   // without a tmp it lands in the fake profile's own Local\Temp
   assert.equal(lib.rigProfileEnv(data, { create: false }).TEMP, path.join(env.LOCALAPPDATA, 'Temp'))
+  // provider configuration and skills: the defaults the engine would derive from the fake home
+  assert.deepEqual(Object.fromEntries(CONFIG_VARS.map(k => [k, env[k]])), {
+    XDG_CONFIG_HOME: path.join(env.USERPROFILE, '.config'), XDG_DATA_HOME: path.join(env.USERPROFILE, '.local', 'share'),
+    XDG_CACHE_HOME: path.join(env.USERPROFILE, '.cache'), XDG_STATE_HOME: path.join(env.USERPROFILE, '.local', 'state'),
+    OPENCODE_CONFIG_DIR: path.join(env.USERPROFILE, '.config', 'opencode'),
+  })
   // and it makes the folders when asked (the default)
   const real = path.join(scratch(ctx, 'make'), 'data')
   const made = lib.rigProfileEnv(real)
