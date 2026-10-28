@@ -11,6 +11,12 @@ when the observed live count reaches zero. Type, description, model, observed
 start and status are shown. Missing values stay "Not reported"; start times
 are engine receipt times, not invented native execution timestamps.
 
+The count reaches the desk only through the runtime overlay: the actor publishes
+`helper_count`, the tree snapshot carries the idle default 0, and the renderer's
+`agentRuntimeFields` allowlist (`recordoverlay.ts`) must admit the field. The
+4.5.0 hands-on found it missing there, so a live helper (engine `/helpers`
+count 1) never showed the badge (`livehelpers.test.tsx` covers the full path).
+
 Measured source/native-format inventory (not live-provider execution):
 
 | Harness | Observable helper lifecycle/details | Live helper transcript |
