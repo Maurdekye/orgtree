@@ -451,7 +451,7 @@ async fn guarded(engine: Arc<Engine>, req: Request, next: Next) -> Response {
         .unwrap_or_else(|| "-".into());
     let method = req.method().clone();
     let path = req.uri().path().to_string();
-    let target = request_target_for_log(&path, req.uri());
+    let target = request_target_for_log(&path, req.uri(), crate::trace::verbose());
     let info = format!("{peer} {method} {target}");
     // Register the connection before reading any request body. A revoked
     // client's partial upload/inflight MCP call must be disconnected too.
@@ -538,15 +538,39 @@ async fn guarded(engine: Arc<Engine>, req: Request, next: Next) -> Response {
     Response::from_parts(parts, axum::body::Body::from(bytes))
 }
 
-fn request_target_for_log(path: &str, uri: &axum::http::Uri) -> String {
+fn request_target_for_log(path: &str, uri: &axum::http::Uri, verbose: bool) -> String {
     if path == "/api/markdown-image" || private_apps_path(path) {
         // Query values contain local paths or full remote image URLs.
         path.to_string()
-    } else {
+    } else if verbose {
+        // Verbose logs may keep private values for debugging (user 2026-10-28 m7ad336de1604).
         uri.path_and_query()
             .map(|p| p.as_str().to_string())
             .unwrap_or_else(|| path.to_string())
+    } else {
+        // Normal logs keep the route and the parameter names, not their values: a media request's
+        // `path` value is a private file path (4.5.0 review finding f5aa4a360162 F1).
+        query_names_only(path, uri.query())
     }
+}
+
+/// `path?name=****&other=****`: the parameter names only. A name that is empty, longer than 40 bytes or not
+/// plain identifier text (a percent-encoded or path-like name could itself be the private part) shows as `****`.
+fn query_names_only(path: &str, query: Option<&str>) -> String {
+    let names: Vec<String> = query
+        .unwrap_or_default()
+        .split('&')
+        .filter(|pair| !pair.is_empty())
+        .map(|pair| {
+            let (name, valued) = pair.split_once('=').map_or((pair, false), |(name, _)| (name, true));
+            let plain = !name.is_empty()
+                && name.len() <= 40
+                && name.bytes().all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'-' | b'.' | b'[' | b']'));
+            let name = if plain { name } else { "****" };
+            if valued { format!("{name}=****") } else { name.to_string() }
+        })
+        .collect();
+    if names.is_empty() { path.to_string() } else { format!("{path}?{}", names.join("&")) }
 }
 
 #[nolog]
@@ -647,19 +671,44 @@ mod tests {
         let uri = "/api/markdown-image?path=C%3A%2Fsecret%2Fchart.png"
             .parse()
             .unwrap();
+        for verbose in [false, true] {
+            assert_eq!(
+                request_target_for_log("/api/markdown-image", &uri, verbose),
+                "/api/markdown-image"
+            );
+        }
+    }
+
+    #[test]
+    fn verbose_log_targets_keep_their_whole_query() {
+        let uri = "/api/orgs/demo?view=delta&path=C%3A%2Fprivate%2Fa.mp4".parse().unwrap();
         assert_eq!(
-            request_target_for_log("/api/markdown-image", &uri),
-            "/api/markdown-image"
+            request_target_for_log("/api/orgs/demo", &uri, true),
+            "/api/orgs/demo?view=delta&path=C%3A%2Fprivate%2Fa.mp4"
         );
     }
 
     #[test]
-    fn other_api_log_targets_keep_their_query() {
-        let uri = "/api/orgs/demo?view=delta".parse().unwrap();
-        assert_eq!(
-            request_target_for_log("/api/orgs/demo", &uri),
-            "/api/orgs/demo?view=delta"
-        );
+    fn normal_log_targets_keep_the_route_and_parameter_names_only() {
+        let target = |q: &str| {
+            let uri: axum::http::Uri = format!("/api/orgs/demo/nodes/w/file{q}").parse().unwrap();
+            request_target_for_log(uri.path(), &uri, false)
+        };
+        let route = "/api/orgs/demo/nodes/w/file";
+        assert_eq!(target(""), route);
+        assert_eq!(target("?"), route);
+        assert_eq!(target("?&&"), route);
+        assert_eq!(target("?path=C%3A%2Fprivate%2Fa.mp4&media=true"), format!("{route}?path=****&media=****"));
+        assert_eq!(target("?last=50&before=9"), format!("{route}?last=****&before=****"));
+        // duplicates, a valueless flag and an empty value keep their names; nothing else survives
+        assert_eq!(target("?a=1&a=2&flag&empty="), format!("{route}?a=****&a=****&flag&empty=****"));
+        assert_eq!(target("?items[]=x&v1.2-b_c=y"), format!("{route}?items[]=****&v1.2-b_c=****"));
+        // a name that is empty, encoded, path-like or long enough to carry data is itself elided
+        assert_eq!(target("?=secret"), format!("{route}?****=****"));
+        assert_eq!(target("?C%3A%2Fprivate=1&a/b&c%20d=2"), format!("{route}?****=****&****&****=****"));
+        let long = "n".repeat(41);
+        assert_eq!(target(&format!("?{long}=1&{}=2", "n".repeat(40))), format!("{route}?****=****&{}=****", "n".repeat(40)));
+        assert!(!target("?path=PRIVATE_CANARY").contains("PRIVATE_CANARY"));
     }
 }
 
