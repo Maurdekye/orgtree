@@ -3097,7 +3097,7 @@ export function InboxPanel({ slug, tree, toast, refresh, close, jumpTo, jumpSeq,
   const renderAskBody = (m: MailRow) => {
     if (!m._ask) return null
     return <InboxAskCard ask={m._ask} slug={slug} tree={tree}
-      node={nodes.get(m._ask.node)} toast={toast} />
+      node={nodes.get(m._ask.node)} toast={toast} refs={mailRefs} />
   }
   return (
     <PinFrame kind="inbox" title="Your inbox" panel="settings wide"

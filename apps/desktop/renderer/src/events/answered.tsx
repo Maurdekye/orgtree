@@ -1,5 +1,13 @@
 import type { AskInfo } from '../types'
 import type { AnsweredQ, AnswerAsk, AnswerBatch, AskOption, BatchQ, Section, SectionCredit, SectionScope } from '../generated/events'
+import { RefMdBody } from '../canvas/refmd'
+import type { RefWorld, ResolvedRef } from '../canvas/reflinks'
+import { inlineMd, md, singleParagraph } from '../canvas/shared'
+
+/** The showing surface's reference wiring, as an event card's content has it.
+ *  The card draws a question's text and option descriptions as the open card
+ *  does (USER 2026-10-28 m5952056229d3: Markdown, LaTeX and mention links). */
+interface QuestionRefs { world?: RefWorld | null; onOpen?: (r: ResolvedRef) => void; imgBase?: string }
 
 /** One question as the mini card draws it: every option the card offered with
  *  the chosen ones marked, or the typed answer when it offered none. */
@@ -22,20 +30,33 @@ export function miniFromBatch(q: BatchQ): MiniQuestion {
   return { label: q.label, question: q.question, options, multi: q.multi ?? false, selected, typed }
 }
 
-function Question({ q, dismissed }: { q: MiniQuestion; dismissed: boolean }) {
+/** A question's text beside its label chip, rendered as the open card renders
+ *  it. One paragraph stays in the line, so a plain question keeps its look;
+ *  block structure (a heading, a list, display math) gets its own box. */
+function QuestionText({ text, label, refs }: { text: string; label?: string | null; refs: QuestionRefs }) {
+  const html = md(text, refs.imgBase).__html
+  const inline = singleParagraph(html)
+  return <div className="answered-qtext">{label && <span className="answered-chip">{label}</span>}
+    <RefMdBody el={inline === null ? 'div' : 'span'} className="answered-qbody md"
+      html={{ __html: inline ?? html }} world={refs.world} onOpen={refs.onOpen} /></div>
+}
+
+function Question({ q, dismissed, refs }: { q: MiniQuestion; dismissed: boolean; refs: QuestionRefs }) {
   const known = new Set(q.options.map(o => o.label))
   // a pick that is not one of the offered options (typed "other") still shows as chosen
   const extra = q.selected.filter(s => !known.has(s))
   const mark = (on: boolean) => q.multi ? (on ? '☑' : '☐') : (on ? '●' : '○')
+  // the label stays plain text, as on the open card's buttons it gets no chips
   const row = (label: string, description: string | undefined, on: boolean) =>
     <li key={label} className={'answered-opt' + (on ? ' chosen' : '')} data-chosen={on ? 'true' : 'false'}>
       <span className="answered-mark" aria-hidden="true">{mark(on)}</span>
       <span><span className="answered-opt-label">{label}</span>
-        {description && <span className="answered-opt-desc">{description}</span>}</span>
+        {description && <RefMdBody el="span" className="answered-opt-desc"
+          html={inlineMd(description, refs.imgBase)} world={refs.world} onOpen={refs.onOpen} />}</span>
     </li>
   const skipped = !dismissed && q.selected.length === 0 && q.typed === null
   return <div className="answered-q" data-multi={q.multi ? 'true' : 'false'}>
-    <div className="answered-qtext">{q.label && <span className="answered-chip">{q.label}</span>}{q.question}</div>
+    <QuestionText text={q.question} label={q.label} refs={refs} />
     {(q.options.length > 0 || extra.length > 0) && <ul className="answered-opts">
       {q.options.map(o => row(o.label, o.description, q.selected.includes(o.label)))}
       {extra.map(s => row(s, undefined, true))}
@@ -45,19 +66,20 @@ function Question({ q, dismissed }: { q: MiniQuestion; dismissed: boolean }) {
   </div>
 }
 
-export function AnsweredCard({ questions, dismissed, note }: { questions: MiniQuestion[]; dismissed: boolean; note?: string | null }) {
+export function AnsweredCard({ questions, dismissed, note, ...refs }: {
+  questions: MiniQuestion[]; dismissed: boolean; note?: string | null } & QuestionRefs) {
   const n = questions.length
   const head = (dismissed ? 'Dismissed' : 'Answered') + ' · ' + n + ' question' + (n === 1 ? '' : 's')
   return <details className="answered-card" open={n <= 2} data-dismissed={dismissed ? 'true' : 'false'}>
     <summary>{head}</summary>
-    {questions.map((q, i) => <Question key={i} q={q} dismissed={dismissed} />)}
+    {questions.map((q, i) => <Question key={i} q={q} dismissed={dismissed} refs={refs} />)}
     {note && <div className="answered-note"><span className="dim">Note: </span>{note}</div>}
   </details>
 }
 
-export function AnsweredAsk({ event }: { event: AnswerAsk }) {
+export function AnsweredAsk({ event, ...refs }: { event: AnswerAsk } & QuestionRefs) {
   const only = event.questions.length === 1
-  return <AnsweredCard dismissed={event.dismissed}
+  return <AnsweredCard dismissed={event.dismissed} {...refs}
     questions={event.questions.map(q => miniFromAsk(q, event.text, only))}
     note={event.text && !(only && (event.questions[0].options ?? []).length === 0 && event.questions[0].selected.length === 0) ? event.text : null} />
 }
@@ -122,12 +144,12 @@ export function CreditCard({ section }: { section: SectionCredit }) {
 
 /** The credit and scope parts of a resolved request, in the same card
  *  language as the answered questions (no field dump, no bracket text). */
-export function ResolvedSections({ event }: { event: AnswerBatch }) {
+export function ResolvedSections({ event, ...refs }: { event: AnswerBatch } & QuestionRefs) {
   return <>{event.sections.map((s, i) =>
     s.kind === 'scope' ? <ScopeCard key={i} section={s} />
     : s.kind === 'credit' ? <CreditCard key={i} section={s} />
     : s.kind === 'skipped' ? <details key={i} className="answered-card resolved-card" open>
-        <summary>Skipped question</summary><div className="answered-q"><div className="answered-qtext">{s.question}</div></div></details>
+        <summary>Skipped question</summary><div className="answered-q"><QuestionText text={s.question} refs={refs} /></div></details>
     : null)}</>
 }
 

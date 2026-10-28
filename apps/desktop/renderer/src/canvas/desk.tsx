@@ -4568,7 +4568,7 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
           Nulled/interrupted states stay visible on the inbox rows. */}
       {node.elicitations?.map(request => <AskCard key={request.id} ask={request} slug={slug} toast={toast} />)}
       {ask && showAsk && (
-        <AskCard ask={ask} slug={slug} toast={toast}
+        <AskCard ask={ask} slug={slug} toast={toast} refs={deskRefs}
           seat={node.seat ?? 0}
           committed={(node.grant ?? 0) - (node.free ?? 0)}
           segments={creditSegments(node.children, c => c.state === 'live' && !c.isBearerOf)}

@@ -3522,6 +3522,20 @@ export const md = (text: string | null | undefined,
   }
   return hit
 }
+/** The content of `md()` output that is exactly ONE paragraph, without its
+ *  `<p>` box, or null when the HTML holds anything else. Text drawn inline (an
+ *  option label, a question beside its label chip) then sits in the line as
+ *  plain text did, while block structure keeps its boxes. A second paragraph
+ *  is not one paragraph: unwrapping only the outer tags would leave a stray
+ *  `</p><p>` pair inside. */
+export const singleParagraph = (html: string): string | null =>
+  /^<p>((?:(?!<\/?p[\s>])[\s\S])*)<\/p>\s*$/.exec(html)?.[1] ?? null
+/** `md()` for text drawn inline: the same parsing and sanitizing, with a
+ *  single paragraph unwrapped (`singleParagraph`). */
+export const inlineMd = (text: string | null | undefined, imgBase?: string): { __html: string } => {
+  const html = md(text, imgBase).__html
+  return { __html: singleParagraph(html) ?? html }
+}
 /** What the CLI REPORTED about the messages a turn delivered, for the $ badge
  *  tooltip — OpenRouter lane only, absent everywhere else.
  *

@@ -2987,7 +2987,8 @@ function FullDocketPane({ slug, item, toast, asksById, onDismiss, close, onFocus
               </div>
             )}
             {ask
-              ? <AskCard ask={ask} slug={slug} toast={toast} />
+              ? <AskCard ask={ask} slug={slug} toast={toast}
+                  refs={{ world: refWorld, onOpen: onOpenRef }} />
               : <div className="dim">this question is no longer open</div>}
             </div>
           </DocketSection>

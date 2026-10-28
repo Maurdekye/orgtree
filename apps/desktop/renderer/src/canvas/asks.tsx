@@ -32,7 +32,9 @@ import { isMobile } from '../mobile'
 import { useComposerEnter } from '../enterkey'
 import { useQuestionVisibility } from '../notification-visibility'
 import { ElicitationAsk } from './elicitation'
-import { md, orgPxc } from './shared'
+import { RefMdBody } from './refmd'
+import type { RefRoutes } from './reflinks'
+import { inlineMd, md, orgPxc } from './shared'
 
 /** Each card owns its inputs, so a deterministic id keeps the visible label
  * associated with the active tab without depending on payload text. */
@@ -40,12 +42,34 @@ const freeResponseId = (tab: number) => `ask-free-response-${tab}`
 
 const OTHER = '\0other'          // sentinel — no label can collide with it
 
+/** The reference wiring of the surface showing the card. Question text and
+ *  option descriptions render like chat (USER 2026-10-28 m5952056229d3: "also
+ *  allow question bodies to have formstted msrkdown, latex, and mentionnlinks
+ *  embedded"): md() for Markdown and LaTeX, then mention chips judged against
+ *  this world. Without it, as without a world anywhere, mentions stay as
+ *  written. A missing `onOpen` draws the chips inert. */
+export type AskRefs = Partial<RefRoutes> | null
+
+/** A question's text: the transcript's renderer, with the surface's chips. */
+function QuestionBody({ text, base, refs }: { text: string; base: string; refs?: AskRefs }) {
+  return <RefMdBody className="ask-q md" html={md(text, base)}
+    world={refs?.world} onOpen={refs?.onOpen} />
+}
+
 /** Option labels are inline by card design, but still use md() for parsing
- * and sanitization. Unwrap marked's paragraph container so the legacy bold
- * label element remains valid and its row text/layout stay unchanged. */
-const inlineMd = (text: string, base: string) => {
-  const html = md(text, base).__html
-  return { __html: html.replace(/^<p>([\s\S]*?)<\/p>\s*$/, '$1') }
+ *  and sanitization (`inlineMd`), so the legacy bold label element stays valid
+ *  and its row text/layout unchanged. They are short button text: they get no
+ *  mention chips. A description is inline the same way and does get them;
+ *  a chip's click opens its reference without picking the option, because
+ *  the chip pass stops the click at the description. */
+function OptionText({ label, description, base, refs }: {
+  label: string; description?: string; base: string; refs?: AskRefs
+}) {
+  return <span className="ask-row-body">
+    <b className="ask-option-label" dangerouslySetInnerHTML={inlineMd(label, base)} />
+    {description && <RefMdBody el="span" className="dim ask-option-description"
+      html={inlineMd(description, base)} world={refs?.world} onOpen={refs?.onOpen} />}
+  </span>
 }
 
 /** ctrl+enter (⌘+enter on mac) — submits the card the user is working in.
@@ -82,10 +106,13 @@ export const stepUpWhy = (g: number, maxTop?: number): string | undefined =>
     : undefined)
 
 export function AskCard({ ask, slug, toast, seat = 0, committed = 0, maxTop,
-  segments = [], pxc }: {
+  segments = [], pxc, refs }: {
   ask: AskInfo
   slug: string
   toast: ToastFn
+  /** the showing surface's reference routes (desk, inbox, Attention view,
+   *  docket): mention chips in question text and option descriptions */
+  refs?: AskRefs
   /** credit-mode bar geometry: the asking node's seat and committed
    *  (grant − free) — committed is also the drag FLOOR, mirroring
    *  reallocate's own invariant rather than inventing one */
@@ -104,20 +131,20 @@ export function AskCard({ ask, slug, toast, seat = 0, committed = 0, maxTop,
     || (ask.kind !== 'batch' && ask.old != null)
   // point 31: a submitted card is gone on the click, in every view
   if (live && askHidden(slug, ask.id)) return null
-  if (!live) return <NulledAsk ask={ask} credit={credit} />
+  if (!live) return <NulledAsk ask={ask} credit={credit} slug={slug} refs={refs} />
   if (ask.kind === 'elicitation' && ask.elicitation) return <ElicitationAsk key={ask.id} ask={ask} slug={slug} toast={toast} />
   // FR-14: the composed batch — mixed tabs, one submit. Legacy open cards
   // (a rolling deploy's pre-batch payload) fall through to the old forms.
   if (ask.kind === 'batch' && ask.tabs?.length) {
     return <BatchAsk ask={ask} slug={slug} toast={toast}
         seat={seat} committed={committed} maxTop={maxTop}
-        segments={segments} pxc={pxc} />
+        segments={segments} pxc={pxc} refs={refs} />
   }
   return credit
     ? <CreditAsk ask={ask} slug={slug} toast={toast}
         seat={seat} committed={committed} maxTop={maxTop}
         segments={segments} pxc={pxc} />
-    : <QuestionAsk ask={ask} slug={slug} toast={toast} />
+    : <QuestionAsk ask={ask} slug={slug} toast={toast} refs={refs} />
 }
 
 /** Question text is the ledger's per-request identity; the full editable
@@ -171,11 +198,12 @@ interface BatchDraft {
 }
 
 function BatchAsk({ ask, slug, toast, seat, committed, maxTop, segments,
-  pxc: orgScale }: {
+  pxc: orgScale, refs }: {
   ask: AskInfo; slug: string; toast: ToastFn
   seat: number; committed: number; maxTop?: number
   segments: { seat: number; grant: number }[]
   pxc?: number
+  refs?: AskRefs
 }) {
   const visibilityRef = useQuestionVisibility(slug, ask.id)
   const enterKey = useComposerEnter()
@@ -309,8 +337,7 @@ function BatchAsk({ ask, slug, toast, seat, committed, maxTop, segments,
         </div>
       )}
       {t.kind === 'question' && (<>
-        <div className="ask-q md" dangerouslySetInnerHTML={md(t.question,
-          fileBase(slug, ask.node))} />
+        <QuestionBody text={t.question ?? ''} base={fileBase(slug, ask.node)} refs={refs} />
         <div className="ask-rows">
           {opts.map((o) => (
             <button key={o.label} type="button" disabled={busy}
@@ -318,13 +345,8 @@ function BatchAsk({ ask, slug, toast, seat, committed, maxTop, segments,
               onClick={() => toggle(o.label)}>
               <span className={'ask-dot' + (t.multi ? ' sqr' : '')
                 + (d.q.sel.includes(o.label) ? ' on' : '')} />
-              <span className="ask-row-body">
-                <b className="ask-option-label" dangerouslySetInnerHTML={inlineMd(
-                  o.label, fileBase(slug, ask.node))} />
-                {o.description && <span className="dim ask-option-description"
-                  dangerouslySetInnerHTML={inlineMd(o.description,
-                    fileBase(slug, ask.node))} />}
-              </span>
+              <OptionText label={o.label} description={o.description}
+                base={fileBase(slug, ask.node)} refs={refs} />
             </button>
           ))}
           {opts.length ? <>
@@ -552,8 +574,8 @@ const tabValue = (q: AskQuestion, d: TabDraft): string | string[] => {
  *  renders the Claude-Code-style TAB STRIP — per-tab option rows, answered
  *  tabs keep their selection, one submit bar carrying the answered count,
  *  ✕ cancels the whole batch. */
-function QuestionAsk({ ask, slug, toast }: {
-  ask: AskInfo; slug: string; toast: ToastFn
+function QuestionAsk({ ask, slug, toast, refs }: {
+  ask: AskInfo; slug: string; toast: ToastFn; refs?: AskRefs
 }) {
   const enterKey = useComposerEnter()
   const visibilityRef = useQuestionVisibility(slug, ask.id)
@@ -644,8 +666,7 @@ function QuestionAsk({ ask, slug, toast }: {
           ))}
         </div>
       )}
-      <div className="ask-q md" dangerouslySetInnerHTML={md(q.question,
-        fileBase(slug, ask.node))} />
+      <QuestionBody text={q.question} base={fileBase(slug, ask.node)} refs={refs} />
       <div className="ask-rows">
         {opts.map((o) => (
           <button key={o.label} type="button" disabled={busy}
@@ -653,13 +674,8 @@ function QuestionAsk({ ask, slug, toast }: {
             onClick={() => toggle(o.label)}>
             <span className={'ask-dot' + (q.multi ? ' sqr' : '')
               + (d.sel.includes(o.label) ? ' on' : '')} />
-            <span className="ask-row-body">
-              <b className="ask-option-label" dangerouslySetInnerHTML={inlineMd(
-                o.label, fileBase(slug, ask.node))} />
-              {o.description && <span className="dim ask-option-description"
-                dangerouslySetInnerHTML={inlineMd(o.description,
-                  fileBase(slug, ask.node))} />}
-            </span>
+            <OptionText label={o.label} description={o.description}
+              base={fileBase(slug, ask.node)} refs={refs} />
           </button>
         ))}
         {opts.length ? <>
@@ -834,7 +850,9 @@ function CreditAsk({ ask, slug, toast, seat, committed, maxTop, segments,
  *  answered/denied/dismissed/withdrawn/superseded, orange for interrupted
  *  (historical: the retired wake-void; old entries may still carry it).
  *  Non-interactive by design. */
-function NulledAsk({ ask, credit }: { ask: AskInfo; credit: boolean }) {
+function NulledAsk({ ask, credit, slug, refs }: {
+  ask: AskInfo; credit: boolean; slug: string; refs?: AskRefs
+}) {
   const interrupted = ask.status === 'interrupted'
   const scope = ask.kind === 'scope'
   const label = interrupted ? 'interrupted'
@@ -872,7 +890,8 @@ function NulledAsk({ ask, credit }: { ask: AskInfo; credit: boolean }) {
         now: ask.status === 'denied' ? (ask.old ?? 0) : ask.granted }} />}
       {!credit && !scope && (() => {
         const m = miniFromAskInfo(ask)
-        return <AnsweredCard questions={m.questions} dismissed={ask.status === 'dismissed'} note={m.note} />
+        return <AnsweredCard questions={m.questions} dismissed={ask.status === 'dismissed'} note={m.note}
+          world={refs?.world} onOpen={refs?.onOpen} imgBase={fileBase(slug, ask.node)} />
       })()}
       {interrupted && (
         <div className="ask-null-why">
@@ -889,15 +908,17 @@ function NulledAsk({ ask, credit }: { ask: AskInfo; credit: boolean }) {
  *  and the Attention view both show an open request with this, so the two
  *  cannot differ. `node` is absent for an agent the tree does not hold; the
  *  card then draws an empty bar rather than a guessed one. */
-export function InboxAskCard({ ask, slug, tree, node, toast }: {
+export function InboxAskCard({ ask, slug, tree, node, toast, refs }: {
   ask: AskInfo
   slug: string
   tree: TreePayload
   node?: TreeNode
   toast: ToastFn
+  /** the panel's reference routes, as its mail bodies use them */
+  refs?: AskRefs
 }) {
   return (
-    <AskCard ask={ask} slug={slug} toast={toast}
+    <AskCard ask={ask} slug={slug} toast={toast} refs={refs}
       seat={node?.seat ?? 0}
       committed={(node?.grant ?? 0) - (node?.free ?? 0)}
       segments={creditSegments(node?.children ?? [], c => c.state === 'live')}

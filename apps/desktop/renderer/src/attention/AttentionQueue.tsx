@@ -525,7 +525,7 @@ export function AttentionQueue({
                       waitLabel="unread" toast={toast}
                       custom={current.kind === 'question' && current.ask
                         ? <InboxAskCard ask={current.ask} slug={slug} tree={tree}
-                            node={nodeMap.get(current.ask.node)} toast={toast} />
+                            node={nodeMap.get(current.ask.node)} toast={toast} refs={refs} />
                         : null}
                       onReply={current.kind !== 'mail' || !current.mail ? undefined
                         : (text, attachments, notice, objectTarget, selections) => {
