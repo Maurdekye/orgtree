@@ -843,6 +843,17 @@ All entries are dated 2026-10-06 unless stated otherwise.
 
 ## Mandate and working rules
 
+### 2026-10-28 — A request-rate 429 retries in minutes, not as a usage limit (4.5.1)
+
+USER mb1ca1568502c: "pretty sure 429 errors should only wait another few minutes before
+retrying, noit several hours". Measured 2026-10-28 10:04Z: Codex's "exceeded retry limit, last
+status: 429 Too Many Requests" froze two Sol seats for an hour as a usage limit (the weekly
+window read 8-10 %). On the Codex lane a 429 with none of a usage wall's words, no
+`usageLimitExceeded` tag and no exhausted window is a short retry freeze: the provider's
+Retry-After, else 60 s doubling to 300 s, five attempts, then the failure surfaces; a real usage
+limit freezes as before and the other lanes are unchanged. Wait numbers are the implementer's
+proposal. Contract and evidence: [rate-limit retry](rate-limit-retry.md).
+
 ### 2026-10-26 — Live helper badge and inspector (4.5.0)
 
 USER m95e7ead06333: "new 4.5.0 feature: if the chat has any live running

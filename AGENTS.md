@@ -282,6 +282,7 @@ placement settings and bounded failure. See [rig seed timing](docs/rust-engine/t
   eligibility and fresh room checks; never retry the same physical login.
   See [native fallback](docs/agents/providers-and-accounts.md#native-limit-fallback-2026-10-24).
   [verified: `runtime/freeze.rs`, `freeze/continuation.rs`; 2026-10-24]
+- Codex 429 rate limits retry in minutes ([doc](docs/rust-engine/rate-limit-retry.md)).
 
 - Files readers merge accepted org-record commits as well as legacy live bumps;
   runtime-only publications keep their cursor. Keep record-without-bump controls

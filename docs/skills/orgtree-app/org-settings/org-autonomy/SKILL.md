@@ -29,7 +29,7 @@ selection and continuation contract.
 Automatic resume requires a usable deadline. Unknown reset times are not
 invented. A due usage freeze waits while auto-resume is off; the timer rechecks
 that gate every 30 seconds, so turning it on does not require an app restart.
-Pure connection-retry freezes bypass this usage-limit switch. A stale timer
+Pure connection-retry and rate-limit-retry freezes bypass this usage-limit switch. A stale timer
 does not clear a newer freeze. Both settings accept booleans only.
 
 ## Resume now

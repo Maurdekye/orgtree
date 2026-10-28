@@ -28,6 +28,8 @@ failed or unrelated-window cache data cannot shorten or manufacture recovery.
 
 Quota auto-resume follows the org's effective policy. If it is off when a deadline is due, the engine retains the hold and rechecks the setting every 30 seconds; changing the setting does not require restarting the engine. A passed deadline is not a guarantee the provider will accept the next request. A separate halt still prevents work.
 
+A Codex request-rate 429 (`exceeded retry limit, last status: 429 Too Many Requests`) is not a quota refusal. With no usage-limit words, no `usageLimitExceeded` tag and no known-exhausted window it freezes for a short retry instead: the provider's `Retry-After` when relayed, else 60 s doubling to 300 s, five attempts, then the failure is reported to the agent and its superior. The badge says rate-limited with the retry time, and the org chart says `frozen (rate-limited, retrying)`. Other lanes keep their quota reading.
+
 The freeze can retain the request refused before it received an answer. Recovery queues wake text with that held request rather than silently dropping it.
 
 ## Choose the remedy

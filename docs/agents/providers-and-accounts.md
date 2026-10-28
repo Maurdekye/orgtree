@@ -1,5 +1,16 @@
 # Providers and accounts
 
+## Codex request-rate 429 retries in minutes (2026-10-28, 4.5.1)
+
+A Codex turn that ends `exceeded retry limit, last status: 429 Too Many Requests` is the request
+rate, not a usage wall. Measured 2026-10-28 10:04Z it froze two Sol seats for an hour as a usage
+limit (`parsed=false` fallback) with the weekly window at 8-10 %. On the Codex lane, with no usage
+wall's words, no `usageLimitExceeded` tag and no exhausted window, `runtime/rate_limit.rs` freezes
+the agent for a short retry instead: the provider's Retry-After, else 60 s doubling to 300 s,
+at most five attempts, then the failure is reported once. Claude, gateways and Muse are unchanged.
+[decided: user 2026-10-28 10:07:18Z mb1ca1568502c; verified: `runtime/rate_limit.rs`,
+`runtime/actor.rs`; contract: `docs/rust-engine/rate-limit-retry.md`]
+
 ## Legacy mark in the canvas hire menus (2026-10-26)
 
 With "Show legacy models" on, the canvas agent menu's "Hire a subordinate" and
