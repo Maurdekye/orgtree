@@ -219,19 +219,26 @@ fn settle(pending:&Pending)->Result<()>{
         Err(error) if missing(&error)=>Ok(None),
         Err(error)=>Err(error),
     }};
-    // Staged bytes are published only by a rename, so a staged name left behind was never published.
-    if let Some(stage)=own(&pending.stage)?{delete_handle(&stage)?;}
-    let Some(backup)=own(&pending.backup)? else{return Ok(())};
-    match anchored_access(pin,OsStr::new(&pending.name),false,false,false){
-        // the stop left the original aside: put it back, never over a file that took the name
-        Err(error) if missing(&error)=>rename(&backup,&dir,&pending.name),
-        Ok(target)=>{
-            let mut bytes=Vec::new();(&target).take(WRITE_MAX as u64+1).read_to_end(&mut bytes)?;
-            if hex::encode(Sha256::digest(&bytes))==pending.sha256{delete_handle(&backup)?;}Ok(())
-        },
-        // the name cannot be read now (say, another program holds it): wait for a later start
-        Err(error)=>Err(error),
+    // Staged bytes are published only by a rename, so a staged name left behind was never
+    // published. They go last, once the original is settled: a record that waits keeps them.
+    let stage=own(&pending.stage)?;
+    if let Some(backup)=own(&pending.backup)?{
+        match anchored_access(pin,OsStr::new(&pending.name),false,false,false){
+            // the stop left the original aside: put it back, never over a file that took the name
+            Err(error) if missing(&error)=>rename(&backup,&dir,&pending.name)?,
+            // published (no staged bytes left, the name holds the new SHA256): the original goes,
+            // as the change would have done. Any other file under the name, even one with the very
+            // same bytes, keeps the original beside it (C12 F2).
+            Ok(target)=>if stage.is_none(){
+                let mut bytes=Vec::new();(&target).take(WRITE_MAX as u64+1).read_to_end(&mut bytes)?;
+                if hex::encode(Sha256::digest(&bytes))==pending.sha256{delete_handle(&backup)?;}
+            },
+            // the name cannot be read now (say, another program holds it): wait for a later start
+            Err(error)=>return Err(error),
+        }
     }
+    if let Some(stage)=stage{delete_handle(&stage)?;}
+    Ok(())
 }
 /// Outside Windows commit refuses every change, so no record exists.
 #[cfg(not(windows))]
