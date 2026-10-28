@@ -95,6 +95,8 @@ mod app_slug_tests;
 mod mention_recency_tests;
 #[cfg(test)]
 mod fire_body_tests;
+#[cfg(test)]
+mod panel_message_tests;
 
 #[logged]
 fn checksum(sql: &str) -> String {
