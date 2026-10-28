@@ -152,22 +152,32 @@ function record(): void {
   const W = c.width, H = c.height
   const px = new Uint8Array(W * H * 4)
   gl.readPixels(0, 0, W, H, gl.RGBA, gl.UNSIGNED_BYTE, px)
-  const sum = new Float64Array(COARSE_W * COARSE_H), cnt = new Float64Array(COARSE_W * COARSE_H)
+  // SCREEN-space ink map: every bitmap pixel lands where the canvas's CSS box puts it (left/top/width/height, so a bitmap the
+  // browser scales is placed where it appears), weighted by the CSS area it covers; bins are fixed over the viewport, so two
+  // draws are comparable whatever the canvas size, grid shape or scale of each. Value = mean alpha (0..255) over the bin's area.
+  const vw = innerWidth, vh = innerHeight
+  const bl = parseFloat(c.style.left) || 0, bt = parseFloat(c.style.top) || 0
+  const bw = parseFloat(c.style.width) || W, bh = parseFloat(c.style.height) || H
+  const sx = bw / W, sy = bh / H, pixelArea = sx * sy
+  const binW = vw / COARSE_W, binH = vh / COARSE_H, binArea = binW * binH
+  const sum = new Float64Array(COARSE_W * COARSE_H)
   let total = 0
   for (let y = 0; y < H; y++) {
-    const by = Math.min(COARSE_H - 1, Math.floor((y * COARSE_H) / H))
+    const by = Math.floor((bt + (H - 1 - y + 0.5) * sy) / binH) // readPixels rows run bottom-up
+    if (by < 0 || by >= COARSE_H) continue
     for (let x = 0; x < W; x++) {
+      const bx = Math.floor((bl + (x + 0.5) * sx) / binW)
+      if (bx < 0 || bx >= COARSE_W) continue
       const a = px[(y * W + x) * 4 + 3]!
-      const k = by * COARSE_W + Math.min(COARSE_W - 1, Math.floor((x * COARSE_W) / W))
-      sum[k] = sum[k]! + a; cnt[k] = cnt[k]! + 1; total += a
+      if (a) { sum[by * COARSE_W + bx] = sum[by * COARSE_W + bx]! + a * pixelArea; total += a * pixelArea }
     }
   }
   const st = api.state()
   draws.push({
     i: draws.length, t: performance.now(), zRef: viewRefExternal?.current.z ?? NaN, zDom: committed.z,
-    cov: total / (W * H * 255), cw: st.cellWidth ?? 0, cols: st.columns ?? 0, rows: st.rows ?? 0,
+    cov: total / (vw * vh * 255), cw: st.cellWidth ?? 0, cols: st.columns ?? 0, rows: st.rows ?? 0,
     canvasW: W, canvasH: H, state: st.datasetState,
-    coarse: Array.from(sum, (s, k) => Math.round((s / Math.max(1, cnt[k]!)) * 100) / 100),
+    coarse: Array.from(sum, v => Math.round((v / binArea) * 100) / 100),
   })
 }
 
