@@ -22,7 +22,7 @@ import { epicMuteTrayItem, refreshTrayEpic } from './tray-epic'
 import { allowPrereleaseUpdates, desktopIdentity, readBuildChannel, RELEASE_APP_ID } from './build-channel'
 import { closeAction, CONVERSION_FAILED, HARNESS_LINKS, resolveDataRoot, shellQuote, unsafeFolderMessage, validateDataRoot } from './policy'
 import { ConversionWindow } from './conversion-window'
-import { configureArtifactSession, configureEngineSession, configureWindow, popoutRegistry, revealPopout, sealSessionNetwork, sealWebRtc, setPanelsAwake } from './windows'
+import { configureArtifactSession, configureEngineSession, configureWindow, forgetSealedSession, popoutRegistry, resealSandboxedSessions, revealPopout, sandboxSealed, sealSessionNetwork, sealWebRtc, setPanelsAwake } from './windows'
 import { artifactThemeKeeper } from './frametheme'
 import { panelCount, samplePanels } from './panel-runtime'
 import { registerHeldEventChannels } from './held-events'
@@ -2400,6 +2400,9 @@ else {
       }
       if (coreLifecycle) { await coreLifecycle.complete(); coreLifecycle.start() }
       const browserSession = session.fromPartition('persist:orgtree-v2')
+      // Every sealed session's one direct port follows the engine: none while
+      // it is lost, its new port once it is back (windows.ts).
+      engine.on('origin', origin => { void resealSandboxedSessions(origin).catch(error => console.warn('sandbox reseal failed:', error)) })
       // App panels and chat HTML replies render here: no WebRTC TCP either.
       await sealSessionNetwork(browserSession, engine.origin)
       // The preload origin is fixed per window; session signing reads LIVE
@@ -2428,6 +2431,7 @@ else {
           } else await engine.restart(engineOptions)
           if (engine.origin === initialOrigin) {
             await coreLifecycle?.complete()
+            await sandboxSealed()
             for (const record of records.values()) if (!record.window.isDestroyed()) record.window.webContents.reload()
           }
           else {
@@ -2518,6 +2522,7 @@ else {
           webPreferences: { session: artifactSession, sandbox: true, contextIsolation: true, nodeIntegration: false, webviewTag: false } })
         viewer.setIcon(runtimeIcon())
         viewer.on('closed', quitAfterLastView)
+        viewer.on('closed', () => forgetSealedSession(artifactSession))
         viewer.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
         viewer.webContents.on('will-navigate', event => event.preventDefault())
         viewer.webContents.on('will-redirect', event => event.preventDefault())
@@ -2770,14 +2775,14 @@ else {
         await engine.recoverUnexpected(engineOptions, allowSpawn, () => launchBackground(engineOptions, app.isPackaged))
         if (quitting || installerUpgradeShutdown || !engine.origin) return
         await coreLifecycle?.complete()
+        // Every sealed session now has only the recovered engine's port direct.
+        await sandboxSealed()
         if (engine.origin === before) {
           for (const record of records.values()) if (!record.window.isDestroyed()) record.window.webContents.reload()
         } else {
           // Rebuild only browser windows for a changed preload origin. Electron
           // main (tray, recovery ownership, settings) remains the SAME process.
           await bounded(saveWindowLayout(), UPDATE_LAYOUT_MS)
-          // The window session's one direct port moves with the engine (windows.ts).
-          await sealSessionNetwork(browserSession, engine.origin)
           const replace = [...records.values()].map(record => ({record, identity: windows.get(record.id)}))
           for (const {record, identity} of replace) {
             if (!identity) continue
@@ -2939,6 +2944,7 @@ else {
               // the renderer re-establishes its streams. A CHANGED origin
               // needs the preload origin rebuilt — relaunch cleanly.
               if (engine.origin === initialOrigin) {
+                await sandboxSealed()
                 for (const record of records.values()) if (!record.window.isDestroyed()) record.window.webContents.reload()
               }
               else { await saveWindowLayout(); relaunchApp(); app.quit() }

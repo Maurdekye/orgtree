@@ -31,8 +31,11 @@ const live = (value: Live): string => typeof value === 'function' ? value() : va
  *    `<-loopback>` drops Chromium's implicit loopback bypass, and only the
  *    engine's own current host:port stays direct: a bypass of all of
  *    127.0.0.1 (review B7) let WebRTC reach a local TURN server or relay on
- *    any port. An engine recovered in this process on another port gets the
- *    session sealed again for that port before a window loads from it.
+ *    any port. Every sealed session follows the engine's origin: when the
+ *    engine is lost nothing stays direct, and once it is back only its new
+ *    port does (resealSandboxedSessions, from the Engine's 'origin' event).
+ *    An open presentation viewer kept a lost engine's port direct before
+ *    (review of 7924322), and a local relay could take that freed port.
  *  Orgtree's own renderer talks only to that engine, so its UI is unaffected.
  *  What remains: TCP to the engine's own port, never off the machine. */
 export const SANDBOXED_WEBRTC_POLICY = 'disable_non_proxied_udp'
@@ -63,10 +66,38 @@ function enginePort(origin: string): number | undefined {
   const port = Number(/^http:\/\/127\.0\.0\.1:(\d{1,5})$/.exec(origin)?.[1])
   return port >= 1 && port <= 65535 ? port : undefined
 }
-export async function sealSessionNetwork(session: Pick<Session, 'setProxy'>, engineOrigin: string): Promise<void> {
+type Sealable = Pick<Session, 'setProxy'>
+/** Every sealed session, so a change of engine moves all their direct ports
+ *  together. Seals apply strictly in the order they were asked for. */
+const sealed = new Set<Sealable>()
+let sealing: Promise<void> = Promise.resolve()
+function inOrder(apply: () => Promise<void>): Promise<void> {
+  const next = sealing.catch(() => {}).then(apply)
+  sealing = next
+  return next
+}
+async function applySeal(session: Sealable, engineOrigin: string): Promise<void> {
   const port = enginePort(engineOrigin)
   await session.setProxy({ mode: 'fixed_servers', proxyRules: `127.0.0.1:${await deadProxyPort()}`,
     proxyBypassRules: ['<-loopback>', ...port ? [`127.0.0.1:${port}`] : []].join(';') })
+}
+export function sealSessionNetwork(session: Sealable, engineOrigin: string): Promise<void> {
+  sealed.add(session)
+  return inOrder(() => applySeal(session, engineOrigin))
+}
+/** The engine's origin changed: '' when it is lost, its new origin once it is
+ *  back. Every sealed session, the window session and each open presentation
+ *  viewer alike, is sealed again for it. */
+export function resealSandboxedSessions(engineOrigin: string): Promise<void> {
+  return inOrder(async () => { await Promise.all([...sealed].map(session => applySeal(session, engineOrigin))) })
+}
+/** Settles once every seal asked for so far has applied or failed. */
+export function sandboxSealed(): Promise<void> {
+  return sealing.catch(() => {})
+}
+/** A closed presentation viewer's session needs no more seals. */
+export function forgetSealedSession(session: Sealable): void {
+  sealed.delete(session)
 }
 
 export function assertNativeSender(event: Electron.IpcMainInvokeEvent, main: BrowserWindow | undefined, origin: string): void {

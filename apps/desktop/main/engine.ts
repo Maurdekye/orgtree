@@ -141,7 +141,16 @@ export function recordLiveness(root: string, event: Record<string, unknown>): vo
 export class Engine extends EventEmitter {
   private child?: ChildProcessWithoutNullStreams
   private credential = randomBytes(32).toString('hex')
-  private endpoint = ''
+  private endpointValue = ''
+  /** The engine's origin, '' while none is known. Every change is announced
+   *  as an 'origin' event, a lost engine included, so what depends on the
+   *  engine's port (the sandbox seal in windows.ts) follows it. */
+  private get endpoint(): string { return this.endpointValue }
+  private set endpoint(value: string) {
+    if (value === this.endpointValue) return
+    this.endpointValue = value
+    this.emit('origin', value)
+  }
   private stopping = false
   private launchesCancelled = false
   cancelLaunches(): void { this.launchesCancelled = true }
