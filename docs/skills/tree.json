@@ -7875,8 +7875,8 @@
     "the fixed review file format and severity definitions",
     "escalation only for unreadable jobs and high-severity security or data-loss findings",
     "collation per group, the five classifications, the packet layout and routing confirmed open defects",
-    "trade-offs: cost, duplicates, ack timeouts, pool size, review is not integration",
-    "setup recipe; no build, push or release authority"
+    "trade-offs: cost, duplicates, ack timeouts, pool size against shared-account rate limits, sequential posting order, an earlier pass kept as a cross-check, review is not integration",
+    "setup recipe with a per-group completion watchdog and a final group for late commits; no build, push or release authority"
    ],
    "sources": [
     "User rulings 2026-10-28 m72a78af04314, m3d100302c387, m861f966c4a79 (review each commit independently, one at a time, through the mail queue) and mf18dc11608e9 (record this workflow in the glossary)",

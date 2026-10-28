@@ -106,16 +106,19 @@ A CLEAN review has no finding sections and one `notes:` line saying what was che
 - **Cost against attention.** Every job is a full turn that reads a commit and its surroundings. A long list takes hours and many tokens. That is what the pattern buys; for a handful of commits, one reviewer reading them in sequence is enough.
 - **Independence has a price.** Reviewers do not see each other's work, so the same defect can be reported more than once. The checker's duplicate class absorbs that.
 - **Ack timeouts.** A careful review of a large commit is slow. Set the project's ack timeout and reminders generously, or the checkup logic can read a slow reviewer as idle and return its job to the queue; after the maximum number of reclaims, a job becomes a dead letter. See [work-queues](../work-queues/SKILL.md) and [concurrency-primitives](../concurrency-primitives/SKILL.md).
-- **Pool size.** More reviewers finish sooner but increase simultaneous reads of the same checkout and the load on model usage windows. Check account capacity before widening the pool.
+- **Pool size and shared accounts.** More reviewers finish sooner, but seats on the same provider account share its usage windows and request rate. Widening a running pool can push those seats into rate-limit (429) errors, and a seat that is limited or frozen stops taking jobs. Widen in steps, and run the checkers on another account or after the queue has drained. Check account capacity first.
+- **Posting order.** First-in, first-out is the order mails arrive in the project's mailbox. Have one cheap seat post the jobs from the manifest, one send after another; sends issued together in parallel arrive in no fixed order and shuffle the queue.
+- **Keep an earlier pass as a cross-check.** If a batch-based pass already exists, keep its files. The checker compares each commit's earlier findings with the queued review and lists, classified the same way, the earlier findings the queued review does not contain. The queued reviews stay the primary record.
 - **Review is not integration.** A clean review finds defects by reading; it does not show that the change builds or passes tests. For that, see [implement-integrate](../implement-integrate/SKILL.md).
 
 ## Set it up
 
 1. Create the review project with its queue in ACK mode, generous ack timeout and the reviewer brief in its Summary. Hire the reviewers under it with bash for reading the checkout and edit access to the output folder only; give them no push or release authority.
-2. Build the manifest from the commit list, split it into groups and decide the release tip to check against.
+2. Build the manifest from the commit list as one table with a line per job (job number, full commit ID, group, merge flag, subject), split it into groups and decide the release tip to check against. Generate the job mails from that table.
 3. Hire or name the checker and give it the packet brief; it needs read access to the reviews, the checkout and the packet folder.
-4. Post one job per commit. Watch the project desk's mail tab and the dead-letter watchdog; reviewers arm their listeners on their first turn.
-5. When a group is complete, wake the checker for it; when its packet is done, read it and route the confirmed open defects.
+4. Have one cheap seat post one job per commit, sequentially, in manifest order. Watch the project desk's mail tab and the dead-letter watchdog; reviewers arm their listeners on their first turn.
+5. Arm one `once` watchdog per group that fires when the group's output folder holds a review file for every commit of the group (for example a command watchdog that counts the files against the group's commit count). It wakes the coordinator, who tells the checker the group is complete; the checker starts a group only then. When its packet is done, read it and route the confirmed open defects.
+6. Commits that land after the manifest was built go into an extra `final` group with its own manifest lines, jobs and packet. Do not renumber the jobs already posted.
 
 ## See also
 
