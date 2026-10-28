@@ -39,7 +39,9 @@ handle in at most 64 KiB chunks with a size snapshot/take bound. Full reads retu
 unsatisfiable ranges return 416 with `Content-Range: bytes */size`. Responses
 use a fixed allowlisted media type, `nosniff` and `no-store`. Media files are
 decoded as media, never executed as HTML. The private headers/path and stream
-body use `#[nolog]`; existing outer file-route log suppression is retained.
+body use `#[nolog]`; the existing outer file-route body suppression is retained, and the normal wire log
+shows the route with its parameter names only (`...file?path=****&media=****`), since the `path` value is a
+private file path; verbose logs keep the whole query.
 
 Files can still change after admission. Growth cannot extend the response past
 its captured size; truncation or replacement can make playback fail. This route

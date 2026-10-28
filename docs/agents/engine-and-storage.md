@@ -92,6 +92,10 @@ Original section: Orgtree 4.0.0 (Rust engine): read this first. Source lines 397
 <!-- /preserved:e-8192a6f3da6dff13 -->
 
 Verbose logs may contain sensitive data by design (app content, private paths, transcripts); it helps debugging, so it is not a defect (user 2026-10-28 m7ad336de1604). Normal (non-verbose) logs should not carry it, and secrets stay `#[nolog]`.
+So the wire logger's REQUEST/RESPONSE lines show a request's route and its query parameter names with `****` values
+in the normal log, and the whole query when verbose; `/api/markdown-image` and private Apps routes show the bare path in
+both (`request_target_for_log`, `query_names_only` in `http/mod.rs`). The wire-privacy rig proofs match routes in the form
+the mode logs.
 
 Secret-bearing arguments must use `#[nolog]` or an opaque formatter, as for
 `runtime::AgentMsg`. `AgentMsg`'s exhaustive Debug
