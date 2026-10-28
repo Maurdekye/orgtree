@@ -1103,3 +1103,38 @@ test('Claude Waves tracks a pure pan too, and an unchanged camera never gets a t
   await commit(V0)
   assert.equal(c.style.transform, '', 'back at the camera the bitmap was drawn at: no transform')
 })
+
+/* ── the grid minimum ───────────────────────────────────────────────────────────────────────────────────────────────────────
+ * Zoomed far in the cells get so big that too few fit the pane (minRows 8: about z 6 in an 800x600 pane) and the layer has no
+ * layout. It used to go display:none at once and pop back at full strength when the grid returned (measured, live wheel
+ * zoom: 84-102 displayed frames, about 1.4-1.7 s, hidden in the middle of one zoom gesture). It now fades out and back in. */
+
+test('Claude Waves fades out at the grid minimum instead of vanishing, and fades back in when the grid returns', async (t) => {
+  const { viewRef, api, canvas } = await mountAsciiForZoom(t, 1)
+  viewRef.current = { x: 0, y: 0, z: 1 }
+  api.drawAt(8, 1)
+  const c = canvas()
+  assert.equal(api.state().datasetState, 'moving')
+  assert.ok(Number(c.style.opacity) > 0, `visible at z = 1, opacity ${c.style.opacity}`)
+  assert.notEqual(c.style.display, 'none')
+
+  viewRef.current = { x: 0, y: 0, z: 9 } // 800 x 600 at z 9: 600 / (2 * 63) = 4.8 rows, under the 8-row minimum
+  api.drawAt(9, 1)
+  const st = api.state()
+  assert.equal(st.datasetState, 'unseen', 'no grid: the layer reports it is not seen')
+  assert.notEqual(c.style.display, 'none', 'it fades, it does not vanish')
+  assert.equal(c.style.opacity, '0')
+  assert.match(c.style.transition, /opacity 250ms/, 'the fade is the 250 ms the layer already uses for going away')
+
+  // a pane that can hold the grid again: the loop's own next frame draws and fades it back in
+  viewRef.current = { x: 0, y: 0, z: 1 }
+  let back = false
+  for (let i = 0; i < 40 && !back; i++) {
+    await inAct(async () => { await new Promise(r => setTimeout(r, 25)); await flush(2) })
+    back = api.state().datasetState === 'moving'
+  }
+  assert.ok(back, 'the loop draws again once the grid exists')
+  assert.ok(Number(c.style.opacity) > 0, `back: opacity ${c.style.opacity}`)
+  assert.match(c.style.transition, /opacity 250ms/, 'and fades in over the same 250 ms')
+  assert.notEqual(c.style.display, 'none')
+})
