@@ -556,11 +556,14 @@ request.
   client connects only to the vetted address, so DNS rebinding cannot move it.
   Redirects are followed by hand, at most 5, each hop re-checked against the
   grant and the resolver; 307/308 keep method and body, others continue as GET.
-  A hop to another host or port carries only Accept, Accept-Language,
-  Content-Language and Content-Type (`CROSS_SITE_HEADERS`, the CORS-safelisted
-  names); Authorization, X-API-Key and every other app header stay behind for
-  the rest of the request (4.5.0 review B8; until 2026-10-28 only
-  Authorization was dropped).
+  A hop to another host or port carries only the headers fetch calls
+  CORS-safelisted, by name and value (`cors_safelisted`): Accept,
+  Accept-Language and Content-Language with safe values, and Content-Type only
+  as application/x-www-form-urlencoded, multipart/form-data or text/plain;
+  each value at most 128 bytes, and none of them when they exceed 1024 bytes
+  together. Authorization, X-API-Key and every other app header stay behind
+  for the rest of the request (4.5.0 review B8 and its follow-up: until
+  2026-10-28 only Authorization was dropped, then names alone were checked).
 - Logs name app, panel and capability only. URLs, headers and bodies are private
   app content (`trace::private_app`; `Fetched` has an opaque Debug).
 

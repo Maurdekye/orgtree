@@ -53,11 +53,19 @@ transport open (measured):
   life of the process, and closes every connection unanswered. The bypass is
   `<-loopback>` plus the engine's own host:port, nothing else. WebRTC's TCP
   must go through the session proxy, so it never connects and never falls back
-  to direct. When an engine recovered in the same process comes back on
-  another port, main seals the window session again for that port before it
-  rebuilds the windows; every other origin change relaunches the desktop. The
-  seal is awaited before the session loads anything; a viewer whose seal fails
-  is destroyed unshown.
+  to direct. The seal is awaited before the session loads anything; a viewer
+  whose seal fails is destroyed unshown.
+- Every sealed session follows the engine. The Engine announces each change
+  of its origin ('origin', '' when it is lost), and main reseals every sealed
+  session for it (`resealSandboxedSessions`, in the order asked): nothing is
+  direct while the engine is lost, and once it is back only its new port is.
+  Main waits for these seals (`sandboxSealed`) before it reloads or rebuilds
+  windows after a recovery, and forgets a viewer's session when the viewer
+  closes. Until 2026-10-28 only the window session was resealed, and only for
+  an engine that came back on another port: an open viewer kept a lost
+  engine's port direct, and a local relay could take that freed port (review
+  of 7924322). What remains is the gap between an engine's exit and the
+  desktop noticing it.
 
 Until 2026-10-28 the proxy was `127.0.0.1:1` with bypass
 `<-loopback>;127.0.0.1` (4.5.0 review B6/B7, c3068e98c63c F1/F2). Port 1 was
