@@ -42,6 +42,17 @@ const WINDOW: Duration = Duration::from_secs(60);
 /// Methods an app may use. No CONNECT/TRACE; nothing that is not a plain fetch.
 pub const METHODS: &[&str] = &["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD"];
 
+/// The only request headers a redirect carries to another site: the
+/// CORS-safelisted names, which a browser sends to any origin without asking
+/// it. Any other header an app sets may hold a credential (Authorization,
+/// X-API-Key, a session token), so a hop to another host or port drops it.
+pub const CROSS_SITE_HEADERS: &[&str] = &[
+    "accept",
+    "accept-language",
+    "content-language",
+    "content-type",
+];
+
 /// Headers an app may never set: identity/routing the engine owns, and the
 /// hop-by-hop set reqwest manages. Matched case-insensitively.
 #[nolog]
@@ -509,10 +520,15 @@ pub async fn fetch(mut f: Fetch, allow: &(dyn Fn(&str, u16) -> bool + Sync)) -> 
                 f.headers
                     .retain(|(n, _)| !n.eq_ignore_ascii_case("content-type"));
             }
-            // Credentials the app chose for one site never follow it elsewhere.
+            // Credentials the app chose for one site never follow it elsewhere:
+            // a hop to another host or port keeps only the CORS-safelisted
+            // headers (review B8: dropping Authorization alone sent X-API-Key on).
             if url_host_port(&next)? != (host.clone(), port) {
-                f.headers
-                    .retain(|(n, _)| !n.eq_ignore_ascii_case("authorization"));
+                f.headers.retain(|(n, _)| {
+                    CROSS_SITE_HEADERS
+                        .iter()
+                        .any(|safe| n.eq_ignore_ascii_case(safe))
+                });
             }
             f.url = next;
             continue;
