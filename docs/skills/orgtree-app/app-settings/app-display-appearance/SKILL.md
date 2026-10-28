@@ -15,6 +15,9 @@ preferring spaces and dashes and breaking an unbroken name only when needed.
 The icon, state flare, hover underline, navigation and context menu stay with
 the link. Off restores the existing unbroken control. It applies immediately
 across windows and persists engine-wide, independently of theme preferences.
+The one exception is an agent's status line in the agents list (the canvas list
+and the Attention drawer): it stays on a single line, clipped with an ellipsis,
+with the full text in the row's tooltip, whatever this setting is.
 
 The existing user settings tool has parity:
 `orgtree_settings(scope:"runtime",action:"configure",settings:{wrap_object_mentions:true})`;

@@ -19,6 +19,16 @@ underlines on each fragment. Markdown's cheap-exit identity includes wrapping
 mode, so unchanged reads preserve selection and a toggle rebuilds the controls.
 [verified: `canvas/{mentionwrap,reflinks,refmd,workrefs}.tsx`, `styles.css`]
 
+The agents list's status line (`.tray-sum`) is one line (USER 2026-10-28
+m06a44d7adc0c): the wrap rule's `white-space: normal` beat the row's nowrap, so a
+long full-title chip broke over several rows (measured with wrap on: 5 line boxes,
+78 px taller at 280 px). A rule scoped to `.tray-sum`, more specific than the wrap
+rule, restores nowrap and the row's ellipsis clips the line. Any status text with
+a chip is 1 to 1.3 px taller than one without in either layout (the chip's border);
+`tests/traystatus.capture.cjs` (Session 0) allows 2 px and fails a wrapped chip.
+With wrap off, a chip wider than the line is clipped whole (the line reads `On …`),
+unchanged. [verified: `canvas/agenttray.tsx`, `styles.css`, `tests/traystatus.*`]
+
 ## Sandboxed agent HTML has no network, WebRTC included (2026-10-27, 4.5.0)
 
 Four surfaces run agent script with CSP `connect-src 'none'`: app panel frames,

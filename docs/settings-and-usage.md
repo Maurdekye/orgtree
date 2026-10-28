@@ -25,6 +25,8 @@ names. The link keeps its icon, status flare, hover underline and actions.
 The switch defaults off; turning it off restores the existing unbroken links.
 It saves immediately across the engine's windows. The user settings tool can
 make the same change with runtime `wrap_object_mentions: true` (or false).
+An agent's status line in the agents list is the exception: it always stays on
+one line, cut off with an ellipsis, with the full text in the row's tooltip.
 
 **Display > Appearance** separates accent from contrast. Choose a provider-colored or custom accent, and a light/dark contrast scheme. Automatic appearance can follow an installed harness until you make an explicit choice. Agent color can follow the provider or the organization. These choices do not change an account, model or work state.
 
