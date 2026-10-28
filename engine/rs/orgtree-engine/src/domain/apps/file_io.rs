@@ -116,12 +116,14 @@ fn rename(file:&File,dir:&Directory,name:&str)->Result<()>{
     let status=unsafe{NtSetInformationFile(file.as_raw_handle() as _,&mut io,buffer.as_ptr().cast(),size as u32,FileRenameInformationEx)};
     if status<0{return Err(std::io::Error::from_raw_os_error(unsafe{RtlNtStatusToDosError(status)} as i32).into());}Ok(())
 }
+/// The engine data folder that records replacements in progress.
+pub(in crate::domain::apps) const RECOVERY:&str="app-file-recovery";
 #[nolog]
-pub(in crate::domain::apps) fn commit(change:Change)->Result<Value>{
-    commit_with(change,||{})
+pub(in crate::domain::apps) fn commit(change:Change,journal:&Path)->Result<Value>{
+    commit_with(change,journal,||{})
 }
 #[nolog]
-fn commit_with(change:Change,between:impl FnOnce())->Result<Value>{
+fn commit_with(change:Change,_journal:&Path,between:impl FnOnce())->Result<Value>{
     #[cfg(windows)] {
         let Change{dir,name,target,data,detail}=change;
         if let Some(old)=&target{verify(old,&dir.path.join(&name))?;}
@@ -150,11 +152,16 @@ fn commit_with(change:Change,between:impl FnOnce())->Result<Value>{
     }
     #[cfg(not(windows))] {let _=change;crate::refuse!(Forbidden,"confirmed file changes require Windows in this release");}
 }
+/// Settles the replacements a stop interrupted (4.5.0 review C12). Not yet:
+/// this seam only lets the red test compile.
+#[nolog]
+pub(in crate::domain::apps) fn recover(_journal:&Path)->usize{0}
 
 #[cfg(test)]mod tests{
     use super::*;
     #[test]fn app_files_directory_listing_and_confirmed_changes_are_bounded(){
         let dir=std::env::temp_dir().join(crate::util::uid("apps-write"));std::fs::create_dir(&dir).unwrap();std::fs::write(dir.join("old.txt"),b"old").unwrap();
+        let journal=std::env::temp_dir().join(crate::util::uid("apps-journal"));
         assert_eq!(list(&dir,None,10).unwrap().0[0].name,"old.txt");assert!(list(&dir,None,201).is_err());
         #[cfg(windows)]{
             // Only prepare/drop: measure the root-directory handle branch
@@ -162,13 +169,33 @@ fn commit_with(change:Change,between:impl FnOnce())->Result<Value>{
             let root=dir.ancestors().last().unwrap();let untouched=root.join(crate::util::uid("app-unwritten-root-probe"));
             drop(prepare(&untouched,Some(b"not written".to_vec()),false).unwrap());assert!(!untouched.exists());
             assert!(prepare(&dir.join("old.txt"),Some(vec![0;WRITE_MAX+1]),true).is_err());assert!(prepare(&dir.join("old.txt"),Some(b"new".to_vec()),false).is_err());
-            let change=prepare(&dir.join("old.txt"),Some(b"new".to_vec()),true).unwrap();assert!(std::fs::write(dir.join("old.txt"),b"raced").is_err());commit(change).unwrap();assert_eq!(std::fs::read(dir.join("old.txt")).unwrap(),b"new");
-            commit(prepare(&dir.join("new.txt"),Some(b"created".to_vec()),false).unwrap()).unwrap();assert_eq!(std::fs::read(dir.join("new.txt")).unwrap(),b"created");
-            let change=prepare(&dir.join("old.txt"),None,false).unwrap();commit(change).unwrap();assert!(!dir.join("old.txt").exists());
+            let change=prepare(&dir.join("old.txt"),Some(b"new".to_vec()),true).unwrap();assert!(std::fs::write(dir.join("old.txt"),b"raced").is_err());commit(change,&journal).unwrap();assert_eq!(std::fs::read(dir.join("old.txt")).unwrap(),b"new");
+            commit(prepare(&dir.join("new.txt"),Some(b"created".to_vec()),false).unwrap(),&journal).unwrap();assert_eq!(std::fs::read(dir.join("new.txt")).unwrap(),b"created");
+            let change=prepare(&dir.join("old.txt"),None,false).unwrap();commit(change,&journal).unwrap();assert!(!dir.join("old.txt").exists());
             std::fs::write(dir.join("conflict.txt"),b"original").unwrap();let change=prepare(&dir.join("conflict.txt"),Some(b"replacement".to_vec()),true).unwrap();
-            let result=commit_with(change,||std::fs::write(dir.join("conflict.txt"),b"concurrent destination").unwrap()).unwrap();
+            let result=commit_with(change,&journal,||std::fs::write(dir.join("conflict.txt"),b"concurrent destination").unwrap()).unwrap();
             assert_eq!(result["changed"],false);assert_eq!(std::fs::read(dir.join("conflict.txt")).unwrap(),b"concurrent destination");
             assert_eq!(std::fs::read(dir.join(result["recovery_name"].as_str().unwrap())).unwrap(),b"original");
+            // every change that ran to its end leaves no recovery record behind
+            assert_eq!(std::fs::read_dir(&journal).map(|d|d.count()).unwrap_or(0),0);
+        }
+    }
+    // 4.5.0 review C12 (alpha.2 1b8cf6b17672 F1): a stop after the original moved aside and before
+    // the new bytes were published left the target missing and its original under an unrecorded
+    // random name. The next start puts the original back and removes the staged copy.
+    #[test]fn app_files_a_replacement_stopped_midway_is_restored_at_the_next_start(){
+        #[cfg(windows)]{
+            let dir=std::env::temp_dir().join(crate::util::uid("apps-stop"));std::fs::create_dir(&dir).unwrap();
+            let journal=std::env::temp_dir().join(crate::util::uid("apps-journal"));std::fs::write(dir.join("keep.txt"),b"original").unwrap();
+            let change=prepare(&dir.join("keep.txt"),Some(b"replacement".to_vec()),true).unwrap();
+            let stop=std::panic::catch_unwind(std::panic::AssertUnwindSafe(||commit_with(change,&journal,||panic!("synthetic engine stop between the two renames"))));
+            assert!(stop.is_err());assert!(!dir.join("keep.txt").exists(),"the stop left the target missing");
+            recover(&journal);
+            assert_eq!(std::fs::read(dir.join("keep.txt")).ok().as_deref(),Some(&b"original"[..]),"the next start restores the original");
+            let names:Vec<String>=std::fs::read_dir(&dir).unwrap().map(|e|e.unwrap().file_name().to_string_lossy().into_owned()).collect();
+            assert_eq!(names,["keep.txt"],"no recovery or staged copy is left behind");
+            assert_eq!(std::fs::read_dir(&journal).map(|d|d.count()).unwrap_or(0),0,"the record is settled");
+            std::fs::remove_dir_all(&dir).unwrap();let _=std::fs::remove_dir_all(&journal);
         }
     }
 }

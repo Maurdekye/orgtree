@@ -261,7 +261,7 @@ impl Registry{
     let value=snapshot(engine,&change.bound).await?;let grant=grant_for(engine,&change.bound,&change.session,&value,&change.path,"write").await?;
     if grant.id!=change.grant{crate::refuse!(Conflict,"file grant changed; request the change again");}
     if let Some(caller)=&change.caller{agent_mode(engine,org,caller,&change.path,true).await?;}
-    crate::trace::private_app_blocking(move||files::io::commit(change.io)).await?
+    let journal=engine.cfg.path(files::io::RECOVERY);crate::trace::private_app_blocking(move||files::io::commit(change.io,&journal)).await?
 }
 #[nolog]async fn agent_mode(engine:&Arc<Engine>,org:&Arc<OrgHandle>,caller:&Caller,path:&Path,write:bool)->Result<()>{
     if !write{
@@ -315,5 +315,18 @@ impl Registry{
         assert!(validate(&FileCall::Write{directory:"x".into(),name:"nested/file".into(),base64:"".into(),replace:false}).is_err());
         assert!(decode(&"A".repeat(90000)).is_err());assert_eq!(decode("bmV3").unwrap(),b"new");
         for value in [json!({"action":"grant","scope":"computer","mode":"read","permission":"allow"}),json!({"action":"write","directory":"x","name":"x","base64":"","as_user":true})]{assert!(serde_json::from_value::<FileCall>(value).is_err());}
+    }
+    // 4.5.0 review B9 pin: an Allow once scope belongs to the running copy. Hide and a closed or
+    // renewed host end only questions (USER 2026-10-26 mf7add4fda093); power off ends the scope,
+    // which is what the consent prompt promises.
+    #[test]fn app_files_allow_once_scopes_last_until_the_copy_is_powered_off(){
+        let hosts=bridge::Registry::default();let files=super::super::Registry::default();
+        let bound=Bound{org:1,app:"app".into(),panel:"panel".into(),rev:1,generation:1,gate:hosts.gate(1,"app").unwrap()};
+        files.scopes.once.lock().unwrap().insert("once-scope".into(),Once{bound,grant:Grant{id:"once-scope".into(),scope:"folder".into(),mode:"read".into(),path:None}});
+        let kept=||files.scopes.once.lock().unwrap().contains_key("once-scope");
+        files.forget_prompts(1,None,Some("panel"),None).unwrap();assert!(kept(),"Hide keeps it");
+        files.forget_prompts(1,None,None,Some("host")).unwrap();assert!(kept(),"a closed or renewed host keeps it");
+        files.forget(1,Some("other-app"),None).unwrap();assert!(kept(),"another app's power off keeps it");
+        files.forget(1,None,Some("panel")).unwrap();assert!(!kept(),"power off ends it");
     }
 }

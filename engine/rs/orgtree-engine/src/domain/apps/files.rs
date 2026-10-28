@@ -203,11 +203,11 @@ pub(super) fn scoped_path(root:&Path,suffix:&str)->Result<PathBuf>{
                 let p=crate::domain::docs::Presenter{id:1,name:"test".into(),may_present:false,scratch:selected.clone(),dirs:vec![]};
                 assert_eq!(read(&p,exported.to_str().unwrap())?,bundle);
                 #[cfg(windows)] {
-                    let target=selected.join("created.txt");
-                    io::commit(io::prepare(&target,Some(b"new".to_vec()),false)?)?;
-                    io::commit(io::prepare(&target,Some(b"replacement".to_vec()),true)?)?;
+                    let target=selected.join("created.txt");let journal=std::env::temp_dir().join(crate::util::uid("apps-journal"));
+                    io::commit(io::prepare(&target,Some(b"new".to_vec()),false)?,&journal)?;
+                    io::commit(io::prepare(&target,Some(b"replacement".to_vec()),true)?,&journal)?;
                     assert_eq!(std::fs::read(&target)?,b"replacement");
-                    io::commit(io::prepare(&target,None,false)?)?;assert!(!target.exists());
+                    io::commit(io::prepare(&target,None,false)?,&journal)?;assert!(!target.exists());let _=std::fs::remove_dir_all(&journal);
                 }
                 tracing::warn!(path=%selected.display(),marker=MANUAL,"private worker manual event");
                 Ok((bytes,exported,crate::trace::app_private()))
