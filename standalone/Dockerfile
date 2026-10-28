@@ -18,6 +18,10 @@ COPY engine/docs/charters engine/docs/charters
 COPY engine/docs/templates engine/docs/templates
 COPY docs/skills docs/skills
 COPY docs/releases.json docs/release-notes-*.md docs/
+# The custom-apps example a template test parses with include_str!. The
+# release build compiles no tests, but every include path is copied, so the
+# stage never depends on where an include sits.
+COPY docs/examples/apps/annotation-notes.orgtree-app docs/examples/apps/
 ARG CARGO_BUILD_JOBS=1
 ARG ORGTREE_BUILD_COMMIT=unknown
 ARG CARGO_PROFILE_RELEASE_OPT_LEVEL=3

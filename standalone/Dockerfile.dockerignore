@@ -21,6 +21,10 @@
 !docs/releases.json
 !docs/release-notes-*.md
 docs/release-notes-*-*.md
+# The custom-apps example a template test reads with include_str!.
+!docs/examples/
+!docs/examples/apps/
+!docs/examples/apps/annotation-notes.orgtree-app
 **/target
 **/node_modules
 **/.git
