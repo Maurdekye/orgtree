@@ -835,7 +835,9 @@ test('§5c the REAL desk hands its docket card a reference world', async (t) => 
   const refChip = view.el.querySelector<HTMLButtonElement>('.docket-agent .mailer-read .ref-chip')
   assert.ok(refChip, 'the item reference is dead text — the desk did not hand '
     + 'the card its world')
-  assert.equal(refChip!.textContent, 'sort-selector')
+  // a ticket chip shows the item's current title, not its slug (544c7c9,
+  // USER 2026-10-27 m7bb9eb904138)
+  assert.equal(refChip!.textContent, 'The sort selector')
   await act(async () => { refChip!.click() })
   assert.equal(
     view.el.querySelector('.docket-agent .mailer-read .docket-pane-head b')?.textContent,
