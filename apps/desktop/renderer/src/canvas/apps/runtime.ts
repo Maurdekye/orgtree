@@ -59,7 +59,11 @@ export function reportHostError(slug:string,panel:string,error:string|null){cons
 export function samplePanels(slug:string,epoch=0):Promise<void>{
   const o=org(slug)
   if(o.sampling)return o.sampling
-  o.sampling=(async()=>{try{
+  // Stored BEFORE anything can settle it and cleared by identity afterwards: a run that
+  // returned before its first await (nothing running yet, the Apps list's usual first
+  // open) cleared the slot synchronously and was then stored over it, so the window
+  // never sampled again (4.5.0 pre-publish hands-on, 2026-10-28).
+  const run:Promise<void>=(async()=>{try{
     const hosts=[...o.hosts.values()],bridge=desktop()
     if(!hosts.length)return
     const samples=bridge?.samplePanels?await bridge.samplePanels(hosts.map(h=>({panel:h.panel,generation:h.generation}))):[]
@@ -68,8 +72,10 @@ export function samplePanels(slug:string,epoch=0):Promise<void>{
     o.samples=next;o.epoch=Math.max(o.epoch,epoch);publish(o)
     const reported=samples.filter(s=>s.method&&o.hosts.get(s.panel)?.generation===s.generation)
     if(reported.length)await customAppsRuntime(slug,{action:'report',owner:runtimeOwner(),epoch,samples:reported.map(s=>({panel:s.panel,generation:s.generation,cpu_percent:s.cpu_percent,method:s.method}))})
-  }catch{/* sampling is advisory */}finally{o.sampling=null}})()
-  return o.sampling
+  }catch{/* sampling is advisory */}})()
+  o.sampling=run
+  void run.then(()=>{if(o.sampling===run)o.sampling=null})
+  return run
 }
 export function requestPanelSample(slug:string,epoch:number){if(epoch>org(slug).epoch)void samplePanels(slug,epoch)}
 export function usePanelCpu(slug:string):Map<string,PanelCpu>{
