@@ -86,10 +86,11 @@ function historyDetails(e:PanelEvent){
  * and put events on its own tab, as history"; "make history the last tab"): the
  * panel's fires, starts and stops as a live list (2026-10-27 md2006b10cf40). It
  * follows Apps changes and this panel's own fires; Connections and Fire event
- * have their own tabs. */
+ * have their own tabs. It opens on the list, with no intro line (user 2026-10-28
+ * m1ebf5e3194c8: "and this one"); an empty History keeps its one line. */
 export function PanelHistory({slug,panel}:{slug:string;panel:CustomPanel}){
   const read=(cursor:LogCursor)=>customAppsRequest<PanelEvents>(slug,{action:'events',panel:panel.id,limit:LOG_PAGE,...cursor}).then(page=>({items:page.events,next_cursor:page.next_cursor}))
-  return <div className="set-group custom-app-log-group"><p className="dim">Fired events agents can listen to, and this panel starting and stopping, newest first. Click an entry for its details, and a fired event's body as it was sent.</p>
+  return <div className="set-group custom-app-log-group">
     <LogList slug={slug} label="History" read={read} follows={change=>!change.listeners&&(!change.panel||change.panel===panel.id)} summary={historySummary} details={historyDetails} empty="Nothing has fired, started or stopped in this panel yet."/>
   </div>
 }
@@ -161,7 +162,9 @@ function ConnectionRow({slug,app,row,world,focus,leave,fireEvent}:{slug:string;a
  * again, one read at a time, and further pages load as the list's end comes into
  * view. The agent and watchdog links leave this window first when it sits in the
  * middle of the screen, as other windows do, so what they open is not hidden
- * behind it; an event link stays, handing its event to fireEvent (Panel settings' Fire event tab). */
+ * behind it; an event link stays, handing its event to fireEvent (Panel settings' Fire event tab).
+ * The tab opens on the list, with no intro text (user 2026-10-28 m967c09464607: "remove
+ * this blurb"); an empty list keeps its one line. */
 export function PanelConnections({slug,app,panel,fireEvent,leave=()=>{}}:{slug:string;app:CustomApp;panel:CustomPanel;fireEvent:(name:string)=>void;leave?:()=>void}){
   const routes=useContext(AppsRefRoutes),refName=useRefNames(slug)
   const world=useMemo<RefWorld>(()=>routes?.world??{org:slug,refName},[routes,slug,refName])
@@ -193,7 +196,7 @@ export function PanelConnections({slug,app,panel,fireEvent,leave=()=>{}}:{slug:s
   },[slug,app.id,panel.id])
   useLoadWhenSeen(end,next===null?null:String(next),()=>void loadMore())
   return <>
-    <div className="set-group"><p className="dim">Agents subscribe with an app_listener watchdog. Pause, resume and remove use the agent's watchdog controls. The list follows them as they change; expand one to see its recent fires.</p>
+    <div className="set-group">
       {rows===null?(!error&&<p className="dim">Loading…</p>):rows.length?<ul className="custom-app-connections" aria-label="Connections">
         {rows.map(row=><ConnectionRow key={row.id} slug={slug} app={app} row={row} world={world} focus={routes?.onOpen} leave={leave} fireEvent={fireEvent}/>)}
         {next!==null&&<li ref={end} className="custom-app-log-more" role="status">Loading more connections as you scroll</li>}

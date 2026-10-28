@@ -3473,7 +3473,7 @@ export function SettingsPanel({ tree, toast, close, initialTab, target }: {
   const orgTitle = <><OrgHeaderLogo slug={tree.slug} revision={tree.net?.picture_revision} />{tree.name} - Org settings</>
   return (
     <PinFrame kind="org-settings" title={`${tree.name} - Org settings`}
-      titleBar={orgTitle} panel="settings" close={closeSettings}>
+      titleBar={orgTitle} panel="settings" close={closeSettings} closeInModal>
         <h3><SettingsIcon fontSize="inherit" /> {orgTitle}</h3>
         <SettingsTabs tabs={orgTabs} tab={tab} setTab={setTab} stripRef={stripRef}
           idBase="org-settings" label="Organization settings sections" />
@@ -3673,7 +3673,9 @@ export function SettingsPanel({ tree, toast, close, initialTab, target }: {
           </SettingsTabPanel>
 
         <SettingsSaveStatus status={autosave.status} retry={() => { void autosave.queue.flush(true) }} />
-        <div className="row"><button aria-label="Close organization settings" onClick={closeSettings}>Close</button></div>
+        {/* No footer Close (user 2026-10-28 m3291e5890d55 "remove this close button", in
+            Org settings, mc9c984cf52a5): the header X (closeInModal, as App, Panel and draft
+            settings have it), Escape and the backdrop close it through closeSettings. */}
     </PinFrame>
   )
 }

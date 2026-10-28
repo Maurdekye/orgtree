@@ -64,7 +64,9 @@ function permissionSummary(entry:PermissionHistoryEntry){
 /** App settings' Permission history tab, the last one (user 2026-10-27 m838e66af753b:
  * "ssme for permission history, and put tgat on i6s own tab"): every stored
  * permission change, prompt answer and code-change reset, as the same live list as
- * a copy's History. It follows Apps changes; a copy's own fires change nothing here. */
+ * a panel's History. It follows Apps changes; a panel's own fires change nothing here.
+ * It opens on the list, with no intro line (user 2026-10-28 m420ce21a63f4: "and this
+ * one"); an empty history keeps its one line. */
 export function AppPermissionHistory({slug,app}:{slug:string;app:CustomApp}){
   const panels=useApps(slug).panels
   const read=(cursor:LogCursor)=>customAppsRequest<PermissionHistoryPage>(slug,{action:'permission_history',app:app.id,limit:LOG_PAGE,...cursor}).then(page=>({items:page.entries??[],next_cursor:page.next_cursor??null}))
@@ -76,7 +78,7 @@ export function AppPermissionHistory({slug,app}:{slug:string;app:CustomApp}){
       <dt>Permission</dt><dd>{choices[entry.permission]??entry.permission}</dd><dt>How</dt><dd>{ways[entry.via]??entry.via}</dd>
       {panel&&<><dt>Panel</dt><dd>{panel}</dd></>}
     </dl>}
-  return <div className="set-group custom-app-log-group"><p className="dim">Permission changes and prompt answers for this app, newest first. Orgtree keeps the latest 128. Click an entry for its details.</p>
+  return <div className="set-group custom-app-log-group">
     <LogList slug={slug} label="Permission history" read={read} follows={change=>!change.panel&&!change.listeners} summary={permissionSummary} details={details} empty="No permission changes yet."/>
   </div>
 }

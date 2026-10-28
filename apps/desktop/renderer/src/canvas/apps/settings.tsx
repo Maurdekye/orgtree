@@ -19,7 +19,9 @@ import type {CustomApp,CustomPanel} from './types'
  * conflict if another edit arrived; Reload reads the saved data again. Import is a
  * button like the other five (user 2026-10-27 m531629c33a06 "why is the import
  * button styled differently"): it opens a hidden file picker, which is cleared
- * after each choice so the same file can be imported again. */
+ * after each choice so the same file can be imported again. The tab opens on the
+ * JSON box, with no intro text (user 2026-10-28 mbba17a6166d1: "remove this blurb
+ * too actually"). */
 export function PanelState({slug,panel,app}:{slug:string;panel:CustomPanel;app:CustomApp}){
   const owner=useSurfaceDocument(),picker=useRef<HTMLInputElement>(null),[text,setText]=useState(''),[error,setError]=useState(''),[status,setStatus]=useState(''),[busy,setBusy]=useState(true),[rev,setRev]=useState(panel.rev)
   const load=async(alive=()=>true)=>{setBusy(true);setError('');setStatus('');try{const p=await customAppsRequest<CustomPanel>(slug,{action:'panel_get',panel:panel.id});if(alive()){setText(JSON.stringify(p.state??{},null,2));setRev(p.rev)}}catch(e){if(alive())setError(String(e))}finally{if(alive())setBusy(false)}}
@@ -27,7 +29,6 @@ export function PanelState({slug,panel,app}:{slug:string;panel:CustomPanel;app:C
   const value=()=>{if(new TextEncoder().encode(text).length>2*1024*1024)throw Error('State exceeds 2 MiB.');const v:unknown=JSON.parse(text);if(!v||Array.isArray(v)||typeof v!=='object')throw Error('State must be a JSON object.');return v}
   const save=async()=>{try{setBusy(true);setStatus('');const p=await changeApps<CustomPanel>(slug,{action:'state_set',panel:panel.id,expected_rev:rev,state:value()});setRev(p.rev);setError('');setStatus('Saved.')}catch(e){setError(String(e))}finally{setBusy(false)}}
   return <div className="set-group custom-app-state">
-    <p className="dim">Each panel keeps its own JSON data. Save reports a conflict if another edit arrived; Reload reads the saved data again.</p>
     <textarea aria-label="Panel JSON state" spellCheck={false} value={text} disabled={busy} onChange={e=>{setText(e.target.value);setStatus('')}}/>
     {error&&<p role="alert">{error}</p>}{status&&<p role="status">{status}</p>}
     <div className="custom-app-dialog-actions"><button type="button" onClick={()=>picker.current?.click()}>Import</button><input ref={picker} type="file" accept="application/json,.json" hidden onChange={async e=>{const input=e.currentTarget;try{const f=input.files?.[0];if(!f)return;if(f.size>2*1024*1024)throw Error('State exceeds 2 MiB.');const text=await f.text();JSON.parse(text);setText(text);setError('')}catch(error){setError(String(error))}finally{input.value=''}}}/>

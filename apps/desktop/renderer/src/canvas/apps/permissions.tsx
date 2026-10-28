@@ -46,7 +46,9 @@ export function AppPermissionPrompt({prompt,owner}:{prompt:PermissionPrompt;owne
 
 /** App settings' Permissions tab (user 2026-10-26: "for now, make permissions a
  * second tab in app settings"). `embedded` renders the tab body, leaving Escape
- * to the settings window; standalone keeps its own dialog. */
+ * to the settings window; standalone keeps its own dialog. It opens on the
+ * permissions themselves, with no intro text (user 2026-10-28 md0c3fe54b8d0:
+ * "Remove all of them"); the user guide explains the defaults. */
 export function AppPermissions({slug,app,close,embedded=false}:{slug:string;app:CustomApp;close:()=>void;embedded?:boolean}){
   const owner=useSurfaceDocument(),[current,setCurrent]=useState(app),[busy,setBusy]=useState(false),[error,setError]=useState('')
   useEffect(()=>setCurrent(app),[app])
@@ -57,7 +59,6 @@ export function AppPermissions({slug,app,close,embedded=false}:{slug:string;app:
     catch(e){setError(String(e))}finally{setBusy(false)}
   }
   const content=<>
-    <p>Changes save immediately and apply to every panel of {current.name}. Org-internal actions and Orgtree files are allowed by default; internet access is not. Explicit Ask or Deny overrides the default and survives code replacement. Outside file grants and every Allow reset when code changes.</p>
     {!appCapabilities(current).length&&<p>This app declares no engine actions.</p>}
     {appCapabilities(current).filter(cap=>!cap.startsWith('files.')&&cap!=='net.fetch').map(cap=><label className="custom-app-permission-row" key={cap}><span>{cap}{cap==='docket.write'&&<small>Creates and assigns work; wakes the selected local agent.</small>}{cap==='events.fire'&&<small>Broadcasts declared events to each panel's subscribed agents.</small>}</span><select aria-label={`${cap} permission`} disabled={busy} value={appPermission(current,cap)} onChange={e=>void save(cap,e.target.value)}><option value="ask">Ask</option><option value="allow">Allow</option><option value="deny">Deny</option></select></label>)}
     {appCapabilities(current).some(cap=>cap.startsWith('files.'))&&<AppFilePermissions slug={slug} app={current} save={save} disabled={busy} refresh={async()=>setCurrent(await customAppsRequest<CustomApp>(slug,{action:'app_get',app:current.id}))}/>}
