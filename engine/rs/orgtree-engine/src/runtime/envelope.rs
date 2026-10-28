@@ -76,6 +76,8 @@ struct Row {
     state: String,
     halted: bool,
     frozen: bool,
+    /// frozen for the short retry of a request-rate 429 (`rate_limit.rs`)
+    rate_limited: bool,
     status: Option<Value>,
     inflight_at: Option<DateTime<Utc>>,
     last_turn: Option<DateTime<Utc>>,
@@ -253,7 +255,7 @@ impl<'a> Tree<'a> {
             if r.halted {
                 tags.push("halted — explicit unhalt required".into());
             }
-            if r.frozen { tags.push(frozen_tag(false).into()); }
+            if r.frozen { tags.push(frozen_tag(r.rate_limited).into()); }
             let state = if tags.is_empty() { String::new() } else { format!(" ({})", tags.join(", ")) };
             let note = status_note(r, self.live.get(&r.id).copied().unwrap_or_default(), self.now);
             let note = if note.is_empty() { String::new() } else { format!(" · {note}") };
@@ -268,8 +270,8 @@ impl<'a> Tree<'a> {
 /// What the org chart calls a frozen agent: a request-rate 429 is retried in minutes and is no
 /// usage limit (user 2026-10-28 10:07:18Z mb1ca1568502c).
 #[nolog]
-fn frozen_tag(_rate_limited: bool) -> &'static str {
-    "frozen (usage limit)"
+fn frozen_tag(rate_limited: bool) -> &'static str {
+    if rate_limited { "frozen (rate-limited, retrying)" } else { "frozen (usage limit)" }
 }
 
 #[nolog]
@@ -332,7 +334,7 @@ pub async fn org_state(engine: &Arc<Engine>, agent_id: i64) -> Result<OrgState> 
         .query(
             "SELECT a.id, a.name, a.parent_id, a.tier, a.state, a.halt IS NOT NULL, a.last_status, a.inflight_at,
                     (SELECT t.started_at FROM ot.turns t WHERE t.agent_id = a.id ORDER BY t.id DESC LIMIT 1), a.frozen IS NOT NULL,
-                    r.superior_id,a.kind='project'
+                    r.superior_id,a.kind='project',COALESCE(a.frozen->>'cause' = 'rate_limit', false)
                FROM ot.agents a LEFT JOIN ot.agent_reporting r ON r.id=a.id
               WHERE a.org_id = $1 AND a.state IN ('live', 'archived', 'unrecoverable')
               ORDER BY a.sibling_order, a.id LIMIT $2",
@@ -353,6 +355,7 @@ pub async fn org_state(engine: &Arc<Engine>, agent_id: i64) -> Result<OrgState> 
             frozen: r.get(9),
             superior: r.get(10),
             project: r.get(11),
+            rate_limited: r.get(12),
         })
         .collect();
     let ask = client
@@ -509,9 +512,9 @@ fn render(f: &Facts, live: &HashMap<i64, Live>, now: DateTime<Utc>) -> OrgState 
         let parent_name = r.parent.and_then(|id| tree.by_id.get(&id)).map(|p| p.name.as_str()).unwrap_or("user");
         let text = format!("- {} [{}], parent {parent_name}, state {}{}{} · {}", r.name, r.tier, r.state,
             if r.halted { ", halted — explicit unhalt required" } else { "" },
-            if r.frozen { format!(", {}", frozen_tag(false)) } else { String::new() }, status_note(r, live, now));
+            if r.frozen { format!(", {}", frozen_tag(r.rate_limited)) } else { String::new() }, status_note(r, live, now));
         let before_last = matches!((r.status.as_ref().and_then(|v| ts(v,"at")), r.last_turn), (Some(a),Some(t)) if t>a);
-        let semantic = json!([r.name,r.parent,parent_name,r.tier,r.state,r.halted,r.frozen,r.status,live.busy,live.waiting,r.inflight_at.is_some(),before_last]);
+        let semantic = json!([r.name,r.parent,parent_name,r.tier,r.state,r.halted,r.frozen,r.rate_limited,r.status,live.busy,live.waiting,r.inflight_at.is_some(),before_last]);
         entries.insert(format!("agent:{}",r.id), delta::Entry::new(&r.name, &semantic, text.clone()));
         if vis == "self" && r.id == agent_id { own_state = format!("\nYour state: {text}"); }
     }

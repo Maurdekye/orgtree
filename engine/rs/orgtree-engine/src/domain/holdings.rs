@@ -137,6 +137,11 @@ pub fn died(end: &Ending) -> Option<Death> {
     if end.interrupted || end.compact {
         return None;
     }
+    if end.rate_limited && !end.limited {
+        return Some(Death { how: HOW_FROZEN,
+                            why: "its turn was stopped by the provider's request-rate limit (HTTP 429) and it was frozen for a short retry".into(),
+                            because: "your turn was stopped by the provider's request-rate limit (HTTP 429) and you were frozen for a short retry".into() });
+    }
     if end.limited || end.frozen {
         return Some(Death { how: HOW_FROZEN, why: "its turn was stopped by a usage limit and it was frozen".into(),
                             because: "your turn was stopped by a usage limit and you were frozen".into() });

@@ -13,6 +13,8 @@
 //! doubling to 300 s, at most `RATE_RETRY_MAX` times. A real usage limit still freezes as before.
 //! Codex lane only: see docs/rust-engine/rate-limit-retry.md for what the other lanes do.
 
+use std::sync::OnceLock;
+
 use chrono::Utc;
 use serde_json::{json, Value};
 
@@ -37,35 +39,149 @@ pub struct RateLimited {
     pub retry_after: Option<i64>,
 }
 
-/// Is this Codex failure a request-rate 429 rather than a usage wall? `info` is the turn's
-/// `codex_error` (`{"info": codexErrorInfo, "details": additionalDetails}`, or null);
-/// `window_full` says a usage window of the account is known to be exhausted, in which case a 429
-/// is the wall.
+/// Words a usage wall uses and a request rate does not. Any of them in the failure's text keeps it
+/// a usage limit, as it was.
+const USAGE_WORDS: &[&str] = &[
+    "usage limit", "usage_limit", "hit your limit", "quota", "weekly", "resets", "reset at",
+    "try again at", "billing", "credits", "upgrade", "subscription",
+];
+
+/// The tag name (lower case, no `_` or `-`) and HTTP status of a `codexErrorInfo`: a plain string
+/// (`"usageLimitExceeded"`) or an object naming its variant (`{"responseTooManyFailedAttempts":
+/// {"httpStatusCode": 429}}`).
+#[nolog]
+fn tag_of(info: &Value) -> (String, Option<i64>) {
+    let norm = |s: &str| s.chars().filter(|c| *c != '_' && *c != '-').collect::<String>().to_lowercase();
+    match info {
+        Value::String(s) => (norm(s), None),
+        Value::Object(o) if o.len() == 1 => {
+            let (name, body) = o.iter().next().expect("one entry");
+            (norm(name), body["httpStatusCode"].as_i64())
+        }
+        _ => (String::new(), None),
+    }
+}
+
+/// A 429 stated in the text: the reason phrase, or the number beside a word that makes it a status
+/// (`last status: 429`, `HTTP 429`, `error 429`). A bare 429 (a count, a byte size) is not one.
+#[nolog]
+fn states_429(lower: &str) -> bool {
+    static STATUS: OnceLock<regex::Regex> = OnceLock::new();
+    lower.contains("too many requests")
+        || STATUS.get_or_init(|| regex::Regex::new(r"\b(?:status|http|code|error|response)\W{0,3}429\b").unwrap()).is_match(lower)
+}
+
+/// Is this Codex failure a request-rate 429 rather than a usage wall? `codex_error` is the turn's
+/// `{"info": codexErrorInfo, "details": additionalDetails}` (or null); `window_full` says a usage
+/// window of the account is known to be exhausted, in which case a 429 is the wall.
+///
+/// Rate limit: the app-server's `rateLimitExceeded` tag, a retry limit or connection failure whose
+/// status is 429, or a text that states a 429. Never a rate limit: the `usageLimitExceeded` tag, a
+/// text with a usage wall's words (`USAGE_WORDS`), or an exhausted window.
 #[logged]
-pub fn rate_limited(_error: &str, _info: &Value, _window_full: bool) -> Option<RateLimited> {
-    None
+pub fn rate_limited(error: &str, codex_error: &Value, window_full: bool) -> Option<RateLimited> {
+    if window_full {
+        return None;
+    }
+    let text = format!("{error}\n{}", codex_error["details"].as_str().unwrap_or(""));
+    let lower = text.to_lowercase();
+    let (kind, status) = tag_of(&codex_error["info"]);
+    if kind == "usagelimitexceeded" || USAGE_WORDS.iter().any(|w| lower.contains(w)) {
+        return None;
+    }
+    let typed = kind == "ratelimitexceeded"
+        || (status == Some(429) && matches!(kind.as_str(),
+            "responsetoomanyfailedattempts" | "httpconnectionfailed" | "responsestreamconnectionfailed" | "responsestreamdisconnected"));
+    (typed || states_429(&lower)).then(|| RateLimited { retry_after: retry_after_seconds(&text) })
+}
+
+/// `2 minutes and 5 seconds` / `1m30s` / `30` (bare seconds, first segment only) -> seconds.
+#[nolog]
+fn wait_seconds(mut rest: &str) -> Option<i64> {
+    let mut total = 0_i64;
+    let mut first = true;
+    loop {
+        let digits = rest.chars().take_while(char::is_ascii_digit).count();
+        if digits == 0 {
+            break;
+        }
+        let n: i64 = rest[..digits].parse().ok()?;
+        let after = rest[digits..].trim_start();
+        let unit_len = after.chars().take_while(char::is_ascii_alphabetic).count();
+        let secs = match &after[..unit_len] {
+            "d" | "day" | "days" => 86_400,
+            "h" | "hr" | "hrs" | "hour" | "hours" => 3_600,
+            "m" | "min" | "mins" | "minute" | "minutes" => 60,
+            "s" | "sec" | "secs" | "second" | "seconds" => 1,
+            "" if first => 1,
+            _ => break,
+        };
+        total = total.checked_add(n.checked_mul(secs)?)?;
+        first = false;
+        rest = after[unit_len..].trim_start();
+        rest = rest.strip_prefix(',').unwrap_or(rest).trim_start();
+        rest = rest.strip_prefix("and ").unwrap_or(rest);
+    }
+    (total > 0).then_some(total)
 }
 
 /// The provider's own wait in a failure's text (`Retry-After: 30`, `retry after 2 minutes`,
-/// `try again in 1m30s`), in seconds.
+/// `try again in 1m30s`), in seconds. The Codex app-server relays no headers, so the measured
+/// 10:04Z error has none; this reads it should a CLI version put one in the message or details.
 #[logged]
-pub fn retry_after_seconds(_text: &str) -> Option<i64> {
-    None
+pub fn retry_after_seconds(text: &str) -> Option<i64> {
+    static AFTER: OnceLock<regex::Regex> = OnceLock::new();
+    let lower = text.to_lowercase();
+    let at = AFTER
+        .get_or_init(|| regex::Regex::new(r"(?:retry[- ]after|(?:try|retry)\s+again\s+in|retry\s+in)\s*[:=]?\s*").unwrap())
+        .find(&lower)?;
+    wait_seconds(&lower[at.end()..])
 }
 
-/// Seconds to wait before retry number `run` (1-based). `seed` (the agent's id) spreads the agents
-/// that were refused together over the next fifth of the wait, never earlier than it.
+/// Seconds to wait before retry number `run` (1-based): the provider's wait within bounds, else
+/// 60 s doubling to 300 s. `seed` (the agent's id) spreads the agents that were refused together
+/// over the next fifth of the wait, never earlier than it.
 #[logged]
-pub fn delay(_run: i64, _retry_after: Option<i64>, _seed: i64) -> i64 {
-    0
+pub fn delay(run: i64, retry_after: Option<i64>, seed: i64) -> i64 {
+    let base = match retry_after {
+        Some(s) => s.clamp(RETRY_AFTER_MIN_S, RETRY_AFTER_MAX_S),
+        None => (RATE_RETRY_FIRST_S << (run - 1).clamp(0, 10)).min(RATE_RETRY_CAP_S),
+    };
+    base + base * seed.rem_euclid(21) / 100
 }
 
-/// The freeze record for retry `run`. `replay` is the request the refused turn was given, kept
-/// when the turn did nothing before the refusal (a Codex thread already holds it).
+/// What the retried turn is told: the refusal was the request rate, not its usage, and nothing it
+/// had already done was undone.
+#[nolog]
+fn banner(run: i64) -> String {
+    format!(
+        "The provider rate-limited your previous turn (HTTP 429 Too Many Requests: a limit on how fast requests \
+         are sent, not your usage limit) and orgtree is retrying it — attempt {run} of {RATE_RETRY_MAX}. \
+         Whatever that turn had ALREADY done was not undone: check your real state (files on disk, `git status`, \
+         mail you may have already sent, processes you may have already started) before redoing any of it. \
+         Continue where you left off."
+    )
+}
+
+/// The freeze record for retry `run`: a pure retry (`connection: true, limit: false`), so the
+/// engine's freeze timer wakes it at `until` with no clock-skew grace and whatever the org's
+/// auto-resume setting is, and `cause: "rate_limit"`, so every surface says what it is. `replay`
+/// is the request the refused turn was given, kept when the turn had done nothing before the
+/// refusal (a Codex thread already holds it, as for a usage limit).
 #[logged]
-pub fn freeze(_run: i64, _r: &RateLimited, _error: &str, _account: Option<&str>, _seed: i64,
-              _replay: Option<&str>) -> Value {
-    Value::Null
+pub fn freeze(run: i64, r: &RateLimited, error: &str, account: Option<&str>, seed: i64, replay: Option<&str>) -> Value {
+    let wait = delay(run, r.retry_after, seed);
+    let until = Utc::now() + chrono::Duration::seconds(wait);
+    let mut rec = json!({
+        "at": now_iso(), "until": iso(until), "error": gist(error, 300), "connection": true, "limit": false,
+        "cause": "rate_limit", "provenance": "observed", "account": account, "attempt": run, "retry_in_s": wait,
+        "label": format!("{RATE_KIND} — attempt {run}/{RATE_RETRY_MAX}"),
+        "wake_text": banner(run),
+    });
+    if let Some(text) = replay.filter(|t| !t.trim().is_empty()) {
+        rec["resume_texts"] = json!([text]);
+    }
+    rec
 }
 
 #[cfg(test)]

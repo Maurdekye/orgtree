@@ -443,6 +443,8 @@ struct Turn {
     codex_row: Option<String>,
     /// Codex: the last error the server reported (it ends with `turn/completed`)
     codex_error: Option<String>,
+    /// Codex: that error's `codexErrorInfo` and `additionalDetails` (`{"info", "details"}`), for the 429 verdict
+    codex_error_extra: Value,
     /// Muse: the turn's typed failure (kind, the host's retry judgment)
     muse_error: Option<(String, bool)>,
     /// Muse: a typed quota refusal's reset (`error.quota.resetsAtMs`)
@@ -558,6 +560,7 @@ impl Turn {
             usage_base: None,
             codex_row: None,
             codex_error: None,
+            codex_error_extra: Value::Null,
             muse_error: None,
             muse_quota: None,
             rate_limit: None,
@@ -5159,6 +5162,7 @@ impl Actor {
                 if !p["willRetry"].as_bool().unwrap_or(false) {
                     if let Some(t) = self.turn.as_mut() {
                         t.codex_error = p.pointer("/error/message").and_then(Value::as_str).map(|s| gist(s, 600));
+                        t.codex_error_extra = json!({ "info": p.pointer("/error/codexErrorInfo"), "details": p.pointer("/error/additionalDetails") });
                     }
                 }
             }
@@ -5193,7 +5197,14 @@ impl Actor {
                     "interrupted" if !interrupted => Some("the Codex turn was interrupted".into()),
                     _ => None,
                 };
-                self.end_turn(error, json!({ "codex": true })).await?;
+                // the typed error rides with the result: the message alone cannot tell a request-rate 429 from a usage wall
+                let stored = self.turn.as_ref().map(|t| t.codex_error_extra.clone()).unwrap_or(Value::Null);
+                let typed = |key: &str| turn.pointer(&format!("/error/{key}")).filter(|v| !v.is_null()).cloned();
+                let extra = json!({
+                    "info": typed("codexErrorInfo").unwrap_or_else(|| stored["info"].clone()),
+                    "details": typed("additionalDetails").unwrap_or_else(|| stored["details"].clone()),
+                });
+                self.end_turn(error, json!({ "codex": true, "codex_error": extra })).await?;
             }
             _ => {}
         }
@@ -7863,13 +7874,27 @@ impl Actor {
             .unwrap_or_default();
         denials.extend(turn.denials.iter().cloned());
         let session = res.get("session_id").and_then(Value::as_str).map(str::to_string);
+        // A Codex 429 that is only the request rate ("exceeded retry limit, last status: 429 Too Many
+        // Requests", measured 2026-10-28 10:04Z) is no usage wall: it is retried in minutes (rate_limit.rs)
+        // unless a window of the account is known to be exhausted (user mb1ca1568502c).
+        let rate = match error.as_deref() {
+            Some(e) if codex && !turn.interrupted && !turn.killed && !turn.session_ended && !prompt::input_length_refusal(e) => {
+                let window_full = turn.limit_signal
+                    || crate::usage::freeze_reading(&self.engine, &turn.serving_provider, turn.serving_account.as_deref())
+                        .is_some_and(|reading| super::usage_reset::cached_reset(&turn.serving_provider, &turn.serving_tier, None,
+                            &reading, chrono::DateTime::<Utc>::MIN_UTC, Utc::now()).is_some());
+                super::rate_limit::rate_limited(e, &res["codex_error"], window_full)
+            }
+            _ => None,
+        };
         // a usage limit freezes the agent (or moves it to another account)
         // The prior wall may lengthen, but never shorten, this new refusal.
         let prior_wall = match &error {
             Some(_) => self.last_wall().await,
             None => Value::Null,
         };
-        let mut reset = error.as_deref().and_then(|e| super::usage_reset::reported(e, turn.rate_limit.as_ref(), &prior_wall, refusal_at));
+        let mut reset = error.as_deref().filter(|_| rate.is_none())
+            .and_then(|e| super::usage_reset::reported(e, turn.rate_limit.as_ref(), &prior_wall, refusal_at));
         if muse {
             // Typed Muse quota resets remain authoritative. Its generic errors
             // keep their previous recovery path when no reset was reported.
@@ -7920,13 +7945,14 @@ impl Actor {
         let mut classified = false;
         let mut exhausted: Option<(i64, String)> = None;
         let mut parked: Option<&'static str> = None;
+        let mut rate_frozen = false;
         // a turn the end of the user's session stopped is no failure (on_exit)
         if let (Some(e), false) = (error.as_deref(), turn.interrupted || turn.killed || turn.session_ended || freeze_rec.is_some()) {
             let died = turn.exited && turn.activity && res.is_null();
             let account = turn.serving_account.as_deref();
             // Muse classifies its own failures: a sign-in it needs, or one it
             // judges retryable; anything else reads as the other lanes do
-            let class = if prompt::input_length_refusal(e) { None } else { match turn.muse_error.as_ref().filter(|_| muse) {
+            let class = if prompt::input_length_refusal(e) { None } else if let Some(r) = rate.clone() { Some(recovery::Class::Rate(r)) } else { match turn.muse_error.as_ref().filter(|_| muse) {
                 Some((kind, _)) if kind == "authRequired" => Some(recovery::Class::Auth),
                 Some((kind, true)) => Some(recovery::Class::Net(format!("Muse reported a retryable {kind} failure"))),
                 _ => recovery::classify(e, &res, openrouter || langserver, died),
@@ -7939,6 +7965,18 @@ impl Actor {
                         freeze_rec = Some(recovery::connection_freeze(run, &kind, e, account));
                     } else if run == recovery::NET_RETRY_MAX + 1 {
                         exhausted = Some((run - 1, kind));
+                    }
+                }
+                Some(recovery::Class::Rate(r)) => {
+                    classified = true;
+                    let run = recovery::bump(&self.engine, self.id, "rate_limit_run").await?;
+                    if run <= super::rate_limit::RATE_RETRY_MAX {
+                        // the Codex thread holds the request already: it is given again only when the turn had done nothing
+                        let replay = Some(turn.replay.as_str()).filter(|_| !turn.activity);
+                        freeze_rec = Some(super::rate_limit::freeze(run, &r, e, account, self.id, replay));
+                        rate_frozen = true;
+                    } else if run == super::rate_limit::RATE_RETRY_MAX + 1 {
+                        exhausted = Some((run - 1, super::rate_limit::RATE_KIND.to_string()));
                     }
                 }
                 Some(recovery::Class::Auth) => {
@@ -8228,7 +8266,7 @@ impl Actor {
         // its next turn is told what went (domain/holdings.rs; user 2026-10-27 16:18Z)
         let ending = crate::domain::holdings::Ending {
             interrupted: turn.interrupted, compact: turn.compact, session_ended: turn.session_ended,
-            error: error.as_deref(), limited: limit.is_some(), frozen: freeze_rec.is_some(), rate_limited: false,
+            error: error.as_deref(), limited: limit.is_some(), frozen: freeze_rec.is_some(), rate_limited: rate_frozen,
         };
         if let Some(death) = crate::domain::holdings::died(&ending) {
             if let Err(e) = boxed(|| crate::domain::holdings::release_after_death(&self.engine, self.org_id, self.id, &self.name, &death)).await {

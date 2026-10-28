@@ -6,7 +6,7 @@ fn fixture(reports: usize, small_report: bool) -> (Facts, DateTime<Utc>) {
         id: id as i64, name: if id == 1 { "coordinator".into() } else { format!("worker-{id:02}") },
         parent: (id > 1).then_some(1), superior: (id > 1).then_some(1), project: false,
         tier: if id == 1 { "opus".into() } else { "sol".into() },
-        state: "live".into(), halted: false, frozen: false,
+        state: "live".into(), halted: false, frozen: false, rate_limited: false,
         status: Some(json!({"status":"working","summary":format!("Implementing synthetic work item {id}"),"at":iso(now - chrono::Duration::minutes(5))})),
         inflight_at: None, last_turn: None,
     }).collect();

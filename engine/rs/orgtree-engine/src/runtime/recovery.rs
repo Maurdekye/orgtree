@@ -5,6 +5,8 @@
 //!   retried with a connection freeze, 30 s doubling to 300 s, at most
 //!   `NET_RETRY_MAX` times; when the retries are spent the agent and its
 //!   superior are told once (`_retry_exhausted`).
+//! - A Codex request-rate 429 ("exceeded retry limit, last status: 429 Too Many Requests") is retried
+//!   behind a short freeze like P34 (`rate_limit.rs`), not frozen for a usage reset.
 //! - P35: a rejected credential (401) parks the agent with no reset time;
 //!   OpenRouter balance refusals (402) are probed every 5 minutes and parked
 //!   after `NET_RETRY_MAX` in a row. A park is announced to the superior once
@@ -57,6 +59,8 @@ pub enum Class {
     Auth,
     /// OpenRouter refused the request against the key's balance (402)
     Balance,
+    /// a Codex request-rate 429 that is no usage wall: retried in minutes (`rate_limit.rs`)
+    Rate(super::rate_limit::RateLimited),
 }
 
 /// 3.x `_looks_like_connection_failure`: narrow and positive, never a
@@ -228,9 +232,10 @@ pub async fn clear_runs(engine: &Engine, agent_id: i64) -> Result<()> {
     client
         .execute(
             "UPDATE ot.agents SET extra = extra - 'net_fail_run' - 'balance_probe_run' - 'parked_run' - 'hard_fail_run' - 'last_wall'
-                    - 'ctx_reset_run' - 'native_ctx_retry_run'
+                    - 'ctx_reset_run' - 'native_ctx_retry_run' - 'rate_limit_run'
               WHERE id = $1 AND (extra ? 'net_fail_run' OR extra ? 'balance_probe_run' OR extra ? 'parked_run'
-                                 OR extra ? 'hard_fail_run' OR extra ? 'last_wall' OR extra ? 'ctx_reset_run' OR extra ? 'native_ctx_retry_run')",
+                                 OR extra ? 'hard_fail_run' OR extra ? 'last_wall' OR extra ? 'ctx_reset_run' OR extra ? 'native_ctx_retry_run'
+                                 OR extra ? 'rate_limit_run')",
             &[&agent_id],
         )
         .await?;
