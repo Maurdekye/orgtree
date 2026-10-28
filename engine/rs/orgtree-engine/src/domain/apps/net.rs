@@ -1081,6 +1081,8 @@ mod tls_tests {
                         "/to-loopback" => reply("302 Found", &format!("Location: https://127.0.0.1:{port}/ok\r\n"), b""),
                         "/to-granted" => reply("302 Found", &format!("Location: https://granted.test:{port}/ok\r\n"), b""),
                         "/loop" => reply("302 Found", "Location: /loop\r\n", b""),
+                        "/to-ok" => reply("302 Found", "Location: /ok\r\n", b""),
+                        p if p.starts_with("/hop/") => reply("302 Found", &format!("Location: https://{}:{port}/ok\r\n", &p[5..]), b""),
                         "/big" => reply("200 OK", "", &vec![b'x'; RESPONSE_MAX + 1]),
                         "/slow" => {
                             tokio::time::sleep(Duration::from_secs(20)).await;
@@ -1205,6 +1207,79 @@ mod tls_tests {
             "https://192.168.1.1/".into(),
         ] {
             assert!(fetch(get(&url), &everything).await.is_err(), "{url}");
+        }
+    }
+
+    /// Review B8 (4.5.0, 7b18db1caaea F2): a redirect to another host dropped
+    /// only Authorization, so X-API-Key and any other header an app keeps a
+    /// credential in went on to that host.
+    #[tokio::test]
+    async fn a_redirect_to_another_host_carries_only_safelisted_headers() {
+        let s = serve(&["creds-a.test", "creds-b.test"]).await;
+        let port = s.port;
+        let both = move |h: &str, p: u16| (h == "creds-a.test" || h == "creds-b.test") && p == port;
+        let request = |url: String| Fetch {
+            url: url.parse().unwrap(),
+            method: "GET".into(),
+            headers: [
+                ("Authorization", "Bearer app-token"),
+                ("X-API-Key", "app-key"),
+                ("X-Session", "app-session"),
+                ("Accept", "application/json"),
+                ("Accept-Language", "en"),
+            ]
+            .iter()
+            .map(|(n, v)| (n.to_string(), v.to_string()))
+            .collect(),
+            body: None,
+        };
+        let last_two = || {
+            let heads = s.heads.lock().unwrap();
+            let n = heads.len();
+            (
+                heads[n - 2].to_ascii_lowercase(),
+                heads[n - 1].to_ascii_lowercase(),
+            )
+        };
+        // A redirect on the same host keeps every header the app set.
+        let stayed = fetch(request(format!("https://creds-a.test:{port}/to-ok")), &both)
+            .await
+            .unwrap();
+        assert_eq!((stayed.status, stayed.redirected), (200, true));
+        let (_, second) = last_two();
+        for kept in [
+            "authorization: bearer app-token",
+            "x-api-key: app-key",
+            "x-session: app-session",
+            "accept: application/json",
+            "accept-language: en",
+        ] {
+            assert!(second.contains(kept), "{kept} missing on the same host: {second}");
+        }
+        // To another host: the first hop had everything, the next hop only the
+        // CORS-safelisted headers.
+        let moved = fetch(
+            request(format!("https://creds-a.test:{port}/hop/creds-b.test")),
+            &both,
+        )
+        .await
+        .unwrap();
+        assert_eq!((moved.status, moved.redirected), (200, true));
+        assert!(moved.final_url.contains("creds-b.test"));
+        let (first, second) = last_two();
+        assert!(
+            first.starts_with("get /hop/creds-b.test ") && first.contains("x-api-key: app-key"),
+            "{first}"
+        );
+        assert!(
+            second.starts_with("get /ok ") && second.contains("host: creds-b.test"),
+            "{second}"
+        );
+        for dropped in ["authorization:", "x-api-key:", "x-session:"] {
+            assert!(!second.contains(dropped), "{dropped} followed the redirect: {second}");
+        }
+        for kept in ["accept: application/json", "accept-language: en"] {
+            assert!(second.contains(kept), "{kept} missing after the redirect: {second}");
         }
     }
 
