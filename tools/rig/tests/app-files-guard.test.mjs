@@ -57,3 +57,18 @@ test('a fixture folder linked elsewhere is refused before anything is written th
   assert.deepEqual(listing(elsewhere), [], `setup wrote through the link: ${out}`)
   assert.match(out, /SETUP refused: .*files-fixture.* link/, out)
 })
+
+// The home itself can lead into live data: its path looks safe, but a junction
+// among its folders points inside (review 21aad97e581a F1, 473d61df7fa2 F1).
+// The junction and its target both stay inside this test's scratch folder.
+test('a rig home reached through a junction into live Orgtree data is refused before anything is written', windows, ctx => {
+  const root = scratch(ctx, 'junction')
+  const live = path.join(root, 'live'), target = path.join(live, 'scratch', 'rig-home')
+  fs.mkdirSync(target, { recursive: true })
+  const link = path.join(root, 'looks-safe')
+  fs.symlinkSync(path.join(live, 'scratch'), link, 'junction')
+  let out
+  try { out = setup(path.join(link, 'rig-home'), [live, ...lib.liveRoots()]) } finally { fs.rmdirSync(link) }
+  assert.deepEqual(listing(target), [], `setup wrote into the live folder through the junction: ${out}`)
+  assert.match(out, /SETUP refused: refusing .*looks-safe.* overlaps the live Orgtree data folder/, out)
+})

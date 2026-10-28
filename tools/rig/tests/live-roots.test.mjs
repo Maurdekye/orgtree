@@ -79,6 +79,31 @@ test('an original explicit data override remains protected after it is replaced'
   } finally { restoreEnvironment(saved) }
 })
 
+// Where a home really leads counts, not only its path (review 21aad97e581a F1):
+// a junction among its folders can point into live data. The junction and its
+// target stay inside one scratch folder, and the junction goes first.
+test('a home is checked where it really is: through a junction, below one, and before it exists', windows, async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'live-roots-real-'))
+  const live = path.join(root, 'live'), link = path.join(root, 'looks-safe'), mine = path.join(root, 'homes', 'mine')
+  fs.mkdirSync(path.join(live, 'data'), { recursive: true })
+  fs.mkdirSync(mine, { recursive: true })
+  fs.symlinkSync(live, link, 'junction')
+  const saved = { ...process.env }
+  try {
+    process.env.RIG_PROTECTED_ROOTS = JSON.stringify([live])
+    const isolated = await import('../lib.mjs?real-path-guard')
+    assert.deepEqual(isolated.liveRoots(), [live])
+    assert.throws(() => isolated.assertSafeRoot(link), overlap, 'the junction itself')
+    assert.throws(() => isolated.assertSafeRoot(path.join(link, 'data', 'rig-home')), overlap, 'a home below it')
+    assert.throws(() => isolated.assertSafeRoot(path.join(link, 'not', 'made', 'yet')), overlap, 'a home that does not exist yet')
+    assert.doesNotThrow(() => isolated.assertSafeRoot(path.join(mine, 'rig-home')), 'an ordinary home beside it')
+  } finally {
+    restoreEnvironment(saved)
+    fs.rmdirSync(link)
+    fs.rmSync(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 })
+  }
+})
+
 test('a caller cannot mutate the live-root snapshot through the returned array', windows, () => {
   const roots = liveRoots()
   roots.length = 0
