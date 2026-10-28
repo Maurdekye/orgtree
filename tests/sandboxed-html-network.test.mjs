@@ -207,6 +207,67 @@ test('a seal step waits for every update it started, so a slow one cannot land a
   forgetSealedSession(window); forgetSealedSession(viewer)
 })
 
+// Review of 7cf4a3e (F1): a failed session was shut only once every other
+// session's update had settled, so a slow or hung update elsewhere left it
+// running with its old direct port. Each session is shut from its own
+// failure; the next seal still waits for every update.
+test('a session whose update fails is shut at once, while another update is still held', async () => {
+  const log = [], window = scripted('window', log), viewer = scripted('viewer', log)
+  try {
+    await sealSessionNetwork(window, A, () => log.push('window shut'))
+    await sealSessionNetwork(viewer, A, () => { log.push('viewer shut'); forgetSealedSession(viewer) })
+    // The engine is lost: the window session's update fails at once and the
+    // viewer's is held.
+    window.script.push('fail'); viewer.script.push('hold')
+    const lost = resealSandboxedSessions('')
+    lost.catch(() => {})
+    await until(() => log.includes('window shut'), 'the window session to be shut')
+    assert.equal(viewer.held.length, 1, "shut while the viewer's update is still held")
+    // The next seal still waits for the held update.
+    const back = resealSandboxedSessions(B)
+    await new Promise(resolve => setTimeout(resolve, 50))
+    assert.deepEqual(viewer.asked, [rulesFor(A), '<-loopback>'])
+    viewer.held.shift()(true)
+    await assert.rejects(lost, /window refused/)
+    await back
+    assert.equal(viewer.applied.at(-1), rulesFor(B))
+    assert.equal(await sandboxSealed(), true)
+  } finally {
+    while (viewer.held.length) viewer.held.shift()(true)
+    forgetSealedSession(window); forgetSealedSession(viewer)
+  }
+})
+
+// An update that never settles counts as failed once its deadline passes: its
+// session is shut, though the queue still waits for that update, and the
+// session is sealed for it if it lands at last.
+test('an update that does not settle in time counts as failed, and its session is shut', async t => {
+  const log = [], window = scripted('window', log)
+  await sealSessionNetwork(window, A, () => log.push('window shut'))
+  const flush = async () => { for (let i = 0; i < 20; i++) await new Promise(resolve => setImmediate(resolve)) }
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  try {
+    window.script.push('hold')
+    const lost = resealSandboxedSessions('')
+    lost.catch(() => {})
+    await flush()
+    assert.equal(window.held.length, 1)
+    t.mock.timers.tick(1000)
+    await flush()
+    assert.ok(!log.includes('window shut'), 'not shut before the deadline')
+    t.mock.timers.tick(10 * 60 * 1000)
+    await flush()
+    assert.ok(log.includes('window shut'), 'shut once the deadline has passed')
+    window.held.shift()(true)
+    await assert.rejects(lost, /not applied within/)
+    assert.equal(await sandboxSealed(), true)
+  } finally {
+    t.mock.timers.reset()
+    while (window.held.length) window.held.shift()(true)
+    forgetSealedSession(window)
+  }
+})
+
 test('the engine announces every change of its origin, a lost engine included', () => {
   const engine = new Engine(), seen = []
   engine.on('origin', origin => seen.push(origin))
