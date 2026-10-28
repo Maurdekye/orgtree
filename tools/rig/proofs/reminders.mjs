@@ -8,8 +8,9 @@
 //   Reminders: an idle owner hears about its actionable items only (blocked,
 //   backlogged, flagged and questioned items are left out); a reviewer about
 //   the item it reviews; an owner whose review has no reviewer, or a retired
-//   one, is told to name one; a deploy_ready item is owed by the owner's
-//   nearest live superior, and a top-level owner keeps it; a `working` agent
+//   one, is told to name one; a deploy_ready item is listed for nobody (it
+//   waits for the user's review or a release, user 2026-10-28), though its
+//   next_action still names the owner's nearest live superior; a `working` agent
 //   with actionable items gets the reminder that names them, not the generic
 //   checkup; an unread notice holds no wake back; one wake per agent; nothing
 //   for a halted agent or a non-working agent with no actionable items.
@@ -144,11 +145,11 @@ export default async function (rig) {
     one('alice').length === 1 && one('alice')[0].variant === 'reminder.idle_docket'
     && ['S', 'A1'].every(k => listed(one('alice')[0]).some(l => l.startsWith(`${k}:`)))
     && !['A2', 'A3', 'A4', 'A5', 'R1'].some(k => listed(one('alice')[0]).some(l => l.startsWith(`${k}:`))), listed(one('alice')[0]))
-  p.check('a deploy_ready item is owed by the owner\'s nearest live superior (alice, as deployer); its owner hank is not woken',
-    listed(one('alice')[0]).includes('D1:deploy_ready:deployer') && one('hank').length === 0,
+  p.check('a deploy_ready item is listed for nobody: not for its deployer alice, not for its owner hank (who is not woken)',
+    !listed(one('alice')[0]).some(l => l.startsWith('D1:')) && one('hank').length === 0,
   { alice: listed(one('alice')[0]), hank: summary(one('hank')) })
-  p.check('a top-level owner keeps its deploy_ready item; an unassigned review asks the owner to name a reviewer; an unread notice holds no wake back (boss)',
-    one('boss').length === 1 && same(listed(one('boss')[0]), ['D2:deploy_ready:owner', 'R2:review:unassigned_review']),
+  p.check('a top-level owner is not reminded of its deploy_ready item; an unassigned review asks the owner to name a reviewer; an unread notice holds no wake back (boss)',
+    one('boss').length === 1 && same(listed(one('boss')[0]), ['R2:review:unassigned_review']),
   { boss: summary(one('boss')), bossNotices })
   p.check('the reviewer hears about the item in review; a review whose reviewer retired goes back to its owner (carol)',
     one('carol').length === 1 && same(listed(one('carol')[0]), ['R1:review:reviewer', 'R3:review:stale_reviewer']), summary(one('carol')))
@@ -163,8 +164,8 @@ export default async function (rig) {
     ['erin', 'dave', 'idle-seat', 'done-seat', 'blocked-seat'].every(n => one(n).length === 0)
       && Object.keys(summary(wave)).every(n => ['alice', 'boss', 'carol', 'bob', 'frank', 'gina'].includes(n)), summary(wave))
   const seen = prompt('alice', t0)
-  p.check('alice\'s turn reads the reminder with the deployer line',
-    /\[AUTOMATIC IDLE DOCKET REMINDER\]/.test(seen) && seen.includes(`- ${slug.D1} (deploy_ready — awaiting YOUR authorized deployment/publication action): ${TITLES.D1}`),
+  p.check('alice\'s turn reads a reminder that does not list the deploy_ready item and says why it is left out',
+    /\[AUTOMATIC IDLE DOCKET REMINDER\]/.test(seen) && !seen.includes(`- ${slug.D1} (`) && seen.includes('deploy_ready (built, waiting for the user'),
     seen.split('\n').filter(l => /REMINDER|deploy_ready/.test(l)).slice(0, 6))
   const read = wave.filter(r => r.variant === 'reminder.idle_docket').map(r => {
     const text = prompt(r.name, t0)
@@ -176,7 +177,7 @@ export default async function (rig) {
   const na = {}
   for (const k of ['S', 'R1', 'R2', 'R3', 'D1', 'D2']) na[k] = await next(k)
   const naIs = (k, node, role) => na[k]?.node === node && na[k]?.role === role
-  p.check('each item\'s next_action names the same agent and role as the reminder',
+  p.check('each item\'s next_action names the same agent and role as the reminder, except that the skipped deploy_ready items still name their deployer',
     naIs('S', 'alice', 'owner') && naIs('R1', 'carol', 'reviewer') && naIs('R2', 'boss', 'unassigned_review')
     && naIs('R3', 'carol', 'stale_reviewer') && naIs('D1', 'alice', 'deployer') && naIs('D2', 'boss', 'owner'), na)
 
