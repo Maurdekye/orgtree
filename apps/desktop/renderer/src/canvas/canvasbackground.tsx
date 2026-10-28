@@ -368,6 +368,10 @@ export function AsciiLayer({ view, viewRef, hidden, intensity, pin, onReady }: {
     // under it: screen = k * (drawn screen point) + (v.x - k * drawn.x) with k = v.z / drawn.z, so the cards and the
     // background move together in every displayed frame. No transform when the two cameras are the same.
     let drawnView: View | null = null
+    let drawnLayout: AsciiLayout | null = null // the layout of that draw (lastLayout is null while there is no grid)
+    // The grid fell under its minimum (zoomed so far in that too few cells fit): the layer is faded out, not display:none, so
+    // passing the threshold is a 250 ms fade in either direction rather than a pop, and the stale frame still tracks the camera.
+    let gridFaded = false
     const trackCamera = (): void => {
       if (!renderer || !drawnView || !(drawnView.z > 0)) return
       const v = committed.current
@@ -377,7 +381,7 @@ export function AsciiLayer({ view, viewRef, hidden, intensity, pin, onReady }: {
         if (c.style.transform) c.style.transform = ''
         return
       }
-      const left = lastLayout?.cssLeft ?? 0, top = lastLayout?.cssTop ?? 0
+      const left = drawnLayout?.cssLeft ?? 0, top = drawnLayout?.cssTop ?? 0
       c.style.transformOrigin = '0 0'
       c.style.transform = `translate(${(k - 1) * left + v.x - k * drawnView.x}px, ${(k - 1) * top + v.y - k * drawnView.y}px) scale(${k})`
     }
@@ -387,7 +391,15 @@ export function AsciiLayer({ view, viewRef, hidden, intensity, pin, onReady }: {
       const lay = computeLayout()
       lastLayout = lay
       gridOk = lay !== null
-      if (!lay) { setState('unseen'); renderer.canvas.style.display = 'none'; return false }
+      if (!lay) {
+        setState('unseen')
+        if (shown && !gridFaded) {
+          gridFaded = true
+          renderer.canvas.style.transition = 'opacity 250ms'
+          renderer.canvas.style.opacity = '0'
+        }
+        return false
+      }
       renderer.canvas.style.display = ''
       const sig = `${lay.grid.columns},${lay.grid.rows},${lay.grid.cellWidth},${lay.grid.scale},${lay.cellOriginX},${lay.cellOriginY},${lay.cellWorldW}`
       if (sig !== layoutSig) {
@@ -408,7 +420,13 @@ export function AsciiLayer({ view, viewRef, hidden, intensity, pin, onReady }: {
         calmCy: (cfg.card.centerY * host.clientHeight - v.y) / z,
       })
       drawnView = { x: v.x, y: v.y, z: v.z }
+      drawnLayout = lay
       trackCamera()
+      if (gridFaded && shown) {
+        gridFaded = false
+        renderer.canvas.style.transition = 'opacity 250ms'
+        renderer.canvas.style.opacity = `${canvasOpacity()}`
+      }
       if (!shown) {
         shown = true
         renderer.canvas.style.transition = firstShow ? 'opacity 3000ms' : 'opacity 600ms'

@@ -715,6 +715,7 @@
         "renderer::apps/desktop/renderer/tests/canvasbg.test.tsx::Claude Waves at z <= 1 is unchanged by the zoom-in lattice: the cell stays on screen, the lattice follows 1/z (dpr 2)",
         "renderer::apps/desktop/renderer/tests/canvasbg.test.tsx::Claude Waves bounds high-DPI zoom-out cost, degrades cleanly under outside load without leaving a frozen frame, and recovers automatically from load and WebGL context loss",
         "renderer::apps/desktop/renderer/tests/canvasbg.test.tsx::Claude Waves cursor disturbance (wakes and tap ripples) and floor backdrops align with the cursor at minimum zoom (z=0.24) and one step in (z=0.35)",
+        "renderer::apps/desktop/renderer/tests/canvasbg.test.tsx::Claude Waves fades out at the grid minimum instead of vanishing, and fades back in when the grid returns",
         "renderer::apps/desktop/renderer/tests/canvasbg.test.tsx::Claude Waves follows the committed camera between its own redraws and leaves nothing behind once the next draw lands",
         "renderer::apps/desktop/renderer/tests/canvasbg.test.tsx::Claude Waves is the last background option and Checkerboard is kept beside the tile presets",
         "renderer::apps/desktop/renderer/tests/canvasbg.test.tsx::Claude Waves rasterises the cell at the nearest integer and scales the bitmap by at most 7% (dpr 1)",
