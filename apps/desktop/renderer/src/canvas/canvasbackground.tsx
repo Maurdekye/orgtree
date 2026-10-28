@@ -36,7 +36,7 @@ import { useCanvasBackground } from '../canvasbgpref'
 import { DEFAULT_CANVAS_INTENSITIES } from '../../../../../packages/contracts/canvas-background'
 import type { CanvasBackgroundTheme } from '../../../../../packages/contracts/canvas-background'
 import type { View } from './shared'
-import { ASCII_CONFIG, createTouch, gridFor, pickLook, smooth01, visitFromSeed } from './asciifield'
+import { ASCII_CONFIG, createTouch, pickLook, smooth01, visitFromSeed, zoomGridFor } from './asciifield'
 import type { AsciiTouchFrame, AsciiVisit, GlyphPoolKey } from './asciifield'
 import { createAsciiRenderer } from './asciigl'
 import type { AsciiLayout, AsciiRenderer } from './asciigl'
@@ -327,19 +327,20 @@ export function AsciiLayer({ view, viewRef, hidden, intensity, pin, onReady }: {
       const wCss = host.clientWidth, hCss = host.clientHeight
       if (!(wCss > 0 && hCss > 0)) return null
       const v = viewRef.current
-      // Bound zoom-out glyph density and device-pixel scale via gridScale >= dpr
-      // so rapid drag + zoom-out never explodes fragment count, shrinks glyph
-      // cells into faint sub-pixel dust, or reallocates the WebGL backbuffer/atlas
-      // on zoom steps below z = 1, while world-space sampling and pointer mapping
-      // use the true camera zoom z at every zoom level (including minimum zoom 0.24).
+      // Below z = 1 the cell stays the z = 1 size on screen so rapid drag + zoom-out never
+      // explodes fragment count, shrinks glyph cells into faint sub-pixel dust, or reallocates
+      // the WebGL backbuffer/atlas; above z = 1 it is drawn at the continuous size n0 * z on one
+      // world lattice and only RASTERISED at an integer size (zoomGridFor), so zooming in never
+      // re-samples the field at a glyph-size step. World-space sampling and pointer mapping use
+      // the true camera zoom z at every level (including minimum zoom 0.24).
       const z = asciiZoom(v.z)
       const dpr = Math.min(2, Math.max(1, win.devicePixelRatio || 1))
-      const gridScale = Math.max(1, z) * dpr
-      const grid = gridFor(Math.round(wCss * dpr), Math.round(hCss * dpr), gridScale)
-      if (!grid) return null
+      const zg = zoomGridFor(Math.round(wCss * dpr), Math.round(hCss * dpr), dpr, z)
+      if (!zg) return null
+      const grid = zg.grid
       const worldScale = z * dpr
-      const cellWorldW = grid.cellWidth / worldScale
-      const cellWorldH = grid.cellHeight / worldScale
+      const cellWorldW = zg.drawnCell / worldScale
+      const cellWorldH = 2 * cellWorldW
       const worldLeft = -v.x / z, worldTop = -v.y / z
       const i0 = Math.floor(worldLeft / cellWorldW), j0 = Math.floor(worldTop / cellWorldH)
       const originX = i0 * cellWorldW, originY = j0 * cellWorldH

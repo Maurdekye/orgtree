@@ -157,6 +157,46 @@ export function gridFor(deviceWidth: number, deviceHeight: number, devicePixelRa
   }
 }
 
+export interface AsciiZoomGrid {
+  grid: AsciiGrid
+  /** device px of one cell as DRAWN on screen (continuous in the zoom); `grid.cellWidth` is the integer size it is RASTERISED at */
+  drawnCell: number
+}
+
+/** Grid for a camera zoom `zoom` (> 0).
+ *  - zoom <= 1: exactly `gridFor(w, h, dpr)`, the cell stays n0 device px on screen and the sampling lattice follows 1/zoom.
+ *  - zoom > 1: the cell is DRAWN at the continuous size n0 * zoom, so the glyph field is sampled on ONE world lattice
+ *    (n0 / dpr world units per cell, the z = 1 lattice) and zooming scales it like a floor instead of re-sampling it at every
+ *    integer glyph size (the pops measured 2026-10-29). It is RASTERISED at the nearest integer size n = round(n0 * zoom); the
+ *    canvas scales that bitmap by drawn / n (<= 1.07, exactly 1 at zoom = 1). One extra column and row cover the viewport from a
+ *    lattice-aligned corner. null as `gridFor` is: too small a pane, or too few cells (cells that big hide the layer). */
+export function zoomGridFor(deviceWidth: number, deviceHeight: number, devicePixelRatio: number, zoom: number): AsciiZoomGrid | null {
+  const base = gridFor(deviceWidth, deviceHeight, devicePixelRatio)
+  if (!base) return null
+  if (!(zoom > 1)) return { grid: base, drawnCell: base.cellWidth }
+  const { grid } = ASCII_CONFIG
+  const drawnCell = base.cellWidth * zoom
+  const cellWidth = Math.max(5, Math.round(drawnCell))
+  const cellHeight = cellWidth * 2
+  const needColumns = Math.ceil(deviceWidth / drawnCell), needRows = Math.ceil(deviceHeight / (2 * drawnCell))
+  if (needColumns < grid.minCols || needRows < grid.minRows) return null
+  let columns = needColumns + 1, rows = needRows + 1
+  const over = (columns * cellWidth * rows * cellHeight) / grid.maxDevicePixels
+  if (over > 1) {
+    columns = Math.floor(columns / Math.sqrt(over))
+    rows = Math.floor(rows / Math.sqrt(over))
+  }
+  return {
+    grid: {
+      cellWidth, cellHeight, columns, rows,
+      left: Math.round((deviceWidth - columns * cellWidth) / 2),
+      top: Math.round((deviceHeight - rows * cellHeight) / 2),
+      scale: devicePixelRatio * zoom,
+    },
+    drawnCell,
+  }
+}
+
 /* ── touch: pointer wakes and tap ripples ────────────────────────────────
  * All coordinates are in the field's own units (CSS px in the reference;
  * world units in Orgtree — the layer converts at record time). */
