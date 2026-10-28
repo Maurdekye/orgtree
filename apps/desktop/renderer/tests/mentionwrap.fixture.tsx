@@ -40,19 +40,19 @@ export function WrapSettings({ close = () => {} }: { close?: () => void }) {
 }
 
 /** Entirely synthetic settings and app-feed transport, used by unit and pixels. */
-export function installWrapBackend() {
+export function installWrapBackend(epoch = 'wrap') {
   const sockets: Socket[] = [], writes: unknown[] = []
   let seq = 1, enabled: boolean | undefined
-  const values = () => enabled === undefined ? {} : { wrap_object_mentions: { epoch: 'wrap', seq, value: enabled } }
-  const snapshot = () => ({ type: 'app_snapshot', epoch: 'wrap', seq,
-    registry: { type: 'registry_snapshot', epoch: 'wrap', cursor: { app_uuid: 'wrap', incarnation: 'fixture', rev: 1 }, records: [] },
+  const values = () => enabled === undefined ? {} : { wrap_object_mentions: { epoch, seq, value: enabled } }
+  const snapshot = () => ({ type: 'app_snapshot', epoch, seq,
+    registry: { type: 'registry_snapshot', epoch, cursor: { app_uuid: 'wrap', incarnation: 'fixture', rev: 1 }, records: [] },
     summaries: {}, notices: {}, runtime: { values: values(), orgs: {} } })
   class Socket {
     onmessage: ((event: { data: string }) => void) | null = null
     constructor(_url: string) { sockets.push(this); queueMicrotask(() => this.onmessage?.({ data: JSON.stringify(snapshot()) })) }
     close() {}
   }
-  const emit = (value: boolean) => { enabled = value; seq++; for (const s of sockets) s.onmessage?.({ data: JSON.stringify({ type: 'app_runtime', epoch: 'wrap', seq, values: values() }) }) }
+  const emit = (value: boolean) => { enabled = value; seq++; for (const s of sockets) s.onmessage?.({ data: JSON.stringify({ type: 'app_runtime', epoch, seq, values: values() }) }) }
   const empty = { providers: [], accounts: [], rows: [], items: [], entries: [], details: [], dirs: [], templates: [], folders: [], charters: [], counts: {}, models: [], tiers: [], version: 2, primary: { id: 'primary', signed_in: false }, keys: [], assignments: {}, harnesses: [] }
   const fetcher: typeof fetch = async (input, init) => {
     const p = new URL(String(input), 'http://wrap-fixture.invalid').pathname
