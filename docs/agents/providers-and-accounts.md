@@ -11,6 +11,22 @@ at most five attempts, then the failure is reported once. Claude, gateways and M
 [decided: user 2026-10-28 10:07:18Z mb1ca1568502c; verified: `runtime/rate_limit.rs`,
 `runtime/actor.rs`; contract: `docs/rust-engine/rate-limit-retry.md`]
 
+## Gemini Carbon's colour is a light charcoal grey (2026-10-28, 4.5.1)
+
+Replaces the chartreuse `#c6ff00` that the "Conditional Gemini tiers" entry below still names for
+Carbon (that text is a preserved record; this section is current). The user asked for "a light
+charcoal grey" (m09d1c2c45be4): `--tier-carbon` is `#6d7e8c`, Lab L* 52, chroma 10, a cool slate tilt
+like charcoal itself. It sits in the one lightness gap of the grey band, between `--tether-edge`
+(L* 38) and `--dim` (L* 65), and is the grey that keeps the most distance: dE >= 16.3 from every
+tier colour, provider accent and dark-theme neutral (nearest `--dim`), colour-blind >= 14.9. It is
+under the 4.5:1 text floor on charcoal (3.66:1 on `--panel`, 3.11:1 on the badge fill; pro is 2.51
+and 2.14) because no grey that far from `--dim` reaches it, so the C letter carries identity; the
+light themes' `--dim` text is dE 11.5-12.1 away. Model id, seat, effort and offer logic are unchanged
+and wait for real access. `tests/carbon.test.tsx` section 4b measures the colour from `styles.css`;
+`tests/carbon.capture.cjs` reads the painted colours in four themes (Session 0); the sweep and the
+numbers are in the note above `--tier-carbon`. [decided: user 2026-10-28 m09d1c2c45be4; verified:
+`styles.css`, `tests/carbon.test.tsx`, `tests/carbon.capture.cjs`]
+
 ## Legacy mark in the canvas hire menus (2026-10-26)
 
 With "Show legacy models" on, the canvas agent menu's "Hire a subordinate" and
