@@ -4,10 +4,25 @@ import path from 'node:path'
 import assert from 'node:assert/strict'
 import {spawnSync} from 'node:child_process'
 import {Proof} from '../proof.mjs'
+import {rigHome} from '../lib.mjs'
 
-const fixtureDir=path.join(process.env.ORGTREE_RIG_HOME,'files-fixture')
-const video=path.join(fixtureDir,'synthetic-blue.mp4')
+// setup() writes, and overwrites, the fixture before up() checks the rig home,
+// so it takes the home through the rig's own guard first (never inside live
+// Orgtree data, the repository or a drive root) and never writes through a
+// link (4.5.0 high E17; tools/rig/tests/app-files-guard.test.mjs).
+let paths
+function fixture(){
+  if(paths)return paths
+  const dir=path.join(rigHome(),'files-fixture'),video=path.join(dir,'synthetic-blue.mp4')
+  for(const p of [dir,video]){
+    let stat=null
+    try{stat=fs.lstatSync(p)}catch{}
+    if(stat?.isSymbolicLink())throw Error(`refusing ${p}: the files-fixture path is a link`)
+  }
+  return paths={dir,video}
+}
 export function setup(){
+  const {dir:fixtureDir,video}=fixture()
   fs.mkdirSync(fixtureDir,{recursive:true})
   const encoded=spawnSync('C:/ffmpeg/bin/ffmpeg.exe',['-hide_banner','-loglevel','error','-y','-f','lavfi','-i','color=c=blue:s=160x90:r=10','-t','2','-c:v','libx264','-threads','1','-pix_fmt','yuv420p','-movflags','+faststart',video],{encoding:'utf8',windowsHide:true,timeout:20000})
   assert.equal(encoded.status,0,encoded.stderr)
@@ -21,6 +36,7 @@ export function setup(){
   ]}}
 }
 export default async function(rig){
+  const {dir:fixtureDir,video}=fixture()
   const p=new Proof('app-files'),root='/api/orgs/'+rig.org
   // Native hire's scope shape is distinct from the agent tool's add_dirs.
   // Establish the intended RO grant through the canonical native scope routes,
