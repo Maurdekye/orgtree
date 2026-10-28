@@ -35,7 +35,7 @@ needed by the current active work page.
 A page does not cap the agents or tickets that can receive reminders. A docket
 reminder still displays at most 20 tickets and the omitted count. The optional
 all-blocked reminder checks the entire unfinished, unarchived, non-backlogged
-work set; a later unblocked ticket prevents that fallback. These reminders are
+work set; a later unblocked ticket (a deploy-ready one included) prevents that fallback. These reminders are
 eligibility-based nudges, rather than exact wall-clock alarms.
 
 ## Stop work at the intended scope

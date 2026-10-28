@@ -103,7 +103,7 @@ Readings separated by 30 minutes or more connect as a step: the earlier value st
 | Most agent turns running at once | Engine default 16; UI range 1–512. Lower for machine pressure. Raising it does not add credits or provider capacity. |
 | Keep agent processes warm | On. Keeps eligible idle harnesses ready, within memory and parked-process limits. Off cools idle processes without interrupting active turns. |
 | Check on working agents after 20 minutes | On. Eligibility-based checkups for inactive working agents and agents still holding project mail/slot leases, not an exact alarm. |
-| Remind idle agents about unfinished docket items | On. Wakes for actionable owed work. |
+| Remind idle agents about unfinished docket items | On. Wakes for actionable owed work, not for blocked or deploy-ready items, which wait for an input or for your review or a release. |
 | Also remind when every ticket is blocked | Off. Adds blocked reminders under that condition; it does not detect an external dependency becoming ready. |
 | Wake an agent to listen for project mail | On. If a project receives mail without a queue listener, asks a direct member to arm one. Off leaves mail waiting. |
 | Wait until the MCP tool surface is ready | Off. Enables a supported startup readiness wait; it does not install/authenticate/grant a server. |

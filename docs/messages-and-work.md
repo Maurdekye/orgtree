@@ -54,7 +54,7 @@ hire and other operation notices keep their event cards but do not replace
 your message in this preview. A history containing only those notices has no
 **↑ you** preview.
 
-An idle docket reminder can contain interactive ticket cards, each linking its ticket the same way chat does. Open them to inspect the actual scope and status; their reference menus use the same message-box routing as other tickets. A reminder is a nudge about unfinished work, not evidence that the item was assigned again or completed.
+An idle docket reminder can contain interactive ticket cards, each linking its ticket the same way chat does. Open them to inspect the actual scope and status; their reference menus use the same message-box routing as other tickets. A reminder is a nudge about unfinished work, not evidence that the item was assigned again or completed. It never lists blocked items or deploy-ready ones, which are waiting for an input or for your review or a release.
 
 Older transcript pages load as you scroll back. An error offers Retry; it is not proof that history ends there. Thoughts can contain supplied text, a measured duration, or a sealed/unsupported display. Missing text does not establish that the model did no reasoning.
 

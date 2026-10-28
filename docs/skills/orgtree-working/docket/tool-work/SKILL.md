@@ -98,7 +98,7 @@ Refusals point at the fix: a slug that names no item suggests the nearest live (
 | `blocked` | Requires what prevents progress, what unblocks it, who can act and how you hear of it. Stays active; idle docket reminders do not nudge it. Arrange a real message/watcher. |
 | `review` | Agent review, name reviewer; owner retains the item. This is not a question to the user. |
 | `approved` | Agent approval, not proof of landing. |
-| `deploy_ready` | Complete, awaiting deployment; no implied deployment permission. |
+| `deploy_ready` | Complete, awaiting deployment or the user's review; no implied deployment permission. Stays active; idle docket reminders do not nudge it, as they do not nudge blocked work. |
 | `done` | Objective actually complete; owner/participant can complete directly without a mandatory superior check. |
 | `dropped` | Cancelled or irrecoverably failed; reason says which, who decided, what would justify resuming. Never success. |
 | `superseded` | Replacement relationship established only by supersede action with by, not status on update. |

@@ -431,6 +431,8 @@ Original section: AGENTS.md — working on Orgtree. Source lines 1929–1936.
   [decided: user 2026-10-16; verified: `engine/rs/orgtree-engine/src/runtime/reminders.rs`]
 <!-- /preserved:e-191b70a4cdba3784 -->
 
+The idle docket reminder also skips `deploy_ready` items, as it skips `blocked` ones: they are built and waiting for the user's review or a release, so they are not idle work (`Sweep::add` in `runtime/reminders/pages.rs`; the explanatory line in `runtime/event_text.rs` says so; the all-blocked fallback is unchanged and a deploy_ready item still counts as unblocked for it). `next_action` still names the deployer. [decided: user 2026-10-28 me4a6e308fa13 "make deploy ready tickets skip the reminder like blocked tickets do"; verified: `runtime/reminders/pages.rs`, `runtime/event_text.rs`]
+
 <a id="e-0f41db9a3158601f"></a>
 
 ## Presentations and docket panels share panel-level Alt+Up/Down navigation

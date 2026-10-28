@@ -8,7 +8,7 @@ Up: [orgtree-docket](../SKILL.md)
 
 Use the meanings and allowed transitions in [work's status reference](../tool-work/SKILL.md#statuses), not a ritual pipeline. Backlogged is for work not yet approached/approved, open for accepted work available to start, and in_progress for work under way. Do not move already authorized work into backlog to reduce its visible active count.
 
-Blocked means a concrete input or event prevents progress. State what would unblock it, who can act and how you will hear. Arrange that notification: changing the status does not create a watcher. Review is an agent's check, approved records that outcome, and deploy_ready separates completed preparation from an authorized deployment. See [review and attention](../docket-review-and-attention/SKILL.md) before involving the user.
+Blocked means a concrete input or event prevents progress. State what would unblock it, who can act and how you will hear. Arrange that notification: changing the status does not create a watcher. Review is an agent's check, approved records that outcome, and deploy_ready separates completed preparation from an authorized deployment; idle docket reminders skip both blocked and deploy_ready items. See [review and attention](../docket-review-and-attention/SKILL.md) before involving the user.
 
 Done requires the actual objective to be complete. Dropped records cancellation or an unrecoverable failure and why it could become worth resuming; it is a terminal non-success. Superseded points to open replacement work through the supersede action. Do not call unfinished or cancelled work done simply because an agent is stopping.
 
