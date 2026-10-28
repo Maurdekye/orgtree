@@ -223,10 +223,16 @@ const css = () => readFileSync(path.join(__SRC_DIR__, 'styles.css'), 'utf8')
 function paintedCarbon(sheet = css()): string {
   const m = sheet.match(/--tier-carbon:\s*(#[0-9a-f]{6})\s*;/i)
   assert.ok(m, 'no --tier-carbon hex in styles.css')
-  return m![1].toLowerCase()
+  return m![1]!.toLowerCase()
 }
 
 type Rgb = [number, number, number]
+/** a hex the stylesheet must declare in this theme block (a missing one fails here, not as `undefined` later) */
+function need(theme: Record<string, string>, key: string): string {
+  const v = theme[key]
+  assert.ok(v, `no ${key} in the theme block`)
+  return v
+}
 const rgbOf = (h: string): Rgb => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16) / 255) as Rgb
 const toLin = (c: Rgb): Rgb => c.map((v) => (v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4)) as Rgb
 const fromLin = (c: Rgb): Rgb => c.map((v) => {
@@ -246,20 +252,21 @@ const dE = (a: Rgb, b: Rgb) => {
   return Math.hypot(l1 - l2, a1 - a2, b1 - b2)
 }
 // Machado 2009, severity 1, in linear sRGB
-const CVD: Record<string, number[][]> = {
+type Cvd = 'deuteranopia' | 'protanopia'
+const CVD: Record<Cvd, [Rgb, Rgb, Rgb]> = {
   deuteranopia: [[0.367322, 0.860646, -0.227968], [0.280085, 0.672501, 0.047413], [-0.011820, 0.042940, 0.968881]],
   protanopia: [[0.152286, 1.052583, -0.204868], [0.114503, 0.786281, 0.099216], [-0.003882, -0.048116, 1.051998]],
 }
-const simulate = (c: Rgb, kind: string): Rgb => {
+const simulate = (c: Rgb, kind: Cvd): Rgb => {
   const l = toLin(c), m = CVD[kind]
   return fromLin(m.map((row) => row[0] * l[0] + row[1] * l[1] + row[2] * l[2]) as Rgb)
 }
 const luminance = (c: Rgb) => { const [r, g, b] = toLin(c); return 0.2126 * r + 0.7152 * g + 0.0722 * b }
 const contrastOf = (a: Rgb, b: Rgb) => {
-  const [hi, lo] = [luminance(a), luminance(b)].sort((x, y) => y - x)
-  return (hi + 0.05) / (lo + 0.05)
+  const la = luminance(a), lb = luminance(b)
+  return (Math.max(la, lb) + 0.05) / (Math.min(la, lb) + 0.05)
 }
-const mix = (a: Rgb, b: Rgb, pa: number): Rgb => a.map((v, i) => pa * v + (1 - pa) * b[i]) as Rgb
+const mix = (a: Rgb, b: Rgb, pa: number): Rgb => a.map((v, i) => pa * v + (1 - pa) * b[i]!) as Rgb
 
 /** the hex declarations of the first rule that opens with `selector {` */
 function declarations(sheet: string, selector: string): Record<string, string> {
@@ -267,7 +274,7 @@ function declarations(sheet: string, selector: string): Record<string, string> {
   assert.ok(at >= 0, `no "${selector} {" rule`)
   const body = sheet.slice(at + selector.length + 2, sheet.indexOf('}', at))
   const out: Record<string, string> = {}
-  for (const m of body.matchAll(/(--[a-z0-9-]+):\s*(#[0-9a-f]{6})\s*;/gi)) out[m[1]] = m[2]
+  for (const m of body.matchAll(/(--[a-z0-9-]+):\s*(#[0-9a-f]{6})\s*;/gi)) out[m[1]!] = m[2]!
   return out
 }
 
@@ -298,7 +305,7 @@ test('§4b Carbon stays clear of every other model colour and the dark neutrals'
   const carbon = rgbOf(paintedCarbon(sheet))
   const others: Record<string, string> = {}
   for (const m of sheet.matchAll(/--tier-([a-z-]+):\s*(#[0-9a-f]{6})\b/gi)) {
-    if (m[1] !== 'carbon') others['tier ' + m[1]] = m[2]
+    if (m[1] !== 'carbon') others['tier ' + m[1]] = m[2]!
   }
   // provider accents and the ice/teal blues, every hex definition. The light themes redefine some
   // (--ice #326b82, --prov-google #0045c7): those never share a surface with the dark set, so they
@@ -310,7 +317,7 @@ test('§4b Carbon stays clear of every other model colour and the dark neutrals'
     for (const m of all) {
       const open = sheet.lastIndexOf('{', m.index!)
       const selector = sheet.slice(sheet.lastIndexOf('}', open) + 1, open).replace(/\/\*[\s\S]*?\*\//g, '')
-      ;(/contrast-(light|solarized-light)/.test(selector) ? lightOthers : others)[`accent ${k} ${m[1]}`] = m[1]
+      ;(/contrast-(light|solarized-light)/.test(selector) ? lightOthers : others)[`accent ${k} ${m[1]}`] = m[1]!
     }
   }
   assert.ok(Object.keys(lightOthers).length >= 1, 'the light-theme accents did not parse')
@@ -322,14 +329,15 @@ test('§4b Carbon stays clear of every other model colour and the dark neutrals'
     if (/^--(bg|side|panel|panel-2|input|ink|ink-strong|dim|line|line-soft)$/.test(k)) others['obsidian ' + k] = v
   }
   assert.ok(Object.keys(others).filter((k) => k.startsWith('charcoal ')).length >= 12, 'the charcoal neutrals did not parse')
+  const KINDS = ['normal', 'deuteranopia', 'protanopia'] as const
   const worstOf = (set: Record<string, string>) => {
-    const worst: Record<string, [number, string]> = { normal: [Infinity, ''], deuteranopia: [Infinity, ''], protanopia: [Infinity, ''] }
+    const worst: Record<(typeof KINDS)[number], [number, string]> = { normal: [Infinity, ''], deuteranopia: [Infinity, ''], protanopia: [Infinity, ''] }
     for (const [name, hex] of Object.entries(set)) {
       const o = rgbOf(hex)
-      const d: Record<string, number> = { normal: dE(carbon, o),
+      const d: Record<(typeof KINDS)[number], number> = { normal: dE(carbon, o),
         deuteranopia: dE(simulate(carbon, 'deuteranopia'), simulate(o, 'deuteranopia')),
         protanopia: dE(simulate(carbon, 'protanopia'), simulate(o, 'protanopia')) }
-      for (const k of Object.keys(worst)) if (d[k] < worst[k][0]) worst[k] = [d[k], name]
+      for (const k of KINDS) if (d[k] < worst[k][0]) worst[k] = [d[k], name]
     }
     return worst
   }
@@ -354,16 +362,16 @@ test('§4b Carbon is legible on the surfaces it is drawn on, and its card edge s
   // the tier letter is drawn on --panel/--input (dark themes) and on a #313131
   // badge fill (light themes). 3:1 is the non-text floor; pro, the one existing
   // tier below it, is 2.5:1 on --panel and 2.1:1 on the badge fill.
-  for (const [name, bg] of [['charcoal --panel', dark['--panel']], ['charcoal --input', dark['--input']],
-    ['obsidian --panel', obsidian['--panel']], ['light badge fill', '#313131'],
-    ['light --panel', light['--panel']], ['solarized --panel', solar['--panel']]]) {
+  for (const [name, bg] of [['charcoal --panel', need(dark, '--panel')], ['charcoal --input', need(dark, '--input')],
+    ['obsidian --panel', need(obsidian, '--panel')], ['light badge fill', '#313131'],
+    ['light --panel', need(light, '--panel')], ['solarized --panel', need(solar, '--panel')]] as const) {
     const c = contrastOf(carbon, rgbOf(bg))
     assert.ok(c >= 3, `${paintedCarbon(sheet)} is ${c.toFixed(2)}:1 on ${name} ${bg}`)
   }
   // the 3px card top edge is color-mix(tier 55%, --line): it must differ from
   // a plain --line edge or the card reads untinted
   for (const [name, theme] of [['charcoal', dark], ['obsidian', obsidian], ['light', light], ['solarized', solar]] as const) {
-    const line = rgbOf(theme['--line'])
+    const line = rgbOf(need(theme, '--line'))
     const d = dE(mix(carbon, line, 0.55), line)
     assert.ok(d >= 15, `${name}: the Carbon card edge is ΔE ${d.toFixed(1)} from the plain --line`)
   }
