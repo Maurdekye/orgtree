@@ -2978,8 +2978,22 @@ button.cc-name:focus-visible {
   background: none; border: none; border-radius: 5px; padding: 5px 7px;
   color: var(--ink); font-size: 12.5px; cursor: pointer;
 }
-.ask-row:hover:not(:disabled) { background: var(--panel-2); }
+.ask-row:hover:not(:disabled):not([aria-disabled="true"]) { background: var(--panel-2); }
 .ask-row.on { background: var(--accent-soft); }
+/* An option row is a container around its pick button and its description
+   (asks.tsx OptionRow, 2026-10-28), drawn exactly as the single button it
+   replaced: the pick button is unstyled, and the busy fade and the keyboard
+   focus ring are the row's, as they were the button's. */
+.ask-row[aria-disabled="true"] { opacity: .45; cursor: default; }
+.ask-row-pick {
+  display: block; width: 100%; padding: 0; border: none; border-radius: 0;
+  background: none; color: inherit; font: inherit; text-align: left; cursor: inherit;
+}
+.ask-row-pick:hover, .ask-row-pick:disabled { background: none; opacity: 1; cursor: inherit; }
+.ask-row-pick:focus-visible { outline: none; }
+.ask-row:has(> .ask-row-body > .ask-row-pick:focus-visible) {
+  outline: 1px solid var(--button-accent); outline-offset: -1px;
+}
 .ask-dot {
   flex: none; width: 13px; height: 13px; margin-top: 2px;
   border: 1.5px solid var(--dim); border-radius: 50%;

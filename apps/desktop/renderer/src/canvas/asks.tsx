@@ -18,7 +18,7 @@
 // Both live in ../asksubmitted, and a failed submit brings the card back
 // with its error and the user's choices.
 
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useId, useRef, useState } from 'react'
 import type { KeyboardEvent } from 'react'
 import type { AskInfo, AskQuestion, AskTab, ToastFn, TreeNode, TreePayload } from '../types'
 import type { Section } from '../generated/events'
@@ -56,20 +56,38 @@ function QuestionBody({ text, base, refs }: { text: string; base: string; refs?:
     world={refs?.world} onOpen={refs?.onOpen} />
 }
 
-/** Option labels are inline by card design, but still use md() for parsing
- *  and sanitization (`inlineMd`), so the legacy bold label element stays valid
- *  and its row text/layout unchanged. They are short button text: they get no
- *  mention chips. A description is inline the same way and does get them;
- *  a chip's click opens its reference without picking the option, because
- *  the chip pass stops the click at the description. */
-function OptionText({ label, description, base, refs }: {
-  label: string; description?: string; base: string; refs?: AskRefs
+/** One option of a question.
+ *
+ *  The row used to be one button. The shared chip pass builds no control
+ *  inside a button ("a control inside a link is two destinations in one
+ *  target", refmd.tsx), so a description's mentions never became chips. The
+ *  row is now a container that still picks on any click; its real control is
+ *  the pick button holding the label, and the description sits beside that
+ *  button, where its chips are controls of their own. A chip's click stops at
+ *  the description, so it opens its reference without picking the option.
+ *
+ *  Labels are inline by card design but still use md() for parsing and
+ *  sanitization (`inlineMd`); they are short button text and get no chips.
+ *  styles.css keeps the row's look: the pick button is unstyled, and the
+ *  focus ring and the busy fade belong to the row, as they did. */
+function OptionRow({ label, description, on, multi, busy, onPick, base, refs }: {
+  label: string; description?: string; on: boolean; multi?: boolean; busy: boolean
+  onPick: () => void; base: string; refs?: AskRefs
 }) {
-  return <span className="ask-row-body">
-    <b className="ask-option-label" dangerouslySetInnerHTML={inlineMd(label, base)} />
-    {description && <RefMdBody el="span" className="dim ask-option-description"
-      html={inlineMd(description, base)} world={refs?.world} onOpen={refs?.onOpen} />}
-  </span>
+  const describedBy = useId()
+  return <div className={'ask-row' + (on ? ' on' : '')} aria-disabled={busy || undefined}
+    onClick={() => { if (!busy) onPick() }}>
+    <span className={'ask-dot' + (multi ? ' sqr' : '') + (on ? ' on' : '')} />
+    <span className="ask-row-body">
+      <button type="button" className="ask-row-pick" disabled={busy} aria-pressed={on}
+        aria-describedby={description ? describedBy : undefined}
+        onClick={(e) => { e.stopPropagation(); onPick() }}>
+        <b className="ask-option-label" dangerouslySetInnerHTML={inlineMd(label, base)} />
+      </button>
+      {description && <RefMdBody id={describedBy} el="span" className="dim ask-option-description"
+        html={inlineMd(description, base)} world={refs?.world} onOpen={refs?.onOpen} />}
+    </span>
+  </div>
 }
 
 /** ctrl+enter (⌘+enter on mac) — submits the card the user is working in.
@@ -340,14 +358,9 @@ function BatchAsk({ ask, slug, toast, seat, committed, maxTop, segments,
         <QuestionBody text={t.question ?? ''} base={fileBase(slug, ask.node)} refs={refs} />
         <div className="ask-rows">
           {opts.map((o) => (
-            <button key={o.label} type="button" disabled={busy}
-              className={'ask-row' + (d.q.sel.includes(o.label) ? ' on' : '')}
-              onClick={() => toggle(o.label)}>
-              <span className={'ask-dot' + (t.multi ? ' sqr' : '')
-                + (d.q.sel.includes(o.label) ? ' on' : '')} />
-              <OptionText label={o.label} description={o.description}
-                base={fileBase(slug, ask.node)} refs={refs} />
-            </button>
+            <OptionRow key={o.label} label={o.label} description={o.description}
+              on={d.q.sel.includes(o.label)} multi={t.multi} busy={busy}
+              onPick={() => toggle(o.label)} base={fileBase(slug, ask.node)} refs={refs} />
           ))}
           {opts.length ? <>
             {/* Option-bearing questions retain the optional free-text path. */}
@@ -669,14 +682,9 @@ function QuestionAsk({ ask, slug, toast, refs }: {
       <QuestionBody text={q.question} base={fileBase(slug, ask.node)} refs={refs} />
       <div className="ask-rows">
         {opts.map((o) => (
-          <button key={o.label} type="button" disabled={busy}
-            className={'ask-row' + (d.sel.includes(o.label) ? ' on' : '')}
-            onClick={() => toggle(o.label)}>
-            <span className={'ask-dot' + (q.multi ? ' sqr' : '')
-              + (d.sel.includes(o.label) ? ' on' : '')} />
-            <OptionText label={o.label} description={o.description}
-              base={fileBase(slug, ask.node)} refs={refs} />
-          </button>
+          <OptionRow key={o.label} label={o.label} description={o.description}
+            on={d.sel.includes(o.label)} multi={q.multi} busy={busy}
+            onPick={() => toggle(o.label)} base={fileBase(slug, ask.node)} refs={refs} />
         ))}
         {opts.length ? <>
           {/* Option-bearing questions retain the optional free-text path. */}

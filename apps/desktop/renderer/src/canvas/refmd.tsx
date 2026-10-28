@@ -627,11 +627,13 @@ export function useRefMd(world: RefWorld | null | undefined,
  *  `html` is what `md()` returned. It is passed in rather than produced here
  *  because the call sites already choose their own image base, and the base
  *  is per-author. */
-export function RefMdBody({ html, world, onOpen, className, el, mentions }: {
+export function RefMdBody({ html, world, onOpen, className, el, mentions, id }: {
   html: { __html: string }
   world?: RefWorld | null
   onOpen?: (r: ResolvedRef) => void
   className?: string
+  /** for a control the body describes (`aria-describedby`) */
+  id?: string
   /** bare docket names to mark as well as canonical tokens. Omitted by every
    *  surface but the docket's own description, which is where prose naming an
    *  item by its plain slug is the normal way to write. */
@@ -645,7 +647,7 @@ export function RefMdBody({ html, world, onOpen, className, el, mentions }: {
   const host = useRefMd(world, onOpen, mentions)
   const menu = useContextMenu()
   const Tag = (el ?? 'div') as 'div'
-  return <><Tag ref={host} className={className}
+  return <><Tag ref={host} id={id} className={className}
     onContextMenu={e => {
       const file = localFileLinkAt(e.target, e.currentTarget)
       if (file) menu.open(e, [], file)
