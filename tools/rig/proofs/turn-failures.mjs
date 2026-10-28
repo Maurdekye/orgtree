@@ -15,12 +15,19 @@
 //          the mail is delivered, so each turn is given only its own mail.
 //   rex:   a refused turn/start gives the mail back; it rides with the next
 //          turn.
+//   nia:   (Codex) "exceeded retry limit, last status: 429 Too Many Requests"
+//          (measured 2026-10-28 10:04Z) is a request-rate limit: a short retry
+//          freeze (about a minute, cause rate_limit, not a usage limit), woken by
+//          the engine's timer with the request given again; the run counter clears
+//          when the retried turn completes.
+//   una:   a 429 that says "usage limit" still freezes as a usage limit.
 // Run: node tools/rig/rig.mjs run tools/rig/proofs/turn-failures.mjs
 
 import { SEED_SETTLE_TIMEOUT } from '../seed-settle.mjs'
 import { Proof } from '../proof.mjs'
 
 const LIMIT = "You've hit your usage limit. Upgrade to Pro (https://chatgpt.com/explore/pro) or try again later."
+const RATE = 'exceeded retry limit, last status: 429 Too Many Requests'
 const limited = (match, resetAt) => ({ name: 'limited', match, once: true, steps: [
   { rate_limit: { primary: { usedPercent: 100, windowDurationMins: 300, resetsAt: resetAt },
                   secondary: { usedPercent: 40, windowDurationMins: 10080, resetsAt: resetAt + 86400 } } },
@@ -45,12 +52,18 @@ export default async function (rig) {
         { error: { message: 'unexpected status 401 Unauthorized: Missing bearer or basic authentication in header', codexErrorInfo: 'unauthorized' } },
       ] }] },
       rex: { turns: [{ name: 'refused', match: 'PROOF-REFUSE', once: true, steps: [{ start_error: 'the server could not start the turn' }] }] },
+      nia: { turns: [{ name: 'rate', match: 'PROOF-429', once: true, steps: [
+        { error: { message: RATE, codexErrorInfo: { responseTooManyFailedAttempts: { httpStatusCode: 429 } } } },
+      ] }] },
+      una: { turns: [{ name: 'wall', match: 'PROOF-WALL', once: true, steps: [
+        { error: { message: 'unexpected status 429 Too Many Requests: ' + LIMIT } },
+      ] }] },
     },
     default: { turns: [{ name: 'default', steps: [{ text: 'OK.' }] }] },
   })
   rig.scenario(scenario(Math.floor(Date.now() / 1000) + 7200))
   await rig.waitFor(() => rig.sql(`SELECT 1 FROM ot.turns WHERE ended_at IS NULL`).length === 0, { what: 'seed turns to settle', timeout: SEED_SETTLE_TIMEOUT })
-  for (const name of ['kim', 'hana', 'ivy', 'lee', 'quinn', 'rex']) await rig.op({ op: 'hire', name, parent: 'boss', tier: 'luna', title: 'Codex rig agent' })
+  for (const name of ['kim', 'hana', 'ivy', 'lee', 'quinn', 'rex', 'nia', 'una']) await rig.op({ op: 'hire', name, parent: 'boss', tier: 'luna', title: 'Codex rig agent' })
   const log = (agent, kind) => rig.fakeLog(agent).filter(l => !kind || l.kind === kind)
   const boss = rig.agentRow('boss').id
   const reports = who => rig.sql(`SELECT body FROM ot.mail WHERE recipient_agent_id = ${boss} AND sender = '@system'
@@ -65,6 +78,21 @@ export default async function (rig) {
   const kept = (kf.resume_texts ?? []).join('\n')
   p.check('kim: the freeze keeps the request it stopped (its mail, not the old notices)', /PROOF-SOON: please do the soon thing/.test(kept)
     && !/ORG NOTICES/.test(kept), { resume_texts: (kf.resume_texts ?? []).map(t => t.slice(0, 160)) })
+
+  // ---------------------------------------------------------------- nia: a request-rate 429 is a short retry
+  await rig.userMail('nia', 'PROOF-429: please do the rate thing.')
+  const nf = await rig.waitFor(() => rig.agentRow('nia')?.frozen, { what: 'nia to be frozen' })
+  const niaWait = Date.parse(nf.until) / 1000 - Date.now() / 1000
+  p.check('nia: frozen as a short rate-limit retry, not a usage limit', nf.cause === 'rate_limit' && nf.connection === true && nf.limit === false
+    && niaWait > 40 && niaWait < 80 && !/usage/i.test(nf.label ?? ''), { cause: nf.cause, connection: nf.connection, limit: nf.limit, label: nf.label, wait_s: Math.round(niaWait) })
+  p.check('nia: the freeze keeps the request, says it was the request rate and counts the attempt',
+    (nf.resume_texts ?? []).join('\n').includes('PROOF-429: please do the rate thing') && /not your usage limit/.test(nf.wake_text ?? '')
+    && rig.agentRow('nia').extra?.rate_limit_run === 1, { wake_text: String(nf.wake_text).slice(0, 120), extra: rig.agentRow('nia').extra })
+
+  // ---------------------------------------------------------------- una: a 429 that names the usage limit stays one
+  await rig.userMail('una', 'PROOF-WALL: please do the wall thing.')
+  const uf = await rig.waitFor(() => rig.agentRow('una')?.frozen, { what: 'una to be frozen' })
+  p.check('una: a 429 that says usage limit still freezes as a usage limit', uf.limit === true && uf.cause === undefined && !uf.rate_limited, uf)
 
   // ---------------------------------------------------------------- hana: released by hand
   await rig.userMail('hana', 'PROOF-LIMIT: please do the held thing.')
@@ -144,6 +172,14 @@ export default async function (rig) {
   p.check('rex: it rides with the next turn, and both are delivered there', /PROOF-REFUSE: the first message/.test(rPrompt)
     && /The second message/.test(rPrompt) && rMail.length === 2 && rMail.every(m => m.state === 'delivered' && m.turn_id === rt[0].id), rMail)
 
+  // ---------------------------------------------------------------- nia: the retry
+  const nr = await rig.waitFor(() => log('nia', 'turn')[1], { what: 'nia\'s retry after the rate-limit wait', timeout: 150000, every: 1000 })
+  p.check('nia: retried by the engine\'s timer, told it was rate-limited and given the request again', /rate-limited your previous turn/.test(nr.prompt)
+    && /attempt 1 of 5/.test(nr.prompt) && /PROOF-429: please do the rate thing/.test(nr.prompt), String(nr.prompt).slice(-500))
+  const nt = await rig.waitTurns('nia', 2)
+  p.check('nia: the retried turn completed, the freeze and the run counter are gone', !nt[1].error && !rig.agentRow('nia').frozen
+    && rig.agentRow('nia').extra?.rate_limit_run === undefined, rig.agentRow('nia').extra)
+
   // ---------------------------------------------------------------- kim: the wake
   const kr = await rig.waitFor(() => log('kim', 'turn')[1], { what: 'kim\'s automatic wake', timeout: 150000, every: 1000 })
   const woke = (Date.now() / 1000) - resetSoon
@@ -157,6 +193,6 @@ export default async function (rig) {
   p.check('kim: no weekly-Fable notice for a usage-limit reset (not to kim, her superior or her peers)',
     fable.length === 0 && !/weekly Fable/i.test(kr.prompt), fable)
 
-  p.keep(rig, { agents: ['kim', 'hana', 'ivy', 'carol', 'lee', 'quinn', 'rex'], grep: /freeze|thaw|wake|hard_fail|ending turn/ })
+  p.keep(rig, { agents: ['kim', 'hana', 'ivy', 'carol', 'lee', 'quinn', 'rex', 'nia', 'una'], grep: /freeze|thaw|wake|hard_fail|ending turn/ })
   return p.summary()
 }
