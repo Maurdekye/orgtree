@@ -206,10 +206,21 @@ test('nothing in the main process minimizes or hides a window except that window
   ], 'only the minimize buttons of a window and of a popout minimize, and each acts on itself')
   assert.match(main_(), /handle\('desktop:window-minimize', caller => \{\s*windowEvents\.record\(caller\.id, windowFacts\(caller\.id\), \{ action: 'minimize-button' \}\)\s*caller\.window\.minimize\(\)\s*\}\)/,
     'the window minimize button minimizes its own window (the caller), and says so in the window log first')
+  // Two hides arrived with hidden app panels that keep running (284ec8a,
+  // 2026-10-26), each acting on its own window:
+  // • desktop:popout-hide hides the caller's own app-panel pop-out, which keeps
+  //   running until it is powered off (USER mf99a623897b8, mae676e1ab9c4,
+  //   mf77872b7079f, 2026-10-26 17:24-17:29Z: closing a pop-out's visual hides
+  //   it);
+  // • keepForPanels hides a main window closed while its panels run: panels
+  //   only ever run while some main window is open, and the last-window path
+  //   is unchanged (USER m49226c1da1fb; kept, liaison m4a40dd353655).
   assert.deepEqual(sites(/\.hide\(\)/), [
+    "index.ts: handle('desktop:popout-hide', (caller, name) => { caller.popouts.window(name)?.hide() })",
     "index.ts: hide: () => { windowEvents.record(id, windowFacts(id), { action: 'close-hide' }); window.hide() },",
+    "index.ts: keepForPanels: () => { record.keptForPanels = true; windowEvents.record(id, windowFacts(id), { action: 'close-hide' }); window.hide() },",
     "window-close.ts: if (action === 'hide') { host.preventDefault(); host.hide(); return 'hide' }",
-  ], 'only the close of the last visible window hides, and it hides itself')
+  ], 'a window hides only itself: the close of the last visible window, a window closed while its panels run, and a hidden app panel\'s own pop-out')
   const reveal = readFileSync(path.join(dir, 'window-reveal.ts'), 'utf8')
   for (const call of ['minimize', 'hide', 'blur', 'close', 'destroy', 'setBounds', 'setPosition', 'setSize', 'moveTop', 'setAlwaysOnTop'])
     assert.doesNotMatch(reveal, new RegExp(`\\.${call}\\(`), `the reveal path never calls ${call}`)
