@@ -28,8 +28,10 @@ const env = {
   // config folder then finds the fake profile (an empty login), never the user's
   // real ~/.claude, and a proof that writes to "home" cannot touch the real one.
   // Claude Code keeps a folder per working folder under %TEMP%\claude, which
-  // would otherwise outlive the run on C:.
-  ...rigProfileEnv(data, { tmp: path.join(dir, 'tmp') }),
+  // would otherwise outlive the run on C:. Only `up --real-muse`, an explicitly
+  // authorized real lane, keeps the host's XDG roots, where the installed Muse
+  // Code keeps its signed-in config and data.
+  ...rigProfileEnv(data, { tmp: path.join(dir, 'tmp'), hostXdg: run.realMuse ? process.env : null }),
   ORGTREE_DATA: data,
   ORGTREE_V2_TOKEN: run.token,
   ORGTREE_V2_PARENT_PID: String(process.pid),
