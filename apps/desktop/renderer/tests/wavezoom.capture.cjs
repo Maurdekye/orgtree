@@ -177,6 +177,27 @@ async function identityScene(name, query) {
   } finally { try { dbg.detach() } catch {} win.destroy(); await sleep(150) }
 }
 
+/* ── scene: contact sheet (consecutive zoom steps, amplified ink) ─────────────────────────────── */
+async function sheetScene(name, query, from, ratio, count, cols) {
+  const { win, dbg, js } = await open(query)
+  try {
+    await js('window.__zp.install()')
+    const ax = 500, ay = 350
+    const views = []
+    let v = { x: 0, y: 0, z: from }
+    for (let i = 0; i < count; i++) {
+      const z = from * Math.pow(ratio, i)
+      const wx = (ax - v.x) / v.z, wy = (ay - v.y) / v.z
+      v = { x: ax - wx * z, y: ay - wy * z, z }
+      views.push(v)
+    }
+    const url = await js(`window.__zp.sheet(${JSON.stringify(views)}, 10, ${cols}, 0.5, 40)`)
+    const f = path.join(out, `${name}.png`)
+    fs.writeFileSync(f, Buffer.from(String(url).replace(/^data:image\/png;base64,/, ''), 'base64'))
+    return { name, query, files: [f], summary: { from, ratio, count, cols, gain: 40, note: 'real layer pixels, alpha x40 on black, tile = viewport at 0.5' } }
+  } finally { try { dbg.detach() } catch {} win.destroy(); await sleep(150) }
+}
+
 /* ── scene: live wheel zoom ──────────────────────────────────────────── */
 async function liveScene(name, query, pattern) {
   const { win, dbg, js } = await open(query)
@@ -224,6 +245,10 @@ async function liveScene(name, query, pattern) {
       glyphFieldChangeBetweenDraws: isAscii ? { rest: frameDiff(restDraws), zoom: frameDiff(zoomDraws) } : null,
       opacity: { rest: restOp.length ? { min: r3(Math.min(...restOp)), max: r3(Math.max(...restOp)) } : null, zoom: opac.length ? { min: r3(Math.min(...opac)), max: r3(Math.max(...opac)) } : null },
       displayNoneFramesDuringZoom: zoomTicks.filter(x => x.display === 'none').length,
+      fadedFramesDuringZoom: zoomTicks.filter(x => Number(x.opacity) < 0.05).length,
+      // computed opacity of the displayed frames around the layer first reporting no grid ('unseen'): a fade is a ramp, a pop is a step
+      opacityAroundNoGrid: (() => { const i = zoomTicks.findIndex(x => x.state === 'unseen'); return i < 0 ? null : zoomTicks.slice(Math.max(0, i - 2), i + 22).map(x => r3(Number(x.opacity))) })(),
+      opacityAroundGridBack: (() => { let i = -1; for (let k = 1; k < zoomTicks.length; k++) if (zoomTicks[k - 1].state === 'unseen' && zoomTicks[k].state !== 'unseen') { i = k; break } return i < 0 ? null : zoomTicks.slice(Math.max(0, i - 2), i + 30).map(x => r3(Number(x.opacity))) })(),
       statesTimeline: states.slice(0, 30), resizeCalls: res.resizes.length,
       cellWidthsDuringZoom: [...new Set(zoomDraws.map(d => d.cw))],
     }
@@ -253,6 +278,8 @@ const SCENES = {
   'sweep-in': () => sweepScene('sweep-in', 'theme=ascii&seed=7', 1, 4, 180),
   'sweep-out': () => sweepScene('sweep-out', 'theme=ascii&seed=7', 1, 0.24, 120),
   'identity': () => identityScene('identity', 'theme=ascii&seed=7'),
+  'sheet-in': () => sheetScene('sheet-in', 'theme=ascii&seed=7', 2.0, 1.012, 8, 4),
+  'sheet-in-low': () => sheetScene('sheet-in-low', 'theme=ascii&seed=7', 1.0, 1.012, 8, 4),
   'pan-4px-z1': () => panScene('pan-4px-z1', 'theme=ascii&seed=7', 1, 4, 120),
   'pan-8px-z1': () => panScene('pan-8px-z1', 'theme=ascii&seed=7', 1, 8, 60),
   'pan-4px-z3': () => panScene('pan-4px-z3', 'theme=ascii&seed=7', 3, 4, 120),

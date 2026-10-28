@@ -263,9 +263,55 @@ function identity(views: View[], fieldTime: number): { z: number; x: number; y: 
   return out
 }
 
+/** A contact sheet of the layer's own ink for consecutive camera steps: the layer is drawn at each camera at a FIXED field time and its
+ *  drawing buffer is placed where the canvas's CSS box puts it (tile = the viewport at `scale`), alpha multiplied by `gain` so the faint
+ *  ink is visible, on black. The pixels are the real layer's; only the brightness is amplified. Returns one PNG data URL. */
+function sheet(views: View[], fieldTime: number, cols: number, scale: number, gain: number): string {
+  const vw = innerWidth, vh = innerHeight
+  const tw = Math.round(vw * scale), th = Math.round(vh * scale)
+  const rows = Math.ceil(views.length / cols)
+  const out = document.createElement('canvas')
+  out.width = tw * cols + (cols + 1) * 6; out.height = th * rows + (rows + 1) * 6
+  const o = out.getContext('2d')!
+  o.fillStyle = '#262626'; o.fillRect(0, 0, out.width, out.height)
+  views.forEach((v, n) => {
+    sweepDraw(v, fieldTime)
+    const c = layerCanvas()!
+    const gl = c.getContext('webgl2') as WebGL2RenderingContext
+    const W = c.width, H = c.height
+    const px = new Uint8Array(W * H * 4)
+    gl.readPixels(0, 0, W, H, gl.RGBA, gl.UNSIGNED_BYTE, px)
+    const bl = parseFloat(c.style.left) || 0, bt = parseFloat(c.style.top) || 0
+    const bw = parseFloat(c.style.width) || W, bh = parseFloat(c.style.height) || H
+    const sx = bw / W, sy = bh / H
+    const acc = new Float64Array(tw * th), area = new Float64Array(tw * th)
+    for (let y = 0; y < H; y++) {
+      const ty = Math.floor((bt + (H - 1 - y + 0.5) * sy) * scale)
+      if (ty < 0 || ty >= th) continue
+      for (let x = 0; x < W; x++) {
+        const tx = Math.floor((bl + (x + 0.5) * sx) * scale)
+        if (tx < 0 || tx >= tw) continue
+        acc[ty * tw + tx] = acc[ty * tw + tx]! + px[(y * W + x) * 4 + 3]!
+        area[ty * tw + tx] = area[ty * tw + tx]! + 1
+      }
+    }
+    const img = o.createImageData(tw, th)
+    for (let i = 0; i < tw * th; i++) {
+      const a = area[i]! > 0 ? acc[i]! / area[i]! : 0
+      const g = Math.min(255, Math.round(a * gain))
+      img.data[i * 4] = g; img.data[i * 4 + 1] = g; img.data[i * 4 + 2] = g; img.data[i * 4 + 3] = 255
+    }
+    const ox = 6 + (n % cols) * (tw + 6), oy = 6 + Math.floor(n / cols) * (th + 6)
+    o.putImageData(img, ox, oy)
+    o.fillStyle = '#7fd4ff'; o.font = '12px monospace'
+    o.fillText(`z ${v.z.toFixed(3)}  cell ${w.__ascii!.state().cellWidth}px`, ox + 6, oy + 14)
+  })
+  return out.toDataURL('image/png')
+}
+
 w.__setView = (v) => { if (viewRefExternal) viewRefExternal.current = v; setViewExternal?.(v) }
 w.__zp = {
-  install, sweepDraw, sweepStep, panStep, identity,
+  install, sweepDraw, sweepStep, panStep, identity, sheet,
   startTicks: () => { ticks.length = 0; cancelAnimationFrame(tickRaf); tickRaf = requestAnimationFrame(tick) },
   stopTicks: () => { cancelAnimationFrame(tickRaf) },
   reset: () => { draws.length = 0; resizes.length = 0; ticks.length = 0 },
