@@ -418,7 +418,14 @@ Changes retain no-reparse directory/target handles while consent is pending.
 The Windows target pin excludes ordinary data writes/delete. Replacements stage
 and flush bytes, rename the exact old handle to a fresh recovery name, then publish
 the new handle without overwriting a destination. There is a brief name gap;
-a concurrent destination is never overwritten. Failure restores the original
+a concurrent destination is never overwritten. Before staging, a replacement
+flushes a record (folder, target, staged and recovery names, new SHA256) to the
+engine data folder app-file-recovery and removes it when the change ends. Each
+engine start settles the records a stop left (2026-10-28, 4.5.0 review C12): the
+original goes back under its name unless another file took the name, a
+published replacement drops the original as the change would have, staged
+bytes never published are removed, and a record whose folder cannot be opened
+waits for a later start. Failure restores the original
 name when possible; otherwise original bytes remain in the reported recovery
 file beside the target. Native UI reports retained recovery copies, independently
 of the HTML. No path-based fallback or in-place truncation exists. Platforms
@@ -905,7 +912,10 @@ frames, chat HTML replies and inline and windowed presentations. See [sandboxed 
 
 The async SDK is window.orgtree state.get/set/patch/onChange; storage.getItem,
 setItem, removeItem, clear; on(name,fn); emit(name,payload). Storage values are
-JSON, not strings only. State patch follows RFC7396; null removes keys. The host
+JSON, not strings only. setItem and removeItem change one key: the host applies
+each in request order from the panel revision it holds and re-reads on a
+conflict (three tries), so calls in flight and outside edits never lose a key
+(2026-10-28, 4.5.0 review C11). State patch follows RFC7396; null removes keys. The host
 does not replay retained messages on opening. It reads new messages (events
 messages:true) after that panel's initial event_seq and forwards each to on();
 History rows never reach the app. Until 2026-10-26 hidden/closed

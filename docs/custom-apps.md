@@ -364,6 +364,7 @@ limited to64KiB per file change, use a staged Windows commit and never silently
 truncate an existing file. Unsupported platforms refuse changes; recursive folder
 deletion is unavailable. A grant alone does not approve a particular change.
 Replacement briefly moves the original aside before publishing the new name.
+If Orgtree stops in that moment, it puts the original back when it next starts.
 If another file appears meanwhile, Orgtree preserves it and keeps the original
 bytes in a recovery file beside the target. Native UI reports that recovery copy;
 review the result before trying again.
