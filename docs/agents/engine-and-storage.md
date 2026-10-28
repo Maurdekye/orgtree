@@ -82,6 +82,8 @@ Original section: Orgtree 4.0.0 (Rust engine): read this first. Source lines 397
   `#[nolog]`. Verbose logging is off by default in packaged builds and on in development builds.
 <!-- /preserved:e-8192a6f3da6dff13 -->
 
+Verbose logs may contain sensitive data by design (app content, private paths, transcripts); it helps debugging, so it is not a defect (user 2026-10-28 m7ad336de1604). Normal (non-verbose) logs should not carry it, and secrets stay `#[nolog]`.
+
 Secret-bearing arguments must use `#[nolog]` or an opaque formatter, as for
 `runtime::AgentMsg`. `AgentMsg`'s exhaustive Debug
 formatter emits its static variant only: actor handler/send logging must never
