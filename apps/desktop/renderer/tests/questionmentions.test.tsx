@@ -68,7 +68,7 @@ function assertFormatted(body: Element | null, where: string) {
   assert.ok(body!.querySelector('.katex-display'), `${where}: block math`)
   assert.ok(body!.querySelectorAll('.katex').length >= 2, `${where}: inline math`)
   for (const token of TOKENS) {
-    const chip = body!.querySelector(`[data-ref-token="${token}"]`)
+    const chip: Element | null = body!.querySelector(`[data-ref-token="${token}"]`)
     assert.ok(chip, `${where}: ${token} is a mention chip`)
     assert.equal(chip!.getAttribute('data-ref-outcome'), 'ready', `${where}: ${token} resolves`)
   }
