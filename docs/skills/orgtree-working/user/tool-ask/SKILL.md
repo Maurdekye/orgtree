@@ -38,6 +38,16 @@ Single-choice example:
 
 Option normalization preserves at most the first four input entries. Blank/missing labels are dropped, labels trim and clip at sixty characters, descriptions at three hundred. Compatibility strings and label aliases are accepted by the handler; write the exposed object schema rather than relying on that repair. An entirely unusable option list yields a free-response question rather than an invented choice.
 
+## Formatting
+
+Question text and option descriptions render as chat does: Markdown (headings, lists, emphasis, code, tables, links), LaTeX (`$...$` or `\(...\)` inline, `$$...$$` or `\[...\]` as a block) and mention links (`@agent`, `@item:<org>/<slug>`, `@doc:<org>/<slug>`, `@app:`/`@panel:`, `@net:`/`@org:`). This holds on the open card and the answered card, wherever the user sees them: their desk, inbox, Attention view and a linked docket item. Plain text looks as it always did. The dollar rules are chat's: currency and shell variables stay text, and `\(...\)` writes a formula that `$...$` would leave alone.
+
+Option labels are short button text: keep them plain. A mention in a label stays text. The inbox list's one-line preview and the desktop notification show a plain gist of the source text. A question card is not relayed to Hubchat.
+
+```json
+{"question":"## Release\n\n- Tests pass for @item:my-org/ship-it\n- Error bound: $\\epsilon \\le 10^{-3}$\n\nShip now?","options":[{"label":"Ship","description":"Tag it once @release-lead confirms"},{"label":"Wait"}]}
+```
+
 ## One open request and amendments
 
 Each agent has at most one open user request combining question tabs, a [credit tab](../tool-request-credits/SKILL.md), and [scope items](../tool-request-scope/SKILL.md). Asking again amends that request: identical question text replaces its tab; new text appends a tab. It does not replace all earlier tabs merely because you sent a new questions list.

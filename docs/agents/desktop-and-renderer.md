@@ -1,5 +1,45 @@
 # Desktop and renderer
 
+## Question cards render like chat (2026-10-28, 4.5.1)
+
+USER m5952056229d3: "also allow question bodies to have formstted msrkdown,
+latex, and mentionnlinks embedded". Question text and option descriptions use
+the chat transcript's renderer: `md()` (Markdown and KaTeX, which the open card
+already had) and then `RefMdBody`'s chip pass. The open card is one `AskCard`
+on the desk (`deskRefs`), in the inbox and the Attention view (`InboxAskCard`
+with `mailRefs` or the view's `refs`) and on a docket item (`refWorld` and
+`onOpenRef`), so each surface passes its own routes. A surface without them
+leaves mentions as written text, as `RefMdBody` does anywhere. Option labels
+are button text: they keep their inline Markdown (`inlineMd`) and get no chips.
+A description chip sits inside the option's button; the chip pass stops its
+click, so it opens the reference without picking the option. The answered card
+(the transcript's `answer.ask`/`answer.batch` events, the inbox's resolved
+rows and skipped batch sections) renders question text and descriptions the
+same way, through the event card's `world`/`onOpen`/`imgBase`. A single
+paragraph stays inline beside the label chip (`singleParagraph`), so a plain
+question keeps its look; block content gets its own box. `inlineMd` moved to
+`shared.ts` and unwraps only an exact single paragraph: the old regex unwrapped
+the outer tags of several paragraphs and left a stray `</p><p>` inside.
+
+Unchanged, by design: the mail-row preview in the inbox and Attention lists
+(a raw 90-character line, as for mail), the desktop notification (the engine's
+plain `gist` of the source, as for mail; its click target is the card above),
+and the MCP permission and native question card (`ElicitationAsk`), whose text
+comes from an MCP server or harness, not `orgtree_ask`, and whose permission
+prompt keeps plain text. Nothing relays `orgtree_ask` to Hubchat (user
+2026-10-11, [Hubchat question cards](../rust-engine/hubchat-question-cards.md)).
+An `orgtree_message` question to an `@net:` address reaches Hubchat as body
+text, which Hubchat draws with its own renderer: Markdown and contact mentions,
+no LaTeX, and object mentions stay text (read at Hubchat `c288898`,
+`src/lib/md.ts`).
+
+The `orgtree_ask` card says so in one sentence, which fits the startup
+description budget (11,929 of 12,000 bytes before it, measured at `919adf2`,
+with no card change since); the question and option fields carry the detail.
+[decided: user 2026-10-28; verified: `canvas/{asks,shared}.ts*`,
+`events/{answered,card}.tsx`, `tests/questionmentions.test.tsx`,
+`tools/defs.rs`]
+
 ## Inline object-mention wrapping (2026-10-27)
 
 USER mc116439e87c9 makes Display > Text > Wrap object mentions opt-in (off by

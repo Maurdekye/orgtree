@@ -10,6 +10,8 @@ Ask cards are the user's actionable question/request surface. Open/pending cards
 
 ## Question answers
 
+A question's text and its option descriptions are formatted as chat is: Markdown, LaTeX math and clickable mention links to agents, docket items, presentations, apps and panels. Clicking a link in an option description opens what it names without picking the option. Option labels stay plain. The answered card shows the question the same way.
+
 Options support single or multiple selection according to the card, with free text where offered. Selecting multiple options or typing is a draft, not immediate submission. The configured composer Enter behavior and Submit apply only when the answer is ready. Dismissing without an answer is a distinct response, communicated back to the agent.
 
 ## Mixed batches

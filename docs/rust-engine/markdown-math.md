@@ -3,8 +3,9 @@
 The shared `md()` pipeline renders LaTeX on every Markdown reading surface.
 Inline delimiters are `$...$` and `\(...\)`; display delimiters are `$$...$$`
 and `\[...\]`, including multiline display environments. This includes desk
-transcripts and thoughts, helper prose, mail, quick chat, docket descriptions
-and presentations. Every caller of `md()` inherits the same renderer;
+transcripts and thoughts, helper prose, mail, quick chat, docket descriptions,
+presentations, and question text and option descriptions on open and answered
+question cards. Every caller of `md()` inherits the same renderer;
 standalone HTML previews and external Hubchat clients keep their own renderers.
 
 `markdownmath.ts` owns an isolated Marked parser with math token extensions.
