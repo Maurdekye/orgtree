@@ -103,6 +103,11 @@ changing live-project or agent settings dimensions. Existing close-interaction
 fixtures drive the header X. [decided: user2026-10-24; verified:
 `canvas/{modalpin,modals,newproject}.tsx`, `styles.css`]
 
+Org settings has no footer Close either (user 2026-10-28 m3291e5890d55, mc9c984cf52a5):
+its PinFrame opts into the header X, and Escape and the backdrop still close it through
+`closeSettings`, which flushes pending edits first. Tests and rig drivers close it with
+Escape or the X. [decided: user 2026-10-28; verified: `App.tsx::SettingsPanel`]
+
 `DraftScopeModal` publishes its local proposal to the owning `DraftNode` after
 each change, without closing the panel or creating an agent. Closing retains
 the proposal; final Hire alone submits it. Keep callback identity out of the

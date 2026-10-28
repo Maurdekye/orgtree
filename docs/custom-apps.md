@@ -88,7 +88,8 @@ Connections updates by itself as agents subscribe, pause, resume or remove their
 listeners. Each row shows the agent, its watchdog and the event as links, and
 Paused, Notice or Once when they apply, with its number of fires. The list belongs to this panel, so
 a row names no panel; a listener on every panel says all panels. Click the agent
-to go to it on the canvas, the watchdog to open its details, or the event to open
+to go to it on the canvas, the watchdog to open its details (pause, resume and
+remove are there), or the event to open
 **Fire event** with that event chosen, as if you had picked it there (an event the app no longer declares opens
 the tab without choosing one). Click a row to see that listener's
 recent fires, newest first: older ones load as you scroll, new ones appear as they
@@ -192,7 +193,7 @@ The title's pop-out opens a separate window; Return restores its previous place.
 
 State opens editable JSON. Import changes the editor, Export saves it and Copy
 copies it. Reset loads initial data; Save is needed to commit either change. A
-concurrent edit reports a conflict. Each panel has its own data. A panel's History
+concurrent edit reports a conflict, and Reload reads the saved data again. Each panel has its own data. A panel's History
 and its messages each keep their latest 256 entries. Any agent with Org-modifying tools can interpret
 and update any panel in this org; that grants no app permission.
 
@@ -279,8 +280,9 @@ app, saved panel, capability and exact action as text. Allow once applies to tha
 one action. Always allow and Deny save a decision for every panel. Cancel or Escape
 discards the request without changing permissions. Requests expire after two
 minutes and are not retried automatically. In App settings, Permissions offers
-Ask, Allow and Deny per capability; changes save immediately without
-reloading the app. Explicit Ask/Deny survives replacement; external grants and host sessions reset.
+Ask, Allow and Deny per capability; changes save immediately, for every panel, without
+reloading the app. Org-internal actions and Orgtree files are allowed by default; internet
+access is not. Explicit Ask/Deny survives replacement; external grants, every Allow and host sessions reset.
 Event deliveries and work items an app creates identify the app and panel, and carry
 app content rather than user instructions or approvals. No permission travels in an exported app.
 

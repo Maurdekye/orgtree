@@ -820,7 +820,10 @@ revision-checked state_set, Reload), all on their existing tool calls, with no s
 header (USER m5e1010314d2c). Connections and Fire event have their own tabs (USER
 meb312360e19f) and History comes last (USER m547bae9b0585); it holds the panel's
 log (USER mc8711410a925), merged from the former Activity view. All three stay
-per-panel, no tab repeats its name as a section header, and History follows the
+per-panel, no tab repeats its name as a section header or, in App or Panel settings,
+opens with an intro paragraph (USER 2026-10-28 m967c09464607, mbba17a6166d1,
+m1ebf5e3194c8, m420ce21a63f4, md0c3fe54b8d0: the user guide keeps the explanations),
+and History follows the
 live change feed (no Refresh button or remount after a fire). Delete panel/app confirmations are compact content-sized
 AppDialogs (custom-app-confirm, USER mf913dbdf1494). Linked agents (USER
 m66c0f064351c) and placement (USER m79ee175a5283, m5fca61662c5b) left settings;

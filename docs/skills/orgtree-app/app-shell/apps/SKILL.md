@@ -147,7 +147,7 @@ is enabled once the trimmed text is a different, non-empty name, and applies at 
 not submit, and a refused name shows the error. Five tabs follow: General (Duplicate
 and Delete panel), State (the panel's JSON data: Import, Export, Copy, Reset, Reload,
 Save), Connections, Fire event and, last, History (event history). No tab repeats
-its name as a section header. Event publication/connections are panel-specific;
+its name as a section header or opens with an intro paragraph (user ruling 2026-10-28). Event publication/connections are panel-specific;
 their permission remains app-wide. Placement is not a setting. No saved-panel selector or app actions appear
 here. Manage a closed panel without running its HTML; menu paging exposes further
 panels. The title-bar pin pins a panel to the window where it is, at its size,
