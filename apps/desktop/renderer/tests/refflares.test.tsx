@@ -111,7 +111,8 @@ test('§1 a ticket mention wears a flare in its status colour, named in its tool
   t.after(() => view.unmount())
   await inAct(tick)
   for (const where of ['react', 'markdown']) {
-    assert.deepEqual(chipsOf(view.el.querySelector(`.${where}`)!, 'item'), [
+    const box = view.el.querySelector(`.${where}`)!
+    assert.deepEqual(chipsOf(box, 'item'), [
       { text: 'Build the docs site from main', flare: 'ref-flare status-in_progress', title: 'In progress · Build the docs site from main' },
       { text: 'Fix the login redirect', flare: 'ref-flare status-blocked', title: 'Blocked · Fix the login redirect' },
       { text: 'Ship the release', flare: 'ref-flare status-done', title: 'Done · Ship the release' },
@@ -246,7 +247,8 @@ test('§6 a presentation mention flares unread or modified since it was read, an
   t.after(() => view.unmount())
   await inAct(tick)
   for (const where of ['react', 'markdown']) {
-    assert.deepEqual(chipsOf(view.el.querySelector(`.${where}`)!, 'doc'), [
+    const box = view.el.querySelector(`.${where}`)!
+    assert.deepEqual(chipsOf(box, 'doc'), [
       { text: 'Launch plan', flare: 'ref-flare doc-new', title: 'Unread · Launch plan' },
       { text: 'Release notes', flare: 'ref-flare doc-updated', title: 'Modified since you last read it · Release notes' },
       { text: 'Old notes', flare: '', title: 'Old notes' },
