@@ -7,6 +7,10 @@
 //     already are to each other (it never becomes the closest pair; flash-luna is 10.5 in charcoal, carbon-luna 14.5),
 //     and differs from the card's own 1px side border (a Google card's blue provider tint) by dE >= 14 (measured 14.9-18.7)
 //   - the Carbon norm node, mini node, badge, chip and hire button each exist exactly once
+//   - the tier badge letter: in charcoal and obsidian every tier's letter is its tier colour (Carbon: #6d7e8c); in the two light themes
+//     EVERY tier's badge is the shared dark one (#313131 fill, #cccccc letter: the contrast presets' rule in styles.css,
+//     `:root:is(.contrast-light, .contrast-solarized-light) :is(.tier, .chip.agents)`, which outranks `.tier.t-carbon`), so Carbon's letter
+//     there is #ccc like Flash's, Pro's, Luna's and Astra's and its colour shows in the chip, the hire button, the card edge and the mini rail
 // Writes one crop per theme. Reads the painted values; does not judge the grey by eye.
 //
 //   electron.exe carbon.capture.cjs <outDir> <repoRoot> <node_modules dir> <label>
@@ -31,6 +35,8 @@ const within = async (p, ms, what) => { let t; try { return await Promise.race([
 const CARBON = 'rgb(109, 126, 140)' // #6d7e8c
 const TIERS = ['flash', 'pro', 'carbon', 'luna', 'astra']
 const THEMES = [['charcoal', []], ['obsidian', ['contrast-obsidian-black']], ['light', ['contrast-light']], ['solarized', ['contrast-solarized-light']]]
+const LIGHT_THEMES = new Set(['light', 'solarized'])
+const SHARED_BADGE_INK = 'rgb(204, 204, 204)', SHARED_BADGE_FILL = 'rgb(49, 49, 49)' // the contrast presets' light-theme tier badge, same for every tier
 const FLOOR = 15
 const EDGE_VS_SIDE_FLOOR = 14
 
@@ -66,7 +72,7 @@ const MEASURE = `(() => {
     const hire = document.querySelector('.hire-row .hsof button.t-' + t)
     out.counts[t] = { badge: one('[data-badge="' + t + '"]').length, chip: one('[data-chipcount="' + t + '"]').length,
       norm: one('[data-row="norm"] .sq.tier-' + t).length, mini: one('[data-row="mini"] .sq.tier-' + t + '.mini').length, hire: one('.hire-row .hsof button.t-' + t).length }
-    out.tiers[t] = { badgeColor: cs(badge, 'color'), badgeBorder: cs(badge, 'borderTopColor'), chipColor: cs(chip, 'color'),
+    out.tiers[t] = { badgeColor: cs(badge, 'color'), badgeFill: cs(badge, 'backgroundColor'), badgeBorder: cs(badge, 'borderTopColor'), chipColor: cs(chip, 'color'),
       hireColor: cs(hire, 'color'), normEdge: cs(norm, 'borderTopColor'), normSide: cs(norm, 'borderLeftColor'), miniBg: cs(mini, 'backgroundColor'),
       normRect: norm && norm.getBoundingClientRect().width, miniRect: mini && mini.getBoundingClientRect().width, hireRect: hire && hire.getBoundingClientRect().width,
       letters: { badge: badge && badge.textContent, hire: hire && hire.textContent } }
@@ -124,6 +130,13 @@ app.whenReady().then(async () => {
         if (!(m.tiers[t].normRect > 0 && m.tiers[t].miniRect > 0 && (t === 'pro' || m.tiers[t].hireRect > 0))) p.push(`${t}: a surface has no size`)
       }
       if (m.tiers.carbon.letters.badge !== 'C' || m.tiers.carbon.letters.hire !== 'C') p.push('the C letter is missing')
+      for (const t of TIERS) {
+        const b = m.tiers[t]
+        if (LIGHT_THEMES.has(name)) {
+          if (b.badgeColor !== SHARED_BADGE_INK || b.badgeFill !== SHARED_BADGE_FILL) p.push(`${t}: the light-theme badge paints letter ${b.badgeColor} on ${b.badgeFill}, expected the shared ${SHARED_BADGE_INK} on ${SHARED_BADGE_FILL}`)
+        } else if (b.badgeColor !== b.chipColor) p.push(`${t}: the badge letter paints ${b.badgeColor}, not its tier colour ${b.chipColor}`)
+      }
+      if (!LIGHT_THEMES.has(name) && m.tiers.carbon.badgeColor !== CARBON) p.push(`carbon badgeColor painted ${m.tiers.carbon.badgeColor}, expected ${CARBON}`)
       for (const k of ['chipColor', 'hireColor']) if (m.tiers.carbon[k] !== CARBON) p.push(`carbon ${k} painted ${m.tiers.carbon[k]}, expected ${CARBON}`)
       for (const [t, d] of Object.entries(m.vs)) for (const k of ['chip', 'hire']) if (d[k] !== null && d[k] < FLOOR) p.push(`carbon ${k} is dE ${d[k].toFixed(1)} from ${t} (floor ${FLOOR})`)
       if (m.carbonMinEdge < m.minOtherEdgePair) p.push(`the Carbon card edge is dE ${m.carbonMinEdge.toFixed(1)} from its nearest tier edge, closer than the existing tiers' ${m.minOtherEdgePair.toFixed(1)}`)
