@@ -920,3 +920,109 @@ test('Claude Waves cursor disturbance (wakes and tap ripples) and floor backdrop
   close(tapDrawn012.y, 190, 1e-3)
 })
 
+/* ── Claude Waves while zooming (USER 2026-10-28 22:52Z mfaa7411710fb "the claude waves background is abbit glitchy when zooming
+ *    the canvas in and out", 22:53Z mf070ca638693 "it tenss to flicker") ────────────────────────────────────────────────
+ * Measured with the layer's own probe (software GL; C:/orgtree-build/lease-release-sonnet/wavezoom/p8): above z = 1 the glyph
+ * grid's cell is an INTEGER device size, so the world length one cell samples (cellWorldW = cellWidth / (z * dpr)) stepped at
+ * every integer change and the whole glyph field was re-sampled in one frame: 19 such pops between z = 1 and 4, each changing
+ * 2.7x more of the painted ink than a neighbouring frame (up to 4.2x). Above z = 1 the sampling lattice is now ONE world
+ * lattice (n0 / dpr world units per cell, n0 = the z = 1 cell) and the cell is DRAWN at the continuous size n0 * z; the
+ * integer size only rasterises the glyphs, the canvas scales that bitmap by drawn / raster (<= 1.07, exactly 1 at z = 1). */
+
+async function mountAsciiForZoom(t: TestContext, dpr: number) {
+  const ctrl = installAsciiGlEnv(t, dpr)
+  stubReducedMotion(t, false)
+  const viewRef = { current: { x: 0, y: 0, z: 1 } }
+  const holder: { api: AsciiTestApi | null } = { api: null }
+  const mounted = await mountView(
+    <div>
+      <AsciiLayer view={viewRef.current} viewRef={viewRef} hidden={false} intensity={1}
+        pin={{ seed: 42, pool: 'mixed' }} onReady={a => { holder.api = a }} />
+    </div>,
+    el => el,
+  )
+  t.after(async () => { await mounted.unmount() })
+  for (let i = 0; i < 20 && !holder.api; i++) {
+    await inAct(async () => { await new Promise(r => setTimeout(r, 20)); await flush(4) })
+  }
+  const api = holder.api
+  assert.ok(api, 'AsciiLayer should initialize with mock WebGL2')
+  const canvas = (): HTMLCanvasElement => {
+    const c = mounted.el.querySelector('canvas')
+    assert.ok(c, 'the layer has its canvas')
+    return c
+  }
+  return { ctrl, viewRef, api, canvas }
+}
+
+/** Zoom geometrically from z = `from` to `to` with the world point under (ax, ay) held fixed, like a wheel zoom under the cursor. */
+function* anchoredZoom(from: number, to: number, steps: number, ax: number, ay: number): Generator<{ x: number; y: number; z: number }> {
+  let v = { x: 0, y: 0, z: from }
+  for (let i = 0; i <= steps; i++) {
+    const z = from * Math.pow(to / from, i / steps)
+    const wx = (ax - v.x) / v.z, wy = (ay - v.y) / v.z
+    v = { x: ax - wx * z, y: ay - wy * z, z }
+    yield v
+  }
+}
+
+for (const dpr of [1, 2]) {
+  test(`Claude Waves zoom-in keeps one world lattice at dpr ${dpr}: the sampling cell never changes and the drawn cell grows continuously`, async (t) => {
+    const { ctrl, viewRef, api, canvas } = await mountAsciiForZoom(t, dpr)
+    const W = 800, H = 600
+    const n0 = gridFor(W * dpr, H * dpr, dpr)!.cellWidth // the z = 1 integer cell: 7 at dpr 1, 13 at dpr 2
+    let first: number | null = null
+    let steps = 0
+    for (const v of anchoredZoom(1, 4, 150, 400, 300)) {
+      viewRef.current = v
+      api.drawAt(8, 1)
+      const st = api.state()
+      const c = canvas()
+      const cssW = parseFloat(c.style.width), cssH = parseFloat(c.style.height)
+      const left = parseFloat(c.style.left), top = parseFloat(c.style.top)
+      const where = `z ${v.z.toFixed(4)}`
+      const sampleW = ctrl.uniforms.uSample?.[0]
+      assert.ok(sampleW !== undefined, `${where}: the wind pass is given its sampling cell`)
+      if (first === null) first = sampleW
+      assert.ok(Math.abs(sampleW - first) < 1e-9, `${where}: the sampling cell is ${sampleW} world units, was ${first} (the field is re-sampled)`)
+      const drawn = cssW / (st.columns ?? 1) // CSS px of one glyph cell as it appears on screen
+      assert.ok(Math.abs(drawn - (n0 * v.z) / dpr) < 1e-6, `${where}: the drawn cell is ${drawn} css px, expected ${(n0 * v.z) / dpr}`)
+      assert.ok(left <= 1e-6 && top <= 1e-6, `${where}: the canvas starts at or before the viewport corner (${left}, ${top})`)
+      assert.ok(left + cssW >= W - 1e-6 && top + cssH >= H - 1e-6, `${where}: the canvas covers the viewport (right ${left + cssW}, bottom ${top + cssH})`)
+      steps++
+    }
+    assert.equal(steps, 151)
+    assert.equal(first, n0 / dpr, 'the lattice is the z = 1 cell in world units')
+  })
+
+  test(`Claude Waves rasterises the cell at the nearest integer and scales the bitmap by at most 7% (dpr ${dpr})`, async (t) => {
+    const { viewRef, api } = await mountAsciiForZoom(t, dpr)
+    const n0 = gridFor(800 * dpr, 600 * dpr, dpr)!.cellWidth
+    let worst = 0
+    for (const v of anchoredZoom(1, 4, 150, 400, 300)) {
+      viewRef.current = v
+      api.drawAt(8, 1)
+      const raster = api.state().cellWidth ?? 0
+      const drawnDevice = n0 * v.z
+      assert.equal(raster, Math.max(5, Math.round(drawnDevice)), `z ${v.z.toFixed(4)}: raster cell ${raster}, drawn ${drawnDevice.toFixed(3)}`)
+      worst = Math.max(worst, Math.abs(drawnDevice / raster - 1))
+    }
+    assert.ok(worst <= 0.0715, `the bitmap is scaled by up to ${(worst * 100).toFixed(1)}%`)
+  })
+
+  test(`Claude Waves at z <= 1 is unchanged by the zoom-in lattice: the cell stays on screen, the lattice follows 1/z (dpr ${dpr})`, async (t) => {
+    const { ctrl, viewRef, api, canvas } = await mountAsciiForZoom(t, dpr)
+    const base = gridFor(800 * dpr, 600 * dpr, dpr)!
+    for (const z of [1, 0.9, 0.7, 0.5, 0.35, 0.24, 0.05]) {
+      viewRef.current = { x: -137.3, y: -61.9, z }
+      api.drawAt(8, 1)
+      const st = api.state()
+      const where = `z ${z}`
+      assert.equal(st.cellWidth, base.cellWidth, `${where}: the raster cell is the z = 1 cell`)
+      assert.equal(st.columns, base.columns, `${where}: columns`)
+      assert.equal(st.rows, base.rows, `${where}: rows`)
+      assert.ok(Math.abs((ctrl.uniforms.uSample?.[0] ?? NaN) - base.cellWidth / (z * dpr)) < 1e-9, `${where}: the lattice is cellWidth / (z * dpr) world units`)
+      assert.ok(Math.abs(parseFloat(canvas().style.width) / base.columns - base.cellWidth / dpr) < 1e-9, `${where}: the cell is drawn at the z = 1 size on screen`)
+    }
+  })
+}
