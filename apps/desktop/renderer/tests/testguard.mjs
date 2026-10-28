@@ -58,7 +58,7 @@
 import assert from 'node:assert'
 import { syncBuiltinESMExports } from 'node:module'
 import { inspect, types } from 'node:util'
-import { Worker } from 'node:worker_threads'
+import { isMainThread, Worker } from 'node:worker_threads'
 
 /** Lines Node's own failure report may print before its diff stops being
  *  cheap. The diff's arrays cost ~8·lines² bytes, so 1,500 lines (actual and
@@ -330,6 +330,12 @@ function envMb(name, dflt) {
 }
 
 function startWatchdog() {
+  // ONE WATCHDOG PER PROCESS, FROM ITS MAIN THREAD (4.5.0 high E18). The
+  // watchdog's own isolate, like any worker a test starts, inherits the preload
+  // and has globals of its own, so starting one wherever this loads started
+  // one in each new watchdog too, without end. Resident memory is the
+  // process's, so the main thread's watchdog covers every thread.
+  if (!isMainThread) return 'thread'
   // run.mjs sets this to its Job's ceiling: the kernel bounds that run and
   // TerminateJobObject ends its whole tree, so a thread would add nothing
   if (envMb('ORGTREE_TEST_CONTAINED_MB', 0) > 0) return 'contained'
@@ -351,5 +357,6 @@ const state = globalThis[INSTALLED] ?? (globalThis[INSTALLED] = (() => {
   return { watchdog: startWatchdog() }
 })())
 
-/** 'contained' (run.mjs's Job bounds it), 'watching' or 'off'. */
+/** 'contained' (run.mjs's Job bounds it), 'watching', 'off', or 'thread' (a
+ *  worker thread: its process's main thread watches). */
 export const watchdog = state.watchdog
