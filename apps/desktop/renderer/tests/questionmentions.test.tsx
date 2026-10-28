@@ -22,6 +22,8 @@ import { md } from '../src/canvas/shared'
 import type { RefRoutes, RefWorld, ResolvedRef } from '../src/canvas/reflinks'
 import type { AskInfo, TreePayload } from '../src/types'
 import { inAct, mountView, StrictMode } from './harness'
+import { readFileSync } from 'node:fs'
+import path from 'node:path'
 
 const ORG = 'orgtree'
 const world: RefWorld = {
@@ -205,4 +207,35 @@ test('§9 CONTROL: a plain answered question keeps its inline look', async (t) =
   const desc = el.querySelector('.answered-opt-desc') as HTMLElement
   assert.equal(desc.querySelector('p'), null)
   assert.equal(desc.textContent, 'warm')
+})
+
+// ── the row's look, from the stylesheet ─────────────────────────────────────
+// An option row was one <button>, so contextual button rules reached it: the
+// inbox, docket and Attention panels are `.settings` panels, and mobile has
+// its own floor. The row is now a container, so it repeats exactly those
+// declarations, and its pick button resets them (measured 2026-10-28: without
+// this the inbox's option labels sat 7px 15px inside their own padding).
+declare const __SRC_DIR__: string
+const css = readFileSync(path.join(__SRC_DIR__, 'styles.css'), 'utf8')
+const rule = (selector: string): Map<string, string> => {
+  const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  const at = css.search(new RegExp('(^|[}\\n])\\s*' + escaped + '\\s*\\{'))
+  assert.ok(at >= 0, `styles.css has a rule for exactly "${selector}"`)
+  // the match may begin at the previous rule's closing brace: read from this rule's own
+  const open = css.indexOf('{', at)
+  const body = css.slice(open + 1, css.indexOf('}', open))
+  const declarations = new Map(body.split(';').map((d) => d.split(':').map((s) => s.trim())).filter((d) => d[0])
+    .map(([k, ...v]) => [k!, v.join(':')]))
+  assert.ok(declarations.size > 0, `the "${selector}" rule has declarations`)
+  return declarations
+}
+
+test('§10 an option row repeats the contextual button rules the single button had, and its pick button resets them', () => {
+  for (const [button, row] of [['.settings button', '.settings div.ask-row'], ['html.mobile button', 'html.mobile div.ask-row']]) {
+    assert.deepEqual([...rule(row!)].sort(), [...rule(button!)].sort(), `${row} repeats ${button}`)
+  }
+  const pick = rule('.ask-row .ask-row-pick')
+  for (const [k, v] of [['padding', '0'], ['min-height', '0'], ['font', 'inherit'], ['border', 'none'], ['background', 'none']]) {
+    assert.equal(pick.get(k!), v, `the pick button resets ${k}`)
+  }
 })
