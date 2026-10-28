@@ -34,11 +34,41 @@ const { Engine } = createRequire(import.meta.url)(engineOut)
 
 /** The proxy configuration one seal applies for `engineOrigin`. */
 const sealed = async engineOrigin => {
-  const calls = []
-  await sealSessionNetwork({ setProxy: config => { calls.push(config); return Promise.resolve() } }, engineOrigin)
+  const calls = [], session = { setProxy: config => { calls.push(config); return Promise.resolve() } }
+  await sealSessionNetwork(session, engineOrigin, () => {})
+  forgetSealedSession(session)
   assert.equal(calls.length, 1)
   return calls[0]
 }
+/** A session whose proxy updates follow `script`, one entry per update: 'ok'
+ *  applies at once, 'fail' rejects, 'hold' waits in `held` until the test
+ *  settles it (true applies, false fails). It records what it was asked for,
+ *  what applied, and the most updates it ever had in flight. */
+const scripted = (name, log) => {
+  const s = { name, asked: [], applied: [], held: [], script: [], inFlight: 0, maxInFlight: 0 }
+  s.setProxy = config => {
+    const rules = config.proxyBypassRules, step = s.script.shift() ?? 'ok'
+    s.asked.push(rules); log.push(`${name} asked ${rules}`)
+    s.maxInFlight = Math.max(s.maxInFlight, ++s.inFlight)
+    return new Promise((resolve, reject) => {
+      const settle = applied => {
+        s.inFlight--
+        if (applied) { s.applied.push(rules); log.push(`${name} applied ${rules}`); resolve() }
+        else { log.push(`${name} failed ${rules}`); reject(new Error(`${name} refused`)) }
+      }
+      if (step === 'hold') s.held.push(settle)
+      else settle(step === 'ok')
+    })
+  }
+  return s
+}
+/** Waits a few milliseconds at a time until `ready()` holds. */
+const until = async (ready, what) => {
+  for (let i = 0; i < 400 && !ready(); i++) await new Promise(resolve => setTimeout(resolve, 5))
+  assert.ok(ready(), `timed out waiting for ${what}`)
+}
+const A = 'http://127.0.0.1:43210', B = 'http://127.0.0.1:43220', C = 'http://127.0.0.1:43230'
+const rulesFor = origin => origin ? `<-loopback>;127.0.0.1:${origin.split(':')[2]}` : '<-loopback>'
 
 test('every webContents loses UDP that does not go through a proxy', () => {
   const calls = []
@@ -93,10 +123,40 @@ test("only the engine's own port bypasses the dead proxy", async () => {
     assert.equal(await bypass(origin), '<-loopback>', origin)
 })
 
-test('a failed seal is not swallowed', async () => {
-  const failing = { setProxy: () => Promise.reject(new Error('refused')) }
-  await assert.rejects(sealSessionNetwork(failing, 'http://127.0.0.1:43210'), /refused/)
-  forgetSealedSession?.(failing)
+// Review of f6e8a6c (F1): a failed seal was logged and swallowed, and
+// sandboxSealed settled all the same, so a session could keep a lost engine's
+// port direct while main reloaded into it. A session whose seal fails is shut
+// at once (main closes its windows), and sandboxSealed reports false until a
+// seal of it applies.
+test('a session whose seal fails is shut, and reported until a seal of it applies', async () => {
+  const log = [], window = scripted('window', log), viewer = scripted('viewer', log)
+  // A first seal that fails.
+  window.script.push('fail')
+  await assert.rejects(sealSessionNetwork(window, A, () => log.push('window shut')), /window refused/)
+  assert.deepEqual(log, [`window asked ${rulesFor(A)}`, `window failed ${rulesFor(A)}`, 'window shut'])
+  assert.equal(await sandboxSealed(), false)
+  // The next seal that applies clears it.
+  await resealSandboxedSessions(A)
+  assert.equal(await sandboxSealed(), true)
+  // A viewer whose reseal fails is shut too; main forgets its session as it
+  // closes it, so it holds nothing back.
+  await sealSessionNetwork(viewer, A, () => { log.push('viewer shut'); forgetSealedSession(viewer) })
+  viewer.script.push('fail')
+  await assert.rejects(resealSandboxedSessions(B), /viewer refused/)
+  assert.ok(log.includes('viewer shut'))
+  assert.equal(await sandboxSealed(), true)
+  // A reseal that fails shuts its session before the next seal begins.
+  window.script.push('hold')
+  const failing = resealSandboxedSessions('')
+  await until(() => window.held.length === 1, "the window session's update")
+  const next = resealSandboxedSessions(C)
+  window.held.shift()(false)
+  await assert.rejects(failing, /window refused/)
+  await next
+  assert.deepEqual(log.slice(-5), ['window asked <-loopback>', 'window failed <-loopback>', 'window shut', `window asked ${rulesFor(C)}`, `window applied ${rulesFor(C)}`])
+  assert.deepEqual(viewer.asked, [rulesFor(A), rulesFor(B)], 'a forgotten session is not sealed again')
+  assert.equal(await sandboxSealed(), true)
+  forgetSealedSession(window)
 })
 
 // Review of 7924322 (F1): an open presentation viewer kept its first engine's
@@ -106,8 +166,8 @@ test('a failed seal is not swallowed', async () => {
 test('every sealed session follows the engine: nothing direct while it is lost, then its new port', async () => {
   const session = name => ({ name, rules: [], setProxy(config) { this.rules.push(config.proxyBypassRules); return Promise.resolve() } })
   const window = session('window'), viewer = session('viewer')
-  await sealSessionNetwork(window, 'http://127.0.0.1:43210')
-  await sealSessionNetwork(viewer, 'http://127.0.0.1:43210')
+  await sealSessionNetwork(window, 'http://127.0.0.1:43210', () => {})
+  await sealSessionNetwork(viewer, 'http://127.0.0.1:43210', () => {})
   await resealSandboxedSessions('')
   await resealSandboxedSessions('http://127.0.0.1:43220')
   for (const s of [window, viewer]) assert.deepEqual(s.rules, ['<-loopback>;127.0.0.1:43210', '<-loopback>', '<-loopback>;127.0.0.1:43220'], s.name)
@@ -116,11 +176,35 @@ test('every sealed session follows the engine: nothing direct while it is lost, 
   await resealSandboxedSessions('http://127.0.0.1:43230')
   assert.equal(viewer.rules.length, 3)
   assert.equal(window.rules.at(-1), '<-loopback>;127.0.0.1:43230')
-  // Seals land in the order they were asked for, and sandboxSealed waits for all.
-  void resealSandboxedSessions('')
-  void resealSandboxedSessions('http://127.0.0.1:43240')
-  await sandboxSealed()
-  assert.deepEqual(window.rules.slice(-2), ['<-loopback>', '<-loopback>;127.0.0.1:43240'])
+  forgetSealedSession(window)
+})
+
+// Review of f6e8a6c (F2), and of d2f822b (F1): Promise.all ended a step at the
+// first failed update while a slow one was still pending, so the next seal
+// began and the slow, older update could land last, leaving a lost engine's
+// port direct. A step now ends only when every update it started has settled.
+test('a seal step waits for every update it started, so a slow one cannot land after a later seal', async () => {
+  const log = [], window = scripted('window', log), viewer = scripted('viewer', log)
+  await sealSessionNetwork(window, A, () => log.push('window shut'))
+  await sealSessionNetwork(viewer, A, () => { log.push('viewer shut'); forgetSealedSession(viewer) })
+  // The engine is back on B: the window session's update fails at once and
+  // the viewer's is slow. Then the engine is lost again.
+  window.script.push('fail'); viewer.script.push('hold')
+  const back = resealSandboxedSessions(B)
+  await until(() => viewer.held.length === 1, "the viewer's update")
+  const lost = resealSandboxedSessions('')
+  await new Promise(resolve => setTimeout(resolve, 50))
+  assert.deepEqual(viewer.asked, [rulesFor(A), rulesFor(B)], 'no seal begins while an update is pending')
+  viewer.held.shift()(true)
+  await assert.rejects(back, /window refused/)
+  await lost
+  for (const s of [window, viewer]) {
+    assert.equal(s.maxInFlight, 1, `${s.name}: one update at a time`)
+    assert.equal(s.applied.at(-1), '<-loopback>', `${s.name}: the lost engine's seal is the one in force`)
+  }
+  assert.deepEqual(log.filter(line => line.endsWith(' shut')), ['window shut'])
+  assert.equal(await sandboxSealed(), true)
+  forgetSealedSession(window); forgetSealedSession(viewer)
 })
 
 test('the engine announces every change of its origin, a lost engine included', () => {
@@ -145,23 +229,41 @@ test("main seals every webContents, and each agent-HTML session for the engine's
   // session follows the engine's origin from before the first seal on.
   const created = main.indexOf("session.fromPartition('persist:orgtree-v2')")
   const follows = main.indexOf("engine.on('origin', origin => ")
-  const sealedAt = main.indexOf('await sealSessionNetwork(browserSession, engine.origin)')
+  const sealedAt = main.indexOf('await sealSessionNetwork(browserSession, engine.origin, shutWindowSession)')
   const configured = main.indexOf('configureEngineSession(browserSession')
   assert.ok(created > 0 && follows > created && sealedAt > follows && configured > sealedAt, 'window session follows the engine and is sealed before it is configured or used')
   assert.match(main.slice(follows, main.indexOf('\n', follows)), /resealSandboxedSessions\(origin\)/)
-  // Every window reload or rebuild after an engine change waits for the seals.
+  // Review of f6e8a6c (F1): a window session whose seal fails runs no agent
+  // HTML. Every window on it is destroyed, and nothing reloads, is rebuilt or
+  // opens into it unless the seals applied.
+  const shut = main.indexOf('const shutWindowSession = () => {')
+  assert.ok(shut > created && follows > shut, 'shutWindowSession is ready before the first seal')
+  const shutBody = main.slice(shut, follows)
+  assert.match(shutBody, /BrowserWindow\.getAllWindows\(\)/)
+  assert.match(shutBody, /webContents\.session === browserSession/)
+  assert.match(shutBody, /\.destroy\(\)/)
   const reloads = [...main.matchAll(/for \(const record of records\.values\(\)\) if \(!record\.window\.isDestroyed\(\)\) record\.window\.webContents\.reload\(\)/g)].map(m => m.index)
   assert.equal(reloads.length, 3)
-  for (const at of reloads) assert.match(main.slice(at - 200, at), /await sandboxSealed\(\)/, `reload at ${at} waits for the seals`)
   const recovery = main.indexOf('coreLifecycle?.configureRecovery(async allowSpawn =>')
-  const body = main.slice(recovery, main.indexOf('}, app.isPackaged)', recovery))
-  const waited = body.indexOf('await sandboxSealed()'), moved = body.indexOf('} else {'), rebuilt = body.indexOf('await openWindow(', moved)
-  assert.ok(recovery > 0 && waited > 0 && moved > waited && rebuilt > moved, 'sealed for the recovered engine before windows are rebuilt')
-  // Each HTML presentation viewer's own session, before its document loads,
-  // and forgotten once the viewer closes.
-  assert.match(main, /sealSessionNetwork\(artifactSession, engine\.origin\)\.then\(\(\) => viewer\.loadURL\(url\)\)/)
+  const end = main.indexOf('}, app.isPackaged)', recovery)
+  const body = main.slice(recovery, end)
+  const gate = body.indexOf('if (!await sandboxSealed()) return'), moved = body.indexOf('} else {'), rebuilt = body.indexOf('await openWindow(', moved)
+  assert.ok(recovery > 0 && gate > 0 && moved > gate && rebuilt > moved, 'nothing is rebuilt for a recovered engine unless the seals applied')
+  for (const at of reloads) {
+    const gated = at > recovery && at < end ? at > recovery + gate : main.slice(at - 27, at) === 'if (await sandboxSealed()) '
+    assert.ok(gated, `the reload at ${at} happens only when the seals applied`)
+  }
+  for (const build of ['const record = buildMainWindow(kind, org)', "const record = buildMainWindow('org', slug, { register: false })"]) {
+    const at = main.indexOf(build)
+    assert.ok(at > 0 && /if \(!await sandboxSealed\(\)\) throw /.test(main.slice(at - 200, at)), `${build}: nothing opens into a shut window session`)
+  }
+  // Each HTML presentation viewer's own session, before its document loads. A
+  // viewer whose seal fails, then or later, is closed and its session
+  // forgotten, as it is when the viewer closes.
+  assert.match(main, /const shutViewer = \(\) => \{ forgetSealedSession\(artifactSession\); if \(!viewer\.isDestroyed\(\)\) viewer\.destroy\(\) \}/)
+  assert.match(main, /void sealSessionNetwork\(artifactSession, engine\.origin, shutViewer\)\.then\(\(\) => viewer\.loadURL\(url\)\)\.catch\(shutViewer\)/)
   assert.doesNotMatch(main, /void viewer\.loadURL\(url\)/)
   assert.match(main, /viewer\.on\('closed', \(\) => forgetSealedSession\(artifactSession\)\)/)
-  // Every seal names the engine's port.
-  assert.doesNotMatch(main, /sealSessionNetwork\(\w+\)/)
+  // Every seal names the engine's port and what shuts its session.
+  assert.doesNotMatch(main, /sealSessionNetwork\(\s*[\w.]+\s*(,\s*[\w.]+\s*)?\)/)
 })
