@@ -146,6 +146,9 @@ impl Sweep {
     #[nolog]
     fn add(&mut self, row: WorkRow) {
         let Some(to) = row.to.clone() else { return };
+        // deploy_ready is built work waiting for the user's review or a release (user 2026-10-28):
+        // not idle work, so it is left out like blocked work, and no fallback lists it.
+        if row.status == "deploy_ready" { return }
         if row.status == "blocked" {
             self.blocked.entry(to).or_default().push(row);
         } else if !row.attention {

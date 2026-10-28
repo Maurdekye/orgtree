@@ -72,7 +72,7 @@ async fn reminder_pages_cross_old_limits_with_real_queries_and_durable_rotation(
     assert_eq!(scan.work_after.as_deref(),Some("w-05000"));
     assert!(!all_blocked(&c,1).await.unwrap(),"an unblocked row after 5000 must veto blocked reminders");
     assert!(scan.prepare(&c,1,true).await.unwrap());
-    let routed=scan.items("a5005",false);assert_eq!(routed.total,2);assert_eq!(routed.shown[0].role,"reviewer");assert_eq!(routed.shown[1].role,"deployer");
+    let routed=scan.items("a5005",false);assert_eq!(routed.total,1,"deploy_ready is never listed");assert_eq!(routed.shown[0].role,"reviewer");
     assert_eq!(scan.items("a1",true).total,5000);assert_eq!(scan.items("a1",true).shown.len(),20);
     eprintln!("reminder_pages: reporting/work beyond5000 and late reviewer routed; whole-org veto and20+omitted display pass");
     let mut after=0;let mut seen=Vec::new();

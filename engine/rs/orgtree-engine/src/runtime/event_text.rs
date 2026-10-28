@@ -2328,7 +2328,8 @@ next concrete step, and leave an honest orgtree_work update. Assert \
 review only if an item is really finished; blocked (with a \
 blocked_reason naming what it is stuck on, who or what will unblock it, \
 and how you will hear of it) if it truly cannot move. Items that are \
-backlogged, blocked, or waiting on the user through an attention flag \
+backlogged, blocked, deploy_ready (built, waiting for the user's review \
+or a release), or waiting on the user through an attention flag \
 or an open question are deliberately not listed here — and nor is \
 anything whose next action belongs to somebody else.",
         lines.join("\n")

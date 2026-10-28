@@ -51,12 +51,11 @@ async fn working_only_skips_retired_history_and_docket_routes_relevant_chains() 
       (1001,'cycle','Cycle owner','deploy_ready','{\"node\":\"cycle-worker\",\"generation\":1}',1000007,'{}',NULL,NULL);").await.unwrap();
     assert!(scan.prepare(&c, 1001, true).await.unwrap(), "mode change must start docket preparation immediately");
     assert_eq!(scan.routing_rows, 7, "only three referenced agents and their four needed ancestors are loaded");
-    let boss=scan.items("boss",false); assert_eq!(boss.total,1); assert_eq!(boss.shown[0].role,"deployer");
+    assert_eq!(scan.items("boss",false).total,0,"deploy_ready is never listed, not even for its deployer");
     let reviewer=scan.items("reviewer",false); assert_eq!(reviewer.total,1); assert_eq!(reviewer.shown[0].role,"reviewer");
-    let worker=scan.items("worker",false); assert_eq!(worker.total,2);
+    let worker=scan.items("worker",false); assert_eq!(worker.total,1);
     assert!(worker.shown.iter().any(|r|r.role=="stale_reviewer"));
-    assert!(worker.shown.iter().any(|r|r.role=="owner"));
-    assert_eq!(scan.items("cycle-worker",false).shown[0].role,"owner");
+    assert_eq!(scan.items("cycle-worker",false).total,0);
     assert!(scan.everyone.is_empty(), "routing map is page-local, not retained history");
     eprintln!("docket: reporting rows loaded={} despite6001 unrelated retired rows; reviewer/deployer/generation/project/cycle controls pass",scan.routing_rows);
     c.rollback().await.unwrap(); drop(client); conn.await.unwrap();
