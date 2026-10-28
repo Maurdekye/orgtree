@@ -129,6 +129,15 @@ list yet, has no release time. No CI workflow builds this image.
 [verified: `standalone/Dockerfile`, `orgtree-engine/build.rs`,
 `src/changelog.rs`, BuildKit 0.31.2 context export; 2026-10-25]
 
+A test-only input counts too (2026-10-28, 4.5.0): a template test in
+`domain/apps/mod.rs` parses `docs/examples/apps/annotation-notes.orgtree-app`
+with `include_str!`. The release build compiles no tests, so the image never
+reads that file. The test still counts every include path, so the build stage
+copies the file and the allowlist gives it, and its folders, their own
+exceptions. Keep them while the include exists.
+[verified: `standalone/Dockerfile`, `domain/apps/mod.rs`,
+`tests/standalone-docker-context.test.mjs`; 2026-10-28]
+
 ## Phase 2 (this slice): the user MCP endpoint
 
 User ruling 2026-10-16 20:40Z: remote MCP acts **as the user**. In
