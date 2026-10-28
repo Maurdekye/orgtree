@@ -6264,6 +6264,15 @@ svg.MuiSvgIcon-root {
    default, so one clickable word does not make the line taller than its
    neighbours */
 .tray-sum .ref-chip { font-size: inherit; padding: 0 3px; }
+/* THE STATUS LINE IS ONE LINE, whatever the "wrap object mentions" setting says (USER 2026-10-28 10:59:43Z
+   m06a44d7adc0c "the status text shouldnt run into multiple rows"). That setting makes a ticket, presentation, app or
+   panel link an inline fragment that wraps (display: inline; white-space: normal), which beat this row's nowrap: a
+   long title broke over several rows (measured: 5 line boxes, a row 78 px taller at 280 px) and pushed the rows below
+   it down. Here the chip stays unbroken, so the ellipsis on .tray-sum-text clips the line like any other text, and
+   the full text is still the row's tooltip. This selector is the wrap rule's plus .tray-sum, to be the more specific. */
+.wrap-object-mentions .tray-sum .ref-chip.ref-chip.ref-ready:is(.ref-item, .ref-doc, .ref-app, .ref-panel) {
+  white-space: nowrap; overflow-wrap: normal;
+}
 .tray-sum.stale { opacity: .55; font-style: italic; }
 .tray-filter { margin: 2px 4px 6px; }
 .tray-filter-row {
