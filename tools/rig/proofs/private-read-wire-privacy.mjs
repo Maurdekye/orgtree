@@ -11,7 +11,7 @@ export default async function(rig,{flags}){
  p.check('synthetic mail and document fixtures were created through real tools',sent.ok&&presented.ok)
  if(!sent.ok||!presented.ok)return p.summary()
  const mail=rig.one(`SELECT m.uid FROM ot.mail m JOIN ot.orgs o ON o.id=m.org_id WHERE o.slug='${rig.org}' AND m.sender='worker' AND m.recipient_kind='user' ORDER BY m.id DESC LIMIT 1`)
- const doc=rig.one(`SELECT d.uid FROM ot.documents d JOIN ot.orgs o ON o.id=d.org_id WHERE o.slug='${rig.org}' AND d.node_name='worker' ORDER BY d.id DESC LIMIT 1`)
+ const doc=rig.one(`SELECT d.uid,d.slug FROM ot.documents d JOIN ot.orgs o ON o.id=d.org_id WHERE o.slug='${rig.org}' AND d.node_name='worker' ORDER BY d.id DESC LIMIT 1`)
  p.check('requested verbose mode is actually active',(await rig.api('GET','/api/app-settings/runtime')).verbose_logging===(mode==='on'))
  const pid=rig.refresh().enginePid
  const logFile=await rig.waitFor(()=>rig.engineLogFiles().find(file=>fs.readFileSync(file,'utf8').includes(`engine starting pid=${pid} `)),{what:'this engine session log',timeout:10000})
@@ -35,7 +35,7 @@ export default async function(rig,{flags}){
   ['inbox',`/api/orgs/${rig.org}/inbox`,mailText,v=>JSON.stringify(v).includes(mailText)],
   ['inbox-history',`/api/orgs/${rig.org}/inbox?folder=inbox`,mailText,v=>JSON.stringify(v).includes(mailText)],
   ['mail-by-id',`/api/orgs/${rig.org}/mail/user/${mail.uid}`,mailText,v=>v.found===true&&JSON.stringify(v.mail).includes(mailText)],
-  ['document',`/api/orgs/${rig.org}/documents/${doc.uid}`,docText,v=>v.id===doc.uid&&v.body===docText]
+  ['document',`/api/orgs/${rig.org}/documents/${doc.uid}`,docText,v=>v.id===doc.slug&&v.body===docText]
  ]
  const shown=route=>mode==='on'?route:route.replace(/=[^&]*/g,'=****') // the normal log keeps parameter names only
  for(const [name,route,canary,clientOK]of cases){
