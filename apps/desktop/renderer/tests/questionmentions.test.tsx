@@ -99,6 +99,32 @@ test('§2 an option description takes chips and math; its label stays plain; a c
   const row = desc.closest('.ask-row') as HTMLElement
   assert.equal(row.classList.contains('on'), false, 'and did not pick the option')
   assert.equal(el.querySelector('.ask-submit')!.hasAttribute('disabled'), true, 'nothing is ready to submit')
+  // the shared chip pass builds no control inside a button (two destinations
+  // in one target), so the description sits beside the option's pick button
+  assert.equal(desc.closest('button'), null, 'the description is not inside a button')
+  const pick = row.querySelector('.ask-row-pick') as HTMLButtonElement | null
+  assert.equal(pick?.tagName, 'BUTTON', 'the option is picked by a real button')
+  assert.ok(pick!.contains(label), 'holding the label')
+  assert.equal(pick!.getAttribute('aria-pressed'), 'false')
+  assert.ok(desc.id, 'the description has an id')
+  assert.equal(pick!.getAttribute('aria-describedby'), desc.id, 'and describes the button')
+  await inAct(() => { desc.click() })
+  assert.equal(row.classList.contains('on'), true, 'the rest of the row still picks, as the whole row did')
+  assert.equal(pick!.getAttribute('aria-pressed'), 'true')
+  assert.deepEqual(opened.map((r) => r.token), ['@bob'], 'and opened nothing')
+})
+
+test('§2b CONTROL: the pick button picks once per click, and the other rows stay buttons', async (t) => {
+  const ask = question('Which?', [{ label: 'One', description: 'the first' }, { label: 'Two' }])
+  const el = await mount(t, <AskCard ask={ask} slug={ORG} toast={() => {}} refs={routes().refs} />)
+  const [one] = [...el.querySelectorAll('.ask-row')] as HTMLElement[]
+  const pick = one!.querySelector('.ask-row-pick') as HTMLButtonElement
+  await inAct(() => { pick.click() })
+  assert.equal(one!.classList.contains('on'), true, 'one click picks')
+  await inAct(() => { pick.click() })
+  assert.equal(one!.classList.contains('on'), false, 'the next unpicks: the row did not also toggle')
+  const other = [...el.querySelectorAll('.ask-row')].find((r) => r.textContent?.trim() === 'Other')
+  assert.equal(other?.tagName, 'BUTTON', 'Other is still one button')
 })
 
 test('§3 CONTROL: a plain question renders exactly the HTML it did before', async (t) => {
