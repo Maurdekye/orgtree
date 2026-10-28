@@ -284,7 +284,18 @@ apart from History (answer "Keep, separate"); events lists History and
 messages:true lists messages. Each kind keeps its latest 256 rows and both advance
 event_seq. Migration0071 added the kind, deleted the old panel.opened,
 panel.created, panel.changed, panel.duplicated and state.changed rows ("Delete on
-upgrade") and marked the remaining non-History rows as messages.
+upgrade") and marked the remaining non-History rows as messages. It deleted and filed rows
+by name alone, but before it the event action and orgtree.emit stored any name, so messages
+called panel.changed or panel.started were deleted or filed as History (4.5.0 high D14).
+0071 shipped in alpha.4 and stays as it is: migration 0070 runs before it and sets aside every
+row under one of those names whose payload is not the exact shape the engine wrote for it
+({} for opened, created, changed and started; {source} for duplicated; {rev} for
+state.changed; {}, {reason:"code changed"} or {reason:"stop all"} for stopped; {event, id,
+subscribers} for event.fired), and 0071a, right after it, puts each back as a message under
+its own name with its seq, payload, actor and time. A message with exactly the engine's
+payload still goes the engine's way. A database that already had 0071 is unchanged.
+`migrate/panel_message_tests.rs` (native, staged pre-0070 and post-0071) and
+`proofs/panel-messages-upgrade.mjs` run them.
 History is a live list (USER 2026-10-27 md2006b10cf40, "make the hidtory tab reload in
 realtime, be more list like wity expandable rows, and lazily losd as you sfrollcdown
 (remof3 th4 refresh button)"): canvas/apps/loglist.tsx shows one row per entry that

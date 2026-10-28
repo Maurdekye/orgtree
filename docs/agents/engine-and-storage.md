@@ -41,6 +41,15 @@ Original section: Orgtree 4.0.0 (Rust engine): read this first. Source lines 371
   changed. [verified: `src/pg.rs`; PLAN §3, §8]
 <!-- /preserved:e-8dce3c42844fb6c8 -->
 
+A numbered migration never changes: the engine records each applied migration's checksum and
+refuses to start when its text changed (`src/migrate.rs`, "checksum drift"). 0063 was edited after
+it was numbered and stays as shipped (4.5.0 high D13). `tests/migration-checksums.test.mjs` pins
+every registered migration in `migrations/pinned-checksums.txt`: a new migration adds its line, and
+a fix goes forward in a new migration. `MIGRATIONS` applies in array order, so a fix may sit
+around a shipped migration under a name that sorts between its neighbours (`0070_keep_panel_messages`
+and `0071a_restore_panel_messages` around 0071, D14); the staged migration tests cut the list at
+`name < "00NN"`, which relies on that order. [verified: `src/migrate.rs`; 2026-10-28]
+
 <a id="e-aad7fd24eb2bb4c0"></a>
 
 ## Engine log: one file per start, &lt;data&gt;\diagnostics\logs\&lt;start time&gt;.log, kept 30 days.
