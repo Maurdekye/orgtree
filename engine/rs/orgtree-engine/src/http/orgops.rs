@@ -409,23 +409,28 @@ tokio::task_local! {
     static STOP_AFTER_LATCH: bool;
 }
 
-/// Stop everything: running turns are interrupted, watchdogs paused, and
-/// nothing starts a turn until the latch is released.
+/// Stop everything: running turns are interrupted, watchdogs paused, app
+/// panels powered off, and nothing starts a turn until the latch is released.
 #[logged]
 pub async fn killswitch(State(e): State<Arc<Engine>>, Path(slug): Path<String>) -> ApiResult<Json<Value>> {
     let o = org(&e, &slug)?;
-    let client = e.db.get().await?;
-    let latched = client
+    let mut client = e.db.get().await?;
+    // USER 2026-10-26: Stop all also powers off every app panel, hidden ones
+    // included; release starts none of them again. The latch, that power-off
+    // and the watchdog pause commit as one, before any agent wait, so neither a
+    // failure nor a restart leaves a latch over panels still marked to run
+    // (4.5.0 review B10). App rows come first, as starts and app event
+    // delivery take them, then the org row.
+    let tx = client.transaction().await?;
+    crate::domain::apps::runtime::hold_apps(&tx, o.id).await?;
+    let latched = tx
         .execute(
             "UPDATE ot.orgs SET killswitch = $2, row_version = row_version + 1 WHERE id = $1 AND killswitch IS NULL",
             &[&o.id, &json!({ "at": now_iso(), "by": "@user" })],
         )
         .await?;
-    #[cfg(test)]
-    if STOP_AFTER_LATCH.try_with(|stop| *stop).unwrap_or(false) {
-        return Err(ApiError::internal("Stop All ended after its latch committed"));
-    }
-    let paused = client
+    let panels = crate::domain::apps::runtime::stop_all(&tx, o.id).await?;
+    let paused = tx
         .query(
             "UPDATE ot.watchdogs w SET state = 'paused',
                     memo = memo || jsonb_build_object('paused_why', $2::text)
@@ -434,6 +439,12 @@ pub async fn killswitch(State(e): State<Arc<Engine>>, Path(slug): Path<String>) 
             &[&o.id, &KILLSWITCH_PAUSE],
         )
         .await?;
+    tx.commit().await?;
+    #[cfg(test)]
+    if STOP_AFTER_LATCH.try_with(|stop| *stop).unwrap_or(false) {
+        return Err(ApiError::internal("Stop All ended after its latch committed"));
+    }
+    crate::domain::apps::runtime::stopped(&e, &o, panels)?;
     let live: Vec<(i64, String)> = client
         .query("SELECT id, name FROM ot.agents WHERE org_id = $1 AND state = 'live'", &[&o.id])
         .await?
@@ -459,9 +470,6 @@ pub async fn killswitch(State(e): State<Arc<Engine>>, Path(slug): Path<String>) 
     for r in &paused {
         crate::runtime::watchdogs::disarm(&e, r.get::<_, i64>(0));
     }
-    // USER 2026-10-26: Stop all also powers off every app panel, hidden ones
-    // included; release starts none of them again.
-    let panels = crate::domain::apps::runtime::stop_all(&e, &o).await?;
     changes::notify(&e, &o, vec![Change::Org, Change::Watchdogs]);
     let watchdogs: Vec<Value> = paused
         .iter()

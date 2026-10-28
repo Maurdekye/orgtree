@@ -86,24 +86,33 @@ impl Registry {
     }
 }
 
-/// Starts check the org latch after locking their app row. Stop all locks
-/// every app row first, so a racing start either sees the latch or is stopped.
+/// Starts check the org latch after locking their app row, under a share lock
+/// on the org row: a start racing Stop all waits for its transaction and then
+/// sees the latch, or Stop all, holding every app row first, stops it.
 #[nolog] pub(super) async fn can_start(tx:&Transaction<'_>,org:i64)->Result<()>{
-    let latched:bool=tx.query_one("SELECT killswitch IS NOT NULL FROM ot.orgs WHERE id=$1",&[&org]).await?.get(0);
+    let latched:bool=tx.query_one("SELECT killswitch IS NOT NULL FROM ot.orgs WHERE id=$1 FOR SHARE",&[&org]).await?.get(0);
     if latched{crate::refuse!(Conflict,"Stop all is on for this org; release it before starting a panel");}Ok(())
 }
 
+/// Stop all, in the transaction that latches the org: every app row in ID
+/// order before the org row, the order starts and app event delivery take.
+#[nolog] pub async fn hold_apps(tx:&Transaction<'_>,org:i64)->Result<()>{
+    tx.query("SELECT id FROM ot.custom_apps WHERE org_id=$1 ORDER BY id FOR UPDATE",&[&org]).await?;Ok(())
+}
+
 /// The org killswitch powers off every saved panel, hidden copies included,
-/// and clears their intent so no restart or reconnection resumes them.
-#[nolog] pub async fn stop_all(engine:&Arc<Engine>,org:&Arc<OrgHandle>)->Result<u64>{
-    let mut client=engine.db.get().await?;let tx=client.transaction().await?;
-    tx.query("SELECT id FROM ot.custom_apps WHERE org_id=$1 ORDER BY id FOR UPDATE",&[&org.id]).await?;
-    let rows=tx.query("UPDATE ot.custom_panels SET is_running=false,is_open=false,run_generation=run_generation+1,rev=rev+1,updated_at=now() WHERE org_id=$1 AND (is_running OR is_open) RETURNING id",&[&org.id]).await?;
-    for row in &rows{super::storage::event(&tx,org.id,row.get::<_,&str>(0),"panel.stopped",&json!({"reason":"stop all"}),"user").await?;}
-    tx.commit().await?;drop(client);
-    engine.custom_apps.revoke(org.id,None,None)?;engine.custom_apps.runtime.revoke(org.id,None)?;
-    if !rows.is_empty(){org.emit(json!({"type":"custom_apps_changed","org":org.slug}));}
+/// and clears their intent so no restart or reconnection resumes them. It runs
+/// after hold_apps and the latch, in their transaction, so they commit as one.
+#[nolog] pub async fn stop_all(tx:&Transaction<'_>,org:i64)->Result<u64>{
+    let rows=tx.query("UPDATE ot.custom_panels SET is_running=false,is_open=false,run_generation=run_generation+1,rev=rev+1,updated_at=now() WHERE org_id=$1 AND (is_running OR is_open) RETURNING id",&[&org]).await?;
+    for row in &rows{super::storage::event(tx,org,row.get::<_,&str>(0),"panel.stopped",&json!({"reason":"stop all"}),"user").await?;}
     Ok(rows.len() as u64)
+}
+
+/// Once Stop all has committed, every host session of the org ends.
+#[nolog] pub fn stopped(engine:&Arc<Engine>,org:&Arc<OrgHandle>,panels:u64)->Result<()>{
+    engine.custom_apps.revoke(org.id,None,None)?;engine.custom_apps.runtime.revoke(org.id,None)?;
+    if panels>0{org.emit(json!({"type":"custom_apps_changed","org":org.slug}));}Ok(())
 }
 
 /// Running panels with their actual desktop state, in bounded ID pages.
