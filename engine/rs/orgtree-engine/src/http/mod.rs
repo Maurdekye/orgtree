@@ -664,6 +664,44 @@ mod tests {
 }
 
 #[cfg(test)]
+mod query_wire_tests {
+    use tower::ServiceExt;
+    const CANARY: &str = "PRIVATE_MEDIA_PATH_CANARY_451";
+
+    // One media-style request through the real guard and formatter; answers the log's REQUEST/RESPONSE lines.
+    async fn wire_lines(verbose: bool) -> Vec<String> {
+        let capture = crate::trace::LogCapture::start().await;
+        crate::trace::set_verbose(verbose);
+        let engine = crate::engine::Engine::for_tests(std::path::PathBuf::new());
+        let app = super::Router::new()
+            .route("/api/orgs/{slug}/nodes/{nid}/file", super::get(|| async { axum::Json(serde_json::json!({ "ok": true })) }))
+            .layer(super::middleware::from_fn(move |req, next| super::guarded(engine.clone(), req, next)));
+        let uri = format!("/api/orgs/demo/nodes/worker/file?path=C%3A%2Fprivate%2F{CANARY}.mp4&media=true");
+        let req = axum::http::Request::builder().uri(uri).body(axum::body::Body::empty()).unwrap();
+        assert_eq!(app.oneshot(req).await.unwrap().status(), axum::http::StatusCode::OK);
+        let log = capture.finish().await;
+        log.lines().filter(|l| l.contains("REQUEST ") || l.contains("RESPONSE ")).map(str::to_string).collect()
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn a_media_request_keeps_its_private_path_out_of_the_normal_wire_log() {
+        let lines = wire_lines(false).await;
+        // positive control: the route and the parameter names still reach the normal log
+        assert!(lines.iter().any(|l| l.contains("REQUEST ") && l.contains("/api/orgs/demo/nodes/worker/file?path=") && l.contains("media=")), "no REQUEST line: {lines:?}");
+        assert!(lines.iter().any(|l| l.contains("RESPONSE ") && l.contains("/api/orgs/demo/nodes/worker/file?path=") && l.contains("200")), "no RESPONSE line: {lines:?}");
+        assert!(lines.iter().all(|l| !l.contains(CANARY) && !l.contains("media=true")), "query values reached the normal wire log: {lines:?}");
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn verbose_wire_logs_keep_the_whole_query_for_debugging() {
+        // user ruling 2026-10-28 m7ad336de1604: sensitive data in verbose logs is fine
+        let lines = wire_lines(true).await;
+        assert!(lines.iter().any(|l| l.contains("REQUEST ") && l.contains(CANARY) && l.contains("media=true")), "{lines:?}");
+        assert!(lines.iter().any(|l| l.contains("RESPONSE ") && l.contains(CANARY) && l.contains("media=true")), "{lines:?}");
+    }
+}
+
+#[cfg(test)]
 mod elicitation_wire_tests {
     use super::*;
     #[test]
