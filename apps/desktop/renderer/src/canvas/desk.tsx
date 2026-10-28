@@ -104,7 +104,7 @@ import {
   isChatActive, isNoticeArmed, registerChat, setActiveChatKey, setNoticeArmed,
   toggleNoticeArmed, unregisterChat, useNoticeArmed,
 } from '../noticestore'
-import { ago, ALL_PRESENT, ALL_TIERS, anyTierSeat, audienceGrantTooltip, CODEX_TIERS, conditionalTierHidden, CopyIcon, EXTERN, fmtCredits, freezeKind, FREEZE_LABEL, ANTIGRAVITY_TIERS, MUSE_TIERS, isLangServerTier, isOpenRouterTier, langserverTierIds, modelChoiceLabel, modelChoiceTitle, md, openrouterTierIds, procHaloClass, PROVIDER_LABEL, providerOf, reportedLabel, stateLabel, stripMarkdownCode, TIER_LETTER, optInLegacyHidden, tierLabel, tierShown, USER, useHideRetired, useShowLegacyModels, useOfferedConditionalTiers } from './shared'
+import { ago, ALL_PRESENT, ALL_TIERS, anyTierSeat, audienceGrantTooltip, CODEX_TIERS, conditionalTierHidden, CopyIcon, EXTERN, fmtCredits, freezeKind, FREEZE_LABEL, rateRetryText, ANTIGRAVITY_TIERS, MUSE_TIERS, isLangServerTier, isOpenRouterTier, langserverTierIds, modelChoiceLabel, modelChoiceTitle, md, openrouterTierIds, procHaloClass, PROVIDER_LABEL, providerOf, reportedLabel, stateLabel, stripMarkdownCode, TIER_LETTER, optInLegacyHidden, tierLabel, tierShown, USER, useHideRetired, useShowLegacyModels, useOfferedConditionalTiers } from './shared'
 import { closeIfCentred, ModalOverPins, PinFrame } from './modalpin'
 import type { ProviderPresence } from './shared'
 import {
@@ -4004,7 +4004,10 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
                 badge does not. Saying "resumes" here promised a retry that,
                 with the toggle off, nobody performs (2026-08-10). */}
             {!node.limit_locked && node.frozen.until
-              ? ` · ${localizeFreezeUntil(node.frozen.connection
+              ? ` · ${node.frozen.cause === 'rate_limit' && !node.frozen.limit
+                // a request-rate 429 retry: the clock it retries at, not a capacity reset
+                ? rateRetryText(node.frozen)
+                : localizeFreezeUntil(node.frozen.connection
                 ? node.frozen.until.replace(/^network interruption — /, '')
                 // an auth freeze's `until` says what to DO ("credential
                 // rejected — replace it, then resume"); the label above

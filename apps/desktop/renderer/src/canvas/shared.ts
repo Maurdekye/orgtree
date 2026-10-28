@@ -27,7 +27,7 @@ import { refreshAgyModels } from '../api'
 import { ringArcCentres } from './ringarcs'
 import { settleRingSprings, type SpringRing } from './ringsprings'
 import { onLiveBump } from '../livebus'
-import { fmtFull, localizeStamps } from '../timefmt'
+import { fmtFull, fmtWhen, localizeStamps } from '../timefmt'
 import type { DependencyList } from 'react'
 import type {
   ActivityInfo, AskInfo, CacheForecast, CodexRouteInfo, DirGrant, MailEntry, NodeState,
@@ -2506,9 +2506,13 @@ export function placeOrgInbox(t: Map<string, Pt>,
 // reset that nobody performs. `auth` outranks `limit` because it has the
 // same shape but a different remedy. `balance` (an OpenRouter 402, 2026-09-05) likewise: limit-shaped, but
 // the remedy is the key's credit or its in-flight requests, and after its
-// bounded probes it parks until a person resumes it. `connection` is last of
-// the real kinds because it is the only one that retries itself.
-export type FreezeKind = 'halted' | 'auth' | 'balance' | 'connection' | 'limit'
+// bounded probes it parks until a person resumes it. `rate` (a Codex
+// request-rate 429, `cause === "rate_limit"`, 2026-10-28) is a pure retry freeze
+// like `connection` but is not a network drop: it read "usage limit" for an hour
+// while the weekly window was at 10 %, and now says it retries in minutes.
+// `connection` is last of the real kinds because it is the only one that
+// retries itself without a stated cause.
+export type FreezeKind = 'halted' | 'auth' | 'balance' | 'rate' | 'connection' | 'limit'
 
 export function freezeKind(
   fz: { connection?: boolean | null; limit?: boolean | null
@@ -2519,6 +2523,8 @@ export function freezeKind(
   if (!fz) return null
   if (fz.cause === 'auth') return 'auth'
   if (fz.cause === 'balance') return 'balance'
+  // a request-rate 429 retried in minutes: a pure retry, never a capacity wait
+  if (fz.cause === 'rate_limit' && !fz.limit) return 'rate'
   // a PURE connection freeze only — a record carrying both flags is a limit
   // whose wake waits on the auto-resume toggle (D-122)
   if (fz.connection && !fz.limit) return 'connection'
@@ -2605,15 +2611,19 @@ export function primedRestartChip(
   }
 }
 
-/** the retry time of a rate-limit freeze, ready for a badge (stub: red) */
-export function rateRetryText(_fz: { until?: string | null; until_ts?: number | null }): string {
-  return ''
+/** The retry time of a rate-limit freeze, ready for a badge: `retrying 6:12 PM`
+ *  in the viewer's zone. `until` is an ISO instant on an engine record, so it is
+ *  never shown as is; `until_ts` (epoch seconds) wins when the record has it. */
+export function rateRetryText(fz: { until?: string | null; until_ts?: number | null }): string {
+  const when = fmtWhen(fz.until_ts ?? fz.until)
+  return when ? `retrying ${when}` : 'retrying'
 }
 
 export const FREEZE_LABEL: Record<FreezeKind, string> = {
   halted: 'HALTED — fable lock',
   auth: 'credential rejected',
   balance: 'balance refused',
+  rate: 'rate-limited',
   connection: 'network',
   limit: 'usage limit',
 }
@@ -2623,6 +2633,7 @@ export const FREEZE_LABEL_SHORT: Record<FreezeKind, string> = {
   halted: 'halted',
   auth: 'credential',
   balance: 'balance',
+  rate: 'rate',
   connection: 'net',
   limit: 'limit',
 }

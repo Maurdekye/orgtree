@@ -356,6 +356,8 @@ export interface TreeFrozen {
    *
    *  ⚠ So "usage limit hit — N agents frozen" over-claims whenever one of
    *  the N has `cause === "auth"`: the COUNT is right and the WORDS are not.
+   *  `"rate_limit"` (a Codex request-rate 429, 2026-10-28) is a pure retry freeze
+   *  (`connection: true`, `limit: false`) that retries in minutes.
    *  This field is what a label branch needs to say so. */
   cause?: string | null
 }
