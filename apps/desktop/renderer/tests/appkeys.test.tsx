@@ -208,7 +208,10 @@ test('real main App header and F1-F9 share current-org routes; F4 returns from p
     view = await mountView(<App />, el => el)
     await inAct(() => flush(60))
     const labels = [...view.el.querySelectorAll('.shell-header-actions > button')].map(el => el.getAttribute('aria-label'))
-    assert.deepEqual(labels, ['Inbox', 'Work', 'Presentations', 'Org settings'], 'same names and targets, requested order')
+    // Apps sits beside Presentations since ea32a6a (2026-10-26): the Apps menu
+    // (USER md9ff095b752e) opens from a header button that also counts new apps
+    // (USER mb643ccddee99).
+    assert.deepEqual(labels, ['Inbox', 'Work', 'Presentations', 'Apps', 'Org settings'], 'same names and targets, requested order')
     const editor = document.createElement('textarea'); document.body.append(editor)
     const routes = [['F1', '.acct-panel'], ['F2', '.usage-modal'], ['F3', '.usage-history-modal'],
       ['F6', '.settings.wide'], ['F7', '.docket-modal'], ['F8', '.gallery-modal'], ['F9', '.settings']] as const
