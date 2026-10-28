@@ -23,6 +23,11 @@
  * §10 every renderer test file reaches the guard (through the harness, or by
  *    importing testguard.mjs itself), so a bundle that a tool builds and runs
  *    without run.mjs still carries it
+ * §11 outside the Job, the guard preloaded the way run.mjs preloads it starts
+ *    exactly one watchdog thread, from the main thread: the watchdog's own
+ *    isolate inherits the preload and must not start another
+ * §11b a worker a test starts from a file loads the preloaded guard, and
+ *    starts no watchdog of its own
  */
 import { mountView } from './harness'
 import test from 'node:test'
@@ -32,6 +37,7 @@ import { spawnSync } from 'node:child_process'
 import { closeSync, existsSync, mkdtempSync, openSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
+import { pathToFileURL } from 'node:url'
 import v8 from 'node:v8'
 import { estimateLines, originalOf } from './testguard.mjs'
 
@@ -40,6 +46,8 @@ const TESTS = path.join(__SRC_DIR__, '..', 'tests')
 const GUARD = path.join(TESTS, 'testguard.mjs')
 const DIFF_PROBE = path.join(TESTS, 'testguard', 'diff.probe.mjs')
 const WATCH_PROBE = path.join(TESTS, 'testguard', 'watch.probe.mjs')
+const WORKERS_PROBE = path.join(TESTS, 'testguard', 'workers.probe.mjs')
+const IDLE_WORKER = path.join(TESTS, 'testguard', 'idle.worker.mjs')
 const LAUNCHER = path.join(TESTS, 'joblimit.ps1')
 const PS = path.join(process.env.SystemRoot ?? 'C:\\Windows',
   'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe')
@@ -282,4 +290,35 @@ test('§10 every renderer test file reaches the guard, through the harness or di
     !guarded(readFileSync(path.join(TESTS, name), 'utf8').replace(/^﻿/, '')))
   assert.deepEqual(offenders, [], 'a tool that bundles these and runs them itself would get no guard; '
     + "give each `import './testguard.mjs'` as its first import")
+})
+
+// 4.5.0 high E18 (review alpha3 07debe076b63 F1): with no Job marker (Linux, or
+// Windows with ORGTREE_TEST_JOB_MB=0) run.mjs still preloads the guard through
+// NODE_OPTIONS, and the watchdog Worker inherits that preload. Its isolate has
+// its own globals, so a guard that starts a watchdog wherever it loads starts
+// one in each new watchdog too, without end.
+test('§11 outside the Job, the preloaded guard starts one watchdog thread, from the main thread', { timeout: 60_000 }, () => {
+  const preload = [WORKERS_PROBE, GUARD].map((file) => `--import=${pathToFileURL(file).href}`).join(' ')
+  const r = spawnSync(process.execPath, ['-e', 'setTimeout(() => {}, 1500)'],
+    { env: uncontained({ NODE_OPTIONS: preload }), encoding: 'utf8', timeout: 30_000, windowsHide: true })
+  assert.equal(r.status, 0, `${r.stdout}\n${r.stderr}`)
+  const created = r.stdout.match(/\[workers\.probe\] created in (main|worker)/g) ?? []
+  assert.deepEqual(created.slice(0, 5), ['[workers.probe] created in main'],
+    `the watchdog started ${created.length} watchdog threads (first five shown)`)
+})
+
+// Measured on node 24.12 (2026-10-28): an --import preload runs in a worker
+// started from a FILE but not in an eval worker such as the watchdog, so there
+// §11 holds even without the main-thread rule. A test's own file worker does
+// load the guard, and must not start a second watchdog in it.
+test('§11b outside the Job, a worker a test starts from a file loads the guard but starts no watchdog', { timeout: 60_000 }, () => {
+  const preload = [WORKERS_PROBE, GUARD].map((file) => `--import=${pathToFileURL(file).href}`).join(' ')
+  const r = spawnSync(process.execPath, ['-e',
+    "new (require('node:worker_threads').Worker)(process.argv[1]).unref(); setTimeout(() => {}, 1500)", IDLE_WORKER],
+  { env: uncontained({ NODE_OPTIONS: preload }), encoding: 'utf8', timeout: 30_000, windowsHide: true })
+  assert.equal(r.status, 0, `${r.stdout}\n${r.stderr}`)
+  const created = r.stdout.match(/\[workers\.probe\] created in (main|worker)/g) ?? []
+  // the main thread's watchdog and the test's own worker, and nothing from inside that worker
+  assert.deepEqual(created, ['[workers.probe] created in main', '[workers.probe] created in main'],
+    'a watchdog started inside the test\'s worker')
 })
