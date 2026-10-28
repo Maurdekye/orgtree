@@ -2400,11 +2400,23 @@ else {
       }
       if (coreLifecycle) { await coreLifecycle.complete(); coreLifecycle.start() }
       const browserSession = session.fromPartition('persist:orgtree-v2')
+      // A window session whose seal fails runs no agent HTML: every window on
+      // it is destroyed, main windows and their popouts alike, and none opens
+      // or reloads until a seal of it applies (sandboxSealed; review of
+      // f6e8a6c, F1).
+      const WINDOW_SESSION_SHUT = 'Orgtree could not keep the agent content in its windows off the network after the engine changed, so it closed them. Restart Orgtree to open them again.'
+      const shutWindowSession = () => {
+        for (const record of records.values()) record.tearingDown = true
+        const open = BrowserWindow.getAllWindows().filter(w => !w.isDestroyed() && w.webContents.session === browserSession)
+        for (const w of open) w.destroy()
+        if (open.length) void dialog.showMessageBox({ type: 'error', message: 'Orgtree closed its windows.', detail: WINDOW_SESSION_SHUT }).catch(() => {})
+      }
       // Every sealed session's one direct port follows the engine: none while
-      // it is lost, its new port once it is back (windows.ts).
-      engine.on('origin', origin => { void resealSandboxedSessions(origin).catch(error => console.warn('sandbox reseal failed:', error)) })
+      // it is lost, its new port once it is back. A session whose seal fails
+      // is shut (windows.ts).
+      engine.on('origin', origin => { void resealSandboxedSessions(origin).catch(error => console.warn('sandbox reseal failed; that session was shut:', error)) })
       // App panels and chat HTML replies render here: no WebRTC TCP either.
-      await sealSessionNetwork(browserSession, engine.origin)
+      await sealSessionNetwork(browserSession, engine.origin, shutWindowSession)
       // The preload origin is fixed per window; session signing reads LIVE
       // engine values so a recovered attachment's new token keeps working.
       const initialOrigin = engine.origin
@@ -2431,8 +2443,7 @@ else {
           } else await engine.restart(engineOptions)
           if (engine.origin === initialOrigin) {
             await coreLifecycle?.complete()
-            await sandboxSealed()
-            for (const record of records.values()) if (!record.window.isDestroyed()) record.window.webContents.reload()
+            if (await sandboxSealed()) for (const record of records.values()) if (!record.window.isDestroyed()) record.window.webContents.reload()
           }
           else {
             // The new desktop completes the bounded replacement. Quitting
@@ -2527,8 +2538,10 @@ else {
         viewer.webContents.on('will-navigate', event => event.preventDefault())
         viewer.webContents.on('will-redirect', event => event.preventDefault())
         artifactThemes.follow(viewer.webContents)
-        // Sealed before the presentation loads; a failed seal never shows it.
-        void sealSessionNetwork(artifactSession, engine.origin).then(() => viewer.loadURL(url)).catch(() => { if (!viewer.isDestroyed()) viewer.destroy() })
+        // Sealed before the presentation loads. A viewer whose seal fails,
+        // then or after an engine change, is closed and its session forgotten.
+        const shutViewer = () => { forgetSealedSession(artifactSession); if (!viewer.isDestroyed()) viewer.destroy() }
+        void sealSessionNetwork(artifactSession, engine.origin, shutViewer).then(() => viewer.loadURL(url)).catch(shutViewer)
       }
       placement = new OrgPlacement(path.join(app.getPath('userData'), 'window-state.json'))
       const displays = () => screen.getAllDisplays().map(display => display.workArea)
@@ -2764,6 +2777,8 @@ else {
        *  the tray, `activate` and the bridge reach this from code defined
        *  before the engine session existed. */
       const openWindow = async ({ kind, org }: { kind: OrgWindowKind; org?: string }) => {
+        // Nothing opens into a window session that was shut.
+        if (!await sandboxSealed()) throw new Error(WINDOW_SESSION_SHUT)
         const record = buildMainWindow(kind, org)
         await record.window.loadURL(engine.origin + routeFor(record.id))
         return record
@@ -2775,8 +2790,10 @@ else {
         await engine.recoverUnexpected(engineOptions, allowSpawn, () => launchBackground(engineOptions, app.isPackaged))
         if (quitting || installerUpgradeShutdown || !engine.origin) return
         await coreLifecycle?.complete()
-        // Every sealed session now has only the recovered engine's port direct.
-        await sandboxSealed()
+        // Every sealed session now has only the recovered engine's port
+        // direct. If a seal failed, its session was shut instead: nothing
+        // reloads or is rebuilt into it.
+        if (!await sandboxSealed()) return
         if (engine.origin === before) {
           for (const record of records.values()) if (!record.window.isDestroyed()) record.window.webContents.reload()
         } else {
@@ -2807,6 +2824,7 @@ else {
           // <id> is already registered", so every open of a second
           // organization failed (user report 2026-09-29).
           create: async slug => {
+            if (!await sandboxSealed()) throw new Error(WINDOW_SESSION_SHUT)
             const record = buildMainWindow('org', slug, { register: false })
             return { id: record.id, senderId: record.window.webContents.id, window: record.window }
           },
@@ -2944,8 +2962,7 @@ else {
               // the renderer re-establishes its streams. A CHANGED origin
               // needs the preload origin rebuilt — relaunch cleanly.
               if (engine.origin === initialOrigin) {
-                await sandboxSealed()
-                for (const record of records.values()) if (!record.window.isDestroyed()) record.window.webContents.reload()
+                if (await sandboxSealed()) for (const record of records.values()) if (!record.window.isDestroyed()) record.window.webContents.reload()
               }
               else { await saveWindowLayout(); relaunchApp(); app.quit() }
             }

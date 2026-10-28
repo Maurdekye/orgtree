@@ -206,7 +206,9 @@ test('a window is registered BEFORE its document loads', () => {
   // it hands a load CALLBACK to the recovery, but never navigates the window
   // itself - the document is loaded by the caller, after registration
   assert.doesNotMatch(build, /await [\w.]*loadURL/, 'the factory itself never awaits a navigation')
-  assert.match(main, /const openWindow = async \(\{ kind, org \}: \{ kind: OrgWindowKind; org\?: string \}\) => \{\s*\r?\n\s*const record = buildMainWindow\(kind, org\)\s*\r?\n\s*await record\.window\.loadURL/)
+  // (a seal check may come first: nothing opens into a window session that was
+  // shut, tests/sandboxed-html-network.test.mjs)
+  assert.match(main, /const openWindow = async \(\{ kind, org \}: \{ kind: OrgWindowKind; org\?: string \}\) => \{\s*\r?\n(?:\s*(?:\/\/.*|if \(!await sandboxSealed\(\)\) throw new Error\(\w+\))\r?\n)*\s*const record = buildMainWindow\(kind, org\)\s*\r?\n\s*await record\.window\.loadURL/)
   // ⚠ openOrg's create registers NOTHING and loads NOTHING: adoption
   // registers the window, then openOrg calls `load`. A create that registered
   // too made every second-organization open fail with "Window <id> is already

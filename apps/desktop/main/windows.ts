@@ -35,7 +35,10 @@ const live = (value: Live): string => typeof value === 'function' ? value() : va
  *    engine is lost nothing stays direct, and once it is back only its new
  *    port does (resealSandboxedSessions, from the Engine's 'origin' event).
  *    An open presentation viewer kept a lost engine's port direct before
- *    (review of 7924322), and a local relay could take that freed port.
+ *    (review of 7924322), and a local relay could take that freed port. A
+ *    session whose seal fails is shut: main closes everything that renders
+ *    in it, and nothing reloads or opens into the sealed sessions until a
+ *    seal of it applies (sandboxSealed; review of f6e8a6c).
  *  Orgtree's own renderer talks only to that engine, so its UI is unaffected.
  *  What remains: TCP to the engine's own port, never off the machine. */
 export const SANDBOXED_WEBRTC_POLICY = 'disable_non_proxied_udp'
@@ -67,37 +70,65 @@ function enginePort(origin: string): number | undefined {
   return port >= 1 && port <= 65535 ? port : undefined
 }
 type Sealable = Pick<Session, 'setProxy'>
-/** Every sealed session, so a change of engine moves all their direct ports
- *  together. Seals apply strictly in the order they were asked for. */
-const sealed = new Set<Sealable>()
+/** Every sealed session, with what shuts it, so a change of engine moves all
+ *  their direct ports together. */
+const sealed = new Map<Sealable, () => void>()
+/** Sessions shut because their last seal failed. */
+const unsealed = new Set<Sealable>()
 let sealing: Promise<void> = Promise.resolve()
-function inOrder(apply: () => Promise<void>): Promise<void> {
-  const next = sealing.catch(() => {}).then(apply)
-  sealing = next
-  return next
+/** One step of the seal queue: seals `sessions` for `engineOrigin` once the
+ *  step before it has finished. A step finishes only when every update it
+ *  started has settled, so two steps never update a session at once and the
+ *  last seal asked for is the one in force (review of f6e8a6c, F2: with
+ *  Promise.all the next step began at the first failure, and a slow update
+ *  could land after it). A session whose update failed is shut before the
+ *  step finishes, and stays unsealed until a seal of it applies (F1). */
+function sealStep(sessions: Sealable[], engineOrigin: string): Promise<void> {
+  const step = sealing.then(async () => {
+    const results = await Promise.allSettled(sessions.map(session => applySeal(session, engineOrigin)))
+    let failure: PromiseRejectedResult | undefined
+    sessions.forEach((session, i) => {
+      const result = results[i]
+      if (result.status === 'fulfilled') { unsealed.delete(session); return }
+      failure ??= result
+      if (!sealed.has(session)) return
+      unsealed.add(session)
+      try { sealed.get(session)?.() } catch (error) { console.warn('sandbox: could not shut a session whose seal failed:', error) }
+    })
+    if (failure) throw failure.reason
+  })
+  sealing = step.catch(() => {})
+  return step
 }
 async function applySeal(session: Sealable, engineOrigin: string): Promise<void> {
   const port = enginePort(engineOrigin)
   await session.setProxy({ mode: 'fixed_servers', proxyRules: `127.0.0.1:${await deadProxyPort()}`,
     proxyBypassRules: ['<-loopback>', ...port ? [`127.0.0.1:${port}`] : []].join(';') })
 }
-export function sealSessionNetwork(session: Sealable, engineOrigin: string): Promise<void> {
-  sealed.add(session)
-  return inOrder(() => applySeal(session, engineOrigin))
+/** Seals `session` for the engine's origin. `shut` closes everything that
+ *  renders in it; it runs whenever a seal of the session fails, this one or
+ *  a later one. */
+export function sealSessionNetwork(session: Sealable, engineOrigin: string, shut: () => void): Promise<void> {
+  sealed.set(session, shut)
+  return sealStep([session], engineOrigin)
 }
 /** The engine's origin changed: '' when it is lost, its new origin once it is
  *  back. Every sealed session, the window session and each open presentation
  *  viewer alike, is sealed again for it. */
 export function resealSandboxedSessions(engineOrigin: string): Promise<void> {
-  return inOrder(async () => { await Promise.all([...sealed].map(session => applySeal(session, engineOrigin))) })
+  return sealStep([...sealed.keys()], engineOrigin)
 }
-/** Settles once every seal asked for so far has applied or failed. */
-export function sandboxSealed(): Promise<void> {
-  return sealing.catch(() => {})
+/** True once every seal asked for so far has applied. False while a session
+ *  whose seal failed is still shut: nothing may reload or open into the
+ *  sealed sessions then. */
+export async function sandboxSealed(): Promise<boolean> {
+  await sealing
+  return unsealed.size === 0
 }
 /** A closed presentation viewer's session needs no more seals. */
 export function forgetSealedSession(session: Sealable): void {
   sealed.delete(session)
+  unsealed.delete(session)
 }
 
 export function assertNativeSender(event: Electron.IpcMainInvokeEvent, main: BrowserWindow | undefined, origin: string): void {
