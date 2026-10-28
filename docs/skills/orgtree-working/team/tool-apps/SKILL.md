@@ -402,6 +402,8 @@ App code calls `orgtree.net.fetch(input, init)`, which returns a standard
 Response; plain fetch, WebSocket and URL images stay blocked. The engine makes
 the request: HTTPS only, no cookies, credentials or proxy, public addresses
 only (never this computer or its LAN), at most 5 redirects, each re-checked.
+A redirect to another site carries only Accept, Accept-Language,
+Content-Language and Content-Type; the app's other headers stay behind.
 Limits: 1 MiB body, 64 headers, 4 MiB response, 30 s, 120 requests a minute and
 8 at a time per app. Cookie, Host, Proxy-* and hop-by-hop headers refuse.
 

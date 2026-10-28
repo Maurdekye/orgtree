@@ -35,21 +35,37 @@ Main closes it in two layers (`main/windows.ts`), and each alone left one
 transport open (measured):
 - `sealWebRtc`: every webContents gets the `disable_non_proxied_udp` IP
   handling policy from the app-wide `web-contents-created` hook. No UDP leaves.
-- `sealSessionNetwork`: the window session (`persist:orgtree-v2`, which renders
-  app panels, chat HTML replies and the inline presentation frame) and each
-  presentation viewer window's own session get
-  `fixed_servers` proxy `127.0.0.1:1`, a proxy that does not exist, with bypass
-  `<-loopback>;127.0.0.1`. WebRTC's TCP must go through the session proxy, so
-  it never connects and never falls back to direct. Only 127.0.0.1, where the
-  desktop's engine always listens, stays direct, on any port, because an
-  engine recovered in the same process may come back on another port. The seal
-  is awaited before the session loads anything; a viewer whose seal fails is
-  destroyed unshown.
+- `sealSessionNetwork(session, engine.origin)`: the window session
+  (`persist:orgtree-v2`, which renders app panels, chat HTML replies and the
+  inline presentation frame) and each presentation viewer window's own session
+  get a `fixed_servers` proxy that is a dead listener main itself holds on
+  127.0.0.1, at a port the OS picks. It is made on first use, kept for the
+  life of the process, and closes every connection unanswered. The bypass is
+  `<-loopback>` plus the engine's own host:port, nothing else. WebRTC's TCP
+  must go through the session proxy, so it never connects and never falls back
+  to direct. When an engine recovered in the same process comes back on
+  another port, main seals the window session again for that port before it
+  rebuilds the windows; every other origin change relaunches the desktop. The
+  seal is awaited before the session loads anything; a viewer whose seal fails
+  is destroyed unshown.
+
+Until 2026-10-28 the proxy was `127.0.0.1:1` with bypass
+`<-loopback>;127.0.0.1` (4.5.0 review B6/B7, c3068e98c63c F1/F2). Port 1 was
+only vacant, so a local program could listen there and relay CONNECT, and the
+bypass let WebRTC reach every local port, a local TURN server or relay
+included. Measured 2026-10-28 in Session 0 (Electron 44.2.0; the app panel
+frame and the presentation viewer, each with its production seal): with the
+old seal a CONNECT relay bound port 1 and carried the frame's TURN connection
+to a stand-in outside host (127.0.0.2), and TURN and ICE over TCP reached two
+other 127.0.0.1 ports with script-chosen bytes. With the fix: 0 connections to
+either, 0 CONNECTs, the engine port still direct, and another process could
+not bind the dead proxy's port, plainly (AddressAlreadyInUse) or with
+SO_REUSEADDR (AccessDenied).
 
 Orgtree's renderer reaches nothing but its engine, so the UI is unaffected.
-What remains: TCP to other ports of 127.0.0.1 itself, never off the machine.
-Any new session or window that renders agent HTML must be sealed before it
-loads; never remove either layer. The inline presentation frame needs no code
+What remains: TCP to the engine's own port, never off the machine.
+Any new session or window that renders agent HTML must be sealed for the
+engine's origin before it loads; never remove either layer. The inline presentation frame needs no code
 of its own: it is a sandboxed `srcdoc` iframe in the window session, so both
 layers already reach it (the UDP policy covers a webContents' subframes, the
 session proxy covers every frame in the session). Measured with both layers

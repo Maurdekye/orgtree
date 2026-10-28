@@ -537,8 +537,12 @@ request.
   UDP socket picks the address itself as its source; nothing is sent), and the
   client connects only to the vetted address, so DNS rebinding cannot move it.
   Redirects are followed by hand, at most 5, each hop re-checked against the
-  grant and the resolver; 307/308 keep method and body, others continue as GET;
-  Authorization is dropped when the host changes.
+  grant and the resolver; 307/308 keep method and body, others continue as GET.
+  A hop to another host or port carries only Accept, Accept-Language,
+  Content-Language and Content-Type (`CROSS_SITE_HEADERS`, the CORS-safelisted
+  names); Authorization, X-API-Key and every other app header stay behind for
+  the rest of the request (4.5.0 review B8; until 2026-10-28 only
+  Authorization was dropped).
 - Logs name app, panel and capability only. URLs, headers and bodies are private
   app content (`trace::private_app`; `Fetched` has an opaque Debug).
 
@@ -561,6 +565,10 @@ Verification (measured 2026-10-27, Session 0, one build-slot permit):
   with the clipboard and permissions refused.
 - Renderer `customapps*` 55/55. The new tests fail 4/4 against the base app
   sources.
+
+Measured 2026-10-28 (review B8, Session 0, one build-slot permit): engine
+`domain::apps` 74/74 at the fix. Against the base, the new redirect test was
+the only failure (73/74): X-API-Key and X-Session reached the second host.
 
 ## Readable ids (2026-10-27)
 
@@ -880,9 +888,9 @@ the envelope check. The bridge rechecks engine-side app revision, panel and
 capability and invalidates mounted sessions on code replacement/closure. Self-navigation network containment
 requires native-window verification before a no-network execution claim.
 WebRTC is outside CSP: since 2026-10-27 main seals it for every webContents
-(no UDP) and for the window session (a proxy that does not exist for all TCP but
-the engine's host 127.0.0.1), measured closed on panel frames, chat HTML replies
-and inline and windowed presentations. See [sandboxed agent HTML](../agents/desktop-and-renderer.md#sandboxed-agent-html-has-no-network-webrtc-included-2026-10-27-450).
+(no UDP) and for the window session (all TCP to a dead proxy main holds, with
+only the engine's own port direct since 2026-10-28), measured closed on panel
+frames, chat HTML replies and inline and windowed presentations. See [sandboxed agent HTML](../agents/desktop-and-renderer.md#sandboxed-agent-html-has-no-network-webrtc-included-2026-10-27-450).
 
 The async SDK is window.orgtree state.get/set/patch/onChange; storage.getItem,
 setItem, removeItem, clear; on(name,fn); emit(name,payload). Storage values are
