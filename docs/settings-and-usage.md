@@ -11,7 +11,7 @@ Use settings to make ordinary work easier first: text size, Enter behavior and t
 | Where | What it controls | Saving |
 | --- | --- | --- |
 | App settings | Appearance, typing, runtime, notifications, providers and future-org defaults. | Most switches save immediately; default-org fields use their own Save. |
-| Organization settings | This org's instructions, hire defaults, policies, allowed accounts and connections. | Basic/Hire defaults/Policies and Connections' inbox mode/holder policy share a footer Save; hub memberships and several other actions save immediately. |
+| Organization settings | This org's instructions, hire defaults, policies, allowed accounts and connections. | Ordinary edits save automatically (choices at once, text and numbers after a short pause) and a status line at the bottom reads *Saving changes…* or *Changes saved automatically*, with Retry if a save fails; Org charter keeps its own Save, and hub memberships and several other actions save immediately. There is no Close button: use the window's X. |
 | Agent settings | This agent's role, model/account and scope. | Buffered tabs share Save; Rename, lifecycle actions and the credit slider act separately. |
 
 Do not close a form assuming every visible edit was saved. A failed multi-part save may have applied an earlier part. Check the current state before retrying. A setting read that failed can display a fallback; it is not authoritative evidence of your stored value.

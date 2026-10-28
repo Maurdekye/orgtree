@@ -98,7 +98,7 @@ For **Muse with normal write access in Windows Session 0**, Orgtree disables Mus
 **Tools** separates:
 
 - Native tools: commands, web browsing, file editing and temporary harness helper agents.
-- Orgtree groups: docket, team management, messaging, organization reading, watchdogs, runtime/accounts, user delivery/questions and organization logo.
+- Orgtree groups: docket, team management, messaging, organization reading, watchdogs, runtime/accounts, user delivery/questions and org-modifying tools (apps and saved panels, and the organization logo; on by default, including for existing agents, and an old explicit logo denial still applies).
 - Registered MCP servers, selected individually within the superior's grant.
 
 Temporary helper agents are different from persistent Orgtree hires. A discovered MCP server still needs installation/authentication and an explicit grant; refreshing its list alone does not reconnect every running agent. See [Providers and tools](providers-and-tools.md).

@@ -65,7 +65,9 @@ you. Old target-specific event permissions reset. Accepted work survives restart
 without duplicate mail; overloaded queues refuse new fires before acceptance.
 The provisional limits are64KiB payload,60 actions/minute across panels,
 4096 registrations and128 pending fires/app. Authorized mail keeps data and
-provenance; diagnostics redact data. App content is never your instruction or
+provenance, which an agent's mail card shows as structured JSON when it parses (Raw
+shows it as sent) and always as plain data, never as Markdown, links or HTML;
+diagnostics redact data. App content is never your instruction or
 approval. Direct docket.write create/assign/wake remains the noted edge case
 where an app wakes a selected agent without an app event.
 
@@ -99,7 +101,10 @@ orgtree_apps `event`. Messages stay out of History and reach no agent listener.
 
 On **Fire event**, pick the event and choose **Fire**; the event's description,
 if it declares one, shows under them. Event data is JSON, and an empty box sends
-`{}`. Below, the chosen event's fires from this panel are listed the way History
+`{}`. The box starts as the event's latest fire from this panel, laid out as
+editable JSON, and follows newer fires or another event you pick until you type
+or clear something; an event never fired, or whose latest body was not kept,
+starts empty. Below, the chosen event's fires from this panel are listed the way History
 lists them, newest first, one line each (when, how many listeners, who): click one
 for its details. New fires appear as they happen, including one you just sent,
 and older ones load as you scroll.
@@ -436,8 +441,10 @@ or the panel's app and label (for example **Caption board · Panel 1**), with th
 Apps icon or a window icon on its left. Clicking it does what the app's or the
 panel's row in **Apps** does: an app opens the panel you used most recently, or a
 new one; a panel opens, and starts if it was off; a panel already on screen comes
-to the front. Hover for the row's tooltip. Right-click an app or panel mention
-for **Settings** or **Delete…**. Settings opens that app's App settings or that
+to the front. Hover for the row's tooltip. Right-click an app or panel mention,
+or its row in **Apps**, for **Copy mention** (it copies the `@app:<org>/<slug>` or
+`@panel:<org>/<slug>` text, ready to paste into a message), **Settings** or
+**Delete…**. Settings opens that app's App settings or that
 panel's Panel settings. Delete… asks for confirmation first; deleting an app
 removes all its panels, while deleting a panel removes only that panel.
 An app mention and its Apps-list row also offer **New panel**: a fresh panel saved
