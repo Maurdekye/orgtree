@@ -6,3 +6,10 @@
 .first-use-card { position: absolute; box-sizing: border-box; padding: 12px 14px; background: var(--panel, #242424); color: var(--text, #eee); border: 1px solid var(--accent, #b89474); border-radius: 8px; box-shadow: 0 6px 24px #0005; font-size: 14px; line-height: 1.4; }
 .first-use-card span { font-size: 11px; opacity: .75; }
 .first-use-card p { margin: 5px 0 0; }
+/* The guide ignores the pointer so the real controls under it keep working; only this button takes clicks. Its row
+   is laid over the note's top edge (same left/top/width, no height), so it sits on the "Getting started" line and
+   adds nothing to the note's height, which firstUsePlacement measures. */
+.first-use-dismiss-row { position: absolute; height: 0; }
+.first-use-dismiss { position: absolute; top: 9px; right: 10px; pointer-events: auto; cursor: pointer; font: inherit; font-size: 11px; line-height: 17px; padding: 0 6px; color: inherit; opacity: .75; background: transparent; border: 1px solid transparent; border-radius: 4px; }
+.first-use-dismiss:hover { opacity: 1; border-color: var(--accent, #b89474); }
+.first-use-dismiss:focus-visible { opacity: 1; outline: 2px solid var(--accent, #b89474); outline-offset: 1px; }

@@ -63,6 +63,13 @@ export function firstUseSent(slug: string, agent: string) {
   const p = firstUseProgress(slug)
   if (p?.step === 'message' && p.agent === agent) save(slug, { step: 'done' })
 }
+/** The note's Dismiss: from any step, ends the org's guide the same way finishing it does, so none of the
+ *  handlers above restarts it and the next launch does not show it. An org with no guide gets no record.
+ *  [decided: user 2026-10-28 me1fad212bab7 "allow the user to dismiss the initial intro 4-step intro tutorial"] */
+export function firstUseDismiss(slug: string) {
+  const p = firstUseProgress(slug)
+  if (p && p.step !== 'done') save(slug, { step: 'done' })
+}
 
 /** The ring and connector follow the REAL control through canvas transforms.
  * No intercepted clicks, synthetic actions, focus changes, or Next buttons.
@@ -174,6 +181,15 @@ export function FirstUseGuide({ slug, root, hidden = false }: {
     <div className="first-use-ring" aria-hidden="true" style={{ left: anchor.left - 4, top: anchor.top - 4, width: anchor.width + 8, height: anchor.height + 8 }} />
     <div ref={card} className="first-use-card" data-placement={anchor.hint?.side} style={{ left, top, width }} id={id} role="status" aria-live="polite" aria-atomic="true">
       <span>Getting started · {number} of 4</span><p>{text}</p>
+    </div>
+    {/* beside the note, not in it: the note is the live region the target is described by. The guide renders inside
+        the canvas viewport, whose onPointerDown starts a pan and captures the pointer, so the release would land on
+        the viewport and no click would reach the button (measured with a real mouse in the app composition probe,
+        2026-10-28); the pointer-down and the right-click stop here like the zoom HUD's. */}
+    <div className="first-use-dismiss-row" style={{ left, top, width }}>
+      <button type="button" className="first-use-dismiss" aria-label="Dismiss the Getting started guide"
+        onPointerDown={e => e.stopPropagation()} onContextMenu={e => e.stopPropagation()}
+        onClick={() => firstUseDismiss(slug)}>Dismiss</button>
     </div>
   </div>, document.body)
 }
