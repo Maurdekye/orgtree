@@ -20,6 +20,7 @@ const PROFILE_VARS = ['USERPROFILE', 'HOME', 'APPDATA', 'LOCALAPPDATA', 'TEMP', 
 // (engine providers/skills.rs and providers/mcp.rs): these move with the profile
 // too (4.5.0 high E16, review alpha8 b7e8e4998677 F1).
 const CONFIG_VARS = ['XDG_CONFIG_HOME', 'XDG_DATA_HOME', 'XDG_CACHE_HOME', 'XDG_STATE_HOME', 'OPENCODE_CONFIG_DIR']
+const XDG_VARS = CONFIG_VARS.filter(k => k.startsWith('XDG_'))
 // A credential cleanEnv's denylist does not know (4.5.0 high E15, review alpha8
 // ba1d8c7a1b50 F1): the stand-in must never write it to disk.
 const SENTINEL = 'rig-synthetic-home-sentinel-not-a-real-secret'
@@ -36,15 +37,17 @@ function scratch(ctx, label) {
   return dir
 }
 
-test('the keeper hands its engine the run\'s fake profile, not the host\'s', windows, ctx => {
+/** Runs the real keeper from a sentinel host profile with run.json fields
+ * `run`; returns what its stand-in engine recorded. */
+function keeperRecord(ctx, label, run = {}) {
   // The "real" profile is a sentinel outside the run, so the verdict does not depend on this machine.
-  const host = scratch(ctx, 'host')
+  const host = scratch(ctx, `${label}-host`)
   const hostProfile = path.join(host, 'real-profile')
-  const dir = scratch(ctx, 'run')
+  const dir = scratch(ctx, `${label}-run`)
   const data = path.join(dir, 'data')
   fs.mkdirSync(path.join(dir, 'bin'), { recursive: true })
   fs.mkdirSync(data, { recursive: true })
-  lib.writeRun(dir, { id: 'synthetic-home', dir, data, token: 'synthetic-token', pgBin: path.join(dir, 'no-pg'), status: 'starting', stopKillMs: 100 })
+  lib.writeRun(dir, { id: 'synthetic-home', dir, data, token: 'synthetic-token', pgBin: path.join(dir, 'no-pg'), status: 'starting', stopKillMs: 100, ...run })
   const standIn = path.join(dir, 'bin', 'orgtree-engine.exe')
   try { fs.linkSync(process.execPath, standIn) } catch { fs.copyFileSync(process.execPath, standIn) }
   // The stand-in records the profile variables (paths of this synthetic run)
@@ -73,8 +76,12 @@ test('the keeper hands its engine the run\'s fake profile, not the host\'s', win
   const r = childProcess.spawnSync(process.execPath, [path.join(RIG, 'keeper.mjs'), dir],
     { env: hostEnv, cwd: dir, encoding: 'utf8', timeout: 120000, windowsHide: true })
   assert.equal(r.status, 0, `keeper exited ${r.status}: ${r.stderr}\n${fs.existsSync(path.join(dir, 'keeper.log')) ? '' : r.stdout}`)
-
   const record = fs.readFileSync(path.join(dir, 'child-env.json'), 'utf8')
+  return { record, ...JSON.parse(record), dir, hostProfile, hostEnv }
+}
+
+test('the keeper hands its engine the run\'s fake profile, not the host\'s', windows, ctx => {
+  const { record, dir, hostProfile } = keeperRecord(ctx, 'fake')
   assert.ok(!record.includes(SENTINEL), 'the stand-in wrote the engine\'s environment to disk, a credential included')
   const { profile: seen, leaks } = JSON.parse(record)
   for (const k of [...PROFILE_VARS, ...CONFIG_VARS]) {
@@ -88,6 +95,28 @@ test('the keeper hands its engine the run\'s fake profile, not the host\'s', win
   assert.deepEqual(leaks.map(k => k.toUpperCase()), ['RIG_TEST_HOST_MENTION'],
     'no variable the engine sees mentions the host profile, except the planted control (so the check sees every variable)')
   for (const k of ['APPDATA', 'LOCALAPPDATA', 'TEMP']) assert.ok(fs.statSync(seen[k]).isDirectory(), `${k} folder exists`)
+})
+
+// `up --real-muse` is an explicitly authorized real lane: the installed Muse
+// Code finds its signed-in config and its session logs through the host's XDG
+// roots, so the keeper keeps those, and only those (review b55d99ef7895 F1).
+test('with --real-muse the keeper keeps the host\'s XDG roots and nothing else of its profile', windows, ctx => {
+  const { record, profile: seen, leaks, dir, hostEnv } = keeperRecord(ctx, 'muse', { realMuse: 'Z:\\not-run\\muse-bin-9.9.9.exe' })
+  assert.ok(!record.includes(SENTINEL), 'the stand-in wrote the engine\'s environment to disk, a credential included')
+  for (const k of XDG_VARS) assert.equal(seen[k], hostEnv[k], `${k} is the host's signed-in root`)
+  for (const k of [...PROFILE_VARS, 'OPENCODE_CONFIG_DIR']) assert.ok(under(seen[k], dir), `${k} stays inside the run (${seen[k]})`)
+  assert.deepEqual(leaks.map(k => k.toUpperCase()).sort(), [...XDG_VARS, 'RIG_TEST_HOST_MENTION'].sort(),
+    'only the XDG roots (and the planted control) name the host profile')
+})
+
+test('rigProfileEnv keeps the host\'s XDG roots only when given them (the --real-muse lane)', windows, () => {
+  const data = 'Z:\\runs\\r1\\data'
+  const host = { XDG_CONFIG_HOME: 'Y:\\host\\config', XDG_DATA_HOME: 'Y:\\host\\data', OPENCODE_CONFIG_DIR: 'Y:\\host\\opencode', USERPROFILE: 'Y:\\host' }
+  const fake = lib.rigProfileEnv(data, { create: false })
+  const muse = lib.rigProfileEnv(data, { create: false, hostXdg: host })
+  assert.deepEqual([muse.XDG_CONFIG_HOME, muse.XDG_DATA_HOME], [host.XDG_CONFIG_HOME, host.XDG_DATA_HOME], 'the roots the host sets are kept')
+  // a root the host does not set, OpenCode's folder and the profile itself stay the fake profile's
+  for (const k of ['XDG_CACHE_HOME', 'XDG_STATE_HOME', 'OPENCODE_CONFIG_DIR', ...PROFILE_VARS]) assert.equal(muse[k], fake[k], k)
 })
 
 test('rigProfileEnv moves every profile variable together under the run', windows, ctx => {
