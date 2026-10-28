@@ -88,13 +88,46 @@ export function protectedRootsEnvironment(inherited = process.env) {
   return value
 }
 
-export function assertSafeRoot(dir) {
-  const resolved = path.resolve(dir)
-  if (path.parse(resolved).root.toLowerCase() === lower(resolved) + '\\') throw new Error(`refusing a drive root as the rig home: ${resolved}`)
-  for (const live of liveRoots()) {
-    if (inside(resolved, live) || inside(live, resolved)) throw new Error(`refusing ${resolved}: it overlaps the live Orgtree data folder ${live}`)
+// The guard reads the real file system, so a test that mocks fs cannot blind it.
+const realpathNative = fs.realpathSync.native
+const lstatSync = fs.lstatSync
+
+/** Where `p` really leads: its deepest existing folder resolved through
+ * symlinks, junctions, short names and substituted drives
+ * (fs.realpathSync.native), with the parts not made yet appended, so a home
+ * resolves before it exists. A link that cannot be followed is refused. */
+export function realPath(p) {
+  const resolved = path.resolve(p), rest = []
+  for (let at = resolved; ; at = path.dirname(at)) {
+    try { return path.join(realpathNative(at), ...rest.reverse()) } catch (e) {
+      let link = false
+      try { link = lstatSync(at).isSymbolicLink() } catch {}
+      if (link || !['ENOENT', 'ENOTDIR'].includes(e.code)) throw new Error(`refusing ${resolved}: ${at} cannot be resolved (${e.code})`)
+    }
+    if (path.dirname(at) === at) return resolved
+    rest.push(path.basename(at))
   }
-  if (inside(resolved, REPO)) throw new Error(`refusing ${resolved}: rig data never goes inside the repository`)
+}
+
+/** Refuses a rig root (a home, a run's data) that is a drive root, overlaps
+ * live Orgtree data or lies in the repository, by its path and by where it
+ * really leads: a junction or symlink among its folders could otherwise point
+ * a lexically safe home into live data (review 21aad97e581a F1). */
+export function assertSafeRoot(dir) {
+  const resolved = path.resolve(dir), real = realPath(resolved)
+  const shown = lower(real) === lower(resolved) ? resolved : `${resolved} (really ${real})`
+  const leads = p => { try { return realPath(p) } catch { return path.resolve(p) } }
+  for (const at of [resolved, real]) {
+    if (path.parse(at).root.toLowerCase() === lower(at) + '\\') throw new Error(`refusing a drive root as the rig home: ${shown}`)
+    for (const live of liveRoots()) {
+      for (const l of [live, leads(live)]) {
+        if (inside(at, l) || inside(l, at)) throw new Error(`refusing ${shown}: it overlaps the live Orgtree data folder ${live}`)
+      }
+    }
+    for (const repo of [REPO, leads(REPO)]) {
+      if (inside(at, repo)) throw new Error(`refusing ${shown}: rig data never goes inside the repository`)
+    }
+  }
 }
 
 // ------------------------------------------------------------ processes (Windows)
