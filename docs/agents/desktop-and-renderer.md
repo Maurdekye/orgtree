@@ -67,15 +67,20 @@ transport open (measured):
   viewer kept a lost engine's port direct, and a local relay could take that
   freed port (review of 7924322). What remains is the gap between an engine's
   exit and the desktop noticing it.
-- A failed seal fails closed. The session's `shut` runs before the step ends:
-  a viewer is destroyed and its session forgotten; every window on the window
-  session, main windows and popouts alike, is destroyed, and one error dialog
-  says why. The window session stays unsealed until a seal of it applies, and
-  `sandboxSealed()` is false meanwhile. Main reloads or rebuilds windows after
-  a recovery, and opens a new one, only when it is true. Until 2026-10-28 a
-  failed reseal was only logged and `sandboxSealed` settled anyway, and
-  Promise.all let the next seal begin while a slower update was still
-  pending, which could then land last (review of f6e8a6c).
+- A failed seal fails closed. The session's `shut` runs as soon as its own
+  update fails, or has not settled within 10 s, without waiting for the other
+  sessions' updates: a viewer is destroyed and its session forgotten; every
+  window on the window session, main windows and popouts alike, is destroyed,
+  and one error dialog says why. The window session stays unsealed until a
+  seal of it applies, and `sandboxSealed()` is false meanwhile. Main reloads
+  or rebuilds windows after a recovery, and opens a new one, only when it is
+  true. An update that never settles still holds back the seals queued after
+  it, and `sandboxSealed()` with them, because letting them run could let it
+  land last. Until 2026-10-28 a failed reseal was only logged and
+  `sandboxSealed` settled anyway; Promise.all let the next seal begin while a
+  slower update was still pending, which could then land last (review of
+  f6e8a6c); and a failed session was shut only once every other session's
+  update had settled (review of 7cf4a3e).
 
 Until 2026-10-28 the proxy was `127.0.0.1:1` with bypass
 `<-loopback>;127.0.0.1` (4.5.0 review B6/B7, c3068e98c63c F1/F2). Port 1 was
