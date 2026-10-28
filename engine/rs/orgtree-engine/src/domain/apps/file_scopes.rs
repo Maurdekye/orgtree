@@ -261,7 +261,7 @@ impl Registry{
     let value=snapshot(engine,&change.bound).await?;let grant=grant_for(engine,&change.bound,&change.session,&value,&change.path,"write").await?;
     if grant.id!=change.grant{crate::refuse!(Conflict,"file grant changed; request the change again");}
     if let Some(caller)=&change.caller{agent_mode(engine,org,caller,&change.path,true).await?;}
-    let journal=engine.cfg.path(files::io::RECOVERY);crate::trace::private_app_blocking(move||files::io::commit(change.io,&journal)).await?
+    let (journal,run)=(engine.cfg.path(files::io::RECOVERY),engine.boot.id.clone());crate::trace::private_app_blocking(move||files::io::commit(change.io,&journal,&run)).await?
 }
 #[nolog]async fn agent_mode(engine:&Arc<Engine>,org:&Arc<OrgHandle>,caller:&Caller,path:&Path,write:bool)->Result<()>{
     if !write{

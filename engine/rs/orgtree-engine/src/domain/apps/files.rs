@@ -10,7 +10,7 @@ pub(crate) const RECOVERY:&str=io::RECOVERY;
 /// Engine start: settles app file replacements a stop interrupted (4.5.0
 /// review C12). Answers how many records were settled and how many wait.
 #[nolog]
-pub(crate) fn recover_changes(journal:&Path)->(usize,usize){io::recover(journal)}
+pub(crate) fn recover_changes(journal:&Path,run:&str)->(usize,usize){io::recover(journal,run)}
 
 pub(super) struct Directory {pub(super) path:PathBuf,_handles:Vec<File>}
 #[nolog]
@@ -210,10 +210,10 @@ pub(super) fn scoped_path(root:&Path,suffix:&str)->Result<PathBuf>{
                 assert_eq!(read(&p,exported.to_str().unwrap())?,bundle);
                 #[cfg(windows)] {
                     let target=selected.join("created.txt");let journal=std::env::temp_dir().join(crate::util::uid("apps-journal"));
-                    io::commit(io::prepare(&target,Some(b"new".to_vec()),false)?,&journal)?;
-                    io::commit(io::prepare(&target,Some(b"replacement".to_vec()),true)?,&journal)?;
+                    io::commit(io::prepare(&target,Some(b"new".to_vec()),false)?,&journal,"test-run")?;
+                    io::commit(io::prepare(&target,Some(b"replacement".to_vec()),true)?,&journal,"test-run")?;
                     assert_eq!(std::fs::read(&target)?,b"replacement");
-                    io::commit(io::prepare(&target,None,false)?,&journal)?;assert!(!target.exists());let _=std::fs::remove_dir_all(&journal);
+                    io::commit(io::prepare(&target,None,false)?,&journal,"test-run")?;assert!(!target.exists());let _=std::fs::remove_dir_all(&journal);
                 }
                 tracing::warn!(path=%selected.display(),marker=MANUAL,"private worker manual event");
                 Ok((bytes,exported,crate::trace::app_private()))

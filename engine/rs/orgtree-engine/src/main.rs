@@ -310,9 +310,9 @@ async fn run_with_cluster(
     });
     // app file replacements a stop interrupted put their originals back (4.5.0 review C12)
     tokio::spawn({
-        let journal = engine.cfg.path(domain::apps::files::RECOVERY);
+        let (journal, run) = (engine.cfg.path(domain::apps::files::RECOVERY), engine.boot.id.clone());
         async move {
-            if let Ok((settled, waiting)) = trace::private_app_blocking(move || domain::apps::files::recover_changes(&journal)).await {
+            if let Ok((settled, waiting)) = trace::private_app_blocking(move || domain::apps::files::recover_changes(&journal, &run)).await {
                 if settled + waiting > 0 {
                     tracing::info!(settled, waiting, "interrupted app file replacements");
                 }

@@ -107,7 +107,7 @@ pub(in crate::domain::apps) fn prepare(path:&Path,data:Option<Vec<u8>>,replace:b
 struct Pending{directory:PathBuf,name:String,stage:String,backup:String,sha256:String}
 #[cfg(windows)]
 #[nolog]
-fn record(journal:&Path,pending:&Pending)->Result<PathBuf>{
+fn record(journal:&Path,_run:&str,pending:&Pending)->Result<PathBuf>{
     std::fs::create_dir_all(journal).context("app file recovery folder")?;
     let path=journal.join(crate::util::uid("replace-")+".json");
     let mut file=OpenOptions::new().write(true).create_new(true).open(&path).context("create app file recovery record")?;
@@ -143,20 +143,23 @@ fn rename(file:&File,dir:&Directory,name:&str)->Result<()>{
 /// The engine data folder that records replacements in progress.
 pub(in crate::domain::apps) const RECOVERY:&str="app-file-recovery";
 #[nolog]
-pub(in crate::domain::apps) fn commit(change:Change,journal:&Path)->Result<Value>{
-    commit_with(change,journal,||{})
+pub(in crate::domain::apps) fn commit(change:Change,journal:&Path,run:&str)->Result<Value>{
+    commit_with(change,journal,run,||{},||{})
 }
+/// Test seams: `recorded` runs once a replacement's record is flushed, before
+/// anything is staged; `between` just before the staged bytes are published.
 #[nolog]
-fn commit_with(change:Change,journal:&Path,between:impl FnOnce())->Result<Value>{
+fn commit_with(change:Change,journal:&Path,run:&str,recorded:impl FnOnce(),between:impl FnOnce())->Result<Value>{
     #[cfg(windows)] {
         let Change{dir,name,target,data,detail}=change;
         if let Some(old)=&target{verify(old,&dir.path.join(&name))?;}
         if let Some(data)=data{
             let staged_name=crate::util::uid(".orgtree-app-save");let backup=crate::util::uid(".orgtree-app-recovery");
             let pending=match &target{
-                Some(_)=>Some(record(journal,&Pending{directory:dir.path.clone(),name:name.clone(),stage:staged_name.clone(),backup:backup.clone(),sha256:detail["sha256"].as_str().unwrap_or_default().into()})?),
+                Some(_)=>Some(record(journal,run,&Pending{directory:dir.path.clone(),name:name.clone(),stage:staged_name.clone(),backup:backup.clone(),sha256:detail["sha256"].as_str().unwrap_or_default().into()})?),
                 None=>None,
             };
+            if pending.is_some(){recorded();}
             // Every outcome below is final, so its record goes; only a stop leaves it.
             let settled=||{if let Some(path)=&pending{let _=std::fs::remove_file(path);}};
             let mut stage=match anchored_access(dir._handles.last().expect("pinned directory"),OsStr::new(&staged_name),false,true,true){Ok(stage)=>stage,Err(error)=>{settled();return Err(error)}};
@@ -181,7 +184,7 @@ fn commit_with(change:Change,journal:&Path,between:impl FnOnce())->Result<Value>
         }else{delete_handle(target.as_ref().expect("checked deletion target"))?;}
         Ok(json!({"changed":true,"operation":detail["operation"],"bytes":detail["bytes"],"sha256":detail["sha256"]}))
     }
-    #[cfg(not(windows))] {let _=change;crate::refuse!(Forbidden,"confirmed file changes require Windows in this release");}
+    #[cfg(not(windows))] {let _=(change,journal,run,recorded,between);crate::refuse!(Forbidden,"confirmed file changes require Windows in this release");}
 }
 /// Engine start: settles each replacement a stop interrupted (4.5.0 review
 /// C12). The original goes back under its name unless another file took the
@@ -190,7 +193,7 @@ fn commit_with(change:Change,journal:&Path,between:impl FnOnce())->Result<Value>
 /// folder cannot be opened now (say, a drive not connected) waits for a later
 /// start. Answers how many records were settled and how many wait.
 #[nolog]
-pub(in crate::domain::apps) fn recover(journal:&Path)->(usize,usize){
+pub(in crate::domain::apps) fn recover(journal:&Path,_run:&str)->(usize,usize){
     let Ok(records)=std::fs::read_dir(journal) else{return (0,0)};let (mut settled,mut waiting)=(0,0);
     for path in records.flatten().map(|e|e.path()).filter(|p|p.extension().is_some_and(|e|e=="json")){
         let done=match std::fs::read(&path){
@@ -242,11 +245,11 @@ fn settle(_pending:&Pending)->Result<()>{Ok(())}
             let root=dir.ancestors().last().unwrap();let untouched=root.join(crate::util::uid("app-unwritten-root-probe"));
             drop(prepare(&untouched,Some(b"not written".to_vec()),false).unwrap());assert!(!untouched.exists());
             assert!(prepare(&dir.join("old.txt"),Some(vec![0;WRITE_MAX+1]),true).is_err());assert!(prepare(&dir.join("old.txt"),Some(b"new".to_vec()),false).is_err());
-            let change=prepare(&dir.join("old.txt"),Some(b"new".to_vec()),true).unwrap();assert!(std::fs::write(dir.join("old.txt"),b"raced").is_err());commit(change,&journal).unwrap();assert_eq!(std::fs::read(dir.join("old.txt")).unwrap(),b"new");
-            commit(prepare(&dir.join("new.txt"),Some(b"created".to_vec()),false).unwrap(),&journal).unwrap();assert_eq!(std::fs::read(dir.join("new.txt")).unwrap(),b"created");
-            let change=prepare(&dir.join("old.txt"),None,false).unwrap();commit(change,&journal).unwrap();assert!(!dir.join("old.txt").exists());
+            let change=prepare(&dir.join("old.txt"),Some(b"new".to_vec()),true).unwrap();assert!(std::fs::write(dir.join("old.txt"),b"raced").is_err());commit(change,&journal,"run-a").unwrap();assert_eq!(std::fs::read(dir.join("old.txt")).unwrap(),b"new");
+            commit(prepare(&dir.join("new.txt"),Some(b"created".to_vec()),false).unwrap(),&journal,"run-a").unwrap();assert_eq!(std::fs::read(dir.join("new.txt")).unwrap(),b"created");
+            let change=prepare(&dir.join("old.txt"),None,false).unwrap();commit(change,&journal,"run-a").unwrap();assert!(!dir.join("old.txt").exists());
             std::fs::write(dir.join("conflict.txt"),b"original").unwrap();let change=prepare(&dir.join("conflict.txt"),Some(b"replacement".to_vec()),true).unwrap();
-            let result=commit_with(change,&journal,||std::fs::write(dir.join("conflict.txt"),b"concurrent destination").unwrap()).unwrap();
+            let result=commit_with(change,&journal,"run-a",||{},||std::fs::write(dir.join("conflict.txt"),b"concurrent destination").unwrap()).unwrap();
             assert_eq!(result["changed"],false);assert_eq!(std::fs::read(dir.join("conflict.txt")).unwrap(),b"concurrent destination");
             assert_eq!(std::fs::read(dir.join(result["recovery_name"].as_str().unwrap())).unwrap(),b"original");
             // every change that ran to its end leaves no recovery record behind
@@ -261,9 +264,9 @@ fn settle(_pending:&Pending)->Result<()>{Ok(())}
             let dir=std::env::temp_dir().join(crate::util::uid("apps-stop"));std::fs::create_dir(&dir).unwrap();
             let journal=std::env::temp_dir().join(crate::util::uid("apps-journal"));std::fs::write(dir.join("keep.txt"),b"original").unwrap();
             let change=prepare(&dir.join("keep.txt"),Some(b"replacement".to_vec()),true).unwrap();
-            let stop=std::panic::catch_unwind(std::panic::AssertUnwindSafe(||commit_with(change,&journal,||panic!("synthetic engine stop between the two renames"))));
+            let stop=std::panic::catch_unwind(std::panic::AssertUnwindSafe(||commit_with(change,&journal,"run-a",||{},||panic!("synthetic engine stop between the two renames"))));
             assert!(stop.is_err());assert!(!dir.join("keep.txt").exists(),"the stop left the target missing");
-            recover(&journal);
+            recover(&journal,"run-b");
             assert_eq!(std::fs::read(dir.join("keep.txt")).ok().as_deref(),Some(&b"original"[..]),"the next start restores the original");
             let names:Vec<String>=std::fs::read_dir(&dir).unwrap().map(|e|e.unwrap().file_name().to_string_lossy().into_owned()).collect();
             assert_eq!(names,["keep.txt"],"no recovery or staged copy is left behind");
@@ -281,15 +284,69 @@ fn settle(_pending:&Pending)->Result<()>{Ok(())}
             let sha=|bytes:&[u8]|hex::encode(Sha256::digest(bytes));
             let pending=|name:&str|Pending{directory:dir.clone(),name:name.into(),stage:format!(".orgtree-app-save-{name}"),backup:format!(".orgtree-app-recovery-{name}"),sha256:sha(b"new")};
             std::fs::write(dir.join("published.txt"),b"new").unwrap();std::fs::write(dir.join(".orgtree-app-recovery-published.txt"),b"old").unwrap();
-            record(&journal,&pending("published.txt")).unwrap();
+            record(&journal,"run-a",&pending("published.txt")).unwrap();
             std::fs::write(dir.join("taken.txt"),b"another file").unwrap();std::fs::write(dir.join(".orgtree-app-recovery-taken.txt"),b"old").unwrap();
-            std::fs::write(dir.join(".orgtree-app-save-taken.txt"),b"new").unwrap();record(&journal,&pending("taken.txt")).unwrap();
-            let mut away=pending("away.txt");away.directory=dir.join("not-connected");record(&journal,&away).unwrap();
-            assert_eq!(recover(&journal),(2,1));
+            std::fs::write(dir.join(".orgtree-app-save-taken.txt"),b"new").unwrap();record(&journal,"run-a",&pending("taken.txt")).unwrap();
+            let mut away=pending("away.txt");away.directory=dir.join("not-connected");record(&journal,"run-a",&away).unwrap();
+            assert_eq!(recover(&journal,"run-b"),(2,1));
             assert_eq!(std::fs::read(dir.join("published.txt")).unwrap(),b"new");assert!(!dir.join(".orgtree-app-recovery-published.txt").exists());
             assert_eq!(std::fs::read(dir.join("taken.txt")).unwrap(),b"another file");assert_eq!(std::fs::read(dir.join(".orgtree-app-recovery-taken.txt")).unwrap(),b"old");
             assert!(!dir.join(".orgtree-app-save-taken.txt").exists());
             assert_eq!(std::fs::read_dir(&journal).unwrap().count(),1,"only the unreachable record waits");
+            std::fs::remove_dir_all(&dir).unwrap();std::fs::remove_dir_all(&journal).unwrap();
+        }
+    }
+    // 4.5.0 review C12 F1 (36a0bdf): a start's recovery runs while panels are served. Finding a
+    // replacement's fresh record before anything was staged, it settled and removed it, so a stop
+    // after the original moved aside left nothing to restore. A start settles only the records
+    // an earlier engine run left.
+    #[test]fn app_files_a_start_never_settles_a_live_replacement_of_its_own_run(){
+        #[cfg(windows)]{
+            let dir=std::env::temp_dir().join(crate::util::uid("apps-live"));std::fs::create_dir(&dir).unwrap();
+            let journal=std::env::temp_dir().join(crate::util::uid("apps-journal"));std::fs::write(dir.join("keep.txt"),b"original").unwrap();
+            let change=prepare(&dir.join("keep.txt"),Some(b"replacement".to_vec()),true).unwrap();let mut during=None;
+            let stop=std::panic::catch_unwind(std::panic::AssertUnwindSafe(||commit_with(change,&journal,"run-a",||during=Some(recover(&journal,"run-a")),||panic!("synthetic engine stop between the two renames"))));
+            assert!(stop.is_err());assert!(!dir.join("keep.txt").exists(),"the stop left the target missing");
+            let next=recover(&journal,"run-b");
+            assert_eq!(std::fs::read(dir.join("keep.txt")).ok().as_deref(),Some(&b"original"[..]),"the next run restores the original");
+            assert_eq!((during,next),(Some((0,0)),(1,0)),"the run's own recovery left its live record to the next run");
+            let names:Vec<String>=std::fs::read_dir(&dir).unwrap().map(|e|e.unwrap().file_name().to_string_lossy().into_owned()).collect();
+            assert_eq!(names,["keep.txt"],"no recovery or staged copy is left behind");
+            std::fs::remove_dir_all(&dir).unwrap();let _=std::fs::remove_dir_all(&journal);
+        }
+    }
+    // 4.5.0 review C12 F2 (36a0bdf): staged bytes left behind were never published, so a file
+    // another program put under the name is not the change's, even with the very bytes the change
+    // would have published: the original stays beside it.
+    #[test]fn app_files_identical_bytes_under_the_name_do_not_prove_a_replacement_published(){
+        #[cfg(windows)]{
+            let dir=std::env::temp_dir().join(crate::util::uid("apps-same"));std::fs::create_dir(&dir).unwrap();
+            let journal=std::env::temp_dir().join(crate::util::uid("apps-journal"));
+            std::fs::write(dir.join("same.txt"),b"new").unwrap();std::fs::write(dir.join(".orgtree-app-recovery-same"),b"original").unwrap();std::fs::write(dir.join(".orgtree-app-save-same"),b"new").unwrap();
+            record(&journal,"run-a",&Pending{directory:dir.clone(),name:"same.txt".into(),stage:".orgtree-app-save-same".into(),backup:".orgtree-app-recovery-same".into(),sha256:hex::encode(Sha256::digest(b"new"))}).unwrap();
+            assert_eq!(recover(&journal,"run-b"),(1,0));
+            assert_eq!(std::fs::read(dir.join(".orgtree-app-recovery-same")).ok().as_deref(),Some(&b"original"[..]),"the original stays beside the other file");
+            assert_eq!(std::fs::read(dir.join("same.txt")).unwrap(),b"new");assert!(!dir.join(".orgtree-app-save-same").exists(),"the unpublished staged bytes go");
+            std::fs::remove_dir_all(&dir).unwrap();std::fs::remove_dir_all(&journal).unwrap();
+        }
+    }
+    // 4.5.0 review C12 F3 (36a0bdf): a name that cannot be read now (another program holds it
+    // without sharing) proves nothing, so the record waits; a later start restores the original
+    // once the name is free.
+    #[test]fn app_files_a_target_that_cannot_be_read_now_keeps_its_record_for_a_later_start(){
+        #[cfg(windows)]{
+            use std::os::windows::fs::OpenOptionsExt;
+            let dir=std::env::temp_dir().join(crate::util::uid("apps-held"));std::fs::create_dir(&dir).unwrap();
+            let journal=std::env::temp_dir().join(crate::util::uid("apps-journal"));
+            std::fs::write(dir.join("held.txt"),b"other program").unwrap();std::fs::write(dir.join(".orgtree-app-recovery-held"),b"original").unwrap();std::fs::write(dir.join(".orgtree-app-save-held"),b"new").unwrap();
+            record(&journal,"run-a",&Pending{directory:dir.clone(),name:"held.txt".into(),stage:".orgtree-app-save-held".into(),backup:".orgtree-app-recovery-held".into(),sha256:hex::encode(Sha256::digest(b"new"))}).unwrap();
+            let held=std::fs::OpenOptions::new().read(true).write(true).share_mode(0).open(dir.join("held.txt")).unwrap();
+            assert_eq!(recover(&journal,"run-b"),(0,1),"the record waits while the name cannot be read");
+            drop(held);std::fs::remove_file(dir.join("held.txt")).unwrap();
+            assert_eq!(recover(&journal,"run-c"),(1,0));
+            assert_eq!(std::fs::read(dir.join("held.txt")).ok().as_deref(),Some(&b"original"[..]),"a later start restores the original once the name is free");
+            let names:Vec<String>=std::fs::read_dir(&dir).unwrap().map(|e|e.unwrap().file_name().to_string_lossy().into_owned()).collect();
+            assert_eq!(names,["held.txt"],"no recovery or staged copy is left behind");
             std::fs::remove_dir_all(&dir).unwrap();std::fs::remove_dir_all(&journal).unwrap();
         }
     }
