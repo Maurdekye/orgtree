@@ -1430,6 +1430,30 @@ mod startup_card_tests {
         assert_eq!(card["inputSchema"]["required"], json!(["title"]), "slug stays optional");
     }
 
+    /// USER 2026-10-28 m5952056229d3 ("also allow question bodies to have
+    /// formstted msrkdown, latex, and mentionnlinks embedded"): the ask card
+    /// tells agents that question text and option descriptions render
+    /// Markdown, LaTeX and mention links as chat does, and that a label, which
+    /// is short button text, keeps mentions as text.
+    #[test]
+    fn ask_card_says_question_text_renders_like_chat() {
+        let card = build_tool_ask();
+        let says = |text: &Value, needed: &[&str]| {
+            let text = text.as_str().unwrap_or_default();
+            for word in needed {
+                assert!(text.contains(word), "{text:?} lacks {word}");
+            }
+        };
+        let rendered = ["Markdown", "LaTeX", "@mentions"];
+        says(&card["description"], &rendered);
+        let props = &card["inputSchema"]["properties"];
+        says(&props["question"]["description"], &rendered);
+        for options in [&props["options"], &props["questions"]["items"]["properties"]["options"]] {
+            says(&options["items"]["properties"]["description"]["description"], &rendered);
+            says(&options["items"]["properties"]["label"]["description"], &["mentions stay text"]);
+        }
+    }
+
     #[test]
     fn startup_card_measurements() {
         if let Some(file) = std::env::var_os("ORGTREE_TOOL_CARDS_FILE") {
@@ -2065,6 +2089,21 @@ mod builder_stack_tests {
         for key in ["done_so_far", "working_on_next", "done_append", "next_append", "expected_rev"] {
             work["inputSchema"]["properties"][key] = got["inputSchema"]["properties"][key].clone();
         }
+        // Question bodies render like chat (USER 2026-10-28 m5952056229d3,
+        // docket question-cards-render-markdown-latex-and-mention): one sentence
+        // on the ask card, and the question and option text fields, whose words
+        // ask_card_says_question_text_renders_like_chat holds. Nothing else.
+        let ask = expected.as_array_mut().unwrap().iter_mut().find(|c| c["name"] == "orgtree_ask").unwrap();
+        let old = "options or free text.";
+        assert_eq!(ask["description"].as_str().unwrap().matches(old).count(), 1);
+        ask["description"] = json!(ask["description"].as_str().unwrap()
+            .replacen(old, "options or free text. Questions/descriptions render Markdown, LaTeX, @mentions.", 1));
+        let got = actual.iter().find(|c| c["name"] == "orgtree_ask").unwrap();
+        for key in ["question", "options"] {
+            ask["inputSchema"]["properties"][key] = got["inputSchema"]["properties"][key].clone();
+        }
+        ask["inputSchema"]["properties"]["questions"]["items"]["properties"]["options"] =
+            got["inputSchema"]["properties"]["questions"]["items"]["properties"]["options"].clone();
         assert!(serde_json::to_vec(&super::all()).unwrap() == serde_json::to_vec(&expected).unwrap(),
             "all() JSON differs from the pre-split capture beyond the approved project-presentation description");
     }
