@@ -21,6 +21,8 @@ function server(slug:string){
     assert.equal(url.pathname,`/api/orgs/${slug}/apps`)
     let out:unknown
     if(input.action==='list')out={items:input.kind==='apps'?[app]:[],next_cursor:null}
+    // App settings re-read the app before opening, as an @app link's do (d5d2bbb)
+    else if(input.action==='app_get')out=app
     else if(input.action==='app_export')out={bundle,panels:1}
     else if(input.action==='app_import')out={imported:'fresh',app:{...app,id:'fresh',permissions:{}},panels:[{id:'fresh-copy',open:false}]}
     else throw Error('Unexpected '+JSON.stringify(input))
