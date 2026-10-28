@@ -79,10 +79,13 @@ async function drive(args, size, options = {}) {
       else if (target?.text === 'Use machine default') {
         assert(account); assert.equal(pending, null, 'previous edit persisted before reset')
         account = ''; pending = { value: '', remaining: 3 }
-      } else if (target?.selector === 'button[aria-label="Close organization settings"]') {
-        assert.equal(stored, '', 'restore the machine default before closing'); assert.equal(pending, null)
-        open = false; seen.closes++
       } else throw new Error(`obsolete control: ${JSON.stringify(target)}`)
+    },
+    // Org settings has no footer Close (USER 2026-10-28 m3291e5890d55): Escape closes it.
+    async press(key) {
+      assert.equal(key, 'Escape'); assert(open, 'Escape closes the open settings')
+      assert.equal(stored, '', 'restore the machine default before closing'); assert.equal(pending, null)
+      open = false; seen.closes++
     },
     async waitFor(target, { gone = false } = {}) {
       for (let i=0; i<5; i++) {

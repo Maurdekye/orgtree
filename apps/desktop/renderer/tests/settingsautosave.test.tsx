@@ -38,6 +38,13 @@ async function change(el: HTMLInputElement | HTMLTextAreaElement | HTMLSelectEle
   })
 }
 const waitForDebounce = () => inAct(async () => { await new Promise(r => setTimeout(r, 800)); await flush(8) })
+// Org settings has no footer Close button (USER 2026-10-28 m3291e5890d55 "remove this close
+// button", in Org settings mc9c984cf52a5); its header X and Escape close it through the same
+// closeSettings.
+const escape = () => inAct(async () => {
+  window.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }))
+  await flush(8)
+})
 
 test('organization settings save only changed fields; charter saves explicitly and close never publishes it', async t => {
   const { calls } = backend(t)
@@ -64,7 +71,7 @@ test('organization settings save only changed fields; charter saves explicitly a
   await inAct(async () => { save.click(); await flush(8) })
   assert.deepEqual(calls.find(c => c.method === 'PUT')!.body, { content: '# Unpublished', base_rev: 'r1' })
   await change(view.el.querySelector<HTMLTextAreaElement>('[aria-label="org.md"]')!, '# Still unpublished')
-  await inAct(async () => { view.el.querySelector<HTMLButtonElement>('[aria-label="Close organization settings"]')!.click(); await flush(8) })
+  await escape()
   assert.equal(closed, 1)
   assert.equal(calls.filter(c => c.method === 'PUT').length, 1, 'close discards unsaved charter edits')
 })
@@ -126,10 +133,11 @@ test('closing flushes a pending numeric edit without publishing charter text', a
   await inAct(async () => { await flush(8) })
   await change(view.el.querySelector<HTMLInputElement>('[aria-label="Default top-level grant"]')!, '25')
   assert.equal(calls.some(c => c.method === 'POST'), false)
-  await inAct(async () => {
-    view.el.querySelector<HTMLButtonElement>('[aria-label="Close organization settings"]')!.click()
-    await flush(8)
-  })
+  assert.equal(view.el.querySelector('[aria-label="Close organization settings"]'), null, 'no footer Close button')
+  assert.equal([...view.el.querySelectorAll('button')].filter(b => b.textContent?.trim() === 'Close').length, 0, 'nor any button named Close')
+  const x = view.el.querySelector<HTMLButtonElement>('.modalpin-bar button.modalpin-x[aria-label="close this window"]')
+  assert.ok(x, 'the centred window has its header X')
+  await inAct(async () => { x!.click(); await flush(8) })
   assert.deepEqual(calls.filter(c => c.method === 'POST').map(c => c.body), [{ default_top_grant: 25 }])
   assert.equal(calls.some(c => c.method === 'PUT'), false)
   assert.equal(closed, 1)

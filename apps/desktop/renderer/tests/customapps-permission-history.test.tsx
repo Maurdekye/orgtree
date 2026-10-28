@@ -42,7 +42,7 @@ test('Permission history is its own App settings tab: a live list of expandable 
 
   await inAct(async()=>{named('Permission history').click();await tick()})
   const body=document.querySelector<HTMLElement>('[role="tabpanel"]:not([hidden])')!
-  assert.match(body.querySelector('p.dim')?.textContent??'',/^Permission changes and prompt answers for this app, newest first\./,'the lead line says what it lists')
+  assert.equal(body.querySelector('p'),null,'no intro line above the list (USER 2026-10-28 m420ce21a63f4 "and this one")')
   assert.equal([...body.querySelectorAll('button')].some(b=>/refresh/i.test(b.textContent??'')),false,'no Refresh button: the history is live')
   assert.deepEqual(reads(),[{action:'permission_history',app:'feed',limit:50}],'the newest page loads first, and only it')
   const list=body.querySelector<HTMLElement>('ol[aria-label="Permission history"]')!;assert.ok(list,'the history is a list')

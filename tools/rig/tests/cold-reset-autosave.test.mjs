@@ -23,7 +23,6 @@ const onDefault = { enabled: true, occ: 0.25 }
 const offDefault = { enabled: false, occ: 0.25 }
 const toggle = 'input[role="switch"][aria-label="Reset a session before a known-cold turn"]'
 const occupancy = 'input[aria-label="Cheap compaction context occupancy percent"]'
-const close = 'button[aria-label="Close organization settings"]'
 
 async function drive({ save = true, savedOcc = 0.25 } = {}) {
   let open = false, policies = false, on = true, saved = { ...onDefault }, pending = null
@@ -34,7 +33,6 @@ async function drive({ save = true, savedOcc = 0.25 } = {}) {
       if (selector === '#org-settings-tab-policies') return open ? {} : null
       if (selector === toggle) return open && policies ? { checked: on } : null
       if (selector === occupancy) return open && policies && on ? { value: '25' } : null
-      if (selector === close) return open ? {} : null
       throw new Error(`unexpected selector: ${selector}`)
     },
     querySelectorAll(selector) { assert.equal(selector, '.toast'); return [] },
@@ -63,10 +61,13 @@ async function drive({ save = true, savedOcc = 0.25 } = {}) {
       else if (target === toggle) {
         assert(open && policies); assert.equal(pending, null, 'finish the prior save before the next edit')
         on = !on; pending = { enabled: on, remaining: 3 }
-      } else if (target?.selector === close || target === close) {
-        assert.equal(pending, null, 'do not close before the last edit is persisted')
-        open = false; policies = false; seen.closes++
       } else throw new Error(`removed or unexpected control: ${JSON.stringify(target)}`)
+    },
+    // Org settings has no footer Close (USER 2026-10-28 m3291e5890d55): Escape closes it.
+    async press(key) {
+      assert.equal(key, 'Escape'); assert(open, 'Escape closes the open settings')
+      assert.equal(pending, null, 'do not close before the last edit is persisted')
+      open = false; policies = false; seen.closes++
     },
     async waitFor(target, { gone = false } = {}) {
       // Each attempt is a deterministic driver tick, not a wall-clock sleep.

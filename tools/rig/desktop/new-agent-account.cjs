@@ -80,7 +80,7 @@ module.exports = async (page, { args }) => {
   const after = await measure()
   await page.screenshot(`${args.tag}-other`)
   const restored = await reset()
-  await page.click({ selector: 'button[aria-label="Close organization settings"]', scroll: true })
+  await page.press('Escape') // Org settings has no footer Close (USER 2026-10-28 m3291e5890d55)
   await page.waitFor('#org-settings-tab-hiredefaults', { gone: true })
   return { before, after, persisted: { before: savedDefault, after: savedOther, restored } }
 }

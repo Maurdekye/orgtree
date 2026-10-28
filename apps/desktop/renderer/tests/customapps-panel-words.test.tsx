@@ -74,9 +74,7 @@ test('Panel settings says panel on every tab, and a listener on every panel says
   await visit(settings,['Fire event'])
   assert.equal(shown(settings).querySelector('.custom-app-fire-caption')?.textContent,'Fires from this panel')
   await visit(settings,['History'])
-  const history=shown(settings).textContent!
-  assert.ok(history.startsWith('Fired events agents can listen to, and this panel starting and stopping, newest first.'),'the History lead line: '+history.slice(0,120))
-  assert.ok(history.includes('Nothing has fired, started or stopped in this panel yet.'),'the empty History')
+  assert.ok(shown(settings).textContent!.includes('Nothing has fired, started or stopped in this panel yet.'),'the empty History')
   // Every tab has now rendered and stays mounted, so the window's text covers them all.
   await visit(settings,['State','General'])
   noCopy(settings,'Panel settings')
@@ -98,7 +96,6 @@ test('App settings says panel on every tab',async t=>{
   assert.ok(settings.textContent!.includes('Maximum 16 MiB and 16 saved panels'),'the export limit counts saved panels')
   await visit(settings,['Events','Permissions','Permission history','General'])
   const text=settings.textContent!
-  assert.ok(text.includes('apply to every panel of Notes'),'remembered permissions apply to every panel')
   assert.ok(text.includes("Broadcasts declared events to each panel's subscribed agents."),'the events.fire permission says whose agents hear it')
   noCopy(settings,'App settings')
 })

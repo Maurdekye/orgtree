@@ -18,7 +18,8 @@ import type {Watchdog} from '../src/types'
 // mbb46eeca4b5d "dont acyually need the panel link here, the panel is implicit";
 // m930f15583b2c "also make the event a clickable link that opens the fire event tab and
 // preselects the chosen event"; mbf41fed391e2 "include a link tomthe watchdog in the
-// conneftioncrow".
+// conneftioncrow". On 4.5.0-alpha.8, of the tab's intro paragraph ("Agents subscribe with
+// an app_listener watchdog. ..."): m967c09464607 "remove this blurb".
 const tick=async()=>{for(let i=0;i<8;i++)await flush()}
 const app={id:'caption-placement',name:'Caption placement',description:'',rev:1,width:360,height:280,capabilities:['events.fire'],events:[{name:'captions.cleared'},{name:'placements.submitted'}],permissions:{},created_by:'maker',updated_at:''}
 const panel={id:'caption-placement-panel-1',app:'caption-placement',label:'Orgtree School 1 captions',rev:1,open:true,running:true,placement:{mode:'float' as const,x:0,y:0,width:360,height:280},used_at:'',event_seq:0,updated_at:''}
@@ -183,4 +184,20 @@ test("A Connections row's event opens Fire event with that event chosen and its 
   await back();await follow(2)
   assert.equal(current(),'Fire event');assert.equal(select.value,'placements.submitted','chosen again')
   assert.equal(calls.some(c=>c.action==='fire_event'),false,'following an event link never fires it')
+})
+
+test('Connections opens on its list with no intro paragraph, and an empty list says only that nothing is connected',async t=>{
+  const state={subs:[liaison,worker],fires:[] as Fire[]};serve(t,state)
+  const slug='connections-no-blurb',{view,body}=await connections(slug,[],[]);t.after(()=>view.unmount())
+  const paragraphs=()=>[...body.querySelectorAll('p')].map(p=>p.textContent)
+  assert.equal(rows(body).length,2,'both subscriptions are listed')
+  assert.equal(body.querySelector('.set-group')?.firstElementChild?.getAttribute('aria-label'),'Connections','the tab opens on its list')
+  assert.deepEqual(paragraphs(),[],'no paragraph above or beside the list')
+  assert.doesNotMatch(body.textContent??'',/app_listener|watchdog controls|recent fires/,'nothing on the tab explains the list: the user guide and glossary do')
+
+  // With no listener left, the tab says so in its one existing line, and nothing more.
+  state.subs=[]
+  await inAct(async()=>{appsStore.customAppsFeed(slug,{type:'watchdogs_changed'});await tick()})
+  assert.equal(rows(body).length,0,'the list is gone')
+  assert.deepEqual(paragraphs(),['No connected listeners for this panel.'],'only the empty line')
 })

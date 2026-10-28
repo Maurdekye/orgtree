@@ -11,8 +11,9 @@ module.exports = async (page, { org }) => {
     await page.click('#org-settings-tab-policies')
     await page.waitFor('input[role="switch"][aria-label="Reset a session before a known-cold turn"]')
   }
+  // Org settings has no footer Close (USER 2026-10-28 m3291e5890d55): Escape closes it.
   const close = async () => {
-    await page.click({ selector: 'button[aria-label="Close organization settings"]', scroll: true })
+    await page.press('Escape')
     await page.waitFor('#org-settings-tab-policies', { gone: true })
   }
   // page.waitFor executes this in the renderer, so read its own fixture org.

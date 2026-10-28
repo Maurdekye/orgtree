@@ -36,7 +36,7 @@ test('History is a live list: compact rows expand, older pages load on scroll, n
   const tab=[...document.querySelectorAll<HTMLButtonElement>('[role="tab"]')].find(b=>b.textContent?.trim()==='History')!
   await inAct(async()=>{tab.click();await tick()})
   const body=document.querySelector<HTMLElement>('[role="tabpanel"]:not([hidden])')!
-  assert.match(body.querySelector('p.dim')?.textContent??'',/^Fired events agents can listen to, and this panel starting and stopping, newest first\./,'the lead line says what History records')
+  assert.equal(body.querySelector('p'),null,'no intro line above the list (USER 2026-10-28 m1ebf5e3194c8 "and this one")')
   assert.equal([...body.querySelectorAll('button')].some(b=>/refresh/i.test(b.textContent??'')),false,'no Refresh button: History is live')
   const history=()=>calls.filter(c=>c.action==='events')
   assert.deepEqual(history(),[{action:'events',panel:'one',limit:50}],'the newest page loads first, and only it')

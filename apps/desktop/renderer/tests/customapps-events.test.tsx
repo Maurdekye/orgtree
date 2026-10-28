@@ -49,7 +49,8 @@ test('Panel settings lists connections and fires only the selected saved copy ev
   const entries=[...log.querySelectorAll('ol[aria-label="History"] > li > button')].map(e=>e.textContent??'')
   // User 2026-10-26 md6edfebc1975: only fired events agents can listen to, and the copy starting and stopping.
   assert.equal(entries.length,3,'History lists the copy log');assert.match(entries[0]!,/Stopped.*Stop all.*You/,'newest first; a stop names its cause');assert.match(entries[1]!,/Fired submitted.*1 listener.*You/,'fire metadata');assert.match(entries[2]!,/Started.*Opened.*You/,'opening a stopped copy starts it')
-  assert.match(log.querySelector('.set-group > p.dim:first-child')?.textContent??'',/^Fired events agents can listen to, and this panel starting and stopping, newest first\./,'the lead line says what History records, in the lead-line style of the other tabs')
+  // USER 2026-10-28 m1ebf5e3194c8, of History's intro line: "and this one" (removed).
+  assert.equal(log.querySelector('.set-group > p'),null,'History opens on its list, with no intro line')
   assert.ok(calls.filter(c=>c.action==='events').every(c=>!('messages' in c)),'History reads the History listing, never messages')
   assert.equal(!!log.querySelector('.custom-app-connections'),false,'connections are not on the History tab');assert.equal(!!log.querySelector('[aria-label="Declared event"]'),false,'Fire event is not on the History tab')
   const fireTab=await tab('Fire event')
