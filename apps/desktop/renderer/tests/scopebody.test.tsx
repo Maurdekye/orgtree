@@ -190,23 +190,26 @@ test('§3 CONTROL: an edited tool and permission mode are sent whole', async (t:
   assert.equal('add_dirs' in sent[0]!, false)
 })
 
-test('Logo group defaults on and an explicit off is saved in the inherited tool grant', async (t: TestContext) => {
+// USER 2026-10-25 (custom apps, DECISIONS.md): "org-modifying tools including Logo". The Organization logo switch became
+// Org-modifying tools (tools.orgtree.orgmod; docs/rust-engine/custom-apps.md): Logo moves into the category, and an
+// explicit old logo denial still denies it until the category is set (ea32a6a).
+test('Org-modifying tools (with Logo) defaults on and an explicit off is saved in the inherited tool grant', async (t: TestContext) => {
   useFakeClock(); installFetch(new FakeServer())
   t.after(async () => { realClock() })
   const sent = scopeBodies()
   const el = await mount()
-  const box = el.querySelector<HTMLInputElement>('input[aria-label="Organization logo"]')
-  assert.equal(box?.checked === true, true, 'Logo group must exist and default on')
+  const box = el.querySelector<HTMLInputElement>('input[aria-label="Org-modifying tools"]')
+  assert.equal(box?.checked === true, true, 'Org-modifying tools must exist and default on')
   assert.equal(box?.disabled === false, true)
   const { act } = await import('react')
   await act(async () => { box!.click() })
   await save(el)
   assert.equal(sent.length, 1)
-  const tools = sent[0]!.tools as { orgtree?: { logo?: boolean } }
-  assert.equal(tools.orgtree?.logo, false)
+  const tools = sent[0]!.tools as { orgtree?: { orgmod?: boolean } }
+  assert.equal(tools.orgtree?.orgmod, false)
 })
 
-test('Logo group cannot exceed the superior grant', async (t: TestContext) => {
+test('Org-modifying tools cannot exceed the superior grant, an old Logo denial included', async (t: TestContext) => {
   useFakeClock(); installFetch(new FakeServer())
   t.after(async () => { realClock() })
   const child = node(), parent = node()
@@ -215,7 +218,7 @@ test('Logo group cannot exceed the superior grant', async (t: TestContext) => {
   child.parent = parent.id
   child.scope!.tools.orgtree = { logo: true }
   const el = await mount(child, [parent])
-  const box = el.querySelector<HTMLInputElement>('input[aria-label="Organization logo"]')
-  assert.equal(box?.checked === false, true, 'Logo group must reflect inherited denial')
+  const box = el.querySelector<HTMLInputElement>('input[aria-label="Org-modifying tools"]')
+  assert.equal(box?.checked === false, true, 'Org-modifying tools must reflect the inherited (old Logo) denial')
   assert.equal(box?.disabled === true, true, 'inherited denial must disable the switch')
 })
