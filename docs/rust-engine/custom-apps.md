@@ -431,12 +431,17 @@ and flush bytes, rename the exact old handle to a fresh recovery name, then publ
 the new handle without overwriting a destination. There is a brief name gap;
 a concurrent destination is never overwritten. Before staging, a replacement
 flushes a record (folder, target, staged and recovery names, new SHA256) to the
-engine data folder app-file-recovery and removes it when the change ends. Each
-engine start settles the records a stop left (2026-10-28, 4.5.0 review C12): the
-original goes back under its name unless another file took the name, a
-published replacement drops the original as the change would have, staged
-bytes never published are removed, and a record whose folder cannot be opened
-waits for a later start. Failure restores the original
+engine data folder app-file-recovery and removes it when the change ends; the
+record's file name starts with the engine run (boot id) that wrote it. Each
+engine start settles the records an earlier run's stop left (2026-10-28, 4.5.0
+review C12). It runs in the background while panels are served, so it never
+touches its own run's records: they belong to live changes. The original goes
+back under its name unless another file took the name. A published replacement
+(no staged bytes left, the name holding the new SHA256) drops the original as
+the change would have; any other file under the name, identical bytes included,
+keeps the original beside it. Staged bytes never published are removed last,
+and a record whose folder or target name cannot be opened now waits for a
+later start. Failure restores the original
 name when possible; otherwise original bytes remain in the reported recovery
 file beside the target. Native UI reports retained recovery copies, independently
 of the HTML. No path-based fallback or in-place truncation exists. Platforms
