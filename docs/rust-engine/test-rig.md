@@ -33,11 +33,18 @@ the engine's cap on idle CLIs for the run, `ORGTREE_RIG_MAX_PARKED`, the product
 `warming: true`, `up --warming`, lets warming run under the safe start, `ORGTREE_RIG_WARMING`, so
 CLIs are warmed at the engine's start, a hire and a reconfiguration as the product warms them,
 which a safe start otherwise never does). `setup()` runs before the run exists, so a script
-that writes there writes only inside the rig home and takes the path from `rigHome()`, which
-refuses a home in the live data folder or the repository, and it refuses a path that is a link
-(4.5.0 high E17: `app-files.mjs` wrote its fixture before the guard ran, so it would have written
-into a home inside the live data folder and through a linked `files-fixture`; `node --test
-tools/rig/tests/app-files-guard.test.mjs` checks both). `proof.mjs`
+that writes there writes only inside the rig home and takes the path from `rigHome()`.
+`rigHome()` refuses a home that is a drive root or lies in the live data folder or the
+repository, judged by its path and by where it really leads: `assertSafeRoot` follows symlinks,
+junctions, short names and substituted drives with `fs.realpathSync.native` (a home not made yet
+through its deepest existing folder), compares with the live roots' and the repository's real
+locations too, and refuses a link among the home's folders that it cannot follow. Links inside
+the home are not its business: a script refuses its own paths being links, as `app-files.mjs`
+does for `files-fixture` and its video (4.5.0 high E17 and reviews 21aad97e581a and
+473d61df7fa2: the proof wrote its fixture before any guard ran, so a home in live data, a home
+reached through a junction into it, or a linked `files-fixture` would have been written to;
+`node --test tools/rig/tests/app-files-guard.test.mjs tools/rig/tests/live-roots.test.mjs`
+checks them). `proof.mjs`
 records pass/fail checks and evidence under `<rig home>\evidence\<proof>-<time>\`, which outlives
 the run.
 
@@ -177,6 +184,10 @@ and the fake CLIs already use), `HOMEDRIVE`/`HOMEPATH` (the same folder, split a
 `XDG_CONFIG_HOME` (`.config`), `XDG_DATA_HOME` (`.local\share`), `XDG_CACHE_HOME` (`.cache`),
 `XDG_STATE_HOME` (`.local\state`) and `OPENCODE_CONFIG_DIR` (`.config\opencode`), all under
 `rig-home`, so a host that sets them never hands a rig engine its real config (4.5.0 high E16).
+The one exception is `up --real-muse`, an explicitly authorized real lane: its keeper passes the
+host environment as `hostXdg`, so each of the four XDG roots the host sets stays the host's, and
+the installed Muse Code finds its signed-in config and data where the real-Muse proofs read its
+session logs. `OPENCODE_CONFIG_DIR` and the profile stay fake there too (review b55d99ef7895).
 It creates the `APPDATA`, `LOCALAPPDATA` and `TEMP` folders. `keeper.mjs` applies it to every run,
 `standalone-engine.mjs` gains the `APPDATA`/`LOCALAPPDATA`/`HOMEDRIVE`/`HOMEPATH` it lacked, and
 the host-mode proofs `boot-host-stop`, `core-lifecycle`, `core-recovery` and `session0-handover`
@@ -491,7 +502,8 @@ never weaken shared ancestor ACLs to run it.
 - **The rig home** (`ORGTREE_RIG_HOME`; by default your own `D:\orgtree-work\rig\<agent>`, by
   `ORGTREE_AGENT`, when `D:\orgtree-work` exists, else `E:\orgtree-rig`; runs, evidence and
   "before" engines made earlier stay in `E:\orgtree-rig`) is refused inside the live data folder
-  or the repository. So is the shared `D:\orgtree-work\rig`, or any home with another rig home
+  or the repository, by its path and by where a link among its folders really leads (see the
+  `setup()` note above). So is the shared `D:\orgtree-work\rig`, or any home with another rig home
   inside it (a folder holding `runs` or `pg`), because its cleanup would kill that home's
   processes (it did once, 2026-10-10). PostgreSQL binaries are copied there once (never run from the
   installed app, whose files an installer must be able to replace). Each run gets a copy of a
