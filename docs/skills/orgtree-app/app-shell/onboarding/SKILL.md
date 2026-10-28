@@ -17,6 +17,8 @@ Finishing or skipping first populates the starter charter documents and then mar
 
 The canvas first-use guide is started explicitly for a newly created organization. Its steps point at the real controls: choose the hire token, name and hire an agent, then send the first message. A template that already hired agents begins at the message step. Progress is kept locally; merely visiting an older empty organization does not restart this guide.
 
+Every note has a **Dismiss** button on its Getting started line, at any of the four steps. Dismissing ends that organization's guide the same way finishing it does: it stays gone after a reload or a relaunch, and the hire, name and message controls no longer bring it back. A draft hire you were typing is left as it is. Escape does not dismiss it (it keeps closing desks and menus), and a newly created organization starts its own guide.
+
 The guide follows visible controls and yields when a targeted control is obscured or unavailable. Use the actual highlighted action rather than searching for a separate synthetic Next operation. Onboarding is an introduction, not evidence that a provider account is authenticated or every harness is ready.
 
 The hire-token note sits to the left of the complete token cluster. The name note

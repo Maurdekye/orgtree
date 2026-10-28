@@ -46,7 +46,10 @@ The baseline also drives first-use onboarding through real creation, hire-token,
 name, Hire and chat controls. `first-use` runs that slice plus the cold-reveal
 prerequisite alone. It checks empty existing orgs, failed creation/hire/message,
 cleared names, canceled/reloaded drafts, the actual unobstructed token geometry,
-and completion surviving a new native window. HTTP results remain canned; no
+and completion surviving a new native window. It also dismisses the guide with
+a real mouse click on its Dismiss button at step 1 and at step 3 (the draft and
+the real Hire survive; no message step follows), then reloads and reopens the
+organization to check it does not return. HTTP results remain canned; no
 provider agent is hired or messaged. The tutorial stores UI progress per org in
 the current browser profile and begins only after the actual Create form succeeds.
 
