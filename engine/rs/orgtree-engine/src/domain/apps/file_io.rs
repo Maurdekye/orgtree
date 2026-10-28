@@ -56,11 +56,11 @@ pub(in crate::domain::apps) fn list(path:&Path,after:Option<&str>,limit:usize)->
 /// Kept only in the host's bounded 120-second confirmation registry. A target
 /// handle excludes ordinary data writes/deletion while consent is pending.
 pub(in crate::domain::apps) struct Change {dir:Directory,name:String,target:Option<File>,data:Option<Vec<u8>>,pub detail:Value}
+/// A file's parent for a change: every ancestor pinned, the parent itself
+/// reopened with the directory-write sharing its renames need.
 #[nolog]
-pub(in crate::domain::apps) fn prepare(path:&Path,data:Option<Vec<u8>>,replace:bool)->Result<Change>{
-    if data.as_ref().is_some_and(|v|v.len()>WRITE_MAX){crate::refuse!(BadRequest,"file writes are limited to 65536 bytes");}
-    let path=checked_path(path)?;let mut dir=directory(path.parent().ok_or_else(||anyhow::anyhow!("file has no parent"))?)?;
-    if directory(&path).is_ok(){crate::refuse!(Forbidden,"only regular files can be changed; directory deletion is unavailable");}
+fn writable_parent(parent:&Path)->Result<Directory>{
+    let mut dir=directory(parent)?;
     #[cfg(windows)] {
         // A rename needs directory-write sharing on its immediate parent.
         // Retain all ancestor pins and continue denying directory deletion;
@@ -78,6 +78,13 @@ pub(in crate::domain::apps) fn prepare(path:&Path,data:Option<Vec<u8>>,replace:b
         };
         plain(&handle.metadata()?)?;verify(&handle,&dir.path)?;dir._handles.push(handle);
     }
+    Ok(dir)
+}
+#[nolog]
+pub(in crate::domain::apps) fn prepare(path:&Path,data:Option<Vec<u8>>,replace:bool)->Result<Change>{
+    if data.as_ref().is_some_and(|v|v.len()>WRITE_MAX){crate::refuse!(BadRequest,"file writes are limited to 65536 bytes");}
+    let path=checked_path(path)?;let dir=writable_parent(path.parent().ok_or_else(||anyhow::anyhow!("file has no parent"))?)?;
+    if directory(&path).is_ok(){crate::refuse!(Forbidden,"only regular files can be changed; directory deletion is unavailable");}
     let name=path.file_name().and_then(|s|s.to_str()).ok_or_else(||anyhow::anyhow!("file has no Unicode name"))?.to_string();
     // Reuse the component checker even for a name that does not exist yet.
     scoped_path(&dir.path,&name)?;
@@ -92,6 +99,23 @@ pub(in crate::domain::apps) fn prepare(path:&Path,data:Option<Vec<u8>>,replace:b
     let detail=json!({"path":path.to_string_lossy(),"operation":if data.is_none(){"delete"}else if target.is_some(){"replace"}else{"create"},"previous_bytes":target.as_ref().map(|f|f.metadata().map(|m|m.len())).transpose()?,"bytes":data.as_ref().map(Vec::len),"sha256":data.as_ref().map(|v|hex::encode(Sha256::digest(v)))});
     Ok(Change{dir,name,target,data,detail})
 }
+/// A replacement moves the confirmed original aside before it publishes the
+/// staged bytes. Before anything is staged or moved, this record names both in
+/// the engine's recovery folder, flushed, so a start after a stop can settle
+/// the change (4.5.0 review C12). The change removes it when it ends.
+#[derive(serde::Serialize,serde::Deserialize)]
+struct Pending{directory:PathBuf,name:String,stage:String,backup:String,sha256:String}
+#[cfg(windows)]
+#[nolog]
+fn record(journal:&Path,pending:&Pending)->Result<PathBuf>{
+    std::fs::create_dir_all(journal).context("app file recovery folder")?;
+    let path=journal.join(crate::util::uid("replace-")+".json");
+    let mut file=OpenOptions::new().write(true).create_new(true).open(&path).context("create app file recovery record")?;
+    file.write_all(&serde_json::to_vec(pending)?).context("write app file recovery record")?;file.sync_all().context("flush app file recovery record")?;Ok(path)
+}
+#[cfg(windows)]
+#[nolog]
+fn missing(error:&anyhow::Error)->bool{error.downcast_ref::<std::io::Error>().is_some_and(|e|e.kind()==std::io::ErrorKind::NotFound)}
 #[cfg(windows)]
 #[nolog]
 fn delete_handle(file:&File)->Result<()>{
@@ -123,20 +147,26 @@ pub(in crate::domain::apps) fn commit(change:Change,journal:&Path)->Result<Value
     commit_with(change,journal,||{})
 }
 #[nolog]
-fn commit_with(change:Change,_journal:&Path,between:impl FnOnce())->Result<Value>{
+fn commit_with(change:Change,journal:&Path,between:impl FnOnce())->Result<Value>{
     #[cfg(windows)] {
         let Change{dir,name,target,data,detail}=change;
         if let Some(old)=&target{verify(old,&dir.path.join(&name))?;}
         if let Some(data)=data{
-            let staged_name=crate::util::uid(".orgtree-app-save");
-            let mut stage=anchored_access(dir._handles.last().expect("pinned directory"),OsStr::new(&staged_name),false,true,true)?;
+            let staged_name=crate::util::uid(".orgtree-app-save");let backup=crate::util::uid(".orgtree-app-recovery");
+            let pending=match &target{
+                Some(_)=>Some(record(journal,&Pending{directory:dir.path.clone(),name:name.clone(),stage:staged_name.clone(),backup:backup.clone(),sha256:detail["sha256"].as_str().unwrap_or_default().into()})?),
+                None=>None,
+            };
+            // Every outcome below is final, so its record goes; only a stop leaves it.
+            let settled=||{if let Some(path)=&pending{let _=std::fs::remove_file(path);}};
+            let mut stage=match anchored_access(dir._handles.last().expect("pinned directory"),OsStr::new(&staged_name),false,true,true){Ok(stage)=>stage,Err(error)=>{settled();return Err(error)}};
             let result=(||->Result<Value>{
                 stage.write_all(&data).context("stage bytes")?;stage.sync_all().context("flush stage")?;
                 if let Some(old)=&target{
                     // Keep the exclusive old-file pin. Windows cannot replace
                     // it in one rename without relaxing deletion sharing. Move
                     // that exact handle aside, then publish without overwrite.
-                    let backup=crate::util::uid(".orgtree-app-recovery");rename(old,&dir,&backup).context("retain confirmed target")?;between();
+                    rename(old,&dir,&backup).context("retain confirmed target")?;between();
                     if let Err(error)=rename(&stage,&dir,&name){
                         if rename(old,&dir,&name).is_err(){
                             return Ok(json!({"changed":false,"recovery_name":backup,"error":"Replacement conflicted. Original bytes remain in the recovery file; no existing destination was overwritten."}));
@@ -146,16 +176,59 @@ fn commit_with(change:Change,_journal:&Path,between:impl FnOnce())->Result<Value
                 }else{between();rename(&stage,&dir,&name)?;}
                 Ok(json!({"changed":true,"operation":detail["operation"],"bytes":detail["bytes"],"sha256":detail["sha256"]}))
             })();
-            match result{Ok(value)=>{if value["changed"]!=true{let _=delete_handle(&stage);}return Ok(value)},Err(error)=>{let _=delete_handle(&stage);return Err(error)}}
+            let outcome=match result{Ok(value)=>{if value["changed"]!=true{let _=delete_handle(&stage);}Ok(value)},Err(error)=>{let _=delete_handle(&stage);Err(error)}};
+            settled();return outcome;
         }else{delete_handle(target.as_ref().expect("checked deletion target"))?;}
         Ok(json!({"changed":true,"operation":detail["operation"],"bytes":detail["bytes"],"sha256":detail["sha256"]}))
     }
     #[cfg(not(windows))] {let _=change;crate::refuse!(Forbidden,"confirmed file changes require Windows in this release");}
 }
-/// Settles the replacements a stop interrupted (4.5.0 review C12). Not yet:
-/// this seam only lets the red test compile.
+/// Engine start: settles each replacement a stop interrupted (4.5.0 review
+/// C12). The original goes back under its name unless another file took the
+/// name; a replacement already published drops the original, as the change
+/// would have; staged bytes never published are removed. A record whose
+/// folder cannot be opened now (say, a drive not connected) waits for a later
+/// start. Answers how many records were settled and how many wait.
 #[nolog]
-pub(in crate::domain::apps) fn recover(_journal:&Path)->usize{0}
+pub(in crate::domain::apps) fn recover(journal:&Path)->(usize,usize){
+    let Ok(records)=std::fs::read_dir(journal) else{return (0,0)};let (mut settled,mut waiting)=(0,0);
+    for path in records.flatten().map(|e|e.path()).filter(|p|p.extension().is_some_and(|e|e=="json")){
+        let done=match std::fs::read(&path){
+            Err(_)=>false,
+            // flushed before anything was staged or moved: a cut record moved nothing
+            Ok(bytes)=>serde_json::from_slice::<Pending>(&bytes).map_or(true,|pending|settle(&pending).is_ok()),
+        };
+        if done&&std::fs::remove_file(&path).is_ok(){settled+=1;}else{waiting+=1;}
+    }(settled,waiting)
+}
+#[cfg(windows)]
+#[nolog]
+fn settle(pending:&Pending)->Result<()>{
+    let dir=writable_parent(&pending.directory)?;let pin=dir._handles.last().expect("pinned directory");
+    // Only the change's own plain files, opened for deletion relative to the pin.
+    let own=|name:&str|->Result<Option<File>>{match anchored_access(pin,OsStr::new(name),false,false,true){
+        Ok(file)=>{let meta=file.metadata()?;plain(&meta)?;Ok(meta.is_file().then_some(file))},
+        Err(error) if missing(&error)=>Ok(None),
+        Err(error)=>Err(error),
+    }};
+    // Staged bytes are published only by a rename, so a staged name left behind was never published.
+    if let Some(stage)=own(&pending.stage)?{delete_handle(&stage)?;}
+    let Some(backup)=own(&pending.backup)? else{return Ok(())};
+    match anchored_access(pin,OsStr::new(&pending.name),false,false,false){
+        // the stop left the original aside: put it back, never over a file that took the name
+        Err(error) if missing(&error)=>rename(&backup,&dir,&pending.name),
+        Ok(target)=>{
+            let mut bytes=Vec::new();(&target).take(WRITE_MAX as u64+1).read_to_end(&mut bytes)?;
+            if hex::encode(Sha256::digest(&bytes))==pending.sha256{delete_handle(&backup)?;}Ok(())
+        },
+        // another file holds the name: the original stays beside it
+        Err(_)=>Ok(()),
+    }
+}
+/// Outside Windows commit refuses every change, so no record exists.
+#[cfg(not(windows))]
+#[nolog]
+fn settle(_pending:&Pending)->Result<()>{Ok(())}
 
 #[cfg(test)]mod tests{
     use super::*;
@@ -196,6 +269,28 @@ pub(in crate::domain::apps) fn recover(_journal:&Path)->usize{0}
             assert_eq!(names,["keep.txt"],"no recovery or staged copy is left behind");
             assert_eq!(std::fs::read_dir(&journal).map(|d|d.count()).unwrap_or(0),0,"the record is settled");
             std::fs::remove_dir_all(&dir).unwrap();let _=std::fs::remove_dir_all(&journal);
+        }
+    }
+    // The next start settles each record by what it finds: a published replacement drops the
+    // original as the change would have; a name another file took keeps the original aside and
+    // removes the staged bytes; a folder that cannot be opened now waits for a later start.
+    #[test]fn app_files_the_next_start_settles_each_interrupted_replacement_by_what_it_finds(){
+        #[cfg(windows)]{
+            let dir=std::env::temp_dir().join(crate::util::uid("apps-settle"));std::fs::create_dir(&dir).unwrap();
+            let journal=std::env::temp_dir().join(crate::util::uid("apps-journal"));
+            let sha=|bytes:&[u8]|hex::encode(Sha256::digest(bytes));
+            let pending=|name:&str|Pending{directory:dir.clone(),name:name.into(),stage:format!(".orgtree-app-save-{name}"),backup:format!(".orgtree-app-recovery-{name}"),sha256:sha(b"new")};
+            std::fs::write(dir.join("published.txt"),b"new").unwrap();std::fs::write(dir.join(".orgtree-app-recovery-published.txt"),b"old").unwrap();
+            record(&journal,&pending("published.txt")).unwrap();
+            std::fs::write(dir.join("taken.txt"),b"another file").unwrap();std::fs::write(dir.join(".orgtree-app-recovery-taken.txt"),b"old").unwrap();
+            std::fs::write(dir.join(".orgtree-app-save-taken.txt"),b"new").unwrap();record(&journal,&pending("taken.txt")).unwrap();
+            let mut away=pending("away.txt");away.directory=dir.join("not-connected");record(&journal,&away).unwrap();
+            assert_eq!(recover(&journal),(2,1));
+            assert_eq!(std::fs::read(dir.join("published.txt")).unwrap(),b"new");assert!(!dir.join(".orgtree-app-recovery-published.txt").exists());
+            assert_eq!(std::fs::read(dir.join("taken.txt")).unwrap(),b"another file");assert_eq!(std::fs::read(dir.join(".orgtree-app-recovery-taken.txt")).unwrap(),b"old");
+            assert!(!dir.join(".orgtree-app-save-taken.txt").exists());
+            assert_eq!(std::fs::read_dir(&journal).unwrap().count(),1,"only the unreachable record waits");
+            std::fs::remove_dir_all(&dir).unwrap();std::fs::remove_dir_all(&journal).unwrap();
         }
     }
 }

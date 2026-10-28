@@ -308,6 +308,17 @@ async fn run_with_cluster(
             tracing::warn!(error = %e, "the templates folder could not be seeded");
         }
     });
+    // app file replacements a stop interrupted put their originals back (4.5.0 review C12)
+    tokio::spawn({
+        let journal = engine.cfg.path(domain::apps::files::RECOVERY);
+        async move {
+            if let Ok((settled, waiting)) = trace::private_app_blocking(move || domain::apps::files::recover_changes(&journal)).await {
+                if settled + waiting > 0 {
+                    tracing::info!(settled, waiting, "interrupted app file replacements");
+                }
+            }
+        }
+    });
     usage::start(&engine);
     runtime::sched::start(&engine, sched_inbox);
     mailhub::prepare_database(&engine, cluster).await;

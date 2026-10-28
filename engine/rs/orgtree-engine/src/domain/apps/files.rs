@@ -5,6 +5,12 @@ use anyhow::Result;
 use serde_json::{json,Value};
 use super::wire::BUNDLE_MAX;
 #[path="file_io.rs"] pub(super) mod io;
+/// The engine data folder that records app file replacements in progress.
+pub(crate) const RECOVERY:&str=io::RECOVERY;
+/// Engine start: settles app file replacements a stop interrupted (4.5.0
+/// review C12). Answers how many records were settled and how many wait.
+#[nolog]
+pub(crate) fn recover_changes(journal:&Path)->(usize,usize){io::recover(journal)}
 
 pub(super) struct Directory {pub(super) path:PathBuf,_handles:Vec<File>}
 #[nolog]
