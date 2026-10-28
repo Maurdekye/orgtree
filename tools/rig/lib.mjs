@@ -745,17 +745,27 @@ export function cleanEnv() {
  * and the host's profile is not in a rig child's environment at all;
  * tools/rig/tests/rig-synthetic-home.test.mjs fails for a launch site that does
  * not. `tmp`: the temp folder (default: the fake profile's own Local\Temp);
- * `create: false` returns the names without making the folders. */
+ * `create: false` returns the names without making the folders.
+ *
+ * Provider discovery also reads configuration and skills from XDG_CONFIG_HOME
+ * and OPENCODE_CONFIG_DIR before the home (engine providers/skills.rs and
+ * providers/mcp.rs), so the XDG folders and OpenCode's move too, to the
+ * defaults the engine would derive from the fake home; an inherited host path
+ * would put the host's configuration in the run (4.5.0 high E16). */
 export function rigProfileEnv(data, { tmp, create = true } = {}) {
   const home = path.join(data, 'rig-home')
   const local = path.join(home, 'AppData', 'Local')
   const temp = tmp ?? path.join(local, 'Temp')
   const drive = /^([A-Za-z]:)(.*)$/.exec(home)
+  const config = path.join(home, '.config')
   const env = {
     USERPROFILE: home, HOME: home,
     HOMEDRIVE: drive ? drive[1] : '', HOMEPATH: drive ? drive[2] : home,
     APPDATA: path.join(home, 'AppData', 'Roaming'), LOCALAPPDATA: local,
     TEMP: temp, TMP: temp,
+    XDG_CONFIG_HOME: config, XDG_DATA_HOME: path.join(home, '.local', 'share'),
+    XDG_CACHE_HOME: path.join(home, '.cache'), XDG_STATE_HOME: path.join(home, '.local', 'state'),
+    OPENCODE_CONFIG_DIR: path.join(config, 'opencode'),
   }
   if (create) for (const k of ['APPDATA', 'LOCALAPPDATA', 'TEMP']) fs.mkdirSync(env[k], { recursive: true })
   return env
