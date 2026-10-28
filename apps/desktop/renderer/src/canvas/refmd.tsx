@@ -40,8 +40,7 @@ import { useContextMenu } from './contextmenu'
 import { USER_IDENTITY_TITLE, userMenuEntries } from './useridentity'
 import { localFileLinkAt } from './localfile'
 import { createRefMarkEl, hasRefMark } from './refmarks'
-import { createObjectMentionButton, MENTION_WRAP_KEY, objectMentionsWrap } from './mentionwrap'
-import { useAppValue } from '../appfeed'
+import { createObjectMentionButton, objectMentionsWrap, useObjectMentionsWrap } from './mentionwrap'
 import { createNetMarkEl, createNetNameEls, ensureNetPicture, hubAddressTitle, netChipClass, netChipLabel, netChipSig, netMention, splitScheme, useNetMentionState } from './netmentions'
 
 /** the attribute that makes an injected chip findable again on the next pass.
@@ -584,7 +583,7 @@ export function useRefMd(world: RefWorld | null | undefined,
   mentions?: MentionWorld | null) {
   useHubAddressState()
   useNetMentionState()
-  useAppValue<boolean>(MENTION_WRAP_KEY)
+  useObjectMentionsWrap()
   const host = useRef<HTMLDivElement | null>(null)
   const worldRef = useRef(world)
   worldRef.current = world
