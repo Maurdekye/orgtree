@@ -2605,6 +2605,11 @@ export function primedRestartChip(
   }
 }
 
+/** the retry time of a rate-limit freeze, ready for a badge (stub: red) */
+export function rateRetryText(_fz: { until?: string | null; until_ts?: number | null }): string {
+  return ''
+}
+
 export const FREEZE_LABEL: Record<FreezeKind, string> = {
   halted: 'HALTED — fable lock',
   auth: 'credential rejected',

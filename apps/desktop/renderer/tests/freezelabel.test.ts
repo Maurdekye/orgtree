@@ -29,12 +29,12 @@ import './harness'
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import {
-  freezeKind, FREEZE_LABEL, FREEZE_LABEL_SHORT, type FreezeKind,
+  freezeKind, FREEZE_LABEL, FREEZE_LABEL_SHORT, rateRetryText, type FreezeKind,
 } from '../src/canvas/shared'
 
 /** every kind, named here so a new one added to the union without a label is
  *  a failure rather than a silent fall-through */
-const KINDS: FreezeKind[] = ['halted', 'auth', 'balance', 'connection', 'limit']
+const KINDS: FreezeKind[] = ['halted', 'auth', 'balance', 'rate', 'connection', 'limit']
 
 // ------------------------------------------------------ §1 classification
 test('§1 a leg per kind — each is classified as itself, not as `limit`', () => {
@@ -53,6 +53,14 @@ test('§1 a leg per kind — each is classified as itself, not as `limit`', () =
   assert.equal(freezeKind({ limit: true, cause: 'balance' }), 'balance',
     'a balance freeze carries limit:true — same trap as auth')
   assert.equal(freezeKind({ limit: true, cause: 'balance' }, true), 'halted')
+  // rate (a Codex request-rate 429, 2026-10-28): a pure retry freeze like a
+  // network drop (connection:true, limit:false) but its own kind — it read
+  // "frozen (usage limit)" for an hour while the weekly window was at 10 %
+  assert.equal(freezeKind({ connection: true, limit: false, cause: 'rate_limit' }), 'rate',
+    'a request-rate 429 retry is neither a usage limit nor a network drop')
+  assert.equal(freezeKind({ connection: true, cause: 'rate_limit' }, true), 'halted')
+  // a record that is also a limit is a limit, whatever else it says
+  assert.equal(freezeKind({ limit: true, cause: 'rate_limit' }), 'limit')
   // halted outranks everything: a fable lock's clock can never fire, so any
   // other word here would promise a reset nobody performs
   assert.equal(freezeKind({ limit: true, cause: 'auth' }, true), 'halted')
@@ -95,6 +103,21 @@ test('§4 the words a reader would be misled by are not used for other kinds', (
   assert.notEqual(FREEZE_LABEL_SHORT.balance, FREEZE_LABEL_SHORT.limit)
   // and each names its own remedy rather than a capacity wait
   assert.match(FREEZE_LABEL.auth, /credential/i)
+  // a rate-limit retry says so, never "usage limit" and never "network"
+  assert.match(FREEZE_LABEL.rate, /rate/i)
+  assert.notEqual(FREEZE_LABEL.rate, FREEZE_LABEL.limit, 'a 429 retry must not read as a usage limit')
+  assert.notEqual(FREEZE_LABEL.rate, FREEZE_LABEL.connection)
+  assert.notEqual(FREEZE_LABEL_SHORT.rate, FREEZE_LABEL_SHORT.limit)
+})
+
+test('§4b the rate-limit badge names the retry time, not a capacity reset', () => {
+  // `until` is an ISO instant on a Rust-engine record; the badge must show the
+  // viewer's clock, from until_ts when the record has it
+  const ts = Date.parse('2026-10-28T10:05:30Z') / 1000
+  const text = rateRetryText({ until: '2026-10-28T10:05:30.000Z', until_ts: ts })
+  assert.match(text, /^retrying /)
+  assert.ok(!/2026-10-28T/.test(text) && !/reset|capacity|usage/i.test(text), text)
+  assert.equal(rateRetryText({ until: null, until_ts: null }), 'retrying')
 })
 
 // ------------------------------------------ §5 the banner's set-level choice
