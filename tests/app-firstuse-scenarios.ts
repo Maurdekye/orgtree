@@ -5,7 +5,7 @@ import type { AppScenarioContext, AppWindow } from './app-composition.probe'
 /** Real creation/hire/chat handlers against isolated canned HTTP. No tutorial
  * state is set by the driver: only user actions through the shipping App. */
 export async function runFirstUseScenarios(ctx: AppScenarioContext) {
-  const slug = 'first-use'
+  let slug = 'first-use'
   const initial = await (await fetch(ctx.origin + '/api/orgs/studio')).json() as any
   const initialOrgs = await (await fetch(ctx.origin + '/api/orgs')).json() as any[]
   let created = false, rejectCreate = true, rejectHire = true, rejectSend = true
@@ -130,6 +130,113 @@ export async function runFirstUseScenarios(ctx: AppScenarioContext) {
     const reopened = await ctx.create('tutorial-reopened', slug); opened.push(reopened)
     await ctx.until(() => ctx.eval<boolean>(reopened, '!!document.querySelector(".sq.user")'), Boolean)
     ctx.check('TU12-reopen', await step(reopened) === null && await ctx.eval(reopened, 'JSON.parse(localStorage.getItem("orgtree-first-use:first-use")).step') === 'done', 'new native window opening the completed org does not restart tutorial')
+
+    // Dismissing the guide. USER 2026-10-28 me1fad212bab7: "allow the user to dismiss the initial intro 4-step
+    // intro tutorial". Each case creates its own organization through the real Create window, presses the
+    // note's Dismiss with a real mouse click (element.click() would ignore the guide's pointer-events: none),
+    // and then reloads and reopens the organization: a dismissed guide must not return.
+    const pause = (ms: number) => new Promise<void>(resolve => setTimeout(resolve, ms))
+    // The note follows its target while the canvas is still gliding: shoot and press only once the button holds still.
+    const still = async (r: AppWindow, selector: string) => {
+      let previous = '', same = 0
+      await ctx.until(async () => {
+        const box = await ctx.eval<string>(r, `JSON.stringify(document.querySelector(${JSON.stringify(selector)})?.getBoundingClientRect())`)
+        same = box === previous ? same + 1 : 0; previous = box
+        return same
+      }, n => n >= 5)
+    }
+    // A Session 0 offscreen window can paint one state behind its DOM, so a first capture warms the frame up.
+    const settledShot = async (r: AppWindow, name: string) => { await pause(500); await shot(r, 'tutorial-dismiss-warmup'); await pause(300); await shot(r, name) }
+    const press = async (r: AppWindow, selector: string) => {
+      await still(r, selector)
+      const at = await ctx.eval<{ x: number; y: number; hit: boolean } | null>(r, `(() => {const e=document.querySelector(${JSON.stringify(selector)});if(!e)return null;const b=e.getBoundingClientRect(),x=Math.round(b.left+b.width/2),y=Math.round(b.top+b.height/2);return {x,y,hit:document.elementFromPoint(x,y)===e}})()`)
+      if (!at?.hit) return { ok: false, events: [] as string[] }
+      // a real pointer sequence: move onto the control, press, release (the page records what actually arrives)
+      await ctx.eval(r, `window.__mouse = []; for (const t of ['mousemove','mousedown','mouseup','click']) document.addEventListener(t, e => window.__mouse.push(t + ':' + (e.target.className || e.target.tagName)), { capture: true }); true`)
+      const wc = r.window.webContents
+      wc.sendInputEvent({ type: 'mouseMove', x: at.x, y: at.y })
+      await pause(80)
+      wc.sendInputEvent({ type: 'mouseDown', x: at.x, y: at.y, button: 'left', clickCount: 1 })
+      await pause(80)
+      wc.sendInputEvent({ type: 'mouseUp', x: at.x, y: at.y, button: 'left', clickCount: 1 })
+      await pause(200)
+      return { ok: true, events: await ctx.eval<string[]>(r, 'window.__mouse') }
+    }
+    const guide = (r: AppWindow, org: string) => ctx.eval<{ step: string | null; ring: boolean; saved: string | null }>(r, `({step:document.querySelector("[data-tutorial-step]")?.getAttribute("data-tutorial-step")??null,ring:!!document.querySelector(".first-use-ring"),saved:JSON.parse(localStorage.getItem("orgtree-first-use:${org}")??"null")?.step??null})`)
+    const gone = (g: { step: string | null; ring: boolean; saved: string | null }) => g.step === null && !g.ring && g.saved === 'done'
+    const goneCheck = async (id: string, r: AppWindow, org: string, note: string) => { const g = await guide(r, org); ctx.check(id, gone(g), note, g) }
+    const reload = async (r: AppWindow) => {
+      await ctx.eval(r, 'window.__beforeReload = true; true')
+      r.window.webContents.reload()
+      await ctx.until(() => ctx.eval<boolean>(r, 'window.__beforeReload === undefined && !!document.querySelector(".sq.user")'), Boolean)
+      await pause(1500)
+    }
+    const startOrg = async (next: string) => {
+      slug = next; roots = []; revision++; rejectCreate = false; rejectHire = false
+      const before = new Set(ctx.records.keys())
+      await click(home, '.shell-create-btn')
+      const win = await ctx.until(async () => [...ctx.records.values()].find(r => !before.has(r.id)), Boolean)
+      if (!win) throw Error('tutorial: Create did not open a native window for ' + next)
+      opened.push(win)
+      await ctx.until(() => ctx.eval<boolean>(win, '!!document.querySelector("#shell-create-name")'), Boolean)
+      await input(win, '#shell-create-name', next)
+      await click(win, '.shell-create-actions button[type="submit"]')
+      await waitStep(win, 'token')
+      return win
+    }
+    const offered = (r: AppWindow) => ctx.eval<any>(r, `(() => {const b=document.querySelector('.first-use-dismiss'),card=document.querySelector('.first-use-card');if(!b||!card)return null;const x=b.getBoundingClientRect(),c=card.getBoundingClientRect();return {text:b.textContent,label:b.getAttribute('aria-label'),hit:document.elementFromPoint(x.left+x.width/2,x.top+x.height/2)===b,inCard:x.left>=c.left&&x.right<=c.right&&x.top>=c.top&&x.bottom<=c.bottom,inViewport:c.left>=0&&c.top>=0&&c.right<=innerWidth&&c.bottom<=innerHeight}})()`)
+    const reopen = async (id: string, org: string) => {
+      const r = await ctx.create(id, org); opened.push(r)
+      await ctx.until(() => ctx.eval<boolean>(r, '!!document.querySelector(".sq.user")'), Boolean)
+      await pause(1500)
+      return r
+    }
+
+    // Step 1 of 4: the hire token.
+    const atToken = await startOrg('dismiss-token')
+    const tokenOffer = await offered(atToken)
+    ctx.check('TU13-dismiss-offered-step1', !!tokenOffer && tokenOffer.text === 'Dismiss' && /dismiss/i.test(tokenOffer.label ?? '') && tokenOffer.hit && tokenOffer.inCard && tokenOffer.inViewport, 'the first note has a Dismiss button that is inside the note and is what a click at its centre reaches', tokenOffer)
+    await still(atToken, '.first-use-dismiss')
+    await settledShot(atToken, 'tutorial-dismiss-step1-before')
+    const tokenPress = await press(atToken, '.first-use-dismiss')
+    ctx.check('TU13b-pressed', tokenPress.ok && tokenPress.events.includes('click:first-use-dismiss'), 'a real mouse click reaches the Dismiss button through the guide overlay', tokenPress)
+    await waitStep(atToken, null)
+    await goneCheck('TU13c-dismissed-step1', atToken, 'dismiss-token', 'dismissing at step 1 removes the note and ring and stores the guide as done')
+    await settledShot(atToken, 'tutorial-dismiss-step1-after')
+    await reload(atToken)
+    await goneCheck('TU13d-reload-step1', atToken, 'dismiss-token', 'reloading the window does not bring a dismissed step-1 guide back')
+    ctx.close(atToken)
+    const tokenAgain = await reopen('tutorial-dismiss-step1-reopened', 'dismiss-token')
+    await goneCheck('TU13e-reopen-step1', tokenAgain, 'dismiss-token', 'a new native window opening the organization does not bring it back either')
+
+    // Step 3 of 4: the Hire button, with a name already typed.
+    const atHire = await startOrg('dismiss-hire')
+    await click(atHire, '[data-first-use="token"]:not(:disabled)')
+    await ctx.until(() => ctx.eval<boolean>(atHire, '!!document.querySelector(".df-name")'), Boolean)
+    await input(atHire, '.df-name', 'second-agent')
+    await waitStep(atHire, 'hire')
+    const hireOffer = await offered(atHire)
+    ctx.check('TU14-dismiss-offered-step3', !!hireOffer && hireOffer.text === 'Dismiss' && hireOffer.hit && hireOffer.inCard && hireOffer.inViewport && await ctx.eval(atHire, 'document.querySelector(".first-use-card")?.textContent.includes("3 of 4")') === true, 'the third note has the same Dismiss button', hireOffer)
+    await still(atHire, '.first-use-dismiss')
+    await settledShot(atHire, 'tutorial-dismiss-step3-before')
+    const hirePress = await press(atHire, '.first-use-dismiss')
+    ctx.check('TU14b-pressed', hirePress.ok && hirePress.events.includes('click:first-use-dismiss'), 'a real mouse click reaches the Dismiss button on the Hire step', hirePress)
+    await waitStep(atHire, null)
+    await goneCheck('TU14c-dismissed-step3', atHire, 'dismiss-hire', 'dismissing at step 3 removes the note and ring and stores the guide as done')
+    await settledShot(atHire, 'tutorial-dismiss-step3-after')
+    ctx.check('TU14d-draft-kept', await ctx.eval(atHire, 'document.querySelector(".sq.draft .df-name")?.value') === 'second-agent', 'the draft hire is untouched by dismissing')
+    const hiresBefore = hires.length
+    await click(atHire, '.sq.draft .df-foot .primary')
+    await ctx.until(async () => hires.length, n => n === hiresBefore + 1)
+    await ctx.until(() => ctx.eval<boolean>(atHire, '!!document.querySelector("[data-first-use-agent=second-agent]")'), Boolean)
+    await pause(1500)
+    const hireState = await guide(atHire, 'dismiss-hire')
+    ctx.check('TU14e-hire-works', hires.at(-1)?.name === 'second-agent' && gone(hireState), 'the real Hire still hires, and the finished hire does not start the message step of a dismissed guide', { hire: hires.at(-1), guide: hireState })
+    await reload(atHire)
+    await goneCheck('TU14f-reload-step3', atHire, 'dismiss-hire', 'reloading after the hire leaves the dismissed guide away')
+    ctx.close(atHire)
+    const hireAgain = await reopen('tutorial-dismiss-step3-reopened', 'dismiss-hire')
+    await goneCheck('TU14g-reopen-step3', hireAgain, 'dismiss-hire', 'a new native window opening the organization does not bring it back')
   } finally {
     for (const r of opened) ctx.close(r)
     stop()
