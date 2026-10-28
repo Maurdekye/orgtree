@@ -647,7 +647,12 @@ the incident needed no orphan: at this rate 41 GB takes seconds (inferred).
   process past `ORGTREE_TEST_GUARD_MB` (3072) resident, below
   `ORGTREE_TEST_GUARD_FREE_MB` (2048) machine free memory, or once its parent
   is gone; `ORGTREE_TEST_GUARD_MB=0` turns it off. Only run.mjs sets
-  `ORGTREE_TEST_CONTAINED_MB`, the Job marker that stands it down.
+  `ORGTREE_TEST_CONTAINED_MB`, the Job marker that stands it down. Only the
+  main thread starts it: a worker that a test starts from a file loads the
+  same preload and got a watchdog of its own (4.5.0 high E18; node 24.12 does
+  not run the preload in an `eval` worker such as the watchdog itself, so the
+  endless chain the review described did not occur there).
+  `testguard.test.tsx` §11 and §11b are the controls.
 - run.mjs refuses to start below `ORGTREE_TEST_MIN_FREE_MB` (3072) free. It
   caps each test process's V8 heap at `ORGTREE_TEST_HEAP_MB` (2048) through
   `NODE_OPTIONS`, because `--max-old-space-size` on the `node --test` command

@@ -32,7 +32,12 @@ run (also on Ctrl-C); a run whose script failed keeps its files for inspection u
 the engine's cap on idle CLIs for the run, `ORGTREE_RIG_MAX_PARKED`, the product's being 64;
 `warming: true`, `up --warming`, lets warming run under the safe start, `ORGTREE_RIG_WARMING`, so
 CLIs are warmed at the engine's start, a hire and a reconfiguration as the product warms them,
-which a safe start otherwise never does). `proof.mjs`
+which a safe start otherwise never does). `setup()` runs before the run exists, so a script
+that writes there writes only inside the rig home and takes the path from `rigHome()`, which
+refuses a home in the live data folder or the repository, and it refuses a path that is a link
+(4.5.0 high E17: `app-files.mjs` wrote its fixture before the guard ran, so it would have written
+into a home inside the live data folder and through a linked `files-fixture`; `node --test
+tools/rig/tests/app-files-guard.test.mjs` checks both). `proof.mjs`
 records pass/fail checks and evidence under `<rig home>\evidence\<proof>-<time>\`, which outlives
 the run.
 
@@ -167,15 +172,22 @@ an ordinary run's engine children inherited the real `USERPROFILE`, so a proof t
 `USERPROFILE`/`HOME`/`TEMP`). `rigProfileEnv(data, { tmp })` in `tools/rig/lib.mjs` returns the
 whole set: `USERPROFILE` and `HOME` (`<data>\rig-home`, the folder the engine's own home lookups
 and the fake CLIs already use), `HOMEDRIVE`/`HOMEPATH` (the same folder, split at the drive),
-`APPDATA` and `LOCALAPPDATA` (under it) and `TEMP`/`TMP` (the run's `tmp` folder; without `tmp`,
-`rig-home\AppData\Local\Temp`), and creates the folders. `keeper.mjs` applies it to every run,
+`APPDATA` and `LOCALAPPDATA` (under it), `TEMP`/`TMP` (the run's `tmp` folder; without `tmp`,
+`rig-home\AppData\Local\Temp`), and the config folders OpenCode and Muse read before the home:
+`XDG_CONFIG_HOME` (`.config`), `XDG_DATA_HOME` (`.local\share`), `XDG_CACHE_HOME` (`.cache`),
+`XDG_STATE_HOME` (`.local\state`) and `OPENCODE_CONFIG_DIR` (`.config\opencode`), all under
+`rig-home`, so a host that sets them never hands a rig engine its real config (4.5.0 high E16).
+It creates the `APPDATA`, `LOCALAPPDATA` and `TEMP` folders. `keeper.mjs` applies it to every run,
 `standalone-engine.mjs` gains the `APPDATA`/`LOCALAPPDATA`/`HOMEDRIVE`/`HOMEPATH` it lacked, and
 the host-mode proofs `boot-host-stop`, `core-lifecycle`, `core-recovery` and `session0-handover`
 spread it after `...cleanEnv()`; a new script that builds an engine environment must too.
 `node --test tools/rig/tests/rig-synthetic-home.test.mjs` runs the real keeper with a stand-in
-engine (a copy of node that records its environment) and a sentinel host profile: it fails if a
-profile variable the child sees is the host's, is outside the run, or if any variable mentions
-the host profile, and it fails for any rig script that builds an engine environment from
+engine (a copy of node that records the profile and config variables it sees and the names, never
+the values, of any other variables that mention the host profile; it never saves its whole
+environment, 4.5.0 high E15) and a sentinel host profile: it fails if a profile variable the
+child sees is the host's or is outside the run, if any variable but a planted control mentions
+the host profile, or if a planted secret-like value reaches the record, and it fails for any rig
+script that builds an engine environment from
 `cleanEnv()` without the helper (0 pass / 3 fail at the base, 3 pass at the fix). It starts no
 engine, database or window. `agy-auth.mjs` adds the end-to-end check through the real engine:
 every launch of the default sign-in's fake AGY (it inherits the engine's environment) logs the
