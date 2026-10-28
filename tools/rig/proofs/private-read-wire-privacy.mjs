@@ -23,8 +23,9 @@ export default async function(rig,{flags}){
   const value=await rig.api('GET','/api/app/records'),text=JSON.stringify(value)
   return text.includes(control)&&text.includes(mailText)?value:null
  },{what:'updated notification projection with old private mail',timeout:10000})
+ // the window marker rides in the path: normal logs elide query values (verbose logs keep them)
  const refreshEnd='reader-refresh-end-'+mode
- await rig.api('GET','/api/templates?name='+refreshEnd)
+ await rig.api('GET','/api/templates/'+refreshEnd).then(()=>null,e=>e.status)
  await rig.waitFor(()=>fs.readFileSync(logFile,'utf8').split(/\r?\n/).some(line=>line.includes('RESPONSE')&&line.includes(refreshEnd)),{what:'notification log window flushed',timeout:10000})
  const refreshLog=fs.readFileSync(logFile).subarray(refreshOffset).toString('utf8')
  p.check('fresh notification projection still delivers the private mail to the app',trigger.ok&&JSON.stringify(refreshed).includes(mailText))
@@ -36,14 +37,15 @@ export default async function(rig,{flags}){
   ['mail-by-id',`/api/orgs/${rig.org}/mail/user/${mail.uid}`,mailText,v=>v.found===true&&JSON.stringify(v.mail).includes(mailText)],
   ['document',`/api/orgs/${rig.org}/documents/${doc.uid}`,docText,v=>v.id===doc.uid&&v.body===docText]
  ]
+ const shown=route=>mode==='on'?route:route.replace(/=[^&]*/g,'=****') // the normal log keeps parameter names only
  for(const [name,route,canary,clientOK]of cases){
   const offset=fs.statSync(logFile).size,value=await rig.api('GET',route)
   p.check(name+': client receives unchanged private content and metadata',clientOK(value))
   const end='reader-wire-end-'+name+'-'+mode
-  await rig.api('GET','/api/templates?name='+end)
+  await rig.api('GET','/api/templates/'+end).then(()=>null,e=>e.status)
   await rig.waitFor(()=>fs.readFileSync(logFile,'utf8').split(/\r?\n/).some(line=>line.includes('RESPONSE')&&line.includes(end)),{what:'reader wire window complete',timeout:10000})
   const log=fs.readFileSync(logFile).subarray(offset).toString('utf8')
-  const wire=log.split(/\r?\n/).filter(line=>/\b(?:REQUEST|RESPONSE)\s/.test(line)&&line.includes(route))
+  const wire=log.split(/\r?\n/).filter(line=>/\b(?:REQUEST|RESPONSE)\s/.test(line)&&line.includes(shown(route)))
   const responses=wire.filter(line=>line.includes('RESPONSE')&&line.includes('200 OK'))
   p.check(name+': positive wire metadata control exists',responses.length===1,{lines:responses.length})
   p.check(name+': wire bodies omit the private canary',wire.length===2&&wire.every(line=>line.includes('[body omitted]'))&&!wire.some(line=>line.includes(canary)),{leaked:responses.some(line=>line.includes(canary))})

@@ -50,8 +50,9 @@ export default async function(rig,{flags}) {
   p.check('unauthenticated, unknown-child and malformed requests are actually rejected',unauth===403&&unknown===404&&malformed===422&&unknownPreview===404&&malformedPreview===422,{unauth,unknown,malformed,unknownPreview,malformedPreview})
   const conflict=await raw(saveRoute,{body:{name:'Wire copy '+mode,include:{standing_notes:true},discarded_private_field:requestMarker}})
   p.check('duplicate-name refusal keeps the saved template intact',conflict===409&&fs.readFileSync(saved.path,'utf8')===saved.content)
+  // the window marker rides in the path: normal logs elide query values (verbose logs keep them)
   const end='wire-window-end-'+mode
-  await rig.api('GET','/api/templates?name='+end)
+  await rig.api('GET','/api/templates/'+end).then(()=>null,e=>e.status)
   await rig.waitFor(()=>fs.readFileSync(logFile,'utf8').split(/\r?\n/).some(line=>line.includes('RESPONSE')&&line.includes(end)),{what:'wire logger completed window',timeout:10000})
   const log=fs.readFileSync(logFile).subarray(offset).toString('utf8')
   const wire=log.split(/\r?\n/).filter(line=>/\b(?:REQUEST|RESPONSE)\s/.test(line))

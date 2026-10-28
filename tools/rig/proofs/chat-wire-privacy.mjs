@@ -26,13 +26,17 @@ export default async function(rig,{flags}) {
   const unauth=await fetch(rig.url+route,{signal:AbortSignal.timeout(10000)});await unauth.text()
   const bad=await rig.api('GET',route+'?last=not-a-number').then(()=>null,e=>e.status)
   p.check('rejected chat requests are actually exercised',unauth.status===403&&bad===400,{unauth:unauth.status,bad})
-  const end='chat-wire-window-end-'+mode
-  await rig.api('GET','/api/templates?name='+end)
+  // the window marker rides in the path: normal logs elide query values (verbose logs keep them)
+  const end='window-end-'+mode
+  await rig.api('GET','/api/templates/'+end).then(()=>null,e=>e.status)
   await rig.waitFor(()=>fs.readFileSync(logFile,'utf8').split(/\r?\n/).some(line=>line.includes('RESPONSE')&&line.includes(end)),{what:'wire logger completed chat window',timeout:10000})
   const log=fs.readFileSync(logFile).subarray(offset).toString('utf8')
   const wire=log.split(/\r?\n/).filter(line=>/\b(?:REQUEST|RESPONSE)\s/.test(line)&&line.includes('/chat'))
   const responses=wire.filter(line=>line.includes('RESPONSE')&&line.includes('200 OK'))
-  p.check('positive wire control retains route, query and status metadata',responses.length===2&&responses.some(line=>line.includes('before=9007199254740991')),{lines:responses.length})
+  // verbose keeps the query; the normal log keeps its parameter names and elides the values
+  const queryShown=mode==='on'?'before=9007199254740991':'before=****'
+  p.check('positive wire control retains route, query and status metadata',responses.length===2&&responses.some(line=>line.includes(queryShown)),{lines:responses.length})
+  p.check('the normal log keeps no query value',mode==='on'||responses.every(line=>line.includes('last=****')&&!line.includes('last=50')&&!line.includes('9007199254740991')),{lines:responses.length})
   p.check('chat response wire lines never disclose text or thinking canaries',responses.every(line=>!line.includes(marker)),{leaked:responses.some(line=>line.includes(marker))})
   p.check('accepted and rejected chat bodies are omitted',wire.length>=8&&wire.every(line=>line.includes('[body omitted]')))
   p.check('no diagnostic entry in the read window discloses transcript contents',!log.includes(marker))

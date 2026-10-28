@@ -22,14 +22,16 @@ export default async function(rig,{flags}){
   ['org-inbox',`/api/orgs/${rig.org}/org_inbox`,orgText,v=>v.total===1&&v.unread===1&&v.entries?.[0]?.body===orgText],
   ['inbox-filter',`/api/orgs/${rig.org}/inbox/filter`,filterText,v=>JSON.stringify(v).includes(filterText)&&JSON.stringify(v).includes('Privacy canary'),'POST',{tags:['Privacy canary']}]
  ]
+ const shown=route=>mode==='on'?route:route.replace(/=[^&]*/g,'=****') // the normal log keeps parameter names only
  for(const [name,route,canary,clientOK,method='GET',body]of cases){
   const offset=fs.statSync(logFile).size,value=await rig.api(method,route,body)
   p.check(name+': client receives unchanged private content and metadata',clientOK(value))
   const end='remaining-inbox-end-'+name+'-'+mode
-  await rig.api('GET','/api/templates?name='+end)
+  // the window marker rides in the path: normal logs elide query values (verbose logs keep them)
+  await rig.api('GET','/api/templates/'+end).then(()=>null,e=>e.status)
   await rig.waitFor(()=>fs.readFileSync(logFile,'utf8').split(/\r?\n/).some(line=>line.includes('RESPONSE')&&line.includes(end)),{what:'reader wire window complete',timeout:10000})
   const log=fs.readFileSync(logFile).subarray(offset).toString('utf8')
-  const wire=log.split(/\r?\n/).filter(line=>/\b(?:REQUEST|RESPONSE)\s/.test(line)&&line.includes(route)),responses=wire.filter(line=>line.includes('RESPONSE')&&line.includes('200 OK'))
+  const wire=log.split(/\r?\n/).filter(line=>/\b(?:REQUEST|RESPONSE)\s/.test(line)&&line.includes(shown(route))),responses=wire.filter(line=>line.includes('RESPONSE')&&line.includes('200 OK'))
   p.check(name+': positive wire metadata control exists',responses.length===1,{lines:responses.length})
   p.check(name+': wire bodies omit the private canary',wire.length===2&&wire.every(line=>line.includes('[body omitted]'))&&!wire.some(line=>line.includes(canary)),{leaked:responses.some(line=>line.includes(canary))})
   p.check(name+': handler and helper logs omit the private canary',!log.includes(canary))
