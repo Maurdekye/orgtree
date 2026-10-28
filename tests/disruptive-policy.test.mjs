@@ -55,8 +55,24 @@ const DISRUPTIVE = [
  *  glob and every section stayed green while `npm test` walked into the folder.
  *  A control that cannot fail is not a control.
  *
- *  Returns a reason when the script can reach the folder, '' when it cannot. */
-export function testScriptReachesDisruptive(script) {
+ *  Returns a reason when the script can reach the folder, '' when it cannot.
+ *
+ *  ⚠ `npm test` IS `node tests/run.mjs` SINCE 88a58e6 (2026-10-26): the bounded
+ *  runner starts `node --test` itself, over the paths its command line names or,
+ *  with none, over its own default target list. The question is unchanged —
+ *  which paths reach `node --test` — so the script is followed into the runner,
+ *  and both the named paths and the runner's default are checked (a value after
+ *  a runner flag may read as a path here: checking more paths can only find
+ *  more, never fewer). A runner whose default this cannot read fails closed. */
+export function testScriptReachesDisruptive(script, runnerSource = readRunnerSource()) {
+  if (typeof script === 'string') {
+    const words = script.trim().split(/\s+/)
+    if (words[0] === 'node' && /^(\.\/)?tests[\\/]run\.mjs$/.test(words[1] ?? '')) {
+      const defaults = runnerDefaultTargets(runnerSource)
+      if (!defaults) return 'tests/run.mjs no longer shows the default targets it hands node --test'
+      script = ['node', '--test', ...words.slice(2).filter(a => !a.startsWith('-')), ...defaults].join(' ')
+    }
+  }
   if (typeof script !== 'string' || !script.includes('--test')) return 'the test script does not run node --test'
   const args = script.split(/\s+/).filter(a => a && !a.startsWith('-') && a !== 'node' && a !== 'npm')
   const paths = args.filter(a => a.includes('/') || a.includes('*') || a.endsWith('.mjs'))
@@ -66,6 +82,20 @@ export function testScriptReachesDisruptive(script) {
     if (hit) return 'the path ' + spec + ' matches ' + hit
   }
   return ''
+}
+
+function readRunnerSource() {
+  return fs.readFileSync(path.join(testsDir, 'run.mjs'), 'utf8')
+}
+
+/** The paths tests/run.mjs hands `node --test` when its command line names
+ *  none: the literal list in its `files.length ? files : [...]` fallback, or
+ *  null when that fallback is not there to read. */
+export function runnerDefaultTargets(source) {
+  const list = /files\.length\s*\?\s*files\s*:\s*\[([^\]]*)\]/.exec(source)?.[1]
+  if (list === undefined) return null
+  const targets = [...list.matchAll(/'([^']*)'|"([^"]*)"/g)].map(m => m[1] ?? m[2])
+  return targets.length ? targets : null
 }
 
 /** Paths a probe could occupy. `testScriptReachesDisruptive` asks whether a glob
@@ -158,6 +188,13 @@ test('§3 THE REAL `test` SCRIPT cannot reach tests/disruptive/', () => {
   // The two shapes a spelling-based check let through, measured by a reviewer.
   assert.notEqual(testScriptReachesDisruptive('node --test tests/*/*.test.mjs'), '', 'a single-level wildcard directory must be caught')
   assert.notEqual(testScriptReachesDisruptive('node --test tests/disruptive*/*.test.mjs'), '', 'a wildcard suffix on the folder name must be caught')
+  // `npm test` runs the bounded runner (88a58e6): what reaches node --test is
+  // the runner's own default list, or the paths the script names to it.
+  const shippedRunner = "...flags, ...(files.length ? files : ['tests/*.test.mjs'])]"
+  assert.equal(testScriptReachesDisruptive('node tests/run.mjs', shippedRunner), '', 'the shipped runner shape must pass')
+  assert.notEqual(testScriptReachesDisruptive('node tests/run.mjs', "...flags, ...(files.length ? files : ['tests/**/*.test.mjs'])]"), '', 'a recursive runner default must be caught')
+  assert.notEqual(testScriptReachesDisruptive('node tests/run.mjs tests/disruptive/*.test.mjs', shippedRunner), '', 'a path named to the runner must be caught')
+  assert.notEqual(testScriptReachesDisruptive('node tests/run.mjs', "const args = ['--test', ...files]"), '', 'a runner whose default cannot be read fails closed')
 
   const pkg = JSON.parse(fs.readFileSync(path.join(path.dirname(testsDir), 'package.json'), 'utf8'))
   const reason = testScriptReachesDisruptive(pkg.scripts && pkg.scripts.test)
