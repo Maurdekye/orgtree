@@ -934,13 +934,13 @@ async function mountAsciiForZoom(t: TestContext, dpr: number) {
   stubReducedMotion(t, false)
   const viewRef = { current: { x: 0, y: 0, z: 1 } }
   const holder: { api: AsciiTestApi | null } = { api: null }
-  const mounted = await mountView(
+  const layer = (view: { x: number; y: number; z: number }) => (
     <div>
-      <AsciiLayer view={viewRef.current} viewRef={viewRef} hidden={false} intensity={1}
+      <AsciiLayer view={view} viewRef={viewRef} hidden={false} intensity={1}
         pin={{ seed: 42, pool: 'mixed' }} onReady={a => { holder.api = a }} />
-    </div>,
-    el => el,
+    </div>
   )
+  const mounted = await mountView(layer(viewRef.current), el => el)
   t.after(async () => { await mounted.unmount() })
   for (let i = 0; i < 20 && !holder.api; i++) {
     await inAct(async () => { await new Promise(r => setTimeout(r, 20)); await flush(4) })
@@ -952,7 +952,9 @@ async function mountAsciiForZoom(t: TestContext, dpr: number) {
     assert.ok(c, 'the layer has its canvas')
     return c
   }
-  return { ctrl, viewRef, api, canvas }
+  /** React commits a new camera (the `view` prop), as OrgCanvas does on every wheel notch; the layer has not drawn yet */
+  const commit = async (view: { x: number; y: number; z: number }): Promise<void> => { await mounted.render(layer(view)) }
+  return { ctrl, viewRef, api, canvas, commit }
 }
 
 /** Zoom geometrically from z = `from` to `to` with the world point under (ax, ay) held fixed, like a wheel zoom under the cursor. */
@@ -1026,3 +1028,78 @@ for (const dpr of [1, 2]) {
     }
   })
 }
+
+/* ── the camera between the layer's own redraws ─────────────────────────────────────────────────────────────────────────────
+ * The layer redraws on its own 40 ms timer (about every 50 ms measured, 3 displayed frames) while the camera moves every
+ * frame, so the canvas used to sit where the LAST draw put it: in 67-75% of the frames in which the camera moved the
+ * background did not move with the cards and then jumped. Between draws the canvas now follows the committed camera with a
+ * compositor-only transform (the stale bitmap, scaled and moved exactly as the world under it); a draw clears the transform
+ * (or, when the wheel wrote the camera ahead of React's commit, maps the drawn camera to the committed one). */
+
+const TRACK = /^translate\((-?[\d.]+(?:e[-+]?\d+)?)px, (-?[\d.]+(?:e[-+]?\d+)?)px\) scale\((-?[\d.]+(?:e[-+]?\d+)?)\)$/
+
+/** where a bitmap point `q` (css px from the canvas corner) appears on screen with the canvas's box and tracking transform */
+function shownAt(c: HTMLCanvasElement, q: { x: number; y: number }): { x: number; y: number } {
+  const L = parseFloat(c.style.left), T = parseFloat(c.style.top)
+  const m = TRACK.exec(c.style.transform)
+  assert.ok(m, `the canvas carries a tracking transform, got "${c.style.transform}"`)
+  const tx = Number(m[1]), ty = Number(m[2]), k = Number(m[3])
+  return { x: L + tx + k * q.x, y: T + ty + k * q.y }
+}
+
+/** where the world point drawn at `q` under camera `from` belongs on screen under camera `to` */
+function belongsAt(c: HTMLCanvasElement, q: { x: number; y: number }, from: { x: number; y: number; z: number }, to: { x: number; y: number; z: number }): { x: number; y: number } {
+  const L = parseFloat(c.style.left), T = parseFloat(c.style.top)
+  const world = { x: (L + q.x - from.x) / from.z, y: (T + q.y - from.y) / from.z }
+  return { x: world.x * to.z + to.x, y: world.y * to.z + to.y }
+}
+
+test('Claude Waves follows the committed camera between its own redraws and leaves nothing behind once the next draw lands', async (t) => {
+  const { viewRef, api, canvas, commit } = await mountAsciiForZoom(t, 1)
+  const V0 = { x: -100, y: -50, z: 1.5 }, V1 = { x: -140, y: -20, z: 1.7 }, V2 = { x: -90, y: -75, z: 1.3 }
+  viewRef.current = V0
+  await commit(V0)
+  api.drawAt(8, 1)
+  const c = canvas()
+  assert.equal(c.style.transform, '', 'drawn at the camera the DOM shows: nothing to track')
+  const corners = [{ x: 0, y: 0 }, { x: 300, y: 200 }, { x: 800, y: 600 }]
+
+  // the wheel zooms: React commits V1, the layer has not drawn yet
+  viewRef.current = V1
+  await commit(V1)
+  for (const q of corners) {
+    const got = shownAt(c, q), want = belongsAt(c, q, V0, V1)
+    assert.ok(Math.abs(got.x - want.x) < 1e-6 && Math.abs(got.y - want.y) < 1e-6,
+      `stale bitmap point ${q.x},${q.y} is at ${got.x},${got.y}, the world under it is at ${want.x},${want.y}`)
+  }
+
+  // the next draw lands on that camera: the layout is the layer's own and no transform is left
+  api.drawAt(9, 1)
+  assert.equal(c.style.transform, '', 'a draw at the committed camera leaves no offset')
+
+  // the wheel wrote V2 AHEAD of React's commit and the loop draws: the bitmap belongs to V2, the cards still show V1
+  viewRef.current = V2
+  api.drawAt(10, 1)
+  for (const q of corners) {
+    const got = shownAt(c, q), want = belongsAt(c, q, V2, V1)
+    assert.ok(Math.abs(got.x - want.x) < 1e-6 && Math.abs(got.y - want.y) < 1e-6,
+      `ahead-of-commit draw: point ${q.x},${q.y} is at ${got.x},${got.y}, the cards put it at ${want.x},${want.y}`)
+  }
+  await commit(V2)
+  assert.equal(c.style.transform, '', 'once React commits the camera the draw used, nothing is left over')
+})
+
+test('Claude Waves tracks a pure pan too, and an unchanged camera never gets a transform', async (t) => {
+  const { viewRef, api, canvas, commit } = await mountAsciiForZoom(t, 1)
+  const V0 = { x: 0, y: 0, z: 1 }
+  viewRef.current = V0
+  api.drawAt(8, 1)
+  const c = canvas()
+  assert.equal(c.style.transform, '')
+  const V1 = { x: -37.5, y: 12.25, z: 1 }
+  viewRef.current = V1
+  await commit(V1)
+  assert.equal(c.style.transform, `translate(${V1.x - V0.x}px, ${V1.y - V0.y}px) scale(1)`, 'a pan is a pure translation')
+  await commit(V0)
+  assert.equal(c.style.transform, '', 'back at the camera the bitmap was drawn at: no transform')
+})
