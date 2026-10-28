@@ -400,6 +400,15 @@ pub async fn dissolve_all(State(e): State<Arc<Engine>>, Path(slug): Path<String>
 const KILLSWITCH_PAUSE: &str =
     "⏹ STOP ALL paused every watchdog. Nothing un-pauses it automatically — resume this dog deliberately when you want it back.";
 
+#[cfg(test)]
+mod stop_all_tests;
+#[cfg(test)]
+tokio::task_local! {
+    /// Stop All ends right after its latch commits, as a crash or a failed
+    /// request would there (stop_all_tests).
+    static STOP_AFTER_LATCH: bool;
+}
+
 /// Stop everything: running turns are interrupted, watchdogs paused, and
 /// nothing starts a turn until the latch is released.
 #[logged]
@@ -412,6 +421,10 @@ pub async fn killswitch(State(e): State<Arc<Engine>>, Path(slug): Path<String>) 
             &[&o.id, &json!({ "at": now_iso(), "by": "@user" })],
         )
         .await?;
+    #[cfg(test)]
+    if STOP_AFTER_LATCH.try_with(|stop| *stop).unwrap_or(false) {
+        return Err(ApiError::internal("Stop All ended after its latch committed"));
+    }
     let paused = client
         .query(
             "UPDATE ot.watchdogs w SET state = 'paused',
