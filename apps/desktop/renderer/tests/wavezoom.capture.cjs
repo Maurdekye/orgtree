@@ -26,9 +26,20 @@ fs.mkdirSync(out, { recursive: true })
 for (const stale of ['failure.json', 'results.json', 'analysis.json']) fs.rmSync(path.join(out, stale), { force: true })
 app.setPath('userData', path.join(out, 'profile-' + process.pid)); app.setPath('sessionData', path.join(out, 'session-' + process.pid))
 app.commandLine.appendSwitch('mute-audio')
+// WAVEZOOM_SW=1: no GPU process (Session 0 here crashes it with exit_code=34), so run SwiftShader software WebGL2 and let the fixture
+// shim the layer's hardware gate (&sw=1). Geometry and painted pixels are real; frame timing is software timing.
+const SW = process.env.WAVEZOOM_SW === '1'
+if (SW) {
+  app.disableHardwareAcceleration()
+  app.commandLine.appendSwitch('use-gl', 'angle'); app.commandLine.appendSwitch('use-angle', 'swiftshader')
+  app.commandLine.appendSwitch('enable-unsafe-swiftshader'); app.commandLine.appendSwitch('ignore-gpu-blocklist')
+}
 let clipboardCalls = 0
 for (const k of Object.keys(clipboard)) if (typeof clipboard[k] === 'function') clipboard[k] = () => { clipboardCalls++; return k === 'availableFormats' ? [] : k === 'has' ? false : '' }
 const sleep = ms => new Promise(r => setTimeout(r, ms))
+const consoleLines = []
+const T0 = Date.now()
+const log = (...a) => console.log(`[+${((Date.now() - T0) / 1000).toFixed(1)}s]`, ...a)
 const within = async (p, ms, what) => { let t; try { return await Promise.race([p, new Promise((_r, j) => { t = setTimeout(() => j(Error('Deadline: ' + what)), ms) })]) } finally { clearTimeout(t) } }
 
 async function bundle() {
@@ -47,7 +58,8 @@ async function bundle() {
 const mean = a => a.length ? a.reduce((s, v) => s + v, 0) / a.length : NaN
 const pct = (a, p) => { if (!a.length) return NaN; const s = [...a].sort((x, y) => x - y); return s[Math.min(s.length - 1, Math.floor(p * (s.length - 1)))] }
 const r3 = v => Number.isFinite(v) ? Math.round(v * 1000) / 1000 : v
-const mapDiff = (a, b) => { let s = 0; for (let i = 0; i < a.length; i++) s += Math.abs(a[i] - b[i]); return s / a.length / 255 }
+// relative change between two ink maps (Bray-Curtis): 0 = identical, 1 = no ink in common; independent of how faint the ink is
+const mapDiff = (a, b) => { let d = 0, t = 0; for (let i = 0; i < a.length; i++) { d += Math.abs(a[i] - b[i]); t += a[i] + b[i] } return t > 0 ? d / t : 0 }
 
 function makeWindow() {
   // a FRESH window per scene; visible-but-inactive on the Session 0 desktop with throttling off, as canvasbg-capture.cjs does
@@ -55,6 +67,7 @@ function makeWindow() {
     webPreferences: { sandbox: true, backgroundThrottling: false } })
   win.webContents.setAudioMuted(true)
   win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
+  win.webContents.on('console-message', (_e, level, message) => { if (level >= 1) consoleLines.push(`[${level}] ${String(message).slice(0, 200)}`) })
   win.webContents.on('render-process-gone', (_e, d) => console.log(`render-process-gone: ${d.reason} exit=${d.exitCode}`))
   win.showInactive()
   return win
@@ -63,16 +76,29 @@ async function open(query) {
   const win = makeWindow()
   const dbg = win.webContents.debugger
   dbg.attach('1.3')
-  await dbg.sendCommand('Emulation.setFocusEmulationEnabled', { enabled: true }) // document.hasFocus() without stealing the foreground
+  log('open', query, 'attached')
+  if (SW) query += '&sw=1'
   await within(win.loadURL('file:///' + path.join(out, 'index.html').replace(/\\/g, '/') + '?' + query), 20000, 'load')
-  const js = c => win.webContents.executeJavaScript(c)
+  log('loaded')
+  // document.hasFocus() without stealing the foreground (the ASCII loop only runs while the document has focus); sent AFTER the
+  // load: before it the command never returned under software compositing (measured 2026-10-29)
+  try { await within(dbg.sendCommand('Emulation.setFocusEmulationEnabled', { enabled: true }), 8000, 'focus emulation'); log('focus emulation set') } catch (e) { log('focus emulation FAILED:', String(e)) }
+  const js = c => within(win.webContents.executeJavaScript(c), 30000, 'js: ' + String(c).slice(0, 60))
   const t0 = Date.now()
   for (;;) {
     const ok = await js(query.includes('theme=ascii') || !query.includes('theme=') ? 'window.__asciiReady === true' : 'window.__ready === true')
     if (ok) break
-    if (Date.now() - t0 > 15000) throw Error('layer not ready (no hardware WebGL2?): ' + query)
+    if (Date.now() - t0 > 15000) {
+      // what the page can see: a fresh WebGL2 context (with the gate's own options), the renderer string, the layer's canvas
+      const diag = await js(`(() => { const o = {}; try { const c = document.createElement('canvas'); const gl = c.getContext('webgl2', { failIfMajorPerformanceCaveat: true, antialias: false, depth: false, stencil: false, powerPreference: 'low-power' });
+        o.gl = !!gl; if (gl) { const d = gl.getExtension('WEBGL_debug_renderer_info'); o.renderer = d ? String(gl.getParameter(d.UNMASKED_RENDERER_WEBGL)) : String(gl.getParameter(gl.RENDERER)); o.version = gl.getParameter(gl.VERSION) } } catch (e) { o.err = String(e) }
+        o.canvases = document.querySelectorAll('canvas').length; o.layer = !!document.querySelector('[data-canvas-bg="ascii"]'); o.layerCanvas = !!document.querySelector('[data-canvas-bg="ascii"] canvas')
+        o.contrastMore = matchMedia('(prefers-contrast: more)').matches; o.forced = matchMedia('(forced-colors: active)').matches; o.hasFocus = document.hasFocus(); o.vis = document.visibilityState; return JSON.stringify(o) })()`).catch(e => 'diag failed: ' + e)
+      throw Error('layer not ready: ' + query + ' | ' + diag + ' | console: ' + consoleLines.slice(-6).join(' // '))
+    }
     await sleep(120)
   }
+  log('layer ready')
   await sleep(400)
   return { win, dbg, js }
 }
@@ -87,19 +113,17 @@ async function sweepScene(name, query, from, to, steps) {
     const T = 10 // fixed field time (s): the animation is frozen, only the camera changes
     const ax = 500, ay = 350 // screen point the zoom is anchored on (a wheel zoom anchors under the cursor)
     // baseline: plain animation at rest, 60 fps worth of field time per frame
-    await js(`(() => { window.__zp.sweepDraw({ x: 0, y: 0, z: ${from} }, ${T}); for (let i = 1; i <= 24; i++) window.__zp.sweepDraw({ x: 0, y: 0, z: ${from} }, ${T} + i / 60) })()`)
+    const costs = []
+    for (let i = 0; i <= 24; i++) costs.push(await js(`window.__zp.sweepDraw({ x: 0, y: 0, z: ${from} }, ${T} + ${i} / 60) || 0`))
+    log('baseline drawn')
     const base = await js('window.__zp.result()')
     await js('window.__zp.reset()')
     // the sweep: geometric zoom steps with the world point under (ax, ay) held fixed
-    await js(`(() => {
-      let v = { x: 0, y: 0, z: ${from} }
-      for (let i = 0; i <= ${steps}; i++) {
-        const z = ${from} * Math.pow(${to} / ${from}, i / ${steps})
-        const wx = (${ax} - v.x) / v.z, wy = (${ay} - v.y) / v.z
-        v = { x: ${ax} - wx * z, y: ${ay} - wy * z, z }
-        window.__zp.sweepDraw(v, ${T})
-      }
-    })()`)
+    const stepMs = []
+    for (let i = 0; i <= steps; i++) {
+      stepMs.push(await js(`window.__zp.sweepStep(${i}, ${steps}, ${from}, ${to}, ${ax}, ${ay}, ${T})`))
+      if (i % 20 === 0) log(`sweep step ${i}/${steps} took ${stepMs[i].toFixed(0)} ms`)
+    }
     const res = await js('window.__zp.result()')
     const baseDiffs = []
     for (let i = 1; i < base.draws.length; i++) baseDiffs.push(mapDiff(base.draws[i - 1].coarse, base.draws[i].coarse))
@@ -119,8 +143,37 @@ async function sweepScene(name, query, from, to, steps) {
       resizeCalls: res.resizes.length, canvasSizeChanges: rows.filter(r => r.canvasStep).length,
       coverage: { min: r3(Math.min(...res.draws.map(d => d.cov))), max: r3(Math.max(...res.draws.map(d => d.cov))) },
       statesSeen: [...new Set(res.draws.map(d => d.state))],
+      drawMs: { median: r3(pct(stepMs, 0.5)), p95: r3(pct(stepMs, 0.95)), max: r3(Math.max(...stepMs)) },
     }
     return { name, query, summary, rows, base: { diffs: baseDiffs.map(r3) } }
+  } finally { try { dbg.detach() } catch {} win.destroy(); await sleep(150) }
+}
+
+/* ── scene: pan baseline (what plain motion of the same size costs) ──── */
+async function panScene(name, query, z, dx, steps) {
+  const { win, dbg, js } = await open(query)
+  try {
+    await js('window.__zp.install()')
+    await js('window.__zp.reset()')
+    for (let i = 0; i <= steps; i++) await js(`window.__zp.panStep(${i}, ${dx}, ${z}, 10)`)
+    const res = await js('window.__zp.result()')
+    const diffs = []
+    for (let i = 1; i < res.draws.length; i++) diffs.push(mapDiff(res.draws[i - 1].coarse, res.draws[i].coarse))
+    return { name, query, summary: { z, panPxPerStep: dx, steps, cellWidthsSeen: [...new Set(res.draws.map(d => d.cw))], diff: { mean: r3(mean(diffs)), p10: r3(pct(diffs, 0.1)), p50: r3(pct(diffs, 0.5)), p90: r3(pct(diffs, 0.9)), max: r3(Math.max(...diffs)) } } }
+  } finally { try { dbg.detach() } catch {} win.destroy(); await sleep(150) }
+}
+
+/* ── scene: pixel identity (z <= 1 must be byte-identical before and after a layout change) ─────── */
+const IDENTITY_VIEWS = []
+for (const z of [1, 0.95, 0.8, 0.6, 0.5, 0.35, 0.24]) for (const [x, y] of [[0, 0], [-137.3, -61.9], [-900.7, -433.1], [211.4, 87.6]]) IDENTITY_VIEWS.push({ x, y, z })
+for (const z of [1.03, 1.5, 2, 3]) IDENTITY_VIEWS.push({ x: -250.5, y: -111.1, z }) // z > 1 is expected to change; recorded for reference
+async function identityScene(name, query) {
+  const { win, dbg, js } = await open(query)
+  try {
+    await js('window.__zp.install()')
+    const rowsA = await js(`window.__zp.identity(${JSON.stringify(IDENTITY_VIEWS)}, 10)`)
+    const rowsB = await js(`window.__zp.identity(${JSON.stringify(IDENTITY_VIEWS)}, 12.5)`) // a second field time, so the animation is covered too
+    return { name, query, summary: { views: IDENTITY_VIEWS.length, fieldTimes: [10, 12.5] }, identity: { t10: rowsA, t12_5: rowsB } }
   } finally { try { dbg.detach() } catch {} win.destroy(); await sleep(150) }
 }
 
@@ -197,6 +250,10 @@ async function framesScene(name, query, zs) {
 const SCENES = {
   'sweep-in': () => sweepScene('sweep-in', 'theme=ascii&seed=7', 1, 4, 180),
   'sweep-out': () => sweepScene('sweep-out', 'theme=ascii&seed=7', 1, 0.24, 120),
+  'identity': () => identityScene('identity', 'theme=ascii&seed=7'),
+  'pan-4px-z1': () => panScene('pan-4px-z1', 'theme=ascii&seed=7', 1, 4, 120),
+  'pan-8px-z1': () => panScene('pan-8px-z1', 'theme=ascii&seed=7', 1, 8, 60),
+  'pan-4px-z3': () => panScene('pan-4px-z3', 'theme=ascii&seed=7', 3, 4, 120),
   'sweep-in-dots': () => sweepScene('sweep-in-dots', 'theme=dots', 1, 4, 60),
   'live-notch-ascii': () => liveScene('live-notch-ascii', 'theme=ascii&seed=7', { delta: 100, count: 24, gapMs: 70, label: 'mouse notches (deltaY 100 every 70 ms)' }),
   'live-smooth-ascii': () => liveScene('live-smooth-ascii', 'theme=ascii&seed=7', { delta: 24, count: 90, gapMs: 12, label: 'trackpad-like (deltaY 24 every 12 ms)' }),

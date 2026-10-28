@@ -4,7 +4,13 @@
  * stand-ins, with OrgCanvas's own wheel zoom: `viewRef` is written by the wheel handler AHEAD of React's commit and overwritten
  * by the render, exactly as OrgCanvas.tsx does, so the layer sees the camera the same way it does in the app.
  *
- * URL: ?theme=ascii|dots|line-grid|...  &seed=N (ascii, pinned)  &x= &y= &z= (start camera)
+ * URL: ?theme=ascii|dots|line-grid|...  &seed=N (ascii, pinned)  &x= &y= &z= (start camera)  &sw=1
+ *
+ * &sw=1 is for a machine whose Session 0 has no usable GPU process (measured 2026-10-29: `GPU process exited unexpectedly:
+ * exit_code=34` at window creation, even for canvasbg-capture.cjs): Electron then runs with SwiftShader (software WebGL2) and
+ * THIS FIXTURE, not the product, shims the layer's hardware gate (drops failIfMajorPerformanceCaveat and reports a
+ * non-software renderer string) so the real layer, shaders and scheduler run. Geometry and painted pixels are the real
+ * layer's; frame TIMING is software-GL timing and says nothing about a real GPU.
  *
  * window.__zp (driven by wavezoom.capture.cjs):
  *   install()             patch the ASCII renderer's draw/resize so every real draw is recorded (device-pixel readback of the
@@ -27,6 +33,17 @@ const q = new URLSearchParams(location.search)
 const theme = q.get('theme') || 'ascii'
 const seed = Number(q.get('seed') ?? 1) >>> 0
 const MIN_Z = 0.24 // the desktop minimum zoom (canvas-background-themes.md, minimum-zoom fix)
+if (q.get('sw') === '1') {
+  const getContext = HTMLCanvasElement.prototype.getContext as (this: HTMLCanvasElement, type: string, opts?: unknown) => unknown
+  HTMLCanvasElement.prototype.getContext = function (this: HTMLCanvasElement, type: string, opts?: unknown) {
+    const o = opts as { failIfMajorPerformanceCaveat?: boolean } | undefined
+    return getContext.call(this, type, type === 'webgl2' && o?.failIfMajorPerformanceCaveat ? { ...o, failIfMajorPerformanceCaveat: false } : opts)
+  } as typeof HTMLCanvasElement.prototype.getContext
+  const getParameter = WebGL2RenderingContext.prototype.getParameter
+  WebGL2RenderingContext.prototype.getParameter = function (this: WebGL2RenderingContext, p: number) {
+    return p === 0x9246 ? 'ANGLE (Fixture, Shimmed GL Adapter)' : getParameter.call(this, p)
+  } as typeof getParameter
+}
 const start: View = { x: Number(q.get('x') ?? 0), y: Number(q.get('y') ?? 0), z: Number(q.get('z') ?? 1) }
 localStorage.setItem(CANVAS_BG_KEY, JSON.stringify({ theme, ...(theme === 'square-tiles' ? { version: 2 } : {}) }))
 
@@ -108,7 +125,7 @@ function Stage() {
 createRoot(document.getElementById('root')!).render(<Stage />)
 
 /* ── probe ─────────────────────────────────────────────────────────────── */
-const COARSE_W = 48, COARSE_H = 27
+const COARSE_W = 96, COARSE_H = 54
 interface DrawRec {
   i: number; t: number; zRef: number; zDom: number; cov: number
   cw: number; cols: number; rows: number; canvasW: number; canvasH: number; state: string; coarse: number[]
@@ -150,7 +167,7 @@ function record(): void {
     i: draws.length, t: performance.now(), zRef: viewRefExternal?.current.z ?? NaN, zDom: committed.z,
     cov: total / (W * H * 255), cw: st.cellWidth ?? 0, cols: st.columns ?? 0, rows: st.rows ?? 0,
     canvasW: W, canvasH: H, state: st.datasetState,
-    coarse: Array.from(sum, (s, k) => Math.round(s / Math.max(1, cnt[k]!))),
+    coarse: Array.from(sum, (s, k) => Math.round((s / Math.max(1, cnt[k]!)) * 100) / 100),
   })
 }
 
@@ -187,9 +204,48 @@ function sweepDraw(v: View, fieldTime: number): void {
   w.__ascii?.drawAt(fieldTime, 1)
 }
 
+/** One sweep step (the camera zooms geometrically from `from` to `to` with the world point under (ax, ay) held fixed); returns ms. */
+let sweepView: View = { x: 0, y: 0, z: 1 }
+function sweepStep(i: number, steps: number, from: number, to: number, ax: number, ay: number, fieldTime: number): number {
+  const z = from * Math.pow(to / from, i / steps)
+  if (i === 0) sweepView = { x: 0, y: 0, z: from }
+  const wx = (ax - sweepView.x) / sweepView.z, wy = (ay - sweepView.y) / sweepView.z
+  sweepView = { x: ax - wx * z, y: ay - wy * z, z }
+  const t0 = performance.now()
+  sweepDraw(sweepView, fieldTime)
+  return performance.now() - t0
+}
+
+/** One pan step at a fixed zoom: the camera moves `dx` screen px left per step (the baseline for "plain motion"); returns ms. */
+function panStep(i: number, dx: number, z: number, fieldTime: number): number {
+  const t0 = performance.now()
+  sweepDraw({ x: -dx * i, y: 0, z }, fieldTime)
+  return performance.now() - t0
+}
+
+/** Pixel identity: draw each camera at a fixed field time and hash the layer's full device-pixel drawing buffer (FNV-1a over RGBA),
+ *  with the canvas box and grid shape. Equal hashes before/after a change = the pixels are identical. */
+function identity(views: View[], fieldTime: number): { z: number; x: number; y: number; hash: string; w: number; h: number; box: { left: string; top: string; width: string; height: string }; cw: number; cols: number; rows: number }[] {
+  const out = []
+  for (const v of views) {
+    sweepDraw(v, fieldTime)
+    const c = layerCanvas()!
+    const gl = c.getContext('webgl2') as WebGL2RenderingContext
+    const px = new Uint8Array(c.width * c.height * 4)
+    gl.readPixels(0, 0, c.width, c.height, gl.RGBA, gl.UNSIGNED_BYTE, px)
+    let h = 0x811c9dc5
+    for (let i = 0; i < px.length; i++) { h ^= px[i]!; h = Math.imul(h, 0x01000193) >>> 0 }
+    const st = w.__ascii!.state()
+    out.push({ ...v, hash: h.toString(16), w: c.width, h: c.height,
+      box: { left: c.style.left, top: c.style.top, width: c.style.width, height: c.style.height },
+      cw: st.cellWidth ?? 0, cols: st.columns ?? 0, rows: st.rows ?? 0 })
+  }
+  return out
+}
+
 w.__setView = (v) => { if (viewRefExternal) viewRefExternal.current = v; setViewExternal?.(v) }
 w.__zp = {
-  install, sweepDraw,
+  install, sweepDraw, sweepStep, panStep, identity,
   startTicks: () => { ticks.length = 0; cancelAnimationFrame(tickRaf); tickRaf = requestAnimationFrame(tick) },
   stopTicks: () => { cancelAnimationFrame(tickRaf) },
   reset: () => { draws.length = 0; resizes.length = 0; ticks.length = 0 },
