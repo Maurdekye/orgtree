@@ -19,6 +19,22 @@ fn reminder_pages_keep_display_bounded_and_count_the_omitted_work() {
 }
 
 #[test]
+fn reminder_pages_skip_deploy_ready_like_blocked_ones() {
+    // deploy_ready: built, waiting for the user's review or a release (user 2026-10-28), so not idle work.
+    // Like blocked work it is left out of the ordinary reminder; unlike blocked work it has no fallback.
+    let mut scan=Sweep::default();
+    scan.add(work("ready","deploy_ready","boss",false));
+    scan.add(WorkRow{role:"deployer",..work("handoff","deploy_ready","boss",false)});
+    scan.add(work("open","open","boss",false));
+    let boss=scan.items("boss",false);
+    assert_eq!(boss.total,1);assert_eq!(boss.shown[0].slug,"open");
+    let mut only=Sweep::default();
+    only.add(work("ready","deploy_ready","boss",false));
+    assert_eq!(only.items("boss",false).total,0);
+    assert_eq!(only.items("boss",true).total,0,"the blocked option must not list deploy_ready work either");
+}
+
+#[test]
 fn reminder_pages_blocked_fallback_and_timeout_off_preserve_their_guards() {
     let mut scan=Sweep::default();scan.add(work("blocked","blocked","worker",false));
     assert_eq!(scan.items("worker",false).total,0);
