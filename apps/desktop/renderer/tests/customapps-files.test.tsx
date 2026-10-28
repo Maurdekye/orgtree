@@ -3,7 +3,8 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import {AppActionClient} from '../src/canvas/apps/actions'
 import {AppFileClient,type FilePrompt} from '../src/canvas/apps/files'
-import {AppFilePermissionPrompt} from '../src/canvas/apps/files-ui'
+import {AppFilePermissionPrompt,AppFilePermissions} from '../src/canvas/apps/files-ui'
+import type {CustomApp} from '../src/canvas/apps/types'
 import {panelDocument,PANEL_CSP} from '../src/canvas/apps/sdk'
 
 const tick=async()=>{for(let i=0;i<4;i++)await flush()}
@@ -95,4 +96,27 @@ test('file consent says Allow once lasts until the panel is powered off, hidden 
     assert.ok(text.includes('Allow once lasts until this panel is powered off, even while hidden.'),mode+': '+text)
     assert.equal(text.includes('open and visible'),false,mode)
   }
+})
+// Hands-on 2026-10-28 (#56): a new file's confirmation read "Existing size: New file bytes".
+test('file change sizes read as words: a new file has no existing size and a delete no new size',async t=>{
+  const change=(operation:string,previous_bytes:number|null,bytes:number|null)=>({path:'C:/synthetic/'+operation+'.txt',operation,previous_bytes,bytes,sha256:bytes===null?null:'b'.repeat(64)})
+  for(const [detail,line] of [[change('create',null,24),'Existing size: none (new file) · New size: 24 bytes'],
+    [change('replace',10,3),'Existing size: 10 bytes · New size: 3 bytes'],[change('delete',12,null),'Existing size: 12 bytes']] as const){
+    const prompt:FilePrompt={session:'native-only',request:{app:'a',panel:'p',name:'Editor',label:'Copy',capability:'files.write',challenge:detail.operation,request:{action:detail.operation==='delete'?'delete':'write'},detail},finish:()=>{}}
+    const view=await mountView(<AppFilePermissionPrompt slug="demo" prompt={prompt} owner={document}/>,el=>el)
+    const sizes=[...document.querySelectorAll('.custom-app-file-change p')].map(p=>p.textContent).find(text=>text!.startsWith('Existing size'))
+    await view.unmount();assert.equal(sizes,line,detail.operation)
+  }
+  const original=globalThis.fetch;t.after(()=>{globalThis.fetch=original})
+  globalThis.fetch=async(_raw,init)=>{
+    const input=JSON.parse(String(init?.body))
+    return new Response(JSON.stringify(input.action==='confirmations'?{items:[{challenge:'one',agent:'Editor',detail:change('create',null,24)},{challenge:'two',agent:'Editor',detail:change('delete',12,null)}]}
+      :{app:'a',rev:1,permission_rev:1,permission:'allow',grants:[],write:'allow'}))
+  }
+  const app={id:'a',name:'Editor',rev:1,permission_rev:1,capabilities:['files.write'],permissions:{},default_permissions:{'files.write':'allow'}} as unknown as CustomApp
+  const view=await mountView(<AppFilePermissions slug="demo" app={app} save={async()=>{}} disabled={false} refresh={async()=>{}}/>,el=>el);t.after(()=>view.unmount());await inAct(tick)
+  const text=view.el.textContent!
+  assert.ok(text.includes('C:/synthetic/create.txt · Existing: none (new file) · New: 24 bytes · SHA256 '+'b'.repeat(64)),text)
+  assert.ok(text.includes('C:/synthetic/delete.txt · Existing: 12 bytes · New: none (deleted)'),text)
+  assert.doesNotMatch(text,/new bytes|delete bytes/)
 })
