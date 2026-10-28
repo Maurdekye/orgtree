@@ -76,25 +76,35 @@ const sealed = new Map<Sealable, () => void>()
 /** Sessions shut because their last seal failed. */
 const unsealed = new Set<Sealable>()
 let sealing: Promise<void> = Promise.resolve()
+/** An update that has not settled by then counts as failed, and its session
+ *  is shut; the queue still waits for it. setProxy settles at once in
+ *  practice, so this only bounds a hang. */
+const SEAL_DEADLINE_MS = 10_000
 /** One step of the seal queue: seals `sessions` for `engineOrigin` once the
  *  step before it has finished. A step finishes only when every update it
  *  started has settled, so two steps never update a session at once and the
  *  last seal asked for is the one in force (review of f6e8a6c, F2: with
  *  Promise.all the next step began at the first failure, and a slow update
- *  could land after it). A session whose update failed is shut before the
- *  step finishes, and stays unsealed until a seal of it applies (F1). */
+ *  could land after it). A session whose update fails, or has not settled by
+ *  the deadline, is shut at once from its own update, without waiting for
+ *  the other sessions' (review of 7cf4a3e), and stays unsealed until a seal
+ *  of it applies (F1). */
 function sealStep(sessions: Sealable[], engineOrigin: string): Promise<void> {
   const step = sealing.then(async () => {
-    const results = await Promise.allSettled(sessions.map(session => applySeal(session, engineOrigin)))
-    let failure: PromiseRejectedResult | undefined
-    sessions.forEach((session, i) => {
-      const result = results[i]
-      if (result.status === 'fulfilled') { unsealed.delete(session); return }
-      failure ??= result
+    let failure: { reason: unknown } | undefined
+    const fail = (session: Sealable, reason: unknown) => {
+      failure ??= { reason }
       if (!sealed.has(session)) return
       unsealed.add(session)
       try { sealed.get(session)?.() } catch (error) { console.warn('sandbox: could not shut a session whose seal failed:', error) }
-    })
+    }
+    await Promise.allSettled(sessions.map(session => {
+      const deadline = setTimeout(() => fail(session, new Error(`sandbox seal not applied within ${SEAL_DEADLINE_MS / 1000} s`)), SEAL_DEADLINE_MS)
+      deadline.unref?.()
+      return applySeal(session, engineOrigin).then(
+        () => { clearTimeout(deadline); unsealed.delete(session) },
+        error => { clearTimeout(deadline); fail(session, error) })
+    }))
     if (failure) throw failure.reason
   })
   sealing = step.catch(() => {})
