@@ -208,7 +208,8 @@ async function liveScene(name, query, pattern) {
     }
     const zoomDraws = dr.filter(d => inZoom(d.t)), restDraws = dr.filter(d => d.t < tStart)
     const covJump = arr => { const j = []; for (let i = 1; i < arr.length; i++) j.push(Math.abs(arr[i].cov - arr[i - 1].cov) / Math.max(1e-6, arr[i - 1].cov)); return { median: r3(pct(j, 0.5)), p95: r3(pct(j, 0.95)), max: r3(Math.max(0, ...j)) } }
-    const frameDiff = arr => { const j = []; for (let i = 1; i < arr.length; i++) if (arr[i].cols === arr[i - 1].cols && arr[i].rows === arr[i - 1].rows) j.push(mapDiff(arr[i - 1].coarse, arr[i].coarse)); return { n: j.length, median: r3(pct(j, 0.5)), p95: r3(pct(j, 0.95)), max: r3(Math.max(0, ...j)) } }
+    const frameDiff = arr => { const j = []; for (let i = 1; i < arr.length; i++) j.push(mapDiff(arr[i - 1].coarse, arr[i].coarse)); return { n: j.length, median: r3(pct(j, 0.5)), p95: r3(pct(j, 0.95)), max: r3(Math.max(0, ...j)) } }
+    const errs = arr => { const e = arr.map(x => x.err).filter(Number.isFinite); return { n: e.length, median: r3(pct(e, 0.5)), p95: r3(pct(e, 0.95)), max: r3(Math.max(0, ...e)), over1px: e.filter(v => v > 1).length } }
     const states = []; for (const x of tk) if (!states.length || states[states.length - 1].state !== x.state) states.push({ atMs: Math.round(x.t - tStart), state: x.state })
     const opac = zoomTicks.map(x => Number(x.opacity)).filter(Number.isFinite), restOp = restTicks.map(x => Number(x.opacity)).filter(Number.isFinite)
     const summary = {
@@ -216,6 +217,7 @@ async function liveScene(name, query, pattern) {
       finalView: view,
       displayedFramesCadence: { rest: cadence(restTicks), zoom: cadence(zoomTicks) },
       layerDrawCadence: isAscii ? { rest: cadence(restDraws.map(d => ({ t: d.t }))), zoom: cadence(zoomDraws.map(d => ({ t: d.t }))) } : null,
+      canvasVsCardsPx: isAscii ? { rest: errs(restTicks), zoom: errs(zoomTicks) } : null,
       framesWhereCameraMoved: camMoved, staleFramesCameraMovedButLayerNotRedrawn: stale, framesLayerAheadOfDom: ahead,
       drawsDuringZoom: zoomDraws.length, drawsAtRest: restDraws.length,
       coverageJumpBetweenDraws: isAscii ? { rest: covJump(restDraws), zoom: covJump(zoomDraws) } : null,

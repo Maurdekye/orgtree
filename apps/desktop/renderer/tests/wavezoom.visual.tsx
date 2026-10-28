@@ -134,7 +134,10 @@ interface ResizeRec { t: number; cw: number; cols: number; rows: number; zRef: n
 interface TickRec {
   t: number; zDom: number; zRef: number; draws: number; opacity: string; display: string; state: string
   canvasW: number; canvasH: number
+  /** px the canvas's top-left corner is from where the committed camera puts its world position (0 = moves with the cards) */
+  err: number
 }
+let lastOrigin: { x: number; y: number } | null = null // world position of the canvas's top-left corner as of the last draw
 const draws: DrawRec[] = []
 const resizes: ResizeRec[] = []
 const ticks: TickRec[] = []
@@ -158,6 +161,8 @@ function record(): void {
   const vw = innerWidth, vh = innerHeight
   const bl = parseFloat(c.style.left) || 0, bt = parseFloat(c.style.top) || 0
   const bw = parseFloat(c.style.width) || W, bh = parseFloat(c.style.height) || H
+  const drawCam = viewRefExternal?.current
+  if (drawCam) lastOrigin = { x: (bl - drawCam.x) / drawCam.z, y: (bt - drawCam.y) / drawCam.z }
   const sx = bw / W, sy = bh / H, pixelArea = sx * sy
   const binW = vw / COARSE_W, binH = vh / COARSE_H, binArea = binW * binH
   const sum = new Float64Array(COARSE_W * COARSE_H)
@@ -201,10 +206,15 @@ function tick(): void {
   const c = layerCanvas() ?? glCanvas
   if (c) glCanvas = c
   const cs = c ? getComputedStyle(c) : null
+  let err = NaN
+  if (c && lastOrigin && cs && cs.display !== 'none') {
+    const r = c.getBoundingClientRect()
+    err = Math.max(Math.abs(r.left - (lastOrigin.x * committed.z + committed.x)), Math.abs(r.top - (lastOrigin.y * committed.z + committed.y)))
+  }
   ticks.push({
     t: performance.now(), zDom: committed.z, zRef: viewRefExternal?.current.z ?? NaN, draws: draws.length,
     opacity: cs ? cs.opacity : '', display: cs ? cs.display : '', state: c?.dataset.state ?? '',
-    canvasW: c?.width ?? 0, canvasH: c?.height ?? 0,
+    canvasW: c?.width ?? 0, canvasH: c?.height ?? 0, err,
   })
 }
 
