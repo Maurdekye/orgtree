@@ -1,6 +1,7 @@
 import {flush,inAct,mountView} from './harness'
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import vm from 'node:vm'
 import {PanelHtml} from '../src/canvas/apps/host'
 import {AppsButton,AppsWorkspace} from '../src/canvas/apps/ui'
 import {PANEL_CSP,PANEL_PROTOCOL,panelDocument,panelRequest} from '../src/canvas/apps/sdk'
@@ -89,4 +90,25 @@ test('custom apps menu opens a fresh independent copy, exposes JSON state and cl
   assert.ok(owner.querySelector(`[data-custom-panel="${fresh.id}"][data-parked]`),'a hidden running panel stays loaded, parked')
   await press('Apps');await inAct(async()=>{owner.querySelector<HTMLButtonElement>(`.custom-apps-saved-row [aria-label="Power off ${fresh.label}"]`)!.click();await tick()})
   assert.equal(fixture.saved.get(fresh.id)!.running,false);assert.equal(owner.querySelector(`[data-custom-panel="${fresh.id}"]`)===null,true,'a powered-off panel unmounts')
+})
+
+// 4.5.0 review C11 (alpha.1 ea32a6aa5c1d F1): setItem read the whole state and wrote it all
+// back, so two calls in flight each replaced the other's key. The real SDK runs against this host.
+test('storage.setItem and removeItem change one key: calls in flight and outside edits all survive',async t=>{
+  Object.defineProperty(document,'hidden',{configurable:true,value:false});t.after(()=>{delete (document as unknown as Record<string,unknown>).hidden})
+  const fixture=server('storage-case',[make('p1')]);t.after(fixture.restore)
+  const view=await mountView(<PanelHtml slug="storage-case" app={app} panel={make('p1')}/>,el=>el);t.after(()=>view.unmount());await inAct(tick)
+  const frame=view.el.querySelector('iframe')!,source=frame.contentWindow!,owner=frame.ownerDocument.defaultView!
+  const context={window:{} as Record<string,any>,setInterval:()=>1,setTimeout:()=>1,clearInterval:()=>{},clearTimeout:()=>{},
+    parent:{postMessage:(data:unknown,_target:string,ports?:unknown[])=>{const event=new owner.MessageEvent('message',{source,origin:'null',data:structuredClone(data)});if(ports)Object.defineProperty(event,'ports',{value:ports});owner.dispatchEvent(event)}},
+    MessageChannel:class{port1={close(){},start(){},onmessage:undefined as undefined|((e:{data:unknown})=>void)};port2={postMessage:(data:unknown)=>{const port=this.port1;queueMicrotask(()=>port.onmessage?.({data:structuredClone(data)}))},close(){}}}}
+  vm.runInNewContext(frame.srcdoc.match(/<script>([\s\S]*?)<\/script>/)![1],context);await inAct(tick)
+  const storage=context.window.orgtree.storage
+  await inAct(async()=>{await Promise.all([storage.setItem('a',1),storage.setItem('b',{nested:true})]);await tick()})
+  assert.deepEqual(fixture.saved.get('p1')!.state,{count:4,a:1,b:{nested:true}},'both keys are kept')
+  // The State tab or an agent changes the state; this host has not read the change yet.
+  const saved=fixture.saved.get('p1')!;saved.state={...saved.state,count:5};saved.rev++
+  await inAct(async()=>{await Promise.all([storage.setItem('c',3),storage.removeItem('a')]);await tick()})
+  assert.deepEqual(fixture.saved.get('p1')!.state,{count:5,b:{nested:true},c:3},'the outside edit is kept too')
+  let read:unknown;await inAct(async()=>{read=await storage.getItem('c')});assert.equal(read,3)
 })

@@ -82,3 +82,17 @@ test('folder consent requires an explicit native selection and whole-computer wa
   const buttons=()=>[...document.querySelectorAll<HTMLButtonElement>('[aria-label="App file permission"] button')];assert(buttons().find(b=>b.textContent==='Always allow')!.disabled)
   await inAct(()=>{buttons().find(b=>b.textContent==='Use this folder')!.click()});await inAct(()=>{buttons().find(b=>b.textContent==='Always allow')!.click()});assert.deepEqual(decision,{choice:'always',path:'C:/synthetic'})
 })
+
+// 4.5.0 review B9 (alpha.4 5a8a4a164137 F1): Hide keeps a running panel with its file access
+// (USER 2026-10-26 mf7add4fda093), so the prompt must not promise that hiding ends Allow once.
+test('file consent says Allow once lasts until the panel is powered off, hidden included',async t=>{
+  const original=globalThis.fetch;t.after(()=>{globalThis.fetch=original})
+  globalThis.fetch=async()=>new Response(JSON.stringify({path:'C:/synthetic',parent:'C:/',items:[],next_cursor:null}))
+  for(const mode of ['read','write']){
+    const prompt:FilePrompt={session:'native-only',request:{app:'a',panel:'p',name:'Editor',label:'Cut',capability:'files.'+mode,challenge:'scope',request:{action:'grant',scope:'folder',mode}},finish:()=>{}}
+    const view=await mountView(<AppFilePermissionPrompt slug="demo" prompt={prompt} owner={document}/>,el=>el);await inAct(tick)
+    const text=document.querySelector('[aria-label="App file permission"]')!.textContent!;view.unmount()
+    assert.ok(text.includes('Allow once lasts until this panel is powered off, even while hidden.'),mode+': '+text)
+    assert.equal(text.includes('open and visible'),false,mode)
+  }
+})
