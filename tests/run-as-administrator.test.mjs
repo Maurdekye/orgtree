@@ -220,7 +220,10 @@ test('main wires the setting and keeps the recovery poll out of a deliberate res
   // reattach, with the recovery poll held off until it has ended, failed or not.
   const atConsole = { session: 7, console: 7, ownsConsole: true, known: true, operatorSid: 'fixture', elevated: false }
   const order = [], origin = 'http://127.0.0.1:1'
-  let reattached = true
+  let reattached = true, sealed = true
+  // One open window, so the reload after a same-origin restart shows. It runs
+  // only when every sandbox seal has applied (windows.ts sandboxSealed).
+  const win = { isDestroyed: () => false, webContents: { reload: () => order.push(held('reload')) } }
   const restart = {
     restartBackground: undefined, backgroundEngineRestart: false, quitComplete: false, engineRestartBlocked: () => false,
     quitting: false, installerUpgradeShutdown: false, engineOptions: { binary: 'engine.exe', dataRoot: 'data' },
@@ -232,15 +235,21 @@ test('main wires the setting and keeps the recovery poll out of a deliberate res
       stopAttachedForUpdate: async () => { order.push(held('graceful stop')) },
       reattachBackground: async () => { order.push(held('reattach')); return reattached } },
     startEngineTask: async () => { order.push(held('boot task')) },
-    initialOrigin: origin, records: new Map(), saveWindowLayout: async () => {}, relaunchApp() {}, app: { quit() {} },
+    initialOrigin: origin, records: new Map([['w1', { window: win }]]), saveWindowLayout: async () => {}, relaunchApp() {}, app: { quit() {} },
+    sandboxSealed: async () => { order.push('seals checked'); return sealed },
     rebuildTray() { order.push('tray') },
   }
   /** A step, marked if the recovery poll could act during it. */
   const held = step => step + (restart.backgroundEngineRestart ? '' : ' (recovery poll not held off)')
   mainClosure(main, '      const restartBackgroundEngine = async', '      const runAsAdministratorState', restart)
   await restart.restartBackground()
-  assert.deepEqual(order, ['transition true', 'graceful stop', 'boot task', 'reattach', 'complete', 'tray'])
+  assert.deepEqual(order, ['transition true', 'graceful stop', 'boot task', 'reattach', 'complete', 'seals checked', 'reload', 'tray'])
   assert.equal(restart.backgroundEngineRestart, false)
+  // A seal that failed shut the window session: nothing reloads into it.
+  sealed = false; order.length = 0
+  await restart.restartBackground()
+  assert.deepEqual(order, ['transition true', 'graceful stop', 'boot task', 'reattach', 'complete', 'seals checked', 'tray'])
+  sealed = true
   reattached = false; order.length = 0
   await assert.rejects(restart.restartBackground(), /has not reconnected to it yet/)
   assert.deepEqual(order, ['transition true', 'graceful stop', 'boot task', 'reattach', 'tray'])
