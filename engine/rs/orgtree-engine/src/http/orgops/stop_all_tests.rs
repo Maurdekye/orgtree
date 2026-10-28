@@ -109,7 +109,8 @@ async fn stop_all_whose_power_off_fails_latches_nothing() {
     assert_eq!((&out.0["latched"], &out.0["panels_stopped"]), (&json!(true), &json!(2)));
     let (latched, marked, armed) = committed(&c, org).await;
     assert!(latched && marked.is_empty() && armed == 0, "latched {latched}, marked {marked:?}, armed {armed}");
-    killswitch_release(State(engine.clone()), Path(slug.clone())).await.unwrap();
+    let released = killswitch_release(State(engine.clone()), Path(slug.clone())).await.unwrap();
+    assert_eq!(released.0["released"], true);
     let (latched, marked, _) = committed(&c, org).await;
     assert!(!latched && marked.is_empty(), "release starts nothing: latched {latched}, marked {marked:?}");
 }
