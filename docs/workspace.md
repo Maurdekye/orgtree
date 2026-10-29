@@ -22,6 +22,8 @@ Three things can differ:
 - **Working, done or blocked** is an agent's own reported status. A working agent can be between turns.
 - **Queued, halted or frozen** explains why it is not running now: waiting for a turn slot, deliberately stopped, or stopped by a provider limit.
 
+Every age and elapsed time on the canvas, in the agents tray, in a retired pile and in a desk header reads on one scale: seconds, minutes, hours up to 36 hours, then days, weeks, months and years (45s, 12m, 5h, 3d, 3w, 4mo, 2y), never hundreds of hours. Hover it for the full local date and time it counts from. Each clock still measures its own thing: a running turn counts from its start, a halt from the moment of the halt, and an idle agent from the end of its last completed turn.
+
 An agent's context wheel describes conversation occupancy. It is separate from provider usage limits and organizational credits. Current serving model/account information can also differ from a change queued for the next turn. See [Settings and usage](settings-and-usage.md) for those displays.
 
 The **Agents** list helps find agents in a large tree. Search rather than panning through every branch. Archived inclusion and the **Hide retired agents** display option control whether retired cards clutter the canvas; they do not rehire anyone. By default retired cards remain visible, marked **Archived**. When hidden, a retired badge/list lets you find them again.

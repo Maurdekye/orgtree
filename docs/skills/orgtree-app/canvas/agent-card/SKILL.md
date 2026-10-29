@@ -13,13 +13,13 @@ At ordinary overview zoom, a card has identity, state and shortcut rows. Its tie
 
 | Visible indicator | Read it as |
 | --- | --- |
-| Working spinner/state and elapsed time | A turn is active; the age is not a completion estimate. |
+| Working spinner/state and elapsed time | A turn is active; the age is not a completion estimate. It counts from the turn's start on the common age scale (45s, 12m, 5h, 2d, 3w), and its hover gives that start as a full local date and time. |
 | Queued/waiting state | Waiting for a free turn slot, rather than currently generating. |
 | Compacting | Session compaction is in progress. |
-| Halting/halted badge | A deliberate stop/wake barrier; separate from a usage freeze. |
+| Halting/halted badge | A deliberate stop/wake barrier; separate from a usage freeze. Its clock counts from the halt, on the same age scale, with the full local date and time on hover. |
 | DND / DND next turn | Active Do Not Disturb, or an idle armed next-turn hold. The opening batch is admitted normally before an armed hold activates. Clear it from the desk header, or through self/authorized superior status.dnd; clearing triggers native delivery immediately. The badge itself is display-only. |
 | Frozen badge and countdown | Provider/limit interruption; an inferred marker qualifies the account/tier observation. Read the tooltip's reason. |
-| Done/blocked/idle summary and age | The recorded agent status and time since the last completed turn ended, not an independent verification of its task. See the [desk clock rules](../../desk/agent-desk/SKILL.md#header-controls) for legacy and active references. |
+| Done/blocked/idle summary and age | The recorded agent status and time since the last completed turn ended (on the common age scale, so 3 days reads 3d and 20 days 3w; hover it for the full local date and time), not an independent verification of its task. See the [desk clock rules](../../desk/agent-desk/SKILL.md#header-controls) for legacy and active references. |
 | Error dot | Last recorded error; hover for the text. An idle agent with an unreported error reads Idle with this dot everywhere: on the card, on the far-zoom idle icon and in the agent tray. A reported error status reads Error. |
 | Archived/unrecoverable label | The seat is not an ordinary live worker; do not infer its history was deleted. |
 | Pinned | Its desk is hosted in a canvas window; focusing can raise that window. |

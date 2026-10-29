@@ -104,7 +104,7 @@ the identical text as an accessible label; it does not open a custom popup.
 Explicit-only header badges keep their existing tooltip. Only an explicit grant
 offers the personal Revoke button; inherited access is managed at its project.
 
-Idle age measures time since the last completed turn ended, including killed turns, across every harness. Open or legacy records without a completion time retain their start-time fallback. Active time measures the current turn's admission; ordinary Antigravity mid-turn hook mail keeps that original active clock. The card and tray use the same idle reference. Halted and usage-freeze clocks retain their own timestamps.
+Idle age measures time since the last completed turn ended, including killed turns, across every harness. Open or legacy records without a completion time retain their start-time fallback. Active time measures the current turn's admission; ordinary Antigravity mid-turn hook mail keeps that original active clock. The card and tray use the same idle reference. Halted and usage-freeze clocks retain their own timestamps. Every one of these clocks reads on the common age scale (seconds, minutes, hours up to 36 hours, then days, weeks, months and years: 45s, 12m, 5h, 3d, 3w), and hovering it shows the full local date and time it counts from.
 
 Freeze badges show the recorded cause/deadline/provenance rather than promising a guaranteed wake. The user unstick control is an explicit recovery override. For freeze mechanics see `orgtree-usage-freezes` (orgtree-working › accounts). For cache evidence see `orgtree-cache-continuity` there.
 
