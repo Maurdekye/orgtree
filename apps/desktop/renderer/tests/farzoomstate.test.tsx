@@ -19,7 +19,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { mountView, inAct } from './harness'
 import { NodeSquare, FarZoomStateIcon } from '../src/canvas/cards'
-import { deriveAgentVisualState } from '../src/canvas/desk'
+import { deriveAgentVisualState, TrayStatus } from '../src/canvas/desk'
 import type { CanvasNode } from '../src/canvas/shared'
 import type { OpResult } from '../src/types'
 
@@ -264,7 +264,9 @@ test('§2 State fidelity: correct indicators rendered across all supported state
     },
     {
       name: 'errored',
-      node: makeNode('errored-node', { last_error: 'Something failed' }),
+      // a REPORTED error status keeps the Error icon; an unreported last_error
+      // alone is idle plus the error marker (symmetry audit #24, see §2c)
+      node: makeNode('errored-node', { last_status: { status: 'errored', summary: 'Something failed', at: '' } }),
       expectedClass: 'errored',
       check: (el) => el.classList.contains('errored'),
     },
@@ -448,16 +450,20 @@ test('§2b State precedence hierarchy: halt > frozen > active > queued > compact
     await view.unmount()
   }
 
-  // Precedence 8: error fallback beats idle default
+  // Precedence 8: error fallback = the idle state plus the shared error marker
+  // (UX symmetry audit #24 / ux06 S5: the mini node, norm node and tray all
+  // show an idle agent with an unreported last error the same way)
   const errorNode = makeNode('p-error', {
     last_error: 'fatal error occurred',
   })
-  assert.equal(deriveAgentVisualState(errorNode).farKind, 'errored')
+  assert.equal(deriveAgentVisualState(errorNode).farKind, 'idle')
   assert.equal(deriveAgentVisualState(errorNode).kind, 'idle')
   view = await renderCard(errorNode, 'mini')
   try {
     const icon = view.el.querySelector('.sq-far-icon')!
-    assert.ok(icon.classList.contains('errored'), 'error fallback beats idle')
+    assert.ok(icon.classList.contains('idle'), 'error fallback keeps the idle icon')
+    assert.equal(icon.querySelector('.errdot')?.getAttribute('title'), 'fatal error occurred',
+      'error fallback adds the error marker with the error text')
   } finally {
     await view.unmount()
   }
@@ -561,14 +567,16 @@ test('§2c Normal card preservation: non-limit frozen, legacy waiting/error clas
     await errorMiniView.unmount()
   }
 
-  // 4. last_error without reported status: normal card stays Idle + errdot, far zoom shows singular errored icon
+  // 4. last_error without reported status: every form shows Idle plus the one
+  // error marker (symmetry audit #24) - the mini node keeps its singular icon,
+  // the idle ring, and carries the marker inside it
   const lastErrorOnlyNode = makeNode('last-error-only', {
     last_error: 'Connection timed out',
   })
   const lastErrorVisual = deriveAgentVisualState(lastErrorOnlyNode)
   assert.equal(lastErrorVisual.normalClass, 'idle', 'normalClass remains idle')
   assert.equal(lastErrorVisual.normalLabel, 'Idle', 'normalLabel remains Idle')
-  assert.equal(lastErrorVisual.farKind, 'errored', 'farKind is errored for singular far zoom')
+  assert.equal(lastErrorVisual.farKind, 'idle', 'farKind is idle, as on the norm node and tray')
 
   const lastErrorNormView = await renderCard(lastErrorOnlyNode, 'norm')
   try {
@@ -578,6 +586,7 @@ test('§2c Normal card preservation: non-limit frozen, legacy waiting/error clas
     assert.equal(labelEl.textContent?.trim(), 'Idle', 'normal card renders Idle text')
     const errdot = normCard.querySelector('.errdot')
     assert.ok(errdot, 'errdot is mounted beside idle state on normal card')
+    assert.equal(errdot.getAttribute('title'), 'Connection timed out', 'norm errdot carries the error text')
   } finally {
     await lastErrorNormView.unmount()
   }
@@ -585,12 +594,45 @@ test('§2c Normal card preservation: non-limit frozen, legacy waiting/error clas
   const lastErrorMiniView = await renderCard(lastErrorOnlyNode, 'mini')
   try {
     const miniCard = lastErrorMiniView.el.querySelector('.sq')!
-    const icon = miniCard.querySelector('.sq-far-icon')!
-    assert.ok(icon.classList.contains('errored'), 'far zoom renders singular errored icon')
-    assert.equal(miniCard.querySelector('.errdot'), null, 'errdot is omitted at far zoom')
+    const icons = miniCard.querySelectorAll('.sq-far-icon')
+    assert.equal(icons.length, 1, 'far zoom keeps one singular state icon')
+    const icon = icons[0]!
+    assert.ok(icon.classList.contains('idle'), 'far zoom renders the idle icon, as the norm node says Idle')
+    assert.equal(miniCard.querySelector('.sq-far-icon.errored'), null, 'no Error icon for an unreported last error')
+    const errdot = icon.querySelector('.errdot')
+    assert.ok(errdot, 'the same error marker rides on the far-zoom idle icon')
+    assert.equal(errdot.getAttribute('title'), 'Connection timed out', 'mini errdot carries the error text')
     assert.equal(miniCard.querySelector('.sq-idle'), null, 'text label is omitted at far zoom')
   } finally {
     await lastErrorMiniView.unmount()
+  }
+
+  // ...and the agent tray row says Idle with the same marker
+  const lastErrorTray = await mountView(<TrayStatus node={lastErrorOnlyNode} turn={null} />, (el) => el)
+  try {
+    const label = lastErrorTray.el.querySelector('.tray-status-label')!
+    assert.ok(label.classList.contains('idle'), 'tray renders the idle label')
+    assert.equal(label.textContent?.trim(), 'Idle', 'tray says Idle')
+    const errdot = lastErrorTray.el.querySelector('.tray-status .errdot')
+    assert.ok(errdot, 'tray shows the error marker beside Idle')
+    assert.equal(errdot.getAttribute('title'), 'Connection timed out', 'tray errdot carries the error text')
+  } finally {
+    await lastErrorTray.unmount()
+  }
+
+  // No error, no marker, on any form
+  const plainIdle = makeNode('plain-idle', {})
+  const plainTray = await mountView(<TrayStatus node={plainIdle} turn={null} />, (el) => el)
+  try {
+    assert.equal(plainTray.el.querySelector('.errdot'), null, 'tray has no error marker without an error')
+  } finally {
+    await plainTray.unmount()
+  }
+  const plainMini = await renderCard(plainIdle, 'mini')
+  try {
+    assert.equal(plainMini.el.querySelector('.errdot'), null, 'mini has no error marker without an error')
+  } finally {
+    await plainMini.unmount()
   }
 })
 
