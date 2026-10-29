@@ -19,6 +19,13 @@
 // address; the name is drawn from data-net-name, and the hover gives the
 // address. The icon and the kind's tinted, outlined pill mark the outside party
 // (USER 2026-10-27 m442b6dcaab52 "their link will be distinguished by the icon").
+//
+// The hover of an address a hub lists leads with its presence and its type
+// (USER 2026-10-29 m6f8fcfbd2824 "and just show that text when hovering the
+// link", m822daec481cc "online status and chat type", me07459d92f6d "(org,
+// person, independent chat)"): "Online · independent chat", then the hub's
+// description of it, when it has one. That is the text the Connections rows
+// used to show beside each chip (canvas/connectionlist.tsx).
 import { useEffect, useState } from 'react'
 import { getMentionPicture } from '../api'
 import type { NetBlock, NetPeer } from '../types'
@@ -41,15 +48,22 @@ export interface NetMention {
   picture: string | null
   /** what the shown picture was fetched for (its revision) */
   pictureKey: string | null
+  /** the presence a hub lists for it: online on any hub that lists it; null
+   *  when no roster lists it */
+  online: boolean | null
+  /** the hub's description of it (its blurb), when it gives one */
+  about: string | null
 }
 
-interface RosterEntry { kind: NetKind; name: string | null; picture: string | null }
+interface RosterEntry { kind: NetKind; name: string | null; picture: string | null; online: boolean; about: string | null }
 
 /** The org whose views are on screen: its roster, own address and own logo. */
 let viewOrg: string | null = null
 let ownAddress: string | null = null
 let ownPicture: string | null = null
 let roster = new Map<string, RosterEntry>()
+/** this computer's hub as App settings → Mail hub read it (setLocalHubRoster) */
+let localHub = new Map<string, RosterEntry>()
 /** `<org>|<address>` → the picture fetched for what was wanted */
 const pictures = new Map<string, { want: string; data: string | null; at: number; failed: boolean }>()
 const pending = new Set<string>()
@@ -66,18 +80,35 @@ function notify() {
 const kindOf = (kind: NetPeer['kind'] | undefined): NetKind =>
   kind === 'person' ? 'person' : kind === 'chat' ? 'chat' : 'org'
 
-/** Index the on-screen org's hub rosters (tree.net). The newest advertised
- *  picture wins when several hubs list the same address. */
-export function setNetRoster(org: string, net: NetBlock | null | undefined): void {
+/** A hub description longer than this is cut in the hover. */
+const ABOUT_MAX = 200
+
+/** Index roster rows by address. The newest advertised picture wins when
+ *  several hubs list the same address; it is online when any of them says so,
+ *  and keeps the first description given. */
+function indexRoster(peers: Iterable<NetPeer>): Map<string, RosterEntry> {
   const next = new Map<string, RosterEntry>()
-  for (const hub of net?.hubs ?? []) for (const peer of hub.roster ?? []) {
+  for (const peer of peers) {
     if (!peer?.slug) continue
     const address = `@net:${peer.slug.toLowerCase()}`
     const picture = peer.picture?.sha256 ? peer.picture.revision : null
+    const text = (peer.blurb ?? '').trim()
+    const about = !text ? null : text.length > ABOUT_MAX ? text.slice(0, ABOUT_MAX - 1).trimEnd() + '…' : text
     const seen = next.get(address)
-    if (seen && (seen.picture ?? '') >= (picture ?? '')) continue
-    next.set(address, { kind: kindOf(peer.kind), name: (peer.org_name || peer.username || '').trim() || null, picture })
+    const online = !!peer.online || !!seen?.online
+    if (seen && (seen.picture ?? '') >= (picture ?? '')) {
+      next.set(address, { ...seen, online, about: seen.about ?? about })
+      continue
+    }
+    next.set(address, { kind: kindOf(peer.kind), name: (peer.org_name || peer.username || '').trim() || null, picture,
+      online, about: about ?? seen?.about ?? null })
   }
+  return next
+}
+
+/** Index the on-screen org's hub rosters (tree.net). */
+export function setNetRoster(org: string, net: NetBlock | null | undefined): void {
+  const next = indexRoster((net?.hubs ?? []).flatMap(hub => hub.roster ?? []))
   const own = net?.slug ? `@net:${net.slug.toLowerCase()}` : null
   const ownPic = net?.picture_revision ?? null
   if (org === viewOrg && own === ownAddress && ownPic === ownPicture && sameRoster(next, roster)) return
@@ -86,6 +117,26 @@ export function setNetRoster(org: string, net: NetBlock | null | undefined): voi
   ownPicture = ownPic
   roster = next
   notify()
+}
+
+/** Every address registered on this computer's hub, as App settings → Mail
+ *  hub read them (USER 2026-10-29 m12a433749fda), while that list is shown;
+ *  null when it closes. Its chips are described from these rows where the
+ *  on-screen org's rosters, which stay first, do not list the address: App
+ *  settings opened from Home has no org on screen at all. */
+export function setLocalHubRoster(peers: readonly NetPeer[] | null): void {
+  const next = indexRoster(peers ?? [])
+  if (sameRoster(next, localHub)) return
+  localHub = next
+  notify()
+}
+
+/** An address's roster row: the on-screen org's rosters first, then this computer's hub. */
+const listed = (address: string): RosterEntry | undefined => roster.get(address) ?? localHub.get(address)
+
+/** The presence the hubs list for an `@net:` address, or null when none lists it. */
+export function netPresence(address: string): boolean | null {
+  return listed(address.trim().toLowerCase())?.online ?? null
 }
 
 /** The on-screen org's own address (`@net:<slug>`), or null before its network block arrives or when it has none. */
@@ -97,7 +148,7 @@ function sameRoster(a: Map<string, RosterEntry>, b: Map<string, RosterEntry>): b
   if (a.size !== b.size) return false
   for (const [k, v] of a) {
     const w = b.get(k)
-    if (!w || w.kind !== v.kind || w.name !== v.name || w.picture !== v.picture) return false
+    if (!w || w.kind !== v.kind || w.name !== v.name || w.picture !== v.picture || w.online !== v.online || w.about !== v.about) return false
   }
   return true
 }
@@ -113,13 +164,14 @@ function wanted(address: string, local: boolean, row: RosterEntry | undefined): 
 export function netMention(address: string): NetMention {
   const a = address.trim().toLowerCase()
   const local = resolveHubAddressAction(a).kind === 'org'
-  const row = a.startsWith('@net:') ? roster.get(a) : undefined
+  const row = a.startsWith('@net:') ? listed(a) : undefined
   const kind: NetKind = a.startsWith('@org:') || a === ownAddress ? 'org' : row?.kind ?? 'unknown'
   const want = wanted(a, local, row)
   const have = want !== null && viewOrg ? pictures.get(`${viewOrg}|${a}`) : undefined
   const picture = have?.data ?? null
   const icon: NetIcon = picture ? 'picture' : isHubchatInstalled() ? 'hubchat' : 'globe'
-  return { address: a, kind, local, name: row?.name ?? null, icon, picture, pictureKey: picture ? have!.want : null }
+  return { address: a, kind, local, name: row?.name ?? null, icon, picture, pictureKey: picture ? have!.want : null,
+    online: row ? row.online : null, about: row?.about ?? null }
 }
 
 /** Ask for the picture an address wants, once per revision (a local org's
@@ -129,7 +181,7 @@ export function ensureNetPicture(address: string): void {
   if (!org) return
   const a = address.trim().toLowerCase()
   const local = resolveHubAddressAction(a).kind === 'org'
-  const want = wanted(a, local, a.startsWith('@net:') ? roster.get(a) : undefined)
+  const want = wanted(a, local, a.startsWith('@net:') ? listed(a) : undefined)
   if (want === null) return
   const key = `${org}|${a}`
   const have = pictures.get(key)
@@ -159,14 +211,31 @@ export function netKindLabel(info: NetMention): string {
   return KIND_LABEL[info.kind]
 }
 
+/** A listed address's type, in the user's words (USER 2026-10-29
+ *  me07459d92f6d "(org, person, independent chat)"). */
+const TYPE_WORD: Record<NetKind, string> = {
+  org: 'org', person: 'person', chat: 'independent chat', unknown: 'network address',
+}
+
+/** "Online · independent chat": the presence and type of an address a hub
+ *  lists (USER m822daec481cc "online status and chat type"); null when none
+ *  lists it. */
+export function netStatusLine(info: NetMention): string | null {
+  return info.online === null ? null : `${info.online ? 'Online' : 'Offline'} · ${TYPE_WORD[info.kind]}`
+}
+
 /** THE tooltip of every link to a network address: what it is, then what a
- *  click does. An org on this PC keeps the org identity's own hover, which
+ *  click does. An address a hub lists leads with its presence and type, then
+ *  its name, the hub's description of it and its address; any other leads
+ *  with its kind. An org on this PC keeps the org identity's own hover, which
  *  its rows and links share everywhere (orgidentity.ts). */
 export function hubAddressTitle(address: string): string {
   const info = netMention(address)
   const action = resolveHubAddressAction(info.address).title
   if (info.local) return action
   const name = shownName(info)
+  const status = netStatusLine(info)
+  if (status) return [status, name, info.about, name ? info.address : null, action].filter(Boolean).join('\n')
   return name ? `${netKindLabel(info)}: ${name}\n${info.address}\n${action}` : `${netKindLabel(info)}\n${action}`
 }
 
@@ -301,6 +370,7 @@ export function resetNetMentions(): void {
   ownAddress = null
   ownPicture = null
   roster = new Map()
+  localHub = new Map()
   pictures.clear()
   pending.clear()
   notify()

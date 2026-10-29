@@ -11,13 +11,24 @@
 // controls are exactly its own configuration surface in plain language:
 // port / listen interface / display name / retention / the relay-only
 // public listener. The settings model matches engine/mailhub_runtime.py.
+//
+// The tab opens on the hub's status line and everyone registered on it (USER
+// 2026-10-29 m12a433749fda "remove the extra text surrounding the mailhub
+// running status and replace it with a similar list for the local orgtree
+// mailhub and its current connections"): the intro and the two migration
+// reports are gone from view (their files and the old store stay as they
+// were), and Chat from your phone comes after the list (m6b0d9089462e "and
+// move all this stuff lower down").
 
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { SetBlock, SetGroup, SetRow, SetToggle } from './settingskit'
-import { req } from '../api'
+import { getHubConnections, req } from '../api'
+import type { NetPeer } from '../types'
 import { AutorenewIcon } from '../icons'
 import { PhoneSettingsGroup, removePhoneRuleAfterOff } from './phonelink'
 import { windowIdentity } from '../desktop'
+import { ConnectionList, toRecency, type Recency } from './connectionlist'
+import { setLocalHubRoster } from './netmentions'
 
 export interface HubHosting {
   version: 2
@@ -57,14 +68,47 @@ export const readHosting = (value: HubHosting): HubHosting => {
   }
 }
 
+/** Everyone registered on this computer's hub, as the Connections tab's rows:
+ *  read through the engine from the hub's own read-only operator view, with
+ *  presence. Online first, then the newest mail an org here that uses the hub
+ *  exchanged with each address. Read with the hub's status (the tab's first
+ *  look, Refresh, a save). While shown, its rows describe their chips
+ *  (netmentions.setLocalHubRoster), also where no org is on screen. */
+function LocalHubConnections({ revision }: { revision: number }) {
+  const [list, setList] = useState<{ rows: NetPeer[]; recent: Recency } | null>(null)
+  const [error, setError] = useState('')
+  useEffect(() => {
+    let alive = true
+    getHubConnections().then(r => {
+      if (!alive) return
+      const rows = (Array.isArray(r?.connections) ? r.connections : []).filter(p => typeof p?.slug === 'string' && p.slug !== '')
+      setLocalHubRoster(rows)
+      setList({ rows, recent: toRecency(r?.recent) })
+      setError(r?.error ? String(r.error) : '')
+    }, e => { if (alive) setError((e as Error).message) })
+    return () => { alive = false }
+  }, [revision])
+  useEffect(() => () => setLocalHubRoster(null), [])
+  return <>
+    {error && <SetBlock><p role="alert" className="ask-warn">The hub's connections could not be read: {error}</p></SetBlock>}
+    {list && (list.rows.length
+      ? <SetBlock><ConnectionList rows={list.rows} recent={list.recent} label="Connections on this computer's mail hub" /></SetBlock>
+      : !error && <SetBlock hint="Nothing is registered on this hub yet." />)}
+  </>
+}
+
 /** Hosting settings and live status for this installation's own hub.
  *
  *  `active` is false while another App settings tab is showing. Every panel in
  *  that modal stays mounted so half-typed values survive a tab switch, so a
  *  tab that has never been LOOKED at must not fetch hub state nobody asked to
- *  see. It defaults to true for the standalone uses of this component. */
-export function HostHub({ active = true }: { active?: boolean } = {}) {
+ *  see. It defaults to true for the standalone uses of this component.
+ *  `phone` (App settings' Chat from your phone) goes under the hub's status
+ *  and connections, above the hosting settings. */
+export function HostHub({ active = true, phone }: { active?: boolean; phone?: ReactNode } = {}) {
   const [config, setConfig] = useState<HubHosting | null>(null)
+  // each read of the hub's status reads its connections again
+  const [reads, setReads] = useState(0)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [saved, setSaved] = useState('')
@@ -78,6 +122,7 @@ export function HostHub({ active = true }: { active?: boolean } = {}) {
     try {
       const next = readHosting(await req<HubHosting>(route))
       setConfig(next)
+      setReads(n => n + 1)
       doorWas.current = next.public_listener
       if (next.retention_days !== null) setKeepDays(next.retention_days)
     } catch (e) { setError((e as Error).message) } finally { setBusy(false) }
@@ -92,22 +137,21 @@ export function HostHub({ active = true }: { active?: boolean } = {}) {
   const running = config?.status.running && config.status.healthy
   return <section className="host-hub">
     <SetGroup title="Mail hub">
-      <SetBlock hint="This computer's mail hub carries correspondence between organizations here and on other machines. Organizations connect to it from their own Connections tab." />
       {config && <SetBlock><p role="status">
         {running ? <>Running at <span className="mono-sm">{config.status.address}</span>
           {' '}· hub version {config.status.hub_version || 'unknown'}
           {typeof config.status.orgs === 'number' && <> · {config.status.orgs} registered, {config.status.queued ?? 0} queued</>}</>
           : config.status.running ? 'Starting…' : 'Stopped'}
       </p></SetBlock>}
+      {running && <LocalHubConnections revision={reads} />}
       {config?.error && <SetBlock><p role="alert" className="ask-warn">The hub could not start: {config.error}</p></SetBlock>}
       {config?.migrated?.notes?.length ? <SetBlock><div role="note" className="ask-warn">
         {config.migrated.notes.map((n, i) => <p key={i}>Carried over from the previous version: {n}</p>)}
       </div></SetBlock> : null}
-      {config?.data_migration && <SetBlock hint={`Mail from the previous hub was migrated: ${config.data_migration.messages} message(s), ${config.data_migration.attachments} attachment(s). The old store is kept untouched as a backup.`} />}
-      {config?.v2_import && <SetBlock hint={`The hub's earlier mail was moved into its new database: ${config.v2_import.orgs} address(es), ${config.v2_import.messages} message(s), ${config.v2_import.attachments} attachment(s). The old store (hub.sqlite3) is kept untouched as a backup.`} />}
       {error && <SetBlock><p role="alert" className="ask-warn">{error}</p></SetBlock>}
       {!config && <SetBlock><div className="row"><button disabled={busy} onClick={() => { void load() }}>{busy ? 'Loading hosting settings...' : 'Retry hosting settings'}</button></div></SetBlock>}
     </SetGroup>
+    {phone}
     {config && <form onSubmit={async e => {
       e.preventDefault(); setBusy(true); setError(''); setSaved('')
       try {
@@ -116,7 +160,7 @@ export function HostHub({ active = true }: { active?: boolean } = {}) {
             name: config.name.trim(), retention_days: config.retention_days,
             max_attachment_bytes: config.max_attachment_bytes,
             public_listener: config.public_listener }) }))
-        setConfig(next); setSaved('Hosting settings saved.')
+        setConfig(next); setReads(n => n + 1); setSaved('Hosting settings saved.')
         // the door just closed: its firewall rule goes too (one admin prompt)
         if (doorWas.current && !next.public_listener) {
           const note = await removePhoneRuleAfterOff()
@@ -187,13 +231,11 @@ export function HostHub({ active = true }: { active?: boolean } = {}) {
   </section>
 }
 
-/** The whole App settings → Mail hub tab. */
+/** The whole App settings → Mail hub tab: the hub's status and connections,
+ *  Chat from your phone, then the hosting settings. */
 export function MailHubSettings({ active = true }: { active?: boolean } = {}) {
   // the org whose window opened App settings is the one that would trust the phone (D3)
   const org = windowIdentity()?.org ?? null
-  return <>
-    {/* the panel itself opens in the window's own host (the canvas or Home) */}
-    <PhoneSettingsGroup org={org} active={active} />
-    <HostHub active={active} />
-  </>
+  // the phone panel itself opens in the window's own host (the canvas or Home)
+  return <HostHub active={active} phone={<PhoneSettingsGroup org={org} active={active} />} />
 }

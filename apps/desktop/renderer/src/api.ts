@@ -25,7 +25,7 @@ import type {
   LangServer, LangServerDoc, LangServerProbe, LangServerRepriced,
   HarnessesDoc, McpServersPayload, OpenRouterDoc, OpenRouterModelsPage, OpenRouterSort,
   OpRequest, OpResult, OrgListEntry, OrgMdPayload,
-  OrgInboxEntry, OrgNetReveal, ProvidersPayload, ReorderRequest,
+  OrgInboxEntry, OrgNetReveal, NetRecent, HubConnections, ProvidersPayload, ReorderRequest,
   RuntimeSettingsPayload,
   ScopeRequest,
   SendMessageResult,
@@ -1539,6 +1539,12 @@ export interface UploadOptions { draft?: string; signal?: AbortSignal; progress?
 // returns the org secret (the settings panel's reveal/export)
 export const getOrgNet = (slug: string): Promise<OrgNetReveal> =>
   req(`/api/orgs/${slug}/net`)
+/** The Connections list's sort key: this org's newest mail with each listed address. */
+export const getNetRecent = (slug: string): Promise<NetRecent> =>
+  req(`/api/orgs/${slug}/net/recent`)
+/** App settings → Mail hub: everyone registered on this computer's hub. */
+export const getHubConnections = (): Promise<HubConnections> =>
+  req('/api/desktop/hub/connections')
 export interface OrgPicture { revision: string; sha256: string | null; width: number; height: number; bytes: number; data: string | null }
 export interface OrgPictureCrop { x: number; y: number; size: number }
 export const getOrgPicture = (slug: string): Promise<{ owner: number; picture: OrgPicture | null }> =>

@@ -1,0 +1,32 @@
+/* CONNECTIONS ARE ROWS (USER 2026-10-29 mdc7e971eaf19 "formatted as a list of
+   rows"): one hub's connections in a bordered list, one connection per row of
+   one height, a hairline between rows and a hover highlight. Past ten rows the
+   list scrolls inside its own window (the height is set from a measured row);
+   rows are em-sized, so a text-size change keeps them whole.
+   THE PRESENCE DOT (m4c84e393768e "thought the gray dot meant offline",
+   m0537fdb73608 "that should be communicated more clearly"): online is a
+   filled green dot with a soft halo, offline a hollow red ring. They differ in
+   shape as well as colour, and neither is the neutral grey of a bullet. */
+.conn-rows {
+  --conn-row-h: 2.3em;
+  border: 1px solid var(--line-soft); border-radius: 6px;
+  background: var(--panel); min-width: 0;
+}
+.conn-rows.scrolls { overflow-y: auto; overscroll-behavior: contain; }
+.conn-row {
+  display: flex; align-items: center; gap: 10px;
+  height: var(--conn-row-h); padding: 0 10px; box-sizing: border-box; min-width: 0;
+  box-shadow: inset 0 -1px 0 var(--line-soft);
+}
+.conn-row:hover { background: var(--panel-2); }
+.conn-row .ref-hub { min-width: 0; max-width: 100%; white-space: nowrap; overflow: hidden; }
+.conn-row .net-chip .net-name { overflow-wrap: normal; overflow: hidden; text-overflow: ellipsis; }
+.presence-dot {
+  flex: none; display: inline-block; box-sizing: border-box;
+  width: 10px; height: 10px; border-radius: 50%;
+}
+.presence-dot.online {
+  background: var(--ok);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--ok) 24%, transparent);
+}
+.presence-dot.offline { border: 2px solid var(--bad); background: transparent; }

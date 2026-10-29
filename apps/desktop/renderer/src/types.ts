@@ -305,6 +305,20 @@ export interface NetBlock {
   hubs: NetHub[]
   picture_revision?: string | null
 }
+/** GET /api/orgs/{slug}/net/recent: the newest mail this org exchanged with
+ *  each address its hubs list, either way (bare slug → ISO time); an address
+ *  with none is left out. The Connections lists sort on it. */
+export interface NetRecent { recent: Record<string, string> }
+/** GET /api/desktop/hub/connections: every address registered on this
+ *  computer's hub, from its read-only operator view (presence included), and
+ *  the newest mail an org here that uses the hub exchanged with each. */
+export interface HubConnections {
+  running: boolean
+  connections: NetPeer[]
+  recent: Record<string, string>
+  /** why the hub's list could not be read */
+  error?: string | null
+}
 
 // ledger.py tree(): last_status/prev_status are dict[str, Any] | None in
 // schema.py; orgtree_status (api.py) writes {status, summary, at} today

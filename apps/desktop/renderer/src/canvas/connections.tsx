@@ -13,13 +13,13 @@
 // immediately — hub membership is operational state, not a form draft.
 
 import { openPhonePanel } from './phonelink'
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { SetBlock, SetGroup, SetRow, SetToggle } from './settingskit'
-import { getOrgNet, probeHub, saveSettings } from '../api'
+import { getNetRecent, getOrgNet, probeHub, saveSettings } from '../api'
 import type { NetHub, TreePayload, ToastFn } from '../types'
 import { CloseIcon } from '../icons'
 import { PinFrame } from './modalpin'
-import { HubContactChip } from './agentmentions'
+import { ConnectionList, NO_RECENCY, hubDotTitle, toRecency, type Recency } from './connectionlist'
 
 export function ConnectionsPanel({ tree, toast, close }: {
   tree: TreePayload; toast: ToastFn; close: () => void
@@ -46,10 +46,29 @@ export const hubVersionText = (h: NetHub): string => `hub version ${h.version ||
 export const peerKindText = (kind?: string): string =>
   kind === 'chat' ? ' (chat)' : kind === 'person' ? ' (person)' : ''
 
+/** The newest mail this org exchanged with each address its hubs list: the
+ *  Connections lists' sort key (USER 2026-10-29 m3e3829f0bf18 "ordered by most
+ *  recent correspondence with the org"). Read when the tab opens and again
+ *  when the org's mail moves or a roster grows; a failed read keeps the order
+ *  already shown. */
+export function useNetRecent(slug: string, tree: TreePayload): Recency {
+  const [recent, setRecent] = useState<Recency>(NO_RECENCY)
+  const inbox = tree.org_inbox
+  const key = [inbox?.total ?? '', inbox?.entries?.at(-1)?.id ?? '',
+    (tree.net?.hubs ?? []).map(h => h.roster?.length ?? 0).join(',')].join('|')
+  useEffect(() => {
+    let alive = true
+    getNetRecent(slug).then(r => { if (alive) setRecent(toRecency(r?.recent)) }, () => { /* keep what is shown */ })
+    return () => { alive = false }
+  }, [slug, key])
+  return recent
+}
+
 export function Connections({ tree, toast, adding, setAdding }: {
   tree: TreePayload; toast: ToastFn; adding: string; setAdding: (value: string) => void
 }) {
   const hubs = tree.net?.hubs ?? []
+  const recent = useNetRecent(tree.slug, tree)
   const [busy, setBusy] = useState(false)
   const [secret, setSecret] = useState('')
   const address = tree.net?.slug ?? ''
@@ -111,7 +130,7 @@ export function Connections({ tree, toast, adding, setAdding }: {
     <SetGroup title="This organization's connections">
       {!hubs.length && <SetBlock hint="No connections configured." />}
       {hubs.map(h => <section key={h.id} className="connection-row">
-        <SetRow label={<><span className={'oi-dot' + (h.connected ? ' ok' : '')} />{' '}
+        <SetRow label={<><span className={'oi-dot' + (h.connected ? ' ok' : '')} title={hubDotTitle(h)} />{' '}
           <b>{h.name || (h.id === 'local' ? 'This computer' : h.address)}</b></>}
           hint={<>{hubStatusText(h)}{h.id === 'local' && h.hidden ? ' · not seen yet' : ''}
             {h.id !== 'local' && <> · <span className="mono-sm">{h.address}</span></>}</>}>
@@ -122,10 +141,9 @@ export function Connections({ tree, toast, adding, setAdding }: {
           hint="Connect to this hub to send and receive mail."
           onChange={next => { void apply({ net_hubs: settings.map(x => x.id === h.id ? { ...x, enabled: next } : x) }, 'Connection updated') }} />}
         {(h.stuck ?? 0) > 0 && <SetBlock><p className="oi-stuck" title={h.stuck_err}>⚠ {h.stuck} failing — {h.stuck_err}</p></SetBlock>}
-        {h.roster?.length ? <SetBlock><ul className="connection-peers">{h.roster.map(p => <li key={p.slug}>
-          <HubContactChip address={'@net:' + p.slug} /> · {p.online ? 'Online' : 'Offline'}
-          {p.blurb && <span className="dim"> · {p.blurb}</span>}
-        </li>)}</ul></SetBlock> : h.connected ? <SetBlock hint="No other organizations on this hub yet." /> : null}
+        {h.roster?.length ? <SetBlock><ConnectionList rows={h.roster} recent={recent}
+          label={`Connections on ${h.name || (h.id === 'local' ? 'this computer' : h.address)}`} /></SetBlock>
+          : h.connected ? <SetBlock hint="No other organizations on this hub yet." /> : null}
       </section>)}
     </SetGroup>
     <AddHub slug={tree.slug} address={adding} setAddress={setAdding} toast={toast}

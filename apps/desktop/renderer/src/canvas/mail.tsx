@@ -43,6 +43,7 @@ import type { CanvasNode, MailRow } from './shared'
 import { AgentLink, AgentName } from './identity'
 import { WatchdogLink } from './watchdoglink'
 import { HubContactChip, useAgentMentions, useOrgMentionCandidates } from './agentmentions'
+import { PresenceDot, hubDotTitle, rowPresence } from './connectionlist'
 import { composerTarget, ObjectReplyDraft, useObjectComposer } from './composerobjects'
 import type { ComposerObject } from './composerobjects'
 import type { ReplyTarget } from '../generated/events'
@@ -2305,6 +2306,9 @@ export function OrgInboxModal({ inbox, net, map, slug, toast, close, jumpTo,
 }
 
 // ---- F-06: every mailserver, its status, and all clients on each ----
+// A client's presence wears the Connections lists' dot (USER 2026-10-29
+// m4c84e393768e "thought the gray dot meant offline"): a green dot online, a
+// hollow red ring offline, never a grey one.
 function NetSection({ net }: { net?: TreePayload['net'] }) {
   return (
     <div className="oi-net">
@@ -2313,7 +2317,7 @@ function NetSection({ net }: { net?: TreePayload['net'] }) {
       {(net?.hubs ?? []).filter((h) => !h.hidden).map((h) => (
         <div key={h.id} className="oi-hub">
           <div className="oi-hub-head">
-            <span className={'oi-dot' + (h.connected ? ' ok' : '')} />
+            <span className={'oi-dot' + (h.connected ? ' ok' : '')} title={hubDotTitle(h)} />
             <b>{h.name || 'unnamed hub'}</b>
             <span className="dim mono-sm">{h.address}</span>
             <span className="dim">
@@ -2348,7 +2352,7 @@ function NetSection({ net }: { net?: TreePayload['net'] }) {
                         ? ` · last seen ${fmtShort(r.last_seen)}` : '')
                         + ' · reachable via: '
                         + (r.transports ?? ['net']).join(', ')}>
-                      <span className={'oi-dot' + (r.online ? ' ok' : '')} />
+                      <PresenceDot online={rowPresence(r)} />
                       <HubContactChip address={'@net:' + r.slug} />
                       <span className="dim"> {(r.transports ?? ['net']).join('·')}</span>
                     </span>
