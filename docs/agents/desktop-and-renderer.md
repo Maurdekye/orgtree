@@ -11,7 +11,7 @@ This is the design principle behind the UI rules in this topic and in the root g
 - Implementers: before building a control, panel, menu, icon, link or way of presenting a choice, find the surface that already shows the same kind of thing or asks the same kind of question, and reuse its component, pattern, icon, link type and panel structure. A new variant needs a reason in source, the way a surface that cannot offer a link's shared menu items must say why.
 - Reviewers: flag UI that breaks symmetry with its sibling surfaces: a one-off control where a shared one exists, a different icon or label for the same action, a menu or tooltip not built from the shared builder, a panel laid out differently from its siblings, or information presented in a new way.
 - Conflicts with a signed ruling: an explicit user ruling overrides symmetry, so a surface that differs because of one keeps that difference until the user decides. Do not pick a side when a ruling, new or earlier, conflicts with symmetry (a unification would break it, or a ruling is itself inconsistent with a sibling ruling): park the change and report the finding, the ruling quote or id and both options to the coordinator, who brings it to the user to decide how to navigate it. Quote the ruling when the difference comes up.
-- Existing instances in this topic and the root guide: one shared context menu and tooltip per kind of link ("One link, one behaviour"), question text that renders through the chat transcript's renderer ([question cards](#question-cards-render-like-chat-2026-10-28-451)), draft settings that share controls with live settings ([draft edits](#draft-permission-edits-2026-10-24)) and one sentence-case rule for settings text.
+- Existing instances in this topic and the root guide: one shared context menu and tooltip per kind of link ("One link, one behaviour"), question text that renders through the chat transcript's renderer ([question cards](#question-cards-render-like-chat-2026-10-28-451)), draft settings that share controls with live settings ([draft edits](#draft-permission-edits-2026-10-24)), metric-independent flex centring across hire tokens, model letters and initials avatars ([letter-chip centring](#metric-independent-letter-chip-centring-2026-10-29-452)) and one sentence-case rule for settings text.
 
 [decided: user 2026-10-29 12:50Z mb6da9f3ee862, 13:25Z m72500eeca0c0]
 
@@ -2212,3 +2212,43 @@ the reading pane's sender. Three rules hold now:
   engine's lookup shape, a new link while open) and
   `tests/mailitem-boundary.test.tsx`.
 [verified: `canvas/{mail,mailitemboundary}.tsx`, `http/mailbox.rs` `mail_by_id`, `domain/orginbox.rs` `entry`; 2026-10-29]
+
+## Metric-independent letter-chip centring (2026-10-29, 4.5.2)
+
+On Linux, fallback fonts carry different ascent/descent and baseline metrics than
+Windows/macOS, so centring a single letter inside a circular or rounded token
+via default `<button>` layout, inherited `line-height: 1.5`, or `font:`
+shorthands (which reset `line-height` to `normal`) shifts the glyph off centre
+(user md447762e475e "hire token lettering is off center in linux"). Per the UX
+symmetry rule (mb6da9f3ee862), every letter-in-a-circle and model-letter chip
+surface shares the `.letter-chip` class and metric-independent flex centring
+(`display: inline-flex; align-items: center; justify-content: center; padding: 0;
+line-height: 1; text-align: center`, plus `.settings button.letter-chip` so modal
+button resets cannot override it):
+
+- **Hire tokens** (`SpawnChips` in `canvas/cards.tsx`): offered tier tokens
+  (`.hsof button.letter-chip.t-<tier>`), signed-out preview tokens
+  (`.hsof button.letter-chip.codex-preview`), and the far-zoom compact expand
+  arrow (`.hsof button.hire-expand.letter-chip`), while `.hsof button.hs-none`
+  (a multi-word status pill) is excluded.
+- **Desk model letter** (`DeskModelButton` in `canvas/deskmodel.tsx`):
+  `button.tier.letter-chip.desk-model-button` (with explicit `line-height: 1`
+  after `font: inherit`) and archived `TierChip`.
+- **Node model letters**: `TierChip` and `createTierChipEl` in
+  `canvas/identity.tsx` (both emit `'tier letter-chip t-' + tier`, while
+  `tier === 'project'` emits `.project-mark`), `NodeSquare` norm `.sq-head .tier`
+  and `mapMode` `.map-top .tier` in `canvas/cards.tsx`, `NodeConfig`
+  `.agent-model-icon.tier` and `PilePicker` `.pile-row .tier` in
+  `canvas/modals.tsx`.
+- **Tier pickers and standings**: `DraftNode` `.df-head button.df-model.tier`
+  and its `.draft-model-picker` `SpawnChips`, QuickChat model picker, mobile
+  `HireSheet` `.hs-tier .tier` in `canvas/OrgCanvas.tsx`, and `TierStandings` /
+  provider tier chips in `canvas/accounts.tsx`.
+- **Initials avatars**: `OrgPictureEditor` `.org-logo-avatar.letter-chip` in
+  `canvas/orgpicture.tsx` and `canvas/orglogo.css` (`font: 600 26px/1 ...;
+  line-height: 1; letter-spacing: 0; padding: 0; text-align: center` so two-letter
+  initials do not shift right from trailing `letter-spacing`).
+- Proofs: `tests/letterchip-centring.test.tsx` and Session 0 visual capture
+  `tools/rig/letterchips-visual.mjs` (`apps/desktop/renderer/tests/letterchips.visual.tsx`,
+  `tools/rig/desktop/letterchips-visual.cjs`).
+[decided: user 2026-10-29 md447762e475e, mb6da9f3ee862; verified: `styles.css`, `canvas/{identity,cards,deskmodel,OrgCanvas,accounts,modals,orgpicture}.tsx`, `canvas/orglogo.css`, `tests/letterchip-centring.test.tsx`]
