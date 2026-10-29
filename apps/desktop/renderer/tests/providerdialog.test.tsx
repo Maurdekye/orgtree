@@ -50,7 +50,8 @@ test('provider dialog stays above App settings; Escape closes only the draft and
   }
   const view = await mountView(<Settings />, el => el)
   try {
-    const opener = view.el.querySelector('button')!
+    // by its name: the frame's title bar (its X, USER 2026-10-29) comes first in the DOM
+    const opener = [...view.el.querySelectorAll('button')].find(b => b.textContent === 'Configure')!
     await inAct(async () => { opener.focus(); opener.click(); await flush(3) })
     const dialog = document.querySelector('[role="dialog"][aria-label="Configure provider"]')!
     assert.ok(dialog)

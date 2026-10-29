@@ -743,12 +743,16 @@ export interface PinFrameProps {
   /** Use the shared title/action row in the centered modal too. Its caller
    * omits a separate content heading, so pin/unpin keeps one stable header. */
   titleInModal?: boolean
-  /** Keep the shared X reachable when a centered dialog has no footer action. */
+  /** The bar of a centred dialog with no footer action stays shown on mobile too
+   *  (`.modal-close`), where every other centred bar is hidden; the X itself is in
+   *  every closable frame's bar now (USER 2026-10-29, below). */
   closeInModal?: boolean
   /** A DESK'S TITLE BAR (user 2026-10-18 11:14Z, the project desk): the bar
    *  is the surface's title bar centred and pinned, as the agent temporary
-   *  desk's (tempdesk.tsx). Centred it carries the title, but no close
-   *  button; Escape and the backdrop dismiss it. It has no pop-out: the desk
+   *  desk's (tempdesk.tsx). Centred it carries the title and the X (USER
+   *  2026-10-29 me188f67b3944 "Yes, add the X", superseding this note's
+   *  2026-10-18 11:14Z "no close button"); Escape and the backdrop dismiss it
+   *  too. It has no pop-out: the desk
    *  puts that in its own header beside its tabs. Popped out there is no bar
    *  at all (11:47Z): the desk's header row
    *  is the window's, with the window controls, as a popped-out agent desk. */
@@ -1110,8 +1114,15 @@ function PinFrameInner({ kind, title, titleBar, deskTitle = false, titleInModal 
             {pinned ? <PushPinIcon fontSize="inherit" />
               : <PushPinOutlinedIcon fontSize="inherit" />}
           </button>}
-          {(pinned || (closeInModal && !ownWindow)) && (
-            <button type="button" className="modalpin-btn modalpin-x" title="close"
+          {/* THE X, last in the row (USER 2026-10-29 m6c5594110094: an X on every
+              panel that can be closed, in the pin / pop-out row, to their right):
+              every closable frame has it, centred or pinned, desks included
+              (me188f67b3944); it runs the panel's own close. Escape closes a
+              centred panel, so the hint rides the tooltip; a pinned window
+              ignores Escape. Popped out, the window's own × is its X ("Window ×
+              is enough", me188f67b3944). */}
+          {!ownWindow && (
+            <button type="button" className="modalpin-btn modalpin-x" title={pinned ? 'Close' : 'Close (Esc)'}
               aria-label="close this window"
               onPointerDown={(e) => e.stopPropagation()}
               onClick={(e) => { e.stopPropagation(); closeSurface() }}>

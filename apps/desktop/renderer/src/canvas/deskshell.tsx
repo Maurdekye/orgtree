@@ -12,7 +12,7 @@ import { useSurfaceDocument } from '../popout'
 import PushPinIcon from '@mui/icons-material/PushPinOutlined'
 import PushPinFilledIcon from '@mui/icons-material/PushPin'
 import type { ToastFn } from '../types'
-import { DocIcon, SettingsIcon } from '../icons'
+import { CloseIcon, DocIcon, SettingsIcon } from '../icons'
 import { PopoutWindowControls } from '../popout'
 import { agentNavProps } from './agentnav'
 import { AgentName } from './identity'
@@ -29,10 +29,13 @@ export function DeskModalName({ id, tier }: { id: string; tier?: string | null }
 /** A desk modal's title bar: the name, and the pin button while pinning is
  *  on offer. The temporary agent desk renders this as its head; the
  *  project desk's PinFrame bar carries the same name element. */
-export function DeskTitleBar({ id, tier, onPin }: {
+export function DeskTitleBar({ id, tier, onPin, onClose }: {
   id: string
   tier?: string | null
   onPin?: () => void
+  /** the X, last after the pin: a centred desk has one too (USER 2026-10-29
+   *  m6c5594110094, me188f67b3944 "Yes, add the X") */
+  onClose?: () => void
 }) {
   return (
     <div className="tempdesk-head pinwin-title" data-copy-agent-name={id}>
@@ -42,6 +45,12 @@ export function DeskTitleBar({ id, tier, onPin }: {
         <button className="tempdesk-pin pinwin-unpin" onClick={onPin}
           aria-label={`pin ${id}`} title={`pin ${id}'s desk as a window`}>
           <PushPinFilledIcon fontSize="inherit" />
+        </button>
+      )}
+      {onClose && (
+        <button className="tempdesk-close pinwin-unpin" onClick={onClose}
+          aria-label={`close ${id}'s desk`} title="Close (Esc)">
+          <CloseIcon fontSize="inherit" />
         </button>
       )}
     </div>
@@ -127,6 +136,9 @@ export function DeskHead({ nodeId, left, actions, tabs, rightExtras, pin, settin
               <SettingsIcon fontSize="inherit" />
             </button>
           )}
+          {/* no X here: the in-canvas desk is a place on the canvas, not a panel
+              (USER 2026-10-29 me188f67b3944 "No X there"); popped out, its
+              window's own × closes it */}
         </span>
         {/* Outside .cc-head-right on purpose: the header wraps at narrow
             widths and the window controls must not wrap with it. */}

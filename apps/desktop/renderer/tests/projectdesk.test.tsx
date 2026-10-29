@@ -993,8 +993,8 @@ test("§11a the temporary project desk has the agent desk's ONE title bar: folde
   assert.ok(bar.querySelector('button.modalpin-btn[aria-label="pin this to the window"]'), 'pin')
   assert.equal(bar.querySelector('button.popout-button') === null, true, 'no pop-out in the title bar')
   assert.ok(document.querySelector('.project-desk-modal .cc-head-right button.popout-button'), 'the pop-out beside the tabs, as on the agent desk')
-  assert.equal(bar.querySelector('button.modalpin-x') === null, true,
-    'centered modals use Escape/backdrop dismissal (ec44759)')
+  assert.ok(bar.querySelector('button.modalpin-x'),
+    'the centred desk has the X (USER 2026-10-29 me188f67b3944), and Escape still closes it')
   await inAct(() => { document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })) })
   assert.equal(closed, 1)
 })

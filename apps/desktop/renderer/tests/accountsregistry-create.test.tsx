@@ -85,8 +85,9 @@ test('Antigravity replaces unsupported profile setup with an accessible upstream
   assert.deepEqual([...current.querySelectorAll('section.account-add-option h4')].map(h => h.textContent), [
     'A second Antigravity subscription is not possible yet', 'Use an API key',
   ])
-  assert.equal(current.querySelector('button')?.textContent, 'Add API-key account',
-    'the supported API-key account control remains available')
+  // the frame's own title-bar controls (its X) precede the body: its first action is the API-key one
+  assert.equal([...current.querySelectorAll('button')].find(b => !b.closest('.modalpin-bar'))?.textContent,
+    'Add API-key account', 'the supported API-key account control remains available')
   assert.equal(current.querySelector('input[aria-label="Profile folder"]'), null,
     'the unsupported profile-folder input is absent')
   assert.equal(button(current, 'Create managed account'), undefined,

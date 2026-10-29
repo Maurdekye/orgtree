@@ -79,18 +79,25 @@ const borrowed = (el: HTMLElement) =>
 
 const setup = () => { resetConvos(); installFetch(new FakeServer()) }
 
-test('temporary desks use backdrop or Escape instead of a dedicated close button', async (t) => {
+// The temporary desk had no close control from 2026-10-19 (9238df5) until USER 2026-10-29 m6c5594110094 gave
+// every closable panel an X and me188f67b3944 ("Yes, add the X") extended it to centred desks: the X ends the
+// title bar, and Escape and the backdrop still dismiss the desk.
+test('temporary desks end their title bar with an X, and Escape still dismisses them', async (t) => {
   setup()
   const n = agent('dismissal')
   let closed = 0
   const view = await mountView(scene(n, true, () => { closed++ }), (el) => el)
   t.after(() => view.unmount())
   await flush()
-  assert.equal(document.querySelector('.tempdesk-close') === null, true,
-    'the modal has no redundant close control')
+  const x = document.querySelector<HTMLButtonElement>('.tempdesk-head .tempdesk-close')
+  assert.ok(x, 'the title bar has the X')
+  assert.ok([...document.querySelectorAll('.tempdesk-head button')].at(-1) === x, 'the X is last in its row')
+  assert.equal(x!.title, 'Close (Esc)')
   const event = new W.KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })
   await inAct(() => { document.dispatchEvent(event) })
   assert.equal(closed, 1, 'Escape still dismisses the temporary desk')
+  await inAct(() => { x!.click() })
+  assert.equal(closed, 2, 'and so does its X')
 })
 
 test('Tab stays in the temporary Desk, respects nested dialogs, and releases on close', async (t) => {

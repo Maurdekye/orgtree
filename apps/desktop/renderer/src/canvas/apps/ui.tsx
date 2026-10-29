@@ -211,7 +211,9 @@ function PanelBody({slug,app,panel,shown,behind,layer,frame,motion}:{slug:string
       <button type="button" className="modalpin-btn" title="Panel settings" aria-label={'Settings for '+panel.label} onClick={()=>setSettings(true)}><SettingsIcon fontSize="inherit"/></button>
       <PopoutButton/>{!surface?.detached&&<button type="button" className={'modalpin-btn'+(pinned?' active':'')} title={pinned?'Unpin: back to the middle of the screen':'Pin to window: it stays put and can be dragged around'} aria-label={pinned?'Unpin':'Pin to window'} aria-pressed={pinned} onClick={pin}>{pinned?<PinIcon fontSize="inherit"/>:<PinOutlinedIcon fontSize="inherit"/>}</button>}
       <button type="button" className="modalpin-btn custom-app-power" title="Power off: stops the panel and closes the window" aria-label={'Power off '+panel.label} onClick={()=>void powerOff()}><PowerIcon fontSize="inherit"/></button>
-      <button type="button" className="modalpin-btn" title="Hide: closes the window, keeps the panel running" aria-label={'Hide '+panel.label} onClick={close}><CloseIcon fontSize="inherit"/></button>
+      {/* the X stays a hide (USER 2026-10-26); its tooltip is the shared Close, with Escape's hint while
+          it floats centred, over what closing keeps (USER 2026-10-29, coordinator m36dbf634e56e) */}
+      <button type="button" className="modalpin-btn" title={(panel.placement.mode==='float'&&!surface?.detached?'Close (Esc)':'Close')+'\nthe panel keeps running'} aria-label={'Hide '+panel.label} onClick={close}><CloseIcon fontSize="inherit"/></button>
     </header>
     {error&&<div role="alert" className="custom-app-error">{error}</div>}{surface?.error&&<div role="alert">{surface.error}</div>}
     <PanelHtml slug={slug} app={app} panel={panel} visible={shown&&!stopping} stopping={stopping}/>

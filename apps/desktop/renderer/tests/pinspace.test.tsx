@@ -45,7 +45,8 @@ test('global dialogs have no pin or popout controls and overlap fading defaults 
   const v=await mountView(<CurrentOrg.Provider value="org"><ModalOverlapSettings/>{['advanced-org','defaults'].map(kind=><PinFrame key={kind} kind={kind} title={kind} panel="global-fixture" close={()=>{}}>content</PinFrame>)}</CurrentOrg.Provider>,el=>el)
   try {
     assert.equal(v.el.querySelectorAll('.global-fixture').length,2,'all global dialogs rendered')
-    assert.equal(v.el.querySelectorAll('.modalpin-btn').length,0)
+    assert.equal(v.el.querySelectorAll('.modalpin-btn:not(.modalpin-x)').length,0,'no pin')
+    assert.equal(v.el.querySelectorAll('.modalpin-x').length,2,'each closable dialog has its X (USER 2026-10-29)')
     assert.equal(v.el.querySelectorAll('.popout-btn').length,0)
     const toggle=v.el.querySelector<HTMLInputElement>('input[type=checkbox]')!
     assert.equal(toggle.checked,false)
@@ -64,13 +65,15 @@ test('app settings pins and pops out inside an organization, and is a plain moda
   const frame=<PinFrame kind="app-settings" title="App settings" panel="app-fixture" close={()=>{}}>content</PinFrame>
   const inOrg=await mountView(<CurrentOrg.Provider value="org">{frame}</CurrentOrg.Provider>, el=>el)
   try {
-    assert.equal(inOrg.el.querySelectorAll('.modalpin-btn').length,1,'the pin button')
+    assert.equal(inOrg.el.querySelectorAll('.modalpin-btn:not(.modalpin-x)').length,1,'the pin button')
+    assert.equal(inOrg.el.querySelectorAll('.modalpin-x').length,1,'and the X')
     assert.equal(inOrg.el.querySelectorAll('.popout-button').length,1,'and the pop-out button')
   } finally {await inOrg.unmount()}
   const home=await mountView(<CurrentOrg.Provider value={null}>{frame}</CurrentOrg.Provider>, el=>el)
   try {
     assert.equal(home.el.querySelectorAll('.app-fixture').length,1,'it renders at home')
-    assert.equal(home.el.querySelectorAll('.modalpin-btn').length,0,'no pin button at home')
+    assert.equal(home.el.querySelectorAll('.modalpin-btn:not(.modalpin-x)').length,0,'no pin button at home')
+    assert.equal(home.el.querySelectorAll('.modalpin-x').length,1,'its X stays: it can be closed')
     assert.equal(home.el.querySelectorAll('.popout-button').length,0,'no pop-out button at home')
   } finally {await home.unmount()}
 })

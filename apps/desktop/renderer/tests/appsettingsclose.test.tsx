@@ -144,14 +144,17 @@ test('§3 a backdrop click dismisses the modal, and a click inside it does not',
   assert.equal(state.closed, 1, 'a click on the backdrop dismissed it')
 })
 
-test('§4 the frame draws NO close control of its own here, and the title bar\u2019s '
-  + 'right-click menu is the only pointer route left', async (t) => {
+test('§4 at home the title bar carries only the shared X, and its right-click menu '
+  + 'still offers Close', async (t) => {
   const { state } = await setup(t)
-  // the premise this ticket was written on, nailed down as an assertion
-  assert.equal(document.querySelector('[aria-label="close this window"]'), null,
-    'at home app-settings is never pinnable, so PinFrame\u2019s X never renders for it')
-  assert.equal(bar().querySelector('button'), null,
-    'and its title bar carries no buttons at all')
+  // at home app-settings is never pinnable; since USER 2026-10-29 m6c5594110094
+  // every closable panel has the X anyway, so it is the bar's one button
+  const x = document.querySelector<HTMLButtonElement>('[aria-label="close this window"]')
+  assert.ok(x, 'the shared X renders at home too')
+  const buttons = bar().querySelectorAll('button')
+  assert.equal(buttons.length, 1, 'and it is the title bar\u2019s only button')
+  assert.ok(buttons[0] === x, 'that one button is the shared X')
+  assert.equal(x!.title, 'Close (Esc)')
   await inAct(async () => {
     bar().dispatchEvent(new W.MouseEvent('contextmenu',
       { bubbles: true, cancelable: true, button: 2, clientX: 40, clientY: 30 }))
@@ -169,12 +172,13 @@ test('§7 with an org open the frame carries the pin and pop-out controls every 
   // context it pins and pops out like Usage (tests/appsettingspin.test.tsx
   // drives the whole behaviour); §4 above, with NO org, still holds because
   // home has nothing to pin it into. It is still dismissed by Escape and the
-  // backdrop, and still has no footer close button.
+  // backdrop, and still has no footer close button; since USER 2026-10-29
+  // m6c5594110094 its bar ends with the shared X.
   const { state } = await setup(t, 'mine')
-  assert.equal(document.querySelector('[aria-label="close this window"]'), null,
-    'a centred panel has no close of its own in the bar (only a pinned window does)')
   assert.equal(bar().querySelector('.popout-button') !== null, true, 'the pop-out button')
   assert.equal(bar().querySelector('.modalpin-btn[aria-label="pin this to the window"]') !== null, true, 'and the pin button')
+  const buttons = [...bar().querySelectorAll('button')]
+  assert.equal(buttons.at(-1)?.getAttribute('aria-label'), 'close this window', 'and the X, last in the row')
   assert.equal(footerCloses().map(b => b.className).length, 0,
     'and no footer close button came back')
   assert.equal(state.closed, 0, 'nothing dismissed the modal')

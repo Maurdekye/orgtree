@@ -131,13 +131,14 @@ export function TempDeskModal({ node, close, onPin, desk }: TempDeskProps) {
       {/* THE TEMPORARY DESK'S FRAME AND TITLE BAR (user 2026-09-29: reuse the
           pinned-desk styling): the provider accent border, the tier + bold
           name and a small state chip from the `.pinwin-*` classes. It closes
-          by backdrop or Escape; the desk's own header does not repeat the name
-          (styles.css). */}
+          by its X (USER 2026-10-29 me188f67b3944), the backdrop or Escape; the
+          desk's own header does not repeat the name (styles.css). */}
       <div className={'tempdesk-panel prov-' + providerOf(node.tier ?? '')} ref={panel} tabIndex={-1}
         role="dialog" aria-modal="true"
         aria-label={`${node.id} · desk, opened temporarily`}>
         <DeskTitleBar id={node.id} tier={node.tier}
-          onPin={onPin ? () => { const rect = sourceBox(); if (rect) onPin(rect) } : undefined} />
+          onPin={onPin ? () => { const rect = sourceBox(); if (rect) onPin(rect) } : undefined}
+          onClose={close} />
         {/* ⚠ `borrow` IS THE WHOLE MECHANISM. It takes the canonical desk for
             this modal's lifetime and the registry returns it on unmount — see
             `Desks.endBorrow`. `bare` renders the desk 1:1 rather than

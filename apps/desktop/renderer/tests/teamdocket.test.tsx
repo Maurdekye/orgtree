@@ -564,13 +564,14 @@ canvasTest('§10c picking it opens the team docket rooted at THAT agent — the 
     assert.ok(panel, 'the reduced docket rendered')
     assert.deepEqual(rowNames(panel), ['deep-task', 'lead-task'],
       'the root and its two-deep descendant; the other root\'s work is out')
-    // USER 2026-10-19, AGENTS.md "Centered modal surfaces": no dedicated
-    // modal Close; Escape/backdrop dismiss. Pinned/detached window controls
-    // are separate and remain (canvas/modalpin.tsx; modalpin.test.tsx §4).
+    // USER 2026-10-19, "Centered modal surfaces": no footer Close; Escape and the
+    // backdrop dismiss. USER 2026-10-29 m6c5594110094 adds the shared header X to
+    // every closable panel, centred too (canvas/modalpin.tsx; closex.test.tsx).
     const modal = panel.closest('.settings')!
-    assert.equal([...modal.querySelectorAll('button')].some(b =>
-      b.textContent?.trim() === 'Close' || b.getAttribute('aria-label') === 'close this window'), false,
-    'the centred docket has no dedicated Close button or window X')
+    assert.equal([...modal.querySelectorAll('button')].some(b => b.textContent?.trim() === 'Close'), false,
+      'the centred docket has no footer Close button')
+    assert.ok(modal.querySelector('.modalpin-bar button.modalpin-x[aria-label="close this window"]'),
+      'and it has the shared header X')
     await esc()
     assert.equal(document.querySelector('.docket-agent') === null, true, 'Escape dismisses the centred docket')
     // Reopen through the same real entry to prove the other signed exit.

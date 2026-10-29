@@ -490,11 +490,11 @@ test('§4 Escape and the backdrop close a centred modal, never a pinned window',
   reset()
 })
 
-test('a centred desk-title modal has no close X, while pinning keeps the window close control', async () => {
+test('a centred desk-title modal has the X, and pinning keeps the window close control', async () => {
   reset()
   const v = await mountView(frame('project-desk', true), shot)
-  assert.equal(v.el.querySelector('.modalpin-x') === null, true,
-    'the centred desk modal uses backdrop or Escape instead of a dedicated close X')
+  // USER 2026-10-29 me188f67b3944 "Yes, add the X" (closex.test.tsx); backdrop and Escape still close it
+  assert.ok(v.el.querySelector('.modalpin-x'), 'the centred desk modal has the X')
   await toggle(v.el)
   assert.ok(v.el.querySelector('.modalpin-x'), 'the pinned window retains its own close control')
   await v.unmount()

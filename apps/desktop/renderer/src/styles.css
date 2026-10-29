@@ -4597,8 +4597,11 @@ main.solo { width: 100%; }
 .settings.cfg > .modalpin-bar.modal-close { display: flex; }
 .draft-scope > h3, .draft-project-settings > section > h3 { padding-right: 28px; }
 /* ...over the header row, which ends in its folder buttons: keep them clear of
-   the bar's pop-out and pin (user 2026-10-18 07:24Z) */
-.settings.cfg:not(.modalpin-win):not(.modalpin-detached) > .agent-settings-header { padding-right: 64px; }
+   the bar's pop-out and pin (user 2026-10-18 07:24Z) and, since USER 2026-10-29
+   m6c5594110094 gave every closable panel one, of its X.
+   Measured centred at 1440x900: the row is 46px without the X, 74px with it;
+   the reserve keeps the 18px of clearance it always had. */
+.settings.cfg:not(.modalpin-win):not(.modalpin-detached) > .agent-settings-header { padding-right: 92px; }
 .settings .charterbox { min-height: 220px; resize: vertical; }
 .settings .chip.grow {
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0;
