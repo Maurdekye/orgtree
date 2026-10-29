@@ -33,7 +33,7 @@ import { AttachThumb, fmtBytes, isImg } from './img'
 import { TransferPanel } from './transfers'
 import {
   AttachIcon, CampaignIcon, CloseIcon, DownloadIcon, FileIcon, HearingIcon,
-  MailIcon, NotificationsActiveIcon, NotificationsIcon, PublicIcon,
+  MailIcon, NotificationsActiveIcon, NotificationsIcon, PublicIcon, ScheduleIcon,
 } from '../icons'
 import {
   audienceGrantTooltip, EXTERN, fmtCredits, isMailNotice, isSystemNotice, jumpKey, md, pileNotices, providerOf, SYSTEM, USER,
@@ -2165,20 +2165,23 @@ export function OrgInboxModal({ inbox, net, map, slug, toast, close, jumpTo,
     return orgInboxRead(slug).then(() => setAckLen((n) => Math.max(n, len)))
       .catch(() => {})                  // a failed write arms nothing (D-089)
   }
-  // F-06: the @net: delivery ladder glyph — ▫ queued · ✓ sent (hub custody)
-  // · ✓✓ delivered · ✓✓ read (green). "Delivered, not yet read" is the
-  // diagnostic that matters (peer down/busy) — the tooltip says it plainly.
+  // F-06: the @net: delivery ladder — a clock queued, the mark Hubchat's tick
+  // shows (USER 2026-10-29 m019c9500d23a "A6 use the clock") · ✓ sent (hub
+  // custody) · ✓✓ delivered · ✓✓ read (green). "Delivered, not yet read"
+  // is the diagnostic that matters (peer down/busy) — the tooltip says it
+  // plainly. Like Hubchat's ticks, each mark is an image named by its tooltip.
   const glyph = (m: MailRow) => {
     if (!m._state) return null
     // §10: a queued row whose wire tries keep failing says so — the ⚠ and
     // its reason were previously trapped in net_spool where nothing reads
     if (m._state === 'queued' && m._err) {
-      return <span className="net-state stuck"
-        title={`delivery failing (${m._tries ?? '?'} tries) — ${m._err}. `
-          + 'Retries continue; a stale address fails forever — check the '
-          + 'recipient on the mailservers tab'}> ⚠</span>
+      const failing = `delivery failing (${m._tries ?? '?'} tries) — ${m._err}. `
+        + 'Retries continue; a stale address fails forever — check the '
+        + 'recipient on the mailservers tab'
+      return <span className="net-state stuck" role="img" aria-label={failing}
+        title={failing}> ⚠</span>
     }
-    const g = m._state === 'queued' ? '▫'
+    const g = m._state === 'queued' ? <ScheduleIcon fontSize="inherit" />
       : m._state === 'sent' ? '✓' : '✓✓'
     const tip = m._state === 'queued' ? 'queued — not yet at the hub'
       : m._state === 'sent' ? 'at the hub — the peer has not fetched it yet'
@@ -2186,7 +2189,7 @@ export function OrgInboxModal({ inbox, net, map, slug, toast, close, jumpTo,
         ? `delivered ${fmtShort(m._state_at)} — no agent has read it yet`
         : 'read — a peer agent\'s turn consumed it'
     return <span className={'net-state' + (m._state === 'read' ? ' read' : '')}
-      title={tip}> {g}</span>
+      role="img" aria-label={tip} title={tip}> {g}</span>
   }
   return (
     <PinFrame kind="org-inbox" title="The org inbox" panel="settings wide"

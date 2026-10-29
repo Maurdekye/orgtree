@@ -58,6 +58,8 @@ export { default as PublicIcon } from '@mui/icons-material/Public'
 export { default as ReplyIcon } from '@mui/icons-material/Reply'
 export { default as RemoveIcon } from '@mui/icons-material/Remove'
 export { default as SettingsIcon } from '@mui/icons-material/Settings'
+// a queued @net message: the clock Hubchat's tick shows (user 2026-10-29)
+export { default as ScheduleIcon } from '@mui/icons-material/Schedule'
 export { default as SparkIcon } from '@mui/icons-material/AutoAwesome'
 export { default as StopIcon } from '@mui/icons-material/Stop'
 export { default as StorageIcon } from '@mui/icons-material/Storage'

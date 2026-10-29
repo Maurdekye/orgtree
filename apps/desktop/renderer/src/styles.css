@@ -408,6 +408,7 @@ nav { display: flex; flex-direction: column; gap: 2px; }
 .net-state { color: var(--dim); font-size: 11px; }
 .net-state.read { color: var(--ok); }
 .net-state.stuck { color: var(--bad); }
+.net-state svg { vertical-align: -.125em; }
 .oi-stuck { color: var(--bad); font-size: 11px; overflow: hidden;
             text-overflow: ellipsis; white-space: nowrap; max-width: 40ch; }
 /* F-06: the mailbox network section (its own TAB since the 2026-08-05

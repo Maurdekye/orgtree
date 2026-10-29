@@ -162,7 +162,7 @@ uiTest('§9.2 …and a failing message can be found without already knowing '
   assert.equal(q(el, '.mailer-read .mailer-none').length, 1,
     'and nothing is selected — the reading pane invites a click (user spec)')
   // ← FIXED (promoted out of todo, 2026-08-05): MailList grew a `rowMark`
-  // prop and the org inbox's sent folder passes `glyph` — the whole ▫/✓/✓✓/⚠
+  // prop and the org inbox's sent folder passes `glyph` — the whole clock/✓/✓✓/⚠
   // ladder now renders per-row in `.l1`, which is where a webmail user looks
   const stuckRows = rows.filter((r) => r.querySelector('.net-state.stuck'))
   assert.equal(stuckRows.length, 1, 'exactly one row wears the ⚠ in the LIST')
