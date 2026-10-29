@@ -5154,6 +5154,8 @@
         "renderer::apps/desktop/renderer/tests/toolwriting-slot.test.tsx::a real zero or positive writing duration retains its pencil and precise duration",
         "renderer::apps/desktop/renderer/tests/toolwriting-slot.test.tsx::absent or null writing observations leave no pencil, dash or separator on completed calls",
         "renderer::apps/desktop/renderer/tests/toolwriting-slot.test.tsx::unknown writing stays absent during execution and after transcript reload",
+        "renderer::apps/desktop/renderer/tests/toolwriting-wire.test.tsx::a desk never draws one call twice: a saved chip hides the live writing row with its id, and only that one",
+        "renderer::apps/desktop/renderer/tests/toolwriting-wire.test.tsx::the saved row and the shortened writing list arrive in one App frame: no live copy of the finished call stays",
         "renderer::apps/desktop/renderer/tests/toolwriting.test.tsx::a writing chip shows its pencil and streamed fields in the shared chip layout",
         "renderer::apps/desktop/renderer/tests/toolwriting.test.tsx::completed and reloaded chips show both icons and durations without timing words",
         "renderer::apps/desktop/renderer/tests/toolwriting.test.tsx::executing chips use the execution-time arrow and an immediate icon-only clock, then keep the finished dot",
