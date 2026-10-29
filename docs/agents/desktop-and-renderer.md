@@ -1,5 +1,36 @@
 # Desktop and renderer
 
+## Request cards fold (2026-10-29, 4.5.2)
+
+USER mece9d7b275c2: "add collapsible request cards". Every card `AskCard`
+draws (the composed batch the engine sends for any open request, the legacy
+question and credit forms, and the resolved `NulledAsk`) has a fold button
+(`button.ask-fold`, `aria-expanded` and `aria-controls`) at the left of its
+header, and the rest of the header row toggles too: `foldRow` ignores clicks
+on the row's own controls (the ✕, a ticket chip) and a click that ends a text
+selection. Folded, the header keeps one line (`FoldLine`: the `work_items` as
+`RefChip`s, then the question's first line through `inlineMd` with inert
+mention chips, or the tab names), and the ✕ leaves it. The body is
+`div.ask-fold-body[hidden]`: it stays mounted, so drafts survive, and the
+card's key handler returns early while folded, so ctrl+enter and alt+arrows do
+nothing. `.ask-fold-body` is `display: contents`, so the card's flex children
+and the pinned desk card's scroll regions are unchanged; `[hidden]` needs its
+own `display: none`, because an author display rule beats the attribute.
+
+The fold is one state per request (organization and request id; the engine
+keeps the id from open to resolved), shared by every surface through
+`canvas/askfold.ts`: this origin's localStorage (`orgtree-ask-folds-<org>`,
+the newest 200 per org), synchronised across windows by the `storage` event.
+Like the desk's tabs and drafts, it is lost with a moved origin or a new
+profile, and cards then show expanded. A fold records a content signature
+(questions, options, tickets, credit numbers, scope items; not status,
+answers or revision stamps), so an amended folded card stays folded with a
+`changed` mark until it is expanded. Not folded, by choice: MCP permission and
+native question cards (`ElicitationAsk`), which expire after five minutes.
+`orgtree_message` mail of kind `request` is an ordinary message card, not a
+request card. [decided: user 2026-10-29 with the liaison's spec; verified:
+`canvas/{asks,askfold}.ts*`, `styles.css`, `tests/askfold.test.tsx`]
+
 ## Question cards render like chat (2026-10-28, 4.5.1)
 
 USER m5952056229d3: "also allow question bodies to have formstted msrkdown,
