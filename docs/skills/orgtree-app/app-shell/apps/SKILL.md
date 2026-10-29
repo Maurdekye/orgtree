@@ -295,7 +295,9 @@ includes it. Hosts answered at a prompt under a wildcard get their own rows with
 Remove.
 
 Orgtree makes each request itself, over HTTPS, without cookies or sign-ins and
-never to this computer or the local network. A site you allow can receive
+never to this computer or the local network. Each request carries only the
+User-Agent "Orgtree/<version>" (sites such as GitHub's API need one), naming no
+person, computer, org, app or panel, and an app can't change it. A site you allow can receive
 anything the app can read. A code change clears every Allow; changing a
 permission to Ask or Deny stops requests in progress.
 

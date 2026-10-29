@@ -401,12 +401,13 @@ app doesn't declare is refused without a prompt.
 App code calls `orgtree.net.fetch(input, init)`, which returns a standard
 Response; plain fetch, WebSocket and URL images stay blocked. The engine makes
 the request: HTTPS only, no cookies, credentials or proxy, public addresses
-only (never this computer or its LAN), at most 5 redirects, each re-checked.
+only (never this computer or its LAN), at most 5 redirects, each re-checked,
+and one fixed User-Agent, Orgtree/<version>, on every hop.
 A redirect to another site carries only CORS-safelisted headers (Accept,
 Accept-Language, Content-Language, and Content-Type only as form, multipart or
 plain text); the app's other headers stay behind.
 Limits: 1 MiB body, 64 headers, 4 MiB response, 30 s, 120 requests a minute and
-8 at a time per app. Cookie, Host, Proxy-* and hop-by-hop headers refuse.
+8 at a time per app. Cookie, Host, User-Agent, Proxy-* and hop-by-hop headers refuse.
 
 The user decides each site: Ask, Allow or Deny per declared site, with Deny
 winning on any row that covers the host or on the capability. The capability's

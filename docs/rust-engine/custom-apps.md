@@ -559,13 +559,22 @@ running generation, Stop all and the decision, admits the request (120 a minute
 and 8 in flight per app, apart from the 60/min action budget) and releases the
 gate before any I/O, so a revoke never waits behind a slow site: it cancels the
 request.
-- HTTPS only; GET, POST, PUT, PATCH, DELETE, HEAD; no Cookie, Host, Proxy-* or
-  hop-by-hop header; at most 64 headers and 64 KiB of them; URL up to 8192;
+- HTTPS only; GET, POST, PUT, PATCH, DELETE, HEAD; no Cookie, Host, User-Agent,
+  Proxy-* or hop-by-hop header; at most 64 headers and 64 KiB of them; URL up to 8192;
   body up to 1 MiB (the bridge route admits 1.5 MiB for net.fetch only, every
   other action keeps its 72 KiB bound); response up to 4 MiB; 30 s for the whole
   request, every hop and the body included.
 - reqwest without its cookies feature (no jar; Set-Cookie dropped), no proxy, no
-  Referer, no default headers, no engine credential.
+  Referer, no engine credential, and no default header but one fixed
+  `User-Agent: Orgtree/<version>` (`net::USER_AGENT`, the engine crate version).
+  GitHub's API answers 403 to a request without a User-Agent (School cut dry
+  run, 2026-10-29, 4.5.1), and an app cannot supply its own: Chromium strips a
+  page-set User-Agent from the Request the SDK builds (measured in Electron 44.2).
+  The client is built per hop, so every hop sends it. The engine itself refuses
+  an app-set User-Agent (`header_forbidden`): a request-level header overrides a
+  client default, so a raw bridge call could otherwise replace it. Before this the
+  engine allowed it and only Chromium stripped it. The value names nothing but
+  Orgtree and its version, never a user, machine, org, app or panel.
 - The resolver refuses a name if any address is non-public (the
   `http/markdown_image.rs` classification) or this machine's own (a connected
   UDP socket picks the address itself as its source; nothing is sent), and the

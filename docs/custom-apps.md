@@ -415,9 +415,12 @@ change or remove.
 
 Orgtree makes each request for the app: HTTPS only, without your cookies,
 sign-ins or Orgtree credentials, and never to this computer or your local
-network. Up to 1 MiB goes out, 4 MiB comes back, within 30 seconds. A site you
-allow can receive anything the app can read, including org data and files, so
-allow only apps and sites you trust.
+network. Every request says only that it comes from Orgtree and its version
+(`User-Agent: Orgtree/<version>`), because some sites, such as GitHub's API,
+refuse a request without one; it names no person, computer, org, app or panel,
+and an app can't change it. Up to 1 MiB goes out, 4 MiB comes back, within 30
+seconds. A site you allow can receive anything the app can read, including org
+data and files, so allow only apps and sites you trust.
 
 Changing an app's code clears every Allow; Ask and Deny stay. Changing a
 permission to Ask or Deny, powering a panel off or Stop all stops the app's
