@@ -1013,7 +1013,7 @@ live detail/menu button when its owner's loaded preview is partial
 preview), matching `WatchdogLink`. Show `(no longer exists)` only when the
 watcher has confirmed spent evidence or is absent from a complete owner preview.
 See [watchdog panel](../skills/orgtree-app/desk/watchdog-panel/SKILL.md).
-[verified: `events/card.tsx`, `tests/eventcard.test.tsx`; 2026-10-21]
+Shared `WatchdogLink` (`canvas/watchdoglink.tsx`) resolves live, gone (`✕ name (no longer exists)` with stale copy menu) and partial-owner preview states uniformly across `orgtree_watchdog` tool-call rows (`canvas/toolrefs.tsx`), Monitor event cards (`events/card.tsx`), and sibling watchdog links. [verified: `canvas/{watchdoglink,toolrefs,historydog}.tsx`, `events/card.tsx`, `tests/{watchdog-links,eventcard}.test.tsx`; 2026-10-29]
 
 Team presentation readers (`AgentGalleryView` in `canvas/gallery.tsx`) clear an
 in-memory `selId` when an authoritative refresh removes that document from the
