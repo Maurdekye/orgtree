@@ -37,7 +37,7 @@ test('native object tooltip binds to the adopted document and ignores stale/clea
   assert.equal(reads.length, 1, 'only the adopted document sees its hover')
   await inAct(() => settle!(new Response(JSON.stringify({ item: { title: 'Native title', status: 'open' } }), { status: 200 })))
   await flush()
-  assert.equal(link.title, 'Open · Native title')
+  assert.equal(link.title, 'Open · native-ticket', 'the slug, not the title that is already inline')
   await inAct(() => void link.dispatchEvent(new win.MouseEvent('pointerout', { bubbles: true })))
   await hover()
   await inAct(() => void link.dispatchEvent(new win.MouseEvent('pointerout', { bubbles: true })))
@@ -92,7 +92,7 @@ test('ticket row, typed/Markdown/bare refs, inbox reply and tools share live sta
     for (const link of links) {
       await inAct(() => void link.dispatchEvent(new MouseEvent('pointerover', { bubbles: true })))
       await flush(2)
-      assert.equal(link.title, `${state.label} · ${title}`, 'hover resolves current state and full title rather than cached row state')
+      assert.equal(link.title, `${state.label} · ${item.slug}`, 'hover resolves current state and shows the slug, never the title the link already draws')
       await inAct(() => void link.dispatchEvent(new window.MouseEvent('contextmenu', { bubbles: true, cancelable: true, button: 2 })))
       await flush(2)
       const labels = [...document.querySelectorAll('.ctxmenu:not(.ctxmenu-submenu) > .ctxmenu-branch > [role="menuitem"]')].map(el => el.textContent)
@@ -105,7 +105,7 @@ test('ticket row, typed/Markdown/bare refs, inbox reply and tools share live sta
   assert.deepEqual(opened, [], 'hover and context opening do not navigate')
 })
 
-test('ticket status labels match the docket; unknown or absent status shows only the title', async t => {
+test('ticket status labels match the docket; unknown or absent status shows only the slug', async t => {
   const original = fetch
   let served: Record<string, unknown> = {}
   globalThis.fetch = (async () => new Response(JSON.stringify({ item: { title: 'Complete title', ...served } }))) as typeof fetch
@@ -123,18 +123,18 @@ test('ticket status labels match the docket; unknown or absent status shows only
   for (const [status, label] of states) {
     served = { status }
     await inAct(() => void link.dispatchEvent(new MouseEvent('pointerover', { bubbles: true }))); await flush(3)
-    assert.equal(link.title, `${label} · Complete title`)
+    assert.equal(link.title, `${label} · status-labels`)
     await inAct(() => void link.dispatchEvent(new MouseEvent('pointerout', { bubbles: true })))
   }
   for (const status of [undefined, null, '', 'future-status', '__proto__', 12, {}]) {
     served = { status }
     await inAct(() => void link.dispatchEvent(new MouseEvent('pointerover', { bubbles: true }))); await flush(3)
-    assert.equal(link.title, 'Complete title', 'unknown status must not be invented')
+    assert.equal(link.title, 'status-labels', 'unknown status must not be invented')
     await inAct(() => void link.dispatchEvent(new MouseEvent('pointerout', { bubbles: true })))
   }
   served = { status: 'done', archived: true }
   await inAct(() => void link.dispatchEvent(new MouseEvent('focusin', { bubbles: true }))); await flush(3)
-  assert.equal(link.title, 'Archived · Complete title')
+  assert.equal(link.title, 'Archived · status-labels')
 })
 
 test('concurrent ticket hovers share one read, and a later focus rereads changed status', async t => {
@@ -151,9 +151,32 @@ test('concurrent ticket hovers share one read, and a later focus rereads changed
   await inAct(() => { one!.dispatchEvent(new MouseEvent('pointerover', { bubbles: true })); two!.dispatchEvent(new MouseEvent('pointerover', { bubbles: true })) })
   assert.equal(reads, 1)
   await inAct(() => settle!(new Response(JSON.stringify({ item: { title: 'Ticket', status: 'open' } })))); await flush(3)
-  assert.equal(one!.title, 'Open · Ticket'); assert.equal(two!.title, one!.title)
+  assert.equal(one!.title, 'Open · concurrent-ticket'); assert.equal(two!.title, one!.title)
   await inAct(() => void one!.dispatchEvent(new MouseEvent('focusin', { bubbles: true })))
   assert.equal(reads, 2, 'settled result was not retained as a cache')
   await inAct(() => settle!(new Response(JSON.stringify({ item: { title: 'Ticket', status: 'done' } })))); await flush(3)
-  assert.equal(one!.title, 'Done · Ticket')
+  assert.equal(one!.title, 'Done · concurrent-ticket')
+})
+
+test('a ticket hover names the slug; an item of another org adds its org, and a ticket with no title still reads as its slug', async t => {
+  const original = fetch
+  let served: Record<string, unknown> = { title: 'Complete title', status: 'open' }
+  globalThis.fetch = (async () => new Response(JSON.stringify({ item: served }))) as typeof fetch
+  t.after(() => { globalThis.fetch = original })
+  const cleanup = registerObjectNativeTooltipDocument(document, () => 'home')
+  t.after(cleanup)
+  const view = await mountView(<><button id="same" {...objectTooltipProps('ticket', 'shared-slug', 'home')}>same</button>
+    <button id="other" {...objectTooltipProps('ticket', 'shared-slug', 'away')}>other</button></>, el => el)
+  t.after(view.unmount)
+  const hover = async (id: string) => {
+    const link = view.el.querySelector<HTMLElement>('#' + id)!
+    await inAct(() => void link.dispatchEvent(new MouseEvent('pointerover', { bubbles: true }))); await flush(3)
+    const title = link.title
+    await inAct(() => void link.dispatchEvent(new MouseEvent('pointerout', { bubbles: true })))
+    return title
+  }
+  assert.equal(await hover('same'), 'Open · shared-slug', 'an item of the viewed org: the bare slug')
+  assert.equal(await hover('other'), 'Open · away/shared-slug', 'an item of a different org carries its org')
+  served = { title: '', status: 'in_progress' }
+  assert.equal(await hover('same'), 'In progress · shared-slug', 'a blank title does not hide the slug')
 })

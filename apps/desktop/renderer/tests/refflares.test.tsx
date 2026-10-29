@@ -4,10 +4,10 @@
 // (an orgtree_work ticket chip in a tool-call row showed the slug); m919f12828686 "unread or modified presentation
 // links should be highlighted in a similar manner as well"; mc1c4ab23c4bf "also presentation cards should be
 // highlighted if unread or modified".
-//   §1-§2 a ticket mention wears a flare in its docket status colour, named in its tooltip, in React and Markdown
+//   §1-§2 a ticket mention wears a flare in its docket status colour, and its tooltip gives status and slug, in React and Markdown
 //         prose, and follows a docket write;
 //   §3    a tool-call ticket chip shows the ticket's full title and keeps its status flare;
-//   §4    a bare ticket name in docket prose wears the flare, named with the title in its tooltip;
+//   §4    a bare ticket name in docket prose wears the flare; its tooltip gives status and slug (USER 2026-10-29 m3ad5633675ff: the title is inline);
 //   §5    the idle-docket reminder card's link shows the recorded title;
 //   §6-§7 a presentation mention flares unread or modified since it was read, never once read; opening it clears
 //         the flare without another read;
@@ -113,10 +113,10 @@ test('§1 a ticket mention wears a flare in its status colour, named in its tool
   for (const where of ['react', 'markdown']) {
     const box = view.el.querySelector(`.${where}`)!
     assert.deepEqual(chipsOf(box, 'item'), [
-      { text: 'Build the docs site from main', flare: 'ref-flare status-in_progress', title: 'In progress · Build the docs site from main' },
-      { text: 'Fix the login redirect', flare: 'ref-flare status-blocked', title: 'Blocked · Fix the login redirect' },
-      { text: 'Ship the release', flare: 'ref-flare status-done', title: 'Done · Ship the release' },
-    ], `${where}: the title, the status colour and its name`)
+      { text: 'Build the docs site from main', flare: 'ref-flare status-in_progress', title: 'In progress · build-docs' },
+      { text: 'Fix the login redirect', flare: 'ref-flare status-blocked', title: 'Blocked · fix-login' },
+      { text: 'Ship the release', flare: 'ref-flare status-done', title: 'Done · ship-it' },
+    ], `${where}: the title inline, the status colour, and the status and slug on hover`)
   }
   const foreign = view.el.querySelector<HTMLElement>(`[data-ref-token="@item:other/build-docs"]`)
   assert.ok(foreign && !foreign.classList.contains('ref-flare'), 'another org\'s ticket is never read here, so it has no flare')
@@ -131,8 +131,8 @@ test('§2 the flare follows a docket write: the titles and statuses on screen ar
   s.tickets[0]!.status = 'review'
   await inAct(async () => { docketFeed(slug, { type: 'docket_changed' }); await tick() })
   assert.deepEqual(chipsOf(view.el, 'item').map(c => [c.flare, c.title]), [
-    ['ref-flare status-review', 'Agent review · Build the docs site from main'],
-    ['ref-flare status-review', 'Agent review · Build the docs site from main']])
+    ['ref-flare status-review', 'Agent review · build-docs'],
+    ['ref-flare status-review', 'Agent review · build-docs']])
 })
 
 test('§3 a tool-call ticket chip shows the ticket\'s full title and keeps its status flare', async t => {
@@ -146,7 +146,7 @@ test('§3 a tool-call ticket chip shows the ticket\'s full title and keeps its s
   const chip = view.el.querySelector<HTMLElement>('.tool-ref .ref-chip.ref-item')!
   assert.equal(chip.textContent, 'Build the docs site from main', 'the title, not the slug build-docs')
   assert.ok(chip.classList.contains('status-in_progress'), 'in its current status colour')
-  assert.equal(chip.getAttribute('title'), 'In progress · Build the docs site from main', 'named in its tooltip')
+  assert.equal(chip.getAttribute('title'), 'In progress · build-docs', 'the status and the slug in its tooltip: the title is already inline')
   assert.equal(chip.getAttribute('data-object-id'), 'build-docs', 'the slug stays its identity for the ticket menu')
   assert.equal(view.el.querySelector('.tool-work-transition')?.textContent, 'Open → In progress', 'the recorded change is unchanged')
 })
@@ -182,7 +182,7 @@ test('§4 a bare ticket name in docket prose wears the status flare, named with 
   for (const where of ['react', 'markdown']) {
     const link = view.el.querySelector<HTMLElement>(`.${where} .docket-ref`)!
     assert.ok(link.classList.contains('ref-flare') && link.classList.contains('status-in_progress'), `${where}: the status flare`)
-    assert.equal(link.getAttribute('title'), 'In progress · Build the docs site from main', `${where}: named in its tooltip`)
+    assert.equal(link.getAttribute('title'), 'In progress · build-docs', `${where}: the status and the slug in its tooltip`)
   }
 })
 
