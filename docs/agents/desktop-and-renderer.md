@@ -48,6 +48,20 @@ and time in header of detail tab").
   ("updated 2026-10-29 14:05:27 ..."). The open item says when in full: an open
   ticket's header reads "Updated <full date and time>", as does its
   amended-after-completion line; the open mail and presentation already did.
+- **Every age uses it, not only list rows (USER 2026-10-29 m1baa42b32cb6 "do this").**
+  The older `ago()` (seconds, minutes, then hours without end) is gone, so no
+  surface can read "72h" or "480h": the tray's turn, halt and active clocks and its
+  status age, the zoom card, the desk header's status seat, the map clock, the card
+  badge, a retired pile's rows, a project's last activity, dead-letter, slot and
+  watchdog event rows and the progress notes all read `fmtAge`. A cell that is an
+  age says the full local date and time on hover and as its accessible name through
+  `listage.tsx` `ageTitle`: `turnEndedTitle` ("last turn ended ...", with "(killed)")
+  for a completed turn, "<clock> since ..." for an elapsed or halted one ("active
+  since", "queued since", "compacting since", "running since", "Halted since"). A
+  sentence that carries an age ("Halted for 3w", "active for 2d") keeps its prose.
+  Durations are not ages and keep their own format: a slot's span ("1h 5m"), the
+  accounts registry's recorded-ago. `tests/agefmt.test.tsx` fails if `ago()` or an
+  import of it comes back; `tests/agefmt.capture.cjs` draws the before and after.
 - **The Changelog keeps its release date** (USER 2026-10-29 13:47:42Z
   m134c95331ab0 "Keep release date", deciding the conflict between A7 and the
   Changelog's own 2026-10-24 ruling): its rows stay the version and the release
