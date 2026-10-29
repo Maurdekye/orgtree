@@ -50,6 +50,7 @@ mod install_stop;
 mod langserver;
 mod lsproxy;
 mod launch;
+mod local_orgs;
 mod mailhub;
 mod migrate;
 mod mqtt;
