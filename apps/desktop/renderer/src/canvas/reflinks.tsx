@@ -664,7 +664,7 @@ export function RefChip({ r, onOpen }: {
     )
   }
   if (r.outcome === 'ready') {
-    return <span {...copy} className={cls} title={r.flare ? refChipTitle(r) : r.why}
+    return <span {...copy} className={cls} title={r.flare || r.ref.kind === 'item' ? refChipTitle(r) : r.why}
       onMouseDown={(e) => { if (e.button !== 0) e.stopPropagation() }}>
       {hasRefMark(r.ref.kind) && <RefMark kind={r.ref.kind} />}{r.label}</span>
   }
@@ -682,13 +682,16 @@ export function RefChip({ r, onOpen }: {
   )
 }
 
-/** A live chip's hover text, which `refmd`'s DOM chip shares: a ticket's
- *  title and a presentation's, each led by its flare's words the way the shared
- *  hover leads with a ticket's status (`In progress · title`, `Unread · title`). */
+/** A live chip's hover text, which `refmd`'s DOM chip shares: a ticket's slug
+ *  (its title is already the chip's text, USER 2026-10-29 m3ad5633675ff) and a
+ *  presentation's title, each led by its flare's words the way the shared hover
+ *  leads with a ticket's status (`In progress · slug`, `Unread · title`). A
+ *  ready ticket chip is always this org's (`resolveRef` answers `foreign` for
+ *  any other), so the slug needs no org. */
 export function refChipTitle(r: ResolvedRef): string | undefined {
-  const named = r.ref.kind === 'item' ? r.copyTitle : r.ref.kind === 'doc' ? r.label : undefined
-  if (r.ref.kind !== 'item' && r.ref.kind !== 'doc') return r.why
-  return r.flare ? `${r.flare.tip} · ${named ?? r.label}` : named
+  if (r.ref.kind === 'item') return r.flare ? `${r.flare.tip} · ${r.ref.id}` : r.ref.id
+  if (r.ref.kind !== 'doc') return r.why
+  return r.flare ? `${r.flare.tip} · ${r.label}` : r.label
 }
 
 /** Prose with its canonical references rendered. With no `onOpen` every chip

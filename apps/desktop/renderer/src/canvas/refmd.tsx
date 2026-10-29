@@ -311,14 +311,15 @@ function mentionEl(doc: Document, ref: MentionRef,
   const live = !!onPick
   const el = live ? createObjectMentionButton(doc) : doc.createElement('span')
   // a live ticket link shows the item's title and wears its status flare, as
-  // `WorkRefText` does (USER 2026-10-27 m3eb804e5023a, m43beb8089dd4); MEN
-  // keeps the name the prose holds, so undoing the chip stays exact
+  // `WorkRefText` does (USER 2026-10-27 m3eb804e5023a, m43beb8089dd4), and its
+  // hover gives the slug (USER 2026-10-29 m3ad5633675ff); MEN keeps the name
+  // the prose holds, so undoing the chip stays exact
   const title = live && ref.kind === 'item' && ref.title?.trim() ? ref.title : undefined
   const flare = live && ref.kind === 'item' ? ticketFlare(ref) : undefined
   if (live) {
     if (el.tagName === 'BUTTON') (el as HTMLButtonElement).type = 'button'
     el.className = 'docket-ref' + (flare ? ` ref-flare ${flare.cls}` : '')
-    if (title) el.title = flare ? `${flare.tip} · ${title}` : title
+    el.title = flare ? `${flare.tip} · ${slug}` : slug
   }
   el.setAttribute(MEN, slug)
   if (live) for (const [key, value] of Object.entries(objectNavProps('ticket', slug, org))) {

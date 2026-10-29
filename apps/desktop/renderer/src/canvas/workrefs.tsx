@@ -200,14 +200,15 @@ export function WorkRefText({ text, index, onPick, onFocusAgent }: {
     // A LINK SHOWS THE ITEM'S TITLE AND WEARS ITS STATUS FLARE, like a typed
     // mention (USER 2026-10-27 m3eb804e5023a "also make these links use the full
     // name", m43beb8089dd4); the words around it stay as written, and inert
-    // prose keeps the name itself
+    // prose keeps the name itself. Its HOVER gives the slug, since the title is
+    // already inline (USER 2026-10-29 m3ad5633675ff), led by the status flare.
     const title = ref.title?.trim() ? ref.title : undefined
     const flare = ticketFlare(ref)
     return onPick
       ? (
         <ObjectMentionButton key={key} {...objectNavProps('ticket', ref.slug, org ?? undefined)} data-copy-ticket-title={ref.title}
           className={'docket-ref' + (flare ? ` ref-flare ${flare.cls}` : '')}
-          title={title && flare ? `${flare.tip} · ${title}` : title}
+          title={flare ? `${flare.tip} · ${ref.slug}` : ref.slug}
           onClick={(e) => { e.stopPropagation(); onPick(ref.slug) }}>
           <RefMark kind="item" />{title ?? shown}
         </ObjectMentionButton>
