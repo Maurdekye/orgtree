@@ -51,7 +51,7 @@ test('native object tooltip binds to the adopted document and ignores stale/clea
   assert.equal(link.title, '', 'cleaned-up window hosts do not decorate retained DOM')
 })
 
-test('ticket row, typed/Markdown/bare refs, inbox reply and tools share live status/title hover and base menu', async t => {
+test('ticket row, typed/Markdown/bare refs, inbox reply and tools share live status/slug hover and base menu', async t => {
   const original = globalThis.fetch
   let title = 'A full ticket title'
   let status = 'open', archived = false
