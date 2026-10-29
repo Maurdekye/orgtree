@@ -4,13 +4,16 @@
 
 USER 2026-10-29 12:50:22Z mb6da9f3ee862, verbatim: "in my eyes, the perfect ux for a piece of software is highly symmetrical, like a high-order group. it contains lots of symmetries: lots of throughlines, common ui elements, common ui patterns, common icon and link types, common panel structures, common ways of presenting information, choices, etc. the more symmetries a program contains, the closer to "perfect" it is. a completely perfect ux would be something akin to a perfect crystal: perfectly symmetrical along every conceivable axis of interaction. when i design software, i aim to optimize for this maximal crystalline symmetry in the ux. orgtree follows this design principle."
 
+Precedence, USER 2026-10-29 13:25:12Z m72500eeca0c0, verbatim: "symmetry wins unless my ruling overrides it, but bring it up with me every time i make a ruling that conflicts with symmetry so i can decide how to navigate it".
+
 This is the design principle behind the UI rules in this topic and in the root guide, not a rule for one surface. How it applies:
 
 - Implementers: before building a control, panel, menu, icon, link or way of presenting a choice, find the surface that already shows the same kind of thing or asks the same kind of question, and reuse its component, pattern, icon, link type and panel structure. A new variant needs a reason in source, the way a surface that cannot offer a link's shared menu items must say why.
 - Reviewers: flag UI that breaks symmetry with its sibling surfaces: a one-off control where a shared one exists, a different icon or label for the same action, a menu or tooltip not built from the shared builder, a panel laid out differently from its siblings, or information presented in a new way.
+- Conflicts with a signed ruling: an explicit user ruling overrides symmetry, so a surface that differs because of one keeps that difference until the user decides. Do not pick a side when a ruling, new or earlier, conflicts with symmetry (a unification would break it, or a ruling is itself inconsistent with a sibling ruling): park the change and report the finding, the ruling quote or id and both options to the coordinator, who brings it to the user to decide how to navigate it. Quote the ruling when the difference comes up.
 - Existing instances in this topic and the root guide: one shared context menu and tooltip per kind of link ("One link, one behaviour"), question text that renders through the chat transcript's renderer ([question cards](#question-cards-render-like-chat-2026-10-28-451)), draft settings that share controls with live settings ([draft edits](#draft-permission-edits-2026-10-24)) and one sentence-case rule for settings text.
 
-[decided: user 2026-10-29 12:50Z mb6da9f3ee862]
+[decided: user 2026-10-29 12:50Z mb6da9f3ee862, 13:25Z m72500eeca0c0]
 
 ## Request cards fold (2026-10-29, 4.5.2)
 
