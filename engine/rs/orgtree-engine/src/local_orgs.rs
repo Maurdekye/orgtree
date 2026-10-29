@@ -12,25 +12,46 @@ use serde_json::{json, Value};
 /// The file's name in the data root.
 pub const FILE: &str = "local-orgs.json";
 
-/// The listing: `{"v": 1, "orgs": [{"slug", "name", "address"}]}`.
+/// The listing: `{"v": 1, "orgs": [{"slug", "name", "address"}]}`, in
+/// registry order. An org is listed by its registry slug, and only when its
+/// summary carries a hub address (`net_slug`). An imported org can keep the
+/// address it was minted with under another slug, so a reader opens an org
+/// by `slug` and never parses one out of an address.
 /// Not logged: the app feed calls it on every org change.
 #[nolog]
-pub fn listing<'a>(_registry: &[Value], _summary: impl Fn(i64) -> Option<&'a Value>) -> Value {
-    json!({ "v": 1, "orgs": [] })
+pub fn listing<'a>(registry: &[Value], summary: impl Fn(i64) -> Option<&'a Value>) -> Value {
+    let orgs: Vec<Value> = registry
+        .iter()
+        .filter_map(|row| {
+            let body = summary(row["org_id"].as_i64()?)?;
+            let address = body["net_slug"].as_str().filter(|a| !a.is_empty())?;
+            Some(json!({ "slug": row["slug"], "name": body["name"], "address": address }))
+        })
+        .collect();
+    json!({ "v": 1, "orgs": orgs })
 }
 
-/// The listing to write now, if any.
+/// The listing to write now. None while an org the registry lists is still
+/// loading its summary (a boot reads every org after the registry and must
+/// not write a listing that lacks them), or when it equals the one written.
+/// An org that is not loading and has no summary (its read failed) does not
+/// hold the others back: it is simply not listed.
 /// Not logged: the app feed calls it on every org change.
 #[nolog]
-pub fn due<'a>(_registry: &[Value], _summary: impl Fn(i64) -> Option<&'a Value>, _loading: impl Fn(i64) -> bool,
-               _written: Option<&Value>) -> Option<Value> {
-    None
+pub fn due<'a>(registry: &[Value], summary: impl Fn(i64) -> Option<&'a Value>, loading: impl Fn(i64) -> bool,
+               written: Option<&Value>) -> Option<Value> {
+    if registry.iter().filter_map(|row| row["org_id"].as_i64()).any(|id| summary(id).is_none() && loading(id)) {
+        return None;
+    }
+    let next = listing(registry, &summary);
+    (written != Some(&next)).then_some(next)
 }
 
-/// Replace the file.
+/// Replace the file through a uniquely named temporary file, so a reader
+/// sees the old listing or the new one, never part of either.
 #[logged]
-pub fn write(_root: &Path, _listing: &Value) -> std::io::Result<()> {
-    Ok(())
+pub fn write(root: &Path, listing: &Value) -> std::io::Result<()> {
+    crate::phone::replace_file(&root.join(FILE), &serde_json::to_vec_pretty(listing)?)
 }
 
 #[cfg(test)]

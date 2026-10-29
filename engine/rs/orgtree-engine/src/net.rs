@@ -344,6 +344,11 @@ pub async fn ensure_identity(engine: &Engine, org_id: i64, org_slug: &str) -> Re
             &[&org_id, &Value::Object(patch)],
         )
         .await?;
+    if !has_identity {
+        // the org now has an address: its app-feed summary and
+        // local-orgs.json (local_orgs.rs) carry it
+        engine.app.org_changed(org_id);
+    }
     Ok(row.get(0))
 }
 

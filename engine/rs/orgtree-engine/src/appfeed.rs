@@ -95,6 +95,7 @@ pub fn start(engine: &Arc<Engine>, inbox: AppFeedInbox) {
         dirty_orgs: HashSet::new(),
         reading: HashSet::new(),
         flush_scheduled: false,
+        local_orgs: None,
         tx: engine.app.tx.clone(),
     };
     tokio::spawn(actor.run(rx));
@@ -126,6 +127,8 @@ struct Actor {
     dirty_orgs: HashSet<i64>,
     reading: HashSet<i64>,
     flush_scheduled: bool,
+    /// The listing last written to local-orgs.json (local_orgs.rs).
+    local_orgs: Option<Value>,
     tx: mpsc::UnboundedSender<Env>,
 }
 
@@ -201,6 +204,23 @@ impl Actor {
         })
     }
 
+    /// local-orgs.json follows the registry and the summaries' hub
+    /// addresses (local_orgs.rs). `local_orgs` keeps the listing actually
+    /// written, so a failed write is retried at the next change.
+    /// Not logged: it runs on every org read; the write itself is logged.
+    #[nolog]
+    fn mirror_local_orgs(&mut self) {
+        let loading = |id: i64| self.reading.contains(&id) || self.dirty_orgs.contains(&id);
+        let summary = |id: i64| self.summaries.get(&id).map(|e| &e.frame["body"]);
+        let Some(next) = crate::local_orgs::due(&self.registry, summary, loading, self.local_orgs.as_ref()) else {
+            return;
+        };
+        match crate::local_orgs::write(&self.engine.cfg.data_root, &next) {
+            Ok(()) => self.local_orgs = Some(next),
+            Err(error) => tracing::warn!(error = %error, "local-orgs.json could not be written"),
+        }
+    }
+
     #[nolog]
     fn handle(&mut self, msg: Msg) {
         match msg {
@@ -219,6 +239,7 @@ impl Actor {
                     self.rev += 1;
                     let frame = self.registry_frame();
                     self.broadcast(&frame);
+                    self.mirror_local_orgs();
                 }
             }
             Msg::Org(id) => {
@@ -273,6 +294,7 @@ impl Actor {
                         self.notices.remove(&id);
                     }
                 }
+                self.mirror_local_orgs();
                 if self.dirty_orgs.contains(&id) && !self.flush_scheduled {
                     self.flush_scheduled = true;
                     let tx = self.tx.clone();
