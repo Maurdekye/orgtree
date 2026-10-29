@@ -10,7 +10,7 @@ A desk can be hosted on the canvas, pinned in screen space, detached to another 
 
 ## Pinned windows
 
-Pinning makes a screen-space window that stays put while the canvas pans/zooms. Drag its title bar to move and its edges/corners to resize. Escape cancels a placement gesture. With snapping enabled, releasing near an edge snaps; Shift allows free placement. A plain activation of the agent name navigates, while a name drag moves the window.
+Pinning makes a screen-space window that stays put while the canvas pans/zooms. Drag its title bar to move and its edges/corners to resize. Escape or lost pointer capture cancels a placement gesture without saving it. With snapping enabled, releasing near an edge snaps; Shift allows free placement. A plain activation of the agent name navigates, while a name drag moves the window.
 
 The pinned desk's close/unpin control minimizes it back to its original desk. If that card is off-screen, the toast explains where to find it; Show on canvas navigates there while keeping the pin open. An archived agent's pin can remain readable. The title bar is not an instruction to rehire it.
 

@@ -99,6 +99,34 @@ Audit findings from the ranked UX symmetry list (`_teams/601/release-review-450/
 [decided: user 2026-10-29 13:25Z m72500eeca0c0; verified: `canvas/{mail,agentmenu}.tsx`,
 `attention/AttentionQueue.tsx`, `tests/symmetrymenus.test.tsx`]
 
+## UX symmetry fixes (2026-10-29, 4.5.2)
+
+- **Centered agent/team docket Escape:** a focused, nonempty shared docket
+  search clears on the first Escape and keeps focus; an empty or unfocused
+  search keeps ordinary frame dismissal. The modal's capture-phase handler
+  invokes the same clear control as the Work docket rather than letting the
+  frame win first. [verified: `canvas/agentdocket.tsx`,
+  `tests/agentdocketsearch.test.tsx`]
+- **Pinned custom app gestures:** Escape and lost pointer capture cancel a
+  window-pinned custom app's move or resize preview and release its capture;
+  the later pointer-up has no gesture to commit, so no placement is saved.
+  An already released drop keeps its held preview while its save is in flight.
+  [verified: `canvas/apps/ui.tsx`, `tests/customapps-pinrelease.test.tsx`]
+- **Presentations history search:** the organization gallery uses the shared
+  list search beside its existing retired-agent toggle. Title/slug words go to
+  the engine, which returns the same scoped, newest-first, fully shaped paged
+  rows as the ordinary gallery rather than filtering only the resident prefix
+  or the @-menu's 20-row summary. Enter opens the first result; the first
+  Escape clears a focused nonempty query before closing. [verified:
+  `canvas/{gallery,docwindow,docket}.ts*`, `http/docs.rs`,
+  `migrate/document_slug_tests.rs`, `tests/gallerylazy.test.tsx`]
+- **Multi-reply disclosure:** one shared component bounds both the desk
+  composer and sent previews to two targets before an explicit `and N more`
+  control. Expansion reveals every exact target; composer removal keeps the
+  other identities and their order, and the existing 50-target bound is
+  unchanged. [verified: `canvas/{desk,mailreply,replypreview}.tsx`,
+  `tests/multireply.test.tsx`]
+
 ## Request cards fold (2026-10-29, 4.5.2)
 
 USER mece9d7b275c2: "add collapsible request cards". Every card `AskCard`

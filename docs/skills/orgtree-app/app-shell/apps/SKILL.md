@@ -154,7 +154,7 @@ panels. The title-bar pin pins a panel to the window where it is, at its size,
 like a pinned desk (user ruling 2026-10-26): it stays put while the canvas pans
 and zooms, shares the pinned desks' stacking and edge snapping (Shift places
 freely) and keeps its place after a restart; unpinning returns it to the
-centered modal. Drag a pinned title or resize its corner. Canvas pins are gone
+centered modal. Drag a pinned title or resize its corner; Escape or lost pointer capture cancels the gesture without saving its placement. Canvas pins are gone
 (user ruling 2026-10-26): a panel pinned there before reopens centered, and
 orgtree_apps refuses mode canvas. The pin is hidden in a pop-out.
 The pin shows filled and highlighted while the panel is pinned.

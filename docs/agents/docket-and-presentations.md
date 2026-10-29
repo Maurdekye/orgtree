@@ -8,6 +8,22 @@ that reader's candidate without re-running its initial selection choice.
 [verified: `canvas/useworkitems.ts`, `canvas/{docket,agentdocket}.tsx`,
 `tests/docketcontinuation.test.tsx`; 2026-10-23]
 
+## Shared docket and gallery search (2026-10-29)
+
+A centered agent/team docket gives a focused nonempty search the Work docket's
+first-Escape behavior: clear and keep focus, then dismiss normally on a later
+empty or unfocused Escape. The organization Presentations gallery uses that
+same search control beside Show retired. Its title/slug query is part of the
+document window's identity and goes into every engine read, so matches cover
+the accessible history rather than only loaded rows. The engine's search now
+shares the ordinary list's scope, dismissal filter, full row metadata, total,
+offset and next-offset contract; the @-completion default remains 20 rows,
+while gallery growth uses its normal page size. Enter opens the first match,
+and search Escape follows the same clear-then-close convention.
+[decided: user 2026-10-29 UX symmetry; verified: `canvas/{agentdocket,gallery,
+docwindow,docket}.ts*`, `http/docs.rs`, `tests/{agentdocketsearch,gallerylazy}.
+test.tsx`, `migrate/document_slug_tests.rs`]
+
 ## Inline HTML presentations (2026-10-26)
 
 The reader pane shows the selected HTML presentation inline (`HtmlPresentationView`

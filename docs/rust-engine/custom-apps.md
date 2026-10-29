@@ -39,6 +39,17 @@ The existing live-list condition removes it as soon as an app appears and
 restores it when the final app is removed. This is text only; no API or tool
 behavior changes.
 
+## Pinned gesture cancellation (2026-10-29)
+
+Window-pinned custom apps share the standard pinned window's cancellation
+boundary. Escape and lost pointer capture clear the move/resize preview and
+release its capture; the later pointer-up has no active gesture and therefore
+saves no placement. Pointer identity is checked on move/up, and cancellation
+after an already released drop is a no-op so the ordinary lost-capture notice
+cannot clear that drop's held preview while it saves.
+[decided: user 2026-10-29 UX symmetry; verified: `canvas/apps/ui.tsx`,
+`tests/customapps-pinrelease.test.tsx`]
+
 ## Background panels (2026-10-26)
 
 User rulings 2026-10-26 (forwarded in m904ca9fb891f, plus m74c6e82ee894, the
