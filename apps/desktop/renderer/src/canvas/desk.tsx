@@ -43,7 +43,7 @@ import { useSelectionComposer } from './selectioncomposer'
 import { selectionReplyContext, displayReplyWire } from '../eventReply'
 import { useObjectComposer } from './composerobjects'
 import type { ReplyContext } from '../eventReply'
-import { ReplyPreview, ReplySourceProvider } from './replypreview'
+import { ReplyPreview, ReplyPreviewDisclosure, ReplySourceProvider } from './replypreview'
 import { indexReplySources, ReplySourceContent } from './replysource'
 import { CopyFeedback, copyToClipboard, openFallbackObjectMenu, useContextMenu, useCopyFeedback } from './contextmenu'
 import { desktop } from '../desktop'
@@ -4600,9 +4600,11 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
       {/* №13: the composer is present under EVERY tab — finding a wrong number
           on the inbox or docket tab shouldn't cost your place to say so */}
       {replyMenu.node}
-      {replyTargets.map(r => <ReplyPreview key={`${r.agent}/${r.generation}/${r.eventId}/${r.mailId ?? ''}/${r.docId ?? ''}/${JSON.stringify(r.selection?.selector)}`} reply={r} available={replyAvailable(r)}
-        onLocate={() => locateReply(r)} onRemove={() => setReplyTargets(replyTargets.filter(x => x !== r))}
-        presentationTitle={r.docId?(node.documents??[]).find(d=>d.id===r.docId)?.title:undefined}/>) }
+      <ReplyPreviewDisclosure count={replyTargets.length}>{visible => <>
+        {replyTargets.slice(0, visible).map(r => <ReplyPreview key={`${r.agent}/${r.generation}/${r.eventId}/${r.mailId ?? ''}/${r.docId ?? ''}/${JSON.stringify(r.selection?.selector)}`} reply={r} available={replyAvailable(r)}
+          onLocate={() => locateReply(r)} onRemove={() => setReplyTargets(replyTargets.filter(x => x !== r))}
+          presentationTitle={r.docId?(node.documents??[]).find(d=>d.id===r.docId)?.title:undefined}/>) }
+      </>}</ReplyPreviewDisclosure>
       {replyTargets.length > 1 && <button className="link" onClick={() => setReply(null)}>Cancel all replies</button>}
       {histUndelivered && <div className="dim composer-history-note" role="status">
         recalled from history - this message was never sent

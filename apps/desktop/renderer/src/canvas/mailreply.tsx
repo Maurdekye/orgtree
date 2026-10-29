@@ -12,7 +12,7 @@ import { copyToClipboard, useCopyFeedback } from './contextmenu'
 import type { ContextMenuHandle, MenuEntry } from './contextmenu'
 import { MAIL_COPY_FAILED, fetchMailRowForCopy, resolveFullMailCopyText } from './copytext'
 import { senderMenuAction } from './objectactions'
-import { ReplyPreview, ReplyPreviewFrame } from './replypreview'
+import { ReplyPreview, ReplyPreviewDisclosure, ReplyPreviewFrame } from './replypreview'
 import { RefChip, resolveRef } from './reflinks'
 import type { RefWorld, ResolvedRef } from './reflinks'
 import type { TypedRef } from './workrefs'
@@ -130,9 +130,14 @@ export function MailReplyPreview({ row, org, world, onOpen, replyAvailable, onLo
   const toast = useCopyFeedback()
   const nodeNav = useAgentNavRegistry()
   const objectNav = useObjectNavRegistry()
-  if (row.replies?.length) return <>{row.replies.slice(0, 50).map((reply, i) =>
-    <MailReplyPreview key={i} row={{ reply_to: reply }} org={org} world={world} onOpen={onOpen}
-      replyAvailable={replyAvailable} onLocateReply={onLocateReply} />)}</>
+  if (row.replies?.length) {
+    const replies = row.replies.slice(0, 50)
+    return <ReplyPreviewDisclosure count={replies.length}>{visible => <>
+      {replies.slice(0, visible).map((reply, i) =>
+        <MailReplyPreview key={i} row={{ reply_to: reply }} org={org} world={world} onOpen={onOpen}
+          replyAvailable={replyAvailable} onLocateReply={onLocateReply} />)}
+    </>}</ReplyPreviewDisclosure>
+  }
   const chat = replyContext(row.reply_to)
   const reply = recordedMailReply(row, org)
   if (chat) return <ReplyPreview reply={chat} sender={chat.sender || reply?.from || undefined}

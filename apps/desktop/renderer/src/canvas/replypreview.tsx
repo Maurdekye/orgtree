@@ -1,5 +1,5 @@
 import { SelectionReplyPreview } from './selectionpreview'
-import { createContext, isValidElement, useContext } from 'react'
+import { createContext, isValidElement, useContext, useState } from 'react'
 import type { ReactNode } from 'react'
 import { getDocument } from '../api'
 import type { ReplyContext } from '../eventReply'
@@ -21,6 +21,23 @@ import { ObjectReplyDraft } from './composerobjects'
  * newer revision of the same assistant message. Other surfaces keep quotes. */
 const ReplySources = createContext<((reply: ReplyContext) => ReactNode) | null>(null)
 export const ReplySourceProvider = ReplySources.Provider
+
+/** Hubchat's multi-reply disclosure, shared by the composer and sent previews:
+ * two targets first, an explicit hidden count, then every exact target. The
+ * caller keeps its existing identity keys, 50-target bound and remove actions. */
+export function ReplyPreviewDisclosure({ count, children }: {
+  count: number; children: (visible: number) => ReactNode
+}) {
+  const [expanded, setExpanded] = useState(false)
+  return <>
+    {children(expanded ? count : Math.min(2, count))}
+    {count > 2 && <button type="button" className="link reply-disclosure"
+      aria-expanded={expanded}
+      onClick={() => setExpanded(value => !value)}>
+      {expanded ? 'Show fewer replies' : `and ${count - 2} more`}
+    </button>}
+  </>
+}
 
 /** The same annotation frame for transcript references and stored mail snapshots. */
 export function ReplyPreviewFrame({ label, action, onRemove, children, unavailable, onActivate, actionTitle, menuEntries, onOpenMenu }: {
