@@ -241,6 +241,11 @@ export function UserNode({ pos, isDrop, stats, pip, seats, codexHire, claudeHire
          surface has chat text, mail rows and its own controls, and a
          right-click there must keep the browser's or the row's menu. */
       onContextMenu={(e) => { if (!focused) menu.open(e, menuEntries) }}
+      /* the expanded hire strip folds when the pointer leaves the card, as an
+         agent's (NodeSquare's expandedHireEdge) and a project's do (user
+         2026-10-29 22:42Z); the first-use guide's token step keeps it open
+         through `guideHire`, not through this state */
+      onPointerLeave={() => setExpandedHire(false)}
       style={{
         transform: `translate(${pos.x}px, ${pos.y}px)`,
         width: focused ? eyeW : USER_W, height: USER_H,

@@ -12,7 +12,7 @@ The **Orgtree** application menu provides **New window**, **Open organization**,
 
 ## Read the canvas
 
-The **YOU** eye card is the human root. Agents appear below their superiors; projects group work inside the tree. A card's model mark identifies its tier, while its status, busy indicator and badges explain its current state. Hover a badge for its meaning before acting on it. On a project's near-zoom card, its slots, listeners and queue badges are buttons: they open the project's slots or events views — the queue badge opens the project mailbox at its listeners folder while a mail listener is armed, and at its inbox when none is.
+The **YOU** eye card is the human root. Agents appear below their superiors; projects group work inside the tree. A card's model mark identifies its tier, while its status, busy indicator and badges explain its current state. Hover a badge for its meaning before acting on it. On a project's near-zoom card, its slots, listeners and queue badges are buttons: they open the project's slots or events views — the queue badge opens the project mailbox at its listeners folder while a mail listener is armed, and at its inbox when none is. An expanded hire strip folds when the pointer leaves the card, on the YOU eye as on an agent's or a project's.
 
 At normal overview zoom, hover anywhere on a card, including a badge, to read a cut-off name in full on its background plate. This works even while a desk is open in this or another window. Short names stay plain. At far zoom, hovering a card always shows its name on a floating plate above the other cards, also while a desk is open. An opened desk keeps its own header.
 
