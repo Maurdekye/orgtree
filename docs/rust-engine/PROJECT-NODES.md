@@ -441,7 +441,9 @@ agents under the project".
   `Open > Desk` (the project desk as a temporary modal, `ProjectDeskModal`), `Pop out to new
   window` (that modal popped out, `requestSurfaceAction('project-desk', …)`), `Pin desk as a
   window` / `Show pinned window` (in the top `desk` section before the separator, matching agents),
-  `Project mailbox`, `Project folder`, `Presentations > Team presentations`, `Project docket`;
+  `Project mailbox`, `Project folder`, `Project docket`, `Presentations > Team presentations`
+  (docket before presentations as in the agent's Open menu since 2026-10-29, UX symmetry #4;
+  it followed them before);
   `Hire under this project` and `New project…` (hiring beside or above a project uses the card's
   hire tokens [user 2026-10-18 07:17Z]); `Settings`; `Cheap-compact all agents under it…`;
   `Halt/Unhalt all agents under it…`; `Retire project…`. Card and Agents List row offer the same

@@ -80,6 +80,25 @@ and an agent's docket at base and tip, dark and light, in Session 0.
 
 [decided: user 2026-10-29 13:25Z m019c9500d23a, 13:47Z m134c95331ab0]
 
+## Symmetry fixes: menus (2026-10-29, 4.5.2)
+
+Audit findings from the ranked UX symmetry list (`_teams/601/release-review-450/ux-symmetry`), fixed under the
+13:25Z authorization:
+
+- #1: the Attention view's urgent mail and question rows raise the Inbox's row menu. MailList's builder is
+  `mailRowMenuEntries` (`canvas/mail.tsx`); Attention supplies its own open (which reads, as its click does),
+  close, reply (opens and focuses the pane's reply box), mark read, delete (`DELETE_USER_MAIL_CONFIRM`, shared
+  with App.tsx) and the user-box reference. A deleted mail is never retained while selected; the selection moves
+  on as when any selected row leaves.
+- #3: no change. The agent and project builders order Focus/Hire/Open differently, but `MenuEntries` moves
+  Open to second place in every menu (USER 2026-10-20), so both show Copy mention, Open, Focus, Hire,
+  New project in one order (`tests/symmetrymenus.test.tsx` §2).
+- #4: a project's Open lists Project docket before Presentations, as an agent's lists Docket first and both
+  desks order their tabs.
+
+[decided: user 2026-10-29 13:25Z m72500eeca0c0; verified: `canvas/{mail,agentmenu}.tsx`,
+`attention/AttentionQueue.tsx`, `tests/symmetrymenus.test.tsx`]
+
 ## Request cards fold (2026-10-29, 4.5.2)
 
 USER mece9d7b275c2: "add collapsible request cards". Every card `AskCard`

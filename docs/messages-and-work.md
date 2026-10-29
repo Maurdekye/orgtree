@@ -226,7 +226,7 @@ With five or more tags, **(+n)** counts the tags not shown; hover it to read the
 names. The count does not expand on click. Open the message to see all its tags;
 the tag picker and filter bar also keep the full list.
 
-The received-mail context menu can permanently delete **your copy** after confirmation. It leaves sender history, other recipients' copies and attachment files. An outstanding project ACK job must be acknowledged first. There is no bulk delete or keyboard-delete command in this release.
+Urgent mail and questions in the Attention view have the same context menu as in your Inbox. The received-mail context menu can permanently delete **your copy** after confirmation. It leaves sender history, other recipients' copies and attachment files. An outstanding project ACK job must be acknowledged first. There is no bulk delete or keyboard-delete command in this release.
 
 **Transfers** shows file-delivery progress and errors. Retry resumes a failed transfer; Cancel stops it; **Remove file and send**, when offered, explicitly omits that failed attachment so the remaining message can proceed. Closing the panel does not cancel an engine transfer. Confirmed bytes and a queued count are not proof that a human read the file.
 
