@@ -13,6 +13,8 @@ import { HistoryDog } from '../src/canvas/historydog'
 import { ObjectNavProvider } from '../src/canvas/objectnav'
 import { ObjectNavHost } from '../src/canvas/objectnavhost'
 import { ObjectMenuBoundary } from '../src/canvas/contextmenu'
+import { EventCard } from '../src/events/card'
+import type { KnownEvent } from '../src/events/types'
 
 test('watchdog satellite, desk and destination offer the identical canonical object menu', async t => {
   const opened: string[] = []
@@ -179,4 +181,92 @@ test('a websocket dog has its own outline class and a two-way glyph in links and
       }
     }finally{await v.unmount()}
   }
+})
+
+
+test('tool-call row and Monitor event card render the identical live and gone watchdog chip, tooltip and menu', async t => {
+  const clock = Date.now
+  const now = 1_800_000_000_000
+  Date.now = () => now
+  t.after(() => { Date.now = clock })
+  const liveDog: Watchdog = {
+    id: 'worker/marchpup-full-sdk', owner: 'worker', name: 'marchpup-full-sdk', kind: 'command',
+    target: 'echo build ok', once: true, state: 'armed', spent: false,
+    at: '2026-10-29T00:00:00Z', fired: 0, interval_s: 60,
+    next_check_at: new Date(now + 60000).toISOString(),
+  }
+  const spentDog: Watchdog = {
+    ...liveDog, id: 'worker/spent-sdk', name: 'spent-sdk', state: 'spent', spent: true, fired: 1,
+    next_check_at: undefined,
+  }
+  const fireEvent = (id: string, name: string): KnownEvent => ({
+    v: 1, variant: 'monitor.watchdog_fired', engine_authored: true,
+    actor: { kind: 'watchdog', id },
+    object: { kind: 'watchdog', org: 'demo', id, owner: 'worker', name },
+    prefix: 'WATCHDOG', lines: ['Marchpup SDK build finished'], once: true, count: 1,
+  })
+  const opened: string[] = []
+  const dogs = [liveDog, spentDog]
+  const v = await mountView(<ObjectNavProvider>
+    <ObjectNavHost org="demo" dogs={dogs} openDog={id => opened.push(id)} toast={() => {}} />
+    <DeskDogsProvider value={{ org: 'demo', dogs, open: id => opened.push(id) }}>
+      <ObjectMenuBoundary>
+        <div className="tool-live"><ToolRefs refs={[{ kind: 'watchdog', id: 'marchpup-full-sdk' }]} owner="worker" org="demo" agent={id => id} /></div>
+        <div className="card-live"><EventCard org="demo" profile="operator" row={{ ev: fireEvent(liveDog.id, liveDog.name), body: 'Marchpup SDK build finished' }} preview /></div>
+        <div className="tool-gone"><ToolRefs refs={[{ kind: 'watchdog', id: 'removed-sdk' }]} owner="worker" org="demo" agent={id => id} /></div>
+        <div className="card-gone"><EventCard org="demo" profile="operator" row={{ ev: fireEvent('worker/removed-sdk', 'removed-sdk'), body: 'Marchpup SDK build finished' }} preview /></div>
+        <div className="tool-spent"><ToolRefs refs={[{ kind: 'watchdog', id: 'spent-sdk' }]} owner="worker" org="demo" agent={id => id} /></div>
+        <div className="card-spent"><EventCard org="demo" profile="operator" row={{ ev: fireEvent(spentDog.id, spentDog.name), body: 'Marchpup SDK build finished' }} preview /></div>
+      </ObjectMenuBoundary>
+    </DeskDogsProvider>
+  </ObjectNavProvider>, el => el)
+  t.after(() => v.unmount())
+
+  const menuLabels = async (el: Element) => {
+    await inAct(() => el.dispatchEvent(new window.MouseEvent('contextmenu', { bubbles: true, cancelable: true, button: 2, clientX: 10, clientY: 10 })))
+    await flush()
+    return [...document.querySelectorAll('.ctxmenu:not(.ctxmenu-submenu) [role="menuitem"]')].map(item => item.textContent?.trim())
+  }
+
+  for (const [kind, name] of [['gone', 'removed-sdk'], ['spent', 'spent-sdk']] as const) {
+    const toolChip = v.el.querySelector<HTMLElement>(`.tool-${kind} .watchdog-link`)!
+    const cardChip = v.el.querySelector<HTMLElement>(`.card-${kind} .watchdog-link`)!
+    assert.equal(toolChip.tagName, 'SPAN', `${kind} tool chip is non-interactive`)
+    assert.equal(cardChip.tagName, 'SPAN', `${kind} card chip is non-interactive`)
+    assert.equal(toolChip.classList.contains('gone'), true, `${kind} tool chip carries .gone`)
+    assert.equal(cardChip.classList.contains('gone'), true, `${kind} card chip carries .gone`)
+    assert.equal(toolChip.classList.contains('spent'), true, `${kind} tool chip carries .spent`)
+    assert.equal(cardChip.classList.contains('spent'), true, `${kind} card chip carries .spent`)
+    assert.equal(toolChip.getAttribute('aria-disabled'), 'true')
+    assert.equal(cardChip.getAttribute('aria-disabled'), 'true')
+    assert.equal(toolChip.querySelector('.wd-glyph')!.textContent, '✕')
+    assert.equal(cardChip.querySelector('.wd-glyph')!.textContent, '✕')
+    assert.equal(toolChip.querySelector('.watchdog-link-name')!.textContent, name)
+    assert.equal(cardChip.querySelector('.watchdog-link-name')!.textContent, name)
+    assert.equal(toolChip.textContent, `✕${name} (no longer exists)`)
+    assert.equal(cardChip.textContent, toolChip.textContent)
+    assert.equal(toolChip.title, cardChip.title)
+    assert.match(toolChip.title, /no longer exists/i)
+    assert.deepEqual(await menuLabels(toolChip), ['Watchdog no longer exists', 'Copy watchdog name', 'Copy watchdog id'])
+    assert.deepEqual(await menuLabels(cardChip), ['Watchdog no longer exists', 'Copy watchdog name', 'Copy watchdog id'])
+    await inAct(async () => { toolChip.click(); cardChip.click() })
+    assert.deepEqual(opened, [], `${kind} chips never open a detail modal`)
+  }
+
+  const toolLive = v.el.querySelector<HTMLElement>('.tool-live .watchdog-link')!
+  const cardLive = v.el.querySelector<HTMLElement>('.card-live .watchdog-link')!
+  assert.equal(toolLive.tagName, 'BUTTON')
+  assert.equal(cardLive.tagName, 'BUTTON')
+  assert.equal(toolLive.classList.contains('armed'), true)
+  assert.equal(cardLive.classList.contains('armed'), true)
+  assert.equal(toolLive.classList.contains('gone'), false)
+  assert.equal(cardLive.classList.contains('gone'), false)
+  assert.equal(toolLive.querySelector('.wd-glyph')!.textContent, cardLive.querySelector('.wd-glyph')!.textContent)
+  assert.equal(toolLive.querySelector('.watchdog-link-name')!.textContent, 'marchpup-full-sdk')
+  assert.equal(cardLive.querySelector('.watchdog-link-name')!.textContent, 'marchpup-full-sdk')
+  assert.equal(toolLive.textContent, cardLive.textContent)
+  assert.equal(toolLive.title, cardLive.title)
+  assert.deepEqual(await menuLabels(toolLive), await menuLabels(cardLive))
+  await inAct(async () => { toolLive.click(); cardLive.click() })
+  assert.deepEqual(opened, [liveDog.id, liveDog.id])
 })
