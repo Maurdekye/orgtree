@@ -108,13 +108,17 @@ function rowTest(name: string, body: (mount: (o: { tier: string; pin?: string | 
     const asked: string[] = []
     const gestures: Record<string, unknown>[][] = []
     let pin: string | null = null
+    let seatTier = ''
+    // the engine says when the tab's model takes the seat to another lane
+    const laneOf = (t: string) => t.startsWith('ls-') ? 'langserver' : t.startsWith('or-') ? 'openrouter' : 'other'
     globalThis.fetch = ((url: string, init?: RequestInit) => {
       const u = new URL(String(url), 'http://localhost')
       if (/\/api\/orgs\/org\/nodes\/agent\/harness$/.test(u.pathname)) {
         const tier = u.searchParams.get('tier') ?? ''
         asked.push(tier)
-        const body = tier.startsWith('ls-') ? serverSeat() : tier.startsWith('or-') ? openrouterSeat(pin)
-          : { lane: null, follow: null, pin: null, current: null, options: [] }
+        const moves = tier !== seatTier && laneOf(tier) !== laneOf(seatTier)
+        const body = tier.startsWith('ls-') ? { ...serverSeat(), moves } : tier.startsWith('or-') ? { ...openrouterSeat(pin), moves }
+          : { lane: null, follow: null, pin: null, current: null, options: [], moves }
         return Promise.resolve(new Response(JSON.stringify(body), { status: 200, headers: { 'Content-Type': 'application/json' } }))
       }
       if (/\/gesture$/.test(u.pathname)) {
@@ -131,6 +135,7 @@ function rowTest(name: string, body: (mount: (o: { tier: string; pin?: string | 
     })
     await body(async (o) => {
       pin = o.pin ?? null
+      seatTier = o.tier
       const ops: OpRequest[] = []
       const nd = node(o.tier)
       const v = await mountView(
