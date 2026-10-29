@@ -10,9 +10,9 @@
 // ⚠ WHAT "TOUCHED" MEANS, AND WHY THE FIXTURES PIN IT. `lastTouched` reads
 // `TurnStat.at` — the end of the node's last turn — because that is the clock
 // FR-23's card badge already shows, so a pile row and that agent's card cannot
-// disagree. §4 exists to keep it that way: it asserts the row's time string is
-// the same one `ago()` produces, not a second formatter that happens to agree
-// today. The two rejected alternatives are pinned negatively:
+// disagree. §6 exists to keep it that way: it asserts the row's time string is
+// the same one every list's `fmtAge` produces (3 days reads "3d", not "72h"),
+// not a second formatter that happens to agree today. The two rejected alternatives are pinned negatively:
 //   · `last_status.at` — §5's fixture gives the OLDEST agent the NEWEST status,
 //     so ordering by status would invert the answer and fail.
 //   · the retire time — not readable here at all, and a dissolve stamps a whole
@@ -30,7 +30,8 @@ import { mountView, realClock, useFakeClock } from './harness'
 import test from 'node:test'
 import type { TestContext } from 'node:test'
 import assert from 'node:assert/strict'
-import { ago, lastTouched, pileOrder, type CanvasNode, type Pile } from '../src/canvas/shared'
+import { lastTouched, pileOrder, type CanvasNode, type Pile } from '../src/canvas/shared'
+import { fmtAge, fmtFull } from '../src/timefmt'
 import { PilePicker } from '../src/canvas/modals'
 
 // the harness's fake clock stops Date here, so every "N ago" below is exact
@@ -148,10 +149,13 @@ uiTest('§6 every row says how long ago, in the app\'s own words', async (mount)
   const el = await mount(
     <PilePicker pile={PILE} map={PILE_MAP} onPick={() => {}} close={() => {}} />)
   // one time per row, in row order
-  assert.deepEqual(times(el), ['10m ago', '2h ago', '72h ago'])
-  // …and those are `ago()`'s words, not a second formatter that agrees today
+  assert.deepEqual(times(el), ['10m ago', '2h ago', '3d ago'])
+  // …and those are `fmtAge`'s words, not a second formatter that agrees today
   assert.deepEqual(times(el),
-    [10, 120, 4320].map((m) => `${ago(minsAgo(m))} ago`))
+    [10, 120, 4320].map((m) => `${fmtAge(minsAgo(m))} ago`))
+  // each carries the full local date and time as its hover, like every list's age
+  assert.deepEqual([...el.querySelectorAll('.pile-row .pile-ago')].map((x) => x.getAttribute('title')),
+    [10, 120, 4320].map((m) => 'last turn ended ' + fmtFull(minsAgo(m))))
   // DISTINCTNESS: three different ages must not render as one string. A row
   // that showed a constant would satisfy "every row has a time" and be useless.
   assert.equal(new Set(times(el)).size, 3)

@@ -9,8 +9,7 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import path from 'node:path'
 import { AgentDocketView, DocketModal, DocketToolbarButton } from '../src/canvas/docket'
-import { ago } from '../src/canvas/shared'
-import { fmtFull } from '../src/timefmt'
+import { fmtAge, fmtFull } from '../src/timefmt'
 import { pinModal, unpinModal } from '../src/canvas/modalpin'
 import { CurrentOrg } from '../src/popout'
 import { InboxPanel, SenderChip } from '../src/App'
@@ -2409,7 +2408,7 @@ uiTest('§38g the agent docket (default updated order) keeps the updated age', a
     refs={{ world: { nodes: new Map(), items: new Map() } as any, onOpen: () => {} } as any} />)
   await flush()
   const m = el.querySelector('.mailrow.docket-row .l1 .mtime') as HTMLElement
-  assert.equal(m.textContent, ago(String(mine[0]!.docket_at)))
+  assert.equal(m.textContent, fmtAge(String(mine[0]!.docket_at)))
   assert.ok((m.getAttribute('title') ?? '').startsWith('updated '))
 })
 
