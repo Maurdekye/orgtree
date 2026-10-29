@@ -423,138 +423,138 @@ function BatchAsk({ ask, slug, toast, seat, committed, maxTop, segments,
           scope: 'skip' })))}
         fold={fold} line={<FoldLine ask={ask} slug={slug} refs={refs} text={foldText} />} />
       <div id={fold.bodyId} className="ask-fold-body" hidden={fold.folded}>
-      {failure && <SubmitFailed error={failure.error} />}
-      {tabs.length > 1 && (
-        <div className="ask-tabstrip">
-          {tabs.map((x, i) => (
-            <button key={i} type="button" disabled={busy}
-              className={'ask-tabbtn' + (i === cur ? ' on' : '')
-                + (decided(x, drafts[i] ?? fallback) ? ' done' : '')}
-              onClick={() => setTab(i)}>
-              {tabName(x, i)}
-            </button>
-          ))}
-        </div>
-      )}
-      {t.kind === 'question' && (<>
-        <QuestionBody text={t.question ?? ''} base={fileBase(slug, ask.node)} refs={refs} />
-        <div className="ask-rows">
-          {opts.map((o) => (
-            <OptionRow key={o.label} label={o.label} description={o.description}
-              on={d.q.sel.includes(o.label)} multi={t.multi} busy={busy}
-              onPick={() => toggle(o.label)} base={fileBase(slug, ask.node)} refs={refs} />
-          ))}
-          {opts.length ? <>
-            {/* Option-bearing questions retain the optional free-text path. */}
-            <button type="button" disabled={busy}
-              className={'ask-row' + (otherOn ? ' on' : '')}
-              onClick={() => toggle(OTHER)}>
-              <span className={'ask-dot' + (t.multi ? ' sqr' : '')
-                + (otherOn ? ' on' : '')} />
-              <span className="ask-row-body"><b>Other</b></span>
-            </button>
-            {otherOn && !d.q.skip && (
-              <textarea rows={2} value={d.q.text} disabled={busy} title={enterKey.hint}
-                className="ask-other" placeholder="your answer…"
+        {failure && <SubmitFailed error={failure.error} />}
+        {tabs.length > 1 && (
+          <div className="ask-tabstrip">
+            {tabs.map((x, i) => (
+              <button key={i} type="button" disabled={busy}
+                className={'ask-tabbtn' + (i === cur ? ' on' : '')
+                  + (decided(x, drafts[i] ?? fallback) ? ' done' : '')}
+                onClick={() => setTab(i)}>
+                {tabName(x, i)}
+              </button>
+            ))}
+          </div>
+        )}
+        {t.kind === 'question' && (<>
+          <QuestionBody text={t.question ?? ''} base={fileBase(slug, ask.node)} refs={refs} />
+          <div className="ask-rows">
+            {opts.map((o) => (
+              <OptionRow key={o.label} label={o.label} description={o.description}
+                on={d.q.sel.includes(o.label)} multi={t.multi} busy={busy}
+                onPick={() => toggle(o.label)} base={fileBase(slug, ask.node)} refs={refs} />
+            ))}
+            {opts.length ? <>
+              {/* Option-bearing questions retain the optional free-text path. */}
+              <button type="button" disabled={busy}
+                className={'ask-row' + (otherOn ? ' on' : '')}
+                onClick={() => toggle(OTHER)}>
+                <span className={'ask-dot' + (t.multi ? ' sqr' : '')
+                  + (otherOn ? ' on' : '')} />
+                <span className="ask-row-body"><b>Other</b></span>
+              </button>
+              {otherOn && !d.q.skip && (
+                <textarea rows={2} value={d.q.text} disabled={busy} title={enterKey.hint}
+                  className="ask-other" placeholder="your answer…"
+                  onChange={(e) => patch({ q: { ...d.q, skip: false,
+                    text: e.target.value } })}
+                  onKeyDown={e => {
+                    if (enterKey.sends(e)) { e.preventDefault(); if (ready && !busy) submit(null) }
+                  }} />
+              )}
+            </> : <div className="ask-free-response">
+              <label htmlFor={freeResponseId(cur)}>Your answer</label>
+              <textarea rows={2} id={freeResponseId(cur)} value={d.q.text} disabled={busy} title={enterKey.hint}
+                className="ask-free-response-input" placeholder="Type your answer…"
+                autoFocus={!d.q.skip}
                 onChange={(e) => patch({ q: { ...d.q, skip: false,
                   text: e.target.value } })}
-                onKeyDown={e => {
+                onKeyDown={(e) => {
                   if (enterKey.sends(e)) { e.preventDefault(); if (ready && !busy) submit(null) }
                 }} />
-            )}
-          </> : <div className="ask-free-response">
-            <label htmlFor={freeResponseId(cur)}>Your answer</label>
-            <textarea rows={2} id={freeResponseId(cur)} value={d.q.text} disabled={busy} title={enterKey.hint}
-              className="ask-free-response-input" placeholder="Type your answer…"
-              autoFocus={!d.q.skip}
-              onChange={(e) => patch({ q: { ...d.q, skip: false,
-                text: e.target.value } })}
-              onKeyDown={(e) => {
-                if (enterKey.sends(e)) { e.preventDefault(); if (ready && !busy) submit(null) }
-              }} />
-          </div>}
-          {/* FR-14: skippable tabs — an explicit skip, never a hole */}
-          <button type="button" disabled={busy}
-            className={'ask-row skiprow' + (d.q.skip ? ' on' : '')}
-            onClick={() => patch({ q: { sel: [], text: '',
-              skip: !d.q.skip } }, true)}>
-            <span className={'ask-dot' + (d.q.skip ? ' on' : '')} />
-            <span className="ask-row-body"><b>Skip</b>
-              <span className="dim">leave this one unanswered</span></span>
-          </button>
-        </div>
-        {t.multi && <div className="dim">several may apply</div>}
-      </>)}
-      {t.kind === 'credits' && (
-        <div className="ask-credit-row">
-          <div className="ask-barbox" style={{ height: boxH }}>
-            <CreditBar seat={seat} grant={d.credits.g} committed={committed}
-              segments={segments} baseline={oldG} min={committed}
-              max={maxTop || undefined}
-              onDragValue={(v) => patch({ credits: { mode: 'grant', g: v } })}
-              onCommit={(delta) => patch({ credits: {
-                mode: 'grant', g: d.credits.g + delta } })}
-              zoom={1} pxc={pxcV} />
-            {isMobile && <div className="ask-step">
-              <button type="button" disabled={d.credits.g <= committed}
-                title={stepDownWhy(d.credits.g, committed)}
-                onClick={() => patch({ credits: { mode: 'grant',
-                  g: Math.max(committed, d.credits.g - 1) } })}>−</button>
-              <b>{d.credits.g}</b>
-              <button type="button" disabled={maxTop != null && d.credits.g >= maxTop}
-                title={stepUpWhy(d.credits.g, maxTop)}
-                onClick={() => patch({ credits: { mode: 'grant',
-                  g: maxTop ? Math.min(maxTop, d.credits.g + 1) : d.credits.g + 1 } })}>＋</button>
             </div>}
+            {/* FR-14: skippable tabs — an explicit skip, never a hole */}
+            <button type="button" disabled={busy}
+              className={'ask-row skiprow' + (d.q.skip ? ' on' : '')}
+              onClick={() => patch({ q: { sel: [], text: '',
+                skip: !d.q.skip } }, true)}>
+              <span className={'ask-dot' + (d.q.skip ? ' on' : '')} />
+              <span className="ask-row-body"><b>Skip</b>
+                <span className="dim">leave this one unanswered</span></span>
+            </button>
           </div>
-          <div className="ask-credit-side">
-            <div className="ask-q"><b>{oldG} → {t.new}</b>
-              <span className="dim"> (+{(t.new ?? 0) - oldG} asked)</span></div>
-            {t.reason && <div className="ask-q dim">{t.reason}</div>}
-            <div className="dim">{isMobile ? 'step the offer with − / ＋'
-              : 'drag the bar (or alt+↑/↓)'}, then pick an outcome — it
-              commits with the batch submit</div>
-            <div className="ask-rows">
-              {([['grant', `grant ${d.credits.g}`],
-                 ['deny', 'deny'],
-                 ['skip', 'skip (undecided)']] as const).map(([m, lbl]) => (
-                <button key={m} type="button" disabled={busy}
-                  className={'ask-row' + (d.credits.mode === m ? ' on' : '')}
-                  onClick={() => patch({ credits: { ...d.credits,
-                    mode: m } }, true)}>
-                  <span className={'ask-dot'
-                    + (d.credits.mode === m ? ' on' : '')} />
-                  <span className="ask-row-body"><b>{lbl}</b></span>
-                </button>
-              ))}
+          {t.multi && <div className="dim">several may apply</div>}
+        </>)}
+        {t.kind === 'credits' && (
+          <div className="ask-credit-row">
+            <div className="ask-barbox" style={{ height: boxH }}>
+              <CreditBar seat={seat} grant={d.credits.g} committed={committed}
+                segments={segments} baseline={oldG} min={committed}
+                max={maxTop || undefined}
+                onDragValue={(v) => patch({ credits: { mode: 'grant', g: v } })}
+                onCommit={(delta) => patch({ credits: {
+                  mode: 'grant', g: d.credits.g + delta } })}
+                zoom={1} pxc={pxcV} />
+              {isMobile && <div className="ask-step">
+                <button type="button" disabled={d.credits.g <= committed}
+                  title={stepDownWhy(d.credits.g, committed)}
+                  onClick={() => patch({ credits: { mode: 'grant',
+                    g: Math.max(committed, d.credits.g - 1) } })}>−</button>
+                <b>{d.credits.g}</b>
+                <button type="button" disabled={maxTop != null && d.credits.g >= maxTop}
+                  title={stepUpWhy(d.credits.g, maxTop)}
+                  onClick={() => patch({ credits: { mode: 'grant',
+                    g: maxTop ? Math.min(maxTop, d.credits.g + 1) : d.credits.g + 1 } })}>＋</button>
+              </div>}
+            </div>
+            <div className="ask-credit-side">
+              <div className="ask-q"><b>{oldG} → {t.new}</b>
+                <span className="dim"> (+{(t.new ?? 0) - oldG} asked)</span></div>
+              {t.reason && <div className="ask-q dim">{t.reason}</div>}
+              <div className="dim">{isMobile ? 'step the offer with − / ＋'
+                : 'drag the bar (or alt+↑/↓)'}, then pick an outcome — it
+                commits with the batch submit</div>
+              <div className="ask-rows">
+                {([['grant', `grant ${d.credits.g}`],
+                   ['deny', 'deny'],
+                   ['skip', 'skip (undecided)']] as const).map(([m, lbl]) => (
+                  <button key={m} type="button" disabled={busy}
+                    className={'ask-row' + (d.credits.mode === m ? ' on' : '')}
+                    onClick={() => patch({ credits: { ...d.credits,
+                      mode: m } }, true)}>
+                    <span className={'ask-dot'
+                      + (d.credits.mode === m ? ' on' : '')} />
+                    <span className="ask-row-body"><b>{lbl}</b></span>
+                  </button>
+                ))}
+              </div>
             </div>
           </div>
-        </div>
-      )}
-      {t.kind === 'scope' && (<>
-        <div className="ask-q"><b>{t.label}</b></div>
-        {t.reason && <div className="ask-q dim">{t.reason}</div>}
-        <div className="ask-rows">
-          {([['approve', 'approve — live from its next turn'],
-             ['deny', 'deny'],
-             ['skip', 'skip (undecided — it may re-ask)']] as const)
-            .map(([m, lbl]) => (
-            <button key={m} type="button" disabled={busy}
-              className={'ask-row' + (d.scope === m ? ' on' : '')}
-              onClick={() => patch({ scope: m }, true)}>
-              <span className={'ask-dot' + (d.scope === m ? ' on' : '')} />
-              <span className="ask-row-body"><b>{lbl}</b></span>
-            </button>
-          ))}
-        </div>
-      </>)}
-      <button className="ask-submit" disabled={busy || !ready}
-        title={t.kind === 'question' ? enterKey.hint : 'ctrl+enter'} onClick={() => submit(null)}>
-        {busy ? 'sending…'
-          : ready ? (tabs.length === 1 ? 'submit the decision'
-            : `submit all ${tabs.length}`)
-          : `${doneCount}/${tabs.length} decided`}
-      </button>
+        )}
+        {t.kind === 'scope' && (<>
+          <div className="ask-q"><b>{t.label}</b></div>
+          {t.reason && <div className="ask-q dim">{t.reason}</div>}
+          <div className="ask-rows">
+            {([['approve', 'approve — live from its next turn'],
+               ['deny', 'deny'],
+               ['skip', 'skip (undecided — it may re-ask)']] as const)
+              .map(([m, lbl]) => (
+              <button key={m} type="button" disabled={busy}
+                className={'ask-row' + (d.scope === m ? ' on' : '')}
+                onClick={() => patch({ scope: m }, true)}>
+                <span className={'ask-dot' + (d.scope === m ? ' on' : '')} />
+                <span className="ask-row-body"><b>{lbl}</b></span>
+              </button>
+            ))}
+          </div>
+        </>)}
+        <button className="ask-submit" disabled={busy || !ready}
+          title={t.kind === 'question' ? enterKey.hint : 'ctrl+enter'} onClick={() => submit(null)}>
+          {busy ? 'sending…'
+            : ready ? (tabs.length === 1 ? 'submit the decision'
+              : `submit all ${tabs.length}`)
+            : `${doneCount}/${tabs.length} decided`}
+        </button>
       </div>
     </div>
   )
@@ -760,62 +760,62 @@ function QuestionAsk({ ask, slug, toast, refs }: {
         onClose={() => send({ dismiss: true })}
         fold={fold} line={<FoldLine ask={ask} slug={slug} refs={refs} text={questionsText(qs)} />} />
       <div id={fold.bodyId} className="ask-fold-body" hidden={fold.folded}>
-      {failure && <SubmitFailed error={failure.error} />}
-      {batch && (
-        <div className="ask-tabstrip">
-          {qs.map((x, i) => (
-            <button key={i} type="button" disabled={busy}
-              className={'ask-tabbtn' + (i === tab ? ' on' : '')
-                + (tabAnswered(x, dr(i)) ? ' done' : '')}
-              onClick={() => setTab(i)}>
-              {x.header || `Q${i + 1}`}
-            </button>
+        {failure && <SubmitFailed error={failure.error} />}
+        {batch && (
+          <div className="ask-tabstrip">
+            {qs.map((x, i) => (
+              <button key={i} type="button" disabled={busy}
+                className={'ask-tabbtn' + (i === tab ? ' on' : '')
+                  + (tabAnswered(x, dr(i)) ? ' done' : '')}
+                onClick={() => setTab(i)}>
+                {x.header || `Q${i + 1}`}
+              </button>
+            ))}
+          </div>
+        )}
+        <QuestionBody text={q.question} base={fileBase(slug, ask.node)} refs={refs} />
+        <div className="ask-rows">
+          {opts.map((o) => (
+            <OptionRow key={o.label} label={o.label} description={o.description}
+              on={d.sel.includes(o.label)} multi={q.multi} busy={busy}
+              onPick={() => toggle(o.label)} base={fileBase(slug, ask.node)} refs={refs} />
           ))}
-        </div>
-      )}
-      <QuestionBody text={q.question} base={fileBase(slug, ask.node)} refs={refs} />
-      <div className="ask-rows">
-        {opts.map((o) => (
-          <OptionRow key={o.label} label={o.label} description={o.description}
-            on={d.sel.includes(o.label)} multi={q.multi} busy={busy}
-            onPick={() => toggle(o.label)} base={fileBase(slug, ask.node)} refs={refs} />
-        ))}
-        {opts.length ? <>
-          {/* Option-bearing questions retain the optional free-text path. */}
-          <button type="button" disabled={busy}
-            className={'ask-row' + (otherOn ? ' on' : '')}
-            onClick={() => toggle(OTHER)}>
-            <span className={'ask-dot' + (q.multi ? ' sqr' : '')
-              + (otherOn ? ' on' : '')} />
-            <span className="ask-row-body"><b>Other</b></span>
-          </button>
-          {otherOn && (
-            <textarea rows={2} autoFocus value={d.text} disabled={busy} title={enterKey.hint}
-              className="ask-other" placeholder="your answer…"
+          {opts.length ? <>
+            {/* Option-bearing questions retain the optional free-text path. */}
+            <button type="button" disabled={busy}
+              className={'ask-row' + (otherOn ? ' on' : '')}
+              onClick={() => toggle(OTHER)}>
+              <span className={'ask-dot' + (q.multi ? ' sqr' : '')
+                + (otherOn ? ' on' : '')} />
+              <span className="ask-row-body"><b>Other</b></span>
+            </button>
+            {otherOn && (
+              <textarea rows={2} autoFocus value={d.text} disabled={busy} title={enterKey.hint}
+                className="ask-other" placeholder="your answer…"
+                onChange={(e) => patch({ text: e.target.value })}
+                onKeyDown={(e) => {
+                  if (enterKey.sends(e)) { e.preventDefault(); if (ready && !busy) submit() }
+                }} />
+            )}
+          </> : <div className="ask-free-response">
+            <label htmlFor={freeResponseId(tab)}>Your answer</label>
+            <textarea rows={2} id={freeResponseId(tab)} autoFocus={!d.text} value={d.text} title={enterKey.hint}
+              disabled={busy} className="ask-free-response-input"
+              placeholder="Type your answer…"
               onChange={(e) => patch({ text: e.target.value })}
               onKeyDown={(e) => {
                 if (enterKey.sends(e)) { e.preventDefault(); if (ready && !busy) submit() }
               }} />
-          )}
-        </> : <div className="ask-free-response">
-          <label htmlFor={freeResponseId(tab)}>Your answer</label>
-          <textarea rows={2} id={freeResponseId(tab)} autoFocus={!d.text} value={d.text} title={enterKey.hint}
-            disabled={busy} className="ask-free-response-input"
-            placeholder="Type your answer…"
-            onChange={(e) => patch({ text: e.target.value })}
-            onKeyDown={(e) => {
-              if (enterKey.sends(e)) { e.preventDefault(); if (ready && !busy) submit() }
-            }} />
-        </div>}
-      </div>
-      {q.multi && <div className="dim">several may apply</div>}
-      <button className="ask-submit" disabled={busy || !ready}
-        title={enterKey.hint} onClick={submit}>
-        {busy ? 'sending…'
-          : batch ? (ready ? `submit ${qs.length} answers`
-            : `${doneCount}/${qs.length} answered`)
-          : 'submit answer'}
-      </button>
+          </div>}
+        </div>
+        {q.multi && <div className="dim">several may apply</div>}
+        <button className="ask-submit" disabled={busy || !ready}
+          title={enterKey.hint} onClick={submit}>
+          {busy ? 'sending…'
+            : batch ? (ready ? `submit ${qs.length} answers`
+              : `${doneCount}/${qs.length} answered`)
+            : 'submit answer'}
+        </button>
       </div>
     </div>
   )
@@ -891,64 +891,64 @@ function CreditAsk({ ask, slug, toast, seat, committed, maxTop, segments,
         closeTitle="deny the request" onClose={() => decide('deny')}
         fold={fold} line={<FoldLine ask={ask} slug={slug} text={{ text: `${oldG} → ${askedG} credits` }} />} />
       <div id={fold.bodyId} className="ask-fold-body" hidden={fold.folded}>
-      {/* EVERYTHING sits beside the bar (user ruling 2026-08-05) — the bar
-          owns the card's left edge and full height. Non-draft rendering =
-          the real card bar: fill is what is COMMITTED (own seat at the foot,
-          one slab per child), grey rungs above it up to the offered total;
-          the drag stages the offer instead of committing a reallocate. */}
-      <div className="ask-credit-row">
-        <div className="ask-barbox" style={{ height: BOX_H }}>
-          <CreditBar seat={seat} grant={g} committed={committed}
-            segments={segments}
-            baseline={oldG} min={committed}
-            max={maxTop || undefined}
-            onDragValue={(v) => { gRef.current = v; setG(v) }}
-            onCommit={(delta) => {
-              const nv = g + delta
-              gRef.current = nv
-              setG(nv)
-              preview()
-            }}
-            zoom={1} pxc={pxc} />
-          {/* mobile (spec §6): drag-to-reallocate is desktop-only — a finger
-              cannot resolve ~2px per credit. The stepper stages the same
-              offer the drag would; the bar stays the read-only gauge. */}
-          {isMobile && <div className="ask-step">
-            <button type="button" disabled={g <= committed}
-              title={stepDownWhy(g, committed)}
-              onClick={() => { const v = Math.max(committed, g - 1)
-                gRef.current = v; setG(v); preview() }}>−</button>
-            <b>{g}</b>
-            <button type="button" disabled={maxTop != null && g >= maxTop}
-              title={stepUpWhy(g, maxTop)}
-              onClick={() => { const v = maxTop ? Math.min(maxTop, g + 1) : g + 1
-                gRef.current = v; setG(v); preview() }}>＋</button>
-          </div>}
-        </div>
-        <div className="ask-credit-side">
-          <div className="ask-q"><b>{oldG} → {askedG}</b>
-            <span className="dim"> (+{askedG - oldG} asked)</span>
-            {g !== askedG && <span className={g < oldG ? 'n-down' : ''}>
-              {' '}· offering {g}</span>}
+        {/* EVERYTHING sits beside the bar (user ruling 2026-08-05) — the bar
+            owns the card's left edge and full height. Non-draft rendering =
+            the real card bar: fill is what is COMMITTED (own seat at the foot,
+            one slab per child), grey rungs above it up to the offered total;
+            the drag stages the offer instead of committing a reallocate. */}
+        <div className="ask-credit-row">
+          <div className="ask-barbox" style={{ height: BOX_H }}>
+            <CreditBar seat={seat} grant={g} committed={committed}
+              segments={segments}
+              baseline={oldG} min={committed}
+              max={maxTop || undefined}
+              onDragValue={(v) => { gRef.current = v; setG(v) }}
+              onCommit={(delta) => {
+                const nv = g + delta
+                gRef.current = nv
+                setG(nv)
+                preview()
+              }}
+              zoom={1} pxc={pxc} />
+            {/* mobile (spec §6): drag-to-reallocate is desktop-only — a finger
+                cannot resolve ~2px per credit. The stepper stages the same
+                offer the drag would; the bar stays the read-only gauge. */}
+            {isMobile && <div className="ask-step">
+              <button type="button" disabled={g <= committed}
+                title={stepDownWhy(g, committed)}
+                onClick={() => { const v = Math.max(committed, g - 1)
+                  gRef.current = v; setG(v); preview() }}>−</button>
+              <b>{g}</b>
+              <button type="button" disabled={maxTop != null && g >= maxTop}
+                title={stepUpWhy(g, maxTop)}
+                onClick={() => { const v = maxTop ? Math.min(maxTop, g + 1) : g + 1
+                  gRef.current = v; setG(v); preview() }}>＋</button>
+            </div>}
           </div>
-          {typeof ask.reason === 'string' && ask.reason &&
-            <div className="ask-q dim">{ask.reason}</div>}
-          <div className="dim">{isMobile
-            ? <>step the offer with − / ＋ (floor: {committed} committed)</>
-            : <>drag the bar or alt+↑/↓ — grant less, more, or claw back
-            unused credits (floor: {committed} committed)</>}</div>
-          {warns.map((w) => (
-            <div key={w} className="ask-warn"><WarnIcon fontSize="inherit" /> {w}</div>
-          ))}
-          <button className="ask-submit" disabled={busy}
-            title="ctrl+enter" onClick={() => decide('approve', g)}>
-            {busy ? 'sending…'
-              : g === askedG ? `grant ${g} (as asked)`
-              : g === oldG ? 'decline the increase'
-              : g < oldG ? `reduce to ${g}` : `grant ${g}`}
-          </button>
+          <div className="ask-credit-side">
+            <div className="ask-q"><b>{oldG} → {askedG}</b>
+              <span className="dim"> (+{askedG - oldG} asked)</span>
+              {g !== askedG && <span className={g < oldG ? 'n-down' : ''}>
+                {' '}· offering {g}</span>}
+            </div>
+            {typeof ask.reason === 'string' && ask.reason &&
+              <div className="ask-q dim">{ask.reason}</div>}
+            <div className="dim">{isMobile
+              ? <>step the offer with − / ＋ (floor: {committed} committed)</>
+              : <>drag the bar or alt+↑/↓ — grant less, more, or claw back
+              unused credits (floor: {committed} committed)</>}</div>
+            {warns.map((w) => (
+              <div key={w} className="ask-warn"><WarnIcon fontSize="inherit" /> {w}</div>
+            ))}
+            <button className="ask-submit" disabled={busy}
+              title="ctrl+enter" onClick={() => decide('approve', g)}>
+              {busy ? 'sending…'
+                : g === askedG ? `grant ${g} (as asked)`
+                : g === oldG ? 'decline the increase'
+                : g < oldG ? `reduce to ${g}` : `grant ${g}`}
+            </button>
+          </div>
         </div>
-      </div>
       </div>
     </div>
   )
@@ -992,32 +992,32 @@ function NulledAsk({ ask, credit, slug, refs }: {
         <span className={'ask-null-tag' + (interrupted ? ' warn' : '')}>{label}</span>
       </div>
       <div id={fold.bodyId} className="ask-fold-body" hidden={fold.folded}>
-      {/* the same cards the transcript draws (events/answered.tsx): a resolved
-          scope request lists its items with the per-item verdicts stamped at
-          the batch submit, a credit request its outcome, a question every
-          option with the pick(s) marked */}
-      {scope && (ask.items ?? []).length > 0 && <ScopeCard section={{ kind: 'scope', lines: [],
-        decisions: (ask.items ?? []).map((it) => ({
-          label: scopeLabel(it),
-          decision: (it.decision ?? 'skip') as 'approve' | 'deny' | 'skip' })) }} />}
-      {credit && ask.granted != null && <CreditCard section={{ kind: 'credit',
-        outcome: ask.status === 'denied' ? 'denied'
-          : ask.granted === (ask.new ?? 0) ? 'approved'
-          : ask.granted === (ask.old ?? 0) ? 'declined'
-          : ask.granted < (ask.old ?? 0) ? 'reduced' : 'counter',
-        old: ask.old ?? 0, asked: ask.new ?? 0, granted: ask.status === 'denied' ? null : ask.granted,
-        now: ask.status === 'denied' ? (ask.old ?? 0) : ask.granted }} />}
-      {!credit && !scope && (() => {
-        const m = miniFromAskInfo(ask)
-        return <AnsweredCard questions={m.questions} dismissed={ask.status === 'dismissed'} note={m.note}
-          world={refs?.world} onOpen={refs?.onOpen} imgBase={fileBase(slug, ask.node)} />
-      })()}
-      {interrupted && (
-        <div className="ask-null-why">
-          {ask.reason || 'the agent was woken by other input before an answer arrived'}
-          {' — it must re-ask'}
-        </div>
-      )}
+        {/* the same cards the transcript draws (events/answered.tsx): a resolved
+            scope request lists its items with the per-item verdicts stamped at
+            the batch submit, a credit request its outcome, a question every
+            option with the pick(s) marked */}
+        {scope && (ask.items ?? []).length > 0 && <ScopeCard section={{ kind: 'scope', lines: [],
+          decisions: (ask.items ?? []).map((it) => ({
+            label: scopeLabel(it),
+            decision: (it.decision ?? 'skip') as 'approve' | 'deny' | 'skip' })) }} />}
+        {credit && ask.granted != null && <CreditCard section={{ kind: 'credit',
+          outcome: ask.status === 'denied' ? 'denied'
+            : ask.granted === (ask.new ?? 0) ? 'approved'
+            : ask.granted === (ask.old ?? 0) ? 'declined'
+            : ask.granted < (ask.old ?? 0) ? 'reduced' : 'counter',
+          old: ask.old ?? 0, asked: ask.new ?? 0, granted: ask.status === 'denied' ? null : ask.granted,
+          now: ask.status === 'denied' ? (ask.old ?? 0) : ask.granted }} />}
+        {!credit && !scope && (() => {
+          const m = miniFromAskInfo(ask)
+          return <AnsweredCard questions={m.questions} dismissed={ask.status === 'dismissed'} note={m.note}
+            world={refs?.world} onOpen={refs?.onOpen} imgBase={fileBase(slug, ask.node)} />
+        })()}
+        {interrupted && (
+          <div className="ask-null-why">
+            {ask.reason || 'the agent was woken by other input before an answer arrived'}
+            {' — it must re-ask'}
+          </div>
+        )}
       </div>
     </div>
   )
