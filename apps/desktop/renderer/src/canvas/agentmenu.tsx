@@ -392,6 +392,11 @@ export function projectMenuEntries(node: CanvasNode, h: AgentMenuHandlers,
   if (h.onScratchFolder && (live || node.state === 'archived')) {
     open.push({ label: 'Team scratch folder', onSelect: h.onScratchFolder })
   }
+  // the project's docket: the items owned by the agents under it. Before
+  // Presentations, in the agent Open menu's order, which is also both desks'
+  // tab order (UX symmetry #4, USER 2026-10-29 m72500eeca0c0)
+  const docket = h.onDocket
+  if (docket) open.push({ label: 'Project docket', onSelect: () => docket() })
   // point 27 + user 2026-10-18 07:20Z–07:22Z: its presentations are the
   // documents attributed to the project; its team presentations add every one
   // by the agents under it, in a submenu of Presentations when both exist
@@ -409,14 +414,15 @@ export function projectMenuEntries(node: CanvasNode, h: AgentMenuHandlers,
   } else if (teamPresEntry) {
     open.push(teamPresEntry)
   }
-  // the project's docket: the items owned by the agents under it
-  const docket = h.onDocket
-  if (docket) open.push({ label: 'Project docket', onSelect: () => docket() })
   if (slotCount(node) > 0 && h.onSlots) open.push({ label: 'Slots', onSelect: h.onSlots })
   // its event listeners' own window, while they are on, as the desk's tab
   // (USER 2026-10-20 16:58Z "projects need an Open > Listeners entry in their
   // context menu (when enabled)"; a window like Slots, coordinator 17:03Z)
   if (eventListenersOn(node) && h.onListeners) open.push({ label: 'events', onSelect: h.onListeners })
+  // Here Open follows Focus; in the agent's builder Hire does. The shared
+  // renderer moves Open to second place in every menu (USER 2026-10-20,
+  // contextmenu.tsx), so both kinds SHOW Open, then Focus, Hire and New
+  // project, in one order (UX symmetry #3, symmetrymenus.test §2)
   entries.push({ label: 'Open', submenuOnly: !temp, onSelect: () => temp?.(), children: open,
     title: temp ? 'Click to open the temporary desk; hover or press Right to choose what to open' : undefined })
   const hire = h.onHire

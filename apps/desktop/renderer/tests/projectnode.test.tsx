@@ -443,8 +443,9 @@ test('§3d Desk, Pop out, Presentations with Team presentations submenu, and no 
     'Halt all agents under it…', 'Retire project…'],
     'Hire beside and Hire above are not in the project context menu (only via hire tokens)')
   const open = entryNamed(entries, 'Open').children!
+  // Project docket before Presentations, as in the agent's Open menu (UX symmetry #4, 2026-10-29)
   assert.deepEqual(open.map((c) => c === 'sep' ? 'sep' : c.label), ['Desk', 'Desk in a separate window', 'sep',
-    'Project mailbox', 'Team scratch folder', 'Presentations', 'Project docket'])
+    'Project mailbox', 'Team scratch folder', 'Project docket', 'Presentations'])
   for (const c of open) {
     if (c === 'sep') continue
     assert.equal(/\bOpen\b/.test(c.label), false, `Open submenu item "${c.label}" must not contain the word Open`)
