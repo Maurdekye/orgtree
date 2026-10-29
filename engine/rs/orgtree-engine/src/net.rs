@@ -38,6 +38,7 @@ mod failures;
 pub mod isolation;
 pub(crate) mod pictures;
 mod discovery;
+pub mod recent;
 pub(crate) mod transport;
 pub(crate) mod typing;
 

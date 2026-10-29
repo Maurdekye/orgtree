@@ -85,6 +85,7 @@ const MIGRATIONS: &[(&str, &str)] = &[
     ("0075_app_panel_slugs", include_str!("../migrations/0075_app_panel_slugs.sql")),
     ("0076_mention_recency", include_str!("../migrations/0076_mention_recency.sql")),
     ("0077_panel_event_bodies", include_str!("../migrations/0077_panel_event_bodies.sql")),
+    ("0078_org_inbox_peer_recency", include_str!("../migrations/0078_org_inbox_peer_recency.sql")),
 ];
 
 #[cfg(test)]

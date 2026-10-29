@@ -66,6 +66,15 @@ pub async fn net(State(e): State<Arc<Engine>>, Path(slug): Path<String>) -> ApiR
     Ok(Json(crate::net::reveal(&e, o.id, &o.slug).await?))
 }
 
+/// `GET /api/orgs/{slug}/net/recent`: the newest mail this org exchanged with
+/// each address its hubs list (bare slug → time), the Connections tab's order
+/// (USER 2026-10-29 m3e3829f0bf18).
+#[logged]
+pub async fn net_recent(State(e): State<Arc<Engine>>, Path(slug): Path<String>) -> ApiResult<Json<Value>> {
+    let o = org(&e, &slug)?;
+    Ok(Json(crate::net::recent::org_recent(&e, o.id).await?))
+}
+
 #[derive(Deserialize,Debug)]
 pub struct TransferQuery { agent: Option<String>, cursor: Option<String> }
 

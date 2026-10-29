@@ -95,6 +95,14 @@ pub async fn hub_get(State(e): State<Arc<Engine>>) -> Json<Value> {
     Json(crate::mailhub::hosting(&e).await)
 }
 
+/// `GET /api/desktop/hub/connections`: everyone registered on this machine's
+/// hub, from its read-only operator view, for App settings → Mail hub
+/// (USER 2026-10-29 m12a433749fda).
+#[logged]
+pub async fn hub_connections(State(e): State<Arc<Engine>>) -> Json<Value> {
+    Json(crate::net::recent::hub_connections(&e).await)
+}
+
 /// `PUT /api/desktop/hub`: new hosting settings (the hub restarts on them).
 #[logged]
 pub async fn hub_put(State(e): State<Arc<Engine>>, Json(b): Json<Value>) -> crate::http::error::ApiResult<Json<Value>> {
