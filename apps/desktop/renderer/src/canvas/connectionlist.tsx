@@ -5,7 +5,8 @@
 // USER 2026-10-29: the old list's grey bullets read as "offline" ("thought the
 // gray dot meant offline", m4c84e393768e; "that should be communicated more
 // clearly", m0537fdb73608). A row is a presence dot that cannot be misread (a
-// filled green dot online, a hollow red ring offline, its word as its hover)
+// filled green dot online, a hollow grey ring offline as in Hubchat ("A5 use
+// the grey ring for offline both places", m019c9500d23a), its word as its hover)
 // and the connection's chip. The "· Online/Offline" words and the hub's
 // description left the row ("also remove the online / independent chat tags",
 // mae6a9c785cc0) for the chip's hover ("and just show that text when hovering

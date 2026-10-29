@@ -5,8 +5,10 @@
    rows are em-sized, so a text-size change keeps them whole.
    THE PRESENCE DOT (m4c84e393768e "thought the gray dot meant offline",
    m0537fdb73608 "that should be communicated more clearly"): online is a
-   filled green dot with a soft halo, offline a hollow red ring. They differ in
-   shape as well as colour, and neither is the neutral grey of a bullet. */
+   filled green dot with a soft halo, offline a hollow grey ring, as in Hubchat
+   (m019c9500d23a "A5 use the grey ring for offline both places") and as a
+   custom app's off light. They differ in shape as well as colour; a filled
+   grey bullet is neither. */
 .conn-rows {
   --conn-row-h: 2.3em;
   border: 1px solid var(--line-soft); border-radius: 6px;
@@ -29,4 +31,4 @@
   background: var(--ok);
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--ok) 24%, transparent);
 }
-.presence-dot.offline { border: 2px solid var(--bad); background: transparent; }
+.presence-dot.offline { border: 2px solid var(--dim); background: transparent; }

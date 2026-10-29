@@ -2308,7 +2308,7 @@ export function OrgInboxModal({ inbox, net, map, slug, toast, close, jumpTo,
 // ---- F-06: every mailserver, its status, and all clients on each ----
 // A client's presence wears the Connections lists' dot (USER 2026-10-29
 // m4c84e393768e "thought the gray dot meant offline"): a green dot online, a
-// hollow red ring offline, never a grey one.
+// hollow grey ring offline (m019c9500d23a), never a filled grey bullet.
 function NetSection({ net }: { net?: TreePayload['net'] }) {
   return (
     <div className="oi-net">
