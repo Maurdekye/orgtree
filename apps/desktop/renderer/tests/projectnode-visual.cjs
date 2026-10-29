@@ -28,6 +28,38 @@ module.exports = async (page) => {
     screenshots.push(await page.screenshot(`${prefix}-multi-slots-1000x700`))
     return { details, screenshots }
   }
+  // PROJECTNODE_VISUAL_ONLY=queue-badge: the REAL canvas, project site with an armed fair_queue listener: its node's
+  // queue badge opens the project MAILBOX at the listeners folder (as the desk's queue card does), not the events
+  // window (docket project-node-s-mail-listeners-badge-opens-the-pr)
+  if (only === 'queue-badge') {
+    await page.goto('/?scene=fairqueue')
+    await page.waitFor('.sq.project', { timeout: 15000 })
+    await page.eval(async () => {
+      await new Promise((r) => setTimeout(r, 800))
+      const fit = document.querySelector('.zoomhud button[title="Fit the whole org"]')
+      if (fit) fit.click()
+      await new Promise((r) => setTimeout(r, 1500))
+    })
+    await page.waitFor('.sq.project .project-queue-badge', { timeout: 15000 })
+    await settle()
+    details.node = await page.eval(() => {
+      const b = document.querySelector('.sq.project .project-queue-badge')
+      return { text: b.textContent, label: b.getAttribute('aria-label'), title: b.getAttribute('title') }
+    })
+    screenshots.push(await page.screenshot(`${prefix}-queue-badge-node-1000x700`))
+    await page.eval(() => document.querySelector('.sq.project .project-queue-badge').click())
+    await page.waitFor('.mail-folders', { timeout: 15000 })
+    await settle()
+    details.opened = await page.eval(() => ({
+      folders: [...document.querySelectorAll('.mail-folders > button')].map((b) => b.textContent.trim() + (b.classList.contains('on') ? ' *' : '')),
+      heading: (document.querySelector('.mail-folders').closest('.panel, .modal, .pinwin, div')?.querySelector('h3')?.textContent ?? '').trim(),
+      eventsWindow: [...document.querySelectorAll('h3')].some((h) => /· events/.test(h.textContent)),
+    }))
+    if (!details.opened.folders.some((f) => /^listeners.* \*$/.test(f))) throw new Error('the queue badge did not open the listeners folder: ' + JSON.stringify(details.opened))
+    if (details.opened.eventsWindow) throw new Error('the events window opened')
+    screenshots.push(await page.screenshot(`${prefix}-queue-badge-mailbox-1000x700`))
+    return { details, screenshots }
+  }
   // PROJECTNODE_VISUAL_ONLY=popouts: the pinned agent sb's and project build's
   // desks popped out side by side (user 2026-10-18 11:47Z). A real pop-out is
   // its own OS window, which no screenshot of this one shows, so window.open
