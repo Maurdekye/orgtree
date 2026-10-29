@@ -2010,6 +2010,9 @@ function orgInboxRow(e: OrgInboxEntry, slug: string, unread: boolean): MailRow {
   }
 }
 
+/** the folder an org-inbox row lists in: the split between Received and Sent */
+const orgFolderOf = (m: MailRow) => m.kind === 'reply' ? 'sent' : 'inbox'
+
 export function OrgInboxModal({ inbox, net, map, slug, toast, close, jumpTo,
   jumpSeq, refs, onFocusAgent, party }: OrgInboxModalProps) {
   // reworked (user spec 2026-08-05): no blurb, mailservers on their own TAB,
@@ -2089,8 +2092,8 @@ export function OrgInboxModal({ inbox, net, map, slug, toast, close, jumpTo,
   // not — row `i` sits at log index `logLen - entries.length + i`.
   const readFrom = unreadFrom - logLen + entries.length
   const rows: MailRow[] = entries.map((e, i) => orgInboxRow(e, slug, i >= readFrom))
-  const inn = rows.filter((r) => r.kind === 'message')
-  const out = rows.filter((r) => r.kind === 'reply')
+  const inn = rows.filter((r) => orgFolderOf(r) === 'inbox')
+  const out = rows.filter((r) => orgFolderOf(r) === 'sent')
   // THE ADDRESS VIEW. The newest LOADED mail exchanged with the address picks
   // the folder and the selection: the preview first, then the fetched log, so
   // a mail only the log holds still lands when it arrives. The filter is set
@@ -2114,7 +2117,34 @@ export function OrgInboxModal({ inbox, net, map, slug, toast, close, jumpTo,
   // the selection goes to the folder that holds the mail, never the other one
   const partyJump = party && partyHit && entryFolder(partyHit) === folder
     ? { id: partyHit.id, seq: party.seq } : null
-  const listJump = partyJump?.id ?? jumpTo
+  // ⚠ A JUMP BELONGS TO THE FOLDER THAT HOLDS ITS MESSAGE, AND THE PANEL
+  // DECIDES WHICH: a list knows only its own window. Both folders are one
+  // MailList instance, so a jump handed to whichever folder was open went
+  // with the reader into the other one, and Received, which does not hold a
+  // Sent message, looked it up and read it as received mail (the neoja org's
+  // crash, user bug 2026-10-29). A message's folder is its direction: the
+  // loaded log's row says, else the lookup's answer (`onFound`); until one
+  // does, the open folder asks. The panel moves there ONCE per request, so a
+  // reader who then picks the other folder is not pulled back, and the jump
+  // waits in its own folder for their return.
+  const jumpRequest = jumpTo ? jumpKey(jumpTo, jumpSeq) : null
+  const [answered, setAnswered] = useState<{ request: string; folder: string } | null>(null)
+  const listed = jumpTo ? rows.find((r) => r.id === jumpTo) : undefined
+  const jumpFolder = listed ? orgFolderOf(listed)
+    : answered && answered.request === jumpRequest ? answered.folder : null
+  const placed = useRef<string | null>(null)
+  useEffect(() => {
+    if (!jumpRequest || !jumpFolder || placed.current === jumpRequest) return
+    placed.current = jumpRequest
+    setFolder(jumpFolder)
+  }, [jumpRequest, jumpFolder])
+  const jumpHere = jumpFolder === null || jumpFolder === folder ? jumpTo : null
+  const onFound = (m: MailRow) => {
+    if (jumpRequest) setAnswered({ request: jumpRequest, folder: orgFolderOf(m) })
+  }
+  // the address view's selection, else a link's jump, each only in the
+  // folder that holds its mail
+  const listJump = partyJump?.id ?? jumpHere
   const listJumpSeq = partyJump ? partyJump.seq : jumpSeq
   const markRead = () => {
     if (!inbox?.unread) return
@@ -2207,7 +2237,7 @@ export function OrgInboxModal({ inbox, net, map, slug, toast, close, jumpTo,
                     collapsible
                     delivered={inn.filter((r) => !r._wait0)}
                     waitLabel="unread" onRead={markRead} jumpTo={listJump}
-                    jumpSeq={listJumpSeq} filterRequest={partyFilter} refs={refs} lookup={orgLookup} toast={toast}
+                    jumpSeq={listJumpSeq} filterRequest={partyFilter} refs={refs} lookup={orgLookup} onFound={onFound} toast={toast}
                     refOf={(m) => m.id ? refToken({ kind: 'mail', org: slug, box: 'org', id: m.id }) : null}
                     /* ⚠ AN INCOMING ORG-INBOX SENDER IS EXTERNAL BY
                        PROVENANCE, AND A NAME MATCH IS NOT EVIDENCE OTHERWISE.
@@ -2223,7 +2253,7 @@ export function OrgInboxModal({ inbox, net, map, slug, toast, close, jumpTo,
                     sender={(id) => (id.startsWith('@net:') || id.startsWith('@org:')) ? <HubContactChip address={id} /> : <b>{id}</b>} />
                 : <MailList org={slug} delivered={out} outgoing compoundHeader jumpTo={listJump}
                     collapsible
-                    jumpSeq={listJumpSeq} filterRequest={partyFilter} refs={refs} lookup={orgLookup} toast={toast}
+                    jumpSeq={listJumpSeq} filterRequest={partyFilter} refs={refs} lookup={orgLookup} onFound={onFound} toast={toast}
                     rowMark={glyph}
                     /* the list row names the RECIPIENT only — the pane's
                        "@agent as @org → @recipient" line is three identities
