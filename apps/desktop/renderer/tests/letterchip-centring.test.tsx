@@ -24,8 +24,10 @@ import { DeskModelButton } from '../src/canvas/deskmodel'
 import { createTierChipEl, TierChip } from '../src/canvas/identity'
 import { NodeConfig, PilePicker } from '../src/canvas/modals'
 import { OrgPictureEditor } from '../src/canvas/orgpicture'
+import { HubContactChip, setHubchatInstalled } from '../src/canvas/agentmentions'
+import { resetNetMentions, setNetRoster } from '../src/canvas/netmentions'
 import type { CanvasNode } from '../src/canvas/shared'
-import type { OpResult, TreePayload } from '../src/types'
+import type { NetBlock, OpResult, TreePayload } from '../src/types'
 
 declare const __SRC_DIR__: string
 
@@ -456,4 +458,39 @@ test('§4 tier pickers (DraftNode model button + popover, TierStandings) and Org
     '0px',
     'OrgPictureEditor .org-logo-avatar has 0px letter-spacing so initials sit horizontally centred',
   )
+})
+
+// §5 UX symmetry S2 #2 (USER 2026-10-29 m019c9500d23a "A2 use the lettering on
+// the colored background as the icon instead of the hubchat icon when hubchat
+// is connected for both"): a network chip's letters avatar is one more letter
+// in a tile, so it shares .letter-chip and its centring. netmentions.css loads
+// after styles.css, as in the app, so the mark's own rule must agree with
+// .letter-chip rather than override it.
+test('§5 a network chip\'s letters avatar (with Hubchat) shares .letter-chip centring', async (t) => {
+  const css = readFileSync(path.join(__SRC_DIR__, 'styles.css'), 'utf8')
+  const netCss = readFileSync(path.join(__SRC_DIR__, 'canvas', 'netmentions.css'), 'utf8')
+  const styleEl = document.createElement('style')
+  styleEl.textContent = `${css}\n${netCss}`
+  document.head.appendChild(styleEl)
+  const oldFetch = globalThis.fetch
+  globalThis.fetch = (async (input: RequestInfo | URL) => {
+    const body = String(input).endsWith('/api/desktop/phone') ? { hubchat_pc: true } : { picture: null }
+    return { ok: true, status: 200, headers: new Headers(), json: async () => body } as unknown as Response
+  }) as typeof fetch
+  await inAct(async () => {
+    setHubchatInstalled(true)
+    setNetRoster('orgtree', { slug: 'orgtree.syn.0fff', hubs: [{ id: 'local', address: 'http://127.0.0.1:7370',
+      name: 'hub', version: '2.2.0', enabled: true, connected: true, queued: 0,
+      roster: [{ slug: 'acme-labs.syn.1001', kind: 'org', online: true, blurb: '', org_name: 'Acme Labs' }] }] } as unknown as NetBlock)
+  })
+  const view = await mountView(<HubContactChip address="@net:acme-labs.syn.1001" />, h => h)
+  t.after(async () => {
+    await view.unmount(); styleEl.remove(); globalThis.fetch = oldFetch
+    await inAct(async () => { resetNetMentions(); setHubchatInstalled(false); await flush(2) })
+  })
+  await flush(2)
+  const mark = view.el.querySelector('.net-mark')
+  assert.ok(mark?.classList.contains('net-mark-letters'), `the mark is the letters avatar (got "${mark?.className}")`)
+  assert.equal(mark?.getAttribute('data-initials'), 'AL')
+  assertCentredLetterChip(mark, 'network chip letters avatar')
 })
