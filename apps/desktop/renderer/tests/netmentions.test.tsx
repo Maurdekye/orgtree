@@ -1,4 +1,6 @@
 import { flush, inAct, mountView } from './harness'
+import { readFileSync } from 'node:fs'
+import path from 'node:path'
 import test from 'node:test'
 import type { TestContext } from 'node:test'
 import assert from 'node:assert/strict'
@@ -10,7 +12,12 @@ import type { NetBlock, NetPeer } from '../src/types'
 // USER 2026-10-27 m08fbc691a349 / mc96766993067: network mentions get their
 // own formatting per kind; mf8697b8ba8fc / m82cf84439a0d / ma1f33944e69d: the
 // icon is the party's picture, else the Hubchat mark when Hubchat is
-// installed, else a globe.
+// installed, else a globe. USER 2026-10-29 m019c9500d23a "A2 use the lettering
+// on the colored background as the icon instead of the hubchat icon when
+// hubchat is connected for both": with Hubchat installed the mark is
+// Hubchat's DM-list avatar at text size (agreed with @hubchat-design-opus):
+// the picture; an agent session's terminal, never a picture; else the
+// initials on the kind's tint; a grey dot for an address no roster lists.
 
 const rev = (n: number) => `${String(n).padStart(20, '0')}-${'0'.repeat(32)}`
 const pic = (n: number, set = true): NonNullable<NetPeer['picture']> => set
@@ -60,7 +67,7 @@ async function mountChips(t: TestContext) {
 const shape = (el: HTMLElement) => [el.dataset.hubAddress, el.dataset.netKind, el.dataset.netIcon,
   el.classList.contains(`net-${el.dataset.netKind}`), el.classList.contains('net-local')]
 
-test('each network kind wears its own chip; the icon is the picture, else Hubchat, else a globe', async t => {
+test('each network kind wears its own chip; the icon is the picture, else the DM-list avatar with Hubchat, else a globe', async t => {
   const f = fixture(t)
   setHubchatInstalled(false)
   setKnownOrgs(['local-org'])
@@ -98,12 +105,55 @@ test('each network kind wears its own chip; the icon is the picture, else Hubcha
   assert.ok(f.pictures().every(u => u.startsWith('/api/orgs/home/net/profile-picture?address=')), 'asked as the org on screen')
 
   await inAct(async () => { setHubchatInstalled(true); await flush(4) })
-  const icons = ['picture', 'hubchat', 'hubchat', 'hubchat', 'hubchat', 'hubchat', 'picture']
+  const icons = ['picture', 'letters', 'terminal', 'dot', 'letters', 'letters', 'picture']
   assert.deepEqual(chips('react').map(el => el.dataset.netIcon), icons)
   assert.deepEqual(chips('md').map(el => el.dataset.netIcon), icons)
-  assert.ok(chips('react')[1]!.querySelector('.net-mark-hubchat svg circle'), 'the Hubchat mark')
+  for (const scope of ['react', 'md'] as const) {
+    const [, acme, claude, stranger, local, elsewhere] = chips(scope)
+    const letters = (el: HTMLElement | undefined) => el?.querySelector<HTMLElement>('.net-mark-letters')
+    assert.equal(letters(acme)?.dataset.initials, 'AL', `${scope}: Acme Labs`)
+    assert.ok(letters(acme)?.classList.contains('net-av-org'), `${scope}: on the org tint`)
+    assert.equal(letters(local)?.dataset.initials, 'LO', `${scope}: a local org with no logo`)
+    assert.equal(letters(elsewhere)?.dataset.initials, 'E', `${scope}: an org address`)
+    assert.ok(claude?.querySelector('.net-mark-terminal svg path') && !letters(claude), `${scope}: a session is its terminal`)
+    assert.ok(stranger?.querySelector('.net-mark-dot') && !letters(stranger), `${scope}: no roster lists it: a grey dot`)
+    assert.equal(acme?.textContent, '@net:acme.12ab34', `${scope}: the letters are drawn, so a copy keeps the address`)
+    assert.equal(chips(scope).some(el => el.querySelector('.net-mark-hubchat')), false, `${scope}: no Hubchat mark`)
+  }
   assert.equal(chips('md')[0]!.title, 'Online · person\nAlice\n@net:alice.77ded7\nOpen @net:alice.77ded7 in Hubchat')
   assert.equal(f.pictures().length, 3, 'pictures are kept, not asked for again')
+})
+
+test("the org's own address without a logo wears its letters on Hubchat's own-avatar tint", async t => {
+  fixture(t)
+  setHubchatInstalled(true)
+  const own = net(pic(1))
+  own.picture_revision = null
+  setNetRoster('home', own)
+  const chips = await mountChips(t)
+  for (const scope of ['react', 'md'] as const) {
+    const home = chips(scope)[6]!
+    const mark = home.querySelector<HTMLElement>('.net-mark-letters')
+    assert.equal(home.dataset.netIcon, 'letters', scope)
+    assert.equal(mark?.dataset.initials, 'H0', `${scope}: the initials of home.000001`)
+    assert.ok(mark?.classList.contains('net-av-me'), `${scope}: the own avatar's tint`)
+  }
+})
+
+declare const __SRC_DIR__: string
+test("the avatar's tints are Hubchat's, dark and light", () => {
+  // Hubchat src/styles/tokens.css: --k-<kind> on --k-<kind>-bg
+  const css = readFileSync(path.join(__SRC_DIR__, 'canvas/netmentions.css'), 'utf8')
+  for (const pair of [
+    '--net-av-org: #e3896b; --net-av-org-bg: rgba(217, 119, 87, .20);',
+    '--net-av-chat: #7cc0ff; --net-av-chat-bg: rgba(124, 192, 255, .17);',
+    '--net-av-person: #d4d4d4; --net-av-person-bg: #3a3a3d;',
+    '--net-av-me: #f2c2b0; --net-av-me-bg: #6b3a2c;',
+    '--net-av-org: #b04f2c; --net-av-org-bg: rgba(217, 119, 87, .18);',
+    '--net-av-chat: #23679e; --net-av-chat-bg: rgba(35, 103, 158, .13);',
+    '--net-av-person: #3b4450; --net-av-person-bg: #dde2e8;',
+    '--net-av-me: #7a3420; --net-av-me-bg: #f3c9b8;',
+  ]) assert.ok(css.includes(pair), pair)
 })
 
 test('a removed picture falls back at once; a new revision is asked for once', async t => {
