@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { treeSelections } from '../treeselection'
 import { useWorkItems } from './useworkitems'
 import type { ToastFn, TreePayload } from '../types'
@@ -7,6 +7,7 @@ import { AgentDocketView, agentItems, itemActorIds, teamItems, useNodeFacts } fr
 import { PinFrame, closeIfCentred } from './modalpin'
 import { readerScope, resumedReaderItem, useReaderSelection } from './readeropening'
 import { instanceKind } from '../modalkinds'
+import { useSurfaceDocument } from '../popout'
 import { flatten, withDraftTree } from './shared'
 import type { RefRoutes } from './reflinks'
 import { resolveRef } from './reflinks'
@@ -89,9 +90,23 @@ export function AgentDocketModal({ slug, nid, tree, toast, close, refs,
     refs.onOpen(r)
   } }
   const titleText = isTeam ? `${nid} · Team docket` : `${nid} · Docket`
+  const ownerDocument = useSurfaceDocument()
+  const onEsc = useCallback(() => {
+    // PinFrame's capture-phase Escape runs before the shared input's handler.
+    // Give a focused query the main docket's first-Escape behaviour by invoking
+    // its real clear control (which also retains focus); every other Escape
+    // keeps the frame's ordinary dismissal.
+    const active = ownerDocument.activeElement
+    if (active?.matches('input.docket-search-input[type="search"]')
+        && (active as HTMLInputElement).value) {
+      const clear = active.parentElement?.querySelector<HTMLButtonElement>('.docket-search-clear')
+      if (clear) { clear.click(); return }
+    }
+    close()
+  }, [ownerDocument, close])
   return <PinFrame kind={pinKind}
     restore={{ selection:shown ?? '', agent: nid, generation: flatten(withDraftTree(tree, null), tree.tiers).get(nid)?.generation, ...(isTeam ? { team: true } : {}) }}
-    title={titleText} panel="settings wide" close={close}>
+    title={titleText} panel="settings wide" close={close} onEsc={onEsc}>
     <h3 className="docket-membership-head" data-copy-agent-name={nid}><DocketIcon fontSize="inherit" /> {nid} <span className="dim">· {isTeam ? 'Team docket' : 'Docket'}</span>
       {unplaced.length > 0 && <span role="status" className="hint docket-membership-pending">
         Checking team membership for {unplaced.length} retired {unplaced.length === 1 ? 'owner' : 'owners'}…</span>}
