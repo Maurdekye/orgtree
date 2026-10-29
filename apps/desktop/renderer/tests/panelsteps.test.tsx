@@ -11,6 +11,7 @@ import { createPortal } from 'react-dom'
 import { AgentGalleryView, DocGalleryModal } from '../src/canvas/gallery'
 import { AgentDocketView, buildNodeFacts, DocketModal } from '../src/canvas/docket'
 import { usePanelSteps } from '../src/canvas/panelsteps'
+import { MailList } from '../src/canvas/mail'
 import type { DocRow } from '../src/api'
 import type { AskInfo, TreePayload, WorkItem } from '../src/types'
 
@@ -375,4 +376,102 @@ test('org-docs: visible hired/retired grouping controls keyboard order', async t
   await inAct(async () => { toggle.click(); await flush(4) })
   assert.deepEqual(f.rows().map(f.name), ['alpha', 'beta', 'retired'])
   await press(f.root, 'ArrowDown'); assert.equal(f.selected(), 'retired')
+})
+
+// ── SYMMETRY #11 (UX audit ux02 S3): the context-menu key on a list panel opens
+// the SELECTED row's own menu - the same menu a right-click on that row opens -
+// as it does on every focusable object. Rows are not focusable, so the browser
+// raises the keyboard menu on the focused panel (or its list scroller).
+
+/** What the browser dispatches for the ContextMenu key: a `contextmenu` at the
+ *  focused element, with no pointer inside any row. */
+async function contextKey(target: HTMLElement) {
+  const owner = target.ownerDocument.defaultView as Window & typeof globalThis
+  target.focus()
+  const event = new owner.MouseEvent('contextmenu', { bubbles: true, cancelable: true, button: 0, clientX: 0, clientY: 0 })
+  await inAct(async () => { target.dispatchEvent(event); await flush(6) })
+  return event
+}
+async function rightClick(target: HTMLElement) {
+  const owner = target.ownerDocument.defaultView as Window & typeof globalThis
+  const event = new owner.MouseEvent('contextmenu', { bubbles: true, cancelable: true, button: 2, clientX: 5, clientY: 5 })
+  await inAct(async () => { target.dispatchEvent(event); await flush(6) })
+  return event
+}
+const menuLabels = (doc: Document) => [...doc.querySelectorAll<HTMLElement>('.ctxmenu:not(.ctxmenu-submenu) [role="menuitem"]')]
+  .map(item => item.textContent ?? '')
+async function dismissMenu(doc: Document) {
+  await inAct(async () => { doc.body.dispatchEvent(new (doc.defaultView as Window & typeof globalThis).Event('pointerdown', { bubbles: true })); await flush(4) })
+  assert.equal(doc.querySelector('.ctxmenu'), null, 'menu dismissed between gestures')
+}
+
+for (const surface of surfaces) {
+  test(`${surface}: the context-menu key opens the selected row's own menu (symmetry #11)`, async t => {
+    const f = await fixture(t, surface)
+    const doc = f.root.ownerDocument
+    await press(f.root, 'ArrowDown')
+    assert.equal(f.selected(), 'beta', 'keyboard selection')
+    const row = f.rows().find(r => f.name(r) === 'beta')!
+    await rightClick(row)
+    const expected = menuLabels(doc)
+    assert.ok(expected.length > 0, "the selected row's right-click menu")
+    await dismissMenu(doc)
+
+    // the panel holds focus after a row click or an Alt arrow; a list that is
+    // its own tab stop (Presented's scroller) can hold it too
+    const holders = [f.root, ...f.root.querySelectorAll<HTMLElement>('.mailer-list[tabindex]')]
+    for (const holder of holders) {
+      const event = await contextKey(holder)
+      assert.equal(event.defaultPrevented, true, `${holder.className}: the app menu replaces the browser's`)
+      assert.deepEqual(menuLabels(doc), expected, `${holder.className}: the same menu a right-click on the selected row opens`)
+      assert.equal(doc.activeElement?.getAttribute('role'), 'menuitem', 'a keyboard-raised menu focuses its first item')
+      assert.equal(f.selected(), 'beta', 'raising the menu changes no selection')
+      await dismissMenu(doc)
+    }
+  })
+  test(`${surface}: with no selected row, or from an editor, the context-menu key keeps the menu it had (symmetry #11)`, async t => {
+    const f = await fixture(t, surface, { blank: true })
+    const doc = f.root.ownerDocument
+    assert.equal(f.selected() === null, true)
+    const event = await contextKey(f.root)
+    assert.equal(event.defaultPrevented, false, 'nothing selected: no row menu is invented')
+    assert.equal(doc.querySelector('.ctxmenu'), null)
+    await press(f.root, 'ArrowDown')
+    assert.equal(f.selected(), 'alpha')
+    const field = doc.createElement('input')
+    f.root.appendChild(field); t.after(() => { field.remove() })
+    const typing = await contextKey(field)
+    assert.equal(typing.defaultPrevented, false, "a text field keeps the browser's edit menu")
+    assert.equal(doc.querySelector('.ctxmenu'), null)
+  })
+}
+
+test("mail: the context-menu key opens the selected message row's own menu (symmetry #11)", async t => {
+  const oldScroll = window.HTMLElement.prototype.scrollIntoView
+  window.HTMLElement.prototype.scrollIntoView = () => {}
+  t.after(() => { window.HTMLElement.prototype.scrollIntoView = oldScroll })
+  const mail = Array.from({ length: 3 }, (_, i) => ({ id: `m${i}`, from: 'alpha', to: 'beta', kind: 'message',
+    at: `2026-10-19T10:00:0${i}Z`, body: `message ${i}`, tags: [] as string[] }))
+  const view = await mountView(<MailList pending={mail} onRead={noop} />, el => el)
+  t.after(() => view.unmount())
+  const root = view.el.querySelector<HTMLElement>('.mailer')!
+  const doc = root.ownerDocument
+  const before = await contextKey(root)
+  assert.equal(before.defaultPrevented, false, 'nothing selected: no row menu is invented')
+  assert.equal(doc.querySelector('.ctxmenu'), null)
+
+  await press(root, 'ArrowDown')   // Alt+Down selects the first row, focus stays on the panel
+  const selected = root.querySelector<HTMLElement>('.mailrow.on')
+  assert.ok(selected, 'keyboard selection')
+  await rightClick(selected)
+  const expected = menuLabels(doc)
+  assert.ok(expected.includes('Close'), "the selected row's own menu (Close, since it is open)")
+  await dismissMenu(doc)
+
+  const event = await contextKey(root)
+  assert.equal(event.defaultPrevented, true, "the app menu replaces the browser's")
+  assert.deepEqual(menuLabels(doc), expected, 'the same menu a right-click on the selected row opens')
+  assert.equal(doc.activeElement?.getAttribute('role'), 'menuitem', 'a keyboard-raised menu focuses its first item')
+  await dismissMenu(doc)
+  assert.equal(doc.activeElement === root, true, 'closing returns focus to the panel')
 })
