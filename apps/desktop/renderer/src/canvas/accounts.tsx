@@ -105,7 +105,7 @@ export function TierStandings({ tiers }: { tiers: TierStanding[] }) {
     <div className="acct-tiers">
       {tiers.filter((t) => !optInLegacyHidden(t.tier)).map((t) => (
         <div className="acct-tier-row" key={t.tier}>
-          <span className={'tier t-' + t.tier
+          <span className={'tier letter-chip t-' + t.tier
             + (t.available ? '' : ' acct-chip-dim')}>
             {TIER_LETTER[t.tier] ?? t.tier.slice(0, 1).toUpperCase()}</span>
           <span className="acct-tier-name">{tierLabel(t.tier) + legacyMark(t.tier)}</span>
@@ -845,7 +845,7 @@ export function AccountsPanel({ toast, close, initialTab, target }: {
         {p.reason && p.user_enabled !== false && <p className='dim acct-provider-note'>{p.reason}</p>}
         {p.tiers.length ? <div className='acct-provider-tiers' aria-label={p.label + ' model tiers'}>
           {orderProviderTiers(p.id, p.tiers).filter(t => !optInLegacyHidden(t.tier)).map(t => <div className='acct-provider-tier' key={t.tier}>
-            <span className={'tier t-' + t.tier} title={tierLabel(t.tier)}>{t.letter}</span>
+            <span className={'tier letter-chip t-' + t.tier} title={tierLabel(t.tier)}>{t.letter}</span>
             <span className='acct-provider-tier-name'>{(t.name ?? tierLabel(t.tier)) + legacyMark(t.tier)}</span>
             <span className='acct-provider-tier-model'>{t.model}</span>
             <span className='acct-provider-tier-seat'>seat {t.seat}</span>

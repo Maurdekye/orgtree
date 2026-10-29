@@ -52,7 +52,7 @@ export function TierChip({ tier, agentName }: { tier?: string | null; agentName?
   }
   return (
     <span data-copy-agent-name={agentName} {...agentTooltipProps(agentName, true)}
-      className={'tier t-' + tier} title={agentName ? undefined : tierLabel(tier)}>
+      className={'tier letter-chip t-' + tier} title={agentName ? undefined : tierLabel(tier)}>
       {TIER_LETTER[tier] ?? tier.slice(0, 1).toUpperCase()}
     </span>
   )
@@ -90,7 +90,7 @@ export function createTierChipEl(
     return span
   }
   const t = doc.createElement('span')
-  t.className = 'tier t-' + tier
+  t.className = 'tier letter-chip t-' + tier
   if (agentName) {
     t.setAttribute('data-copy-agent-name', agentName)
     t.setAttribute(AGENT_TOOLTIP_ATTR, agentName)

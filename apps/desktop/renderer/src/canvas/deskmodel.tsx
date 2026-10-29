@@ -95,7 +95,7 @@ export function DeskModelButton({node, slug, op, toast}: {
   }
   if(node.state!=='live'||!node.tier)return <TierChip tier={node.tier} agentName={node.id}/>
   return <>
-    <button type="button" className={'tier desk-model-button t-'+node.tier}
+    <button type="button" className={'tier letter-chip desk-model-button t-'+node.tier}
       aria-label={`Change model for ${node.id}`} title={`Change ${node.id}'s model`}
       aria-haspopup="dialog" aria-expanded={!!anchor} disabled={saving}
       onClick={event=>{event.stopPropagation();if(anchor)close();else setAnchor(event.currentTarget)}}>

@@ -714,7 +714,7 @@ export function SpawnChips({ onSpawn, seats, side, soleHire,
     // `or-…` tier id (user ask 2026-09-03)
     const name = tierLabel(t)
     return (
-      <button key={t} className={'t-' + t + (legacyMark(t) ? ' legacy' : '') + (selected === t ? ' sel' : '')}
+      <button key={t} className={'letter-chip t-' + t + (legacyMark(t) ? ' legacy' : '') + (selected === t ? ' sel' : '')}
         aria-pressed={selected === undefined ? undefined : selected === t}
         data-first-use={soleHire && selected === undefined ? 'token' : undefined}
         title={
@@ -755,7 +755,7 @@ export function SpawnChips({ onSpawn, seats, side, soleHire,
   // the server's refusal name too.
   const outChip = (t: string, letter: string | undefined, label: string,
                    hire: HireState | null | undefined, seat: number) => (
-    <button key={t} disabled className={'t-' + t + ' codex-preview'}
+    <button key={t} disabled className={'letter-chip t-' + t + ' codex-preview'}
       title={`${tierLabel(t)} — ${label}; `
         + hireDisabledReason(hire, label) + ` ${costBadge(seat)}`}>
       {letter}
@@ -917,7 +917,7 @@ export function SpawnChips({ onSpawn, seats, side, soleHire,
     ? fams.map((f) => <div className="hs-fam" key={f.key}>{f.body}</div>)
     : null
   const expand = farCompact && (
-    <button className="hire-expand" type="button" aria-expanded={expanded}
+    <button className="hire-expand letter-chip" type="button" aria-expanded={expanded}
       title={expanded ? 'hide hire tiers' : 'show hire tiers'}
       aria-label={expanded ? 'hide hire tiers' : 'show hire tiers'}
       onPointerDown={(e) => e.stopPropagation()}
@@ -1271,7 +1271,7 @@ export function DraftNode({ pos, draft, map, seats, maxTop, defaultTop,
               the same height with equal gaps (user ruling); the gear is
               always visible and stages the pre-hire permissions */}
           <div className="df-head">
-            <button ref={modelButton} type="button" className={'tier df-model t-' + draft.tier}
+            <button ref={modelButton} type="button" className={'tier letter-chip df-model t-' + draft.tier}
               aria-label={`Change model (${tierLabel(draft.tier)})`} aria-haspopup="dialog" aria-expanded={!!modelAnchor}
               title={`${tierLabel(draft.tier)} — change the model to hire`} disabled={pending || !onTierChange}
               onClick={e => modelAnchor ? closeModelPicker() : setModelAnchor(e.currentTarget)}>{TIER_LETTER[draft.tier]}</button>
@@ -1838,7 +1838,7 @@ export function NodeSquare({ node, pos, lod, focused: deskOpen, dragging, isDrop
       <div data-copy-agent-name={node.id} {...agentTooltipProps(node.id)}
         className={cls.join(' ') + ' maplod'} style={style}>
         <div className="map-top">
-          <span className={'tier t-' + node.tier} {...agentTooltipProps(node.id, true)}>{TIER_LETTER[node.tier!] ?? '?'}</span>
+          <span className={'tier letter-chip t-' + node.tier} {...agentTooltipProps(node.id, true)}>{TIER_LETTER[node.tier!] ?? '?'}</span>
           <MapModeIndicator node={node} />
           {(dogs ?? 0) > 0 && <span className={'map-dogs' + ((oneShotDogs ?? 0) > 0 ? ' oneshot' : '')}
             aria-label={`${dogs} watchdog${dogs === 1 ? '' : 's'}${(oneShotDogs ?? 0) > 0
@@ -1916,7 +1916,7 @@ export function NodeSquare({ node, pos, lod, focused: deskOpen, dragging, isDrop
             status groups separate prevents long names and status controls from
             stealing the context wheel's hit area. */}
         <div className="sq-title">
-          <span className={'tier t-' + node.tier} {...agentTooltipProps(node.id, true)}>{TIER_LETTER[node.tier!] ?? '?'}</span>
+          <span className={'tier letter-chip t-' + node.tier} {...agentTooltipProps(node.id, true)}>{TIER_LETTER[node.tier!] ?? '?'}</span>
           <CardName text={node.id} hovered={nameHover} layoutKey={`${node.tier}/${node.pending_switch?.tier}`}
             {...agentTooltipProps(node.id)} />
         </div>

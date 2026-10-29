@@ -62,7 +62,7 @@ export function OrgPictureEditor({ slug, name, revision }: { slug: string; name?
       <span className="org-logo-controls">
         <button type="button" className="org-logo-button" aria-label="Change organization logo" title="Change organization logo"
           disabled={busy || !current} onClick={() => input.current?.click()}>
-          <span className="org-logo-avatar">{current?.picture?.data
+          <span className="org-logo-avatar letter-chip">{current?.picture?.data
             ? <img alt="Organization logo" src={'data:image/png;base64,' + current.picture.data} />
             : orgLogoInitials(name || slug)}</span>
           <span className="org-logo-pencil" aria-hidden="true"><EditIcon fontSize="inherit" /></span>

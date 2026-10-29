@@ -5478,7 +5478,7 @@ export function HireSheet({ anchor, seats, codexHire, antigravityHire, claudeHir
                     disabled={tOffer !== 'offer'}
                     title={modelChoiceTitle(t, tOffer === 'offer' ? undefined : f.reason)}
                     onClick={() => pickTier(t)}>
-                    <span className={'tier t-' + t}>{f.letters[t]}</span>
+                    <span className={'tier letter-chip t-' + t}>{f.letters[t]}</span>
                     {modelChoiceLabel(t, f.seatOf(t), tOffer === 'offer' ? undefined : f.reason)}
                   </button>
                 )

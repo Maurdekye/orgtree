@@ -1548,7 +1548,7 @@ button.badge.audience-fold.alert {
 }
 .sq-actions > button.presentedbtn:hover { color: var(--ink-strong); background: transparent; }
 .sq-head .tier {
-  width: 16px; height: 16px; flex: none; display: grid; place-items: center;
+  width: 16px; height: 16px; flex: none; display: inline-flex; align-items: center; justify-content: center; padding: 0; line-height: 1; text-align: center;
   border-radius: 4px; font-weight: 700; font-size: 9px; font-family: var(--mono);
   background: var(--input); border: 1px solid var(--line); color: var(--dim);
 }
@@ -1892,7 +1892,8 @@ html.mobile .edge-jump { display: none; }
 .cc-head-left > .cc-process-seat,
 .cc-head-left > .turn-status-banner { flex: none; }
 .cc-head-left > .tier { margin-inline-end: 2px; }
-.desk-model-button { padding: 0; cursor: pointer; font: inherit; }
+
+.desk-model-button { padding: 0; cursor: pointer; font: inherit; line-height: 1; }
 .quickchat-pop-model.desk-model-picker {
   width: max-content; max-width: min(400px, calc(100vw - 16px)); box-sizing: border-box;
 }
@@ -3894,7 +3895,7 @@ button.stackbadge:hover { border-color: var(--button-accent); color: var(--agent
 .sender { display: inline-flex; gap: 4px; align-items: center; }
 .sender.archived { opacity: .55; }
 .sender .tier {
-  width: 16px; height: 16px; display: inline-grid; place-items: center;
+  width: 16px; height: 16px; display: inline-flex; align-items: center; justify-content: center; padding: 0; line-height: 1; text-align: center;
   border-radius: 3px; font-size: 9px; font-weight: 700; font-family: var(--mono);
   background: var(--input); border: 1px solid var(--line);
 }
@@ -4243,7 +4244,7 @@ button.stackbadge:hover { border-color: var(--button-accent); color: var(--agent
    +2px = the old bottom:-24px's "fully below the border" placement */
 .sq.desk > .hsof:not(.side) { top: calc(100% + 2px); }
 .hsof button {
-  width: 22px; height: 22px; padding: 0; border-radius: 50%;
+  width: 22px; height: 22px; padding: 0; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; line-height: 1; text-align: center;
   font-family: var(--mono); font-size: 10px; font-weight: 700;
   background: var(--input); border: 1px solid var(--line); color: var(--ink);
   box-shadow: 0 2px 6px rgba(0, 0, 0, .4);
@@ -5098,7 +5099,7 @@ main.solo { width: 100%; }
 .docket-subcount { flex-shrink: 0; font-size: 10px; white-space: nowrap; }
 
 .docket-modal .tier {
-  width: 16px; height: 16px; display: inline-grid; place-items: center;
+  width: 16px; height: 16px; display: inline-flex; align-items: center; justify-content: center; padding: 0; line-height: 1; text-align: center;
   border-radius: 3px; font-size: 9px; font-weight: 700; font-family: var(--mono);
   vertical-align: middle;
 }
@@ -5726,9 +5727,11 @@ html.mobile .conn-chip { max-width: 46vw; }
 .card:hover { border-color: var(--line); }
 .node.archived > .card { opacity: .5; }
 .node.unrecoverable > .card { border-color: var(--bad); opacity: .75; }
+.letter-chip { display: inline-flex; align-items: center; justify-content: center; padding: 0; line-height: 1; text-align: center; }
+.settings button.letter-chip { display: inline-flex; align-items: center; justify-content: center; padding: 0; line-height: 1; text-align: center; }
 
 .tier {
-  width: 22px; height: 22px; flex: none; display: inline-grid; place-items: center;
+  width: 22px; height: 22px; flex: none; display: inline-flex; align-items: center; justify-content: center; padding: 0; line-height: 1; text-align: center;
   border-radius: 4px; font-weight: 700; font-size: 11px; font-family: var(--mono);
   background: var(--input); border: 1px solid var(--line); color: var(--dim);
   vertical-align: middle; text-decoration: none;
@@ -5762,7 +5765,7 @@ html.mobile .conn-chip { max-width: 46vw; }
 }
 .aud-badge svg { flex: none; }
 .aud-badge .tier {
-  width: 16px; height: 16px; display: inline-grid; place-items: center;
+  width: 16px; height: 16px; display: inline-flex; align-items: center; justify-content: center; padding: 0; line-height: 1; text-align: center;
   border-radius: 3px; font-size: 9.5px; flex: none;
 }
 .aud-badge .cc-name,
@@ -5817,6 +5820,7 @@ button {
   cursor: pointer; transition: background .12s, border-color .12s;
 }
 button:hover { background: var(--panel-2); border-color: var(--line-hover); }
+button.letter-chip.letter-chip.letter-chip, .settings button.letter-chip { display: inline-flex; align-items: center; justify-content: center; padding: 0; line-height: 1; text-align: center; }
 /* Tab interaction follows the same scoped theme accent as selection, not
    the provider of whichever agent last focused the generic button chrome.
    Resolve the token on each button so nested provider/theme scopes work too.
@@ -10004,7 +10008,7 @@ button.mail-tag-link:hover, .settings button.mail-tag-link:hover { background:no
 .agent-mention-item .tier, .agent-mention-item .project-mark, .agent-mention-item .mention-ticket-mark,
 .agent-mention-item .mention-presentation-mark, .agent-mention-item .mention-app-mark, .agent-mention-item .mention-panel-mark {
   width: 16px; height: 16px; font-size: 9.5px; border-radius: 3px; flex: none;
-  display: inline-grid; place-items: center;
+  display: inline-flex; align-items: center; justify-content: center; padding: 0; line-height: 1; text-align: center;
 }
 /* a ticket offered beside agents and projects: the docket's own icon in place of a model badge;
    a presentation: the presentations' document icon (USER 2026-10-27 mb21c096e5dc4); an app and
@@ -10071,7 +10075,7 @@ button.node-link.node-link:focus-visible {
 .mail-from .tier, .mail-from .project-mark,
 .tray-main .tier, .tray-main .project-mark {
   width: 16px; height: 16px; font-size: 9.5px; border-radius: 3px;
-  flex: none; display: inline-grid; place-items: center;
+  flex: none; display: inline-flex; align-items: center; justify-content: center; padding: 0; line-height: 1; text-align: center;
   vertical-align: middle; margin: 0; text-decoration: none;
 }
 /* EVERY MENTION WEARS ITS KIND ON THE LEFT (USER 2026-10-27 m6d0cdc7a2be6

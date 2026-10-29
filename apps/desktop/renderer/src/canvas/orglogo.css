@@ -7,7 +7,7 @@
 .org-logo-button:hover:not(:disabled) { box-shadow: 0 0 0 3px var(--accent-soft); }
 .org-logo-button:focus-visible, .org-logo-remove:focus-visible { outline: 2px solid var(--accent); outline-offset: 4px; }
 .org-logo-button:disabled, .org-logo-remove:disabled { cursor: default; opacity: .65; }
-.org-logo-avatar { display: inline-flex; align-items: center; justify-content: center; flex: none; width: 72px; height: 72px; border-radius: 50%; font: 600 26px "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system, sans-serif; letter-spacing: .01em; user-select: none; background: rgba(217,119,87,.20); color: #e3896b; }
+.org-logo-avatar { display: inline-flex; align-items: center; justify-content: center; flex: none; width: 72px; height: 72px; padding: 0; border-radius: 50%; font: 600 26px/1 "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system, sans-serif; line-height: 1; text-align: center; letter-spacing: 0; user-select: none; background: rgba(217,119,87,.20); color: #e3896b; }
 :root:is(.contrast-light,.contrast-solarized-light) .org-logo-avatar { background: rgba(217,119,87,.18); color: #b04f2c; }
 .org-logo-avatar img { width: 100%; height: 100%; object-fit: cover; border-radius: inherit; }
 .org-logo-pencil { position: absolute; right: -2px; bottom: -2px; display: grid; place-items: center; width: 25px; height: 25px; border-radius: 50%; border: 2px solid var(--panel); background: var(--accent); color: var(--accent-ink); pointer-events: none; font-size: 15px; }
