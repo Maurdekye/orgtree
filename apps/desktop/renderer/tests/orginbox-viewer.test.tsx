@@ -4,7 +4,7 @@ import assert from 'node:assert/strict'
 import { OrgInboxModal } from '../src/canvas/mail'
 import { setKnownOrgs } from '../src/canvas/agentmentions'
 import { orgTitle } from '../src/canvas/orgidentity'
-import type { OrgInboxEntry } from '../src/types'
+import type { OrgInboxEntry, TreePayload } from '../src/types'
 const entries: OrgInboxEntry[] = [
   { id: 'incoming', dir: 'in', peer: '@net:peer.fixture', body: 'Retained incoming body', at: '2026-10-12T08:00:00Z', attachments: [{ name: 'retained.txt', path: 'legacy/path', bytes: 3 }] },
   { id: 'outgoing', dir: 'out', peer: '@org:neighbor', body: 'Retained outgoing body', by: 'user', at: '2026-10-12T08:01:00Z', reply_to: { id: 'incoming', from: '@net:peer.fixture', at: '2026-10-12T08:00:00Z', gist: 'Recorded reply quote' } },
@@ -23,8 +23,8 @@ test('the sent-as identity is the shared org link', async t => {
   t.after(() => { globalThis.fetch = original; setKnownOrgs([]) })
   HTMLElement.prototype.scrollIntoView ??= () => {}
   const view = await mountView(<OrgInboxModal slug="mine" map={new Map()} toast={() => {}} close={() => {}}
-    inbox={{ entries: [], total: 2, unread: 0, visible: true, holders: [] }} jumpTo="incoming"
-    net={{ hubs: [{ id: 'fixture', address: 'http://127.0.0.1', name: 'Fixture hub', enabled: false, connected: false, queued: 0, roster: [] }] }} />, host => host)
+    inbox={{ entries: [], total: 2, unread: 0, visible: true, holders: [] } as unknown as TreePayload['org_inbox']} jumpTo="incoming"
+    net={{ hubs: [{ id: 'fixture', address: 'http://127.0.0.1', name: 'Fixture hub', enabled: false, connected: false, queued: 0, roster: [] }] } as unknown as TreePayload['net']} />, host => host)
   t.after(() => view.unmount())
   await flush(8)
   const sent = [...view.el.querySelectorAll('button')].find(b => b.textContent?.trim().toLowerCase().startsWith('sent'))
@@ -41,7 +41,7 @@ test('the sent-as identity is the shared org link', async t => {
   assert.equal(chip.getAttribute('data-hub-address'), '@org:mine')
   assert.equal(chip.title, orgTitle('mine'), 'with the shared org hover')
   assert.equal(via.querySelector('b'), null, 'no bare bold org name remains')
-  await inAct(() => chip.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 10, clientY: 10, button: 2 })))
+  await inAct(() => { chip.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 10, clientY: 10, button: 2 })) })
   await flush(3)
   const items = [...document.querySelectorAll('.ctxmenu [role="menuitem"]')].map(b => b.textContent?.trim())
   assert.deepEqual(items, ['Open', 'Copy identity'], 'with the shared org identity menu')
