@@ -122,6 +122,7 @@ import type { TreeRequest } from './treepace'
 import { AgentNavProvider, agentNavProps } from './canvas/agentnav'
 import { ObjectNavProvider } from './canvas/objectnav'
 import { AudienceHolderRows, ConfirmModal, MailFolders, MailList, OrgCanvas, OrgRecord } from './Canvas'
+import { DELETE_USER_MAIL_CONFIRM } from './canvas/mail'
 import { KillSwitch } from './KillSwitch'
 import type { KillSwitchActions } from './KillSwitch'
 import {
@@ -2993,7 +2994,7 @@ export function InboxPanel({ slug, tree, toast, refresh, close, jumpTo, jumpSeq,
   const readNow = (m: MailEntry) => markReadNow(slug, m, () => markRead(slug, [m.id]))
     .then(() => { history.acknowledge(m.id); setReadBump((n) => n + 1); refresh?.() })
   const deleteMail = (m: MailEntry) => {
-    if (!m.id || !window.confirm('Delete this message from your inbox? This permanently removes your copy.')) return
+    if (!m.id || !window.confirm(DELETE_USER_MAIL_CONFIRM)) return
     return deleteUserMail(slug, m.id)
       .then(() => { history.remove(m.id);tagSelection.forget(m.id);setLookedUpMail(old=>old?.mail.id===m.id?null:old);setReadBump((n) => n + 1); refresh?.() })
       .catch((e: Error) => toast([`could not delete mail: ${e.message}`]))

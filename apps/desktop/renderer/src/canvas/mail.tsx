@@ -213,6 +213,95 @@ export interface MailListProps {
   collapsible?: boolean
 }
 
+/** What a mail row's context menu can do on its surface. Each action is one
+ *  the row or its reading pane already performs there; an omitted action is
+ *  not offered. */
+export interface MailRowMenuActions {
+  /** the row is open in the reading pane, so the first entry closes it */
+  selected: boolean
+  open: () => void
+  close: () => void
+  /** where this surface can answer the row (never an ask) */
+  reply?: () => void
+  /** offered for an unread mail with an id (never an ask) */
+  markRead?: () => void
+  /** offered for an undelivered mail with an id */
+  retract?: () => void
+  /** delete the reader's own copy (never an ask) */
+  remove?: () => void
+}
+
+/** Where the copy entries copy from and to. */
+export interface MailRowCopyContext {
+  /** its document owns the clipboard, so a popped-out list copies there */
+  el: Element | null
+  org: string
+  /** the list's own exact lookup for a body it holds only in part */
+  lookup?: (id: string) => Promise<MailRow | null>
+  toast?: ToastFn
+  /** the row's reference token; null where the surface has none */
+  reference: string | null
+}
+
+/** The Inbox's confirmation before deleting the user's copy of a received
+ *  mail. App.tsx and the Attention view ask it word for word. */
+export const DELETE_USER_MAIL_CONFIRM = 'Delete this message from your inbox? This permanently removes your copy.'
+
+/** THE MAIL ROW'S CONTEXT MENU (contextmenu.tsx, 2026-09-07): select, reply
+ *  (the pane's box), mark read (the click-off rule, made explicit), retract
+ *  (the row's own ✕), delete, then copy text and copy reference. One builder
+ *  for every list of mail rows: MailList and the Attention view's urgent mail
+ *  and question rows (UX symmetry #1, USER 2026-10-29 m72500eeca0c0). */
+export function mailRowMenuEntries(m: MailRow, a: MailRowMenuActions, c: MailRowCopyContext): MenuEntry[] {
+  const profile = 'operator'
+  const { el, toast, lookup } = c
+  const entries: MenuEntry[] = [
+    a.selected ? { label: 'Close', onSelect: a.close } : { label: 'Open', onSelect: a.open },
+  ]
+  if (a.reply && !m._ask) entries.push({ label: 'Reply', onSelect: a.reply })
+  if (a.markRead && m._wait && m.id && !m._ask) entries.push({ label: 'Mark as read', onSelect: a.markRead })
+  if (a.retract && m._wait && m.id) entries.push({ label: 'Retract (undelivered)', onSelect: a.retract })
+  if (a.remove && m.id && !m._ask) entries.push({ label: 'Delete', onSelect: a.remove })
+  const copied = (what: string) => (ok: boolean) => toast?.([ok ? `copied ${what}` : `could not copy ${what} — clipboard unavailable`])
+  const copyRow = m as CopyableMailRow
+  const immediateBody = mailRowCopyText(copyRow, profile)
+  const needsFetch = mailRowNeedsFullFetch(copyRow)
+  const canCopy = Boolean(immediateBody.trim() !== '' || needsFetch)
+  const copyMessage = () => {
+    const done = (fullText: string) => {
+      if (!fullText.trim()) {
+        toast?.(['could not copy — message is empty'])
+        return
+      }
+      void copyToClipboard(el, fullText).then(copied('the message text'))
+    }
+    if (needsFetch) {
+      const slug = c.org
+      const nodeHint = typeof m.to === 'string' && !m.to.startsWith('@') ? m.to
+        : typeof m.from === 'string' && !m.from.startsWith('@') ? m.from : undefined
+      void resolveFullMailCopyText(
+        copyRow,
+        async (id, chunk) => {
+          if (chunk === undefined && lookup) {
+            try {
+              const looked = await lookup(id)
+              if (looked) return looked as CopyableMailRow
+            } catch { /* fall through to fetchMailRowForCopy */ }
+          }
+          if (!slug) return null
+          return fetchMailRowForCopy(slug, id, { node: nodeHint, chunk })
+        },
+        profile,
+      ).then(done).catch(() => toast?.([MAIL_COPY_FAILED]))
+      return
+    }
+    done(immediateBody)
+  }
+  const ref = c.reference
+  return mailMenuEntries({ leading: entries, copy: copyMessage, canCopy, reference: ref,
+    copyReference: () => { if (ref) void copyToClipboard(el, ref).then(copied('the reference ' + ref)) } })
+}
+
 const MAIL_WINDOW = 40
 
 export function MailList({ org, pending = [], delivered = [], waitLabel, sender, rowSender,
@@ -556,63 +645,18 @@ export function MailList({ org, pending = [], delivered = [], waitLabel, sender,
       if (isCur) return
       setSelId(keyOf(m))
     }
-    const entries: MenuEntry[] = [
-      isCur
-        ? { label: 'Close', onSelect: () => { setSelId(null) } }
-        : { label: 'Open', onSelect: select },
-    ]
-    const canReply = Boolean(onReply && !outgoing && !m._ask && answerable(m))
-    if (canReply) entries.push({ label: 'Reply', onSelect: () => { if (collectReply(m)) { select(); setReplyFocus(keyOf(m)) } } })
-    if (m._wait && m.id && !m._ask && onRead) {
+    return mailRowMenuEntries(m, {
+      selected: isCur,
+      open: select,
+      close: () => { setSelId(null) },
+      reply: onReply && !outgoing && answerable(m)
+        ? () => { if (collectReply(m)) { select(); setReplyFocus(keyOf(m)) } } : undefined,
       // The callback reports its own error; only lifecycle callers need the
       // rejection to release their retry latch.
-      entries.push({ label: 'Mark as read', onSelect: () => { void Promise.resolve(onRead(m)).catch(() => {}) } })
-    }
-    if (m._wait && m.id && onRetract) {
-      entries.push({ label: 'Retract (undelivered)', onSelect: () => onRetract(m) })
-    }
-    if (!outgoing && onDeleteUserMail && m.id && !m._ask) {
-      entries.push({ label: 'Delete', onSelect: () => onDeleteUserMail(m) })
-    }
-    const el = rootRef.current
-    const copied = (what: string) => (ok: boolean) => toast?.([ok ? `copied ${what}` : `could not copy ${what} — clipboard unavailable`])
-    const copyRow = m as CopyableMailRow
-    const immediateBody = mailRowCopyText(copyRow, profile)
-    const needsFetch = mailRowNeedsFullFetch(copyRow)
-    const canCopy = Boolean(immediateBody.trim() !== '' || needsFetch)
-    const copyMessage = () => {
-        const done = (fullText: string) => {
-          if (!fullText.trim()) {
-            toast?.(['could not copy — message is empty'])
-            return
-          }
-          void copyToClipboard(el, fullText).then(copied('the message text'))
-        }
-        if (needsFetch) {
-          const slug = org ?? refs?.world.org ?? ''
-          const nodeHint = typeof m.to === 'string' && !m.to.startsWith('@') ? m.to
-            : typeof m.from === 'string' && !m.from.startsWith('@') ? m.from : undefined
-          void resolveFullMailCopyText(
-            copyRow,
-            async (id, chunk) => {
-              if (chunk === undefined && lookup) {
-                try {
-                  const looked = await lookup(id)
-                  if (looked) return looked as CopyableMailRow
-                } catch { /* fall through to fetchMailRowForCopy */ }
-              }
-              if (!slug) return null
-              return fetchMailRowForCopy(slug, id, { node: nodeHint, chunk })
-            },
-            profile,
-          ).then(done).catch(() => toast?.([MAIL_COPY_FAILED]))
-          return
-        }
-        done(immediateBody)
-    }
-    const ref = refOf?.(m) ?? null
-    return mailMenuEntries({ leading: entries, copy: copyMessage, canCopy, reference: ref,
-      copyReference: () => { if (ref) void copyToClipboard(el, ref).then(copied('the reference ' + ref)) } })
+      markRead: onRead ? () => { void Promise.resolve(onRead(m)).catch(() => {}) } : undefined,
+      retract: onRetract ? () => onRetract(m) : undefined,
+      remove: !outgoing && onDeleteUserMail ? () => onDeleteUserMail(m) : undefined,
+    }, { el: rootRef.current, org: org ?? refs?.world.org ?? '', lookup, toast, reference: refOf?.(m) ?? null })
   }
   const custom = cur ? renderBody?.(cur) ?? null : null
   const surface = cur && !(curPile && curPile.length > 1) ? eventSurface(cur, profile) : { className: '' }

@@ -40,7 +40,7 @@ import { useSubmittedAsks } from '../asksubmitted'
 import { markReadNow, readLocally, useLocalReads } from '../mailread'
 import type { KeyboardEvent as ReactKeyboardEvent } from 'react'
 import { useWorkItems } from '../canvas/useworkitems'
-import { fileBase, fileUrl, markRead } from '../api'
+import { deleteUserMail, fileBase, fileUrl, markRead } from '../api'
 import { dismissAttention } from '../attndismiss'
 import { sendLinkedReply } from '../events/reply'
 import type { MailEntry, ToastFn, TreePayload, WorkItem } from '../types'
@@ -48,7 +48,8 @@ import type { MailEntry, ToastFn, TreePayload, WorkItem } from '../types'
 
 import type { MailLinkFn, MailRow, PolledStatus } from '../canvas/shared'
 import { InboxAskCard } from '../canvas/asks'
-import { MailReadPane, MailRowView } from '../canvas/mail'
+import { DELETE_USER_MAIL_CONFIRM, MailReadPane, MailRowView, mailRowMenuEntries } from '../canvas/mail'
+import { useContextMenu } from '../canvas/contextmenu'
 import { SenderChip } from '../canvas/senderchip'
 import { DocketPane, DocketRow, itemActorIds, useNodeFacts } from '../canvas/docket'
 import { buildMentionIndex } from '../canvas/workrefs'
@@ -173,9 +174,12 @@ export function AttentionQueue({
     items: work?.attention ?? work?.items, archived: work?.archived, backlogged: work?.backlogged,
     pending: box?.pending?.filter((m) => !readLocally(slug, m.id)), representedMail: [...(box?.pending??[]),...(box?.delivered??[])], nodes, asks: tree.asks, slug,
   }), [work, box, nodes, tree.asks, submitted, locallyRead, seenMentions, slug])
-  const live = useMemo(() => dismissing.size
-    ? allLive.filter((r) => !(r.kind === 'ticket' && r.item && dismissing.has(r.item.slug)))
-    : allLive, [allLive, dismissing])
+  // a mail deleted from here leaves at once, once the server has deleted it
+  const [deleted, setDeleted] = useState<ReadonlySet<string>>(() => new Set())
+  const gone = useCallback((r: AttentionRow) => r.kind === 'mail' && !!r.mail && deleted.has(r.mail.id), [deleted])
+  const live = useMemo(() => dismissing.size || deleted.size
+    ? allLive.filter((r) => !(r.kind === 'ticket' && r.item && dismissing.has(r.item.slug)) && !gone(r))
+    : allLive, [allLive, dismissing, deleted, gone])
   // a dismissal the server has confirmed no longer needs hiding: once the feed
   // stops listing the flag, forget it, so a flag RAISED AGAIN later shows up
   useEffect(() => {
@@ -192,8 +196,16 @@ export function AttentionQueue({
   // queue. Polls must not select (and read) another mail after a deselection.
   const clearedByReader = useRef(false)
   const shown = useRef<AttentionRow[]>([])
-  const rows = retainSelected(live, shown.current, selected)
+  // a deleted mail is never retained, even while selected: it is gone, not read
+  const rows = retainSelected(live, shown.current, selected).filter((r) => !gone(r))
   shown.current = rows
+  // forget a deleted mail once the box stops listing it
+  useEffect(() => {
+    if (!deleted.size || !box) return
+    const listed = new Set([...(box.pending ?? []), ...(box.delivered ?? [])].map((m) => m.id))
+    const still = new Set([...deleted].filter((id) => listed.has(id)))
+    if (still.size !== deleted.size) setDeleted(still)
+  }, [box, deleted])
 
   const refs = useRefRoutes(slug, nodeMap, {
     onOpenItem, onFocusAgent, onOpenDoc,
@@ -238,6 +250,13 @@ export function AttentionQueue({
   const read = (m: MailEntry) =>
     markReadNow(slug, m, () => markRead(slug, [m.id])).then(refetch)
       .catch((e: Error) => toast([`could not mark read: ${e.message}`]))
+  // the Inbox's Delete (App.tsx): the same confirmation and route
+  const deleteMail = (m: MailEntry) => {
+    if (!m.id || !window.confirm(DELETE_USER_MAIL_CONFIRM)) return
+    deleteUserMail(slug, m.id)
+      .then(() => { setDeleted((s) => new Set([...s, m.id])); refetch() })
+      .catch((e: Error) => toast([`could not delete mail: ${e.message}`]))
+  }
 
   // ⚠ SELECTING AN URGENT MAIL MARKS IT READ, exactly as opening it in the
   // inbox does. That IS this row's resolution: the ticket says an urgent mail
@@ -311,6 +330,32 @@ export function AttentionQueue({
   // ---- keyboard: the list is a real listbox, so selection is reachable
   const listRef = useRef<HTMLDivElement>(null)
   const detailRef = useRef<HTMLDivElement>(null)
+  // "Reply" opens the row, then puts the caret in the reply box once the
+  // pane has rendered it, as the Inbox's Reply does
+  const [replyFocus, setReplyFocus] = useState<string | null>(null)
+  useEffect(() => {
+    if (!replyFocus || selected !== replyFocus) return
+    const box = detailRef.current?.querySelector<HTMLTextAreaElement>('.mail-reply textarea')
+    if (!box) return
+    setReplyFocus(null)
+    box.focus()
+  })
+  // THE MAIL ROWS' CONTEXT MENU is the Inbox's (mailRowMenuEntries, UX
+  // symmetry #1): each entry does here what the row or this pane does.
+  const mailMenu = useContextMenu(toast)
+  const mailMenuOf = (row: AttentionRow, m: MailRow, sel: boolean) => {
+    const mail = row.kind === 'mail' ? row.mail : undefined
+    return mailRowMenuEntries(m, {
+      selected: sel,
+      open: () => openRow(row),
+      close: clearSelection,
+      // only agents are answered from a mailbox (MailList's `answerable`)
+      reply: mail && !String(mail.from ?? '').startsWith('@')
+        ? () => { openRow(row); setReplyFocus(row.key) } : undefined,
+      markRead: mail ? () => { void read(mail) } : undefined,
+      remove: mail ? () => deleteMail(mail) : undefined,
+    }, { el: listRef.current, org: slug, toast, reference: mail ? attentionMailRef(slug, mail.id) : null })
+  }
   // Membership belongs to this queue, including optimistic dismissal and
   // selected read-mail retention. Do not infer it from notification kind alone.
   useLayoutEffect(() => {
@@ -483,10 +528,12 @@ export function AttentionQueue({
               <div key={row.key} className="attn-cell" data-attn-row={row.key}
                 data-attn-kind={row.kind} role="option" aria-selected={sel}>
                 <MailRowView m={m} view={row.kind === 'mail' ? typed(m) : null}
-                  selected={sel} party={rowParty(m.from)} onClick={() => clickRow(row)} />
+                  selected={sel} party={rowParty(m.from)} onClick={() => clickRow(row)}
+                  onContextMenu={(e) => mailMenu.open(e, () => mailMenuOf(row, m, sel))} />
               </div>
             )
           })}
+          {mailMenu.node}
         </div>
         {/* ⚠ the hook sits on `.mailer-read` itself, not on a wrapper inside
             it: the inbox's pane styles include CHILD selectors
