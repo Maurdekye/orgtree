@@ -300,11 +300,28 @@ fn plain_reply_schema() -> Value {
 }
 
 #[nolog]
+fn json_array_items_schema() -> Value {
+    json!({"anyOf":[{"type":"string"},{"type":"number"},{"type":"boolean"},{"type":"object"},{"type":"null"}]})
+}
+
+#[nolog]
+fn json_value_anyof() -> Value {
+    json!([
+        {"type":"string"},
+        {"type":"object"},
+        {"type":"array","items":json_array_items_schema()},
+        {"type":"number"},
+        {"type":"boolean"},
+        {"type":"null"}
+    ])
+}
+
+#[nolog]
 fn reply_target_schema() -> Value {
     let mut schema = plain_reply_schema();
     schema["anyOf"].as_array_mut().unwrap().push(json!({
         "type":"object","additionalProperties":false,"required":["target","selection"],
-        "properties":{"target":{},"selection":{"type":"object"}},
+        "properties":{"target":{"anyOf":[{"type":"string"},{"type":"object"}]},"selection":{"type":"object"}},
         "description":"Selection wrapper; read orgtree_read_reply_source and its Guide for the selector contract."
     }));
     schema
@@ -1151,18 +1168,19 @@ fn build_tool_watchdog() -> Value {
             "credentials": { "anyOf": [
                 { "type": "string" },
                 { "type": "object", "properties": { "username": { "type": "string" }, "password": { "type": "string" }, "client_id": { "type": "string" },
-                                                    "headers": { "type": "object" }, "bearer": { "type": "string" }, "query": { "type": "object" }, "hello": { "type": "array" } } }
+                                                    "headers": { "type": "object" }, "bearer": { "type": "string" }, "query": { "type": "object" },
+                                                    "hello": { "type": "array", "items": { "anyOf": [{ "type": "string" }, { "type": "object" }, { "type": "array", "items": json_array_items_schema() }] } } } }
               ], "description": "mqtt/websocket: a credentials file path in your folders (re-read on each connect), or inline: mqtt {username, password, client_id}; websocket {headers, bearer, username, password, query, hello}. Stored encrypted, never shown" },
-            "hello": { "type": "array", "maxItems": 16, "items": { "anyOf": [{ "type": "string" }, { "type": "object" }, { "type": "array" }] },
+            "hello": { "type": "array", "maxItems": 16, "items": { "anyOf": [{ "type": "string" }, { "type": "object" }, { "type": "array", "items": json_array_items_schema() }] },
                        "description": "websocket: messages sent in order after every (re)connect; a JSON value goes as compact JSON" },
             "protocols": { "type": "array", "maxItems": 8, "items": { "type": "string" }, "description": "websocket: Sec-WebSocket-Protocol subprotocols to offer" },
             "connection_messages": { "type":"string", "enum":["notice","wake","off"], "description":"mqtt/websocket health mail; default notice, configure without reconnect" },
             "notify_on_connect": { "type": "boolean", "description": "Compatibility alias: true=notice, false=off; conflicts refused" },
             "heartbeat": { "type": "object", "properties": { "message": { "anyOf": [{ "type": "string" }, { "type": "object" }] }, "every_s": { "type": "integer", "minimum": 5 } },
                            "required": ["message", "every_s"], "description": "websocket: a fixed message sent every every_s seconds while connected" },
-            "message": { "anyOf": [{ "type": "string" }, { "type": "object" }, { "type": "array" }, { "type": "number" }, { "type": "boolean" }, { "type": "null" }],
+            "message": { "anyOf": json_value_anyof(),
                          "description": "send: text or compact JSON on this websocket/MQTT dog's own live connection; at most 64 KB" },
-            "payload": { "description": "MQTT send: alias for message; any JSON value, compactly encoded; message takes precedence" },
+            "payload": { "anyOf": json_value_anyof(), "description": "MQTT send: alias for message; any JSON value, compactly encoded; message takes precedence" },
             "topic": { "type": "string", "description": "MQTT send: required publish topic, nonempty, no + or # wildcards" },
             "qos": { "type": "integer", "minimum": 0, "maximum": 2, "description": "MQTT send: QoS 0 (default), 1 or 2; existing rumqttc supports all three" },
             "retain": { "type": "boolean", "description": "MQTT send: broker retains this value, default false; empty retained payload clears it. Distinct from retained (receive filter)." },
@@ -2253,7 +2271,7 @@ fn build_tool_apps()->Value {
         "panel":{"type":"string","description":"saved panel id: its slug, such as caption-board-panel-1 (an old generic id still works)"},
         "listener":{"type":"string","description":"listener_fires: one listener as owner/id, as listeners shows it; its finished fires, newest first, without app data"},
         "slug":{"type":"string","maxLength":120,"description":"app_create, or panel_open making a new panel: the id to make, cleaned to a-z, 0-9 and -, at most 48 characters, -2, -3... if taken, never changed. Default: the name (a panel: its app's slug and label). Pass a short English slug whenever the name is not in English."},
-        "after":{"description":"list: previous next_cursor string; events, permission_history and listener_fires: rows newer than this seq, oldest first"},
+        "after":{"anyOf":[{"type":"string"},{"type":"integer","minimum":0}],"description":"list: previous next_cursor string; events, permission_history and listener_fires: rows newer than this seq, oldest first"},
         "before":{"type":"integer","minimum":0,"description":"events, permission_history and listener_fires: rows older than this seq; without after, pages run newest first and next_cursor continues as before"},
         "limit":{"type":"integer","minimum":1,"maximum":200},
         "expected_rev":{"type":"integer","minimum":1},
@@ -2273,18 +2291,18 @@ fn build_tool_apps()->Value {
             "html":{"type":"string","description":"self-contained HTML up to4MiB; no network except orgtree.net.fetch to sites the user allows"},
             "initial_state":{"type":"object","description":"independent initial JSON object, up to2MiB"},
             "events":{"type":"array","maxItems":64,"description":"inert portable event declarations; unique exact names, no surrounding whitespace or execution grant","items":{"type":"object","additionalProperties":false,"properties":{"name":{"type":"string","minLength":1,"maxLength":80},"description":{"type":"string","maxLength":1000}},"required":["name"]}},
-            "capabilities":{"type":"array","uniqueItems":true,"items":{"enum":["org.read","docket.write","events.fire","files.read","files.write","net.fetch"]}},
+            "capabilities":{"type":"array","uniqueItems":true,"items":{"type":"string","enum":["org.read","docket.write","events.fire","files.read","files.write","net.fetch"]}},
             "sites":{"type":"array","maxItems":32,"uniqueItems":true,"items":{"type":"string","maxLength":255},"description":"net.fetch: HTTPS sites the app may ask for (host, host:port, *.domain, or * for any site); inert until the user allows them"},
             "width":{"type":"integer","minimum":160,"maximum":4096},"height":{"type":"integer","minimum":120,"maximum":4096}
         },"required":["name","html"]},
         "placement":{"type":"object","additionalProperties":false,"description":"float: the centered window; window: pinned to the window like pinned desks, x,y px from the canvas area's top-left; popout: its own native window","properties":{
-            "mode":{"enum":["float","window","popout"]},"x":{"type":"number"},"y":{"type":"number"},
+            "mode":{"type":"string","enum":["float","window","popout"]},"x":{"type":"number"},"y":{"type":"number"},
             "width":{"type":"integer"},"height":{"type":"integer"}
         }},
         "state":{"type":"object","description":"state_set: replacement object, up to2MiB"},
         "patch":{"type":"object","description":"state_patch: RFC7396 merge; null removes a key"},
         "name":{"type":"string","description":"event name,1-80characters; events: only that event's fires (or messages)"},
-        "payload":{"description":"event JSON, up to64KiB"}
+        "payload":{"anyOf":json_value_anyof(),"description":"event JSON, up to64KiB"}
     }),&["action"])
 }
 
