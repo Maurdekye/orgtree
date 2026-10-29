@@ -71,7 +71,9 @@ test('hub rows speak the real ladder and surface stuck mail with its reason', as
     assert.match(text, /Connect to this computer's mail hub/)
     assert.equal(view.el.querySelector('[data-hub-address="@net:other.user.d4e5f6"] .net-name')?.getAttribute('data-net-name'), 'Other')
     assert.equal(view.el.querySelector('[data-hub-address="@net:notes.user.778899"]')?.getAttribute('data-net-kind'), 'chat')
-    assert.match(text, /Online/)
+    const dot = (address: string) => view.el.querySelector(`[data-hub-address="${address}"]`)?.closest('[role="listitem"]')?.querySelector('.presence-dot')
+    assert.equal(dot('@net:other.user.d4e5f6')?.getAttribute('title'), 'Online')
+    assert.equal(dot('@net:notes.user.778899')?.getAttribute('title'), 'Offline')
   } finally { await view.unmount() }
 })
 

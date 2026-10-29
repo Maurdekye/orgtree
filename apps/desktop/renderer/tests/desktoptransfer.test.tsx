@@ -96,6 +96,7 @@ test('mail hosting speaks the hub\'s own model, warns on exposure, and retains e
     org_retention_days: 45, public_listener: false, public_listener_port: 7371,
     status: { running: true, healthy: true, address: 'http://127.0.0.1:7370', exposed: false, hub_name: 'desk', orgs: 2, queued: 0 } }
   globalThis.fetch = async (url, init) => {
+    if (String(url) === '/api/desktop/hub/connections') return new Response(JSON.stringify({ running: true, connections: [], recent: {} }))
     assert.equal(String(url), '/api/desktop/hub')
     if (init?.method === 'PUT') {
       const body = JSON.parse(String(init.body)); writes.push(body)

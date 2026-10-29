@@ -6,6 +6,8 @@ import { hubAddressTitle, resetNetMentions, setNetRoster } from '../src/canvas/n
 import { CONTACT_NET, ContactLists, type ContactSurface } from './net-contact-lists.fixture'
 
 // USER ma0d0dc5004a4 / m18abccdbff95: both roster lists use the real net link.
+// USER 2026-10-29 m4c84e393768e / mae6a9c785cc0: presence is a dot that
+// cannot read as a bullet, and a Connections row has no words beside its chip.
 export async function checkContactList(surface: ContactSurface, t: TestContext) {
     const oldFetch = globalThis.fetch, oldOpen = window.open, opened: string[] = []
     globalThis.fetch = (async (input: RequestInfo | URL) => new Response(JSON.stringify(
@@ -36,11 +38,11 @@ export async function checkContactList(surface: ContactSurface, t: TestContext) 
       assert.equal(!!chip.querySelector('.net-mark'), true)
       assert.equal(chip.querySelector('.net-name')?.getAttribute('data-net-name') ?? null, peer.org_name ?? null)
       const after = [...row.childNodes].slice([...row.childNodes].indexOf(chip) + 1).map(n => n.textContent).join('')
-      assert.equal(after, surface === 'mailservers' ? ' net' : ` · ${peer.online ? 'Online' : 'Offline'}${peer.blurb ? ' · ' + peer.blurb : ''}`)
-      if (surface === 'mailservers') {
-        assert.equal(row.firstElementChild?.classList.contains('ok'), peer.online)
-        assert.match(row.title, /reachable via: net/)
-      }
+      assert.equal(after, surface === 'mailservers' ? ' net' : '')
+      const dot = row.firstElementChild as HTMLElement
+      assert.deepEqual([dot.classList.contains('presence-dot'), dot.classList.contains(peer.online ? 'online' : 'offline'), dot.title],
+        [true, true, peer.online ? 'Online' : 'Offline'])
+      if (surface === 'mailservers') assert.match(row.title, /reachable via: net/)
       bubbled = 0
       await inAct(() => chip.click())
       assert.equal(bubbled, 0, 'the contact action stops parent click propagation')

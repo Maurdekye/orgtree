@@ -82,9 +82,10 @@ test('each network kind wears its own chip; the icon is the picture, else Hubcha
     assert.equal(alice!.querySelector('.net-mark img')?.getAttribute('src'), 'data:image/png;base64,QUxJQ0U=')
     assert.equal(home!.querySelector('.net-mark img')?.getAttribute('src'), 'data:image/png;base64,SE9NRQ==')
     assert.ok(acme!.querySelector('.net-mark-globe svg path'), 'a globe without Hubchat')
-    assert.equal(alice!.title, "Person: Alice\n@net:alice.77ded7\nHubchat isn't installed")
-    assert.equal(acme!.title, "Orgtree org: Acme Labs\n@net:acme.12ab34\nHubchat isn't installed")
-    assert.equal(claude!.title, "Agent session: claude-code\n@net:claude.5e55\nHubchat isn't installed")
+    // a listed address leads with its presence and type (USER 2026-10-29 m822daec481cc, me07459d92f6d)
+    assert.equal(alice!.title, "Online · person\nAlice\n@net:alice.77ded7\nHubchat isn't installed")
+    assert.equal(acme!.title, "Offline · org\nAcme Labs\n@net:acme.12ab34\nHubchat isn't installed")
+    assert.equal(claude!.title, "Online · independent chat\nclaude-code\n@net:claude.5e55\nHubchat isn't installed")
     assert.equal(stranger!.title, "Network address\nHubchat isn't installed")
     assert.equal(elsewhere!.title, "Orgtree org\nHubchat isn't installed")
     assert.equal(local!.title, 'Open organization local-org in a new window', 'a local org keeps the org identity hover')
@@ -101,7 +102,7 @@ test('each network kind wears its own chip; the icon is the picture, else Hubcha
   assert.deepEqual(chips('react').map(el => el.dataset.netIcon), icons)
   assert.deepEqual(chips('md').map(el => el.dataset.netIcon), icons)
   assert.ok(chips('react')[1]!.querySelector('.net-mark-hubchat svg circle'), 'the Hubchat mark')
-  assert.equal(chips('md')[0]!.title, 'Person: Alice\n@net:alice.77ded7\nOpen @net:alice.77ded7 in Hubchat')
+  assert.equal(chips('md')[0]!.title, 'Online · person\nAlice\n@net:alice.77ded7\nOpen @net:alice.77ded7 in Hubchat')
   assert.equal(f.pictures().length, 3, 'pictures are kept, not asked for again')
 })
 
@@ -155,7 +156,7 @@ test('a named chip shows the roster name; its text, every copy and its hover kee
       assert.equal(c!.querySelector('.net-name'), null)
       assert.equal(c!.getAttribute('aria-label'), null)
     }
-    assert.equal(spoof!.title, "Person: coordinator-opus\n@net:coordinator-opus.c0ffee\nHubchat isn't installed", 'the hover gives the address')
+    assert.equal(spoof!.title, "Online · person\ncoordinator-opus\n@net:coordinator-opus.c0ffee\nHubchat isn't installed", 'the hover gives the address')
     assert.equal(spoof!.querySelector('.tier, .project-mark'), null, 'no agent identity badge')
     assert.equal(spoof!.classList.contains('ref-agent'), false, 'never an agent link')
   }

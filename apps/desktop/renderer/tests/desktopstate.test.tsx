@@ -120,7 +120,8 @@ test('Connections renders real peers and sends sanitized remote settings without
   const v = await mountView(<Connections tree={tree} toast={() => {}} adding="" setAdding={() => {}} />, el => el)
   try {
     assert.equal(v.el.querySelector('[data-hub-address="@net:friend"]')?.textContent, '@net:friend')
-    assert.match(v.el.querySelector('.connection-peers')?.textContent ?? '', /friend.*Online/)
+    const row = v.el.querySelector('[data-hub-address="@net:friend"]')?.closest('[role="listitem"]')
+    assert.equal(row?.querySelector('.presence-dot.online')?.getAttribute('title'), 'Online')
     assert.match(v.el.textContent!, /2 queued/)
     assert.doesNotMatch(v.el.textContent!, /must-never-render|reveal secret/)
     const toggles = v.el.querySelectorAll<HTMLInputElement>('input[type="checkbox"]')
