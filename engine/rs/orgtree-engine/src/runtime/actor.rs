@@ -2195,7 +2195,8 @@ impl Actor {
         };
         let harness_stamp: Option<String> = if openrouter { r.get(20) } else { None };
         let harness_want = openrouter.then(|| {
-            crate::openrouter::seat_harness(&self.engine, r.get::<_, Option<String>>(3).as_deref(), harness_stamp.as_deref(), r.get(30))
+            crate::openrouter::seat_harness(&self.engine, r.get::<_, Option<String>>(3).as_deref(),
+                harness_stamp.as_deref().filter(|_| r.get::<_, bool>(30)))
         });
         let harness = if openrouter {
             harness_stamp.clone().or_else(|| harness_want.clone())

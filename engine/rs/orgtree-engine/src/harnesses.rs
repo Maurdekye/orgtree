@@ -141,6 +141,21 @@ pub fn not_installed(id: &str) -> String {
     format!("{} is not installed on this computer; install it, or choose an installed harness", label(id))
 }
 
+/// A seat's own harness, if it has one (user 2026-10-29, the Model tab's
+/// Harness row; a hire's explicit `harness` before it): `extra.harness_pin`
+/// set. None: it follows its OpenRouter key or its language model server.
+#[nolog]
+pub fn seat_pin(extra: &Value) -> Option<String> {
+    extra["harness_pin"].as_bool().filter(|p| *p).and_then(|_| extra["harness"].as_str().map(str::to_string))
+}
+
+/// Why a seat moves to another harness at its turn boundary, for its
+/// handoff and its transcript.
+#[nolog]
+pub fn switch_why(_provider: &str, _pinned: bool, want: &str, was: &str) -> String {
+    format!("its OpenRouter key now runs on {} (it ran on {})", label(want), label(was))
+}
+
 /// Reuse discovery's version; listing harnesses must never launch a CLI.
 #[nolog]
 fn discovered_version<'a>(state: &'a crate::providers::State, id: &str) -> Option<&'a str> {
@@ -184,6 +199,10 @@ pub fn doc(engine: &Engine) -> Value {
         "install_url": if h.install_url.is_empty() { Value::Null } else { json!(h.install_url) }, "install": h.install,
     })).collect::<Vec<_>>() })
 }
+
+#[cfg(test)]
+#[path = "harness_pin_tests.rs"]
+mod harness_pin_tests;
 
 #[cfg(test)]
 mod tests {

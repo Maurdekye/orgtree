@@ -444,7 +444,7 @@ async fn stamp_harness(engine: &Engine, tx: &Transaction<'_>, agent: i64, tier: 
         if replace {
             tx.execute("UPDATE ot.agents SET extra = coalesce(extra, '{}'::jsonb) - 'harness_pin' WHERE id = $1", &[&agent]).await?;
         }
-        crate::openrouter::seat_harness(engine, account.as_deref(), None, false)
+        crate::openrouter::seat_harness(engine, account.as_deref(), None)
     } else if catalog::is_langserver(tier) {
         match crate::langserver::route_of(engine, tier).and_then(|(s, _)| s["harness"].as_str().map(str::to_string)) {
             Some(h) => h,

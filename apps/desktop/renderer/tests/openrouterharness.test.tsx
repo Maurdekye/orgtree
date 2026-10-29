@@ -10,7 +10,8 @@
 //     installed", warns that its agents refuse to start, and sends nothing
 //     until another is picked (never a silent switch);
 //   · a change says its agents move at their next turn (fresh session), and
-//     agents hired with a chosen harness are counted as keeping theirs;
+//     agents with a harness of their own (chosen at hire or in their Model
+//     tab) are counted as keeping it;
 //   · every harness selector links to App settings › Harnesses.
 //
 // ⚠ THE RENDERER DECIDES NONE OF THIS: installed or not is the backend's
@@ -157,7 +158,7 @@ test('§2 editing a key: a change says when its agents move, counts pinned agent
     const dialog = document.querySelector('[aria-label="Edit team"]')!
     const sel = harnessSelect(dialog)!
     assert.equal(sel.value, 'claude-code')
-    assert.match(dialog.textContent ?? '', /2 agents were hired with a chosen harness and keep theirs/)
+    assert.match(dialog.textContent ?? '', /2 agents have a harness of their own and keep it/)
     await choose(sel, 'codex-cli')
     assert.match(dialog.textContent ?? '', /move to Codex at their next turn, on a fresh session/)
     await inAct(async () => { button(dialog, 'Save').click(); await flush(10) })

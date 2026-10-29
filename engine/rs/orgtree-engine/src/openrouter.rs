@@ -843,15 +843,14 @@ pub fn key_harness(engine: &Engine, id: &str) -> String {
 }
 
 /// THE PRECEDENCE POINT (user ruling 2026-10-13, "Agent's choice wins"):
-/// the harness an OpenRouter seat should run on. A seat hired with an
-/// explicit harness is pinned to it; every other seat runs on the harness
-/// of the key it bills (`seat_key`). `stamp` is the harness its current
-/// session runs on (`extra.harness`), `pinned` its `extra.harness_pin`.
+/// the harness an OpenRouter seat should run on. A seat with a harness of
+/// its own (`pin`, `harnesses::seat_pin`) runs on it; every other seat runs
+/// on the harness of the key it bills (`seat_key`).
 #[logged]
-pub fn seat_harness(engine: &Engine, account: Option<&str>, stamp: Option<&str>, pinned: bool) -> String {
-    match stamp {
-        Some(h) if pinned => h.to_string(),
-        _ => key_harness(engine, &seat_key(engine, account)),
+pub fn seat_harness(engine: &Engine, account: Option<&str>, pin: Option<&str>) -> String {
+    match pin {
+        Some(h) => h.to_string(),
+        None => key_harness(engine, &seat_key(engine, account)),
     }
 }
 

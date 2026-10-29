@@ -58,8 +58,15 @@ pub fn secret() -> &'static str {
 /// own path (`/v1/messages`, `/responses`), which is handed on after the
 /// server's own base URL.
 #[logged]
-pub fn base(engine: &Engine, server: &str) -> String {
+pub fn base(engine: &Engine, server: &str, _harness: &str) -> String {
     format!("http://127.0.0.1:{}{PREFIX}{server}", engine.boot.port)
+}
+
+/// A pass-through path's server segment: the server id, and the harness the
+/// seat runs on when the launch named one.
+#[nolog]
+pub fn split_server(segment: &str) -> (&str, Option<&str>) {
+    (segment, None)
 }
 
 #[nolog]

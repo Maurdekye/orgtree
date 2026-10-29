@@ -24,7 +24,7 @@ pub(crate) fn node_harness(engine:&Engine,tier:&str,account:Option<&str>,extra:&
     if crate::providers::catalog::is_openrouter(tier) {
         let stamp = extra["harness"].as_str();
         stamp.map(str::to_string).or_else(|| Some(crate::openrouter::seat_harness(
-            engine, account, stamp, extra["harness_pin"].as_bool().unwrap_or(false))))
+            engine, account, crate::harnesses::seat_pin(extra).as_deref())))
     } else if crate::providers::catalog::is_langserver(tier) {
         crate::langserver::route_of(engine, tier)
             .and_then(|(server, _)| server["harness"].as_str().map(str::to_string))

@@ -213,6 +213,26 @@ pub fn base_url(server: &Value) -> String {
     if matches!(harness, "codex-cli" | "opencode") { format!("{address}/v1") } else { address }
 }
 
+/// The base URL a seat's harness is pointed at on this server.
+#[logged]
+pub fn base_url_for(server: &Value, _harness: &str) -> String {
+    base_url(server)
+}
+
+/// The harness a seat on this server should run on: its own (`pin`,
+/// `harnesses::seat_pin`), else its server's.
+#[logged]
+pub fn seat_harness(server: &Value, _pin: Option<&str>) -> String {
+    server["harness"].as_str().unwrap_or("claude-code").to_string()
+}
+
+/// The harnesses a seat on this server may choose, in registry order: each
+/// with whether it is installed (`installed`) and can reach this server.
+#[nolog]
+pub fn seat_choices(_server: &Value, _installed: &dyn Fn(&str) -> bool) -> Vec<Value> {
+    Vec::new()
+}
+
 /// A server's seat price: the user's figure, else DEFAULT_SEAT (servers
 /// added before the setting existed included).
 #[logged]
@@ -999,7 +1019,7 @@ pub async fn route(engine: &Engine, tier: &str) -> Result<Route> {
         anyhow::bail!("{} (the harness of the language model server {})", crate::harnesses::not_installed(harness), s["label"].as_str().unwrap_or(&id));
     }
     Ok(Route {
-        base_url: crate::lsproxy::base(engine, &id),
+        base_url: crate::lsproxy::base(engine, &id, harness),
         key: crate::lsproxy::secret().to_string(),
         model: m["id"].as_str().unwrap_or("").to_string(),
         context: context_of(&m),
