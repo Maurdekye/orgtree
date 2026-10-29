@@ -2320,3 +2320,107 @@ mod panel_word_tests {
         assert!(description.contains("Agent panel_open creates a new closed panel;"), "{description}");
     }
 }
+
+#[cfg(test)]
+mod strict_schema_validation_tests {
+    use super::*;
+
+    const VALID_TYPES: &[&str] = &["string", "integer", "number", "boolean", "object", "array", "null"];
+
+    fn has_valid_type(node: &serde_json::Map<String, Value>) -> bool {
+        match node.get("type") {
+            Some(Value::String(s)) => VALID_TYPES.contains(&s.as_str()),
+            Some(Value::Array(arr)) => {
+                !arr.is_empty()
+                    && arr.iter().all(|v| v.as_str().is_some_and(|s| VALID_TYPES.contains(&s)))
+            }
+            _ => false,
+        }
+    }
+
+    fn is_array_type(node: &serde_json::Map<String, Value>) -> bool {
+        match node.get("type") {
+            Some(Value::String(s)) => s == "array",
+            Some(Value::Array(arr)) => arr.iter().any(|v| v.as_str() == Some("array")),
+            _ => false,
+        }
+    }
+
+    fn walk_schema(tool: &str, path: &str, value: &Value, issues: &mut Vec<String>) {
+        let Some(node) = value.as_object() else {
+            issues.push(format!("{tool}: {path} is not a JSON object"));
+            return;
+        };
+        if node.is_empty() {
+            issues.push(format!("{tool}: '{path}': empty schema object {{}} (type is not defined)"));
+            return;
+        }
+        let typed = has_valid_type(node);
+        let has_combinator = ["anyOf", "oneOf"]
+            .iter()
+            .any(|k| node.get(*k).and_then(Value::as_array).is_some_and(|a| !a.is_empty()));
+        if !typed && !has_combinator {
+            issues.push(format!("{tool}: '{path}': type is not defined"));
+        }
+        if node.contains_key("enum") && !typed {
+            issues.push(format!("{tool}: '{path}': enum without type"));
+        }
+        if let Some(props) = node.get("properties") {
+            if node.get("type").and_then(Value::as_str) != Some("object") {
+                issues.push(format!("{tool}: '{path}': properties requires type=\"object\""));
+            }
+            if let Some(map) = props.as_object() {
+                for (k, v) in map {
+                    walk_schema(tool, &format!("{path}.properties.{k}"), v, issues);
+                }
+            } else {
+                issues.push(format!("{tool}: '{path}.properties' is not an object"));
+            }
+        }
+        if is_array_type(node) && !node.contains_key("items") {
+            issues.push(format!("{tool}: '{path}': array schema missing items"));
+        }
+        if let Some(items) = node.get("items") {
+            walk_schema(tool, &format!("{path}.items"), items, issues);
+        }
+        if let Some(add_props) = node.get("additionalProperties").filter(|v| v.is_object()) {
+            walk_schema(tool, &format!("{path}.additionalProperties"), add_props, issues);
+        }
+        for comb in ["anyOf", "oneOf"] {
+            if let Some(branches) = node.get(comb).and_then(Value::as_array) {
+                for (idx, branch) in branches.iter().enumerate() {
+                    walk_schema(tool, &format!("{path}.{comb}[{idx}]"), branch, issues);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn every_tool_input_schema_node_declares_explicit_types_for_strict_providers() {
+        let apps = build_tool_apps();
+        assert_eq!(
+            apps["inputSchema"]["properties"]["definition"]["properties"]["capabilities"]["items"]["type"],
+            json!("string"),
+            "orgtree_apps capabilities.items must declare type=\"string\" for Moonshot Kimi validation"
+        );
+        let mut issues = Vec::new();
+        for card in all() {
+            let name = card["name"].as_str().unwrap_or("<unnamed>");
+            walk_schema(name, "properties", &card["inputSchema"], &mut issues);
+        }
+        for card in mail_tools(MailShape::Flat) {
+            let name = format!("{} (flat)", card["name"].as_str().unwrap_or("<unnamed>"));
+            walk_schema(&name, "properties", &card["inputSchema"], &mut issues);
+        }
+        for card in scoped(&json!({"orgtree": {"team": false, "watchdogs": true}})) {
+            let name = format!("{} (watchdog-only)", card["name"].as_str().unwrap_or("<unnamed>"));
+            walk_schema(&name, "properties", &card["inputSchema"], &mut issues);
+        }
+        assert!(
+            issues.is_empty(),
+            "Strict tool-schema validation failed ({} issue(s)):\n{}",
+            issues.len(),
+            issues.join("\n")
+        );
+    }
+}
