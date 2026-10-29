@@ -30,6 +30,11 @@ pub const HEADERS_MAX: usize = 64;
 pub const HEADER_BYTES_MAX: usize = 64 * 1024;
 /// The bridge body a net.fetch call may use: the base64 body plus URL/headers.
 pub const BRIDGE_INPUT_MAX: usize = 1536 * 1024;
+/// The one User-Agent every app internet request carries, on every hop. Sites such as GitHub's API refuse a
+/// request without one, and Chromium strips an app's own, so the engine sets it. It is fixed and names nothing
+/// but Orgtree and its version: no user, computer, org, app or panel. An app cannot set or replace it
+/// (`header_forbidden`).
+pub const USER_AGENT: &str = concat!("Orgtree/", env!("CARGO_PKG_VERSION"));
 /// Declared sites per app, stored site choices per app, "Allow once" answers
 /// per app, and the per-app rate/concurrency the bridge enforces.
 pub const SITES_MAX: usize = 32;
@@ -105,13 +110,14 @@ pub fn cross_site_headers(headers: Vec<(String, String)>) -> Vec<(String, String
     }
 }
 
-/// Headers an app may never set: identity/routing the engine owns, and the
-/// hop-by-hop set reqwest manages. Matched case-insensitively.
+/// Headers an app may never set: identity/routing the engine owns (User-Agent
+/// among them), and the hop-by-hop set reqwest manages. Matched case-insensitively.
 #[nolog]
 pub fn header_forbidden(name: &str) -> bool {
     let n = name.to_ascii_lowercase();
     n == "cookie"
         || n == "host"
+        || n == "user-agent"
         || n == "content-length"
         || n == "connection"
         || n == "keep-alive"
@@ -466,7 +472,7 @@ fn test_route(_host: &str) -> Option<(SocketAddr, Vec<u8>)> {
 /// Make the request. `allow(host, port)` is the caller's current grant check; it
 /// is consulted for the initial URL and again for every redirect target, so a
 /// redirect can only reach a host the app is still granted. No cookie store, no
-/// proxy, no default headers, no engine credential; connection pinned to the
+/// proxy, no default headers but the fixed `USER_AGENT`, no engine credential; connection pinned to the
 /// vetted address; redirects followed by hand and re-checked; one deadline for
 /// the whole request, every hop and the body included.
 #[nolog]
@@ -507,7 +513,9 @@ pub async fn fetch(mut f: Fetch, allow: &(dyn Fn(&str, u16) -> bool + Sync)) -> 
         // reqwest is built WITHOUT the "cookies" feature, so there is no cookie
         // jar at all: no Cookie is sent and Set-Cookie is dropped. No proxy, no
         // Referer, https only, and the connection is pinned to the vetted address.
+        // The client is built per hop, so the fixed User-Agent goes out on every hop.
         let mut builder = reqwest::Client::builder()
+            .user_agent(USER_AGENT)
             .redirect(reqwest::redirect::Policy::none())
             .no_proxy()
             .referer(false)
