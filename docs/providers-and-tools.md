@@ -64,7 +64,7 @@ On Windows, the checked Antigravity CLI uses one Google sign-in in the user's Cr
 
 Account rows show identity, Active state, bound-agent count and relevant management actions. A missing or stale identity is not invented. Use **Organization settings > Accounts** to reserve account lanes for particular organizations; newly registered accounts start allowed unless you restrict them. Select an agent's binding in its Model settings when you intend a specific login.
 
-Removing a registered account is consequential: bindings/defaults can move to an eligible replacement or agents can remain frozen. The toast reports the result. Removing and recreating an account is not a way to refresh a stale usage display. For a capacity mark, **clear…** asks for a reason and checks that exact mark; clearing adds no allowance and resumes no agent.
+Removing a registered account is consequential: bindings/defaults can move to an eligible replacement or agents can remain frozen. The toast reports the result. Removing and recreating an account is not a way to refresh a stale usage display: failed usage refreshes already keep the last-good bars and their original observation age visible until the next successful read. For a capacity mark, **clear…** asks for a reason and checks that exact mark; clearing adds no allowance and resumes no agent.
 
 ### Automatic fallback and metered keys
 

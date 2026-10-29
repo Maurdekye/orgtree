@@ -80,7 +80,7 @@ Read the observation date, freshness and error alongside each bar:
 | Local server | No provider subscription limit reported; its own concurrency and server capacity still matter. |
 | Unavailable / stale | Capacity is unknown or dated. It is not zero usage or spare capacity. |
 
-A Refresh can be pending, rate-limited or fail while preserving old observations with their date. A paused usage service is different from rejected credentials. Muse obtains observations through turns, so its independent refresh stays disabled; **reset; awaiting reading** means the new allowance is unknown. A provider/network error alone is not proof that another sign-in is required.
+A Refresh can be pending, rate-limited or fail while keeping the last-good bars and their original `updated Xm ago` age visible alongside the pause or error notice until the next successful reading (only an account with no prior good reading shows `usage unavailable`). A paused usage service is different from rejected credentials. Muse obtains observations through turns, so its independent refresh stays disabled; **reset; awaiting reading** means the new allowance is unknown. A provider/network error alone is not proof that another sign-in is required.
 
 If Claude's usage service returns HTTP 429, automatic retries wait at least a minute and increase through 2, 4, 8 and 15 minutes when throttling repeats. A longer provider wait still applies; a successful reading resets the backoff. Repeated Refresh clicks cannot shorten the wait. Leave automatic retry running, and read old bars with their original date; a usage-service 429 alone does not require another sign-in.
 

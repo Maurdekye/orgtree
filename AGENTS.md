@@ -303,8 +303,12 @@ placement settings and bounded failure. See [rig seed timing](docs/rust-engine/t
 
 - Claude usage retries honor both the per-key minute floor and provider deadline;
   repeated 429s back off to 15 minutes, with only genuine success resetting them.
-  See [usage throttling](docs/agents/providers-and-accounts.md#claude-usage-throttling-backoff-2026-10-23-445).
-  [decided: coordinator 2026-10-23; verified: `usage.rs`]
+  Failed usage refreshes retain the last-good bars and original `observed_at` age
+  (`Usage::retain_last_good`, renderer hooks) until the next good read or
+  `reauth_required`/`unsupported` (in-memory for Claude/Codex/Antigravity/OpenRouter;
+  Muse in `ot.kv`). See [usage throttling](docs/agents/providers-and-accounts.md#claude-usage-throttling-backoff-2026-10-23-445)
+  and [retained usage readings](docs/agents/providers-and-accounts.md#retained-usage-readings-2026-10-29).
+  [decided: user 2026-10-29, coordinator 2026-10-23; verified: `usage.rs`, `openrouter.rs`, `canvas/accounts.tsx`]
 
 - Fresh Work/Presented openings use attention/unread, scoped last-viewed identity,
   then topmost. Continued readers and explicit links preserve their targets.
@@ -394,32 +398,15 @@ placement settings and bounded failure. See [rig seed timing](docs/rust-engine/t
 
 - CLI reuse, warming and idle rehosting follow turn placement and helper readiness; see [placement and warming](docs/agents/agent-runtime.md#cli-placement-and-warming-2026-10-22).
 
-- **A turn is mid-turn from its admission.** `start_turn` claims the mail and sets `inflight_at`, then
-  waits for the helper, starts the CLI and builds the ORG STATE; `begin_turn` sets `self.turn` last.
-  The published view's `starting` (turn slot held, no turn yet) covers that window and the chart reads
-  it as "▶ mid-turn". "Never finished — the engine stopped mid-turn" means a claimed turn with none
-  running or starting: judge a dead turn from `inflight_at` only together with `busy`/`starting`.
-  [verified: `runtime/actor.rs::{start_turn,runtime_value}`, `runtime/envelope.rs::live_from_view`; 2026-10-22]
+- **A turn is mid-turn from admission.** `start_turn` claims mail and sets `inflight_at`, waits for the helper, starts the CLI and builds ORG STATE; `begin_turn` sets `self.turn` last. Published `starting` (turn slot held, no turn yet) covers that window ("▶ mid-turn"). "Never finished — the engine stopped mid-turn" means a claimed turn with none running/starting: judge a dead turn from `inflight_at` only with `busy`/`starting`. [verified: `runtime/actor.rs::{start_turn,runtime_value}`, `runtime/envelope.rs::live_from_view`; 2026-10-22]
 
-- **Retry a conflicted write only through `ops::conflict_retry`** (`conflict_retry_when` for a writer with
-  its own conflict test, as account removal's 55P03). Up to `CONFLICT_ATTEMPTS` (10) tries, each after a
-  full-jitter exponential backoff (up to 20 ms, doubling to 1280 ms) and after its transaction rolled back;
-  the last conflicted try refuses (`UserError::Conflict`: nothing changed, retry it). Topology ops run
-  SERIALIZABLE, so concurrent ones conflict by design: three fixed 20/40/60 ms retries left 7 of 22
-  concurrent retires failing (2026-10-22, `tools/rig/proofs/retire-concurrent.mjs`).
-  [verified: `domain/{ops,audiences,undo,account_removal}.rs`; 2026-10-22]
+- **Retry conflicted writes only through `ops::conflict_retry`** (`conflict_retry_when` for custom conflict tests like account removal's 55P03). Up to `CONFLICT_ATTEMPTS` (10) tries after full-jitter exponential backoff (20..1280 ms) and rollback; the last try refuses (`UserError::Conflict`). SERIALIZABLE topology ops conflict by design (fixed 20/40/60 ms retries left 7/22 concurrent retires failing, 2026-10-22, `tools/rig/proofs/retire-concurrent.mjs`). [verified: `domain/{ops,audiences,undo,account_removal}.rs`; 2026-10-22]
 
-- **A Claude Code tool call that seems to hang may never have reached the engine.** Claude Code
-  (2.1.292) starts an MCP call without `readOnlyHint` only when no other call runs, and Orgtree sends
-  no annotations: a reply's state-changing Orgtree calls run one at a time, after every earlier call in
-  that reply, a foreground subagent included. Look for the call's `tools.call` in the engine log
-  before debugging the engine (22 retires, 2026-10-22: none arrived). Agent guidance lives in
-  `orgtree-harness-claude-code` (orgtree-app › harnesses).
-  [verified: live log 2026-10-22 19:38–19:40Z; Claude Code 2.1.292 tool executor]
+- **A Claude Code tool call that seems to hang may never have reached the engine.** Claude Code (2.1.292) starts an MCP call without `readOnlyHint` only when no other call runs, and Orgtree sends no annotations: a reply's state-changing Orgtree calls run one at a time after every earlier call in that reply, foreground subagents included. Check the engine log for `tools.call` first (22 retires, 2026-10-22: none arrived); see `orgtree-harness-claude-code` (orgtree-app › harnesses). [verified: live log 2026-10-22 19:38–19:40Z; Claude Code 2.1.292 tool executor]
 
-- **PostgreSQL never runs as administrator.** It refuses to, so on Windows `pg.rs` starts the postmaster only through `winproc::spawn_restricted`: `restricted_medium_token` (a Medium LUA token with every elevated group deny-only), its real pid, both log streams, `pg_ctl` stop and the engine's job. initdb restricts itself; keep `PG_RESTRICT_EXEC` cleared for it. Never start postgres.exe with the engine's own token: an elevated engine (Run as admin) keeps its rights for its agents only. Likewise, create every pipe that the user's own processes open (CLI stdio, the tool bridge, OpenCode mail) with `winproc::create_user_pipe`. An elevated engine's default pipe security would leave them read-only for the helper. See [decision 94](docs/rust-engine/run-on-boot.md#the-engine-stays-in-session-0-decision-94). [decided: coordinator 2026-10-21 22:51Z, the user's alpha.29 run; verified: `pg.rs`, `winproc.rs`; test `pg::rights_tests`]
+- **PostgreSQL never runs as administrator.** On Windows `pg.rs` starts the postmaster only through `winproc::spawn_restricted` (`restricted_medium_token`: Medium LUA token with elevated groups deny-only, real pid, log streams, `pg_ctl` stop and engine job); initdb restricts itself (`PG_RESTRICT_EXEC` cleared). Never pass the engine's token to `postgres.exe`, and create user-process pipes (CLI stdio, tool bridge, OpenCode mail) via `winproc::create_user_pipe` so an elevated engine never leaves them read-only for the helper. See [decision 94](docs/rust-engine/run-on-boot.md#the-engine-stays-in-session-0-decision-94). [decided: coordinator 2026-10-21 22:51Z, alpha.29; verified: `pg.rs`, `winproc.rs`; test `pg::rights_tests`]
 
-- **"Elevated" means what Windows and Task Manager say.** `token_rights` measures the engine, its boot host and the sign-in helper: Windows' own `TokenElevation`, Administrators enabled, or a High label; any one is elevated. `CreateRestrictedToken` without `LUA_TOKEN` leaves S-1-5-114 enabled, which Windows reads as elevated even at Medium; `LUA_TOKEN` alone keeps the High label. The restart notice reports the setting and the rights measured for the engine and its helper, never the setting alone. Tests run nothing elevated. See [run-on-boot.md](docs/rust-engine/run-on-boot.md#the-engine-stays-in-session-0-decision-94). [decided: user 2026-10-22 11:21Z-11:22Z; verified: `token_rights.rs`, `winproc.rs`, `domain/runtime_notices.rs`; tests `winproc::restricted_tests`]
+- **"Elevated" means what Windows and Task Manager say.** `token_rights` checks `TokenElevation`, Administrators enabled or High label on the engine, boot host and helper (`CreateRestrictedToken` without `LUA_TOKEN` leaves S-1-5-114 enabled; `LUA_TOKEN` alone keeps High). Restart notices report the setting and measured rights for engine and helper; tests run un-elevated. See [run-on-boot.md](docs/rust-engine/run-on-boot.md#the-engine-stays-in-session-0-decision-94). [decided: user 2026-10-22 11:21Z-11:22Z; verified: `token_rights.rs`, `winproc.rs`, `domain/runtime_notices.rs`; tests `winproc::restricted_tests`]
 
 - **The installer's tasks match their operator by SID, never by the COM name.** Task Scheduler's COM `Principal.UserId` gives the account NAME of a task registered by SID, while its XML keeps the SID. The Run as admin and Run on boot elevated scripts resolve the operator to a SID before they compare (`runasadmin.ts` `OPERATOR_FUNCTIONS`); what does not resolve, or a record without an operator, never matches. An elevated script's failure reaches the desktop only through `LastChangeFailure` in the protected HKLM Runtime key under the change's nonce, never a file the user can write (a planted link could redirect it). See [run-on-boot.md](docs/rust-engine/run-on-boot.md#tasks-and-the-installers-record). [verified: `apps/desktop/main/runasadmin.ts`, `runonstartup.ts`, the user's PC 2026-10-22 13:10Z; tests `tests/session-task-settings.test.mjs`]
 
