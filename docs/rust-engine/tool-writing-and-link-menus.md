@@ -99,6 +99,38 @@ Verification, measured in batch round 439 (2026-10-14):
   the finished dot and the dash, marked unavailable; the running call shows
   "33s" in both.
 
+## A finished call's live row leaves with its saved row (2026-10-29)
+
+Docket `a-finished-tool-call-s-live-writing-row-lingers-u`, found by the apps
+Short dry run (4.5.1): when a call's saved chip landed, its pencil row ("✎ 0s")
+stayed under it for 0.2-0.5 s, once about 3 s. The engine was right:
+`actor.rs stream()` puts the saved rows (`convo_rows`) and the calls still being
+written (`tool_writing`, `ToolWriting::active`, which `take` and a block stop
+both leave out) in ONE frame. `App.tsx` built `ingestStream`'s event from
+`convo_rows` and the clear flags but never passed `tool_writing`, so the frame
+path in `convo.ts` was dead on the wire and a live row changed only on the next
+HTTP poll. Two renderer rules now hold:
+
+- `App.tsx` forwards `tool_writing` whenever the frame carries the array
+  (`NodeStreamFrame` types it), so the saved row and the shortened writing list
+  install in one update, as the tests in `toolwriting.test.tsx` always assumed.
+- The desk's one-id-per-render guard (`events/dedup.ts`) answers a writing row to
+  its `tool_id` like a live tool row and a saved chip (`toolKey`), so a poll that
+  still lists a finished call's row cannot draw it beside the saved chip.
+
+Measured 2026-10-29 (red `76282e1`, fixes `4d659ca` and `d9410be`): renderer
+`toolwriting-wire` 0 pass / 2 fail at the red commit, 1/1 with the wire fix alone,
+2/2 at the tip; 140/140 with the neighbouring suites; test-lane tsc 1434 = 1434.
+Rig proof `tool-writing-desk.mjs` (real debug engine, fake Claude CLI, eight calls
+with and without a block stop and two written side by side; offscreen Electron in
+Session 0, audio muted, permissions refused, clipboard stubbed; a DOM sampler on
+every mutation and every 25 ms): the 4.5.1 renderer drew a call as both a saved chip
+and a live writing row in 7 of its 8 calls, for 166-423 ms each; the fixed renderer
+in 0 of 37 recorded states, with every call seen as a writing row and as a saved
+chip (the control that the sampler can see what it hunts). The engine and fake
+CLI binaries came from the 4.5.1 source (the engine is unchanged to this base). Not
+measured: a real CLI, a real GPU, paint timing beyond the 30 fps offscreen frame.
+
 ## Earlier timing contract (historical wording; refinements above supersede it)
 
 Claude-compatible `content_block_start` tool-use events begin an observed clock
