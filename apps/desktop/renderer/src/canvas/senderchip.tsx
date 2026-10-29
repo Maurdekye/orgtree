@@ -4,6 +4,7 @@
 // the same chip (user 2026-09-29: bodies identical to their own detail views).
 
 import { agentNavProps, agentTooltipProps } from './agentnav'
+import { HubContactChip, isHubAddress } from './agentmentions'
 import { TierChip, nodeTierOf } from './identity'
 import { SYSTEM, tierLabel, USER } from './shared'
 import type { TreeNode } from '../types'
@@ -15,6 +16,8 @@ export function SenderChip({ id, nodes, onFocusAgent }: {
 }) {
   if (id === SYSTEM || id === 'system') return <b className="dim">system</b>
   if (id === USER) return <b>you</b>
+  // an outside party is the shared Hub contact link, as in every other pane
+  if (isHubAddress(id)) return <HubContactChip address={id} />
   const n = nodes.get(id)
   // ⚠ ONLY AN ESTABLISHED LOCAL NODE NAVIGATES: a name this tree does not hold
   // stays readable and loses a route that was never there.

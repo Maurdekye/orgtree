@@ -78,7 +78,7 @@ import { openReaders, pickReader } from './readers'
 import { ForegroundViewContext, mailRefTarget, useRefRoutes } from './reflinks'
 import type { ResolvedRef } from './reflinks'
 import type { TypedRef } from './workrefs'
-import { liveMentionCandidatesFromTree, noteKnownOrg, setOrgMentionCandidates } from './agentmentions'
+import { liveMentionCandidatesFromTree, noteKnownOrg, registerOrgInboxOpener, setOrgMentionCandidates } from './agentmentions'
 import { setNetRoster } from './netmentions'
 import { NodeInboxModal, OrgInboxModal } from './mail'
 import { AgentDocketModal } from './agentdocket'
@@ -613,6 +613,9 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
   // the org-mail a link or a reference targets — a REQUEST, so a repeat
   // click on the same row is a second request (`jumpKey`)
   const [oiJump, setOiJump] = useState<{ id: string; seq: number } | null>(null)
+  // "Open in org inbox" on a Hub contact link: the panel's view of one
+  // address, also a REQUEST. A jump and an address view replace each other.
+  const [oiParty, setOiParty] = useState<{ address: string; seq: number } | null>(null)
   // the lineage panel is not rendered in Orgtree 4 (ledger B1), so its one
   // id stays the single-target toggle it always was
   const toggleLineage = useCallback((id: string, keepOpen = false) => {
@@ -1083,6 +1086,17 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
   const renameLists = useRef<((from: string, to: string) => void)[]>([])
   renameLists.current = [...instanceLists, agentReaders, teamReaders].map(list => list.rename)
   useEffect(() => { if (tree.org_inbox?.enabled === false) setOiOpen(false) }, [tree.org_inbox?.enabled])
+  // every Hub contact link of this window reaches the org inbox through here
+  // (agentmentions.tsx `hubAddressMenuEntries`); closed off, the entry says so
+  const orgInboxClosed = tree.org_inbox?.enabled === false
+  useEffect(() => registerOrgInboxOpener({
+    closed: orgInboxClosed,
+    open: (address) => {
+      setOiJump(null)
+      setOiParty({ address, seq: jumpTo(address).seq })
+      toggleOrRaiseModal('org-inbox', true, setOiOpen, slug, true)
+    },
+  }), [slug, orgInboxClosed])
   usePersistedModalOpen('org-inbox', slug, oiOpen)
   usePersistedModalOpen('agent-list', slug, trayOpen)
   useEffect(() => {
@@ -1162,6 +1176,7 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
       setInboxSeen(nw)
       onInbox?.(m.id)
     } else if (String(m.to).startsWith('@')) {
+      setOiParty(null)
       setOiJump({ id: String(m.id), seq: jumpTo(String(m.id)).seq })
       setOiOpen(true)
     } else if (map.has(m.to)) {
@@ -5106,11 +5121,11 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
       )}
       {oiOpen && tree.org_inbox?.enabled !== false && (
         <MaybePortal><OrgInboxModal inbox={tree.org_inbox} net={tree.net} map={map} slug={slug} toast={toast}
-          jumpTo={oiJump?.id ?? null} jumpSeq={oiJump?.seq}
+          jumpTo={oiJump?.id ?? null} jumpSeq={oiJump?.seq} party={oiParty}
           refs={canvasRefs}
           onFocusAgent={centerOn}
           close={() => {
-            setOiOpen(false); setOiJump(null)
+            setOiOpen(false); setOiJump(null); setOiParty(null)
             // closing the panel acknowledges the whole log (same idiom as the
             // eye's glow: opening acknowledges attention)
             if (tree.org_inbox?.unread) orgInboxRead(slug).catch(() => {})

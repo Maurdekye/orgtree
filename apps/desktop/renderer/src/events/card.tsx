@@ -24,6 +24,7 @@ import { StructuredJson } from '../canvas/structuredjson'
 import { EXTERNAL_NOTE, EXTERNAL_TAG, appEventParts, fireActionParts, fireLineParts } from './firelines'
 import type { FirePart } from './firelines'
 import { IdleDocketCards } from './idledocket'
+import { HubContactChip, isHubAddress } from '../canvas/agentmentions'
 
 const FAMILY_MARK: Record<Family, string> = {
   ordinary: 'Message', linked_reply: 'Reply', assignment: 'Assignment', review: 'Review',
@@ -213,6 +214,10 @@ export function EventCard({ row, profile, org, preview = false, actor, part, hea
       <span className="event-actor" data-actor-kind={event.actor.kind}>
         {selfStatus || selfDog ? <ObjectLabel event={event} org={org} world={content.world} onOpen={content.onOpen} />
           : event.actor.kind === 'agent' && actor ? actor(event.actor.id)
+          // an outside party on the hub is the one Hub contact link on every
+          // surface, whatever the surface's agent renderer would draw (USER
+          // 2026-10-29 m14ad537c5eb8: header addresses are links too)
+          : event.actor.kind === 'external' && isHubAddress(event.actor.id) ? <HubContactChip address={event.actor.id} />
           : event.actor.kind === 'system' ? 'System' : event.actor.kind === 'user' ? 'User' : event.actor.id}
       </span>
       {!selfStatus && !selfDog && <ObjectLabel event={event} org={org} world={content.world} onOpen={content.onOpen} />}

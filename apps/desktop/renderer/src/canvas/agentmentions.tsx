@@ -813,15 +813,39 @@ export function triggerHubAddress(address: string, extraLocalOrgs?: ReadonlySet<
   return false
 }
 
+/** An address in the hub's namespaces: wherever it names a party, it is drawn as `HubContactChip`. */
+export const isHubAddress = (id: string): boolean => id.startsWith('@net:') || id.startsWith('@org:')
+
+/** The link's other destination, the org inbox's view of the address (USER 2026-10-29 m14ad537c5eb8
+ *  "these addresses should also be embedded hubchat / outbox links"). The canvas that owns this
+ *  window's org inbox panel registers it; pins and pop-outs render in the same realm, so every
+ *  surface of the window reaches it. `closed` is the org's Closed off inbox mode. */
+export interface OrgInboxOpener { closed: boolean; open: (address: string) => void }
+let orgInboxOpener: OrgInboxOpener | null = null
+export const ORG_INBOX_CLOSED_TOOLTIP = 'The org inbox is closed off'
+
+/** Register this window's org inbox; the returned function unregisters it. The latest registration wins. */
+export function registerOrgInboxOpener(opener: OrgInboxOpener): () => void {
+  orgInboxOpener = opener
+  return () => { if (orgInboxOpener === opener) orgInboxOpener = null }
+}
+
 /** One contact identity menu, including its local-org resolution. Mention is
- * captured only from a real composer; Open never changes installation state. */
+ * captured only from a real composer; Open never changes installation state.
+ * Open in org inbox is offered where a canvas registered this window's org
+ * inbox: a window without one (no org on screen) has no inbox to open, so the
+ * entry is left out there instead of shown dead. A local org keeps its own
+ * org menu. */
 export function hubAddressMenuEntries(anchor: Element, address: string): MenuEntry[] {
   const action = resolveHubAddressAction(address)
   if (action.kind === 'org') return orgMenuEntries(anchor, action.slug, () => { triggerHubAddress(address) })
   const mention = captureDeskMentionAt(anchor, address)
+  const inbox = orgInboxOpener
   return [...(mention ? [{ label: 'Mention', onSelect: mention }] : []),
     { label: 'Open in Hubchat', disabled: action.kind === 'inert', title: action.kind === 'inert' ? action.title : undefined,
       onSelect: () => { triggerHubAddress(address) } },
+    ...(inbox ? [{ label: 'Open in org inbox', disabled: inbox.closed, title: inbox.closed ? ORG_INBOX_CLOSED_TOOLTIP : undefined,
+      onSelect: () => { if (!inbox.closed) inbox.open(address) } }] : []),
     { label: 'Copy identity', title: address, onSelect: () => { void copyToClipboard(anchor, address) } }]
 }
 

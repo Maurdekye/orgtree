@@ -81,6 +81,9 @@ export interface MailListProps {
   /** Org outbox attribution owns the header's left side; metadata trails it. */
   compoundHeader?: boolean
   selectionRequest?: InboxSelectionRequest
+  /** a filter the host asks for (the org inbox's view of one address): set
+   *  in the filter box on mount and on each new seq, then the reader's own */
+  filterRequest?: { text: string; seq: number } | null
   hiddenUnread?: {count:number;onOpen:()=>void}
   hideMailReplyKind?: boolean
   /** a project's own mailbox (projectdesk.tsx): every row that has chips
@@ -214,7 +217,7 @@ export function MailList({ org, pending = [], delivered = [], waitLabel, sender,
   outgoing, onRead, onReply, onAckJob, replyConversation, canReply: canReplyTo, onRetract, onDeleteUserMail, jumpTo, jumpSeq, selectOldestUnread, restoreSelectionId, onOpenMail, lookup, onFound,
   askState, onAskRetry, fileHref, mdBase, renderBody, rowMark,
   onFocusAgent, tierOf, hasAgent, refs, refOf, toast, collapsible, tagFilter, onLoadMore, hasMore, loadingMore, hideMailReplyKind,selectionRequest,hiddenUnread,
-  projectMail }: MailListProps) {
+  projectMail, filterRequest }: MailListProps) {
   // ONE order, by send time, always — never grouped, never re-grouped.
   //
   // Unread used to sort as its own block on top, which meant the list
@@ -311,7 +314,9 @@ export function MailList({ org, pending = [], delivered = [], waitLabel, sender,
   }, [jumpTo, jumpSeq])
   // №26: hunting an hour-old message decayed your unread set click by click —
   // a plain client-side filter over sender+body, no index, no server
-  const [q, setQ] = useState('')
+  const [q, setQ] = useState(filterRequest?.text ?? '')
+  const filterSeq = filterRequest?.seq
+  useEffect(() => { if (filterRequest) setQ(filterRequest.text) }, [filterSeq])   // eslint-disable-line react-hooks/exhaustive-deps
   // windowed like the transcript: a long-lived org's folders grow without
   // bound and every row is a live DOM node. Newest MAIL_WINDOW render, the
   // rest page in. ⚠ the filter runs over the WHOLE set before the window, so
@@ -1975,10 +1980,17 @@ interface OrgInboxModalProps {
   /** canonical references in org-mail bodies, forwarded to the lists */
   refs?: { world: RefWorld; onOpen?: (r: ResolvedRef) => void }
   onFocusAgent?: (agentId: string) => void
+  /** "Open in org inbox" on a Hub contact link: this address's mail, filtered
+   *  to it, on the folder of the newest mail exchanged with it and that mail
+   *  selected. A REQUEST like a jump: a new seq is a new one. */
+  party?: { address: string; seq: number } | null
 }
 
+const sameAddress = (a: string, b: string) => a.trim().toLowerCase() === b.trim().toLowerCase()
+const entryFolder = (e: OrgInboxEntry) => e.dir === 'out' ? 'sent' : 'inbox'
+
 export function OrgInboxModal({ inbox, net, map, slug, toast, close, jumpTo,
-  jumpSeq, refs, onFocusAgent }: OrgInboxModalProps) {
+  jumpSeq, refs, onFocusAgent, party }: OrgInboxModalProps) {
   // reworked (user spec 2026-08-05): no blurb, mailservers on their own TAB,
   // holders as bare chips with a drag-to-grant tip
   const [tab, setTab] = useState<'mail' | 'servers'>('mail')
@@ -2063,6 +2075,31 @@ export function OrgInboxModal({ inbox, net, map, slug, toast, close, jumpTo,
   }))
   const inn = rows.filter((r) => r.kind === 'message')
   const out = rows.filter((r) => r.kind === 'reply')
+  // THE ADDRESS VIEW. The newest LOADED mail exchanged with the address picks
+  // the folder and the selection: the preview first, then the fetched log, so
+  // a mail only the log holds still lands when it arrives. The filter is set
+  // once per request; the two folders are one list, so it holds in both, and
+  // once edited it is the reader's own filter.
+  let partyHit: OrgInboxEntry | undefined
+  if (party) for (let i = entries.length - 1; i >= 0 && !partyHit; i--) {
+    if (sameAddress(entries[i]!.peer, party.address)) partyHit = entries[i]
+  }
+  const partyKey = party ? `${party.seq}:${partyHit?.id ?? ''}` : null
+  const partyApplied = useRef<string | null>(null)
+  const [partyFilter, setPartyFilter] = useState<{ text: string; seq: number } | null>(null)
+  useEffect(() => {
+    if (!party || !partyKey || partyApplied.current === partyKey) return
+    const fresh = !partyApplied.current?.startsWith(`${party.seq}:`)
+    partyApplied.current = partyKey
+    setTab('mail')
+    setFolder(partyHit ? entryFolder(partyHit) : 'inbox')
+    if (fresh) setPartyFilter({ text: party.address, seq: party.seq })
+  }, [partyKey])   // eslint-disable-line react-hooks/exhaustive-deps
+  // the selection goes to the folder that holds the mail, never the other one
+  const partyJump = party && partyHit && entryFolder(partyHit) === folder
+    ? { id: partyHit.id, seq: party.seq } : null
+  const listJump = partyJump?.id ?? jumpTo
+  const listJumpSeq = partyJump ? partyJump.seq : jumpSeq
   const markRead = () => {
     if (!inbox?.unread) return
     const len = logLen                  // captured BEFORE the round trip
@@ -2153,8 +2190,8 @@ export function OrgInboxModal({ inbox, net, map, slug, toast, close, jumpTo,
                 ? <MailList org={slug} pending={inn.filter((r) => r._wait0)}
                     collapsible
                     delivered={inn.filter((r) => !r._wait0)}
-                    waitLabel="unread" onRead={markRead} jumpTo={jumpTo}
-                    jumpSeq={jumpSeq} refs={refs} lookup={orgLookup} toast={toast}
+                    waitLabel="unread" onRead={markRead} jumpTo={listJump}
+                    jumpSeq={listJumpSeq} filterRequest={partyFilter} refs={refs} lookup={orgLookup} toast={toast}
                     refOf={(m) => m.id ? refToken({ kind: 'mail', org: slug, box: 'org', id: m.id }) : null}
                     /* ⚠ AN INCOMING ORG-INBOX SENDER IS EXTERNAL BY
                        PROVENANCE, AND A NAME MATCH IS NOT EVIDENCE OTHERWISE.
@@ -2168,9 +2205,9 @@ export function OrgInboxModal({ inbox, net, map, slug, toast, close, jumpTo,
                        `_by` is recorded locally as the agent that sent, so it
                        stays eligible.) */
                     sender={(id) => (id.startsWith('@net:') || id.startsWith('@org:')) ? <HubContactChip address={id} /> : <b>{id}</b>} />
-                : <MailList org={slug} delivered={out} outgoing compoundHeader jumpTo={jumpTo}
+                : <MailList org={slug} delivered={out} outgoing compoundHeader jumpTo={listJump}
                     collapsible
-                    jumpSeq={jumpSeq} refs={refs} lookup={orgLookup} toast={toast}
+                    jumpSeq={listJumpSeq} filterRequest={partyFilter} refs={refs} lookup={orgLookup} toast={toast}
                     rowMark={glyph}
                     /* the list row names the RECIPIENT only — the pane's
                        "@agent as @org → @recipient" line is three identities
