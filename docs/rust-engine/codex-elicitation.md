@@ -27,6 +27,12 @@ forms to 32 properties/128 choices per field. Unknown modes, unsupported
 nonprimitive schemas/constraints, malformed labels/defaults and unsafe URL
 schemes fail closed. No new setting/menu.
 
+An unrestricted seat (bypassPermissions with write access) is started with
+approvalPolicy `never`, so Codex answers these requests itself and no card is
+raised for it, computer-use app access included (USER 2026-10-29
+m0677fedef18b; [DECISIONS](DECISIONS.md), `runtime/codex.rs` `sandbox`). Every
+other seat still gets the card.
+
 Pending requests and answers live only in memory and are not persisted across
 an engine restart. Request handlers and answer processing do not log submitted
 fields. The HTTP wire logger omits answer bodies before authentication, including
