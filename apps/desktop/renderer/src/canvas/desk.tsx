@@ -625,12 +625,15 @@ export function deriveAgentVisualState(node: {
   }
 
   // 5. Error fallback (last_error without reported status)
-  // On normal cards, an idle agent with last_error keeps normalClass: 'idle', normalLabel: 'Idle'
-  // and renders an errdot badge. At far zoom, farKind is 'errored' to present the singular error icon.
+  // An idle agent with last_error is idle on EVERY form: the norm node, the
+  // mini node and the agent tray all say Idle and carry the one shared
+  // `ErrorDot` with the error text (UX symmetry audit #24, ux06 S5; the mini
+  // node used to swap in the Error icon here while the other two said Idle).
+  // A REPORTED error status (step 4) still shows Error everywhere.
   if (node.last_error) {
     return {
       kind: 'idle',
-      farKind: 'errored',
+      farKind: 'idle',
       normalClass: 'idle',
       normalLabel: stateLabel('idle'),
       label: stateLabel('idle'),
@@ -647,6 +650,15 @@ export function deriveAgentVisualState(node: {
     label: stateLabel('idle'),
     turnState,
   }
+}
+
+/** THE ERROR MARKER: the small red dot whose hover is the agent's last error.
+ *  One component for every agent form - the norm node's meta row, the mini
+ *  node's idle icon and the agent tray row - so the same agent reads the same
+ *  everywhere (UX symmetry audit #24). Nothing without an error. */
+export function ErrorDot({ error }: { error?: string | null }) {
+  if (!error) return null
+  return <span className="errdot" title={error} />
 }
 
 /** Unified workstate presentation for NodeSquare. Subscribes to ageClockSecond
@@ -820,6 +832,8 @@ export function TrayStatus({ node, turn, live = true }: {
           {ago(turn.at)}
         </span>
       )}
+      {/* the norm node's marker, in the norm node's order: state, age, error */}
+      <ErrorDot error={node.last_error} />
     </span>
   )
 }

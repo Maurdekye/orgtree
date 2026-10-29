@@ -42,7 +42,7 @@ import type {
   Pt,
 } from './shared'
 import {
-  AgentWorkstate, ContextWheel, deriveAgentVisualState, deriveTurnState, isUsageFrozen, DeskChat, DestinationBusy, LastTurnAge,
+  AgentWorkstate, ContextWheel, deriveAgentVisualState, deriveTurnState, isUsageFrozen, DeskChat, DestinationBusy, ErrorDot, LastTurnAge,
   MapModeIndicator, MapTurnAge, RouteBadge, ServingAccountBadge,
 } from './desk'
 import { EffortLevelBadge, QueuedEffortBadge } from './effort'
@@ -1589,7 +1589,12 @@ export function FarZoomStateIcon({ node }: { node: CanvasNode }) {
       break
     case 'idle':
     default:
-      stateIcon = <div className="sq-far-icon idle" role="img" aria-label="Idle" title="Idle" />
+      // An idle agent with a last error keeps the idle ring and carries the
+      // shared error marker inside it - still ONE state icon - exactly as the
+      // norm node says Idle beside the same marker (symmetry audit #24)
+      stateIcon = <div className="sq-far-icon idle" role="img" aria-label="Idle" title="Idle">
+        <ErrorDot error={node.last_error} />
+      </div>
       break
   }
   return <>
@@ -1931,7 +1936,7 @@ export function NodeSquare({ node, pos, lod, focused: deskOpen, dragging, isDrop
               </>
             )}
           </div>
-          {node.last_error && <span className="errdot" title={node.last_error ?? undefined} />}
+          <ErrorDot error={node.last_error} />
         </div>
       </div>}
       {/* far-zoom mini cards are locators: the hover shortcuts scale UP

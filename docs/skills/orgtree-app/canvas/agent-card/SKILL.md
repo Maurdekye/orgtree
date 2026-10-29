@@ -20,7 +20,7 @@ At ordinary overview zoom, a card has identity, state and shortcut rows. Its tie
 | DND / DND next turn | Active Do Not Disturb, or an idle armed next-turn hold. The opening batch is admitted normally before an armed hold activates. Clear it from the desk header, or through self/authorized superior status.dnd; clearing triggers native delivery immediately. The badge itself is display-only. |
 | Frozen badge and countdown | Provider/limit interruption; an inferred marker qualifies the account/tier observation. Read the tooltip's reason. |
 | Done/blocked/idle summary and age | The recorded agent status and time since the last completed turn ended, not an independent verification of its task. See the [desk clock rules](../../desk/agent-desk/SKILL.md#header-controls) for legacy and active references. |
-| Error dot | Last recorded error; hover for the text. |
+| Error dot | Last recorded error; hover for the text. An idle agent with an unreported error reads Idle with this dot everywhere: on the card, on the far-zoom idle icon and in the agent tray. A reported error status reads Error. |
 | Archived/unrecoverable label | The seat is not an ordinary live worker; do not infer its history was deleted. |
 | Pinned | Its desk is hosted in a canvas window; focusing can raise that window. |
 | Secondary serving-account badge | The account actually serving the turn when supplied; ambient/default serving accounts do not get this badge. Display-only, with its account/email tooltip also accessible by keyboard focus. |

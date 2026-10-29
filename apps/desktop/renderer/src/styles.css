@@ -1149,6 +1149,18 @@ button.badge.audience-fold.alert {
   border-radius: 50%;
   background: transparent;
   border: 5px solid #8a8a8a;
+  position: relative;
+}
+/* the norm node's error marker (.errdot) on the far-zoom idle ring, scaled
+   with the far-zoom icon set: an idle agent with a last error reads the same
+   at every zoom and in the tray (symmetry audit #24) */
+.sq-far-icon.idle > .errdot {
+  position: absolute;
+  top: -9px;
+  right: -9px;
+  width: 20px;
+  height: 20px;
+  margin: 0;
 }
 .sq-far-icon.blocked {
   width: 44px;
