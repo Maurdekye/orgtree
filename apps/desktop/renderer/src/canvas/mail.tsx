@@ -1989,6 +1989,27 @@ interface OrgInboxModalProps {
 const sameAddress = (a: string, b: string) => a.trim().toLowerCase() === b.trim().toLowerCase()
 const entryFolder = (e: OrgInboxEntry) => e.dir === 'out' ? 'sent' : 'inbox'
 
+/** One org-inbox log entry as the row both folders read: received mail
+ *  (`dir` in) is a `message` from its peer, sent mail a `reply` to it, with
+ *  the org's own sender in `_by`. Listed rows and a lookup by id both come
+ *  through here, so a message found outside the loaded window reads exactly
+ *  like a listed one. `unread`: the row is past the read mark. */
+function orgInboxRow(e: OrgInboxEntry, slug: string, unread: boolean): MailRow {
+  return {
+    id: e.id, at: e.at, body: e.body, from: e.peer, to: e.peer, _by: e.by,
+    kind: e.dir === 'in' ? 'message' : 'reply', _wait0: unread,
+    _state: e.state, _state_at: e.state_at, _tries: e.tries, _err: e.last_err,
+    attachments: e.attachments?.map((a) => ({ ...a, path: a.name })),
+    relationship: e.dir === 'in'
+      ? 'outside party — addressed to the whole org' : undefined,
+    // the quote of what it answers; a bare hub reference (a message this
+    // org never had) shows nothing
+    reply_to: e.reply_to?.gist ? { id: e.reply_to.id ?? '', kind: 'mail', box: 'org', org: slug,
+      from: e.reply_to.from ?? '', at: e.reply_to.at ?? '', gist: e.reply_to.gist } : undefined,
+    replies: e.replies,
+  }
+}
+
 export function OrgInboxModal({ inbox, net, map, slug, toast, close, jumpTo,
   jumpSeq, refs, onFocusAgent, party }: OrgInboxModalProps) {
   // reworked (user spec 2026-08-05): no blurb, mailservers on their own TAB,
@@ -2011,8 +2032,15 @@ export function OrgInboxModal({ inbox, net, map, slug, toast, close, jumpTo,
   // ⚠ THE ORG LOG IS WINDOWED AT 100, so a reference to an older row landed
   // on 'not in this folder' — a claim about the message made from a slice.
   // One id, asked once, only when that happens.
+  //
+  // ⚠ THE ANSWER IS AN ORG-INBOX ENTRY, NOT A MAIL ROW. The engine answers an
+  // org-box lookup with the entry GET org_inbox lists ({dir, peer, by}), so it
+  // is mapped exactly as a listed row is. Cast instead, it had no `from` or
+  // `to`, and reading it called the sender renderer with nothing: the neoja
+  // org's Received tab stopped the whole frontend (user bug 2026-10-29).
   const orgLookup = useCallback(
-    (id: string) => getMailById(slug, 'org', id).then((r) => r.mail as MailRow | null),
+    (id: string) => getMailById(slug, 'org', id)
+      .then((r) => r.mail ? orgInboxRow(r.mail as unknown as OrgInboxEntry, slug, false) : null),
     [slug])
   const [loadErr, setLoadErr] = useState<string | null>(null)
   const [reload, setReload] = useState(0)
@@ -2060,19 +2088,7 @@ export function OrgInboxModal({ inbox, net, map, slug, toast, close, jumpTo,
   // expression whenever `entries` is the whole log, and correct when it is
   // not — row `i` sits at log index `logLen - entries.length + i`.
   const readFrom = unreadFrom - logLen + entries.length
-  const rows: MailRow[] = entries.map((e, i) => ({
-    id: e.id, at: e.at, body: e.body, from: e.peer, to: e.peer, _by: e.by,
-    kind: e.dir === 'in' ? 'message' : 'reply', _wait0: i >= readFrom,
-    _state: e.state, _state_at: e.state_at, _tries: e.tries, _err: e.last_err,
-    attachments: e.attachments?.map((a) => ({ ...a, path: a.name })),
-    relationship: e.dir === 'in'
-      ? 'outside party — addressed to the whole org' : undefined,
-    // the quote of what it answers; a bare hub reference (a message this
-    // org never had) shows nothing
-    reply_to: e.reply_to?.gist ? { id: e.reply_to.id ?? '', kind: 'mail', box: 'org', org: slug,
-      from: e.reply_to.from ?? '', at: e.reply_to.at ?? '', gist: e.reply_to.gist } : undefined,
-    replies: e.replies,
-  }))
+  const rows: MailRow[] = entries.map((e, i) => orgInboxRow(e, slug, i >= readFrom))
   const inn = rows.filter((r) => r.kind === 'message')
   const out = rows.filter((r) => r.kind === 'reply')
   // THE ADDRESS VIEW. The newest LOADED mail exchanged with the address picks
