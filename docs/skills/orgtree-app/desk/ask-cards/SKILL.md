@@ -16,7 +16,7 @@ Options support single or multiple selection according to the card, with free te
 
 ## Folding a card
 
-Question and request cards, open or resolved, fold from the chevron at the left of the header; a click elsewhere on the header row does the same. A folded card keeps one line: the asking agent, the linked docket item and the question's first line, or the names of its tabs. Its answer controls and its dismiss button are hidden, so folding never answers, skips or dismisses, and a draft survives it. The fold belongs to the request: every surface showing the card follows it, and it is remembered across reloads and restarts. An amended folded card stays folded and is marked changed until expanded. MCP permission and native question cards do not fold; they expire after five minutes.
+Question and request cards, open or resolved, fold from the chevron at the left of the header; a click elsewhere on the header row does the same. A folded card keeps one line: the asking agent, the linked docket item and the question's first line (with clickable mention chips that open their destination without unfolding the card), or the names of its tabs. Its answer controls and its dismiss button are hidden, so folding never answers, skips or dismisses, and a draft survives it. The fold belongs to the request: every surface showing the card follows it, and it is remembered across reloads and restarts. An amended folded card stays folded and is marked changed until expanded. MCP permission and native question cards do not fold; they expire after five minutes.
 
 ## Mixed batches
 
