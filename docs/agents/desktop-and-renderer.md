@@ -146,6 +146,23 @@ Audit findings from the ranked UX symmetry list (`_teams/601/release-review-450/
   identities and their order; the 50-target bound is unchanged. [verified:
   `canvas/{desk,projectdesk,mailreply,replypreview}.tsx`,
   `tests/{multireply,projectdeskparity}.test.tsx`]
+- **Project node's mail-queue badge:** it opens the project's mailbox window at
+  the folder its desk header's queue card opens, `mailQueueFolder` (the
+  listeners folder while any mail listener is armed, else the inbox). S5 #49
+  had sent it to the EVENTS window, which lists event listeners, not the
+  fair_queue ones (USER 2026-10-29 22:40:18Z mda6e09d98e04). `ProjectSquare`'s
+  `onInbox(keepOpen, folder)` hands the folder up; `OrgCanvas` keeps it as a
+  request while that mailbox window is open and `ProjectInboxModal` takes it as
+  `folder`, a new `seq` being a new request. The event-listener badges still
+  open the events window, as the desk's Listeners tab does. [verified:
+  `canvas/{listeners,projectcard,projectdesk,OrgCanvas}.ts*`,
+  `tests/{projectqueuebadge,projectbadges}.test.tsx`; capture
+  `PROJECTNODE_VISUAL_ONLY=queue-badge` in `tests/projectnode-visual.cjs`]
+- **Switchboard hire strip:** the YOU eye clears its expanded hire strip when
+  the pointer leaves the card, as an agent's and a project's do (USER 2026-10-29
+  22:42:05Z m71f428e3e25c). The first-use guide's token step keeps it open
+  through `guideHire`, not through that state. [verified: `canvas/cards.tsx`,
+  `tests/switchboardhire.test.tsx`]
 
 ## Request cards fold (2026-10-29, 4.5.2)
 
