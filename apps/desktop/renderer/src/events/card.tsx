@@ -16,8 +16,6 @@ import { RefChip, resolveRef } from '../canvas/reflinks'
 import type { RefWorld, ResolvedRef } from '../canvas/reflinks'
 import type { TypedRef } from '../canvas/workrefs'
 import { md } from '../canvas/shared'
-import { useDogRoute } from '../canvas/deskdogs'
-import { WATCHDOG_CARD_LIMIT } from '../canvas/watchdoggroup'
 import { WatchdogLink } from '../canvas/watchdoglink'
 import { AnsweredAsk, AnsweredCard, ResolvedSections, batchAskQuestions, resolvedSectionKinds } from './answered'
 import { StructuredJson } from '../canvas/structuredjson'
@@ -95,19 +93,7 @@ function FireBody({ event, fields, ...props }: ValueProps & { event: DogFire; fi
   })}</>
 }
 function WatchdogObjectLabel({ object }: { object: Extract<NonNullable<Event['object']>, { kind: 'watchdog' }> }) {
-  const route = useDogRoute()
-  const id = object.id.includes('/') ? object.id : `${object.owner}/${object.id}`
-  const sameOrg = route?.org === object.org
-  const match = sameOrg ? route.dogs.find(candidate => candidate.id === id) : undefined
-  const spent = Boolean(match && (match.spent || match.state === 'spent'))
-  const dog = match && !spent ? match : undefined
-  const owner = object.owner || (id.includes('/') ? id.split('/')[0]! : '')
-  const partialOwner = sameOrg && Boolean(owner) && (route.counts?.[owner]?.total ?? 0) > WATCHDOG_CARD_LIMIT
-  const gone = sameOrg && (spent || (!match && !partialOwner))
-  return <WatchdogLink dog={dog} id={id} name={object.name} org={object.org}
-    stale={gone} className={gone ? 'event-watchdog-gone' : ''} countdown>
-    {object.name}{gone && <span className="dim"> (no longer exists)</span>}
-  </WatchdogLink>
+  return <WatchdogLink id={object.id} owner={object.owner} name={object.name} org={object.org} countdown />
 }
 export function eventReference(event: KnownEvent, enclosingOrg: string): TypedRef | null {
   const object = event.object

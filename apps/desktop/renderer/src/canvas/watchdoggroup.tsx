@@ -6,14 +6,16 @@ import { ModalOverPins } from './modalpin'
 import { useEsc } from './shared'
 import { WatchdogLink } from './watchdoglink'
 import { WatchdogSatellite } from './watchdogchip'
+import { WATCHDOG_CARD_LIMIT } from './watchdogroute'
+import type { WatchdogCount } from './watchdogroute'
 import { DOG_W, DOG_H } from './shared'
 import { liveRevision, onLiveBump } from '../livebus'
 import { useSurfaceDocument } from '../popout'
 
-export const WATCHDOG_CARD_LIMIT = 8
+export { WATCHDOG_CARD_LIMIT } from './watchdogroute'
+export type { WatchdogCount } from './watchdogroute'
 export const WATCHDOG_GROUP_W = 104
 export const WATCHDOG_PAGE_SIZE = 50
-export interface WatchdogCount { total: number; kept: number; one_shot: number }
 
 /** Counts come from the feed, never from a possibly partial preview. */
 export function watchdogGroups(dogs: Watchdog[], counts: Record<string, WatchdogCount> = {}) {

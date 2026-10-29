@@ -55,8 +55,8 @@ function TicketRef({ org, id, onOpen }: { org: string; id: string; onOpen?: Work
  *  card for the watchdog it creates or manages. Clicking inside never folds
  *  the call (the header row is the fold's own button). An agent that is not in
  *  the directory (a typo, a name that never existed) gets no link, and a
- *  watchdog that has since fired or been removed keeps a muted card that opens
- *  nothing — the cheaper of the two options the ticket allowed. */
+ *  watchdog that has since fired or been removed shows the shared gone chip
+ *  with "(no longer exists)" and its stale copy menu, matching event cards. */
 export function ToolRefs({ refs, owner, agent, org, onWorkLink, modelChanges = false }: {
   refs: NonNullable<ToolChip['refs']>; owner: string; agent: (id: string) => ReactNode
   org: string; onWorkLink?: WorkLinkFn; modelChanges?: boolean
@@ -82,7 +82,7 @@ export function ToolRefs({ refs, owner, agent, org, onWorkLink, modelChanges = f
       </span>
       // `owner/uid` names a team member's dog; a bare id is this agent's own
       const handle = r.id.includes('/') ? r.id : `${owner}/${r.id}`
-      return <WatchdogLink key={'w'+handle} id={handle} name={r.id} org={org}/>
+      return <WatchdogLink key={'w'+handle} id={handle} owner={owner} name={r.id} org={org} countdown />
     })}
   </span>
 }

@@ -34,5 +34,5 @@ export function HistoryDog({ dog, className }: { dog: DogIdentity | null | undef
   if (live && !dog.gone) return <WatchdogLink dog={live} className={className} onOpen={route?.open} />
   const kept = { id: dog.id, owner: dog.owner, name: dog.name, kind: dog.kind, once: !!dog.once, state: 'spent', spent: true,
     target: '', interval_s: 0, at: '', fired: 0 } as Watchdog
-  return <WatchdogLink dog={kept} className={className} />
+  return <WatchdogLink dog={kept} className={className}>{dog.name}</WatchdogLink>
 }

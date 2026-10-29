@@ -9814,7 +9814,7 @@ main:has(> .orgbar.native-header) > .error {
 /* the links and watchdog card beside an orgtree tool call */
 .tool-refs { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; margin-left: 6px; vertical-align: middle; }
 .tool-ref-agent { display: inline-flex; align-items: center; gap: 6px; }
-.tool-refs .desk-dog-chip.gone { opacity: 0.55; cursor: default; }
+.desk-dog-chip.gone { opacity: 0.55; cursor: default; }
 /* a ticket the call names is the inline mention link itself (USER 2026-10-27
    m0baa7d0b5a61, mffa2a51ed1b1): no box of its own; a long title wraps */
 .tool-refs .ref-chip.ref-item { min-width: 0; overflow-wrap: anywhere; }
