@@ -3,6 +3,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import type {ReactElement} from 'react'
 import {AppSettings,PanelSettings} from '../src/canvas/apps/settings'
+import {loadAppsMenu} from '../src/canvas/apps/store'
 import type {PermissionHistoryEntry} from '../src/canvas/apps/types'
 
 // USER 2026-10-28 on 4.5.0-alpha.8, of the intro paragraph at the top of a settings tab:
@@ -31,7 +32,7 @@ function serve(t:test.TestContext,empty=false){
     else if(input.action==='events')out={panel:input.panel,events:empty?[]:[fired],next_cursor:null}
     else if(input.action==='panel_get')out=panel
     else if(input.action==='permission_history')out={app:app.id,entries:empty?[]:[change],next_cursor:null}
-    else if(input.action==='list')out={items:[],next_cursor:null,new_count:0}
+    else if(input.action==='list')out={kind:input.kind,items:input.kind==='panels'?[panel]:input.kind==='apps'?[app]:[],next_cursor:null,new_count:0}
     else if(input.action==='refs')out={apps:[],panels:[]}
     if(out===undefined)throw Error('Unexpected '+url.pathname+' '+input.action)
     return new Response(JSON.stringify(out),{headers:{'Content-Type':'application/json'}})
@@ -77,12 +78,13 @@ test('no Panel settings tab opens with an intro paragraph',async t=>{
 
 test('no App settings tab opens with an intro paragraph, and the app description stays above the tabs',async t=>{
   serve(t)
+  await inAct(async()=>{await loadAppsMenu('tab-intros-app');await tick()})
   await mounted(<AppSettings slug="tab-intros-app" app={app} close={()=>{}}/>,async()=>{
     const settings=dialog('App settings')
     const description=settings.querySelector('p.dim'),tabs=settings.querySelector('[role="tablist"]')!
     assert.equal(description?.textContent,'Saved notes',"the app's own description stays")
     assert.ok(description!.compareDocumentPosition(tabs)&Node.DOCUMENT_POSITION_FOLLOWING,'above the tabs')
-    assert.deepEqual(await paragraphLeads(settings,['General','Events','Permissions','Permission history']),{},'tabs that open on a paragraph')
+    assert.deepEqual(await paragraphLeads(settings,['General','Events','Permissions','History','Permission history']),{},'tabs that open on a paragraph')
     assert.deepEqual(INTROS.filter(s=>settings.textContent!.includes(s)),[],'no intro text anywhere in the window')
   })
 })

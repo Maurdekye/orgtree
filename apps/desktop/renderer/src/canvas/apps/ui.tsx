@@ -120,8 +120,9 @@ function AppsMenu({slug,current,manage,managePanel,importApp,toast}:{slug:string
   const rowEntries=(p:CustomPanel):MenuEntry[]=>panelLinkMenu(slug,p,current.anchor,toast)
   return createPortal(<div ref={ref} className="ctxmenu custom-apps-menu" role="dialog" aria-label="Apps" style={style}>
     <header><strong>Apps</strong><label className="custom-app-import-file">Import app<input type="file" aria-label="Import app" accept=".orgtree-app,.json,application/json" hidden onChange={async e=>{const file=e.target.files?.[0];e.target.value='';if(!file)return;try{if(file.size>APP_BUNDLE_MAX)throw Error('App bundle exceeds 16 MiB.');const bundle=parseAppBundle(await file.text());setMenu(null);importApp(bundle,owner)}catch(error){window.dispatchEvent(new CustomEvent('custom-app-error',{detail:{slug,error:String(error)}}))}}}/></label></header>
-    {data.error&&<p role="alert">{data.error}</p>}
-    {!data.apps.length&&!data.loading&&<p className="dim">No apps yet. Ask an agent to make an app for you, and it will appear here.</p>}
+    {/* A failed catalog read retries in place; "No apps yet" is only for a read that succeeded (audit #27). */}
+    {data.error&&<p role="alert">{data.error} <button type="button" onClick={()=>void loadAppsMenu(slug)}>Retry</button></p>}
+    {!data.apps.length&&!data.loading&&!data.error&&data.loaded&&<p className="dim">No apps yet. Ask an agent to make an app for you, and it will appear here.</p>}
     {data.apps.map(app=>{const rows=listed(app),recent=mostRecent(rows);return <section key={app.id} className="custom-apps-menu-group">
       <div className="custom-apps-menu-app" data-new-app={app.is_new?app.id:undefined} onContextMenu={e=>rowMenu.open(e,()=>appLinkMenu(slug,app.id,current.anchor,toast))} onClick={()=>show(recent?{panel:recent.id}:{app:app.id})}><button type="button" className="custom-apps-open" title={appLinkTitle(app.name,recent?.label)}><AppsIcon/><span><b>{app.name}</b><small>{app.description}</small></span></button>
         {(app.is_new||seenHere.has(app.id))&&<b className="custom-app-new-label">New</b>}

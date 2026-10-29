@@ -50,9 +50,12 @@ export function LogList<T extends {seq:number}>({slug,label,read,follows,summary
     void latest.current.read({before}).then(page=>{if(mounted.current&&log.current.older===before)show([...log.current.rows??[],...page.items],page.next_cursor)})
       .catch(()=>{if(mounted.current)setFailed(true)}).finally(()=>{paging.current=false;if(mounted.current)setLoading(false)})
   }
+  // The first page's read, named in the effect below so its failure can offer it again.
+  const firstRead=useRef(()=>{})
   useEffect(()=>{let alive=true;mounted.current=true
-    void latest.current.read({}).then(page=>{if(!alive)return;show([...log.current.rows??[],...page.items],page.next_cursor);if(pending.current){pending.current=false;void follow()}})
-      .catch(e=>{if(alive)setError(String(e))})
+    const first=()=>{setError('');void latest.current.read({}).then(page=>{if(!alive)return;show([...log.current.rows??[],...page.items],page.next_cursor);if(pending.current){pending.current=false;void follow()}})
+      .catch(e=>{if(alive)setError(String(e))})}
+    firstRead.current=first;first()
     const stop=onAppsLog(slug,change=>{if(latest.current.follows(change))void follow()})
     return()=>{alive=false;mounted.current=false;stop()}
   },[slug])
@@ -60,7 +63,9 @@ export function LogList<T extends {seq:number}>({slug,label,read,follows,summary
   const onScroll=(event:UIEvent<HTMLOListElement>)=>{const el=event.currentTarget;if(el.scrollHeight>el.clientHeight&&el.scrollHeight-el.clientHeight-el.scrollTop<160)loadOlder()}
   const toggle=(seq:number)=>setOpen(old=>{const next=new Set(old);if(!next.delete(seq))next.add(seq);return next})
   const {rows,older}=log.current
-  if(rows===null)return error?<p role="alert">{error}</p>:<p className="dim">Loading…</p>
+  // A failed first page retries in place, as a failed older page does below
+  // and as agent History and the presentation gallery do (audit #25).
+  if(rows===null)return error?<p role="alert">{error} <button type="button" onClick={()=>firstRead.current()}>Retry</button></p>:<p className="dim">Loading…</p>
   return <>
     {rows.length?<ol className="custom-app-log" aria-label={label} onScroll={onScroll}>
       {rows.map(row=>{const expanded=open.has(row.seq),region=`${id}-${row.seq}`;return <li key={row.seq} className={expanded?'open':undefined}>

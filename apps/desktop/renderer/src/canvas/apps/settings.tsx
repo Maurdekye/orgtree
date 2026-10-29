@@ -5,7 +5,7 @@ import {SetRow,SettingsTabPanel,SettingsTabs,renameReady,useVisitedTabs} from '.
 import {useCopyFeedback} from '../contextmenu'
 import {closeIfCentred} from '../modalpin'
 import type {SettingsTab} from '../settingskit'
-import {changeApps,useApps} from './store'
+import {changeApps,createdAt,useApps} from './store'
 import {AppDialog} from './dialog'
 import {AppPermissions} from './permissions'
 import {AppPermissionHistory} from './net-ui'
@@ -39,8 +39,8 @@ export function PanelState({slug,panel,app}:{slug:string;panel:CustomPanel;app:C
   </div>
 }
 
-type AppTab='general'|'events'|'permissions'|'history'
-const APP_TABS:SettingsTab<AppTab>[]=[{id:'general',label:'General'},{id:'events',label:'Events'},{id:'permissions',label:'Permissions'},{id:'history',label:'Permission history'}]
+type AppTab='general'|'events'|'permissions'|'history'|'permission-history'
+const APP_TABS:SettingsTab<AppTab>[]=[{id:'general',label:'General'},{id:'events',label:'Events'},{id:'permissions',label:'Permissions'},{id:'history',label:'History'},{id:'permission-history',label:'Permission history'}]
 // Each section of a panel has its own tab, History last (user 2026-10-26: "put
 // connections and fire event on their own tabs"; "make history the last tab";
 // "and make state its own tab").
@@ -55,6 +55,28 @@ const PANEL_TABS:SettingsTab<PanelTab>[]=[{id:'general',label:'General'},{id:'st
  * has no section header or creator row (user 2026-10-26: "put the description
  * above the tabs and remove the app header"; "remove created-by"). The delete
  * confirmation fits its content. */
+/** App settings' History tab (USER 2026-10-29 m019c9500d23a: "custom apps
+ * should have logs that can be viewed somewhere in the settings, either a tab
+ * that shows them or a button that opens a file / directory"): a panel's log
+ * is its panel settings' History list, read here for the chosen panel, so an
+ * app's logs are viewable without opening a panel. There is no per-app log
+ * file to open — the engine keeps panel events as rows — so the tab it is.
+ * Panels list in creation order like the Apps menu, and the tab opens on the
+ * most recently used one, as opening the app does. History sits before
+ * Permission history, which keeps its signed last place. */
+function AppHistory({slug,app}:{slug:string;app:CustomApp}){
+  const data=useApps(slug),[picked,setPicked]=useState<string>()
+  const panels=data.panels.filter(p=>p.app===app.id).sort((a,b)=>createdAt(a)-createdAt(b)||(a.id<b.id?-1:a.id>b.id?1:0))
+  const used=(p:CustomPanel)=>Date.parse(p.used_at)||0
+  const recent=panels.reduce<CustomPanel|undefined>((best,p)=>!best||used(p)>used(best)||(used(p)===used(best)&&p.id>best.id)?p:best,undefined)
+  const chosen=panels.find(p=>p.id===picked)??recent
+  if(!chosen)return <div className="set-group"><p>This app has no panels yet.</p></div>
+  return <>
+    <div className="custom-app-fire-bar"><select aria-label="Panel" value={chosen.id} onChange={e=>setPicked(e.target.value)}>{panels.map(p=><option key={p.id} value={p.id}>{p.label}</option>)}</select></div>
+    <PanelHistory key={chosen.id} slug={slug} panel={chosen}/>
+  </>
+}
+
 export function AppSettings({slug,app,close,owner,confirmDelete=false}:{slug:string;app:CustomApp;close:()=>void;owner?:Document;confirmDelete?:boolean}){
   const currentOwner=useSurfaceDocument(),data=useApps(slug),[tab,setTab,visited]=useVisitedTabs<AppTab>('general'),[view,setView]=useState<'delete-app'|null>(confirmDelete?'delete-app':null),[error,setError]=useState('')
   const a=data.apps.find(a=>a.id===app.id)??app,document=owner??currentOwner,idBase='custom-app-settings-'+app.id
@@ -70,7 +92,8 @@ export function AppSettings({slug,app,close,owner,confirmDelete=false}:{slug:str
     </SettingsTabPanel>
     <SettingsTabPanel id="events" idBase={idBase} active={tab==='events'}>{visited('events')&&<AppEvents app={a}/>}</SettingsTabPanel>
     <SettingsTabPanel id="permissions" idBase={idBase} active={tab==='permissions'}>{visited('permissions')&&<AppPermissions slug={slug} app={a} close={close} embedded/>}</SettingsTabPanel>
-    <SettingsTabPanel id="history" idBase={idBase} active={tab==='history'} className="app-settings-panel custom-app-log-tab">{visited('history')&&<AppPermissionHistory key={a.id} slug={slug} app={a}/>}</SettingsTabPanel>
+    <SettingsTabPanel id="history" idBase={idBase} active={tab==='history'} className="app-settings-panel custom-app-log-tab">{visited('history')&&<AppHistory key={a.id} slug={slug} app={a}/>}</SettingsTabPanel>
+    <SettingsTabPanel id="permission-history" idBase={idBase} active={tab==='permission-history'} className="app-settings-panel custom-app-log-tab">{visited('permission-history')&&<AppPermissionHistory key={a.id} slug={slug} app={a}/>}</SettingsTabPanel>
   </AppDialog>
   {view==='delete-app'&&<AppDialog title="Delete app" className="custom-app-confirm" close={cancelDelete}><p>Delete {a.name}, all its panels and their saved state?</p><div className="custom-app-dialog-actions"><button type="button" onClick={cancelDelete}>Cancel</button><button type="button" className="danger" onClick={()=>void changeApps(slug,{action:'app_delete',app:a.id,expected_rev:a.rev,delete_panels:true}).then(close).catch(e=>setError(String(e)))}>Delete app and panels</button></div></AppDialog>}
   </SurfaceDocumentOwner>

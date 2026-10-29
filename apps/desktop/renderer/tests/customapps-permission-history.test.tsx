@@ -31,7 +31,7 @@ test('Permission history is its own App settings tab: a live list of expandable 
   };t.after(()=>{globalThis.fetch=original})
   const slug='permission-history',view=await mountView(<AppSettings slug={slug} app={app} close={()=>{}}/>,e=>e);t.after(()=>view.unmount());await inAct(tick)
   const tabs=[...document.querySelectorAll<HTMLButtonElement>('[role="tab"]')]
-  assert.deepEqual(tabs.map(b=>b.textContent?.trim()),['General','Events','Permissions','Permission history'],'Permission history is the last App settings tab')
+  assert.deepEqual(tabs.map(b=>b.textContent?.trim()),['General','Events','Permissions','History','Permission history'],'Permission history is the last App settings tab')
   const named=(name:string)=>tabs.find(b=>b.textContent?.trim()===name)!
   await inAct(async()=>{named('Permissions').click();await tick()})
   const permissions=document.querySelector<HTMLElement>('[role="tabpanel"]:not([hidden])')!

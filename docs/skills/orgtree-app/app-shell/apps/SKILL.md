@@ -132,12 +132,12 @@ catalogue is paged: use More apps / More saved panels (user rulings 2026-10-26).
 
 An unpinned panel opens as a standard centered modal, with pop-out, a window pin,
 Hide and Power off. There are two separate settings panels (user ruling2026-10-26).
-The app-row gear in Apps opens App settings: the app's description above four
+The app-row gear in Apps opens App settings: the app's description above five
 tabs, General (export and app deletion), Events (each declared event with its
 description, read-only, following the definition live; user ruling 2026-10-27),
 Permissions (Events allow/deny, Files
 grants and pending changes and Internet access per site, with their existing
-app-wide behavior) and Permission history (user ruling 2026-10-27). Allow once remains
+app-wide behavior), History (pick a panel — most recently used first — and read its History log without opening it; user ruling 2026-10-29) and Permission history (user ruling 2026-10-27). Allow once remains
 in the active host's native prompt.
 
 Each saved-panel row has its own gear, even when closed. That gear and the open

@@ -168,10 +168,11 @@ function ConnectionRow({slug,app,row,world,focus,leave,fireEvent}:{slug:string;a
 export function PanelConnections({slug,app,panel,fireEvent,leave=()=>{}}:{slug:string;app:CustomApp;panel:CustomPanel;fireEvent:(name:string)=>void;leave?:()=>void}){
   const routes=useContext(AppsRefRoutes),refName=useRefNames(slug)
   const world=useMemo<RefWorld>(()=>routes?.world??{org:slug,refName},[routes,slug,refName])
-  const [rows,setRows]=useState<Connection[]|null>(null),[next,setNext]=useState<number|null>(null),[error,setError]=useState('')
+  // A failed read retries in place — the first page like a later one (audit #26).
+  const [rows,setRows]=useState<Connection[]|null>(null),[next,setNext]=useState<number|null>(null),[error,setError]=useState(''),[failed,setFailed]=useState<'first'|'more'|null>(null)
   const live=useRef({rows:[] as Connection[],next:null as number|null,busy:false,again:false,alive:true}),end=useRef<HTMLLIElement>(null)
   const page=(after?:number)=>customAppsRequest<Connections>(slug,{action:'listeners',app:app.id,panel:panel.id,limit:200,...(after===undefined?{}:{after})})
-  const show=(items:Connection[],more:number|null)=>{const s=live.current;s.rows=items;s.next=more;setRows(items);setNext(more);setError('')}
+  const show=(items:Connection[],more:number|null)=>{const s=live.current;s.rows=items;s.next=more;setRows(items);setNext(more);setError('');setFailed(null)}
   // Every loaded page again from the start, so an added, removed or changed
   // subscription shows wherever it sits; a change meanwhile reads once more.
   const reload=async()=>{
@@ -180,29 +181,29 @@ export function PanelConnections({slug,app,panel,fireEvent,leave=()=>{}}:{slug:s
     try{const want=Math.max(s.rows.length,1),items:Connection[]=[];let more:number|null=null
       do{const got:Connections=await page(more??undefined);items.push(...got.items);more=got.next_cursor}while(more!==null&&items.length<want)
       if(s.alive)show(items,more)}
-    catch(e){if(s.alive)setError(String(e))}
+    catch(e){if(s.alive){setError(String(e));setFailed('first')}}
     finally{s.busy=false;if(s.again&&s.alive){s.again=false;void reload()}}
   }
   const loadMore=async()=>{
     const s=live.current;if(s.next===null||s.busy)return
     s.busy=true
     try{const got=await page(s.next);if(s.alive)show([...s.rows,...got.items],got.next_cursor)}
-    catch(e){if(s.alive)setError(String(e))}
+    catch(e){if(s.alive){setError(String(e));setFailed('more')}}
     finally{s.busy=false;if(s.again&&s.alive){s.again=false;void reload()}}
   }
   useEffect(()=>{const s=live.current;s.alive=true;s.rows=[];s.next=null;void reload()
     const stop=onAppsLog(slug,change=>{if(change.listeners||!change.panel)void reload()})
     return()=>{s.alive=false;stop()}
   },[slug,app.id,panel.id])
-  useLoadWhenSeen(end,next===null?null:String(next),()=>void loadMore())
+  useLoadWhenSeen(end,next===null||failed==='more'?null:String(next),()=>void loadMore())
   return <>
     <div className="set-group">
-      {rows===null?(!error&&<p className="dim">Loading…</p>):rows.length?<ul className="custom-app-connections" aria-label="Connections">
+      {rows===null?(error?<p role="alert">{error} <button type="button" onClick={()=>void reload()}>Retry</button></p>:<p className="dim">Loading…</p>):rows.length?<ul className="custom-app-connections" aria-label="Connections">
         {rows.map(row=><ConnectionRow key={row.id} slug={slug} app={app} row={row} world={world} focus={routes?.onOpen} leave={leave} fireEvent={fireEvent}/>)}
-        {next!==null&&<li ref={end} className="custom-app-log-more" role="status">Loading more connections as you scroll</li>}
+        {next!==null&&<li ref={end} className="custom-app-log-more" role="status">{failed==='more'?<>Could not load more connections. <button type="button" onClick={()=>void loadMore()}>Retry</button></>:'Loading more connections as you scroll'}</li>}
       </ul>:<p>No connected listeners for this panel.</p>}
     </div>
-    {error&&<p role="alert">{error}</p>}
+    {error&&rows!==null&&failed==='first'&&<p role="alert">{error} <button type="button" onClick={()=>void reload()}>Retry</button></p>}
   </>
 }
 

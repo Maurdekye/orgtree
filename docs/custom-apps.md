@@ -157,10 +157,12 @@ does not wake agents. A panel's History log stays separate from delivery.
 
 Apps open as standard centered modals. There are two separate settings panels,
 both styled like Orgtree's other settings panels. The gear beside an app in Apps
-opens **App settings**: the app's description sits above four tabs, **General**
+opens **App settings**: the app's description sits above five tabs, **General**
 (export and delete app), **Events** (every event the app declares, with its
 description), **Permissions** (Events allow/deny, Files grants and pending
-file changes, which apply to every panel) and **Permission history**. Allow once stays in
+file changes, which apply to every panel), **History** (pick a panel and read
+its log — the same History list as its Panel settings — without opening that
+panel) and **Permission history**, last. Allow once stays in
 the live panel's native prompt.
 
 The gear beside each saved panel in Apps, including a closed panel, and the gear

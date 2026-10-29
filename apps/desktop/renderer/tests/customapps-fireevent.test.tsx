@@ -74,7 +74,7 @@ test('App settings: an Events tab lists every declared event with its descriptio
   const view=await mountView(<AppSettings slug="events-tab" app={current} close={()=>{}}/>,e=>e);t.after(()=>view.unmount())
   await inAct(tick)
   // USER 2026-10-27 me1e204ce94e4: "add an "events" tab to the custom app settings panel that lists all of an app's declared events".
-  assert.deepEqual([...document.querySelectorAll('[role="tab"]')].map(e=>e.textContent),['General','Events','Permissions','Permission history'],'Events follows General; Permission history stays last')
+  assert.deepEqual([...document.querySelectorAll('[role="tab"]')].map(e=>e.textContent),['General','Events','Permissions','History','Permission history'],'Events follows General; Permission history stays last')
   await inAct(async()=>{[...document.querySelectorAll<HTMLButtonElement>('[role="tab"]')].find(b=>b.textContent==='Events')!.click();await tick()})
   const tab=document.querySelector<HTMLElement>('[role="tabpanel"]:not([hidden])')!
   const listed=()=>[...tab.querySelectorAll('ul[aria-label="Declared events"] > li')].map(li=>[li.querySelector('.custom-app-event-name')?.textContent,li.querySelector('.custom-app-event-description')?.textContent??null])
