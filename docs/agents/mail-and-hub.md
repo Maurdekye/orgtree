@@ -22,6 +22,24 @@ See [storage, tools and evidence limits](../rust-engine/org-inbox-dnd.md).
 
 Delivery, mentions, inboxes, outside authority, files, Hubchat and hub transport.
 
+## Org inbox rows record who got each copy (2026-10-29, 4.5.2)
+
+`ot.org_inbox.delivered_to` (migration 0079, jsonb array of agent names) is the
+record of who received a copy of a received message, in delivery order, each
+once. It is written by the call that makes the copies and in its transaction:
+`orginbox::publish_row` (publication and the release of mail held under Do not
+disturb) and the Do not disturb pull (appends the pulling agent). Never
+recompute it from today's holders, and never guess it: rows with no record (mail
+between two orgs of one engine, imported rows, mail still held) stay empty. The
+migration backfilled hub mail only, by the exact `(org_id, net_id)` key. The
+wire (`orginbox::entry`) carries it only on received rows with a non-empty list.
+The org inbox window draws it after a received mail's sender (`@sender -> @agent
+@agent`) in the outbox's `org-mail-attribution`/`org-mail-recipient` markup: a
+live agent is the shared `AgentLink`, a retired or removed one an inert dim chip,
+and the list row names only the sender. [decided: user 2026-10-29
+ma660da825904; verified: `domain/orginbox.rs`, `tools/org_inbox.rs`,
+migration 0079, `canvas/mail.tsx`]
+
 ## One-time agent mail (2026-10-24, 4.4.5)
 
 `orgtree_message` and `orgtree_send_notice` accept optional `one_time:false`.

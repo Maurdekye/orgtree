@@ -429,6 +429,7 @@ placement settings and bounded failure. See [rig seed timing](docs/rust-engine/t
   Ticket links share `Status · slug` hover text (2026-10-29); an unknown status
   leaves the slug alone. See [ticket identity hover](docs/agents/desktop-and-renderer.md#ticket-identity-hover).
   [decided: user 2026-10-21 17:38:28Z; verified: `canvas/objecttooltip.ts`]
+- An org inbox row's `delivered_to` (migration 0079) records who got its copies, written when they are made; never recompute it from today's holders. [decided: user 2026-10-29] [doc](docs/agents/mail-and-hub.md)
 - Follow the [Windows machine-traps page](docs/skills/orgtree-working/workspace/machine-traps/SKILL.md) before shell/file edits: preserve UTF-8/CRLF, write escape-heavy scripts as files, do not treat JSON quoting as shell escaping, and verify resolved paths/activity before authorized cleanup. [decided: user/coordinator 2026-10-16]
 
 ## Find the detailed rule

@@ -232,7 +232,7 @@ With a row selected in a Mail, Docket or Presented list, the keyboard's context-
 
 **Transfers** shows file-delivery progress and errors. Retry resumes a failed transfer; Cancel stops it; **Remove file and send**, when offered, explicitly omits that failed attachment so the remaining message can proceed. Closing the panel does not cancel an engine transfer. Confirmed bytes and a queued count are not proof that a human read the file.
 
-The outside-org inbox is a viewer. Human outside composition belongs in [Hubchat](collaborating.md#connect-hubchat-and-the-mail-hub), not a hidden reply box in that viewer.
+The outside-org inbox is a viewer. Human outside composition belongs in [Hubchat](collaborating.md#connect-hubchat-and-the-mail-hub), not a hidden reply box in that viewer. A received message's detail names every agent it was delivered to, after its sender, the way an outgoing message names who sent it as the org. Mail that arrived before Orgtree kept that record names no one.
 
 ## Answer questions and permission requests
 

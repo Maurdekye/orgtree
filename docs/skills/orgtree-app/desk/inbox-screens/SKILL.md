@@ -151,7 +151,7 @@ For the project Mail tab/window, listeners folder and queue history, see [orgtre
 
 ## Org inbox
 
-The org inbox viewer shows external received/sent entries, network custody/read state, attachments and holders. Its unread boundary uses the stored log position, not just the currently rendered tail. Holder controls identify which agents may receive outside mail; applicable org policy can restrict grants.
+The org inbox viewer shows external received/sent entries, network custody/read state, attachments and holders. Its unread boundary uses the stored log position, not just the currently rendered tail. Holder controls identify which agents may receive outside mail; applicable org policy can restrict grants. A received message's detail names, after its sender, every agent the engine delivered it to (`-> @agent @agent`, the outbox's attribution line the other way round): a live agent is a link to its desk, a retired or removed one is still named in a dim chip that goes nowhere, and a message with no delivery record (older mail, or mail held under Do not disturb that nobody has pulled) names no one. The list row names only the sender.
 
 A link into the org inbox opens Received or Sent, whichever holds the message, including one older than the loaded list. Picking the other folder then shows that folder. Back in the first one, the linked message is still open unless you opened another message meanwhile.
 
