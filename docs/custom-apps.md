@@ -183,7 +183,8 @@ The pin on a panel's title bar pins it to the window where it is, at its size,
 like a pinned desk: it stays put while the canvas pans and zooms. Drag its title
 to move it or its corner to resize it; it snaps to the canvas edges and to other
 pinned windows (hold Shift to place it freely), and pressing it brings it in
-front of other pinned windows. It keeps its place when hidden and shown again
+front of other pinned windows. Escape during a move or resize puts it back
+where it was and saves nothing, as for any pinned window. It keeps its place when hidden and shown again
 and after a restart. Unpinning returns the panel to the centered modal. Panels
 no longer pin to the canvas; one pinned there before reopens centered. A
 popped-out panel stays popped out: power it off and open it again, and it comes
