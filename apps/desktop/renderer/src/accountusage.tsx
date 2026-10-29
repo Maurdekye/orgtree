@@ -38,23 +38,54 @@ export function AccountUsagePanel({ accountId }: { accountId: string }) {
   const [error, setError] = useState('')
   const reload = useCallback(() => {
     req<PerAccountUsage>(`/api/accounts/${accountId}/usage`)
-      .then((r) => { setU(r); setError('') })
+      .then((r) => {
+        setU((prev) => {
+          if (
+            prev
+            && prev.account === r.account
+            && (prev.limits?.length ?? 0) > 0
+            && !r.available
+            && !(r.limits?.length)
+            && !r.reauth_required
+            && !r.unsupported
+          ) {
+            return {
+              ...prev,
+              ...r,
+              limits: prev.limits,
+              observed_at: prev.observed_at,
+              plan: r.plan ?? prev.plan,
+              tier: r.tier ?? prev.tier,
+              credits: r.credits ?? prev.credits,
+            }
+          }
+          return r
+        })
+        setError('')
+      })
       .catch((e: Error) => setError(e.message))
   }, [accountId])
   useEffect(() => { reload() }, [reload])
-  if (error) return <div className="dim">usage: {error} <button onClick={reload}>retry</button></div>
+  const hasRetained = Boolean(u && !u.unsupported && !u.reauth_required && (u.limits?.length ?? 0) > 0)
+  if (error && !hasRetained) return <div className="dim">usage: {error} <button onClick={reload}>retry</button></div>
   if (!u) return <p className="dim">reading usage…</p>
   // Accounts omits Codex reserve usage; other usage surfaces retain it.
   const codex = ['openai', 'codex'].includes((u.provider ?? '').toLowerCase())
-  const displayed = codex
-    ? { ...u, limits: u.limits?.filter(l => l.model !== 'gpt-reserve') }
-    : u
+  const filteredLimits = codex
+    ? u.limits?.filter(l => l.model !== 'gpt-reserve')
+    : u.limits
+  const displayed = {
+    ...u,
+    limits: filteredLimits,
+    ...(error ? { error } : {}),
+  }
+  const showBars = u.available || (!u.unsupported && !u.reauth_required && (filteredLimits?.length ?? 0) > 0)
   const disabledReason = usageRefreshDisabledReason(u.provider)
   const refreshButton = <button disabled={!!disabledReason} title={disabledReason}
     data-turn-only={disabledReason ? '' : undefined}
     onClick={() => { if (!disabledReason) reload() }}>refresh usage</button>
   return <div className="account-usage">
-    {u.available
+    {showBars
       ? <UsageBars u={displayed} />
       : <p className="dim">{u.unsupported
           ? `${u.provider}: no usage surface`

@@ -50,8 +50,11 @@ export function KeyActive({ k, busy, run }: { k: OpenRouterKey; busy: boolean; r
 /** a key's spend line: the reading's own row label (spend, cap, account
  *  balance), or why there is none */
 function standingOf(k: OpenRouterKey): string {
-  if (k.connected === false) return k.reason ?? 'refused at openrouter.ai'
   const label = k.limits.map((l) => l.label).filter(Boolean).join(' · ')
+  if (k.connected === false) {
+    const reason = k.reason ?? 'refused at openrouter.ai'
+    return label ? `${label} · ${reason}` : reason
+  }
   if (label) return label
   return k.connected == null ? 'not read at openrouter.ai yet' : 'no spend reported'
 }

@@ -1021,7 +1021,7 @@ fn keys_doc(engine: &Engine) -> Vec<Value> {
         .map(|a| {
             let reading = crate::usage::openrouter_reading(engine, &a.id);
             let (connected, reason) = match &reading {
-                Some(v) if v["available"] == json!(true) => (json!(true), Value::Null),
+                Some(v) if v["available"] == json!(true) && v["error"].is_null() => (json!(true), Value::Null),
                 Some(v) => (json!(false), v["error"].clone()),
                 None => (Value::Null, Value::Null),
             };

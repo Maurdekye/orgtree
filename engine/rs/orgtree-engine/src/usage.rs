@@ -196,7 +196,7 @@ fn reading_of(engine: &Engine, provider: &str, account: Option<&crate::accounts:
             Some(a) => a.id.clone(),
             None => crate::openrouter::first_key(engine)?,
         };
-        let v = openrouter_reading(engine, &id)?;
+        let v = engine.usage.peek(&id, provider);
         return v["available"].as_bool().unwrap_or(false).then_some(v);
     }
     if account.is_some_and(|a| a.is_apikey()) {
@@ -537,7 +537,39 @@ impl Usage {
     #[nolog]
     fn put(&self, key: &str, data: &Value) {
         self.record_auth(key, data);
+        self.claude_last.pin().remove(key);
         self.cache.pin().insert(key.to_string(), Cached { at: Instant::now(), data: data.clone() });
+    }
+
+    /// Retain last-good bars and their original observation timestamp when a
+    /// usage fetch fails (rate limit, 429, network, timeout); only a new good
+    /// reading, an explicit sign-out (`reauth_required`), or an account without
+    /// prior bars writes `out` into `self.cache`.
+    #[nolog]
+    pub(crate) fn retain_last_good(&self, key: &str, out: Value) -> Value {
+        if !out["available"].as_bool().unwrap_or(false) && out.get("reauth_required") != Some(&json!(true)) {
+            self.record_auth(key, &out);
+            let entry = self.cache.pin().get(key).cloned();
+            if let Some(c) = entry.filter(|c| {
+                c.data["available"].as_bool().unwrap_or(false)
+                    && c.data["limits"].as_array().is_some_and(|a| !a.is_empty())
+            }) {
+                let recent = cache_age(key, &c, Utc::now()) < PEEK_MAX
+                    && self.cached_reauth_required(key) != Some(true);
+                let mut v = current_reading(key, &c.data, Utc::now());
+                v["error"] = out["error"].clone();
+                if out.get("detail").is_some() {
+                    v["detail"] = out["detail"].clone();
+                }
+                if !recent {
+                    v["available"] = json!(false);
+                }
+                self.claude_last.pin().insert(key.to_owned(), v.clone());
+                return v;
+            }
+        }
+        self.put(key, &out);
+        out
     }
 
     /// Synthetic cache-only fixtures; never performs provider or file I/O.
@@ -635,11 +667,19 @@ impl Usage {
             self.cooldown.pin().remove(key);
             self.put(key, &out);
         } else if let Some(prev) = self.fresh(key, Duration::MAX).filter(|p| p["available"].as_bool().unwrap_or(false)) {
+            let recent = self.cache.pin().get(key).is_some_and(|c|
+                c.at.elapsed() < PEEK_MAX && c.data["available"] == true);
             let mut v = prev;
             v["error"] = out["error"].clone();
+            if out.get("detail").is_some() {
+                v["detail"] = out["detail"].clone();
+            }
             if out.get("reauth_required").is_some() || out.get("reauth_evidence").is_some() {
                 v["reauth_required"] = out["reauth_required"].clone();
                 v["reauth_evidence"] = out["reauth_evidence"].clone();
+            }
+            if !recent {
+                v["available"] = json!(false);
             }
             return v;
         } else {
@@ -975,11 +1015,11 @@ async fn codex_read(engine: &Engine, account: &str, home: Option<&str>, force: b
         if let Some(ms) = v["rig_delay_ms"].as_u64() {
             tokio::time::sleep(Duration::from_millis(ms)).await;
         }
-        engine.usage.put(&codex_key(home), &v);
+        let retained = engine.usage.retain_last_good(&codex_key(home), v.clone());
         if crate::rig::canned_reading(&v) {
             crate::account_marks::profile_history(engine, "openai", home, Utc::now(), &v).await;
         }
-        return v;
+        return retained;
     }
     let key = codex_key(home);
     if !force {
@@ -1029,17 +1069,7 @@ async fn codex_read(engine: &Engine, account: &str, home: Option<&str>, force: b
     out["email"] = json!(email);
     out["observed_at"] = json!(iso(Utc::now()));
     crate::account_marks::profile_usage(engine, "openai", home, observed, &out).await;
-    if !out["available"].as_bool().unwrap_or(false) && out.get("reauth_required").is_none() {
-        // a miss between app-server fallbacks: keep the last good bars (dated),
-        // with why they are not fresh, as the Claude lane does
-        if let Some(mut prev) = engine.usage.fresh(&key, Duration::MAX).filter(|p| p["available"].as_bool().unwrap_or(false)) {
-            prev["error"] = out["error"].clone();
-            prev["detail"] = out["detail"].clone();
-            return prev;
-        }
-    }
-    engine.usage.put(&key, &out);
-    out
+    engine.usage.retain_last_good(&key, out)
 }
 
 /// The fallback read: a short-lived app-server (`runtime::codex::probe`,
@@ -1258,11 +1288,11 @@ async fn antigravity_read(engine: &Engine, force: bool) -> Value {
             out["observed_at"] = v["observed_at"].clone();
             out
         } else { v };
-        engine.usage.put("agy", &v);
+        let retained = engine.usage.retain_last_good("agy", v.clone());
         if crate::rig::canned_reading(&v) {
             crate::account_marks::profile_history(engine, "google", None, Utc::now(), &v).await;
         }
-        return v;
+        return retained;
     }
     if force { crate::providers::agy_auth::user_recheck(engine); }
     if let Some(failure) = crate::providers::agy_auth::blocked(engine) {
@@ -1298,8 +1328,7 @@ async fn antigravity_read(engine: &Engine, force: bool) -> Value {
     }
     out["observed_at"] = json!(iso(Utc::now()));
     crate::account_marks::profile_usage(engine, "google", None, observed, &out).await;
-    engine.usage.put("agy", &out);
-    out
+    engine.usage.retain_last_good("agy", out)
 }
 
 #[nolog]
@@ -1348,8 +1377,7 @@ pub async fn antigravity_account(engine: &Engine, a: &crate::accounts::AccountIn
     if out["available"] == true {
         crate::account_marks::profile_usage(engine, "google", a.config_dir.as_deref(), observed, &out).await;
     }
-    engine.usage.put(&key, &out);
-    out
+    engine.usage.retain_last_good(&key, out)
 }
 
 #[nolog]
@@ -1684,7 +1712,8 @@ pub async fn openrouter(engine: &Engine, force: bool) -> Value {
 /// fetch.
 #[nolog]
 pub fn openrouter_reading(engine: &Engine, lane: &str) -> Option<Value> {
-    engine.usage.cache.pin().get(lane).map(|c| c.data.clone())
+    engine.usage.claude_last.pin().get(lane).cloned()
+        .or_else(|| engine.usage.cache.pin().get(lane).map(|c| c.data.clone()))
 }
 
 /// One OpenRouter key's credit standing, cached and recorded under its id
@@ -1713,8 +1742,7 @@ async fn openrouter_key_read(engine: &Engine, id: &str, force: bool) -> Value {
     // without one the key check below is the rig's canned one too (never the
     // network), so a rig proof reads each key through the real derivation
     if let Some(v) = crate::rig::usage(&lane, None).filter(crate::rig::canned_reading) {
-        engine.usage.put(&lane, &v);
-        return v;
+        return engine.usage.retain_last_good(&lane, v);
     }
     if !force {
         if let Some(v) = engine.usage.fresh(&lane, Duration::from_secs(60)) {
@@ -1756,8 +1784,7 @@ async fn openrouter_key_read(engine: &Engine, id: &str, force: bool) -> Value {
     }
     out["observed_at"] = json!(iso(Utc::now()));
     crate::usage_history::record(engine, &lane, "openrouter", observed, &out).await;
-    engine.usage.put(&lane, &out);
-    out
+    engine.usage.retain_last_good(&lane, out)
 }
 
 async fn openrouter_fetch(lane: &str, key: &str) -> Result<Value, String> {

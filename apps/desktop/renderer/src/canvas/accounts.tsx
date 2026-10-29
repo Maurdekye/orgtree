@@ -224,31 +224,40 @@ export function UsageBars({ u }: { u: AccountUsage }) {
         ?? 'usage is not available for this kind of key'}</div>
     </>
   }
-  if (!u.available) {
+  const lims = u.limits ?? []
+  const retained = !u.reauth_required && lims.length > 0
+  if (!u.available && !retained) {
     return <>
       {tierLine ? <div className="dim">{tierLine}</div> : null}
       <CreditsLine u={u} />
       <div className="dim">{u.error ?? 'usage unavailable'}</div>
     </>
   }
+  const staleOrFailed = !u.available || Boolean(u.error)
   return (
     <>
-      {/* A failed provider read can retain last-good bars as available data.
-          Keep those numbers, but never hide the failure behind them. */}
+      {/* A failed or rate-limited provider read retains last-good bars (whether
+          available is true or false). Keep those numbers, but never hide the
+          failure or cooldown status behind them. */}
       {u.error && <div className="usage-refresh-error" role="alert">
-        refresh failed: {u.error}
+        {u.error.startsWith('usage updates paused') ? u.error : `refresh failed: ${u.error}`}
       </div>}
       {isGemini
         ? (tierLine ? <div className="dim">{tierLine}</div> : null)
         : (u.plan ? <div className="dim">{u.provider ?? 'Claude'} {u.plan}</div> : null)}
       <CreditsLine u={u} />
-      {(u.limits ?? []).map((l) => {
+      {lims.map((l) => {
         // `percent: null` is a real state (UsageLimit's own type), not an
         // absent 0 — OpenRouter reports it for an uncapped key, where the
         // dollar figure rides `label` instead: a bar reading 0% would claim
         // nothing has been spent, which is exactly the fabrication the task
         // must not make. No bar, no badge; the label carries the fact.
-        const known = l.percent != null
+        // If a retained reading's window reset time is already in the past,
+        // show `reset; awaiting reading` instead of presenting the old
+        // pre-reset percentage as current.
+        const resetPassed = Boolean(l.resets_at && Date.parse(l.resets_at) <= Date.now())
+          && (staleOrFailed || (prov === 'muse' && l.percent == null))
+        const known = l.percent != null && !resetPassed
         const pct = Math.max(0, Math.min(100, l.percent ?? 0))
         const sev = sevOf(l)
         return (
@@ -256,8 +265,7 @@ export function UsageBars({ u }: { u: AccountUsage }) {
             key={l.group + l.kind + (l.model ?? '') + (l.label ?? '')}>
             <div className="u-head">
               <span className="u-label">{usageLabel(l)}</span>
-              <span className="u-reset">{prov === 'muse' && !known && l.resets_at
-                && Date.parse(l.resets_at) <= Date.now()
+              <span className="u-reset">{resetPassed
                 ? 'reset; awaiting reading' : usageResets(l.resets_at)}</span>
               {known && <span className={'u-pct' + (sev ? ' ' + sev : '')}>
                 {Math.round(l.percent ?? 0)}%</span>}
@@ -269,7 +277,7 @@ export function UsageBars({ u }: { u: AccountUsage }) {
           </div>
         )
       })}
-      {!(u.limits ?? []).length && <div className="dim">no limits reported</div>}
+      {!lims.length && <div className="dim">no limits reported</div>}
     </>
   )
 }

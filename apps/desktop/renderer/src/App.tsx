@@ -2344,8 +2344,47 @@ type UsageReadoutState = {
 function useUsageReadout<T extends UsageReadout>(key: string,
   fetcher: (force?: boolean) => Promise<T>, member?: string) {
   const state = useAppReadout(key, fetcher, member)
-  const updatedAt = useMemo(() => state.value ? readoutObservedAt(state.value) : null, [state.value])
-  return { ...state, updatedAt }
+  const slotId = `${key}:${member ?? ''}`
+  const lastGood = useRef<{ slotId: string; value: T; observedAt: number } | null>(null)
+  if (state.value) {
+    if (state.value.reauth_required || ('unsupported' in state.value && Boolean(state.value.unsupported))) {
+      if (lastGood.current?.slotId === slotId) lastGood.current = null
+    } else if ((state.value.limits?.length ?? 0) > 0 && (state.value.available || lastGood.current?.slotId !== slotId)) {
+      lastGood.current = {
+        slotId,
+        value: state.value,
+        observedAt: readoutObservedAt(state.value),
+      }
+    }
+  }
+  const value = useMemo<T | null>(() => {
+    const cur = state.value
+    if (!cur) return null
+    const prev = lastGood.current?.slotId === slotId ? lastGood.current : null
+    if (!cur.available && !(cur.limits?.length) && !cur.reauth_required && !('unsupported' in cur && cur.unsupported) && prev) {
+      return {
+        ...prev.value,
+        ...cur,
+        limits: prev.value.limits,
+        observed_at: prev.value.observed_at,
+        plan: cur.plan ?? prev.value.plan,
+        ...('tier' in prev.value || 'tier' in cur
+          ? { tier: (cur as AccountUsage).tier ?? (prev.value as AccountUsage).tier }
+          : {}),
+        credits: cur.credits ?? prev.value.credits,
+      }
+    }
+    return cur
+  }, [state.value, slotId])
+  const updatedAt = useMemo(() => {
+    if (!value) return null
+    if (typeof value.observed_at === 'string' && Number.isFinite(Date.parse(value.observed_at))) {
+      return Date.parse(value.observed_at)
+    }
+    if (lastGood.current?.slotId === slotId) return lastGood.current.observedAt
+    return readoutObservedAt(value)
+  }, [value, slotId])
+  return { ...state, value, updatedAt }
 }
 
 /** How long ago this reading was taken, kept moving.
