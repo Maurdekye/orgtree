@@ -357,11 +357,12 @@ pub async fn state_inspect(engine: &Arc<Engine>, caller: &Caller, args: &Value) 
                   AND m.extra->>'transfer_failure' IS NULL)
                   OR NOT EXISTS (SELECT 1 FROM ot.orgs inbox_org WHERE inbox_org.id=m.org_id
                     AND inbox_org.settings->'org_inbox_enabled'='false'::jsonb))))
-              -- an OpenRouter seat: the harness its session runs on, and whether
-              -- it is pinned to it (an explicit hire choice its key's changes skip)
+              -- an OpenRouter or language model server seat: the harness its session
+              -- runs on, and whether it has one of its own (chosen at hire or in its
+              -- Model tab), which its key's or server's changes skip
               -- a project node (docs/rust-engine/PROJECT-NODES.md) says so
               || CASE WHEN a.kind='project' THEN jsonb_build_object('kind', 'project') ELSE '{}'::jsonb END
-              || CASE WHEN a.provider='openrouter' AND a.extra ? 'harness' THEN jsonb_build_object('harness', a.extra->'harness',
+              || CASE WHEN a.provider IN ('openrouter','langserver') AND a.extra ? 'harness' THEN jsonb_build_object('harness', a.extra->'harness',
                    'harness_pinned', coalesce((a.extra->>'harness_pin')::boolean, false)) ELSE '{}'::jsonb END,
               a.kind='agent', ot.superior_of(a.id)
              FROM ot.agents a WHERE a.org_id=$1 AND a.state<>'deleted' AND a.id>$2 ORDER BY a.id LIMIT 256",

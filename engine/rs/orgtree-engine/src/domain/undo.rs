@@ -31,9 +31,9 @@ const LABEL_MAX: usize = 120;
 const REQUEST_MAX: usize = 64;
 
 const MOVE_OPS: &[&str] = &["move", "moves", "reorder", "promote", "demote"];
-const RETOOL_OPS: &[&str] = &["retool", "switch_model", "account", "scope"];
+const RETOOL_OPS: &[&str] = &["retool", "switch_model", "account", "harness", "scope"];
 /// The `/ops` operations a user request records.
-pub const RECORDED_OPS: &[&str] = &["move", "moves", "reorder", "promote", "demote", "hire", "retire", "retool", "switch_model", "account"];
+pub const RECORDED_OPS: &[&str] = &["move", "moves", "reorder", "promote", "demote", "hire", "retire", "retool", "switch_model", "account", "harness"];
 /// The agent's own configured settings a retool entry restores.
 const SCOPE_FIELDS: &[&str] = &["add_dirs", "tools", "org_visibility", "permission_mode", "effort", "model_version", "account_fallback", "auto_cheap_compact", "session", "peer_mail"];
 /// Step fields that may name an earlier step's agent (`"$0.node"`).
@@ -118,7 +118,7 @@ pub fn kind_of(steps: &[Value]) -> Result<&'static str> {
     let ops: Vec<&str> = steps.iter().map(op_of).collect();
     for op in &ops {
         if !(MOVE_OPS.contains(op) || RETOOL_OPS.contains(op) || matches!(*op, "hire" | "retire")) {
-            return Err(coded(400, "gesture_op", format!("{op:?} is not an undoable step (move, moves, reorder, hire, retire, retool, switch_model, account, scope)"), Value::Null));
+            return Err(coded(400, "gesture_op", format!("{op:?} is not an undoable step (move, moves, reorder, hire, retire, retool, switch_model, account, harness, scope)"), Value::Null));
         }
     }
     let all = |set: &[&str]| ops.iter().all(|op| set.contains(op));
@@ -299,7 +299,7 @@ fn account_value(v: Option<&str>) -> Value {
 #[nolog]
 async fn retool_facts(tx: &Transaction<'_>, org: i64, id: i64) -> Result<Option<Map<String, Value>>> {
     let Some(r) = tx.query_opt(
-        "SELECT scope, charter, team_charter, tier, account, pending_switch, pending_account FROM ot.agents WHERE id = $1 AND org_id = $2",
+        "SELECT scope, charter, team_charter, tier, account, pending_switch, pending_account, coalesce(extra, '{}'::jsonb) FROM ot.agents WHERE id = $1 AND org_id = $2",
         &[&id, &org]).await? else { return Ok(None) };
     let sc = scope::normalize(&r.get::<_, Value>(0));
     let mut out = Map::new();
@@ -322,6 +322,9 @@ async fn retool_facts(tx: &Transaction<'_>, org: i64, id: i64) -> Result<Option<
         _ => account_value(account.as_deref()),
     };
     out.insert("account".into(), acc);
+    // a harness of its own (the Model tab's Harness row), else it follows
+    let extra: Value = r.get(7);
+    out.insert("harness".into(), crate::harnesses::seat_pin(&extra).map(Value::String).unwrap_or_else(absent));
     Ok(Some(out))
 }
 
@@ -1420,6 +1423,11 @@ async fn apply_retool(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transacti
             run(engine, org, tx, req, pending).await?;
         } else if let Some(a) = fields.get("account") {
             run(engine, org, tx, json!({ "op": "account", "node": name, "account": acc(&a[to]) }), pending).await?;
+        }
+        // its harness on the model it now runs (null: it follows again)
+        if let Some(h) = fields.get("harness") {
+            let v = if is_absent(&h[to]) { Value::Null } else { h[to].clone() };
+            run(engine, org, tx, json!({ "op": "harness", "node": name, "harness": v }), pending).await?;
         }
         let body = scope_body(&fields, to);
         if body.as_object().is_some_and(|o| !o.is_empty()) {

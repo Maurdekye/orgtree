@@ -204,33 +204,75 @@ pub fn tiers(engine: &Engine) -> Vec<(String, f64, String, String, String)> {
 /// base path replaces the preset's suffix.
 #[logged]
 pub fn base_url(server: &Value) -> String {
+    base_url_for(server, server["harness"].as_str().unwrap_or("claude-code"))
+}
+
+/// The base URL `harness` is pointed at on this server: the server's own
+/// harness, or a seat's own (user 2026-10-29: a server seat may run another
+/// harness the server carries). A custom server's base path serves every
+/// harness of its API family (`seat_choices` offers no other).
+#[logged]
+pub fn base_url_for(server: &Value, harness: &str) -> String {
     let address = server["address"].as_str().unwrap_or("").trim().trim_end_matches('/').to_string();
-    let harness = server["harness"].as_str().unwrap_or("claude-code");
     if server["preset"].as_str() == Some("custom") {
         let path = server["base_path"].as_str().unwrap_or("").trim().trim_matches('/');
         return if path.is_empty() { address } else { format!("{address}/{path}") };
     }
-    if matches!(harness, "codex-cli" | "opencode") { format!("{address}/v1") } else { address }
+    if openai_family(harness) { format!("{address}/v1") } else { address }
 }
 
-/// The base URL a seat's harness is pointed at on this server.
-#[logged]
-pub fn base_url_for(server: &Value, _harness: &str) -> String {
-    base_url(server)
+/// Codex and OpenCode append their paths to an OpenAI-style `/v1` base;
+/// Claude Code appends `/v1/messages` to the bare address.
+#[nolog]
+fn openai_family(harness: &str) -> bool {
+    matches!(harness, "codex-cli" | "opencode")
 }
 
 /// The harness a seat on this server should run on: its own (`pin`,
 /// `harnesses::seat_pin`), else its server's.
 #[logged]
-pub fn seat_harness(server: &Value, _pin: Option<&str>) -> String {
-    server["harness"].as_str().unwrap_or("claude-code").to_string()
+pub fn seat_harness(server: &Value, pin: Option<&str>) -> String {
+    pin.unwrap_or_else(|| server["harness"].as_str().unwrap_or("claude-code")).to_string()
 }
 
-/// The harnesses a seat on this server may choose, in registry order: each
-/// with whether it is installed (`installed`) and can reach this server.
+/// The harnesses a seat on this server may choose, in registry order (the
+/// agent settings Model tab's Harness row): each with whether it is
+/// installed and whether it can reach this server, and why not. A preset
+/// carries every harness it serves; a custom server's one base path is set
+/// for its own harness's API, so the other family would reach a wrong path.
 #[nolog]
-pub fn seat_choices(_server: &Value, _installed: &dyn Fn(&str) -> bool) -> Vec<Value> {
-    Vec::new()
+pub fn seat_choices(server: &Value, installed: &dyn Fn(&str) -> bool) -> Vec<Value> {
+    let own = server["harness"].as_str().unwrap_or("claude-code");
+    let p = server["preset"].as_str().and_then(preset);
+    crate::harnesses::selectable_for(crate::providers::catalog::LANGSERVER)
+        .into_iter()
+        .map(|h| {
+            let on = installed(h.id);
+            let served = match (p, h.id) {
+                (None, _) => false,
+                (Some(p), "claude-code") => p.claude,
+                (Some(p), "codex-cli") => p.codex,
+                (Some(_), _) => true,
+            };
+            let why = if !on {
+                format!("{} is not installed on this computer", h.name)
+            } else if !served {
+                p.map(|p| p.note.to_string()).filter(|n| !n.is_empty()).unwrap_or_else(|| format!("this server cannot carry {}", h.name))
+            } else if p.is_some_and(|p| p.id == "custom") && openai_family(h.id) != openai_family(own) {
+                format!("this custom server's base path is set for {}'s API; {} needs its own server entry",
+                    crate::harnesses::label(own), h.name)
+            } else {
+                String::new()
+            };
+            json!({ "id": h.id, "label": h.name, "installed": on, "available": why.is_empty(), "why": why })
+        })
+        .collect()
+}
+
+/// `seat_choices` with what is installed on this computer.
+#[logged]
+pub fn seat_options(engine: &Engine, server: &Value) -> Vec<Value> {
+    seat_choices(server, &|h: &str| crate::harnesses::installed(engine, h))
 }
 
 /// A server's seat price: the user's figure, else DEFAULT_SEAT (servers
@@ -999,9 +1041,10 @@ impl std::fmt::Debug for Route {
 }
 
 /// Resolve a tier to its launch route: the lane on, the server and model
-/// still configured, the server enabled.
+/// still configured, the server enabled. `harness` is the seat's: its own,
+/// else its server's (`seat_harness`).
 #[logged]
-pub async fn route(engine: &Engine, tier: &str) -> Result<Route> {
+pub async fn route(engine: &Engine, tier: &str, harness: &str) -> Result<Route> {
     if !engine.settings.provider_enabled(crate::providers::catalog::LANGSERVER) {
         anyhow::bail!("Language model servers are turned off in App settings");
     }
@@ -1012,18 +1055,31 @@ pub async fn route(engine: &Engine, tier: &str) -> Result<Route> {
     if s["enabled"].as_bool() == Some(false) {
         anyhow::bail!("the language model server {} is turned off in App settings › Providers", s["label"].as_str().unwrap_or(&id));
     }
-    // a server's harness no longer installed refuses, saying so: never a
-    // silent switch to the other (user 2026-10-13)
-    let harness = s["harness"].as_str().unwrap_or("claude-code");
+    // a harness no longer installed refuses, saying so: never a silent
+    // switch to another (user 2026-10-13)
+    let own = s["harness"].as_str().unwrap_or("claude-code");
+    let label = s["label"].as_str().unwrap_or(&id).to_string();
     if !crate::harnesses::installed(engine, harness) {
-        anyhow::bail!("{} (the harness of the language model server {})", crate::harnesses::not_installed(harness), s["label"].as_str().unwrap_or(&id));
+        if harness == own {
+            anyhow::bail!("{} (the harness of the language model server {label})", crate::harnesses::not_installed(harness));
+        }
+        anyhow::bail!("{} (this agent's own harness; choose another in its Model tab)", crate::harnesses::not_installed(harness));
+    }
+    // a seat's own harness the server cannot carry (a custom server's other
+    // API family) refuses too, rather than reaching a wrong path
+    if harness != own {
+        let why = seat_choices(&s, &|_: &str| true).into_iter().find(|o| o["id"].as_str() == Some(harness))
+            .and_then(|o| o["why"].as_str().filter(|w| !w.is_empty()).map(str::to_string));
+        if let Some(why) = why {
+            anyhow::bail!("this agent's own harness cannot reach the language model server {label}: {why}; choose another in its Model tab");
+        }
     }
     Ok(Route {
         base_url: crate::lsproxy::base(engine, &id, harness),
         key: crate::lsproxy::secret().to_string(),
         model: m["id"].as_str().unwrap_or("").to_string(),
         context: context_of(&m),
-        codex: s["harness"].as_str() == Some("codex-cli"),
+        codex: harness == "codex-cli",
         max_agents: s["max_agents"].as_i64().unwrap_or(1).max(1),
         server: id,
     })

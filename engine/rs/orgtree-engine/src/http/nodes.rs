@@ -627,6 +627,21 @@ pub async fn unhalt(State(e): State<Arc<Engine>>, Path((slug, nid)): Path<(Strin
     Ok(Json(ask(&e, org.id, a.id, AgentMsg::Unhalt).await?))
 }
 
+#[derive(Deserialize, Debug)]
+pub struct HarnessQuery {
+    tier: Option<String>,
+}
+
+/// The agent settings Model tab's Harness row (`harnesses::seat_row`):
+/// `?tier=` is the model chosen in the tab.
+#[logged]
+pub async fn harness(State(e): State<Arc<Engine>>, Path((slug, nid)): Path<(String, String)>, Query(q): Query<HarnessQuery>) -> ApiResult<Json<Value>> {
+    let org = org(&e, &slug)?;
+    let a = agent(&e, &org, &nid).await?;
+    require_turn_runtime(&a.kind, &a.name)?;
+    Ok(Json(crate::harnesses::seat_row(&e, a.id, q.tier.as_deref()).await?))
+}
+
 /// Read the same effective harness the actor uses without starting a process.
 /// The POST still rechecks turn/session/admission state when the user acts.
 #[logged]

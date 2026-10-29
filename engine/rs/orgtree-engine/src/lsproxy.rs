@@ -56,17 +56,26 @@ pub fn secret() -> &'static str {
 
 /// The base URL a harness on `server` is pointed at: the CLI appends its
 /// own path (`/v1/messages`, `/responses`), which is handed on after the
-/// server's own base URL.
+/// server's base URL for that harness. The path names the harness
+/// (`<server>~<harness>`): a seat may run another harness than its server's
+/// (user 2026-10-29), and a warm CLI keeps the address it started with.
 #[logged]
-pub fn base(engine: &Engine, server: &str, _harness: &str) -> String {
-    format!("http://127.0.0.1:{}{PREFIX}{server}", engine.boot.port)
+pub fn base(engine: &Engine, server: &str, harness: &str) -> String {
+    format!("http://127.0.0.1:{}{PREFIX}{server}{HARNESS_MARK}{harness}", engine.boot.port)
 }
 
+/// Between a pass-through path's server id and its harness.
+const HARNESS_MARK: char = '~';
+
 /// A pass-through path's server segment: the server id, and the harness the
-/// seat runs on when the launch named one.
+/// seat runs on when the launch named one (none: the server's own, as every
+/// launch before the harness was named).
 #[nolog]
 pub fn split_server(segment: &str) -> (&str, Option<&str>) {
-    (segment, None)
+    match segment.split_once(HARNESS_MARK) {
+        Some((server, harness)) => (server, Some(harness)),
+        None => (segment, None),
+    }
 }
 
 #[nolog]
@@ -81,7 +90,8 @@ pub async fn dispatch(State(engine): State<Arc<Engine>>, req: Request) -> Respon
     let (parts, body) = req.into_parts();
     let path = parts.uri.path().to_string();
     let rest = &path[PREFIX.len()..];
-    let (server_id, tail) = rest.find('/').map_or((rest, ""), |i| (&rest[..i], &rest[i..]));
+    let (segment, tail) = rest.find('/').map_or((rest, ""), |i| (&rest[..i], &rest[i..]));
+    let (server_id, named) = split_server(segment);
     if !authorized(&parts.headers) {
         return error(StatusCode::UNAUTHORIZED, tail,
             "this address is Orgtree's language model server pass-through: it takes requests only from the agents Orgtree launches");
@@ -91,7 +101,11 @@ pub async fn dispatch(State(engine): State<Arc<Engine>>, req: Request) -> Respon
     };
     let label = server["label"].as_str().unwrap_or(server_id).to_string();
     let query = parts.uri.query().map(|q| format!("?{q}")).unwrap_or_default();
-    let target = format!("{}{tail}{query}", crate::langserver::base_url(&server));
+    let harness = named.unwrap_or_else(|| server["harness"].as_str().unwrap_or("claude-code"));
+    if crate::harnesses::get(harness).is_none() {
+        return error(StatusCode::NOT_FOUND, tail, &format!("{harness} is not a harness this app knows"));
+    }
+    let target = format!("{}{tail}{query}", crate::langserver::base_url_for(&server, harness));
     let bytes = match axum::body::to_bytes(body, MAX_BODY).await {
         Ok(b) => b,
         Err(e) => return error(StatusCode::PAYLOAD_TOO_LARGE, tail, &format!("the request could not be read: {e}")),

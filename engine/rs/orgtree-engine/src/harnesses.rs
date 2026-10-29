@@ -143,17 +143,72 @@ pub fn not_installed(id: &str) -> String {
 
 /// A seat's own harness, if it has one (user 2026-10-29, the Model tab's
 /// Harness row; a hire's explicit `harness` before it): `extra.harness_pin`
-/// set. None: it follows its OpenRouter key or its language model server.
+/// set, its target `extra.harness_pin_to`, else (a hire-time pin stored
+/// before targets existed) the stamp `extra.harness`. The stamp is what the
+/// session runs on, so a pin set later moves it at its next turn boundary.
+/// None: it follows its OpenRouter key or its language model server.
 #[nolog]
 pub fn seat_pin(extra: &Value) -> Option<String> {
-    extra["harness_pin"].as_bool().filter(|p| *p).and_then(|_| extra["harness"].as_str().map(str::to_string))
+    pin_target(extra["harness_pin"].as_bool().unwrap_or(false), extra["harness_pin_to"].as_str(), extra["harness"].as_str())
+}
+
+/// `seat_pin` from the three stored fields.
+#[nolog]
+pub fn pin_target(pinned: bool, pin_to: Option<&str>, stamp: Option<&str>) -> Option<String> {
+    pinned.then(|| pin_to.or(stamp)).flatten().map(str::to_string)
+}
+
+/// The agent settings Model tab's Harness row (user 2026-10-29) for the
+/// seat `id` on `tier` (the model chosen in the tab; by default the one it
+/// runs next): `lane` (openrouter, langserver, or null when that tier has no
+/// harness choice), `follow` (the harness its key or server gives it, and
+/// whose), `pin` (its own choice), `current` (what its session runs on) and
+/// `options` (each harness it may choose, as the key dialog lists them). A
+/// tier on another lane is shown as a move into it leaves the seat: no pin,
+/// on its key's or server's harness; `moves` says the tab's model change
+/// takes it to another lane or server, so its harness is chosen after that
+/// change is saved. Reads one row; spawns nothing.
+#[logged]
+pub async fn seat_row(engine: &Engine, id: i64, tier: Option<&str>) -> Result<Value> {
+    let client = engine.db.get().await?;
+    let r = client.query_one("SELECT tier, account, coalesce(extra, '{}'::jsonb), pending_switch FROM ot.agents WHERE id = $1", &[&id]).await?;
+    drop(client);
+    let runs: String = r.get::<_, Option<Value>>(3).and_then(|p| p["tier"].as_str().map(str::to_string)).unwrap_or_else(|| r.get(0));
+    let tier = tier.map(str::trim).filter(|t| !t.is_empty()).map(str::to_string).unwrap_or_else(|| runs.clone());
+    let extra: Value = r.get(2);
+    let stays = catalog::provider_of(&tier) == catalog::provider_of(&runs);
+    let server_of = |t: &str| crate::langserver::route_of(engine, t).and_then(|(s, _)| s["id"].as_str().map(str::to_string));
+    let moves = tier != runs && (!stays || (catalog::is_langserver(&tier) && server_of(&tier) != server_of(&runs)));
+    let pin = if stays { seat_pin(&extra) } else { None };
+    let current = if stays { extra["harness"].as_str().map(str::to_string) } else { None };
+    let follow = |id: &str, source: &str, name: String| json!({ "id": id, "label": label(id), "installed": installed(engine, id), "source": source, "name": name });
+    let (lane, follow, options) = if catalog::is_openrouter(&tier) {
+        let account: Option<String> = if stays { r.get(1) } else { None };
+        let key = crate::openrouter::seat_key(engine, account.as_deref());
+        let name = engine.accounts.view().get(&key).map(|a| crate::openrouter::display(engine, &a)).unwrap_or_default();
+        (json!(catalog::OPENROUTER), follow(&crate::openrouter::key_harness(engine, &key), "key", name), options(engine, catalog::OPENROUTER))
+    } else if let Some((server, _)) = catalog::is_langserver(&tier).then(|| crate::langserver::route_of(engine, &tier)).flatten() {
+        let own = crate::langserver::seat_harness(&server, None);
+        let name = server["label"].as_str().unwrap_or("").to_string();
+        (json!(catalog::LANGSERVER), follow(&own, "server", name), crate::langserver::seat_options(engine, &server))
+    } else {
+        (Value::Null, Value::Null, Vec::new())
+    };
+    Ok(json!({ "tier": tier, "lane": lane, "follow": follow, "pin": pin, "current": current, "options": options, "moves": moves }))
 }
 
 /// Why a seat moves to another harness at its turn boundary, for its
-/// handoff and its transcript.
+/// handoff and its transcript: its own choice, or what it follows changed.
 #[nolog]
-pub fn switch_why(_provider: &str, _pinned: bool, want: &str, was: &str) -> String {
-    format!("its OpenRouter key now runs on {} (it ran on {})", label(want), label(was))
+pub fn switch_why(provider: &str, pinned: bool, want: &str, was: &str) -> String {
+    let (want, was) = (label(want), label(was));
+    if pinned {
+        format!("its harness was set to {want} in its settings (it ran on {was})")
+    } else if provider == catalog::LANGSERVER {
+        format!("its language model server now runs on {want} (it ran on {was})")
+    } else {
+        format!("its OpenRouter key now runs on {want} (it ran on {was})")
+    }
 }
 
 /// Reuse discovery's version; listing harnesses must never launch a CLI.

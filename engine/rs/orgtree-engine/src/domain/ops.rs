@@ -431,30 +431,28 @@ async fn name_free(tx: &Transaction<'_>, org_id: i64, name: &str) -> Result<()> 
 }
 
 /// `extra.harness` is the harness a seat's session runs on. An OpenRouter
-/// seat is stamped at hire (and on a move into the lane) with its key's
-/// harness, which unpins it (`extra.harness_pin`); a rehire keeps the stamp
-/// and the pin. An unpinned seat follows its key's later changes at its next
-/// turn boundary (the actor's `start_turn`). A language model server seat runs on
-/// its server's harness, stamped the same way for every reader of
-/// `extra.harness` (the server's own setting stays the authority at launch).
+/// or language model server seat is stamped at hire (and on a move into the
+/// lane) with its key's or its server's harness, which drops a harness of
+/// its own (`extra.harness_pin`, its target `extra.harness_pin_to`); a
+/// rehire keeps the stamp and the pin. A seat without a pin follows its
+/// key's or server's later changes at its next turn boundary, and a pinned
+/// one moves to its pin there (the actor's `start_turn`).
 #[logged]
 async fn stamp_harness(engine: &Engine, tx: &Transaction<'_>, agent: i64, tier: &str, replace: bool) -> Result<()> {
     let h = if catalog::is_openrouter(tier) {
         let account: Option<String> = tx.query_one("SELECT account FROM ot.agents WHERE id = $1", &[&agent]).await?.get(0);
-        if replace {
-            tx.execute("UPDATE ot.agents SET extra = coalesce(extra, '{}'::jsonb) - 'harness_pin' WHERE id = $1", &[&agent]).await?;
-        }
         crate::openrouter::seat_harness(engine, account.as_deref(), None)
     } else if catalog::is_langserver(tier) {
-        match crate::langserver::route_of(engine, tier).and_then(|(s, _)| s["harness"].as_str().map(str::to_string)) {
-            Some(h) => h,
+        match crate::langserver::route_of(engine, tier) {
+            Some((s, _)) => crate::langserver::seat_harness(&s, None),
             None => return Ok(()),
         }
     } else {
         return Ok(());
     };
-    // a language model server's harness is fixed: always restamp it
-    let replace = replace || catalog::is_langserver(tier);
+    if replace {
+        tx.execute("UPDATE ot.agents SET extra = coalesce(extra, '{}'::jsonb) - 'harness_pin' - 'harness_pin_to' WHERE id = $1", &[&agent]).await?;
+    }
     tx.execute(
         "UPDATE ot.agents SET extra = CASE WHEN $3 OR NOT (coalesce(extra, '{}'::jsonb) ? 'harness')
                                     THEN coalesce(extra, '{}'::jsonb) || jsonb_build_object('harness', $2::text)
@@ -466,12 +464,16 @@ async fn stamp_harness(engine: &Engine, tx: &Transaction<'_>, agent: i64, tier: 
     Ok(())
 }
 
-/// The harness a language model server agent runs on now: its stamp, else (an
-/// agent stamped before the stamp existed) its server's.
+/// The harness a language model server agent runs on now (its stamp, else,
+/// stamped before the stamp existed, its server's) and the one it would run
+/// on at `tier`: its own if it chose one, else that tier's server's.
 #[logged]
-async fn langserver_harness(engine: &Engine, tx: &Transaction<'_>, agent: i64, tier: &str) -> Result<Option<String>> {
-    let stamped: Option<String> = tx.query_one("SELECT extra->>'harness' FROM ot.agents WHERE id = $1", &[&agent]).await?.get(0);
-    Ok(stamped.or_else(|| crate::langserver::route_of(engine, tier).and_then(|(s, _)| s["harness"].as_str().map(str::to_string))))
+async fn langserver_harness(engine: &Engine, tx: &Transaction<'_>, agent: i64, tier: &str, next: &str) -> Result<(Option<String>, Option<String>)> {
+    let extra: Value = tx.query_one("SELECT coalesce(extra, '{}'::jsonb) FROM ot.agents WHERE id = $1", &[&agent]).await?.get(0);
+    let pin = crate::harnesses::seat_pin(&extra);
+    let on = |t: &str| crate::langserver::route_of(engine, t).map(|(s, _)| crate::langserver::seat_harness(&s, pin.as_deref()));
+    let now = extra["harness"].as_str().map(str::to_string).or_else(|| on(tier));
+    Ok((now, on(next)))
 }
 
 /// A harness as people name it.
@@ -896,6 +898,7 @@ pub(crate) async fn run_in_tx_without_audience_notices(engine: &Arc<Engine>, org
         "switch_model" => boxed(|| switch_model(engine, org, &tx, actor, req, fx)).await?,
         "reorder" => boxed(|| reorder(org, &tx, actor, req, fx)).await?,
         "account" => boxed(|| account(engine, org, &tx, actor, req, fx)).await?,
+        "harness" => boxed(|| harness(engine, org, &tx, actor, req, fx)).await?,
         "cheap_compact" => boxed(|| cheap_compact(engine, org, &tx, actor, req, fx)).await?,
         "swap" => boxed(|| swap(engine, org, &tx, actor, req, fx)).await?,
         "self_subjugate" => boxed(|| self_subjugate(engine, org, &tx, actor, req, fx)).await?,
@@ -1610,7 +1613,7 @@ async fn hire(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transaction<'_>, 
             crate::harnesses::require_choice(engine, catalog::OPENROUTER, h)?;
             // an explicit harness pins the seat: it wins over its key's
             // harness, now and after the key changes (user ruling 2026-10-13)
-            tx.execute("UPDATE ot.agents SET extra = extra || jsonb_build_object('harness', $2::text, 'harness_pin', true) WHERE id = $1",
+            tx.execute("UPDATE ot.agents SET extra = extra || jsonb_build_object('harness', $2::text, 'harness_pin', true, 'harness_pin_to', $2::text) WHERE id = $1",
                 &[&id, &h]).await?;
         } else {
             // any other tier always runs on its own CLI: naming that one is a no-op
@@ -3125,8 +3128,8 @@ async fn switch_model(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transacti
     // 2026-10-10). Between servers on one harness the session carries on: the
     // lane keeps one config folder per harness.
     let harnesses = if from == catalog::LANGSERVER && to == catalog::LANGSERVER {
-        let now = langserver_harness(engine, tx, n.id, &n.tier).await?;
-        let next = crate::langserver::route_of(engine, &tier).and_then(|(s, _)| s["harness"].as_str().map(str::to_string));
+        // a seat with a harness of its own keeps it on the other server
+        let (now, next) = langserver_harness(engine, tx, n.id, &n.tier, &tier).await?;
         match (now, next) {
             (Some(a), Some(b)) if a != b => Some((a, b)),
             _ => None,
@@ -3189,7 +3192,15 @@ async fn switch_model(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transacti
         if crate::domain::asks::moot_for_fresh_session(tx, n.id, "the asking session was replaced by a provider switch; the fresh session never posed it").await? {
             fx.pulses.extend([crate::changes::Change::Asks, crate::changes::Change::Docket]);
         }
-        stamp_harness(engine, tx, n.id, &tier, true).await?;
+        match &harnesses {
+            // between two servers a seat keeps a harness of its own: only
+            // the stamp moves, to the one it runs on there
+            Some((_, next)) => {
+                tx.execute("UPDATE ot.agents SET extra = coalesce(extra, '{}'::jsonb) || jsonb_build_object('harness', $2::text) WHERE id = $1",
+                    &[&n.id, next]).await?;
+            }
+            None => stamp_harness(engine, tx, n.id, &tier, true).await?,
+        }
         warnings.push(format!(
             "{} moved from {was} to {now}: it continues on a fresh session that starts with a summary of its conversation (the whole conversation is saved in its folder)",
             n.name
@@ -3279,6 +3290,66 @@ async fn reorder(org: &Arc<OrgHandle>, tx: &Transaction<'_>, actor: &Actor, req:
     tx.execute("UPDATE ot.agents SET sibling_order = $2, row_version = row_version + 1 WHERE id = $1", &[&n.id, &order]).await?;
     fx.agents.insert(n.id);
     Ok(json!({ "node": n.name, "index": pos, "live_sibling_count": list.len() + 1, "sibling_order": order }))
+}
+
+/// A seat's own harness, or none (user 2026-10-29 14:26Z: the agent
+/// settings Model tab's Harness row; no agent tool sets it). `harness` names
+/// one its lane offers and that is installed here; null or empty clears it,
+/// and the seat follows its OpenRouter key or its language model server
+/// again. Nothing moves now: its next turn boundary crosses to the harness
+/// it should run on, on a fresh session that starts with a summary (the
+/// actor's `cross_harness`), never mid-turn. A queued model switch is judged
+/// as the tier the seat will run.
+#[logged]
+async fn harness(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transaction<'_>, actor: &Actor, req: &Value, fx: &mut Effects) -> Result<Value> {
+    if !matches!(actor, Actor::User) {
+        refuse!(Forbidden, "an agent's harness is chosen by the user, in its settings' Model tab");
+    }
+    let n = node_by_name(tx, org.id, str_arg(req, "node").unwrap_or("")).await?;
+    agent_only(&n, "choose a harness")?;
+    let pending: Option<Value> = tx.query_one("SELECT pending_switch FROM ot.agents WHERE id = $1", &[&n.id]).await?.get(0);
+    if pending.as_ref().is_some_and(|p| p["crossing"] == json!(true)) {
+        refuse!(Conflict, "{} has a model change queued that starts a fresh session; choose its harness after it applies", n.name);
+    }
+    let tier = pending.as_ref().and_then(|p| p["tier"].as_str()).unwrap_or(&n.tier).to_string();
+    let want = str_arg(req, "harness");
+    if !(catalog::is_openrouter(&tier) || catalog::is_langserver(&tier)) {
+        refuse!(BadRequest, "{} runs on {}: a harness is chosen only for OpenRouter and language model server agents",
+            n.name, catalog::provider_label(catalog::provider_of(&tier)));
+    }
+    if let Some(h) = want {
+        if catalog::is_openrouter(&tier) {
+            crate::harnesses::require_choice(engine, catalog::OPENROUTER, h)?;
+        } else {
+            let Some((server, _)) = crate::langserver::route_of(engine, &tier) else {
+                refuse!(Conflict, "{tier} is not a model of any language model server this app knows");
+            };
+            let options = crate::langserver::seat_options(engine, &server);
+            let Some(o) = options.iter().find(|o| o["id"].as_str() == Some(h)) else {
+                refuse!(BadRequest, "the harness is claude-code, codex-cli or opencode");
+            };
+            if o["available"] != json!(true) {
+                refuse!(BadRequest, "{}", o["why"].as_str().unwrap_or("that harness cannot drive this server"));
+            }
+        }
+    }
+    let extra: Value = tx.query_one("SELECT coalesce(extra, '{}'::jsonb) FROM ot.agents WHERE id = $1", &[&n.id]).await?.get(0);
+    let was = crate::harnesses::seat_pin(&extra);
+    match want {
+        Some(h) => tx.execute(
+            "UPDATE ot.agents SET extra = coalesce(extra, '{}'::jsonb) || jsonb_build_object('harness_pin', true, 'harness_pin_to', $2::text),
+                    row_version = row_version + 1 WHERE id = $1", &[&n.id, &h]).await?,
+        None => tx.execute(
+            "UPDATE ot.agents SET extra = coalesce(extra, '{}'::jsonb) - 'harness_pin' - 'harness_pin_to',
+                    row_version = row_version + 1 WHERE id = $1", &[&n.id]).await?,
+    };
+    if was.as_deref() != want {
+        event(tx, org.id, "harness", actor, Some(n.id), json!({ "node": n.name, "harness": want, "was": was }), fx).await?;
+        fx.events = true;
+    }
+    fx.agents.insert(n.id);
+    fx.reconfigure.push(n.id);
+    Ok(json!({ "node": n.name, "harness": want, "was": was }))
 }
 
 #[logged]

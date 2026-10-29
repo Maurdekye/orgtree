@@ -150,14 +150,17 @@ struct Ctx {
     scratch: PathBuf,
     effort: String,
     fallback: bool,
-    /// an OpenRouter seat's harness: claude-code or codex-cli (the one its
+    /// an OpenRouter or language model server seat's harness (the one its
     /// session runs on: its stamp, else the one it should run on)
     harness: Option<String>,
-    /// an OpenRouter seat: its stamp (`extra.harness`) and the harness it
-    /// should run on (`openrouter::seat_harness`: its pin, else its key's);
-    /// `start_turn` moves it across when they differ
+    /// an OpenRouter or language model server seat: its stamp
+    /// (`extra.harness`) and the harness it should run on (its pin, else
+    /// its key's or its server's: `openrouter::seat_harness`,
+    /// `langserver::seat_harness`); `start_turn` moves it across when they differ
     harness_stamp: Option<String>,
     harness_want: Option<String>,
+    /// whether it chose its own harness (`extra.harness_pin`)
+    harness_pinned: bool,
     /// the org's compaction threshold, a fraction of the context window:
     /// the CLI compacts the session when its context passes it
     compact_at: f64,
@@ -208,6 +211,7 @@ impl std::fmt::Debug for Ctx {
             .field("fallback", &self.fallback)
             .field("harness", &self.harness)
             .field("harness_want", &self.harness_want)
+            .field("harness_pinned", &self.harness_pinned)
             .field("scratch", &self.scratch)
             .field("effective", &self.effective)
             .finish()
@@ -2147,7 +2151,7 @@ impl Actor {
                         EXISTS (SELECT 1 FROM ot.audiences au WHERE au.org_id = a.org_id AND au.grantee = a.name
                                    AND au.grantor = '@extern' AND au.revoked_at IS NULL),
                         a.occupancy, a.context_window, a.occupancy_est, a.compacted_unrun, a.limit_locked,
-                        coalesce((a.extra->>'harness_pin')::boolean, false)
+                        coalesce((a.extra->>'harness_pin')::boolean, false), a.extra->>'harness_pin_to'
                    FROM ot.agents a JOIN ot.orgs o ON o.id = a.org_id
                    -- the superior is the nearest AGENT above: a project is
                    -- transparent for reporting (docs/rust-engine/PROJECT-NODES.md)
@@ -2193,18 +2197,20 @@ impl Actor {
             Some((_, m)) => m["id"].as_str().map(str::to_string).unwrap_or(model),
             None => model,
         };
-        let harness_stamp: Option<String> = if openrouter { r.get(20) } else { None };
-        let harness_want = openrouter.then(|| {
-            crate::openrouter::seat_harness(&self.engine, r.get::<_, Option<String>>(3).as_deref(),
-                harness_stamp.as_deref().filter(|_| r.get::<_, bool>(30)))
-        });
-        let harness = if openrouter {
-            harness_stamp.clone().or_else(|| harness_want.clone())
-        } else if let Some((s, _)) = &local {
-            s["harness"].as_str().map(str::to_string)
+        // an OpenRouter or language model server seat runs on a harness it
+        // chose (its pin) or the one it follows (its key's, its server's);
+        // `start_turn` moves it at the boundary when that differs from the
+        // harness its session runs on (the stamp)
+        let chooses = openrouter || local.is_some();
+        let harness_stamp: Option<String> = if chooses { r.get(20) } else { None };
+        let harness_pinned = chooses && r.get::<_, bool>(30);
+        let pin = crate::harnesses::pin_target(harness_pinned, r.get::<_, Option<String>>(31).as_deref(), harness_stamp.as_deref());
+        let harness_want = if openrouter {
+            Some(crate::openrouter::seat_harness(&self.engine, r.get::<_, Option<String>>(3).as_deref(), pin.as_deref()))
         } else {
-            None
+            local.as_ref().map(|(s, _)| crate::langserver::seat_harness(s, pin.as_deref()))
         };
+        let harness = harness_stamp.clone().or_else(|| harness_want.clone());
         let local_window = local.as_ref().map(|(_, m)| crate::langserver::context_of(m) as i32);
         let effort = catalog::effective_effort(&configured, &settings);
         let fallback = configured
@@ -2294,6 +2300,7 @@ impl Actor {
             harness,
             harness_stamp,
             harness_want,
+            harness_pinned,
             compact_at,
             cold_reset,
             occupancy: r.get(25),
@@ -2341,7 +2348,7 @@ impl Actor {
         // switch to another (user 2026-10-13)
         for h in [ctx.harness_want.as_deref(), ctx.harness.as_deref()].into_iter().flatten() {
             if !crate::harnesses::installed(&self.engine, h) {
-                return Err(anyhow!("{} (this agent's OpenRouter harness; the key's is chosen in App settings › Providers › OpenRouter)",
+                return Err(anyhow!("{} (this agent's OpenRouter harness: its own is chosen in its Model tab, its key's in App settings › Providers › OpenRouter)",
                     crate::harnesses::not_installed(h)));
             }
         }
@@ -2352,7 +2359,17 @@ impl Actor {
     /// What a language model server seat needs before it can launch: the lane on,
     /// its server and model still configured, the server enabled.
     async fn langserver_route(&self, ctx: &Ctx) -> Result<OrRoute> {
-        let r = crate::langserver::route(&self.engine, &ctx.tier).await?;
+        // the harness it should run on, not installed here, is not crossed to
+        // at the boundary: the launch refuses, saying so (never a silent stay
+        // on another; user 2026-10-13)
+        if let Some(w) = ctx.harness_want.as_deref()
+            .filter(|w| ctx.harness.as_deref() != Some(*w) && !crate::harnesses::installed(&self.engine, w)) {
+            let whose = if ctx.harness_pinned { "this agent's own harness; choose another in its Model tab" } else { "its language model server's harness" };
+            return Err(anyhow!("{} ({whose})", crate::harnesses::not_installed(w)));
+        }
+        // the seat's harness: its own, else its server's (user 2026-10-29)
+        let harness = ctx.harness.as_deref().unwrap_or("claude-code");
+        let r = crate::langserver::route(&self.engine, &ctx.tier, harness).await?;
         // no effort is sent: a local model's reasoning switch is its own
         Ok(OrRoute { key: r.key.clone(), codex: r.codex, reasoning: false, local: Some(r) })
     }
@@ -2719,7 +2736,8 @@ impl Actor {
         Ok(Some(note))
     }
 
-    /// Move an OpenRouter seat onto the harness it should run on (`want`),
+    /// Move an OpenRouter or language model server seat onto the harness it
+    /// should run on (`want`: its own choice, or what it follows changed),
     /// inside `start_turn`'s admission transaction (its row locked), before
     /// any mail is claimed. A seat never stamped is only stamped. A seat with
     /// a session ends it: the next turn starts a fresh session with a summary
@@ -2732,8 +2750,7 @@ impl Actor {
             tx.commit().await?;
             return Ok(());
         };
-        let why = format!("its OpenRouter key now runs on {} (it ran on {})",
-            crate::harnesses::label(want), crate::harnesses::label(&was));
+        let why = crate::harnesses::switch_why(&ctx.provider, ctx.harness_pinned, want, &was);
         let session = ctx.session_id.clone();
         tx.execute(
             "UPDATE ot.agents SET session_id = NULL, occupancy = NULL, occupancy_est = true,
@@ -2754,7 +2771,8 @@ impl Actor {
                 "the asking session was replaced by a harness switch; the fresh session never posed it").await?;
         }
         tx.commit().await?;
-        tracing::info!(agent = %self.name, from = %was, to = %want, fresh_session = session.is_some(), "OpenRouter harness switch at the turn boundary");
+        tracing::info!(agent = %self.name, from = %was, to = %want, pinned = ctx.harness_pinned, fresh_session = session.is_some(),
+            "harness switch at the turn boundary");
         if session.is_some() {
             let client = self.engine.db.get().await?;
             let row = json!({ "role": "system", "kind": "compact", "ts": now_iso(), "tokens": token_counts::not_counted(token_counts::SUMMARY_NEXT),
@@ -4639,8 +4657,9 @@ impl Actor {
             self.retry_admission();
             return Ok(false);
         }
-        // an OpenRouter seat whose harness should change (its key's harness
-        // changed, or it moved to a key on another harness) moves across here,
+        // an OpenRouter or language model server seat whose harness should
+        // change (its own choice in its Model tab, its key's or its server's
+        // harness changed, or it moved to a key on another harness) moves across here,
         // at the boundary, never mid-turn: neither CLI resumes the other's
         // session, so it goes on in a fresh one that starts with a summary
         // (a harness not installed here is not crossed to: the launch refuses, saying so)

@@ -26,8 +26,9 @@ pub(crate) fn node_harness(engine:&Engine,tier:&str,account:Option<&str>,extra:&
         stamp.map(str::to_string).or_else(|| Some(crate::openrouter::seat_harness(
             engine, account, crate::harnesses::seat_pin(extra).as_deref())))
     } else if crate::providers::catalog::is_langserver(tier) {
-        crate::langserver::route_of(engine, tier)
-            .and_then(|(server, _)| server["harness"].as_str().map(str::to_string))
+        // what its session runs on, else (never stamped) what it would run on
+        extra["harness"].as_str().map(str::to_string).or_else(|| crate::langserver::route_of(engine, tier)
+            .map(|(server, _)| crate::langserver::seat_harness(&server, crate::harnesses::seat_pin(extra).as_deref())))
     } else { Some(match crate::providers::catalog::provider_of(tier) {
         "claude"=>"claude-code", "openai"=>"codex-cli", "google"=>"antigravity", "muse"=>"muse", _=>return None,
     }.to_string()) }

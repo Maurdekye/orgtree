@@ -968,8 +968,10 @@ pub fn from_rows(
         }
         if inc.effort {
             if let Some(on) = r.scope["fast_mode"].as_bool() { v["fast_mode"] = json!(on); }
-            if catalog::is_openrouter(&r.tier) && r.extra["harness_pin"].as_bool() == Some(true) {
-                if let Some(h) = r.extra["harness"].as_str() { v["harness"] = json!(h); }
+            // a hire's `harness` pins OpenRouter seats only: a server seat's own
+            // harness (its Model tab) is not exported
+            if catalog::is_openrouter(&r.tier) {
+                if let Some(h) = crate::harnesses::seat_pin(&r.extra) { v["harness"] = json!(h); }
             }
             if let Some(e) = r.scope["effort"].as_str().filter(|e| !e.is_empty()) { v["effort"] = json!(e); }
         }
