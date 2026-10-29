@@ -340,3 +340,22 @@ test('§3b no Team shortcut without a live report, with the setting off, or on t
   t.after(() => off.unmount())
   assert.equal(row(off.el) === null, true, 'setting off: no row at all')
 })
+
+test('§3c an agent norm card\'s mailbox and gear buttons carry the same accessible labels and titles as a project card\'s mailbox and a desk\'s gear (#33)', async (t) => {
+  serve(t)
+  shortcutsOn(t)
+  const idle = await mountView(agentCard(agentNode({ mail_pending: 0 })), (el) => el)
+  t.after(() => idle.unmount())
+  const mailIdle = row(idle.el)!.querySelector<HTMLButtonElement>('button.mailbtn:not(.docketbtn)')!
+  assert.equal(mailIdle.getAttribute('aria-label'), 'mailbox of lead')
+  assert.equal(mailIdle.getAttribute('title'), 'open the mailbox of lead')
+  const gear = row(idle.el)!.querySelector<HTMLButtonElement>('button.gearbtn')!
+  assert.equal(gear.getAttribute('aria-label'), 'settings for lead')
+  assert.equal(gear.getAttribute('title'), 'settings for lead')
+
+  const pending = await mountView(agentCard(agentNode({ mail_pending: 4 })), (el) => el)
+  t.after(() => pending.unmount())
+  const mailPending = row(pending.el)!.querySelector<HTMLButtonElement>('button.mailbtn:not(.docketbtn)')!
+  assert.equal(mailPending.getAttribute('aria-label'), 'mailbox of lead')
+  assert.equal(mailPending.getAttribute('title'), '4 mail waiting — open the mailbox of lead')
+})

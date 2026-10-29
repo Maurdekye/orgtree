@@ -214,6 +214,41 @@ test('§4 the whole header row folds and unfolds; its ticket chip opens the tick
   assert.equal(folded(el), false, 'a click elsewhere on the row unfolds it')
 })
 
+test('§4b a resolved mention in a folded question\'s first line opens its destination without unfolding (#9)', async (t) => {
+  const { refs, opened } = routes()
+  const q: AskQuestion = {
+    question: 'Check with @bob on @item:orgtree/ship-it or @item:orgtree/missing-it?\nSecond line.',
+    header: 'Check',
+  }
+  const { el } = await mount(t, card(open(fresh(), [q]), refs))
+  await toggle(el)
+  assert.equal(folded(el), true, 'folded first')
+  const line = el.querySelector('.ask-fold-line .ask-fold-text') as HTMLElement | null
+  assert.ok(line, 'folded first line renders')
+  const bob = line!.querySelector('.ref-agent.ref-ready') as HTMLElement | null
+  assert.ok(bob, 'resolved agent mention chip in folded question text')
+  assert.equal(bob!.tagName, 'BUTTON', 'resolved mention chip is an interactive button when folded')
+  await inAct(() => { bob!.click() })
+  assert.deepEqual(opened.map((r) => r.token), ['@bob'], 'clicking resolved agent mention opens its destination')
+  assert.equal(folded(el), true, 'clicking resolved agent mention does not unfold the card')
+
+  const item = line!.querySelector('.ref-item.ref-ready') as HTMLElement | null
+  assert.ok(item, 'resolved item mention chip in folded question text')
+  await inAct(() => { item!.click() })
+  assert.deepEqual(opened.map((r) => r.token), ['@bob', '@item:orgtree/ship-it'], 'clicking resolved item mention opens its destination')
+  assert.equal(folded(el), true, 'clicking resolved item mention does not unfold the card')
+
+  const missing = line!.querySelector('.ref-chip:not(.ref-ready)') as HTMLElement | null
+  assert.ok(missing, 'unresolved mention chip in folded question text')
+  await inAct(() => { missing!.click() })
+  assert.equal(folded(el), false, 'clicking an unresolved inert mention still unfolds the card')
+  assert.equal(
+    rule('.wrap-object-mentions :is(.tray-sum, .ask-fold-text) .ref-chip.ref-chip.ref-ready:is(.ref-item, .ref-doc, .ref-app, .ref-panel)').get('white-space'),
+    'nowrap',
+    'wrapped object mentions stay single-line inside .ask-fold-text as in .tray-sum',
+  )
+})
+
 test('§5 folding never answers: drafts survive, ctrl+enter does nothing while folded, nothing is sent', async (t) => {
   const ask = open(fresh(), [SHIP])
   const { el } = await mount(t, card(ask, routes().refs))

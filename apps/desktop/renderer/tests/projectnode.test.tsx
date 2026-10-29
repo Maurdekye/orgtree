@@ -337,6 +337,36 @@ test('§2e with "Show agent card shortcuts" on, the project card has the agent\'
   assert.deepEqual(opened, ['docket', 'inbox', 'presented:website'])
 })
 
+test('§2f a pinned project norm card wears the pinned class and badge in its meta row, and keeps its placeholder when focused (#34)', async (t) => {
+  const unpinned = await square(project())
+  t.after(() => unpinned.unmount())
+  const sqUnpinned = unpinned.el.querySelector<HTMLElement>('.sq.project')!
+  assert.equal(sqUnpinned.classList.contains('pinned'), false)
+  assert.equal(sqUnpinned.querySelector('.pinbadge'), null)
+
+  const pinnedView = await mountView(<ProjectSquare node={project()} pos={{ x: 0, y: 0 }} lod="norm"
+    pinned dragging={false} isDrop={false} op={() => Promise.resolve({} as OpResult)} slug="org" toast={noop} zoom={2}
+    hire={{ claudeHire: offer }} seats={seats} onHire={noop} onInbox={noop} onNewProject={noop}
+    onDragStart={noop} onDragMove={noop} onDragEnd={noop} onDragCancel={noop} />, (el) => el)
+  t.after(() => pinnedView.unmount())
+  const sqPinned = pinnedView.el.querySelector<HTMLElement>('.sq.project')!
+  assert.equal(sqPinned.classList.contains('pinned'), true, 'project norm card gets .pinned class')
+  const badge = sqPinned.querySelector<HTMLElement>('.sq-meta.project-meta .badge.pinbadge')
+  assert.ok(badge, 'pinned badge renders inside .sq-meta.project-meta')
+  assert.equal(badge!.textContent, 'pinned')
+  assert.equal(badge!.getAttribute('title'), 'this desk is pinned as a window')
+  assert.equal(sqPinned.querySelector('.project-header-badges .pinbadge'), null, 'not placed inside .project-header-badges')
+
+  const focusedPinned = await mountView(<ProjectSquare node={project()} pos={{ x: 0, y: 0 }} lod="norm"
+    pinned pinnedFocus dragging={false} isDrop={false} op={() => Promise.resolve({} as OpResult)} slug="org" toast={noop} zoom={8}
+    hire={{ claudeHire: offer }} seats={seats} onHire={noop} onInbox={noop} onNewProject={noop}
+    onShowPin={noop} onDragStart={noop} onDragMove={noop} onDragEnd={noop} onDragCancel={noop} />, (el) => el)
+  t.after(() => focusedPinned.unmount())
+  assert.ok(focusedPinned.el.querySelector('.sq.project.pinned .pin-holder'), 'focused pinned project keeps its placeholder')
+  assert.ok(focusedPinned.el.querySelector('.sq.project.pinned .sq-meta.project-meta .badge.pinbadge'),
+    'focused pinned project keeps its pinned badge')
+})
+
 /* ─── §3 its menu ───────────────────────────────────────────────────────── */
 
 const labels = (entries: ReturnType<typeof projectMenuEntries>) =>
@@ -480,6 +510,29 @@ test('§3c retiring a project with live agents under it asks for the team retire
   assert.ok(retire && retire !== 'sep')
   retire.onSelect()
   assert.equal(asked, 'dissolve')
+})
+
+test('§3f a retired project\'s node menu keeps Settings alongside Open and Dismiss, matching a retired agent (#35)', () => {
+  let settingsOpened = 0
+  let dismissed = 0
+  const archivedProj = project({ state: 'archived' })
+  const h = handlers({
+    onOpenDesk: noop,
+    onSettings: () => { settingsOpened++ },
+    onDismiss: () => { dismissed++ },
+  })
+  const entries = projectMenuEntries(archivedProj, h, { claudeHire: offer })
+  assert.deepEqual(labels(entries), ['Focus', 'Open', 'Dismiss', 'Settings'],
+    'retired project menu keeps Settings and places Dismiss before Settings, like a retired agent')
+  entryNamed(entries, 'Dismiss').onSelect()
+  entryNamed(entries, 'Settings').onSelect()
+  assert.equal(dismissed, 1)
+  assert.equal(settingsOpened, 1)
+
+  const archivedAgent = { ...agentNode, state: 'archived' } as unknown as CanvasNode
+  assert.deepEqual(labels(agentMenuEntries(archivedAgent, h, { claudeHire: offer })).slice(0, 4),
+    ['Focus', 'Open', 'Dismiss', 'Settings'],
+    'retired project and retired agent top-level menu labels match')
 })
 
 /* ─── §4 the project's docket ───────────────────────────────────────────── */
