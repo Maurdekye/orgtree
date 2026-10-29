@@ -311,8 +311,9 @@ const SVG = 'http://www.w3.org/2000/svg'
 
 /** The mark's classes: its icon, and the avatar's tint. The letters are drawn
  *  by CSS from data-initials, so the chip's text, and every copy, stays the
- *  address. */
-const netMarkClass = (info: NetMention) => `net-mark net-mark-${info.icon}${info.avatar ? ` net-av-${info.avatar}` : ''}`
+ *  address; like every letter in a tile they are a .letter-chip (72909f0). */
+const netMarkClass = (info: NetMention) => `net-mark net-mark-${info.icon}${info.icon === 'letters' ? ' letter-chip' : ''}`
+  + (info.avatar ? ` net-av-${info.avatar}` : '')
 
 /** The icon as DOM, for chips built outside React. Never parses markup. */
 export function createNetMarkEl(doc: Document, info: NetMention): HTMLElement {
