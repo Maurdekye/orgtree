@@ -259,6 +259,11 @@ export interface OrgInboxEntry {
    *  org-inbox row it links to; only `net_id` when this org never had it */
   reply_to?: { id?: string; kind?: 'mail'; box?: 'org'; from?: string; at?: string; gist?: string; net_id?: string }
   replies?: MailReplyWire[]
+  /** received mail: every agent the engine delivered a copy to, in delivery
+   *  order, as recorded AT delivery (never today's holders). Absent when
+   *  none was recorded: old mail between two orgs of one engine, or mail
+   *  held under Do not disturb that nobody has pulled yet. */
+  delivered_to?: string[]
 }
 
 // F-06: net.py status_block — hub config + live connectivity (never secrets)

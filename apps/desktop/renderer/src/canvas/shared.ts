@@ -1374,6 +1374,7 @@ export type MailRow = MailEntry & {
   _wait?: boolean               // decorated inside MailList (pending group)
   _wait0?: boolean              // org-inbox pre-split unread flag
   _by?: string                  // org-inbox outbound attribution
+  _delivered?: string[]         // org-inbox received: the agents it was delivered to
   /** an ASK riding the inbox as its own mail row (user ruling 2026-08-04):
    *  the reading pane renders the response UI as the body instead of the
    *  reply UI. Never sent to markRead — it is not a real mail id. */

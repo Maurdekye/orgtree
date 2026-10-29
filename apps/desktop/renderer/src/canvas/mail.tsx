@@ -2058,7 +2058,7 @@ const entryFolder = (e: OrgInboxEntry) => e.dir === 'out' ? 'sent' : 'inbox'
  *  like a listed one. `unread`: the row is past the read mark. */
 function orgInboxRow(e: OrgInboxEntry, slug: string, unread: boolean): MailRow {
   return {
-    id: e.id, at: e.at, body: e.body, from: e.peer, to: e.peer, _by: e.by,
+    id: e.id, at: e.at, body: e.body, from: e.peer, to: e.peer, _by: e.by, _delivered: e.dir === 'in' ? e.delivered_to : undefined,
     kind: e.dir === 'in' ? 'message' : 'reply', _wait0: unread,
     _state: e.state, _state_at: e.state_at, _tries: e.tries, _err: e.last_err,
     attachments: e.attachments?.map((a) => ({ ...a, path: a.name })),
@@ -2075,6 +2075,32 @@ function orgInboxRow(e: OrgInboxEntry, slug: string, unread: boolean): MailRow {
 /** the folder an org-inbox row lists in: the split between Received and Sent */
 const orgFolderOf = (m: MailRow) => m.kind === 'reply' ? 'sent' : 'inbox'
 
+/** an outside party of the org inbox: a hub address is the shared contact link,
+ *  anything else is written plain (it came from outside, so no name match is trusted) */
+const outsideParty = (id: string) => (id.startsWith('@net:') || id.startsWith('@org:')) ? <HubContactChip address={id} /> : <b>{id}</b>
+
+/** The agents a received mail was delivered to, after its sender, in the outbox's recipient
+ *  markup (`→ @a @b`; USER 2026-10-29 ma660da825904). A live agent is the shared AgentLink. A
+ *  retired agent, or one removed since, is still named, as an inert `ref-agent` chip without
+ *  `ref-ready`: the dim chip every reference to something that cannot be opened wears. */
+function DeliveredTo({ names, map, onFocus }: {
+  names: string[]
+  map: ReadonlyMap<string, CanvasNode>
+  onFocus?: (id: string) => void
+}) {
+  return (
+    <span className="org-mail-recipient org-mail-delivered"><span className="dim">→ </span>
+      {names.map((name) => {
+        const node = map.get(name)
+        return node?.state === 'live'
+          ? <AgentLink key={name} id={name} label={'@' + name} tier={node.tier} onFocus={onFocus} />
+          : <AgentLink key={name} id={name} label={'@' + name} tier={node?.tier} className="ref-chip ref-agent"
+              why={node ? `@${name} has been retired` : `@${name} is no longer in this org`} />
+      })}
+    </span>
+  )
+}
+
 export function OrgInboxModal({ inbox, net, map, slug, toast, close, jumpTo,
   jumpSeq, refs, onFocusAgent, party }: OrgInboxModalProps) {
   // reworked (user spec 2026-08-05): no blurb, mailservers on their own TAB,
@@ -2085,6 +2111,10 @@ export function OrgInboxModal({ inbox, net, map, slug, toast, close, jumpTo,
     jumpTo && (inbox?.entries ?? []).some((e) => e.id === jumpTo
       && e.dir === 'out') ? 'sent' : 'inbox')
   const holders = inbox?.holders ?? []
+  // a jump to an agent closes this window first when it is the one in the way (outbox sender, delivered-to chips)
+  const focusAgent = onFocusAgent
+    ? (id: string) => { closeIfCentred('org-inbox', close, slug); onFocusAgent(id) }
+    : undefined
   // ⚠ THE TREE'S `entries` IS A PREVIEW — the newest few, for the canvas's
   // one-line summary. The real log is fetched HERE, when the panel opens,
   // because it was 105,310 B of an 844 KB tree payload on every 6 s poll for
@@ -2315,7 +2345,12 @@ export function OrgInboxModal({ inbox, net, map, slug, toast, close, jumpTo,
                        (The OUTGOING side below differs:
                        `_by` is recorded locally as the agent that sent, so it
                        stays eligible.) */
-                    sender={(id) => (id.startsWith('@net:') || id.startsWith('@org:')) ? <HubContactChip address={id} /> : <b>{id}</b>} />
+                    rowSender={outsideParty}
+                    sender={(id, m) => m?._delivered?.length
+                      /* delivered to (user spec): "@sender → @agent @agent", the outbox's line the other way round */
+                      ? <span className="org-mail-attribution">{outsideParty(id)}
+                          <DeliveredTo names={m._delivered} map={map} onFocus={focusAgent} /></span>
+                      : outsideParty(id)} />
                 : <MailList org={slug} delivered={out} outgoing compoundHeader jumpTo={listJump}
                     collapsible
                     jumpSeq={listJumpSeq} filterRequest={partyFilter} refs={refs} lookup={orgLookup} onFound={onFound} toast={toast}
@@ -2333,9 +2368,7 @@ export function OrgInboxModal({ inbox, net, map, slug, toast, close, jumpTo,
                             {byIsLocalAgent ? (
                               <AgentLink id={m!._by!} label={'@' + m!._by!}
                                 tier={map.get(m!._by!)?.tier}
-                                onFocus={onFocusAgent
-                                  ? (id) => { closeIfCentred('org-inbox', close, slug); onFocusAgent(id) }
-                                  : undefined} />
+                                onFocus={focusAgent} />
                             ) : (
                               // not an agent of this org — the sigil and the
                               // recorded text, with nothing inferred
