@@ -986,9 +986,36 @@ mod sandbox_tests {
         assert_eq!((r.mode, r.approval, r.session0), ("danger-full-access", "untrusted", true));
         let p = sandbox(true, "plan", true);
         assert_eq!(p.mode, "danger-full-access");
-        // bypass already ran unsandboxed: nothing changes, nothing to log
+        // bypass already ran unsandboxed: nothing changes in the sandbox, nothing to log (and it is never asked, below)
         let b = sandbox(true, "bypassPermissions", true);
-        assert_eq!((b.approval, b.session0), ("on-request", false));
+        assert_eq!((b.mode, b.approval, b.session0), ("danger-full-access", "never", false));
+    }
+
+    /// thread/start and thread/resume send `spec.sandbox.approval` unchanged, so this policy is what Codex is told.
+    #[test]
+    fn a_full_access_bypass_seat_is_never_asked() {
+        for session0 in [false, true] {
+            let b = sandbox(true, "bypassPermissions", session0);
+            assert_eq!((b.mode, b.approval, b.session0), ("danger-full-access", "never", false), "session0={session0}");
+        }
+    }
+
+    #[test]
+    fn every_other_seat_keeps_its_approval_policy() {
+        // no write access is read-only whatever the permission mode, bypass included
+        for pm in ["default", "acceptEdits", "plan", "bypassPermissions"] {
+            let r = sandbox(false, pm, false);
+            assert_eq!((r.mode, r.approval, r.session0), ("read-only", "on-request", false), "read-only {pm}");
+            // the Session 0 read-only fallback still declines every command and patch
+            let r0 = sandbox(false, pm, true);
+            assert_eq!((r0.mode, r0.approval, r0.session0), ("danger-full-access", "untrusted", true), "session 0 read-only {pm}");
+        }
+        for pm in ["default", "acceptEdits", "plan"] {
+            let w = sandbox(true, pm, false);
+            assert_eq!((w.mode, w.approval, w.session0), ("workspace-write", "on-request", false), "write {pm}");
+            let w0 = sandbox(true, pm, true);
+            assert_eq!((w0.mode, w0.approval, w0.session0), ("danger-full-access", "on-request", true), "session 0 write {pm}");
+        }
     }
 }
 
