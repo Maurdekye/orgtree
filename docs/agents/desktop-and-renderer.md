@@ -120,12 +120,18 @@ Audit findings from the ranked UX symmetry list (`_teams/601/release-review-450/
   Escape clears a focused nonempty query before closing. [verified:
   `canvas/{gallery,docwindow,docket}.ts*`, `http/docs.rs`,
   `migrate/document_slug_tests.rs`, `tests/gallerylazy.test.tsx`]
-- **Multi-reply disclosure:** one shared component bounds both the desk
-  composer and sent previews to two targets before an explicit `and N more`
-  control. Expansion reveals every exact target; composer removal keeps the
-  other identities and their order, and the existing 50-target bound is
-  unchanged. [verified: `canvas/{desk,mailreply,replypreview}.tsx`,
-  `tests/multireply.test.tsx`]
+- **Multi-reply disclosure:** one shared component, `ReplyPreviewDisclosure`,
+  folds every multi-reply list by Hubchat's `foldAt` (`replyFoldAt`: up to
+  three targets show whole, a longer list its first two before an `and N
+  more` control) and expands one way, as Hubchat does. The agent and project
+  desk composers (`counted`) head two or more targets with Hubchat's count
+  line, "Replying to N messages", folded, expanded and after each removal
+  (@rig-sol-b's C4 bounce asked for the explicit count). Sent multi-replies,
+  in mail previews and the desk transcript's own bubble, fold without a
+  count, as Hubchat's message view. Composer removal keeps the other
+  identities and their order; the 50-target bound is unchanged. [verified:
+  `canvas/{desk,projectdesk,mailreply,replypreview}.tsx`,
+  `tests/{multireply,projectdeskparity}.test.tsx`]
 
 ## Request cards fold (2026-10-29, 4.5.2)
 
