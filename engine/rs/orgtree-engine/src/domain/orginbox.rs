@@ -589,3 +589,31 @@ mod org_dnd_tests {
         assert_eq!(effective["org_inbox_mode"],"normal");assert_eq!(effective["org_inbox_enabled"],true);
     }
 }
+
+/// The wire form of "who got this message" (`delivered_to`): the record the
+/// engine kept at delivery, never a list worked out when the viewer opens.
+#[cfg(test)]
+mod delivered_to_tests {
+    use super::*;
+    fn row(dir: &str, delivered: Value) -> Value {
+        json!({"uid":"x1","dir":dir,"peer":"@net:alice.aa","body":"hello","at":"2026-10-29T12:00:00Z",
+            "attachments":[],"tries":0,"delivered_to":delivered})
+    }
+    #[test] fn an_incoming_message_names_every_agent_that_got_a_copy_in_delivery_order() {
+        let wire = entry(&row("in", json!(["coordinator-opus","liaison-opus","retired-reviewer"])));
+        assert_eq!(wire["delivered_to"], json!(["coordinator-opus","liaison-opus","retired-reviewer"]));
+        assert_eq!(wire["id"], "x1");
+        assert_eq!(wire["peer"], "@net:alice.aa");
+    }
+    #[test] fn a_message_nobody_got_a_copy_of_carries_no_field() {
+        for none in [json!([]), Value::Null] {
+            assert!(entry(&row("in", none)).get("delivered_to").is_none());
+        }
+        let mut old = row("in", json!([]));
+        old.as_object_mut().unwrap().remove("delivered_to");
+        assert!(entry(&old).get("delivered_to").is_none(), "a row read before the column existed");
+    }
+    #[test] fn a_sent_row_never_carries_the_list() {
+        assert!(entry(&row("out", json!(["coordinator-opus"]))).get("delivered_to").is_none());
+    }
+}
