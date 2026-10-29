@@ -7348,7 +7348,7 @@
     {
      "file": "apps/desktop/renderer/src/canvas/connections.tsx",
      "component": "Connections",
-     "label": "<><span className={'oi-dot' + (h.connected ? ' ok' : '')} />{' '} <b>{h.name || (h.id === 'local' ? 'This computer' : h.address)}</b></>"
+     "label": "<><span className={'oi-dot' + (h.connected ? ' ok' : '')} title={hubDotTitle(h)} />{' '} <b>{h.name || (h.id === 'local' ? 'This computer' : h.address)}</b></>"
     }
    ]
   },

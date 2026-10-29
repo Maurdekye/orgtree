@@ -21,7 +21,13 @@ The organization has a permanent public network address. **Copy address** copies
 
 **Connect to this computer's mail hub** applies `net_autoconnect` immediately. New identities default to local autoconnect when no preference is stored. **Connect your phone** opens [phone setup](../phone-link/SKILL.md) for this org.
 
-Remote rows have an enabled toggle. Rows show Connected with hub version, Disabled, Connecting, or Retrying with the error; queued/stuck counts and a peer roster appear when available. Missing version is shown as unknown. Roster entries distinguish organizations, chats and persons and show online state. A connection being reachable does not imply that the target org's external-inbox policy permits mail.
+Remote rows have an enabled toggle. Rows show Connected with hub version, Disabled, Connecting, or Retrying with the error; queued/stuck counts and the hub's connections appear when available. Missing version is shown as unknown. Hovering a hub's own dot says Connected or Not connected. A connection being reachable does not imply that the target org's external-inbox policy permits mail.
+
+## A hub's connections
+
+Each hub lists its connections as rows: a presence dot and the contact's link, nothing else. A filled green dot means online and a hollow red ring means offline; hovering the dot says which. Hovering the link shows its presence and type (org, person or independent chat), then its name, the hub's description of it when there is one (for example "Waiting to be linked to a Hubchat identity") and its address. That hover is the same on every link to the address.
+
+Online contacts come first, then offline ones. Within each group the most recent mail with this organization, sent or received, comes first; contacts with no mail come last, A-Z. Past ten rows the list scrolls inside its own box, and rows are drawn as they scroll into view, so a hub with hundreds of contacts stays fast. While the pointer is over the list, rows keep their places; the dots still change, and the new order applies when the pointer leaves.
 
 Contacts are shown as network contact links: click to open in Hubchat, right-click for more. Your own account's link is the exception: it opens your chat with the org it is shown in, never your Hubchat settings.
 

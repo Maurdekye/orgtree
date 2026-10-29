@@ -34,7 +34,11 @@ Form edits wait for **Save hosting settings**. A maximum-upload-limit-only save 
 
 Turning off a previously enabled relay also asks the desktop to remove its phone firewall rule, with an administrator prompt where needed. If removal is declined the rule can remain, while the door is off. **Refresh hub status** reloads saved configuration and status, so it can replace an unsaved form draft.
 
-Status distinguishes running/healthy, starting and stopped, and shows address, hub version, registered clients and queued count where available. Startup errors and migration/import notes appear separately. The operator-page link appears when healthy. A displayed version or queue count is not proof a particular recipient read a message.
+Status distinguishes running/healthy, starting and stopped, and shows address, hub version, registered clients and queued count where available. Startup errors and settings carried over from an earlier version appear separately; the earlier hubs' mail-migration reports are no longer shown (their files and the old store are kept). The operator-page link appears when healthy. A displayed version or queue count is not proof a particular recipient read a message.
+
+## Connections on this hub
+
+Under the status line the tab lists everyone registered on this computer's hub, in the same rows as [Org settings > Connections](../org-connections/SKILL.md): a green dot for online, a red ring for offline, and the link, whose hover gives the presence and type. Online addresses come first; within each group, the most recent mail between the address and the organizations here that use this hub comes first, and addresses with none come last, A-Z. Mail between two outside parties does not move them: Orgtree reads its own records and the hub's read-only operator view, never the hub's database. The list reads again with **Refresh hub status** and after a save. Chat from your phone follows the list, then the hosting settings.
 
 ## See also
 

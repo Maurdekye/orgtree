@@ -2004,6 +2004,25 @@ accessible name `name (address)`. A local org and `@org:` take no roster name.
 The Markdown signature carries the name, so a rename rebuilds the chip.
 [decided: user 2026-10-27 mb7ea64d82743; verified: `canvas/{netmentions,agentmentions,refmd}.ts*`, `canvas/netmentions.css`]
 
+Since 2026-10-29 (4.5.2) the hover of an address a hub lists leads with its
+presence and type instead of the kind: `Online · independent chat`, `Offline ·
+org`, `Online · person` (user m6f8fcfbd2824 "and just show that text when
+hovering the link", m822daec481cc "online status and chat type",
+me07459d92f6d "(org, person, independent chat)"), then the name, the hub's
+description of it (its `blurb`, cut at 200 characters) and the address when
+the chip shows a name, then the click. It is the one @net hover, so every
+surface that draws an `@net:` chip changed with it: plain and Markdown text in
+transcripts and mail (`reflinks`, `refmd`), tool-call cards (`toolrefs`),
+event-card headers (`events/card.tsx`), the user Inbox and Attention senders
+(`senderchip`), the history view, the org inbox's lists and reading pane
+(`mail.tsx`), the Sender submenu (`objectactions`), the Connections lists and
+the mailbox's network tab. An address listed on several hubs reads Online
+when any of them says so. An unlisted address, the org's own address and `@org:` keep
+the kind line (`Network address`, `Orgtree org`). The roster index also takes
+App settings > Mail hub's rows of this computer's hub (`setLocalHubRoster`)
+while that list is shown; the on-screen org's rosters stay first.
+[decided: user 2026-10-29; verified: `canvas/netmentions.tsx`, `tests/connectionlist.test.tsx`]
+
 Mail headers name an outside party with the same chip (user 2026-10-29
 m14ad537c5eb8 "these addresses should also be embedded hubchat / outbox
 links"). The shared event-card header draws an `external` actor whose id is a
@@ -2023,6 +2042,62 @@ the selection (the preview first, then the fetched log), and the list's
 `MailList`, so it holds in both until the reader edits it. A request and a mail
 jump replace each other. [decided: user 2026-10-29 m14ad537c5eb8, coordinator
 m60f0db52c4f1; verified: `events/card.tsx`, `canvas/{agentmentions,senderchip,mail,OrgCanvas}.tsx`, `tests/netheaderlinks.test.tsx`]
+
+## Connections lists (2026-10-29, 4.5.2)
+
+Org settings > Connections shows each hub's connections, and App settings >
+Mail hub shows everyone registered on this computer's hub, with one component,
+`canvas/connectionlist.tsx`. The user read the old list's grey bullets as
+"offline" ("thought the gray dot meant offline", m4c84e393768e; "that should
+be communicated more clearly", m0537fdb73608).
+
+- **Rows** ("formatted as a list of rows", mdc7e971eaf19): a `role="list"` of
+  rows of one height (`--conn-row-h`, in em, measured once mounted). A row is
+  the presence dot and the `HubContactChip`, with no words beside them ("also
+  remove the online / independent chat tags", mae6a9c785cc0). The words are in
+  the chip's hover (above). That includes the hub's free-text description
+  (`independent Claude Code chat`, `Waiting to be linked to a Hubchat
+  identity`): both are the same `blurb` field, so neither stays in the row.
+- **The dot** (`PresenceDot`): a filled green dot (`--ok`, with a halo) online,
+  a hollow 2 px red ring (`--bad`) offline. They differ in shape as well as
+  colour, and neither is grey. Its hover and accessible name are `Online` or
+  `Offline`. The mailbox's network tab wears the same dot. A hub's own status
+  dot keeps green or grey beside its status words and gained a hover
+  (`Connected` / `Not connected`).
+- **Order** ("sorted online first then offline below, and also within those
+  groups ordered by most recent correspondence with the org", m3e3829f0bf18):
+  online first; then the newest mail exchanged with the address, either way;
+  none last, A-Z by the chip's name (`Intl.Collator`, base sensitivity,
+  numeric), then by address. The row's presence is the one the hover gives
+  (`rowPresence`). The org tab reads the times from `GET
+  /api/orgs/{slug}/net/recent`. It reads again when the org inbox's total or
+  newest row changes, or a roster grows; a failed read keeps the order shown.
+- **Lazy loading** ("lazily loading and scrollable past a certain length"):
+  past `VISIBLE_ROWS` (10) the list scrolls in a ten-row window. Only the rows
+  in view and 5 either side are mounted, with spacer `conn-gap`s keeping the
+  scroll height; rows carry `aria-posinset`/`aria-setsize`. A chip, and the
+  picture it asks for, exists only for a mounted row. The sort runs in the
+  renderer: `tree.net` already carries each hub's whole roster, and presence
+  moves rows between the groups, so engine cursor paging would skip or repeat
+  rows and save no transfer.
+- **No jumping**: while the pointer is over the list, a chip in it has focus,
+  or it scrolled within 600 ms, rows keep their places (leavers drop out,
+  joiners go last). The dots change at once; the new order applies after.
+- **App settings > Mail hub** (m12a433749fda "remove the extra text
+  surrounding the mailhub running status and replace it with a similar list
+  for the local orgtree mailhub and its current connections", m6b0d9089462e
+  "and move all this stuff lower down"): the intro paragraph and the
+  `data_migration`/`v2_import` reports are no longer drawn (the engine still
+  returns them, and their files and the old store are untouched). The
+  settings-migration warning (`migrated.notes`) and errors stay. Under the
+  status line comes the list from `GET /api/desktop/hub/connections`, read
+  with the hub's status (opening, Refresh, a save), then Chat from your phone,
+  then the hosting settings. Its order uses, for each address, the newest mail
+  any org here that uses the hub exchanged with it, and for one of those orgs'
+  own address, its own newest mail with the others (`net/recent.rs`).
+[decided: user 2026-10-29; coordinator m42b6366c998d (design approved);
+verified: `canvas/{connectionlist,connections,hosthub,netmentions,mail}.tsx`,
+`net/recent.rs`, `tests/connectionlist.test.tsx`, `tests/connectionlist.capture.cjs`]
 
 ## Mention menu: every kind, newest first (2026-10-27)
 
