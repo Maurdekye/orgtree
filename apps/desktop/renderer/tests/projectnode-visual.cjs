@@ -30,7 +30,8 @@ module.exports = async (page) => {
   }
   // PROJECTNODE_VISUAL_ONLY=queue-badge: the REAL canvas, project site with an armed fair_queue listener: its node's
   // queue badge opens the project MAILBOX at the listeners folder (as the desk's queue card does), not the events
-  // window (docket project-node-s-mail-listeners-badge-opens-the-pr)
+  // window; then the deskinbox scene's desk card opens the same folder in its inbox tab
+  // (docket project-node-s-mail-listeners-badge-opens-the-pr)
   if (only === 'queue-badge') {
     await page.goto('/?scene=fairqueue')
     await page.waitFor('.sq.project', { timeout: 15000 })
@@ -58,6 +59,26 @@ module.exports = async (page) => {
     if (!details.opened.folders.some((f) => /^listeners.* \*$/.test(f))) throw new Error('the queue badge did not open the listeners folder: ' + JSON.stringify(details.opened))
     if (details.opened.eventsWindow) throw new Error('the events window opened')
     screenshots.push(await page.screenshot(`${prefix}-queue-badge-mailbox-1000x700`))
+    // and the DESK's header queue card (the deskinbox scene's armed mail listeners): the same folder, in its own inbox tab
+    await page.goto('/?scene=deskinbox&mode=lt')
+    await page.waitFor('#desk-inbox .project-desk .cc-tabs', { timeout: 15000 })
+    await settle()
+    details.deskCard = await page.eval(() => {
+      const c = document.querySelector('#desk-inbox .project-queue-card')
+      return { text: c.textContent, title: c.getAttribute('title') }
+    })
+    screenshots.push(await page.screenshot(`${prefix}-queue-card-desk-1000x700`))
+    await page.eval(async () => {
+      document.querySelector('#desk-inbox .project-queue-card').click()
+      await new Promise((r) => setTimeout(r, 900))
+    })
+    await settle()
+    details.deskOpened = await page.eval(() => ({
+      tab: document.querySelector('#desk-inbox .cc-tabs button.on')?.textContent ?? null,
+      folders: [...document.querySelectorAll('#desk-inbox .mail-folders > button')].map((b) => b.textContent.trim() + (b.classList.contains('on') ? ' *' : '')),
+    }))
+    if (!details.deskOpened.folders.some((f) => /^listeners.* \*$/.test(f))) throw new Error('the desk queue card did not open the listeners folder: ' + JSON.stringify(details.deskOpened))
+    screenshots.push(await page.screenshot(`${prefix}-queue-card-desk-mailbox-1000x700`))
     return { details, screenshots }
   }
   // PROJECTNODE_VISUAL_ONLY=popouts: the pinned agent sb's and project build's
