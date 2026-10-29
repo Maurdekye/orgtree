@@ -63,7 +63,9 @@ and time in header of detail tab").
   gets letters). The tints (`--net-av-*`, dark and light) are the `--k-*`
   values of Hubchat's `tokens.css`; a person and the own address are round, an
   org and a session squared off at 28%. CSS draws the letters from
-  `data-initials`, so the chip's text and every copy stay the address, and
+  `data-initials` in a `.letter-chip`, centred like every letter mark
+  ([letter-chip centring](#metric-independent-letter-chip-centring-2026-10-29-452)),
+  so the chip's text and every copy stay the address, and
   `netChipSig` includes the avatar and initials, so the Markdown walk redraws a
   chip when they change. Without Hubchat the picture-else-globe rule stands
   (ma1f33944e69d). Hubchat's inline mention mark (`MentionMark`) draws the same
@@ -2316,6 +2318,12 @@ button resets cannot override it):
   `canvas/orgpicture.tsx` and `canvas/orglogo.css` (`font: 600 26px/1 ...;
   line-height: 1; letter-spacing: 0; padding: 0; text-align: center` so two-letter
   initials do not shift right from trailing `letter-spacing`).
+- **Network chip avatars** (UX symmetry S2 #2): `NetMark` and `createNetMarkEl`
+  in `canvas/netmentions.tsx` draw a Hubchat-style initials avatar as
+  `.net-mark.net-mark-letters.letter-chip`; `.net-mark` itself
+  (`canvas/netmentions.css`, loaded after `styles.css`) uses the same flex
+  centring, line-height 1 and zero padding rather than overriding
+  `.letter-chip`, and the letters carry no letter-spacing (§5).
 - Proofs: `tests/letterchip-centring.test.tsx` and Session 0 visual capture
   `tools/rig/letterchips-visual.mjs` (`apps/desktop/renderer/tests/letterchips.visual.tsx`,
   `tools/rig/desktop/letterchips-visual.cjs`).
