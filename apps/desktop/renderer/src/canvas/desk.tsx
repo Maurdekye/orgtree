@@ -4378,7 +4378,11 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
                   <div className="msg sys" data-reply-event="">— {gapMs > 5400e3
                     ? `${Math.round(gapMs / 3600e3)} h`
                     : `${Math.round(gapMs / 60e3)} min`} later —</div>)}
-                {first && (m.replies?.length ? m.replies.map((r, i) => <div key={i}>{renderReply(r)}</div>) : renderReply(m.reply_to))}
+                {/* a sent multi-reply folds as the sent previews do (UX symmetry #37) */}
+                {first && (m.replies?.length
+                  ? <ReplyPreviewDisclosure count={m.replies.length}>{visible =>
+                    m.replies!.slice(0, visible).map((r, i) => <div key={i}>{renderReply(r)}</div>)}</ReplyPreviewDisclosure>
+                  : renderReply(m.reply_to))}
                 <Msg systemPart m={m} slug={slug} nid={node.id} onMailLink={onMailLink}
                   onWorkLink={onWorkLink} refs={deskRefs}
                   replyAvailable={replyAvailable} onLocateReply={locateReply} />
@@ -4600,7 +4604,7 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
       {/* №13: the composer is present under EVERY tab — finding a wrong number
           on the inbox or docket tab shouldn't cost your place to say so */}
       {replyMenu.node}
-      <ReplyPreviewDisclosure count={replyTargets.length}>{visible => <>
+      <ReplyPreviewDisclosure count={replyTargets.length} counted>{visible => <>
         {replyTargets.slice(0, visible).map(r => <ReplyPreview key={`${r.agent}/${r.generation}/${r.eventId}/${r.mailId ?? ''}/${r.docId ?? ''}/${JSON.stringify(r.selection?.selector)}`} reply={r} available={replyAvailable(r)}
           onLocate={() => locateReply(r)} onRemove={() => setReplyTargets(replyTargets.filter(x => x !== r))}
           presentationTitle={r.docId?(node.documents??[]).find(d=>d.id===r.docId)?.title:undefined}/>) }

@@ -22,20 +22,28 @@ import { ObjectReplyDraft } from './composerobjects'
 const ReplySources = createContext<((reply: ReplyContext) => ReactNode) | null>(null)
 export const ReplySourceProvider = ReplySources.Provider
 
-/** Hubchat's multi-reply disclosure, shared by the composer and sent previews:
- * two targets first, an explicit hidden count, then every exact target. The
- * caller keeps its existing identity keys, 50-target bound and remove actions. */
-export function ReplyPreviewDisclosure({ count, children }: {
-  count: number; children: (visible: number) => ReactNode
+/** Hubchat's multi-reply fold (src/lib/replies.ts foldAt): up to three
+ *  targets show whole, a longer list its first two before "and N more". */
+export const replyFoldAt = (n: number): number => n > 3 ? 2 : n
+
+/** Hubchat's multi-reply disclosure, shared by the composer and sent previews
+ * (UX symmetry #37): a long list shows its first two and "and N more", which
+ * reveals every exact target and stays open, as Hubchat's does. `counted` (the
+ * composer) heads two or more targets with Hubchat's own count line,
+ * "Replying to N messages" (src/components/Composer.tsx), so the count is
+ * explicit folded, expanded and after a removal (@rig-sol-b's C4 bounce,
+ * md1ebaea68c37); a sent preview has none, as Hubchat's sent message has
+ * none. The caller keeps its identity keys, 50-target bound and removes. */
+export function ReplyPreviewDisclosure({ count, counted = false, children }: {
+  count: number; counted?: boolean; children: (visible: number) => ReactNode
 }) {
   const [expanded, setExpanded] = useState(false)
+  const fold = replyFoldAt(count), folded = !expanded && fold < count
   return <>
-    {children(expanded ? count : Math.min(2, count))}
-    {count > 2 && <button type="button" className="link reply-disclosure"
-      aria-expanded={expanded}
-      onClick={() => setExpanded(value => !value)}>
-      {expanded ? 'Show fewer replies' : `and ${count - 2} more`}
-    </button>}
+    {counted && count > 1 && <div className="dim reply-disclosure-count" role="status">Replying to {count} messages</div>}
+    {children(folded ? fold : count)}
+    {folded && <button type="button" className="link reply-disclosure"
+      onClick={() => setExpanded(true)}>and {count - fold} more</button>}
   </>
 }
 

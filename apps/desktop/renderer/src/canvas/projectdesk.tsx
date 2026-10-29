@@ -33,7 +33,7 @@ import { ago, md, subtreeDocCount, subtreeDocs, upJumpTargets, USER } from './sh
 export { subtreeDocCount }
 import type { CanvasNode, OpFn } from './shared'
 import { InboxView } from './mail'
-import { ReplyPreview } from './replypreview'
+import { ReplyPreview, ReplyPreviewDisclosure } from './replypreview'
 import { AttachThumb, fmtBytes, isImg } from './img'
 import { useWorkItems } from './useworkitems'
 import { readerScope } from './readeropening'
@@ -515,11 +515,13 @@ function ProjectComposer({ node, slug, tree, map, toast, members, recipients, ba
   }, [text])
   return <>
     {/* the agent composer's reply previews (G11): one per target, a remove
-        ✕ on each, "Cancel all replies" for several, Escape on the desk */}
-    {replies.map((r) => <ReplyPreview key={`${r.agent}/${r.generation}/${r.eventId}/${r.mailId ?? ''}/${r.docId ?? ''}`}
-      reply={r} available={replyAvailable(r)} onLocate={() => onLocateReply(r)}
-      onRemove={() => onReplies(replies.filter((x) => x !== r))}
-      presentationTitle={r.docId ? docTitle(r.docId) : undefined} />)}
+        ✕ on each, "Cancel all replies" for several, Escape on the desk; and its
+        count line and fold (UX symmetry #37) */}
+    <ReplyPreviewDisclosure count={replies.length} counted>{visible =>
+      replies.slice(0, visible).map((r) => <ReplyPreview key={`${r.agent}/${r.generation}/${r.eventId}/${r.mailId ?? ''}/${r.docId ?? ''}`}
+        reply={r} available={replyAvailable(r)} onLocate={() => onLocateReply(r)}
+        onRemove={() => onReplies(replies.filter((x) => x !== r))}
+        presentationTitle={r.docId ? docTitle(r.docId) : undefined} />)}</ReplyPreviewDisclosure>
     {replies.length > 1 && <button className="link" onClick={() => onReplies([])}>Cancel all replies</button>}
     {/* staged attachments, an image as its thumbnail, as on the agent desk (G9) */}
     {attached.length > 0 && <div className="attach-row">
