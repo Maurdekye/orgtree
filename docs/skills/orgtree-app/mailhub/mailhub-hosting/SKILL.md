@@ -38,7 +38,7 @@ Status distinguishes running/healthy, starting and stopped, and shows address, h
 
 ## Connections on this hub
 
-Under the status line the tab lists everyone registered on this computer's hub, in the same rows as [Org settings > Connections](../org-connections/SKILL.md): a green dot for online, a red ring for offline, and the link, whose hover gives the presence and type. Online addresses come first; within each group, the most recent mail between the address and the organizations here that use this hub comes first, and addresses with none come last, A-Z. Mail between two outside parties does not move them: Orgtree reads its own records and the hub's read-only operator view, never the hub's database. The list reads again with **Refresh hub status** and after a save. Chat from your phone follows the list, then the hosting settings.
+Under the status line the tab lists everyone registered on this computer's hub, in the same rows as [Org settings > Connections](../org-connections/SKILL.md): a green dot for online, a grey ring for offline, and the link, whose hover gives the presence and type. Online addresses come first; within each group, the most recent mail between the address and the organizations here that use this hub comes first, and addresses with none come last, A-Z. Mail between two outside parties does not move them: Orgtree reads its own records and the hub's read-only operator view, never the hub's database. The list reads again with **Refresh hub status** and after a save. Chat from your phone follows the list, then the hosting settings.
 
 ## See also
 

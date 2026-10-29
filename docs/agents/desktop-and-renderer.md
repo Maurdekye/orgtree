@@ -15,6 +15,69 @@ This is the design principle behind the UI rules in this topic and in the root g
 
 [decided: user 2026-10-29 12:50Z mb6da9f3ee862, 13:25Z m72500eeca0c0]
 
+## UX symmetry S2: offline ring, queued clock, list ages, chip avatars (2026-10-29, 4.5.2)
+
+Findings #2 (Orgtree side), #5, #6, #7 and #23 of the UX symmetry audit, under
+the user's per-finding rulings (USER 2026-10-29 13:25:13Z m019c9500d23a,
+verbatim: "A2 use the lettering on the colored background as the icon instead
+of the hubchat icon when hubchat is connected for both / A5 use the grey ring
+for offline both places / A6 use the clock / A7 use time ago in list, full date
+and time in header of detail tab").
+
+- **Offline is a grey ring (#5).** `PresenceDot`'s offline ring is 2 px of
+  `--dim`, the grey of Hubchat's offline ring and of a custom app's off light,
+  in place of the red `--bad` ring: Org settings > Connections, App settings >
+  Mail hub and the mailbox's network tab. Online stays the filled green dot
+  with its halo; a filled grey bullet is neither.
+- **Queued is the clock (#6).** The org inbox's @net delivery ladder (a Sent
+  row and the reading pane's header) draws a queued message as `ScheduleIcon`
+  (MUI Schedule, the path of Hubchat's `schedule` tick) instead of `▫`. Sent
+  `✓`, delivered `✓✓` and read `✓✓` (green) are unchanged; a queued message
+  whose tries fail keeps `⚠` and its reason.
+- **Every delivery mark is named (#23).** Each mark is `role="img"` with its
+  tooltip as its `aria-label`, as Hubchat's ticks are.
+- **Lists say how long ago (#7).** `timefmt.fmtAge` is the one list scale:
+  seconds under 90 s, minutes under 90 min, hours under 36 h, days under 14 d,
+  weeks under 8 w, months under 18 mo, then years, so no row reads "500h"; a
+  future instant reads `0s`. `canvas/listage.tsx` `ListAge` is the time cell
+  of a mail row (Attention's mail rows reuse it), an Attention mention row, a
+  presentation row (the gallery and an agent's Presented tab) and a ticket row:
+  the age, with the full local date and time (`fmtFull`) as its hover and
+  accessible name. A ticket's age keeps the docket's sort-clock rule (user
+  2026-09-07): `rowAge` reads the sorted clock and the hover names it
+  ("updated 2026-10-29 14:05:27 ..."). The open item says when in full: an open
+  ticket's header reads "Updated <full date and time>", as does its
+  amended-after-completion line; the open mail and presentation already did.
+- **The Changelog keeps its release date** (USER 2026-10-29 13:47:42Z
+  m134c95331ab0 "Keep release date", deciding the conflict between A7 and the
+  Changelog's own 2026-10-24 ruling): its rows stay the version and the release
+  date and time, the one list without an age; `changelog.tsx` says so where
+  the rows draw it.
+- **With Hubchat, a network chip's icon is Hubchat's DM-list avatar (#2).**
+  When `hubchat_pc` says installed, `netMention` picks an agent session's
+  terminal icon (MUI Terminal, Hubchat's path), never a picture; else the
+  picture; else the initials (`netInitials`, Hubchat's `format.initials`: the
+  first letters of the first and last words of the roster name, else of the
+  address) on the kind's avatar tint, the org's own address on the own-avatar
+  tint; and a grey dot for an address no roster lists (an org on this PC still
+  gets letters). The tints (`--net-av-*`, dark and light) are the `--k-*`
+  values of Hubchat's `tokens.css`; a person and the own address are round, an
+  org and a session squared off at 28%. CSS draws the letters from
+  `data-initials`, so the chip's text and every copy stay the address, and
+  `netChipSig` includes the avatar and initials, so the Markdown walk redraws a
+  chip when they change. Without Hubchat the picture-else-globe rule stands
+  (ma1f33944e69d). Hubchat's inline mention mark (`MentionMark`) draws the same
+  avatar; the derivation was agreed with @hubchat-design-opus. The
+  speech-bubble Hubchat mark is gone.
+
+Tests: `listage.test.tsx`, `docket.test.tsx` §38f and §38i,
+`attnmentionrow.test.tsx` §1, `mailwire.test.tsx`, `connectionlist.test.tsx`
+and `netmentions.test.tsx`. The capture `tests/symmetry.capture.cjs` (fixture
+`tests/symmetry.visual.tsx`) draws Connections, the org inbox, Presentations
+and an agent's docket at base and tip, dark and light, in Session 0.
+
+[decided: user 2026-10-29 13:25Z m019c9500d23a, 13:47Z m134c95331ab0]
+
 ## Request cards fold (2026-10-29, 4.5.2)
 
 USER mece9d7b275c2: "add collapsible request cards". Every card `AskCard`
@@ -2005,8 +2068,11 @@ The Apps-list app row uses that same menu. Tool parity is agent panel_open with 
 take their kind, icon and hover from `canvas/netmentions.tsx`. The kind is the
 hub roster's (`org`, `person`, or `chat`: an agent session), read from the
 on-screen org's `tree.net` (fed in `OrgCanvas`); `@org:` is always an org and an
-address no roster lists is `unknown`. The icon is the picture, else the
-Hubchat mark when `hubchat_pc` says installed, else a globe. Pictures come only
+address no roster lists is `unknown`. Without Hubchat (`hubchat_pc` says not
+installed) the icon is the picture, else a globe; with Hubchat it is Hubchat's
+DM-list avatar at text size ([UX symmetry S2](#ux-symmetry-s2-offline-ring-queued-clock-list-ages-chip-avatars-2026-10-29-452)): an agent
+session's terminal icon, the picture, the initials on the kind's tint, or a
+grey dot for an address no roster lists. Pictures come only
 from the engine (`GET /api/orgs/{slug}/net/profile-picture?address=`), never
 from renderer URLs: asked once per advertised revision, for the org's own logo
 and for local orgs (every two minutes), never for an unlisted address or a
@@ -2085,8 +2151,10 @@ be communicated more clearly", m0537fdb73608).
   (`independent Claude Code chat`, `Waiting to be linked to a Hubchat
   identity`): both are the same `blurb` field, so neither stays in the row.
 - **The dot** (`PresenceDot`): a filled green dot (`--ok`, with a halo) online,
-  a hollow 2 px red ring (`--bad`) offline. They differ in shape as well as
-  colour, and neither is grey. Its hover and accessible name are `Online` or
+  a hollow 2 px grey ring (`--dim`) offline, as in Hubchat ("A5 use the grey
+  ring for offline both places", m019c9500d23a; it replaced a red `--bad`
+  ring). They differ in shape as well as colour; a filled grey bullet is
+  neither. Its hover and accessible name are `Online` or
   `Offline`. The mailbox's network tab wears the same dot. A hub's own status
   dot keeps green or grey beside its status words and gained a hover
   (`Connected` / `Not connected`).

@@ -25,7 +25,7 @@ Remote rows have an enabled toggle. Rows show Connected with hub version, Disabl
 
 ## A hub's connections
 
-Each hub lists its connections as rows: a presence dot and the contact's link, nothing else. A filled green dot means online and a hollow red ring means offline; hovering the dot says which. Hovering the link shows its presence and type (org, person or independent chat), then its name, the hub's description of it when there is one (for example "Waiting to be linked to a Hubchat identity") and its address. That hover is the same on every link to the address.
+Each hub lists its connections as rows: a presence dot and the contact's link, nothing else. A filled green dot means online and a hollow grey ring means offline, as in Hubchat; hovering the dot says which. Hovering the link shows its presence and type (org, person or independent chat), then its name, the hub's description of it when there is one (for example "Waiting to be linked to a Hubchat identity") and its address. That hover is the same on every link to the address.
 
 Online contacts come first, then offline ones. Within each group the most recent mail with this organization, sent or received, comes first; contacts with no mail come last, A-Z. Past ten rows the list scrolls inside its own box, and rows are drawn as they scroll into view, so a hub with hundreds of contacts stays fast. While the pointer is over the list, rows keep their places; the dots still change, and the new order applies when the pointer leaves.
 

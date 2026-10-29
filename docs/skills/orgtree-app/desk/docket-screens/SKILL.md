@@ -24,7 +24,7 @@ This applies to the top-bar buttons, agent/project Open submenus including team 
 
 Search matches ticket text. View options expose Arrange (No group, Group by status, Group by agent) and Sort (Last updated, Newest first, Status changed). Initial defaults are no grouping and last-updated order; these display choices are stored locally, not as item state. Archived and backlog are separate inclusion controls. Load more expands a bounded result window.
 
-Rows show readable slug/title, status/attention, relevant actor identity and age. Nested items expand/collapse; search can preserve context rather than pretending parents are direct matches. A collapsed group, hidden backlog or unopened page is not proof a ticket is absent.
+Rows show readable slug/title, status/attention, relevant actor identity and age: how long ago, by the clock the list is sorted by, on one scale (minutes, hours, then days, weeks, months and years), with that clock and the full date and time on hover. An open ticket's header gives the full date and time it was updated (user 2026-10-29). Nested items expand/collapse; search can preserve context rather than pretending parents are direct matches. A collapsed group, hidden backlog or unopened page is not proof a ticket is absent.
 
 ## Item pane
 

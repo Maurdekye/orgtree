@@ -66,7 +66,7 @@ These surfaces share mail cards but have different owners and actions. An agent'
 
 ## Lists, read panes and replies
 
-Inbox/Sent selects direction. A selected message opens the read pane with sender/time/body, attachments, quotes and exact references. User inbox read actions update read state; failed writes must not be treated as acknowledgment. Pending agent mail says it awaits delivery/next turn; a manual UI read is not proof that the agent consumed it.
+Inbox/Sent selects direction. Each row says how long ago the message arrived or was sent, on the one scale every list uses (minutes, hours, then days, weeks, months and years), with the full date and time on hover (user 2026-10-29). A selected message opens the read pane with sender/time/body, attachments, quotes and exact references. User inbox read actions update read state; failed writes must not be treated as acknowledgment. Pending agent mail says it awaits delivery/next turn; a manual UI read is not proof that the agent consumed it.
 
 Monitor-event list rows use the monitor name shown by the opened card, including
 recorded names of spent monitors. Hover the sender for its full stable handle;
