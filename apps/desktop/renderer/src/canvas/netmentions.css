@@ -19,6 +19,27 @@
   --net-chat: #23679e; --net-chat-bg: rgba(35, 103, 158, .13);
   --net-person: #3b4450; --net-person-bg: rgba(59, 68, 80, .11);
 }
+/* WITH HUBCHAT, THE MARK IS HUBCHAT'S DM-LIST AVATAR (USER 2026-10-29
+   m019c9500d23a "A2 use the lettering on the colored background as the icon
+   instead of the hubchat icon when hubchat is connected for both"; agreed
+   with @hubchat-design-opus): the initials, or an agent session's terminal,
+   on the kind's avatar tint, exactly Hubchat's tokens.css --k-<kind> on
+   --k-<kind>-bg (a person's avatar is solid, unlike its pill); the org's own
+   address on the own-avatar tint (--k-me). Person and own are round, org and
+   session squared off at 28%; the letters are weight 600 at .55em, as
+   Hubchat's .mmark. */
+:root {
+  --net-av-org: #e3896b; --net-av-org-bg: rgba(217, 119, 87, .20);
+  --net-av-chat: #7cc0ff; --net-av-chat-bg: rgba(124, 192, 255, .17);
+  --net-av-person: #d4d4d4; --net-av-person-bg: #3a3a3d;
+  --net-av-me: #f2c2b0; --net-av-me-bg: #6b3a2c;
+}
+:root:is(.contrast-light, .contrast-solarized-light) {
+  --net-av-org: #b04f2c; --net-av-org-bg: rgba(217, 119, 87, .18);
+  --net-av-chat: #23679e; --net-av-chat-bg: rgba(35, 103, 158, .13);
+  --net-av-person: #3b4450; --net-av-person-bg: #dde2e8;
+  --net-av-me: #7a3420; --net-av-me-bg: #f3c9b8;
+}
 /* Four classes outrank `.ref-chip.ref-chip`'s reset and `.settings button`. */
 .ref-chip.ref-chip.ref-hub.net-chip {
   --net-bg: transparent; --net-fg: var(--dim);
@@ -63,6 +84,12 @@ button.ref-chip.ref-chip.ref-hub.net-chip.live:is(:hover, :focus-visible) {
 .net-person .net-mark { border-radius: 50%; }
 .net-mark img, .net-mark svg { display: block; width: 100%; height: 100%; }
 .net-mark img { object-fit: cover; }
-/* The Hubchat mark's own tile, shaped by the kind like a picture. */
-.net-mark-hubchat { background: #1f1f1f; }
+.net-mark.net-av-org { color: var(--net-av-org); background: var(--net-av-org-bg); border-radius: 28%; }
+.net-mark.net-av-chat { color: var(--net-av-chat); background: var(--net-av-chat-bg); border-radius: 28%; }
+.net-mark.net-av-person { color: var(--net-av-person); background: var(--net-av-person-bg); border-radius: 50%; }
+.net-mark.net-av-me { color: var(--net-av-me); background: var(--net-av-me-bg); border-radius: 50%; }
+.net-mark-letters::before { content: attr(data-initials); font-size: .55em; font-weight: 600; letter-spacing: .01em; }
+.net-mark.net-mark-terminal svg { width: 55%; height: 55%; }
+/* An address no roster lists: Hubchat's grey dot, the theme grey. */
+.net-mark.net-mark-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--dim); }
 .net-mark-globe { overflow: visible; }

@@ -9,9 +9,16 @@
 // agent session), the same three Hubchat shows; an address no roster lists has
 // an unknown kind. The icon is the party's picture when Orgtree can see one (a
 // local org's logo, or the picture a hub this org is registered on advertises),
-// else the Hubchat mark when Hubchat is installed, else a globe. The React chip
-// and the DOM chip the Markdown walk builds draw the SAME element and share ONE
-// tooltip, like every other mention.
+// else a globe. With Hubchat installed it is Hubchat's DM-list avatar at text
+// size instead (USER 2026-10-29 m019c9500d23a "A2 use the lettering on the
+// colored background as the icon instead of the hubchat icon when hubchat is
+// connected for both"; the derivation agreed with @hubchat-design-opus, whose
+// Hubchat mention mark is the same avatar): the picture; an agent session's
+// terminal icon, never a picture; else the initials (Hubchat's format.initials
+// over the roster name, else the address) on the kind's tint, the org's own
+// address on the own-avatar tint; and a grey dot for an address no roster
+// lists. The React chip and the DOM chip the Markdown walk builds draw the
+// SAME element and share ONE tooltip, like every other mention.
 //
 // A party the roster names shows that name (USER 2026-10-27 mb7ea64d82743 "Show
 // the name", told of the impersonation risk). The chip's TEXT stays the address
@@ -33,7 +40,9 @@ import { isHubchatInstalled, resolveHubAddressAction } from './agentmentions'
 import './netmentions.css'
 
 export type NetKind = 'org' | 'person' | 'chat' | 'unknown'
-export type NetIcon = 'picture' | 'hubchat' | 'globe'
+export type NetIcon = 'picture' | 'letters' | 'terminal' | 'dot' | 'globe'
+/** The avatar's tint, as Hubchat's kinds and its own avatar (tokens.css --k-*). */
+export type NetAvatar = 'org' | 'person' | 'chat' | 'me'
 
 export interface NetMention {
   /** the address, lowercased */
@@ -48,6 +57,10 @@ export interface NetMention {
   picture: string | null
   /** what the shown picture was fetched for (its revision) */
   pictureKey: string | null
+  /** the tint of a `letters` or `terminal` mark */
+  avatar: NetAvatar | null
+  /** the letters a `letters` mark draws */
+  initials: string | null
   /** the presence a hub lists for it: online on any hub that lists it; null
    *  when no roster lists it */
   online: boolean | null
@@ -161,6 +174,14 @@ function wanted(address: string, local: boolean, row: RosterEntry | undefined): 
   return row?.picture ?? null
 }
 
+/** Hubchat's initials (src/lib/format.ts initials), verbatim: the first
+ *  letter of the first word and of the last, upper case. */
+export function netInitials(name: string): string {
+  const w = String(name || '?').replace(/[^\p{L}\p{N} ]/gu, ' ').trim().split(/\s+/)
+  const first = w[0] || '?', last = w.length > 1 ? w[w.length - 1] ?? '' : ''
+  return ((first[0] ?? '?') + (last[0] ?? '')).toUpperCase()
+}
+
 export function netMention(address: string): NetMention {
   const a = address.trim().toLowerCase()
   const local = resolveHubAddressAction(a).kind === 'org'
@@ -169,8 +190,16 @@ export function netMention(address: string): NetMention {
   const want = wanted(a, local, row)
   const have = want !== null && viewOrg ? pictures.get(`${viewOrg}|${a}`) : undefined
   const picture = have?.data ?? null
-  const icon: NetIcon = picture ? 'picture' : isHubchatInstalled() ? 'hubchat' : 'globe'
-  return { address: a, kind, local, name: row?.name ?? null, icon, picture, pictureKey: picture ? have!.want : null,
+  const icon: NetIcon = !isHubchatInstalled() ? (picture ? 'picture' : 'globe')
+    : kind === 'chat' ? 'terminal'
+      : picture ? 'picture'
+        : kind === 'unknown' && !local ? 'dot' : 'letters'
+  const avatar: NetAvatar | null = icon === 'terminal' ? 'chat'
+    : icon !== 'letters' ? null
+      : a === ownAddress ? 'me' : kind === 'person' ? 'person' : 'org'
+  const name = row?.name ?? null
+  return { address: a, kind, local, name, icon, picture, pictureKey: picture ? have!.want : null,
+    avatar, initials: icon === 'letters' ? netInitials(name || splitScheme(a)[1]) : null,
     online: row ? row.online : null, about: row?.about ?? null }
 }
 
@@ -258,7 +287,8 @@ export function netChipClass(info: NetMention): string {
 
 /** What the Markdown walk compares before rebuilding a chip. */
 export function netChipSig(info: NetMention): string {
-  return [info.kind, info.local ? 1 : 0, info.icon, info.pictureKey ?? '', shownName(info) ?? ''].join(':')
+  return [info.kind, info.local ? 1 : 0, info.icon, info.pictureKey ?? '', shownName(info) ?? '',
+    info.avatar ?? '', info.initials ?? ''].join(':')
 }
 
 export function useNetMentionState(): number {
@@ -273,18 +303,23 @@ export function useNetMentionState(): number {
 
 // The globe: MUI's Language icon.
 const GLOBE = 'M11.99 2C6.47 2 2 6.48 2 12s4.47 10 9.99 10C17.52 22 22 17.52 22 12S17.52 2 11.99 2m6.93 6h-2.95c-.32-1.25-.78-2.45-1.38-3.56 1.84.63 3.37 1.91 4.33 3.56M12 4.04c.83 1.2 1.48 2.53 1.91 3.96h-3.82c.43-1.43 1.08-2.76 1.91-3.96M4.26 14C4.1 13.36 4 12.69 4 12s.1-1.36.26-2h3.38c-.08.66-.14 1.32-.14 2s.06 1.34.14 2zm.82 2h2.95c.32 1.25.78 2.45 1.38 3.56-1.84-.63-3.37-1.9-4.33-3.56m2.95-8H5.08c.96-1.66 2.49-2.93 4.33-3.56C8.81 5.55 8.35 6.75 8.03 8M12 19.96c-.83-1.2-1.48-2.53-1.91-3.96h3.82c-.43 1.43-1.08 2.76-1.91 3.96M14.34 14H9.66c-.09-.66-.16-1.32-.16-2s.07-1.35.16-2h4.68c.09.65.16 1.32.16 2s-.07 1.34-.16 2m.25 5.56c.6-1.11 1.06-2.31 1.38-3.56h2.95c-.96 1.65-2.49 2.93-4.33 3.56M16.36 14c.08-.66.14-1.32.14-2s-.06-1.34-.14-2h3.38c.16.64.26 1.31.26 2s-.1 1.36-.26 2z'
-// The Hubchat mark (orgtree-hubchat public/hubchat.svg without its tile, which
-// the mark's own background draws so its shape can follow the kind):
-// Orgtree's almond eye turned into a speech bubble.
-const HUBCHAT_BUBBLE = 'M10 120C39 70 82 40 128 40s89 30 118 80c-29 50-72 80-118 80-17 0-33-4-48-11L30 222l16-46C32 160 20 141 10 120Z'
+// An agent session's avatar: MUI's Terminal icon, the path Hubchat's own
+// terminal icon draws (src/lib/icons.tsx).
+const TERMINAL = 'M20 4H4c-1.11 0-2 .9-2 2v12c0 1.1.89 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.89-2-2-2m0 14H4V8h16zm-2-1h-6v-2h6zM7.5 17l-1.41-1.41L8.67 13l-2.59-2.59L7.5 9l4 4z'
 
 const SVG = 'http://www.w3.org/2000/svg'
+
+/** The mark's classes: its icon, and the avatar's tint. The letters are drawn
+ *  by CSS from data-initials, so the chip's text, and every copy, stays the
+ *  address. */
+const netMarkClass = (info: NetMention) => `net-mark net-mark-${info.icon}${info.avatar ? ` net-av-${info.avatar}` : ''}`
 
 /** The icon as DOM, for chips built outside React. Never parses markup. */
 export function createNetMarkEl(doc: Document, info: NetMention): HTMLElement {
   const span = doc.createElement('span')
-  span.className = `net-mark net-mark-${info.icon}`
+  span.className = netMarkClass(info)
   span.setAttribute('aria-hidden', 'true')
+  if (info.icon === 'letters') span.setAttribute('data-initials', info.initials ?? '')
   if (info.icon === 'picture') {
     const img = doc.createElement('img')
     img.src = info.picture!
@@ -293,48 +328,31 @@ export function createNetMarkEl(doc: Document, info: NetMention): HTMLElement {
     span.appendChild(img)
     return span
   }
-  const svg = doc.createElementNS(SVG, 'svg')
-  svg.setAttribute('focusable', 'false')
-  svg.setAttribute('aria-hidden', 'true')
-  if (info.icon === 'globe') {
+  if (info.icon === 'globe' || info.icon === 'terminal') {
+    const svg = doc.createElementNS(SVG, 'svg')
+    svg.setAttribute('focusable', 'false')
+    svg.setAttribute('aria-hidden', 'true')
     svg.setAttribute('viewBox', '0 0 24 24')
     svg.setAttribute('fill', 'currentColor')
     const path = doc.createElementNS(SVG, 'path')
-    path.setAttribute('d', GLOBE)
+    path.setAttribute('d', info.icon === 'globe' ? GLOBE : TERMINAL)
     svg.appendChild(path)
-  } else {
-    svg.setAttribute('viewBox', '0 0 256 256')
-    const g = doc.createElementNS(SVG, 'g')
-    g.setAttribute('transform', 'translate(28 34) scale(.78)')
-    const bubble = doc.createElementNS(SVG, 'path')
-    bubble.setAttribute('fill', '#d97757')
-    bubble.setAttribute('d', HUBCHAT_BUBBLE)
-    const pupil = doc.createElementNS(SVG, 'circle')
-    for (const [k, v] of Object.entries({ cx: '128', cy: '120', r: '54', fill: '#17191d' })) pupil.setAttribute(k, v)
-    const iris = doc.createElementNS(SVG, 'circle')
-    for (const [k, v] of Object.entries({ cx: '128', cy: '120', r: '23', fill: '#d97757' })) iris.setAttribute(k, v)
-    g.append(bubble, pupil, iris)
-    svg.appendChild(g)
+    span.appendChild(svg)
   }
-  span.appendChild(svg)
   return span
 }
 
 /** The same icon in React. */
 export function NetMark({ info }: { info: NetMention }) {
   return (
-    <span className={`net-mark net-mark-${info.icon}`} aria-hidden="true">
+    <span className={netMarkClass(info)} aria-hidden="true"
+      data-initials={info.icon === 'letters' ? info.initials ?? '' : undefined}>
       {info.icon === 'picture'
         ? <img src={info.picture!} alt="" draggable={false} />
-        : info.icon === 'globe'
-          ? <svg focusable="false" aria-hidden="true" viewBox="0 0 24 24" fill="currentColor"><path d={GLOBE} /></svg>
-          : <svg focusable="false" aria-hidden="true" viewBox="0 0 256 256">
-            <g transform="translate(28 34) scale(.78)">
-              <path fill="#d97757" d={HUBCHAT_BUBBLE} />
-              <circle cx="128" cy="120" r="54" fill="#17191d" />
-              <circle cx="128" cy="120" r="23" fill="#d97757" />
-            </g>
-          </svg>}
+        : info.icon === 'globe' || info.icon === 'terminal'
+          ? <svg focusable="false" aria-hidden="true" viewBox="0 0 24 24" fill="currentColor">
+            <path d={info.icon === 'globe' ? GLOBE : TERMINAL} /></svg>
+          : null}
     </span>
   )
 }
