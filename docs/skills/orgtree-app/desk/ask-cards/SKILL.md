@@ -26,7 +26,7 @@ Credit tabs let the user grant, deny or counteroffer within the shown capacity c
 
 ## MCP permission requests
 
-A correlated MCP request appears in the ordinary question-card frame as MCP permission with the server name. Form requests expose the supplied required fields, choices and numeric/text constraints; URL requests offer the supplied link to open yourself before accepting. Accept, Decline and Cancel resolve that request, which expires after five minutes. A failed submission leaves an error and can be retried while the request is valid. The decision is specific to this request, not a lasting scope or server grant, and the agent cannot answer it for the user.
+A correlated MCP request appears in the ordinary question-card frame as MCP permission with the server name. Form requests expose the supplied required fields, choices and numeric/text constraints; URL requests offer the supplied link to open yourself before accepting. Accept, Decline and Cancel resolve that request, which expires after five minutes. A failed submission leaves an error and can be retried while the request is valid. The decision is specific to this request, not a lasting scope or server grant, and the agent cannot answer it for the user. An unrestricted Codex agent (permission mode bypassPermissions with write access) gets no such card: Codex accepts its MCP permission requests itself, computer use included.
 
 ## Outcomes and failure
 

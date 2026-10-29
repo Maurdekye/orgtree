@@ -240,7 +240,7 @@ To fold a long card away, click the chevron at the left of its header, or anywhe
 
 A batch can mix questions, credit decisions and scope requests. Decide or explicitly skip every tab before submitting. Credit requests allow a grant, denial or counteroffer within the shown limits. Scope requests name the specific folder, tool, MCP server or permission being requested.
 
-An **MCP permission** card can show required form fields or a link you open yourself. Accept, Decline or Cancel decides that request only; it is not a permanent grant of all server access. These requests expire after five minutes. A failed submit can be retried while still valid. Resolved, withdrawn, superseded and interrupted cards are history, not unanswered live questions.
+An **MCP permission** card can show required form fields or a link you open yourself. Accept, Decline or Cancel decides that request only; it is not a permanent grant of all server access. These requests expire after five minutes. An unrestricted Codex agent (permission mode bypassPermissions with write access) never gets one: Codex accepts its MCP permission requests itself, computer use included. A failed submit can be retried while still valid. Resolved, withdrawn, superseded and interrupted cards are history, not unanswered live questions.
 
 With the per-agent **Disabled by Orgtree** opt-in, supported native Claude/Codex/Muse questions can use private cards in these same surfaces. The heading names the harness. Choose options or answer in your own words, then submit; plan approval requires the explicit **Approve** choice, with none preselected. Decline, Cancel, expiry or process cancellation returns without approval. Each card decides only that request and grants no lasting scope.
 

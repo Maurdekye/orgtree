@@ -97,6 +97,14 @@ disconnect or shutdown cancels. URL mode shows a link for the human to open,
 without opening it automatically. Decisions apply only to that request; Orgtree
 does not save a provider/browser permission rule or send the answer as agent mail.
 
+An unrestricted seat (permission mode bypassPermissions with write access) is
+started with approval policy never, so Codex answers these requests itself: no
+card appears for it, and computer-use access to any app is accepted without
+asking (user ruling 2026-10-29: "Unrestricted means unrestricted"). Orgtree's
+tool approval mode for attached MCP servers stays approve. Read-only seats and
+every other permission mode are unchanged and still get the cards. Not verified
+against a live Codex run.
+
 ## Disabled by Orgtree opt-in
 
 An explicit tools.orgtree_disabled grant sets the locally advertised features.default_mode_request_user_input flag and accepts native requestUserInput through the bounded native-question adapter, including normal mode on compatible CLIs. Native mode/tool availability remains a CLI limitation. Other scope/catalog restrictions remain. See orgtree-app > agent-settings > agent-tools-tab and orgtree-app > desk > ask-cards for defaults, coverage and routing.
