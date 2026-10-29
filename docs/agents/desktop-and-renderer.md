@@ -2004,6 +2004,26 @@ accessible name `name (address)`. A local org and `@org:` take no roster name.
 The Markdown signature carries the name, so a rename rebuilds the chip.
 [decided: user 2026-10-27 mb7ea64d82743; verified: `canvas/{netmentions,agentmentions,refmd}.ts*`, `canvas/netmentions.css`]
 
+Mail headers name an outside party with the same chip (user 2026-10-29
+m14ad537c5eb8 "these addresses should also be embedded hubchat / outbox
+links"). The shared event-card header draws an `external` actor whose id is a
+hub address as `HubContactChip` itself, never through the surface's `actor`
+renderer (which serves agents), so the desk transcript, every reading pane, the
+history view and nested cards agree; `SenderChip` (user Inbox pane, Attention
+view) does the same for untyped rows. Other outside ids (`@mcp:` from before its
+retirement) stay recorded text, and the user Inbox and Sent list rows keep the
+plain names the user chose (e56a491, 2026-09-11). The click is unchanged; the
+menu's other destination is **Open in org inbox**. `OrgCanvas` registers the
+window's org inbox (`registerOrgInboxOpener`; pins and pop-outs share its
+realm): the entry is disabled with "The org inbox is closed off" in that mode,
+and left out where no canvas registered one. It opens `OrgInboxModal` with a
+`party` request: the newest loaded mail with the address picks the folder and
+the selection (the preview first, then the fetched log), and the list's
+`filterRequest` sets the filter once per request; the two folders are one
+`MailList`, so it holds in both until the reader edits it. A request and a mail
+jump replace each other. [decided: user 2026-10-29 m14ad537c5eb8, coordinator
+m60f0db52c4f1; verified: `events/card.tsx`, `canvas/{agentmentions,senderchip,mail,OrgCanvas}.tsx`, `tests/netheaderlinks.test.tsx`]
+
 ## Mention menu: every kind, newest first (2026-10-27)
 
 The composer's @ list offers agents, projects, tickets, presentations, apps and

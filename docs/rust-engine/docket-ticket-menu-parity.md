@@ -99,7 +99,9 @@ verified: `orgidentity.ts`, `agentmentions.tsx`, `shell/orgrows.tsx`]
 
 Remote contact references and Sender submenus use `hubAddressMenuEntries`: a real
 composer may add Mention; Open in Hubchat is disabled with the existing install
-reason when unavailable; Copy identity remains possible. Hover text is the
+reason when unavailable; Open in org inbox follows it in an org window (disabled
+while the org inbox is closed off, user 2026-10-29 m14ad537c5eb8); Copy identity
+remains possible. Hover text is the
 shared address resolver's text. This is the coordinator's 2026-10-21 07:16Z
 interpretation of the user's 06:53Z approval, not a separate user ruling.
 
