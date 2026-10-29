@@ -3426,7 +3426,11 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
   const viewLive = dedup.list(live_feed, (r) => r.kind === 'tool'
     ? toolKey(r.id) ?? eventKey(r.native_event_id ?? r.event_id)
     : eventKey(r.native_event_id ?? r.event_id))
-  const viewTransient = dedup.list(livePartials(transient, convo), (r) => eventKey(r.event_id))
+  // a call being written answers to its tool_use_id like its live and saved
+  // rows do: once a saved chip (claimed above) or a live tool row carries that
+  // id, its writing row is the same call drawn twice (4.5.1: saved + "✎ 0s")
+  const viewTransient = dedup.list(livePartials(transient, convo), (r) => r.kind === 'tool_writing'
+    ? toolKey(r.tool_id) ?? eventKey(r.event_id) : eventKey(r.event_id))
   const viewPendLater = dedup.list(pendLater, (m) => eventKey(m.event_id))
   // Every entry under the one separator: waiting durable rows and ghosts.
   const pendWaiting = viewPendLater.length + pending.length
