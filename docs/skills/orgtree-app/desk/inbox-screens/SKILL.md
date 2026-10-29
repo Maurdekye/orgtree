@@ -85,6 +85,8 @@ User contextual replies target the original sender(s), can include attachments a
 
 Mail links can switch to the folder containing the referenced message and perform an exact lookup outside the loaded window. A missing row in the current slice is not proof it never existed; failed lookup offers retry.
 
+A message that cannot be displayed shows "This message could not be shown" in its place, in the list or the read pane. The rest of the mailbox keeps working, and a crash report is saved.
+
 Loaded older pages reconcile read-state changes and deletion from other windows
 when their mailbox revision changes. The reader refreshes its head and only the
 IDs already retained, in batches of at most 200, keeping its older-page cursor.
@@ -150,6 +152,8 @@ For the project Mail tab/window, listeners folder and queue history, see [orgtre
 ## Org inbox
 
 The org inbox viewer shows external received/sent entries, network custody/read state, attachments and holders. Its unread boundary uses the stored log position, not just the currently rendered tail. Holder controls identify which agents may receive outside mail; applicable org policy can restrict grants.
+
+A link into the org inbox opens Received or Sent, whichever holds the message, including one older than the loaded list. Picking the other folder then shows that folder. Back in the first one, the linked message is still open unless you opened another message meanwhile.
 
 Contacts are shown as network contact links: click to open in Hubchat, right-click for more. **Open in org inbox** on any outside address link (a mail header, a message, a contact list) opens this viewer on that address: filtered to it, on the folder of the newest mail exchanged with it, with that mail selected. Edit or clear the filter to see everything again. While the org inbox is closed off, the entry says so. Your own account's link is the exception: it opens your chat with the org it is shown in, never your Hubchat settings.
 

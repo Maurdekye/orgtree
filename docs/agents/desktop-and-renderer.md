@@ -2066,3 +2066,48 @@ name.
 [decided: user 2026-10-27 m042c82fb0228, mdb3b4aef1062, m35d9b7cf74f6,
 m79e889ce1609, md30a04a62550; verified: `canvas/{agentmentions.tsx,mentionsearch.ts,workrefs.tsx,reflinks.tsx,refmd.tsx}`,
 `domain/mention_candidates.rs`]
+
+## Org inbox links and mail item boundaries (2026-10-29, 4.5.2)
+
+User bug 2026-10-29 (the neoja org, 4.5.1): opened from a
+link to a message the org had sent, clicking Received stopped the whole
+frontend with "Cannot read properties of undefined (reading 'startsWith')" in
+the reading pane's sender. Three rules hold now:
+
+- An org-box lookup, `GET /api/orgs/{slug}/mail/org/{id}`, answers with the
+  org inbox's own entry (`orginbox::entry`: `dir`, `peer`, `by`), the shape
+  `GET org_inbox` lists, not a mail row. `OrgInboxModal` maps listed rows and
+  a lookup's answer through one function, `orgInboxRow`. The answer used to be
+  cast to a mail row, with no `from` or `to`.
+- The org inbox's Received and Sent folders are one `MailList` instance, so
+  the panel decides where each jump belongs, as the node inbox does: the row's
+  direction in the loaded log, else the lookup's answer (`onFound`). It moves
+  there once per jump request and hands the jump only to that folder. A reader
+  who picks the other folder reads that folder; back in the jump's folder, the
+  linked message is still open unless they opened another one meanwhile (the
+  folders share one selection, and a jump never drags a reader back). Before,
+  the jump followed the reader into Received, which looked the Sent message up
+  and read it as received mail. The address view's selection (`party`, above)
+  reaches the lists the same way, only in its own folder, and ahead of a
+  link's jump: both are handed on as `listJump`.
+- `MailList` ends each row and its reading pane at a `MailItemBoundary`
+  (`canvas/mailitemboundary.tsx`). A message that cannot render says "This
+  message could not be shown", styled like the mailbox's own load error
+  (`.mailload.err`), and keeps its place; the rows around it and the pane
+  keep working; a `react-boundary` crash report is filed once per distinct
+  failure for the life of the page.
+  A row's caller-supplied renderers (`sender`/`rowSender`, `rowMark`) run
+  inside its boundary through `Rendered`: anything that can throw for one
+  message belongs there, not in the list's own render, where it fails the
+  whole window. The app-wide `CrashBoundary` was the only boundary before.
+  The boundary loads `crashReporter` when it first catches, by a dynamic
+  import: that module installs window listeners, a route poll and a
+  `console.error` patch as it loads, and `main.tsx` loads it first. Never
+  import it statically from a canvas module: every importer of the mailbox
+  would run those effects, and a test without a DOM fails to load with
+  "window is not defined".
+- Proofs: `tests/orginbox-jumps.test.tsx` (the reported path, a link the canvas
+  preview does not hold, older received and sent messages answered in the
+  engine's lookup shape, a new link while open) and
+  `tests/mailitem-boundary.test.tsx`.
+[verified: `canvas/{mail,mailitemboundary}.tsx`, `http/mailbox.rs` `mail_by_id`, `domain/orginbox.rs` `entry`; 2026-10-29]
