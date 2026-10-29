@@ -81,18 +81,19 @@ test('the saved row and the shortened writing list arrive in one App frame: no l
     await inAct(async () => { await flush(30) })
     const active = sockets.filter(socket => socket.readyState === 1 && socket.onmessage)
     assert.equal(active.length, 1, 'the real App subscribed to the org socket')
+    const wire = active[0]!
     assert.equal(writingChips(view.el), 1, 'the poll showed the call while it was being written')
     assert.equal(chips(view.el), 1)
     hold = true
     // the engine's frame for the admitted call: the saved row, and the live
     // writing list without it (actor.rs stream(): convo_rows + tool_writing)
-    await inAct(() => active[0].onmessage!({ data: JSON.stringify({ type: 'node_stream', node: agent.id,
+    await inAct(() => wire.onmessage!({ data: JSON.stringify({ type: 'node_stream', node: agent.id,
       kind: 'tool', id: 'call-1', text: '', convo_rows: [saved('call-1', 1)], tool_writing: [],
       draft_clear: true, thinking_clear: true }) }))
     assert.equal(chips(view.el), 1, 'one chip for the call')
     assert.equal(writingChips(view.el), 0, 'the live writing copy left with the frame that carried the saved row')
     // a still-writing second call stays live
-    await inAct(() => active[0].onmessage!({ data: JSON.stringify({ type: 'node_stream', node: agent.id,
+    await inAct(() => wire.onmessage!({ data: JSON.stringify({ type: 'node_stream', node: agent.id,
       kind: 'tool_writing', text: '', convo_rows: [], tool_writing: [writing('call-2', 2)],
       draft_clear: true, thinking_clear: true }) }))
     assert.equal(chips(view.el), 2)
