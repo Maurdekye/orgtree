@@ -107,6 +107,8 @@ app.whenReady().then(async()=>{
         const h3={phase,check:'H3',row:await rowFacts(),png:[await shot(`${phase}-h3-openrouter-change`)]}
         assert.match(h3.row.hint,/moves to Claude Code at its next turn, on a fresh session that starts with a summary/)
         await tag(`()=>[...document.querySelectorAll('button')].find(b=>(b.textContent||'').trim()==='Save')`,'no Save button')
+        // the panel scrolls: Save sits below the window's fold
+        await evalJs(`document.querySelector('[data-cap]').scrollIntoView({block:'center'})`);await paint()
         await click('[data-cap]')
         await until(`window.harnessFixture.ops.some(o=>o.op==='harness')`,'Save sent no harness op')
         h3.ops=(await fixture('ops')).filter(o=>o.op==='harness')
