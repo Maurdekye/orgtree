@@ -144,7 +144,7 @@ const foldRow = (fold: CardFold) => (e: MouseEvent<HTMLElement>) => {
 }
 
 /** What a folded card's one line says: the question's first line (inline
- *  Markdown and math, its mentions as inert chips) or the names of its tabs. */
+ *  Markdown and math, its mentions as clickable chips) or the names of its tabs. */
 type FoldText = { md: string } | { text: string }
 
 /** The one line a folded card keeps after who asks: the tickets its tabs
@@ -156,7 +156,7 @@ function FoldLine({ ask, slug, refs, text }: { ask: AskInfo; slug: string; refs?
       r={resolveRef({ kind: 'item', org: slug, id }, world)} onOpen={refs?.onOpen} />)}
     {'md' in text
       ? <RefMdBody el="span" className="ask-fold-text" html={inlineMd(text.md, fileBase(slug, ask.node))}
-          world={refs?.world} />
+          world={refs?.world} onOpen={refs?.onOpen} />
       : <span className="ask-fold-text">{text.text}</span>}
   </span>
 }

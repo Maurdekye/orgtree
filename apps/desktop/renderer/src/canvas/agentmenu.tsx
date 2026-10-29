@@ -443,16 +443,16 @@ export function projectMenuEntries(node: CanvasNode, h: AgentMenuHandlers,
   if (live && h.onNewProject) {
     entries.push({ label: 'New project…', title: `a project nested in ${node.id}`, onSelect: h.onNewProject })
   }
-  if (live) entries.push({ label: 'Settings', onSelect: h.onSettings })
+  if (!live && h.onDismiss) {
+    const dismiss = h.onDismiss
+    entries.push({ label: 'Dismiss', title: 'hide this retired project again', onSelect: () => dismiss() })
+  }
+  entries.push({ label: 'Settings', onSelect: () => h.onSettings() })
   if (live && h.onToggleUserAudience) {
     const explicit = (node.audiences_explicit ?? node.audiences_held)?.includes(USER) ?? false
     entries.push({ label: explicit ? 'Drop audience' : 'Acquire audience',
       title: explicit ? "Revoke this project's user audience" : 'Grant this project the user audience for its direct members',
       onSelect: h.onToggleUserAudience })
-  }
-  if (!live && h.onDismiss) {
-    const dismiss = h.onDismiss
-    entries.push({ label: 'Dismiss', title: 'hide this retired project again', onSelect: () => dismiss() })
   }
   const ask = h.onRetireAsk
   if (live && ask) {

@@ -1952,6 +1952,10 @@ export function NodeSquare({ node, pos, lod, focused: deskOpen, dragging, isDrop
           <DocketIcon fontSize="inherit" />
         </button>}
         <button className={'mailbtn' + ((node.mail_pending ?? 0) > 0 ? ' has' : '')}
+          aria-label={`mailbox of ${node.id}`}
+          title={(node.mail_pending ?? 0) > 0
+            ? `${node.mail_pending} mail waiting — open the mailbox of ${node.id}`
+            : `open the mailbox of ${node.id}`}
           onPointerDown={(e) => e.stopPropagation()}
           onClick={(e) => { e.stopPropagation(); onInbox() }}>
           <MailIcon fontSize="inherit" />{(node.mail_pending ?? 0) > 0 &&
@@ -1988,6 +1992,8 @@ export function NodeSquare({ node, pos, lod, focused: deskOpen, dragging, isDrop
             }}><CloseIcon fontSize="inherit" /></button>
         )}
         <button className="gearbtn"
+          aria-label={`settings for ${node.id}`}
+          title={`settings for ${node.id}`}
           onPointerDown={(e) => e.stopPropagation()}
           onClick={(e) => { e.stopPropagation(); onConfig() }}><SettingsIcon fontSize="inherit" /></button>
         {onOpenAgentGallery && (node.documents?.length ?? 0) > 0 &&

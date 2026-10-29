@@ -169,6 +169,7 @@ export function ProjectSquare({ node, pos, lod, focused, pinnedFocus, pinned, on
     return () => clearTimeout(timer)
   }, [menu.isOpen])
   const cls = ['sq', 'project', node.state, deskOpen ? 'desk' : lod, 'edge-' + edge]
+  if (pinned) cls.push('pinned')
   if (dragging) cls.push('lifted')
   if (isDrop) cls.push('drop')
   if (farReveal.visible) cls.push('far-ghosted')
@@ -198,6 +199,7 @@ export function ProjectSquare({ node, pos, lod, focused, pinnedFocus, pinned, on
     onHireAbove: onSpawnTop,
     onNewProject,
     onRetireAsk: setAsking,
+    onDismiss,
     onOpenDesk: onFocus,
     onPin,
     onShowPin,
@@ -240,6 +242,8 @@ export function ProjectSquare({ node, pos, lod, focused, pinnedFocus, pinned, on
               <ProjectActivity node={node} />
               <ProjectLastActivity node={node} />
               {node.state !== 'live' && <span className="badge dim">{node.state}</span>}
+              {pinned && <span className="badge pinbadge"
+                title="this desk is pinned as a window">pinned</span>}
             </div>
             <div className="sq-badges project-header-badges">
             {slotBadge && <span className={'project-slots-badge' + (slotsFull(slots) ? ' full' : '')}
