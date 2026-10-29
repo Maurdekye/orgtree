@@ -228,6 +228,8 @@ the tag picker and filter bar also keep the full list.
 
 Urgent mail and questions in the Attention view have the same context menu as in your Inbox. The received-mail context menu can permanently delete **your copy** after confirmation. It leaves sender history, other recipients' copies and attachment files. An outstanding project ACK job must be acknowledged first. There is no bulk delete or keyboard-delete command in this release.
 
+With a row selected in a Mail, Docket or Presented list, the keyboard's context-menu key opens that row's menu, the same one right-clicking the row opens. The menu opens under the row with its first item focused, and Escape closes it. **Shift+F10** stays **Halt all**.
+
 **Transfers** shows file-delivery progress and errors. Retry resumes a failed transfer; Cancel stops it; **Remove file and send**, when offered, explicitly omits that failed attachment so the remaining message can proceed. Closing the panel does not cancel an engine transfer. Confirmed bytes and a queued count are not proof that a human read the file.
 
 The outside-org inbox is a viewer. Human outside composition belongs in [Hubchat](collaborating.md#connect-hubchat-and-the-mail-hub), not a hidden reply box in that viewer.
