@@ -22,7 +22,10 @@
 // same PinFrame, `.gallery-head`, and the mail idiom's `.mailpane` with the
 // collapsible list on the left and the reading pane on the right, in the same
 // row classes. Rows are versions: the version and its release date & time
-// (fmtStamp, local, like other list rows), newest first. The pane repeats them
+// (fmtStamp, local), newest first: a deliberate exception to every other
+// list's age (canvas/listage.tsx; USER 2026-10-29 13:47:42Z m134c95331ab0
+// "Keep release date", deciding UX symmetry #7, "A7 use time ago in list"
+// m019c9500d23a, for the Changelog). The pane repeats them
 // in the full form (fmtFull, as the Presentations pane does) above the notes.
 // USER 2026-10-25 10:14:15Z (m8d297c7ec920, on alpha.6): "narrow the list
 // significantly, bolden and increase the size of the verison number, put the
@@ -194,6 +197,7 @@ function ChangelogRowView({ row, on, onSelect }: { row: ChangelogRow; on: boolea
       title={row.released_at ? `${row.version} · ${fmtFull(row.released_at)}` : row.version}
       onClick={onSelect}>
       <div className="l1"><span className="mfrom">{row.version}</span></div>
+      {/* the release date & time, not an age: the ruled exception (m134c95331ab0) */}
       {row.released_at && <div className="l2"><span className="mtime">{fmtStamp(row.released_at)}</span></div>}
     </div>
   )
