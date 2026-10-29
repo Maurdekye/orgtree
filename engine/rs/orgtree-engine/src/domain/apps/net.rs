@@ -952,6 +952,8 @@ mod tests {
             "Connection",
             "Transfer-Encoding",
             "content-length",
+            "User-Agent",
+            "user-agent",
         ] {
             assert!(header_forbidden(h), "{h}");
         }
@@ -976,6 +978,7 @@ mod tests {
             f("CONNECT", vec![], None),
             f("get", vec![], None),
             f("GET", vec![("Cookie".into(), "x".into())], None),
+            f("GET", vec![("User-Agent".into(), "Spoofed/1".into())], None),
             f("GET", vec![("Bad Name".into(), "x".into())], None),
             f(
                 "POST",
@@ -1398,6 +1401,54 @@ mod tls_tests {
         for kept in ["accept: application/json", "accept-language: en"] {
             assert!(second.contains(kept), "{kept} missing after the redirect: {second}");
         }
+    }
+
+    /// The `User-Agent` values in a recorded request head, the name matched case-insensitively.
+    fn user_agents(head: &str) -> Vec<String> {
+        head.lines()
+            .filter_map(|line| line.split_once(':'))
+            .filter(|(name, _)| name.eq_ignore_ascii_case("user-agent"))
+            .map(|(_, value)| value.trim().to_string())
+            .collect()
+    }
+
+    /// GitHub's API answers 403 to a request without a User-Agent (found by the School cut dry run, 2026-10-29,
+    /// on 4.5.1). Every request the engine makes for an app, on every hop, carries one fixed `Orgtree/<version>`
+    /// and nothing else that names a user, computer, org, app or panel; an app cannot set or replace it.
+    #[tokio::test]
+    async fn every_hop_carries_the_fixed_orgtree_user_agent_and_an_app_cannot_replace_it() {
+        let s = serve(&["agent-a.test", "agent-b.test"]).await;
+        let port = s.port;
+        let both = move |h: &str, p: u16| (h == "agent-a.test" || h == "agent-b.test") && p == port;
+        let expected = vec![format!("Orgtree/{}", env!("CARGO_PKG_VERSION"))];
+        // A plain request: one User-Agent, and no header beyond the app's own and the client's basics.
+        let ok = fetch(get(&format!("https://agent-a.test:{port}/ok")), &both).await.unwrap();
+        assert_eq!(ok.status, 200);
+        let head = s.heads.lock().unwrap().last().unwrap().clone();
+        assert_eq!(user_agents(&head), expected, "{head}");
+        let mut names: Vec<String> = head
+            .lines()
+            .skip(1)
+            .filter_map(|line| line.split_once(':'))
+            .map(|(name, _)| name.to_ascii_lowercase())
+            .collect();
+        names.sort();
+        assert_eq!(names, ["accept", "authorization", "host", "user-agent"], "{head}");
+        // A redirect to another host drops the app's headers, but the client's own User-Agent goes on every hop.
+        let moved = fetch(get(&format!("https://agent-a.test:{port}/hop/agent-b.test")), &both).await.unwrap();
+        assert!(moved.redirected && moved.final_url.contains("agent-b.test"));
+        let heads = s.heads.lock().unwrap().clone();
+        let [first, second] = &heads[heads.len() - 2..] else { panic!("two hops expected: {heads:?}") };
+        assert_eq!(user_agents(first), expected, "{first}");
+        assert_eq!(user_agents(second), expected, "{second}");
+        assert!(!second.to_ascii_lowercase().contains("authorization:"), "{second}");
+        // An app that sets its own User-Agent is refused before any connection, so it can never replace ours.
+        let before = s.heads.lock().unwrap().len();
+        let mut spoofed = get(&format!("https://agent-a.test:{port}/ok"));
+        spoofed.headers.push(("User-Agent".into(), "Spoofed/1".into()));
+        let refused = fetch(spoofed, &both).await.unwrap_err().to_string();
+        assert!(refused.contains("may not set the User-Agent header"), "{refused}");
+        assert_eq!(s.heads.lock().unwrap().len(), before, "nothing was sent");
     }
 
     /// Review of d3dd69a (B8 follow-up): the cross-site filter read header names
