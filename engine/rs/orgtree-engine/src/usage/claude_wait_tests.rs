@@ -336,3 +336,129 @@ async fn short429_cancelled_waiter_cannot_cancel_leader() {
     assert_eq!(leader.await["available"], true);
     assert!(usage.probing.pin().get(&key).is_none());
 }
+
+
+#[test]
+fn claude_rate_limited_and_failed_fetches_retain_last_good_reading_and_stale_eligibility() {
+    use crate::accounts::AccountInfo;
+    use crate::providers::catalog::{CLAUDE, OPENROUTER};
+
+    let engine = Engine::for_tests(PathBuf::from("synthetic-unused-claude-retained-usage"));
+    let usage = &engine.usage;
+    let key = claude_key(None);
+    let obs = "2026-10-29T17:00:00Z";
+    let reset_future = iso(Utc::now() + chrono::Duration::hours(3));
+    let first_good = json!({
+        "available": true,
+        "plan": "Max",
+        "observed_at": obs,
+        "limits": [
+            {"kind": "session", "group": "session", "percent": 38.0, "severity": "normal", "resets_at": reset_future},
+            {"kind": "weekly_all", "group": "weekly", "percent": 61.0, "severity": "normal", "resets_at": reset_future}
+        ]
+    });
+
+    // 1. Initial successful Claude reading is stored and eligible.
+    let out1 = usage.claude_result(&key, first_good.clone());
+    assert_eq!(out1["available"], true);
+    assert_eq!(out1["limits"].as_array().unwrap().len(), 2);
+    let at0 = usage.cache.pin().get(&key).unwrap().at;
+    assert_eq!(balance_reading(&engine, None, "opus").unwrap().used, Some(61.0));
+    assert!(has_room(&engine, None, "opus"));
+    assert!(at_limit(&engine, None, "opus").is_none());
+
+    // 2. Synthetic rate-limited (429) fetch with Retry-After > 60s retains last-good
+    //    windows and original observed_at while marking the readout paused.
+    let rate_limited = usage.claude_result(&key, json!({
+        "available": false,
+        "retry_after_seconds": 120,
+        "detail": "HTTP 429 rate limited"
+    }));
+    assert_eq!(rate_limited["available"], false);
+    assert_eq!(rate_limited["observed_at"], obs);
+    assert_eq!(rate_limited["limits"], first_good["limits"]);
+    assert!(rate_limited["error"].as_str().is_some_and(|s| s.contains("paused")));
+    assert_eq!(usage.cache.pin().get(&key).unwrap().at, at0, "429 must not restamp observation age");
+
+    // 3. Once the retained reading ages past PEEK_MAX (900s), a subsequent transient
+    //    network/timeout failure still returns the retained limits + original observed_at
+    //    + detail, with available=false (stale), while [PROVIDER USAGE] (`snapshot`) and
+    //    account-eligibility rules (`reading_of`, `at_limit`, `balance_reading`, `has_room`)
+    //    treat stale as stale and unreadable as unreadable.
+    usage.put_for_tests(&key, &first_good, PEEK_MAX);
+    let stale_at = usage.cache.pin().get(&key).unwrap().at;
+    let net_failed = usage.claude_result(&key, json!({
+        "available": false,
+        "error": NOT_YET,
+        "detail": "synthetic request timed out"
+    }));
+    assert_eq!(net_failed["available"], false, "stale retained reading must not claim fresh availability");
+    assert_eq!(net_failed["observed_at"], obs);
+    assert_eq!(net_failed["limits"], first_good["limits"]);
+    assert_eq!(net_failed["error"], NOT_YET);
+    assert_eq!(net_failed["detail"], "synthetic request timed out");
+    assert_eq!(usage.cache.pin().get(&key).unwrap().at, stale_at);
+
+    let snap = usage.snapshot(&key, Utc::now());
+    assert_eq!(snap["available"], false);
+    assert_eq!(snap["freshness"], "stale");
+    assert_eq!(snap["reason"], "stale");
+    assert!(reading_of(&engine, CLAUDE, None).is_none(), "stale reading must not count as eligible");
+    assert!(at_limit(&engine, None, "opus").is_none());
+    assert!(balance_reading(&engine, None, "opus").is_none());
+    assert!(!has_room(&engine, None, "opus"));
+
+    // Unreadable account with no prior good reading stays unreadable for eligibility.
+    let unreadable_acct = AccountInfo {
+        id: "claude-unreadable".into(), provider: CLAUDE.into(), kind: "subscription".into(),
+        label: "Unreadable".into(), email: None, tint_ordinal: 0, auth: "authenticated".into(),
+        config_dir: Some("synthetic/claude-unreadable".into()), enabled: true, origin_org: None,
+        marks: Default::default(), ord: 0, ambient: false, credential: 0, harness: None,
+    };
+    let unreadable_key = claude_key(unreadable_acct.config_dir.as_deref());
+    usage.claude_result(&unreadable_key, json!({"available": false, "error": NOT_YET, "detail": "timeout"}));
+    assert!(reading_of(&engine, CLAUDE, Some(&unreadable_acct)).is_none());
+    assert!(at_limit(&engine, Some(&unreadable_acct), "opus").is_none());
+    assert!(balance_reading(&engine, Some(&unreadable_acct), "opus").is_none());
+    assert!(!has_room(&engine, Some(&unreadable_acct), "opus"));
+
+    // OpenRouter stale reading must also be treated as stale by `reading_of` / `balance_reading`.
+    let or_acct = AccountInfo {
+        id: "openrouter-1".into(), provider: OPENROUTER.into(), kind: "apikey".into(),
+        label: "OR Key 1".into(), email: None, tint_ordinal: 0, auth: "authenticated".into(),
+        config_dir: None, enabled: true, origin_org: None, marks: Default::default(),
+        ord: 0, ambient: false, credential: 0, harness: None,
+    };
+    let or_good = json!({
+        "available": true,
+        "account": "openrouter-1",
+        "provider": "OpenRouter",
+        "observed_at": obs,
+        "limits": [{"kind": "usage", "group": "credits", "percent": 40.0, "is_active": false, "resets_at": null, "label": "$4.00 of $10.00 spend cap"}]
+    });
+    usage.put(&or_acct.id, &or_good);
+    assert_eq!(balance_reading(&engine, Some(&or_acct), "or-x").unwrap().used, Some(40.0));
+    usage.put_for_tests(&or_acct.id, &or_good, PEEK_MAX);
+    assert_eq!(usage.snapshot(&or_acct.id, Utc::now())["freshness"], "stale");
+    assert!(reading_of(&engine, OPENROUTER, Some(&or_acct)).is_none(), "stale OpenRouter reading must be stale for eligibility");
+    assert!(balance_reading(&engine, Some(&or_acct), "or-x").is_none());
+
+    // 4. Next successful Claude fetch replaces the retained reading and clears the error.
+    let obs2 = "2026-10-29T17:20:00Z";
+    let next_good = json!({
+        "available": true,
+        "plan": "Max",
+        "observed_at": obs2,
+        "limits": [
+            {"kind": "session", "group": "session", "percent": 44.0, "severity": "normal", "resets_at": reset_future},
+            {"kind": "weekly_all", "group": "weekly", "percent": 65.0, "severity": "normal", "resets_at": reset_future}
+        ]
+    });
+    let out2 = usage.claude_result(&key, next_good);
+    assert_eq!(out2["available"], true);
+    assert!(out2["error"].is_null());
+    assert_eq!(out2["observed_at"], obs2);
+    assert_eq!(out2["limits"][0]["percent"], 44.0);
+    assert_eq!(out2["limits"][1]["percent"], 65.0);
+    assert_eq!(balance_reading(&engine, None, "opus").unwrap().used, Some(65.0));
+}

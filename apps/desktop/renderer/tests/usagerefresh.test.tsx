@@ -165,3 +165,268 @@ test('every OpenRouter key has independent Refresh; only the clicked key forces 
     assert.equal(other.getAttribute('aria-busy'),'false')
   }finally{await view?.unmount();globalThis.fetch=before}
 })
+
+
+import { AccountUsagePanel } from '../src/accountusage'
+
+test('Claude rate-limited (429) and network-failed usage fetches keep rendering last-good bars with original observed age until the next success replaces them',async()=>{
+  const id='claude-secondary',before=globalThis.fetch
+  const obs1='2026-10-13T18:00:00Z',obs2='2026-10-13T18:10:00Z'
+  const futureReset=new Date(Date.now()+3600_000).toISOString()
+  const claudeGood=(account:string,sessionPct:number,weeklyPct:number,observed_at=obs1):AccountUsage=>({
+    account,provider:'Claude',label:account,available:true,plan:'Max',observed_at,
+    limits:[
+      {kind:'session',group:'session',percent:sessionPct,severity:'normal',resets_at:futureReset,is_active:false,model:null},
+      {kind:'weekly_all',group:'weekly',percent:weeklyPct,severity:'normal',resets_at:futureReset,is_active:false,model:null},
+    ],
+  })
+  let phase:'good1'|'rate_limited'|'net_failed'|'good2'='good1'
+  globalThis.fetch=legacyAppBackend((async input=>{
+    const url=new URL(String(input),'http://localhost'),path=url.pathname
+    if(path==='/api/providers')return reply({providers:[{id:'claude',hire_enabled:true,status:{installed:true}}]})
+    if(path==='/api/accounts')return reply({accounts:[{id,provider:'claude',harness:'claude-code',label:'Claude Secondary',
+      mode:'subscription',enabled:true,ambient:false,credential:{kind:'managed',path:'D:/synthetic/claude-2'},
+      identity:{email:'secondary@example.test'},auth:'authenticated',tint_ordinal:1,bound:[]}]})
+    if(path==='/api/usage'){
+      if(phase==='good1')return reply(claudeGood('primary',38,61,obs1))
+      if(phase==='rate_limited')return reply({
+        ...claudeGood('primary',38,61,obs1),
+        available:false,
+        error:'usage updates paused; next retry in 120 s',
+      })
+      if(phase==='net_failed')return reply({
+        account:'primary',provider:'Claude',label:'primary',available:false,
+        limits:[],error:'Claude usage is not available right now',detail:'request timed out',
+      })
+      return reply(claudeGood('primary',44,65,obs2))
+    }
+    if(path===`/api/accounts/${id}/usage`){
+      if(phase==='good1')return reply(claudeGood(id,24,53,obs1))
+      if(phase==='rate_limited')return reply({
+        ...claudeGood(id,24,53,obs1),
+        available:false,
+        error:'usage updates paused; next retry in 180 s',
+      })
+      if(phase==='net_failed')return reply({
+        account:id,provider:'Claude',label:id,available:false,
+        limits:[],error:'HTTP 429 rate limited',
+      })
+      return reply(claudeGood(id,31,58,obs2))
+    }
+    if(path==='/api/langservers')return reply({servers:[]})
+    if(path.includes('/keys/usage'))return reply({keys:[]})
+    return reply({available:false,limits:[],accounts:[],keys:[]})
+  }) as typeof fetch)
+  let view:Awaited<ReturnType<typeof mountView>>|undefined
+  try{
+    view=await mountView(<UsageModal close={()=>{}} toast={()=>{}}/>,el=>el)
+    await inAct(async()=>{await flush(12)})
+    const registered=view.el.querySelector<HTMLElement>(`[data-account="${id}"]`)!
+    const native=[...view.el.querySelectorAll<HTMLElement>('.usage-acct')]
+      .find(card=>!!card.querySelector('[aria-label="refresh Claude usage"]'))!
+    assert.ok(native);assert.ok(registered)
+    const stamps1=[native,registered].map(card=>card.querySelector('.usage-updated')?.getAttribute('title'))
+    assert.ok(stamps1.every(Boolean))
+    assert.equal(native.querySelectorAll('.usage-track').length,2)
+    assert.equal(registered.querySelectorAll('.usage-track').length,2)
+    assert.match(native.textContent??'',/38%/);assert.match(native.textContent??'',/61%/)
+    assert.match(registered.textContent??'',/24%/);assert.match(registered.textContent??'',/53%/)
+
+    // Rate-limited (429 cooldown with available:false): bars and original observed_at stay visible.
+    phase='rate_limited'
+    for(const card of [native,registered])await inAct(async()=>{
+      card.querySelector<HTMLButtonElement>('.usage-refresh-button')!.click();await flush(12)
+    })
+    assert.equal(native.querySelectorAll('.usage-track').length,2,'native Claude card keeps both bars on 429')
+    assert.equal(registered.querySelectorAll('.usage-track').length,2,'registered Claude card keeps both bars on 429')
+    assert.match(native.textContent??'',/38%/);assert.match(native.textContent??'',/61%/)
+    assert.match(registered.textContent??'',/24%/);assert.match(registered.textContent??'',/53%/)
+    assert.equal(native.querySelector('.usage-updated')?.getAttribute('title'),stamps1[0])
+    assert.equal(registered.querySelector('.usage-updated')?.getAttribute('title'),stamps1[1])
+    assert.match(native.querySelector('[role="alert"]')?.textContent??'',/usage updates paused; next retry in 120 s/)
+    assert.match(registered.querySelector('[role="alert"]')?.textContent??'',/usage updates paused; next retry in 180 s/)
+
+    // Network/timeout failure returning available:false with empty limits: renderer still retains last-good bars.
+    phase='net_failed'
+    for(const card of [native,registered])await inAct(async()=>{
+      card.querySelector<HTMLButtonElement>('.usage-refresh-button')!.click();await flush(12)
+    })
+    assert.equal(native.querySelectorAll('.usage-track').length,2)
+    assert.equal(registered.querySelectorAll('.usage-track').length,2)
+    assert.match(native.textContent??'',/38%/);assert.match(native.textContent??'',/61%/)
+    assert.match(registered.textContent??'',/24%/);assert.match(registered.textContent??'',/53%/)
+    assert.equal(native.querySelector('.usage-updated')?.getAttribute('title'),stamps1[0])
+    assert.equal(registered.querySelector('.usage-updated')?.getAttribute('title'),stamps1[1])
+
+    // Next successful reading replaces the retained bars and clears the alert.
+    phase='good2'
+    for(const card of [native,registered])await inAct(async()=>{
+      card.querySelector<HTMLButtonElement>('.usage-refresh-button')!.click();await flush(12)
+    })
+    assert.equal(native.querySelector('[role="alert"]'),null)
+    assert.equal(registered.querySelector('[role="alert"]'),null)
+    assert.match(native.textContent??'',/44%/);assert.match(native.textContent??'',/65%/)
+    assert.match(registered.textContent??'',/31%/);assert.match(registered.textContent??'',/58%/)
+    assert.notEqual(native.querySelector('.usage-updated')?.getAttribute('title'),stamps1[0])
+  }finally{await view?.unmount();globalThis.fetch=before}
+})
+
+test('retained reading whose window reset time is in the past renders reset; awaiting reading instead of presenting the old percentage as current',async()=>{
+  const pastReset=new Date(Date.now()-15*60_000).toISOString()
+  const futureReset=new Date(Date.now()+2*86400_000).toISOString()
+  const retainedClaude:AccountUsage={
+    account:'primary',provider:'Claude',label:'primary',
+    available:false,plan:'Max',observed_at:observed,
+    error:'usage updates paused; next retry in 120 s',
+    limits:[
+      {kind:'session',group:'session',percent:84,severity:'warning',resets_at:pastReset,is_active:false,model:null},
+      {kind:'weekly_all',group:'weekly',percent:52,severity:'normal',resets_at:futureReset,is_active:false,model:null},
+    ],
+  }
+  const view=await mountView(<UsageBars u={retainedClaude}/>,el=>el)
+  try{
+    const rows=view.el.querySelectorAll('.usage-row')
+    assert.equal(rows.length,2,'both windows remain listed on the card')
+    const sessionRow=rows[0]!,weeklyRow=rows[1]!
+    assert.match(sessionRow.querySelector('.u-reset')?.textContent??'',/reset; awaiting reading/)
+    assert.equal(sessionRow.querySelector('.usage-track'),null,'passed-reset window must not render old bar as current')
+    assert.equal(sessionRow.querySelector('.u-pct'),null,'passed-reset window must not render old 84% badge as current')
+    assert.doesNotMatch(sessionRow.textContent??'',/84%/)
+    assert.ok(weeklyRow.querySelector('.usage-track'),'unexpired weekly window keeps its bar')
+    assert.match(weeklyRow.textContent??'',/52%/)
+  }finally{await view.unmount()}
+})
+
+test('AccountUsagePanel keeps rendering last-good bars across rate-limited or failed refreshes until the next success replaces them',async()=>{
+  const before=globalThis.fetch
+  const futureReset=new Date(Date.now()+3600_000).toISOString()
+  let step=0
+  globalThis.fetch=(async()=>{
+    step++
+    if(step===1)return reply({
+      account:'claude-2',provider:'Claude',label:'claude-2',available:true,plan:'Max',observed_at:observed,
+      limits:[
+        {kind:'session',group:'session',percent:29,severity:'normal',resets_at:futureReset,is_active:false,model:null},
+        {kind:'weekly_all',group:'weekly',percent:74,severity:'normal',resets_at:futureReset,is_active:false,model:null},
+      ],
+    })
+    if(step===2)return reply({
+      account:'claude-2',provider:'Claude',label:'claude-2',available:false,plan:'Max',observed_at:observed,
+      error:'usage updates paused; next retry in 120 s',
+      limits:[
+        {kind:'session',group:'session',percent:29,severity:'normal',resets_at:futureReset,is_active:false,model:null},
+        {kind:'weekly_all',group:'weekly',percent:74,severity:'normal',resets_at:futureReset,is_active:false,model:null},
+      ],
+    })
+    if(step===3)return reply({
+      account:'claude-2',provider:'Claude',label:'claude-2',available:false,plan:'Max',
+      error:'network timeout',limits:[],
+    })
+    if(step===4)return new Response(JSON.stringify({detail:'gateway timeout'}),{status:502,headers:{'Content-Type':'application/json'}})
+    return reply({
+      account:'claude-2',provider:'Claude',label:'claude-2',available:true,plan:'Max',observed_at:'2026-10-13T18:15:00Z',
+      limits:[
+        {kind:'session',group:'session',percent:33,severity:'normal',resets_at:futureReset,is_active:false,model:null},
+        {kind:'weekly_all',group:'weekly',percent:76,severity:'warning',resets_at:futureReset,is_active:false,model:null},
+      ],
+    })
+  }) as typeof fetch
+  let view:Awaited<ReturnType<typeof mountView>>|undefined
+  try{
+    view=await mountView(<AccountUsagePanel accountId="claude-2"/>,el=>el)
+    await inAct(async()=>{await flush(10)})
+    assert.equal(view.el.querySelectorAll('.usage-track').length,2)
+    assert.match(view.el.textContent??'',/29%/);assert.match(view.el.textContent??'',/74%/)
+
+    for(const expectedAlert of [/usage updates paused/,/refresh failed: network timeout/,/refresh failed: .*gateway timeout/]){
+      await inAct(async()=>{
+        view!.el.querySelector<HTMLButtonElement>('.account-usage button')!.click()
+        await flush(10)
+      })
+      assert.equal(view.el.querySelectorAll('.usage-track').length,2,'retained bars remain visible across failed refreshes')
+      assert.match(view.el.textContent??'',/29%/);assert.match(view.el.textContent??'',/74%/)
+      assert.match(view.el.querySelector('[role="alert"]')?.textContent??'',expectedAlert)
+    }
+
+    await inAct(async()=>{
+      view!.el.querySelector<HTMLButtonElement>('.account-usage button')!.click()
+      await flush(10)
+    })
+    assert.equal(view.el.querySelector('[role="alert"]'),null)
+    assert.match(view.el.textContent??'',/33%/);assert.match(view.el.textContent??'',/76%/)
+  }finally{await view?.unmount();globalThis.fetch=before}
+})
+
+test('Codex, Antigravity and OpenRouter cards retain last-good readings across failed fetches until replaced by a fresh reading',async()=>{
+  const before=globalThis.fetch
+  const futureReset=new Date(Date.now()+3600_000).toISOString()
+  let failed=false,recovered=false
+  const codexReading=():AccountUsage=>failed?{
+    account:'codex',provider:'Codex',label:'codex@example.test',available:false,
+    limits:[],error:'Codex HTTPS 429 rate limited',
+  }:{
+    account:'codex',provider:'Codex',label:'codex@example.test',available:true,plan:'Pro',
+    observed_at:recovered?'2026-10-13T18:10:00Z':observed,
+    limits:[{kind:'weekly_all',group:'codex',percent:recovered?25:19,severity:'normal',resets_at:futureReset,is_active:false,model:null,label:'7 days'}],
+  }
+  const agyReading=():AccountUsage=>failed?{
+    account:'antigravity',provider:'Antigravity',label:'agy@example.test',available:false,
+    limits:[],error:'Antigravity usage check timed out',
+  }:{
+    account:'antigravity',provider:'Antigravity',label:'agy@example.test',available:true,tier:'Google AI Pro',
+    observed_at:recovered?'2026-10-13T18:10:00Z':observed,
+    limits:[{kind:'session',group:'gemini-5h',percent:recovered?48:41,severity:'normal',resets_at:futureReset,is_active:false,model:'Gemini Models',label:'Gemini Models · Five Hour'}],
+  }
+  const orReading=():AccountUsage&{name:string}=>failed?{
+    account:'openrouter-1',name:'Primary OR',provider:'OpenRouter',label:'Primary OR',available:false,
+    limits:[],error:'OpenRouter usage check failed (429)',
+  }:{
+    account:'openrouter-1',name:'Primary OR',provider:'OpenRouter',label:'Primary OR',available:true,
+    observed_at:recovered?'2026-10-13T18:10:00Z':observed,
+    limits:[{kind:'usage',group:'credits',percent:recovered?60:55,severity:'normal',resets_at:null,is_active:false,model:null,label:'$5.50 of $10.00 spend cap'}],
+  }
+  globalThis.fetch=legacyAppBackend((async input=>{
+    const url=new URL(String(input),'http://localhost'),path=url.pathname
+    if(path==='/api/providers')return reply({providers:['openai','google','openrouter'].map(id=>({id,hire_enabled:true,status:{installed:true}}))})
+    if(path==='/api/accounts')return reply({accounts:[]})
+    if(path==='/api/codex/usage')return reply(codexReading())
+    if(path==='/api/antigravity/usage')return reply(agyReading())
+    if(path==='/api/openrouter/keys/usage')return reply({'openrouter-1':orReading()})
+    if(path==='/api/accounts/openrouter-1/usage')return reply(orReading())
+    if(path==='/api/langservers')return reply({servers:[]})
+    return reply({available:false,limits:[]})
+  }) as typeof fetch)
+  let view:Awaited<ReturnType<typeof mountView>>|undefined
+  try{
+    view=await mountView(<UsageModal close={()=>{}} toast={()=>{}}/>,el=>el)
+    await inAct(async()=>{await flush(12)})
+    assert.equal(view.el.querySelectorAll('.usage-track').length,3)
+    assert.match(view.el.textContent??'',/19%/)
+    assert.match(view.el.textContent??'',/41%/)
+    assert.match(view.el.textContent??'',/55%/)
+
+    failed=true
+    for(const label of ['refresh Codex usage','refresh Antigravity usage','refresh openrouter-1 usage']){
+      await inAct(async()=>{
+        view!.el.querySelector<HTMLButtonElement>(`[aria-label="${label}"]`)!.click()
+        await flush(12)
+      })
+    }
+    assert.equal(view.el.querySelectorAll('.usage-track').length,3,'all three provider cards keep their last-good bars on failure')
+    assert.match(view.el.textContent??'',/19%/)
+    assert.match(view.el.textContent??'',/41%/)
+    assert.match(view.el.textContent??'',/55%/)
+
+    failed=false;recovered=true
+    for(const label of ['refresh Codex usage','refresh Antigravity usage','refresh openrouter-1 usage']){
+      await inAct(async()=>{
+        view!.el.querySelector<HTMLButtonElement>(`[aria-label="${label}"]`)!.click()
+        await flush(12)
+      })
+    }
+    assert.equal(view.el.querySelectorAll('[role="alert"]').length,0)
+    assert.match(view.el.textContent??'',/25%/)
+    assert.match(view.el.textContent??'',/48%/)
+    assert.match(view.el.textContent??'',/60%/)
+  }finally{await view?.unmount();globalThis.fetch=before}
+})
