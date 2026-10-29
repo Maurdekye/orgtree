@@ -170,6 +170,20 @@ not execute; never count it as a product result.
   (`.mailer:not(.narrow-list)`) as well as sized.
   [verified: `tools/rig/desktop/changelog-visual.cjs`; 2026-10-24]
 
+- **A base bundle from a partial tree pins its tsconfig.** esbuild reads the
+  nearest `tsconfig.json` above each file. A base made by `git archive <base>
+  apps/desktop/renderer/src packages` has none, so it adopted one above it: an
+  integrator's typecheck config whose `paths` send `*` to the dependency checkout.
+  Mapped imports resolve as file paths, which skips each package's `exports` and
+  takes its `browser` field. `marked` came in as `marked.umd.js`, so
+  `markdownmath.ts`'s `new Marked()` became `new (void 0)` and the base fixture
+  never started ("fixture not loaded"; 840 modules instead of 666). Bundle with
+  `tsconfigRaw` holding the repo's esbuild options (`target` ES2022, `jsx`
+  react-jsx, `strict`) so no tsconfig file is read; the tip bundle was
+  byte-identical with and without it. A capture's error file should carry the
+  page's own errors, as `connectionlist.capture.cjs`'s does.
+  [verified: `tests/connectionlist.capture.cjs`; measured 2026-10-29]
+
 - **Spelling probes include a typed word-boundary control.** On Windows Electron,
   CDP insertion of `mispellled synthetic` without a final boundary produced empty
   native spelling params at scale 1 and at text scale 0.625. With a final typed
