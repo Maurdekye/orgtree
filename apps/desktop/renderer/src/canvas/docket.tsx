@@ -55,9 +55,10 @@ import { AgentName, nodeTierOf } from './identity'
 import { DocketSelection, DocketSelectionContext } from './docketselection'
 import { MailReplyBox } from './mail'
 import { sendLinkedReply } from '../events/reply'
-import { ago, jumpKey, useEsc } from './shared'
+import { jumpKey, useEsc } from './shared'
+import { ageTitle, ListAge } from './listage'
 import { useWorkItems, useSelectedWork } from './useworkitems'
-import { fmtFull } from '../timefmt'
+import { fmtAge, fmtFull } from '../timefmt'
 import { buildMentionIndex } from './workrefs'
 import type { MentionIndex } from './workrefs'
 import { ForegroundViewContext, RefProse, refToken, resolveRef, useAgentOutcome } from './reflinks'
@@ -197,13 +198,15 @@ function sortStamp(it: WorkItem, mode: DocketSortMode): string {
  *  — so the order and the number beside each row can never disagree, and a
  *  progress note or a retitle cannot refresh a status age because the status
  *  clock is the durable `status_at` and nothing else. The tooltip names the
- *  clock and the full instant, so the bare "3h" is never ambiguous. */
+ *  clock and the full instant, so the bare "3h" is never ambiguous. The age
+ *  is every list's (USER 2026-10-29 m019c9500d23a "A7 use time ago in list":
+ *  canvas/listage.tsx), on one scale past hours. */
 const AGE_CLOCK: Record<DocketSortMode, string> = {
   updated: 'updated', created: 'created', status: 'last status change',
 }
-export function rowAge(it: WorkItem, mode: DocketSortMode): { text: string; title: string } {
-  const stamp = sortStamp(it, mode)
-  return { text: ago(stamp || it.at), title: `${AGE_CLOCK[mode]} ${fmtFull(stamp || it.at)}` }
+export function rowAge(it: WorkItem, mode: DocketSortMode): { at: string; clock: string; text: string; title: string } {
+  const at = sortStamp(it, mode) || String(it.at ?? '')
+  return { at, clock: AGE_CLOCK[mode], text: fmtAge(at), title: ageTitle(at, AGE_CLOCK[mode]) }
 }
 
 /** One section's items in the chosen order, newest first.
@@ -2265,7 +2268,7 @@ export const DocketRow = memo(function DocketRow({ item, selected, onClick, onDi
           </span>
         )}
         {(() => { const age = rowAge(item, ageMode)
-          return <span className="mtime" title={age.title} aria-label={age.title}>{age.text}</span> })()}
+          return <ListAge at={age.at} clock={age.clock} /> })()}
       </div>
       <div className="l2">
         <span className={'docket-status status-' + item.status + (attention ? ' attention' : '')}
@@ -2400,7 +2403,7 @@ function DocketPostCompletion({ item }: { item: WorkItem }) {
       <div className="docket-post-completion-head">
         Summary amended after completion
         <span className="dim">
-          {' · ' + ago(pc.at)}
+          {' · ' + fmtFull(pc.at)}
           {who && ' · by ' + who}
           {pc.count > 1 && ` · ${pc.count} addenda`}
         </span>
@@ -2836,7 +2839,10 @@ function FullDocketPane({ slug, item, toast, asksById, onDismiss, close, onFocus
           {label}
         </span>
         <SlugText item={item} />
-        {' · Updated ' + ago(item.docket_at ?? item.at)}
+        {/* the open ticket says when in full; its row says how long ago (USER
+            2026-10-29 m019c9500d23a "A7 ... full date and time in header of
+            detail tab") */}
+        {' · Updated ' + fmtFull(item.docket_at ?? item.at)}
         {/* ASSIGNED TO, not "updated by": the docket names who HOLDS the item.
             Who wrote the latest status is history and stays in the history
             rows, where it is one entry among the others rather than the line

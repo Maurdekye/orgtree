@@ -55,7 +55,8 @@ import { useRowCopy } from './rowcopy'
 import { openLightboxIfEligibleImage } from './lightbox'
 import { fmtFull } from '../timefmt'
 import { MailReplyBox } from './mail'
-import { ago, md, TIER_LETTER, tierLabel } from './shared'
+import { md, TIER_LETTER, tierLabel } from './shared'
+import { ListAge } from './listage'
 
 /** the presenting agent's model card. MOVED to canvas/identity.tsx, which is
  *  now the one place an agent's chip-and-name is drawn; re-exported here so
@@ -535,7 +536,7 @@ export function DocGalleryModal({ slug, toast, close, onFocusAgent, onReply,
                         onContextMenu={(e) => menu.open(e, () => rowMenu(e, r))}>
                         <div className="l1">
                           <span className="mfrom">{r.title || '(untitled)'}</span>
-                          <span className="mtime">{ago(r.at)}</span>
+                          <ListAge at={r.at} />
                         </div>
                         <div className="l2" data-copy-agent-name={presenterOf(r) || undefined}>
                           <RowIdentity r={r} tierOf={(id) => refs?.world.tierOf?.(id)} />
@@ -951,7 +952,7 @@ export function AgentGalleryView({ slug, nid, node, toast, onFocusAgent, onReply
                 onContextMenu={(e) => menu.open(e, () => rowMenu(e, r))}>
                 <div className="l1">
                   <span className="mfrom">{r.title || '(untitled)'}</span>
-                  <span className="mtime">{ago(r.at)}</span>
+                  <ListAge at={r.at} />
                 </div>
                 <div className="l2" data-copy-agent-name={presenterOf(r) || undefined}>
                   <RowIdentity r={r} tierOf={tierOf} />

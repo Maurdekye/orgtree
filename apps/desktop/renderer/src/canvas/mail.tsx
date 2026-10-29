@@ -54,6 +54,7 @@ import { mailMenuEntries, mailTooltipProps } from './mailidentity'
 import { mailTitle } from './mailtitle'
 import { JobAckPane, needsAck } from './jobackpane'
 import { UserMention, isUserName } from './usermention'
+import { ListAge } from './listage'
 import type { RefWorld, ResolvedRef } from './reflinks'
 import { useComposerEnter } from '../enterkey'
 import { isMobile } from '../mobile'
@@ -950,7 +951,7 @@ export function MailRowView({ m, pile = 1, view, selected, outgoing, flash, part
         {mark}
         {!m._ask && m.dnd_held && <span className="dnd-mail-state">held (do not disturb)</span>}
         {!m._ask && m.dnd_read && <span className="dnd-mail-state">read</span>}
-        <span className="mtime">{fmtShort(m.at)}</span>
+        <ListAge at={m.at} />
         {m._wait && m.id && onRetract && (
           <button className="chip-x" title="retract (undelivered)"
             onClick={(e) => { e.stopPropagation(); onRetract(m) }}>

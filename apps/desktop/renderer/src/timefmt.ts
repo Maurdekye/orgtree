@@ -219,6 +219,29 @@ export const fmtWhen = (at: string | number | null | undefined): string => {
   return isToday(d.toISOString()) ? fmtClock(at) : `${fmtDay(at)} ${fmtClock(at)}`
 }
 
+/** `45s` · `12m` · `5h` · `3d` · `2w` · `4mo` · `2y` — how long ago, for a list
+ *  row (USER 2026-10-29 m019c9500d23a "A7 use time ago in list, full date and
+ *  time in header of detail tab"; canvas/listage.tsx draws it). One scale for
+ *  every list: seconds under 90 s, minutes under 90 min, hours under 36 h, days
+ *  under 14 d, weeks under 8 w, months under 18 mo, then years, so an old row
+ *  never reads "500h". The full instant is the row's hover (`fmtFull`). An
+ *  instant in the future (clock skew) reads `0s`. No zone is involved: an age
+ *  is the same everywhere. */
+export const fmtAge = (at: string | number | null | undefined, now = Date.now()): string => {
+  const d = parse(at)
+  if (!d) return ''
+  const s = Math.max(0, (now - d.getTime()) / 1000)
+  const n = (value: number, unit: string) => `${Math.round(value)}${unit}`
+  if (s < 90) return n(s, 's')
+  if (s < 90 * 60) return n(s / 60, 'm')
+  if (s < 36 * 3600) return n(s / 3600, 'h')
+  const days = s / 86400
+  if (days < 14) return n(days, 'd')
+  if (days < 56) return n(days / 7, 'w')
+  const months = days / 30.4375
+  return months < 18 ? n(months, 'mo') : n(days / 365.25, 'y')
+}
+
 /* ── SERVER-WRITTEN PROSE ────────────────────────────────────────────────
  *
  * Some user-visible text is written by the SERVER and stored as a durable row
