@@ -15,14 +15,16 @@ All keys are peers with IDs `openrouter-N`; none is the primary/original key. Ac
 | Dialog field | Default/behavior |
 | --- | --- |
 | Name | Optional, UI limit 80 characters; blank uses the key's OpenRouter label. |
-| Harness | Installed compatible choices, retaining a saved missing value with its explanation. A per-agent harness pin keeps that agent's choice. |
+| Harness | Installed compatible choices, retaining a saved missing value with its explanation. An agent with a harness of its own (chosen at hire or in its Model tab) keeps it. |
 | API key | Required on Add; blank on Edit retains the secret. A replacement is stored locally and never displayed again. |
 
 The key's harness change reaches its unpinned agents at the next turn, on a fresh session seeded with a summary. That can change context/cache continuity. A missing harness refuses launch rather than silently changing it. The dialog has Save/Cancel and prevents submitting while busy. No app-wide restart/UAC is intrinsic to saving a key, but agent startup/session effects are real.
 
 Ordinary seats follow the key's harness. An explicit `harness` supplied when
-hiring an OpenRouter seat pins that seat; a rehire retains its pin. The key
-dialog reports how many pinned seats keep their chosen harness. The recorded
+hiring an OpenRouter seat pins that seat, and so does the agent settings Model
+tab's **Harness** row (`orgtree-agent-model-tab`), which can also clear the pin
+(**Follow key**); a rehire retains its pin. The key dialog reports how many
+agents have a harness of their own and keep it. The recorded
 serving harness and a future key choice can therefore differ until the next
 turn, and a pinned seat need not follow the key at all. Verify the seat's
 `harness`/`harness_pinned` state rather than assuming every key edit resets every

@@ -24,8 +24,9 @@ Other JSON parsing retains its default recursion checks.
 Project `settings` carries the queue/event allowlist, validated and applied by
 canonical `configure_project`; slots and peer mail remain layout fields. Saved
 speed uses `scope.fast_mode`, including explicit false. A harness is exported
-only for OpenRouter with `extra.harness_pin=true`; the ordinary inherited harness
-stamp is omitted. Preview blocks unsupported speed or unavailable pins, permits
+only for OpenRouter with `extra.harness_pin=true` (its target, `harnesses::seat_pin`;
+a language model server seat's own harness is not exported); the ordinary inherited
+harness stamp is omitted. Preview blocks unsupported speed or unavailable pins, permits
 explicit overrides, and creation rechecks normal speed/harness eligibility.
 
 Desktop names traversal is iterative. Preview rows are flat and paged in groups

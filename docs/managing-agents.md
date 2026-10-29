@@ -129,6 +129,8 @@ Busy model/account changes queue for the turn boundary. The next-turn badges sho
 
 Cross-provider switches start a fresh session with a handoff summary. Scratch files, mail and saved history remain with the agent, but they are not a promise of identical conversation context or a cache hit. Switching a model-server route between different harnesses also needs a fresh session. A more expensive seat must fit the available credit allocation.
 
+**Harness**, for OpenRouter and language model server agents, chooses the CLI that runs the agent: **Follow key** or **Follow server** uses its key's or server's harness and follows its later changes, or pick an installed harness of its own. The change applies at its next turn, on a fresh session that starts with a summary; a running turn is never cut off. If the same save moves the agent to another provider or server, choose its harness after that change is saved.
+
 **Thinking effort** chooses among the model's offered levels. Inheritance uses the organization's effective level; unsupported saved levels are mapped to a supported launch level. Higher effort can affect time and usage. Some supported running Claude turns can receive an effort update; other changes apply next turn. A sent control request does not prove the provider applied it.
 
 Hovering over the effort bar previews a level's label without changing the

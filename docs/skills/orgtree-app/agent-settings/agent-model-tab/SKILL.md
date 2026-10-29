@@ -1,11 +1,11 @@
 ---
 name: orgtree-agent-model-tab
-description: Explain model tiers, version pins, effort and pending model changes.
+description: Explain model tiers, version pins, harness choice, effort and pending model changes.
 ---
 
 Up: [orgtree-agent-settings](../SKILL.md)
 
-# Model, version and thinking effort
+# Model, version, harness and thinking effort
 
 These are per-agent settings. Agents explain and recommend choices; they do not change settings themselves. The tab starts from the agent's current tier and configured scope, not a universal default model.
 
@@ -13,6 +13,7 @@ These are per-agent settings. Agents explain and recommend choices; they do not 
 |---|---|---|
 | Model | `node:tier` through a model-switch operation | Provider-grouped tiers; changing the tier changes the agent's model and seat cost. |
 | Model version | `node:model_version` in scope | Shown when a tier has more than one listed version; empty means latest, with its version shown in the label. |
+| Harness | the seat's own harness (`extra.harness_pin`, `extra.harness_pin_to`) through the `harness` operation | OpenRouter and language model server seats only: **Follow key (…)** or **Follow server (…)**, or an installed harness it can run. A change applies at its next turn, on a fresh session that starts with a summary. |
 | Thinking effort | `node:effort` in scope | Organization default or a level offered for the chosen harness/model. Empty clears the agent override. |
 
 ## Model and version
@@ -51,7 +52,29 @@ An untouched Save leaves pending changes alone, and cancelling does not ask to
 reset the current conversation. Model and account queues can be cancelled
 together in settings by explicitly choosing both current values.
 
-Cross-provider switches start a fresh session with a handoff summary; the earlier conversation remains available through saved history in the agent's folder. Scratch files and mail remain with the agent. A language model server switch between different harnesses also requires a fresh session. Same-provider changes do not use that cross-provider session reset. Model/provider changes create a new cache namespace; do not promise a provider cache hit or uninterrupted context reuse. See `orgtree-tool-switch-model` (orgtree-working › team) for admission, costs and the underlying operation.
+Cross-provider switches start a fresh session with a handoff summary; the earlier conversation remains available through saved history in the agent's folder. Scratch files and mail remain with the agent. A language model server switch between different harnesses also requires a fresh session. Same-provider changes do not use that cross-provider session reset. Model/provider changes create a new cache namespace; do not promise a provider cache hit or uninterrupted context reuse. See `orgtree-tool-switch-model` (orgtree-working › team) for admission, costs and the underlying operation. A harness change is a separate setting; see Harness below.
+
+## Harness
+
+An OpenRouter seat runs on its key's harness and a language model server
+seat on its server's, unless it has a harness of its own. **Harness** shows
+which: **Follow key (Codex)** or **Follow server (Claude Code)** names the
+harness it follows now, and a harness name means its own choice, which the
+key's or server's later changes skip. The list is the key dialog's: installed
+harnesses first, the others greyed out and disabled. On a server seat, a
+harness the server cannot carry is disabled with its reason; a custom
+server's one base path serves only its own API family (Claude Code, or Codex
+and OpenCode). A saved choice no longer installed stays shown and says the
+agent refuses to start until it is installed or another is chosen.
+
+Saving a change never touches a running turn: at its next turn boundary the
+agent moves to the new harness on a fresh session that starts with a summary
+of its conversation (the whole conversation stays saved in its folder), as a
+key's harness change does. The row says so before you save. A model change in
+the same form that moves it to another lane or server holds the row: choose
+its harness after saving the model change. A harness chosen at hire
+(`orgtree_staff`'s `harness`, OpenRouter only) is the same setting. Agents have
+no tool to change it. Undo restores the previous choice.
 
 ## Thinking effort
 

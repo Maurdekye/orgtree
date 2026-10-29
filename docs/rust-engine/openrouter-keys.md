@@ -147,8 +147,11 @@ there by the coordinator).
   only seeds. A new key gets the harness named, else the first key's, else the
   seed (the first installed one when the seed is not installed).
 - **Seats:** `ot.agents.extra.harness` is the harness the seat's session runs on;
-  `extra.harness_pin` marks an explicit hire choice. `openrouter::seat_harness` is the
-  single precedence point: pinned → the stamp, else the billed key's harness.
+  `extra.harness_pin` marks a harness of its own, chosen at hire or in the agent
+  settings Model tab (2026-10-29), its target `extra.harness_pin_to` (a hire-time pin
+  stored before targets existed reads the stamp: `harnesses::seat_pin`).
+  `openrouter::seat_harness` is the single precedence point: the pin, else the billed
+  key's harness. See [providers and accounts](../agents/providers-and-accounts.md#a-seats-own-harness-the-model-tabs-harness-row-2026-10-29-452).
 - **Turn boundary:** `start_turn`, under the agent row lock and before any mail is
   claimed, compares the stamp with `seat_harness`. A difference ends the session
   (`agent_sessions.end_reason = 'harness switch'`), sets `handoff_due` ("its OpenRouter
