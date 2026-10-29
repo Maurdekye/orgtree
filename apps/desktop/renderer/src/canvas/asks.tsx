@@ -19,20 +19,22 @@
 // with its error and the user's choices.
 
 import { useEffect, useId, useRef, useState } from 'react'
-import type { KeyboardEvent } from 'react'
+import type { KeyboardEvent, MouseEvent, ReactNode } from 'react'
 import type { AskInfo, AskQuestion, AskTab, ToastFn, TreeNode, TreePayload } from '../types'
 import type { Section } from '../generated/events'
 import { answerAsk, creditDecide, fileBase, resolveBatch } from '../api'
 import { askFailure, askHidden, submitAsk, useSubmittedAsks } from '../asksubmitted'
+import { askFold, askSignature, firstLine, foldAsk, unfoldAsk, useAskFoldVersion } from './askfold'
 import { CreditBar } from './cards'
 import { creditSegments } from './creditsegments'
 import { AnsweredCard, CreditCard, ScopeCard, miniFromAskInfo } from '../events/answered'
-import { CloseIcon, WarnIcon } from '../icons'
+import { CloseIcon, ExpandMoreIcon, WarnIcon } from '../icons'
 import { isMobile } from '../mobile'
 import { useComposerEnter } from '../enterkey'
 import { useQuestionVisibility } from '../notification-visibility'
 import { ElicitationAsk } from './elicitation'
 import { RefMdBody } from './refmd'
+import { RefChip, resolveRef } from './reflinks'
 import type { RefRoutes } from './reflinks'
 import { inlineMd, md, orgPxc } from './shared'
 
@@ -100,6 +102,83 @@ const isSubmitKey = (e: KeyboardEvent): boolean =>
     && !e.shiftKey && !e.altKey && !e.repeat && !e.nativeEvent.isComposing
     && e.nativeEvent.keyCode !== 229
     && (e.target as HTMLElement).tagName !== 'TEXTAREA'
+
+/** A request card's fold (USER 2026-10-29 mece9d7b275c2: "add collapsible
+ *  request cards"; canvas/askfold.ts keeps it): one state per request, shared
+ *  by every surface that draws the card. Folded, the card keeps its header
+ *  and one line, and its body (every answer control) is hidden but mounted,
+ *  so drafts stay. `changed` says the card was amended after it was folded. */
+interface CardFold { folded: boolean; changed: boolean; bodyId: string; toggle: () => void }
+
+function useCardFold(slug: string, ask: AskInfo): CardFold {
+  useAskFoldVersion()
+  const bodyId = useId()
+  const id = String(ask.id)
+  const fold = askFold(slug, id)
+  const signature = askSignature(ask)
+  return { folded: !!fold, changed: !!fold && fold.s !== signature, bodyId,
+    toggle: () => { if (askFold(slug, id)) unfoldAsk(slug, id); else foldAsk(slug, id, signature) } }
+}
+
+/** The fold control: a real button, so the keyboard reaches and works it, and
+ *  it names the region it shows and hides. Its chevron points down while the
+ *  card is open and turns to point right when it is folded. */
+function FoldButton({ fold }: { fold: CardFold }) {
+  const what = fold.folded ? 'Expand this request' : 'Collapse this request'
+  return <button type="button" className={'ask-fold' + (fold.folded ? ' folded' : '')}
+    aria-expanded={!fold.folded} aria-controls={fold.bodyId} aria-label={what} title={what}
+    onClick={(e) => { e.stopPropagation(); fold.toggle() }}>
+    <ExpandMoreIcon fontSize="inherit" />
+  </button>
+}
+
+/** The whole header row folds and unfolds the card. The controls inside it
+ *  (the fold button, the ✕, a ticket chip) keep their own clicks, and a click
+ *  that ends a text selection in the row selects instead of folding. */
+const foldRow = (fold: CardFold) => (e: MouseEvent<HTMLElement>) => {
+  const control = (e.target as Element).closest('button, a, input, select, textarea, [role="button"]')
+  if (control && e.currentTarget.contains(control)) return
+  const selection = e.currentTarget.ownerDocument.getSelection?.()
+  if (selection && !selection.isCollapsed && e.currentTarget.contains(selection.anchorNode)) return
+  fold.toggle()
+}
+
+/** What a folded card's one line says: the question's first line (inline
+ *  Markdown and math, its mentions as inert chips) or the names of its tabs. */
+type FoldText = { md: string } | { text: string }
+
+/** The one line a folded card keeps after who asks: the tickets its tabs
+ *  name, as chips, then its text. */
+function FoldLine({ ask, slug, refs, text }: { ask: AskInfo; slug: string; refs?: AskRefs; text: FoldText }) {
+  const world = refs?.world ?? { org: slug }
+  return <span className="ask-fold-line">
+    {(ask.work_items ?? []).map((id) => <RefChip key={id}
+      r={resolveRef({ kind: 'item', org: slug, id }, world)} onOpen={refs?.onOpen} />)}
+    {'md' in text
+      ? <RefMdBody el="span" className="ask-fold-text" html={inlineMd(text.md, fileBase(slug, ask.node))}
+          world={refs?.world} />
+      : <span className="ask-fold-text">{text.text}</span>}
+  </span>
+}
+
+/** a folded card that was amended after it was folded */
+const FoldChanged = () => <span className="ask-fold-changed"
+  title="This request changed after you collapsed it: expand it to see">changed</span>
+
+/** a folded card's text for these questions: one question's first line, or
+ *  the names of several */
+const questionsText = (qs: { question?: string; header?: string }[]): FoldText =>
+  qs.length > 1 ? { text: qs.map((q, i) => q.header || `Q${i + 1}`).join(' · ') }
+    : { md: firstLine(qs[0]?.question) }
+
+/** a batch tab's name, on its strip and on its folded card's line */
+const tabName = (x: AskTab, i: number): string =>
+  x.kind === 'question' ? (x.header || `Q${i + 1}`)
+    : x.kind === 'credits' ? 'credits'
+    : x.item?.kind === 'dir' ? 'folder'
+    : x.item?.kind === 'tool' ? `tool: ${x.item.tool ?? ''}`
+    : x.item?.kind === 'mcp' ? 'mcp'
+    : 'mode'
 
 /** WHY THE CREDIT STEPPER IS AT ITS END. Both bounds are real rules with real
  *  numbers, and a dead button shows neither: the floor is what the asking
@@ -239,6 +318,7 @@ function BatchAsk({ ask, slug, toast, seat, committed, maxTop, segments,
     i => ({ q: { sel: [], text: '', skip: false },
       credits: { mode: null, g: tabs[i]?.kind === 'credits' ? (tabs[i]?.new ?? 0) : 0 },
       scope: null }), failure?.drafts)
+  const fold = useCardFold(slug, ask)
   const cur = Math.min(tab, tabs.length - 1)
   const t = tabs[cur]!
   const fallback: BatchDraft = { q: { sel: [], text: '', skip: false },
@@ -266,13 +346,11 @@ function BatchAsk({ ask, slug, toast, seat, committed, maxTop, segments,
   const doneCount = tabs.filter((x, i) =>
     decided(x, drafts[i] ?? fallback)).length
   const ready = doneCount === tabs.length
-  const label = (x: AskTab, i: number): string =>
-    x.kind === 'question' ? (x.header || `Q${i + 1}`)
-      : x.kind === 'credits' ? 'credits'
-      : x.item?.kind === 'dir' ? 'folder'
-      : x.item?.kind === 'tool' ? `tool: ${x.item.tool ?? ''}`
-      : x.item?.kind === 'mcp' ? 'mcp'
-      : 'mode'
+  const only = tabs.length === 1 ? tabs[0]! : null
+  const foldText: FoldText = !only ? { text: tabs.map(tabName).join(' · ') }
+    : only.kind === 'question' ? { md: firstLine(only.question) }
+    : only.kind === 'credits' ? { text: `${only.old ?? 0} → ${only.new ?? 0} credits` }
+    : { text: only.label || tabName(only, 0) }
   const submit = (all: BatchDraft[] | null) => {
     if (busy) return
     const ds = all ?? drafts
@@ -309,6 +387,8 @@ function BatchAsk({ ask, slug, toast, seat, committed, maxTop, segments,
   const oldG = t.kind === 'credits' ? (t.old ?? 0) : 0
   const boxH = Math.max(60, (seat + Math.max(d.credits.g, oldG)) * pxcV + 8)
   const onKey = (e: KeyboardEvent) => {
+    // folded, the card's answer controls are out of reach, its keys included
+    if (fold.folded) return
     if (isSubmitKey(e)) {
       e.preventDefault()
       if (ready && !busy) submit(null)
@@ -340,7 +420,9 @@ function BatchAsk({ ask, slug, toast, seat, committed, maxTop, segments,
         onClose={() => submit(tabs.map(() => ({
           q: { sel: [], text: '', skip: true },
           credits: { mode: 'skip', g: 0 },
-          scope: 'skip' })))} />
+          scope: 'skip' })))}
+        fold={fold} line={<FoldLine ask={ask} slug={slug} refs={refs} text={foldText} />} />
+      <div id={fold.bodyId} className="ask-fold-body" hidden={fold.folded}>
       {failure && <SubmitFailed error={failure.error} />}
       {tabs.length > 1 && (
         <div className="ask-tabstrip">
@@ -349,7 +431,7 @@ function BatchAsk({ ask, slug, toast, seat, committed, maxTop, segments,
               className={'ask-tabbtn' + (i === cur ? ' on' : '')
                 + (decided(x, drafts[i] ?? fallback) ? ' done' : '')}
               onClick={() => setTab(i)}>
-              {label(x, i)}
+              {tabName(x, i)}
             </button>
           ))}
         </div>
@@ -473,21 +555,29 @@ function BatchAsk({ ask, slug, toast, seat, committed, maxTop, segments,
             : `submit all ${tabs.length}`)
           : `${doneCount}/${tabs.length} decided`}
       </button>
+      </div>
     </div>
   )
 }
 
-function AskHead({ label, node, busy, onClose, closeTitle }: {
+/** A live card's header: the fold control, the card's label and who asks,
+ *  then the ✕ while expanded or the folded line while folded. The ✕ answers
+ *  (it dismisses, denies or skips), so a folded card does not offer it. */
+function AskHead({ label, node, busy, onClose, closeTitle, fold, line }: {
   label: string; node: string; busy: boolean
   onClose: () => void; closeTitle: string
+  fold: CardFold; line: ReactNode
 }) {
   return (
-    <div className="ask-tab">
+    <div className="ask-tab ask-foldrow" onClick={foldRow(fold)}>
+      <FoldButton fold={fold} />
       <span className="ask-tab-label">{label}</span>
       <span className="dim" data-copy-agent-name={node}>· {node}</span>
-      <span className="spacer" />
-      <button className="chip-x" title={closeTitle} disabled={busy}
-        onClick={onClose}><CloseIcon fontSize="inherit" /></button>
+      {fold.folded ? <>{line}{fold.changed && <FoldChanged />}</> : <>
+        <span className="spacer" />
+        <button className="chip-x" title={closeTitle} disabled={busy}
+          onClick={onClose}><CloseIcon fontSize="inherit" /></button>
+      </>}
     </div>
   )
 }
@@ -604,6 +694,7 @@ function QuestionAsk({ ask, slug, toast, refs }: {
   const failure = askFailure(slug, ask.id)
   const { drafts, setDrafts, tab, setTab } = useRequestDrafts<TabDraft>(
     qKeys, () => ({ sel: [], text: '' }), failure?.drafts)
+  const fold = useCardFold(slug, ask)
   const [busy, setBusy] = useState(false)
   const dr = (i: number): TabDraft => drafts[i] ?? { sel: [], text: '' }
   const q = qs[Math.min(tab, qs.length - 1)]!
@@ -644,6 +735,7 @@ function QuestionAsk({ ask, slug, toast, refs }: {
            ...(extra ? { text: extra } : {}), ...stamp })
   }
   const onKey = (e: KeyboardEvent) => {
+    if (fold.folded) return
     if (isSubmitKey(e)) {
       e.preventDefault()
       if (ready && !busy) submit()
@@ -665,7 +757,9 @@ function QuestionAsk({ ask, slug, toast, refs }: {
         closeTitle={batch
           ? 'dismiss the whole batch without answering (the agent is told)'
           : 'dismiss without answering (the agent is told)'}
-        onClose={() => send({ dismiss: true })} />
+        onClose={() => send({ dismiss: true })}
+        fold={fold} line={<FoldLine ask={ask} slug={slug} refs={refs} text={questionsText(qs)} />} />
+      <div id={fold.bodyId} className="ask-fold-body" hidden={fold.folded}>
       {failure && <SubmitFailed error={failure.error} />}
       {batch && (
         <div className="ask-tabstrip">
@@ -722,6 +816,7 @@ function QuestionAsk({ ask, slug, toast, refs }: {
             : `${doneCount}/${qs.length} answered`)
           : 'submit answer'}
       </button>
+      </div>
     </div>
   )
 }
@@ -738,6 +833,7 @@ function CreditAsk({ ask, slug, toast, seat, committed, maxTop, segments,
   pxc?: number
 }) {
   const visibilityRef = useQuestionVisibility(slug, ask.id)
+  const fold = useCardFold(slug, ask)
   const oldG = ask.old ?? 0
   const askedG = ask.new ?? oldG
   const [g, setG] = useState(askedG)          // the staged offer
@@ -764,6 +860,7 @@ function CreditAsk({ ask, slug, toast, seat, committed, maxTop, segments,
     pvTimer.current = window.setTimeout(preview, 200)
   }
   const onKey = (e: KeyboardEvent) => {
+    if (fold.folded) return
     if (isSubmitKey(e)) {
       e.preventDefault()
       if (!busy) decide('approve', gRef.current)
@@ -791,7 +888,9 @@ function CreditAsk({ ask, slug, toast, seat, committed, maxTop, segments,
     <div ref={visibilityRef} className="askcard credit" tabIndex={-1} onKeyDown={onKey}
       data-panel-draft={busy || g !== askedG || undefined}>
       <AskHead label="Credit request" node={ask.node} busy={busy}
-        closeTitle="deny the request" onClose={() => decide('deny')} />
+        closeTitle="deny the request" onClose={() => decide('deny')}
+        fold={fold} line={<FoldLine ask={ask} slug={slug} text={{ text: `${oldG} → ${askedG} credits` }} />} />
+      <div id={fold.bodyId} className="ask-fold-body" hidden={fold.folded}>
       {/* EVERYTHING sits beside the bar (user ruling 2026-08-05) — the bar
           owns the card's left edge and full height. Non-draft rendering =
           the real card bar: fill is what is COMMITTED (own seat at the foot,
@@ -850,6 +949,7 @@ function CreditAsk({ ask, slug, toast, seat, committed, maxTop, segments,
           </button>
         </div>
       </div>
+      </div>
     </div>
   )
 }
@@ -857,10 +957,12 @@ function CreditAsk({ ask, slug, toast, seat, committed, maxTop, segments,
 /** the nulled card: it KEEPS rendering, wearing why it nulled — grey for
  *  answered/denied/dismissed/withdrawn/superseded, orange for interrupted
  *  (historical: the retired wake-void; old entries may still carry it).
- *  Non-interactive by design. */
+ *  Non-interactive by design, except that it folds like the open card (the
+ *  same request's fold, so a request folded while open stays folded). */
 function NulledAsk({ ask, credit, slug, refs }: {
   ask: AskInfo; credit: boolean; slug: string; refs?: AskRefs
 }) {
+  const fold = useCardFold(slug, ask)
   const interrupted = ask.status === 'interrupted'
   const scope = ask.kind === 'scope'
   const label = interrupted ? 'interrupted'
@@ -870,24 +972,33 @@ function NulledAsk({ ask, credit, slug, refs }: {
     : ask.status === 'superseded' ? 'superseded'
     : ask.status === 'moot' ? 'moot — the agent left'
     : scope ? 'decided' : 'answered'
+  const scopeLabel = (it: NonNullable<AskInfo['items']>[number]) => it.kind === 'dir' ? `folder ${it.path} (${it.mode})`
+    : it.kind === 'tool' ? `tool: ${it.tool}`
+    : it.kind === 'mcp' ? `MCP server: ${it.server}`
+    : `permission mode → ${it.mode}`
+  // the header already says what a credit request asked
+  const foldText: FoldText | null = credit ? null
+    : scope ? { text: (ask.items ?? []).map(scopeLabel).join(' · ') }
+    : questionsText(ask.questions?.length ? ask.questions : [{ question: ask.question, header: ask.header }])
   return (
     <div className={'askcard nulled ' + (interrupted ? 'orange' : 'grey')}>
-      <div className="ask-head">
+      <div className="ask-head ask-foldrow" onClick={foldRow(fold)}>
+        <FoldButton fold={fold} />
         <b data-copy-agent-name={ask.node}>{ask.node}</b> {credit
           ? <>asked for credits: {ask.old} → {ask.new}</>
           : scope ? <>requested scope</> : <>asked</>}
+        {fold.folded && foldText && <FoldLine ask={ask} slug={slug} refs={refs} text={foldText} />}
+        {fold.folded && fold.changed && <FoldChanged />}
         <span className={'ask-null-tag' + (interrupted ? ' warn' : '')}>{label}</span>
       </div>
+      <div id={fold.bodyId} className="ask-fold-body" hidden={fold.folded}>
       {/* the same cards the transcript draws (events/answered.tsx): a resolved
           scope request lists its items with the per-item verdicts stamped at
           the batch submit, a credit request its outcome, a question every
           option with the pick(s) marked */}
       {scope && (ask.items ?? []).length > 0 && <ScopeCard section={{ kind: 'scope', lines: [],
         decisions: (ask.items ?? []).map((it) => ({
-          label: it.kind === 'dir' ? `folder ${it.path} (${it.mode})`
-            : it.kind === 'tool' ? `tool: ${it.tool}`
-            : it.kind === 'mcp' ? `MCP server: ${it.server}`
-            : `permission mode → ${it.mode}`,
+          label: scopeLabel(it),
           decision: (it.decision ?? 'skip') as 'approve' | 'deny' | 'skip' })) }} />}
       {credit && ask.granted != null && <CreditCard section={{ kind: 'credit',
         outcome: ask.status === 'denied' ? 'denied'
@@ -907,6 +1018,7 @@ function NulledAsk({ ask, credit, slug, refs }: {
           {' — it must re-ask'}
         </div>
       )}
+      </div>
     </div>
   )
 }

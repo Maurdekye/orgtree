@@ -2882,6 +2882,45 @@ button.cc-name:focus-visible {
   font-weight: 600; color: var(--ink-strong);
   border-bottom: 2px solid var(--accent); padding-bottom: 3px; margin-bottom: -6px;
 }
+/* REQUEST CARDS FOLD (USER 2026-10-29 mece9d7b275c2 "add collapsible request
+   cards"; asks.tsx, canvas/askfold.ts). The fold button is a chevron that
+   points down while the card is open and right when it is folded (measured
+   2026-10-29: the docket's 10px caret was too faint to read as the card's
+   control), and the whole header row toggles. The body wrapper is
+   display: contents, so the card's flex layout (and the pinned desk card's
+   scrolling regions) see its children exactly as before. Hidden, it needs
+   its own display: none: an author display rule beats the hidden attribute.
+   The button resets what `.settings button` (the inbox, docket and Attention
+   panels) and `html.mobile button` would give it; on mobile it keeps a
+   finger-sized target, as the ✕ does. */
+.ask-fold-body { display: contents; }
+.ask-fold-body[hidden] { display: none; }
+.ask-foldrow { cursor: pointer; }
+.askcard button.ask-fold {
+  flex: none; display: inline-flex; align-items: center; justify-content: center;
+  width: 18px; height: 18px; min-height: 0; margin: 0 -2px 0 -3px; padding: 0; border: 0; border-radius: 4px;
+  background: none; color: var(--ink); font-size: 17px; line-height: 1; cursor: pointer;
+  transition: transform .12s ease, background .12s;
+}
+.askcard button.ask-fold:hover { background: var(--panel-2); color: var(--ink-strong); }
+.askcard button.ask-fold.folded { transform: rotate(-90deg); }
+html.mobile .askcard button.ask-fold { min-width: 28px; min-height: 28px; }
+@media (prefers-reduced-motion: reduce) {
+  .askcard button.ask-fold { transition: none; }
+}
+/* the one line a folded card keeps: ticket chips, then the question's first
+   line or its tab names, cut to the width with an ellipsis */
+.ask-fold-line { flex: 1 1 auto; min-width: 0; display: flex; align-items: center; gap: 6px; }
+.ask-fold-line > .ref-chip { flex: none; }
+.ask-fold-text {
+  flex: 1 1 auto; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
+  color: var(--ink);
+}
+.ask-fold-text p { display: inline; margin: 0; }
+.ask-fold-changed {
+  flex: none; font-size: 10px; padding: 0 6px; border-radius: 8px; font-family: var(--mono);
+  border: 1px solid var(--accent); color: var(--accent);
+}
 /* FR-03: presented documents — square icon tabs popping out the node's
    side (title = tooltip; the wide titled chips overlapped the neighbor
    card — user report 2026-08-05); click opens the in-page reader. */
