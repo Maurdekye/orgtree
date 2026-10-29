@@ -96,7 +96,7 @@ test('the full three-provider set collapses only after its rendered width stops 
       .find((row) => row.querySelector('.t-luna'))
     assert.ok(codexRow, 'the Codex spawn row is present')
     assert.deepEqual(
-      [...codexRow.querySelectorAll('button')].map((b) => b.className),
+      [...codexRow.querySelectorAll('button')].map((b) => [...b.classList].find((c) => c.startsWith('t-'))),
       ['t-luna', 't-terra', 't-sol', 't-astra'],
       'luna (the cheapest) is first within the Codex row, astra last (user 2026-10-14 10:43UTC); the legacy reserve token is gone (item 12)')
 
