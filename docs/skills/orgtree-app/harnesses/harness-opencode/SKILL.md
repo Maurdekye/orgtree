@@ -20,7 +20,7 @@ Manual interrupt sends `session/cancel`; ordinary close cancels an active prompt
 
 ## Information and timing
 
-`agent_message_chunk` and `agent_thought_chunk` stream text/thought content when supplied. `tool_call`/`tool_call_update` carry ID, raw input/output, locations, status and content; the engine merges updates and observes the chip's start and end. It routes tool chips through the shared item renderer. No partial argument-writing telemetry is provided, so writing time is unknown, not zero.
+`agent_message_chunk` and `agent_thought_chunk` stream text/thought content when supplied; `agent_thought_chunk` deltas accumulate in the live thinking preview and commit as one collated thought row when the thought block ends. `tool_call`/`tool_call_update` carry ID, raw input/output, locations, status and content; the engine merges updates and observes the chip's start and end. It routes tool chips through the shared item renderer. No partial argument-writing telemetry is provided, so writing time is unknown, not zero.
 
 The prompt result's input/output/cached-read/cached-write counts are per prompt. `usage_update` gives context used/window independently. A custom provider's zero `cost.amount` is not a price receipt; cost stays unknown. Generic ACP error codes do not establish a typed subscription quota/reset freeze. OpenRouter key standing or the local server's concurrency state is separate from ACP token telemetry; native subscription windows are n/a for this adapter.
 

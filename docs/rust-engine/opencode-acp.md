@@ -63,7 +63,9 @@ ACP has no measured mid-turn steering primitive. The
 exactly OpenCode 2.0.28, with durable custody, DND filtering and bounded recovery.
 Other versions or unavailable hooks keep next-turn delivery; do not label
 queued mail injected into the current turn.
-Usage comes from per-prompt results, not cumulative context updates. Custom
+`agent_thought_chunk` deltas accumulate in `turn.thinking` for the live
+thinking preview and commit as one collated thought row when the thought block
+ends. Usage comes from per-prompt results, not cumulative context updates. Custom
 provider zero cost has no verified price provenance and is unknown. The provider
 key's own usage remains authoritative. Effort must use a negotiated supported
 option, not an invented variant.
