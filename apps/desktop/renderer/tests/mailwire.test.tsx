@@ -227,6 +227,50 @@ uiTest('§9.5 the mailservers tab totals the failures per hub',
 
 test('§9.5 network contact links retain each roster entry and presence', t => checkContactList('mailservers', t))
 
+uiTest('§9.7 a queued message wears the clock Hubchat shows, and every delivery '
+  + 'mark is an image named by its tooltip', async ({ mount }) => {
+  // USER 2026-10-29 m019c9500d23a "A6 use the clock": one queued mark in
+  // both apps (Hubchat's tick is the Material schedule icon); the checks after
+  // it were already the same. Like Hubchat's ticks, each mark is role=img with
+  // its tooltip as its accessible name, the failing one included (audit #23).
+  const { el } = await mount(modal([
+    inRow,
+    outRow({ id: 'q', net_id: 'n1', state: 'queued', body: 'still waiting' }),
+    outRow({ id: 's', net_id: 'n2', state: 'sent', body: 'at the hub now' }),
+    outRow({ id: 'd', net_id: 'n3', state: 'delivered', body: 'landed there' }),
+    outRow({ id: 'r', net_id: 'n4', state: 'read', body: 'read by them' }),
+    outRow({ id: 'x', net_id: 'n5', tries: 2, last_err: 'connection refused', body: 'keeps failing' }),
+  ]))
+  await flush()
+  await click(el, '.mail-folders button', 'sent')
+  const rows = q(el, '.mailrow') as HTMLElement[]
+  assert.equal(rows.length, 5, 'all five sent messages are listed')
+  const mark = (body: string) => {
+    const row = rows.find((r) => txt(r).includes(body))
+    assert.ok(row, `a row for "${body}"`)
+    const m = row.querySelector('.net-state') as HTMLElement | null
+    assert.ok(m, `the row for "${body}" wears a delivery mark`)
+    return m
+  }
+  const queued = mark('still waiting')
+  assert.ok(queued.querySelector('svg[data-testid="ScheduleIcon"]'), 'queued is the clock')
+  assert.ok(!txt(queued).includes('▫'), 'not the hollow square')
+  assert.equal(txt(mark('at the hub now')).trim(), '✓', 'sent keeps one check')
+  assert.equal(txt(mark('landed there')).trim(), '✓✓', 'delivered keeps two')
+  assert.equal(txt(mark('read by them')).trim(), '✓✓', 'read keeps two')
+  assert.ok(mark('read by them').classList.contains('read'), 'and read is the green pair')
+  const failing = mark('keeps failing')
+  assert.ok(failing.classList.contains('stuck') && txt(failing).includes('⚠'),
+    'a queued message whose tries fail keeps its warning, not the clock')
+  for (const m of q(el, '.net-state') as HTMLElement[]) {
+    const tip = m.getAttribute('title') ?? ''
+    assert.equal(m.getAttribute('role'), 'img', `an image: ${tip}`)
+    assert.ok(tip && m.getAttribute('aria-label') === tip, `named by its tooltip: ${tip}`)
+  }
+  assert.match(failing.getAttribute('aria-label') ?? '', /2 tries.*connection refused/)
+  assert.equal(queued.getAttribute('aria-label'), 'queued — not yet at the hub')
+})
+
 uiTest('§9.6 …and it does so for the hub that mail actually queues on',
   async ({ mount }) => {
     // The implicit LOCAL hub renders `hidden` until it has answered once

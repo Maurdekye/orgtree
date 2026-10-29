@@ -10,10 +10,14 @@
 // newest mail with the org, none last A-Z (m3e3829f0bf18). The Mail hub tab
 // drops its intro and migration reports for the same list of the local hub
 // (m12a433749fda), with Chat from your phone below it (m6b0d9089462e).
+// Offline is a hollow grey ring, as in Hubchat ("A5 use the grey ring for
+// offline both places", m019c9500d23a).
 import { flush, inAct, mountView } from './harness'
 import test from 'node:test'
 import type { TestContext } from 'node:test'
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
+import path from 'node:path'
 import { useState } from 'react'
 import { Connections } from '../src/canvas/connections'
 import { MailHubSettings } from '../src/canvas/hosthub'
@@ -235,4 +239,23 @@ test("App settings › Mail hub: the hub's status, then everyone on the hub; no 
   const before = (a: Node, b: Node) => (a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0
   assert.ok(before(status, rowsList) && before(rowsList, phone) && before(phone, hosting),
     'status, then the connections, then Chat from your phone, then the hosting settings')
+})
+
+declare const __SRC_DIR__: string
+/** The declarations of one CSS rule, by its exact selector. */
+function rule(file: string, selector: string): string {
+  const css = readFileSync(path.join(__SRC_DIR__, file), 'utf8')
+  const m = new RegExp('(?:^|\\})\\s*' + selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\s*\\{([^}]*)\\}').exec(css)
+  assert(m, `${file} has a rule for ${selector}`)
+  return m[1] ?? ''
+}
+
+test('offline is a hollow grey ring, the grey of an app that is off; online stays a filled green dot', () => {
+  const offline = rule('canvas/connectionlist.css', '.presence-dot.offline')
+  assert.match(offline, /border:\s*2px solid var\(--dim\)/, 'a 2 px ring in the theme grey')
+  assert.match(offline, /background:\s*transparent/, 'hollow')
+  assert.doesNotMatch(offline, /--bad|red/, 'no red')
+  assert.match(rule('canvas/connectionlist.css', '.presence-dot.online'), /background:\s*var\(--ok\)/)
+  // the custom app's off light is the same hollow grey ring
+  assert.match(rule('canvas/apps/apps.css', '.custom-app-dot'), /border:1px solid currentColor;[^;]*;color:var\(--dim\)/)
 })
