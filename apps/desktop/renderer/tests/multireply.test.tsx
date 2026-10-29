@@ -4,7 +4,7 @@ import { FakeServer, flush, inAct, installFetch, mountView } from './harness'
 import { DeskChat } from '../src/canvas/desk'
 import { MailList } from '../src/canvas/mail'
 import { MailReplyPreview } from '../src/canvas/mailreply'
-import { appendReplyTarget, readReplies, readReply, storeReply } from '../src/eventReply'
+import { appendReplyTarget, readReplies, readReply, storeReply, storeReplies } from '../src/eventReply'
 import { draftKey } from '../src/draftstore'
 import { refreshConvo, resetConvos } from '../src/convo'
 import type { CanvasNode } from '../src/canvas/shared'
@@ -126,11 +126,42 @@ test('global inbox keeps one recipient conversation and preserves targets on fai
   }finally{await view.unmount()}
 })
 
-test('all incoming reply snapshots render, and legacy drafts normalize to one',async()=>{
+test('sent multi-reply previews disclose two then all, and legacy drafts normalize to one',async()=>{
   localStorage.clear()
   const one={org:'org',agent:'writer',generation:2,eventId:'e1',quote:'legacy'}
   storeReply('legacy',one);assert.deepEqual(readReplies('legacy'),[one]);assert.deepEqual(readReply('legacy'),one)
-  const view=await mountView(<MailReplyPreview org="org" row={{replies:[{from:'writer',gist:'First retained quote'},{from:'writer',gist:'Second retained quote'}]}} />,el=>el)
-  try{assert.equal(view.el.querySelectorAll('blockquote').length,2);assert.match(view.el.textContent!,/Second retained quote/)}
-  finally{await view.unmount()}
+  const view=await mountView(<MailReplyPreview org="org" row={{replies:[
+    {from:'writer',gist:'First retained quote'},{from:'writer',gist:'Second retained quote'},
+    {from:'writer',gist:'Third retained quote'},{from:'writer',gist:'Fourth retained quote'},
+  ]}} />,el=>el)
+  try{
+    assert.equal(view.el.querySelectorAll('blockquote').length,2,'the first two sent targets are visible')
+    assert.doesNotMatch(view.el.textContent!,/Third retained quote/)
+    const more=[...view.el.querySelectorAll('button')].find(b=>b.textContent?.trim()==='and 2 more')
+    assert.ok(more,'the sent preview names the hidden target count')
+    await inAct(()=>more!.click())
+    assert.equal(view.el.querySelectorAll('blockquote').length,4,'expansion reveals every sent target')
+    assert.match(view.el.textContent!,/Fourth retained quote/)
+  }finally{await view.unmount()}
+})
+
+test('the desk composer discloses two reply targets, expands, and removes one exact target',async()=>{
+  localStorage.clear();resetConvos()
+  installFetch(new FakeServer())
+  const key=draftKey('org','writer',2)
+  storeReplies(key,[1,2,3,4].map(n=>({org:'org',agent:'writer',generation:2,eventId:`e${n}`,quote:`Quote ${n}`})))
+  const view=await mountView(desk(),el=>el)
+  try{
+    await inAct(async()=>{await flush(5)})
+    assert.equal(view.el.querySelectorAll('.reply-preview-composing').length,2,'only the first two draft targets show')
+    const more=[...view.el.querySelectorAll('button')].find(b=>b.textContent?.trim()==='and 2 more')
+    assert.ok(more,'the draft names the hidden target count')
+    await inAct(()=>more!.click())
+    assert.equal(view.el.querySelectorAll('.reply-preview-composing').length,4,'all draft targets can be reviewed')
+    const third=[...view.el.querySelectorAll<HTMLElement>('.reply-preview-composing')].find(p=>p.textContent?.includes('Quote 3'))
+    assert.ok(third,'the exact third target is present')
+    await inAct(()=>third!.querySelector<HTMLButtonElement>('[aria-label="Remove reply"]')!.click())
+    assert.deepEqual(readReplies(key).map(r=>r.eventId),['e1','e2','e4'],'removal preserves the other exact identities and their order')
+    assert.equal(view.el.querySelectorAll('.reply-preview-composing').length,3)
+  }finally{await view.unmount();resetConvos()}
 })

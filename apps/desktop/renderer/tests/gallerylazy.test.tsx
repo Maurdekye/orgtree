@@ -68,7 +68,7 @@ const many = (n: number, o: (i: number) => Partial<DocRow> = () => ({})): DocRow
     ...o(i),
   }))
 
-interface ListCall { offset: number; limit: number; node: string; locate: string }
+interface ListCall { offset: number; limit: number; node: string; locate: string; search: string }
 
 /** The documents endpoint, faithfully: `engine/backend/orgtree/api.py`
  *  `documents_list` filters by node, clamps the limit, snaps a `locate` to its
@@ -109,11 +109,14 @@ function serve(all: DocRow[], bodies: Record<string, string> = {}) {
       const q = new URL(path, 'http://host').searchParams
       const node = q.get('node') ?? ''
       const locate = q.get('locate') ?? ''
+      const search = q.get('search') ?? ''
       const limit = Math.max(1, Math.min(Number(q.get('limit') ?? 100), 5000))
       let offset = Math.max(0, Number(q.get('offset') ?? 0))
-      s.list.push({ offset, limit, node, locate })
+      s.list.push({ offset, limit, node, locate, search })
       if (s.fail > 0) { s.fail--; return bad(503, s.failWith) }
-      const rows = node ? s.all.filter((r) => r.node === node) : s.all
+      const terms = search.toLowerCase().split(/\s+/).filter(Boolean)
+      const rows = (node ? s.all.filter((r) => r.node === node) : s.all)
+        .filter(r => terms.every(term => `${r.title} ${r.id}`.toLowerCase().includes(term)))
       if (locate) {
         const i = rows.findIndex((r) => r.id === locate && !r.evicted)
         if (i < 0) return bad(404, 'The presented document is no longer available.')
@@ -220,8 +223,8 @@ function uiTest(name: string, body: (mount: (v: React.ReactElement)
 }
 
 const gallery = (extra?: { jumpTo?: { id: string; seq: number } | null
-  onJumpHandled?: () => void; toast?: (m: string[]) => void }) => (
-  <DocGalleryModal slug="org1" toast={extra?.toast ?? noop} close={noop}
+  onJumpHandled?: () => void; toast?: (m: string[]) => void; close?: () => void }) => (
+  <DocGalleryModal slug="org1" toast={extra?.toast ?? noop} close={extra?.close ?? noop}
     jumpTo={extra?.jumpTo} onJumpHandled={extra?.onJumpHandled} />
 )
 
@@ -555,4 +558,32 @@ uiTest('§14b the agent-scoped list is a tab stop too, and names its agent',
   assert.equal(list(el).getAttribute('aria-label'),
     'Presented documents from agent1',
     'the desk list says WHOSE documents it holds — there can be several on screen')
+})
+
+uiTest('§15 gallery search covers history beyond the loaded page and shares search keys', async (mount) => {
+  const docs = many(130)
+  docs[95] = row({ ...docs[95], title: 'ancient symmetry report' })
+  const s = serve(docs, { d95: 'the ancient report body' })
+  let closed = 0
+  const { el } = await mount(gallery({ close: () => { closed++ } }))
+  assert.equal(titles(el).includes('ancient symmetry report'), false, 'fixture: the target starts below the loaded page')
+  const box = el.querySelector<HTMLInputElement>('.gallery-head .docket-search-input')
+  assert.ok(box, 'the gallery header has the shared list search')
+  await inAct(async () => {
+    Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')!.set!.call(box, 'ancient symmetry')
+    box!.dispatchEvent(new window.Event('input', { bubbles: true }))
+    await flush(12)
+  })
+  assert.equal(s.list.at(-1)?.search, 'ancient symmetry', 'the query goes to the history search, not only the resident rows')
+  assert.deepEqual(titles(el), ['ancient symmetry report'])
+  await inAct(() => { box!.focus(); box!.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })) })
+  await inAct(async () => { await flush(8) })
+  assert.match(pane(el)?.textContent ?? '', /the ancient report body/, 'Enter opens the first result')
+  await inAct(() => { box!.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })) })
+  await inAct(async () => { await flush(12) })
+  assert.equal(closed, 0, 'Escape clears a focused nonempty search without closing')
+  assert.equal(box!.value, '')
+  assert.equal(titles(el).length, DOC_PAGE, 'clearing restores the ordinary first window')
+  await inAct(() => { box!.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })) })
+  assert.equal(closed, 1, 'Escape with an empty focused search closes the gallery')
 })

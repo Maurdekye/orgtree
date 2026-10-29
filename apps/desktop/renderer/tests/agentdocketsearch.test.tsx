@@ -7,7 +7,8 @@ import { FakeServer, flush, inAct, installFetch, mountView, realClock, useFakeCl
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { AgentDocketView, buildNodeFacts } from '../src/canvas/docket'
-import type { WorkItem } from '../src/types'
+import { AgentDocketModal } from '../src/canvas/agentdocket'
+import type { TreePayload, WorkItem } from '../src/types'
 
 window.HTMLElement.prototype.scrollIntoView = () => {}
 
@@ -57,4 +58,28 @@ test('the agent docket has the work docket search box; typing narrows, clearing 
     'filtering the list keeps the ticket selected on opening in its reader')
   await inAct(async () => { view.el.querySelector<HTMLElement>('.docket-search-clear')!.click() })
   assert.equal(titles().length, 2, 'clearing restores the full list')
+})
+
+test('centered agent docket Escape clears a focused nonempty search before closing', async (t) => {
+  useFakeClock()
+  const server = new FakeServer()
+  server.workItems = [item('fix-login', 'Fix login')]
+  installFetch(server)
+  t.after(() => { realClock() })
+  const tree = { slug: 'org', roots: [{ id: 'worker', state: 'live', tier: 'sol', generation: 1, children: [] }], tiers: { sol: 1 } } as unknown as TreePayload
+  let closed = 0
+  const view = await mountView(<AgentDocketModal slug="org" nid="worker" tree={tree}
+    toast={() => {}} close={() => { closed++ }} refs={{ world: { org: 'org' }, onOpen: () => {} }} />, el => el)
+  t.after(() => view.unmount())
+  await inAct(async () => { await flush(8) })
+  const box = view.el.querySelector<HTMLInputElement>('.docket-search-input')
+  assert.ok(box, 'the centered agent docket has the shared search')
+  await type(box!, 'login')
+  await inAct(() => { box!.focus() })
+  await inAct(() => { box!.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })) })
+  assert.equal(closed, 0, 'the first Escape does not close the docket')
+  assert.equal(box!.value, '', 'the first Escape clears the search')
+  assert.equal(view.el.querySelectorAll('.docket-row').length, 1, 'the unfiltered list returns')
+  await inAct(() => { box!.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })) })
+  assert.equal(closed, 1, 'Escape with an empty focused search closes')
 })

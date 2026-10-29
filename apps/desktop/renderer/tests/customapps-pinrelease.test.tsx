@@ -54,7 +54,7 @@ async function dragTo(slug:string){
  const bar=frame().querySelector<HTMLElement>('.custom-app-title')!
  await inAct(async()=>{bar.dispatchEvent(pointer('pointerdown',200,135));bar.dispatchEvent(pointer('pointermove',300,185));await tick()})
  assert.deepEqual(rectOf(frame()),DROP,'dragging')
- return{view,release:()=>inAct(async()=>{bar.dispatchEvent(pointer('pointerup',300,185));await tick()})}
+ return{view,bar,release:()=>inAct(async()=>{bar.dispatchEvent(pointer('pointerup',300,185));await tick()})}
 }
 
 test('a released window pin stays at its drop while the drop is saved, and once it is',async t=>{
@@ -90,4 +90,25 @@ test('a refused drop goes back to the committed place and says why (control)',as
  await release()
  assert.deepEqual(rectOf(frame()),FROM,'nothing was saved, so it is where it was')
  assert.match(frame().querySelector('[role="alert"]')?.textContent??'',/changed since you read it/)
+})
+
+test('Escape cancels a pinned app drag and a later release saves nothing',async t=>{
+ const slug='pincancel-escape',f=fixture(t,slug,[pinned('one')])
+ const{view,bar,release}=await dragTo(slug);t.after(()=>view.unmount())
+ await inAct(async()=>{window.dispatchEvent(new window.KeyboardEvent('keydown',{key:'Escape',bubbles:true,cancelable:true}));await tick()})
+ assert.deepEqual(rectOf(frame()),FROM,'Escape restores the committed placement')
+ await release()
+ assert.equal(f.calls.filter(c=>c.action==='panel_update'&&c.placement).length,0,'the cancelled gesture never commits')
+})
+
+for(const kind of ['move','size'] as const)test(`lost pointer capture cancels a pinned app ${kind} gesture`,async t=>{
+ const slug=`pincancel-lost-${kind}`,f=fixture(t,slug,[pinned('one')])
+ const view=await mountView(<AppsWorkspace slug={slug}/>,e=>e);t.after(()=>view.unmount());await inAct(tick)
+ const handle=frame().querySelector<HTMLElement>(kind==='move'?'.custom-app-title':'.custom-app-resize')!
+ await inAct(async()=>{handle.dispatchEvent(pointer('pointerdown',200,135));handle.dispatchEvent(pointer('pointermove',300,185));await tick()})
+ assert.notDeepEqual(rectOf(frame()),FROM,'the gesture has a live preview')
+ await inAct(async()=>{handle.dispatchEvent(new window.PointerEvent('lostpointercapture',{bubbles:true,pointerId:1}));await tick()})
+ assert.deepEqual(rectOf(frame()),FROM,'losing capture restores the committed placement')
+ await inAct(async()=>{handle.dispatchEvent(pointer('pointerup',300,185));await tick()})
+ assert.equal(f.calls.filter(c=>c.action==='panel_update'&&c.placement).length,0,'the cancelled gesture never commits')
 })

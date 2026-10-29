@@ -261,6 +261,13 @@ async fn old_ids_resolve_on_every_route_after_the_upgrade() {
     assert_eq!(found(search("status-2").await.unwrap().0), ["weekly-status-2"]);
     assert!(found(search("elsewhere").await.unwrap().0).is_empty(), "another org's presentations");
     assert_eq!(found(search("").await.unwrap().0).len(), 3, "a bare @ offers the newest");
+    let Json(search_page) = search("weekly").await.unwrap();
+    assert_eq!((search_page["total"].as_i64(), search_page["offset"].as_i64(), search_page["next_offset"].as_i64()), (Some(2), Some(0), None), "the gallery's history search shares the paged list contract");
+    for doc in search_page["documents"].as_array().unwrap() {
+        for key in ["at", "evicted", "node_state", "viewed_at", "presented_by"] {
+            assert!(doc.get(key).is_some(), "gallery search row carries {key}: {doc}");
+        }
+    }
     proof.insert("search".into(), json!(found(search("weekly").await.unwrap().0)));
     // viewed marks from an old record, then the opening reader restored by its old id
     let at: chrono::DateTime<chrono::Utc> = c.query_one("SELECT at FROM ot.documents WHERE uid = $1", &[&old]).await.unwrap().get(0);
