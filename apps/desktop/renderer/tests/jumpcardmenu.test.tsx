@@ -421,6 +421,24 @@ uiTest('§2 a plain click on a floating card still jumps, and raises no menu',
     assert.equal(menuEl(), null, 'and a primary click raises no menu')
   })
 
+// Audit #43 (ux03 S6): every edge-jump form reveals its name while hovered
+// (styles.css: ej-mid/ej-tab hide .ej-name only while NOT :hover/:focus-visible),
+// so its hover is the name-visible variant, like named desk navigation and
+// agent card names — the name is not repeated as the tooltip's first line.
+uiTest('the floating card hover does not repeat the name it shows', async t => {
+  const c = await mountCanvas(t, fixture())
+  await openDesk(c, 'mid')
+  const cards = jumpCards(c.el)
+  assert.ok(cards.length > 0, 'floating cards are drawn')
+  for (const card of cards) {
+    assert.equal(card.el.hasAttribute('data-agent-tooltip-name-first'), false,
+      `${card.id}: no name-first marker — hover reveals the printed name`)
+    await inAct(() => { card.el.dispatchEvent(new W.MouseEvent('pointerover', { bubbles: true })) })
+    assert.equal(card.el.title.startsWith(card.id + '\n'), false,
+      `${card.id}: the hover does not start by repeating the shown name (title was ${JSON.stringify(card.el.title)})`)
+  }
+})
+
 // ------------------------------------------------- §3 THE CONTROL, IN SOURCE
 // The regression this file exists for is an OMISSION — a navigating card that
 // draws no marker — and §1/§2 can only see the cards a fixture happens to

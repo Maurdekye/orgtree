@@ -10,7 +10,7 @@ const card = (question: string, options?: { label: string; description?: string 
     question, options,
   } as AskInfo} slug="orgtree" toast={() => {}} /></StrictMode>
 
-test('question bodies and options use the shared sanitized Markdown renderer', async (t) => {
+test('question bodies and option descriptions use the shared sanitized Markdown renderer; option labels stay plain', async (t) => {
   const view = await mountView(card(
     '# Heading\n\n- **bold** and `code`\n- [link](https://example.test)\n\n> quote\n\n| A | B |\n| - | - |\n| 1 | 2 |\n\n```ts\nconst value = 1\n```\n\nSync<float3>',
     [{ label: '**Safe choice**', description: 'A `short` description' }]), (e) => e)
@@ -30,6 +30,9 @@ test('question bodies and options use the shared sanitized Markdown renderer', a
 
   const option = view.el.querySelector('.ask-option-label') as HTMLElement
   const description = view.el.querySelector('.ask-option-description') as HTMLElement
-  assert.ok(option.querySelector('strong'))
+  // Audit #40: the label reads exactly as written, as the answered card shows it
+  // (docs/skills/orgtree-app/desk/ask-cards: "Option labels stay plain").
+  assert.equal(option.textContent, '**Safe choice**')
+  assert.equal(option.querySelector('strong'), null)
   assert.ok(description.querySelector('code'))
 })
