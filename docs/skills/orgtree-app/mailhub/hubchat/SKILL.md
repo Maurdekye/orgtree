@@ -28,6 +28,15 @@ of an uninstallation. Local org links open the local org instead. Verified
 at `2ec8c0e`: `canvas/agentmentions.tsx` (`hubchatDeepLink`,
 `refreshHubchatInstalled`), `phone.rs` and desktop hub protocol handling.
 
+The other direction runs through a file, not the network. The engine keeps
+`local-orgs.json` in its data root (`%APPDATA%\Orgtree v2\data`): each active
+org that has a hub address, by slug, name and address, and nothing secret.
+Desktop Hubchat 1.2.6 or later, on the same PC and Windows account, reads it:
+the **Orgtree org** badge in a local org's contact info opens that org in
+Orgtree, starting Orgtree when it isn't running, through the taskbar argument
+`--orgtree-taskbar=org:<slug>`. Orgs on other computers and Hubchat on a phone
+keep a plain badge. Verified: `local_orgs.rs`, `appfeed.rs`, `main/jumplist.ts`.
+
 ## How an organization receives and answers
 
 A person's conversation with an Orgtree org is outside mail to that org. The routing/holder rules live in `orgtree-org-inbox` (orgtree-working › mail), and sender authority lives in `orgtree-external-mail` (orgtree-working › mail). Human composition is in Hubchat; Orgtree's org inbox is a viewer of retained correspondence.
