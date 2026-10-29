@@ -2395,3 +2395,55 @@ button resets cannot override it):
   `tools/rig/letterchips-visual.mjs` (`apps/desktop/renderer/tests/letterchips.visual.tsx`,
   `tools/rig/desktop/letterchips-visual.cjs`).
 [decided: user 2026-10-29 md447762e475e, mb6da9f3ee862; verified: `styles.css`, `canvas/{identity,cards,deskmodel,OrgCanvas,accounts,modals,orgpicture}.tsx`, `canvas/orglogo.css`, `tests/letterchip-centring.test.tsx`]
+
+
+## Retained last-good usage readings across failed fetches (2026-10-29, 4.5.2)
+
+When an account already has a valid usage reading and a later usage fetch fails
+(rate limit, HTTP 429 cooldown, network error, timeout, or transient provider
+failure), both the engine usage cache and the renderer usage surfaces retain and
+render the last good reading's windows, original `observed_at` timestamp, and
+failure/pause alert until the next successful reading replaces it (user
+m80d7d5efcb47, m775004ca72eb; docket
+`usage-bars-keep-the-last-good-reading-when-a-usa`):
+
+- **Where readings were dropped previously**:
+  1. On Claude (`usage.rs` `claude_result` / `claude_cooldown`), the engine
+     already preserved the last-good reading and its original `observed_at` in
+     `Usage.cache`, but set `available: false` whenever the cooldown exceeded
+     60 s or the cached reading was `>= 900 s` old; `UsageBars`
+     (`canvas/accounts.tsx`) and `AccountUsagePanel` (`accountusage.tsx`)
+     checked `!u.available` before `u.limits`, discarding the retained bars.
+  2. On Antigravity (`antigravity_read`, `antigravity_account`), OpenRouter
+     (`openrouter_key_read`), and Codex (`codex_read` when stale or canned),
+     failed fetches called `Usage::put` unconditionally or returned stale entries
+     as `available: true`. `Usage::retain_last_good` now preserves the cached
+     good reading and its original `Cached.at` / `observed_at` clock on
+     non-`reauth_required` failures across all providers while surfacing `error`
+     and `detail` (and `available: false` once `>= PEEK_MAX`).
+  3. In the renderer, `useUsageReadout` (`App.tsx`), `AccountUsagePanel`
+     (`accountusage.tsx`), and `standingOf` (`canvas/openrouterkeys.tsx`)
+     retain the last good `limits` and `observed_at` across failed refreshes or
+     HTTP errors until a new good reading or explicit `reauth_required` /
+     `unsupported` response arrives.
+- **Passed reset time (`reset; awaiting reading`)**: in `UsageBars`
+  (`canvas/accounts.tsx`), any window on a retained/failed reading (`!u.available`
+  or `Boolean(u.error)`) whose `resets_at` is already in the past renders
+  `reset; awaiting reading` in `.u-reset` and suppresses the old pre-reset
+  percentage bar and `.u-pct` badge so a past-reset percentage is never
+  presented as current.
+- **Display-only boundary & restart persistence**: `[PROVIDER USAGE]`
+  (`turn_board_parts`), `orgtree_usage` (`snapshot`), and account-eligibility /
+  balancing queries (`reading_of`, `at_limit`, `balance_reading`, `has_room`,
+  including OpenRouter via `peek`) continue to treat readings aged `>= PEEK_MAX`
+  (`900 s`) as stale and accounts without a fresh good reading as unreadable.
+  Muse's last-good reading persists in PostgreSQL (`ot.kv` `muse_usage:<id>`,
+  Decision 81) and survives an engine restart; Claude, Codex, Antigravity, and
+  OpenRouter keep their retained readings in-memory (`Engine.usage.cache`) for
+  the lifetime of the engine process.
+- **Proofs**: `engine/rs/orgtree-engine/src/usage/claude_wait_tests.rs`,
+  `apps/desktop/renderer/tests/usagerefresh.test.tsx`, and Session 0 visual
+  capture `tools/rig/usage-retained-visual.mjs`
+  (`apps/desktop/renderer/tests/usageretained.visual.tsx`,
+  `tools/rig/desktop/usage-retained-visual.cjs`).
+[decided: user 2026-10-29 m80d7d5efcb47, m775004ca72eb; verified: `engine/rs/orgtree-engine/src/{usage,openrouter}.rs`, `apps/desktop/renderer/src/{App,accountusage}.tsx`, `apps/desktop/renderer/src/canvas/{accounts,openrouterkeys}.tsx`, `tests/usagerefresh.test.tsx`]
