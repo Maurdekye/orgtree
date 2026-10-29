@@ -53,16 +53,16 @@ export function AgentHarnessRow({ row, value, onChange }: {
   const changed = value !== (row.pin ?? '')
   const missing = !!value && !row.options.find((o) => o.id === value)?.installed
   const held = !!row.moves
-  const by = `its ${whose}'s${row.follow?.name ? ` (${row.follow.name})` : ''}`
+  const by = `its ${whose}${row.follow?.name ? ` (${row.follow.name})` : ''}`
   const hint = held
     ? `Choose its harness after saving the model change: the new model starts on its ${whose}'s harness.`
     : changed
       ? target !== row.current
         ? `It moves to ${name(target)} at its next turn, on a fresh session that starts with a summary.`
         : value
-          ? `It stays on ${name(target)}; its ${whose}'s later changes skip it.`
-          : `It stays on ${name(target)} and follows its ${whose}'s later changes.`
-      : (value ? `The CLI that runs it, its own: ${by} changes skip it.` : `The CLI that runs it: ${by}.`)
+          ? `It stays on ${name(target)} and keeps it when ${by} changes harness.`
+          : `It stays on ${name(target)} and follows ${by} from now on.`
+      : (value ? `Its own choice: it keeps it when ${by} changes harness.` : `Follows ${by}.`)
         + (row.current && target && row.current !== target ? ` It moves to ${name(target)} at its next turn.` : ' A change reaches it at its next turn.')
   return <>
     <SetRow label="Harness" hint={hint}>

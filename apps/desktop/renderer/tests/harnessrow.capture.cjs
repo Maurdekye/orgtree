@@ -89,14 +89,14 @@ app.whenReady().then(async()=>{
         assert.equal(h1.row.value,'','an unpinned seat shows Follow key')
         assert.equal(h1.row.options[0].text,'Follow key (Codex)','Follow names the key harness')
         assert.deepEqual(h1.row.options.filter(o=>o.disabled&&o.value!=='__harness-separator__').map(o=>o.value),['opencode'],'only the uninstalled harness is disabled')
-        assert.match(h1.row.hint,/its key's \(team budget\)/,'the hint says whose harness it follows')
+        assert.match(h1.row.hint,/^Follows its key \(team budget\)\./,'the hint says whose harness it follows')
       }else assert.equal(h1.row,null,'before: the Model tab has no Harness row')
       measured.push(h1)
 
       // H2: the same seat with a harness of its own
       await drawn('or-pinned')
       const h2={phase,check:'H2',row:await rowFacts(),png:[await shot(`${phase}-h2-openrouter-own`)]}
-      if(tip){assert.equal(h2.row.value,'claude-code','its own harness is the value');assert.match(h2.row.hint,/its own/)}
+      if(tip){assert.equal(h2.row.value,'claude-code','its own harness is the value');assert.match(h2.row.hint,/^Its own choice: it keeps it when its key \(team budget\) changes harness\./)}
       else assert.equal(h2.row,null,'before: no Harness row')
       measured.push(h2)
 
@@ -131,7 +131,7 @@ app.whenReady().then(async()=>{
         assert.equal(h4.row.options[0].text,'Follow server (Claude Code)','Follow names the server harness')
         const codex=h4.row.options.find(o=>o.value==='codex-cli')
         assert.equal(codex.disabled,true,'the other API family is disabled');assert.match(codex.title,/base path/,'and says why')
-        assert.match(codex.text,/unavailable/);assert.match(h4.row.hint,/its server's \(Gateway\)/)
+        assert.match(codex.text,/unavailable/);assert.match(h4.row.hint,/^Follows its server \(Gateway\)\./)
       }else assert.equal(h4.row,null,'before: no Harness row')
       measured.push(h4)
       server.close()
