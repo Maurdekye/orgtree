@@ -83,7 +83,8 @@ pub async fn read(engine:&Arc<Engine>,caller:&Caller,args:&Value)->Result<Done> 
             row["net_id"].as_str(),row["hub"].as_str()).await?;
         let uid=&copies[0].2;
         receipts.extend(tx.query("UPDATE ot.mail SET state='read',read_at=now(),delivered_at=now(),extra=extra || jsonb_build_object('manual_read',true,'org_inbox_source',$2::text) WHERE uid=$1 RETURNING uid,kind,org_id,net_id,net_hub",&[uid,&row["uid"].as_str().unwrap()]).await?);
-        tx.execute("UPDATE ot.org_inbox SET dnd_held=false,pulled_by=$2,read=true WHERE uid=$1",&[&row["uid"].as_str().unwrap(),&who.id]).await?;
+        tx.execute("UPDATE ot.org_inbox SET dnd_held=false,pulled_by=$2,read=true,delivered_to=$3 WHERE uid=$1",
+            &[&row["uid"].as_str().unwrap(),&who.id,&orginbox::delivered_with(&row,&[who.name.as_str()])]).await?;
         item["id"]=json!(uid);item["message_id"]=json!(uid);item["org_message_id"]=row["uid"].clone();
         item["delivery_id"]=json!(format!("inbox:{}:{uid}:{}",who.id,item["body_sha256"].as_str().unwrap()));
         item["from"]=row["peer"].clone();item["kind"]=row["kind"].clone();item["at"]=crate::domain::tree::ts(&row["at"]);

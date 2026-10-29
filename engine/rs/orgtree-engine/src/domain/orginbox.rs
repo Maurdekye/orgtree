@@ -113,6 +113,12 @@ pub fn entry(r: &Value) -> Value {
     }
     let all = super::replies::value(r.get("reply_to"),r.get("replies"));
     if all.as_array().is_some_and(|a| !a.is_empty()) { o.insert("replies".into(),all); }
+    // who got a copy: only a received row has one, and only when the engine recorded it
+    if r["dir"] == "in" {
+        if let Some(names) = r.get("delivered_to").filter(|v| v.as_array().is_some_and(|a| !a.is_empty())) {
+            o.insert("delivered_to".into(), names.clone());
+        }
+    }
     Value::Object(o)
 }
 
@@ -463,9 +469,32 @@ async fn publish_new(engine:&Engine,tx:&tokio_postgres::Transaction<'_>,org:i64,
 async fn publish_row(tx:&tokio_postgres::Transaction<'_>,org:i64,holders:&[String],row:&Value)
     -> Result<Vec<(i64,String,String,bool)>> {
     let quotes=super::replies::snapshots(row.get("reply_to"),row.get("replies"));
-    publish_copies(tx,org,holders,row["peer"].as_str().unwrap_or(""),row["body"].as_str().unwrap_or(""),
+    let copies=publish_copies(tx,org,holders,row["peer"].as_str().unwrap_or(""),row["body"].as_str().unwrap_or(""),
         row["kind"].as_str().unwrap_or("message"),&row["attachments"],&quotes,
-        row["net_id"].as_str(),row["hub"].as_str()).await
+        row["net_id"].as_str(),row["hub"].as_str()).await?;
+    let names:Vec<&str>=copies.iter().map(|c|c.1.as_str()).collect();
+    record_delivered(tx,row,&names).await?;
+    Ok(copies)
+}
+
+/// `delivered_to` after these agents got a copy: the row's own list (in delivery
+/// order) and each new name once.
+pub(crate) fn delivered_with(row:&Value,names:&[&str]) -> Value {
+    let mut all:Vec<Value>=row["delivered_to"].as_array().cloned().unwrap_or_default();
+    for n in names {
+        if !all.iter().any(|v|v.as_str()==Some(*n)) { all.push(json!(n)); }
+    }
+    Value::Array(all)
+}
+
+/// The record of who got the row's copies, in the transaction that made them
+/// (the row is locked by the caller: just inserted, or `FOR UPDATE`).
+#[logged]
+pub(crate) async fn record_delivered(tx:&tokio_postgres::Transaction<'_>,row:&Value,names:&[&str]) -> Result<()> {
+    if names.is_empty() { return Ok(()); }
+    tx.execute("UPDATE ot.org_inbox SET delivered_to=$2 WHERE uid=$1",
+        &[&row["uid"].as_str().unwrap_or(""),&delivered_with(row,names)]).await?;
+    Ok(())
 }
 
 /// One bounded transaction. Retained inactive history is never scanned.
@@ -615,5 +644,36 @@ mod delivered_to_tests {
     }
     #[test] fn a_sent_row_never_carries_the_list() {
         assert!(entry(&row("out", json!(["coordinator-opus"]))).get("delivered_to").is_none());
+    }
+    #[test] fn the_list_keeps_delivery_order_and_names_each_agent_once() {
+        let r = json!({"delivered_to":["a","b"]});
+        assert_eq!(delivered_with(&r, &["b","c"]), json!(["a","b","c"]), "a later copy appends; a repeat adds nothing");
+        assert_eq!(delivered_with(&r, &[]), json!(["a","b"]));
+        assert_eq!(delivered_with(&json!({}), &["x"]), json!(["x"]), "a row read without the column");
+        assert_eq!(delivered_with(&json!({"delivered_to":[]}), &[]), json!([]));
+    }
+    #[test] fn the_migration_adds_the_column_and_fills_in_hub_mail_by_its_exact_key_only() {
+        let sql = include_str!("../../migrations/0079_org_inbox_delivered_to.sql");
+        let code: String = sql.lines().filter(|l| !l.trim_start().starts_with("--")).collect::<Vec<_>>().join(" ");
+        assert!(code.contains("ADD COLUMN IF NOT EXISTS delivered_to jsonb NOT NULL DEFAULT '[]'"));
+        assert!(code.contains("CHECK (jsonb_typeof(delivered_to) = 'array')"));
+        assert!(code.contains("i.dir = 'in' AND i.org_id = c.org_id AND i.net_id = c.net_id"),
+            "the backfill joins received rows to the copies on (org_id, net_id), the key the insert dedupes on");
+        assert!(code.contains("recipient_kind = 'agent' AND net_id IS NOT NULL"), "only agent copies that carry the hub key");
+        assert!(!code.contains("body"), "no message text is ever matched to guess a recipient");
+    }
+    #[test] fn publication_release_and_pull_each_write_the_list_with_the_copies() {
+        // publication and the release of held mail both go through publish_row
+        let source = include_str!("orginbox.rs");
+        let source = &source[..source.find("#[cfg(test)]").unwrap()]; // this file's code, not these assertions
+        let publish_row = &source[source.find("async fn publish_row").unwrap()..];
+        let publish_row = &publish_row[..publish_row.find("pub(crate) fn delivered_with").unwrap()];
+        assert!(publish_row.contains("publish_copies(") && publish_row.contains("record_delivered(tx,row,&names)"),
+            "the list is written by the call that made the copies, in its transaction");
+        assert!(source.contains("publish_row(&tx,org,&route.to,&row)"), "the release of held mail uses it");
+        assert!(source.contains("publish_row(tx,org,&route.to,&row)"), "so does a new arrival");
+        let pull = include_str!("../tools/org_inbox.rs");
+        assert!(pull.contains("delivered_to=$3") && pull.contains("orginbox::delivered_with(&row,&[who.name.as_str()])"),
+            "a Do not disturb pull adds the pulling agent");
     }
 }
