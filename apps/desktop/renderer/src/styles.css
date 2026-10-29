@@ -3425,6 +3425,7 @@ button.chip.slot-hold, button.chip.slot-wait { cursor: pointer; font: inherit; f
   font-size: 10px; line-height: 14px; padding: 0 6px; border-radius: 8px; white-space: nowrap;
   border: 1px solid var(--fq-line); color: var(--fq-line); background: transparent; }
 .project-queue-card { cursor: pointer; font: inherit; font-size: 11px; }
+button.project-slots-badge, button.project-listeners-badge, button.project-queue-badge { cursor: pointer; font: inherit; }
 .project-queue-badge.bright, .project-queue-card.bright { background: var(--fq-line); color: var(--fq-ink); }
 /* the merged mail badge must never cross the card edge (user 2026-10-19 18:16Z):
    the short text wraps inside the card instead of overflowing it */

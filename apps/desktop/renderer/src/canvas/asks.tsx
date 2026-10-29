@@ -68,8 +68,10 @@ function QuestionBody({ text, base, refs }: { text: string; base: string; refs?:
  *  button, where its chips are controls of their own. A chip's click stops at
  *  the description, so it opens its reference without picking the option.
  *
- *  Labels are inline by card design but still use md() for parsing and
- *  sanitization (`inlineMd`); they are short button text and get no chips.
+ *  Labels stay plain text, exactly as the answered card prints them
+ *  (ask-cards glossary: "Option labels stay plain"; audit #40); like the
+ *  answered card's, they get no chips.
+ *  Descriptions keep the shared renderer, as before.
  *  styles.css keeps the row's look: the pick button is unstyled, and the
  *  focus ring and the busy fade belong to the row, as they did. */
 function OptionRow({ label, description, on, multi, busy, onPick, base, refs }: {
@@ -84,7 +86,7 @@ function OptionRow({ label, description, on, multi, busy, onPick, base, refs }: 
       <button type="button" className="ask-row-pick" disabled={busy} aria-pressed={on}
         aria-describedby={description ? describedBy : undefined}
         onClick={(e) => { e.stopPropagation(); onPick() }}>
-        <b className="ask-option-label" dangerouslySetInnerHTML={inlineMd(label, base)} />
+        <b className="ask-option-label">{label}</b>
       </button>
       {description && <RefMdBody id={describedBy} el="span" className="dim ask-option-description"
         html={inlineMd(description, base)} world={refs?.world} onOpen={refs?.onOpen} />}

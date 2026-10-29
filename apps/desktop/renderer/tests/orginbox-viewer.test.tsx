@@ -23,7 +23,7 @@ test('the sent-as identity is the shared org link', async t => {
   t.after(() => { globalThis.fetch = original; setKnownOrgs([]) })
   HTMLElement.prototype.scrollIntoView ??= () => {}
   const view = await mountView(<OrgInboxModal slug="mine" map={new Map()} toast={() => {}} close={() => {}}
-    inbox={{ entries: [], total: 2, unread: 0, visible: true, holders: [] }} jumpTo="outgoing"
+    inbox={{ entries: [], total: 2, unread: 0, visible: true, holders: [] }} jumpTo="incoming"
     net={{ hubs: [{ id: 'fixture', address: 'http://127.0.0.1', name: 'Fixture hub', enabled: false, connected: false, queued: 0, roster: [] }] }} />, host => host)
   t.after(() => view.unmount())
   await flush(8)

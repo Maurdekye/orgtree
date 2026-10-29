@@ -131,6 +131,9 @@ export function ProjectSquare({ node, pos, lod, focused, pinnedFocus, pinned, on
   // its slots at a glance, while it has a count: filled when full, outlined
   // with a slot free (the approved slots mockup, user 2026-10-18)
   const { slots, slotBadge, listenerBadges, queue } = projectHeaderFacts(node, tree)
+  const slotTitle = `${heldSlotCount(slots)} of ${slots.total} concurrency slot${slots.total === 1 ? '' : 's'} held`
+    + (slots.held.length ? ' by ' + slots.held.map((l) => l.agent).join(', ') : '')
+    + (slots.line.length ? `; in line: ${slots.line.map((w) => w.agent).join(', ')}` : '')
   // the bottom edge's hire tokens only: agents and nested projects go under it
   const deskOpen = !!(focused && tree && refs && lod !== 'mini')
   // the shortcuts give way to the open desk and to the pinned desk's
@@ -211,7 +214,7 @@ export function ProjectSquare({ node, pos, lod, focused, pinnedFocus, pinned, on
       onFocus={(e) => { if (e.currentTarget.contains(e.target as Node)) setNameFocus(true) }}
       onBlur={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setNameFocus(false) }}
       onPointerEnter={() => setNameHover(true)}
-      onPointerLeave={() => setNameHover(false)}
+      onPointerLeave={() => { setExpandedHire(null); setNameHover(false) }}
       // a desk's own presses pan the canvas or work its controls, as an agent desk's do
       onPointerDown={(e) => { if (!deskOpen) onDragStart(e, node.id) }}
       onPointerMove={(e) => { setNameHover(true); trackEdge(e); onDragMove(e, node.id) }}
@@ -246,13 +249,26 @@ export function ProjectSquare({ node, pos, lod, focused, pinnedFocus, pinned, on
                 title="this desk is pinned as a window">pinned</span>}
             </div>
             <div className="sq-badges project-header-badges">
-            {slotBadge && <span className={'project-slots-badge' + (slotsFull(slots) ? ' full' : '')}
-              title={`${heldSlotCount(slots)} of ${slots.total} concurrency slot${slots.total === 1 ? '' : 's'} held`
-                + (slots.held.length ? ' by ' + slots.held.map((l) => l.agent).join(', ') : '')
-                + (slots.line.length ? `; in line: ${slots.line.map((w) => w.agent).join(', ')}` : '')}>{slotBadge}</span>}
-            {listenerBadges.map((c) => <span key={c.key} className={'project-listeners-badge' + (c.bright ? ' bright' : '')}
+            {/* the desk header cards as buttons (audit #49): each badge opens the
+                view its desk card opens, under the same routes and labels as the
+                card's shortcuts; without the shell's routes it stays a fact */}
+            {slotBadge && (surfaceRoutes ? <button type="button" className={'project-slots-badge' + (slotsFull(slots) ? ' full' : '')}
+              aria-label={`slots of project ${node.id}`}
+              title={slotTitle}
+              onPointerDown={(e) => e.stopPropagation()}
+              onClick={(e) => { e.stopPropagation(); surfaceRoutes.open('project-slots', node.id) }}>{slotBadge}</button>
+              : <span className={'project-slots-badge' + (slotsFull(slots) ? ' full' : '')}
+              title={slotTitle}>{slotBadge}</span>)}
+            {listenerBadges.map((c) => surfaceRoutes ? <button type="button" key={c.key} className={'project-listeners-badge' + (c.bright ? ' bright' : '')}
+              aria-label={`events of project ${node.id}`} title={c.title}
+              onPointerDown={(e) => e.stopPropagation()}
+              onClick={(e) => { e.stopPropagation(); surfaceRoutes.open('project-listeners', node.id) }}>{c.text}</button>
+              : <span key={c.key} className={'project-listeners-badge' + (c.bright ? ' bright' : '')}
               title={c.title}>{c.text}</span>)}
-            {queue && <span className={'project-queue-badge' + (queue.bright ? ' bright' : '')} title={queue.title}>{queue.text}</span>}
+            {queue && <button type="button" className={'project-queue-badge' + (queue.bright ? ' bright' : '')} title={queue.title}
+              aria-label={queue.listeners > 0 && surfaceRoutes ? `events of project ${node.id}` : `mailbox of project ${node.id}`}
+              onPointerDown={(e) => e.stopPropagation()}
+              onClick={(e) => { e.stopPropagation(); if (queue.listeners > 0 && surfaceRoutes) surfaceRoutes.open('project-listeners', node.id); else onInbox() }}>{queue.text}</button>}
             {!deskOpen && onRetired && <RetiredBadge parent={node.id} count={retiredCount} onOpen={onRetired} />}
             </div>
           </div>

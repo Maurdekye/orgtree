@@ -4906,9 +4906,11 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
              marker's agent at open time, so this surface cannot drift when a
              source rule changes. The value is `e.n.id`, the agent the PRIMARY
              CLICK jumps to, which is what keeps each card bound to its own
-             neighbor rather than to the focused desk. */
+             neighbor rather than to the focused desk. No name-first flag:
+             every form reveals its name while hovered (audit #43), so the
+             hover is the name-visible variant like desk navigation's. */
           data-copy-agent-name={e.n.id}
-          {...agentNavProps(e.n.id, true)}
+          {...agentNavProps(e.n.id)}
           /* the card's whole accent surface — highlight, hover/focus wash,
              the shed-form mail dot and the unread count — wears the JUMP
              TARGET's provider theme, never the focused desk's (user spec

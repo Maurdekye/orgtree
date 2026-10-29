@@ -2327,7 +2327,8 @@ export function OrgInboxModal({ inbox, net, map, slug, toast, close, jumpTo,
                     sender={(id, m) => {
                       const byIsLocalAgent = Boolean(m?._by && map.has(m._by))
                       return (
-                        /* outbound attribution (user spec): @agent as @org → @recipient */
+                        /* outbound attribution (user spec): @agent as @org → @recipient.
+                            The @org identity is the shared org link (audit #41), as the recipient's chip. */
                         <span className="org-mail-attribution">
                             {byIsLocalAgent ? (
                               <AgentLink id={m!._by!} label={'@' + m!._by!}
@@ -2340,7 +2341,7 @@ export function OrgInboxModal({ inbox, net, map, slug, toast, close, jumpTo,
                               // recorded text, with nothing inferred
                               <span>{m?._by ? `@${m._by}` : '@?'}</span>
                             )}
-                          <span className="org-mail-via"><span className="dim">as </span><b>@{slug}</b></span>
+                          <span className="org-mail-via"><span className="dim">as </span><HubContactChip address={'@org:' + slug} /></span>
                           <span className="org-mail-recipient"><span className="dim">→ </span>
                             {(id.startsWith('@net:') || id.startsWith('@org:')) ? <HubContactChip address={id} /> : <b>{id}</b>}
                             {m && glyph(m)}
