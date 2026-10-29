@@ -61,6 +61,8 @@ test('the secret appears only after an explicit reveal, from the reveal endpoint
 
 test('hub rows speak the real ladder and surface stuck mail with its reason', async () => {
   setNetRoster(TREE.slug, TREE.net)
+  // the tab reads its order times when it opens (GET /api/orgs/{slug}/net/recent)
+  g.fetch = async () => new Response(JSON.stringify({ recent: {} }), { headers: { 'Content-Type': 'application/json' } })
   const view = await mountView(<Fixture tree={TREE} />, el => el)
   try {
     const text = view.el.textContent!
@@ -74,7 +76,7 @@ test('hub rows speak the real ladder and surface stuck mail with its reason', as
     const dot = (address: string) => view.el.querySelector(`[data-hub-address="${address}"]`)?.closest('[role="listitem"]')?.querySelector('.presence-dot')
     assert.equal(dot('@net:other.user.d4e5f6')?.getAttribute('title'), 'Online')
     assert.equal(dot('@net:notes.user.778899')?.getAttribute('title'), 'Offline')
-  } finally { await view.unmount() }
+  } finally { await view.unmount(); delete g.fetch }
 })
 
 test('network contact links retain each roster entry and presence', t => checkContactList('connections', t))
@@ -84,7 +86,11 @@ test('removing a working connection states its scope first; cancel changes nothi
   const confirm = window.confirm
   window.confirm = (message?: string) => { asked.push(String(message)); return false }
   let saved = 0
-  g.fetch = async () => { saved += 1; return new Response('{}', { headers: { 'Content-Type': 'application/json' } }) }
+  // a write is anything but a GET: the tab's order read on opening is not one
+  g.fetch = async (_input: unknown, init?: RequestInit) => {
+    if ((init?.method ?? 'GET') !== 'GET') saved += 1
+    return new Response('{}', { headers: { 'Content-Type': 'application/json' } })
+  }
   const view = await mountView(<Fixture tree={TREE} />, el => el)
   try {
     const remove = [...view.el.querySelectorAll<HTMLButtonElement>('button[title="Remove connection"]')].at(-1)!
