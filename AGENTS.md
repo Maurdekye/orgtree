@@ -56,10 +56,10 @@ imports, renames, deletes and run/show changes update live from
 `custom_apps_changed`. App and panel gears share one right-aligned column;
 the app + and panel power buttons share the preceding column. An empty Apps
 list says "No apps yet. Ask an agent to make an app for you, and it will appear
-here."; the existing live list hides it when an app appears. Renderer
-CSS must use theme variables that `styles.css` defines (`--line`, `--dim`,
-`--panel-2`, `--ink`, ...): an undefined `var()` silently drops its declaration,
-as `--border/--muted/--hover/--text` did in `apps.css`. See [custom apps](docs/rust-engine/custom-apps.md).
+here."; the live list hides it when an app appears. Renderer CSS must use
+theme variables that `styles.css` defines (`--line`, `--dim`, `--panel-2`,
+`--ink`, ...): an undefined `var()` silently drops its declaration, as
+`--border/--muted/--hover/--text` did in `apps.css`. See [custom apps](docs/rust-engine/custom-apps.md).
 [decided: user 2026-10-26 "the ordering of the apps in the list shouldnt change as panels are turned onca or off", "newest first", "Fixed order"; 2026-10-27 m4dcfc15be8e3, mcc0591ec051b; verified: `canvas/apps/{store.ts,ui.tsx,apps.css}`, `domain/apps/storage.rs`; 2026-10-27]
 
 Custom app actions use parent-only, code/panel-bound sessions and native owning-document
@@ -68,39 +68,34 @@ App definitions retain portable named event declarations; declarations grant no
 execution or subscription. See [custom apps](docs/rust-engine/custom-apps.md).
 [verified: `domain/apps/{wire,storage,templates}.rs`; 2026-10-26]
 
-App file and portability IO enter a private scope on each blocking worker,
-including nested path helpers; ordinary verbose diagnostics remain enabled.
-See [custom apps](docs/rust-engine/custom-apps.md).
-[verified: `trace::private_app_blocking`, `domain/apps/{file_access,file_scopes}.rs`, `tools/apps.rs`; 2026-10-26]
-App content that a recipient's actor reads back from the database (an app's
-docket assignment notice, named event delivery or older mail) is logged by
-mail ID in every line; ordinary mail logs as before. See [custom apps](docs/rust-engine/custom-apps.md).
-[verified: `trace::private_app_content`, `runtime/actor.rs::mail_of`; 2026-10-26]
+App file/portability IO enters a private scope on each blocking worker,
+including nested path helpers; ordinary verbose diagnostics stay enabled.
+App content a recipient actor reads back from the DB (docket assignment notice,
+named event delivery or older mail) logs by mail ID in every line; ordinary mail
+logs as before. See [custom apps](docs/rust-engine/custom-apps.md).
+[verified: `trace::private_app_blocking`, `trace::private_app_content`, `domain/apps/{file_access,file_scopes}.rs`, `tools/apps.rs`, `runtime/actor.rs::mail_of`; 2026-10-26]
 App files use native read grants, opaque per-panel references and bounded reads.
 Folder/computer scopes and separate write grants retain paths in native code;
 outside-org file changes need one-shot native confirmation; org changes do not. Agent writes also require
-live writable folder/edit scope. See the same file-access topic.
+live writable folder/edit scope.
 Only the exact media GET route substitutes an asset ticket of the running panel
 for desktop authentication; no general engine credential enters HTML. Hide and
 session renewal keep links; revocation cancels active bodies. Agents require both app grants and their current folders.
 See the file-access section in [custom apps](docs/rust-engine/custom-apps.md).
 [decided: user 2026-10-26; verified: `domain/apps/file_access.rs`, `http/app_files.rs`, `canvas/apps/files.ts`]
 Apps New counts are org-persisted catalog metadata; only visible menu entries
-are acknowledged, with orgtree_apps mark_seen parity. See
-[custom apps](docs/rust-engine/custom-apps.md).
-[verified: `domain/apps/storage.rs`, `canvas/apps/store.ts`, `canvas/apps/ui.tsx`; 2026-10-26]
+are acknowledged, with orgtree_apps mark_seen parity.
 App panels default to centered modals; the pin pins one to the window like a
 pinned desk, in the org pin layer (canvas pins were retired 2026-10-26; migration
-0069 floats old ones). Native Apps chrome uses
-the shared modal/settings kit. The app row opens its most recently used panel or creates
-one, + always creates, and new panels are named Panel N. App-row gears open
-app-wide settings (description above General/Permissions tabs); saved-panel and
-open-header gears open settings for that exact panel (the Agent settings Name row,
-then General/State/Connections/Fire event/History tabs, no section headers),
-including closed panels
-without running HTML. See the same custom-app topic for placement, permission
-and tool parity.
-[decided: user 2026-10-26; verified: `canvas/apps/{dialog,events,settings,ui}.tsx`, `domain/apps/labels.rs`]
+0069 floats old ones). Native Apps chrome uses the shared modal/settings kit.
+The app row opens its most recently used panel or creates one, + always creates,
+and new panels are named Panel N. App-row gears open app-wide settings
+(description above General/Permissions tabs); saved-panel and open-header gears
+open settings for that exact panel (Agent settings Name row, then
+General/State/Connections/Fire event/History tabs, no section headers),
+including closed panels without running HTML. See [custom apps](docs/rust-engine/custom-apps.md)
+for placement, permission and tool parity.
+[decided: user 2026-10-26; verified: `domain/apps/{storage,labels}.rs`, `canvas/apps/{store.ts,dialog,events,settings,ui}.tsx`]
 History rows are only event.fired and panel.started/stopped; event/orgtree.emit
 write kind message rows apart (host relays them to orgtree.on); 256 per kind.
 An app's own fire emits custom_apps_history, not custom_apps_changed: that
@@ -122,7 +117,6 @@ Bundle bounds, export files and import pinning are in [custom apps](docs/rust-en
 Templates carry only inert app definitions/initial data; restore creates no panels
 or grants. Panel links and their app.event signals were removed (user
 2026-10-26); agents follow panels only through app_listener subscriptions.
-See the same topic for cursor limits.
 [verified: `canvas/apps/actions.ts`, `canvas/apps/{host,permissions}.tsx`, `domain/apps/{bridge,files,storage,wire}.rs`; 2026-10-26]
 
 Mail list previews cap tags at four, with active filter matches first and a
@@ -144,6 +138,7 @@ Muse thought durations use matching native reasoning item start/completion
 boundaries, never a whole-turn duration or an item update as a start. Missing
 starts stay unknown. See [Muse thought timing](docs/rust-engine/muse-thinking-time.md).
 [decided: user 2026-10-24; verified: `runtime/muse_thinking.rs`, `runtime/actor.rs`]
+OpenCode ACP `agent_thought_chunk` deltas accumulate in `active_thought` with live `agent_thinking` SSE before committing one thought part on the next transition (`#[nolog]`). See [OpenCode ACP](docs/rust-engine/opencode-acp.md). [decided: user 2026-10-29; verified: `runtime/actor.rs`]
 
 Menus on transparent boundaries measure the pressed text element for position,
 retaining their original identity anchor. See [viewport anchoring](docs/agents/desktop-and-renderer.md#selection-menu-viewport-anchor-2026-10-24-445).
