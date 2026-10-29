@@ -522,16 +522,42 @@ impl Turn {
             return (None, Vec::new());
         };
         self.activity = true;
-        let id = update["messageId"].as_str().map(str::to_string).unwrap_or_else(|| format!("acp-{}-thinking", self.id));
-        let current = self.rows.get(&id).and_then(|(_, r)| r["thinking"].as_str()).unwrap_or("");
-        let body = convo::clip(&format!("{current}{text}"), 20_000).0;
-        (Some((id, body)), vec![("text", json!({})), ("thinking", json!({ "text": text }))])
+        let raw_id = update["messageId"].as_str().map(str::to_string);
+        let flushed = if self.acp_thought.as_ref().is_some_and(|(prev_raw, _, _)| raw_id.is_some() && prev_raw.is_some() && raw_id != *prev_raw) {
+            self.take_acp_thought()
+        } else {
+            None
+        };
+        let mut frames = Vec::with_capacity(2);
+        let entry = self.acp_thought.get_or_insert_with(|| {
+            self.thinking.clear();
+            self.thinking_order = None;
+            frames.push(("thinking_start", json!({})));
+            let base = raw_id.clone().unwrap_or_else(|| format!("acp-{}-thinking", self.id));
+            let row_id = if self.rows.contains_key(&base) {
+                format!("{base}-{}", self.rows.len() + 1)
+            } else {
+                base
+            };
+            (raw_id.clone(), row_id, String::new())
+        });
+        if entry.0.is_none() && raw_id.is_some() {
+            entry.0 = raw_id;
+        }
+        entry.2 = convo::clip(&format!("{}{text}", entry.2), 20_000).0;
+        if self.thinking.len() < 16_000 {
+            self.thinking.push_str(text);
+        }
+        frames.push(("thinking", json!({ "text": text })));
+        (flushed, frames)
     }
 
     #[nolog]
     fn take_acp_thought(&mut self) -> Option<(String, String)> {
-        let _ = &self.acp_thought;
-        None
+        let (_, id, body) = self.acp_thought.take()?;
+        self.thinking.clear();
+        self.thinking_order = None;
+        Some((id, body))
     }
 
     fn new(id: i64, compact: bool) -> Turn {
@@ -3734,6 +3760,26 @@ impl Actor {
         self.proc_effort=Some(ctx.effort.clone());self.provider=ctx.provider.clone();self.publish();Ok(())
     }
 
+    #[nolog]
+    async fn commit_acp_thought(&mut self, id: String, body: String) -> Result<()> {
+        let existing=self.turn.as_ref().and_then(|t|t.rows.get(&id).cloned());
+        let mut row=existing.as_ref().map(|(_,r)|r.clone()).unwrap_or_else(|| json!({"role":"assistant","text":"","tools":[],"ts":now_iso(),"assistant_id":id}));
+        row["thinking"]=json!(body);
+        let client=self.engine.db.get().await?;
+        let seq=if let Some((seq,_))=existing {self.convo.update(&client,seq,row.clone()).await?;seq}
+            else {self.convo.append(&client,row.clone()).await?};
+        drop(client);
+        if let Some(turn)=self.turn.as_mut() {turn.rows.insert(id.clone(),(seq,row));turn.codex_row=Some(id);}
+        self.stream("thought",json!({"thinking_clear":true}));
+        Ok(())
+    }
+
+    #[nolog]
+    async fn finish_acp_thinking(&mut self) -> Result<()> {
+        let Some((id,body))=self.turn.as_mut().and_then(Turn::take_acp_thought) else {return Ok(())};
+        self.commit_acp_thought(id,body).await
+    }
+
     async fn on_acp(&mut self, event: Value) -> Result<()> {
         let Some(turn)=self.turn.as_mut() else {return Ok(())};
         if event["turn"].as_str()!=turn.codex_turn.as_deref() {return Ok(())}
@@ -3754,30 +3800,40 @@ impl Actor {
         if let Some(error)=event["error"].as_str() { return self.end_turn(Some(error.to_string()),json!({"acp":true})).await; }
         let update=&event["update"];
         match update["sessionUpdate"].as_str().unwrap_or("") {
-            "agent_message_chunk" | "agent_thought_chunk" => {
-                turn.activity=true;
-                let thinking=update["sessionUpdate"]=="agent_thought_chunk";
+            "agent_thought_chunk" => {
+                let (flushed,frames)=turn.observe_acp_thought(update);
+                if let Some((id,body))=flushed {self.commit_acp_thought(id,body).await?;}
+                if !frames.is_empty() {
+                    self.set_activity("thinking",None);
+                    for (kind,extra) in frames {self.stream(kind,extra);}
+                }
+            },
+            "agent_message_chunk" => {
                 let Some(text)=update["content"]["text"].as_str() else {return Ok(())};
-                let field=if thinking {"thinking"} else {"text"};
-                let id=update["messageId"].as_str().map(str::to_string).unwrap_or_else(|| format!("acp-{}-{field}",turn.id));
-                if !thinking {turn.acp_text=Some(id.clone());}
+                self.finish_acp_thinking().await?;
+                let Some(turn)=self.turn.as_mut() else {return Ok(())};
+                turn.activity=true;
+                let id=update["messageId"].as_str().map(str::to_string).unwrap_or_else(|| format!("acp-{}-text",turn.id));
+                turn.acp_text=Some(id.clone());
                 let existing=turn.rows.get(&id).cloned();
                 let mut row=existing.as_ref().map(|(_,r)|r.clone()).unwrap_or_else(|| json!({"role":"assistant","text":"","tools":[],"ts":now_iso(),"assistant_id":id}));
-                let current=row[field].as_str().unwrap_or("");
-                row[field]=json!(convo::clip(&format!("{current}{text}"),if thinking {20000} else {64000}).0);
+                let current=row["text"].as_str().unwrap_or("");
+                row["text"]=json!(convo::clip(&format!("{current}{text}"),64000).0);
                 let client=self.engine.db.get().await?;
                 let seq=if let Some((seq,_))=existing {self.convo.update(&client,seq,row.clone()).await?;seq}
                     else {self.convo.append(&client,row.clone()).await?};
                 drop(client);
                 if let Some(turn)=self.turn.as_mut() {turn.rows.insert(id.clone(),(seq,row));turn.codex_row=Some(id);}
                 self.text_landed().await;
-                self.set_activity(if thinking {"thinking"} else {"writing"},None);
-                self.stream(if thinking {"thinking"} else {"delta"},json!({"text":text}));
+                self.set_activity("writing",None);
+                self.stream("delta",json!({"text":text}));
             },
             "tool_call" | "tool_call_update" => {
+                let Some(id)=update["toolCallId"].as_str() else {return Ok(())};
+                self.finish_acp_thinking().await?;
+                let Some(turn)=self.turn.as_mut() else {return Ok(())};
                 turn.activity=true;
                 if update["sessionUpdate"]=="tool_call" {turn.acp_text=None;}
-                let Some(id)=update["toolCallId"].as_str() else {return Ok(())};
                 if turn.acp_items.len()>=512 && !turn.acp_items.contains_key(id) {return Err(anyhow!("ACP turn tool count exceeds limit"));}
                 let item=turn.acp_items.entry(id.into()).or_insert_with(|| json!({}));
                 if let Some(fields)=update.as_object() { for (k,v) in fields {item[k]=v.clone();} }
@@ -3817,6 +3873,7 @@ impl Actor {
                 // cost.amount=0 for custom providers is not a price receipt.
             },
             "plan" => {
+                self.finish_acp_thinking().await?;
                 let plan:Vec<Value>=update["entries"].as_array().into_iter().flatten().map(|e|json!({"step":e["content"],"status":e["status"]})).collect();
                 self.on_codex_plan(&json!({"plan":plan})).await?;
             },
@@ -7755,6 +7812,7 @@ impl Actor {
         self.typing_probe = None;
         crate::net::typing::stop_agent(&self.engine, self.id);
         self.finish_queued_interrupt();
+        if self.finish_acp_thinking().await.is_err() {tracing::warn!(agent=self.id,"unfinished ACP thought could not be saved at turn end");}
         if self.retain_incomplete().await.is_err() {tracing::warn!(agent=self.id,"unfinished response could not be saved at turn end");}
         let Some(turn) = self.take_turn() else { return Ok(()) };
         if let Err(e) = self.count_turn_rows(&turn).await {
