@@ -1,8 +1,43 @@
 import { useLayoutEffect, useRef, useState } from 'react'
-import type { KeyboardEvent } from 'react'
+import type { KeyboardEvent, MouseEvent } from 'react'
 
 const KEY_OWNER = 'input, textarea, select, .askcard, [contenteditable]:not([contenteditable="false"]), '
   + '[role="combobox"], [role="listbox"], [role="menu"], [role="slider"], [role="spinbutton"]'
+
+/** THE CONTEXT-MENU KEY ON A LIST PANEL (UX symmetry audit #11, ux02 S3).
+ *
+ *  Mail, docket and presentation rows are not focusable: a click or an Alt
+ *  arrow selects a row but leaves focus on the panel (or its list scroller),
+ *  so the browser's keyboard `contextmenu` (the ContextMenu key) landed there
+ *  and no row menu opened, while every focusable object in the app opens its
+ *  menu that way. This hands that event to the SELECTED row, so the row's own
+ *  onContextMenu builds the very menu a right-click on it opens; the shared
+ *  menu (contextmenu.tsx) reads the relayed point as keyboard-raised, anchors
+ *  on the row in its owning document and focuses the first item.
+ *
+ *  Only an event aimed at the focused element itself qualifies (that is where
+ *  the browser dispatches a keyboard menu), and only while that element holds
+ *  the selected row: a press on a row, a field, a link or the reading pane
+ *  keeps the menu it has today, and no selected row leaves the browser's. No
+ *  key handling, as contextmenu.tsx requires; Shift+F10 stays the app's
+ *  Halt-all shortcut (shell/appshortcuts.ts). */
+export function openSelectedRowMenu(e: MouseEvent<HTMLElement>, rowSelector: string): void {
+  if (e.defaultPrevented) return
+  const target = e.target as Element | null
+  const doc = e.currentTarget.ownerDocument
+  if (!target || target !== doc.activeElement || typeof target.closest !== 'function'
+    || target.closest(rowSelector) || target.closest(KEY_OWNER)) return
+  const row = [...target.querySelectorAll<HTMLElement>(rowSelector + '.on')]
+    .find(candidate => !candidate.closest('[hidden]'))
+  const View = doc.defaultView as (Window & typeof globalThis) | null
+  if (!row || !View) return
+  const box = row.getBoundingClientRect()
+  // a point just outside the row: the menu treats it as keyboard-raised,
+  // anchors on the row's box and puts focus on its first item
+  const relay = new View.MouseEvent('contextmenu', { bubbles: true, cancelable: true,
+    button: 0, clientX: box.left - 1, clientY: box.top - 1 })
+  if (!row.dispatchEvent(relay)) { e.preventDefault(); e.stopPropagation() }
+}
 
 /** Mail's panel-level Alt arrows, over the caller's already filtered/folded
  * order. Keep selection in its existing owner, including virtualized lists.
@@ -63,5 +98,7 @@ export function usePanelSteps(ids: readonly string[], selected: string | null,
     setKeyboardSelection(id)
     select(id)
   }
-  return { rootRef, onKeyDown, reveal: keyboardSelection === selected ? selected : null }
+  return { rootRef, onKeyDown, reveal: keyboardSelection === selected ? selected : null,
+    /** the panel root's onContextMenu: the context-menu key opens the selected row's menu */
+    onContextMenu: (e: MouseEvent<HTMLElement>) => openSelectedRowMenu(e, rowSelector) }
 }

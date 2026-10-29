@@ -1521,7 +1521,7 @@ export function DocketModal({ slug, toast, close, tree, onFocusAgent,
                   </div>
                 : <div className="dim pad">no work items yet</div>
               : (
-                <div className="mailer" tabIndex={-1} ref={steps.rootRef} onKeyDown={steps.onKeyDown}>
+                <div className="mailer" tabIndex={-1} ref={steps.rootRef} onKeyDown={steps.onKeyDown} onContextMenu={steps.onContextMenu}>
                   <div className="mailer-list" ref={rowWindow.ref} onScroll={e => {
                     rowWindow.onScroll()
                     const box = e.currentTarget
@@ -2028,7 +2028,7 @@ export function AgentDocketView({ slug, nid, mine, facts, toast, onFocusAgent,
               </>)}
             </div>
           : (
-            <div className="mailer" tabIndex={-1} ref={steps.rootRef} onKeyDown={steps.onKeyDown}>
+            <div className="mailer" tabIndex={-1} ref={steps.rootRef} onKeyDown={steps.onKeyDown} onContextMenu={steps.onContextMenu}>
               <div className="mailer-list" ref={rowWindow.ref} onScroll={e => {
                 rowWindow.onScroll()
                 const box=e.currentTarget

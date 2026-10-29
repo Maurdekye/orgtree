@@ -18,7 +18,7 @@
 // all survive the round trip — which is the whole point, because a list that
 // forgot where you were is worse than a cramped one.
 import {
-  type KeyboardEvent as ReactKeyboardEvent, type ReactNode, type RefObject,
+  type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent, type ReactNode, type RefObject,
   useCallback, useEffect, useId, useRef, useState,
 } from 'react'
 import { MenuIcon } from '../icons'
@@ -73,6 +73,9 @@ export interface CollapsibleMailerProps {
   className?: string
   tabIndex?: number
   onKeyDown?: (e: ReactKeyboardEvent<HTMLDivElement>) => void
+  /** the root's contextmenu: list panels pass `openSelectedRowMenu`
+   *  (panelsteps.ts), so the context-menu key opens the selected row's menu */
+  onContextMenu?: (e: ReactMouseEvent<HTMLDivElement>) => void
   /** the call site's own ref on the `.mailer` root, kept working */
   rootRef?: RefObject<HTMLDivElement | null>
   threshold?: number
@@ -80,7 +83,7 @@ export interface CollapsibleMailerProps {
 
 export function CollapsibleMailer({
   collapsible = false, listLabel, list, children, className = '', tabIndex,
-  onKeyDown, rootRef, threshold = NARROW_MAILER_WIDTH,
+  onKeyDown, onContextMenu, rootRef, threshold = NARROW_MAILER_WIDTH,
 }: CollapsibleMailerProps) {
   const { setEl, narrow } = useNarrow(threshold, collapsible)
   const [open, setOpen] = useState(false)
@@ -127,7 +130,7 @@ export function CollapsibleMailer({
   return (
     <div className={'mailer' + (className ? ' ' + className : '')
       + (narrow ? ' narrow-list' : '') + (narrow && open ? ' narrow-list-open' : '')}
-      tabIndex={tabIndex} onKeyDown={onKeyDown} ref={setRoot}>
+      tabIndex={tabIndex} onKeyDown={onKeyDown} onContextMenu={onContextMenu} ref={setRoot}>
       {narrow && (
         <div className="mailer-listrail">
           <button type="button" ref={toggleRef}

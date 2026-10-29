@@ -63,6 +63,7 @@ import { instanceKind } from '../modalkinds'
 import { CollapsibleMailer } from './narrowlist'
 import { MailItemBoundary, Rendered } from './mailitemboundary'
 import { CopyFeedback, copyToClipboard, useContextMenu } from './contextmenu'
+import { openSelectedRowMenu } from './panelsteps'
 import type { MenuEntry } from './contextmenu'
 import { MAIL_COPY_FAILED, fetchMailRowForCopy, mailRowCopyText, mailRowNeedsFullFetch, resolveFullMailCopyText } from './copytext'
 import type { CopyableMailRow } from './copytext'
@@ -699,6 +700,9 @@ export function MailList({ org, pending = [], delivered = [], waitLabel, sender,
     <CopyFeedback.Provider value={toast}>
     <CollapsibleMailer collapsible={collapsible} listLabel="message list"
       tabIndex={-1} onKeyDown={onKey} rootRef={rootRef}
+      // the context-menu key on the focused list opens the selected row's own
+      // menu, as on docket and presented lists (panelsteps.ts, symmetry #11)
+      onContextMenu={(e) => openSelectedRowMenu(e, '.mailrow')}
       list={
       /* paging is automatic: within a screen of the bottom, the next window
           is already rendered (user ruling 2026-08-04 — reaching the end of a

@@ -515,7 +515,7 @@ export function DocGalleryModal({ slug, toast, close, onFocusAgent, onReply,
               </DocListEmpty>
             : (
                 <CollapsibleMailer collapsible threshold={NARROW_DOCS_WIDTH} listLabel="document list"
-                  tabIndex={-1} rootRef={steps.rootRef} onKeyDown={steps.onKeyDown}
+                  tabIndex={-1} rootRef={steps.rootRef} onKeyDown={steps.onKeyDown} onContextMenu={steps.onContextMenu}
                   list={
                   <LazyDocList w={w} label="Presented documents" reveal={openingReveal.current}>
                     {menu.node}
@@ -936,7 +936,7 @@ export function AgentGalleryView({ slug, nid, node, toast, onFocusAgent, onReply
           {w.busy ? 'Loading…' : 'No presented documents.'}</DocListEmpty>
       ) : (
         <CollapsibleMailer collapsible={collapsible} threshold={NARROW_DOCS_WIDTH} listLabel="document list"
-          tabIndex={-1} rootRef={steps.rootRef} onKeyDown={steps.onKeyDown}
+          tabIndex={-1} rootRef={steps.rootRef} onKeyDown={steps.onKeyDown} onContextMenu={steps.onContextMenu}
           list={
           <LazyDocList w={w} label={`Presented documents from ${nid}`} reveal={openingReveal.current}>
             {menu.node}
