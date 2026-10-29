@@ -19,6 +19,10 @@ async function replyOn(element: Element) {
   await inAct(()=>button.click())
 }
 
+// the composer's count, a visible line of its own (rig-sol-b md1ebaea68c37 C4: "an explicit count")
+const countHeading=(el:HTMLElement,text:string)=>[...el.querySelectorAll<HTMLElement>('*')].find(e=>e.children.length===0&&e.textContent?.trim()===text)
+const buttonNamed=(el:HTMLElement,text:string)=>[...el.querySelectorAll('button')].find(b=>b.textContent?.trim()===text)
+
 test('desk mixed senders append and one send carries both durable targets after reload',async()=>{
   localStorage.clear(); resetConvos()
   const server=new FakeServer(); server.messages=[
@@ -142,7 +146,31 @@ test('sent multi-reply previews disclose two then all, and legacy drafts normali
     await inAct(()=>more!.click())
     assert.equal(view.el.querySelectorAll('blockquote').length,4,'expansion reveals every sent target')
     assert.match(view.el.textContent!,/Fourth retained quote/)
+    assert.equal(buttonNamed(view.el,'Show fewer replies'),undefined,'expansion is one way, as Hubchat\'s')
+    assert.doesNotMatch(view.el.textContent!,/Replying to \d+ messages/,'a sent message names no count, as Hubchat\'s')
   }finally{await view.unmount()}
+})
+
+// Hubchat's foldAt (src/lib/replies.ts): up to three show whole, a longer list its first two
+test('three reply targets show whole in sent previews and the composer, as Hubchat\'s foldAt',async()=>{
+  localStorage.clear();resetConvos()
+  const sent=await mountView(<MailReplyPreview org="org" row={{replies:[
+    {from:'writer',gist:'First retained quote'},{from:'writer',gist:'Second retained quote'},{from:'writer',gist:'Third retained quote'},
+  ]}} />,el=>el)
+  try{
+    assert.equal(sent.el.querySelectorAll('blockquote').length,3,'three sent targets show whole')
+    assert.equal([...sent.el.querySelectorAll('button')].some(b=>/^and \d+ more$/.test(b.textContent?.trim()??'')),false,'no "and 1 more"')
+  }finally{await sent.unmount()}
+  installFetch(new FakeServer())
+  const key=draftKey('org','writer',2)
+  storeReplies(key,[1,2,3].map(n=>({org:'org',agent:'writer',generation:2,eventId:`e${n}`,quote:`Quote ${n}`})))
+  const view=await mountView(desk(),el=>el)
+  try{
+    await inAct(async()=>{await flush(5)})
+    assert.equal(view.el.querySelectorAll('.reply-preview-composing').length,3,'three draft targets show whole')
+    assert.equal([...view.el.querySelectorAll('button')].some(b=>/^and \d+ more$/.test(b.textContent?.trim()??'')),false,'no "and 1 more"')
+    assert.ok(countHeading(view.el,'Replying to 3 messages'),'the composer states its count')
+  }finally{await view.unmount();resetConvos()}
 })
 
 test('the desk composer discloses two reply targets, expands, and removes one exact target',async()=>{
@@ -154,14 +182,43 @@ test('the desk composer discloses two reply targets, expands, and removes one ex
   try{
     await inAct(async()=>{await flush(5)})
     assert.equal(view.el.querySelectorAll('.reply-preview-composing').length,2,'only the first two draft targets show')
+    assert.ok(countHeading(view.el,'Replying to 4 messages'),'the composer states its count, as Hubchat\'s')
     const more=[...view.el.querySelectorAll('button')].find(b=>b.textContent?.trim()==='and 2 more')
     assert.ok(more,'the draft names the hidden target count')
     await inAct(()=>more!.click())
     assert.equal(view.el.querySelectorAll('.reply-preview-composing').length,4,'all draft targets can be reviewed')
+    assert.ok(countHeading(view.el,'Replying to 4 messages'),'expanded, the count still reads 4')
+    assert.equal(buttonNamed(view.el,'Show fewer replies'),undefined,'expansion is one way, as Hubchat\'s')
     const third=[...view.el.querySelectorAll<HTMLElement>('.reply-preview-composing')].find(p=>p.textContent?.includes('Quote 3'))
     assert.ok(third,'the exact third target is present')
     await inAct(()=>third!.querySelector<HTMLButtonElement>('[aria-label="Remove reply"]')!.click())
     assert.deepEqual(readReplies(key).map(r=>r.eventId),['e1','e2','e4'],'removal preserves the other exact identities and their order')
     assert.equal(view.el.querySelectorAll('.reply-preview-composing').length,3)
+    assert.ok(countHeading(view.el,'Replying to 3 messages'),'after a removal the count reads 3')
+  }finally{await view.unmount();resetConvos()}
+})
+
+// Hubchat's message view folds a sent multi-reply the same way (src/components/MessageView.tsx):
+// the desk transcript's own bubble is the third Orgtree surface of #37
+test('a sent desk message with four reply targets shows two and "and 2 more", as Hubchat\'s message view',async()=>{
+  localStorage.clear();resetConvos()
+  const server=new FakeServer()
+  const wire=(n:number)=>({source_event_ref:{org:'org',agent:'writer',generation:2,eventId:`e${n}`},quoted_context:`Quote ${n}`})
+  server.messages=[
+    ...[1,2,3,4].map(n=>({role:'assistant',text:`Source ${n}`,seq:n,event_id:`e${n}`})),
+    {role:'user',text:'One reply for four',seq:5,event_id:'e5',replies:[1,2,3,4].map(wire)},
+  ] as typeof server.messages
+  installFetch(server)
+  const view=await mountView(desk(),el=>el)
+  try{
+    await inAct(async()=>{await refreshConvo('org','writer');await flush(5)})
+    const sent=()=>view.el.querySelectorAll('.reply-preview:not(.reply-preview-composing)').length
+    assert.equal(sent(),2,'the bubble shows its first two targets')
+    assert.doesNotMatch(view.el.textContent!,/Replying to \d+ messages/,'a sent message names no count')
+    const more=buttonNamed(view.el,'and 2 more')
+    assert.ok(more,'the bubble names the hidden count')
+    await inAct(()=>more!.click())
+    assert.equal(sent(),4,'expanding shows every target')
+    assert.equal(buttonNamed(view.el,'Show fewer replies'),undefined,'one way, as Hubchat\'s')
   }finally{await view.unmount();resetConvos()}
 })

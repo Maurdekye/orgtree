@@ -579,3 +579,25 @@ test('G12 the notice toggle survives closing the desk, and Alt+N / Alt+B work an
   await inAct(() => { tab.dispatchEvent(new KeyboardEvent('keydown', { key: 'b', altKey: true, bubbles: true, cancelable: true })) })
   assert.equal(again.el.querySelector('.cc-broadcast-toggle')!.getAttribute('aria-pressed'), 'true', 'and Alt+B the broadcast')
 })
+
+// UX symmetry #37: the project composer's reply previews are the agent composer's (G11),
+// so four targets fold the same way: the count line, the first two, "and 2 more"
+test('G11b four reply targets in the project composer read as the agent composer\'s: the count, two, then all', async (t) => {
+  serve(t)
+  forgetDrafts(t)
+  const four = [...docs, { id: 'p3', title: 'Hiring', at: '2026-10-19T11:00:00.000Z', node: 'website' },
+    { id: 'p4', title: 'Roadmap', at: '2026-10-19T12:00:00.000Z', node: 'website' }]
+  const node = project('website', [agent('dev1')], { documents: four } as Partial<CanvasNode>)
+  const view = await deskView(t, node, { bare: true, openDoc: noop })
+  for (const id of ['p1', 'p2', 'p3', 'p4']) await replyTo(view.el, id)
+  const composing = () => view.el.querySelectorAll('.reply-preview.reply-preview-composing').length
+  const line = (text: string) => [...view.el.querySelectorAll<HTMLElement>('*')].find((e) => e.children.length === 0 && e.textContent?.trim() === text)
+  assert.equal(composing(), 2, 'the first two targets show')
+  assert.ok(line('Replying to 4 messages'), 'the count line, as the agent composer\'s')
+  const more = [...view.el.querySelectorAll('button')].find((b) => b.textContent?.trim() === 'and 2 more')
+  assert.ok(more, 'and 2 more')
+  await inAct(() => { more!.click() })
+  assert.equal(composing(), 4, 'expanding shows every target')
+  assert.ok(line('Replying to 4 messages'), 'expanded, the count still reads 4')
+  await view.unmount()
+})
