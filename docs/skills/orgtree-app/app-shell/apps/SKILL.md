@@ -71,7 +71,9 @@ list (is_new/new_count) and mark_seen with explicit apps:[id,...], up to200 IDs.
 Closing a panel's window hides it; the panel keeps running (user 2026-10-26).
 The window header has two run controls: Power off (the power symbol) stops the
 panel and closes the window, and Hide (the X at the far right) closes the window
-and keeps the panel running. Each saved-panel row
+and keeps the panel running. The X carries every panel's Close tooltip, Close (Esc)
+while the panel floats centred and Close otherwise, over the line "the panel keeps
+running". Each saved-panel row
 shows its state on its light: filled for running and visible, an accent ring for
 running hidden, a hollow grey ring for off; the tooltip says Running · visible,
 Running · hidden or Off. Running rows show their CPU, sampled every 3 seconds while

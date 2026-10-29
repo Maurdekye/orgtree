@@ -36,9 +36,11 @@ The full tree preserves deeply nested project chains. Bunching or folding change
 
 Drag empty canvas space to pan, and use the wheel over the canvas to zoom. Middle-drag also pans when you begin over a card or desk. The wheel inside a scrollable desk or list scrolls that surface instead. Pinned windows keep their screen position while the canvas moves.
 
+Every panel you can close (settings, the inbox, Docket, Presented documents, app panels and the like) ends the buttons in its title row with an **X**, to the right of pin and pop-out, that closes it. While a panel sits centred, Escape and a click on the backdrop close it too; a pinned window ignores Escape. A popped-out window closes with its own window × at the far right.
+
 The canvas fills the available window and stays aligned with Attention when you resize it, including at fractional display scaling. Resize or maximize the window for more room; pan and zoom to navigate the canvas instead of scrolling the whole page.
 
-Click an agent to focus its desk. Use identity links in transcripts, mail, work items and menus to reach the same agent or project. Their context menus collect related actions. **Focus** navigates to the target; **Open > Desk** borrows its existing desk into a temporary modal for a glance. Escape or a backdrop click returns that desk to its former placement, with its draft and scroll state.
+Click an agent to focus its desk. Use identity links in transcripts, mail, work items and menus to reach the same agent or project. Their context menus collect related actions. **Focus** navigates to the target; **Open > Desk** borrows its existing desk into a temporary modal for a glance. Its **X**, Escape or a backdrop click returns that desk to its former placement, with its draft and scroll state.
 
 Moving a card is a structural operation, not just rearranging a picture. It moves that node and its subtree under a new superior; dropping among siblings can reorder them. Escape cancels a drag. A refused move returns to the valid structure. See [Managing agents](managing-agents.md) before reorganizing grants or access.
 

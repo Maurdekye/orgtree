@@ -393,8 +393,9 @@ See [native menu tests](../../tests/edit-menu.test.mjs), renderer
 
 ## Draft permission edits (2026-10-24)
 
-Agent/project draft settings omit footer Close buttons and opt into PinFrame's
-visible header X (`closeInModal`), retaining Escape and outside-dismiss paths. The
+Agent/project draft settings omit footer Close buttons and rely on PinFrame's
+header X (every closable frame has it since 2026-10-29; `closeInModal` now only keeps
+their bar shown on mobile), retaining Escape and outside-dismiss paths. The
 unpinned non-pinnable bar otherwise has no children and measures zero: dispatching
 a contextmenu event to it is not a pointer interaction. Capture checks require
 nonzero on-screen X geometry, hit-testing and a trusted CDP pointer click. Project drafts
@@ -407,6 +408,19 @@ Org settings has no footer Close either (user 2026-10-28 m3291e5890d55, mc9c984c
 its PinFrame opts into the header X, and Escape and the backdrop still close it through
 `closeSettings`, which flushes pending edits first. Tests and rig drivers close it with
 Escape or the X. [decided: user 2026-10-28; verified: `App.tsx::SettingsPanel`]
+
+## Close X on every closable panel (2026-10-29)
+
+PinFrame draws its X (`.modalpin-x`, the pin's `.modalpin-btn`) last in the bar in every
+state but popped out, where the window controls' × is the X; it runs the frame's `close`.
+Tooltip: `Close (Esc)` centred, `Close` pinned (a pinned window ignores Escape); the
+accessible name stays "close this window". Centred desks have it too ("Yes, add the X"):
+the project desk in its frame bar, the temporary desk through `DeskTitleBar`'s `onClose`
+(`.tempdesk-close`, the pin's button). The in-canvas desk header (`DeskHead`) has none
+("No X there"); popped out, its window's × closes it. The custom-app X stays a Hide,
+titled `Close (Esc)` / `Close` over "the panel keeps running". [decided: user 2026-10-29
+m6c5594110094 and me188f67b3944, coordinator m36dbf634e56e; verified:
+`canvas/{modalpin,deskshell,tempdesk}.tsx`, `canvas/apps/ui.tsx`, `tests/closex.test.tsx`]
 
 `DraftScopeModal` publishes its local proposal to the owning `DraftNode` after
 each change, without closing the panel or creating an agent. Closing retains
@@ -2079,6 +2093,11 @@ Original section: Shared skills and installed plugin imports (2026-10-15). Sourc
   [decided: user 2026-10-19; verified: `canvas/modalpin.tsx`,
   `canvas/tempdesk.tsx`, `tests/modalpin.test.tsx`, `tests/tempdesk.test.tsx`]
 <!-- /preserved:e-9446b240e55c6b00 -->
+
+Superseded in part on 2026-10-29: centred panels, centred desks included, now end their
+title-bar buttons with the shared X too (user 2026-10-29 m6c5594110094, me188f67b3944);
+Escape and the backdrop still dismiss them. See
+[Close X on every closable panel](#close-x-on-every-closable-panel-2026-10-29).
 
 ## Settings auto-save (2026-10-24)
 

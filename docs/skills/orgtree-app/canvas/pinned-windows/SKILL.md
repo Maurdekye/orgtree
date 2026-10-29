@@ -14,7 +14,7 @@ Pinning makes a screen-space window that stays put while the canvas pans/zooms. 
 
 The pinned desk's close/unpin control minimizes it back to its original desk. If that card is off-screen, the toast explains where to find it; Show on canvas navigates there while keeping the pin open. An archived agent's pin can remain readable. The title bar is not an instruction to rehire it.
 
-Pinnable modal surfaces (Org settings, App settings, Usage, the inbox, docket and presentations among them) dismiss when Escape is pressed or the backdrop is clicked. Inside an organization each can be pinned or popped out and remembers its placement per organization; at home, with no organization to pin into, Usage and App settings are centred only. Their centered form has no separate close button. Once pinned, the surface is a window and keeps its Close control; detached windows use their native window controls. Pinning is disabled while detached; closing a pinned window dismisses the modal rather than merely changing its pin state. The related overlap/fade, snap and jump-fold choices are in [Display: desk and chart](../../app-settings/app-display-desk-and-chart/SKILL.md).
+Pinnable modal surfaces (Org settings, App settings, Usage, the inbox, docket and presentations among them) dismiss when Escape is pressed or the backdrop is clicked. Inside an organization each can be pinned or popped out and remembers its placement per organization; at home, with no organization to pin into, Usage and App settings are centred only. Every closable panel ends its title-bar buttons with an X, right of pin and pop-out, that runs the panel's own close (user 2026-10-29): its tooltip reads Close (Esc) while centred and Close once pinned, since a pinned window ignores Escape. Detached windows use their native window controls, whose × is their X. A centred desk (Open → Desk, the project desk) has the X too, and Escape and the backdrop still close it. The in-canvas desk has no X: it is a place on the canvas, not a panel. Pinning is disabled while detached; closing a pinned window dismisses the modal rather than merely changing its pin state. The related overlap/fade, snap and jump-fold choices are in [Display: desk and chart](../../app-settings/app-display-desk-and-chart/SKILL.md).
 
 ## Several windows of one kind
 
@@ -41,7 +41,7 @@ A persistent desk keeps its canonical content. Native Close returns it only to a
 
 ## Temporary Desk modal
 
-Open → Desk borrows the existing desk into a modal for a glance without changing focus, adding a pin or saving a layout of its own. Closing by Escape or backdrop returns the desk to its prior placement, including its draft and scroll state. Actions inside are the real desk's actions, not a read-only replica. If a Pin control is offered, the user can deliberately turn this temporary view into a persistent pin.
+Open → Desk borrows the existing desk into a modal for a glance without changing focus, adding a pin or saving a layout of its own. Closing by its X, Escape or the backdrop returns the desk to its prior placement, including its draft and scroll state. Actions inside are the real desk's actions, not a read-only replica. If a Pin control is offered, the user can deliberately turn this temporary view into a persistent pin.
 
 A browser can block a requested popup and report an error; native focusing and screen placement also depend on the available desktop capability. These descriptions are source behavior, not evidence that a particular device/window arrangement has been visually verified.
 
