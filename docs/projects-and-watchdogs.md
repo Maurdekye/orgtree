@@ -14,7 +14,7 @@ Select it to open the desk. Click the Summary to edit; leaving the editor saves 
 
 The desk's common tabs are Summary, Mail, Docket, Presented and, while it has live members, Team. Docket lists items owned by agents below it; the project is not itself an item owner. Presented shows documents attributed to the project; **Team presentations** adds its agents' documents. Settings controls project policies, and History appears when records exist.
 
-Slots appears when capacity is positive, events while **Project events** is on, and Dead letters while open dead-letter jobs exist. A project's desk can be pinned or popped out like an agent desk, retaining its own selected tab and mail folder. The same views are one click from the canvas: on the project's near-zoom card, the slots badge opens Slots, a listeners badge opens events, and the queue badge opens events while a mail listener is armed (the project mailbox when none is).
+Slots appears when capacity is positive, events while **Project events** is on, and Dead letters while open dead-letter jobs exist. A project's desk can be pinned or popped out like an agent desk, retaining its own selected tab and mail folder. The same views are one click from the canvas: on the project's near-zoom card, the slots badge opens Slots, a listeners badge opens events, and the queue badge opens the project mailbox at its listeners folder while a mail listener is armed (its inbox when none is), as the desk's queue card does.
 
 ## Choose mailbox delivery or broadcast
 

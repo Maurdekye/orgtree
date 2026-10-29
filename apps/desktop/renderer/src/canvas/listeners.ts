@@ -162,6 +162,13 @@ export function mailQueueCard(project: string, waiting: number, held: number, ac
     title: facts.join(' ') + (listeners > 0 ? ' Click for the mail listeners.' : ' Click for the project mailbox.'),
     bright: listeners > 0 || inFlight > 0, listeners }
 }
+/** The project mailbox folder a queue card opens: the listeners folder while
+ *  any mail listener is armed, else the inbox. The ONE answer for the desk's
+ *  header card and the canvas node's badge, so they cannot open different
+ *  places (docket project-node-s-mail-listeners-badge-opens-the-pr). */
+export function mailQueueFolder(card: Pick<QueueCard, 'listeners'>): 'listeners' | 'inbox' {
+  return card.listeners > 0 ? 'listeners' : 'inbox'
+}
 /** The tool names a dog runs when it fires, for lists and tabs. */
 export function fireActionTools(w: Watchdog): string[] {
   return (w.fire_actions ?? []).map((a) => a.tool).filter(Boolean)

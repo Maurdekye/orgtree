@@ -610,6 +610,10 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
   // `agent` is the mailbox it is for: each agent's Mail is its own window.
   const [nodeInboxJump, setNodeInboxJump] =
     useState<{ agent: string; id: string; seq: number } | null>(null)
+  // the folder a project's mailbox window is asked to open on (its node's queue
+  // badge, as its desk's queue card does): a request, cleared when the window closes
+  const [nodeInboxFolder, setNodeInboxFolder] =
+    useState<{ agent: string; folder: string; seq: number } | null>(null)
   // the org-mail a link or a reference targets — a REQUEST, so a repeat
   // click on the same row is a second request (`jumpKey`)
   const [oiJump, setOiJump] = useState<{ id: string; seq: number } | null>(null)
@@ -1074,6 +1078,11 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
   // chip and pointer effect holds it, and the readers it consults change often
   const openDocView = useCallback((id: string) => openDocLatest.current(id), [])
   const openInbox = inboxes.open, openTeam = teams.open, openDogView = dogViews.open
+  // a folder request dies with its window, however the window closes (the close
+  // button, the menu's toggle, a pin): the next plain open lands on the inbox
+  useEffect(() => {
+    setNodeInboxFolder((f) => f && !inboxes.ids.includes(f.agent) ? null : f)
+  }, [inboxes.ids])
   const toggleDog = useCallback((id: string, keepOpen = false) => {
     openDogView(id, { ensureOpen: keepOpen })
   }, [openDogView])
@@ -4662,7 +4671,10 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
               onSpawnTop={(t) => spawnAbove(n, t)}
               onNewProjectAt={(edge) => spawnProjectAt(n, edge)}
               onSettings={(keepOpen) => toggleConfig(n.id, keepOpen)}
-              onInbox={(keepOpen) => openInbox(n.id, { ensureOpen: keepOpen })}
+              onInbox={(keepOpen, folder) => {
+                if (folder) setNodeInboxFolder((f) => ({ agent: n.id, folder, seq: (f?.seq ?? 0) + 1 }))
+                openInbox(n.id, { ensureOpen: keepOpen })
+              }}
               onTeam={(keepOpen) => openTeam(n.id, { ensureOpen: keepOpen })}
               onDocket={(keepOpen) => openAgentDocket(n.id, { keepOpen })}
               onOpenDoc={openDocView}
@@ -5063,12 +5075,13 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
         if (!node) return null
         // this agent's own jump: another mailbox's request is not its own
         const jump = nodeInboxJump?.agent === inboxId ? nodeInboxJump : null
+        const folder = nodeInboxFolder?.agent === inboxId ? nodeInboxFolder : null
         const close = () => { inboxes.close(inboxId); setNodeInboxJump((j) => j?.agent === inboxId ? null : j) }
         return node.kind === 'project'
           // a project's own mailbox, as its desk's inbox tab shows it
           ? <MaybePortal key={`${slug}/${inboxId}`}><ProjectInboxModal node={node} slug={slug} tree={tree} map={map} op={op}
             toast={toast} refs={canvasRefs}
-            jumpTo={jump?.id ?? null} jumpSeq={jump?.seq}
+            jumpTo={jump?.id ?? null} jumpSeq={jump?.seq} folder={folder}
             onFocusAgent={centerOn} close={close} /></MaybePortal>
           : <MaybePortal key={`${slug}/${inboxId}`}><NodeInboxModal node={node} slug={slug}
             toast={toast}

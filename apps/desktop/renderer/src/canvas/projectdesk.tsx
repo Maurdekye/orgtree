@@ -63,7 +63,7 @@ import { projectSlotState, slotCount, slotHeaderText, slotsFull } from './slots'
 import { SlotsView } from './slotsdesk'
 import { DeadLettersView } from './deaddesk'
 import { ListenersView } from './listenersdesk'
-import { eventListenersOn, listenerCards, mailListenerState, mailQueueCard, projectListenerState, queueAckMode } from './listeners'
+import { eventListenersOn, listenerCards, mailListenerState, mailQueueCard, mailQueueFolder, projectListenerState, queueAckMode } from './listeners'
 import { MailListenersView } from './maillisteners'
 import { MailQueueJoin } from './mailqueuejoin'
 import { InboxNoListeners, inboxListened } from './inboxwarning'
@@ -855,7 +855,7 @@ export function ProjectDesk({ node, slug, tree, map, op, toast, refs, bare, focu
             className={'project-listeners-card' + (c.bright ? ' bright' : '')}
             title={c.title} onClick={() => setView('listeners')}>{c.text}</button>)}
           {queue && <button type="button" className={'project-queue-card' + (queue.bright ? ' bright' : '')}
-            title={queue.title} onClick={() => openInbox(queue.listeners > 0 ? 'listeners' : 'inbox')}>{queue.text}</button>}
+            title={queue.title} onClick={() => openInbox(mailQueueFolder(queue))}>{queue.text}</button>}
           {slots.total > 0 && <button type="button" className={'project-slots-card' + (slotsFull(slots) ? ' full' : '')}
             title={'open the Concurrency slots tab' + (slots.held.length ? ` — held by ${slots.held.map(h => h.agent).join(', ')}` : '')} onClick={() => setView('slots')}>{slotHeaderText(slots)}</button>}
           {/* no holder links here (user 2026-10-19 17:12Z): the holders are on the slots tab */}
@@ -1010,19 +1010,31 @@ export function ProjectDeskModal({ close, pinAsWindow, ...props }: ProjectDeskPr
  *  tab pinned or popped out. NodeInboxModal's frame (the `node-inbox` kind, so
  *  pins, pop-outs and restores are the agent inbox window's), with the
  *  project's own mailbox inside rather than an agent's. */
-export function ProjectInboxModal({ node, slug, tree, map, op, toast, refs, close, jumpTo, jumpSeq, onFocusAgent }: {
+export function ProjectInboxModal({ node, slug, tree, map, op, toast, refs, close, jumpTo, jumpSeq, folder, onFocusAgent }: {
   node: CanvasNode; slug: string; tree: TreePayload; map: Map<string, CanvasNode>; op: OpFn; toast: ToastFn
   refs?: RefRoutes
   close: () => void
   jumpTo?: string | null
   jumpSeq?: number | null
+  /** the folder the canvas asks for (the node's queue badge opens the
+   *  listeners folder while mail listeners are armed, as the desk's queue
+   *  card does); a new seq is a new request, as the desk's card asks */
+  folder?: { folder: string; seq: number } | null
   onFocusAgent?: (id: string) => void
 }) {
   // the listeners folder's link to a held job; a negative seq, so it is never
   // the same request as a jump the canvas asked for
   const [held, setHeld] = useState<{ id: string; seq: number } | null>(null)
-  const [ask, setAsk] = useState<{ folder: string; seq: number } | null>(null)
+  const [ask, setAsk] = useState<{ folder: string; seq: number } | null>(() => folder ? { folder: folder.folder, seq: 1 } : null)
   useEffect(() => { setHeld(null) }, [jumpTo, jumpSeq])
+  // a request made while the window is open (the mount itself already holds
+  // the first one): the folder it names, as a fresh ask of the strip
+  const askedSeq = useRef(folder?.seq)
+  useEffect(() => {
+    if (!folder || folder.seq === askedSeq.current) return
+    askedSeq.current = folder.seq
+    setAsk((a) => ({ folder: folder.folder, seq: (a?.seq ?? 0) + 1 }))
+  }, [folder?.folder, folder?.seq])
   // ⚠ A REFERENCE CLOSES THIS MODAL ON THE WAY OUT, as NodeInboxModal's do:
   // everything a token can open is under this overlay
   const leaving = useMemo(() => refs && {

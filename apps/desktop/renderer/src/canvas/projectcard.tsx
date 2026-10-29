@@ -35,6 +35,7 @@ import { AgentRetireConfirm, projectMenuEntries } from './agentmenu'
 import type { RetireKind } from './agentmenu'
 import { slotsFull, heldSlotCount } from './slots'
 import { projectHeaderFacts } from './projectheaderfacts'
+import { mailQueueFolder } from './listeners'
 import { readQuickChat } from '../quickchat'
 import { agentTooltipProps } from './agentnav'
 import { useAgentSurfaceRoutes } from './panelcorner'
@@ -85,7 +86,9 @@ interface ProjectSquareProps {
   onSpawnTop?: (tier: string) => void
   /** the side and top strips' project tokens */
   onNewProjectAt?: (edge: 'l' | 'r' | 't') => void
-  onInbox: (keepOpen?: boolean) => void
+  /** `folder` names the mailbox folder to land on (the queue badge: listeners while
+   *  mail listeners are armed, else the inbox, as the desk's queue card opens it) */
+  onInbox: (keepOpen?: boolean, folder?: string) => void
   onTeam?: (keepOpen?: boolean) => void
   onSettings?: (keepOpen?: boolean) => void
   /** the project's docket: its attached items */
@@ -266,9 +269,9 @@ export function ProjectSquare({ node, pos, lod, focused, pinnedFocus, pinned, on
               : <span key={c.key} className={'project-listeners-badge' + (c.bright ? ' bright' : '')}
               title={c.title}>{c.text}</span>)}
             {queue && <button type="button" className={'project-queue-badge' + (queue.bright ? ' bright' : '')} title={queue.title}
-              aria-label={queue.listeners > 0 && surfaceRoutes ? `events of project ${node.id}` : `mailbox of project ${node.id}`}
+              aria-label={`mailbox of project ${node.id}`}
               onPointerDown={(e) => e.stopPropagation()}
-              onClick={(e) => { e.stopPropagation(); if (queue.listeners > 0 && surfaceRoutes) surfaceRoutes.open('project-listeners', node.id); else onInbox() }}>{queue.text}</button>}
+              onClick={(e) => { e.stopPropagation(); onInbox(true, mailQueueFolder(queue)) }}>{queue.text}</button>}
             {!deskOpen && onRetired && <RetiredBadge parent={node.id} count={retiredCount} onOpen={onRetired} />}
             </div>
           </div>
