@@ -23,7 +23,7 @@ import type {
   HireDefaultsRequest, HistoryPayload, HostPayload,
   InboxPayload, MailEntry,
   LangServer, LangServerDoc, LangServerProbe, LangServerRepriced,
-  HarnessesDoc, McpServersPayload, OpenRouterDoc, OpenRouterModelsPage, OpenRouterSort,
+  HarnessesDoc, McpServersPayload, NodeHarness, OpenRouterDoc, OpenRouterModelsPage, OpenRouterSort,
   OpRequest, OpResult, OrgListEntry, OrgMdPayload,
   OrgInboxEntry, OrgNetReveal, NetRecent, HubConnections, ProvidersPayload, ReorderRequest,
   RuntimeSettingsPayload,
@@ -1158,6 +1158,10 @@ export const setOpenRouterKeyEnabled = (id: string, enabled: boolean): Promise<O
 /** every harness the engine knows (App settings › Harnesses): presence
  *  only, nothing is spawned */
 export const getHarnesses = (): Promise<HarnessesDoc> => req('/api/harnesses')
+/** the agent settings Model tab's Harness row for a seat on `tier` (the
+ *  model chosen in the tab; engine `harnesses::seat_row`) */
+export const getNodeHarness = (slug: string, nid: string, tier: string): Promise<NodeHarness> =>
+  req(`/api/orgs/${slug}/nodes/${encodeURIComponent(nid)}/harness?tier=${encodeURIComponent(tier)}`)
 /** remove a key, any key alike: each agent on it moves to another key it may
  *  run on, or waits until one is added */
 export const removeOpenRouterKey = (id: string): Promise<OpenRouterDoc> =>

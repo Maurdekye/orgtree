@@ -1694,6 +1694,26 @@ export interface OpenRouterKey {
    *  explicit one): a change of the key's harness skips them */
   pinned_seats?: number
 }
+/** GET /api/orgs/{slug}/nodes/{nid}/harness?tier=: the agent settings Model
+ *  tab's Harness row (user 2026-10-29), DECIDED IN THE BACKEND
+ *  (`harnesses::seat_row`). An OpenRouter or language model server seat
+ *  follows its key's or server's harness, or keeps one of its own. */
+export interface NodeHarness {
+  tier: string
+  /** the lane whose harness it chooses; null: that tier has no choice */
+  lane: 'openrouter' | 'langserver' | null
+  /** what Follow follows: the key's or server's harness, and whose */
+  follow: { id: string; label: string; installed: boolean; source: 'key' | 'server'; name: string } | null
+  /** its own harness, if it has one */
+  pin: string | null
+  /** what its session runs on now */
+  current: string | null
+  /** every harness it may choose, as the key dialog lists them */
+  options: { id: string; label: string; installed: boolean; available: boolean; why: string }[]
+  /** the tab's model change takes it to another lane or server: its
+   *  harness is chosen after that change is saved */
+  moves?: boolean
+}
 /** GET /api/harnesses: the engine's one harness registry (harnesses.rs) */
 export interface HarnessesDoc {
   harnesses: HarnessInfo[]
@@ -2527,6 +2547,8 @@ export interface OpRequest {
   /** multi-account: the account chosen WITH a cross-provider switch_model
    *  (required when the node is bound; validated at the door) */
   account?: string | null
+  /** the harness op: a seat's own harness (null: it follows its key or server) */
+  harness?: string | null
   grant?: number | null
   name?: string | null
   charter?: string | null

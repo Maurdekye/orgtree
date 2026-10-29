@@ -127,7 +127,7 @@ export function OpenRouterKeyDialog({ title, keyRequired, initialName, harness, 
             : changed
               ? `Its agents move to ${harnessName(harness.options, picked)} at their next turn, on a fresh session that starts with a summary.`
               : 'The CLI that runs agents on this key. A change reaches them at their next turn.'}
-          {harness.pinned > 0 && ` ${harness.pinned} ${harness.pinned === 1 ? 'agent was' : 'agents were'} hired with a chosen harness and ${harness.pinned === 1 ? 'keeps it' : 'keep theirs'}.`}
+          {harness.pinned > 0 && ` ${harness.pinned} ${harness.pinned === 1 ? 'agent has a harness of its own and keeps it' : 'agents have a harness of their own and keep it'}.`}
         </div>
         <HarnessesLink />
       </>}

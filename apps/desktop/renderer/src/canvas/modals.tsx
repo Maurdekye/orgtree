@@ -49,6 +49,7 @@ import type { SettingsTarget } from './settingskit'
 import { fmtAge } from '../timefmt'
 import { ageTitle, turnEndedTitle } from './listage'
 import { AccountSelect } from './accountselect'
+import { AgentHarnessRow, harnessOp, useNodeHarness } from './agentharness'
 import { peekStaffingOptions, tierEffortLevels } from './staffingoptions'
 import { useAgyModelsRefresh } from './shared'
 import { museHireAccount } from './musehire'
@@ -1397,6 +1398,13 @@ function AgentConfig({ node, map, tree, slug, op, toast, claudeProvider, codexPr
   const peerMail = val('peerMail', node.peer_mail ?? node.configured_scope?.peer_mail ?? scope.peer_mail ?? true)
   const setPeerMail = set<boolean>('peerMail', peerMail)
   const model = val('model', node.pending_switch?.tier ?? node.tier!)
+  // the Harness row (user 2026-10-29): the engine's answer for the model
+  // chosen here. The draft is '' (follow its key or server) or a harness id,
+  // sent only when it differs from the seat's own and the model stays on
+  // its lane and server
+  const harnessRow = useNodeHarness(slug, node.id, model)
+  const harness = val<string>('harness', harnessRow?.pin ?? '')
+  const harnessChanged = 'harness' in edit && !!harnessRow?.lane && !harnessRow.moves && harness !== (harnessRow.pin ?? '')
   const setModel = set<string>('model', model)
   const effort = val('effort', scope.effort ?? '')
   const setEffort = set<string>('effort', effort)
@@ -1519,6 +1527,7 @@ function AgentConfig({ node, map, tree, slug, op, toast, claudeProvider, codexPr
       const steps: Record<string, unknown>[] = []
       if (modelRequested) steps.push({ op: 'switch_model', node: node.id, tier: model, ...(acct ? { account: acct } : {}) })
       if (model === node.tier && acctChanged && acct) steps.push({ op: 'account', node: node.id, account: acct })
+      if (harnessChanged) steps.push({ op: 'harness', node: node.id, harness: harnessOp(harness) })
       steps.push({ op: 'scope', node: node.id, ...scopeBody })
       return userGesture(slug, steps, `Settings: ${node.id}`)
         .then(r => {
@@ -1570,6 +1579,7 @@ function AgentConfig({ node, map, tree, slug, op, toast, claudeProvider, codexPr
               + (d.session_boundary ? ' — session restarts next turn' : '')])
           })
         : Promise.resolve())
+      .then(() => harnessChanged ? op({ op: 'harness', node: node.id, harness: harnessOp(harness) }) : undefined)
       .then(() => saveScope(slug, node.id,
         scopeBody))
       .then((r) => {
@@ -1782,6 +1792,9 @@ function AgentConfig({ node, map, tree, slug, op, toast, claudeProvider, codexPr
           </>
         )}
 
+
+        {harnessRow?.lane && <AgentHarnessRow row={harnessRow} value={harness}
+          onChange={(value) => setEdit((old) => ({ ...old, harness: value }))} />}
 
         <SetRow label="Thinking effort" hint="Choose how much effort the model spends reasoning."><EffortBar value={effort} level={tree.default_effort || tree.effort_default || 'high'}
           levels={museModel ? museEffortLevels(model, museVersion, levelsAcct) : tierEffortLevels(tree.slug, model)}
