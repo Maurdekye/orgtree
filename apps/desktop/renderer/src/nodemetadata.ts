@@ -10,6 +10,7 @@ export type NodeStreamFrame = {
   convo_rows?: import('./types').ChatMessage[];
   committed_row?: import('./types').ChatMessage;
   draft_clear?: boolean; thinking_clear?: boolean;
+  tool_writing?: import('./types').ChatTransient[];
   count?: number | null; last_turn_count?: number | null; provider?: string;
   source?: string | null; reason?: string | null; emitted_at_ms?: number;
   waiting?: boolean; state?: string | null; forecast?: CacheForecast | null;

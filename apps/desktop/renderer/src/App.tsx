@@ -1389,6 +1389,10 @@ export default function App() {
           ...(data.assistant_row !== undefined ? { assistant_row: data.assistant_row } : {}),
           ...(Array.isArray(data.convo_rows) ? { convo_rows: data.convo_rows,
             draft_clear: data.draft_clear, thinking_clear: data.thinking_clear } : {}),
+          // the calls still being written, in the SAME frame as the saved rows
+          // that consumed the others: dropping it left a finished call's live
+          // row standing until the next poll (4.5.1, convo.ts ingestStream)
+          ...(Array.isArray(data.tool_writing) ? { tool_writing: data.tool_writing } : {}),
           ...(data.committed_row ? { committed_row: data.committed_row } : {}),
           ...(typeof data.event_id === 'string' ? { event_id: data.event_id } : {}),
           ...(typeof data.reply_quote === 'string' ? { reply_quote: data.reply_quote } : {}),
