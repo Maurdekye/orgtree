@@ -4,9 +4,19 @@ Agents receive a short call contract and an `orgtree-tool-<name>` glossary point
 for each permitted Orgtree tool. The guide owns procedures and extended examples.
 Cards retain the immediate constraints: mail metadata before body, recipient and
 attachment authority, explicit hire fields, docket ownership/attention rules,
-watchdog execution authority, and document/file delivery distinctions. Input
-schemas, property order, required fields and tool handlers keep their existing
-behavior. Both split and Antigravity flat mail shapes remain supported.
+watchdog execution authority, and document/file delivery distinctions. Property
+order, required fields and runtime tool handlers keep their existing behavior;
+every schema property, array `items`, `additionalProperties` object and
+`anyOf`/`oneOf` branch declares an explicit `type` (or typed combinator, with
+`items` on every `array` and `type` on every `enum`) so strict provider
+validators (such as Moonshot Kimi on the `claude-code` harness) accept all
+Orgtree tool definitions (`strict_schema_validation_tests`). Because strict
+non-recursive schemas require every `array` to declare `items`, the advertised
+`message`, `payload` and `hello` array schemas terminate their leaf `items` at
+`string | number | boolean | object | null` (`json_array_items_schema`) and omit
+nested arrays (`[["x"]]`), while direct runtime `serde_json::Value` acceptance in
+the engine handlers remains unchanged. Both split and Antigravity flat mail
+shapes remain supported.
 
 `tools::defs::deferred` explicitly selects 23 less frequent lifecycle, placement,
 account-recovery, Logo, transfer and request tools. Their
