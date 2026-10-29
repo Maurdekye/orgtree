@@ -95,7 +95,8 @@ pub struct CodexProc {
 pub struct Sandbox {
     /// read-only | workspace-write | danger-full-access
     pub mode: &'static str,
-    /// on-request, or untrusted for a read-only seat run without the sandbox
+    /// on-request; never for a full-access bypassPermissions seat; untrusted for
+    /// a read-only seat run without the sandbox
     pub approval: &'static str,
     /// the OS sandbox was turned off because the engine is in Session 0
     pub session0: bool,
@@ -108,6 +109,14 @@ pub struct Sandbox {
 /// every command or patch is then an approval request (on Windows Codex runs
 /// none unasked), which its policy declines, so the seat has no shell until
 /// Codex runs in the user's session again (ruling 2026-10-10).
+///
+/// A bypassPermissions seat with write access runs danger-full-access and is
+/// started with approvalPolicy never: under on-request Codex still raised MCP
+/// permission prompts (an MCP server's elicitation, such as computer use asking
+/// to drive an app) for a seat the user made unrestricted. Never with full
+/// access makes Codex answer them itself, so those prompts are auto-accepted
+/// too (USER 2026-10-29 m0677fedef18b, "Unrestricted means unrestricted";
+/// DECISIONS). Every other seat keeps its policy.
 #[logged]
 pub fn sandbox(may_write: bool, permission_mode: &str, session0: bool) -> Sandbox {
     let mode = if !may_write {
@@ -118,7 +127,10 @@ pub fn sandbox(may_write: bool, permission_mode: &str, session0: bool) -> Sandbo
         "workspace-write"
     };
     match (session0, mode) {
-        (false, _) | (true, "danger-full-access") => Sandbox { mode, approval: "on-request", session0: false },
+        (false, _) | (true, "danger-full-access") => {
+            let approval = if mode == "danger-full-access" { "never" } else { "on-request" };
+            Sandbox { mode, approval, session0: false }
+        }
         (true, "read-only") => Sandbox { mode: "danger-full-access", approval: "untrusted", session0: true },
         (true, _) => Sandbox { mode: "danger-full-access", approval: "on-request", session0: true },
     }
