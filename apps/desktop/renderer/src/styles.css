@@ -8321,6 +8321,15 @@ label.set-row { cursor: pointer; }
   display: block; max-width: 34em; line-height: 1.5;
   color: var(--ink, inherit); font-style: italic;
 }
+/* A MESSAGE THAT COULD NOT RENDER (canvas/mailitemboundary.tsx). Unlike the
+   notice above this IS a fault, so it is styled like the mailbox's own load
+   error (.mailload.err). The row keeps its place in the list and is not a
+   click target. */
+.mailrow.mail-item-error {
+  cursor: default; font-style: italic;
+  color: var(--ink-strong); background: var(--warn-bg, var(--panel-2));
+}
+.mailer-read .mail-item-error { font-style: italic; }
 
 /* ---- MODALS PINNED TO THE WINDOW (canvas/modalpin.tsx) ------------------
    User spec 2026-09-06: "most openable modals in the app should be able to be

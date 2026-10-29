@@ -59,6 +59,7 @@ import { isMobile } from '../mobile'
 import { closeIfCentred, PinFrame } from './modalpin'
 import { instanceKind } from '../modalkinds'
 import { CollapsibleMailer } from './narrowlist'
+import { MailItemBoundary, Rendered } from './mailitemboundary'
 import { CopyFeedback, copyToClipboard, useContextMenu } from './contextmenu'
 import type { MenuEntry } from './contextmenu'
 import { MAIL_COPY_FAILED, fetchMailRowForCopy, mailRowCopyText, mailRowNeedsFullFetch, resolveFullMailCopyText } from './copytext'
@@ -688,8 +689,12 @@ export function MailList({ org, pending = [], delivered = [], waitLabel, sender,
           // that is the newest, and the row keeps its place in the ordering
           const m = g[0]!
           const view = typedView(m)
+          // ⚠ EACH ROW ENDS AT ITS OWN BOUNDARY, and the caller's renderers
+          // for it run INSIDE that boundary (`Rendered`): called here, a
+          // throw from one would fail this whole list, and the window with it
           return (
-          <MailRowView key={keyOf(m)} m={m} pile={g.length} view={view} hideMailReplyKind={hideMailReplyKind} projectMail={projectMail}
+          <MailItemBoundary key={keyOf(m)}>
+          <MailRowView m={m} pile={g.length} view={view} hideMailReplyKind={hideMailReplyKind} projectMail={projectMail}
             filterTags={tagFilter?.selected} identity={(() => {
               const ref = parseRef(refOf?.(m) ?? '')
               return ref?.kind === 'mail' && ref.box ? { ...ref, box: ref.box } : undefined
@@ -697,7 +702,9 @@ export function MailList({ org, pending = [], delivered = [], waitLabel, sender,
             onFocusAgent={onFocusAgent} hasAgent={hasAgent} tierOf={tierOf}
             selected={m === cur} outgoing={outgoing}
             flash={Boolean(jumpTo && g.some((x) => keyOf(x) === jumpTo))}
-            party={rowParty(m)} mark={rowMark?.(m)} onRetract={onRetract} onTag={tagFilter ? tag=>filterByRowTag(m,tag):undefined}
+            party={<Rendered render={() => rowParty(m)} />}
+            mark={rowMark ? <Rendered render={() => rowMark(m)} /> : undefined}
+            onRetract={onRetract} onTag={tagFilter ? tag=>filterByRowTag(m,tag):undefined}
             rowRef={(el) => {
               // a jump aimed at a folded member lands on the row that now
               // carries it, not on nothing
@@ -720,6 +727,7 @@ export function MailList({ org, pending = [], delivered = [], waitLabel, sender,
               }
             }}
             onContextMenu={(e) => menu.open(e, () => rowMenu(m))} />
+          </MailItemBoundary>
           )
         })}
         {piles.length > vis && (
@@ -736,7 +744,10 @@ export function MailList({ org, pending = [], delivered = [], waitLabel, sender,
           <button aria-label="Remove reply target" onClick={() => setReplyTargets(replyTargets.filter(r => r.id !== m.id))}>×</button>
         </div>)}
         {replyTargets.length > 0 && <button className="link" onClick={() => setReplyTargets([])}>Cancel all replies</button>}
+        {/* the reading pane ends at its own boundary too, keyed by the message
+            it shows: another message opens in it afresh */}
         {cur && (
+          <MailItemBoundary pane key={keyOf(cur)}>
           <MailReadPane cur={cur} members={curPile} org={org} refs={refs} hideMailReplyKind={hideMailReplyKind}
             compoundHeader={compoundHeader}
             onFocusAgent={onFocusAgent} hasAgent={hasAgent} tierOf={tierOf}
@@ -753,6 +764,7 @@ export function MailList({ org, pending = [], delivered = [], waitLabel, sender,
               : undefined}
             onAckJob={onAckJob && !outgoing && cur.queue?.job ? (reply, opts) => onAckJob(cur, reply, opts) : undefined}
             toast={toast} onTag={tagFilter ? tag=>tagFilter.onChange(toggleMailTag(tagFilter.selected,tag)):undefined} />
+          </MailItemBoundary>
         )}
         {!cur && (
           <div className="dim pad mailer-none">
