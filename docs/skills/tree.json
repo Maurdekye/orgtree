@@ -5961,12 +5961,13 @@
     "node:model_version",
     "node:effort"
    ],
-   "purpose": "Model tab: tier, model version, thinking effort, pending model change.",
+   "purpose": "Model tab: tier, model version, harness, thinking effort, pending model change.",
    "must_cover": [
     "pending changes"
    ],
    "sources": [
-    "apps/desktop/renderer/src/canvas/modals.tsx:1343-1436"
+    "apps/desktop/renderer/src/canvas/modals.tsx:1343-1436",
+    "apps/desktop/renderer/src/canvas/agentharness.tsx"
    ],
    "see_also": [
     "tool-switch-model"
@@ -5985,6 +5986,10 @@
     {
      "file": "apps/desktop/renderer/src/canvas/modals.tsx",
      "label": "Thinking effort"
+    },
+    {
+     "file": "apps/desktop/renderer/src/canvas/agentharness.tsx",
+     "label": "Harness"
     },
     {
      "file": "apps/desktop/renderer/src/canvas/modals.tsx",
