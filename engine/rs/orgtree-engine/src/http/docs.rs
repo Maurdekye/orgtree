@@ -151,30 +151,19 @@ pub struct ListQuery {
 /// Presentations offered while one `@` is being completed.
 pub const SEARCH_MAX: i64 = 20;
 
-/// The org's gallery presentations (dismissed ones are not offered) whose
-/// title or slug holds every typed word, newest first, at most SEARCH_MAX.
-/// The scan walks the gallery's newest-first index and stops at the limit.
+/// Gallery presentations whose title or slug holds every typed word. This is
+/// the same scoped, newest-first, fully shaped page as the ordinary list: the
+/// composer's @ list keeps its 20-row default, while the gallery can page
+/// through every match in its accessible history rather than its loaded prefix.
 #[logged]
-async fn search(client: &tokio_postgres::Client, org_id: i64, raw: &str) -> ApiResult<Json<Value>> {
+async fn search(client: &tokio_postgres::Client, o: &crate::orgs::OrgHandle, node: &str,
+    members: &Option<Vec<i64>>, raw: &str, offset: i64, limit: i64, visible: bool, hired: bool) -> ApiResult<Json<Value>> {
     if raw.len() > 200 {
         return Err(ApiError::bad_request("search text is limited to 200 bytes"));
     }
     let terms: Vec<String> = raw.to_lowercase().split_whitespace().map(str::to_string).collect();
-    let rows = client
-        .query(
-            "SELECT d.slug, d.title, d.format, coalesce(a.name, d.node_name) FROM ot.documents d LEFT JOIN ot.agents a ON a.id = d.agent_id
-              WHERE d.org_id = $1 AND NOT d.dismissed
-                AND NOT EXISTS (SELECT 1 FROM unnest($2::text[]) term WHERE position(term IN lower(d.title || ' ' || d.slug)) = 0)
-              ORDER BY d.at DESC, d.id DESC LIMIT $3",
-            &[&org_id, &terms, &SEARCH_MAX],
-        )
-        .await?;
-    let found: Vec<Value> = rows
-        .iter()
-        .map(|r| json!({ "id": r.get::<_, String>(0), "title": r.get::<_, String>(1), "format": r.get::<_, String>(2),
-                         "node": r.get::<_, String>(3) }))
-        .collect();
-    Ok(Json(json!({ "documents": found })))
+    let limit = if limit > 0 { limit.min(1000) } else { SEARCH_MAX };
+    list_page(client, o, node, members.as_deref(), offset.max(0), limit, None, visible, hired, Some(terms)).await
 }
 
 /// One bounded read of mention labels (`?refs=`), like the apps' refs read.
@@ -257,19 +246,19 @@ pub async fn list(State(e): State<Arc<Engine>>, Path(slug): Path<String>, Query(
     if let Some(raw) = &q.refs {
         return refs(&client, o.id, raw).await;
     }
-    if let Some(raw) = &q.search {
-        return search(&client, o.id, raw).await;
-    }
     let node = q.node.trim().to_string();
     let team = matches!(q.team.as_deref(), Some("1" | "true"));
     let members = subtree_members(&client, &o, &node, team).await?;
     let hired=matches!(q.hired.as_deref(), Some("1" | "true"));
+    if let Some(raw) = &q.search {
+        return search(&client, &o, &node, &members, raw, q.offset, q.limit, q.visible, hired).await;
+    }
     let limit = if q.limit > 0 { q.limit.min(1000) } else { 60 };
     if q.locate.is_empty() && matches!(q.opening.as_deref(), Some("1" | "true")) {
         let target = opening_target(&client, o.id, &node, &members,
             hired, &q.previous, q.visible).await?;
         let offset = target.as_ref().map_or(0, |(_, position)| position / limit * limit);
-        let Json(mut page) = list_page(&client, &o, &node, members.as_deref(), offset, limit, None, q.visible, hired).await?;
+        let Json(mut page) = list_page(&client, &o, &node, members.as_deref(), offset, limit, None, q.visible, hired, None).await?;
         page["opening_id"] = json!(target.as_ref().map(|(id, _)| id));
         page["opening_position"] = json!(target.as_ref().map(|(_, position)| position));
         return Ok(Json(page));
@@ -295,12 +284,12 @@ pub async fn list(State(e): State<Arc<Engine>>, Path(slug): Path<String>, Query(
             let (start, size) = gallery_locate_page(p, limit);
             // `located` echoes the request; `located_id` is the slug the page
             // lists it by, which differs when the request was an old id
-            let Json(mut page) = list_page(&client, &o, &node, members.as_deref(), start, size, located, q.visible, hired).await?;
+            let Json(mut page) = list_page(&client, &o, &node, members.as_deref(), start, size, located, q.visible, hired, None).await?;
             page["located_id"] = json!(id);
             return Ok(Json(page));
         }
     }
-    list_page(&client, &o, &node, members.as_deref(), offset, limit, located, q.visible, hired).await
+    list_page(&client, &o, &node, members.as_deref(), offset, limit, located, q.visible, hired, None).await
 }
 
 /// The nodes whose documents a TEAM gallery lists, or `None` for the plain
@@ -354,6 +343,7 @@ async fn list_page(
     located: Option<String>,
     visible: bool,
     hired: bool,
+    terms: Option<Vec<String>>,
 ) -> ApiResult<Json<Value>> {
     let members: Option<Vec<i64>> = members.map(<[i64]>::to_vec);
     let rows = client
@@ -370,8 +360,11 @@ async fn list_page(
                 AND CASE WHEN $5::bigint[] IS NULL THEN ($2 = '' OR d.node_name = $2)
                          ELSE (d.agent_id = ANY($5) OR (d.agent_id IS NULL AND d.node_name = $2)) END
                 AND (NOT $6::boolean OR (NOT d.dismissed AND (NOT $7::boolean OR a.state='live')))
+                AND ($8::text[] IS NULL OR NOT d.dismissed)
+                AND ($8::text[] IS NULL OR NOT EXISTS (SELECT 1 FROM unnest($8::text[]) term
+                      WHERE position(term IN lower(d.title || ' ' || d.slug)) = 0))
               ORDER BY d.id DESC OFFSET $3 LIMIT $4",
-            &[&o.id, &node, &offset, &limit, &members, &visible, &hired],
+            &[&o.id, &node, &offset, &limit, &members, &visible, &hired, &terms],
         )
         .await?;
     let total: i64 = client
@@ -379,8 +372,11 @@ async fn list_page(
             "SELECT count(*) FROM ot.documents d LEFT JOIN ot.agents a ON a.id=d.agent_id
               WHERE d.org_id = $1 AND CASE WHEN $3::bigint[] IS NULL THEN ($2 = '' OR d.node_name = $2)
                                          ELSE (d.agent_id = ANY($3) OR (d.agent_id IS NULL AND d.node_name = $2)) END
-                AND (NOT $4::boolean OR (NOT d.dismissed AND (NOT $5::boolean OR a.state='live')))",
-            &[&o.id, &node, &members, &visible, &hired],
+                AND (NOT $4::boolean OR (NOT d.dismissed AND (NOT $5::boolean OR a.state='live')))
+                AND ($6::text[] IS NULL OR NOT d.dismissed)
+                AND ($6::text[] IS NULL OR NOT EXISTS (SELECT 1 FROM unnest($6::text[]) term
+                      WHERE position(term IN lower(d.title || ' ' || d.slug)) = 0))",
+            &[&o.id, &node, &members, &visible, &hired, &terms],
         )
         .await?
         .get(0);

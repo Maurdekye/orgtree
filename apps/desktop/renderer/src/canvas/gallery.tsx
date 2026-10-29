@@ -22,8 +22,8 @@ import { DocumentDownload } from './download'
 // The BODY half is shared for real: `useDoc` + `dismissDoc` from docs.tsx
 // are the same fetch and the same dismiss the overlay reader uses.
 
-import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import type { MouseEvent as ReactMouseEvent, ReactNode } from 'react'
+import { Fragment, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import type { KeyboardEvent as ReactKeyboardEvent, MouseEvent as ReactMouseEvent, ReactNode } from 'react'
 import type { DocRow } from '../api'
 import { fileBase, mockupUrl } from '../api'
 import { onLiveBump } from '../livebus'
@@ -55,6 +55,7 @@ import { useRowCopy } from './rowcopy'
 import { openLightboxIfEligibleImage } from './lightbox'
 import { fmtFull } from '../timefmt'
 import { MailReplyBox } from './mail'
+import { DocketSearchBox } from './docket'
 import { md, TIER_LETTER, tierLabel } from './shared'
 import { ListAge } from './listage'
 
@@ -353,7 +354,12 @@ export function DocGalleryModal({ slug, toast, close, onFocusAgent, onReply,
   const [ownJump, setOwnJump] = useState<JumpReq | null>(() => resume ? newJump(resume) : null)
   const jumpTo = ownJump && (!shellJump || ownJump.seq > shellJump.seq) ? ownJump : shellJump
   const jumpHandled = ownJump && jumpTo === ownJump ? () => setOwnJump(null) : onJumpHandled
-  const w = useDocWindow(slug, '', jumpTo?.id ?? '', jumpTo?.seq ?? 0, false, resume === undefined, true)
+  const searchId = useId()
+  const [query, setQuery] = useState('')
+  const searchBox = useRef<HTMLInputElement>(null)
+  const searching = query.trim().length > 0
+  const clearSearch = useCallback(() => { setQuery(''); searchBox.current?.focus() }, [])
+  const w = useDocWindow(slug, '', jumpTo?.id ?? '', jumpTo?.seq ?? 0, false, resume === undefined, true, false, query.trim())
   const all = useMemo(() => w.rows?.filter(r => !r.evicted), [w.rows])
   const [showRetired, setShowRetired] = useState(false)
   // ONE list, grouped — not two views (user, 2026-09-03: "one tab with a
@@ -450,6 +456,21 @@ export function DocGalleryModal({ slug, toast, close, onFocusAgent, onReply,
   const openDocument = (id: string) => {
     setSelId(id)
   }
+  const escClose = useCallback(() => {
+    const box = searchBox.current
+    if (box?.value && box.ownerDocument.activeElement === box) { clearSearch(); return }
+    close()
+  }, [clearSearch, close])
+  const onSearchKey = useCallback((e: ReactKeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Escape') {
+      if (!query) return
+      e.preventDefault(); e.stopPropagation(); clearSearch()
+    } else if (e.key === 'Enter') {
+      e.preventDefault()
+      const first = rows?.[0]
+      if (first) openDocument(first.id)
+    }
+  }, [query, clearSearch, rows])
   const cur = rows?.find((r) => r.id === selId)
   useEffect(() => { if (cur) rememberReaderItem(scope,cur.id) }, [scope,cur?.id])
   const steps = usePanelSteps((rows ?? []).map(row => row.id), selId, openDocument, '.doc-gallery-row')
@@ -480,10 +501,14 @@ export function DocGalleryModal({ slug, toast, close, onFocusAgent, onReply,
     // `onPanelClick`, which the frame runs BEFORE the stopPropagation every
     // other click in the modal still needs to keep the backdrop from closing
     <PinFrame kind="gallery" title="Presented documents" restore={{selection:selId ?? ''}}
-      panel="settings wide gallery-modal" close={close}
+      panel="settings wide gallery-modal" close={close} onEsc={escClose}
       onPanelClick={openLightboxIfEligibleImage}>
-        <div className="gallery-head">
+        <div className="gallery-head docket-head">
           <h3><DocIcon fontSize="inherit" /> Presented documents</h3>
+          <DocketSearchBox searchId={searchId} query={query} setQuery={setQuery} boxRef={searchBox}
+            onKeyDown={onSearchKey} onClear={clearSearch}
+            count={searching && w.rows ? `${w.total} match` : ''}
+            placeholder="Search presentations…" ariaLabel="Search presentations by title or slug" />
           {/* one control, not two views: the retired cards JOIN the list
               below the active ones rather than replacing them. The count
               rides the label so the archive is discoverable even while it
@@ -508,10 +533,12 @@ export function DocGalleryModal({ slug, toast, close, onFocusAgent, onReply,
                     gallery's rather than one page's. */}
                 {all == null || w.busy || w.more
                   ? 'loading…'
-                  : !showRetired && retiredCt > 0
-                    ? `no cards from currently-hired agents — ${retiredCt} from `
-                      + 'retired ones, behind the checkbox above'
-                    : 'no cards have been presented yet'}
+                  : searching
+                    ? `no presentations match “${query.trim()}”`
+                    : !showRetired && retiredCt > 0
+                      ? `no cards from currently-hired agents — ${retiredCt} from `
+                        + 'retired ones, behind the checkbox above'
+                      : 'no cards have been presented yet'}
               </DocListEmpty>
             : (
                 <CollapsibleMailer collapsible threshold={NARROW_DOCS_WIDTH} listLabel="document list"

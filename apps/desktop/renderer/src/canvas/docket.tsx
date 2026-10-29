@@ -734,7 +734,8 @@ export function makeHaystack(): (it: WorkItem) => string {
 /** The search box both dockets share: input, clear button and live match count.
  *  The count region stays mounted so assistive tech is already watching it; the
  *  clear is a real button because the native one is not keyboard-reachable. */
-function DocketSearchBox({ searchId, query, setQuery, boxRef, onKeyDown, onClear, count }: {
+export function DocketSearchBox({ searchId, query, setQuery, boxRef, onKeyDown, onClear, count,
+  placeholder = 'Search tickets…', ariaLabel = 'Search work items by title, name, description or latest progress' }: {
   searchId: string
   query: string
   setQuery: (q: string) => void
@@ -742,13 +743,15 @@ function DocketSearchBox({ searchId, query, setQuery, boxRef, onKeyDown, onClear
   onKeyDown: (e: ReactKeyboardEvent<HTMLInputElement>) => void
   onClear: () => void
   count: string
+  placeholder?: string
+  ariaLabel?: string
 }) {
   return (
     <div className="docket-search" role="search">
       <input ref={boxRef} type="search" className="docket-search-input"
         id={`${searchId}-q`}
-        placeholder="Search tickets…"
-        aria-label="Search work items by title, name, description or latest progress"
+        placeholder={placeholder}
+        aria-label={ariaLabel}
         aria-describedby={`${searchId}-n`}
         autoComplete="off" spellCheck={false}
         value={query} onChange={(e) => setQuery(e.target.value)}
