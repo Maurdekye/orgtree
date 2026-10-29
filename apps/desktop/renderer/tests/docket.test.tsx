@@ -10,6 +10,7 @@ import { readFileSync } from 'node:fs'
 import path from 'node:path'
 import { AgentDocketView, DocketModal, DocketToolbarButton } from '../src/canvas/docket'
 import { ago } from '../src/canvas/shared'
+import { fmtFull } from '../src/timefmt'
 import { pinModal, unpinModal } from '../src/canvas/modalpin'
 import { CurrentOrg } from '../src/popout'
 import { InboxPanel, SenderChip } from '../src/App'
@@ -2336,8 +2337,9 @@ uiTest('§38f the age beside each row reads the clock the list is sorted by', as
   // user 2026-09-07 06:50: "Newest first" tickets must show time since
   // CREATION, "Last status change" time since the last STATUS update — and a
   // progress note must not refresh a status age. Stamps are laid out relative
-  // to the (fake) clock so `ago` yields three DIFFERENT readable ages per row;
-  // an age read from the wrong clock is then visible, never a coincidence.
+  // to the (fake) clock so each row has three DIFFERENT readable ages; an age
+  // read from the wrong clock is then visible, never a coincidence. The ages
+  // are the one list scale (listage.test.tsx): 50 h reads 2d, not 50h.
   forgetGroupChoice(); forgetSortChoice()
   const H = 3600_000
   const stamp = (msAgo: number) => new Date(Date.now() - msAgo).toISOString()
@@ -2357,17 +2359,19 @@ uiTest('§38f the age beside each row reads the clock the list is sorted by', as
     const m = r.querySelector('.l1 .mtime') as HTMLElement
     return { text: m.textContent, title: m.getAttribute('title') ?? '', aria: m.getAttribute('aria-label') ?? '' }
   }
-  const byName = (t: string) => fx.find((i) => i.title === t)!
-  const clocks: [string, 'updated' | 'created' | 'status', (i: WorkItem) => string][] = [
-    ['updated', 'updated', (i) => String(i.docket_at)],
-    ['created', 'created', (i) => String(i.at)],
-    ['last status change', 'status', (i) => String(i.status_at)],
+  const expected: Record<string, Record<'updated' | 'created' | 'status', string>> = {
+    'alpha-item': { updated: '60m', created: '30h', status: '10h' },
+    'bravo-item': { updated: '2h', created: '5h', status: '20h' },
+    'charlie-item': { updated: '3h', created: '2d', status: '4h' },
+  }
+  const clocks: [string, 'updated' | 'created' | 'status'][] = [
+    ['updated', 'updated'], ['created', 'created'], ['last status change', 'status'],
   ]
-  for (const [word, mode, clock] of clocks) {
+  for (const [word, mode] of clocks) {
     await chooseSort(el, mode)
     for (const t of titles(el)) {
       const a = ageOf(t)
-      assert.equal(a.text, ago(clock(byName(t))), `${mode}: age of ${t} reads the ${word} clock`)
+      assert.equal(a.text, expected[t]![mode], `${mode}: age of ${t} reads the ${word} clock`)
       assert.ok(a.title.startsWith(word + ' '), `${mode}: tooltip names the clock (${a.title})`)
       assert.equal(a.aria, a.title, 'the accessible label says the same as the tooltip')
     }
@@ -2375,9 +2379,23 @@ uiTest('§38f the age beside each row reads the clock the list is sorted by', as
   // the three clocks really give three different ages for every row — the
   // check above cannot pass by coincidence
   for (const i of fx) {
-    const ages = new Set([ago(String(i.at)), ago(String(i.docket_at)), ago(String(i.status_at))])
+    const ages = new Set(Object.values(expected[i.title]!))
     assert.equal(ages.size, 3, `fixture: three distinct ages for ${i.title}`)
   }
+})
+
+uiTest('§38i an open ticket\'s header says when it was updated, in full', async (mount) => {
+  // USER 2026-10-29 m019c9500d23a "A7 use time ago in list, full date and time
+  // in header of detail tab": the row says 3h, the open pane the instant.
+  forgetGroupChoice(); forgetSortChoice()
+  const docketAt = new Date(Date.now() - 3 * 3600_000).toISOString()
+  mockWorkItems([mkItem({ title: 'Work Item', docket_at: docketAt })])
+  const { el } = await mount(docketModal())
+  await flush()
+  await selectDocketRow(rows(el)[0])
+  await flush()
+  const sub = el.querySelector('.docket-pane-sub')?.textContent ?? ''
+  assert.ok(sub.includes('Updated ' + fmtFull(docketAt)), `the full date and time: ${sub}`)
 })
 
 uiTest('§38g the agent docket (default updated order) keeps the updated age', async (mount) => {

@@ -21,7 +21,7 @@ import { legacyAppBackend } from './appfeed-fixture'
 import { resetSeenMentions } from '../src/canvas/agentmentions'
 import { AttentionQueue } from '../src/attention/AttentionQueue'
 import { forgetAttentionMode } from '../src/attention/mode'
-import { fmtShort } from '../src/timefmt'
+import { fmtFull } from '../src/timefmt'
 import type { TreeNode, TreePayload } from '../src/types'
 
 // blurbs as the engine sends them (runtime/convo.rs user_mention_blurb: up to
@@ -80,7 +80,12 @@ test('§1 a mention row is drawn as an unread mail row: agent, mention pill and 
   assert.deepEqual(classes(l1), ['mfrom', 'mentionkind', 'mtime'])
   assert.equal(l1!.querySelector('.mfrom')!.textContent, 'worker-a')
   assert.equal(l1!.querySelector('.mentionkind')!.textContent, 'mention')
-  assert.equal(l1!.querySelector('.mtime')!.textContent, fmtShort('2026-10-18T10:00:00Z'))
+  // how long ago, the full date and time on hover (USER 2026-10-29
+  // m019c9500d23a "A7 use time ago in list"; listage.test.tsx)
+  const time = l1!.querySelector('.mtime')!
+  assert.match(time.textContent ?? '', /^\d+(s|m|h|d|w|mo|y)$/)
+  assert.equal(time.getAttribute('title'), fmtFull('2026-10-18T10:00:00Z'))
+  assert.equal(time.getAttribute('aria-label'), fmtFull('2026-10-18T10:00:00Z'))
   assert.equal(el!.querySelector('.badge') === null, true, 'no generic grey badge')
   const l2 = el!.querySelector(':scope > .l2')
   assert.deepEqual(classes(l2), ['mail-preview-text'], 'one excerpt, not two cut-out halves')
