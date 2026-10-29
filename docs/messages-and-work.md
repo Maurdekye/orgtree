@@ -212,7 +212,9 @@ This applies to the top-bar buttons, agent/project Open submenus including team 
 
 An agent's **Mail** tab is that agent's inbox and sent history. Your **Inbox** is your own received mail, questions and sent/record views. The **organization inbox** is outside correspondence. Reading one is not the same as becoming its owner or gaining a composer for all of its contacts.
 
-Select a mail to see its full body, sender, time, attachments and reply references. A link can locate a message outside the currently loaded page. Contextual user replies target the original sender or eligible recipients and retain the source reference. Composed, queued, delivered and consumed describe different stages.
+Select a mail to see its full body, sender, time, attachments and reply references. A link can locate a message outside the currently loaded page; in the organization inbox it opens Received or Sent, whichever holds the message. Contextual user replies target the original sender or eligible recipients and retain the source reference. Composed, queued, delivered and consumed describe different stages.
+
+A message that cannot be displayed shows **This message could not be shown** in its place, in the list or the reading pane. The rest of the mailbox keeps working, and a crash report is saved.
 
 For ordinary unread user mail, displaying the body and then leaving the reading pane marks it read: changing selection/filter/tab, clearing selection or closing also uses that rule. Merely loading a list row does not read it. A failed read save is shown as a failure, and attention can return. Reading an agent's mailbox in the UI does not prove the agent consumed its pending mail.
 
