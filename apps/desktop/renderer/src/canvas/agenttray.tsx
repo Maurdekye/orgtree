@@ -16,7 +16,9 @@ import { QueuedModelBadge } from './nextturn'
 import type { HTMLAttributes, MouseEvent as ReactMouseEvent, ReactNode, Ref } from 'react'
 import type { NodeStatus } from '../types'
 import type { CanvasNode } from './shared'
-import { ago, DRAFT, providerOf, tierLabel, USER } from './shared'
+import { DRAFT, providerOf, tierLabel, USER } from './shared'
+import { fmtAge } from '../timefmt'
+import { ageTitle } from './listage'
 import { ContextWheel, TrayStatus } from './desk'
 import type { RefRoutes } from './reflinks'
 import { Written } from './reflinks'
@@ -220,7 +222,7 @@ export function AgentTray({
                 <span className="tray-sum-text">
                   {stat.status}: <Written text={stat.summary} refs={refs} />
                 </span>
-                {stat.at && <span className="tray-sum-at"> · {ago(stat.at)} ago</span>}
+                {stat.at && <span className="tray-sum-at" title={ageTitle(stat.at)} aria-label={ageTitle(stat.at)}> · {fmtAge(stat.at)} ago</span>}
                 </> : <span className="tray-sum-text" aria-hidden="true">&nbsp;</span>}
               </div>}
           </div>

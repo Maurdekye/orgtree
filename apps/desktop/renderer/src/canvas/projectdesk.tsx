@@ -29,7 +29,9 @@ import { appendReplyTarget, objectReplyContext, readReplies, replyFromRow, store
 import { useObjectComposer } from './composerobjects'
 import { isChatActive, isNoticeArmed, registerChat, setActiveChatKey, setNoticeArmed, toggleNoticeArmed, unregisterChat, useNoticeArmed } from '../noticestore'
 import { setButtonAgent } from '../buttoncolours'
-import { ago, md, subtreeDocCount, subtreeDocs, upJumpTargets, USER } from './shared'
+import { fmtAge } from '../timefmt'
+import { ageTitle } from './listage'
+import { md, subtreeDocCount, subtreeDocs, upJumpTargets, USER } from './shared'
 export { subtreeDocCount }
 import type { CanvasNode, OpFn } from './shared'
 import { InboxView } from './mail'
@@ -191,7 +193,8 @@ export function ProjectLastActivity({ node }: { node: CanvasNode }) {
   if (active) {
     return <span className="project-last-activity" title="an agent under this project is running a turn">
       <span className="sq-idle working active">Active</span>
-      <span className="sq-idle-time" title={since ? 'active since ' + since : undefined}>{since ? ago(since) : '—'}</span>
+      <span className="sq-idle-time" title={since ? ageTitle(since, 'active since') : undefined}
+        aria-label={since ? ageTitle(since, 'active since') : undefined}>{since ? fmtAge(since) : '—'}</span>
     </span>
   }
   if (!turn) return null

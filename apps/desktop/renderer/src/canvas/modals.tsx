@@ -39,14 +39,15 @@ import {
   CloseIcon, DeleteIcon, FolderIcon, LayersIcon, SettingsIcon,
 } from '../icons'
 import { agentNavProps, agentTooltipProps } from './agentnav'
-import { hireTierChoices, ago, ALL_PRESENT, antigravityTierOffer, bySeatDesc, anyTierSeat, codexTierOffer, CODEX_TIERS, ANTIGRAVITY_TIERS, MUSE_TIERS, museEffortLevels, museOffersOn, museTierOffer, museUnofferedWhy, fmtCredits, hireOf, isLangServerTier, isOpenRouterTier, langserverTierIds, modelChoiceLabel, modelChoiceTitle, MODEL_VERSIONS, optInLegacyHidden, openrouterTierIds, orderAntigravityTiers, pileOrder, PROVIDER_LABEL, providerOf, stateLabel, TIER_LETTER, tierLabel, TIERS, tierShown, USER, useEsc, useShowLegacyModels } from './shared'
+import { hireTierChoices, ALL_PRESENT, antigravityTierOffer, bySeatDesc, anyTierSeat, codexTierOffer, CODEX_TIERS, ANTIGRAVITY_TIERS, MUSE_TIERS, museEffortLevels, museOffersOn, museTierOffer, museUnofferedWhy, fmtCredits, hireOf, isLangServerTier, isOpenRouterTier, langserverTierIds, modelChoiceLabel, modelChoiceTitle, MODEL_VERSIONS, optInLegacyHidden, openrouterTierIds, orderAntigravityTiers, pileOrder, PROVIDER_LABEL, providerOf, stateLabel, TIER_LETTER, tierLabel, TIERS, tierShown, USER, useEsc, useShowLegacyModels } from './shared'
 import type { HireProviders, ProviderPresence } from './shared'
 import type { CanvasNode, DraftScope, DraftState, OpFn, Pile } from './shared'
 import { ModalOverPins, PinFrame } from './modalpin'
 import { instanceKind } from '../modalkinds'
 import { SetBlock, SetGroup, SetRow, SetToggle, SettingsTabs, SettingsTabPanel, renameReady, useSettingsTarget } from './settingskit'
 import type { SettingsTarget } from './settingskit'
-import { fmtStamp } from '../timefmt'
+import { fmtAge } from '../timefmt'
+import { ageTitle, turnEndedTitle } from './listage'
 import { AccountSelect } from './accountselect'
 import { peekStaffingOptions, tierEffortLevels } from './staffingoptions'
 import { useAgyModelsRefresh } from './shared'
@@ -188,7 +189,7 @@ export function ConfirmModal({ title, body, confirmLabel, onConfirm, close,
 function feedConnection(dog: Watchdog): string {
   const c = dog.connection
   if (!c) return 'not connected yet'
-  const lasted = c.since ? ` for ${ago(c.since)}` : ''
+  const lasted = c.since ? ` for ${fmtAge(c.since)}` : ''
   switch (c.state) {
     case 'connected': return `connected${lasted}`
     case 'connecting': return 'connecting…'
@@ -336,7 +337,7 @@ export function WatchdogPanel({ slug, dog, dogs, op, toast, close }: {
             {feedConnection(dog)}</div>
         </>}
         {(dog.kind === 'mqtt' || dog.kind === 'websocket') && <div className="dim wd-send-description">
-          {dog.sent ? `${dog.sent} message${dog.sent === 1 ? '' : 's'} sent${dog.last_sent_at ? `, the last ${ago(dog.last_sent_at)} ago` : ''}` : 'nothing sent yet'} · {dog.kind === 'mqtt'
+          {dog.sent ? `${dog.sent} message${dog.sent === 1 ? '' : 's'} sent${dog.last_sent_at ? `, the last ${fmtAge(dog.last_sent_at)} ago` : ''}` : 'nothing sent yet'} · {dog.kind === 'mqtt'
             ? 'its owner publishes with orgtree_watchdog action=send, topic and message, on its existing broker connection. At most 64 KB; QoS 0 by default (1/2 supported), retain false by default. Replies fire it when its filters match.'
             : 'its owner writes with orgtree_watchdog action=send'}
         </div>}
@@ -354,7 +355,7 @@ export function WatchdogPanel({ slug, dog, dogs, op, toast, close }: {
         </div>
         <div className="dim">
           {dog.fired} {dog.kind === 'fair_queue' ? 'message' : 'event'}{dog.fired === 1 ? '' : 's'} {dog.kind === 'fair_queue' ? 'delivered' : 'sent'}
-          {dog.last_fired ? ` · last ${ago(dog.last_fired)} ago` : ''}
+          {dog.last_fired ? ` · last ${fmtAge(dog.last_fired)} ago` : ''}
           {' · free (a pet, not a seat)'}
         </div>
         {dog.exit && (
@@ -369,7 +370,7 @@ export function WatchdogPanel({ slug, dog, dogs, op, toast, close }: {
             <div className="dim">{dog.spent ? 'the one-shot dog has departed' : 'none yet — it is watching'}</div>}
           {[...(dog.events ?? [])].reverse().map((e, i) => (
             <div key={i} className="wd-event">
-              <span className="dim">{ago(e.at)} ago</span> {e.gist}
+              <span className="dim" title={ageTitle(e.at)}>{fmtAge(e.at)} ago</span> {e.gist}
             </div>
           ))}
         </div>
@@ -2183,11 +2184,8 @@ export function PilePicker({ pile, map, onPick, close, op, toast, ready = true, 
                   {n.mail_pending} mail</span>}
               {id === pile.front && <span className="badge free">in front</span>}
               {lastTurn && (
-                <span className="badge dim pile-ago"
-                  title={'last turn ended '
-                    + fmtStamp(lastTurn.at)
-                    + (lastTurn.killed ? ' (killed)' : '')}>
-                  {ago(lastTurn.at)} ago</span>
+                <span className="badge dim pile-ago" title={turnEndedTitle(lastTurn)} aria-label={turnEndedTitle(lastTurn)}>
+                  {fmtAge(lastTurn.at)} ago</span>
               )}
             </button>
           )

@@ -101,7 +101,7 @@ export {
 }
 import { orgFreshnessNote, useOrgStatus } from './orgstatus'
 import type { OrgFreshness } from './orgstatus'
-import { fmtFull, fmtWhen } from './timefmt'
+import { fmtAge, fmtFull, fmtWhen } from './timefmt'
 import { registryPlanName, registryProviderName } from './registrylabels'
 import { primaryEmail, usageIdentity } from './accountidentity'
 import { onAppValue, useAppRead, useAppReadout } from './appfeed'
@@ -133,7 +133,7 @@ import {
 } from './icons'
 import { DirList } from './forms'
 import { FolderPickerHost } from './picker'
-import { activeDocCount, ago, ALL_TIERS, attentionPip, deskDpi, fmtCredits, formatCount, isOpenRouterTier, jumpKey, jumpTo, orgPxc, presenceOfPayload, primedRestartChip, setDeskDpi, syncProviderRegistries, TIER_LETTER, tierLabel, unicodeLength, usePolled } from './canvas/shared'
+import { activeDocCount, ALL_TIERS, attentionPip, deskDpi, fmtCredits, formatCount, isOpenRouterTier, jumpKey, jumpTo, orgPxc, presenceOfPayload, primedRestartChip, setDeskDpi, syncProviderRegistries, TIER_LETTER, tierLabel, unicodeLength, usePolled } from './canvas/shared'
 import { InboxAskCard } from './canvas/asks'
 import { askMailRow, openAsks, submittedCards, submittedOpenCount } from './canvas/openasks'
 import { SenderChip } from './canvas/senderchip'
@@ -2365,7 +2365,7 @@ function useAge(at: number | null): string {
     const timer = setInterval(() => { bump((n) => n + 1) }, 10000)
     return () => { clearInterval(timer) }
   }, [at])
-  return at === null ? '' : ago(new Date(at).toISOString())
+  return at === null ? '' : fmtAge(at)
 }
 
 function UsageRefresh({ provider, state, disabledReason }: {

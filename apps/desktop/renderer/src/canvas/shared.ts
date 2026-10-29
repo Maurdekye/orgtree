@@ -2776,13 +2776,6 @@ export const stateLabel = (word: string | null | undefined): string => {
   return w ? w.charAt(0).toUpperCase() + w.slice(1) : w
 }
 
-export const ago = (at: string | null | undefined) => {
-  if (!at) return ''
-  const s = Math.max(0, (Date.now() - Date.parse(at)) / 1000)
-  return s < 90 ? `${Math.round(s)}s`
-    : s < 5400 ? `${Math.round(s / 60)}m` : `${Math.round(s / 3600)}h`
-}
-
 /** WHEN THIS AGENT WAS LAST TOUCHED, as epoch ms — the END OF ITS LAST TURN.
  *
  *  This is the same clock FR-23's card badge already shows (`TurnStat.at`,

@@ -12,7 +12,8 @@
 
 import { useEffect, useState, useSyncExternalStore } from 'react'
 import type { ToastFn } from '../types'
-import { ago } from './shared'
+import { fmtAge } from '../timefmt'
+import { ageTitle } from './listage'
 import type { CanvasNode, OpFn } from './shared'
 import { AgentLink, nodeTierOf } from './identity'
 import { ageClockNow, subscribeAgeClock } from './desk'
@@ -92,7 +93,7 @@ export function DeadLettersView({ node, map, onJump, op, toast }: {
                 <span className="dead-preview">{l.preview ?? ''}</span>
                 <span className="dim">{attemptsText(l.attempts)}</span>
                 {l.by && <span className="dim">last held by {agentLink(l.by)}</span>}
-                {l.dead_at && <span className="dim" title={'gave up ' + l.dead_at}>gave up {ago(l.dead_at)} ago</span>}
+                {l.dead_at && <span className="dim" title={ageTitle(l.dead_at, 'gave up')}>gave up {fmtAge(l.dead_at)} ago</span>}
                 {(l.retried ?? 0) > 0 && <span className="dim">retried {l.retried}×</span>}
                 {l.dropped && <span className="dim" title={l.dropped.at ?? ''}>dropped by {l.dropped.by}: {l.dropped.reason}</span>}
                 <span className="spacer" />
@@ -122,7 +123,7 @@ export function DeadLettersView({ node, map, onJump, op, toast }: {
                     <div key={a.n} className="dead-attempt">
                       <span>#{a.n}</span>
                       {a.by && <span>{agentLink(a.by)}</span>}
-                      {a.at && <span className="dim" title={a.at}>handed out {ago(a.at)} ago</span>}
+                      {a.at && <span className="dim" title={ageTitle(a.at, 'handed out')}>handed out {fmtAge(a.at)} ago</span>}
                       <span className="dim">{a.ended ? `${a.ended.how ?? 'ended'}${a.ended.why ? `: ${a.ended.why}` : ''}` : 'still held'}</span>
                     </div>
                   ))}

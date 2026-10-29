@@ -29,7 +29,8 @@ import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import type { ReactNode, UIEvent } from 'react'
 import { createPortal } from 'react-dom'
 import type { ToastFn, Watchdog } from '../types'
-import { ago } from './shared'
+import { fmtAge } from '../timefmt'
+import { ageTitle } from './listage'
 import type { CanvasNode, OpFn } from './shared'
 import { ConfirmModal } from './modals'
 import { MAX_SLOTS, ordinal, slotUnits } from './slots'
@@ -78,8 +79,9 @@ export function span(from: string, to?: string | null): string {
  *  (the Ended column; the listeners tab's Last fired reads it too). */
 export function SlotTime({ from, to, ended = false }: { from: string; to?: string | null; ended?: boolean }) {
   const seconds = Math.max(0, ((to ? Date.parse(to) : Date.now()) - Date.parse(from)) / 1000)
-  return <span className="slot-time" style={ended ? slotEndedTimeStyle(seconds) : slotTimeStyle(seconds)}>
-    {ended ? `${ago(from)} ago` : span(from, to)}</span>
+  return <span className="slot-time" style={ended ? slotEndedTimeStyle(seconds) : slotTimeStyle(seconds)}
+    title={ended ? ageTitle(from) : undefined}>
+    {ended ? `${fmtAge(from)} ago` : span(from, to)}</span>
 }
 
 export function SlotsView({ node, state, map, onJump, op, toast, actions, refs }: {

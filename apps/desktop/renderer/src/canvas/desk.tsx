@@ -104,7 +104,7 @@ import {
   isChatActive, isNoticeArmed, registerChat, setActiveChatKey, setNoticeArmed,
   toggleNoticeArmed, unregisterChat, useNoticeArmed,
 } from '../noticestore'
-import { ago, ALL_PRESENT, ALL_TIERS, anyTierSeat, audienceGrantTooltip, CODEX_TIERS, conditionalTierHidden, CopyIcon, EXTERN, fmtCredits, freezeKind, FREEZE_LABEL, rateRetryText, ANTIGRAVITY_TIERS, MUSE_TIERS, isLangServerTier, isOpenRouterTier, langserverTierIds, modelChoiceLabel, modelChoiceTitle, md, openrouterTierIds, procHaloClass, PROVIDER_LABEL, providerOf, reportedLabel, stateLabel, stripMarkdownCode, TIER_LETTER, optInLegacyHidden, tierLabel, tierShown, USER, useHideRetired, useShowLegacyModels, useOfferedConditionalTiers } from './shared'
+import { ALL_PRESENT, ALL_TIERS, anyTierSeat, audienceGrantTooltip, CODEX_TIERS, conditionalTierHidden, CopyIcon, EXTERN, fmtCredits, freezeKind, FREEZE_LABEL, rateRetryText, ANTIGRAVITY_TIERS, MUSE_TIERS, isLangServerTier, isOpenRouterTier, langserverTierIds, modelChoiceLabel, modelChoiceTitle, md, openrouterTierIds, procHaloClass, PROVIDER_LABEL, providerOf, reportedLabel, stateLabel, stripMarkdownCode, TIER_LETTER, optInLegacyHidden, tierLabel, tierShown, USER, useHideRetired, useShowLegacyModels, useOfferedConditionalTiers } from './shared'
 import { closeIfCentred, ModalOverPins, PinFrame } from './modalpin'
 import type { ProviderPresence } from './shared'
 import {
@@ -153,7 +153,8 @@ import { eventDedup } from '../events/dedup'
 import { mergeAssistantRows } from '../assistantMessages'
 import { authoredUserLabel, isSegments, SegmentList } from '../events/segments'
 import { useComposerEnter } from '../enterkey'
-import { fmtShort, fmtStamp, localizeFreezeUntil } from '../timefmt'
+import { fmtAge, fmtShort, localizeFreezeUntil } from '../timefmt'
+import { ageTitle, turnEndedTitle } from './listage'
 
 interface ContextWheelProps {
   occ?: number | null
@@ -298,7 +299,7 @@ export function RouteBadge({ route }: { route?: CodexRouteInfo | null }) {
     ? `; the provider rerouted it to ${route.rerouted.toModel ?? '?'}`
       + (route.served_pool ? ` (the ${route.served_pool} pool)` : ' (no known pool)')
     : ''
-  const when = route.live ? 'this turn' : `last turn${route.at ? ` (${ago(route.at)})` : ''}`
+  const when = route.live ? 'this turn' : `last turn${route.at ? ` (${fmtAge(route.at)})` : ''}`
   return (
     <span className={'badge route-reserve' + (route.live ? ' live' : '')}
       data-route-live={route.live ? '1' : '0'}
@@ -394,17 +395,20 @@ export function LastTurnAge({ turn, busy = false, variant = 'badge' }: {
   useSyncExternalStore(subscribeAgeClock, () => ageClockSecond,
     () => ageClockSecond)
   if (!turn || busy) return null
-  const title = 'last turn ended '
-    + fmtStamp(turn.at)
-    + (turn.killed ? ' (killed)' : '')
+  const title = turnEndedTitle(turn)
   const cls = variant === 'map' ? 'map-ago'
     : variant === 'inline' ? 'sq-idle-time'
       : 'badge dim turnago'
   return <span className={cls}
     title={title} aria-label={title}>
-    {ago(turn.at)}{variant === 'map' && turn.killed ? ' ✕' : ''}
+    {fmtAge(turn.at)}{variant === 'map' && turn.killed ? ' ✕' : ''}
   </span>
 }
+
+/** The hover of an elapsed-time cell: what it counts from, then the full instant;
+ *  no hover when the clock has no instant. */
+const sinceTitle = (at: string | null | undefined, since: string): string | undefined =>
+  at ? ageTitle(at, since) : undefined
 
 /** A busy arrow on navigation chrome must name the destination provider even
  * when it is rendered inside another provider's themed desk. */
@@ -678,14 +682,15 @@ function AgentWorkstateBody({ node, turn, live = true }: {
     const label = node.halt.phase === 'halting' ? 'Halting…' : 'Halted'
     const statusText = node.halt.phase === 'halting'
       ? 'Turn admission is blocked; the active turn is still ending'
-      : haltedAt ? `Halted for ${ago(haltedAt)}`
+      : haltedAt ? `Halted for ${fmtAge(haltedAt)}`
         : 'Halted; halt time unavailable. Mail stays unread until explicit unhalt'
     return <span className="sq-halt-status" role="status" title={statusText}
       aria-label={statusText}>
       <StopIcon fontSize="inherit" className="tray-halted" titleAccess={
-        node.halt.phase === 'halting' ? label : haltedAt ? `Halted for ${ago(haltedAt)}` : 'Halted'} />
+        node.halt.phase === 'halting' ? label : haltedAt ? `Halted for ${fmtAge(haltedAt)}` : 'Halted'} />
       <span>{label}</span>
-      {node.halt.phase === 'halted' && <span className="sq-idle-time">{haltedAt ? ago(haltedAt) : '—'}</span>}
+      {node.halt.phase === 'halted' && <span className="sq-idle-time" title={sinceTitle(haltedAt, 'Halted since')}
+        aria-label={sinceTitle(haltedAt, 'Halted since')}>{haltedAt ? fmtAge(haltedAt) : '—'}</span>}
     </span>
   }
   if (visual.kind === 'frozen' && node.frozen) return <UsageFreezeStatus frozen={node.frozen} />
@@ -694,11 +699,12 @@ function AgentWorkstateBody({ node, turn, live = true }: {
       <>
         <DestinationBusy tier={node.tier} />
         <span className="sq-idle working active"
-          title={node.inflight_at ? `active for ${ago(node.inflight_at)}` : 'active'}>
+          title={node.inflight_at ? `active for ${fmtAge(node.inflight_at)}` : 'active'}>
           {visual.normalLabel}
         </span>
-        <span className="sq-idle-time">
-          {node.inflight_at ? ago(node.inflight_at) : '—'}
+        <span className="sq-idle-time" title={sinceTitle(node.inflight_at, 'active since')}
+          aria-label={sinceTitle(node.inflight_at, 'active since')}>
+          {node.inflight_at ? fmtAge(node.inflight_at) : '—'}
         </span>
       </>
     )
@@ -710,8 +716,9 @@ function AgentWorkstateBody({ node, turn, live = true }: {
         <span className="sq-idle waiting" title="queued">
           {visual.normalLabel}
         </span>
-        <span className="sq-idle-time">
-          {node.inflight_at ? ago(node.inflight_at) : '—'}
+        <span className="sq-idle-time" title={sinceTitle(node.inflight_at, 'queued since')}
+          aria-label={sinceTitle(node.inflight_at, 'queued since')}>
+          {node.inflight_at ? fmtAge(node.inflight_at) : '—'}
         </span>
       </>
     )
@@ -722,8 +729,9 @@ function AgentWorkstateBody({ node, turn, live = true }: {
         <span className="sq-idle compacting" title="compacting">
           {visual.normalLabel}
         </span>
-        <span className="sq-idle-time">
-          {node.inflight_at ? ago(node.inflight_at) : '—'}
+        <span className="sq-idle-time" title={sinceTitle(node.inflight_at, 'compacting since')}
+          aria-label={sinceTitle(node.inflight_at, 'compacting since')}>
+          {node.inflight_at ? fmtAge(node.inflight_at) : '—'}
         </span>
       </>
     )
@@ -735,9 +743,8 @@ function AgentWorkstateBody({ node, turn, live = true }: {
         {visual.normalLabel}
       </span>
       {turn && (
-        <span className="sq-idle-time"
-          title={'last turn ended ' + fmtStamp(turn.at) + (turn.killed ? ' (killed)' : '')}>
-          {ago(turn.at)}
+        <span className="sq-idle-time" title={turnEndedTitle(turn)} aria-label={turnEndedTitle(turn)}>
+          {fmtAge(turn.at)}
         </span>
       )}
     </>
@@ -761,8 +768,9 @@ export function TrayStatus({ node, turn, live = true }: {
       : 'No turn can run. Mail stays unread until explicit unhalt'}>
       <StopIcon fontSize="inherit" className="tray-halted" titleAccess={label} />
       <span className="tray-status-label halted">{label}</span>
-      <span className="tray-status-time" title={at ? `${label} since ${fmtStamp(at)}` : undefined}>
-        {at ? ago(at) : '—'}
+      <span className="tray-status-time" title={sinceTitle(at, `${label} since`)}
+        aria-label={sinceTitle(at, `${label} since`)}>
+        {at ? fmtAge(at) : '—'}
       </span>
     </span>
   }
@@ -772,11 +780,12 @@ export function TrayStatus({ node, turn, live = true }: {
       <span className="tray-status">
         <DestinationBusy tier={node.tier} />
         <span className="tray-status-label working active"
-          title={node.inflight_at ? `active for ${ago(node.inflight_at)}` : 'active'}>
+          title={node.inflight_at ? `active for ${fmtAge(node.inflight_at)}` : 'active'}>
           {stateLabel('active')}
         </span>
-        <span className="tray-status-time">
-          {node.inflight_at ? ago(node.inflight_at) : '—'}
+        <span className="tray-status-time" title={sinceTitle(node.inflight_at, 'active since')}
+          aria-label={sinceTitle(node.inflight_at, 'active since')}>
+          {node.inflight_at ? fmtAge(node.inflight_at) : '—'}
         </span>
       </span>
     )
@@ -789,8 +798,9 @@ export function TrayStatus({ node, turn, live = true }: {
         <span className="tray-status-label waiting" title="queued">
           {stateLabel('queued')}
         </span>
-        <span className="tray-status-time">
-          {node.inflight_at ? ago(node.inflight_at) : '—'}
+        <span className="tray-status-time" title={sinceTitle(node.inflight_at, 'queued since')}
+          aria-label={sinceTitle(node.inflight_at, 'queued since')}>
+          {node.inflight_at ? fmtAge(node.inflight_at) : '—'}
         </span>
       </span>
     )
@@ -801,8 +811,9 @@ export function TrayStatus({ node, turn, live = true }: {
         <span className="tray-status-label compacting" title="compacting">
           {stateLabel('compacting')}
         </span>
-        <span className="tray-status-time">
-          {node.inflight_at ? ago(node.inflight_at) : '—'}
+        <span className="tray-status-time" title={sinceTitle(node.inflight_at, 'compacting since')}
+          aria-label={sinceTitle(node.inflight_at, 'compacting since')}>
+          {node.inflight_at ? fmtAge(node.inflight_at) : '—'}
         </span>
       </span>
     )
@@ -827,9 +838,8 @@ export function TrayStatus({ node, turn, live = true }: {
         {stateLabel(recorded)}
       </span>
       {turn && (
-        <span className="tray-status-time"
-          title={'last turn ended ' + fmtStamp(turn.at) + (turn.killed ? ' (killed)' : '')}>
-          {ago(turn.at)}
+        <span className="tray-status-time" title={turnEndedTitle(turn)} aria-label={turnEndedTitle(turn)}>
+          {fmtAge(turn.at)}
         </span>
       )}
       {/* the norm node's marker, in the norm node's order: state, age, error */}
@@ -845,7 +855,7 @@ export function MapModeIndicator({ node }: { node: CanvasNode }) {
   if (isUsageFrozen(node)) return <FrozenIcon fontSize="inherit" className="tray-frozen" titleAccess="Frozen" />
   if (state === 'working') {
     return (
-      <span title={node.inflight_at ? `active for ${ago(node.inflight_at)}` : 'active'}>
+      <span title={node.inflight_at ? `active for ${fmtAge(node.inflight_at)}` : 'active'}>
         <DestinationBusy tier={node.tier} />
       </span>
     )
@@ -877,17 +887,16 @@ export function MapTurnAge({ node, turn }: { node: CanvasNode; turn?: TurnStat |
   if (isUsageFrozen(node) && node.frozen) return <UsageFreezeStatus frozen={node.frozen} variant="map" />
   if (state !== 'idle') {
     return (
-      <span className="map-ago"
-        title={node.inflight_at ? `running for ${ago(node.inflight_at)}` : state}>
-        {node.inflight_at ? ago(node.inflight_at) : '—'}
+      <span className="map-ago" title={sinceTitle(node.inflight_at, 'running since') ?? state}
+        aria-label={sinceTitle(node.inflight_at, 'running since') ?? state}>
+        {node.inflight_at ? fmtAge(node.inflight_at) : '—'}
       </span>
     )
   }
   if (!turn) return null
   return (
-    <span className="map-ago"
-      title={'last turn ended ' + fmtStamp(turn.at) + (turn.killed ? ' (killed)' : '')}>
-      {ago(turn.at)}
+    <span className="map-ago" title={turnEndedTitle(turn)} aria-label={turnEndedTitle(turn)}>
+      {fmtAge(turn.at)}
     </span>
   )
 }
@@ -912,7 +921,7 @@ export function TurnStatusBanner({ state, turn, inflightAt, halted = false, halt
   if (frozen) return <UsageFreezeStatus frozen={frozen} variant="banner" />
   const active = state !== 'idle'
   const reference = active ? inflightAt : halted ? haltedAt : turn?.at
-  const elapsed = reference ? ago(reference) : '—'
+  const elapsed = reference ? fmtAge(reference) : '—'
   const outOfTurnState = (!active && recordedState && recordedState !== 'idle') ? recordedState : null
   const displayClass = halted ? 'halted' : outOfTurnState || (state === 'working' ? 'working active' : state)
   const label = active
@@ -929,8 +938,7 @@ export function TurnStatusBanner({ state, turn, inflightAt, halted = false, halt
       ? (haltedAt ? `Halted for ${elapsed}` : 'Halted; halt time unavailable')
         + (reportedSummary ? ` · ${reportedSummary}` : '')
       : (turn
-      ? `${label} · last turn ended ${fmtStamp(turn.at)}`
-        + (turn.killed ? ' (killed)' : '')
+      ? `${label} · ${turnEndedTitle(turn)}`
       : `${label} · no completed turn yet`)
         + (reportedSummary ? ` · ${reportedSummary}` : '')
     : [label, reference ? `active for ${elapsed}` : 'start time unavailable',
@@ -1275,7 +1283,7 @@ const cacheForecastTitle = (forecast: CacheForecast, midTurn = false): string =>
   const phrase = CAUSE_PHRASE[cause]
     ?? `${readinessHead(readiness)} — ${cause.replace(/_/g, ' ')}`
   if (readiness === 'ready') {
-    const seen = ago(forecast.last_receipt_at)
+    const seen = fmtAge(forecast.last_receipt_at)
     return seen ? `${phrase}, receipt observed ${seen} ago` : phrase
   }
   // ⚠ THE ONE TOKEN THAT SURVIVED THE CUT, and only on grey. D-226: "a grey

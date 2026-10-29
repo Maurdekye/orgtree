@@ -42,7 +42,9 @@
 import { useCallback, useState } from 'react'
 import type { ReactNode } from 'react'
 import type { CanvasNode, LiveRow, ProviderId } from './shared'
-import { ago, PROVIDER_LABEL, providerOf, stateLabel } from './shared'
+import { PROVIDER_LABEL, providerOf, stateLabel } from './shared'
+import { fmtAge } from '../timefmt'
+import { ageTitle } from './listage'
 import type { Convo } from '../convo'
 import type { ChatMessage } from '../types'
 import { Written } from './reflinks'
@@ -243,9 +245,9 @@ const count = (items: TodoItem[]) => ({
 })
 
 function describeList(items: TodoItem[], at: string | null, prefix: string): string {
-  if (!items.length) return `${prefix}the agent cleared its todo list${at ? ` ${ago(at)} ago` : ''}.`
+  if (!items.length) return `${prefix}the agent cleared its todo list${at ? ` ${fmtAge(at)} ago` : ''}.`
   const c = count(items)
-  const when = at ? ` · written ${ago(at)} ago` : ''
+  const when = at ? ` · written ${fmtAge(at)} ago` : ''
   const head = c.doing ? ` · now: ${c.doing.content}` : c.done === c.total ? ' · all done' : ''
   return `${prefix}${c.done}/${c.total} done${head}${when}`
 }
@@ -367,7 +369,7 @@ function deriveReported(node: CanvasNode): ReportedVerdict {
   const at = s.at ?? null
   const ageMs = at ? Date.now() - Date.parse(at) : NaN
   const stale = s.status === 'working' && Number.isFinite(ageMs) && ageMs > WORKING_STALE_MS
-  const when = at ? `${ago(at)} ago` : 'time unknown'
+  const when = at ? `${fmtAge(at)} ago` : 'time unknown'
   return { status: s.status, summary: s.summary ?? null, at, stale,
     note: stale
       ? `reported "working" ${when} and nothing since — older than the engine's 20-minute check-up threshold, so treat it as unconfirmed`
@@ -402,7 +404,7 @@ export function deriveProgress(node: CanvasNode, convo: Convo): ProgressModel {
   const processNote = historical
     ? 'retired — everything below is the last known record, not live progress'
     : node.busy
-      ? `in a turn${node.inflight_at ? ` for ${ago(node.inflight_at)}` : ''}`
+      ? `in a turn${node.inflight_at ? ` for ${fmtAge(node.inflight_at)}` : ''}`
       : node.proc_live
         ? 'idle — not in a turn (process warm); nothing below is live'
         : 'idle — not in a turn; nothing below is live'
@@ -519,7 +521,7 @@ export function ProgressView({ model, refs }:
         {m.activity.tail.length > 0 && (
           <ul className="progress-tail">
             {m.activity.tail.map((r, i) => (
-              <li key={i}><span className="dim">{r.at ? ago(r.at) : ''}</span> {r.text}</li>
+              <li key={i}><span className="dim" title={r.at ? ageTitle(r.at) : undefined}>{r.at ? fmtAge(r.at) : ''}</span> {r.text}</li>
             ))}
           </ul>
         )}
