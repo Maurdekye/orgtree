@@ -419,6 +419,7 @@ struct Turn {
     stream_message: String,
     acp_complete: bool,
     acp_text: Option<String>,
+    acp_thought: Option<(Option<String>, String, String)>,
     thinking: String,
     partial_serial: u64,
     draft_order: Option<u64>,
@@ -515,6 +516,24 @@ impl Turn {
         super::incomplete_response::row(&self.draft,&key,self.interrupted||self.killed,at)
     }
 
+    #[nolog]
+    fn observe_acp_thought(&mut self, update: &Value) -> (Option<(String, String)>, Vec<(&'static str, Value)>) {
+        let Some(text) = update["content"]["text"].as_str().filter(|s| !s.is_empty()) else {
+            return (None, Vec::new());
+        };
+        self.activity = true;
+        let id = update["messageId"].as_str().map(str::to_string).unwrap_or_else(|| format!("acp-{}-thinking", self.id));
+        let current = self.rows.get(&id).and_then(|(_, r)| r["thinking"].as_str()).unwrap_or("");
+        let body = convo::clip(&format!("{current}{text}"), 20_000).0;
+        (Some((id, body)), vec![("text", json!({})), ("thinking", json!({ "text": text }))])
+    }
+
+    #[nolog]
+    fn take_acp_thought(&mut self) -> Option<(String, String)> {
+        let _ = &self.acp_thought;
+        None
+    }
+
     fn new(id: i64, compact: bool) -> Turn {
         Turn {
             id,
@@ -544,6 +563,7 @@ impl Turn {
             stream_message: String::new(),
             acp_complete: false,
             acp_text: None,
+            acp_thought: None,
             thinking: String::new(),
             partial_serial: 0,
             draft_order: None,
@@ -9848,5 +9868,61 @@ mod incomplete_response_tests {
         assert_eq!(t.thinking,"Earlier thought stays separate");
         assert_eq!(row["incomplete_key"],super::super::incomplete_response::key("claude","synthetic-stop"));
         t.draft.clear();assert!(t.incomplete_response("now").is_none());
+    }
+}
+
+#[cfg(test)]
+mod acp_thinking_tests {
+    use super::*;
+
+    #[test]
+    fn acp_thought_chunks_accumulate_live_and_commit_once_when_finished() {
+        let mut t = Turn::new(7, false);
+        let chunks = [
+            "First 15-token Kimi reasoning chunk: inspecting runtime/actor.rs ",
+            "second 15-token Kimi reasoning chunk: checking convo.ts live state ",
+            "third 15-token Kimi reasoning chunk: verifying thought collation.",
+        ];
+        let mut expected = String::new();
+        for (i, chunk) in chunks.iter().enumerate() {
+            expected.push_str(chunk);
+            let update = json!({
+                "sessionUpdate": "agent_thought_chunk",
+                "messageId": "msg_kimi_thought_1",
+                "content": { "type": "text", "text": chunk }
+            });
+            let (flushed, frames) = t.observe_acp_thought(&update);
+            assert!(flushed.is_none(), "in-progress ACP thinking must not commit a durable row on chunk {i}");
+            assert_eq!(t.thinking, expected, "turn.thinking must accumulate every streamed chunk live");
+            assert!(
+                !frames.iter().any(|(kind, _)| *kind == "text"),
+                "streamed thought chunks must not emit a text frame that clears live thinking"
+            );
+            if i == 0 {
+                assert_eq!(frames, vec![("thinking_start", json!({})), ("thinking", json!({ "text": chunk }))]);
+            } else {
+                assert_eq!(frames, vec![("thinking", json!({ "text": chunk }))]);
+            }
+        }
+        let committed = t.take_acp_thought().expect("completed ACP thought block must produce one collated row");
+        assert_eq!(committed.0, "msg_kimi_thought_1");
+        assert_eq!(committed.1, expected);
+        assert!(t.thinking.is_empty(), "finishing the thought block clears the live thinking buffer");
+        assert!(t.thinking_order.is_none());
+        t.rows.insert(committed.0.clone(), (1, json!({"role":"assistant","text":"","thinking":committed.1,"tools":[]})));
+
+        // A later thought block in the same turn that reuses the same messageId
+        // gets a fresh row id instead of overwriting the earlier row above a tool call.
+        let (flushed, frames) = t.observe_acp_thought(&json!({
+            "sessionUpdate": "agent_thought_chunk",
+            "messageId": "msg_kimi_thought_1",
+            "content": { "type": "text", "text": "Second thought block after tool call" }
+        }));
+        assert!(flushed.is_none());
+        assert_eq!(frames[0].0, "thinking_start");
+        assert_eq!(t.thinking, "Second thought block after tool call");
+        let second = t.take_acp_thought().expect("second thought block");
+        assert_ne!(second.0, "msg_kimi_thought_1");
+        assert_eq!(second.1, "Second thought block after tool call");
     }
 }
