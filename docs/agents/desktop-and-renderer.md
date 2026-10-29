@@ -895,16 +895,26 @@ Canvas, desks, links, menus, windows, geometry, rendering and visual behavior.
 ### Ticket identity hover
 
 Every ticket link's native hover resolves the current exact ticket and shows
-`Status · full title`, replacing the title-only hover. It uses the docket's
-shared `docketstatus.tsx` labels, including their existing clarifications;
-`archived: true` shows `Archived`. Missing/unrecognized status shows the full
-title alone. Only concurrent identity reads coalesce; settled answers are not
-cached, so a later hover/focus sees state/title changes even if the transcript
-or row still holds an older snapshot. Adopted documents use the same reader
-and stale-response/cleanup guards. Menu labels, navigation and copied titles
-stay unchanged. [decided: user 2026-10-21 17:38:28Z; verified:
+`Status · slug`. It uses the docket's shared `docketstatus.tsx` labels,
+including their existing clarifications; `archived: true` shows `Archived`.
+Missing/unrecognized status shows the slug alone. A ticket of another org than
+the one on screen reads `Status · org/slug`; the viewed org's own item is the
+bare slug. The title is NOT in the hover: ticket links draw it inline (USER
+2026-10-29 m3ad5633675ff, "hovering a ticket link should show its slug instead
+of its full name now (because the full name is rendered inline)", which
+replaced the 2026-10-21 `Status · full title`). That covers rows, React and
+Markdown references, bare slug links, typed `@item:` chips, tool-result links
+and the docket row alike, because they all take the one native hover; the
+static `title` each link is drawn with (`workrefs.tsx`, `refmd.tsx`,
+`reflinks.tsx` `refChipTitle`) says the same, for the inert chip and for the
+moment before the first hover. Only concurrent identity reads coalesce;
+settled answers are not cached, so a later hover/focus sees state changes even
+if the transcript or row still holds an older snapshot. Adopted documents use
+the same reader and stale-response/cleanup guards. Menu labels, navigation and
+copied titles stay unchanged. Document links keep their title hover.
+[decided: user 2026-10-21 17:38:28Z, 2026-10-29 m3ad5633675ff; verified:
 `canvas/objecttooltip.ts`, `canvas/docketstatus.tsx`,
-`tests/tickethoverparity.test.tsx`]
+`tests/tickethoverparity.test.tsx`, `tests/refflares.test.tsx`]
 
 ### Stable live identity titles
 

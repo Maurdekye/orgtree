@@ -58,8 +58,10 @@ including Staff; list-local folds remain on their actual rows.
 
 ## Focused verification
 
-Ticket hover text is the authoritative full title on rows, React and Markdown
-references, bare slug links and tool-result links (user 2026-10-21 06:53Z).
+Ticket hover text is the item's slug, led by its current status, on rows, React
+and Markdown references, bare slug links and tool-result links; the title is
+already drawn inline (user 2026-10-29 m3ad5633675ff, replacing the 2026-10-21
+06:53Z full-title hover).
 The document-local object tooltip host asks for only the exact hovered ticket,
 coalesces concurrent reads without retaining a stale catalog, and ignores a
 reply after the target changes, leaves, disconnects or its host is removed.

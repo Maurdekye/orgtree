@@ -968,7 +968,8 @@ Every docket write also sends the org's windows `{"type":"docket_changed"}` from
 and a rename alone changes none of it. Ticket mention chips read the titles of
 the exact slugs on screen again on that frame (`canvas/itemrefs.ts`, through the
 bounded work-item-references read). The chip's token, Copy slug and the shared
-`Status · title` hover keep the slug available. A linked bare slug in docket
+`Status · slug` hover (the title is inline; USER 2026-10-29 m3ad5633675ff) keep
+the slug available. A linked bare slug in docket
 prose shows the title too (`WorkRefText`, refmd `mentionEl`; `data-ref-mention`
 keeps the slug, so undoing a chip is exact); unlinked prose keeps the slug.
 [decided: user 2026-10-27 m7bb9eb904138; verified: `domain/docket.rs`,
