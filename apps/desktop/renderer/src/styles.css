@@ -9826,6 +9826,8 @@ main:has(> .orgbar.native-header) > .error {
 .transfer-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 5px; }
 .transfer-actions:empty { display: none; }
 .transfer-actions button { font-size: 11px; padding: 3px 7px; }
+/* the history's end marker: coming into view loads the next page (symmetry #15) */
+.transfer-history-end { height: 1px; }
 
 /* App settings › Harnesses and the "Which harnesses are supported?" link
    beside every harness selector (canvas/harnesses.tsx) */

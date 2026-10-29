@@ -161,7 +161,7 @@ Human outside composition has moved to Hubchat: the org inbox is a viewer, not a
 
 ## Attachment transfers
 
-Transfers appears on supported mail surfaces, initially collapsed. Expand to inspect unfinished work, recent history and paged older transfers. A progress bar measures confirmed bytes; processed/sent/received bytes may be ahead of confirmed custody.
+Transfers appears on supported mail surfaces, initially collapsed. Expand to inspect unfinished work and recent history. Older transfers load as you scroll near the end of the history, the same way Hubchat's transfer history does; Load more loads the next page by hand, and a page that fails to load shows its error with Retry. A progress bar measures confirmed bytes; processed/sent/received bytes may be ahead of confirmed custody.
 
 Retry, Cancel transfer and (for eligible failed/cancelled outgoing files) Remove file and send are different. Removing explicitly omits that attachment so the remaining ready message can proceed. Closing the panel does not cancel engine transfer work. Refresh retries a failed panel read, not a new send. Use `orgtree-tool-transfers` (orgtree-working › mail) for exact agent-side actions and custody rules.
 
