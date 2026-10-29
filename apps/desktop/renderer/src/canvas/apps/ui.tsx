@@ -147,7 +147,7 @@ function PanelBody({slug,app,panel,shown,behind,layer,frame,motion}:{slug:string
   const stopping=motion==='stop'
   useLayoutEffect(()=>{frame.current?.toggleAttribute('inert',stopping)},[frame,stopping])
   const latest=useRef(panel);latest.current=panel
-  const drag=useRef<{x:number;y:number;placement:AppPlacement;kind:'move'|'size'}|null>(null),[preview,setPreview]=useState<AppPlacement|null>(null),[free,setFree]=useState(false)
+  const drag=useRef<{x:number;y:number;placement:AppPlacement;kind:'move'|'size';pointerId:number;capture:HTMLElement}|null>(null),[preview,setPreview]=useState<AppPlacement|null>(null),[free,setFree]=useState(false)
   // a released drop on screen until its save commits: the revision that commits it, once known (`end`)
   const held=useRef<{rev:number}|null>(null)
   const update=async(fields:Record<string,unknown>)=>{try{setError('');return await changeApps<CustomPanel>(slug,{action:'panel_update',panel:panel.id,expected_rev:latest.current.rev,...fields})}catch(e){setError(String(e));throw e}}
@@ -180,9 +180,15 @@ function PanelBody({slug,app,panel,shown,behind,layer,frame,motion}:{slug:string
   // Pinned desks' magnetism: edges of the canvas area and of other pinned windows; Shift places freely.
   const snap=(r:PinRect,kind:'move'|'size',off:boolean)=>layer&&!off&&pinSnapOn()?findPinSnap(layer.key,r,readPinSurfaces().filter(p=>p.org===slug).map(p=>({id:pinSnapId(p),rect:p.rect})),layer.bounds,kind==='size'?{edge:'se',minWidth:PANEL_MIN.width,minHeight:PANEL_MIN.height}:undefined):null
   const candidate=rect&&preview&&drag.current?snap(rect,drag.current.kind,free):null
-  const start=(event:ReactPointerEvent<HTMLElement>,kind:'move'|'size')=>{if(surface?.detached||(kind==='move'&&!rect)||event.button!==0||(event.target as HTMLElement).closest('button,input,select'))return;event.preventDefault();event.stopPropagation();event.currentTarget.setPointerCapture(event.pointerId);if(layer)raisePinSurface(layer.key);drag.current={x:event.clientX,y:event.clientY,placement:rect?{...panel.placement,x:rect.x,y:rect.y,width:rect.w,height:rect.h}:{...panel.placement},kind}}
+  // Match the standard pinned window: Escape or lost capture abandons the
+  // preview, and the later pointer-up has no gesture left to commit. An already
+  // released drop is different: its held preview must survive the browser's
+  // ordinary lost-capture notification while its save is in flight.
+  const cancel=()=>{const d=drag.current;if(!d)return;drag.current=null;try{d.capture.releasePointerCapture(d.pointerId)}catch{/* already gone */}setPreview(null);setFree(false)}
+  useEffect(()=>{const onKey=(event:KeyboardEvent)=>{if(event.key==='Escape'&&drag.current){event.preventDefault();event.stopPropagation();cancel()}};const win=owner.defaultView??window;win.addEventListener('keydown',onKey,true);return()=>{win.removeEventListener('keydown',onKey,true)}},[owner])
+  const start=(event:ReactPointerEvent<HTMLElement>,kind:'move'|'size')=>{if(surface?.detached||drag.current||(kind==='move'&&!rect)||event.button!==0||(event.target as HTMLElement).closest('button,input,select'))return;event.preventDefault();event.stopPropagation();drag.current={x:event.clientX,y:event.clientY,placement:rect?{...panel.placement,x:rect.x,y:rect.y,width:rect.w,height:rect.h}:{...panel.placement},kind,pointerId:event.pointerId,capture:event.currentTarget};event.currentTarget.setPointerCapture(event.pointerId);if(layer)raisePinSurface(layer.key)}
   const gesture=(d:NonNullable<typeof drag.current>,event:ReactPointerEvent<HTMLElement>):AppPlacement=>{const dx=event.clientX-d.x,dy=event.clientY-d.y;return d.kind==='move'?{...d.placement,x:d.placement.x+dx,y:d.placement.y+dy}:{...d.placement,width:Math.round(Math.max(160,Math.min(4096,d.placement.width+dx))),height:Math.round(Math.max(120,Math.min(4096,d.placement.height+dy)))}}
-  const move=(event:ReactPointerEvent<HTMLElement>)=>{const d=drag.current;if(!d)return;event.stopPropagation();setFree(event.shiftKey);setPreview(gesture(d,event))}
+  const move=(event:ReactPointerEvent<HTMLElement>)=>{const d=drag.current;if(!d||event.pointerId!==d.pointerId)return;event.stopPropagation();setFree(event.shiftKey);setPreview(gesture(d,event))}
   // One commit per gesture, from where the pointer ended; a window pin is
   // clamped into the canvas area and snapped, as pinned desks are.
   // ⚠ THE DROP IS HELD ON SCREEN UNTIL IT IS COMMITTED (user 2026-10-27
@@ -191,7 +197,7 @@ function PanelBody({slug,app,panel,shown,behind,layer,frame,motion}:{slug:string
   // release painted the panel at its old placement for as long as the save was
   // in flight. The held geometry ends when this drop's own save has answered and
   // the panel carries that revision; a refused drop goes back where it was.
-  const end=(event:ReactPointerEvent<HTMLElement>)=>{const d=drag.current;if(!d)return;drag.current=null;if(Math.hypot(event.clientX-d.x,event.clientY-d.y)<3){setPreview(null);return}
+  const end=(event:ReactPointerEvent<HTMLElement>)=>{const d=drag.current;if(!d||event.pointerId!==d.pointerId)return;drag.current=null;if(Math.hypot(event.clientX-d.x,event.clientY-d.y)<3){setPreview(null);return}
     const g=gesture(d,event),r=layer?windowRect(g,layer.bounds):null,f=r&&layer?snap(r,d.kind,event.shiftKey)?.rect??r:null
     const placement=f?{...g,x:Math.round(f.x),y:Math.round(f.y),width:Math.round(f.w),height:Math.round(f.h)}:g
     const hold={rev:Infinity};held.current=hold;setPreview(placement)
@@ -200,7 +206,7 @@ function PanelBody({slug,app,panel,shown,behind,layer,frame,motion}:{slug:string
   // the committed revision replaces the held drop before the next paint
   useLayoutEffect(()=>{const hold=held.current;if(hold&&panel.rev>=hold.rev){held.current=null;setPreview(null)}},[panel.rev])
   return <><section ref={frame} className="settings custom-app-window" data-custom-panel={panel.id} data-motion={motion} data-parked={!shown||undefined} data-detached={surface?.detached||undefined} data-centered={panel.placement.mode==='float'&&!surface?.detached||undefined} data-pinned={!!rect||undefined} style={style} onPointerDownCapture={layer?()=>raisePinSurface(layer.key):undefined} onPointerDown={e=>e.stopPropagation()} onWheel={e=>e.stopPropagation()} onKeyDown={e=>e.stopPropagation()}>
-    <header className="modalpin-bar on custom-app-title" onPointerDown={e=>start(e,'move')} onPointerMove={move} onPointerUp={end} onPointerCancel={()=>{drag.current=null;setPreview(null)}}>
+    <header className="modalpin-bar on custom-app-title" onPointerDown={e=>start(e,'move')} onPointerMove={move} onPointerUp={end} onPointerCancel={cancel} onLostPointerCapture={cancel}>
       <AppsIcon/><strong className="modalpin-name" title={app.name+' · '+panel.label}>{app.name} · {panel.label}</strong>
       <button type="button" className="modalpin-btn" title="Panel settings" aria-label={'Settings for '+panel.label} onClick={()=>setSettings(true)}><SettingsIcon fontSize="inherit"/></button>
       <PopoutButton/>{!surface?.detached&&<button type="button" className={'modalpin-btn'+(pinned?' active':'')} title={pinned?'Unpin: back to the middle of the screen':'Pin to window: it stays put and can be dragged around'} aria-label={pinned?'Unpin':'Pin to window'} aria-pressed={pinned} onClick={pin}>{pinned?<PinIcon fontSize="inherit"/>:<PinOutlinedIcon fontSize="inherit"/>}</button>}
@@ -209,7 +215,7 @@ function PanelBody({slug,app,panel,shown,behind,layer,frame,motion}:{slug:string
     </header>
     {error&&<div role="alert" className="custom-app-error">{error}</div>}{surface?.error&&<div role="alert">{surface.error}</div>}
     <PanelHtml slug={slug} app={app} panel={panel} visible={shown&&!stopping} stopping={stopping}/>
-    {!surface?.detached&&<div className="custom-app-resize" aria-label="Resize panel" onPointerDown={e=>start(e,'size')} onPointerMove={move} onPointerUp={end} onPointerCancel={()=>{drag.current=null;setPreview(null)}}/>}
+    {!surface?.detached&&<div className="custom-app-resize" aria-label="Resize panel" onPointerDown={e=>start(e,'size')} onPointerMove={move} onPointerUp={end} onPointerCancel={cancel} onLostPointerCapture={cancel}/>}
     {settings&&!stopping&&<PanelSettings slug={slug} app={app} panel={panel} close={()=>setSettings(false)}/>}
   </section>{candidate&&<div className="pin-snap-preview" role="status" style={{left:candidate.rect.x,top:candidate.rect.y,width:candidate.rect.w,height:candidate.rect.h}}><span>{candidate.snap.target===null?candidate.label:'Snap beside pinned window'} · Shift for free placement</span></div>}</>
 }
