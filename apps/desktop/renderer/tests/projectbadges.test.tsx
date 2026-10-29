@@ -33,7 +33,7 @@ function card(log:string[],o:{zoom?:number;routes?:boolean;drag?:string[]}={}){
   const el=<ProjectSquare node={nd} pos={{x:0,y:0}} lod="norm" tree={tree} map={new Map([[nd.id,nd]])}
     dragging={false} isDrop={false} op={op} slug="org" toast={noop} zoom={o.zoom??1}
     hire={{claudeHire:offer}} seats={seats} onHire={noop} onNewProject={noop}
-    onInbox={()=>{log.push('mail')}}
+    onInbox={(keep,folder)=>{log.push(`mail:${folder??'-'}:${keep?'ensure':'toggle'}`)}}
     onDragStart={()=>{o.drag?.push('drag')}} onDragMove={noop} onDragEnd={noop} onDragCancel={noop}/>
   return o.routes===false?el:<AgentSurfaceRoutesProvider value={{open:(kind,id)=>{log.push(`open:${kind}:${id}`)},show:noop}}>{el}</AgentSurfaceRoutesProvider>
 }
@@ -44,7 +44,7 @@ test('#49 the norm node badges are buttons opening the desk views, with the shor
   const view=await mountView(card(log,{drag}),el=>el);t.after(()=>view.unmount());await inAct(tick)
   const sq=view.el.querySelector<HTMLElement>('.sq.project')!;assert.ok(sq,'the project norm node')
   const badge=(cls:string)=>sq.querySelector<HTMLElement>('.'+cls)
-  for(const [cls,label] of [['project-slots-badge','slots of project sync'],['project-listeners-badge','events of project sync'],['project-queue-badge','events of project sync']] as const){
+  for(const [cls,label] of [['project-slots-badge','slots of project sync'],['project-listeners-badge','events of project sync'],['project-queue-badge','mailbox of project sync']] as const){
     const b=badge(cls);assert.ok(b,cls+' shows')
     assert.equal(b!.tagName,'BUTTON',cls+' is a button, as its desk card is')
     assert.equal(b!.getAttribute('aria-label'),label,cls+' carries its view\'s keyboard label, as the card shortcut does')
@@ -55,8 +55,8 @@ test('#49 the norm node badges are buttons opening the desk views, with the shor
   await inAct(()=>{(badge('project-slots-badge') as HTMLButtonElement).click()})
   await inAct(()=>{(badge('project-listeners-badge') as HTMLButtonElement).click()})
   await inAct(()=>{(badge('project-queue-badge') as HTMLButtonElement).click()})
-  assert.deepEqual(log,['open:project-slots:sync','open:project-listeners:sync','open:project-listeners:sync'],
-    'slots and listeners open their windows as the shortcuts do; the queue badge follows the desk card: listeners armed, so the listeners view')
+  assert.deepEqual(log,['open:project-slots:sync','open:project-listeners:sync','mail:listeners:ensure'],
+    'slots and the event listeners open their windows as the shortcuts do; the queue badge follows the desk card: mail listeners armed, so the project mailbox at its listeners folder, not the events view')
 })
 
 test('#49 with nobody listening for its mail, the queue badge opens the project mailbox, as the desk card does',async t=>{
@@ -68,14 +68,14 @@ test('#49 with nobody listening for its mail, the queue badge opens the project 
     <ProjectSquare node={nd} pos={{x:0,y:0}} lod="norm" tree={bare} map={new Map([[nd.id,nd]])}
       dragging={false} isDrop={false} op={op} slug="org" toast={noop} zoom={1}
       hire={{claudeHire:offer}} seats={seats} onHire={noop} onNewProject={noop}
-      onInbox={()=>{log.push('mail')}}
+      onInbox={(keep,folder)=>{log.push(`mail:${folder??'-'}:${keep?'ensure':'toggle'}`)}}
       onDragStart={noop} onDragMove={noop} onDragEnd={noop} onDragCancel={noop}/>
   </AgentSurfaceRoutesProvider>,el=>el);t.after(()=>view.unmount());await inAct(tick)
   const q=view.el.querySelector<HTMLButtonElement>('.project-queue-badge')!
   assert.ok(q,'mail waiting still badges')
   assert.equal(q.getAttribute('aria-label'),'mailbox of project sync')
   await inAct(()=>{q.click()})
-  assert.deepEqual(log,['mail'],'no mail listeners: the mailbox, as the desk queue card opens its inbox')
+  assert.deepEqual(log,['mail:inbox:ensure'],'no mail listeners: the mailbox at its inbox folder, as the desk queue card opens it')
 })
 
 test('#49 without surface routes the badges stay passive facts, not dead buttons',async t=>{
