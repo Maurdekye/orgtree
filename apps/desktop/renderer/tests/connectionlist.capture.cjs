@@ -6,6 +6,9 @@
 //   electron connectionlist.capture.cjs <out>
 // <out> is below C:\orgtree-build\<ORGTREE_AGENT>\ and holds base\ and/or tip\,
 // each with index.html, probe.js and probe.css from the visual bundle.
+// A fixture that never starts leaves capture-error.json with the page's own
+// errors (uncaught errors, failed loads, console errors and warnings) and each
+// bundle's source.json receipt, so a bounce names its cause.
 // Native tooltips are drawn by Windows and an offscreen capture cannot hold
 // them: a hover shot draws the hovered element's own title text in an overlay.
 const {app,BrowserWindow,session,clipboard}=require('electron')
@@ -22,6 +25,8 @@ app.disableHardwareAcceleration();app.commandLine.appendSwitch('mute-audio')
 const clipboardCalls=[]
 for(const key of Object.keys(clipboard))if(typeof clipboard[key]==='function')Object.defineProperty(clipboard,key,{value:()=>{clipboardCalls.push(key);return key==='availableFormats'?[]:key==='has'?false:''}})
 fs.writeFileSync(path.join(out,'clipboard.preload.cjs'),`Object.defineProperty(navigator,'clipboard',{value:Object.freeze({read:()=>Promise.reject(Error('Clipboard denied')),readText:()=>Promise.reject(Error('Clipboard denied')),write:()=>Promise.reject(Error('Clipboard denied')),writeText:()=>Promise.reject(Error('Clipboard denied'))})});window.__clipboardBlocked=true;`)
+// index.html's first script: the page's uncaught errors and failed loads, read back when the fixture never starts
+const pageErrorHook="window.__pageErrors=[];addEventListener('error',e=>{const t=e.target;window.__pageErrors.push(t&&t!==window?'failed to load '+(t.src||t.href||t.tagName):String(e.error&&e.error.stack||e.message).slice(0,4000))},true);addEventListener('unhandledrejection',e=>window.__pageErrors.push('unhandled rejection: '+String(e.reason&&e.reason.stack||e.reason).slice(0,4000)))"
 async function within(promise,ms,label){let timer;try{return await Promise.race([promise,new Promise((_r,reject)=>{timer=setTimeout(()=>reject(Error(label)),ms)})])}finally{clearTimeout(timer)}}
 // The order rule, written again here from the ruling, to check the page by.
 const expectedOrder=(rows,recent)=>{const col=new Intl.Collator('en',{sensitivity:'base',numeric:true});const name=p=>(p.org_name||p.username||'').trim()||p.slug
@@ -32,15 +37,17 @@ app.whenReady().then(async()=>{
   const win=new BrowserWindow({width:1024,height:860,show:false,frame:false,webPreferences:{offscreen:true,backgroundThrottling:false,contextIsolation:false,sandbox:false,nodeIntegration:false,preload:path.join(out,'clipboard.preload.cjs'),session:isolated}})
   const wc=win.webContents;wc.setAudioMuted(true);wc.setWindowOpenHandler(()=>({action:'deny'}))
   for(const method of ['cut','copy','paste','pasteAndMatchStyle'])wc[method]=()=>{throw Error('Clipboard command forbidden')}
+  const consoleLog=[];wc.on('console-message',d=>{if(d.level==='error'||d.level==='warning'){consoleLog.push({level:d.level,message:String(d.message).slice(0,2000),source:`${d.sourceId}:${d.lineNumber}`});if(consoleLog.length>40)consoleLog.shift()}})
   const evalJs=s=>wc.executeJavaScript(s),paint=()=>evalJs('new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(()=>setTimeout(r,200))))')
   const until=(expr,label)=>evalJs(`new Promise((resolve,reject)=>{const end=Date.now()+8000;(function poll(){try{if(${expr})return resolve(true)}catch(e){}if(Date.now()>end)return reject(Error(${JSON.stringify(label)}));setTimeout(poll,40)})()})`)
   const shot=async name=>{fs.writeFileSync(path.join(out,name+'.png'),(await wc.capturePage()).toPNG());return name+'.png'}
-  const measured=[];let attached=false
+  const measured=[],bundles={};let attached=false,current=null
   try{
     for(const phase of ['base','tip']){
-      const dir=path.join(out,phase)
+      current=phase;const dir=path.join(out,phase)
       if(!fs.existsSync(path.join(dir,'probe.js')))throw Error(`no ${phase} bundle in ${dir}: nothing to capture`)
-      fs.writeFileSync(path.join(dir,'index.html'),'<!doctype html><html lang="en"><meta charset="utf-8"><link rel="stylesheet" href="probe.css"><div id="root"></div><script src="probe.js"></script></html>')
+      const made=path.join(dir,'source.json');if(fs.existsSync(made)){const s=JSON.parse(fs.readFileSync(made,'utf8'));bundles[phase]={root:s.root,inputs:s.inputs,deps:s.deps??null,fingerprint:s.fingerprint??null}}
+      fs.writeFileSync(path.join(dir,'index.html'),'<!doctype html><html lang="en"><meta charset="utf-8"><script>'+pageErrorHook+'</script><link rel="stylesheet" href="probe.css"><div id="root"></div><script src="probe.js"></script></html>')
       await within(win.loadFile(path.join(dir,'index.html')),15000,'Fixture load timeout')
       await until('window.connFixture','fixture not loaded')
       const data=await evalJs('({roster:window.connFixture.roster,recent:window.connFixture.recent,hubRows:window.connFixture.hubRows,clipboard:window.__clipboardBlocked})')
@@ -113,8 +120,11 @@ app.whenReady().then(async()=>{
     // an empty run is not a pass: both phases, both surfaces, every theme
     assert.equal(measured.length,6,`${measured.length} records`)
     assert.deepEqual([...new Set(measured.map(r=>r.phase))],['base','tip'])
-    const receipt={status:'PASS',pid:process.pid,sessionId,muted:wc.isAudioMuted(),offscreen:true,nativeClipboardStubbed:true,rendererClipboardBlocked:true,clipboardPermissionsDenied:true,clipboardCalls,
+    const receipt={status:'PASS',pid:process.pid,sessionId,muted:wc.isAudioMuted(),offscreen:true,nativeClipboardStubbed:true,rendererClipboardBlocked:true,clipboardPermissionsDenied:true,clipboardCalls,bundles,
       tooltipNote:'hover shots draw the hovered chip\'s own title attribute in an overlay; native tooltips are not capturable offscreen',measured}
     fs.writeFileSync(path.join(out,'capture-receipt.json'),JSON.stringify(receipt,null,2));console.log(JSON.stringify({status:'PASS',sessionId,shots:measured.length}));app.exit(0)
-  }catch(error){console.error(error);fs.writeFileSync(path.join(out,'capture-error.json'),JSON.stringify({error:String(error),stack:error.stack,measured},null,2));app.exit(1)}
+  }catch(error){
+    let pageErrors=null;try{pageErrors=await within(evalJs('window.__pageErrors||null'),3000,'page errors unreadable')}catch(e){pageErrors=String(e)}
+    console.error(error);console.error(JSON.stringify({phase:current,pageErrors,console:consoleLog.slice(-8)},null,1))
+    fs.writeFileSync(path.join(out,'capture-error.json'),JSON.stringify({error:String(error),stack:error.stack,phase:current,pageErrors,console:consoleLog,bundles,measured},null,2));app.exit(1)}
 }).catch(error=>{console.error(error);app.exit(1)})
