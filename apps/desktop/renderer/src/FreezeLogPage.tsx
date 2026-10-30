@@ -35,7 +35,7 @@ export default function FreezeLogPage() {
     <main style={{ padding: 16, fontFamily: 'system-ui, sans-serif' }} data-testid="freeze-log">
       <h1 style={{ fontSize: 18, margin: '0 0 4px' }}>Freeze log</h1>
       <p style={{ margin: '0 0 12px', color: '#555', fontSize: 13 }}>
-        Frame gaps of 250 ms or more, long tasks, visibility and lifecycle events recorded by every orgtree
+        Frame gaps of 250ms or more, long tasks, visibility and lifecycle events recorded by every orgtree
         tab in this browser profile, merged by time, newest first ({entries.length} entries; each tab keeps
         its last 200, the 10 most recent tabs are kept, older than 7 days is dropped). Times are local;
         the sampler's CSV is UTC.

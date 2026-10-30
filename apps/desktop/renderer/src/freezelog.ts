@@ -284,7 +284,7 @@ export function installFreezeLog(opts: FreezeLogOptions = {}): () => void {
     if (doc.visibilityState !== 'hidden') {   // 'visible' — or jsdom's 'prerender' under test
       const gap = t - last
       if (gap >= threshold) {
-        record('gap', `${Math.round(gap)} ms ${sinceEvent ? `from ${sinceEvent} to the first frame` : 'between frames'}`, gap)
+        record('gap', `${Math.round(gap)}ms ${sinceEvent ? `from ${sinceEvent} to the first frame` : 'between frames'}`, gap)
       }
     }
     sinceEvent = null
@@ -306,7 +306,7 @@ export function installFreezeLog(opts: FreezeLogOptions = {}): () => void {
     // (on the show side the interval is the hidden time itself).
     if (doc.visibilityState === 'hidden') {
       const gap = now() - last
-      if (gap >= threshold) record('gap', `${Math.round(gap)} ms before the tab was hidden`, gap)
+      if (gap >= threshold) record('gap', `${Math.round(gap)}ms before the tab was hidden`, gap)
     }
     record('visibility', doc.visibilityState)
     mark(`visibility ${doc.visibilityState}`)
@@ -329,7 +329,7 @@ export function installFreezeLog(opts: FreezeLogOptions = {}): () => void {
         for (const e of list.getEntries()) {
           const attr = (e as unknown as { attribution?: Array<{ name?: string; containerType?: string }> }).attribution
           const who = attr && attr.length ? ` ${attr.map((a) => a.containerType ?? a.name ?? '').filter(Boolean).join(',')}` : ''
-          record('longtask', `${Math.round(e.duration)} ms main thread${who}`, e.duration)
+          record('longtask', `${Math.round(e.duration)}ms main thread${who}`, e.duration)
         }
       })
       observer.observe({ entryTypes: ['longtask'] })

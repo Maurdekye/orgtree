@@ -41,10 +41,11 @@ export function useLiveCall(startedAt: unknown): boolean {
   return active && ofRunningTurn(startedAt, turnStart)
 }
 
-/** "840 ms", "1.2s", "12s", "1m 05s", "1h 02m". */
+/** "840ms", "1.2s", "12s", "1m 05s", "1h 02m": a unit sits against its number, milliseconds like
+ *  seconds (USER 2026-10-30 mdd3b2c7f700b). */
 export function formatDuration(ms: number): string {
   if (!Number.isFinite(ms) || ms < 0) return ''
-  if (ms < 1000) return `${Math.round(ms)} ms`
+  if (ms < 1000) return `${Math.round(ms)}ms`
   const s = ms / 1000
   if (s < 10) return `${s.toFixed(1)}s`
   if (s < 60) return `${Math.floor(s)}s`
