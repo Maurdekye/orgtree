@@ -213,6 +213,7 @@ test('§7 the agent settings header keeps its folder buttons clear of pop-out, p
 // bar's menu either, which names the bar's own controls.
 const W = window as unknown as Window & typeof globalThis
 const menuLabels = () => [...document.querySelectorAll('.ctxmenu [role="menuitem"]')].map(b => b.textContent ?? '')
+const menuItem = (label: string) => [...document.querySelectorAll<HTMLButtonElement>('.ctxmenu [role="menuitem"]')].find(b => b.textContent === label) ?? null
 async function barMenu(el: Element) {
   if (document.querySelector('.ctxmenu')) {
     await inAct(() => { document.body.dispatchEvent(new W.KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })) })
@@ -305,8 +306,16 @@ test('§10 RED the provider dialog keeps its X visible and disabled while its sa
   const css = readFileSync(path.join(__SRC_DIR__, 'styles.css'), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '')
   assert.match(css, /button:disabled\s*\{[^}]*opacity:\s*\.45/, 'disabled X shares the greyed button:disabled style')
   assert.match(css, /\.modalpin-btn:not\(:disabled\):hover\s*\{/, 'hover does not light up a disabled modalpin-btn')
-  assert.equal((await barMenu(dialog()!.querySelector('.modalpin-bar')!)).includes('Close'), false, 'saving: no Close in the bar menu')
+  assert.deepEqual(await barMenu(dialog()!.querySelector('.modalpin-bar')!), ['Close'], 'saving: the bar menu keeps Close')
+  const busyMenuClose = menuItem('Close')
+  assert.ok(busyMenuClose, 'saving: Close menuitem is rendered')
+  assert.equal(busyMenuClose.disabled, true, 'saving: Close in the bar menu is disabled, matching the greyed X')
+  assert.equal(busyMenuClose.getAttribute('aria-disabled'), 'true', 'saving: Close menuitem sets aria-disabled')
+  await inAct(() => { busyMenuClose.click() }); await flush()
+  assert.equal(closes.n, 0, 'saving: clicking disabled Close in the bar menu does not close the dialog')
   await inAct(() => setBusy(false)); await flush()
+  assert.deepEqual(await barMenu(dialog()!.querySelector('.modalpin-bar')!), ['Close'], 'the save settled: Close is in the bar menu')
+  assert.equal(menuItem('Close')?.disabled, false, 'the save settled: Close in the bar menu is enabled')
   const x = shownX(dialog())
   assert.ok(x, 'the save settled: the X is visible')
   assert.equal(x.disabled, false, 'the save settled: the X is enabled')
@@ -339,7 +348,16 @@ test('§11 RED the add-account dialog keeps its X visible and disabled while it 
   assert.equal(busyX.getAttribute('aria-disabled'), 'true', 'adding: aria-disabled matches')
   await inAct(() => { busyX.click() }); await flush()
   assert.equal(closes.n, 0, 'adding: clicking the disabled X does not close the dialog')
+  assert.deepEqual(await barMenu(dialog().querySelector('.modalpin-bar')!), ['Close'], 'adding: the bar menu keeps Close')
+  const busyMenuClose = menuItem('Close')
+  assert.ok(busyMenuClose, 'adding: Close menuitem is rendered')
+  assert.equal(busyMenuClose.disabled, true, 'adding: Close in the bar menu is disabled, matching the greyed X')
+  assert.equal(busyMenuClose.getAttribute('aria-disabled'), 'true', 'adding: Close menuitem sets aria-disabled')
+  await inAct(() => { busyMenuClose.click() }); await flush()
+  assert.equal(closes.n, 0, 'adding: clicking disabled Close in the bar menu does not close the dialog')
   await inAct(async () => { answer(new Response(JSON.stringify({ detail: 'refused' }), { status: 422 })); await flush(3) })
+  assert.deepEqual(await barMenu(dialog().querySelector('.modalpin-bar')!), ['Close'], 'the request settled: Close is in the bar menu')
+  assert.equal(menuItem('Close')?.disabled, false, 'the request settled: Close in the bar menu is enabled')
   const x = shownX(dialog())
   assert.ok(x, 'the request settled: the X is visible')
   assert.equal(x.disabled, false, 'the request settled: the X is enabled')
