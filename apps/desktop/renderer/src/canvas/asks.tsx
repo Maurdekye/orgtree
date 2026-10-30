@@ -637,6 +637,18 @@ function SubmitFailed({ error }: { error?: string }) {
   </div>
 }
 
+/** What the server's offered() puts on an answered question (domain/asks.rs):
+ *  the options (a string becomes its label) and `multi`, only when the
+ *  question offered any. The queued entry carries them so it draws the card
+ *  the server's row will draw, option list and Markdown descriptions
+ *  included, not a bare answer line (USER 2026-10-30 15:12:41Z
+ *  m3ce0d2554ce0: submitted resolutions were briefly unformatted). */
+function offered(q: { options?: ({ label: string; description?: string } | string)[]
+  multi?: boolean } | undefined): { options?: { label: string; description?: string }[]; multi?: boolean } {
+  const options = (q?.options ?? []).map(o => typeof o === 'string' ? { label: o } : o)
+  return options.length ? { options, multi: q?.multi ?? false } : {}
+}
+
 /** The answer.ask fields the server will mint for a single-question card's
  *  submit: ledger.ask_dismiss for the ✕, the per-tab form of ask_answer for
  *  a multi-question card, and its single form otherwise. */
@@ -649,16 +661,16 @@ function askAnswer(ask: AskInfo, qs: AskQuestion[], body: { selected?: (string |
     tabWorkItem(ask, q, i, qs.length)
   if (body.dismiss) {
     return { questions: qs.map((q, i) => ({ label: label(q), question: String(q.question ?? ''),
-      selected: [], ...(item(q, i) ? { work_item: item(q, i) } : {}) })), text: null, dismissed: true, single: qs.length <= 1 }
+      selected: [], ...offered(q), ...(item(q, i) ? { work_item: item(q, i) } : {}) })), text: null, dismissed: true, single: qs.length <= 1 }
   }
   if (qs.length > 1) {
     return { questions: qs.map((q, i) => ({ label: label(q), question: String(q.question ?? ''),
-      selected: clean(body.selected?.[i] ?? ''), ...(item(q, i) ? { work_item: item(q, i) } : {}) })),
+      selected: clean(body.selected?.[i] ?? ''), ...offered(q), ...(item(q, i) ? { work_item: item(q, i) } : {}) })),
       text: body.text?.trim() || null, dismissed: false, single: false }
   }
   const w0 = item(qs[0], 0)
   return { questions: [{ label: label(qs[0]), question: String(ask.question ?? qs[0]?.question ?? ''),
-    selected: clean((body.selected ?? []) as string[]), ...(w0 ? { work_item: w0 } : {}) }],
+    selected: clean((body.selected ?? []) as string[]), ...offered(qs[0]), ...(w0 ? { work_item: w0 } : {}) }],
     text: body.text?.trim() || null, dismissed: false, single: true }
 }
 
@@ -679,7 +691,8 @@ function batchSections(ask: AskInfo, tabs: AskTab[], answers: (string | string[]
         .map(x => String(x).trim()).filter(Boolean)
       const work_item = t.work_item ?? (qTabs.length === 1 ? ask.work_items?.[0] : undefined)
       return { label: t.header ? String(t.header) : null, question: String(t.question ?? ''),
-        answer: parts.length ? parts.join(' · ') : null, ...(work_item ? { work_item } : {}) }
+        answer: parts.length ? parts.join(' · ') : null, selected: parts, ...offered(t),
+        ...(work_item ? { work_item } : {}) }
     }) })
   }
   const ct = tabs.find(t => t.kind === 'credits')

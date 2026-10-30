@@ -161,6 +161,12 @@ export function settleFromTree(slug: string, tree: { roots?: unknown[]; asks?: u
   settleSubmitted((s, id) => s !== slug || open.has(id), now)
 }
 
+/** One question's answer as the resolved card keeps it: the list of picks
+ *  when it has several (each one an option label, so the card marks every one
+ *  of them), otherwise the joined text. */
+const picks = (selected: string[] | undefined, joined: string): string | string[] =>
+  selected && selected.length > 1 ? selected : joined
+
 /** A submitted card AS THE RESOLVED CARD IT IS ABOUT TO BECOME, for a list
  *  that keeps its entry (docket v3-an-answered-question-vanishes-from-the-
  *  inbox, user 2026-09-30): point 31 closes the card on the click, but the
@@ -180,7 +186,8 @@ export function answeredAsk(slug: string, ask: AskInfo): AskInfo | null {
       for (const q of s.questions) {
         const work_item = itemAt(qs.length, q as { work_item?: string | null })
         qs.push({ question: q.question, ...(q.label ? { header: q.label } : {}),
-          ...(q.answer != null ? { answer: q.answer } : {}),
+          ...(q.answer != null ? { answer: picks(q.selected, q.answer) } : {}),
+          ...(q.options?.length ? { options: q.options, multi: q.multi ?? false } : {}),
           ...(work_item ? { work_item } : {}) })
       }
     } else if (s.kind === 'skipped') {
@@ -191,7 +198,8 @@ export function answeredAsk(slug: string, ask: AskInfo): AskInfo | null {
   for (const q of e.answer?.questions ?? []) {
     const work_item = itemAt(qs.length, q as { work_item?: string | null })
     qs.push({ question: q.question, ...(q.label ? { header: q.label } : {}),
-      ...(q.selected.length ? { answer: q.selected.join(' · ') } : {}),
+      ...(q.selected.length ? { answer: picks(q.selected, q.selected.join(' · ')) } : {}),
+      ...(q.options?.length ? { options: q.options, multi: q.multi ?? false } : {}),
       ...(work_item ? { work_item } : {}) })
   }
   const text = e.answer?.text || ''
@@ -202,7 +210,7 @@ export function answeredAsk(slug: string, ask: AskInfo): AskInfo | null {
   const kind = qs.length ? 'question' : ask.kind
   if (qs.length > 1) return { ...ask, kind, status, resolved_at: e.at, questions: qs, question: qs[0]!.question }
   const one = qs[0]
-  const shown = [one?.answer, text].filter((x) => x && String(x).trim()).join(' · ')
+  const shown = [[one?.answer].flat().join(' · '), text].filter((x) => x && String(x).trim()).join(' · ')
   return {
     ...ask, kind, status, resolved_at: e.at,
     ...(one ? { question: one.question, questions: qs } : {}),
