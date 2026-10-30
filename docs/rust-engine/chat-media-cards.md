@@ -8,13 +8,35 @@ chat transcript placement: desk, floating/pinned chat and pop-out. Existing
 images retain their inline thumbnail, lightbox and download behavior. Composer
 staging and the separate Files list keep their compact previews/rows.
 
-Video/audio do not request bytes before **Play video** or **Play audio**.
-Playing enables Chromium's ordinary controls. Video fits the card width and
-stays at most 320 px high; audio uses one control row. Playback releases its
-source when the card scrolls offscreen, its document hides, it unmounts or its
-file/chat/org identity changes. It never resumes automatically on return.
-Controls own their normal clicks and keyboard input; middle-button canvas pan
-keeps its existing behavior.
+Audio does not request bytes before **Play audio**. Playing enables Chromium's
+ordinary controls; audio uses one control row. A video opens when its card is
+rendered and on screen (USER 2026-10-30 m478dfd75cf44, "inline videos should open
+automatically, just not play until clicked"; this replaces the 4.5.0 "after
+Play" for video only): the player and its first frame show, loaded with
+`preload="metadata"` through the same authorized route, with no autoplay and no
+separate Play button. Its own native controls start it. Video fits the card width
+and stays at most 320 px high. Both release their source when the card scrolls
+offscreen, its document hides, it unmounts or its file/chat/org identity changes;
+a released video reopens paused when it is back on screen, and nothing ever
+resumes playing automatically. A video that is the document's fullscreen element
+is never released because its card reports offscreen. Controls own their normal
+clicks and keyboard input; middle-button canvas pan keeps its existing behavior.
+
+## Maximize (fullscreen), USER 2026-10-30
+
+The native fullscreen button calls `element.requestFullscreen()`. Electron asks the
+session's permission handler for `fullscreen` before it lets the window go
+fullscreen, and `configureEngineSession` (`apps/desktop/main/windows.ts`) used to
+grant only `clipboard-sanitized-write`. A denied request never settles (measured:
+still pending after 8 s, no rejection), so the button simply did nothing
+(USER md731a537e304, "i cant maximize inline videos"). The handler now grants
+`fullscreen` on the same terms as the copy gesture: the main frame of a trusted
+app document, or of a registered pop-out. Subframes, unregistered windows and
+artifact windows stay denied, as do clipboard reads and every other permission.
+Anything new that needs an Electron permission needs its grant there too.
+Measured at the same time: the card's `IntersectionObserver` did not report the
+card offscreen while its video was fullscreen, so the release guard above is
+defensive, not the cause.
 
 The playback ceiling is 256 MiB (268,435,456 bytes), enforced on the opened file
 by the engine even when displayed size metadata is missing or outdated. Larger
@@ -58,9 +80,13 @@ downloaded file is available to existing authorized file/shell/computer-use
 workflows; there is no new tool granting file access or controlling a user's
 audio output.
 
-Focused mounted tests cover both delivery and message cards, no eager source,
-explicit Play, source/offscreen/unmount cleanup, control-key ownership and
-fallbacks. Native tests exercise the actual streaming module's ranges, exact
+Focused mounted tests cover both delivery and message cards, no eager audio
+source, a video opening on render and only while on screen, explicit audio Play,
+source/offscreen/unmount cleanup, no release while fullscreen, control-key
+ownership and fallbacks. `tests/video-fullscreen-native.probe.ts` (run by
+`tests/video-fullscreen-native.run.mjs`, Session 0, muted) runs the real
+`configureEngineSession` in Electron: a video in the trusted window and in a
+registered pop-out maximizes, a subframe and an unregistered window do not. Native tests exercise the actual streaming module's ranges, exact
 bodies, headers, cap and file-growth bound; the whole engine compile validates
 its route integration. The isolated renderer capture generates synthetic WebM,
 WAV and PNG files and exercises Chromium playback. It does not use live data,

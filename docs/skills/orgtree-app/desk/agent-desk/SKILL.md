@@ -24,11 +24,12 @@ When only the team has content, entering the tab starts with **Team** checked an
 
 ## In-chat media
 
-Delivered files and message attachments show images inline and offer **Play video**
-or **Play audio** for supported media in the desk, floating/pinned chat and pop-out.
-Nothing plays or loads before Play. Native controls provide pause, seek and volume;
-scrolling the card out of view, hiding the window or changing chat stops and releases
-playback. Returning does not restart it. Composer staging and Files rows stay compact.
+Delivered files and message attachments show images inline. Supported video opens
+as its own player (first frame, paused) and supported audio offers **Play audio**, in
+the desk, floating/pinned chat and pop-out. A video's native controls play it and its
+fullscreen button maximizes it; audio loads nothing before Play. Native controls provide
+pause, seek and volume; scrolling the card out of view, hiding the window or changing
+chat stops and releases playback. Returning does not restart it (a video reopens paused). Composer staging and Files rows stay compact.
 
 Video fits the chat width and stays at most 320 px tall. Playback is limited to
 256 MiB per file; larger files remain downloadable. Supported containers are

@@ -241,13 +241,13 @@ placement settings and bounded failure. See [rig seed timing](docs/rust-engine/t
 
 ## Engine and desktop invariants
 
-- Chat video/audio cards are click-to-load, capped at256MiB and streamed only
-  after ordinary file authorization; single byte ranges are bounded to the
-  opened file's size snapshot. Preserve existing image behavior, Download and
-  compact staging/Files rows. Release playback offscreen/hidden/unmount/source
-  changes and keep native controls from desk navigation. See
+- Chat audio is click-to-load; video opens on render, paused; maximize needs
+  the `fullscreen` grant in `main/windows.ts`. Capped at256MiB, streamed only
+  after file authorization, ranges bounded to the opened size. Keep image
+  behavior, Download, staging/Files rows; release playback offscreen/hidden/
+  unmount/source changes; native controls own their keys. See
   [media cards](docs/rust-engine/chat-media-cards.md).
-  [decided: user2026-10-25,4.5.0; verified: `canvas/media.tsx`, `http/media_file.rs`]
+  [decided: user2026-10-25,10-30; verified: `canvas/media.tsx`, `http/media_file.rs`]
 
 - Native proof admission accepts the owner's C build home/run scope and retained
   D rigs, preserving canonical/reparse and disposable metadata/DB checks. See

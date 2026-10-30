@@ -105,11 +105,14 @@ text. This is the reported item interval, not the whole turn's runtime.
 
 ## Play media in a conversation
 
-Video and audio file cards offer **Play video** or **Play audio** in every chat
-placement, including pinned and popped-out chats. Media loads only after Play;
-use the player's controls to pause, seek or change volume. Scrolling the card
-out of view, hiding the window or changing chats stops playback. It stays stopped
-when you return. Images keep their inline picture and click-to-view behavior.
+Video and audio file cards appear in every chat placement, including pinned and
+popped-out chats. A video opens as soon as its card is on screen, showing its
+first frame; it does not play until you press Play on its own controls, and its
+fullscreen button maximizes it (Escape leaves). Audio offers **Play audio** and
+loads only after Play. Use the player's controls to pause, seek or change volume.
+Scrolling the card out of view, hiding the window or changing chats stops
+playback and releases the file; the video reopens, paused, when you return.
+Images keep their inline picture and click-to-view behavior.
 
 Playback supports MP4/WebM video and MP3/WAV/Ogg/M4A/AAC/FLAC audio where Chromium
 supports the codec, up to 256 MiB per file. Larger, unsupported or unavailable
