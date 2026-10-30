@@ -12,12 +12,17 @@
  *  a recalled entry never rewrites the stored history; the edit is kept while
  *  you walk on (as a shell keeps an edited line) and only sending drops it.
  *
- *  Up and Down are history ONLY on the first / last LINE of the text (a
- *  newline boundary) with nothing selected. Anywhere else they move the caret, so a
- *  multi-line message can never be replaced out from under you.
+ *  Up and Down are history ONLY on the top / bottom VISUAL ROW of the text,
+ *  with nothing selected (USER 2026-10-30 08:30:07Z m9a02035a079d, "Top visible
+ *  row": Up walks up through the wrapped rows first, history only from the very
+ *  top row). A newline and a soft wrap both start a row; anywhere else the
+ *  arrow moves the caret, so a long message can never be replaced out from
+ *  under you. Where there is no layout to measure (caretrow.ts) only the
+ *  newline rule applies.
  */
 import { useLayoutEffect, useRef, useState } from 'react'
 import type { KeyboardEvent } from 'react'
+import { caretRows } from './caretrow'
 import { clearStash, readStash, recordStranded, writeStash } from './composerhistory'
 import type { HistoryEntry } from './composerhistory'
 
@@ -163,10 +168,16 @@ export function useHistoryNav({ slug, id, history, text, setText, field }: Histo
     const el = e.currentTarget
     const from = el.selectionStart ?? 0
     const to = el.selectionEnd ?? 0
-    const edge = e.key === 'ArrowUp'
-      ? !el.value.slice(0, from).includes('\n')
-      : !el.value.slice(to).includes('\n')
-    if (from !== to || !edge || !(e.key === 'ArrowUp' ? back() : forward())) return false
+    const up = e.key === 'ArrowUp'
+    if (from !== to) return false
+    // a newline is a row boundary whatever the layout; a soft wrap is one only
+    // the layout knows, and only when there is history to enter or leave
+    if (up ? el.value.slice(0, from).includes('\n') : el.value.slice(to).includes('\n')) return false
+    if (up ? history.length : atRef.current !== null) {
+      const rows = caretRows(el, from)
+      if (rows && !(up ? rows.first : rows.last)) return false
+    }
+    if (!(up ? back() : forward())) return false
     e.preventDefault()
     return true
   }
