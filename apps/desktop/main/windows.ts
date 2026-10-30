@@ -164,11 +164,12 @@ export function configureEngineSession(session: Session, liveOrigin: Live, liveT
     const permitted = Boolean(initialApp || appRequest || portalAsset)
     callback({ requestHeaders: scopedHeaders(details.requestHeaders, details.url, permitted ? origin : '', token) })
   })
-  // Copy gestures belong to trusted app documents and registered portals only.
-  // Clipboard reads and every unrelated permission remain denied.
+  // Copy gestures and a video's fullscreen button ("fullscreen": element.requestFullscreen(), which Electron asks this
+  // handler about first; USER 2026-10-30 md731a537e304 "i cant maximize inline videos") belong to trusted app documents
+  // and registered portals only. Clipboard reads and every unrelated permission remain denied.
   const canCopy = (contents: Electron.WebContents | null, permission: string,
     details: { isMainFrame: boolean; requestingUrl?: string }) => {
-    if (!contents || permission !== 'clipboard-sanitized-write' || !details.isMainFrame) return false
+    if (!contents || (permission !== 'clipboard-sanitized-write' && permission !== 'fullscreen') || !details.isMainFrame) return false
     const owner = owners.get(contents.id)
     if (!owner || owner.window.isDestroyed()) return false
     const topUrl = contents.mainFrame.url
