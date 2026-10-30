@@ -1162,6 +1162,10 @@ export const getHarnesses = (): Promise<HarnessesDoc> => req('/api/harnesses')
  *  model chosen in the tab; engine `harnesses::seat_row`) */
 export const getNodeHarness = (slug: string, nid: string, tier: string): Promise<NodeHarness> =>
   req(`/api/orgs/${slug}/nodes/${encodeURIComponent(nid)}/harness?tier=${encodeURIComponent(tier)}`)
+/** the hire dialog's Harness row for a draft on `tier`, billed to `account`
+ *  when it names one (engine `harnesses::hire_row`: no pin, no session) */
+export const getHireHarness = (slug: string, tier: string, account?: string): Promise<NodeHarness> =>
+  req(`/api/orgs/${slug}/hire-harness?tier=${encodeURIComponent(tier)}${account ? `&account=${encodeURIComponent(account)}` : ''}`)
 /** remove a key, any key alike: each agent on it moves to another key it may
  *  run on, or waits until one is added */
 export const removeOpenRouterKey = (id: string): Promise<OpenRouterDoc> =>

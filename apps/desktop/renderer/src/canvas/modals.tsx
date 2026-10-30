@@ -49,7 +49,7 @@ import type { SettingsTarget } from './settingskit'
 import { fmtAge } from '../timefmt'
 import { ageTitle, turnEndedTitle } from './listage'
 import { AccountSelect } from './accountselect'
-import { AgentHarnessRow, harnessOp, useNodeHarness } from './agentharness'
+import { AgentHarnessRow, harnessOp, useHireHarness, useNodeHarness } from './agentharness'
 import { peekStaffingOptions, tierEffortLevels } from './staffingoptions'
 import { useAgyModelsRefresh } from './shared'
 import { museHireAccount } from './musehire'
@@ -740,6 +740,8 @@ export function DraftScopeModal({ draft, map, tree, scope, onSave, close, accoun
   const [accountFallback, setAccountFallback] = useState(base.account_fallback === undefined ? '' : base.account_fallback ? 'on' : 'off')
   const [fastOverride, setFastOverride] = useState(base.fast_mode)
   const [accMode, setAccMode] = useState(base.auto_cheap_compact?.enabled === undefined ? '' : base.auto_cheap_compact.enabled ? 'on' : 'off')
+  // the Harness row's choice holds only for the model it was chosen for
+  const [harness, setHarness] = useState(base.harness_tier === draft.tier ? base.harness ?? '' : '')
   const [accOcc, setAccOcc] = useState<number | string>(Math.round((base.auto_cheap_compact?.occ ?? tree.auto_cheap_compact?.occ ?? .25) * 100))
   const [newPath, setNewPath] = useState('')
   const [servers, setServers] = useState<string[]>([])
@@ -812,6 +814,7 @@ export function DraftScopeModal({ draft, map, tree, scope, onSave, close, accoun
   // a Muse seat's levels and model are the login it lands on (its own catalog)
   const museTier = MUSE_TIERS.includes(draft.tier)
   const museWhy = museTier ? museUnofferedWhy(draft.tier, modelVersion || null, selectedAccount || null) : null
+  const harnessRow = useHireHarness(tree.slug, draft.tier, selectedAccount)
 
   useEffect(() => {
     getMcpServers().then((r) => {
@@ -837,8 +840,9 @@ export function DraftScopeModal({ draft, map, tree, scope, onSave, close, accoun
     fast_mode: supportsFastMode ? fastOverride : undefined,
     auto_cheap_compact: accMode === '' ? {} : { enabled: accMode === 'on', occ: Math.max(5, Math.min(95, +accOcc || 25)) / 100 },
     ...(acctTouched || selectedAccount ? { account: selectedAccount } : {}),
+    harness: harness || undefined, harness_tier: harness ? draft.tier : undefined,
   }), [base, dirs, tools, vis, effort, modelVersion, teamCharter, peerMail, pm, sess,
-    accountFallback, supportsFastMode, fastOverride, accMode, accOcc, acctTouched, selectedAccount])
+    accountFallback, supportsFastMode, fastOverride, accMode, accOcc, acctTouched, selectedAccount, harness, draft.tier])
   useEffect(() => { saveDraft.current(proposal) }, [proposal])
   return <ModalOverPins><PinFrame kind="draft-scope" title="Draft settings" panel="settings cfg draft-scope" close={close} pinnable={false} closeInModal>
     <h3><SettingsIcon fontSize="inherit" /> Draft settings</h3>
@@ -860,6 +864,7 @@ export function DraftScopeModal({ draft, map, tree, scope, onSave, close, accoun
         onChange={e => setModelVersion(e.target.value)}><option value="">{`latest (${versions[0]})`}</option>
         {versions.map(v => <option key={v} value={v}>{`${tierLabel(draft.tier)} ${v}`}</option>)}
       </select></SetRow>}
+      {harnessRow?.lane && <AgentHarnessRow row={harnessRow} value={harness} onChange={setHarness} draft />}
       <SetRow label="Thinking effort" hint="Choose how much effort the model spends reasoning."><EffortBar value={effort}
         level={tree.default_effort || tree.effort_default || 'high'} levels={museTier ? museEffortLevels(draft.tier, modelVersion || null, selectedAccount || null) : tierEffortLevels(tree.slug, draft.tier)}
         inheritLabel="Organization default" title={EFFORT_CHANGE_HELP} onSet={setEffort} /></SetRow>

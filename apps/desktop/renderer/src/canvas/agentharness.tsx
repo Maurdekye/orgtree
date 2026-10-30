@@ -10,9 +10,13 @@
 // dialog's (HarnessOptions: installed first, the others greyed out and
 // disabled), and the hint speaks as the key dialog's does: a change reaches
 // the agent at its next turn, on a fresh session that starts with a summary.
+//
+// The hire dialog's Model tab shows the same row (USER 2026-10-30 07:36:24Z
+// m5611018df279 "fix both yes"): GET /hire-harness (`harnesses::hire_row`)
+// answers for a seat not hired yet, and the hire op carries the choice.
 
 import { useEffect, useState } from 'react'
-import { getNodeHarness } from '../api'
+import { getHireHarness, getNodeHarness } from '../api'
 import type { NodeHarness } from '../types'
 import { HarnessOptions, HarnessesLink } from './harnesses'
 import { SetRow } from './settingskit'
@@ -36,14 +40,36 @@ export function useNodeHarness(slug: string, nid: string, tier: string): NodeHar
   return row
 }
 
+/** the hire dialog's row for a draft on `tier`, billed to `account` when it
+ *  names one (null while it loads, and for a tier with no harness choice) */
+export function useHireHarness(slug: string, tier: string, account: string): NodeHarness | null {
+  const [row, setRow] = useState<NodeHarness | null>(null)
+  const shown = choosesHarness(tier)
+  useEffect(() => {
+    setRow(null)
+    if (!shown) return
+    let live = true
+    getHireHarness(slug, tier, account || undefined).then((r) => { if (live && r && Array.isArray(r.options)) setRow(r) }).catch(() => {})
+    return () => { live = false }
+  }, [slug, tier, account, shown])
+  return row
+}
+
 /** the draft as the save sends it: the chosen harness, or null to follow */
 export const harnessOp = (value: string): string | null => value || null
 
-/** `value`: '' follows its key or server, else a harness id */
-export function AgentHarnessRow({ row, value, onChange }: {
+/** the hire op's `harness` for a draft: its staged choice, and only for the
+ *  model it was chosen for */
+export const draftHarness = (scope: { harness?: string; harness_tier?: string } | null | undefined,
+  tier: string): { harness?: string } => scope?.harness && scope.harness_tier === tier ? { harness: scope.harness } : {}
+
+/** `value`: '' follows its key or server, else a harness id. `draft`: a
+ *  seat not hired yet (the hire dialog), which starts on its choice */
+export function AgentHarnessRow({ row, value, onChange, draft = false }: {
   row: NodeHarness
   value: string
   onChange: (value: string) => void
+  draft?: boolean
 }) {
   const whose = row.lane === 'langserver' ? 'server' : 'key'
   const name = (id: string | null | undefined) => row.options.find((o) => o.id === id)?.label ?? (id === row.follow?.id ? row.follow?.label : id) ?? ''
@@ -54,7 +80,9 @@ export function AgentHarnessRow({ row, value, onChange }: {
   const missing = !!value && !row.options.find((o) => o.id === value)?.installed
   const held = !!row.moves
   const by = `its ${whose}${row.follow?.name ? ` (${row.follow.name})` : ''}`
-  const hint = held
+  const hint = draft
+    ? (value ? `Its own choice: it starts on ${name(value)} and keeps it when ${by} changes harness.` : `Follows ${by}.`)
+    : held
     ? `Choose its harness after saving the model change: the new model starts on its ${whose}'s harness.`
     : changed
       ? target !== row.current

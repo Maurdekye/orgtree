@@ -1697,7 +1697,9 @@ export interface OpenRouterKey {
 /** GET /api/orgs/{slug}/nodes/{nid}/harness?tier=: the agent settings Model
  *  tab's Harness row (user 2026-10-29), DECIDED IN THE BACKEND
  *  (`harnesses::seat_row`). An OpenRouter or language model server seat
- *  follows its key's or server's harness, or keeps one of its own. */
+ *  follows its key's or server's harness, or keeps one of its own. The hire
+ *  dialog's row has the same shape: GET /api/orgs/{slug}/hire-harness
+ *  (`harnesses::hire_row`; no pin, no current harness, no move). */
 export interface NodeHarness {
   tier: string
   /** the lane whose harness it chooses; null: that tier has no choice */

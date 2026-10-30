@@ -90,6 +90,7 @@ import type { DeskDogs } from './deskdogs'
 import type { AgentPanelKind, AgentSurfaceRoutes } from './panelcorner'
 import { TeamListNavigation, TeamListOrder, TeamModal } from './team'
 import { NodeConfig, PilePicker, WatchdogPanel } from './modals'
+import { draftHarness } from './agentharness'
 import { museHireAccount } from './musehire'
 import { DraftNode, NodeSquare, UserNode } from './cards'
 import { RetiredBadge } from './retiredbadge'
@@ -4076,6 +4077,8 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
            auto_cheap_compact: scope.auto_cheap_compact,
            ...(scope.prefer_reserve === undefined ? {} : { prefer_reserve: scope.prefer_reserve }),
            ...(scope.account !== undefined ? { account: scope.account } : {}),
+           // the Harness row's choice pins the new seat (USER 2026-10-30 "fix both yes")
+           ...draftHarness(scope, draft!.tier),
          } : {}) }
     const steps: Record<string, unknown>[] = [{ ...hireBody }]
     if (draft?.above) {

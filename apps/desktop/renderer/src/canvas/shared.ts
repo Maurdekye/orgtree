@@ -1431,6 +1431,10 @@ export interface DraftScope {
   prefer_reserve?: boolean
   /** multi-account: explicit account binding for the new hire */
   account?: string
+  /** the hire dialog's Harness row: the harness the new seat is pinned to,
+   *  chosen for the model `harness_tier` (another model drops it) */
+  harness?: string
+  harness_tier?: string
 }
 export interface Pile {
   key: string
