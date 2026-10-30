@@ -1,14 +1,21 @@
 import { flush, inAct, mountView as rawMountView } from './harness'
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import type { ReactNode } from 'react'
+import { useState, type ReactNode } from 'react'
 import { readFileSync } from 'node:fs'
 import path from 'node:path'
-import { PinFrame, forgetModalPins, forgetModalOpenCache } from '../src/canvas/modalpin'
+import { PinFrame, forgetModalPins, forgetModalOpenCache, isModalPinned, pinModal } from '../src/canvas/modalpin'
 import { CurrentOrg } from '../src/popout'
 import { DeskHead, DeskTitleBar } from '../src/canvas/deskshell'
 import { AppsButton, AppsWorkspace } from '../src/canvas/apps/ui'
 import type { CustomApp, CustomPanel } from '../src/canvas/apps/types'
+import { AttentionView, DESK_KIND, QUEUE_KIND } from '../src/attention/AttentionView'
+import { forgetAttentionMode, setOrgView } from '../src/attention/mode'
+import { ProviderDialog } from '../src/canvas/providerdialog'
+import { AddAccountDialog } from '../src/canvas/accountsregistry'
+import { USER, type CanvasNode, type OpFn } from '../src/canvas/shared'
+import type { TreePayload } from '../src/types'
+import { compatibilityWorkFixture } from './workcompat.fixture'
 
 // USER 2026-10-29 m6c5594110094 (close-x-button-on-every-closable-panel-rightmost): every panel that can be closed
 // gets an X in the same row as its pin / pop-out buttons, to their right, last in the row, doing the panel's own
@@ -16,6 +23,8 @@ import type { CustomApp, CustomPanel } from '../src/canvas/apps/types'
 // once pinned (a pinned window ignores Escape); a custom-app panel keeps its hide X, retitled "Close (Esc)" over
 // "the panel keeps running"; a popped-out window's own × is its X. The user answered the open two (me188f67b3944):
 // a CENTRED desk has the X too ("Yes, add the X"); the in-canvas desk header has none ("No X there").
+// USER 2026-10-30 (m46997f801a3f, m743d0c8ff8fe, m680431a91e2f "they dont do anything anyway"), coordinator
+// mbfcad188f152: an X shows only where it actually closes something (§8-§12).
 
 /** a frame inside an organization, as the canvas mounts one (pin and pop-out need an org scope) */
 async function mountView<T>(node: ReactNode, select: (el: HTMLElement) => T) {
@@ -193,4 +202,145 @@ test('§7 the agent settings header keeps its folder buttons clear of pop-out, p
     .filter((v): v is string => !!v)
   assert.ok(pads.length > 0, 'the header reserves room for the row')
   assert.ok(Number(pads.at(-1)) >= 92, `padding-right ${pads.at(-1)}px leaves the 74px row its 18px of clearance`)
+})
+
+// ─── §8-§12 AN X ONLY WHERE IT CLOSES SOMETHING ────────────────────────────────────────────────────────────────
+// USER 2026-10-30 08:44Z, on 4.5.2-alpha.3: "the dynamic agent panel should not have this x when not pinned or popped
+// out" (m46997f801a3f), "same for the needs attention list panel" (m743d0c8ff8fe), "they dont do anything anyway"
+// (m680431a91e2f). Coordinator mbfcad188f152: remove every X that does nothing. Each section opens its surface, clicks
+// the X wherever one shows and asserts what closed; where closing would do nothing there is no X, and no Close in the
+// bar's menu either, which names the bar's own controls.
+const W = window as unknown as Window & typeof globalThis
+const menuLabels = () => [...document.querySelectorAll('.ctxmenu [role="menuitem"]')].map(b => b.textContent ?? '')
+async function barMenu(el: Element) {
+  if (document.querySelector('.ctxmenu')) {
+    await inAct(() => { document.body.dispatchEvent(new W.KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })) })
+    await flush(2)
+  }
+  await inAct(() => { el.dispatchEvent(new W.MouseEvent('contextmenu', { bubbles: true, cancelable: true, button: 2, clientX: 40, clientY: 30 })) })
+  await flush(3)
+  return menuLabels()
+}
+
+// the Attention view (attentionview.test.tsx's empty organization): its stage, both panels and their frames
+const SLUG = 'probe'
+const attentionTree = () => ({ slug: SLUG, name: 'Probe', epoch: 1, rev: 1, roots: [], work_items_summary: { attention: 0, active: 0 },
+  user_inbox_count: 0, user_inbox_urgent_count: 0, asks: [], asks_open: 0 } as unknown as TreePayload)
+const attentionMap = () => new Map([[USER, { id: USER, parent: null, tier: null, state: 'user', children: [] } as unknown as CanvasNode]])
+async function mountAttention(t: test.TestContext) {
+  reset(); forgetAttentionMode()
+  const original = globalThis.fetch
+  globalThis.fetch = compatibilityWorkFixture((url: RequestInfo | URL) => {
+    const at = new URL(String(url), 'http://localhost').pathname
+    const body = /\/work-items(?:-view)?$/.test(at)
+      ? { items: [], archived: [], backlogged: [], counts: { attention: 0, active: 0, archived: 0, backlogged: 0 } }
+      : /\/inbox$/.test(at) ? { pending: [], delivered: [], sent: [] } : { ok: true }
+    return Promise.resolve(new Response(JSON.stringify(body), { headers: { 'Content-Type': 'application/json' } }))
+  })
+  setOrgView(SLUG, 'attention')
+  const op = (() => Promise.resolve({ ok: true })) as unknown as OpFn
+  const v = await mountView(<AttentionView slug={SLUG} tree={attentionTree()} op={op} toast={() => {}} map={attentionMap()}
+    attentionDeskActiveAgentsOnly={false} />, el => el)
+  t.after(async () => { await v.unmount(); globalThis.fetch = original; reset(); forgetAttentionMode() })
+  await inAct(async () => { await flush(3) })
+  return v
+}
+const attentionPanels = [['Needs attention', 'queue', QUEUE_KIND], ['Agent desk', 'desk', DESK_KIND]] as const
+const panelBar = (which: string) => document.querySelector<HTMLElement>(`.attn-panel-${which} > .modalpin-bar`)
+const rowOf = (el: HTMLElement | null) => [...(el?.querySelectorAll<HTMLButtonElement>('button') ?? [])].filter(b => !b.closest('.popout-window-controls'))
+/** the X a person sees. Where the X is the bar's only control (a dialog that cannot be pinned) it keeps its room
+ *  unseen and disabled while closing would do nothing, so the dialog below does not jump (§10, §11) */
+const shownX = (root: ParentNode | null) => [...(root?.querySelectorAll<HTMLButtonElement>('.modalpin-x') ?? [])]
+  .find(x => x.style.visibility !== 'hidden') ?? null
+const heldX = (root: ParentNode | null) => root?.querySelector<HTMLButtonElement>('.modalpin-bar .modalpin-x') ?? null
+
+test('§8 RED an Attention panel in its slot has no X: its close only unpins, so there the X did nothing', async t => {
+  await mountAttention(t)
+  for (const [name, which] of attentionPanels) {
+    const bar = panelBar(which)
+    assert.ok(bar, `the ${name} panel is in its slot with its bar`)
+    assert.equal(bar.closest('.modalpin-win'), null, `${name}: not pinned`)
+    assert.ok(rowOf(bar).some(b => b.getAttribute('aria-label') === 'pin this to the window'), `${name}: its pin is there`)
+    assert.equal(xOf(rowOf(bar)), null, `${name}: no X in its slot (USER m46997f801a3f, m743d0c8ff8fe)`)
+    const labels = await barMenu(bar)
+    assert.ok(labels.includes('Pin to window'), `${name}: the bar menu opened, have ${JSON.stringify(labels)}`)
+    assert.equal(labels.includes('Close'), false, `${name}: and no Close in the bar menu, have ${JSON.stringify(labels)}`)
+  }
+})
+
+test('§9 pinned, an Attention panel has the X last, and it closes the window back into the slot', async t => {
+  await mountAttention(t)
+  for (const [name, which, kind] of attentionPanels) {
+    await inAct(() => pinModal(kind, { x: 20, y: 20, w: 420, h: 480 }, SLUG)); await flush(3)
+    const bar = panelBar(which)
+    assert.ok(bar?.closest('.modalpin-win'), `${name}: pinned as a window`)
+    const x = xOf(rowOf(bar))
+    assert.ok(x, `${name}: pinned, it has the X`)
+    assert.equal(rowOf(bar).at(-1), x, `${name}: last in the row`)
+    await inAct(() => { x.click() }); await flush(3)
+    assert.equal(isModalPinned(kind, SLUG), false, `${name}: the X closed the window`)
+    const back = document.querySelector(`.attn-slot-${which} .attn-panel-${which}`)
+    assert.ok(back && !back.classList.contains('modalpin-win'), `${name}: the panel is back in its slot`)
+  }
+})
+
+test('§10 RED the provider dialog has no X while its save settles, when its close waits for the save', async t => {
+  reset(); t.after(reset)
+  const closes = { n: 0 }
+  let setBusy: (busy: boolean) => void = () => {}
+  function Host() {
+    const [busy, set] = useState(true); setBusy = set
+    return <ProviderDialog title="Configure Example" busy={busy} close={() => { closes.n += 1 }}><p>fields</p></ProviderDialog>
+  }
+  const v = await mountView(<Host />, el => el); t.after(() => v.unmount())
+  await flush()
+  const dialog = () => document.querySelector<HTMLElement>('.provider-dialog')
+  assert.ok(dialog(), 'the dialog is open')
+  assert.equal(shownX(dialog()), null, 'saving: no X')
+  assert.equal(heldX(dialog())?.disabled, true, 'saving: its room stays in the row, unseen and disabled, so nothing jumps')
+  assert.equal((await barMenu(dialog()!.querySelector('.modalpin-bar')!)).includes('Close'), false, 'saving: no Close in the bar menu')
+  await inAct(() => setBusy(false)); await flush()
+  const x = shownX(dialog())
+  assert.ok(x, 'the save settled: the X is back')
+  await inAct(() => { x.click() }); await flush()
+  assert.equal(closes.n, 1, 'and it closes the dialog')
+})
+
+test('§11 RED the add-account dialog has no X while it adds the account, when its close waits', async t => {
+  reset(); t.after(reset)
+  const original = globalThis.fetch
+  let answer: (r: Response) => void = () => {}
+  globalThis.fetch = (() => new Promise<Response>(resolve => { answer = resolve })) as typeof fetch
+  t.after(() => { globalThis.fetch = original })
+  const closes = { n: 0 }
+  const v = await mountView(<AddAccountDialog provider="openai" onAdded={async () => {}} close={() => { closes.n += 1 }} />, el => el)
+  t.after(() => v.unmount())
+  await flush()
+  const dialog = () => document.querySelector<HTMLElement>('.add-account-dialog')!
+  assert.ok(shownX(dialog()), 'idle: the X is there')
+  const create = [...dialog().querySelectorAll('button')].find(b => b.textContent === 'Create managed account')
+  assert.ok(create, 'the create control')
+  await inAct(() => { create.click() }); await flush()
+  assert.equal(shownX(dialog()), null, 'adding: no X')
+  assert.equal(heldX(dialog())?.disabled, true, 'adding: its room stays in the row, unseen and disabled, so nothing jumps')
+  await inAct(async () => { answer(new Response(JSON.stringify({ detail: 'refused' }), { status: 422 })); await flush(3) })
+  const x = shownX(dialog())
+  assert.ok(x, 'the request settled: the X is back')
+  await inAct(() => { x.click() }); await flush()
+  assert.equal(closes.n, 1, 'and it closes the dialog')
+})
+
+test('§12 CONTROL an inline panel whose close works in its place keeps its X there (the Agents list hides)', async t => {
+  reset(); t.after(reset)
+  const closes = { n: 0 }
+  const v = await mountView(<PinFrame inline kind="agent-list" title="Agents" panel="tray-panel" dialogLabel="Agents"
+    close={() => { closes.n += 1 }}><p>rows</p></PinFrame>, el => el)
+  t.after(() => v.unmount())
+  await flush()
+  const bar = document.querySelector<HTMLElement>('.tray-panel > .modalpin-bar')
+  assert.equal(bar?.closest('.modalpin-win') ?? null, null, 'in its place, not pinned')
+  const x = xOf(rowOf(bar))
+  assert.ok(x, 'its X is there')
+  await inAct(() => { x.click() }); await flush()
+  assert.equal(closes.n, 1, 'and it closes the list')
 })
