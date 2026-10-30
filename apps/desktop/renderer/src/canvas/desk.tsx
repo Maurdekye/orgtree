@@ -63,6 +63,7 @@ import { FastModeButton } from './fastmodebutton'
 import type { MouseEvent as ReplyMouseEvent } from 'react'
 import { readAttachments, storeAttachments } from '../draftstore'
 import { absorbStrandedDrafts, carryDraftForward, readHistory, recordSent } from '../composerhistory'
+import { useHistoryNav } from '../composerhistorynav'
 import type { HistoryEntry } from '../composerhistory'
 import { DeskSlot } from './deskhosts'
 import { PopoutButton, PopoutWindowControls, useSurface, useSurfaceDocument } from '../popout'
@@ -2249,21 +2250,15 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
    *  and deliberately NOT per generation, so a compaction or a rehire cannot
    *  wipe it; see composerhistory.ts. */
   const [sentHistory, setSentHistory] = useState<HistoryEntry[]>(() => readHistory(slug, node.id))
-  /** Where in the history the box is showing from. null = showing your own
-   *  live text and not navigating; 0 = the newest entry. */
-  const [histAt, setHistAt] = useState<number | null>(null)
-  /** What you had typed before navigation started. Down past the newest entry
-   *  puts it back - losing an unsent message to a stray Up is the one thing
-   *  this feature must never do. */
-  const histStash = useRef('')
-  /** Set when a recall changed the text, so the caret lands at the END of the
-   *  recalled message rather than wherever it happened to be. */
-  const histCaret = useRef(false)
-  const histEntry = histAt === null ? null : sentHistory[sentHistory.length - 1 - histAt] ?? null
+  /** Up / Down / Escape through that history. The draft you had typed is set
+   *  aside when it is entered and comes back exactly (text and caret) on Down
+   *  past the newest entry or on Escape - losing an unsent message to a stray
+   *  Up is the one thing this feature must never do; see composerhistorynav. */
+  const hist = useHistoryNav({ slug, id: node.id, history: sentHistory, text, setText, field: () => taRef.current })
   // A draft eaten by an agent state change is written into this same history,
   // so some entries were never actually delivered. Recall says so rather than
   // letting them pass for sent (decision 1 on the item).
-  const histUndelivered = !!histEntry && !histEntry.delivered
+  const histUndelivered = !!hist.entry && !hist.entry.delivered
   useEffect(() => {
     // Fold every stranded draft for this agent into the history: the previous
     // generation's orphaned draft, anything left in the old recovery keys by
@@ -2273,36 +2268,6 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
     carryDraftForward(slug, node.id, node.generation)
     if (absorbStrandedDrafts(slug, node.id, node.generation)) setSentHistory(readHistory(slug, node.id))
   }, [slug, node.id, node.generation])
-  /** Up: one step further back. Returns false when nothing moved, and the key
-   *  is then left to do its ordinary caret job. */
-  const histBack = () => {
-    if (!sentHistory.length) return false
-    if (histAt === null) histStash.current = text
-    const next = histAt === null ? 0 : Math.min(histAt + 1, sentHistory.length - 1)
-    const entry = sentHistory[sentHistory.length - 1 - next]
-    if (next === histAt || !entry) return false
-    setHistAt(next)
-    setText(entry.text)
-    histCaret.current = true
-    return true
-  }
-  /** Down: one step forward, and past the newest entry back to what you typed. */
-  const histForward = () => {
-    if (histAt === null) return false
-    if (histAt === 0) {
-      setHistAt(null)
-      setText(histStash.current)
-      histCaret.current = true
-      return true
-    }
-    const next = histAt - 1
-    const entry = sentHistory[sentHistory.length - 1 - next]
-    if (!entry) return false
-    setHistAt(next)
-    setText(entry.text)
-    histCaret.current = true
-    return true
-  }
   const replyMenu = useContextMenu()
   // every fold this desk's transcript draws, held above the rows (foldstate.tsx)
   const folds = useFoldState()
@@ -3561,8 +3526,7 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
     // it, the way a shell does. `t` is what was actually sent, so the history
     // records the delivered text and not the untrimmed buffer.
     if (recordSent(slug, node.id, t)) setSentHistory(readHistory(slug, node.id))
-    setHistAt(null)
-    histStash.current = ''
+    hist.reset()
     // optimistic ghost only until the server confirms — the durable copy
     // then renders from chat.pending_mail (№11); a failed send clears the
     // ghost instead of leaving a dimmed bubble forever.
@@ -3707,16 +3671,6 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
     composerRO.current = ro
     ro.observe(el)
   }, [bare, compact, grow])
-  // Recall puts the caret at the END of the recalled message. Done as a layout
-  // effect because the textarea only holds the new text once React has
-  // committed it; setting selection inside the key handler would move it
-  // within the OLD value.
-  useLayoutEffect(() => {
-    if (!histCaret.current) return
-    histCaret.current = false
-    const el = taRef.current
-    if (el) el.selectionStart = el.selectionEnd = el.value.length
-  }, [text])
   const mentionCandidates = useOrgMentionCandidates(slug, null, map)
   const transcriptTexts = useCallback((): string[] => {
     const out: string[] = []
@@ -4621,6 +4575,9 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
       {histUndelivered && <div className="dim composer-history-note" role="status">
         recalled from history - this message was never sent
       </div>}
+      {hist.stashed && <div className="dim composer-history-note" role="status">
+        your unsent message is kept - Esc or Down brings it back
+      </div>}
       {/* staged attachments ride the NEXT message as mail attachments */}
       {attached.length > 0 && (
         <div className="attach-row">
@@ -4720,25 +4677,9 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
               toggleNoticeArmed(chatKey)
               return
             }
-            // HISTORY, and the one real conflict in the design: this box is
-            // multi-line and a shell prompt is not, so Up and Down already
-            // move the caret between lines. History triggers ONLY when the
-            // caret is on the first line (Up) or the last line (Down) and
-            // nothing is selected. Anywhere else the arrow moves the caret, so
-            // a multi-line message can never be replaced out from under you.
-            if ((e.key === 'ArrowUp' || e.key === 'ArrowDown')
-              && !e.shiftKey && !e.altKey && !e.ctrlKey && !e.metaKey) {
-              const el = e.currentTarget
-              const from = el.selectionStart ?? 0
-              const to = el.selectionEnd ?? 0
-              const edge = e.key === 'ArrowUp'
-                ? !el.value.slice(0, from).includes('\n')
-                : !el.value.slice(to).includes('\n')
-              if (from === to && edge && (e.key === 'ArrowUp' ? histBack() : histForward())) {
-                e.preventDefault()
-                return
-              }
-            }
+            // HISTORY (Up / Down on the first / last line, Escape to the draft):
+            // composerhistorynav owns the rules, shared with the project desk
+            if (hist.onKeyDown(e)) return
             if (enterKey.sends(e)) { e.preventDefault(); send() }
           }} />
         {mentions.menu}

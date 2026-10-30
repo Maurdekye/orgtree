@@ -1,4 +1,4 @@
-import { recordStranded, renameHistory } from './composerhistory'
+import { preserveRemovedStashes, recordStranded, renameHistory } from './composerhistory'
 const partSuffix = (key: string) => key.endsWith('-attachments') ? '-attachments' : key.endsWith('-replies') ? '-replies' : key.endsWith('-reply') ? '-reply' : ''
 
 export interface DraftAttachment { name: string; path: string; bytes: number }
@@ -59,6 +59,7 @@ function savedIdentity(key: string, prefix: string): unknown[] | null {
  *  rehired the history is still there, because the history key carries no
  *  generation. */
 export function preserveRemovedDrafts(slug: string, ids: Pick<ReadonlyMap<string, unknown>, 'has'>) {
+  preserveRemovedStashes(slug, ids)
   try {
     const keys = Array.from({ length: localStorage.length }, (_, i) => localStorage.key(i))
     for (const key of keys) {

@@ -101,6 +101,72 @@ export const recordSent = (slug: string, id: string, text: string) =>
 export const recordStranded = (slug: string, id: string, text: string) =>
   record(slug, id, text, false)
 
+/** THE DRAFT SET ASIDE WHILE HISTORY IS ON SCREEN (docket
+ *  pressing-up-into-message-history-throws-away-the, USER 2026-10-30 08:14:27Z
+ *  mdad6a41f1f3e: a stray Up "loses my in-progress typing message").
+ *
+ *  Walking into history replaces the box, and the box is also what the draft
+ *  key stores, so the unsent text has to live somewhere that outlasts both the
+ *  recall and the desk component. This is that place: the text, the caret and
+ *  where in the history the box is, written when history is entered and
+ *  removed when the draft comes back or the message goes out. Per agent and
+ *  without a generation, like the history itself, so a compaction cannot
+ *  strand it. An empty draft has nothing to protect and is never stored. */
+export interface HistoryStash {
+  text: string
+  /** the caret/selection the draft had, restored with it */
+  start: number
+  end: number
+  /** 0 = the newest entry: where the box was showing from when last written */
+  at: number
+}
+
+const stashPrefix = 'orgtree-composer-stash-'
+export const stashKey = (slug: string, id: string) =>
+  `${stashPrefix}${JSON.stringify([slug, id])}`
+
+function isStash(value: unknown): value is HistoryStash {
+  const v = value as HistoryStash
+  return !!v && typeof v === 'object' && typeof v.text === 'string' && v.text !== ''
+    && Number.isInteger(v.start) && Number.isInteger(v.end) && Number.isInteger(v.at) && v.at >= 0
+}
+
+export function readStash(slug: string, id: string): HistoryStash | null {
+  try {
+    const raw: unknown = JSON.parse(localStorage.getItem(stashKey(slug, id)) || 'null')
+    return isStash(raw) ? raw : null
+  } catch { return null }
+}
+
+export function writeStash(slug: string, id: string, stash: HistoryStash) {
+  try {
+    if (stash.text) localStorage.setItem(stashKey(slug, id), JSON.stringify(stash))
+    else localStorage.removeItem(stashKey(slug, id))
+  } catch { /* Same best-effort browser persistence as the composer draft. */ }
+}
+
+export function clearStash(slug: string, id: string) {
+  try { localStorage.removeItem(stashKey(slug, id)) } catch { /* unavailable storage */ }
+}
+
+/** A stash belonging to a node that has left the org holds that node's real
+ *  draft: it goes into the agent's history as an undelivered entry, as the draft
+ *  key's own text does (draftstore.preserveRemovedDrafts). */
+export function preserveRemovedStashes(slug: string, ids: Pick<ReadonlyMap<string, unknown>, 'has'>) {
+  try {
+    const keys = Array.from({ length: localStorage.length }, (_, i) => localStorage.key(i))
+    for (const key of keys) {
+      if (!key?.startsWith(stashPrefix)) continue
+      let identity: unknown
+      try { identity = JSON.parse(key.slice(stashPrefix.length)) } catch { continue }
+      if (!Array.isArray(identity) || identity[0] !== slug || ids.has(String(identity[1]))) continue
+      const stash = readStash(slug, String(identity[1]))
+      if (stash) recordStranded(slug, String(identity[1]), stash.text)
+      localStorage.removeItem(key)
+    }
+  } catch { /* best effort persistence */ }
+}
+
 const activePrefix = 'orgtree-draft-v2-'
 const recoveryPrefix = 'orgtree-draft-recovery-'
 const dismissedRecoveryPrefix = 'orgtree-draft-recovery-dismissed-'
@@ -255,6 +321,12 @@ export function absorbStrandedDrafts(slug: string, id: string, generation: numbe
  *  the way a generation-scoped key would. */
 export function renameHistory(slug: string, from: string, to: string) {
   try {
+    // the draft set aside while history is on screen moves with it
+    const stashed = localStorage.getItem(stashKey(slug, from))
+    if (stashed !== null) {
+      if (localStorage.getItem(stashKey(slug, to)) === null) localStorage.setItem(stashKey(slug, to), stashed)
+      localStorage.removeItem(stashKey(slug, from))
+    }
     const source = historyKey(slug, from)
     const target = historyKey(slug, to)
     const value = localStorage.getItem(source)

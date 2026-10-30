@@ -24,6 +24,7 @@ import { ArrowUpIcon, AttachIcon, AutorenewIcon, CampaignIcon, CloseIcon, FileIc
 import { broadcastMessage, fileUrl, retractMail, sendMessage, uploadFile } from '../api'
 import { useComposerEnter } from '../enterkey'
 import { readHistory, recordSent, type HistoryEntry } from '../composerhistory'
+import { useHistoryNav } from '../composerhistorynav'
 import { draftKey, readAttachments, storeAttachments, type DraftAttachment } from '../draftstore'
 import { appendReplyTarget, objectReplyContext, readReplies, replyFromRow, storeReplies, type ReplyContext } from '../eventReply'
 import { useObjectComposer } from './composerobjects'
@@ -353,9 +354,8 @@ function ProjectComposer({ node, slug, tree, map, toast, members, recipients, ba
   const textareaRef = useRef<HTMLTextAreaElement | null>(null)
   useEffect(() => { if (focusRequest) textareaRef.current?.focus({ preventScroll: true }) }, [focusRequest])
   const [sentHistory, setSentHistory] = useState<HistoryEntry[]>(() => readHistory(slug, node.id))
-  const [histAt, setHistAt] = useState<number | null>(null)
-  const histStash = useRef('')
-  const histCaret = useRef(false)
+  // Up / Down / Escape through that history, the agent composer's own hook
+  const hist = useHistoryNav({ slug, id: node.id, history: sentHistory, text, setText, field: () => textareaRef.current })
   // staged attachments ride the draft, as the agent composer's do: closing
   // and reopening the desk keeps them (G9)
   const [attached, setAttachedRaw] = useState<DraftAttachment[]>(() => readAttachments(messageDraftKey))
@@ -475,7 +475,7 @@ function ProjectComposer({ node, slug, tree, map, toast, members, recipients, ba
       setText(''); setAttached([]); setNoticeArmed(chatKey, false)
       if (replies.length) onReplies([])
       if (megaphone) setMegaphone(false)
-      setHistAt(null); histStash.current = ''
+      hist.reset()
       toast(lines)
     }
     ;(megaphone
@@ -489,33 +489,6 @@ function ProjectComposer({ node, slug, tree, map, toast, members, recipients, ba
       .catch((e: Error) => toast([`error: ${e.message}`]))
       .finally(() => setBusy(false))
   }
-  const histBack = () => {
-    if (!sentHistory.length) return false
-    if (histAt === null) histStash.current = text
-    const next = histAt === null ? 0 : Math.min(histAt + 1, sentHistory.length - 1)
-    const entry = sentHistory[sentHistory.length - 1 - next]
-    if (next === histAt || !entry) return false
-    setHistAt(next); setText(entry.text); histCaret.current = true
-    return true
-  }
-  const histForward = () => {
-    if (histAt === null) return false
-    if (histAt === 0) {
-      setHistAt(null); setText(histStash.current); histCaret.current = true
-      return true
-    }
-    const next = histAt - 1
-    const entry = sentHistory[sentHistory.length - 1 - next]
-    if (!entry) return false
-    setHistAt(next); setText(entry.text); histCaret.current = true
-    return true
-  }
-  useLayoutEffect(() => {
-    if (!histCaret.current) return
-    histCaret.current = false
-    const el = textareaRef.current
-    if (el) el.selectionStart = el.selectionEnd = el.value.length
-  }, [text])
   return <>
     {/* the agent composer's reply previews (G11): one per target, a remove
         ✕ on each, "Cancel all replies" for several, Escape on the desk; and its
@@ -526,6 +499,9 @@ function ProjectComposer({ node, slug, tree, map, toast, members, recipients, ba
         onRemove={() => onReplies(replies.filter((x) => x !== r))}
         presentationTitle={r.docId ? docTitle(r.docId) : undefined} />)}</ReplyPreviewDisclosure>
     {replies.length > 1 && <button className="link" onClick={() => onReplies([])}>Cancel all replies</button>}
+    {hist.stashed && <div className="dim composer-history-note" role="status">
+      your unsent message is kept - Esc or Down brings it back
+    </div>}
     {/* staged attachments, an image as its thumbnail, as on the agent desk (G9) */}
     {attached.length > 0 && <div className="attach-row">
       {attached.map((a, i) => (isImg(a.name)
@@ -575,19 +551,7 @@ function ProjectComposer({ node, slug, tree, map, toast, members, recipients, ba
           if (mentions.onKeyDown(e)) return
           if (e.altKey && (e.key === 'n' || e.key === 'N')) { e.preventDefault(); e.stopPropagation(); toggleNotice(); return }
           if (e.altKey && (e.key === 'b' || e.key === 'B')) { e.preventDefault(); e.stopPropagation(); setMegaphone((v) => !v); return }
-          if ((e.key === 'ArrowUp' || e.key === 'ArrowDown')
-            && !e.shiftKey && !e.altKey && !e.ctrlKey && !e.metaKey) {
-            const el = e.currentTarget
-            const from = el.selectionStart ?? 0
-            const to = el.selectionEnd ?? 0
-            const edge = e.key === 'ArrowUp'
-              ? !el.value.slice(0, from).includes('\n')
-              : !el.value.slice(to).includes('\n')
-            if (from === to && edge && (e.key === 'ArrowUp' ? histBack() : histForward())) {
-              e.preventDefault()
-              return
-            }
-          }
+          if (hist.onKeyDown(e)) return
           if (enterKey.sends(e)) { e.preventDefault(); send() }
         }} />
       <div className="cc-btnstack">
