@@ -81,6 +81,68 @@ module.exports = async (page) => {
     screenshots.push(await page.screenshot(`${prefix}-queue-card-desk-mailbox-1000x700`))
     return { details, screenshots }
   }
+  // PROJECTNODE_VISUAL_ONLY=history-keep: the project desk's message box (deskinbox scene, project relay). A draft is typed,
+  // Up walks into the sent-message history (the draft is set aside and the box says so), the desk is re-opened (page
+  // reload = the composer unmounts) and Down brings the draft back with its caret
+  // (docket pressing-up-into-message-history-throws-away-the)
+  if (only === 'history-keep') {
+    const scene = '/?scene=deskinbox&mode=lt'
+    const draft = 'Please check the retry budget in the relay config before the 18:00 deploy window, and tell boss if it changed.'
+    const sent = 'Deploy the relay build to staging, then ping boss when it is green.'
+    const box = '.project-composer textarea'
+    const key = (name) => page.eval(({ k, sel }) => {
+      const el = document.querySelector(sel)
+      el.dispatchEvent(new KeyboardEvent('keydown', { key: k, bubbles: true, cancelable: true }))
+    }, { k: name, sel: box })
+    await page.goto(scene)
+    await page.waitFor(box, { timeout: 15000 })
+    await page.eval((sentText) => {
+      for (const k of Object.keys(localStorage)) if (k.includes('"relay"') || k.includes('project:relay')) localStorage.removeItem(k)
+      localStorage.setItem('orgtree-composer-history-["org","relay"]', JSON.stringify([{ text: sentText, delivered: true }]))
+    }, sent)
+    await page.goto(scene)
+    await page.waitFor(box, { timeout: 15000 })
+    await page.eval(({ text, sel }) => {
+      const el = document.querySelector(sel)
+      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set.call(el, text)
+      el.dispatchEvent(new Event('input', { bubbles: true }))
+      el.focus()
+      el.selectionStart = el.selectionEnd = 24
+    }, { text: draft, sel: box })
+    await settle()
+    screenshots.push(await page.screenshot(`${prefix}-history-keep-1-draft-1000x700`))
+    await key('ArrowUp')
+    await settle()
+    details.recalled = await page.eval((sel) => ({
+      value: document.querySelector(sel).value,
+      note: document.querySelector('.composer-history-note')?.textContent ?? null,
+    }), box)
+    if (details.recalled.value !== sent || !/unsent message is kept/.test(details.recalled.note ?? '')) throw new Error('Up did not recall with the note: ' + JSON.stringify(details.recalled))
+    screenshots.push(await page.screenshot(`${prefix}-history-keep-2-recalled-1000x700`))
+    // leave and come back: the composer is a new instance, the stash is in storage
+    await page.goto(scene)
+    await page.waitFor(box, { timeout: 15000 })
+    await settle()
+    details.reopened = await page.eval((sel) => ({
+      value: document.querySelector(sel).value,
+      note: document.querySelector('.composer-history-note')?.textContent ?? null,
+    }), box)
+    if (details.reopened.value !== sent || !/unsent message is kept/.test(details.reopened.note ?? '')) throw new Error('the walk did not survive re-opening: ' + JSON.stringify(details.reopened))
+    await page.eval((sel) => {
+      const el = document.querySelector(sel)
+      el.focus()
+      el.selectionStart = el.selectionEnd = el.value.length
+    }, box)
+    await key('ArrowDown')
+    await settle()
+    details.restored = await page.eval((sel) => {
+      const el = document.querySelector(sel)
+      return { value: el.value, caret: [el.selectionStart, el.selectionEnd], note: document.querySelector('.composer-history-note')?.textContent ?? null }
+    }, box)
+    if (details.restored.value !== draft || details.restored.caret.join() !== '24,24' || details.restored.note !== null) throw new Error('Down did not restore the draft exactly: ' + JSON.stringify(details.restored))
+    screenshots.push(await page.screenshot(`${prefix}-history-keep-3-restored-1000x700`))
+    return { details, screenshots }
+  }
   // PROJECTNODE_VISUAL_ONLY=popouts: the pinned agent sb's and project build's
   // desks popped out side by side (user 2026-10-18 11:47Z). A real pop-out is
   // its own OS window, which no screenshot of this one shows, so window.open
