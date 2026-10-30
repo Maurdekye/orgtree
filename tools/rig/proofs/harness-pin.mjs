@@ -26,6 +26,9 @@ const FULL = { label: 'rig key', limit: null, limit_remaining: null, limit_reset
 export async function setup() {
   return {
     name: 'harness-pin',
+    // not about placement: in Session 0 no sign-in helper comes, and a turn
+    // waits a minute for one (test-rig.md Traps), so the seats run there
+    session0: '0',
     prepare: async ({ data }) => {
       fs.mkdirSync(path.join(data, 'openrouter'), { recursive: true })
       fs.writeFileSync(path.join(data, 'openrouter', 'state.json'), JSON.stringify({
