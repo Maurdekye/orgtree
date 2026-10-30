@@ -30,7 +30,7 @@ test('sent file has ordinary timed expandable row then an unchanged download car
   assert.ok(row)
   assert.match(row.textContent ?? '', /orgtree_send_file/)
   assert.ok(row.querySelector('[aria-label="written in 1.2s"]'))
-  assert.ok(row.querySelector('[aria-label="ran for 31 ms"]'))
+  assert.ok(row.querySelector('[aria-label="ran for 31ms"]'))
   assert.equal(row.parentElement?.nextElementSibling, card)
   assert.equal(card.querySelector('.tool-writing-time,.tool-exec-time,.tool-running'), null)
   assert.equal(card.querySelector('.fc-name')?.textContent, 'report.txt')
@@ -54,7 +54,7 @@ test('sent image keeps its picture, caption and download link while timings stay
   const row = view.el.querySelector('.tline')!
   const card = view.el.querySelector('.imgcard')!
   assert.ok(row)
-  assert.ok(row.querySelector('[aria-label="ran for 31 ms"]'))
+  assert.ok(row.querySelector('[aria-label="ran for 31ms"]'))
   assert.equal(row.parentElement?.nextElementSibling, card)
   assert.equal(card.querySelector('.tool-writing-time,.tool-exec-time,.tool-running'), null)
   const image = card.querySelector<HTMLImageElement>('.imgcard-img')!
@@ -77,7 +77,7 @@ test('unknown-writing sent files keep native links without inventing a card menu
   const row = view.el.querySelector('.tline')!
   assert.ok(row)
   assert.equal(row.querySelector('.tool-writing-time'), null)
-  assert.ok(row.querySelector('[aria-label="ran for 31 ms"]'))
+  assert.ok(row.querySelector('[aria-label="ran for 31ms"]'))
   const card = view.el.querySelector('a.filecard')!
   const ev = new window.MouseEvent('contextmenu', { bubbles: true, cancelable: true, button: 2 })
   await inAct(() => card.dispatchEvent(ev)); await flush()

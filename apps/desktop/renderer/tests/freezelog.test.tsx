@@ -100,7 +100,7 @@ test('§1 sub-threshold gaps leave nothing; a gap at the threshold is recorded w
   assert.equal(log.length, 2)
   assert.equal(log[1]!.kind, 'gap')
   assert.equal(log[1]!.ms, 250)
-  assert.match(log[1]!.detail, /250 ms between frames/)
+  assert.match(log[1]!.detail, /250ms between frames/)
   r.tick(16)
   r.tick(1234)
   log = readFreezeLog()
@@ -186,11 +186,11 @@ test('§3 the hidden interval is never a gap; the interval from returning to the
   const back = log[log.length - 1]!
   assert.equal(back.kind, 'gap')
   assert.equal(back.ms, 3000)
-  assert.equal(back.detail, '3000 ms from visibility visible to the first frame')
+  assert.equal(back.detail, '3000ms from visibility visible to the first frame')
   r.tick(16)
   r.tick(400)
   const next = readFreezeLog().pop()!
-  assert.equal(next.detail, '400 ms between frames', 'an ordinary gap afterwards is unattributed')
+  assert.equal(next.detail, '400ms between frames', 'an ordinary gap afterwards is unattributed')
   assert.equal(doc.visibilityState, 'visible')
   r.stop()
 })
@@ -215,7 +215,7 @@ test('§3d a freeze the user switched away from is measured on the hide side', (
   Object.defineProperty(document, 'visibilityState', { value: 'hidden', configurable: true })
   document.dispatchEvent(new Event('visibilitychange'))
   const e = readFreezeLog()
-  assert.deepEqual(e.slice(1).map((x) => `${x.kind}:${x.detail}`), ['gap:5000 ms before the tab was hidden', 'visibility:hidden'])
+  assert.deepEqual(e.slice(1).map((x) => `${x.kind}:${x.detail}`), ['gap:5000ms before the tab was hidden', 'visibility:hidden'])
   assert.equal(e[1]!.ms, 5000)
   // and a short visible interval before hiding records nothing extra
   Object.defineProperty(document, 'visibilityState', { value: 'visible', configurable: true })
@@ -236,7 +236,7 @@ test('§3b a lifecycle event also starts an attributed interval', () => {
   r.tick(900)
   const e = readFreezeLog().pop()!
   assert.equal(e.kind, 'gap')
-  assert.equal(e.detail, '900 ms from resume to the first frame')
+  assert.equal(e.detail, '900ms from resume to the first frame')
   r.stop()
 })
 

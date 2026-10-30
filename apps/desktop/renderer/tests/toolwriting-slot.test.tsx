@@ -15,19 +15,19 @@ test('absent or null writing observations leave no pencil, dash or separator on 
   t.after(() => view.unmount())
   for (const writing_secs of [undefined, null]) {
     await view.render(<ToolTimes tool={{ ...completed, writing_secs } as ToolChip} />)
-    assert.equal(view.last(), '· 784 ms')
+    assert.equal(view.last(), '· 784ms')
     assert.equal(!!view.el.querySelector('.tool-writing-time,[data-testid="EditOutlinedIcon"]'), false)
-    assert.ok(view.el.querySelector('[aria-label="ran for 784 ms"] [data-testid="ArrowForwardIcon"]'))
+    assert.ok(view.el.querySelector('[aria-label="ran for 784ms"] [data-testid="ArrowForwardIcon"]'))
   }
 })
 
 test('a real zero or positive writing duration retains its pencil and precise duration', async t => {
   const view = await mountView(<ToolTimes tool={{ ...completed, writing_secs: 0 }} />, text)
   t.after(() => view.unmount())
-  assert.equal(view.last(), '· 0 ms · 784 ms')
-  assert.ok(view.el.querySelector('[aria-label="written in 0 ms"] [data-testid="EditOutlinedIcon"]'))
+  assert.equal(view.last(), '· 0ms · 784ms')
+  assert.ok(view.el.querySelector('[aria-label="written in 0ms"] [data-testid="EditOutlinedIcon"]'))
   await view.render(<ToolTimes tool={{ ...completed, writing_secs: 1.2 }} />)
-  assert.equal(view.last(), '· 1.2s · 784 ms')
+  assert.equal(view.last(), '· 1.2s · 784ms')
   assert.ok(view.el.querySelector('[aria-label="written in 1.2s"] [data-testid="EditOutlinedIcon"]'))
 })
 
@@ -48,6 +48,6 @@ test('unknown writing stays absent during execution and after transcript reload'
   const tool = JSON.parse(JSON.stringify(completed))
   await view.render(<Msg m={{ role: 'assistant', text: '', tools: [tool] }} slug="org" nid="worker" />)
   assert.equal(!!view.el.querySelector('.tool-writing-time,[data-testid="EditOutlinedIcon"]'), false)
-  assert.ok(view.el.querySelector('[aria-label="ran for 784 ms"]'))
+  assert.ok(view.el.querySelector('[aria-label="ran for 784ms"]'))
   assert.doesNotMatch(view.last() ?? '', /—/)
 })

@@ -34,7 +34,7 @@ test('presentation has an ordinary timed tool row then a separate title-only car
   assert.ok(row)
   assert.match(row.textContent ?? '', /orgtree_present/)
   assert.ok(row.querySelector('[aria-label="written in 1.2s"]'))
-  assert.ok(row.querySelector('[aria-label="ran for 31 ms"]'))
+  assert.ok(row.querySelector('[aria-label="ran for 31ms"]'))
   assert.equal(row.parentElement?.nextElementSibling, card)
   assert.equal(card.textContent, doc.title)
   assert.equal(card.querySelector('.tool-writing-time,.tool-exec-time,.tool-running'), null)
@@ -55,7 +55,7 @@ test('presentation without a writing observation keeps only the execution time i
   const row = view.el.querySelector('.tline')!
   assert.ok(row)
   assert.equal(row.querySelector('.tool-writing-time'), null)
-  assert.ok(row.querySelector('[aria-label="ran for 31 ms"]'))
+  assert.ok(row.querySelector('[aria-label="ran for 31ms"]'))
   assert.equal(view.el.querySelector('.presentation-chat-card')?.textContent, doc.title)
 })
 

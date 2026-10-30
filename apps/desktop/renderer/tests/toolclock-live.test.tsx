@@ -59,13 +59,13 @@ test('completed observations retain precise existing durations after the live ti
   const final = { name: 'Bash', writing_secs: 1.2, started_at: start,
     ended_at: new Date(Date.parse(start) + 200).toISOString(), result: 'done' }
   await view.render(<ToolTimes tool={final} />)
-  assert.equal(view.last(), '· 1.2s · 200 ms')
-  await advance(2000); assert.equal(view.last(), '· 1.2s · 200 ms')
+  assert.equal(view.last(), '· 1.2s · 200ms')
+  await advance(2000); assert.equal(view.last(), '· 1.2s · 200ms')
 })
 
 test('completed precision is unchanged without a live observation', async t => {
   const view = await mountView(<ToolTimes tool={{ name: 'Bash', writing_secs: 1.2,
     started_at: '2026-10-14T16:00:00Z', ended_at: '2026-10-14T16:00:00.200Z', result: 'done' }} />, text)
   t.after(() => view.unmount())
-  assert.equal(view.last(), '· 1.2s · 200 ms')
+  assert.equal(view.last(), '· 1.2s · 200ms')
 })

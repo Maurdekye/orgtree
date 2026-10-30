@@ -26,7 +26,7 @@ app.whenReady().then(async () => {
         }else if(performance.now()>limit){clearInterval(id);reject(new Error('fixture timeout'))}},20)})`)
       if (version === 'after' ? !/\b1s\b/.test(state.writing) || !/\b1s\b/.test(state.execution)
         : !/1\.2s/.test(state.writing) || !/1\.2s/.test(state.execution)) throw new Error('live before/after mismatch')
-      if (!/1\.2s/.test(state.final) || !/200 ms/.test(state.final)) throw new Error('completed precision changed')
+      if (!/1\.2s/.test(state.final) || !/200ms/.test(state.final)) throw new Error('completed precision changed')
       const paint = () => new Promise((resolve,reject) => {
         const timeout=setTimeout(()=>reject(new Error('paint timeout')),3000)
         win.webContents.once('paint',(_event,_dirty,image)=>{clearTimeout(timeout);resolve(image)})

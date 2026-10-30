@@ -44,16 +44,16 @@ app.whenReady().then(async () => {
       const unknown = ['unknown-muse', 'unknown-codex'].every(id => version === 'before'
         ? /—/.test(row(id).writing || '') : row(id).writing === null && !/—/.test(row(id).text))
       const fullyVisible = state.rows.every(({bounds:r})=>r.left>=0 && r.top>=0 && r.right<=state.viewport.width && r.bottom<=state.viewport.height)
-      const semantics = fullyVisible && unknown && /784 ms/.test(row('unknown-muse').text) && /200 ms/.test(row('unknown-codex').text)
-        && /1\.2s/.test(row('known').writing || '') && /200 ms/.test(row('known').text) && row('known').finishedDot
+      const semantics = fullyVisible && unknown && /784ms/.test(row('unknown-muse').text) && /200ms/.test(row('unknown-codex').text)
+        && /1\.2s/.test(row('known').writing || '') && /200ms/.test(row('known').text) && row('known').finishedDot
         && row('running').statusIcon === expectedIcon && row('running').statusTitle === 'Executing tool call'
         && row('running').writing === null && /1s/.test(row('running').text)
         && row('writing').writingStatus && /1s/.test(row('writing').writing || '')
         && (version === 'before' ? row('presentation').text === null && row('presentation').cardTimed
           : /orgtree_present/.test(row('presentation').text || '') && /1\.2s/.test(row('presentation').text || '')
-            && /31 ms/.test(row('presentation').text || '') && row('presentation').cardText === 'Verification report' && !row('presentation').cardTimed)
+            && /31ms/.test(row('presentation').text || '') && row('presentation').cardText === 'Verification report' && !row('presentation').cardTimed)
         && ['sentfile','sentimage'].every(id=>version==='before'?row(id).text===null&&row(id).fileTimed
-          : /orgtree_send_file/.test(row(id).text||'') && /1\.2s/.test(row(id).text||'') && /31 ms/.test(row(id).text||'') && !row(id).fileTimed)
+          : /orgtree_send_file/.test(row(id).text||'') && /1\.2s/.test(row(id).text||'') && /31ms/.test(row(id).text||'') && !row(id).fileTimed)
         && row('sentfile').download==='report.txt' && /2 KB/.test(row('sentfile').fileText||'') && /Exported report/.test(row('sentfile').fileText||'')
         && row('sentimage').download==='shot.png' && /190 KB/.test(row('sentimage').fileText||'') && row('sentimage').imageWidth===320
       const expected = state.background.match(/\d+/g).slice(0,3).map(Number)

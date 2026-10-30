@@ -15,18 +15,18 @@ test('completed and reloaded chips show both icons and durations without timing 
   const chip = JSON.parse(JSON.stringify({ name: 'orgtree_message', writing_secs: 3,
     started_at: start, ended_at: new Date(Date.parse(start) + 200).toISOString(), result: 'sent' }))
   await view.render(<ToolTimes tool={chip} />)
-  assert.equal(view.last().replace(/\s+/g, ' ').trim(), '· 3.0s · 200 ms')
+  assert.equal(view.last().replace(/\s+/g, ' ').trim(), '· 3.0s · 200ms')
   assert.ok(view.el.querySelector('[aria-label="written in 3.0s"] [data-testid="EditOutlinedIcon"]'))
-  assert.ok(view.el.querySelector('[aria-label="ran for 200 ms"] [data-testid="ArrowForwardIcon"]'))
+  assert.ok(view.el.querySelector('[aria-label="ran for 200ms"] [data-testid="ArrowForwardIcon"]'))
   await view.render(<ToolTimes tool={{ name: 'old', started_at: start, ended_at: chip.ended_at }} />)
   assert.doesNotMatch(view.last(), /written/)
   assert.doesNotMatch(view.last(), /—/)
-  assert.match(view.last(), /200 ms/)
+  assert.match(view.last(), /200ms/)
   assert.equal(view.el.querySelector('.tool-writing-time'), null)
   await view.render(<Msg m={{ role: 'assistant', text: '', tools: [chip] }} slug="org" nid="worker" />)
   await inAct(() => { view.el.querySelector<HTMLElement>('.tline')!.click() }); await flush()
   assert.equal(view.el.querySelectorAll('[aria-label="written in 3.0s"]').length, 1)
-  assert.equal(view.el.querySelectorAll('[aria-label="ran for 200 ms"]').length, 1)
+  assert.equal(view.el.querySelectorAll('[aria-label="ran for 200ms"]').length, 1)
 })
 
 test('a writing chip shows its pencil and streamed fields in the shared chip layout', async t => {
@@ -137,13 +137,13 @@ test('parallel writing snapshots retire atomically with durable chips and surviv
   await inAct(() => frame([active[1]], [row])); await flush()
   assert.equal(view.el.querySelector('[aria-label="Writing one"]'), null)
   assert.ok(view.el.querySelector('[aria-label="Writing two"]'))
-  assert.match(view.last(), /3.0s/); assert.match(view.last(), /200 ms/)
+  assert.match(view.last(), /3.0s/); assert.match(view.last(), /200ms/)
   assert.ok(!snapshots.some(s => s.writing === 0 && s.tools === 1), 'transition carries still-active second call')
   await inAct(() => frame([])); await flush()
   assert.equal(view.el.querySelector('[aria-label="Writing two"]'), null)
   server.messages = [row]; server.busy = false
   await inAct(() => refreshConvo('org', 'worker', { force: true })); await flush()
-  assert.match(view.last(), /3.0s/); assert.match(view.last(), /200 ms/)
+  assert.match(view.last(), /3.0s/); assert.match(view.last(), /200ms/)
 })
 
 test('same-millisecond stale HTTP cannot remove or resurrect writing snapshots', async t => {
