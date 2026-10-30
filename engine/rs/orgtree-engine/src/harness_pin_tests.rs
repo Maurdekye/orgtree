@@ -231,3 +231,83 @@ fn a_server_counts_its_following_and_pinned_seats_by_harness() {
     assert_eq!(custom.pinned, 1);
     assert_eq!(custom.pinned_harnesses.get("claude-code"), Some(&1));
 }
+
+// Harness everywhere (user 2026-10-30 07:36:24Z m5611018df279, "fix both
+// yes"): the hire dialog, the hire tool and orgtree_retool offer what the
+// Model tab offers, under one rule.
+
+#[test]
+fn one_rule_says_which_harness_a_seat_may_run() {
+    use crate::harnesses::seat_refusal;
+    let all = |_: &str| true;
+    let no_opencode = |h: &str| h != "opencode";
+    // an OpenRouter seat: any selectable harness installed here
+    assert_eq!(seat_refusal("or-x", None, "codex-cli", &all), None);
+    assert_eq!(seat_refusal("or-x", None, "opencode", &no_opencode).as_deref(),
+        Some("OpenCode (ACP) is not installed on this computer; install it, or choose an installed harness"));
+    let why = seat_refusal("or-x", None, "antigravity", &all).unwrap_or_default();
+    assert!(why.contains("claude-code, codex-cli, opencode"), "names the choices: {why}");
+    // a language model server seat: one its server can carry
+    let ollama = server("ollama", "claude-code", "");
+    assert_eq!(seat_refusal("ls-ollama-m", Some(&ollama), "codex-cli", &all), None, "a preset carries every harness");
+    assert_eq!(seat_refusal("ls-ollama-m", Some(&ollama), "opencode", &no_opencode).as_deref(),
+        Some("OpenCode (ACP) is not installed on this computer"));
+    let custom = server("custom", "claude-code", "api/anthropic");
+    let why = seat_refusal("ls-custom-m", Some(&custom), "codex-cli", &all).unwrap_or_default();
+    assert!(why.contains("base path"), "the other API family needs its own server entry: {why}");
+    let why = seat_refusal("ls-ollama-m", Some(&ollama), "bogus", &all).unwrap_or_default();
+    assert!(why.contains("claude-code, codex-cli, opencode"), "{why}");
+    let why = seat_refusal("ls-gone-m", None, "claude-code", &all).unwrap_or_default();
+    assert!(why.contains("not a model of any language model server"), "{why}");
+    // any other tier runs on its own CLI: no choice
+    let why = seat_refusal("sol", None, "codex-cli", &all).unwrap_or_default();
+    assert!(why.contains("only for OpenRouter and language model server agents"), "{why}");
+}
+
+#[test]
+fn a_retool_harness_pins_one_follows_or_leaves_it() {
+    use crate::harnesses::retool_choice;
+    assert_eq!(retool_choice(None), Ok(None), "absent: unchanged");
+    assert_eq!(retool_choice(Some(&Value::Null)), Ok(None), "null: unchanged, like the other retool fields");
+    assert_eq!(retool_choice(Some(&json!("follow"))), Ok(Some(None)), "follow clears its own harness");
+    assert_eq!(retool_choice(Some(&json!("codex-cli"))), Ok(Some(Some("codex-cli".to_string()))), "a harness id pins it");
+    let empty = retool_choice(Some(&json!("")));
+    assert!(empty.as_ref().is_err_and(|w| w.contains("\"follow\"")), "an empty value says what to send: {empty:?}");
+    assert!(retool_choice(Some(&json!(true))).is_err());
+}
+
+#[test]
+fn the_hire_dialog_row_follows_the_drafts_key_or_its_server() {
+    use crate::harnesses::hire_row;
+    let e = engine_with(vec![key("openrouter-1", "codex-cli"), key("openrouter-2", "opencode")],
+        json!({ "language_servers": { "servers": { "ollama": server("ollama", "claude-code", "") } } }));
+    let ids = |r: &Value| r["options"].as_array().map(|o| o.iter().map(|x| x["id"].as_str().unwrap_or("").to_string()).collect::<Vec<_>>())
+        .unwrap_or_default();
+    let or2 = hire_row(&e, "or-x", Some("openrouter-2"));
+    assert_eq!((or2["lane"].clone(), or2["follow"]["id"].clone(), or2["follow"]["source"].clone()),
+        (json!("openrouter"), json!("opencode"), json!("key")), "the key the draft names: {or2}");
+    assert_eq!((or2["pin"].clone(), or2["current"].clone(), or2["moves"].clone()), (Value::Null, Value::Null, json!(false)),
+        "a seat not hired yet has no pin, no session and no move");
+    assert_eq!(ids(&or2), ["claude-code", "codex-cli", "opencode"], "the key dialog's list");
+    assert_eq!(hire_row(&e, "or-x", None)["follow"]["id"], "codex-cli", "no key named: the first key's");
+    let ls = hire_row(&e, "ls-ollama-m", None);
+    assert_eq!((ls["lane"].clone(), ls["follow"]["id"].clone(), ls["follow"]["source"].clone(), ls["follow"]["name"].clone()),
+        (json!("langserver"), json!("claude-code"), json!("server"), json!("Fixture server")), "{ls}");
+    assert_eq!(ids(&ls), ["claude-code", "codex-cli", "opencode"]);
+    let other = hire_row(&e, "sol", None);
+    assert_eq!((other["lane"].clone(), ids(&other).len()), (Value::Null, 0), "no harness choice on other tiers: {other}");
+}
+
+#[test]
+fn the_seat_tools_offer_a_harness_on_both_lanes() {
+    let cards = crate::tools::defs::list();
+    let field = |name: &str| cards.iter().find(|c| c["name"] == name).map(|c| c["inputSchema"]["properties"]["harness"].clone())
+        .unwrap_or(Value::Null);
+    let retool = field("orgtree_retool");
+    assert_eq!(retool["type"], "string", "orgtree_retool changes a report's harness: {retool}");
+    assert_eq!(retool["enum"], json!(["claude-code", "codex-cli", "opencode", "follow"]));
+    for name in ["orgtree_hire", "orgtree_staff"] {
+        let d = field(name)["description"].as_str().unwrap_or("").to_string();
+        assert!(d.contains("language model server"), "{name} pins server seats too: {d}");
+    }
+}

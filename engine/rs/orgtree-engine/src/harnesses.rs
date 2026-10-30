@@ -158,6 +158,24 @@ pub fn pin_target(pinned: bool, pin_to: Option<&str>, stamp: Option<&str>) -> Op
     pinned.then(|| pin_to.or(stamp)).flatten().map(str::to_string)
 }
 
+/// RED STUB (harness everywhere): no refusal yet.
+#[nolog]
+pub fn seat_refusal(_tier: &str, _server: Option<&Value>, _id: &str, _installed: &dyn Fn(&str) -> bool) -> Option<String> {
+    None
+}
+
+/// RED STUB (harness everywhere): a retool never changes the harness yet.
+#[nolog]
+pub fn retool_choice(_v: Option<&Value>) -> std::result::Result<Option<Option<String>>, String> {
+    Ok(None)
+}
+
+/// RED STUB (harness everywhere): no hire dialog row yet.
+#[nolog]
+pub fn hire_row(_engine: &Engine, _tier: &str, _account: Option<&str>) -> Value {
+    Value::Null
+}
+
 /// The agent settings Model tab's Harness row (user 2026-10-29) for the
 /// seat `id` on `tier` (the model chosen in the tab; by default the one it
 /// runs next): `lane` (openrouter, langserver, or null when that tier has no
