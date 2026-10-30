@@ -13,9 +13,10 @@
 // (the backend decides both and says why in `why`). "Custom…" shows the rest:
 // API style, base path, API key, model ids, context size.
 //
-// ONE HARNESS PER SERVER (coordinator ruling 2026-10-09): an agent's session
-// cannot move between Claude Code and Codex, so a server keeps the harness it
-// was added with. The other harness is a second entry with the same address.
+// ONE SERVER HARNESS AT A TIME (user 2026-10-29): a server entry's harness is
+// editable in its Configure dialog, using the preset's compatible installed
+// harnesses. Changing it moves every agent that follows the server at its next
+// turn boundary on a fresh session with a summary; pinned agents keep theirs.
 //
 // A SERVER IS ONE LINE UNTIL IT IS EDITED (user 2026-10-10: "these per-server
 // settings should be minimized and only editable after clicking the edit
@@ -378,13 +379,13 @@ function AddServerForm({ doc, busy, toast, onCancel, onAdd }: {
           </SetRow>
         : <SetRow label="Harness"
             hint={preset?.harnesses.find((h) => h.id === harness && !h.available)?.why
-              || 'The CLI that drives this server’s agents. It stays with the server.'}>
+              || 'The CLI that drives this server’s agents. A change later moves following agents at their next turn.'}>
             <select aria-label="Harness" value={harness} disabled={busy}
               onChange={(e) => setHarness(e.target.value)}>
               {/* every supported harness, installed first, the others greyed
                   out and disabled (user 2026-10-13 22:20Z) */}
               <HarnessOptions choices={(preset?.harnesses ?? []).map((h) => ({ id: h.id, label: h.label,
-                installed: h.installed, enabled: h.available, note: 'unavailable', title: h.why || undefined }))} />
+                installed: h.installed ?? h.available, enabled: h.available, note: 'unavailable', title: h.why || undefined }))} />
             </select>
           </SetRow>}
       <HarnessesLink />
@@ -463,10 +464,23 @@ function AddServerForm({ doc, busy, toast, onCancel, onAdd }: {
 
 // ─── ONE SERVER ──────────────────────────────────────────────────────────────
 
+const openaiFamily = (h: string): boolean => h === 'codex-cli' || h === 'opencode'
+
+const seatCountLine = (following: number, pinned: number): string => {
+  const f = following === 1
+    ? '1 agent follows this server and moves at its next turn on a fresh session'
+    : `${following} agents follow this server and move at their next turn on a fresh session`
+  const p = pinned === 1
+    ? '1 pinned agent keeps its harness'
+    : `${pinned} pinned agents keep their harness`
+  return `${f}; ${p}.`
+}
+
 /** a server's settings while ✎ is open: nothing is sent until Save */
 interface Draft {
   label: string
   address: string
+  harness: string
   basePath: string
   enabled: boolean
   maxAgents: number
@@ -526,8 +540,8 @@ function ServerCard({ server: s, doc, busy, toast, run }: {
   const startEdit = () => {
     setBrowsing(false)
     setDraft({
-      label: s.label, address: s.address, basePath: s.base_path, enabled: s.enabled, maxAgents: s.max_agents,
-      seat: s.seat, key: '', forgetKey: false, picked: { ...told },
+      label: s.label, address: s.address, harness: s.harness, basePath: s.base_path, enabled: s.enabled,
+      maxAgents: s.max_agents, seat: s.seat, key: '', forgetKey: false, picked: { ...told },
     })
   }
   const cancel = () => { setDraft(null); setBrowsing(false) }
@@ -587,12 +601,21 @@ function ServerCard({ server: s, doc, busy, toast, run }: {
       })
       .catch((e: Error) => toast([`error: ${e.message}`]))
 
+  const harnesses = preset?.harnesses ?? []
+
   /** what Save sends: only what the draft changed */
   const changes = (d: Draft) => {
     const body: Parameters<typeof updateLangServer>[1] = {}
     if (d.label.trim() !== s.label) body.label = d.label.trim()
     if (d.address.trim() !== s.address) body.address = d.address.trim()
-    if (s.preset === 'custom' && d.basePath.trim() !== s.base_path) body.base_path = d.basePath.trim()
+    const pickedHarness = harnesses.find((h) => h.id === d.harness)
+    if (d.harness !== s.harness && (!pickedHarness || pickedHarness.available)) {
+      body.harness = d.harness
+    }
+    const familyChanged = s.preset === 'custom' && openaiFamily(d.harness) !== openaiFamily(s.harness)
+    if (s.preset === 'custom' && (d.basePath.trim() !== s.base_path || (body.harness && familyChanged))) {
+      body.base_path = d.basePath.trim()
+    }
     if (d.enabled !== s.enabled) body.enabled = d.enabled
     if (d.maxAgents !== s.max_agents) body.max_agents = d.maxAgents
     if (d.seat !== s.seat) body.seat = d.seat
@@ -711,7 +734,23 @@ function ServerCard({ server: s, doc, busy, toast, run }: {
           hint={chipIds.length ? '' : said ? (said.length || more ? '' : 'The server lists no models') : 'No model offered yet'} />
       )}
       {!draft && <MismatchLines items={mismatches} />}
-      {draft && (
+      {draft && (() => {
+        const harnessChanged = draft.harness !== s.harness
+        const customFamilyChanged = s.preset === 'custom' && openaiFamily(draft.harness) !== openaiFamily(s.harness)
+        const basePathMissing = customFamilyChanged && !draft.basePath.trim()
+        const followingSeats = s.following_seats ?? 0
+        const pinnedSeats = s.pinned_seats ?? 0
+        const pinnedOtherFamily = s.preset === 'custom'
+          ? Object.entries(s.pinned_harnesses ?? {})
+              .filter(([h]) => openaiFamily(h) !== openaiFamily(draft.harness))
+              .reduce((sum, [, n]) => sum + n, 0)
+          : 0
+        const draftHarnessMissing = harnesses.find((h) => h.id === draft.harness)?.installed === false
+        const harnessHint = harnessChanged
+          ? `Moves to ${HARNESS_LABEL[draft.harness] ?? draft.harness} at the next turn with a summary. ${seatCountLine(followingSeats, pinnedSeats)}`
+          : (harnesses.find((h) => h.id === draft.harness && !h.available)?.why
+            || `The CLI that drives this server’s agents. ${seatCountLine(followingSeats, pinnedSeats)}`)
+        return (
         <ProviderDialog title={`Configure ${s.label}`} busy={busy} close={cancel}>
         <div className="ls-add ls-edit" role="group" aria-label={`Edit ${s.label}`}>
           <SetRow label="Name">
@@ -722,8 +761,38 @@ function ServerCard({ server: s, doc, busy, toast, run }: {
             <input type="text" aria-label="Server address" spellCheck={false} value={draft.address} disabled={busy}
               onChange={(e) => edit({ address: e.target.value })} />
           </SetRow>
-          {s.preset === 'custom' && <SetRow label="Base path">
+          {harnesses.length > 0 && <>
+            <SetRow label="Harness" hint={harnessHint}>
+              <select aria-label="Harness" value={draft.harness}
+                disabled={busy || !harnesses.some((h) => h.available)}
+                onChange={(e) => {
+                  const next = e.target.value
+                  if (s.preset === 'custom' && openaiFamily(next) !== openaiFamily(draft.harness)) {
+                    edit({ harness: next, basePath: next === s.harness ? s.base_path : '' })
+                  } else {
+                    edit({ harness: next })
+                  }
+                }}>
+                <HarnessOptions choices={harnesses.map((h) => ({ id: h.id, label: h.label,
+                  installed: h.installed ?? h.available, enabled: h.available,
+                  note: 'unavailable', title: h.why || undefined }))} />
+              </select>
+            </SetRow>
+            {draftHarnessMissing && <div className="ask-warn-inline">
+              {HARNESS_LABEL[draft.harness] ?? draft.harness} is not installed on this computer: agents on this server
+              refuse to start until it is installed or another harness is chosen.</div>}
+            {pinnedOtherFamily > 0 && <div className="ask-warn-inline">
+              {pinnedOtherFamily === 1
+                ? '1 pinned agent is on the other API family and will be refused at launch until re-pinned.'
+                : `${pinnedOtherFamily} pinned agents are on the other API family and will be refused at launch until re-pinned.`}</div>}
+            <HarnessesLink />
+          </>}
+          {s.preset === 'custom' && <SetRow label="Base path"
+            hint={customFamilyChanged
+              ? 'Required when changing API family: enter the base path for the new API (e.g. v1 for Codex/OpenCode or api/anthropic for Claude Code).'
+              : undefined}>
             <input type="text" aria-label="Base path" spellCheck={false} value={draft.basePath} disabled={busy}
+              placeholder={customFamilyChanged ? 'e.g. v1' : undefined}
               onChange={(e) => edit({ basePath: e.target.value })} />
           </SetRow>}
           <SetToggle label="Offer this server’s models to new hires" checked={draft.enabled} disabled={busy}
@@ -754,14 +823,16 @@ function ServerCard({ server: s, doc, busy, toast, run }: {
           </div>
           <div className="ls-actions">
             <button type="button" className="acct-secondary-btn"
-              disabled={busy || !draft.label.trim() || !draft.address.trim()} onClick={() => { void save() }}>Save</button>
+              disabled={busy || !draft.label.trim() || !draft.address.trim() || basePathMissing}
+              onClick={() => { void save() }}>Save</button>
             <button type="button" className="acct-secondary-btn" disabled={busy} onClick={cancel}>Cancel</button>
             {(Object.keys(changes(draft)).length > 0 || !!draft.key.trim() || draft.forgetKey)
               && <span className="dim">Unsaved changes</span>}
           </div>
         </div>
         </ProviderDialog>
-      )}
+        )
+      })()}
       {browsing && (<ModalOverPins>
         <LangServerBrowser title={`Models on ${draft?.label.trim() || s.label}`} live={!draft}
           models={found?.reachable ? found.models : []}

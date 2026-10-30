@@ -17,7 +17,7 @@ use crate::langserver::{self, NewServer, ServerPatch};
 /// `GET /api/langservers`: servers, presets and harness availability.
 #[logged]
 pub async fn list(State(e): State<Arc<Engine>>) -> Json<Value> {
-    Json(langserver::doc(&e))
+    Json(langserver::doc(&e).await)
 }
 
 #[derive(Deserialize, Debug)]
@@ -84,8 +84,8 @@ pub async fn add(State(e): State<Arc<Engine>>, Json(b): Json<AddBody>) -> ApiRes
         },
     )
     .await?;
-    langserver::publish(&e);
-    Ok(Json(serde_json::json!({ "server": rec, "doc": langserver::doc(&e) })))
+    langserver::publish(&e).await;
+    Ok(Json(serde_json::json!({ "server": rec, "doc": langserver::doc(&e).await })))
 }
 
 #[derive(Deserialize, Debug, Default)]
@@ -94,6 +94,8 @@ pub struct PatchBody {
     label: Option<String>,
     #[serde(default)]
     address: Option<String>,
+    #[serde(default)]
+    harness: Option<String>,
     #[serde(default)]
     base_path: Option<String>,
     #[serde(default)]
@@ -106,8 +108,8 @@ pub struct PatchBody {
     models: Vec<ModelPick>,
 }
 
-/// `PATCH /api/langservers/{id}`: rename, move, cap, switch on or off, and
-/// pick which models are offered and with which window.
+/// `PATCH /api/langservers/{id}`: rename, move, change harness, cap, switch
+/// on or off, and pick which models are offered and with which window.
 #[logged]
 pub async fn update(State(e): State<Arc<Engine>>, Path(id): Path<String>, Json(b): Json<PatchBody>) -> ApiResult<Json<Value>> {
     let rec = langserver::update_server(
@@ -116,7 +118,7 @@ pub async fn update(State(e): State<Arc<Engine>>, Path(id): Path<String>, Json(b
         ServerPatch {
             label: b.label,
             address: b.address,
-            harness: None,
+            harness: b.harness,
             base_path: b.base_path,
             max_agents: b.max_agents,
             seat: b.seat,
@@ -127,8 +129,8 @@ pub async fn update(State(e): State<Arc<Engine>>, Path(id): Path<String>, Json(b
     .await?;
     // a new price reaches the agents already on this server's models
     let repriced = if b.seat.is_some() { langserver::reprice_everywhere(&e).await } else { Vec::new() };
-    langserver::publish(&e);
-    Ok(Json(serde_json::json!({ "server": rec, "doc": langserver::doc(&e), "repriced": repriced })))
+    langserver::publish(&e).await;
+    Ok(Json(serde_json::json!({ "server": rec, "doc": langserver::doc(&e).await, "repriced": repriced })))
 }
 
 #[derive(Deserialize)]
@@ -147,16 +149,16 @@ impl std::fmt::Debug for KeyBody {
 /// empty or missing key clears it.
 pub async fn set_key(State(e): State<Arc<Engine>>, Path(id): Path<String>, Json(b): Json<KeyBody>) -> ApiResult<Json<Value>> {
     langserver::update_key(&e, &id, b.key.as_deref()).await?;
-    langserver::publish(&e);
-    Ok(Json(langserver::doc(&e)))
+    langserver::publish(&e).await;
+    Ok(Json(langserver::doc(&e).await))
 }
 
 /// `DELETE /api/langservers/{id}`
 #[logged]
 pub async fn remove(State(e): State<Arc<Engine>>, Path(id): Path<String>) -> ApiResult<Json<Value>> {
     langserver::remove_server(&e, &id).await?;
-    langserver::publish(&e);
-    Ok(Json(langserver::doc(&e)))
+    langserver::publish(&e).await;
+    Ok(Json(langserver::doc(&e).await))
 }
 
 #[derive(Deserialize)]

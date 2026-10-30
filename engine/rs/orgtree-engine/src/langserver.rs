@@ -367,11 +367,16 @@ async fn set_key(engine: &Engine, server: &str, key: Option<&str>) -> Result<()>
 /// Which installed harnesses can drive a server of this preset.
 #[logged]
 pub fn harnesses(engine: &Engine, preset_id: &str) -> Vec<Value> {
+    harnesses_with(preset_id, &|h| crate::harnesses::installed(engine, h))
+}
+
+#[nolog]
+pub fn harnesses_with(preset_id: &str, installed: &dyn Fn(&str) -> bool) -> Vec<Value> {
     let p = preset(preset_id);
     // the shared registry: discovery, else the file lookup a launch makes
     // (installed-only harness choices, user 2026-10-13)
-    let claude = crate::harnesses::installed(engine, "claude-code");
-    let codex = crate::harnesses::installed(engine, "codex-cli");
+    let claude = installed("claude-code");
+    let codex = installed("codex-cli");
     let opt = |id: &str, label: &str, installed: bool, served: bool| {
         let why = if !installed {
             format!("{label} is not installed on this machine")
@@ -385,7 +390,7 @@ pub fn harnesses(engine: &Engine, preset_id: &str) -> Vec<Value> {
     vec![
         opt("claude-code", "Claude Code", claude, p.map(|p| p.claude).unwrap_or(false)),
         opt("codex-cli", "Codex", codex, p.map(|p| p.codex).unwrap_or(false)),
-        opt("opencode", "OpenCode (ACP)", crate::harnesses::installed(engine, "opencode"), p.is_some()),
+        opt("opencode", "OpenCode (ACP)", installed("opencode"), p.is_some()),
     ]
 }
 
@@ -452,9 +457,9 @@ impl std::fmt::Debug for NewServer {
     }
 }
 
-/// Add a server. Its harness is fixed for its life: an agent's session
-/// cannot move between Claude Code and Codex, so the other harness is
-/// another server entry (the same address may appear twice).
+/// Add a server. Its preset stays as created; its harness can be edited
+/// later in Providers, which moves following agents at their next turn on
+/// a fresh session.
 #[logged]
 pub async fn add_server(engine: &Engine, b: NewServer) -> Result<Value> {
     let Some(p) = preset(&b.preset) else { crate::refuse!(BadRequest, "unknown server kind {}", b.preset) };
@@ -540,13 +545,47 @@ pub struct ServerSeatCounts {
 
 /// Count each server's live following and pinned seats from `(tier, extra)` rows.
 #[nolog]
-pub fn seat_counts_of(_engine: &Engine, _rows: &[(String, Value)]) -> std::collections::HashMap<String, ServerSeatCounts> {
-    Default::default()
+pub fn seat_counts_of(engine: &Engine, rows: &[(String, Value)]) -> std::collections::HashMap<String, ServerSeatCounts> {
+    let mut out: std::collections::HashMap<String, ServerSeatCounts> = std::collections::HashMap::new();
+    for (tier, extra) in rows {
+        let Some((srv, _)) = route_of(engine, tier) else { continue };
+        let Some(id) = srv["id"].as_str() else { continue };
+        let entry = out.entry(id.to_string()).or_default();
+        match crate::harnesses::seat_pin(extra) {
+            Some(pin) => {
+                entry.pinned += 1;
+                *entry.pinned_harnesses.entry(pin).or_insert(0) += 1;
+            }
+            None => {
+                entry.following += 1;
+            }
+        }
+    }
+    out
+}
+
+#[logged]
+async fn server_seats(engine: &Engine) -> std::collections::HashMap<String, ServerSeatCounts> {
+    let Ok(client) = engine.db.get().await else { return Default::default() };
+    let prefix = format!("{TIER_PREFIX}%");
+    let Ok(rows) = client
+        .query(
+            "SELECT coalesce(pending_switch->>'tier', tier), coalesce(extra, '{}'::jsonb)
+               FROM ot.agents
+              WHERE state = 'live' AND coalesce(pending_switch->>'tier', tier) LIKE $1",
+            &[&prefix],
+        )
+        .await
+    else {
+        return Default::default();
+    };
+    let pairs: Vec<(String, Value)> = rows.into_iter().map(|r| (r.get(0), r.get(1))).collect();
+    seat_counts_of(engine, &pairs)
 }
 
 /// Validate and build the settings map patch for `update_server`.
 #[nolog]
-pub fn patch_server_with(engine: &Engine, id: &str, patch: ServerPatch, _installed: &dyn Fn(&str) -> bool) -> Result<Map<String, Value>> {
+pub fn patch_server_with(engine: &Engine, id: &str, patch: ServerPatch, installed: &dyn Fn(&str) -> bool) -> Result<Map<String, Value>> {
     let Some(cur) = server(engine, id) else { crate::refuse!(NotFound, "no language model server {id}") };
     let mut p = Map::new();
     if let Some(l) = patch.label.as_deref().map(str::trim) {
@@ -557,6 +596,24 @@ pub fn patch_server_with(engine: &Engine, id: &str, patch: ServerPatch, _install
     }
     if let Some(a) = &patch.address {
         p.insert("address".into(), json!(normalize_address(a)?));
+    }
+    if let Some(h) = &patch.harness {
+        let preset_id = cur["preset"].as_str().unwrap_or("");
+        let choices = harnesses_with(preset_id, installed);
+        let Some(choice) = choices.iter().find(|o| o["id"].as_str() == Some(h.as_str())) else {
+            crate::refuse!(BadRequest, "the harness is claude-code, codex-cli or opencode");
+        };
+        if choice["available"] != json!(true) {
+            crate::refuse!(Conflict, "{}", choice["why"].as_str().unwrap_or("that harness cannot drive this server"));
+        }
+        let old = cur["harness"].as_str().unwrap_or("claude-code");
+        if preset_id == "custom" && openai_family(h) != openai_family(old) {
+            if patch.base_path.as_deref().map(str::trim).unwrap_or("").is_empty() {
+                crate::refuse!(BadRequest, "enter the base path for the new API style");
+            }
+        }
+        p.insert("harness".into(), json!(h));
+        p.insert("api".into(), json!(api_of(h)));
     }
     if let Some(bp) = &patch.base_path {
         p.insert("base_path".into(), json!(bp.trim()));
@@ -639,17 +696,22 @@ pub async fn remove_server(engine: &Engine, id: &str) -> Result<()> {
 
 /// The lane's document for App settings (secret-free).
 #[logged]
-pub fn doc(engine: &Engine) -> Value {
+pub async fn doc(engine: &Engine) -> Value {
     let presets: Vec<Value> = PRESETS
         .iter()
         .map(|p| json!({ "id": p.id, "label": p.label, "address": p.address, "claude": p.claude, "codex": p.codex,
                          "note": p.note, "harnesses": harnesses(engine, p.id) }))
         .collect();
+    let seats = server_seats(engine).await;
     let list: Vec<Value> = servers(engine)
         .into_iter()
         .map(|mut s| {
+            let counts = s["id"].as_str().and_then(|id| seats.get(id)).cloned().unwrap_or_default();
             s["base_url"] = json!(base_url(&s));
             s["seat"] = json!(server_seat(&s));
+            s["following_seats"] = json!(counts.following);
+            s["pinned_seats"] = json!(counts.pinned);
+            s["pinned_harnesses"] = json!(counts.pinned_harnesses);
             if let Some(models) = s["models"].as_object_mut() {
                 for m in models.values_mut() {
                     let ctx = context_of(m);
@@ -669,8 +731,8 @@ pub fn doc(engine: &Engine) -> Value {
 /// Push the lane's document and the providers list to every window, and
 /// tell every org its hireable tiers changed (after any change to a server).
 #[logged]
-pub fn publish(engine: &Engine) {
-    engine.app.set_value("langservers", doc(engine));
+pub async fn publish(engine: &Engine) {
+    engine.app.set_value("langservers", doc(engine).await);
     crate::providers::publish(engine);
     for o in engine.orgs.all() {
         crate::changes::notify(engine, &o, vec![crate::changes::Change::Tiers]);
