@@ -271,7 +271,22 @@ export function filterMentionCandidates(
 }
 
 /** entries drawn at first, and added each time the reader nears the end */
-const MENU_STEP = 60
+const MENU_STEP = 20
+
+function keepMentionItemInView(listEl: HTMLElement, activeEl: HTMLElement | null): void {
+  if (!activeEl) return
+  if (listEl.clientHeight > 0 && activeEl.offsetHeight > 0) {
+    const itemTop = activeEl.offsetTop
+    const itemBottom = itemTop + activeEl.offsetHeight
+    if (itemTop < listEl.scrollTop) {
+      listEl.scrollTop = itemTop
+    } else if (itemBottom > listEl.scrollTop + listEl.clientHeight) {
+      listEl.scrollTop = itemBottom - listEl.clientHeight
+    }
+    return
+  }
+  activeEl.scrollIntoView?.({ block: 'nearest' })
+}
 
 export function useAgentMentions({
   value,
@@ -315,9 +330,23 @@ export function useAgentMentions({
   const [caret, setCaret] = useState(value.length)
   // `pick` holds the highlighted entry itself: tickets arrive after the list
   // opens, and an arrival must not move the highlight to another entry
-  const [selection, setSelection] = useState<{ key: string | null; index: number; pick?: string }>({ key: null, index: -1 })
+  const [selection, setSelection] = useState<{ key: string | null; index: number; pick?: string; targetRank?: number }>({ key: null, index: -1 })
+  const [shownState, setShownState] = useState<{ key: string | null; count: number }>({ key: null, count: MENU_STEP })
   const [dismissedKey, setDismissedKey] = useState<string | null>(null)
   const [rect, setRect] = useState<MentionListPlace | null>(null)
+  const menuRef = useRef<HTMLDivElement | null>(null)
+  const moreRef = useRef<HTMLDivElement | null>(null)
+  const mentionSessionRef = useRef(0)
+  const wasOpenRef = useRef(false)
+  const prevSessionKeyRef = useRef<string | null>(null)
+  const prependAnchorRef = useRef<{ scrollHeight: number; scrollTop: number } | null>(null)
+  const scrollSnapRef = useRef<{ scrollHeight: number; scrollTop: number } | null>(null)
+  const userScrolledRef = useRef(false)
+  const lastScrollSourceRef = useRef<'init' | 'user' | 'keyboard'>('init')
+  const programmaticScrollTopRef = useRef<number | null>(null)
+  const keyMoveSeqRef = useRef(0)
+  const ackedKeyMoveSeqRef = useRef(0)
+  const pendingAsyncKeyMoveRef = useRef<{ key: string; targetRank: number } | null>(null)
 
   const syncCaret = useCallback(() => {
     const el = inputRef.current
@@ -437,41 +466,67 @@ export function useAgentMentions({
     const local = prefix ? candidates.filter(c => c.kind === prefix) : candidates
     return found.rows.length && org ? [...local, ...found.rows.map(r => rowCandidate(r, org))] : local
   }, [candidates, found.rows, prefix, org])
-  const [shown, setShown] = useState(MENU_STEP)
-
   useEffect(() => {
-    if (selection.key !== null && selection.key !== queryKey) {
-      setSelection({ key: null, index: -1 })
-    }
     if (dismissedKey && dismissedKey !== queryKey) setDismissedKey(null)
-    setShown(MENU_STEP)
-  }, [queryKey, dismissedKey, selection.key])
+  }, [queryKey, dismissedKey])
 
   const ranked = useMemo(
     () => (canShow && activeQuery ? filterMentionCandidates(offered, activeQuery.query, activeRecency, found.nodes) : []),
     [canShow, activeQuery, offered, activeRecency, found.nodes],
   )
+  const hasRanked = ranked.length > 0
+  const sessionTokenKey = activeQuery && queryKey ? `${value.slice(0, activeQuery.start)}:${queryKey}` : null
+  if (!hasRanked || !queryKey || !sessionTokenKey) {
+    wasOpenRef.current = false
+    prevSessionKeyRef.current = null
+  } else if (!wasOpenRef.current || prevSessionKeyRef.current !== sessionTokenKey) {
+    wasOpenRef.current = true
+    prevSessionKeyRef.current = sessionTokenKey
+    mentionSessionRef.current += 1
+    prependAnchorRef.current = null
+    scrollSnapRef.current = null
+    userScrolledRef.current = false
+    lastScrollSourceRef.current = 'init'
+    programmaticScrollTopRef.current = null
+    pendingAsyncKeyMoveRef.current = null
+  }
+  const sessionKey = hasRanked && queryKey ? `${mentionSessionRef.current}:${queryKey}` : null
+  const shown = sessionKey && shownState.key === sessionKey ? shownState.count : MENU_STEP
   // drawn bottom-up (the best match last, next to the box), the oldest first
   const matches = useMemo(() => ranked.slice(0, shown).reverse(), [ranked, shown])
   const more = ranked.length > shown || found.more
+  const capturePrependAnchor = useCallback(() => {
+    if (prependAnchorRef.current) return
+    const el = menuRef.current
+    if (el) {
+      prependAnchorRef.current = { scrollHeight: el.scrollHeight, scrollTop: el.scrollTop }
+    } else if (scrollSnapRef.current) {
+      prependAnchorRef.current = { ...scrollSnapRef.current }
+    }
+  }, [])
   /** Nearing the oldest entry drawn: draw more, and ask the engine for its
    *  next page once the rows it sent are all drawn. */
   const extend = useCallback(() => {
-    if (!more) return
-    setShown(n => n + MENU_STEP)
-    if (found.more && org && searchKinds && searchText !== null && ranked.length <= shown + MENU_STEP) loadMoreMentions(org, searchKinds, searchText)
-  }, [more, found.more, org, searchKinds, searchText, ranked.length, shown])
+    if (!more || !sessionKey) return
+    capturePrependAnchor()
+    const nextCount = shown + MENU_STEP
+    setShownState({ key: sessionKey, count: nextCount })
+    if (found.more && org && searchKinds && searchText !== null && ranked.length <= nextCount) loadMoreMentions(org, searchKinds, searchText)
+  }, [more, sessionKey, capturePrependAnchor, found.more, org, searchKinds, searchText, ranked.length, shown])
   if (!matches.length) {
     recencySessionRef.current = null
   }
 
   const open = !disabled && matches.length > 0 && activeQuery !== null
-  const picked = selection.key === queryKey && selection.pick
-    ? matches.findIndex(c => mentionKey(c) === selection.pick) : -1
+  const hasExplicitSelection = sessionKey !== null && selection.key === sessionKey
+  const targetPick = hasExplicitSelection
+    ? (selection.pick ?? (selection.targetRank !== undefined && ranked[selection.targetRank] ? mentionKey(ranked[selection.targetRank]!) : undefined))
+    : undefined
+  const picked = targetPick ? matches.findIndex(c => mentionKey(c) === targetPick) : -1
   const clampedIndex = matches.length === 0
     ? 0
     : picked >= 0 ? picked
-    : selection.key === queryKey && selection.index >= 0 && selection.index < matches.length
+    : hasExplicitSelection && selection.index >= 0 && selection.index < matches.length
       ? selection.index
       : matches.length - 1
 
@@ -501,7 +556,7 @@ export function useAgentMentions({
     const nextCaret = activeQuery.start + insert.length
     emit?.(nextValue)
     setCaret(nextCaret)
-    setDismissedKey(`${activeQuery.start}:${activeQuery.query}`)
+    if (queryKey) setDismissedKey(queryKey)
     queueMicrotask(() => {
       const el = inputRef.current
       if (el) {
@@ -511,7 +566,7 @@ export function useAgentMentions({
         } catch { /* input may not support selectionRange */ }
       }
     })
-  }, [activeQuery, value, emit, inputRef])
+  }, [activeQuery, queryKey, value, emit, inputRef])
 
   const onKeyDown = useCallback((e: React.KeyboardEvent<HTMLInputElement | HTMLTextAreaElement>): boolean => {
     if (!open) return false
@@ -529,10 +584,40 @@ export function useAgentMentions({
       e.preventDefault()
       e.stopPropagation()
       const step = (e.key === 'ArrowDown') === !rect?.below ? 1 : -1
-      const next = (clampedIndex + step + matches.length) % matches.length
-      setSelection({ key: queryKey, index: next, pick: mentionKey(matches[next]!) })
-      // the oldest entries are drawn first: walking toward them draws more
-      if (next <= 2) extend()
+      if (step === 1) {
+        if (clampedIndex >= matches.length - 1) return true
+        const next = clampedIndex + 1
+        lastScrollSourceRef.current = 'keyboard'
+        keyMoveSeqRef.current += 1
+        setSelection({ key: sessionKey, index: next, pick: mentionKey(matches[next]!) })
+        return true
+      }
+      if (clampedIndex > 0) {
+        const next = clampedIndex - 1
+        lastScrollSourceRef.current = 'keyboard'
+        keyMoveSeqRef.current += 1
+        setSelection({ key: sessionKey, index: next, pick: mentionKey(matches[next]!) })
+        return true
+      }
+      if (sessionKey && more) {
+        const nextCount = shown + MENU_STEP
+        capturePrependAnchor()
+        lastScrollSourceRef.current = 'keyboard'
+        setShownState({ key: sessionKey, count: nextCount })
+        if (ranked.length > shown) {
+          const nextLen = Math.min(ranked.length, nextCount)
+          const nextTarget = ranked[shown]!
+          const nextIdx = Math.max(0, nextLen - 1 - shown)
+          keyMoveSeqRef.current += 1
+          setSelection({ key: sessionKey, index: nextIdx, pick: mentionKey(nextTarget) })
+        } else {
+          pendingAsyncKeyMoveRef.current = { key: sessionKey, targetRank: shown }
+          setSelection({ key: sessionKey, index: 0, targetRank: shown })
+        }
+        if (found.more && org && searchKinds && searchText !== null && ranked.length <= nextCount) {
+          loadMoreMentions(org, searchKinds, searchText)
+        }
+      }
       return true
     }
     if (e.key === 'Escape') {
@@ -543,23 +628,56 @@ export function useAgentMentions({
       return true
     }
     return false
-  }, [open, matches, clampedIndex, complete, queryKey, rect?.below, extend])
+  }, [open, matches, clampedIndex, complete, queryKey, sessionKey, rect?.below, more, shown, capturePrependAnchor, ranked, found.more, org, searchKinds, searchText])
 
-  const menuRef = useRef<HTMLDivElement | null>(null)
   useLayoutEffect(() => {
     if (!open || !menuRef.current) return
-    const active = menuRef.current.querySelector('.agent-mention-item.active') as HTMLElement | null
-    active?.scrollIntoView?.({ block: 'nearest' })
-  }, [open, clampedIndex, queryKey])
+    const menuEl = menuRef.current
+    const anchor = prependAnchorRef.current
+    const asyncStepReady = Boolean(
+      pendingAsyncKeyMoveRef.current &&
+      pendingAsyncKeyMoveRef.current.key === sessionKey &&
+      ranked.length > pendingAsyncKeyMoveRef.current.targetRank
+    )
+    if (asyncStepReady) {
+      pendingAsyncKeyMoveRef.current = null
+    }
+    const hasKeyMove = keyMoveSeqRef.current !== ackedKeyMoveSeqRef.current || asyncStepReady
+    if (keyMoveSeqRef.current !== ackedKeyMoveSeqRef.current) {
+      ackedKeyMoveSeqRef.current = keyMoveSeqRef.current
+    }
+    if (anchor && menuEl.scrollHeight > anchor.scrollHeight) {
+      prependAnchorRef.current = null
+      menuEl.scrollTop = anchor.scrollTop + (menuEl.scrollHeight - anchor.scrollHeight)
+      programmaticScrollTopRef.current = menuEl.scrollTop
+    } else if (!pendingAsyncKeyMoveRef.current) {
+      prependAnchorRef.current = null
+      if (!hasExplicitSelection && !userScrolledRef.current) {
+        const maxScroll = menuEl.clientHeight > 0 ? Math.max(0, menuEl.scrollHeight - menuEl.clientHeight) : menuEl.scrollHeight
+        menuEl.scrollTop = rect?.below ? 0 : maxScroll
+        programmaticScrollTopRef.current = menuEl.scrollTop
+      }
+    }
+    if (hasKeyMove) {
+      const active = menuEl.querySelector('.agent-mention-item.active') as HTMLElement | null
+      const prevTop = menuEl.scrollTop
+      keepMentionItemInView(menuEl, active)
+      if (menuEl.scrollTop !== prevTop) {
+        programmaticScrollTopRef.current = menuEl.scrollTop
+      }
+    }
+    scrollSnapRef.current = { scrollHeight: menuEl.scrollHeight, scrollTop: menuEl.scrollTop }
+  }, [open, sessionKey, matches, clampedIndex, hasExplicitSelection, rect, ranked.length])
   // scrolled to the oldest end (the marker drawn before the oldest entry)
-  const moreRef = useRef<HTMLDivElement | null>(null)
   const extendRef = useRef(extend)
   extendRef.current = extend
   useEffect(() => {
     const root = menuRef.current, marker = moreRef.current
     const Observer = root?.ownerDocument?.defaultView?.IntersectionObserver
     if (!open || !more || !root || !marker || !Observer) return
-    const seen = new Observer(entries => { if (entries.some(e => e.isIntersecting)) extendRef.current() }, { root })
+    const seen = new Observer(entries => {
+      if (entries.some(e => e.isIntersecting) && lastScrollSourceRef.current !== 'keyboard') extendRef.current()
+    }, { root })
     seen.observe(marker)
     return () => seen.disconnect()
   }, [open, more, matches.length])
@@ -572,6 +690,19 @@ export function useAgentMentions({
           className={'agent-mentions' + (rect?.below ? ' below' : '')}
           role="listbox"
           aria-label="Mentions: agents, projects, tickets, presentations, apps and panels"
+          onScroll={e => {
+            const el = e.currentTarget
+            if (programmaticScrollTopRef.current !== null && Math.abs(el.scrollTop - programmaticScrollTopRef.current) <= 1) {
+              programmaticScrollTopRef.current = null
+              scrollSnapRef.current = { scrollHeight: el.scrollHeight, scrollTop: el.scrollTop }
+              return
+            }
+            programmaticScrollTopRef.current = null
+            userScrolledRef.current = true
+            lastScrollSourceRef.current = 'user'
+            scrollSnapRef.current = { scrollHeight: el.scrollHeight, scrollTop: el.scrollTop }
+            if (el.scrollTop <= 40) extend()
+          }}
           style={rect ? {
             position: 'fixed', left: rect.left, minWidth: rect.width, maxHeight: rect.maxHeight, zIndex: 10000,
             ...(rect.below ? { top: rect.top } : { bottom: rect.bottom }),

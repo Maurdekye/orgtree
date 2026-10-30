@@ -2338,7 +2338,7 @@ name.
   unknown `@word:` opens nothing), and `filterMentionCandidates` ranks:
   transcript mentions first (as before), then `max(at, node mail mention)`, then
   name, kind and id. A tree node's `at` is `nodeActivity` (newest turn, status,
-  turn in flight, else creation). The hook draws 60 rows at a time; an
+  turn in flight, else creation). The hook draws `MENU_STEP = 20` rows at a time, opens scrolled to the bottom (and stays at the bottom when the filter changes), keeps the active row in view on arrow keys, preserves `scrollTop` without jumping when upward scroll or `ArrowUp` at the top loaded row prepends older rows, and never wraps (`ArrowDown` at the bottom and `ArrowUp` at the very top are no-ops; USER 2026-10-30 m21f1fd661676, m3e70256cdcbc, m95ee007ff363); an
   IntersectionObserver marker at the far end draws more and asks for the next
   engine page, as do the arrow keys near the end.
 - The menu ranks with the window's rows: a typed word narrows without

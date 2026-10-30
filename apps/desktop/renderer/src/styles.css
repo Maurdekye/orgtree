@@ -10006,8 +10006,9 @@ button.mail-tag-link:hover, .settings button.mail-tag-link:hover { background:no
 
 /* Agent and project @-mention completion popover + shared agent/project link chips */
 .agent-mentions {
+  position: relative;
   display: flex; flex-direction: column; gap: 2px;
-  max-height: 220px; overflow-y: auto;
+  max-height: 220px; overflow-y: auto; overflow-anchor: none;
   padding: 4px; border-radius: 6px;
   background: var(--panel); border: 1px solid var(--line);
   box-shadow: 0 8px 24px rgba(0, 0, 0, .45);
@@ -10017,7 +10018,7 @@ button.mail-tag-link:hover, .settings button.mail-tag-link:hover { background:no
    (agentmentions.tsx placeMentionList) */
 .agent-mentions.below { flex-direction: column-reverse; }
 .agent-mention-item {
-  display: flex; align-items: center; gap: 6px;
+  display: flex; align-items: center; gap: 6px; flex-shrink: 0;
   width: 100%; padding: 4px 8px; border-radius: 4px;
   border: 1px solid transparent; background: transparent;
   color: var(--ink); font-family: var(--mono); font-size: 12px;
