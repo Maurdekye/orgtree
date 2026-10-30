@@ -73,3 +73,36 @@ test('§3 controls: a mail with no record, the outbox and the list rows are unch
   assert.equal(out.el.querySelectorAll('.mailer-head .org-mail-attribution .org-mail-recipient').length, 1, 'the outbox keeps its one recipient')
   assert.match(out.el.querySelector('.mailer-head .org-mail-attribution')?.textContent ?? '', /as @org:fixture.*→.*@net:peer\.fixture/)
 })
+
+// USER 2026-10-30 md37bd35d3884, on the delivered-to line in 4.5.2-alpha.3: "should say "as @org:xyz" after like in the
+// sent tab". The Sent tab names its agent "@agent as @org:<slug> -> @recipient"; the received line names the agents
+// the same way, each one followed by the Sent tab's own suffix (the .org-mail-via markup, the shared org link).
+test('§4 each agent a received mail was delivered to is followed by "as @org:<slug>", the suffix of the Sent tab', async t => {
+  const names = ['coordinator-opus', 'liaison-opus', 'old-reviewer', 'gone-agent']
+  const v = await open(t, [received(names)], 'in-1')
+  const recipients = v.el.querySelector('.mailer-head .org-mail-recipient')
+  assert.ok(recipients, 'the delivered-to line is drawn')
+  const vias = [...recipients.querySelectorAll('.org-mail-via')]
+  assert.equal(vias.length, names.length, 'one suffix per agent, live, retired and removed alike')
+  names.forEach((name, i) => {
+    const chip = [...recipients.querySelectorAll('.ref-agent')].find(c => (c.textContent ?? '').includes(name))
+    assert.ok(chip, `${name} is named`)
+    assert.equal(chip.nextElementSibling, vias[i], `${name} is followed at once by its own suffix`)
+    assert.match(vias[i]!.textContent ?? '', /^as\s*@org:fixture$/, `${name} reads "as @org:fixture"`)
+    assert.ok(vias[i]!.querySelector('[data-hub-address="@org:fixture"]'), `${name}'s org is the shared org link`)
+  })
+  assert.match(recipients.textContent ?? '', /→.*coordinator-opus.*as @org:fixture.*liaison-opus.*as @org:fixture.*old-reviewer.*as @org:fixture.*gone-agent.*as @org:fixture/s)
+})
+
+test('§5 the suffix is the Sent tab markup itself, and nothing else gains one', async t => {
+  const rec = await open(t, [received(['coordinator-opus']), sent], 'in-1')
+  const out = await open(t, [received(['coordinator-opus']), sent], 'out-1')
+  const got = rec.el.querySelector('.mailer-head .org-mail-recipient .org-mail-via')
+  const want = out.el.querySelector('.mailer-head .org-mail-attribution > .org-mail-via')
+  assert.ok(got && want, 'both tabs draw the suffix')
+  assert.equal(got.outerHTML, want.outerHTML, 'the same element, the same shared org link, byte for byte')
+  assert.equal(out.el.querySelectorAll('.mailer-head .org-mail-via').length, 1, 'the Sent tab keeps its one suffix')
+  assert.equal(rec.el.querySelectorAll('.mailrow .org-mail-via').length, 0, 'a list row names only the sender')
+  const none = await open(t, [received()], 'in-1')
+  assert.equal(none.el.querySelector('.mailer-head .org-mail-via'), null, 'no delivery record, no suffix')
+})

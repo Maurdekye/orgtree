@@ -36,7 +36,7 @@ app.whenReady().then(async()=>{
   const shot=async name=>{fs.writeFileSync(path.join(out,name+'.png'),(await wc.capturePage()).toPNG());return name+'.png'}
   const show=async(surface,theme)=>{await evalJs(`window.deliveredFixture.show('${surface}','${theme}')`)}
   const themed=async(theme,what)=>assert.equal(await evalJs(`document.documentElement.classList.contains('contrast-light')`),theme==='light',`${what} drawn in ${theme}`)
-  const measured=[],bundles={};let current='tip'
+  const measured=[],bundles={},byTheme={};let current='tip'
   const WANT_SOME=['coordinator-opus','liaison-opus','old-reviewer','gone-agent']
   const WANT_MANY=['coordinator-opus','liaison-opus','rig-sol-b','build-sol','app-net-opus','desk-parity-opus','old-reviewer','old-builder','gone-agent']
   const LIVE=new Set(['coordinator-opus','liaison-opus','rig-sol-b','build-sol','app-net-opus','desk-parity-opus'])
@@ -56,6 +56,8 @@ app.whenReady().then(async()=>{
         const facts=await evalJs(`(()=>{const h=document.querySelector('.mailer-head');const g=h.querySelector('.org-mail-attribution');const rec=g&&g.querySelector('.org-mail-recipient')
           const chips=rec?[...rec.querySelectorAll('.ref-agent')].map(c=>({name:c.dataset.copyAgentName,tag:c.tagName,nav:c.dataset.agentNav||null,ready:c.classList.contains('ref-ready'),color:getComputedStyle(c).color})):[]
           const r=h.getBoundingClientRect();return{headText:h.textContent,group:!!g,recipients:!!rec,recipientText:rec?rec.textContent:null,chips,hubs:[...h.querySelectorAll('[data-hub-address]')].map(e=>e.dataset.hubAddress),
+            vias:rec?[...rec.querySelectorAll('.org-mail-via')].map(v=>({text:v.textContent,hub:(v.querySelector('[data-hub-address]')||{dataset:{}}).dataset.hubAddress||null,afterChip:!!(v.previousElementSibling&&v.previousElementSibling.classList.contains('ref-agent'))})):[],
+            sentVias:[...h.querySelectorAll('.org-mail-attribution > .org-mail-via')].length,viaStyle:(()=>{const d=h.querySelector('.org-mail-via .dim');return d?{color:getComputedStyle(d).color,size:getComputedStyle(d).fontSize,family:getComputedStyle(d).fontFamily}:null})(),
             overflow:h.scrollWidth>h.clientWidth+1,headHeight:Math.round(r.height),headWidth:Math.round(r.width),listRowRecipients:document.querySelectorAll('.mailrow .org-mail-recipient').length}})()`)
         const record={phase:'tip',surface,theme,png:await shot(`tip-${surface}-${theme}`),facts}
         assert.equal(facts.overflow,false,`${surface} head overflows sideways`)
@@ -66,6 +68,11 @@ app.whenReady().then(async()=>{
           assert.ok(facts.hubs.includes('@net:alice.fixture'),'the outside sender stays the hub contact link')
           assert.deepEqual(facts.chips.map(c=>c.name),want,'every agent, in delivery order')
           assert.match(facts.recipientText,/^\u2192/,'the arrow leads the recipients')
+          // USER 2026-10-30 md37bd35d3884: each agent is followed by the Sent tab's own "as @org:<slug>"
+          assert.equal(facts.vias.length,want.length,'one "as @org:fixture" per agent')
+          for(const v of facts.vias){assert.match(v.text,/^as\s*@org:fixture$/);assert.equal(v.hub,'@org:fixture','the shared org link');assert.equal(v.afterChip,true,'it follows its agent chip')}
+          assert.match(facts.recipientText,/gone-agent\s*as\s*@org:fixture$/,'the last agent is followed too')
+          byTheme[theme+surface]=facts.viaStyle
           for(const c of facts.chips){
             if(LIVE.has(c.name)){assert.equal(c.tag,'BUTTON',`${c.name} is the shared AgentLink`);assert.ok(c.nav,`${c.name} navigates`);assert.equal(c.ready,true)}
             else{assert.equal(c.tag,'SPAN',`${c.name} is inert`);assert.equal(c.nav,null,`${c.name} does not navigate`);assert.equal(c.ready,false,`${c.name} wears the dim chip`)}
@@ -74,10 +81,12 @@ app.whenReady().then(async()=>{
           assert.equal(deadColors.size,1,'every retired or removed name is drawn alike');assert.ok(!deadColors.has(liveColor),`retired is dimmer than live (${[...deadColors]} vs ${liveColor})`)
         }else if(surface==='none'){
           assert.equal(facts.group,false,'no record, no group');assert.equal(facts.recipients,false)
-          assert.ok(facts.hubs.includes('@net:alice.fixture'))
+          assert.ok(facts.hubs.includes('@net:alice.fixture'));assert.equal(facts.vias.length,0,'no record, no suffix')
         }else{
           assert.equal(facts.group,true);assert.equal(facts.recipients,true)
           assert.match(facts.headText,/@coordinator-opus.*as @org:fixture.*\u2192.*@net:peer\.fixture/s,'the outbox line is unchanged')
+          assert.equal(facts.sentVias,1,'the Sent tab keeps its one suffix')
+          assert.deepEqual(byTheme[theme+'some'],facts.viaStyle,'the received suffix is drawn exactly as the Sent tab draws its own');assert.deepEqual(byTheme[theme+'many'],facts.viaStyle)
         }
         measured.push(record)
       }
