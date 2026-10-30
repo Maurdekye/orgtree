@@ -336,7 +336,7 @@ const mailDogs = [
   headDog('fair_queue', 'boss', 'mail-d', { at: new Date(Date.now() - 25_000).toISOString() }),
 ]
 const ago = (seconds: number) => new Date(Date.now() - seconds * 1000).toISOString()
-const headSets: Record<'outlined' | 'filled' | 'roundrobin' | 'listeners' | 'empty', HeadSet> = {
+const headSets: Record<'outlined' | 'filled' | 'roundrobin' | 'listeners' | 'empty' | 'retired', HeadSet> = {
   outlined: { node: relay({ slots_capacity: 3, event_listeners: true }, { mail_pending: 3 }),
     dogs: [headDog('project_listener', 'dev1', 'ready-a'), headDog('project_listener', 'dev2', 'ready-b')],
     leases: [relayLease('dev1', 1), relayLease('dev2', 2)] },
@@ -359,6 +359,17 @@ const headSets: Record<'outlined' | 'filled' | 'roundrobin' | 'listeners' | 'emp
       ...mailDogs],
     leases: [relayLease('dev1', 1), relayLease('dev2', 2)] },
   empty: { node: relay({ event_listeners: true }), dogs: [], leases: [] },
+  // deskinbox &mode=retired: the mail listeners list with three paused listeners of agents that left the tree and one
+  // of an agent still in it as archived, beside the live ones (docket project-listeners-list-shows-retired-agents-paus)
+  retired: (() => {
+    const base = relay({ slots_capacity: 3 }, { mail_pending: 2 }) as unknown as { children: CanvasNode[] }
+    return {
+      node: { ...base, children: [...base.children, agent('old-4', 'relay', { state: 'archived' }) as unknown as CanvasNode] } as unknown as CanvasNode,
+      dogs: [...mailDogs,
+        ...['old-1', 'old-2', 'old-3', 'old-4'].map((owner) => headDog('fair_queue', owner, 'take-review-jobs', { state: 'paused' }))],
+      leases: [],
+    } as HeadSet
+  })(),
 }
 /** history: the desk's three tables with the engine's history reads */
 const historyDogs = [
@@ -784,8 +795,9 @@ createRoot(document.getElementById('root')!).render(scene === 'cards' ? <Cards /
       </main>
     }
     return <main style={{ position: 'relative', width: 1000, height: 700, background: 'var(--bg)' }}>
-      <HeadDesk set={mode === 'rr' ? headSets.roundrobin : mode === 'lt' ? headSets.listeners : mode === 'empty' ? headSets.empty : headSets.filled}
-        top={10} height={680} id="desk-inbox" route={mode === 'lt' || mode === 'empty'} />
+      <HeadDesk set={mode === 'rr' ? headSets.roundrobin : mode === 'lt' ? headSets.listeners : mode === 'empty' ? headSets.empty
+        : mode === 'retired' ? headSets.retired : headSets.filled}
+        top={10} height={680} id="desk-inbox" route={mode === 'lt' || mode === 'empty' || mode === 'retired'} />
     </main>
   })() : (
   <div style={{ position: 'fixed', inset: 0, display: 'flex', flexDirection: 'column' }}>

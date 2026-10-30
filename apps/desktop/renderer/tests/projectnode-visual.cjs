@@ -212,6 +212,31 @@ module.exports = async (page) => {
     screenshots.push(await page.screenshot(`${prefix}-history-rows-3-draft-back-1000x700`))
     return { details, screenshots }
   }
+  // PROJECTNODE_VISUAL_ONLY=retired-listeners: the project desk's Mail tab, listeners folder (deskinbox scene, mode=retired):
+  // three paused listeners of agents that left the tree and one of an archived agent are NOT listed; the live agents' armed
+  // and paused ones are (docket project-listeners-list-shows-retired-agents-paus, USER 2026-10-30 08:37:43Z m401e6ff93d21)
+  if (only === 'retired-listeners') {
+    await page.goto('/?scene=deskinbox&mode=retired')
+    await page.waitFor('#desk-inbox .project-desk .cc-tabs', { timeout: 15000 })
+    await settle()
+    await page.eval(async () => {
+      document.querySelector('#desk-inbox .project-queue-card').click()
+      await new Promise((r) => setTimeout(r, 900))
+    })
+    await page.waitFor('#desk-inbox .mail-listeners-table', { timeout: 15000 })
+    await settle()
+    details.rows = await page.eval(() => [...document.querySelectorAll('#desk-inbox .mail-listeners-table .mail-line tr.listener-row')].map((r) => ({
+      agent: r.querySelector('[data-copy-agent-name]')?.getAttribute('data-copy-agent-name') ?? null,
+      paused: /paused/.test(r.textContent ?? ''),
+    })))
+    details.folder = await page.eval(() => [...document.querySelectorAll('#desk-inbox .mail-folders > button')].map((b) => b.textContent.trim() + (b.classList.contains('on') ? ' *' : '')))
+    const agents = details.rows.map((r) => r.agent).sort().join()
+    if (details.rows.some((r) => /^old-/.test(r.agent ?? ''))) throw new Error('a retired agent\'s listener is listed: ' + JSON.stringify(details.rows))
+    if (agents !== 'boss,dev1,dev2,lead') throw new Error('the live agents\' listeners are not all listed: ' + JSON.stringify(details.rows))
+    if (!details.rows.some((r) => r.agent === 'lead' && r.paused)) throw new Error('the live agent\'s paused listener is missing: ' + JSON.stringify(details.rows))
+    screenshots.push(await page.screenshot(`${prefix}-retired-listeners-1000x700`))
+    return { details, screenshots }
+  }
   // PROJECTNODE_VISUAL_ONLY=popouts: the pinned agent sb's and project build's
   // desks popped out side by side (user 2026-10-18 11:47Z). A real pop-out is
   // its own OS window, which no screenshot of this one shows, so window.open
