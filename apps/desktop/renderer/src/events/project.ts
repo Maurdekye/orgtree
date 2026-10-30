@@ -20,6 +20,10 @@ function layout<T extends KnownEvent>(event: T, title: string, specs: readonly S
   return { event, family: FAMILY_OF[event.variant], title, fields }
 }
 
+/** A settings notice changing any of these is "Permissions changed"; the rest
+ *  read "Settings changed" (@coordinator-opus macb41248ab05). */
+const PERMISSION_PARTS: readonly string[] = ['folders', 'tools', 'org_visibility', 'permission_mode', 'charter']
+
 export function assertNever(event: never): never {
   throw new Error('Unhandled canonical event')
 }
@@ -53,15 +57,16 @@ export function projectEvent(event: KnownEvent): EventView {
     case "status.report": return layout(event, "Status update", [["state", "State", "header"], ["summary", "Summary", "body"]])
     case "answer.ask": return layout(event, "Question answered", [["questions", "Questions and answers", "body"], ["text", "Response", "body"], ["dismissed", "Dismissed", "header"], ["single", "Single question", "context"]])
     case "answer.batch": return layout(event, "Request resolved", [["sections", "Answers and decisions", "body"]])
-    case "decision.credit": return layout(event, "Credit decision", [["outcome", "Outcome", "header"], ["old", "Before", "context"], ["asked", "Asked", "context"], ["granted", "Granted", "context"], ["now", "Current total", "context"]])
-    case "decision.audience": return layout(event, "Audience decision", [["granted", "Granted", "header"], ["target", "Target", "header"], ["decided_by", "Decided by", "context"]])
+    case "decision.credit": return layout(event, "Credit decision", [["outcome", "Outcome", "context"], ["old", "Before", "context"], ["asked", "Asked", "context"], ["granted", "Granted", "context"], ["now", "Current total", "context"]])
+    case "decision.audience": return layout(event, "Audience decision", [["granted", "Granted", "context"], ["target", "Target", "context"], ["decided_by", "Decided by", "context"]])
     case "decision.attention_dismissed": return layout(event, "Attention dismissed", [["reason", "Reason", "context"], ["pending_questions", "Pending questions", "context"], ["dismissed_by", "Dismissed by", "context"]])
     case "ask.routed": return layout(event, "Question forwarded", [["from_node", "From", "context"], ["questions", "Questions and answers", "body"]])
     case "access.scope_requested": return layout(event, "Scope requested", [["items", "Items", "context"], ["reason", "Reason", "body"], ["wanted", "Requested access", "context"]])
     case "access.audience_requested": return layout(event, "Audience requested", [["stage", "Stage", "header"], ["from_node", "From", "header"], ["target", "Target", "header"], ["reason", "Reason", "body"]])
-    case "access.audience_changed": return layout(event, "Audience changed", [["outcome", "Outcome", "header"], ["by", "By", "header"], ["target", "Target", "header"], ["other", "Other", "context"]])
-    case "access.grant_changed": return layout(event, "Credits changed", [["relation", "Relation", "context"], ["node", "Node", "header"], ["delta", "Change", "header"], ["now", "Current total", "header"], ["free", "Available credits", "context"], ["by", "By", "header"]])
-    case "access.scope_changed": return layout(event, "Permissions changed", [["by", "By", "context"], ["changed", "Changed", "context"]])
+    case "access.audience_changed": return layout(event, "Audience changed", [["outcome", "Outcome", "context"], ["by", "By", "context"], ["target", "Target", "context"], ["other", "Other", "context"]])
+    case "access.grant_changed": return layout(event, "Credits changed", [["relation", "Relation", "context"], ["node", "Node", "context"], ["delta", "Change", "context"], ["now", "Current total", "context"], ["free", "Available credits", "context"], ["by", "By", "context"]])
+    case "access.scope_changed": return layout(event, event.changed.some(c => PERMISSION_PARTS.includes(c)) ? "Permissions changed" : "Settings changed",
+      [["by", "By", "context"], ["changed", "Changed", "context"]])
     case "lifecycle.kickoff": return layout(event, "Handoff", [["body", "Message", "body"], ["hired_by", "Hired by", "context"], ["reason", "Reason", "context"], ["tier", "Tier", "context"], ["grant", "Grant", "context"]])
     case "lifecycle.hired": return layout(event, "Agent hired", [["node", "Node", "context"], ["by", "By", "context"], ["relation", "Relation", "context"], ["tier", "Tier", "context"], ["grant", "Grant", "context"], ["parent", "Parent", "context"], ["why", "Why", "body"]])
     case "lifecycle.retired": return layout(event, "Agent retired", [["node", "Node", "context"], ["by", "By", "context"], ["relation", "Relation", "context"], ["freed", "Freed", "context"]])
@@ -78,16 +83,16 @@ export function projectEvent(event: KnownEvent): EventView {
     case "lifecycle.bearer_lost": return layout(event, "History lost", [["bearer", "Bearer", "context"]])
     case "lifecycle.bearer_exhausted": return layout(event, "History exhausted", [["bearer", "Bearer", "context"]])
     case "lifecycle.handoff_record": return layout(event, "Handoff recorded", [["generation", "Generation", "context"]])
-    case "lifecycle.model_switched": return layout(event, "Model changed", [["node", "Node", "context"], ["relation", "Relation", "context"], ["old", "Before", "header"], ["new", "After", "header"], ["seat_old", "Seat old", "context"], ["seat_new", "Seat new", "context"], ["by", "By", "header"], ["queued", "Queued", "context"], ["crossed", "Crossed", "context"], ["old_provider", "Old provider", "context"], ["new_provider", "New provider", "context"], ["predecessor", "Predecessor", "context"]])
+    case "lifecycle.model_switched": return layout(event, "Model changed", [["node", "Node", "context"], ["relation", "Relation", "context"], ["old", "Before", "context"], ["new", "After", "context"], ["seat_old", "Seat old", "context"], ["seat_new", "Seat new", "context"], ["by", "By", "context"], ["queued", "Queued", "context"], ["crossed", "Crossed", "context"], ["old_provider", "Old provider", "context"], ["new_provider", "New provider", "context"], ["predecessor", "Predecessor", "context"]])
     case "lifecycle.session_rebound": return layout(event, "Session restarted by account move", [["node", "Node", "context"], ["predecessor", "Predecessor", "context"]])
     case "lifecycle.switch_queued": return layout(event, "Model change queued", [["node", "Node", "context"], ["old", "Before", "context"], ["new", "After", "context"], ["by", "By", "context"]])
     case "lifecycle.switch_cancelled": return layout(event, "Model change cancelled", [["node", "Node", "context"], ["target", "Target", "context"], ["by", "By", "context"]])
-    case "lifecycle.switch_dropped": return layout(event, "Queued model change dropped", [["node", "Agent", "header"], ["target", "Requested model", "header"], ["kept", "Retained model", "header"], ["reason", "Reason", "body"]])
+    case "lifecycle.switch_dropped": return layout(event, "Queued model change dropped", [["node", "Agent", "context"], ["target", "Requested model", "context"], ["kept", "Retained model", "context"], ["reason", "Reason", "body"]])
     case "lifecycle.seat_swapped": return layout(event, "Seats exchanged", [["a", "First agent", "context"], ["b", "Second agent", "context"], ["role", "Role", "context"], ["nested", "Nested", "context"], ["by", "By", "context"], ["reports_to_after", "Reports to after", "context"], ["grant_after", "Grant after", "context"], ["audience_note", "Audience note", "context"]])
     case "lifecycle.subtree_promoted": return layout(event, "Subtree promoted", [["promoted", "Promoted", "context"], ["demoted", "Demoted", "context"], ["role", "Role", "context"], ["by", "By", "context"], ["reports_to_after", "Reports to after", "context"], ["subtree", "Subtree", "context"]])
     case "lifecycle.moved": return layout(event, "Agent moved", [["node", "Node", "context"], ["from_parent", "From parent", "context"], ["to_parent", "To parent", "context"], ["role", "Role", "context"], ["by", "By", "context"], ["tail", "Tail", "context"]])
     case "lifecycle.inserted": return layout(event, "Superior inserted", [["node", "Node", "context"], ["above", "Above", "context"], ["parent", "Parent", "context"], ["role", "Role", "context"], ["by", "By", "context"], ["grant_target", "Grant target", "context"], ["grant_new", "Grant new", "context"], ["committed", "Committed", "context"]])
-    case "lifecycle.renamed": return layout(event, "Agent renamed", [["old", "Before", "header"], ["new", "After", "header"], ["by", "By", "header"]])
+    case "lifecycle.renamed": return layout(event, "Agent renamed", [["old", "Before", "context"], ["new", "After", "context"], ["by", "By", "context"]])
     case "policy.fable_flagged": return layout(event, "Provider policy event", [["audience", "Audience", "context"], ["node", "Node", "context"], ["outcome", "Outcome", "context"], ["autopsy", "Autopsy", "context"], ["autopsy_model", "Autopsy model", "context"], ["replacement", "Replacement", "context"], ["reason", "Reason", "body"], ["detail", "Detail", "body"]])
     case "policy.weekly_limit": return layout(event, "Weekly capacity limit", [["relation", "Relation", "context"], ["node", "Node", "context"], ["outcome", "Outcome", "context"], ["nodes", "Nodes", "context"], ["freed", "Freed", "context"], ["policy", "Policy", "context"], ["detected_at", "Detected at", "context"], ["halted", "Halted", "context"], ["dissolved", "Dissolved", "context"], ["converted", "Converted", "context"]])
     case "policy.unstuck": return layout(event, "Agent released", [])

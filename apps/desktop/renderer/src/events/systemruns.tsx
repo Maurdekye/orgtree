@@ -7,8 +7,10 @@ import { decodeEventRow, record } from './decode'
 import { isSegments } from './wire'
 import { projectEvent } from './project'
 import { isSystemNotice } from '../canvas/shared'
+import { changeText } from './change'
 
-export interface SystemEntry { key: string; system: boolean; label: string; restart?: boolean }
+/** `change`: a change notice's line (events/change.ts), for the folded run's tooltip */
+export interface SystemEntry { key: string; system: boolean; label: string; restart?: boolean; change?: string }
 const hidden = new Set<string>(HUMAN_HIDDEN_VARIANTS)
 const prompts = new Set(['ordinary.question', 'ask.routed', 'access.scope_requested',
   'access.audience_requested', 'docket.review_seat_requested'])
@@ -25,12 +27,14 @@ export function systemEntry(row: unknown, passiveContainer = false): Omit<System
   const tools = Array.isArray(row.tools) && row.tools.length > 0
   const from = typeof row.from === 'string' ? row.from
     : event?.engine_authored ? '@system' : ''
+  const change = event && changeText(event)
   return {
     system: !waiting && !tools && !row.cmd_out
       && isSystemNotice({ id: '', from, kind: typeof row.kind === 'string' ? row.kind : 'message', ev: event,
         notice: typeof row.notice === 'boolean' ? row.notice : passiveContainer ? true : undefined,
         body: '', at: '' }),
     label: event ? projectEvent(event).title : 'System notice',
+    ...(change ? { change } : {}),
     restart: event?.variant === 'context.drive_restart_interrupted' || event?.variant === 'runtime.restart_notice',
   }
 }
@@ -102,6 +106,8 @@ function SystemRun({ entries, children, onToggle }: {
   const [expanded, setExpanded] = useState(false)
   const collapsible = entries.length > 1
   const kinds = [...new Set(entries.map(e => e.label))].join(' · ')
+  // what each folded change notice changed, one per line (USER 2026-10-30 mc5d2672d3cc9)
+  const changes = entries.filter(e => e.change).map(e => `${e.label}: ${e.change}`)
   // Keep the wrapper even for one entry: crossing the threshold cannot
   // remount cards, discard a nested fold, or lose a reply anchor.
   return <details className={'transcript-system-run' + (entries.some(e => e.restart) ? ' has-restart' : '')}
@@ -113,7 +119,7 @@ function SystemRun({ entries, children, onToggle }: {
     <summary hidden={!collapsible} className="mailrow sysnotice notepile notice"
       aria-label={`${entries.length} system notices: ${kinds}`}>
       <span className="noticekind">{entries.length} system notices</span>{' '}
-      <span className="system-run-kinds" title={kinds}>{kinds}</span>
+      <span className="system-run-kinds" title={[kinds, ...changes].join('\n')}>{kinds}</span>
     </summary>
     <div className="system-run-rows">{children}</div>
   </details>

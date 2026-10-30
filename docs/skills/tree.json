@@ -6345,35 +6345,35 @@
      "label": "All registered MCP servers"
     },
     {
-     "file": "apps/desktop/renderer/src/canvas/modals.tsx",
+     "file": "apps/desktop/renderer/src/canvas/settinglabels.ts",
      "label": "Docket work"
     },
     {
-     "file": "apps/desktop/renderer/src/canvas/modals.tsx",
+     "file": "apps/desktop/renderer/src/canvas/settinglabels.ts",
      "label": "Team management"
     },
     {
-     "file": "apps/desktop/renderer/src/canvas/modals.tsx",
+     "file": "apps/desktop/renderer/src/canvas/settinglabels.ts",
      "label": "Messaging"
     },
     {
-     "file": "apps/desktop/renderer/src/canvas/modals.tsx",
+     "file": "apps/desktop/renderer/src/canvas/settinglabels.ts",
      "label": "Organization reading"
     },
     {
-     "file": "apps/desktop/renderer/src/canvas/modals.tsx",
+     "file": "apps/desktop/renderer/src/canvas/settinglabels.ts",
      "label": "Watchdogs"
     },
     {
-     "file": "apps/desktop/renderer/src/canvas/modals.tsx",
+     "file": "apps/desktop/renderer/src/canvas/settinglabels.ts",
      "label": "Runtime and accounts"
     },
     {
-     "file": "apps/desktop/renderer/src/canvas/modals.tsx",
+     "file": "apps/desktop/renderer/src/canvas/settinglabels.ts",
      "label": "User questions and delivery"
     },
     {
-     "file": "apps/desktop/renderer/src/canvas/modals.tsx",
+     "file": "apps/desktop/renderer/src/canvas/settinglabels.ts",
      "label": "Org-modifying tools"
     }
    ],

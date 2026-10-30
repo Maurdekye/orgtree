@@ -444,6 +444,155 @@
       ],
       "additionalProperties": false
     },
+    "ScopeFolderChange": {
+      "type": "object",
+      "properties": {
+        "path": {
+          "type": "string"
+        },
+        "from": {
+          "enum": [
+            "ro",
+            "rw"
+          ]
+        },
+        "to": {
+          "enum": [
+            "ro",
+            "rw"
+          ]
+        }
+      },
+      "required": [
+        "path",
+        "from",
+        "to"
+      ],
+      "additionalProperties": false
+    },
+    "ScopeFolders": {
+      "type": "object",
+      "properties": {
+        "added": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Folder"
+          }
+        },
+        "changed": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ScopeFolderChange"
+          }
+        },
+        "removed": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Folder"
+          }
+        }
+      },
+      "required": [
+        "added",
+        "changed",
+        "removed"
+      ],
+      "additionalProperties": false
+    },
+    "ScopeTools": {
+      "type": "object",
+      "properties": {
+        "added": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "removed": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [
+        "added",
+        "removed"
+      ],
+      "additionalProperties": false
+    },
+    "SettingChange": {
+      "type": "object",
+      "properties": {
+        "key": {
+          "enum": [
+            "org_visibility",
+            "permission_mode",
+            "effort",
+            "fast_mode",
+            "model_version",
+            "account",
+            "account_fallback",
+            "harness",
+            "session",
+            "peer_mail",
+            "auto_cheap_compact"
+          ]
+        },
+        "from": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "to": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "key",
+        "from",
+        "to"
+      ],
+      "additionalProperties": false
+    },
+    "TextDiff": {
+      "type": "object",
+      "properties": {
+        "plus": {
+          "type": "integer"
+        },
+        "minus": {
+          "type": "integer"
+        },
+        "lines": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "truncated": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "plus",
+        "minus",
+        "lines"
+      ],
+      "additionalProperties": false
+    },
     "ToolWant": {
       "type": "object",
       "properties": {
@@ -2519,9 +2668,50 @@
               "tools",
               "charter",
               "org_visibility",
-              "permission_mode"
+              "permission_mode",
+              "team_charter",
+              "effort",
+              "fast_mode",
+              "model_version",
+              "account",
+              "account_fallback",
+              "harness",
+              "session",
+              "peer_mail",
+              "auto_cheap_compact"
             ]
           }
+        },
+        "folders": {
+          "$ref": "#/$defs/ScopeFolders"
+        },
+        "tools": {
+          "$ref": "#/$defs/ScopeTools"
+        },
+        "values": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/SettingChange"
+          }
+        },
+        "charter": {
+          "$ref": "#/$defs/TextDiff"
+        },
+        "team_charter": {
+          "$ref": "#/$defs/TextDiff"
+        },
+        "pending": {
+          "enum": [
+            "queued",
+            "cancelled",
+            "dropped"
+          ]
+        },
+        "reason": {
+          "type": "string"
+        },
+        "cascade_for": {
+          "type": "string"
         }
       },
       "required": [

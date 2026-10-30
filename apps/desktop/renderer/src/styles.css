@@ -8658,7 +8658,7 @@ a.doc-chip, a.doc-badge, a.doc-gallery-row { text-decoration: none; }
 .event-head-field { display: inline-flex; align-items: baseline; gap: 3px; }
 .event-actor { color: var(--ink); display: inline-flex; align-items: center; gap: 4px;
   flex: none; white-space: nowrap; }
-.event-actor .cc-name { flex: none; min-width: 0; white-space: nowrap; }
+.event-actor .cc-name, .event-change-agent .cc-name { flex: none; min-width: 0; white-space: nowrap; }
 .event-actor .tier { flex: none; }
 .event-head .ref-chip.ref-agent { display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; }
 .event-head .ref-chip.ref-agent .tier { flex: none; }
@@ -8698,6 +8698,20 @@ a.doc-chip, a.doc-badge, a.doc-gallery-row { text-decoration: none; }
 .event-field-label { display: block; font-size: 11px; font-weight: 600; color: var(--dim); margin-bottom: 3px; }
 .event-context { padding: 5px 10px 8px; font-size: 12px; }
 .event-context > summary { cursor: pointer; color: var(--dim); margin-bottom: 5px; }
+/* A change notice's one line under its header, and the closed fold of what it
+   does not fit: a long list, a reason, an instructions diff drawn as an Edit
+   tool call's (events/change.ts; USER 2026-10-30 mc5d2672d3cc9). */
+.event-change { padding: 7px 10px; font-size: 12px; color: var(--ink); min-width: 0; overflow-wrap: anywhere; }
+.event-change > summary { cursor: pointer; }
+.event-change + .event-body { padding-top: 2px; }
+.event-change + .event-context { padding-top: 0; }
+.event-change-sep { color: var(--dim); }
+/* an agent in the line reads as the header's actor does (.event-actor): chip and name, no 6ch name minimum */
+.event-change-agent { display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; vertical-align: baseline; }
+.event-change-details { margin-top: 6px; }
+.event-change-detail + .event-change-detail { margin-top: 8px; }
+.event-change-label { font-size: 11px; font-weight: 600; color: var(--dim); margin-bottom: 3px; }
+.event-change .diffpre { margin-left: 0; }
 .event-record { margin: 3px 0; }
 .event-record > div { display: flex; flex-wrap: wrap; gap: 3px 8px; margin: 3px 0; }
 .event-record dt { color: var(--dim); min-width: 80px; }
@@ -10093,6 +10107,7 @@ button.node-link.node-link:focus-visible {
 .ref-chip .tier, .ref-chip .project-mark,
 .node-link .tier, .node-link .project-mark,
 .event-actor .tier, .event-actor .project-mark,
+.event-change-agent .tier, .event-change-agent .project-mark,
 .doc-pane-head .tier, .doc-pane-head .project-mark,
 .sender .tier, .sender .project-mark,
 .docket-actor .tier, .docket-actor .project-mark,

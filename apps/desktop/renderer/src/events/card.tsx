@@ -1,4 +1,4 @@
-import { useMemo } from 'react'
+import { Fragment, useMemo } from 'react'
 import type { ReactNode } from 'react'
 import type { Event, Family } from '../generated/events'
 import { decodeEventRow, isNoticeRow, record } from './decode'
@@ -23,6 +23,8 @@ import { EXTERNAL_NOTE, EXTERNAL_TAG, appEventParts, fireActionParts, fireLinePa
 import type { FirePart } from './firelines'
 import { IdleDocketCards } from './idledocket'
 import { HubContactChip, isHubAddress } from '../canvas/agentmentions'
+import { changeParts } from './change'
+import type { Bit, ChangePart } from './change'
 
 const FAMILY_MARK: Record<Family, string> = {
   ordinary: 'Message', linked_reply: 'Reply', assignment: 'Assignment', review: 'Review',
@@ -91,6 +93,38 @@ function FireBody({ event, fields, ...props }: ValueProps & { event: DogFire; fi
         <Value value={humanValue(f.value, f.type, props.profile)} {...props} /></div>
     }
   })}</>
+}
+function Bits({ bits, actor }: { bits: Bit[]; actor?: (id: string) => ReactNode }) {
+  return <>{bits.map((b, i) => 'agent' in b
+    ? <span key={i} className="event-change-agent">{actor ? actor(b.agent) : '@' + b.agent}</span>
+    : <Fragment key={i}>{b.text}</Fragment>)}</>
+}
+/** A change notice's one line under its header (events/change.ts). Anything
+ *  longer than the line folds beneath it, closed: a long list, a reason, and
+ *  an instructions diff drawn as an Edit tool call's diff is (canvas/desk.tsx). */
+function ChangeLine({ parts, actor }: { parts: ChangePart[]; actor?: (id: string) => ReactNode }) {
+  const line = parts.map((p, i) => <Fragment key={p.key + i}>
+    {i > 0 && <span className="event-change-sep" aria-hidden="true"> · </span>}
+    <span className="event-change-part" data-change-part={p.key}><Bits bits={p.bits} actor={actor} /></span>
+  </Fragment>)
+  const details = parts.filter(p => p.detail)
+  if (!details.length) return <div className="event-change"><span className="event-change-line">{line}</span></div>
+  return <details className="event-change">
+    <summary className="event-change-line">{line}</summary>
+    <div className="event-change-details">{details.map((p, i) => {
+      const d = p.detail!
+      return <div key={p.key + i} className="event-change-detail" data-change-part={p.key}>
+        <div className="event-change-label"><Bits bits={p.bits} actor={actor} /></div>
+        {d.kind === 'diff' ? <pre className="filepre diffpre">
+            {d.diff.lines.map((l, j) => <div key={j} className={l.startsWith('@@') ? 'dhunk'
+              : l.startsWith('+') ? 'dplus' : l.startsWith('-') ? 'dminus' : ''}>{l}</div>)}
+            {d.diff.truncated && <div className="dim">… truncated</div>}
+          </pre>
+          : d.kind === 'list' ? <ul className="event-values">{d.items.map((item, j) => <li key={j}>{item}</li>)}</ul>
+          : <div className="event-prose">{d.text}</div>}
+      </div>
+    })}</div>
+  </details>
 }
 function WatchdogObjectLabel({ object }: { object: Extract<NonNullable<Event['object']>, { kind: 'watchdog' }> }) {
   return <WatchdogLink id={object.id} owner={object.owner} name={object.name} org={object.org} countdown />
@@ -216,7 +250,9 @@ export function EventCard({ row, profile, org, preview = false, actor, part, hea
         title={EXTERNAL_NOTE[dogFire.source]}>{EXTERNAL_TAG}</small>}
     </>
   if (part === 'header') return heading
+  const change = changeParts(event)
   const contents = <>
+    {change && change.length > 0 && <ChangeLine parts={change} actor={actor} />}
     {(body.length > 0 || fireFields.length > 0 || idleDocket || answeredAsk || resolvedBatch) && (preview && !answeredAsk && !resolvedBatch
       ? <ReceivedMailBody foldKey={keys}>{bodyContent}</ReceivedMailBody> : bodyContent)}
     {(context.length > 0 || Boolean(objectDetails?.fields.length)) && <details className="event-context">

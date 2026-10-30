@@ -69,7 +69,8 @@ import { MAIL_COPY_FAILED, fetchMailRowForCopy, mailRowCopyText, mailRowNeedsFul
 import type { CopyableMailRow } from './copytext'
 import { fmtFull, fmtShort } from '../timefmt'
 import { decodeEventRow } from '../events/decode'
-import { eventSummary, projectEvent } from '../events/project'
+import { projectEvent } from '../events/project'
+import { noticeSummary } from '../events/change'
 import type { EventView } from '../events/project'
 import { EventCard, eventSurface } from '../events/card'
 import { MailReplyPreview, recordedMailReply } from './mailreply'
@@ -1022,7 +1023,7 @@ export function MailRowView({ m, pile = 1, view, selected, outgoing, flash, part
           <TagChips tags={m.tags} onTag={onTag} preview filterTags={filterTags}/>
           <span className="mail-preview-text">{reply && <span className="dim" title={[reply.from, reply.at && fmtFull(reply.at), reply.gist].filter(Boolean).join(' · ')}>
             ↩ {briefLine(reply.gist || 'original unavailable')} · </span>}
-          {briefLine(view ? eventSummary(view.event) : m.body)}</span></div>}
+          {briefLine(view ? noticeSummary(view.event) : m.body)}</span></div>}
     </div>
   )
 }

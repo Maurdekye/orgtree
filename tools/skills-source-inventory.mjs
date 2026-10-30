@@ -75,8 +75,9 @@ export function sourceInventory(repo) {
     dynamicLabels.push(...setting.dynamic.map(row => ({ file, ...row })))
   }
   // The same generated Orgtree-group controls serve agent settings and hire
-  // defaults. Enumerate their source labels so a new group needs a skill home.
-  const groupFile = `${rendererRoot}/canvas/modals.tsx`
+  // defaults, and their labels name the groups in change notices; the list lives
+  // in canvas/settinglabels.ts. Enumerate its labels so a new group needs a skill home.
+  const groupFile = `${rendererRoot}/canvas/settinglabels.ts`
   const groupSource = fs.readFileSync(path.join(repo, groupFile), 'utf8')
   const groups = groupSource.match(/const ORGTREE_GROUPS[^=]*=\s*\[([\s\S]*?)\n\]/)?.[1]
   if (!groups) throw new Error('cannot locate Orgtree tool-group controls')

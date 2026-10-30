@@ -27,9 +27,10 @@ import { useEffect, useId, useMemo, useRef, useState } from 'react'
 import { FAST_MODE_HELP, useFastMode } from './fastmode'
 import { FastHireDefaults } from './fastdefaults'
 import { NativeReplacementToggle } from './nativepermissions'
+import { ORGTREE_GROUPS, PERMISSION_OPTIONS, SESSION_OPTIONS, TOOL_LABELS, VIS_OPTIONS } from './settinglabels'
 import type { ReactNode } from 'react'
 import type {
-  ChatInit, DirGrant, McpServerInfo, ProviderInfo, ToastFn, ToolGrant, TreePayload, Watchdog, OrgtreeToolGroup,
+  ChatInit, DirGrant, McpServerInfo, ProviderInfo, ToastFn, ToolGrant, TreePayload, Watchdog,
 } from '../types'
 import {
   assignAccount, dissolveAll, getChat, getCompleteTree, getMcpServers, refreshMcpServers, refreshSkills, refreshGlobalInstructions, getOrgAccounts,
@@ -1001,12 +1002,6 @@ function McpRefresh({ onRead }: { onRead: (names: string[], details: McpServerIn
   </div>
 }
 
-const VIS_OPTIONS = [
-  ['self', 'Only this agent'],
-  ['team', 'Its team'],
-  ['subtree', 'Its team and all reports'],
-  ['full', 'Everyone'],
-] as const
 
 const FOLDERS_HINT = 'Choose which folders the agent can read or change.'
 const VISIBLE_AGENTS_HINT = 'Choose how much of the organization this agent can see.'
@@ -1014,24 +1009,12 @@ const FILE_ACCESS_HINT = 'Unrestricted access removes approval prompts, includin
 const ORGTREE_TOOLS_HINT = 'Tools provided by Orgtree to manage work, agents and communication.'
 const MCP_SERVERS_HINT = 'Choose which registered MCP servers the agent can use.'
 const SESSION_HINT = "Where this agent's CLI runs while the user is signed in to Windows. Session 0 has no desktop: no apps, no screenshots. It applies from the agent's next turn."
-const SESSION_OPTIONS: [string, string][] = [
-  ['signed-in', 'Signed-in session when available'],
-  ['console', 'Console session'],
-  ['remote', 'Remote session'],
-  ['session0', 'Always Session 0'],
-]
 /** an ordered list set through orgtree_session, shown as it is */
 const sessionOptions = (current: string): [string, string][] => {
   if (SESSION_OPTIONS.some(([v]) => v === current)) return SESSION_OPTIONS
   const words = current.split(',').map((k) => k === 'signed-in' ? 'any signed-in' : k).join(', then ')
   return [...SESSION_OPTIONS, [current, words.charAt(0).toUpperCase() + words.slice(1) + ' session']]
 }
-const PERMISSION_OPTIONS = [
-  ['plan', 'Read only'],
-  ['default', 'Ask before changes'],
-  ['acceptEdits', 'Allow normal changes'],
-  ['bypassPermissions', 'Unrestricted access'],
-] as const
 
 /* D-106 (user ruling 2026-08-07): a grant deeper than the chain can carry no
  * longer refuses — every agent BETWEEN the granter and the grantee is raised
@@ -1097,23 +1080,7 @@ export function cascadePreview(
 }
 
 const NATIVE_TOOLS_HINT = "Tools built into the agent's native harness, such as Claude Code, Codex or Antigravity."
-const TOOL_LABELS = [
-  ['bash', 'Run commands', 'Run terminal commands and programs.'],
-  ['web', 'Browse the web', 'Search the web and open web pages.'],
-  ['edit', 'Edit files', 'Create and change files in granted folders, including notebooks.'],
-  ['subagents', 'Use helper agents', 'Delegate tasks to temporary helper agents within the harness.'],
-] as const
 
-const ORGTREE_GROUPS: ReadonlyArray<readonly [OrgtreeToolGroup, string, string]> = [
-  ['docket', 'Docket work', 'Read and update work items. Staffing a work item also needs Team management.'],
-  ['team', 'Team management', 'Hire, retire, move and configure agents; manage credits and models.'],
-  ['messaging', 'Messaging', 'Send and read mail, manage audiences and attachment transfers.'],
-  ['inspection', 'Organization reading', 'Read the chart, agent state, transcripts, scratch folders, tiers and organizations.'],
-  ['watchdogs', 'Watchdogs', 'Create and manage persistent watchers. Command watchers also need Run commands.'],
-  ['runtime', 'Runtime and accounts', 'Interrupt, halt or resume agents, change their account and inspect capacity marks.'],
-  ['user', 'User questions and delivery', 'Ask questions, present documents, send files and request more scope or credits.'],
-  ['orgmod', 'Org-modifying tools', 'Manage Apps and saved panels; set or remove the organization logo, with logging and undo history.'],
-]
 
 function OrgtreeGroupToggles({ value, ceiling, onChange }: {
   value: ToolGrant['orgtree']; ceiling?: ToolGrant['orgtree']; onChange: (value: ToolGrant['orgtree']) => void
