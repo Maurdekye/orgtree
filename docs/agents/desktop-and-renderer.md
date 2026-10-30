@@ -163,6 +163,28 @@ Audit findings from the ranked UX symmetry list (`_teams/601/release-review-450/
   22:42:05Z m71f428e3e25c). The first-use guide's token step keeps it open
   through `guideHire`, not through that state. [verified: `canvas/cards.tsx`,
   `tests/switchboardhire.test.tsx`]
+- **Sent-message history keeps the draft (Up / Down / Escape):** the agent
+  desk's and the project desk's message boxes share one hook,
+  `composerhistorynav.ts`; do not re-grow a second copy. Entering history
+  (Up on the first line, nothing selected) sets a non-empty draft aside, text
+  and caret, in a persisted per-agent stash (`composerhistory.writeStash`, key
+  `orgtree-composer-stash-<[org,id]>`, no generation, like the history). Down
+  past the newest entry or Escape restores it exactly and the box says "your
+  unsent message is kept" while it is set aside; closing and re-opening the
+  desk resumes the walk (the draft key holds what was on screen, the stash
+  the draft), and the stash moves with a rename and goes into the history as
+  an undelivered entry for a removed node. An edit to a recalled entry is
+  kept while you walk on and never written to the stored history; only a send
+  ends the walk. Attachments and reply targets are untouched by a recall, so
+  they are not stashed. Escape is `preventDefault`ed only while a walk is on
+  screen, so it still cancels a reply otherwise. Known gap, unchanged: "first
+  line" is the first LOGICAL line (up to a newline), so Up from any wrapped
+  row of a long first paragraph still enters history; with the stash that no
+  longer loses anything. (USER 2026-10-30 08:14:27Z mdad6a41f1f3e.)
+  [verified: `composerhistorynav.ts`, `composerhistory.ts`, `draftstore.ts`,
+  `canvas/{desk,projectdesk}.tsx`; `tests/{composerhistorykeep,composerstash,
+  composerhistory}.test.tsx`; capture `PROJECTNODE_VISUAL_ONLY=history-keep`
+  in `tests/projectnode-visual.cjs`]
 
 ## Request cards fold (2026-10-29, 4.5.2)
 
