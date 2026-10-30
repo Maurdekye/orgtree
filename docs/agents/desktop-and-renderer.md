@@ -217,6 +217,31 @@ Audit findings from the ranked UX symmetry list (`_teams/601/release-review-450/
   `engine/rs/orgtree-engine/src/runtime/watchdogs.rs`; `tests/{retiredlisteners,listenerownerlive}.test.tsx`; capture
   `PROJECTNODE_VISUAL_ONLY=retired-listeners` in `tests/projectnode-visual.cjs`]
 
+## A submitted request's resolution is final from its first frame (2026-10-30, 4.5.3)
+
+USER m3ce0d2554ce0: "regression: submitted request resolutiohs are briefly
+unformatted". A submit hides the card on the click and queues the resolution
+at once (`asksubmitted.ts`: the desk's `PendingMailRow` entry, and the inbox
+row `answeredAsk` builds) before the server files its own row. That row
+(`domain/asks.rs` `offered()`, since 4.2.0) carries each question's offered
+options with their descriptions, `multi` and the chosen labels (`selected`),
+and `events/answered.tsx` draws them as the option list with the picks marked.
+The queued entry carried only the joined answer text, so for a frame it drew
+one bare `answered-typed` line, then redrew. `batchSections` (batch cards) and
+`askAnswer` (single-question cards) in `canvas/asks.tsx` now add `selected`
+and the same `offered()` fields, and `answeredAsk` hands them on, with a
+several-pick answer kept as the list of labels so every pick is marked. The
+rule: the queued entry is the card the server's row draws, markup for markup;
+a typed answer is the chosen row of an option-less question, as the server
+draws it. Credit and scope sections stay the user's own decision, replaced by
+the server's wording. Nothing else shows resolution content before the server
+row (Attention and the docket only hide the card). [verified:
+`asksubmitted.ts`, `canvas/asks.tsx`, `events/answered.tsx`,
+`engine/rs/orgtree-engine/src/domain/asks.rs`; `tests/resolutionfirstframe.test.tsx`;
+capture `PROJECTNODE_VISUAL_ONLY=resolution-frame` in
+`tests/projectnode-visual.cjs`, `RESOLUTION_FRAME_BEFORE=1` records the broken
+base]
+
 ## Request cards fold (2026-10-29, 4.5.2)
 
 USER mece9d7b275c2: "add collapsible request cards". Every card `AskCard`
