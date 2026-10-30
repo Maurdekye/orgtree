@@ -34,11 +34,27 @@ between two orgs of one engine, imported rows, mail still held) stay empty. The
 migration backfilled hub mail only, by the exact `(org_id, net_id)` key. The
 wire (`orginbox::entry`) carries it only on received rows with a non-empty list.
 The org inbox window draws it after a received mail's sender (`@sender -> @agent
-@agent`) in the outbox's `org-mail-attribution`/`org-mail-recipient` markup: a
-live agent is the shared `AgentLink`, a retired or removed one an inert dim chip,
-and the list row names only the sender. [decided: user 2026-10-29
-ma660da825904; verified: `domain/orginbox.rs`, `tools/org_inbox.rs`,
-migration 0079, `canvas/mail.tsx`]
+as @org:x @agent as @org:x`) in the outbox's `org-mail-attribution`/
+`org-mail-recipient` markup. Each agent is followed by the Sent tab's own
+`as @org:<slug>` (`AsOrg`: the `org-mail-via` markup and the shared org link) and
+kept with it as one wrapping unit; a live agent is the shared `AgentLink`, a
+retired or removed one an inert dim chip, and the list row names only the
+sender. [decided: user 2026-10-29 ma660da825904 and 2026-10-30
+md37bd35d3884; verified: `domain/orginbox.rs`, `tools/org_inbox.rs`, migration
+0079, `canvas/mail.tsx`]
+
+It stays inside the org. Which agent a message was delivered to is opaque to
+outside listeners [decided: user 2026-10-30 mc1739129bbfa]: no hub payload
+(`net::outgoing_payload`, whose SELECTs never name the column), receipt (id,
+state, time), ack (ids) or reply quote (`QUOTE_COLS`, seven named columns, never
+a row dump) carries `delivered_to` or a name from it. Only the delivery, the
+local views (`orginbox::entry`: the org inbox list, the mail-by-id route and the
+tree preview) and the migration name the column. Check anything new that reads
+it against this first. `delivered_to_stays_inside_the_org` in
+`domain/orginbox.rs` pins it at the source: a scan of `src/` for the column (the
+allowed files are listed there, a hub file is a named failure), the payload's
+keys, the receipt and ack bodies and the quote columns. [verified:
+`domain/orginbox.rs`, `net.rs`]
 
 ## One-time agent mail (2026-10-24, 4.4.5)
 
