@@ -8,7 +8,7 @@
 //     the handoff naming the cause and a summary row, and starts the turn on
 //     the fake Codex with the handoff in what it is sent;
 //   Follow (null) moves it back to its key's harness the same way;
-//   an agent cannot set it.
+//   an agent cannot set its own (its superior can: harness-retool.mjs).
 // The key and favorite come from a 3.x openrouter\state.json, as in
 // openrouter-lane.mjs.
 // Run: node tools/rig/rig.mjs run tools/rig/proofs/harness-pin.mjs
@@ -72,9 +72,11 @@ export default async function (rig) {
   p.check('the row reads: Follow key (Claude Code), no pin, Codex offered', row.lane === 'openrouter' && row.follow?.id === 'claude-code'
     && row.follow?.source === 'key' && row.pin === null && row.current === 'claude-code' && codexChoice?.available === true && row.moves === false, row)
 
-  // ------------------------------------------------------------- an agent cannot set it
-  const byAgent = await rig.tool('boss', 'orgtree_retool', { node: AGENT, harness: 'codex-cli' }).then(r => ({ ok: true, r }), e => ({ ok: false, e: e.message }))
-  p.check('an agent has no way to set it (no tool field moves the pin)', !extra().harness_pin, { byAgent, extra: extra() })
+  // ------------------------------------------------------------- not on itself
+  // (its superior's orgtree_retool can set it: harness-retool.mjs)
+  const own = await rig.tool(AGENT, 'orgtree_retool', { node: AGENT, harness: 'codex-cli' }).then(r => r, e => ({ ok: false, text: e.message }))
+  p.check('an agent cannot set its own harness (a retool on itself is refused)', !own.ok
+    && /only team_charter/.test(own.text ?? '') && !extra().harness_pin, { own, extra: extra() })
 
   // ------------------------------------------------------------- the user pins it to Codex
   const pinned = await rig.op({ op: 'harness', node: AGENT, harness: 'codex-cli' })
