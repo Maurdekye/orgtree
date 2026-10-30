@@ -28,7 +28,11 @@ const ORG = 'orgtree'
 const world: RefWorld = {
   org: ORG,
   agents: new Map([['alice', 'alice'], ['bob', 'bob']]),
-  items: new Map([['ship-it', 'ship-it']]),
+  items: new Map([
+    ['ship-it', 'ship-it'],
+    ['pop-out-windows-clicking-the-x-closes-the-pop-ou', 'Pop-out windows: clicking the X closes the pop-out window instead of returning the panel to the main window'],
+    ['language-model-server-entries-harness-can-be-edi', 'Language model server entries: harness can be edited after setup'],
+  ]),
   docs: new Map(),
 }
 const routes = () => {
@@ -39,6 +43,18 @@ const routes = () => {
 
 const SHIP: AskQuestion = { question: '# Release plan\n\nShip **today** or wait for @bob?', header: 'Ship',
   options: [{ label: 'Today' }, { label: 'Wait', description: 'until @bob is back' }], work_item: 'ship-it' }
+const POPOUT_Q: AskQuestion = {
+  question: 'Should clicking the header X on a pop-out window close that window or return the panel to the main window?',
+  header: 'Pop-out X',
+  options: [{ label: 'Close window' }, { label: 'Return to main' }],
+  work_item: 'pop-out-windows-clicking-the-x-closes-the-pop-ou',
+}
+const HARNESS_Q: AskQuestion = {
+  question: 'When a user changes an existing Language Model Server entry\'s harness after setup, what should happen to live agents?',
+  header: 'Server harness',
+  options: [{ label: 'Next turn' }, { label: 'Refuse while live' }],
+  work_item: 'language-model-server-entries-harness-can-be-edi',
+}
 const NOTES: AskQuestion = { question: 'Anything else?', header: 'Notes' }
 const SCOPE: AskQuestion = { question: 'Which folders?', header: 'Scope', options: [{ label: 'Repo' }, { label: 'Docs' }] }
 const TIMELINE: AskQuestion = { question: 'When?', header: 'Timeline', options: [{ label: 'Now' }, { label: 'Later' }] }
@@ -387,4 +403,85 @@ test('§12 the fold control is drawn small in every panel, as the docket fold is
     assert.equal(fold.get(k!), v, `the fold control resets ${k}`)
   }
   assert.ok(rule('.askcard button.ask-fold.folded').get('transform'), 'the folded caret turns')
+})
+
+test('§13 folded line puts text before ticket chips, keeps count and sender unwrapped, and clips ticket overflow with ellipsis', async (t) => {
+  // Multi-question card with two linked tickets
+  const multi = open(fresh(), [POPOUT_Q, HARNESS_Q])
+  const { el } = await mount(t, card(multi, routes().refs))
+  await toggle(el)
+  const line = lineOf(el)
+  assert.ok(line, 'the folded line renders')
+  const text = line!.querySelector('.ask-fold-text') as HTMLElement | null
+  assert.ok(text, 'the tab headers text renders')
+  assert.equal(text!.textContent?.trim(), 'Pop-out X · Server harness')
+  const tickets = [...line!.querySelectorAll('.ref-item')] as HTMLElement[]
+  assert.equal(tickets.length, 2, 'both linked tickets render as RefChips')
+  assert.equal(line!.firstElementChild, text, 'folded text comes first, before ticket chips')
+  assert.ok(Boolean(text!.compareDocumentPosition(tickets[0]!) & Node.DOCUMENT_POSITION_FOLLOWING),
+    'first ticket chip follows the folded text')
+  assert.ok(Boolean(tickets[0]!.compareDocumentPosition(tickets[1]!) & Node.DOCUMENT_POSITION_FOLLOWING),
+    'second ticket chip follows the first')
+
+  // Header count and sender never shrink or wrap
+  const labelRule = rule('.ask-tab-label')
+  assert.equal(labelRule.get('flex'), 'none', 'count label never shrinks')
+  assert.equal(labelRule.get('white-space'), 'nowrap', 'count label never wraps')
+  const nodeRule = rule('.ask-tab-node')
+  assert.equal(nodeRule.get('flex'), 'none', 'sender never shrinks')
+  assert.equal(nodeRule.get('white-space'), 'nowrap', 'sender never wraps')
+  assert.ok(el.querySelector('.ask-tab .ask-tab-node[data-copy-agent-name="alice"]'),
+    'AskHead marks the sender with .ask-tab-node')
+
+  // Folded line and its ticket chips clip with ellipsis on overflow
+  assert.equal(rule('.ask-fold-line').get('overflow'), 'hidden', '.ask-fold-line hides overflow')
+  const chipRule = rule('.ask-fold-line > .ref-chip')
+  assert.equal(chipRule.get('text-overflow'), 'ellipsis', 'folded ticket chips clip with ellipsis')
+  assert.equal(chipRule.get('white-space'), 'nowrap', 'folded ticket chips stay on one line')
+  assert.equal(chipRule.get('overflow'), 'hidden', 'folded ticket chips clip overflow')
+})
+
+test('§14 unfolded and resolved request cards show each question\'s linked ticket chip', async (t) => {
+  // (a) Single-question card without a ticket has no .ask-q-head
+  const noTicket = await mount(t, card(open(fresh(), [NOTES]), routes().refs))
+  assert.equal(noTicket.el.querySelector('.ask-q-head'), null, 'no ticket row when question has no work_item')
+
+  // (b) Single-question card with a ticket shows its RefChip when unfolded
+  const single = routes()
+  const oneTicket = await mount(t, card(open(fresh(), [SHIP]), single.refs))
+  const oneChip = bodyOf(oneTicket.el)?.querySelector('.ask-q-head .ref-item') as HTMLElement | null
+  assert.ok(oneChip, 'unfolded single-question card renders its ticket RefChip in the body')
+  await inAct(() => { oneChip!.click() })
+  assert.deepEqual(single.opened.map((r) => r.token), ['@item:orgtree/ship-it'],
+    'clicking the unfolded ticket chip opens the ticket')
+
+  // Legacy single-question form also renders its ticket RefChip when unfolded
+  const legacy = await mount(t, card(legacyQuestion(fresh()), routes().refs))
+  assert.ok(bodyOf(legacy.el)?.querySelector('.ask-q-head .ref-item'),
+    'unfolded legacy question card renders its ticket RefChip')
+
+  // (c) Multi-question card with two tickets shows the active tab's ticket chip and switches with the tab
+  const batchRoutes = routes()
+  const twoTickets = await mount(t, card(open(fresh(), [POPOUT_Q, HARNESS_Q]), batchRoutes.refs))
+  const activeChip0 = bodyOf(twoTickets.el)?.querySelector('.ask-q-head .ref-item') as HTMLElement | null
+  assert.ok(activeChip0, 'tab 0 shows its ticket chip when unfolded')
+  assert.equal(activeChip0!.getAttribute('data-object-id'), 'pop-out-windows-clicking-the-x-closes-the-pop-ou')
+  const tabBtns = [...twoTickets.el.querySelectorAll('.ask-tabstrip .ask-tabbtn')] as HTMLButtonElement[]
+  assert.equal(tabBtns.length, 2)
+  await inAct(() => { tabBtns[1]!.click() })
+  const activeChip1 = bodyOf(twoTickets.el)?.querySelector('.ask-q-head .ref-item') as HTMLElement | null
+  assert.ok(activeChip1, 'tab 1 shows its ticket chip when selected')
+  assert.equal(activeChip1!.getAttribute('data-object-id'), 'language-model-server-entries-harness-can-be-edi')
+
+  // (d) Resolved (nulled) card shows each question's ticket chip when unfolded and text-before-tickets when folded
+  const ans = await mount(t, card({
+    ...resolved(fresh(), 'answered', [POPOUT_Q, HARNESS_Q]),
+    work_items: [POPOUT_Q.work_item!, HARNESS_Q.work_item!],
+  }, routes().refs))
+  const qTexts = [...ans.el.querySelectorAll('.answered-qtext')] as HTMLElement[]
+  assert.equal(qTexts.length, 2, 'resolved card renders both questions')
+  assert.equal(qTexts[0]!.querySelector('.ref-item')?.getAttribute('data-object-id'),
+    'pop-out-windows-clicking-the-x-closes-the-pop-ou')
+  assert.equal(qTexts[1]!.querySelector('.ref-item')?.getAttribute('data-object-id'),
+    'language-model-server-entries-harness-can-be-edi')
 })
