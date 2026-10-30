@@ -525,10 +525,13 @@ export function AttentionView(props: AttentionViewProps) {
       )}
       {queueOn && (
         <div className="attn-slot attn-slot-queue" style={leftStyle}>
+          {/* close only unpins, so only a pinned panel has an X: in its slot
+              there is nothing to close (USER 2026-10-30 m743d0c8ff8fe "same
+              for the needs attention list panel"); popped out, the window's × */}
           <PinFrame inline kind={QUEUE_KIND} title="Needs attention"
             panel="settings attn-panel attn-panel-queue"
             dialogLabel="Needs attention"
-            close={() => unpinModal(QUEUE_KIND, slug)}>
+            close={() => unpinModal(QUEUE_KIND, slug)} closable={queuePinned}>
             <AttentionQueue slug={slug} tree={props.tree} toast={props.toast}
               onOpenItem={props.onOpenItem} onFocusAgent={props.onFocusAgent}
               onOpenDoc={props.onOpenDoc} onOpenMail={props.onOpenMail}
@@ -557,10 +560,13 @@ export function AttentionView(props: AttentionViewProps) {
       )}
       {deskOn && (
         <div className="attn-slot attn-slot-desk" style={rightStyle}>
+          {/* as the queue: an X only while pinned (USER 2026-10-30
+              m46997f801a3f "the dynamic agent panel should not have this x
+              when not pinned or popped out") */}
           <PinFrame inline kind={DESK_KIND} title="Agent desk"
             panel="attn-panel attn-panel-desk"
             dialogLabel="Agent desk"
-            close={() => unpinModal(DESK_KIND, slug)}>
+            close={() => unpinModal(DESK_KIND, slug)} closable={deskPinned}>
             <AgentDeskPanel slug={slug} tree={props.tree} op={props.op}
               toast={props.toast} map={props.map} posOf={props.posOf}
               activeAgentsOnly={props.attentionDeskActiveAgentsOnly}

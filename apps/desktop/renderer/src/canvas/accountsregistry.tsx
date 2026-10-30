@@ -395,7 +395,7 @@ export function AddAccountDialog({ provider, onAdded, close }: {
     finally { lock.current = false; setBusy(false) }
   }
   return <PinFrame kind="add-secondary-account" title={`Add ${LABELS[provider]} account`} panel="settings add-account-dialog"
-    close={dismiss} onEsc={dismiss} pinnable={false} dialogLabel={`Add secondary ${LABELS[provider]} account`}>
+    close={dismiss} onEsc={dismiss} closable={!busy} pinnable={false} dialogLabel={`Add secondary ${LABELS[provider]} account`}>
     <h3>Add secondary {LABELS[provider]} account</h3>
     {provider === 'google' ? (
       <section className="account-add-option account-upstream-note">

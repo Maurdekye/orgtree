@@ -771,6 +771,13 @@ export interface PinFrameProps {
   /** a click on the backdrop closes the surface (default true, the rule every
    *  overlay already had). Never fires while pinned — there is no backdrop. */
   backdropClose?: boolean
+  /** whether `close` closes anything RIGHT NOW (default true). False takes the
+   *  X out of the bar and Close out of its menu: an X shows only where it
+   *  closes something (USER 2026-10-30 m680431a91e2f "they dont do anything
+   *  anyway", coordinator mbfcad188f152). An Attention panel in its slot,
+   *  whose close only unpins; a dialog whose close waits for its save (there
+   *  the X is the bar's only control, so it keeps its room unseen). */
+  closable?: boolean
   /** the panel's own click handler, for the two readers that open a lightbox
    *  from a click that must not also reach the backdrop. The frame keeps the
    *  stopPropagation every panel already had; this runs before it. */
@@ -806,7 +813,7 @@ export function PinFrame(props: PinFrameProps) {
 }
 
 function PinFrameInner({ kind, title, titleBar, deskTitle = false, titleInModal = false, closeInModal = false, pinElsewhere, panel, close, children, headerActions,
-  onEsc, backdropClose = true, onPanelClick, pinnable = true, inline = false, dialogLabel, restore, orgScope, panelRef }: PinFrameProps & { orgScope: string | null; panelRef: RefObject<HTMLDivElement | null> }) {
+  onEsc, backdropClose = true, closable = true, onPanelClick, pinnable = true, inline = false, dialogLabel, restore, orgScope, panelRef }: PinFrameProps & { orgScope: string | null; panelRef: RefObject<HTMLDivElement | null> }) {
   const pin = useModalPin(kind, orgScope)
   const surface = useSurface()
   const ownerDocument = useSurfaceDocument()
@@ -1022,6 +1029,8 @@ function PinFrameInner({ kind, title, titleBar, deskTitle = false, titleInModal 
     // nothing else, and an unconditional 'sep' drew a rule across the top of
     // a one-item menu (found by the 2026-09-12 Close audit). The renderer
     // draws every 'sep' it is given; deciding there is not this list's job.
+    // Close goes with the X: not where closing would do nothing (`closable`).
+    if (!closable) return entries
     if (entries.length) entries.push('sep')
     entries.push({ label: 'Close', onSelect: closeSurface })
     return entries
@@ -1120,10 +1129,15 @@ function PinFrameInner({ kind, title, titleBar, deskTitle = false, titleInModal 
               (me188f67b3944); it runs the panel's own close. Escape closes a
               centred panel, so the hint rides the tooltip; a pinned window
               ignores Escape. Popped out, the window's own × is its X ("Window ×
-              is enough", me188f67b3944). */}
-          {!ownWindow && (
+              is enough", me188f67b3944). Never where closing would do nothing
+              (`closable`, USER 2026-10-30 m680431a91e2f): there it goes, unless
+              it is the bar's only control (a dialog that cannot be pinned, while
+              its save settles), where it keeps its room unseen and disabled:
+              the bar is that row's height, so the dialog below would jump. */}
+          {!ownWindow && (closable || !pinnable) && (
             <button type="button" className="modalpin-btn modalpin-x" title={pinned ? 'Close' : 'Close (Esc)'}
-              aria-label="close this window"
+              aria-label="close this window" disabled={!closable}
+              style={closable ? undefined : { visibility: 'hidden' }}
               onPointerDown={(e) => e.stopPropagation()}
               onClick={(e) => { e.stopPropagation(); closeSurface() }}>
               <CloseIcon fontSize="inherit" />
