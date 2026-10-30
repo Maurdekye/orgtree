@@ -90,7 +90,7 @@ function Metric({ name, value, series, fmt, detail }: {
     <div className="edbg-metric">
       <span className="edbg-name">{name}</span>
       <span className="edbg-value">{fmt(value)}</span>
-      <Sparkline values={series} label={`${name}, last ${series.length} s`} />
+      <Sparkline values={series} label={`${name}, last ${series.length}s`} />
       {series.length > 1 && (
         <span className="edbg-range dim">
           {fmt(Math.min(...series))} – {fmt(Math.max(...series))}
@@ -142,7 +142,7 @@ export function EngineDebugPanel({ onClose }: { onClose?: () => void }) {
     <section className="edbg-panel" aria-label="Engine debug view">
       <header className="edbg-head">
         <strong>Engine debug</strong>
-        {stats && <span className="dim"> pid {stats.pid} · every {POLL_MS / 1000} s · last {history.length} s</span>}
+        {stats && <span className="dim"> pid {stats.pid} · every {POLL_MS / 1000}s · last {history.length}s</span>}
         {onClose && <button type="button" className="iconbtn edbg-close" title="turn the debug view off"
           aria-label="turn the debug view off" onClick={onClose}>×</button>}
       </header>
@@ -154,14 +154,14 @@ export function EngineDebugPanel({ onClose }: { onClose?: () => void }) {
           series={col('priv')} fmt={fmtBytes}
           detail={stats.memory.private_bytes != null ? `rss ${fmtBytes(stats.memory.rss_bytes)}` : undefined} />
 
-        <h4>Docket list, last {wl.window_s} s</h4>
+        <h4>Docket list, last {wl.window_s}s</h4>
         <div className="edbg-row">
           <span>full 200s <b className="edbg-n200">{wl.full_200}</b></span>
           <span>304s <b className="edbg-n304">{wl.not_modified_304}</b></span>
         </div>
         <Metric name="200 bytes / min" value={wl.bytes_200} series={col('bytes200')} fmt={fmtBytes} />
         <Metric name="cached bodies" value={wl.cached_bytes} series={col('cached')} fmt={fmtBytes}
-          detail={`${wl.cached_bodies} held · evicted after ${wl.cache_idle_s} s idle`} />
+          detail={`${wl.cached_bodies} held · evicted after ${wl.cache_idle_s}s idle`} />
 
         {lr && <>
           <h4>On-demand rows</h4>
@@ -182,7 +182,7 @@ export function EngineDebugPanel({ onClose }: { onClose?: () => void }) {
         <h4>Websockets</h4>
         <Metric name="frames queued (all)" value={history.length ? history[history.length - 1].queued : 0} series={col('queued')}
           fmt={n => String(n ?? 0)}
-          detail={`cap ${ws.queue_max}/socket · write timeout ${ws.send_timeout_s} s · dropped: `
+          detail={`cap ${ws.queue_max}/socket · write timeout ${ws.send_timeout_s}s · dropped: `
             + Object.entries(ws.drops).map(([k, v]) => `${k} ${v}`).join(', ')} />
         <table className="edbg-table">
           <thead><tr>
@@ -198,7 +198,7 @@ export function EngineDebugPanel({ onClose }: { onClose?: () => void }) {
                 <td>{r.pending} / {ws.queue_max}</td>
                 <td>{fmtBytes(r.pending_bytes)}</td>
                 <td>{r.sent}</td>
-                <td>{Math.round(r.age_s)} s</td>
+                <td>{Math.round(r.age_s)}s</td>
                 <td>{r.window_connects}</td>
                 <td>{r.window_drops}</td>
               </tr>
