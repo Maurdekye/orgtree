@@ -653,12 +653,16 @@ fn seat_of(engine: &Engine, tier: &str) -> Result<f64> {
 
 #[logged]
 async fn event(tx: &Transaction<'_>, org_id: i64, op: &str, actor: &Actor, subject: Option<i64>, detail: Value, fx: &mut Effects) -> Result<()> {
+    // a change notice's parts (diffs included) go to its notice only, never
+    // into the event log the feed and history read
+    let mut stored = detail.clone();
+    if let Some(o) = stored.as_object_mut() { o.remove("notice"); }
     tx.execute(
         "INSERT INTO ot.events (org_id, op, actor, subject_agent_id, detail) VALUES ($1, $2, $3, $4, $5)",
-        &[&org_id, &op, &actor.label(), &subject, &detail],
+        &[&org_id, &op, &actor.label(), &subject, &stored],
     )
     .await?;
-    fx.pulses.extend(crate::runtime::watchdogs::events::operation(org_id,op,subject,&detail).into_iter().map(crate::changes::Change::EngineEvent));
+    fx.pulses.extend(crate::runtime::watchdogs::events::operation(org_id,op,subject,&stored).into_iter().map(crate::changes::Change::EngineEvent));
     fx.mailboxes.extend(super::lifecycle::record(tx, org_id, op, &actor.label(), subject, &detail).await?);
     Ok(())
 }
@@ -1975,9 +1979,11 @@ async fn rehire(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transaction<'_>
         let queued: Option<Value> = tx.query_one("SELECT pending_account FROM ot.agents WHERE id = $1", &[&n.id]).await?.get(0);
         tx.execute("UPDATE ot.agents SET account = $2, pending_account = NULL WHERE id = $1", &[&n.id, &selected]).await?;
         if let Some(queued) = queued {
-            event(tx, org.id, "account_queue_cancelled", actor, Some(n.id), json!({ "node": n.name, "account": queued["account"] }), fx).await?;
+            let notice = super::settings_notice::account_parts(n.account.as_deref(), queued["account"].as_str(), Some("cancelled"), None);
+            event(tx, org.id, "account_queue_cancelled", actor, Some(n.id), json!({ "node": n.name, "account": queued["account"], "notice": notice }), fx).await?;
         }
-        event(tx, org.id, "account", actor, Some(n.id), json!({ "node": n.name, "account": selected }), fx).await?;
+        let notice = super::settings_notice::account_parts(n.account.as_deref(), Some(selected.as_deref().unwrap_or("primary")), None, None);
+        event(tx, org.id, "account", actor, Some(n.id), json!({ "node": n.name, "account": selected, "was": n.account, "notice": notice }), fx).await?;
         scope_req.as_object_mut().unwrap().remove("account");
     }
     // Placement was authorized before mutation. Self-superior insertion has
@@ -3217,6 +3223,11 @@ async fn switch_model(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transacti
     }
     tx.execute("UPDATE ot.agents SET pending_switch = NULL WHERE id = $1", &[&n.id]).await?;
     event(tx, org.id, "switch_model", actor, Some(n.id), json!({ "node": n.name, "from": n.tier, "to": tier, "seat_old": n.seat, "old_session": n.session, "cascaded": raised }), fx).await?;
+    // An account that moved with the switch gets its own notice right after
+    // it, as the switch's text promises (event_text.rs r_switched).
+    let landed = if crossing { account.clone() } else if clear { None } else { account.clone().or_else(|| n.account.clone()) };
+    let notice = super::settings_notice::account_parts(n.account.as_deref(), Some(landed.as_deref().unwrap_or("primary")), None, None);
+    fx.mailboxes.extend(super::lifecycle::record(tx, org.id, "account", &actor.label(), Some(n.id), &json!({ "notice": notice })).await?);
     fx.agents.insert(n.id);
     if let Some(p) = n.parent {
         fx.agents.insert(p);
@@ -3338,7 +3349,9 @@ async fn set_harness(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transactio
                     row_version = row_version + 1 WHERE id = $1", &[&n.id]).await?,
     };
     if was.as_deref() != want {
-        event(tx, org.id, "harness", actor, Some(n.id), json!({ "node": n.name, "harness": want, "was": was }), fx).await?;
+        let mut notice = serde_json::Map::new();
+        super::settings_notice::add_value(&mut notice, "harness", was.as_deref(), want);
+        event(tx, org.id, "harness", actor, Some(n.id), json!({ "node": n.name, "harness": want, "was": was, "notice": notice }), fx).await?;
         fx.events = true;
     }
     fx.agents.insert(n.id);
@@ -3368,13 +3381,17 @@ async fn account(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transaction<'_
     muse_admit(engine, target_tier, pinned(&n.scope), acc.as_deref())?;
     if busy(tx, n.id).await? {
         if acc == n.account {
+            // the change it cancels, for its notice
+            let queued: Option<String> = tx.query_one("SELECT pending_account->>'account' FROM ot.agents WHERE id = $1", &[&n.id]).await?.get(0);
             tx.execute("UPDATE ot.agents SET pending_account = NULL, row_version = row_version + 1 WHERE id = $1", &[&n.id]).await?;
-            event(tx, org.id, "account_queue_cancelled", actor, Some(n.id), json!({ "node": n.name, "account": acc }), fx).await?;
+            let notice = queued.as_deref().map(|q| super::settings_notice::account_parts(n.account.as_deref(), Some(q), Some("cancelled"), None));
+            event(tx, org.id, "account_queue_cancelled", actor, Some(n.id), json!({ "node": n.name, "account": acc, "notice": notice }), fx).await?;
             fx.agents.insert(n.id); fx.events = true;
             return Ok(json!({ "node": n.name, "queued": false, "cancelled": true }));
         }
         let replaced = queue_config(tx, &n, actor, json!({ "account": acc.clone().unwrap_or_else(|| "primary".into()), "from": n.account.clone().unwrap_or_else(|| "primary".into()) }), false).await?;
-        event(tx, org.id, "account_queued", actor, Some(n.id), json!({ "node": n.name, "account": acc, "by": actor.label() }), fx).await?;
+        let notice = super::settings_notice::account_parts(n.account.as_deref(), Some(acc.as_deref().unwrap_or("primary")), Some("queued"), None);
+        event(tx, org.id, "account_queued", actor, Some(n.id), json!({ "node": n.name, "account": acc, "by": actor.label(), "notice": notice }), fx).await?;
         fx.agents.insert(n.id); fx.queued.push(n.id); fx.events = true;
         return Ok(json!({ "node": n.name, "queued": true, "pending_account": acc, "replaced": replaced }));
     }
@@ -3399,7 +3416,8 @@ async fn account(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transaction<'_
     };
     tx.execute("UPDATE ot.agents SET account = $2, pending_account = NULL, frozen = CASE WHEN $3 THEN NULL ELSE frozen END, row_version = row_version + 1 WHERE id = $1", &[&n.id, &acc, &auth])
         .await?;
-    event(tx, org.id, "account", actor, Some(n.id), json!({ "node": n.name, "account": acc }), fx).await?;
+    let notice = super::settings_notice::account_parts(n.account.as_deref(), Some(acc.as_deref().unwrap_or("primary")), None, None);
+    event(tx, org.id, "account", actor, Some(n.id), json!({ "node": n.name, "account": acc, "was": n.account, "notice": notice }), fx).await?;
     fx.agents.insert(n.id);
     fx.reconfigure.push(n.id);
     fx.events = true;
@@ -3856,7 +3874,8 @@ async fn retool(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transaction<'_>
         o.keys().all(|k| matches!(k.as_str(), "op" | "node" | "fast_mode")))) {
         let mut next=n.scope.clone(); next["fast_mode"]=json!(enabled);
         tx.execute("UPDATE ot.agents SET scope=$2,row_version=row_version+1 WHERE id=$1", &[&n.id,&next]).await?;
-        event(tx,org.id,"retool",actor,Some(n.id),json!({"node":n.name,"change":{"fast_mode":enabled}}),fx).await?;
+        let notice=super::settings_notice::parts(super::settings_notice::scope_only(&n.scope),super::settings_notice::scope_only(&next));
+        event(tx,org.id,"retool",actor,Some(n.id),json!({"node":n.name,"change":{"fast_mode":enabled},"notice":notice}),fx).await?;
         fx.agents.insert(n.id); fx.events=true;
         return Ok(json!({"node":n.name,"fast_mode":enabled,"applies":"next_turn","cascaded":[]}));
     }
@@ -3978,9 +3997,17 @@ async fn retool(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transaction<'_>
     if let Actor::Agent { id, .. } = actor {
         scope::require_grant(&granted, &capability(tx, *id, &settings).await?)?;
     }
+    // what the agents below see before this call, when it can change that
+    let below_before = if ["add_dirs", "remove_dirs", "tools", "org_visibility", "permission_mode", "team_charter"]
+        .iter().any(|k| req.get(*k).is_some_and(|v| !v.is_null())) {
+        let ceiling = super::settings_notice::ceiling_of(tx, n.parent, &settings).await?;
+        Some(super::settings_notice::effective_below(tx, n.id, &n.scope, &ceiling).await?)
+    } else { None };
+    let mut effort_levels = None;
     if req.get("effort").is_some_and(Value::is_string) {
         let level = |s: &Value| catalog::effective_effort(s, &settings);
         fx.effort = Some((n.id, level(&n.scope), level(&sc)));
+        effort_levels = Some((level(&n.scope), level(&sc)));
     }
     // an effort change alone restarts nobody's process (the delivery after
     // commit settles the agent's own), as on the user's settings path
@@ -3999,6 +4026,7 @@ async fn retool(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transaction<'_>
             if !below_actor || a.project() { continue; }
             let raised = scope::raise(&a.scope, &granted);
             if raised != scope::normalize(&a.scope) {
+                let gained=super::settings_notice::parts(super::settings_notice::scope_only(&a.scope),super::settings_notice::scope_only(&raised));
                 tx.execute("UPDATE ot.agents SET scope=$2, row_version=row_version+1 WHERE id=$1", &[&a.id,&raised]).await?;
                 cascaded.push(a.name.clone());
                 let diff = scope::dirs_diff(scope::normalize(&a.scope)["add_dirs"].as_array().map(Vec::as_slice).unwrap_or_default(),
@@ -4011,7 +4039,7 @@ async fn retool(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transaction<'_>
                 let descendants = subtree(tx, a.id).await?;
                 fx.agents.extend(descendants.iter().copied());
                 fx.reconfigure.extend(descendants);
-                event(tx,org.id,"retool",actor,Some(a.id),json!({"node":a.name,"change":granted,"cascade_for":n.name}),fx).await?;
+                event(tx,org.id,"retool",actor,Some(a.id),json!({"node":a.name,"change":granted,"cascade_for":n.name,"notice":gained}),fx).await?;
             }
         }
         // A user grant reaching the top level enters the org's defaults too.
@@ -4030,6 +4058,11 @@ async fn retool(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transaction<'_>
     }
     let charter = str_arg(req, "charter").map(str::to_string);
     let team = str_arg(req, "team_charter").map(str::to_string);
+    // the instructions before this save, for its notice's diffs
+    let (old_charter, old_team): (Option<String>, Option<String>) = {
+        let r = tx.query_one("SELECT charter, team_charter FROM ot.agents WHERE id = $1", &[&n.id]).await?;
+        (r.get(0), r.get(1))
+    };
     let account_result = if str_arg(req, "account").is_some() {
         Some(account(engine, org, tx, actor, req, fx).await?)
     } else { None };
@@ -4043,7 +4076,17 @@ async fn retool(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transaction<'_>
         &[&n.id, &sc, &charter, &team],
     )
     .await?;
-    event(tx, org.id, "retool", actor, Some(n.id), json!({ "node": n.name, "change": req }), fx).await?;
+    let mut notice = super::settings_notice::parts(
+        super::settings_notice::Side { scope: &n.scope, charter: old_charter.as_deref(), team_charter: old_team.as_deref() },
+        super::settings_notice::Side { scope: &sc, charter: charter.as_deref().or(old_charter.as_deref()),
+            team_charter: team.as_deref().or(old_team.as_deref()) });
+    if let Some((was, now)) = &effort_levels {
+        super::settings_notice::add_value(&mut notice, "effort", Some(was.as_str()), Some(now.as_str()));
+    }
+    // the team instructions reach every agent below (their system prompts'
+    // "Standing charter from"), so each of them is told too
+    let team_diff = notice.get("team_charter").cloned();
+    event(tx, org.id, "retool", actor, Some(n.id), json!({ "node": n.name, "change": req, "notice": notice }), fx).await?;
     fx.agents.insert(n.id);
     let below = subtree(tx, n.id).await?;
     // a grant may narrow (a folder's mode, a tool) and a removal always does
@@ -4072,6 +4115,14 @@ async fn retool(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transaction<'_>
             }
             effective.insert(*id,bounded);
         }
+    }
+    // what this call changed for each agent below: effective before and after,
+    // so a loss it already had is not reported again when a clamp stores it
+    if let Some(before) = &below_before {
+        let settings = caps(engine, tx, org.id).await?.settings;
+        let ceiling = super::settings_notice::ceiling_of(tx, n.parent, &settings).await?;
+        let after = super::settings_notice::effective_below(tx, n.id, &sc, &ceiling).await?;
+        fx.mailboxes.extend(super::settings_notice::notify_below(tx, org.id, &actor.label(), n.id, &n.name, before, &after, team_diff.as_ref()).await?);
     }
     fx.agents.extend(below.iter().copied());
     if !effort_only {
@@ -4147,10 +4198,15 @@ pub(crate) async fn apply_pending(engine: &Arc<Engine>, org: &Arc<OrgHandle>, id
         if newer || model["account"].as_str().map_or(true, str::is_empty) {
             match validate_account(engine, &org.slug, model["tier"].as_str().unwrap_or(""), Some(want)) {
                 Ok(()) => model["account"] = json!(want),
-                Err(e) => event(&tx, org.id, "account_queue_dropped", &Actor::User, Some(id), json!({ "node": n.name, "account": want, "reason": e.to_string() }), &mut fx).await?,
+                Err(e) => {
+                    let notice = super::settings_notice::account_parts(n.account.as_deref(), Some(want), Some("dropped"), Some(&e.to_string()));
+                    event(&tx, org.id, "account_queue_dropped", &Actor::User, Some(id), json!({ "node": n.name, "account": want, "reason": e.to_string(), "notice": notice }), &mut fx).await?
+                }
             }
         } else {
-            event(&tx, org.id, "account_queue_dropped", &Actor::User, Some(id), json!({ "node": n.name, "account": want, "reason": "superseded by a later model/account choice" }), &mut fx).await?;
+            let reason = "superseded by a later model/account choice";
+            let notice = super::settings_notice::account_parts(n.account.as_deref(), Some(want), Some("dropped"), Some(reason));
+            event(&tx, org.id, "account_queue_dropped", &Actor::User, Some(id), json!({ "node": n.name, "account": want, "reason": reason, "notice": notice }), &mut fx).await?;
         }
     }
     let intent = sw.as_ref().or(ap.as_ref()).unwrap();
@@ -4169,8 +4225,12 @@ pub(crate) async fn apply_pending(engine: &Arc<Engine>, org: &Arc<OrgHandle>, id
     if let Err(e) = result {
         tx.batch_execute("ROLLBACK TO SAVEPOINT apply_pending_config").await?;
         fx = Effects::default();
-        event(&tx, org.id, if sw.is_some() { "switch_dropped" } else { "account_queue_dropped" }, &actor, Some(id),
-            json!({ "node": n.name, "target": intent["tier"], "account": intent["account"], "kept": n.tier, "reason": format!("{e:#}") }), &mut fx).await?;
+        let mut detail = json!({ "node": n.name, "target": intent["tier"], "account": intent["account"], "kept": n.tier, "reason": format!("{e:#}") });
+        if sw.is_none() {
+            detail["notice"] = json!(super::settings_notice::account_parts(n.account.as_deref(),
+                Some(intent["account"].as_str().unwrap_or("primary")), Some("dropped"), Some(&format!("{e:#}"))));
+        }
+        event(&tx, org.id, if sw.is_some() { "switch_dropped" } else { "account_queue_dropped" }, &actor, Some(id), detail, &mut fx).await?;
         tracing::warn!(agent = id, error = %format!("{e:#}"), "queued configuration dropped at turn boundary");
     }
     fx.agents.insert(id); fx.events = true;

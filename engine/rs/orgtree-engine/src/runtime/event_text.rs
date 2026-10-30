@@ -1069,9 +1069,35 @@ fn r_grant_changed(ev: &Value) -> Option<String> {
     Some(format!("{who} adjusted \"{node}\"'s grant by {d}."))
 }
 
+/// What changed, as the card shows it (USER 2026-10-30 mc5d2672d3cc9): the
+/// same parts in the tools' own words. The instructions' diff stays out of
+/// the prompt: the new text is in the system prompt already.
 #[nolog]
 fn r_scope_changed(ev: &Value) -> Option<String> {
     let by = req(ev, "by")?;
+    let line = crate::domain::settings_notice::agent_line(ev);
+    if !line.is_empty() {
+        let user = is(by, USER);
+        let name = py_str(by);
+        let changed: Vec<&str> = ev["changed"].as_array().into_iter().flatten().filter_map(Value::as_str).collect();
+        let tail = " Your current scope is stated in your system prompt each turn.";
+        if let Some(from) = ev["cascade_for"].as_str() {
+            if changed == ["team_charter"] {
+                let d = &ev["team_charter"];
+                let actor = if user { "The user".to_string() } else { format!("\"{name}\"") };
+                let whose = if !user && name == from { "it gives".to_string() } else { format!("\"{from}\" gives") };
+                return Some(format!("{actor} changed the standing charter {whose} its team (+{} −{} lines). \
+The new text is in your system prompt each turn.", d["plus"].as_i64().unwrap_or(0), d["minus"].as_i64().unwrap_or(0)));
+            }
+            let whom = if user { "the user".to_string() } else { format!("your superior \"{name}\"") };
+            return Some(format!("Your scope changed with \"{from}\"'s (by {whom}): {line}.{tail}"));
+        }
+        let who = if user { "The user".to_string() } else { format!("Your superior \"{name}\"") };
+        let permission = changed.iter().any(|c| crate::domain::settings_notice::PERMISSION_PARTS.contains(c));
+        return Some(if permission { format!("{who} changed your configuration: {line}.{tail}") }
+            else { format!("{who} changed your settings: {line}.") });
+    }
+    // an old stored notice names only its categories
     if is(by, USER) {
         return Some(
             "The user changed your configuration (folders, tools, charter, or \

@@ -92,16 +92,22 @@ async fn moved(tx: &Transaction<'_>, org: i64, by: &str, id: i64, n: &Seat, d: &
     Ok(changed)
 }
 
-/// The `access.scope_changed` fields of a settings change, or None when it
-/// names nothing.
+/// The `access.scope_changed` fields of a settings change: the parts its
+/// writer read from the stored before and after (`settings_notice`), or None
+/// when nothing changed. A request's keys alone name nothing: the settings
+/// dialog sends its whole form, unchanged instructions included (USER
+/// 2026-10-30 mc5d2672d3cc9, @coordinator-opus macb41248ab05).
 #[logged]
 pub(crate) fn settings_fields(by: &str, d: &Value) -> Option<Value> {
-    let change=&d["change"];
-    let fields=[("add_dirs","folders"),("remove_dirs","folders"),("tools","tools"),("charter","charter"),("org_visibility","org_visibility"),("permission_mode","permission_mode")];
-    let mut changed:Vec<&str>=fields.iter().filter(|(k,_)|change.get(k).is_some()).map(|(_,v)|*v).collect();
-    changed.dedup();
+    let parts=d.get("notice")?.as_object()?;
+    let changed=super::settings_notice::changed(parts);
     if changed.is_empty() { return None; }
-    Some(json!({"by":by,"changed":changed}))
+    let mut fields=json!({"by":by,"changed":changed});
+    for k in ["folders","tools","values","charter","team_charter","pending","reason"] {
+        if let Some(v)=parts.get(k).filter(|v|!v.is_null()) { fields[k]=v.clone(); }
+    }
+    if let Some(c)=d["cascade_for"].as_str() { fields["cascade_for"]=json!(c); }
+    Some(fields)
 }
 
 #[logged]
@@ -134,7 +140,8 @@ pub async fn record(tx: &Transaction<'_>, org: i64, op: &str, by: &str, subject:
             targets=family(tx,org,n.parent,id,"report","peer").await?;
             targets.push((id,"self".into()));
         }
-        "switch_queued" | "switch_cancelled" | "switch_dropped" | "session_rebound" | "unstick" | "rename" | "retool" => targets.push((id,"self".into())),
+        "switch_queued" | "switch_cancelled" | "switch_dropped" | "session_rebound" | "unstick" | "rename" | "retool"
+            | "account" | "account_queued" | "account_queue_cancelled" | "account_queue_dropped" | "harness" => targets.push((id,"self".into())),
         "swap" => {
             let bname=d["b"].as_str().unwrap_or("");
             let bid: i64=tx.query_one("SELECT id FROM ot.agents WHERE org_id=$1 AND name=$2", &[&org,&bname]).await?.get(0);
@@ -210,7 +217,9 @@ pub async fn record(tx: &Transaction<'_>, org: i64, op: &str, by: &str, subject:
                 let held:f64=tx.query_one("SELECT coalesce(sum(seat+grant_credits),0)::float8 FROM ot.agents WHERE parent_id=$1 AND state='live'", &[&id]).await?.get(0);
                 ("access.grant_changed",json!({"relation":role,"node":n.name,"delta":d["delta"],"now":n.grant,"free":n.grant-held,"by":by}))
             }
-            "retool" => {
+            // every settings change, its account and harness included, reads
+            // as one notice kind ("Permissions changed" / "Settings changed")
+            "retool" | "account" | "account_queued" | "account_queue_cancelled" | "account_queue_dropped" | "harness" => {
                 let Some(fields)=settings_fields(by,d) else { continue };
                 ("access.scope_changed",fields)
             }

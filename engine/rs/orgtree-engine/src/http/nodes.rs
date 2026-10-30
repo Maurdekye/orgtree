@@ -16,6 +16,7 @@ use tokio::sync::oneshot;
 
 use crate::domain::mail::{self, From, Outgoing};
 use crate::domain::scope;
+use crate::domain::settings_notice::{self, ceiling_of, effective_below, scope_only, Side};
 use crate::domain::node_kind::require_turn_runtime;
 use crate::engine::Engine;
 use crate::changes::{self, Change};
@@ -884,6 +885,7 @@ pub(crate) async fn apply_user_scope_in_tx(
     let peer_mail = b.get("peer_mail").map(|value| value.as_bool()
         .ok_or_else(|| anyhow::Error::new(crate::domain::UserError::BadRequest("peer_mail must be a boolean".into())))).transpose()?;
     let before: Value = row.get(0);
+    let (old_charter, old_team): (Option<String>, Option<String>) = (row.get(1), row.get(2));
     // A speed-only save is node-local and never reconfigures a warm process.
     if let Some(value) = b.get("fast_mode").filter(|_| b.as_object().is_some_and(|o|
         o.keys().all(|k| matches!(k.as_str(), "op" | "node" | "fast_mode")))) {
@@ -894,7 +896,9 @@ pub(crate) async fn apply_user_scope_in_tx(
         tx.execute("UPDATE ot.agents SET scope=$2, row_version=row_version+1 WHERE id=$1", &[&a.id,&next]).await?;
         tx.execute("INSERT INTO ot.events(org_id,op,actor,subject_agent_id,detail) VALUES($1,'scope','@user',$2,$3)",
             &[&org.id,&a.id,&json!({"node":a.name,"change":{"fast_mode":enabled}})]).await?;
-        return Ok(ScopeEffects { agent_id:a.id,subtree:vec![a.id],notice_ids:vec![],fields:vec!["fast_mode".into()],
+        let notice_ids=crate::domain::lifecycle::record(tx,org.id,"retool","@user",Some(a.id),
+            &json!({"notice":settings_notice::parts(scope_only(&before),scope_only(&next))})).await?;
+        return Ok(ScopeEffects { agent_id:a.id,subtree:vec![a.id],notice_ids,fields:vec!["fast_mode".into()],
             effort_change:None,structural:false,org_folders_changed:false,out:json!({"ok":true,"cascaded":[]}) });
     }
     // A node-local policy is not a permission grant. Preserve a project's
@@ -905,10 +909,15 @@ pub(crate) async fn apply_user_scope_in_tx(
         tx.execute("UPDATE ot.agents SET scope=$2, row_version=row_version+1 WHERE id=$1", &[&a.id,&next]).await?;
         tx.execute("INSERT INTO ot.events(org_id,op,actor,subject_agent_id,detail) VALUES($1,'scope','@user',$2,$3)",
             &[&org.id,&a.id,&json!({"node":a.name,"change":{"peer_mail":enabled}})]).await?;
-        return Ok(ScopeEffects { agent_id:a.id,subtree:vec![a.id],notice_ids:vec![],fields:vec!["peer_mail".into()],
+        let notice_ids=crate::domain::lifecycle::record(tx,org.id,"retool","@user",Some(a.id),
+            &json!({"notice":settings_notice::parts(scope_only(&before),scope_only(&next))})).await?;
+        return Ok(ScopeEffects { agent_id:a.id,subtree:vec![a.id],notice_ids,fields:vec!["peer_mail".into()],
             effort_change:None,structural:false,org_folders_changed:false,out:json!({"ok":true,"peer_mail":enabled,"cascaded":[]}) });
     }
     crate::domain::tool_groups::validate(&b["tools"])?;
+    // what the agents below see before this save, for their notices
+    let ceiling_before = ceiling_of(tx, a.parent_id, &crate::feed::groups::effective_settings(&stored, &e.settings.defaults())).await?;
+    let below_before = effective_below(tx, a.id, &before, &ceiling_before).await?;
     let mut sc = scope::normalize(&before);
     let obj = sc.as_object_mut().unwrap();
     if let Some(enabled) = peer_mail { obj.insert("peer_mail".into(),json!(enabled)); }
@@ -1047,13 +1056,32 @@ pub(crate) async fn apply_user_scope_in_tx(
     .await?;
     // a grant the chain above does not hold is raised on the way up (the
     // user grants it; every ancestor gets at least as much)
-    let cascaded = cascade_up(&tx, a.parent_id, &sc).await?;
+    let (cascaded, raised) = cascade_up(&tx, a.parent_id, &sc).await?;
     tx.execute(
         "INSERT INTO ot.events (org_id, op, actor, subject_agent_id, detail) VALUES ($1, 'scope', '@user', $2, $3)",
         &[&org.id, &a.id, &json!({ "node": a.name, "change": b, "cascaded": cascaded })],
     )
     .await?;
-    let notice_ids=crate::domain::lifecycle::record(&tx,org.id,"retool","@user",Some(a.id),&json!({"change":b})).await?;
+    // what this save changed, from the stored before and after: the dialog
+    // sends its whole form, the unchanged instructions included (USER
+    // 2026-10-30 mc5d2672d3cc9, @coordinator-opus macb41248ab05)
+    let mut notice = settings_notice::parts(
+        Side { scope: &before, charter: old_charter.as_deref(), team_charter: old_team.as_deref() },
+        Side { scope: &sc, charter: charter.as_deref().or(old_charter.as_deref()), team_charter: team_charter.as_deref().or(old_team.as_deref()) });
+    if let Some((was, now)) = &effort_change {
+        settings_notice::add_value(&mut notice, "effort", Some(was.as_str()), Some(now.as_str()));
+    }
+    let team_diff = notice.get("team_charter").cloned();
+    let mut notice_ids=crate::domain::lifecycle::record(&tx,org.id,"retool","@user",Some(a.id),&json!({"notice":notice})).await?;
+    // each ancestor raised to cover the grant, and each agent below whose
+    // effective scope or standing charter this save changed, is told too
+    for (id, parts) in raised {
+        notice_ids.extend(crate::domain::lifecycle::record(&tx,org.id,"retool","@user",Some(id),&json!({"notice":parts,"cascade_for":a.name})).await?);
+    }
+    let stored_after: Value = tx.query_one("SELECT settings FROM ot.orgs WHERE id = $1", &[&org.id]).await?.get(0);
+    let ceiling_after = ceiling_of(&tx, a.parent_id, &crate::feed::groups::effective_settings(&stored_after, &e.settings.defaults())).await?;
+    let below_after = effective_below(&tx, a.id, &sc, &ceiling_after).await?;
+    notice_ids.extend(settings_notice::notify_below(&tx, org.id, "@user", a.id, &a.name, &below_before, &below_after, team_diff.as_ref()).await?);
     // Org expansion can unmask retained scope on other branches. Otherwise
     // refresh from the highest raised ancestor, not just the edited child.
     let subtree: Vec<i64> = if org_folders_changed {
@@ -1103,10 +1131,13 @@ pub(crate) async fn apply_scope_effects(e: &Arc<Engine>, org: &Arc<OrgHandle>, f
 }
 
 /// Raise each ancestor's configured scope to cover `child` (tools, MCP
-/// servers, folders, permission mode, visibility). Returns who changed.
+/// servers, folders, permission mode, visibility). Returns who changed, and
+/// each one's notice parts.
 #[logged]
-async fn cascade_up(tx: &tokio_postgres::Transaction<'_>, mut parent: Option<i64>, child: &Value) -> anyhow::Result<Vec<String>> {
+async fn cascade_up(tx: &tokio_postgres::Transaction<'_>, mut parent: Option<i64>, child: &Value)
+    -> anyhow::Result<(Vec<String>, Vec<(i64, Map<String, Value>)>)> {
     let mut changed = Vec::new();
+    let mut notices = Vec::new();
     let mut depth = 0;
     while let Some(pid) = parent {
         depth += 1;
@@ -1173,9 +1204,10 @@ async fn cascade_up(tx: &tokio_postgres::Transaction<'_>, mut parent: Option<i64
         if next != cur {
             tx.execute("UPDATE ot.agents SET scope = $2, row_version = row_version + 1 WHERE id = $1", &[&pid, &next]).await?;
             changed.push(name);
+            notices.push((pid, settings_notice::parts(scope_only(&cur), scope_only(&next))));
         }
     }
-    Ok(changed)
+    Ok((changed, notices))
 }
 
 // ------------------------------------------------------------ files
