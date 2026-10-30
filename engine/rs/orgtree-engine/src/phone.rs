@@ -1100,7 +1100,7 @@ async fn org_view(engine: &Arc<Engine>, slug: &str, link: &Value) -> Value {
         .map(|(r, _)| {
             r.iter()
                 .filter(|x| x["kind"] == "person" && x["slug"].as_str().is_some() && x["slug"].as_str() != linked)
-                .map(|x| json!({ "address": x["slug"], "name": x["org_name"], "online": x["online"], "last_seen": x["last_seen"] }))
+                .map(|x| json!({ "address": x["slug"], "name": x["org_name"], "online": x["online"], "busy": x["busy"].as_bool().unwrap_or(false), "last_seen": x["last_seen"] }))
                 .collect()
         })
         .unwrap_or_default();

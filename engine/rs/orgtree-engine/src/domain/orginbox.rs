@@ -295,11 +295,21 @@ async fn runnable<C: tokio_postgres::GenericClient + Sync>(client: &C, org_id: i
 }
 
 /// Busy presence (Mail hub 2.3.0; user 2026-10-30 23:03Z, docket
-/// org-presence-busy-orange-when-no-org-inbox-holde): whether the org shows
-/// busy on its hubs. Red: not decided yet.
+/// org-presence-busy-orange-when-no-org-inbox-holde): the org shows busy on
+/// its hubs while none of its org-inbox holders can start a turn: no live
+/// holder, every one halted or frozen (`runnable`: any freeze, usage limit,
+/// rate limit, auth, balance, account or lane), or the org's killswitch
+/// latched. One that can run means online. Holders only, as the user put it:
+/// outside mail still reaches a runnable top-level agent through `route_tx`'s
+/// fallback while the org shows busy (coordinator 2026-10-30 23:18Z).
 #[logged]
-pub async fn busy<C: tokio_postgres::GenericClient + Sync>(_client: &C, _org_id: i64, _multi: bool) -> Result<bool> {
-    Ok(false)
+pub async fn busy<C: tokio_postgres::GenericClient + Sync>(client: &C, org_id: i64, multi: bool) -> Result<bool> {
+    let killed: bool = client.query_one("SELECT killswitch IS NOT NULL FROM ot.orgs WHERE id = $1", &[&org_id]).await?.get(0);
+    if killed {
+        return Ok(true);
+    }
+    let holders = live_holders(client, org_id, multi).await?;
+    Ok(runnable(client, org_id, &holders).await?.is_empty())
 }
 
 #[cfg(test)]

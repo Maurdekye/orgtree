@@ -206,6 +206,8 @@ pub struct Net {
     parts: ArcSwap<Vec<Part>>,
     /// Typing heartbeats for Hubchat (`typing`): memory only.
     pub(crate) typing: typing::State,
+    /// What each org last told each hub about being busy (`presence`).
+    pub(crate) presence: presence::State,
     /// Live requests only; durable intent remains in PostgreSQL.
     pub(crate) transfer_stops: papaya::HashMap<String, CancellationToken>,
     #[cfg(debug_assertions)]
@@ -485,12 +487,22 @@ fn set_status(engine: &Engine, org_id: i64, hub_id: &str, connected: bool, error
     };
     let changed = prev.connected != next.connected || prev.error != next.error;
     map.insert(key, next);
+    // a hub that comes back may have restarted and forgotten the org's busy
+    if prev.connected && !connected {
+        engine.net.presence.forget(org_id, hub_id);
+    }
     if prev.connected != connected {crate::runtime::watchdogs::events::emit(engine,crate::runtime::watchdogs::events::event(if connected{"hub.up"}else{"hub.down"},crate::runtime::watchdogs::events::Scope::Org(org_id),json!({"hub":hub_id})));}
     if changed {
         if let Some(o) = engine.orgs.by_id(org_id) {
             changes::notify(engine, &o, vec![Change::Net]);
         }
     }
+}
+
+/// Whether this org's connection to this hub is up.
+#[nolog]
+fn connected(engine: &Engine, org_id: i64, hub_id: &str) -> bool {
+    engine.net.status.pin().get(&(org_id, hub_id.to_string())).is_some_and(|s| s.connected)
 }
 
 /// Adopt a roster (and the hub's name and version); every org on that hub
@@ -588,6 +600,7 @@ async fn pass(engine: &Arc<Engine>) -> Result<()> {
     let parts = participants(engine).await?;
     engine.net.parts.store(Arc::new(parts.clone()));
     reconcile_pollers(engine, &parts);
+    presence::declare(engine, &parts).await;
     drain(engine, &parts).await?;
     flush_receipts(engine, &parts).await;
     pictures::dispatch(engine, &parts);
@@ -1325,7 +1338,7 @@ pub fn remote_peers(engine: &Engine) -> Vec<Value> {
             }
             seen.insert(s.to_string(), out.len());
             out.push(json!({ "slug": format!("@net:{s}"), "address": format!("@net:{s}"), "name": r["org_name"].as_str().filter(|n| !n.is_empty()).unwrap_or(s),
-                             "online": r["online"].as_bool().unwrap_or(false), "last_seen": r["last_seen"],
+                             "online": r["online"].as_bool().unwrap_or(false), "busy": r["busy"].as_bool().unwrap_or(false), "last_seen": r["last_seen"],
                              "kind": r["kind"].as_str().unwrap_or("org"), "blurb": r["blurb"].as_str().unwrap_or(""),
                              "hubs": [hub.clone()] }));
         }
