@@ -930,3 +930,193 @@ test('mentions menu sorts by most recently mentioned in the open transcript, dra
     'reopening the menu computes fresh recency from the loaded transcript rows (m-2 moved @worker-delta ahead of @worker-gamma, while pending_mail at the tail keeps @worker-beta/@worker-project newest)')
   assert.equal(selectedIdx(),4,'bottom entry is highlighted on reopen')
 })
+
+test('mentions menu opens scrolled to bottom, keeps selection in view on arrow keys, lazy-loads upward without scroll jump, and never wraps',async t=>{
+  localStorage.clear(); resetConvos()
+  const proto=window.HTMLElement.prototype
+  const savedClientHeight=Object.getOwnPropertyDescriptor(proto,'clientHeight')
+  const savedScrollHeight=Object.getOwnPropertyDescriptor(proto,'scrollHeight')
+  const savedOffsetTop=Object.getOwnPropertyDescriptor(proto,'offsetTop')
+  const savedOffsetHeight=Object.getOwnPropertyDescriptor(proto,'offsetHeight')
+  Object.defineProperties(proto,{
+    clientHeight:{
+      configurable:true,
+      get(this:HTMLElement){
+        if(this.classList?.contains('agent-mentions')){
+          const total=8+this.querySelectorAll('.agent-mention-item').length*36
+          return Math.min(220,total)
+        }
+        return savedClientHeight?.get?savedClientHeight.get.call(this):0
+      },
+    },
+    scrollHeight:{
+      configurable:true,
+      get(this:HTMLElement){
+        if(this.classList?.contains('agent-mentions')){
+          return 8+this.querySelectorAll('.agent-mention-item').length*36
+        }
+        return savedScrollHeight?.get?savedScrollHeight.get.call(this):0
+      },
+    },
+    offsetTop:{
+      configurable:true,
+      get(this:HTMLElement){
+        if(this.classList?.contains('agent-mention-item')&&this.parentElement){
+          const items=[...this.parentElement.querySelectorAll('.agent-mention-item')]
+          const idx=items.indexOf(this)
+          return idx>=0?4+idx*36:0
+        }
+        return savedOffsetTop?.get?savedOffsetTop.get.call(this):0
+      },
+    },
+    offsetHeight:{
+      configurable:true,
+      get(this:HTMLElement){
+        if(this.classList?.contains('agent-mention-item')) return 34
+        return savedOffsetHeight?.get?savedOffsetHeight.get.call(this):0
+      },
+    },
+  })
+  t.after(()=>{
+    if(savedClientHeight) Object.defineProperty(proto,'clientHeight',savedClientHeight); else delete (proto as {clientHeight?:unknown}).clientHeight
+    if(savedScrollHeight) Object.defineProperty(proto,'scrollHeight',savedScrollHeight); else delete (proto as {scrollHeight?:unknown}).scrollHeight
+    if(savedOffsetTop) Object.defineProperty(proto,'offsetTop',savedOffsetTop); else delete (proto as {offsetTop?:unknown}).offsetTop
+    if(savedOffsetHeight) Object.defineProperty(proto,'offsetHeight',savedOffsetHeight); else delete (proto as {offsetHeight?:unknown}).offsetHeight
+  })
+
+  const mkCNode=(id:string,atIso:string):CanvasNode=>({
+    id,title:id,generation:1,state:'live',tier:'sol',kind:'agent',children:[],seat:1,grant:0,free:0,
+    created:atIso,scope:{tools:{},add_dirs:[]},
+  } as unknown as CanvasNode)
+  const nodes=Array.from({length:50},(_,i)=>mkCNode(
+    `agent-${String(i).padStart(2,'0')}`,
+    new Date(Date.parse('2026-10-30T08:00:00Z')-i*60_000).toISOString(),
+  ))
+  const nodeMap=new Map<string,CanvasNode>(nodes.map(n=>[n.id,n]))
+
+  const server=new FakeServer()
+  const prevFetch=globalThis.fetch
+  installFetch(server)
+  t.after(()=>{globalThis.fetch=prevFetch;resetConvos()})
+
+  const v=await mountView(
+    <AgentNavProvider>
+      <ObjectMenuBoundary>
+        <ProvideNav>
+          <DeskChat node={nodes[0]!} map={nodeMap} slug="org" op={async()=>({})} toast={()=>{}} bare onJump={()=>{}} />
+        </ProvideNav>
+      </ObjectMenuBoundary>
+    </AgentNavProvider>,
+    h=>h,
+  )
+  t.after(async()=>{await v.unmount()})
+  await inAct(async()=>{await refreshConvo('org','agent-00');await flush(6)})
+
+  const ta=v.el.querySelector<HTMLTextAreaElement>('fieldset.desk-control-scope textarea')!
+  const typeTa=async(val:string)=>inAct(async()=>{
+    Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype,'value')!.set!.call(ta,val)
+    ta.dispatchEvent(new window.Event('input',{bubbles:true}))
+    ta.setSelectionRange(val.length,val.length)
+    ta.dispatchEvent(new window.Event('select',{bubbles:true}))
+    await flush(4)
+  })
+  const pressKey=async(key:string)=>inAct(async()=>{
+    ta.dispatchEvent(new window.KeyboardEvent('keydown',{key,bubbles:true,cancelable:true}))
+    await flush(3)
+  })
+  const menuEl=()=>document.querySelector<HTMLElement>('.agent-mentions')!
+  const itemEls=()=>[...document.querySelectorAll<HTMLElement>('.agent-mention-item')]
+  const activeEl=()=>document.querySelector<HTMLElement>('.agent-mention-item.active')!
+  const activeName=()=>activeEl()?.querySelector('.agent-mention-name')?.textContent??null
+  const isActiveInView=()=>{
+    const m=menuEl(),a=activeEl()
+    if(!m||!a) return false
+    return a.offsetTop>=m.scrollTop && a.offsetTop+a.offsetHeight<=m.scrollTop+m.clientHeight
+  }
+
+  // 1. Opens scrolled to the bottom (first page of 20 rows), and stays scrolled to the bottom when filter changes or reopens
+  await typeTa('Hello @')
+  assert.equal(itemEls().length,20,'opens with first page of MENU_STEP = 20 rows')
+  assert.equal(menuEl().scrollTop,menuEl().scrollHeight-menuEl().clientHeight,'menu opens scrolled to the bottom')
+  assert.equal(activeName(),'@agent-00','bottom row (rank #1) is highlighted')
+  assert.equal(isActiveInView(),true,'highlighted bottom row is in view on open')
+
+  for(let i=0;i<10;i++) await pressKey('ArrowUp')
+  assert.ok(menuEl().scrollTop<menuEl().scrollHeight-menuEl().clientHeight,'arrowing up scrolls away from the bottom')
+
+  await typeTa('Hello @agent-')
+  assert.equal(itemEls().length,20,'filter change resets to first page of 20 rows')
+  assert.equal(menuEl().scrollTop,menuEl().scrollHeight-menuEl().clientHeight,'menu stays scrolled to the bottom when filter changes')
+  assert.equal(activeName(),'@agent-00','highlight resets to bottom row on filter change')
+  assert.equal(isActiveInView(),true,'highlighted bottom row is in view after filter change')
+
+  for(let i=0;i<10;i++) await pressKey('ArrowUp')
+  await pressKey('Escape')
+  await typeTa('Hello @agent')
+  await typeTa('Hello @agent-')
+  assert.equal(menuEl().scrollTop,menuEl().scrollHeight-menuEl().clientHeight,'reopening at same query scrolls to the bottom')
+  assert.equal(activeName(),'@agent-00')
+
+  // 2. Arrow keys scroll just enough to keep the highlighted row fully in view in both directions
+  await typeTa('View @')
+  for(let i=0;i<12;i++){
+    await pressKey('ArrowUp')
+    assert.equal(isActiveInView(),true,`ArrowUp step ${i+1} keeps highlighted row in view`)
+  }
+  assert.equal(menuEl().scrollTop,activeEl().offsetTop,'ArrowUp aligns newly uncovered row with top of viewport')
+  for(let i=0;i<12;i++){
+    await pressKey('ArrowDown')
+    assert.equal(isActiveInView(),true,`ArrowDown step ${i+1} keeps highlighted row in view`)
+  }
+  assert.equal(menuEl().scrollTop+menuEl().clientHeight,activeEl().offsetTop+activeEl().offsetHeight,
+    'ArrowDown aligns newly uncovered row with bottom of viewport')
+
+  // 3. Lazy loading upward on scroll with no jump in scroll position
+  await typeTa('Lazy @')
+  assert.equal(itemEls().length,20)
+  const topBefore=itemEls()[0]!
+  const topNameBefore=topBefore.querySelector('.agent-mention-name')?.textContent
+  assert.equal(topNameBefore,'@agent-19')
+  const relOffsetBefore=20-topBefore.offsetTop
+  await inAct(async()=>{
+    menuEl().scrollTop=20
+    menuEl().dispatchEvent(new window.Event('scroll',{bubbles:true}))
+    await flush(4)
+  })
+  assert.equal(itemEls().length,40,'scrolling near top lazy-loads next page of 20 rows above')
+  const anchoredAfter=itemEls().find(el=>el.querySelector('.agent-mention-name')?.textContent===topNameBefore)!
+  assert.ok(anchoredAfter,'previous top row remains in list')
+  assert.equal(menuEl().scrollTop-anchoredAfter.offsetTop,relOffsetBefore,'scroll position stays put when rows are added above (no jump)')
+  assert.equal(activeName(),'@agent-00','scrolling up does not move highlight or yank scroll back to bottom')
+
+  // 4. No wrapping: Down on bottom row does nothing, Up on top loaded row loads more above and moves onto it, Up at very top does nothing
+  await typeTa('Nowrap @')
+  assert.equal(activeName(),'@agent-00')
+  await pressKey('ArrowDown')
+  await pressKey('ArrowDown')
+  assert.equal(activeName(),'@agent-00','ArrowDown on bottom row does not wrap')
+
+  for(let i=0;i<19;i++) await pressKey('ArrowUp')
+  assert.equal(itemEls().length,20,'still on first page of 20 rows at index 0')
+  assert.equal(activeName(),'@agent-19','at top loaded row of first page')
+
+  await pressKey('ArrowUp')
+  assert.equal(itemEls().length,40,'ArrowUp on top loaded row loads second page above')
+  assert.equal(activeName(),'@agent-20','ArrowUp on top loaded row moves onto newly loaded row immediately above')
+  assert.equal(isActiveInView(),true,'newly loaded row is kept in view without jumping')
+
+  for(let i=0;i<19;i++) await pressKey('ArrowUp')
+  assert.equal(itemEls().length,40)
+  assert.equal(activeName(),'@agent-39','at top loaded row of second page')
+
+  await pressKey('ArrowUp')
+  assert.equal(itemEls().length,50,'ArrowUp on top loaded row of second page loads remaining rows above')
+  assert.equal(activeName(),'@agent-40','moves onto @agent-40')
+  assert.equal(isActiveInView(),true)
+
+  for(let i=0;i<9;i++) await pressKey('ArrowUp')
+  assert.equal(activeName(),'@agent-49','at very top of all 50 options')
+  await pressKey('ArrowUp')
+  await pressKey('ArrowUp')
+  assert.equal(activeName(),'@agent-49','ArrowUp at very top of all options does nothing and never wraps')
+})
