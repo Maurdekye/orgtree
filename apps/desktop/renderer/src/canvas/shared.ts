@@ -1,5 +1,6 @@
 import { useSurfaceDocument } from '../popout'
 import { isUserName } from './username'
+import type { ListenerLive } from './listeners'
 import { projectBunches, contractBunches, expandBunches, layoutBunchRows } from './projectbunch'
 import { creditSegments } from './creditsegments'
 import { syncFastModes } from './fastmode'
@@ -2203,11 +2204,11 @@ export interface FairQueueLink { key: string; owner: string; project: string; pa
 /** One line per armed or paused fair_queue dog whose project is on the canvas
  *  (its target is the project's name; a rename moves it). Exited and spent
  *  dogs serve nobody and draw nothing. */
-export function fairQueueLinks(dogs: Watchdog[], isProject: (name: string) => boolean): FairQueueLink[] {
+export function fairQueueLinks(dogs: Watchdog[], isProject: (name: string) => boolean, live?: ListenerLive): FairQueueLink[] {
   const out: FairQueueLink[] = []
   for (const w of dogs) {
     // the user's place in the queue is drawn from the switchboard (owner "user", see `canvasOwner`)
-    if (w.kind !== 'fair_queue' || w.spent || (w.state !== 'armed' && w.state !== 'paused')) continue
+    if (w.kind !== 'fair_queue' || w.spent || (w.state !== 'armed' && w.state !== 'paused') || (live && !live(w))) continue
     const project = w.target.replace(/^@/, '')
     if (!isProject(project)) continue
     out.push({ key: 'fq:' + w.id, owner: w.owner, project, paused: w.state === 'paused' })

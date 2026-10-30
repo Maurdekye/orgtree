@@ -4226,9 +4226,11 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
   // listener, its slot) run side by side, never on one another (user
   // 2026-10-18, with the slots mockup): one lane offset per line
   const isProjectId = (p: string) => map.get(p)?.kind === 'project'
-  const fqLinks = fairQueueLinks(tree.watchdogs ?? [], isProjectId)
+  // a retired agent's paused listeners draw no line (listenersLive)
+  const ownerLive = listenersLive(map)
+  const fqLinks = fairQueueLinks(tree.watchdogs ?? [], isProjectId, ownerLive)
   const slLinks = slotLinks(tree.watchdogs ?? [], tree.slot_leases ?? [], isProjectId)
-  const lsLinks = listenerLinks(tree.watchdogs ?? [], isProjectId)
+  const lsLinks = listenerLinks(tree.watchdogs ?? [], isProjectId, ownerLive)
   const lanes = projectLineLanes([
     ...audLines.filter((a) => isProjectId(a.grantor) !== isProjectId(a.grantee))
       .map((a): ProjectLine => ({ key: 'a' + a.grantor + '→' + a.grantee, agent: a.grantor, project: a.grantee })),

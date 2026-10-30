@@ -98,12 +98,12 @@ export interface ListenerLink { key: string; owner: string; project: string; wat
  *  project is on the canvas. Spent one-shots listen for nothing; a dog its
  *  project's event-listeners switch-off disabled is unwired (user
  *  2026-10-20 10:50Z): no line until the setting is on again. */
-export function listenerLinks(dogs: Watchdog[], isProject: (name: string) => boolean): ListenerLink[] {
+export function listenerLinks(dogs: Watchdog[], isProject: (name: string) => boolean, live?: ListenerLive): ListenerLink[] {
   const out: ListenerLink[] = []
   for (const w of dogs) {
     // the user's listeners and watches are drawn from the switchboard (owner "user", see `canvasOwner`)
     if ((w.kind !== 'project_listener' && w.kind !== 'listener_watch') || w.spent || w.disabled
-      || (w.state !== 'armed' && w.state !== 'paused')) continue
+      || (w.state !== 'armed' && w.state !== 'paused') || (live && !live(w))) continue
     const project = target(w)
     if (!isProject(project)) continue
     out.push({
