@@ -252,6 +252,7 @@ pub fn router(engine: Arc<Engine>) -> Router {
         .route("/api/orgs/{slug}/nodes/{nid}/unhalt", post(nodes::unhalt))
         .route("/api/orgs/{slug}/nodes/{nid}/compact", get(nodes::compact_capability).post(nodes::compact))
         .route("/api/orgs/{slug}/nodes/{nid}/harness", get(nodes::harness))
+        .route("/api/orgs/{slug}/hire-harness", get(nodes::hire_harness))
         .route("/api/orgs/{slug}/nodes/{nid}/process", post(nodes::process))
         .route("/api/orgs/{slug}/nodes/{nid}/unstick", post(nodes::unstick))
         .route("/api/orgs/{slug}/nodes/{nid}/continue-on", post(nodes::continue_on))

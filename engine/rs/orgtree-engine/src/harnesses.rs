@@ -158,22 +158,87 @@ pub fn pin_target(pinned: bool, pin_to: Option<&str>, stamp: Option<&str>) -> Op
     pinned.then(|| pin_to.or(stamp)).flatten().map(str::to_string)
 }
 
-/// RED STUB (harness everywhere): no refusal yet.
+/// Why a seat on `tier` may not run harness `id` as its own, or None when
+/// it may: the one rule the Model tab, the hire dialog, the hire tool and
+/// orgtree_retool share (user 2026-10-30 07:36Z "fix both yes"). An
+/// OpenRouter seat may run any selectable harness installed here; a
+/// language model server seat one its server can carry
+/// (`langserver::seat_choices`); any other tier runs on its own CLI.
+/// `server` is the tier's server, when it has one.
 #[nolog]
-pub fn seat_refusal(_tier: &str, _server: Option<&Value>, _id: &str, _installed: &dyn Fn(&str) -> bool) -> Option<String> {
-    None
+pub fn seat_refusal(tier: &str, server: Option<&Value>, id: &str, installed: &dyn Fn(&str) -> bool) -> Option<String> {
+    let names = |provider: &str| selectable_for(provider).iter().map(|h| h.id).collect::<Vec<_>>().join(", ");
+    if catalog::is_openrouter(tier) {
+        if !selectable_for(catalog::OPENROUTER).iter().any(|h| h.id == id) {
+            return Some(format!("the harness is one of {} for OpenRouter agents", names(catalog::OPENROUTER)));
+        }
+        return (!installed(id)).then(|| not_installed(id));
+    }
+    if !catalog::is_langserver(tier) {
+        return Some(format!("{tier} runs on {}: a harness is chosen only for OpenRouter and language model server agents",
+            catalog::provider_label(catalog::provider_of(tier))));
+    }
+    let Some(server) = server else {
+        return Some(format!("{tier} is not a model of any language model server this app knows"));
+    };
+    match crate::langserver::seat_choices(server, installed).into_iter().find(|o| o["id"] == id) {
+        None => Some(format!("the harness is one of {} for language model server agents", names(catalog::LANGSERVER))),
+        Some(o) if o["available"] != json!(true) => Some(o["why"].as_str().unwrap_or("that harness cannot drive this server").to_string()),
+        Some(_) => None,
+    }
 }
 
-/// RED STUB (harness everywhere): a retool never changes the harness yet.
-#[nolog]
-pub fn retool_choice(_v: Option<&Value>) -> std::result::Result<Option<Option<String>>, String> {
-    Ok(None)
+/// `seat_refusal` with what is installed here, as a refusal.
+#[logged]
+pub fn require_seat_choice(engine: &Engine, tier: &str, id: &str) -> Result<()> {
+    let server = crate::langserver::route_of(engine, tier).map(|(s, _)| s);
+    if let Some(why) = seat_refusal(tier, server.as_ref(), id, &|h| installed(engine, h)) {
+        crate::refuse!(BadRequest, "{why}");
+    }
+    Ok(())
 }
 
-/// RED STUB (harness everywhere): no hire dialog row yet.
+/// A retool's `harness` (user 2026-10-30 "fix both yes"): absent or null
+/// leaves the seat's harness as it is, "follow" clears its own harness so it
+/// follows its key or server again (Some(None)), and any other value names
+/// the harness to pin (Some(Some(id)), checked by `seat_refusal`).
 #[nolog]
-pub fn hire_row(_engine: &Engine, _tier: &str, _account: Option<&str>) -> Value {
-    Value::Null
+pub fn retool_choice(v: Option<&Value>) -> std::result::Result<Option<Option<String>>, String> {
+    match v {
+        None | Some(Value::Null) => Ok(None),
+        Some(Value::String(s)) if s == "follow" => Ok(Some(None)),
+        Some(Value::String(s)) if !s.trim().is_empty() => Ok(Some(Some(s.trim().to_string()))),
+        Some(_) => Err("harness is a harness id (claude-code, codex-cli or opencode), or \"follow\" to follow its key or server again".into()),
+    }
+}
+
+/// The hire dialog's Harness row (user 2026-10-30 "fix both yes"): the
+/// Model tab's row for a seat not hired yet, on `tier` with the OpenRouter
+/// key `account` the draft names (None: the first key). It has no pin, no
+/// session and no move: it starts on its choice, or on what it follows.
+#[logged]
+pub fn hire_row(engine: &Engine, tier: &str, account: Option<&str>) -> Value {
+    let (lane, follow, options) = lane_row(engine, tier, account);
+    json!({ "tier": tier, "lane": lane, "follow": follow, "pin": null, "current": null, "options": options, "moves": false })
+}
+
+/// A Harness row's lane, what a seat on `tier` follows (its key, `account`,
+/// or its server) and the harnesses it may choose; Null and none for a tier
+/// without a harness choice.
+#[logged]
+fn lane_row(engine: &Engine, tier: &str, account: Option<&str>) -> (Value, Value, Vec<Value>) {
+    let follow = |id: &str, source: &str, name: String| json!({ "id": id, "label": label(id), "installed": installed(engine, id), "source": source, "name": name });
+    if catalog::is_openrouter(tier) {
+        let key = crate::openrouter::seat_key(engine, account);
+        let name = engine.accounts.view().get(&key).map(|a| crate::openrouter::display(engine, &a)).unwrap_or_default();
+        (json!(catalog::OPENROUTER), follow(&crate::openrouter::key_harness(engine, &key), "key", name), options(engine, catalog::OPENROUTER))
+    } else if let Some((server, _)) = catalog::is_langserver(tier).then(|| crate::langserver::route_of(engine, tier)).flatten() {
+        let own = crate::langserver::seat_harness(&server, None);
+        let name = server["label"].as_str().unwrap_or("").to_string();
+        (json!(catalog::LANGSERVER), follow(&own, "server", name), crate::langserver::seat_options(engine, &server))
+    } else {
+        (Value::Null, Value::Null, Vec::new())
+    }
 }
 
 /// The agent settings Model tab's Harness row (user 2026-10-29) for the
@@ -199,19 +264,8 @@ pub async fn seat_row(engine: &Engine, id: i64, tier: Option<&str>) -> Result<Va
     let moves = tier != runs && (!stays || (catalog::is_langserver(&tier) && server_of(&tier) != server_of(&runs)));
     let pin = if stays { seat_pin(&extra) } else { None };
     let current = if stays { extra["harness"].as_str().map(str::to_string) } else { None };
-    let follow = |id: &str, source: &str, name: String| json!({ "id": id, "label": label(id), "installed": installed(engine, id), "source": source, "name": name });
-    let (lane, follow, options) = if catalog::is_openrouter(&tier) {
-        let account: Option<String> = if stays { r.get(1) } else { None };
-        let key = crate::openrouter::seat_key(engine, account.as_deref());
-        let name = engine.accounts.view().get(&key).map(|a| crate::openrouter::display(engine, &a)).unwrap_or_default();
-        (json!(catalog::OPENROUTER), follow(&crate::openrouter::key_harness(engine, &key), "key", name), options(engine, catalog::OPENROUTER))
-    } else if let Some((server, _)) = catalog::is_langserver(&tier).then(|| crate::langserver::route_of(engine, &tier)).flatten() {
-        let own = crate::langserver::seat_harness(&server, None);
-        let name = server["label"].as_str().unwrap_or("").to_string();
-        (json!(catalog::LANGSERVER), follow(&own, "server", name), crate::langserver::seat_options(engine, &server))
-    } else {
-        (Value::Null, Value::Null, Vec::new())
-    };
+    let account: Option<String> = if stays { r.get(1) } else { None };
+    let (lane, follow, options) = lane_row(engine, &tier, account.as_deref());
     Ok(json!({ "tier": tier, "lane": lane, "follow": follow, "pin": pin, "current": current, "options": options, "moves": moves }))
 }
 

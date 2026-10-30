@@ -1,4 +1,5 @@
-// Proof: `harness` on a hire or a staffing is for OpenRouter tiers; naming the
+// Proof: `harness` on a hire or a staffing is for OpenRouter and language model
+// server tiers (user 2026-10-30 "fix both yes" added server seats); naming the
 // tier's own CLI anywhere else is a no-op, and only a real mismatch is refused,
 // saying which CLI the tier runs on (coordinator 2026-10-09: an opus hire with
 // harness=claude-code was refused as "harness is claude-code or codex-cli for an
@@ -15,9 +16,9 @@ export default async function (rig) {
   const cases = [
     ['ha-opus', 'opus', 'claude-code', null],
     ['ha-luna', 'luna', 'codex-cli', null],
-    ['hb-opus', 'opus', 'codex-cli', 'harness only applies to OpenRouter tiers; opus always runs on claude-code'],
-    ['hb-luna', 'luna', 'claude-code', 'harness only applies to OpenRouter tiers; luna always runs on codex-cli'],
-    ['hb-flash', 'flash', 'claude-code', 'harness only applies to OpenRouter tiers; flash always runs on antigravity'],
+    ['hb-opus', 'opus', 'codex-cli', 'harness applies to OpenRouter and language model server tiers;opus always runs on claude-code'],
+    ['hb-luna', 'luna', 'claude-code', 'harness applies to OpenRouter and language model server tiers;luna always runs on codex-cli'],
+    ['hb-flash', 'flash', 'claude-code', 'harness applies to OpenRouter and language model server tiers;flash always runs on antigravity'],
   ]
   for (const [name, tier, harness, refusal] of cases) {
     const got = await hire(name, tier, harness)

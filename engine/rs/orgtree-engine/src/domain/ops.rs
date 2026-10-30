@@ -1608,26 +1608,25 @@ async fn hire(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transaction<'_>, 
         .get(0);
     stamp_harness(engine, tx, id, &tier, true).await?;
     if let Some(h) = str_arg(req, "harness") {
-        if catalog::is_openrouter(&tier) {
-            // only a harness installed here (user 2026-10-13)
-            crate::harnesses::require_choice(engine, catalog::OPENROUTER, h)?;
-            // an explicit harness pins the seat: it wins over its key's
-            // harness, now and after the key changes (user ruling 2026-10-13)
+        if catalog::is_openrouter(&tier) || catalog::is_langserver(&tier) {
+            // only a harness this seat can run: installed here (user
+            // 2026-10-13) and, on a server, one it can carry (user
+            // 2026-10-30 07:36Z "fix both yes": server seats too)
+            crate::harnesses::require_seat_choice(engine, &tier, h)?;
+            // an explicit harness pins the seat: it wins over its key's or
+            // server's harness, now and after that changes (user ruling
+            // 2026-10-13)
             tx.execute("UPDATE ot.agents SET extra = extra || jsonb_build_object('harness', $2::text, 'harness_pin', true, 'harness_pin_to', $2::text) WHERE id = $1",
                 &[&id, &h]).await?;
         } else {
             // any other tier always runs on its own CLI: naming that one is a no-op
             let native = match catalog::provider_of(&tier) {
-                catalog::OPENAI => "codex-cli".to_string(),
-                catalog::GOOGLE => "antigravity".to_string(),
-                // a language model server's harness is the one it was added with
-                catalog::LANGSERVER => crate::langserver::route_of(engine, &tier)
-                    .and_then(|(s, _)| s["harness"].as_str().map(str::to_string))
-                    .unwrap_or_else(|| "claude-code".to_string()),
-                _ => "claude-code".to_string(),
+                catalog::OPENAI => "codex-cli",
+                catalog::GOOGLE => "antigravity",
+                _ => "claude-code",
             };
             if h != native {
-                refuse!(BadRequest, "harness only applies to OpenRouter tiers; {tier} always runs on {native}");
+                refuse!(BadRequest, "harness applies to OpenRouter and language model server tiers; {tier} always runs on {native}");
             }
         }
     }
@@ -3292,46 +3291,41 @@ async fn reorder(org: &Arc<OrgHandle>, tx: &Transaction<'_>, actor: &Actor, req:
     Ok(json!({ "node": n.name, "index": pos, "live_sibling_count": list.len() + 1, "sibling_order": order }))
 }
 
-/// A seat's own harness, or none (user 2026-10-29 14:26Z: the agent
-/// settings Model tab's Harness row; no agent tool sets it). `harness` names
-/// one its lane offers and that is installed here; null or empty clears it,
-/// and the seat follows its OpenRouter key or its language model server
-/// again. Nothing moves now: its next turn boundary crosses to the harness
-/// it should run on, on a fresh session that starts with a summary (the
-/// actor's `cross_harness`), never mid-turn. A queued model switch is judged
-/// as the tier the seat will run.
+/// The user's choice of a seat's own harness (user 2026-10-29 14:26Z: the
+/// agent settings Model tab's Harness row): `set_harness`. Null or empty
+/// clears it. An agent changes a report's with orgtree_retool's `harness`.
 #[logged]
 async fn harness(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transaction<'_>, actor: &Actor, req: &Value, fx: &mut Effects) -> Result<Value> {
     if !matches!(actor, Actor::User) {
-        refuse!(Forbidden, "an agent's harness is chosen by the user, in its settings' Model tab");
+        refuse!(Forbidden, "an agent changes a report's harness with orgtree_retool's harness field");
     }
     let n = node_by_name(tx, org.id, str_arg(req, "node").unwrap_or("")).await?;
     agent_only(&n, "choose a harness")?;
+    set_harness(engine, org, tx, actor, &n, str_arg(req, "harness"), fx).await
+}
+
+/// A seat's own harness, or none: the Model tab's Harness row and
+/// orgtree_retool's `harness` (user 2026-10-30 07:36Z "fix both yes"; the
+/// caller is authorized). `want` names one its lane offers that it can run
+/// (`harnesses::seat_refusal`); None clears it, and the seat follows its
+/// OpenRouter key or its language model server again. Nothing moves now:
+/// its next turn boundary crosses to the harness it should run on, on a
+/// fresh session that starts with a summary (the actor's `cross_harness`),
+/// never mid-turn. A queued model switch is judged as the tier the seat
+/// will run.
+#[logged]
+async fn set_harness(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transaction<'_>, actor: &Actor, n: &Node, want: Option<&str>, fx: &mut Effects) -> Result<Value> {
     let pending: Option<Value> = tx.query_one("SELECT pending_switch FROM ot.agents WHERE id = $1", &[&n.id]).await?.get(0);
     if pending.as_ref().is_some_and(|p| p["crossing"] == json!(true)) {
         refuse!(Conflict, "{} has a model change queued that starts a fresh session; choose its harness after it applies", n.name);
     }
     let tier = pending.as_ref().and_then(|p| p["tier"].as_str()).unwrap_or(&n.tier).to_string();
-    let want = str_arg(req, "harness");
     if !(catalog::is_openrouter(&tier) || catalog::is_langserver(&tier)) {
         refuse!(BadRequest, "{} runs on {}: a harness is chosen only for OpenRouter and language model server agents",
             n.name, catalog::provider_label(catalog::provider_of(&tier)));
     }
     if let Some(h) = want {
-        if catalog::is_openrouter(&tier) {
-            crate::harnesses::require_choice(engine, catalog::OPENROUTER, h)?;
-        } else {
-            let Some((server, _)) = crate::langserver::route_of(engine, &tier) else {
-                refuse!(Conflict, "{tier} is not a model of any language model server this app knows");
-            };
-            let options = crate::langserver::seat_options(engine, &server);
-            let Some(o) = options.iter().find(|o| o["id"].as_str() == Some(h)) else {
-                refuse!(BadRequest, "the harness is claude-code, codex-cli or opencode");
-            };
-            if o["available"] != json!(true) {
-                refuse!(BadRequest, "{}", o["why"].as_str().unwrap_or("that harness cannot drive this server"));
-            }
-        }
+        crate::harnesses::require_seat_choice(engine, &tier, h)?;
     }
     let extra: Value = tx.query_one("SELECT coalesce(extra, '{}'::jsonb) FROM ot.agents WHERE id = $1", &[&n.id]).await?.get(0);
     let was = crate::harnesses::seat_pin(&extra);
@@ -3350,6 +3344,13 @@ async fn harness(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transaction<'_
     fx.agents.insert(n.id);
     fx.reconfigure.push(n.id);
     Ok(json!({ "node": n.name, "harness": want, "was": was }))
+}
+
+/// A retool's word on the seat's harness: its own (`pin`; null when it
+/// follows its key or server), the one before, and when it applies.
+#[nolog]
+fn retool_harness_out(r: &Value) -> Value {
+    json!({ "pin": r["harness"], "was": r["was"], "applies": "next_turn" })
 }
 
 #[logged]
@@ -3831,6 +3832,19 @@ async fn retool(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transaction<'_>
     } else if !preauthorized {
         authorize(tx, actor, &n, "retool").await?;
     }
+    // its own harness (user 2026-10-30 07:36Z "fix both yes"), read before
+    // anything is written; on yourself it was refused above
+    let harness = match crate::harnesses::retool_choice(req.get("harness")) {
+        Ok(h) => h,
+        Err(why) => refuse!(BadRequest, "{why}"),
+    };
+    // A harness-only call touches nobody beneath and restarts nothing: like
+    // the Model tab's Harness row, the seat moves at its next turn boundary.
+    if let Some(want) = harness.as_ref().filter(|_| req.as_object().is_some_and(|o|
+        o.keys().all(|k| matches!(k.as_str(), "op" | "node" | "harness")))) {
+        let r = set_harness(engine, org, tx, actor, &n, want.as_deref(), fx).await?;
+        return Ok(json!({ "node": n.name, "harness": retool_harness_out(&r), "cascaded": [] }));
+    }
     let fast = if let Some(value) = req.get("fast_mode") {
         let pending: Option<String> = tx.query_one("SELECT pending_switch->>'tier' FROM ot.agents WHERE id=$1", &[&n.id]).await?.get(0);
         Some(crate::providers::fast_mode::validate_next_turn(
@@ -3971,7 +3985,7 @@ async fn retool(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transaction<'_>
     // an effort change alone restarts nobody's process (the delivery after
     // commit settles the agent's own), as on the user's settings path
     let effort_only = req.as_object().is_some_and(|o| {
-        o.iter().all(|(k, v)| ["op", "node", "effort", "fast_mode"].contains(&k.as_str()) || v.is_null())
+        o.iter().all(|(k, v)| ["op", "node", "effort", "fast_mode", "harness"].contains(&k.as_str()) || v.is_null())
     });
     let mut cascaded = Vec::new();
     // the folders each raised ancestor gained, and each descendant lost
@@ -4019,6 +4033,10 @@ async fn retool(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transaction<'_>
     let account_result = if str_arg(req, "account").is_some() {
         Some(account(engine, org, tx, actor, req, fx).await?)
     } else { None };
+    let harness_result = match &harness {
+        Some(want) => Some(set_harness(engine, org, tx, actor, &n, want.as_deref(), fx).await?),
+        None => None,
+    };
     tx.execute(
         "UPDATE ot.agents SET scope = $2, charter = coalesce($3, charter), team_charter = coalesce($4, team_charter),
                 row_version = row_version + 1 WHERE id = $1",
@@ -4062,6 +4080,9 @@ async fn retool(engine: &Arc<Engine>, org: &Arc<OrgHandle>, tx: &Transaction<'_>
     }
     fx.events = true;
     let mut out = account_result.unwrap_or_else(|| json!({}));
+    if let Some(r) = &harness_result {
+        out["harness"] = retool_harness_out(r);
+    }
     out["cascaded"] = json!(cascaded);
     let mut warnings = Vec::new();
     if !cascaded.is_empty() { warnings.push(format!("cascaded permission increase to agents {}", cascaded.join(", "))); }

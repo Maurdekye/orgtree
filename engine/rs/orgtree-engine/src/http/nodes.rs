@@ -642,6 +642,21 @@ pub async fn harness(State(e): State<Arc<Engine>>, Path((slug, nid)): Path<(Stri
     Ok(Json(crate::harnesses::seat_row(&e, a.id, q.tier.as_deref()).await?))
 }
 
+#[derive(Deserialize, Debug)]
+pub struct HireHarnessQuery {
+    tier: Option<String>,
+    account: Option<String>,
+}
+
+/// The hire dialog's Harness row (`harnesses::hire_row`): `?tier=` is the
+/// draft's model and `?account=` the account it names, if any.
+#[logged]
+pub async fn hire_harness(State(e): State<Arc<Engine>>, Path(slug): Path<String>, Query(q): Query<HireHarnessQuery>) -> ApiResult<Json<Value>> {
+    let _org = org(&e, &slug)?;
+    let account = q.account.as_deref().map(str::trim).filter(|a| !a.is_empty());
+    Ok(Json(crate::harnesses::hire_row(&e, q.tier.as_deref().unwrap_or("").trim(), account)))
+}
+
 /// Read the same effective harness the actor uses without starting a process.
 /// The POST still rechecks turn/session/admission state when the user acts.
 #[logged]

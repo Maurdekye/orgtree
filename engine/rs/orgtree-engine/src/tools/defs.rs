@@ -945,7 +945,7 @@ fn build_tool_hire() -> Value {
                 "index": { "type": "integer", "minimum": 0, "description": "required zero-based live sibling insertion position" },
                 "kickoff": { "type": "string", "description": "first message to send it" },
                 "harness": { "type": "string", "enum": ["claude-code", "codex-cli", "opencode"],
-                             "description": "OpenRouter tiers only: pins this seat to the harness; omitted, it follows its key's harness" },
+                             "description": "OpenRouter and language model server tiers: pins this seat to the harness (on a server, one it can carry); omitted, it follows its key's or server's harness" },
                 "kickoff_kind": { "type": "string", "enum": KINDS }, "work_item": { "type": "string" },
             }),
             new_hire_scope_props(DIRS_HIRE),
@@ -1032,7 +1032,9 @@ fn build_tool_retool() -> Value {
         "Change a descendant's supplied scope/charter fields. Folder additions preserve others; removing/restricting folders also restricts descendants. Unspecified fields stay unchanged.",
         merge(json!({ "node": { "type": "string" }, "charter": { "type": "string" },
                       "remove_dirs": { "type": "array", "items": { "type": "string" },
-                                       "description": "folders it holds to remove" } }),
+                                       "description": "folders it holds to remove" },
+                      "harness": { "type": "string", "enum": ["claude-code", "codex-cli", "opencode", "follow"],
+                                   "description": "OpenRouter and language model server seats: runs it on this harness from its next turn (a fresh session with a summary); \"follow\" returns it to its key's or server's" } }),
               scope_props(DIRS_RETOOL)),
         &["node"],
     )
@@ -1283,7 +1285,7 @@ fn build_tool_staff() -> Value {
                     "hire_type": { "type": "string", "enum": ["subordinate", "superior"] },
                     "index": { "type": "integer", "minimum": 0, "description": "REQUIRED for a new hire: zero-based live sibling insertion position (superior insertion excludes target); rehire retains existing placement" },
                     "harness": { "type": "string", "enum": ["claude-code", "codex-cli", "opencode"],
-                                 "description": "OpenRouter tiers only: pins this seat to the harness; omitted, it follows its key's harness" },
+                                 "description": "OpenRouter and language model server tiers: pins this seat to the harness (on a server, one it can carry); omitted, it follows its key's or server's harness" },
                     "kickoff_kind": { "type": "string", "enum": KINDS } }),
             new_hire_scope_props(DIRS_HIRE),
         ),
@@ -2049,6 +2051,18 @@ mod builder_stack_tests {
                 for (key, schema) in fields.as_object().unwrap() {
                     want["inputSchema"]["properties"][key] = schema.clone();
                 }
+            }
+            // Harness everywhere (user 2026-10-30 07:36:24Z m5611018df279,
+            // "fix both yes"): orgtree_retool changes a report's harness, and
+            // the hire tools pin language model server seats too.
+            if name == "orgtree_retool" {
+                want["inputSchema"]["properties"]["harness"] = serde_json::json!({ "type": "string",
+                    "enum": ["claude-code", "codex-cli", "opencode", "follow"],
+                    "description": "OpenRouter and language model server seats: runs it on this harness from its next turn (a fresh session with a summary); \"follow\" returns it to its key's or server's" });
+            }
+            if matches!(name, "orgtree_hire" | "orgtree_staff") {
+                want["inputSchema"]["properties"]["harness"]["description"] = serde_json::json!(
+                    "OpenRouter and language model server tiers: pins this seat to the harness (on a server, one it can carry); omitted, it follows its key's or server's harness");
             }
             assert_eq!(*want,*got,"{name}: differs beyond fast_mode");
             *want=got.clone();
