@@ -742,6 +742,7 @@ mod delivered_to_stays_inside_the_org {
     #[test] fn a_reply_quote_is_made_from_seven_named_columns_never_the_whole_row() {
         assert_eq!(QUOTE_COLS, "uid, dir, peer, by_name, at, body, net_id");
         let source = include_str!("orginbox.rs");
+        let source = &source[..source.find("#[cfg(test)]").unwrap()]; // this file's code, not these assertions
         let quote = between(source, "fn inbox_quote", "pub async fn sent_quote");
         assert!(!quote.contains("delivered_to") && !quote.contains("to_jsonb"), "the quote is built from its columns, not a row dump");
         assert_eq!(source.matches("SELECT {QUOTE_COLS} FROM ot.org_inbox").count(), 3, "every quote query selects only QUOTE_COLS");
