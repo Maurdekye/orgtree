@@ -41,6 +41,7 @@ mod discovery;
 pub mod recent;
 pub(crate) mod transport;
 pub(crate) mod typing;
+pub(crate) mod presence;
 
 pub const LOCAL_HUB_ID: &str = "local";
 pub const DEFAULT_HUB_ADDRESS: &str = "http://127.0.0.1:7370";

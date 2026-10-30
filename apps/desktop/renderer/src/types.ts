@@ -273,6 +273,10 @@ export interface NetPeer {
   username?: string | null
   blurb?: string | null
   online: boolean
+  /** mail hub 2.3.0: online, but busy (an org none of whose org-inbox
+   *  holders can start a turn; a person away from Hubchat for an hour). A
+   *  hub before 2.3.0 sends none: the address is online as before. */
+  busy?: boolean
   last_seen?: string | null
   kind?: 'org' | 'chat' | 'person'  // FR-06: independent chats are clients too; person: a Hubchat user (mail hub v2)
   /** mail hub 2.2: the identity's picture metadata (no bytes; a removal has

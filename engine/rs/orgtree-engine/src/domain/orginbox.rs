@@ -294,6 +294,18 @@ async fn runnable<C: tokio_postgres::GenericClient + Sync>(client: &C, org_id: i
     Ok(names.iter().filter(|n| ready.contains(n)).cloned().collect())
 }
 
+/// Busy presence (Mail hub 2.3.0; user 2026-10-30 23:03Z, docket
+/// org-presence-busy-orange-when-no-org-inbox-holde): whether the org shows
+/// busy on its hubs. Red: not decided yet.
+#[logged]
+pub async fn busy<C: tokio_postgres::GenericClient + Sync>(_client: &C, _org_id: i64, _multi: bool) -> Result<bool> {
+    Ok(false)
+}
+
+#[cfg(test)]
+#[path = "orginbox_busy_tests.rs"]
+mod busy_tests;
+
 /// Who gets inbound outside mail (decision 59): the holders who can run;
 /// while none can, the first top-level agent who can (no grant: the
 /// audience stays with the holders). With nobody able to run it goes to the
