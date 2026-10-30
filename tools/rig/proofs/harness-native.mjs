@@ -16,9 +16,9 @@ export default async function (rig) {
   const cases = [
     ['ha-opus', 'opus', 'claude-code', null],
     ['ha-luna', 'luna', 'codex-cli', null],
-    ['hb-opus', 'opus', 'codex-cli', 'harness applies to OpenRouter and language model server tiers;opus always runs on claude-code'],
-    ['hb-luna', 'luna', 'claude-code', 'harness applies to OpenRouter and language model server tiers;luna always runs on codex-cli'],
-    ['hb-flash', 'flash', 'claude-code', 'harness applies to OpenRouter and language model server tiers;flash always runs on antigravity'],
+    ['hb-opus', 'opus', 'codex-cli', 'harness applies to OpenRouter and language model server tiers; opus always runs on claude-code'],
+    ['hb-luna', 'luna', 'claude-code', 'harness applies to OpenRouter and language model server tiers; luna always runs on codex-cli'],
+    ['hb-flash', 'flash', 'claude-code', 'harness applies to OpenRouter and language model server tiers; flash always runs on antigravity'],
   ]
   for (const [name, tier, harness, refusal] of cases) {
     const got = await hire(name, tier, harness)
@@ -27,10 +27,11 @@ export default async function (rig) {
         : got.ok && rig.agentRow(name)?.state === 'live' && !rig.agentRow(name)?.extra?.harness,
       got.ok ? { node: got.r?.node, extra: rig.agentRow(name)?.extra } : got)
   }
-  // the reported case came through staffing as well
+  // the reported case came through staffing as well (a staffed hire names its
+  // place among its siblings, `index`, since the ordering change: agent-ordering.mjs)
   const staffed = await rig.tool('boss', 'orgtree_staff', { action: 'create', title: 'Harness staffing ticket', kind: 'code',
     objective: 'A ticket for the harness proof.\n\nNothing depends on it.', name: 'hc-opus', tier: 'opus', harness: 'claude-code',
-    grant: 0, charter: 'You check one thing for the harness proof.', add_dirs: [], org_visibility: 'self',
+    grant: 0, index: 0, charter: 'You check one thing for the harness proof.', add_dirs: [], org_visibility: 'self',
     tools: { bash: false, web: false, edit: false, subagents: false, mcp: [] } })
   p.check('orgtree_staff with tier=opus and harness=claude-code staffs the ticket', staffed.ok && rig.agentRow('hc-opus')?.state === 'live',
     staffed.ok ? { agent: rig.agentRow('hc-opus')?.state } : staffed.text?.slice(0, 300))

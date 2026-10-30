@@ -82,9 +82,11 @@ export default async function (rig) {
 
   // ------------------------------------------------------------- with other fields
   const both = await retool(AGENT, { harness: 'codex-cli', charter: 'PROOF-RETOOL charter, set with its harness.' })
+  const charter = rig.sql(`SELECT a.charter FROM ot.agents a JOIN ot.orgs o ON o.id = a.org_id
+                           WHERE o.slug = '${rig.org}' AND a.name = '${AGENT}'`)[0]?.charter
   p.check('a retool with a harness and a charter applies both', both.ok && both.json?.harness?.pin === 'codex-cli'
-    && extra().harness_pin_to === 'codex-cli' && rig.agentRow(AGENT)?.charter === 'PROOF-RETOOL charter, set with its harness.',
-    { both: both.json ?? both.text, extra: extra() })
+    && extra().harness_pin_to === 'codex-cli' && charter === 'PROOF-RETOOL charter, set with its harness.',
+    { both: both.json ?? both.text, pin: extra().harness_pin_to, charter })
 
   p.keep(rig, { agents: [AGENT, OTHER], grep: /harness|switch|pilot|retool|panic/i })
   return p.summary()
