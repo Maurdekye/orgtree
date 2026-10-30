@@ -83,6 +83,12 @@
      this line is a zero-pixel change that simply makes it themeable and stops
      the next edit from having to change the literal in fifteen places. */
   --warn: #e5c07b;
+  /* Busy presence (mail hub 2.3.0): an address online that no one can answer
+     now. The caution amber, "Amber (existing caution colour)" (USER 2026-10-30
+     23:19Z mfb051a00d947); every busy dot reads this one token, so another
+     colour is a one-line change. On :root with --warn, so it follows the
+     light themes' --warn too. */
+  --busy: var(--warn);
   /* The notice flair edge (§9.3 / notice channel): a subtle dashed neutral
      edge that marks passive context (notice mail cards in transcripts, and the
      composer when armed in notice mode) without shouting over active turns. */

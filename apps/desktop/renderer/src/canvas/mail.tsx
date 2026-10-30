@@ -2452,7 +2452,7 @@ function NetSection({ net }: { net?: TreePayload['net'] }) {
                         ? ` · last seen ${fmtShort(r.last_seen)}` : '')
                         + ' · reachable via: '
                         + (r.transports ?? ['net']).join(', ')}>
-                      <PresenceDot online={rowPresence(r)} />
+                      <PresenceDot state={rowPresence(r)} />
                       <HubContactChip address={'@net:' + r.slug} />
                       <span className="dim"> {(r.transports ?? ['net']).join('·')}</span>
                     </span>

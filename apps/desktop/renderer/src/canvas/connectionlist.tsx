@@ -31,7 +31,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { NetHub, NetPeer } from '../types'
 import { HubContactChip } from './agentmentions'
-import { netPresence, useNetMentionState } from './netmentions'
+import { NET_PRESENCE_WORD, netPresence, peerPresence, useNetMentionState, type NetPresence } from './netmentions'
 import './connectionlist.css'
 
 /** Rows shown before the list scrolls. */
@@ -64,15 +64,18 @@ const collator = new Intl.Collator('en', { sensitivity: 'base', numeric: true })
 
 /** The presence a row shows: the one the hubs list for its address (the
  *  chip's hover says the same), else the row's own. */
-export const rowPresence = (p: NetPeer): boolean => netPresence('@net:' + p.slug) ?? !!p.online
+export const rowPresence = (p: NetPeer): NetPresence => netPresence('@net:' + p.slug) ?? peerPresence(p)
 
-/** Online first, then offline; within each, the newest mail first; an
- *  address with none goes last, A-Z by the name its chip shows, then by
- *  address, so equal times and names still keep one order. */
+/** The place of each presence in a list. */
+const PRESENCE_RANK: Record<NetPresence, number> = { online: 0, busy: 1, offline: 2 }
+
+/** Online first, then busy, then offline; within each, the newest mail
+ *  first; an address with none goes last, A-Z by the name its chip shows,
+ *  then by address, so equal times and names still keep one order. */
 export function sortConnections(rows: readonly NetPeer[], recent: Recency,
-  online: (p: NetPeer) => boolean = p => !!p.online): NetPeer[] {
-  return rows.map(p => ({ p, on: online(p), at: recent.get(p.slug.toLowerCase()) ?? null, name: connectionName(p) }))
-    .sort((a, b) => Number(b.on) - Number(a.on)
+  presence: (p: NetPeer) => NetPresence = peerPresence): NetPeer[] {
+  return rows.map(p => ({ p, rank: PRESENCE_RANK[presence(p)], at: recent.get(p.slug.toLowerCase()) ?? null, name: connectionName(p) }))
+    .sort((a, b) => a.rank - b.rank
       || (a.at === b.at ? 0 : a.at === null ? 1 : b.at === null ? -1 : b.at - a.at)
       || collator.compare(a.name, b.name)
       || (a.p.slug < b.p.slug ? -1 : a.p.slug > b.p.slug ? 1 : 0))
@@ -82,10 +85,11 @@ export function sortConnections(rows: readonly NetPeer[], recent: Recency,
 /** A hub's own dot (connected or not, beside its status words), in words: its hover. */
 export const hubDotTitle = (h: NetHub): string => h.connected ? 'Connected' : 'Not connected'
 
-/** The presence dot: its shape and colour carry the state, its hover the word. */
-export function PresenceDot({ online }: { online: boolean }) {
-  const word = online ? 'Online' : 'Offline'
-  return <span className={'presence-dot ' + (online ? 'online' : 'offline')} role="img" aria-label={word} title={word} />
+/** The presence dot: its shape and colour carry the state (busy: filled
+ *  with the one --busy token), its hover the word. */
+export function PresenceDot({ state }: { state: NetPresence }) {
+  const word = NET_PRESENCE_WORD[state]
+  return <span className={'presence-dot ' + state} role="img" aria-label={word} title={word} />
 }
 
 /** One hub's connections: rows, sorted, scrolling past VISIBLE_ROWS, with
@@ -145,7 +149,7 @@ export function ConnectionList({ rows, recent, label }: { rows: readonly NetPeer
     {first > 0 && <div className="conn-gap" aria-hidden="true" style={{ height: first * rowPx }} />}
     {order.slice(first, last).map((p, i) =>
       <div key={p.slug} className="conn-row" role="listitem" aria-posinset={first + i + 1} aria-setsize={order.length}>
-        <PresenceDot online={rowPresence(p)} />
+        <PresenceDot state={rowPresence(p)} />
         <HubContactChip address={'@net:' + p.slug} />
       </div>)}
     {last < order.length && <div className="conn-gap" aria-hidden="true" style={{ height: (order.length - last) * rowPx }} />}
