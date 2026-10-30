@@ -76,6 +76,13 @@ test('the panel renders the endpoint numbers and builds a history', async () => 
     assert.match(text, /overflow 1/)
     assert.match(text, /200 \/ 256/, 'the stuck window row shows queued / cap')
     assert.match(text, /3\.13 MB/)
+    // seconds sit against their number, as the transcript's durations do (USER 2026-10-30 mf5ac518e2d05)
+    assert.match(text, /every 1s/)
+    assert.match(text, /Docket list, last 60s/)
+    assert.match(text, /write timeout \d+s/)
+    assert.match(text, /evicted after \d+s idle/)
+    assert.match(text, /120s/, 'the first window row\'s age')
+    assert.doesNotMatch(text, /\d s\b/, 'a number and its seconds unit are never split by a space')
     assert.match(text, new RegExp(`${WINDOW_ID} \\(this\\)`), 'this window is not marked')
     // one sample: no line drawn yet
     assert.equal(view.el.querySelectorAll('polyline').length, 0)
@@ -83,13 +90,13 @@ test('the panel renders the endpoint numbers and builds a history', async () => 
     await advance(1000)
     assert.equal(s.calls, 2, 'no second poll after 1 s')
     assert.ok(view.el.querySelectorAll('polyline').length >= 4, 'no history lines after two samples')
-    assert.match(view.last(), /last 2 s/)
+    assert.match(view.last(), /last 2s/)
     assert.match(view.last(), /201 \/ 256/)
 
     // the history is capped: drive MORE polls than it holds, counted
     for (let i = 0; i < 200 && s.calls < HISTORY + 10; i++) await advance(1000)
     assert.ok(s.calls >= HISTORY + 10, `only ${s.calls} polls ran`)
-    assert.match(view.last(), new RegExp(`last ${HISTORY} s`))
+    assert.match(view.last(), new RegExp(`last ${HISTORY}s`))
     const pts = view.el.querySelector('polyline')!.getAttribute('points')!.trim().split(/\s+/)
     assert.equal(pts.length, HISTORY, 'the drawn history is not capped')
   } finally {
