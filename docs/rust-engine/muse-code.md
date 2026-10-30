@@ -130,7 +130,7 @@ Write-Host $d; Get-ChildItem -LiteralPath $d -Name | Select-Object -First 80`
 came as four stages, the last `policyAllow`. The engine answered only the
 request, and the call waited 6 min, with no row in the transcript, until the
 user interrupted the turn (`approval/resolved` `abort`; the call `rejected`,
-"approval aborted", shown with a 1 ms run). The engine now answers every open
+"approval aborted", shown with a 1ms run). The engine now answers every open
 stage once with the scope's verdict on the whole call, leaves stages Muse
 settled and repeated updates alone, and forgets the approval at
 `approval/resolved`. An approval the scope allows but that Muse offers no

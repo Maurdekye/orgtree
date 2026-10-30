@@ -217,6 +217,28 @@ Audit findings from the ranked UX symmetry list (`_teams/601/release-review-450/
   `engine/rs/orgtree-engine/src/runtime/watchdogs.rs`; `tests/{retiredlisteners,listenerownerlive}.test.tsx`; capture
   `PROJECTNODE_VISUAL_ONLY=retired-listeners` in `tests/projectnode-visual.cjs`]
 
+## Durations: a unit sits against its number (2026-10-30, 4.5.3)
+
+USER mf5ac518e2d05 "theres a space between the number snd the sm for millisecond
+counts but no space for second counts" and mdd3b2c7f700b "remove the space for
+ms". `canvas/toolclock.tsx` `formatDuration` is the one duration formatter of the
+transcript: a finished call's "ran for", a call's "written in" time, a helper
+task's length, and a recorded thought through `formatSeconds`. It read `784 ms`
+for under a second and `1.2s` above it, two spellings of one kind of value side
+by side; every branch now keeps the unit against its number: `784ms`, `1.2s`,
+`12s`, `1m 05s`, `1h 02m` (the space inside `1m 05s` separates the two parts,
+not a number from its unit). The freeze log (`freezelog.ts` detail lines,
+`FreezeLogPage.tsx` text) writes whole milliseconds of its own and follows
+(`250ms between frames`); it does not call `formatDuration`, which would turn
+`3000` into `3.0s` and hide the exact count its `ms` column sorts by. The ruling
+named milliseconds, so these spaced units were left as they were: the desk's gap
+label between messages (`5 min later`, `2 h later`), the engine debug panel's
+seconds, prose such as "after 60 s" in engine and agent-facing text, and the
+engine's diagnostic log line `[12.359 ms]` (`trace.rs`, Hubchat's `diag.rs`),
+which rig proofs parse. [decided: user 2026-10-30; verified:
+`canvas/toolclock.tsx`, `freezelog.ts`; `tests/durationunits.test.ts`
+fails if a branch regains the space]
+
 ## A submitted request's resolution is final from its first frame (2026-10-30, 4.5.3)
 
 USER m3ce0d2554ce0: "regression: submitted request resolutiohs are briefly

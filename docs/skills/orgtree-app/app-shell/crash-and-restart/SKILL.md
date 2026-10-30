@@ -11,7 +11,7 @@ A renderer exception can replace the app with Orgtree hit a problem and had to s
 
 After a backend restart, a notice offers Reload now and, when deferral is available, Keep working. Editable popouts or an existing deferred notice hold automatic reload so unsaved work can be considered. Other windows can reload automatically. Keeping work open does not prove that an interrupted operation completed; inspect its current state before repeating a write.
 
-The `/debug/freezes` page is a separate diagnostic view of locally recorded browser observations. It shows frame gaps, long tasks, visibility/lifecycle events, tab identities, and optional heap readings, newest first. It reads the current browser profile's stored log; it does not run its own sampling loop. Refresh rereads, Copy JSON exports, and Clear removes those local records. Retention is bounded to 200 entries per tab, ten tabs, and seven days. A frame-gap record begins at 250 ms.
+The `/debug/freezes` page is a separate diagnostic view of locally recorded browser observations. It shows frame gaps, long tasks, visibility/lifecycle events, tab identities, and optional heap readings, newest first. It reads the current browser profile's stored log; it does not run its own sampling loop. Refresh rereads, Copy JSON exports, and Clear removes those local records. Retention is bounded to 200 entries per tab, ten tabs, and seven days. A frame-gap record begins at 250ms.
 
 These UI stalls differ from an agent frozen by provider usage limits. For agent lifecycle handling see `orgtree-halts-and-restarts` (orgtree-working › runtime). The [tray and windows](../tray-and-windows/SKILL.md) page locates the explicit engine restart action and local crash reports.
 

@@ -17,7 +17,7 @@ missing/invalid observations add no clock. No persisted duration is changed.
 User requests 2026-10-14 17:36–17:38UTC remove the entire writing-time slot
 (pencil, unavailable dash, and its separator) when no duration or live writing
 start was observed, including old rows. A measured zero keeps its pencil and
-`0 ms`; observed live writing retains the whole-second timer. This is based
+`0ms`; observed live writing retains the whole-second timer. This is based
 on the call's observation fields, with no provider-name inference. Execution
 time and its own unavailable placeholder remain unchanged. Executing tool rows
 use the same `ArrowRightIcon` as their execution-time display, preserving the
