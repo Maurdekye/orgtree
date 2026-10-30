@@ -10,13 +10,13 @@ Ask cards are the user's actionable question/request surface. Open/pending cards
 
 ## Question answers
 
-A question's text and its option descriptions are formatted as chat is: Markdown, LaTeX math and clickable mention links to agents, docket items, presentations, apps and panels. Clicking a link in an option description opens what it names without picking the option. Option labels stay plain. The answered card shows the question the same way.
+A question's text and its option descriptions are formatted as chat is: Markdown, LaTeX math and clickable mention links to agents, docket items, presentations, apps and panels. Clicking a link in an option description opens what it names without picking the option. Option labels stay plain. When a question is linked to a docket item, its ticket mention chip appears above the question body on the open card (for the active tab in a batch) and beside its header chip on the answered card. The answered card shows the question the same way.
 
 Options support single or multiple selection according to the card, with free text where offered. Selecting multiple options or typing is a draft, not immediate submission. The configured composer Enter behavior and Submit apply only when the answer is ready. Dismissing without an answer is a distinct response, communicated back to the agent.
 
 ## Folding a card
 
-Question and request cards, open or resolved, fold from the chevron at the left of the header; a click elsewhere on the header row does the same. A folded card keeps one line: the asking agent, the linked docket item and the question's first line (with clickable mention chips that open their destination without unfolding the card), or the names of its tabs. Its answer controls and its dismiss button are hidden, so folding never answers, skips or dismisses, and a draft survives it. The fold belongs to the request: every surface showing the card follows it, and it is remembered across reloads and restarts. An amended folded card stays folded and is marked changed until expanded. MCP permission and native question cards do not fold; they expire after five minutes.
+Question and request cards, open or resolved, fold from the chevron at the left of the header; a click elsewhere on the header row does the same. A folded card keeps one non-wrapping line: the request count and asking agent, the question's first line (with clickable mention chips that open their destination without unfolding the card) or the names of its tabs, and then any linked docket item mention chips (clipped with an ellipsis when the line overflows). Its answer controls and its dismiss button are hidden, so folding never answers, skips or dismisses, and a draft survives it. The fold belongs to the request: every surface showing the card follows it, and it is remembered across reloads and restarts. An amended folded card stays folded and is marked changed until expanded. MCP permission and native question cards do not fold; they expire after five minutes.
 
 ## Mixed batches
 

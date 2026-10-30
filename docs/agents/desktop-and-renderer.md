@@ -172,10 +172,15 @@ question and credit forms, and the resolved `NulledAsk`) has a fold button
 (`button.ask-fold`, `aria-expanded` and `aria-controls`) at the left of its
 header, and the rest of the header row toggles too: `foldRow` ignores clicks
 on the row's own controls (the ✕, a ticket chip) and a click that ends a text
-selection. Folded, the header keeps one line (`FoldLine`: the `work_items` as
-`RefChip`s, then the question's first line through `inlineMd` with clickable
-mention chips that open their destination without toggling the fold, or the tab
-names), and the ✕ leaves it. The body is
+selection. Folded, the header keeps one non-wrapping line (`.ask-tab-label`,
+`.ask-tab-node`, `.ask-head-who` and `.ask-null-tag` are `flex: none;
+white-space: nowrap`; `FoldLine` renders the question's first line through
+`inlineMd` with clickable mention chips or the tab names first, followed by
+`askWorkItems(ask)` as `RefChip`s clipped with `text-overflow: ellipsis` on
+overflow), and the ✕ leaves it. Unfolded (`BatchAsk`, `QuestionAsk`) and
+resolved (`NulledAsk`, `AnsweredCard`) cards also render each question's
+`work_item` as the shared `RefChip` so folded and unfolded states show the
+same ticket linkage. The body is
 `div.ask-fold-body[hidden]`: it stays mounted, so drafts survive, and the
 card's key handler returns early while folded, so ctrl+enter and alt+arrows do
 nothing. `.ask-fold-body` is `display: contents`, so the card's flex children
