@@ -81,6 +81,54 @@ module.exports = async (page) => {
     screenshots.push(await page.screenshot(`${prefix}-queue-card-desk-mailbox-1000x700`))
     return { details, screenshots }
   }
+  // PROJECTNODE_VISUAL_ONLY=resolution-frame: a request card is submitted (fetch stubbed to hang, so only the first frame
+  // exists) and the queued entry it files at once must be the card the server's row draws: the offered options with the
+  // picks marked and Markdown descriptions, never one bare answer line; the inbox row (answeredAsk) is the same card
+  // (docket regression-a-just-submitted-request-resolution-b, USER 2026-10-30 15:12:41Z m3ce0d2554ce0)
+  if (only === 'resolution-frame') {
+    await page.goto('/?scene=deskinbox&mode=resolution')
+    await page.waitFor('#res-open .askcard', { timeout: 15000 })
+    await settle()
+    screenshots.push(await page.screenshot(`${prefix}-resolution-1-open-card-1000x700`))
+    await page.eval(async () => {
+      window.fetch = () => new Promise(() => {})
+      const pick = (label) => [...document.querySelectorAll('#res-open .ask-row')]
+        .find((r) => r.querySelector('.ask-option-label')?.textContent === label).querySelector('.ask-row-pick')
+      pick('yes').click()
+      await new Promise((r) => setTimeout(r, 150))
+      pick('later').click()
+      await new Promise((r) => setTimeout(r, 150))
+      document.querySelector('#res-open .ask-submit').click()
+      await new Promise((r) => setTimeout(r, 600))
+    })
+    await settle()
+    details.frames = await page.eval(() => {
+      const card = (sel) => document.querySelector(sel + ' .answered-card')
+      const chosen = (sel) => [...document.querySelectorAll(sel + ' .answered-opt.chosen .answered-opt-label')].map((e) => e.textContent)
+      return {
+        askCardGone: !document.querySelector('#res-open .askcard'),
+        queuedHtml: card('#res-queued')?.outerHTML ?? null, deliveredHtml: card('#res-delivered')?.outerHTML ?? null,
+        queuedTyped: !!document.querySelector('#res-queued .answered-typed'),
+        queuedChosen: chosen('#res-queued'), deliveredChosen: chosen('#res-delivered'), inboxChosen: chosen('#res-inbox'),
+        inboxOptions: document.querySelectorAll('#res-inbox .answered-opt').length,
+        queuedDesc: document.querySelector('#res-queued .answered-opt-desc strong')?.textContent ?? null,
+      }
+    })
+    const f = details.frames
+    const fails = []
+    if (!f.askCardGone) fails.push('the open card did not leave on the click')
+    if (!f.queuedHtml) fails.push('no queued entry was drawn')
+    if (f.queuedTyped) fails.push('the queued entry draws a bare typed line')
+    if (f.queuedHtml !== f.deliveredHtml) fails.push('the queued card differs from the delivered card')
+    if (f.queuedChosen.join() !== 'yes,later') fails.push('queued picks: ' + f.queuedChosen.join())
+    if (f.inboxChosen.join() !== 'yes,later' || f.inboxOptions !== 3) fails.push('the inbox row differs')
+    if (f.queuedDesc !== 'it') fails.push('the option description is not Markdown in the queued entry')
+    details.failures = fails
+    screenshots.push(await page.screenshot(`${prefix}-resolution-2-first-frame-1000x700`))
+    // RESOLUTION_FRAME_BEFORE=1 records the broken base instead of failing, for the before/after pair
+    if (fails.length && !process.env.RESOLUTION_FRAME_BEFORE) throw new Error(fails.join('; '))
+    return { details, screenshots }
+  }
   // PROJECTNODE_VISUAL_ONLY=history-keep: the project desk's message box (deskinbox scene, project relay). A draft is typed,
   // Up walks into the sent-message history (the draft is set aside and the box says so), the desk is re-opened (page
   // reload = the composer unmounts) and Down brings the draft back with its caret

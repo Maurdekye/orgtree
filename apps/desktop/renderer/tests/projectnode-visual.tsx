@@ -86,7 +86,11 @@ import { ProjectSquare } from '../src/canvas/projectcard'
 import { ProjectListenersModal } from '../src/canvas/listenerspanel'
 import { SpawnChips } from '../src/canvas/cards'
 import { OrgCanvas } from '../src/canvas/OrgCanvas'
-import { DeskChat } from '../src/canvas/desk'
+import { DeskChat, PendingMailRow } from '../src/canvas/desk'
+import { AskCard } from '../src/canvas/asks'
+import { MailMessage } from '../src/events/segments'
+import { AnsweredCard, miniFromAskInfo } from '../src/events/answered'
+import { answeredAsk, queuedAnswerRow, queuedAnswers, useSubmittedAsks } from '../src/asksubmitted'
 import { DeskDogsProvider } from '../src/canvas/deskdogs'
 import { addPin } from '../src/canvas/pins'
 import { CurrentOrg } from '../src/popout'
@@ -102,7 +106,7 @@ import { AgentSurfaceRoutesProvider, PanelCorner } from '../src/canvas/panelcorn
 import { WatchdogSatellite } from '../src/canvas/watchdogchip'
 import { WatchdogLink } from '../src/canvas/watchdoglink'
 import type { CanvasNode, OpRequest, OpResult } from '../src/canvas/shared'
-import type { TreePayload } from '../src/types'
+import type { AskInfo, PendingMail, TreePayload } from '../src/types'
 
 const noop = () => {}
 const answer = (body: unknown, status = 200) =>
@@ -460,6 +464,35 @@ const headSlotStatus = (set: HeadSet) => {
   const slots = (set.node as unknown as { configured_scope: { slots_capacity?: number } }).configured_scope.slots_capacity ?? 0
   return { project: set.node.id, slots, held: set.leases.length, holders: set.leases, line, history: [], history_next: null }
 }
+// ?scene=deskinbox&mode=resolution — a submitted request's resolution in its first frame
+// (docket regression-a-just-submitted-request-resolution-b, USER 2026-10-30 15:12:41Z m3ce0d2554ce0): the real AskCard,
+// then the queued entry its submit files at once (PendingMailRow), the server's own row for the same answer
+// (MailMessage) and the inbox row (answeredAsk). The capture script submits with fetch stubbed to hang, so
+// everything below the card is the first frame.
+const RES_Q = 'Proceed with **bold** and `code`?'
+const RES_OPTS = [{ label: 'yes', description: 'do **it** now' }, { label: 'no' }, { label: 'later', description: 'not _yet_' }]
+const resAsk = { id: 'ask-1', node: 'relay', kind: 'batch', status: 'open', at: '2026-09-10T13:00:00Z', revs: {},
+  tabs: [{ kind: 'question', header: 'Go', question: RES_Q, options: RES_OPTS, multi: true }] } as unknown as AskInfo
+const resServerRow = { id: 'am-1', from: '@user', kind: 'message', body: 'Request resolved', at: '2026-09-10T13:01:00Z',
+  ev: { v: 1, variant: 'answer.batch', actor: { kind: 'user', id: '@user' }, engine_authored: false,
+    object: { kind: 'batch', org: 'org', id: 'ask-1', node: 'relay' },
+    sections: [{ kind: 'ask', ask_id: 'ask-1', questions: [{ label: 'Go', question: RES_Q, answer: 'yes · later',
+      selected: ['yes', 'later'], options: RES_OPTS, multi: true }] }] } } as unknown as PendingMail
+function ResolutionFrames() {
+  useSubmittedAsks()
+  const queued = queuedAnswers('org', 'relay')
+  const done = answeredAsk('org', resAsk)
+  const head = (t: string) => <h4 className="dim" style={{ margin: '6px 0 2px' }}>{t}</h4>
+  return <main style={{ position: 'relative', width: 1000, minHeight: 700, background: 'var(--bg)', padding: 12 }}>
+    <div id="res-open"><AskCard ask={resAsk} slug="org" toast={noop} /></div>
+    <section id="res-queued">{head('the queued entry (first frame)')}
+      {queued.map(e => <PendingMailRow key={e.askId} m={queuedAnswerRow(e)} slug="org" nid="relay" />)}</section>
+    <section id="res-delivered">{head('the server\'s row (delivered)')}
+      <MailMessage row={resServerRow as never} profile="operator" slug="org" nid="relay" /></section>
+    <section id="res-inbox">{head('the inbox row (answeredAsk)')}
+      {done && <AnsweredCard {...miniFromAskInfo(done)} dismissed={false} />}</section>
+  </main>
+}
 function HeadDesk({ set, top, height, id, route = false, answer, width = 980 }: { set: HeadSet; top: number; height: number; id: string; route?: boolean
   answer?: (b: OpRequest) => unknown; width?: number }) {
   const desk = <ProjectDesk bare node={set.node} slug="org" tree={headTree(set)} map={headMap(set)}
@@ -784,6 +817,7 @@ createRoot(document.getElementById('root')!).render(scene === 'cards' ? <Cards /
     if (mode === 'lsoff' || mode === 'lson') {
       return <ListenerSetting on={mode === 'lson'} inbox={new URLSearchParams(location.search).get('inbox') !== '0'} />
     }
+    if (mode === 'resolution') return <ResolutionFrames />
     if (mode === 'history' || mode === 'historyrr') {
       const rr = mode === 'historyrr'
       const q = new URLSearchParams(location.search)
