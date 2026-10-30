@@ -177,14 +177,23 @@ Audit findings from the ranked UX symmetry list (`_teams/601/release-review-450/
   kept while you walk on and never written to the stored history; only a send
   ends the walk. Attachments and reply targets are untouched by a recall, so
   they are not stashed. Escape is `preventDefault`ed only while a walk is on
-  screen, so it still cancels a reply otherwise. Known gap, unchanged: "first
-  line" is the first LOGICAL line (up to a newline), so Up from any wrapped
-  row of a long first paragraph still enters history; with the stash that no
-  longer loses anything. (USER 2026-10-30 08:14:27Z mdad6a41f1f3e.)
-  [verified: `composerhistorynav.ts`, `composerhistory.ts`, `draftstore.ts`,
-  `canvas/{desk,projectdesk}.tsx`; `tests/{composerhistorykeep,composerstash,
-  composerhistory}.test.tsx`; capture `PROJECTNODE_VISUAL_ONLY=history-keep`
-  in `tests/projectnode-visual.cjs`]
+  screen, so it still cancels a reply otherwise. (USER 2026-10-30 08:14:27Z
+  mdad6a41f1f3e.) **Rows, not lines (USER 2026-10-30 08:30:07Z m9a02035a079d,
+  "Top visible row"):** Up enters history only from the top VISUAL row of the
+  text and Down only from the bottom one; from any other row the arrow is left
+  to the browser (the caret walks a wrapped row), as is any arrow with a
+  selection. A newline and a soft wrap both start a row. `caretrow.ts` finds the
+  row by laying the text out again in a hidden copy of the textarea with EMPTY
+  markers (a character in a marker would add a line-break opportunity beside the
+  caret); with no layout to measure (jsdom) it returns null and only the newline
+  rule applies, so a jsdom test needs a stubbed `clientWidth`/`offsetTop` for
+  rows (`tests/composerhistoryrows.test.tsx`). A synthetic keydown never moves
+  the caret, so a capture checks whether the composer TOOK the key.
+  [verified: `composerhistorynav.ts`, `caretrow.ts`, `composerhistory.ts`,
+  `draftstore.ts`, `canvas/{desk,projectdesk}.tsx`; `tests/{composerhistorykeep,
+  composerhistoryrows,composerstash,composerhistory}.test.tsx`; captures
+  `PROJECTNODE_VISUAL_ONLY=history-keep` and `=history-rows` in
+  `tests/projectnode-visual.cjs`]
 
 ## Request cards fold (2026-10-29, 4.5.2)
 
