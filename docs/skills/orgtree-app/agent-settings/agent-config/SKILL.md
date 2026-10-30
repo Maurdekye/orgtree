@@ -33,6 +33,8 @@ The header offers **Open scratch folder** and, when the desktop supports team sc
 
 The shared **save** button submits edits from the configuration tabs. It sends a model switch if the tier changed, otherwise an account assignment if the account changed, followed by the scope/settings save. The scope body includes instructions, team instructions, effort, the fresh-start override and a valid selected model version. Folders, tools, visibility and file/command access are included only when edited; the fallback override is included only when edited. History is read-only and is not part of the save.
 
+A save tells the agent what changed: its desk shows **Permissions changed** (folders, tools, visible agents, file access or instructions) or **Settings changed** (anything else), naming each change on one line, with the instructions diff and long lists in a fold beneath it. Agents below it are told when their effective scope or team instructions change. A save that changes nothing writes no notice.
+
 With undo history available, these steps form one settings gesture. The compatibility path performs them sequentially, so an earlier step can have succeeded if a later step fails. Read the returned error and current state before recommending a retry. Warnings appear in a toast; success closes the window. Model/account changes may be queued; see their leaves for timing.
 
 **cancel** closes the form without applying its remaining draft fields. It does not undo an action already taken through Rename, Agent actions, Cancel change or the credit slider. Those controls have their own submission paths.

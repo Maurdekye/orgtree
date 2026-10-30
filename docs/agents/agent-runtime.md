@@ -951,6 +951,17 @@ mqtt and websocket fires' `source` and fire actions' `fire_actions` were unliste
 tool-call `StructuredJson` (`events/firelines.ts`). [verified: `events/{decode,wire,card}.ts`]
 <!-- /preserved:e-406c46dd5d4dfcd4 -->
 
+**A settings change's notice carries what changed (2026-10-30).** `access.scope_changed`
+has optional `folders`, `tools`, `values`, `charter`/`team_charter` diffs, `pending`/`reason`
+and `cascade_for`, read from the stored before and after (`domain/settings_notice.rs`),
+never from the request: a change that changed nothing writes no notice (the settings dialog
+sends its whole form). Writers pass them as `notice` in the op detail, and `ops.rs`
+`event()` keeps that out of `ot.events`. Account, harness, effort, fast mode and the other
+settings write the same kind ("Settings changed" without a permission part); team
+instructions and a narrowed scope also notify every agent below. [decided: user 2026-10-30
+mc5d2672d3cc9; coordinator macb41248ab05; verified: `domain/{settings_notice,lifecycle,ops}.rs`,
+`http/nodes.rs`, `runtime/event_text.rs`; details: `docs/rust-engine/change-notices.md`]
+
 <a id="e-0cf17758e3d509a8"></a>
 
 ## Live compaction row (docket show-a-live-compacting-for-xs-event-while-an-age): when a

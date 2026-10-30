@@ -1982,6 +1982,20 @@ Original section: Orgtree 4.0.0 (Rust engine): read this first. Source lines 362
   from source, `tests/restartedge.test.tsx`]
 <!-- /preserved:e-21c837a0d728a6dd -->
 
+**Change notices name what changed (2026-10-30).** Every change notice card (settings,
+audiences, credits, model switches, renames, moves, hires, compactions) draws one line
+naming the change right under its header, from one table (`events/change.ts`), with
+anything longer (more than three folders or tools, a reason, an instructions diff drawn
+as an Edit tool call's) in a closed fold beneath it. Header fields that only restated the
+change moved into Context. An inbox row's preview reads the same line through
+`noticeSummary`, not `eventSummary` (a system notice's row draws no preview, D-173; its
+reading pane shows the card): `events/project.ts` must not import `change.ts`,
+because `tests/event-exhaustiveness.mjs` compiles project.ts on its own. Settings read in
+the settings dialog's words, shared through `canvas/settinglabels.ts`. [decided: user
+2026-10-30 mc5d2672d3cc9, meeff02af965d; coordinator macb41248ab05; verified:
+`events/{change,card,project,systemruns}`, `tests/changenotices.test.tsx`; details:
+`docs/rust-engine/change-notices.md`]
+
 <a id="e-e31eec2ea2cef16b"></a>
 
 ## Every keyboard shortcut is listed in renderer/src/shortcuts.ts, which App
