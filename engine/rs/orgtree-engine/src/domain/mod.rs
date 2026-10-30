@@ -38,6 +38,7 @@ pub mod slot_history;
 pub mod user_regs;
 pub mod peer_mail;
 pub mod scope;
+pub mod settings_notice;
 pub mod tool_groups;
 pub mod staffing;
 pub mod staging;

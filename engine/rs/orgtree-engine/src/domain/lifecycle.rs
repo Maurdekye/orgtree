@@ -92,6 +92,18 @@ async fn moved(tx: &Transaction<'_>, org: i64, by: &str, id: i64, n: &Seat, d: &
     Ok(changed)
 }
 
+/// The `access.scope_changed` fields of a settings change, or None when it
+/// names nothing.
+#[logged]
+pub(crate) fn settings_fields(by: &str, d: &Value) -> Option<Value> {
+    let change=&d["change"];
+    let fields=[("add_dirs","folders"),("remove_dirs","folders"),("tools","tools"),("charter","charter"),("org_visibility","org_visibility"),("permission_mode","permission_mode")];
+    let mut changed:Vec<&str>=fields.iter().filter(|(k,_)|change.get(k).is_some()).map(|(_,v)|*v).collect();
+    changed.dedup();
+    if changed.is_empty() { return None; }
+    Some(json!({"by":by,"changed":changed}))
+}
+
 #[logged]
 pub async fn record(tx: &Transaction<'_>, org: i64, op: &str, by: &str, subject: Option<i64>, d: &Value) -> Result<Vec<i64>> {
     let Some(id) = subject else { return Ok(Vec::new()) };
@@ -199,12 +211,8 @@ pub async fn record(tx: &Transaction<'_>, org: i64, op: &str, by: &str, subject:
                 ("access.grant_changed",json!({"relation":role,"node":n.name,"delta":d["delta"],"now":n.grant,"free":n.grant-held,"by":by}))
             }
             "retool" => {
-                let change=&d["change"];
-                let fields=[("add_dirs","folders"),("remove_dirs","folders"),("tools","tools"),("charter","charter"),("org_visibility","org_visibility"),("permission_mode","permission_mode")];
-                let mut changed:Vec<&str>=fields.iter().filter(|(k,_)|change.get(k).is_some()).map(|(_,v)|*v).collect();
-                changed.dedup();
-                if changed.is_empty() { continue; }
-                ("access.scope_changed",json!({"by":by,"changed":changed}))
+                let Some(fields)=settings_fields(by,d) else { continue };
+                ("access.scope_changed",fields)
             }
             "swap" => {
                 let t=seat(tx,target).await?;
