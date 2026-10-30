@@ -677,3 +677,82 @@ mod delivered_to_tests {
             "a Do not disturb pull adds the pulling agent");
     }
 }
+
+/// USER 2026-10-30 mc1739129bbfa: which agent an org mail was delivered to is opaque to outside listeners.
+/// `delivered_to` (migration 0079) is read by the local desktop views and written at delivery, and goes
+/// nowhere else: not in the hub wire payload, a receipt, an ack or a reply quote. The three builders that
+/// make those take a Postgres row or a live request, so they are guarded at their source: the only files
+/// that name the column are the ones that should, the quote is made from seven named columns, and the
+/// payload, receipt and ack bodies carry exactly the keys they always did.
+#[cfg(test)]
+mod delivered_to_stays_inside_the_org {
+    use super::*;
+    use std::collections::BTreeSet;
+
+    fn between<'a>(source: &'a str, from: &str, to: &str) -> &'a str {
+        let start = source.find(from).unwrap_or_else(|| panic!("`{from}` not found"));
+        let rest = &source[start..];
+        &rest[..rest.find(to).unwrap_or_else(|| panic!("`{to}` not found after `{from}`"))]
+    }
+    /// every `.rs` file under src/ that names the column, as a src-relative path with forward slashes
+    fn files_naming_the_column() -> (BTreeSet<String>, usize) {
+        fn walk(dir: &std::path::Path, out: &mut Vec<std::path::PathBuf>) {
+            for e in std::fs::read_dir(dir).unwrap() {
+                let p = e.unwrap().path();
+                if p.is_dir() { walk(&p, out) } else if p.extension().is_some_and(|x| x == "rs") { out.push(p) }
+            }
+        }
+        let src = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+        let mut all = vec![];
+        walk(&src, &mut all);
+        let named = all.iter()
+            .filter(|p| std::fs::read_to_string(p).unwrap().contains("delivered_to"))
+            .map(|p| p.strip_prefix(&src).unwrap().to_string_lossy().replace(std::path::MAIN_SEPARATOR, "/"))
+            .collect();
+        (named, all.len())
+    }
+
+    #[test] fn only_the_delivery_and_the_local_views_name_the_column() {
+        let (named, scanned) = files_naming_the_column();
+        assert!(scanned > 100, "an empty scan is not a pass ({scanned} files)");
+        let allowed: BTreeSet<String> = ["domain/orginbox.rs", "migrate.rs", "tools/org_inbox.rs", "tools/treetools.rs"]
+            .iter().map(|s| s.to_string()).collect();
+        assert_eq!(named, allowed, "a new file naming `delivered_to` needs checking against USER 2026-10-30 mc1739129bbfa (opaque to outside listeners); treetools.rs has a watchdog result of the same name");
+        for f in &named {
+            assert!(!f.starts_with("net") && !f.starts_with("mailhub"), "the hub transport ({f}) must not read the delivery record");
+        }
+    }
+    #[test] fn the_hub_wire_payload_names_no_delivery_record_and_keeps_its_keys() {
+        let net = include_str!("../net.rs");
+        let payload = between(net, "fn outgoing_payload", "    Ok(payload)");
+        assert!(!payload.contains("delivered_to"));
+        for key in ["\"id\": net_id", "\"to\":", "\"body\":", "\"kind\":", "\"sent_at\":", "\"from\": from", "\"attachments\": attachments"] {
+            assert!(payload.contains(key), "the payload keeps {key}");
+        }
+        let assigned: BTreeSet<&str> = payload.split("payload[\"").skip(1).filter_map(|s| s.split('"').next()).collect();
+        assert_eq!(assigned, BTreeSet::from(["reply_to", "meta", "body"]), "the keys added after the literal");
+        assert!(net.contains("&outgoing_payload(&r, &net_id, &p.net_slug, att_ids)?"), "`from` is the org's hub address, not an agent");
+    }
+    #[test] fn receipts_and_acks_carry_only_ids_states_and_times() {
+        let net = include_str!("../net.rs");
+        assert!(net.contains("json!({ \"id\": mid, \"state\": st, \"at\": now_iso() })"), "a receipt is id, state, at");
+        assert!(net.contains(".json(&json!({ \"receipts\": body }))"));
+        assert!(net.contains(".json(&json!({ \"ids\": ack }))"), "an ack is ids");
+    }
+    #[test] fn a_reply_quote_is_made_from_seven_named_columns_never_the_whole_row() {
+        assert_eq!(QUOTE_COLS, "uid, dir, peer, by_name, at, body, net_id");
+        let source = include_str!("orginbox.rs");
+        let quote = between(source, "fn inbox_quote", "pub async fn sent_quote");
+        assert!(!quote.contains("delivered_to") && !quote.contains("to_jsonb"), "the quote is built from its columns, not a row dump");
+        assert_eq!(source.matches("SELECT {QUOTE_COLS} FROM ot.org_inbox").count(), 3, "every quote query selects only QUOTE_COLS");
+    }
+    #[test] fn the_local_wire_of_a_row_with_a_list_is_the_only_place_it_appears() {
+        let row = json!({"uid":"x1","dir":"in","peer":"@net:alice.aa","body":"hello","at":"2026-10-29T12:00:00Z",
+            "attachments":[],"tries":0,"delivered_to":["coordinator-opus","liaison-opus"],
+            "reply_to":{"kind":"mail","box":"org","id":"q1","from":"@net:alice.aa","peer":"@net:alice.aa","at":"2026-10-29T11:00:00Z","gist":"earlier"}});
+        let wire = entry(&row);
+        assert_eq!(wire["delivered_to"], json!(["coordinator-opus","liaison-opus"]), "the local view has it");
+        let quote = wire["reply_to"].to_string();
+        assert!(!quote.contains("delivered_to") && !quote.contains("coordinator-opus") && !quote.contains("liaison-opus"), "the quote the row carries has no recipients");
+    }
+}
