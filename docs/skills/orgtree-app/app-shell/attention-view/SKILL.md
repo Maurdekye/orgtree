@@ -7,7 +7,7 @@ Up: [orgtree-app-shell](../SKILL.md)
 
 # Attention view
 
-The header's Attention mode places Needs attention beside an agent desk. The two panels can be pinned or popped out independently. A pinned panel can remain visible when returning to Canvas; an existing visible desk is not silently stolen by a competing pane. Use the offered existing-surface action when the desk is already open elsewhere.
+The header's Attention mode places Needs attention beside an agent desk. The two panels can be pinned or popped out independently. In their places in the view they have no X; a pinned panel's X puts it back, and a popped-out one closes with its window's ×. A pinned panel can remain visible when returning to Canvas; an existing visible desk is not silently stolen by a competing pane. Use the offered existing-surface action when the desk is already open elsewhere.
 
 The queue merges manually flagged docket items, unread urgent mail, and open questions into a newest-first feed. Flags can come from active, archived, or backlogged work. Questions can concern agents outside the currently displayed tree. Batch questions remain question cards rather than being converted into work items.
 
