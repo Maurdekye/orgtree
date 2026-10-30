@@ -169,7 +169,10 @@ there by the coordinator).
 - **Selectors (every place a harness is chosen):** the OpenRouter key dialog (add and
   edit, every key alike); the language model server add form (Harness, and Custom's
   API style); the hire/staff `harness` argument (orgtree_hire, orgtree_staff, the hire
-  op). The Runtime tab's global row is removed. Each UI selector links to App
+  op; language model server seats too since 2026-10-30); the agent settings Model tab's
+  and the hire dialog's Harness rows; orgtree_retool's `harness` (2026-10-30, "follow"
+  clears it). One rule, `harnesses::seat_refusal`, decides what a seat may run for
+  all of them. The Runtime tab's global row is removed. Each UI selector links to App
   settings › Harnesses.
 - **What a UI picker lists (user 2026-10-13 22:20Z):** every supported harness, not
   only the installed ones: the installed ones first (registry order), then a disabled

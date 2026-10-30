@@ -29,6 +29,7 @@ which real agent supervises a member and which project charters it receives.
 | `account` | Exact compatible org-allowed account id or `primary` for the provider's own login; omission keeps binding. Busy account changes queue for a turn boundary. |
 | `account_fallback` | Set opt-in/out for fallback within the same provider. |
 | `clear_account_fallback` | True removes the override and uses org default; takes precedence over account_fallback. |
+| `harness` | OpenRouter and language model server seats only. `claude-code`, `codex-cli` or `opencode` gives the target that harness of its own; `"follow"` returns it to its key's or server's harness. The harness must be installed, and on a server one the server can carry; other tiers and other harnesses are refused with the reason. Nothing moves now: the agent crosses at its next turn boundary on a fresh session that starts with a summary, never mid-turn, and a harness-only call restarts nobody beneath it. The result's `harness` names its own harness (`pin`, null when following) and the one before (`was`). The user sets the same thing in the agent's Model tab. |
 
 Orgtree group keys are `docket`, `team`, `messaging`, `inspection`, `watchdogs`, `runtime`, `user` and `logo`; omitted keys remain, an ancestor denial is inherited, and unknown/non-boolean keys are refused. `orgtree_status` remains available. A granted tool switch does not override your assignment or authorize an unrelated action.
 

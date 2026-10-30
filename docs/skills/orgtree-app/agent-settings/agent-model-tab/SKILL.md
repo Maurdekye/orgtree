@@ -72,9 +72,11 @@ agent moves to the new harness on a fresh session that starts with a summary
 of its conversation (the whole conversation stays saved in its folder), as a
 key's harness change does. The row says so before you save. A model change in
 the same form that moves it to another lane or server holds the row: choose
-its harness after saving the model change. A harness chosen at hire
-(`orgtree_staff`'s `harness`, OpenRouter only) is the same setting. Agents have
-no tool to change it. Undo restores the previous choice.
+its harness after saving the model change. A harness chosen at hire (the
+hire dialog's Harness row, or `orgtree_hire`'s and `orgtree_staff`'s
+`harness`) is the same setting. An agent's superior changes it with
+`orgtree_retool`'s `harness` (`"follow"` clears it), at the same boundary; an
+agent cannot change its own. Undo restores the previous choice.
 
 ## Thinking effort
 

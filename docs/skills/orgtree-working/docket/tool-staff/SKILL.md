@@ -50,7 +50,7 @@ The schema follows the selected operation: a new seat needs `name`, `tier`, `gra
 | `target` | Seat destination in your team; ordinary new-hire parent defaults to yourself, rehire default old live parent/nearest live ancestor. |
 | `hire_type` | `subordinate` default or `superior` insertion above target. New self-parent insertion has hire's special fixed-budget rule; rehire does not gain it. |
 | `index` | Required zero-based live sibling position for new hire, excluding the anchor on superior insertion; refused on rehire. Ordinary rehire appends. |
-| `harness` | OpenRouter claude-code/codex-cli/opencode choice; new hire can pin the installed route. Omitted follows normal seat/key rules. Rehire retains its existing route; do not assume this field repins an existing seat. |
+| `harness` | OpenRouter or language model server claude-code/codex-cli/opencode choice; new hire can pin an installed harness (on a server, one it can carry). Omitted follows normal seat/key/server rules. Rehire retains its existing route; do not assume this field repins an existing seat (use `orgtree_retool`'s `harness`). |
 | `add_dirs` | Required ordinary new-hire whole starting list; supplied rehire list **replaces**, despite the shared hire-oriented schema wording. Entries path and mode ro/rw, omitted mode rw; [] valid. |
 | `tools` | Ordinary new hire explicitly states bash/web/edit/subagents and mcp. On rehire supplied keys merge; optional orgtree group booleans restrict own tools. |
 | `org_visibility` | Required ordinary new hire: self/team/subtree/full; optional rehire override. Must fit effective rights. |

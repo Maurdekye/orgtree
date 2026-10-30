@@ -40,7 +40,7 @@ The schema requires the complete ordinary-hire scope: `add_dirs`, `org_visibilit
 | `peer_mail` | New hire only: whether this agent's direct reports may message each other without separate audiences; omitted is true. This controls its report boundary, not its own reach to peers. |
 | `auto_cheap_compact` | New hire only: `{enabled, occ}` cold-turn compaction override; `occ` is a fraction kept within 0.05–0.95. Omitted/empty object inherits org policy. This does not change ordinary size compaction. |
 | `team_charter` | Optional standing instructions for this agent's team. |
-| `harness` | For OpenRouter, explicit `claude-code`, `codex-cli` or `opencode` pins this seat; omitted follows its key's harness. A selected harness must be installed. Other providers use their native route. |
+| `harness` | For OpenRouter and language model server tiers, explicit `claude-code`, `codex-cli` or `opencode` pins this seat; omitted follows its key's or server's harness. A selected harness must be installed, and on a server one the server can carry. Other providers use their native route. Change it later with `orgtree_retool`'s `harness`. |
 | `audiences` | Optional array, at most 64 string targets; grants are checked under ordinary audience authority before kickoff. A failure rolls back the composite. |
 | `work_item` | Optional existing docket slug assigned to the hire; a staffed backlog opens and assignment mail starts it. Requires the caller's management right on that item. |
 | `kickoff` | Optional nonblank first task message, sent after admission. Without kickoff or assignment/wake mail, a new hire stays idle. |
