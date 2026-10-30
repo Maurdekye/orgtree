@@ -194,6 +194,28 @@ Audit findings from the ranked UX symmetry list (`_teams/601/release-review-450/
   composerhistoryrows,composerstash,composerhistory}.test.tsx`; captures
   `PROJECTNODE_VISUAL_ONLY=history-keep` and `=history-rows` in
   `tests/projectnode-visual.cjs`]
+- **Retired agents' listeners are not in a project's listener lists:**
+  retiring an agent PAUSES its watchdogs (`pause_owned`, "its owner was
+  archived") and a rehire re-arms them (`resume_owned`), so they stay in the
+  tree's watchdog list for good and every list drew them as "paused" rows
+  (USER 2026-10-30 08:37:43Z m401e6ff93d21, "retired listeners should not show
+  up in this list"). `listenersLive(map)` (`canvas/listeners.ts`) is the one
+  rule: a dog is a project's listener when its owner is the user or a LIVE node
+  in the map; an owner archived in the map, or absent from it with the dog
+  paused, is retired. An ARMED dog whose owner is not in the map yet is a hire
+  the map has not caught up with and stays. It is the optional last argument of
+  `projectListenerState`, `mailListenerState`, `mailQueueCard`, `inboxListened`
+  and `projectHeaderFacts`; the dead-letter line applies it itself. The project
+  desk, its Events tab, the project card and the node tooltip pass it where
+  they have the node map; a caller without one lists everything as before.
+  Display only: nothing is deleted, and a rehire brings the listener back. A
+  live agent's paused listener still shows. The canvas listener LINES
+  (`listenerLinks`, `fairQueueLinks`) take the rule too, `OrgCanvas` passing
+  it (coordinator 2026-10-30); the slot lists do not (slots are leases, not
+  listeners). [verified: `canvas/{listeners,shared,inboxwarning,
+  projectheaderfacts,projectdesk,projectcard,listenersdesk,OrgCanvas}.ts*`,
+  `engine/rs/orgtree-engine/src/runtime/watchdogs.rs`; `tests/{retiredlisteners,listenerownerlive}.test.tsx`; capture
+  `PROJECTNODE_VISUAL_ONLY=retired-listeners` in `tests/projectnode-visual.cjs`]
 
 ## Request cards fold (2026-10-29, 4.5.2)
 
