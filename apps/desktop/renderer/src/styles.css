@@ -3758,7 +3758,9 @@ button.project-slots-badge, button.project-listeners-badge, button.project-queue
 .org-mail-recipient { display: inline-flex; align-items: baseline; gap: 4px; min-width: 0; max-width: 100%; }
 .org-mail-recipient .ref-hub { min-width: 0; overflow-wrap: anywhere; }
 /* a received mail's recipients are agents, as many as held the inbox: they wrap like the group they sit in */
-.org-mail-recipient.org-mail-delivered { flex-wrap: wrap; gap: 2px 6px; }
+.org-mail-recipient.org-mail-delivered { flex-wrap: wrap; gap: 2px 12px; }
+/* ...each one an agent and its "as @org:x" held together (the Sent tab's pair), wider apart than the pair's own gap */
+.org-mail-delivered-one { display: inline-flex; align-items: baseline; flex-wrap: wrap; gap: 2px 6px; min-width: 0; max-width: 100%; }
 /* ...and so does the actor wrapper that holds them: it is `flex: none; nowrap` for a bare name, which would push many chips out of the pane */
 .event-actor:has(> .org-mail-attribution) { flex: 0 1 auto; min-width: 0; max-width: 100%; white-space: normal; }
 .mail-head-meta { display: inline-flex; align-items: baseline; gap: 8px; margin-left: auto; flex: none; white-space: nowrap; }

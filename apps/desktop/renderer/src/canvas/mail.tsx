@@ -2079,23 +2079,36 @@ const orgFolderOf = (m: MailRow) => m.kind === 'reply' ? 'sent' : 'inbox'
  *  anything else is written plain (it came from outside, so no name match is trusted) */
 const outsideParty = (id: string) => (id.startsWith('@net:') || id.startsWith('@org:')) ? <HubContactChip address={id} /> : <b>{id}</b>
 
+/** The Sent tab's own "as @org:<slug>": the dim word and the shared org link, after an agent that
+ *  acts as the org (the outbox's sender, and each agent of DeliveredTo; USER 2026-10-30
+ *  md37bd35d3884 "should say "as @org:xyz" after like in the sent tab"). */
+const AsOrg = ({ slug }: { slug: string }) =>
+  <span className="org-mail-via"><span className="dim">as </span><HubContactChip address={'@org:' + slug} /></span>
+
 /** The agents a received mail was delivered to, after its sender, in the outbox's recipient
- *  markup (`→ @a @b`; USER 2026-10-29 ma660da825904). A live agent is the shared AgentLink. A
- *  retired agent, or one removed since, is still named, as an inert `ref-agent` chip without
- *  `ref-ready`: the dim chip every reference to something that cannot be opened wears. */
-function DeliveredTo({ names, map, onFocus }: {
+ *  markup (`→ @a as @org:x @b as @org:x`; USER 2026-10-29 ma660da825904). A live agent is the
+ *  shared AgentLink. A retired agent, or one removed since, is still named, as an inert
+ *  `ref-agent` chip without `ref-ready`: the dim chip every reference to something that cannot
+ *  be opened wears. Each is followed by AsOrg, as the Sent tab follows its sender. */
+function DeliveredTo({ names, map, slug, onFocus }: {
   names: string[]
   map: ReadonlyMap<string, CanvasNode>
+  slug: string
   onFocus?: (id: string) => void
 }) {
   return (
     <span className="org-mail-recipient org-mail-delivered"><span className="dim">→ </span>
       {names.map((name) => {
         const node = map.get(name)
-        return node?.state === 'live'
-          ? <AgentLink key={name} id={name} label={'@' + name} tier={node.tier} onFocus={onFocus} />
-          : <AgentLink key={name} id={name} label={'@' + name} tier={node?.tier} className="ref-chip ref-agent"
-              why={node ? `@${name} has been retired` : `@${name} is no longer in this org`} />
+        return (
+          <span key={name} className="org-mail-delivered-one">
+            {node?.state === 'live'
+              ? <AgentLink id={name} label={'@' + name} tier={node.tier} onFocus={onFocus} />
+              : <AgentLink id={name} label={'@' + name} tier={node?.tier} className="ref-chip ref-agent"
+                  why={node ? `@${name} has been retired` : `@${name} is no longer in this org`} />}
+            <AsOrg slug={slug} />
+          </span>
+        )
       })}
     </span>
   )
@@ -2349,7 +2362,7 @@ export function OrgInboxModal({ inbox, net, map, slug, toast, close, jumpTo,
                     sender={(id, m) => m?._delivered?.length
                       /* delivered to (user spec): "@sender → @agent @agent", the outbox's line the other way round */
                       ? <span className="org-mail-attribution">{outsideParty(id)}
-                          <DeliveredTo names={m._delivered} map={map} onFocus={focusAgent} /></span>
+                          <DeliveredTo names={m._delivered} map={map} slug={slug} onFocus={focusAgent} /></span>
                       : outsideParty(id)} />
                 : <MailList org={slug} delivered={out} outgoing compoundHeader jumpTo={listJump}
                     collapsible
@@ -2374,7 +2387,7 @@ export function OrgInboxModal({ inbox, net, map, slug, toast, close, jumpTo,
                               // recorded text, with nothing inferred
                               <span>{m?._by ? `@${m._by}` : '@?'}</span>
                             )}
-                          <span className="org-mail-via"><span className="dim">as </span><HubContactChip address={'@org:' + slug} /></span>
+                          <AsOrg slug={slug} />
                           <span className="org-mail-recipient"><span className="dim">→ </span>
                             {(id.startsWith('@net:') || id.startsWith('@org:')) ? <HubContactChip address={id} /> : <b>{id}</b>}
                             {m && glyph(m)}
