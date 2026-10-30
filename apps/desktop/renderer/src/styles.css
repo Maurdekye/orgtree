@@ -2893,9 +2893,12 @@ button.cc-name:focus-visible {
   border-bottom: 1px solid var(--line-soft); padding-bottom: 5px;
 }
 .ask-tab-label {
+  flex: none; white-space: nowrap;
   font-weight: 600; color: var(--ink-strong);
   border-bottom: 2px solid var(--accent); padding-bottom: 3px; margin-bottom: -6px;
 }
+.ask-tab-node { flex: none; white-space: nowrap; }
+.ask-head-who { flex: none; white-space: nowrap; }
 /* REQUEST CARDS FOLD (USER 2026-10-29 mece9d7b275c2 "add collapsible request
    cards"; asks.tsx, canvas/askfold.ts). The fold button is a chevron that
    points down while the card is open and right when it is folded (measured
@@ -2922,15 +2925,24 @@ html.mobile .askcard button.ask-fold { min-width: 28px; min-height: 28px; }
 @media (prefers-reduced-motion: reduce) {
   .askcard button.ask-fold { transition: none; }
 }
-/* the one line a folded card keeps: ticket chips, then the question's first
-   line or its tab names, cut to the width with an ellipsis */
-.ask-fold-line { flex: 1 1 auto; min-width: 0; display: flex; align-items: center; gap: 6px; }
-.ask-fold-line > .ref-chip { flex: none; }
+/* the one line a folded card keeps: the question's first line or its tab
+   names first, then any linked ticket chips, cut to the width with an
+   ellipsis */
+.ask-fold-line { flex: 1 1 auto; min-width: 0; display: flex; align-items: center; gap: 6px; overflow: hidden; }
+.ask-fold-line > .ref-chip { display: block; flex: 0 1 auto; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.ask-fold-line > .ref-chip.ref-chip.ref-ready:is(.ref-item, .ref-doc, .ref-app, .ref-panel),
+.wrap-object-mentions .ask-fold-line > .ref-chip.ref-chip.ref-ready:is(.ref-item, .ref-doc, .ref-app, .ref-panel) {
+  display: block; flex: 0 1 auto; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
+}
+.ask-fold-line > .ref-chip > .ref-mark { margin-right: 0.3em; }
 .ask-fold-text {
   flex: 1 1 auto; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
   color: var(--ink);
 }
+.ask-fold-line:has(> .ref-chip) > .ask-fold-text { flex: none; max-width: 55%; }
 .ask-fold-text p { display: inline; margin: 0; }
+.ask-q-head { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; min-width: 0; }
+.ask-q-head > .answered-chip { margin-right: 0; }
 .ask-fold-changed {
   flex: none; font-size: 10px; padding: 0 6px; border-radius: 8px; font-family: var(--mono);
   border: 1px solid var(--accent); color: var(--accent);
@@ -3101,6 +3113,7 @@ textarea.ask-free-response-input { resize: vertical; }
 .askcard.nulled.grey { color: var(--dim); }
 .askcard.nulled.orange { border-color: rgba(229, 140, 60, .6); }
 .ask-null-tag {
+  flex: none; white-space: nowrap;
   margin-left: auto; font-size: 10px; padding: 0 6px; border-radius: 8px;
   border: 1px solid var(--line); color: var(--dim); font-family: var(--mono);
 }
@@ -9414,6 +9427,7 @@ main:has(> .orgbar.native-header) > .error {
 .answered-card > summary { cursor: pointer; color: var(--dim); font-size: 11px; font-weight: 600; margin-bottom: 4px; }
 .answered-q { padding: 6px 8px; margin: 4px 0; border: 1px solid var(--border, rgba(128,128,128,.28)); border-radius: 6px; }
 .answered-qtext { font-weight: 600; margin-bottom: 4px; }
+.answered-qtext > .ref-chip { margin-right: 6px; font-weight: 400; }
 .answered-chip { display: inline-block; font-size: 10px; font-weight: 600; padding: 0 6px; margin-right: 6px; border-radius: 8px; background: rgba(128,128,128,.2); color: var(--dim); vertical-align: 1px; }
 .answered-opts { list-style: none; margin: 0; padding: 0; }
 .answered-opt { display: flex; gap: 7px; padding: 1px 0; opacity: .5; font-size: 11.5px; }

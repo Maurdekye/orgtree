@@ -1,42 +1,49 @@
 import type { AskInfo } from '../types'
 import type { AnsweredQ, AnswerAsk, AnswerBatch, AskOption, BatchQ, Section, SectionCredit, SectionScope } from '../generated/events'
 import { RefMdBody } from '../canvas/refmd'
+import { RefChip, resolveRef } from '../canvas/reflinks'
 import type { RefWorld, ResolvedRef } from '../canvas/reflinks'
 import { inlineMd, md, singleParagraph } from '../canvas/shared'
 
 /** The showing surface's reference wiring, as an event card's content has it.
  *  The card draws a question's text and option descriptions as the open card
  *  does (USER 2026-10-28 m5952056229d3: Markdown, LaTeX and mention links). */
-interface QuestionRefs { world?: RefWorld | null; onOpen?: (r: ResolvedRef) => void; imgBase?: string }
+interface QuestionRefs { world?: RefWorld | null; org?: string; onOpen?: (r: ResolvedRef) => void; imgBase?: string }
 
 /** One question as the mini card draws it: every option the card offered with
  *  the chosen ones marked, or the typed answer when it offered none. */
 export interface MiniQuestion {
   label: string | null; question: string; options: AskOption[]; multi: boolean
-  selected: string[]; typed: string | null
+  selected: string[]; typed: string | null; work_item?: string | null
 }
 
 const dash = ' · '
-export function miniFromAsk(q: AnsweredQ, text: string | null, only: boolean): MiniQuestion {
+export function miniFromAsk(q: AnsweredQ & { work_item?: string | null }, text: string | null, only: boolean): MiniQuestion {
   const options = q.options ?? []
   return { label: q.label, question: q.question, options, multi: q.multi ?? false,
-    selected: q.selected, typed: only && text && options.length === 0 && q.selected.length === 0 ? text : null }
+    selected: q.selected, typed: only && text && options.length === 0 && q.selected.length === 0 ? text : null,
+    ...(q.work_item ? { work_item: q.work_item } : {}) }
 }
-export function miniFromBatch(q: BatchQ): MiniQuestion {
+export function miniFromBatch(q: BatchQ & { work_item?: string | null }): MiniQuestion {
   const options = q.options ?? []
   const selected = q.selected ?? (q.answer === null ? [] : options.length
     ? options.map(o => o.label).filter(l => (dash + q.answer + dash).includes(dash + l + dash)) : [])
   const typed = q.answer !== null && options.length === 0 && !q.selected ? q.answer : null
-  return { label: q.label, question: q.question, options, multi: q.multi ?? false, selected, typed }
+  return { label: q.label, question: q.question, options, multi: q.multi ?? false, selected, typed,
+    ...(q.work_item ? { work_item: q.work_item } : {}) }
 }
 
 /** A question's text beside its label chip, rendered as the open card renders
  *  it. One paragraph stays in the line, so a plain question keeps its look;
  *  block structure (a heading, a list, display math) gets its own box. */
-function QuestionText({ text, label, refs }: { text: string; label?: string | null; refs: QuestionRefs }) {
+function QuestionText({ text, label, workItem, refs }: {
+  text: string; label?: string | null; workItem?: string | null; refs: QuestionRefs
+}) {
   const html = md(text, refs.imgBase).__html
   const inline = singleParagraph(html)
+  const chipWorld = refs.world ?? (refs.org ? { org: refs.org } : undefined)
   return <div className="answered-qtext">{label && <span className="answered-chip">{label}</span>}
+    {workItem && chipWorld && <RefChip r={resolveRef({ kind: 'item', org: chipWorld.org, id: workItem }, chipWorld)} onOpen={refs.onOpen} />}
     <RefMdBody el={inline === null ? 'div' : 'span'} className="answered-qbody md"
       html={{ __html: inline ?? html }} world={refs.world} onOpen={refs.onOpen} /></div>
 }
@@ -56,7 +63,7 @@ function Question({ q, dismissed, refs }: { q: MiniQuestion; dismissed: boolean;
     </li>
   const skipped = !dismissed && q.selected.length === 0 && q.typed === null
   return <div className="answered-q" data-multi={q.multi ? 'true' : 'false'}>
-    <QuestionText text={q.question} label={q.label} refs={refs} />
+    <QuestionText text={q.question} label={q.label} workItem={q.work_item} refs={refs} />
     {(q.options.length > 0 || extra.length > 0) && <ul className="answered-opts">
       {q.options.map(o => row(o.label, o.description, q.selected.includes(o.label)))}
       {extra.map(s => row(s, undefined, true))}
@@ -172,6 +179,7 @@ export function miniFromAskInfo(ask: AskInfo): { questions: MiniQuestion[]; note
   let used = false
   // the batch route stores its whole body as the card's answer: {answers: [one per tab], ...}
   const batch = (own as { answers?: unknown } | undefined)?.answers
+  const qTabs = (ask.tabs ?? []).filter(x => x.kind === 'question')
   const questions = tabs.map((t, i) => {
     const options = (t.options ?? []).map(o => typeof o === 'string' ? { label: o } : o)
     let selected = flat(t.answer)
@@ -185,7 +193,10 @@ export function miniFromAskInfo(ask: AskInfo): { questions: MiniQuestion[]; note
     else if (selected.length === 0 && tabs.length === 1 && ownText) typed = ownText
     if (options.length === 0) selected = []
     used = used || !!typed
-    return { label: t.header ?? null, question: t.question, options, multi: t.multi ?? false, selected, typed }
+    const work_item = t.work_item ?? qTabs[i]?.work_item
+      ?? (tabs.length === 1 ? ask.work_items?.[0] : undefined)
+    return { label: t.header ?? null, question: t.question, options, multi: t.multi ?? false, selected, typed,
+      ...(work_item ? { work_item } : {}) }
   })
   const note = tabs.length === 1 && ownText && !used && questions[0].selected.length > 0 ? ownText : null
   return { questions, note }

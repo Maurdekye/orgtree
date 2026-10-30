@@ -171,20 +171,28 @@ export function settleFromTree(slug: string, tree: { roots?: unknown[]; asks?: u
 export function answeredAsk(slug: string, ask: AskInfo): AskInfo | null {
   const e = entries.get(key(slug, String(ask.id)))
   if (!e || e.state !== 'sent') return null
+  const qTabs = (ask.tabs ?? []).filter(t => t.kind === 'question')
+  const itemAt = (idx: number, q?: { work_item?: string | null }) =>
+    q?.work_item ?? ask.questions?.[idx]?.work_item ?? qTabs[idx]?.work_item
   const qs: AskQuestion[] = []
   for (const s of e.sections ?? []) {
     if (s.kind === 'ask') {
       for (const q of s.questions) {
+        const work_item = itemAt(qs.length, q as { work_item?: string | null })
         qs.push({ question: q.question, ...(q.label ? { header: q.label } : {}),
-          ...(q.answer != null ? { answer: q.answer } : {}) })
+          ...(q.answer != null ? { answer: q.answer } : {}),
+          ...(work_item ? { work_item } : {}) })
       }
     } else if (s.kind === 'skipped') {
-      qs.push({ question: s.question, answer: 'skipped' })
+      const work_item = itemAt(qs.length)
+      qs.push({ question: s.question, answer: 'skipped', ...(work_item ? { work_item } : {}) })
     }
   }
   for (const q of e.answer?.questions ?? []) {
+    const work_item = itemAt(qs.length, q as { work_item?: string | null })
     qs.push({ question: q.question, ...(q.label ? { header: q.label } : {}),
-      ...(q.selected.length ? { answer: q.selected.join(' · ') } : {}) })
+      ...(q.selected.length ? { answer: q.selected.join(' · ') } : {}),
+      ...(work_item ? { work_item } : {}) })
   }
   const text = e.answer?.text || ''
   const status = e.answer?.dismissed ? 'dismissed' : 'answered'

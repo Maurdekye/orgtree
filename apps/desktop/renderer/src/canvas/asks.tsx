@@ -149,17 +149,49 @@ const foldRow = (fold: CardFold) => (e: MouseEvent<HTMLElement>) => {
  *  Markdown and math, its mentions as clickable chips) or the names of its tabs. */
 type FoldText = { md: string } | { text: string }
 
-/** The one line a folded card keeps after who asks: the tickets its tabs
- *  name, as chips, then its text. */
+/** Every distinct docket item id linked by this request or its tabs. */
+const askWorkItems = (ask: AskInfo): string[] => {
+  const out = new Set<string>(ask.work_items ?? [])
+  for (const t of ask.tabs ?? []) if (t.work_item) out.add(t.work_item)
+  for (const q of ask.questions ?? []) if (q.work_item) out.add(q.work_item)
+  return [...out]
+}
+
+/** The docket item id linked to one tab or question of a request. */
+const tabWorkItem = (
+  ask: AskInfo,
+  item: { work_item?: string } | undefined,
+  index: number,
+  total: number,
+): string | undefined =>
+  item?.work_item ?? ask.tabs?.[index]?.work_item ?? ask.questions?.[index]?.work_item
+    ?? (total === 1 ? ask.work_items?.[0] : undefined)
+
+/** A question's header chip (when not already in the header or tab strip) and
+ *  linked ticket chip above its body on an unfolded request card. */
+function QuestionTicket({ header, workItem, slug, refs }: {
+  header?: string; workItem?: string; slug: string; refs?: AskRefs
+}) {
+  if (!workItem) return null
+  const world = refs?.world ?? { org: slug }
+  return <div className="ask-q-head">
+    {header && <span className="answered-chip">{header}</span>}
+    <RefChip r={resolveRef({ kind: 'item', org: slug, id: workItem }, world)} onOpen={refs?.onOpen} />
+  </div>
+}
+
+/** The one line a folded card keeps after who asks: its text (the question's
+ *  first line or the names of its tabs), then the tickets its tabs name as
+ *  mention chips. */
 function FoldLine({ ask, slug, refs, text }: { ask: AskInfo; slug: string; refs?: AskRefs; text: FoldText }) {
   const world = refs?.world ?? { org: slug }
   return <span className="ask-fold-line">
-    {(ask.work_items ?? []).map((id) => <RefChip key={id}
-      r={resolveRef({ kind: 'item', org: slug, id }, world)} onOpen={refs?.onOpen} />)}
     {'md' in text
       ? <RefMdBody el="span" className="ask-fold-text" html={inlineMd(text.md, fileBase(slug, ask.node))}
           world={refs?.world} onOpen={refs?.onOpen} />
       : <span className="ask-fold-text">{text.text}</span>}
+    {askWorkItems(ask).map((id) => <RefChip key={id}
+      r={resolveRef({ kind: 'item', org: slug, id }, world)} onOpen={refs?.onOpen} />)}
   </span>
 }
 
@@ -438,6 +470,10 @@ function BatchAsk({ ask, slug, toast, seat, committed, maxTop, segments,
             ))}
           </div>
         )}
+        <QuestionTicket
+          header={only && t.kind === 'question' ? t.header : undefined}
+          workItem={tabWorkItem(ask, t, cur, tabs.length)}
+          slug={slug} refs={refs} />
         {t.kind === 'question' && (<>
           <QuestionBody text={t.question ?? ''} base={fileBase(slug, ask.node)} refs={refs} />
           <div className="ask-rows">
@@ -574,7 +610,7 @@ function AskHead({ label, node, busy, onClose, closeTitle, fold, line }: {
     <div className="ask-tab ask-foldrow" onClick={foldRow(fold)}>
       <FoldButton fold={fold} />
       <span className="ask-tab-label">{label}</span>
-      <span className="dim" data-copy-agent-name={node}>· {node}</span>
+      <span className="dim ask-tab-node" data-copy-agent-name={node}>· {node}</span>
       {fold.folded ? <>{line}{fold.changed && <FoldChanged />}</> : <>
         <span className="spacer" />
         <button className="chip-x" title={closeTitle} disabled={busy}
@@ -609,17 +645,20 @@ function askAnswer(ask: AskInfo, qs: AskQuestion[], body: { selected?: (string |
   const label = (q: AskQuestion | undefined) => (q?.header ? String(q.header) : null)
   const clean = (v: string | string[]) => (Array.isArray(v) ? v : [v])
     .map(x => String(x).trim()).filter(Boolean)
+  const item = (q: AskQuestion | undefined, i: number) =>
+    tabWorkItem(ask, q, i, qs.length)
   if (body.dismiss) {
-    return { questions: qs.map(q => ({ label: label(q), question: String(q.question ?? ''),
-      selected: [] })), text: null, dismissed: true, single: qs.length <= 1 }
+    return { questions: qs.map((q, i) => ({ label: label(q), question: String(q.question ?? ''),
+      selected: [], ...(item(q, i) ? { work_item: item(q, i) } : {}) })), text: null, dismissed: true, single: qs.length <= 1 }
   }
   if (qs.length > 1) {
     return { questions: qs.map((q, i) => ({ label: label(q), question: String(q.question ?? ''),
-      selected: clean(body.selected?.[i] ?? '') })),
+      selected: clean(body.selected?.[i] ?? ''), ...(item(q, i) ? { work_item: item(q, i) } : {}) })),
       text: body.text?.trim() || null, dismissed: false, single: false }
   }
+  const w0 = item(qs[0], 0)
   return { questions: [{ label: label(qs[0]), question: String(ask.question ?? qs[0]?.question ?? ''),
-    selected: clean((body.selected ?? []) as string[]) }],
+    selected: clean((body.selected ?? []) as string[]), ...(w0 ? { work_item: w0 } : {}) }],
     text: body.text?.trim() || null, dismissed: false, single: true }
 }
 
@@ -638,8 +677,9 @@ function batchSections(ask: AskInfo, tabs: AskTab[], answers: (string | string[]
       const v = answers[i] ?? null
       const parts = v == null ? [] : (Array.isArray(v) ? v : [v])
         .map(x => String(x).trim()).filter(Boolean)
+      const work_item = t.work_item ?? (qTabs.length === 1 ? ask.work_items?.[0] : undefined)
       return { label: t.header ? String(t.header) : null, question: String(t.question ?? ''),
-        answer: parts.length ? parts.join(' · ') : null }
+        answer: parts.length ? parts.join(' · ') : null, ...(work_item ? { work_item } : {}) }
     }) })
   }
   const ct = tabs.find(t => t.kind === 'credits')
@@ -775,6 +815,9 @@ function QuestionAsk({ ask, slug, toast, refs }: {
             ))}
           </div>
         )}
+        <QuestionTicket
+          workItem={tabWorkItem(ask, q, Math.min(tab, qs.length - 1), qs.length)}
+          slug={slug} refs={refs} />
         <QuestionBody text={q.question} base={fileBase(slug, ask.node)} refs={refs} />
         <div className="ask-rows">
           {opts.map((o) => (
@@ -986,9 +1029,9 @@ function NulledAsk({ ask, credit, slug, refs }: {
     <div className={'askcard nulled ' + (interrupted ? 'orange' : 'grey')}>
       <div className="ask-head ask-foldrow" onClick={foldRow(fold)}>
         <FoldButton fold={fold} />
-        <b data-copy-agent-name={ask.node}>{ask.node}</b> {credit
+        <span className="ask-head-who"><b data-copy-agent-name={ask.node}>{ask.node}</b> {credit
           ? <>asked for credits: {ask.old} → {ask.new}</>
-          : scope ? <>requested scope</> : <>asked</>}
+          : scope ? <>requested scope</> : <>asked</>}</span>
         {fold.folded && foldText && <FoldLine ask={ask} slug={slug} refs={refs} text={foldText} />}
         {fold.folded && fold.changed && <FoldChanged />}
         <span className={'ask-null-tag' + (interrupted ? ' warn' : '')}>{label}</span>
@@ -1012,7 +1055,7 @@ function NulledAsk({ ask, credit, slug, refs }: {
         {!credit && !scope && (() => {
           const m = miniFromAskInfo(ask)
           return <AnsweredCard questions={m.questions} dismissed={ask.status === 'dismissed'} note={m.note}
-            world={refs?.world} onOpen={refs?.onOpen} imgBase={fileBase(slug, ask.node)} />
+            org={slug} world={refs?.world} onOpen={refs?.onOpen} imgBase={fileBase(slug, ask.node)} />
         })()}
         {interrupted && (
           <div className="ask-null-why">
