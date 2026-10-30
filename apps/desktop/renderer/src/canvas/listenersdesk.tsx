@@ -44,7 +44,7 @@ import { mailLinkProps } from './mailidentity'
 import { WatchdogRow } from './deskdogs'
 import { WatchdogLink } from './watchdoglink'
 import { ageClockNow, subscribeAgeClock } from './desk'
-import { fireActionTools, listeningSince, projectListenerState } from './listeners'
+import { fireActionTools, listeningSince, listenersLive, projectListenerState } from './listeners'
 import { span, SlotTime } from './slotsdesk'
 import { slotTimeStyle } from './slottime'
 import { HistoryDog } from './historydog'
@@ -122,7 +122,7 @@ export function ListenersView({ node, dogs, map, onJump, op, toast, refs, action
   const generation = useRef(0), paging = useRef(false)
   // the host may hand a new `op` each render: read through a ref
   const opRef = useRef(op); opRef.current = op
-  const state = projectListenerState(node.id, dogs)
+  const state = projectListenerState(node.id, dogs, listenersLive(map))
   const live = node.state === 'live'
   // re-read when a fire is kept (the tree's newest fire moves)
   useEffect(() => {

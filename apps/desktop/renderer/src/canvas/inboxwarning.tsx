@@ -8,14 +8,15 @@
 
 import { WarnIcon } from '../icons'
 import { mailListenerState } from './listeners'
+import type { ListenerLive } from './listeners'
 import type { Watchdog } from '../types'
 
 /** Whether a listener is attached to the project's inbox: a fair_queue dog on
  *  the project, armed or paused, as the inbox's listeners folder lists them.
  *  A paused listener is attached; the engine's send note says the mail waits
- *  for it to resume. */
-export const inboxListened = (project: string, dogs: Watchdog[]) =>
-  mailListenerState(project, dogs).listeners.length > 0
+ *  for it to resume. A retired agent's paused listener is not one (`listenersLive`). */
+export const inboxListened = (project: string, dogs: Watchdog[], live?: ListenerLive) =>
+  mailListenerState(project, dogs, live).listeners.length > 0
 
 /** The note, for a box whose project's inbox has no listener (`inboxListened`). */
 export function InboxNoListeners({ project }: { project: string }) {

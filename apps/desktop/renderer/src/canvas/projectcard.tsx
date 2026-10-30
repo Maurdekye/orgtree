@@ -35,7 +35,7 @@ import { AgentRetireConfirm, projectMenuEntries } from './agentmenu'
 import type { RetireKind } from './agentmenu'
 import { slotsFull, heldSlotCount } from './slots'
 import { projectHeaderFacts } from './projectheaderfacts'
-import { mailQueueFolder } from './listeners'
+import { listenersLive, mailQueueFolder } from './listeners'
 import { readQuickChat } from '../quickchat'
 import { agentTooltipProps } from './agentnav'
 import { useAgentSurfaceRoutes } from './panelcorner'
@@ -133,7 +133,7 @@ export function ProjectSquare({ node, pos, lod, focused, pinnedFocus, pinned, on
   const docs = node.documents_count ?? node.documents?.length ?? 0
   // its slots at a glance, while it has a count: filled when full, outlined
   // with a slot free (the approved slots mockup, user 2026-10-18)
-  const { slots, slotBadge, listenerBadges, queue } = projectHeaderFacts(node, tree)
+  const { slots, slotBadge, listenerBadges, queue } = projectHeaderFacts(node, tree, map ? listenersLive(map) : undefined)
   const slotTitle = `${heldSlotCount(slots)} of ${slots.total} concurrency slot${slots.total === 1 ? '' : 's'} held`
     + (slots.held.length ? ' by ' + slots.held.map((l) => l.agent).join(', ') : '')
     + (slots.line.length ? `; in line: ${slots.line.map((w) => w.agent).join(', ')}` : '')

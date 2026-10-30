@@ -13,6 +13,21 @@
 
 import type { Watchdog } from '../types'
 import type { CanvasNode } from './shared'
+import { isUserName } from './username'
+
+/** Is this listener a live agent's (or the user's)? A RETIRED agent's watchdogs are paused, not removed (a
+ *  rehire re-arms them: engine runtime/watchdogs.rs `pause_owned` / `resume_owned`), so they stay in the
+ *  tree's watchdog list for good, and the tree keeps few retired nodes: the owner is archived in the map
+ *  or missing from it. The project's listener lists leave them out (USER 2026-10-30 08:37:43Z
+ *  m401e6ff93d21, "retired listeners should not show up in this list"). A live agent's paused listener
+ *  still shows, and so does the user's own (no tree node, always listening). An ARMED dog whose owner is
+ *  not in the map yet is a hire the map has not caught up with, not a retirement: retirement pauses. */
+export type ListenerLive = (w: Pick<Watchdog, 'owner' | 'state'>) => boolean
+export const listenersLive = (map: ReadonlyMap<string, CanvasNode>): ListenerLive => (w) => {
+  if (isUserName(w.owner)) return true
+  const owner = map.get(w.owner)
+  return owner ? owner.state === 'live' : w.state !== 'paused'
+}
 
 const target = (w: Watchdog) => w.target.replace(/^@/, '')
 
@@ -28,8 +43,9 @@ export interface ProjectListenerState {
   armedWatches: Watchdog[]
 }
 
-export function projectListenerState(project: string, dogs: Watchdog[]): ProjectListenerState {
+export function projectListenerState(project: string, dogs: Watchdog[], live?: ListenerLive): ProjectListenerState {
   const on = (w: Watchdog) => !w.spent && (w.state === 'armed' || w.state === 'paused') && target(w) === project
+    && (!live || live(w))
   const listeners = dogs.filter((w) => w.kind === 'project_listener' && on(w))
   const watches = dogs.filter((w) => w.kind === 'listener_watch' && on(w))
   return {
@@ -133,14 +149,15 @@ export interface QueueCard {
  *  the armed ones take its mail; spent one-shots are gone. */
 export interface MailListenerState { listeners: Watchdog[]; armed: Watchdog[] }
 
-export function mailListenerState(project: string, dogs: Watchdog[]): MailListenerState {
+export function mailListenerState(project: string, dogs: Watchdog[], live?: ListenerLive): MailListenerState {
   const listeners = dogs.filter((w) => w.kind === 'fair_queue' && !w.spent
-    && (w.state === 'armed' || w.state === 'paused') && target(w) === project)
+    && (w.state === 'armed' || w.state === 'paused') && target(w) === project && (!live || live(w)))
   return { listeners, armed: listeners.filter((w) => w.state === 'armed') }
 }
 
-export function mailQueueCard(project: string, waiting: number, held: number, ack: boolean, dogs: Watchdog[]): QueueCard | null {
-  const armed = mailListenerState(project, dogs).armed
+export function mailQueueCard(project: string, waiting: number, held: number, ack: boolean, dogs: Watchdog[],
+  live?: ListenerLive): QueueCard | null {
+  const armed = mailListenerState(project, dogs, live).armed
   const listeners = armed.length
   const inFlight = ack ? held : 0
   if (listeners <= 0 && waiting <= 0 && inFlight <= 0) return null
@@ -221,6 +238,7 @@ export function deadLetterListeners(project: string, dogs: Watchdog[], map: Map<
     if (!pattern) return true
     try { return new RegExp(pattern).test(line) } catch { return true }
   }
+  const live = listenersLive(map)
   return dogs.filter((w) => isDeadLetterListener(w) && !w.spent && (w.state === 'armed' || w.state === 'paused')
-    && reachesProject(w.owner, project, map) && takes(w.pattern))
+    && live(w) && reachesProject(w.owner, project, map) && takes(w.pattern))
 }

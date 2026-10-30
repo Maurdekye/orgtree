@@ -64,7 +64,7 @@ import { projectSlotState, slotCount, slotHeaderText, slotsFull } from './slots'
 import { SlotsView } from './slotsdesk'
 import { DeadLettersView } from './deaddesk'
 import { ListenersView } from './listenersdesk'
-import { eventListenersOn, listenerCards, mailListenerState, mailQueueCard, mailQueueFolder, projectListenerState, queueAckMode } from './listeners'
+import { eventListenersOn, listenerCards, mailListenerState, mailQueueCard, mailQueueFolder, listenersLive, projectListenerState, queueAckMode } from './listeners'
 import { MailListenersView } from './maillisteners'
 import { MailQueueJoin } from './mailqueuejoin'
 import { InboxNoListeners, inboxListened } from './inboxwarning'
@@ -380,7 +380,7 @@ function ProjectComposer({ node, slug, tree, map, toast, members, recipients, ba
   const enterKey = useComposerEnter()
   const can = node.state === 'live' && (!megaphone || members > 0)
   // nobody listens on the inbox: say so before the user sends (user 2026-10-20 11:04Z)
-  const unheard = node.state === 'live' && !megaphone && !inboxListened(node.id, tree.watchdogs ?? [])
+  const unheard = node.state === 'live' && !megaphone && !inboxListened(node.id, tree.watchdogs ?? [], listenersLive(map))
   const mentionCandidates = useOrgMentionCandidates(slug, tree, map)
   const mentions = useAgentMentions({
     value: text,
@@ -598,7 +598,9 @@ export function ProjectInbox({ node, slug, tree, map, op, toast, refs, onJump, r
   onOpenMail: (id: string) => void
 }) {
   const [purging, setPurging] = useState(false)
-  const mailListeners = mailListenerState(node.id, tree.watchdogs ?? [])
+  // a retired agent's paused listeners are not the project's (listenersLive)
+  const ownerLive = listenersLive(map)
+  const mailListeners = mailListenerState(node.id, tree.watchdogs ?? [], ownerLive)
   const waiting = node.mail_pending ?? 0
   // the Mail tab's header row is the folder strip: the project's own controls end
   // it, left of the tab's pin / pop-out / modal buttons (docket
@@ -718,10 +720,12 @@ export function ProjectDesk({ node, slug, tree, map, op, toast, refs, bare, focu
   const slots = projectSlotState(node.id, slotCount(node), tree.slot_leases ?? [], tree.watchdogs ?? [])
   // its event listeners (cyan cards + the listeners tab) and mail queue
   // (the magenta card), user 2026-10-19
-  const listenerState = projectListenerState(node.id, tree.watchdogs ?? [])
+  // a retired agent's paused listeners are not the project's (listenersLive)
+  const ownerLive = listenersLive(map)
+  const listenerState = projectListenerState(node.id, tree.watchdogs ?? [], ownerLive)
   const listenersArmed = listenerState.armed.length
   const listenerHeaderCards = listenerCards(node.id, listenerState)
-  const queue = mailQueueCard(node.id, node.mail_pending ?? 0, node.mail_held ?? 0, queueAckMode(node), tree.watchdogs ?? [])
+  const queue = mailQueueCard(node.id, node.mail_pending ?? 0, node.mail_held ?? 0, queueAckMode(node), tree.watchdogs ?? [], ownerLive)
   // ⚠ ONE ROW of header cards on every tab (user 2026-10-19 19:02Z, 19:15Z:
   // "make sure they're all on the same row in the full desk header"): the
   // cyan listener cards, the magenta mail card, the amber slots card and the

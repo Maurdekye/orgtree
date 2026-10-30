@@ -133,7 +133,8 @@ import { setAttentionLayout } from '../attention/mode'
 import type { CanvasShortcutRef } from '../shell/appshortcuts'
 import { projectLineLanes, slotLinks } from './slots'
 import { isUserName } from './username'
-import { listenerLinks } from './listeners'
+import { listenerLinks, listenersLive } from './listeners'
+import type { ListenerLive } from './listeners'
 import { projectHeaderFacts } from './projectheaderfacts'
 import type { ProjectLine, SlotLease } from './slots'
 
@@ -417,12 +418,12 @@ function AgentListMenuHost({ render, map, op, slug, toast }: {
 export function agentTooltipInfo(n: CanvasNode | undefined,
   providers: ProviderInfo[] = [], accounts?: AccountRegistryPayload | null,
   defaultEffort?: string, effortLevels?: readonly string[],
-  projectTree?: Pick<TreePayload, 'slot_leases' | 'watchdogs'>): AgentTooltipInfo | null {
+  projectTree?: Pick<TreePayload, 'slot_leases' | 'watchdogs'>, live?: ListenerLive): AgentTooltipInfo | null {
   if (!n || n.state === 'user') return null
   if (n.kind === 'project' || n.tier === 'project') {
     // Same helpers and feed as the header badges. The shared native-title
     // host adds a name line only for identity-less links (USER 11:17:42Z).
-    const { texts } = projectHeaderFacts(n, projectTree)
+    const { texts } = projectHeaderFacts(n, projectTree, live)
     // USER 2026-10-21 15:59:29Z: the chip content itself, nothing extra.
     return { title: texts.length ? texts.join(' · ') : n.id }
   }
@@ -486,7 +487,7 @@ function AgentNavHost({ map, op, slug, toast, goTo, build, providers, accounts, 
     MUSE_TIERS.includes(map.get(id)?.tier ?? '')
       ? museEffortLevels(map.get(id)?.tier ?? '', map.get(id)?.scope?.model_version ?? null,
         map.get(id)?.account ?? null)
-      : tierEffortLevels(slug, map.get(id)?.tier), tree))
+      : tierEffortLevels(slug, map.get(id)?.tier), tree, listenersLive(map)))
   // the CARD's confirm — same wording, same op, same undo toast — portaled
   // into this document, exactly as the tray's menu host does it
   return node && asking
