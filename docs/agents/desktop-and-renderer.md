@@ -230,14 +230,16 @@ by side; every branch now keeps the unit against its number: `784ms`, `1.2s`,
 not a number from its unit). The freeze log (`freezelog.ts` detail lines,
 `FreezeLogPage.tsx` text) writes whole milliseconds of its own and follows
 (`250ms between frames`); it does not call `formatDuration`, which would turn
-`3000` into `3.0s` and hide the exact count its `ms` column sorts by. The ruling
-named milliseconds, so these spaced units were left as they were: the desk's gap
-label between messages (`5 min later`, `2 h later`), the engine debug panel's
-seconds, prose such as "after 60 s" in engine and agent-facing text, and the
+`3000` into `3.0s` and hide the exact count its `ms` column sorts by. The
+developer engine debug panel's seconds follow too (`30s`, `every 1s`; the
+coordinator's call, since a space before `s` contradicted the user's own premise
+that seconds have none). The ruling named milliseconds, so these spaced units
+were left as they were: the desk's gap label between messages (`5 min later`,
+`2 h later`), prose such as "after 60 s" in engine and agent-facing text, and the
 engine's diagnostic log line `[12.359 ms]` (`trace.rs`, Hubchat's `diag.rs`),
 which rig proofs parse. [decided: user 2026-10-30; verified:
-`canvas/toolclock.tsx`, `freezelog.ts`; `tests/durationunits.test.ts`
-fails if a branch regains the space]
+`canvas/{toolclock,enginedebug}.tsx`, `freezelog.ts`;
+`tests/{durationunits,enginedebug}.test.ts*` fail if a branch regains the space]
 
 ## A submitted request's resolution is final from its first frame (2026-10-30, 4.5.3)
 
