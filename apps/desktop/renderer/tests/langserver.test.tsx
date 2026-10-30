@@ -552,3 +552,139 @@ test('a server whose harness was uninstalled stays listed, saying so', async () 
     assert.match(view.el.textContent ?? '', /Codex \(not installed\)/)
   } finally { await view.unmount(); delete g.fetch }
 })
+
+test('edit dialog harness: offers installed compatible harnesses, shows follower and pinned seat counts before saving, '
+  + 'and PATCHes the new harness', async () => {
+  const seen: Seen[] = []
+  const s: LangServer = {
+    ...server(),
+    following_seats: 3,
+    pinned_seats: 2,
+    pinned_harnesses: { opencode: 2 },
+  }
+  const harnesses = [
+    { id: 'claude-code', label: 'Claude Code', available: true, installed: true, why: '' },
+    { id: 'codex-cli', label: 'Codex', available: true, installed: true, why: '' },
+    { id: 'opencode', label: 'OpenCode (ACP)', available: false, installed: false, why: 'OpenCode (ACP) is not installed on this machine' },
+  ]
+  const doc = (): LangServerDoc => ({
+    servers: [s],
+    presets: [{ id: 'ollama', label: 'Ollama', address: 'http://127.0.0.1:11434', claude: true, codex: true,
+      harnesses, note: 'Ollama 0.14 or later serves both harnesses.' }] as unknown as LangServerDoc['presets'],
+    default_seat: 1, max_seat: 100, min_context: 65536, default_context: 65536, user_enabled: true,
+  })
+  g.fetch = (url: string, init?: RequestInit) => {
+    const u = new URL(String(url), 'http://localhost')
+    const method = init?.method ?? 'GET'
+    const body = init?.body ? JSON.parse(String(init.body)) as Record<string, unknown> : null
+    seen.push({ method, path: u.pathname, body })
+    if (u.pathname === '/api/langservers' && method === 'GET') {
+      return Promise.resolve({ ok: true, status: 200, headers: new Headers(), json: () => Promise.resolve(doc()) })
+    }
+    if (u.pathname === '/api/langservers/probe') {
+      return Promise.resolve({ ok: true, status: 200, headers: new Headers(), json: () => Promise.resolve({ reachable: true, version: '0.40.2', listed: 2, models: OFFERED }) })
+    }
+    if (u.pathname === '/api/langservers/ollama' && method === 'PATCH') {
+      if (body?.harness) {
+        s.harness = body.harness as LangServer['harness']
+        s.api = s.harness === 'codex-cli' ? 'responses' : s.harness === 'opencode' ? 'chat_completions' : 'anthropic'
+        s.base_url = s.harness === 'claude-code' ? 'http://127.0.0.1:11434' : 'http://127.0.0.1:11434/v1'
+      }
+      return Promise.resolve({ ok: true, status: 200, headers: new Headers(), json: () => Promise.resolve({ server: s, doc: doc(), repriced: [] }) })
+    }
+    return Promise.reject(new Error(`unexpected ${method} ${u.pathname}`))
+  }
+  const toasts: string[][] = []
+  const view = await mountSection(toasts)
+  try {
+    await click(view.el.querySelector('.ls-server-row button[title="Edit this server"]'))
+    const dialog = document.querySelector('[role="dialog"][aria-label="Configure Ollama"]')!
+    assert.ok(dialog, 'Configure Ollama opens')
+    const sel = dialog.querySelector<HTMLSelectElement>('select[aria-label="Harness"]')!
+    assert.ok(sel, 'edit dialog has a Harness select')
+    const opts = [...sel.querySelectorAll('option')]
+    assert.deepEqual(opts.map((o) => o.value), ['claude-code', 'codex-cli', HARNESS_SEPARATOR, 'opencode'])
+    assert.deepEqual(opts.map((o) => o.disabled), [false, false, true, true])
+    assert.equal(opts[3]!.textContent, 'OpenCode (ACP) (not installed)')
+    assert.equal(sel.value, 'claude-code')
+    assert.ok(dialog.querySelector('.harness-help-link'), 'links to Which harnesses are supported?')
+    await choose(sel, 'codex-cli')
+    assert.match(dialog.textContent ?? '',
+      /3 agents follow this server and move at their next turn on a fresh session; 2 pinned agents keep their harness/)
+    await click([...dialog.querySelectorAll('button')].find((b) => b.textContent === 'Save'))
+    const patches = seen.filter((r) => r.method === 'PATCH')
+    assert.equal(patches.length, 1)
+    assert.deepEqual(patches[0]!.body, { harness: 'codex-cli' }, 'only the changed harness is sent')
+    assert.match(view.el.querySelector('.ls-server-head')?.textContent ?? '', /Ollama · Ollama · Codex · http:\/\/127\.0\.0\.1:11434\/v1/)
+  } finally { await view.unmount(); delete g.fetch }
+})
+
+test('edit dialog custom server harness: changing the API family requires a base path in the same dialog '
+  + 'and warns when pinned agents are on the other API family', async () => {
+  const seen: Seen[] = []
+  const s: LangServer = {
+    ...server(),
+    id: 'custom',
+    preset: 'custom',
+    label: 'Custom gateway',
+    address: 'https://models.example.net',
+    harness: 'claude-code',
+    api: 'anthropic',
+    base_path: 'api/anthropic',
+    base_url: 'https://models.example.net/api/anthropic',
+    following_seats: 1,
+    pinned_seats: 2,
+    pinned_harnesses: { 'claude-code': 2 },
+  }
+  const harnesses = [
+    { id: 'claude-code', label: 'Claude Code', available: true, installed: true, why: '' },
+    { id: 'codex-cli', label: 'Codex', available: true, installed: true, why: '' },
+    { id: 'opencode', label: 'OpenCode (ACP)', available: true, installed: true, why: '' },
+  ]
+  const doc = (): LangServerDoc => ({
+    servers: [s],
+    presets: [{ id: 'custom', label: 'Custom…', address: '', claude: true, codex: true,
+      harnesses, note: 'Any server with an Anthropic-compatible Messages API or OpenAI-compatible API.' }] as unknown as LangServerDoc['presets'],
+    default_seat: 1, max_seat: 100, min_context: 65536, default_context: 65536, user_enabled: true,
+  })
+  g.fetch = (url: string, init?: RequestInit) => {
+    const u = new URL(String(url), 'http://localhost')
+    const method = init?.method ?? 'GET'
+    const body = init?.body ? JSON.parse(String(init.body)) as Record<string, unknown> : null
+    seen.push({ method, path: u.pathname, body })
+    if (u.pathname === '/api/langservers' && method === 'GET') {
+      return Promise.resolve({ ok: true, status: 200, headers: new Headers(), json: () => Promise.resolve(doc()) })
+    }
+    if (u.pathname === '/api/langservers/probe') {
+      return Promise.resolve({ ok: true, status: 200, headers: new Headers(), json: () => Promise.resolve({ reachable: true, version: null, listed: 2, models: OFFERED }) })
+    }
+    if (u.pathname === '/api/langservers/custom' && method === 'PATCH') {
+      if (body?.harness) s.harness = body.harness as LangServer['harness']
+      if (typeof body?.base_path === 'string') s.base_path = body.base_path
+      return Promise.resolve({ ok: true, status: 200, headers: new Headers(), json: () => Promise.resolve({ server: s, doc: doc(), repriced: [] }) })
+    }
+    return Promise.reject(new Error(`unexpected ${method} ${u.pathname}`))
+  }
+  const view = await mountSection([])
+  try {
+    await click(view.el.querySelector('.ls-server-row button[title="Edit this server"]'))
+    const dialog = document.querySelector('[role="dialog"][aria-label="Configure Custom gateway"]')!
+    const sel = dialog.querySelector<HTMLSelectElement>('select[aria-label="Harness"]')!
+    assert.ok(sel, 'custom server edit dialog has a Harness select')
+    await choose(sel, 'codex-cli')
+    const bp = dialog.querySelector<HTMLInputElement>('input[aria-label="Base path"]')!
+    assert.equal(bp.value, '', 'changing API family clears the old family base path and asks for a new one')
+    const saveBtn = () => [...dialog.querySelectorAll<HTMLButtonElement>('button')].find((b) => b.textContent === 'Save')!
+    assert.equal(saveBtn().disabled, true, 'Save is refused until a base path is given for the new API family')
+    assert.match(dialog.textContent ?? '',
+      /1 agent follows this server and moves at its next turn on a fresh session; 2 pinned agents keep their harness/)
+    assert.match(dialog.textContent ?? '',
+      /2 pinned agents are on the other API family and will be refused at launch until re-pinned/)
+    await typeInto(bp, 'v1')
+    assert.equal(saveBtn().disabled, false, 'Save is enabled once a base path is given')
+    await click(saveBtn())
+    const patches = seen.filter((r) => r.method === 'PATCH')
+    assert.equal(patches.length, 1)
+    assert.deepEqual(patches[0]!.body, { harness: 'codex-cli', base_path: 'v1' })
+  } finally { await view.unmount(); delete g.fetch }
+})

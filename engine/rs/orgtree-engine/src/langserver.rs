@@ -513,11 +513,12 @@ fn add_model(server: &str, models: &mut Map<String, Value>, id: &str, context: i
     );
 }
 
-/// What the edit form may change. The harness and kind stay as created.
+/// What the edit form may change. The server's preset (kind) stays as created.
 #[derive(Debug, Default)]
 pub struct ServerPatch {
     pub label: Option<String>,
     pub address: Option<String>,
+    pub harness: Option<String>,
     pub base_path: Option<String>,
     pub max_agents: Option<i64>,
     /// a new seat price for every model it offers (existing seats follow: reprice_everywhere)
@@ -527,8 +528,25 @@ pub struct ServerPatch {
     pub models: Vec<(String, Option<bool>, Option<i64>, Option<String>)>,
 }
 
-#[logged]
-pub async fn update_server(engine: &Engine, id: &str, patch: ServerPatch) -> Result<Value> {
+/// Live seats on one language model server: how many follow the server's
+/// harness, how many are pinned to their own (`harnesses::seat_pin`), and how
+/// many pinned seats hold each harness.
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub struct ServerSeatCounts {
+    pub following: i64,
+    pub pinned: i64,
+    pub pinned_harnesses: std::collections::BTreeMap<String, i64>,
+}
+
+/// Count each server's live following and pinned seats from `(tier, extra)` rows.
+#[nolog]
+pub fn seat_counts_of(_engine: &Engine, _rows: &[(String, Value)]) -> std::collections::HashMap<String, ServerSeatCounts> {
+    Default::default()
+}
+
+/// Validate and build the settings map patch for `update_server`.
+#[nolog]
+pub fn patch_server_with(engine: &Engine, id: &str, patch: ServerPatch, _installed: &dyn Fn(&str) -> bool) -> Result<Map<String, Value>> {
     let Some(cur) = server(engine, id) else { crate::refuse!(NotFound, "no language model server {id}") };
     let mut p = Map::new();
     if let Some(l) = patch.label.as_deref().map(str::trim) {
@@ -581,6 +599,12 @@ pub async fn update_server(engine: &Engine, id: &str, patch: ServerPatch) -> Res
         }
         p.insert("models".into(), Value::Object(mp));
     }
+    Ok(p)
+}
+
+#[logged]
+pub async fn update_server(engine: &Engine, id: &str, patch: ServerPatch) -> Result<Value> {
+    let p = patch_server_with(engine, id, patch, &|h| crate::harnesses::installed(engine, h))?;
     let mut client = engine.db.get().await?;
     let doc = engine.settings.merge(&mut client, json!({ "language_servers": { "servers": { id: p } } })).await?;
     Ok(doc.pointer("/language_servers/servers").and_then(|m| m.get(id)).cloned().unwrap_or(Value::Null))

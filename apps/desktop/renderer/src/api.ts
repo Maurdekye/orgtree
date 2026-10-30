@@ -1200,7 +1200,7 @@ export const addLangServer = (body: {
     body: JSON.stringify(body),
   })
 export const updateLangServer = (id: string, body: {
-  label?: string, address?: string, base_path?: string, max_agents?: number, seat?: number,
+  label?: string, address?: string, harness?: string, base_path?: string, max_agents?: number, seat?: number,
   enabled?: boolean, models?: LangServerModelPick[],
 }): Promise<{ server: LangServer, doc: LangServerDoc, repriced?: LangServerRepriced[] }> =>
   req(`/api/langservers/${encodeURIComponent(id)}`, {

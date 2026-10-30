@@ -116,6 +116,7 @@ pub async fn update(State(e): State<Arc<Engine>>, Path(id): Path<String>, Json(b
         ServerPatch {
             label: b.label,
             address: b.address,
+            harness: None,
             base_path: b.base_path,
             max_agents: b.max_agents,
             seat: b.seat,

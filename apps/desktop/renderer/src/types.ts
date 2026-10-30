@@ -1828,6 +1828,12 @@ export interface LangServer {
   seat: number
   enabled: boolean
   key_set: boolean
+  /** live unpinned seats on this server's models that follow its harness */
+  following_seats?: number
+  /** live seats on this server's models pinned to their own harness */
+  pinned_seats?: number
+  /** per harness id, how many live seats on this server are pinned to it */
+  pinned_harnesses?: Record<string, number>
   models: Record<string, LangServerModel>
   created_at: string
 }

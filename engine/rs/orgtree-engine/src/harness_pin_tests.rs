@@ -141,3 +141,93 @@ fn a_harness_change_is_a_recorded_undoable_settings_step() {
     assert_eq!(kind_of(&steps(&["switch_model", "harness", "scope"])).unwrap(), "retool", "one settings save");
     assert!(RECORDED_OPS.contains(&"harness"), "a single harness op from the user is recorded too");
 }
+
+#[test]
+fn a_server_patch_writes_its_new_harness_and_api() {
+    use crate::langserver::{patch_server_with, ServerPatch};
+    let e = engine_with(vec![], json!({ "language_servers": { "servers": { "ollama": server("ollama", "claude-code", "") } } }));
+    let all = |_: &str| true;
+    let p = patch_server_with(&e, "ollama", ServerPatch { harness: Some("codex-cli".into()), ..Default::default() }, &all).unwrap();
+    assert_eq!(p.get("harness"), Some(&json!("codex-cli")));
+    assert_eq!(p.get("api"), Some(&json!("responses")));
+    let p_oc = patch_server_with(&e, "ollama", ServerPatch { harness: Some("opencode".into()), ..Default::default() }, &all).unwrap();
+    assert_eq!(p_oc.get("harness"), Some(&json!("opencode")));
+    assert_eq!(p_oc.get("api"), Some(&json!("chat_completions")));
+    let p_cc = patch_server_with(&e, "ollama", ServerPatch { harness: Some("claude-code".into()), ..Default::default() }, &all).unwrap();
+    assert_eq!(p_cc.get("harness"), Some(&json!("claude-code")));
+    assert_eq!(p_cc.get("api"), Some(&json!("anthropic")));
+}
+
+#[test]
+fn a_server_patch_refuses_an_unknown_or_uninstalled_harness() {
+    use crate::langserver::{patch_server_with, ServerPatch};
+    let e = engine_with(vec![], json!({ "language_servers": { "servers": { "ollama": server("ollama", "claude-code", "") } } }));
+    let bad = patch_server_with(&e, "ollama", ServerPatch { harness: Some("bogus".into()), ..Default::default() }, &|_: &str| true);
+    assert!(bad.is_err(), "unknown harness must be refused");
+    assert!(format!("{bad:?}").contains("claude-code, codex-cli or opencode"), "{bad:?}");
+    let missing = patch_server_with(&e, "ollama", ServerPatch { harness: Some("opencode".into()), ..Default::default() }, &|h: &str| h != "opencode");
+    assert!(missing.is_err(), "uninstalled harness must be refused");
+    assert!(format!("{missing:?}").contains("OpenCode (ACP) is not installed"), "{missing:?}");
+}
+
+#[test]
+fn a_custom_server_api_family_change_requires_a_base_path() {
+    use crate::langserver::{patch_server_with, ServerPatch};
+    let e = engine_with(vec![], json!({
+        "language_servers": {
+            "servers": {
+                "custom-cc": server("custom", "claude-code", "api/anthropic"),
+                "custom-cx": server("custom", "codex-cli", "v1"),
+            }
+        }
+    }));
+    let all = |_: &str| true;
+    let no_path = patch_server_with(&e, "custom-cc", ServerPatch { harness: Some("codex-cli".into()), ..Default::default() }, &all);
+    assert!(no_path.is_err(), "switching API family on a custom server without a base path must be refused");
+    let blank_path = patch_server_with(&e, "custom-cc", ServerPatch {
+        harness: Some("codex-cli".into()), base_path: Some("   ".into()), ..Default::default()
+    }, &all);
+    assert!(blank_path.is_err(), "blank base path on API family switch must be refused");
+    let with_path = patch_server_with(&e, "custom-cc", ServerPatch {
+        harness: Some("codex-cli".into()), base_path: Some("v1".into()), ..Default::default()
+    }, &all).unwrap();
+    assert_eq!(with_path.get("harness"), Some(&json!("codex-cli")));
+    assert_eq!(with_path.get("api"), Some(&json!("responses")));
+    assert_eq!(with_path.get("base_path"), Some(&json!("v1")));
+    let same_family = patch_server_with(&e, "custom-cx", ServerPatch {
+        harness: Some("opencode".into()), ..Default::default()
+    }, &all).unwrap();
+    assert_eq!(same_family.get("harness"), Some(&json!("opencode")));
+    assert_eq!(same_family.get("api"), Some(&json!("chat_completions")));
+}
+
+#[test]
+fn a_server_counts_its_following_and_pinned_seats_by_harness() {
+    use crate::langserver::seat_counts_of;
+    let e = engine_with(vec![], json!({
+        "language_servers": {
+            "servers": {
+                "ollama": server("ollama", "claude-code", ""),
+                "custom": server("custom", "claude-code", "api/anthropic"),
+            }
+        }
+    }));
+    let rows = vec![
+        ("ls-ollama-m".to_string(), json!({})),
+        ("ls-ollama-m".to_string(), json!({ "harness": "claude-code" })),
+        ("ls-ollama-m".to_string(), json!({ "harness": "opencode", "harness_pin": false, "harness_pin_to": "codex-cli" })),
+        ("ls-ollama-m".to_string(), json!({ "harness": "opencode", "harness_pin": true })),
+        ("ls-ollama-m".to_string(), json!({ "harness": "claude-code", "harness_pin": true, "harness_pin_to": "codex-cli" })),
+        ("ls-custom-m".to_string(), json!({ "harness": "claude-code", "harness_pin": true })),
+    ];
+    let counts = seat_counts_of(&e, &rows);
+    let ollama = counts.get("ollama").expect("ollama seat counts");
+    assert_eq!(ollama.following, 3, "three unpinned seats follow the server");
+    assert_eq!(ollama.pinned, 2, "two pinned seats keep their harness");
+    assert_eq!(ollama.pinned_harnesses.get("opencode"), Some(&1));
+    assert_eq!(ollama.pinned_harnesses.get("codex-cli"), Some(&1));
+    let custom = counts.get("custom").expect("custom seat counts");
+    assert_eq!(custom.following, 0);
+    assert_eq!(custom.pinned, 1);
+    assert_eq!(custom.pinned_harnesses.get("claude-code"), Some(&1));
+}
