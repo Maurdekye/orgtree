@@ -143,6 +143,75 @@ module.exports = async (page) => {
     screenshots.push(await page.screenshot(`${prefix}-history-keep-3-restored-1000x700`))
     return { details, screenshots }
   }
+  // PROJECTNODE_VISUAL_ONLY=history-rows: the project desk's message box in REAL Chromium layout (deskinbox scene, project
+  // relay). A synthetic keydown has no default action, so the caret never moves by itself; what is checked is whether the
+  // composer TAKES the key (defaultPrevented): Up from a lower wrapped row is left to the browser (not taken), only the top
+  // row enters history; Down in a wrapped recalled message is taken only on its bottom row
+  // (docket pressing-up-into-message-history-throws-away-the, USER 2026-10-30 08:30:07Z m9a02035a079d "Top visible row")
+  if (only === 'history-rows') {
+    const scene = '/?scene=deskinbox&mode=lt'
+    const box = '.project-composer textarea'
+    const para = 'Please check the retry budget in the relay config before the 18:00 deploy window, then compare the queue depth '
+      + 'against yesterday and tell boss if either of them changed, because the staging run depends on both and nobody '
+      + 'should start the rollout until that is confirmed in writing by the person who owns the release.'
+    const sent = 'Earlier message: the staging deploy finished and every check came back green, so the next step is to roll the '
+      + 'relay build out to the production workers one at a time while watching the queue, and to hold the rollout '
+      + 'immediately if any worker reports a failed health check or a growing backlog during the first ten minutes.'
+    const press = (key, caret) => page.eval(async ({ key, caret, sel }) => {
+      const el = document.querySelector(sel)
+      el.focus()
+      el.selectionStart = el.selectionEnd = caret === 'end' ? el.value.length : caret
+      const ev = new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true })
+      el.dispatchEvent(ev)
+      // React commits the recalled text a beat after the event
+      await new Promise((r) => setTimeout(r, 200))
+      return { taken: ev.defaultPrevented, value: el.value, note: document.querySelector('.composer-history-note')?.textContent ?? null }
+    }, { key, caret, sel: box })
+    const rowsOf = () => page.eval((sel) => {
+      const el = document.querySelector(sel)
+      const lh = parseFloat(getComputedStyle(el).lineHeight) || 18
+      return { rows: Math.round((el.scrollHeight - parseFloat(getComputedStyle(el).paddingTop) - parseFloat(getComputedStyle(el).paddingBottom)) / lh), width: el.clientWidth }
+    }, box)
+    await page.goto(scene)
+    await page.waitFor(box, { timeout: 15000 })
+    await page.eval((sentText) => {
+      for (const k of Object.keys(localStorage)) if (k.includes('"relay"') || k.includes('project:relay')) localStorage.removeItem(k)
+      localStorage.setItem('orgtree-composer-history-["org","relay"]', JSON.stringify([{ text: sentText, delivered: true }]))
+    }, sent)
+    await page.goto(scene)
+    await page.waitFor(box, { timeout: 15000 })
+    await page.eval(({ text, sel }) => {
+      const el = document.querySelector(sel)
+      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set.call(el, text)
+      el.dispatchEvent(new Event('input', { bubbles: true }))
+    }, { text: para, sel: box })
+    await settle()
+    details.draftRows = await rowsOf()
+    if (details.draftRows.rows < 3) throw new Error('the draft does not wrap over three rows: ' + JSON.stringify(details.draftRows))
+    screenshots.push(await page.screenshot(`${prefix}-history-rows-1-wrapped-draft-1000x700`))
+    details.up = {
+      bottomRow: await press('ArrowUp', 'end'),
+      middleRow: await press('ArrowUp', Math.floor(para.length / 2)),
+    }
+    if (details.up.bottomRow.taken || details.up.middleRow.taken) throw new Error('Up from a lower row was taken by history: ' + JSON.stringify(details.up))
+    if (details.up.bottomRow.value !== para || details.up.middleRow.note) throw new Error('the draft changed or history was entered: ' + JSON.stringify(details.up))
+    details.top = await press('ArrowUp', 3)
+    if (!details.top.taken || details.top.value !== sent || !/unsent message is kept/.test(details.top.note ?? '')) throw new Error('Up from the top row did not enter history: ' + JSON.stringify(details.top))
+    await settle()
+    details.recalledRows = await rowsOf()
+    if (details.recalledRows.rows < 3) throw new Error('the recalled message does not wrap over three rows: ' + JSON.stringify(details.recalledRows))
+    screenshots.push(await page.screenshot(`${prefix}-history-rows-2-recalled-from-top-row-1000x700`))
+    details.down = {
+      topRow: await press('ArrowDown', 3),
+      middleRow: await press('ArrowDown', Math.floor(sent.length / 2)),
+    }
+    if (details.down.topRow.taken || details.down.middleRow.taken || details.down.middleRow.value !== sent) throw new Error('Down from an upper row left the recalled message: ' + JSON.stringify(details.down))
+    details.bottom = await press('ArrowDown', 'end')
+    if (!details.bottom.taken || details.bottom.value !== para) throw new Error('Down from the bottom row did not restore the draft: ' + JSON.stringify(details.bottom))
+    await settle()
+    screenshots.push(await page.screenshot(`${prefix}-history-rows-3-draft-back-1000x700`))
+    return { details, screenshots }
+  }
   // PROJECTNODE_VISUAL_ONLY=popouts: the pinned agent sb's and project build's
   // desks popped out side by side (user 2026-10-18 11:47Z). A real pop-out is
   // its own OS window, which no screenshot of this one shows, so window.open
