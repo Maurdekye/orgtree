@@ -24,7 +24,8 @@ import { compatibilityWorkFixture } from './workcompat.fixture'
 // "the panel keeps running"; a popped-out window's own × is its X. The user answered the open two (me188f67b3944):
 // a CENTRED desk has the X too ("Yes, add the X"); the in-canvas desk header has none ("No X there").
 // USER 2026-10-30 (m46997f801a3f, m743d0c8ff8fe, m680431a91e2f "they dont do anything anyway"), coordinator
-// mbfcad188f152: an X shows only where it actually closes something (§8-§12).
+// mbfcad188f152: an X shows only where it actually closes something (§8-§12); USER 2026-10-30 ma605876f7306 ("Grey out
+// the X"): in the two busy dialogs, the X stays visible and disabled while saving/adding, matching their disabled Cancel.
 
 /** a frame inside an organization, as the canvas mounts one (pin and pop-out need an org scope) */
 async function mountView<T>(node: ReactNode, select: (el: HTMLElement) => T) {
@@ -248,11 +249,10 @@ async function mountAttention(t: test.TestContext) {
 const attentionPanels = [['Needs attention', 'queue', QUEUE_KIND], ['Agent desk', 'desk', DESK_KIND]] as const
 const panelBar = (which: string) => document.querySelector<HTMLElement>(`.attn-panel-${which} > .modalpin-bar`)
 const rowOf = (el: HTMLElement | null) => [...(el?.querySelectorAll<HTMLButtonElement>('button') ?? [])].filter(b => !b.closest('.popout-window-controls'))
-/** the X a person sees. Where the X is the bar's only control (a dialog that cannot be pinned) it keeps its room
- *  unseen and disabled while closing would do nothing, so the dialog below does not jump (§10, §11) */
+/** the X a person sees. In the two busy dialogs that cannot be pinned, the X stays visible and disabled while
+ *  saving/adding, matching their disabled Cancel (USER 2026-10-30 ma605876f7306 "Grey out the X"; §10, §11). */
 const shownX = (root: ParentNode | null) => [...(root?.querySelectorAll<HTMLButtonElement>('.modalpin-x') ?? [])]
   .find(x => x.style.visibility !== 'hidden') ?? null
-const heldX = (root: ParentNode | null) => root?.querySelector<HTMLButtonElement>('.modalpin-bar .modalpin-x') ?? null
 
 test('§8 RED an Attention panel in its slot has no X: its close only unpins, so there the X did nothing', async t => {
   await mountAttention(t)
@@ -284,7 +284,7 @@ test('§9 pinned, an Attention panel has the X last, and it closes the window ba
   }
 })
 
-test('§10 RED the provider dialog has no X while its save settles, when its close waits for the save', async t => {
+test('§10 RED the provider dialog keeps its X visible and disabled while its save settles, matching Cancel', async t => {
   reset(); t.after(reset)
   const closes = { n: 0 }
   let setBusy: (busy: boolean) => void = () => {}
@@ -296,17 +296,26 @@ test('§10 RED the provider dialog has no X while its save settles, when its clo
   await flush()
   const dialog = () => document.querySelector<HTMLElement>('.provider-dialog')
   assert.ok(dialog(), 'the dialog is open')
-  assert.equal(shownX(dialog()), null, 'saving: no X')
-  assert.equal(heldX(dialog())?.disabled, true, 'saving: its room stays in the row, unseen and disabled, so nothing jumps')
+  const busyX = shownX(dialog())
+  assert.ok(busyX, 'saving: the X stays visible (USER ma605876f7306 "Grey out the X")')
+  assert.equal(busyX.disabled, true, 'saving: the X is disabled')
+  assert.equal(busyX.getAttribute('aria-disabled'), 'true', 'saving: aria-disabled matches')
+  await inAct(() => { busyX.click() }); await flush()
+  assert.equal(closes.n, 0, 'saving: clicking the disabled X does not close the dialog')
+  const css = readFileSync(path.join(__SRC_DIR__, 'styles.css'), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '')
+  assert.match(css, /button:disabled\s*\{[^}]*opacity:\s*\.45/, 'disabled X shares the greyed button:disabled style')
+  assert.match(css, /\.modalpin-btn:not\(:disabled\):hover\s*\{/, 'hover does not light up a disabled modalpin-btn')
   assert.equal((await barMenu(dialog()!.querySelector('.modalpin-bar')!)).includes('Close'), false, 'saving: no Close in the bar menu')
   await inAct(() => setBusy(false)); await flush()
   const x = shownX(dialog())
-  assert.ok(x, 'the save settled: the X is back')
+  assert.ok(x, 'the save settled: the X is visible')
+  assert.equal(x.disabled, false, 'the save settled: the X is enabled')
+  assert.equal(x.getAttribute('aria-disabled'), 'false', 'the save settled: aria-disabled is false')
   await inAct(() => { x.click() }); await flush()
   assert.equal(closes.n, 1, 'and it closes the dialog')
 })
 
-test('§11 RED the add-account dialog has no X while it adds the account, when its close waits', async t => {
+test('§11 RED the add-account dialog keeps its X visible and disabled while it adds the account, matching Cancel', async t => {
   reset(); t.after(reset)
   const original = globalThis.fetch
   let answer: (r: Response) => void = () => {}
@@ -317,15 +326,24 @@ test('§11 RED the add-account dialog has no X while it adds the account, when i
   t.after(() => v.unmount())
   await flush()
   const dialog = () => document.querySelector<HTMLElement>('.add-account-dialog')!
-  assert.ok(shownX(dialog()), 'idle: the X is there')
+  const idleX = shownX(dialog())
+  assert.ok(idleX, 'idle: the X is there')
+  assert.equal(idleX.disabled, false, 'idle: the X is enabled')
+  assert.equal(idleX.getAttribute('aria-disabled'), 'false', 'idle: aria-disabled is false')
   const create = [...dialog().querySelectorAll('button')].find(b => b.textContent === 'Create managed account')
   assert.ok(create, 'the create control')
   await inAct(() => { create.click() }); await flush()
-  assert.equal(shownX(dialog()), null, 'adding: no X')
-  assert.equal(heldX(dialog())?.disabled, true, 'adding: its room stays in the row, unseen and disabled, so nothing jumps')
+  const busyX = shownX(dialog())
+  assert.ok(busyX, 'adding: the X stays visible (USER ma605876f7306 "Grey out the X")')
+  assert.equal(busyX.disabled, true, 'adding: the X is disabled')
+  assert.equal(busyX.getAttribute('aria-disabled'), 'true', 'adding: aria-disabled matches')
+  await inAct(() => { busyX.click() }); await flush()
+  assert.equal(closes.n, 0, 'adding: clicking the disabled X does not close the dialog')
   await inAct(async () => { answer(new Response(JSON.stringify({ detail: 'refused' }), { status: 422 })); await flush(3) })
   const x = shownX(dialog())
-  assert.ok(x, 'the request settled: the X is back')
+  assert.ok(x, 'the request settled: the X is visible')
+  assert.equal(x.disabled, false, 'the request settled: the X is enabled')
+  assert.equal(x.getAttribute('aria-disabled'), 'false', 'the request settled: aria-disabled is false')
   await inAct(() => { x.click() }); await flush()
   assert.equal(closes.n, 1, 'and it closes the dialog')
 })
