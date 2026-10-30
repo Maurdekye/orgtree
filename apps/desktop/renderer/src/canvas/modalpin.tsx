@@ -771,12 +771,12 @@ export interface PinFrameProps {
   /** a click on the backdrop closes the surface (default true, the rule every
    *  overlay already had). Never fires while pinned — there is no backdrop. */
   backdropClose?: boolean
-  /** whether `close` closes anything RIGHT NOW (default true). False takes the
-   *  X out of the bar and Close out of its menu: an X shows only where it
-   *  closes something (USER 2026-10-30 m680431a91e2f "they dont do anything
-   *  anyway", coordinator mbfcad188f152). An Attention panel in its slot,
-   *  whose close only unpins; a dialog whose close waits for its save (there
-   *  the X is the bar's only control, so it keeps its room unseen). */
+  /** whether `close` closes anything RIGHT NOW (default true). False takes
+   *  Close out of the bar's menu, takes the X out of a pinnable panel whose
+   *  close only unpins (an Attention panel in its slot, USER 2026-10-30
+   *  m680431a91e2f), and disables the visible X on a non-pinnable dialog whose
+   *  close waits for its save (USER 2026-10-30 ma605876f7306 "Grey out the X",
+   *  matching its disabled Cancel). */
   closable?: boolean
   /** the panel's own click handler, for the two readers that open a lightbox
    *  from a click that must not also reach the backdrop. The frame keeps the
@@ -1129,15 +1129,14 @@ function PinFrameInner({ kind, title, titleBar, deskTitle = false, titleInModal 
               (me188f67b3944); it runs the panel's own close. Escape closes a
               centred panel, so the hint rides the tooltip; a pinned window
               ignores Escape. Popped out, the window's own × is its X ("Window ×
-              is enough", me188f67b3944). Never where closing would do nothing
-              (`closable`, USER 2026-10-30 m680431a91e2f): there it goes, unless
-              it is the bar's only control (a dialog that cannot be pinned, while
-              its save settles), where it keeps its room unseen and disabled:
-              the bar is that row's height, so the dialog below would jump. */}
+              is enough", me188f67b3944). Never where closing would do nothing on
+              a pinnable slot (`closable`, USER 2026-10-30 m680431a91e2f); on a
+              dialog that cannot be pinned, while its save/add settles, the X
+              stays visible and disabled to match its disabled Cancel (USER
+              2026-10-30 ma605876f7306 "Grey out the X"). */}
           {!ownWindow && (closable || !pinnable) && (
             <button type="button" className="modalpin-btn modalpin-x" title={pinned ? 'Close' : 'Close (Esc)'}
-              aria-label="close this window" disabled={!closable}
-              style={closable ? undefined : { visibility: 'hidden' }}
+              aria-label="close this window" disabled={!closable} aria-disabled={!closable}
               onPointerDown={(e) => e.stopPropagation()}
               onClick={(e) => { e.stopPropagation(); closeSurface() }}>
               <CloseIcon fontSize="inherit" />

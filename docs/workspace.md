@@ -36,7 +36,7 @@ The full tree preserves deeply nested project chains. Bunching or folding change
 
 Drag empty canvas space to pan, and use the wheel over the canvas to zoom. Middle-drag also pans when you begin over a card or desk. The wheel inside a scrollable desk or list scrolls that surface instead. Pinned windows keep their screen position while the canvas moves.
 
-Every panel you can close (settings, the inbox, Docket, Presented documents, app panels and the like) ends the buttons in its title row with an **X**, to the right of pin and pop-out, that closes it. While a panel sits centred, Escape and a click on the backdrop close it too; a pinned window ignores Escape. A popped-out window closes with its own window × at the far right. An X shows only where it closes something: the Attention view's two panels have none in their places in the view, and a dialog that is saving shows its X again once the save finishes.
+Every panel you can close (settings, the inbox, Docket, Presented documents, app panels and the like) ends the buttons in its title row with an **X**, to the right of pin and pop-out, that closes it. While a panel sits centred, Escape and a click on the backdrop close it too; a pinned window ignores Escape. A popped-out window closes with its own window × at the far right. An X shows only where the panel can be closed: the Attention view's two panels have none in their places in the view, and a dialog that is saving or adding an account disables its X until the request finishes.
 
 The canvas fills the available window and stays aligned with Attention when you resize it, including at fractional display scaling. Resize or maximize the window for more room; pan and zoom to navigate the canvas instead of scrolling the whole page.
 

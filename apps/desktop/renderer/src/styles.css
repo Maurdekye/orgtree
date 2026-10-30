@@ -8474,7 +8474,7 @@ label.set-row { cursor: pointer; }
   color: var(--dim); font-size: 15px; cursor: pointer; border-radius: 3px;
   flex: none; line-height: 1;
 }
-.modalpin-btn:hover { color: var(--ink-strong); background: var(--panel); }
+.modalpin-btn:not(:disabled):hover { color: var(--ink-strong); background: var(--panel); }
 .modalpin-bar.on .modalpin-btn[aria-pressed="true"] { color: var(--agent-accent-text, var(--accent)); }
 /* the panel's own font sizing applies to buttons inside `.settings`; these are
    window chrome and stay chrome-sized */

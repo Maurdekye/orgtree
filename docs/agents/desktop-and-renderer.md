@@ -427,14 +427,15 @@ titled `Close (Esc)` / `Close` over "the panel keeps running". [decided: user 20
 m6c5594110094 and me188f67b3944, coordinator m36dbf634e56e; verified:
 `canvas/{modalpin,deskshell,tempdesk}.tsx`, `canvas/apps/ui.tsx`, `tests/closex.test.tsx`]
 
-Only where it closes something (2026-10-30): `closable={false}` takes the X out of the
-bar and Close out of the bar's menu. The Attention view's two panels pass `closable` only
+Only where it closes something (2026-10-30): `closable={false}` takes Close out of the
+bar's menu, takes the X out of a pinnable panel's bar, and disables the visible X on a
+non-pinnable dialog. The Attention view's two panels pass `closable` only
 while pinned: their close is an unpin, so in their slot (and popped out, where the
-window's × closes them) it did nothing. The provider dialog and the add-account dialog
-pass `!busy`, since their close waits for the save; their X is the bar's only control, so
-there it keeps its room unseen and disabled, and the dialog does not jump. Escape is
+window's × closes them) it did nothing and no X renders. The provider dialog and the add-account dialog
+pass `!busy`, since their close waits for the save/add; their X stays visible and disabled
+(greyed out like their disabled Cancel) while busy. Escape is
 unchanged. [decided: user
-2026-10-30 m46997f801a3f, m743d0c8ff8fe, m680431a91e2f; coordinator mbfcad188f152;
+2026-10-30 m46997f801a3f, m743d0c8ff8fe, m680431a91e2f, ma605876f7306; coordinator mbfcad188f152, m7301e28ba6d2;
 verified: `canvas/modalpin.tsx`, `attention/AttentionView.tsx`,
 `canvas/{providerdialog,accountsregistry}.tsx`, `tests/closex.test.tsx` §8-§12]
 
