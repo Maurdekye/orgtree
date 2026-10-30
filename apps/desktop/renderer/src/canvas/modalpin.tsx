@@ -771,12 +771,12 @@ export interface PinFrameProps {
   /** a click on the backdrop closes the surface (default true, the rule every
    *  overlay already had). Never fires while pinned — there is no backdrop. */
   backdropClose?: boolean
-  /** whether `close` closes anything RIGHT NOW (default true). False takes
-   *  Close out of the bar's menu, takes the X out of a pinnable panel whose
-   *  close only unpins (an Attention panel in its slot, USER 2026-10-30
-   *  m680431a91e2f), and disables the visible X on a non-pinnable dialog whose
-   *  close waits for its save (USER 2026-10-30 ma605876f7306 "Grey out the X",
-   *  matching its disabled Cancel). */
+  /** whether `close` closes anything RIGHT NOW (default true). False takes the
+   *  X and the bar menu's Close out of a pinnable panel whose close only unpins
+   *  (an Attention panel in its slot, USER 2026-10-30 m680431a91e2f), and
+   *  disables both the visible X and the bar menu's Close on a non-pinnable
+   *  dialog whose close waits for its save (USER 2026-10-30 ma605876f7306
+   *  "Grey out the X", matching its disabled Cancel). */
   closable?: boolean
   /** the panel's own click handler, for the two readers that open a lightbox
    *  from a click that must not also reach the backdrop. The frame keeps the
@@ -1029,10 +1029,12 @@ function PinFrameInner({ kind, title, titleBar, deskTitle = false, titleInModal 
     // nothing else, and an unconditional 'sep' drew a rule across the top of
     // a one-item menu (found by the 2026-09-12 Close audit). The renderer
     // draws every 'sep' it is given; deciding there is not this list's job.
-    // Close goes with the X: not where closing would do nothing (`closable`).
-    if (!closable) return entries
+    // Close goes with the X: omitted where the X is gone (`!closable && pinnable`,
+    // the Attention panels in their slots), and disabled where the X is greyed
+    // (`!closable && !pinnable`, a busy dialog whose close waits for its save).
+    if (!closable && pinnable) return entries
     if (entries.length) entries.push('sep')
-    entries.push({ label: 'Close', onSelect: closeSurface })
+    entries.push({ label: 'Close', disabled: !closable, onSelect: closeSurface })
     return entries
   }
 
