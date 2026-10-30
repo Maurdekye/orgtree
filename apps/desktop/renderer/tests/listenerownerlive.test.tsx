@@ -11,8 +11,9 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import {
-  deadLetterListeners, listenerCards, mailListenerState, mailQueueCard, listenersLive, projectListenerState,
+  deadLetterListeners, listenerCards, listenerLinks, mailListenerState, mailQueueCard, listenersLive, projectListenerState,
 } from '../src/canvas/listeners'
+import { fairQueueLinks } from '../src/canvas/shared'
 import { inboxListened } from '../src/canvas/inboxwarning'
 import { projectHeaderFacts } from '../src/canvas/projectheaderfacts'
 import type { CanvasNode } from '../src/canvas/shared'
@@ -88,4 +89,22 @@ test('the dead-letter line drops a retired owner too', () => {
   m.set('boss', { id: 'boss', state: 'live', tier: 'opus', children: [] } as unknown as CanvasNode)
   m.set('old', { ...map.get('old')!, parent: 'sync' } as CanvasNode)
   assert.deepEqual(deadLetterListeners('sync', [dl('live'), dl('old')], m).map(w => w.owner), ['live'])
+})
+
+test('the canvas lines of the project\'s listeners drop a retired owner too (event, watch and mail)', () => {
+  const isProject = (p: string) => p === 'sync'
+  const dogs = [
+    dog('project_listener', 'live', 'a'), dog('project_listener', 'old', 'b', { state: 'paused' }),
+    dog('listener_watch', 'old', 'c', { count: 1, state: 'paused' }), dog('project_listener', 'gone', 'd', { state: 'paused' }),
+    dog('project_listener', 'live', 'p', { state: 'paused' }), dog('project_listener', 'user', 'mine'),
+    dog('fair_queue', 'live', 'q1'), dog('fair_queue', 'old', 'q2', { state: 'paused' }),
+    dog('fair_queue', 'gone', 'q3', { state: 'paused' }), dog('fair_queue', 'live', 'q4', { state: 'paused' }),
+    dog('fair_queue', 'user', 'q5'),
+  ]
+  assert.deepEqual(listenerLinks(dogs, isProject, live).map(l => l.owner + ':' + (l.paused ? 'paused' : 'armed')),
+    ['live:armed', 'live:paused', 'user:armed'], 'a live agent\'s paused line stays; retired owners\' lines are not drawn')
+  assert.equal(listenerLinks(dogs, isProject).length, 6, 'no predicate, no change')
+  assert.deepEqual(fairQueueLinks(dogs, isProject, live).map(l => l.owner + ':' + (l.paused ? 'paused' : 'armed')),
+    ['live:armed', 'live:paused', 'user:armed'])
+  assert.equal(fairQueueLinks(dogs, isProject).length, 5)
 })
