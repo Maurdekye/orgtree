@@ -88,6 +88,7 @@ Object.assign(window, { harnessFixture: {
     root.render(<NodeConfig key={scene + ++seq} node={nd} map={new Map([[nd.id, nd]])} tree={TREE} slug={SLUG}
       op={(x) => { ops.push(x); return Promise.resolve({} as OpResult) }} toast={noop}
       codexProvider={prov('openai', 'Codex')} antigravityProvider={prov('google', 'Antigravity')}
+      langserverProvider={prov('langserver', 'Language model server')}
       target={{ id: nd.id, tab: 'model', seq } as never} close={noop} />)
   },
 } })
