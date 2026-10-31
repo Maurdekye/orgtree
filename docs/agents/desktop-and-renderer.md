@@ -2658,14 +2658,32 @@ object links: the mail icon on the left, then the first words of the message (m3
   Considered and left alone: the reply preview's "jump to message" (`replypreview.tsx`) locates a message in a conversation, it
   does not open a mailbox entry; the docket write's "open" button (`maillink worklink`, a docket item: the user meant buttons that
   open a mail); a node card's "open the mailbox" (a mailbox, not a message); context-menu entries named Open.
-- **Proofs**: `tests/mailchip.test.tsx` (the label rules, `resolveRef` outcomes, the chip's classes and mark in React and Markdown,
+- **An unread message's link flares like an unread presentation's** (USER m5345a1e44ad1 "also make sure that mail has an "unread"
+  highlight like presentations do"). The user box's by-id lookup already answers `unread` (the row is still `pending`), so the name
+  reader (`mailrefs.ts` `mailFlare`) returns the same `RefFlare` shape `docrefs.ts` does: the words `DOC_UNREAD_WORDS.new` ("Unread")
+  and the class `mail-new`, which `styles.css` gives the presentation's `doc-new` colour in one rule (`.ref-flare:is(.doc-new,
+  .mail-new)`, the accent edge; mail has no "modified" state). `resolveRef` carries it on the chip, `refChipTitle` and the
+  Markdown chip lead the static title with it, and the hover (`objecttooltip.ts`, `mailTitle`'s `state`) leads with it from its
+  fresh read, so the sent-mail tool rows, the listener tables, Markdown and React links all show it. Only the user's inbox keeps
+  per-message read state: a node's or the org inbox's message, a read one and `@user` never flare. It clears under the presentation's
+  rule, when the message is read: a read made in this window (`mailread.ts` `markReadNow`) re-decides every link at once through
+  `subscribeLocalReads` -> `refNames.touch()` with no read, an accepted save is recorded on the kept answer (`onReadSaved` ->
+  `refNames.amend`) so the link stays read when the store forgets the read, and a refused save puts the flare back. A read made
+  elsewhere (another window, "mark all read", the Needs-attention read) reaches the links when `App.tsx`'s inbox read no longer
+  lists the message as unread: `mailInboxRead` reads again only the kept links whose answer still says unread
+  (`refNames.invalidate`'s `only` filter), never every mail link.
+- **Proofs**: `tests/mailunread.test.tsx` (the flare in React, Markdown and on a tool row, the cases that never flare, clear on a local
+  read without another read and after the save settles, a refused save, a read elsewhere, the hover, the shared colour rule),
+  `tests/mailchip.test.tsx` (the label rules, `resolveRef` outcomes, the chip's classes and mark in React and Markdown,
   the reader through a mocked lookup, the sent-mail tool row, the hint, the stylesheet lists), the existing mail-link parity and
   listener tests moved to the chip, and `tests/chipalign.capture.cjs` over `chipalign.visual.tsx`, which in Session 0 checks in
   both mention layouts that a mail link in a desk message, a docket description and a React sentence reads
   "Please review the at…" with the mail icon, is styled exactly like the ticket and presentation chips beside it (display, colour,
   font, decoration, alignment), that a message the box does not hold reads as unavailable and shows nothing of any mail, and that
-  no "open" button remains on the sent mail's tool row; its baseline and line-height measures cover the new rows too.
-[decided: user 2026-10-31 mdffa16729677, m33189c8d6214, m4ad918885ce9, m53e1fd94c038, mf1a79901405e; verified: `canvas/{mailrefs.ts,mailchip.tsx,reflinks.tsx,refmd.tsx,refnames.ts,refmarks.tsx,desk.tsx,listenersdesk.tsx,maillisteners.tsx}`, `styles.css`]
+  no "open" button remains on the sent mail's tool row; its baseline and line-height measures cover the new rows too, and four unread rows
+  (alone, beside an unread presentation link, the React chip, the tool row) must wear `ref-flare mail-new` with the same computed edge and
+  padding as the presentation chip beside them while a read message wears none.
+[decided: user 2026-10-31 mdffa16729677, m33189c8d6214, m4ad918885ce9, m53e1fd94c038, mf1a79901405e, m5345a1e44ad1; verified: `canvas/{mailrefs.ts,mailchip.tsx,reflinks.tsx,refmd.tsx,refnames.ts,refmarks.tsx,desk.tsx,listenersdesk.tsx,maillisteners.tsx,objecttooltip.ts,mailtitle.ts}`, `mailread.ts`, `App.tsx`, `styles.css`]
 
 ## Retained last-good usage readings across failed fetches (2026-10-29, 4.5.2)
 

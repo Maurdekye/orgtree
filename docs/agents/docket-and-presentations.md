@@ -1009,7 +1009,7 @@ marks, so opening one clears every flare through `refNames.touch()` with no
 read. A tool row's card reads the same answer (`useDocumentRef`) for its current
 title and state; gallery rows get a dot, since their edge marks HTML. Hovers
 lead with the words (`Unread · `, `Modified since you last read it · `,
-`objecttooltip.ts` from its fresh read). Proof: `tests/refflares.test.tsx`,
+`objecttooltip.ts` from its fresh read). A link to an unread mail wears the same flare (`mailrefs.ts`, `desktop-and-renderer.md`). Proof: `tests/refflares.test.tsx`,
 `tools/rig/proofs/ref-flares.mjs`, capture `tools/rig/refflares-visual.mjs`.
 [decided: user 2026-10-27 m43beb8089dd4, m3eb804e5023a, m919f12828686,
 mc1c4ab23c4bf; verified: `http/docs.rs`, `canvas/{refnames,itemrefs,docrefs,
