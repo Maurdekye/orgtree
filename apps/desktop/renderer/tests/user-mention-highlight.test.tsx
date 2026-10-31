@@ -89,5 +89,7 @@ test('attention navigation no longer imperatively adds or removes mention stylin
 test('one softer theme-relative message layer replaces the nested paragraph layer', () => {
   const css = readFileSync(path.join(__SRC_DIR__, 'styles.css'), 'utf8')
   assert.doesNotMatch(css, /\.mention-highlight-line\s*\{/)
-  assert.match(css, /\.msg\.mention-highlight\s*\{[^}]*var\(--accent\) 10%/)
+  // 5%, no longer 10%: USER 2026-10-31 08:49:29Z m3403be06a732, "just not as bright so it doesnt look like its selected"
+  // (the full range is pinned by mentionfaint.test.tsx)
+  assert.match(css, /\.msg\.mention-highlight\s*\{[^}]*var\(--accent\) 5%/)
 })
