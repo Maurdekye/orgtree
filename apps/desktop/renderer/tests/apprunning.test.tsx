@@ -146,7 +146,7 @@ test('§4 the stylesheet draws the run state as the unread edge (one rule), acce
   assert.match(body('.ref-flare.run-on'), /--ref-flare-color:\s*var\(--accent\)/, 'running: the provider-tinted accent')
   assert.match(body('.ref-flare.run-dead'), /--ref-flare-color:\s*color-mix\(in srgb, var\(--dim\) \d+%, black\)/, 'dead: a dark grey of the theme')
   assert.doesNotMatch(body('.ref-flare.run-on') + body('.ref-flare.run-dead'), /background|box-shadow|padding/, 'a run state sets only its edge colour: no fill, no second edge, no own padding')
-  assert.match(css, /\.ref-flare:is\(\.doc-new, \.mail-new\)\s*\{\s*--ref-flare-color:\s*var\(--org-accent\)/, 'unread keeps the theme colour')
+  assert.match(css, /\.ref-flare:is\(\.doc-new, \.mail-new\)\s*\{\s*--ref-flare-color:\s*var\(--accent\)/, 'unread shares the run edge colour, the provider-tinted accent')
   const apps = readFileSync(path.join(__SRC_DIR__, 'canvas', 'apps', 'apps.css'), 'utf8').replace(/\r\n/g, '\n')
   assert.doesNotMatch(apps, /\.custom-app-state\.run-/, 'the app row has no dot any more')
   assert.match(apps, /\.custom-apps-menu-app\.run-on[^{]*\{[^}]*background:\s*color-mix\(in srgb,\s*var\(--accent\)/, 'the app row is tinted like the chip')

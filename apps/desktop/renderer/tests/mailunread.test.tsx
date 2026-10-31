@@ -155,10 +155,10 @@ test('§4 the hover names the state first, from the fresh read', async t => {
   assert.match(await hover('read'), /^writer · .+ · r6$/)
 })
 
-test('§5 the stylesheet gives an unread message and an unread presentation the same flare colour, the chosen theme colour', () => {
+test('§5 the stylesheet gives an unread message and an unread presentation the same flare colour, the provider-tinted accent', () => {
   const css = readFileSync(path.join(__SRC_DIR__, 'styles.css'), 'utf8')
-  // USER 2026-10-31 13:54:07Z mb8978d259c97 "the unread highlight (on presentations and mail) should follow the chosen theme color": the
-  // theme's own token (--org-accent), not --accent, which a desk or tray row re-points at its provider's colour in provider-colour mode
-  assert.match(css, /\.ref-flare:is\(\.doc-new, \.mail-new\)\s*\{\s*--ref-flare-color:\s*var\(--org-accent\);/, 'one rule for both, in the theme colour')
-  assert.match(css, /\.ref-flare\.doc-updated\s*\{\s*--ref-flare-color:\s*color-mix\(in srgb, var\(--org-accent\) 45%, transparent\);/, 'the duller modified edge too')
+  // USER 2026-10-31 17:07:06Z mdc9a9dbe34c7 "running and unread should always be provider color" (replacing 13:54:07Z mb8978d259c97, which had moved it to --org-accent):
+  // the same provider-tinted --accent the run edge uses, which falls back to the theme colour where no provider colour applies
+  assert.match(css, /\.ref-flare:is\(\.doc-new, \.mail-new\)\s*\{\s*--ref-flare-color:\s*var\(--accent\);/, 'one rule for both, in the provider-tinted accent')
+  assert.match(css, /\.ref-flare\.doc-updated\s*\{\s*--ref-flare-color:\s*color-mix\(in srgb, var\(--accent\) 45%, transparent\);/, 'the duller modified edge too')
 })
