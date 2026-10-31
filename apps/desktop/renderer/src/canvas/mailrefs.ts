@@ -6,10 +6,22 @@
 // the same box a click opens), so the name, the tooltip and the copied text come from one message. A mail the box does not
 // hold answers `absent`: the link then says so (like any reference to nothing) and shows nothing of any mail. A failed
 // read is not an answer and is asked again later.
+//
+// A MESSAGE THE USER HAS NOT READ FLARES LIKE AN UNREAD PRESENTATION (USER 2026-10-31 m5345a1e44ad1 "also make sure that mail has
+// an unread highlight like presentations do"): the same answer carries the flare (the user box's lookup says `unread`), with
+// the same words and the same accent edge (docrefs.ts is the model, `ref-flare` in styles.css the shared look), and it clears
+// the same way, when the message is read. A read made here (mailread.ts) is decided again at once from this window's own read
+// state and recorded on the kept answer when the save is accepted, so the link never flashes back to unread; a read made
+// elsewhere (another window, "mark all read") reaches the links when the inbox's unread list no longer holds the message
+// (`mailInboxRead`), which reads just those links again. Only the user's inbox keeps per-message read state, so a node's or the
+// org inbox's message never flares.
 
 import { getMailById } from '../api'
+import { onReadSaved, readLocally, subscribeLocalReads } from '../mailread'
 import type { MailEntry } from '../types'
-import { refKey, refNames } from './refnames'
+import { DOC_UNREAD_WORDS } from './docviewed'
+import { refKey, refNames, refTarget } from './refnames'
+import type { RefFlare } from './refnames'
 
 /** characters of the message a link shows before its ellipsis (one constant, USER m33189c8d6214: "the first 20 or so") */
 export const MAIL_LABEL_CHARS = 20
@@ -28,6 +40,12 @@ export function mailRefLabel(body: unknown): string | null {
   const chars = Array.from(plain)                                       // code points, so a surrogate pair is never cut in half
   if (!chars.length) return null
   return chars.length > MAIL_LABEL_CHARS ? chars.slice(0, MAIL_LABEL_CHARS).join('').trimEnd() + '…' : plain
+}
+
+/** An unread message's flare: the presentation's words, its own class (styles.css gives `mail-new` and `doc-new` one colour).
+ *  None once the user read it, here or elsewhere. */
+export function mailFlare(org: string, mail: Pick<MailEntry, 'id' | 'unread'>): RefFlare | undefined {
+  return mail.unread === true && !readLocally(org, mail.id) ? { cls: 'mail-new', tip: DOC_UNREAD_WORDS.new } : undefined
 }
 
 const split = (target: string) => {
@@ -52,5 +70,20 @@ refNames.register({
     }
     return found
   },
-  name: (_kind, row) => ({ label: mailRefLabel((row as MailEntry).body) ?? '' }),
+  name: (_kind, row, org) => {
+    const flare = mailFlare(org, row as MailEntry)
+    return { label: mailRefLabel((row as MailEntry).body) ?? '', ...(flare ? { flare } : {}) }
+  },
 })
+
+// a read made here shows read at once, and a refused one puts the flare back: the links on screen are decided again, with no read
+subscribeLocalReads(() => refNames.touch())
+// an accepted read is the server's state now: kept on the answer, so the link stays read when the store forgets the read
+onReadSaved((org, id) => refNames.amend(org, 'mail', refTarget({ kind: 'mail', org, box: 'user', id }), row => ({ ...(row as MailEntry), unread: false })))
+
+/** The user's inbox was read: `unreadIds` is every message it still lists as unread. A link whose answer says unread for a
+ *  message that is not listed any more was read elsewhere, so it is read again (and only it). */
+export function mailInboxRead(org: string, unreadIds: Iterable<string>): void {
+  const pending = new Set(unreadIds)
+  refNames.invalidate(org, ['mail'], (target, row) => (row as MailEntry).unread === true && !pending.has(split(target).id))
+}

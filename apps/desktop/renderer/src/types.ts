@@ -198,6 +198,9 @@ export interface MailEntry {
   kind: string
   body: string
   at: string
+  /** One message of the user's inbox, from its by-id lookup: still pending (not read). Only that box keeps per-message read
+   *  state, so no other box's lookup carries it (canvas/mailrefs.ts: an @mail: link's unread flare). */
+  unread?: boolean
   /** 4.0 passive delivery is independent of the typed message kind. */
   notice?: boolean
   relationship?: string | null

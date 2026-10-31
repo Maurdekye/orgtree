@@ -153,6 +153,7 @@ import type { DeskDogs } from './canvas/watchdogroute'
 import { customAppsFeed, invalidateCustomApps } from './canvas/apps/store'
 import { docketFeed } from './canvas/itemrefs'
 import { documentsFeed } from './canvas/docrefs'
+import { mailInboxRead } from './canvas/mailrefs'
 import { requestPanelSample } from './canvas/apps/runtime'
 import { closeIfCentred, isModalPinned, PinFrame, raisePinnedModal, readModalOpen, toggleOrRaiseModal, usePersistedModalOpen, useScopedOpen } from './canvas/modalpin'
 import { HireDefaultsTab, orgDefaultTools, orgDirHoldings } from './canvas/modals'
@@ -3028,7 +3029,11 @@ export function InboxPanel({ slug, tree, toast, refresh, close, jumpTo, jumpSeq,
   // count at once, saved in the background, back to unread if refused
   useLocalReads()
   useEffect(() => {
-    if (rawBox) settleReadsFromBox(slug, rawBox.pending.map((m) => m.id))
+    if (!rawBox) return
+    const unread = rawBox.pending.map((m) => m.id)
+    settleReadsFromBox(slug, unread)
+    // a link to a message that is no longer listed as unread was read elsewhere: its unread flare is read again (mailrefs.ts)
+    mailInboxRead(slug, unread)
   }, [rawBox, slug])
   const readNow = (m: MailEntry) => markReadNow(slug, m, () => markRead(slug, [m.id]))
     .then(() => { history.acknowledge(m.id); setReadBump((n) => n + 1); refresh?.() })

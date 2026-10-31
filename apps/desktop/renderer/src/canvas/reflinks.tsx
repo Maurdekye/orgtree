@@ -201,13 +201,15 @@ export function resolveRef(ref: TypedRef, world: RefWorld): ResolvedRef {
     const answer = reachable === 'ready' && ref.id !== '@user' ? world.refName?.(ref) : undefined
     const outcome = answer?.outcome === 'absent' ? 'absent' : reachable
     const named = answer?.outcome === 'ready' && answer.label ? answer.label : undefined
+    // an UNREAD message wears the flare an unread presentation does (USER 2026-10-31 m5345a1e44ad1): the same answer carries it
+    const flare = outcome === 'ready' && answer?.outcome === 'ready' ? answer.flare : undefined
     // ⚠ `absent` AND `elsewhere` ARE DIFFERENT SENTENCES, and mail is where
     // the difference bites: "this org has no such mailbox" is a fact about the
     // ORG, while "not opened from here" is a fact about the PANEL. A surface
     // that can address every box it knows of still reports the box it has
     // never heard of as absent, and saying "cannot be opened from here" there
     // would send someone looking for a panel that would work.
-    return { ref, token, outcome, label: named ?? `mail in ${where}`,
+    return { ref, token, outcome, label: named ?? `mail in ${where}`, ...(flare ? { flare } : {}),
       why: outcome === 'ready' ? `open this mail in ${where}`
         : outcome === 'pending' ? `still finding ${where}`
           : answer?.outcome === 'absent' ? `no such mail in ${where}`
@@ -702,6 +704,8 @@ export function RefChip({ r, onOpen }: {
  *  any other), so the slug needs no org. */
 export function refChipTitle(r: ResolvedRef): string | undefined {
   if (r.ref.kind === 'item') return r.flare ? `${r.flare.tip} · ${r.ref.id}` : r.ref.id
+  // a message's hover is read fresh on hover (objecttooltip.ts); until then its words, led by an unread flare's
+  if (r.ref.kind === 'mail') return r.flare ? `${r.flare.tip} · ${r.why}` : r.why
   if (r.ref.kind !== 'doc') return r.why
   return r.flare ? `${r.flare.tip} · ${r.label}` : r.label
 }

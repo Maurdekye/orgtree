@@ -106,11 +106,25 @@ class RefNames {
     for (const fn of this.subs) fn()
   }
 
-  /** a kind changed in `org`: read its kept targets again */
-  invalidate(org: string, kinds: readonly RefKind[]): void {
+  /** a kept row changed by something this window did (a mail read here): it is replaced, with no read, and the chips on screen are
+   *  decided again from it. A target with no kept row has nothing to change. */
+  amend(org: string, kind: RefKind, id: string, change: (row: unknown) => unknown): void {
+    const key = refKey(kind, id)
+    const known = this.known.get(org)?.get(key)
+    if (!known || !('row' in known)) return
+    this.keep(org, key, { row: change(known.row) })
+    this.touch()
+  }
+
+  /** a kind changed in `org`: read its kept targets again. `only` narrows that to the kept rows it accepts (a mail read
+   *  elsewhere concerns only the links whose row still says unread). */
+  invalidate(org: string, kinds: readonly RefKind[], only?: (id: string, row: unknown) => boolean): void {
     const kept = this.known.get(org)
     if (!kept?.size) return
-    const keys = [...kept.keys()].filter(key => kinds.includes(split(key).kind))
+    const keys = [...kept].filter(([key, known]) => {
+      const { kind, id } = split(key)
+      return kinds.includes(kind) && (!only || ('row' in known && only(id, known.row)))
+    }).map(([key]) => key)
     if (keys.length) this.ask(org, keys, true)
   }
 

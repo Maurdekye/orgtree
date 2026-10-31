@@ -42,6 +42,16 @@ function subscribe(l: () => void) {
   listeners.add(l)
   return () => { listeners.delete(l) }
 }
+/** `fn` runs on any change to the store: a mail read here, shown read or put back */
+export const subscribeLocalReads = subscribe
+
+const savedListeners = new Set<(slug: string, id: string) => void>()
+/** `fn(slug, id)` runs when a read this window made is accepted: the server now holds that mail as read (the unread flare of a
+ *  link to it, canvas/mailrefs.ts, follows) */
+export function onReadSaved(fn: (slug: string, id: string) => void) {
+  savedListeners.add(fn)
+  return () => { savedListeners.delete(fn) }
+}
 
 /** Re-render on any change to the store. */
 export function useLocalReads(): number {
@@ -65,6 +75,7 @@ export function markReadNow(slug: string, mail: { id: string; urgent?: boolean; 
       mine.state = 'saved'
       mine.savedAt = Date.now()
       emit()
+      for (const l of [...savedListeners]) l(slug, mail.id)
     }
   }, (e: unknown) => {
     if (entries.get(k) === mine) { entries.delete(k); emit() }

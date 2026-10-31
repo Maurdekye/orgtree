@@ -157,8 +157,8 @@ function chipEl(doc: Document, r: ResolvedRef,
     : doc.createElement(live ? 'button' : 'span')
   if (live && el.tagName === 'BUTTON') (el as HTMLButtonElement).type = 'button'
   el.className = cls
-  // a ready ticket or presentation: its title, led by its flare's words
-  if ((r.ref.kind === 'item' || r.ref.kind === 'doc') && r.outcome === 'ready') {
+  // a ready ticket or presentation, or a message that wears a flare: its title, led by its flare's words
+  if ((r.ref.kind === 'item' || r.ref.kind === 'doc' || (isMessageRef(r) && r.flare)) && r.outcome === 'ready') {
     const title = refChipTitle(r)
     if (title) el.title = title
   } else el.title = r.why

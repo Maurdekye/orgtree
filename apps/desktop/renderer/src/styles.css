@@ -10203,13 +10203,15 @@ button.ref-chip.ref-chip.ref-ready:is(.ref-item, .ref-doc, .ref-app, .ref-panel,
    presentation link to a live target, now one mention link everywhere. A ticket's edge is its docket status
    colour (the palette above, so it follows the docket in every theme); a
    presentation's is the accent while unread and the duller accent once it was
-   modified since it was read, as the canvas chips and desk badges mark them.
-   The words are the link's tooltip; a read presentation has none. */
+   modified since it was read, as the canvas chips and desk badges mark them. A
+   message the user has not read wears the unread accent too (USER 2026-10-31
+   m5345a1e44ad1 "mail has an unread highlight like presentations do").
+   The words are the link's tooltip; a read presentation or message has none. */
 :is(.ref-chip.ref-chip, .docket-modal .docket-ref.docket-ref).ref-flare {
   padding-left: 5px;
   box-shadow: inset 3px 0 0 var(--ref-flare-color, var(--docket-status-color, transparent));
 }
-.ref-flare.doc-new { --ref-flare-color: var(--accent); }
+.ref-flare:is(.doc-new, .mail-new) { --ref-flare-color: var(--accent); }
 .ref-flare.doc-updated { --ref-flare-color: color-mix(in srgb, var(--accent) 45%, transparent); }
 /* Opt-in (user 2026-10-27): genuine inline fragments, not a multiline atomic
    button. Natural word/dash breaks win; an unbroken identifier can still fit. */

@@ -1,6 +1,7 @@
 import { getDocument, getWorkItem, getMailById } from '../api'
 
 import { mailTitle } from './mailtitle'
+import { mailFlare } from './mailrefs'
 import { knownStatus, statusLabel } from './docketstatus'
 import { docStateTitle, docUnread } from './docviewed'
 export type ObjectTooltipKind = 'ticket' | 'document' | 'mail'
@@ -20,7 +21,7 @@ async function titleOf(kind: string, org: string, id: string, box?: string | nul
   const key = JSON.stringify([kind, org, id, box, node, actionLabel, viewed])
   let request = reading.get(key)
   if (!request) {
-    request = (kind === 'mail' ? getMailById(org, box as 'user'|'org'|'node', id, node || undefined).then(r => r.found && r.mail ? mailTitle(r.mail, actionLabel) : null)
+    request = (kind === 'mail' ? getMailById(org, box as 'user'|'org'|'node', id, node || undefined).then(r => r.found && r.mail ? mailTitle(r.mail, actionLabel, mailFlare(org, r.mail)?.tip) : null)
       : kind === 'ticket' ? getWorkItem(org, id).then(({ item }) => {
         if (!item) return null
         // Read current state on every hover, never from a historical tool
