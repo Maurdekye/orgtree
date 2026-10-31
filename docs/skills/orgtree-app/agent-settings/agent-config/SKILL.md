@@ -53,7 +53,7 @@ The action row depends on the agent's state:
 
 | Control | Availability and purpose |
 |---|---|
-| rescind | Live agent; confirms retirement of the subtree and reclaiming its stake from the superior's grant where there is one. |
+| rescind | Live agent that has a superior (never a top-level agent, whose Retire and Dissolve do the same); confirms retirement of the subtree and reclaiming its stake from the superior's grant. |
 | retire | Live agent without a nonarchived child in the displayed tree; confirms retirement. |
 | dissolve subtree | Live agent with a nonarchived child in the displayed tree; confirms retirement of the subtree. |
 | rehire (context intact) | Archived agent; submits rehire directly. |
