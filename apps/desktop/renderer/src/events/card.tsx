@@ -221,9 +221,13 @@ export function EventCard({ row, profile, org, preview = false, actor, part, hea
   const objectValue = event.object ? humanValue(event.object, fieldType(event.variant, 'object'), profile) : null
   const objectDetails = objectValue?.kind === 'record'
     ? { ...objectValue, fields: objectValue.fields.filter(f => f.key !== 'kind') } : null
+  // a resolved card also folds under its ASK's id: the locally queued answer has no mail id or client op, so the
+  // mail keys alone would drop an expanded question when the server's row (same ask id) replaces it
+  const answerKeys = [...(keys ?? []), ...(event.object && 'id' in event.object && (event.variant === 'answer.ask' || event.variant === 'answer.batch')
+    ? ['ask:' + org + ':' + String(event.object.id)] : [])]
   const bodyContent = <div className="event-body">
-    {event.variant === 'answer.ask' && <AnsweredAsk event={event} foldKey={keys} {...content} />}
-    {askQuestions.length > 0 && <AnsweredCard questions={askQuestions} dismissed={false} foldKey={keys} {...content} />}
+    {event.variant === 'answer.ask' && <AnsweredAsk event={event} foldKey={answerKeys} {...content} />}
+    {askQuestions.length > 0 && <AnsweredCard questions={askQuestions} dismissed={false} foldKey={answerKeys} {...content} />}
     {event.variant === 'answer.batch' && <ResolvedSections event={event} {...content} />}
     {dogFire && <FireBody event={dogFire} fields={fireFields} {...content} profile={profile} org={org} actor={actor} />}
     {idleDocket && <IdleDocketCards event={idleDocket} org={org} world={content.world} onOpen={content.onOpen} />}

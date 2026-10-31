@@ -14,6 +14,7 @@ import assert from 'node:assert/strict'
 import { EventCard } from '../src/events/card'
 import { AskCard } from '../src/canvas/asks'
 import type { AskInfo } from '../src/types'
+import { FoldProvider, useFoldState } from '../src/canvas/foldstate'
 
 const LINE = 20
 const HEIGHT = 16
@@ -127,3 +128,27 @@ test('§6 the inbox/Attention row of a resolved ask folds its long question the 
   } finally { await v.unmount(); restore(); realClock() }
 }
 )
+
+// the locally queued answer has no mail id or client op; the server's row for the same ask replaces it. An
+// expanded question must stay expanded across that swap (found by the integrator's real queued flow)
+function Swap({ first }: { first: boolean }) {
+  const state = useFoldState()
+  const row = first ? { id: null, ev: askEv(LONG) } : { id: 'mail-77', ev: askEv(LONG) }
+  // a new key per row: the queued row UNMOUNTS and the delivered one mounts, as in the desk
+  return <FoldProvider value={state.store}><EventCard key={first ? 'queued' : 'delivered'} row={row} profile="operator" org="org" preview /></FoldProvider>
+}
+
+test('§7 an expanded question stays expanded when the server row replaces the local queued one', async () => {
+  useFakeClock()
+  const restore = layout()
+  const v = await mountView(<Swap first />, (host) => host)
+  try {
+    await flush(4)
+    assert.equal(folded(v.el), 1, 'the queued row starts folded')
+    await click(toggles(v.el)[0]!)
+    assert.equal(folded(v.el), 0, 'expanded by the reader')
+    await v.render(<Swap first={false} />)
+    await flush(4)
+    assert.equal(folded(v.el), 0, 'the server row (a mail id now, the same ask) stays expanded')
+  } finally { await v.unmount(); restore(); realClock() }
+})
