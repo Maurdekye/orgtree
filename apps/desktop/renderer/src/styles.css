@@ -10223,19 +10223,14 @@ button.ref-chip.ref-chip.ref-ready:is(.ref-item, .ref-doc, .ref-app, .ref-panel,
 }
 .ref-flare:is(.doc-new, .mail-new) { --ref-flare-color: var(--accent); }
 .ref-flare.doc-updated { --ref-flare-color: color-mix(in srgb, var(--accent) 45%, transparent); }
-/* AN APP OR PANEL LINK'S RUN STATE (USER 2026-10-31 m8d5facfeae29 "panels that are running (or apps with any panels running)
-   should have a highlight", m9a790bb7a155 "if an app has a panel but its dead then the highligth should be dark grey",
-   m16901ed8c657 "if an app has no panels then it should not have a highlight"): the dot the Apps list draws for a panel's power
-   state (apps.css .custom-app-dot), in front of the link's mark, so it is never mistaken for the unread/status edge above. Running
-   is the accent dot, dead (an app with panels none of which runs, a panel that is off) a dark grey of the theme's --dim, none
-   (an app with no panels) nothing. */
-.ref-chip.ref-flare:is(.run-on, .run-dead)::before {
-  content: ''; flex: none; align-self: center; box-sizing: border-box;
-  width: 8px; height: 8px; border-radius: 50%;
-}
-.ref-flare.run-on::before { background: var(--accent); }
-.ref-flare.run-dead::before { background: color-mix(in srgb, var(--dim) 55%, black); }
-.wrap-object-mentions .ref-chip.ref-flare:is(.run-on, .run-dead)::before { display: inline-block; vertical-align: middle; margin-right: 0.3em; }
+/* AN APP OR PANEL LINK'S RUN STATE (USER 2026-10-31 m8d5facfeae29 "panels that are running (or apps with any panels running) should
+   have a highlight", m9a790bb7a155 "if an app has a panel but its dead then the highligth should be dark grey", m16901ed8c657 "if an
+   app has no panels then it should not have a highlight", m29a112a68005 "Tint like unread"): the same chip flare, drawn as a tinted
+   background where the unread/status edge above is a left edge, so the two can never overlap. Running is a tint of the accent, dead
+   (an app with panels none of which runs, a panel that is off) a tint of the theme's dim grey, none (an app with no panels) no tint.
+   The Apps list's app and panel rows wear the same two tints (apps.css). */
+.ref-chip.ref-flare.run-on { background: color-mix(in srgb, var(--accent) 24%, transparent); border-radius: 4px; padding-inline: 4px; }
+.ref-chip.ref-flare.run-dead { background: color-mix(in srgb, var(--dim) 32%, transparent); border-radius: 4px; padding-inline: 4px; }
 /* Opt-in (user 2026-10-27): genuine inline fragments, not a multiline atomic
    button. Natural word/dash breaks win; an unbroken identifier can still fit. */
 .wrap-object-mentions .ref-chip.ref-chip.ref-ready:is(.ref-item, .ref-doc, .ref-app, .ref-panel, .ref-message),

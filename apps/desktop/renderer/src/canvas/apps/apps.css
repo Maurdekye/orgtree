@@ -176,10 +176,11 @@ html.mobile .overlay.custom-app-centered.custom-app-behind { z-index:39 }
 .custom-app-parked { position:fixed!important;left:0!important;top:0!important;opacity:0!important;z-index:-1!important;overflow:visible;contain:layout style }
 .custom-app-parked,.custom-app-parked * { pointer-events:none!important }
 .custom-app-dot.running { background:transparent;border:2px solid var(--accent) }
-/* An app row's own run state, the same dot and the same two colours an @app: link wears (USER 2026-10-31 m8d5facfeae29, m9a790bb7a155,
-   m16901ed8c657): running = at least one panel runs, dead = it has panels and none runs, no dot = it has no panels. */
-.custom-app-state.run-on { background:var(--accent);border-color:var(--accent) }
-.custom-app-state.run-dead { background:color-mix(in srgb,var(--dim) 55%,black);border-color:color-mix(in srgb,var(--dim) 55%,black) }
+/* A row's run state, the same two tints an @app:/@panel: link wears (USER 2026-10-31 m8d5facfeae29, m9a790bb7a155, m16901ed8c657, m29a112a68005
+   "Tint like unread"): running = at least one panel runs (a panel that runs), dead = it has panels and none runs (a panel that is off), no
+   tint = an app with no panels. */
+.custom-apps-menu-app.run-on,.custom-apps-saved-row.run-on { background:color-mix(in srgb,var(--accent) 24%,transparent) }
+.custom-apps-menu-app.run-dead,.custom-apps-saved-row.run-dead { background:color-mix(in srgb,var(--dim) 32%,transparent) }
 .custom-apps-saved-power { display:flex;align-items:center;justify-content:center;flex:none;border:0;border-radius:4px;background:none;padding:6px;color:var(--dim) }
 .custom-apps-saved-power:hover { color:var(--ink) }
 .custom-apps-saved-power svg { width:16px;height:16px }
