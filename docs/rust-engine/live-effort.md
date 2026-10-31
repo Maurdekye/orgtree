@@ -17,19 +17,28 @@ user's `/ops {op: "retool"}`. A hire or rehire starts a new process anyway.
   save (`catalog::effective_effort`: its own level, else the org default, else
   `high`; an unsupported stored level reads as `high`, as 3.x clamped it).
   The same level answers `unchanged` and nothing is sent.
-- A running Claude turn on a tier with `live_effort` is sent
-  `apply_flag_settings {effortLevel}` on the CLI's control channel. The level
-  is always explicit: a clear back to inherit sends the level it falls back to.
-- Anything else answers `next_turn` with 3.x's reason: `only Claude turns take
-  an effort change mid-turn` (Codex, Antigravity, OpenRouter), `no turn is
-  running`, `the CLI process has exited`, or `the running process could not be
-  reached`.
-- A process whose level no longer matches is not used for another turn, as
-  3.x never parked a process that was sent a level. The next turn starts a
-  fresh CLI (or Codex app-server) with the new level on the same session, and
-  an idle one is replaced at once. Correctness never depends on the CLI
-  honouring the request, and Codex, which passes its spawn-time effort on
-  every `turn/start`, gets the change at its next turn.
+- A Claude CLI on a tier with `live_effort`, running a turn or idle, is sent
+  `apply_flag_settings {effortLevel}` on its control channel and is KEPT: an
+  effort change never restarts a Claude CLI (USER 2026-10-31 18:57:37Z
+  md24d899ff1a4; docket `effort-change-on-a-claude-seat-applies-without-r`).
+  A running turn's request is written as before; an idle CLI must acknowledge
+  it within 5 s (`ClaudeProc::apply_effort`). The actor records the level, so
+  the next turn runs on the same CLI and session. The level is always
+  explicit: a clear back to inherit sends the level it falls back to.
+- A Claude CLI that has exited or does not answer answers `next_turn` (`the
+  CLI process has exited`, `the running process could not be reached`, `the
+  idle CLI could not be reached`) and is replaced, warming off the loop; the
+  next turn starts with the new level. No CLI at all answers `no turn is
+  running`.
+- Other harnesses answer `next_turn` with `only Claude turns take an effort
+  change mid-turn` (Codex, Antigravity, OpenRouter on another harness). A
+  process at another level is not used for another turn: the next turn starts
+  a fresh process (or Codex app-server) with the new level on the same
+  session, and an idle one is replaced at once. Codex, which passes its
+  spawn-time effort on every `turn/start`, gets the change at its next turn.
+  Muse takes it at its next turn on the same host.
+- A save that also changes a field needing a new CLI (charter, tools,
+  folders, account, model) replaces the CLI through that field's path.
 - An effort-only retool reconfigures nobody else. Before, it restarted the
   target's whole subtree.
 
@@ -40,8 +49,8 @@ reads for the composer's toast:
 applied it.
 
 The card's `pending_effort` (the next-turn effort badge) is set only while a
-turn runs on a process at another level. After a live delivery the running
-process has the level, so no badge shows.
+turn runs on a process at another level. After a live delivery the process
+has the level, so no badge shows.
 
 ## Measured on the real CLI
 
@@ -59,8 +68,10 @@ pick up the user's SessionStart hooks.
 `node tools/rig/rig.mjs run tools/rig/proofs/live-effort.mjs [--ui <bundle>]`
 covers these paths mid-turn on a Claude agent: retool, the settings route,
 a clear, and an unchanged level. It shows the control request reaching the
-fake CLI, the badge state, and the fresh process with `--effort` on the next
-turn. It also covers an idle change, a Codex agent parked and mid-turn, and an
+fake CLI, the badge state, and the next turn running on the SAME CLI at the
+new level (the fake CLI logs the level each turn is called at). It also
+covers an idle change and an idle retool (sent to the parked CLI, which runs
+the next turn at the new level), a Codex agent parked and mid-turn, and an
 effort-only retool leaving a report's parked CLI alone. With a UI bundle it
 drives the desk: no next-turn badge after a retool mid-turn, and the
 composer's toast.
