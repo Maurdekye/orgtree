@@ -917,6 +917,15 @@ fn reader(cli: Arc<Cli>, tx: mpsc::Sender<Msg>) {
                 let req = &v["request"];
                 match req["subtype"].as_str() {
                     Some("initialize") => {
+                        // a proof can make the CLI slow to start, as a real one
+                        // is under load: an `initialize-delay-ms` file in the
+                        // fake CLI's folder delays this answer
+                        if let Some(ms) = std::env::var("ORGTREE_FAKECLI_DIR").ok().filter(|s| !s.is_empty())
+                            .and_then(|d| std::fs::read_to_string(Path::new(&d).join("initialize-delay-ms")).ok())
+                            .and_then(|s| s.trim().parse::<u64>().ok())
+                        {
+                            std::thread::sleep(Duration::from_millis(ms.min(60_000)));
+                        }
                         let mut ids = Vec::new();
                         if let Some(hooks) = req["hooks"].as_object() {
                             for (event, list) in hooks.iter().filter_map(|(e, l)| l.as_array().map(|l| (e, l))) {
