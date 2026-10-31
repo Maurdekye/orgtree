@@ -36,7 +36,7 @@ pub const MAX_PROBES: usize = 50_000;
 /// How long the hub's operator view may take to answer.
 const UI_DATA_TIMEOUT: Duration = Duration::from_secs(5);
 /// The roster fields a connection row carries to the renderer.
-const ROW_FIELDS: [&str; 10] = ["slug", "org_name", "username", "blurb", "online", "busy", "last_seen", "kind", "picture", "picture_owner"];
+const ROW_FIELDS: [&str; 11] = ["slug", "org_name", "username", "blurb", "online", "busy", "dnd", "last_seen", "kind", "picture", "picture_owner"];
 
 /// Each (org, address) pair's newest mail: one backward probe of
 /// `org_inbox_peer_at` per pair; a pair with none gives no row.

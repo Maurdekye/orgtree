@@ -1,8 +1,10 @@
 //! Busy presence (Mail hub 2.3.0; user 2026-10-30 23:03Z, docket
 //! org-presence-busy-orange-when-no-org-inbox-holde): each org tells the hubs
-//! it is connected to whether it is busy (`POST /api/presence {busy}`):
+//! it is connected to whether it is busy (`POST /api/presence {busy, dnd}`):
 //! online, but none of its org-inbox holders can start a turn
-//! (`orginbox::busy`). The network pass (every 3 s, or at once on a kick)
+//! (`orginbox::busy`), and whether its outside mail is set to Do not disturb
+//! (`dnd`, a part of busy; user 2026-10-31 08:51Z, `presence_of`). The
+//! network pass (every 3 s, or at once on a kick)
 //! works it out and says it when it changed, the first time on a connection
 //! (the hub keeps it in memory only, so a connection that went down says it
 //! again), and after `REFRESH`. A hub older than 2.3.0 answers 404 and is not
@@ -45,22 +47,26 @@ impl State {
     }
 }
 
-/// Whether to tell the hub now: never told on this connection, changed, or
-/// told `REFRESH` ago; never a hub older than busy.
+/// Whether to tell the hub now: never told on this connection, changed (busy
+/// or DND), or told `REFRESH` ago; never a hub older than busy.
 #[nolog]
-pub(crate) fn due(last: Option<Said>, busy: bool, _dnd: bool, now: Instant) -> bool {
+pub(crate) fn due(last: Option<Said>, busy: bool, dnd: bool, now: Instant) -> bool {
     match last {
         None => true,
         Some(s) if s.unsupported => false,
-        Some(s) => s.busy != busy || now.saturating_duration_since(s.at) >= REFRESH,
+        Some(s) => s.busy != busy || s.dnd != dnd || now.saturating_duration_since(s.at) >= REFRESH,
     }
 }
 
 /// What an org says to its hubs, from its settings and whether its org-inbox
-/// holders are busy (`orginbox::busy`): (busy, dnd).
+/// holders are busy (`orginbox::busy`): (busy, dnd). Do not disturb is its
+/// outside mail's mode, `orginbox::mode` "dnd" (a closed inbox is not DND and
+/// keeps today's presence, coordinator 2026-10-31 09:00Z). A DND org is busy
+/// too, so a hub or client that knows busy but not DND shows it busy.
 #[nolog]
-pub(crate) fn presence_of(_settings: &Value, holders_busy: bool) -> (bool, bool) {
-    (holders_busy, false)
+pub(crate) fn presence_of(settings: &Value, holders_busy: bool) -> (bool, bool) {
+    let dnd = crate::domain::orginbox::mode(settings) == "dnd";
+    (holders_busy || dnd, dnd)
 }
 
 /// Whether the org is busy now, and whether its outside mail is set to Do not
@@ -102,7 +108,7 @@ pub(super) async fn declare(engine: &Engine, parts: &[Part]) {
                 HTTP.post(format!("{addr}/api/presence"))
                     .timeout(Duration::from_secs(10))
                     .header("X-Org-Auth", p.auth())
-                    .json(&json!({ "slug": p.net_slug, "busy": busy })),
+                    .json(&json!({ "slug": p.net_slug, "busy": busy, "dnd": dnd })),
             )
             .await;
             match res {

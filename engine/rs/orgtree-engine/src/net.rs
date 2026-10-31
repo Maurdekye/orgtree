@@ -1338,7 +1338,8 @@ pub fn remote_peers(engine: &Engine) -> Vec<Value> {
             }
             seen.insert(s.to_string(), out.len());
             out.push(json!({ "slug": format!("@net:{s}"), "address": format!("@net:{s}"), "name": r["org_name"].as_str().filter(|n| !n.is_empty()).unwrap_or(s),
-                             "online": r["online"].as_bool().unwrap_or(false), "busy": r["busy"].as_bool().unwrap_or(false), "last_seen": r["last_seen"],
+                             "online": r["online"].as_bool().unwrap_or(false), "busy": r["busy"].as_bool().unwrap_or(false),
+                             "dnd": r["dnd"].as_bool().unwrap_or(false), "last_seen": r["last_seen"],
                              "kind": r["kind"].as_str().unwrap_or("org"), "blurb": r["blurb"].as_str().unwrap_or(""),
                              "hubs": [hub.clone()] }));
         }
