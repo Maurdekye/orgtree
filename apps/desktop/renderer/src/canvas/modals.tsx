@@ -1694,7 +1694,9 @@ function AgentConfig({ node, map, tree, slug, op, toast, claudeProvider, codexPr
         )}
 
         <SetRow label="Agent actions" hint="Retire, restore, or permanently remove this agent."><span className="agent-identity-row">
-          {node.state === 'live' &&
+          {/* no Rescind on a top-level agent (USER 2026-10-31 m91787acb55ee "it performs effectively identically to retire /
+              dissolve"): there is no superior grant to claw back from */}
+          {node.state === 'live' && !isTopLevel(node, map) &&
             <button className="danger" onClick={() => setAsking('rescind')}>
               Rescind · {fmtCredits((node.seat ?? 0) + (node.grant ?? 0))}</button>}
           {/* retire asks too (user bug 2026-08-09) — it sat as the one
@@ -1990,9 +1992,7 @@ function AgentConfig({ node, map, tree, slug, op, toast, claudeProvider, codexPr
       )}
       {asking === 'rescind' && (
         <ConfirmModal title={`Rescind ${node.id}?`}
-          body={isTopLevel(node, map)
-            ? 'Retire this agent and its subtree. There is no superior grant to reduce. Context is kept.'
-            : `Retired (subtree included), AND its superior's grant shrinks by the ${fmtCredits((node.seat ?? 0) + (node.grant ?? 0))}-credit stake — the freed headroom does not return. Rehiring this seat later needs new capacity granted from above. Context is kept.`}
+          body={`Retired (subtree included), AND its superior's grant shrinks by the ${fmtCredits((node.seat ?? 0) + (node.grant ?? 0))}-credit stake — the freed headroom does not return. Rehiring this seat later needs new capacity granted from above. Context is kept.`}
           confirmLabel="Rescind"
           onConfirm={() => op({ op: 'rescind', node: node.id })
             .then(close).catch(() => {})}
