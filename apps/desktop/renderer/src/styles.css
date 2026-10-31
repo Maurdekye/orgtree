@@ -3615,12 +3615,22 @@ button.project-slots-badge, button.project-listeners-badge, button.project-queue
    could drift out of step with it. (The update-ready button joined that
    same treatment on 2026-09-11 at the user's request; it reuses the
    keyframes rather than adding to the count of animations.) */
+/* MAIL THAT MENTIONS THE USER wears this row (the engine marks it
+   `mailbox_attention` without forging `urgent`, so it is `.urgent` and NOT
+   `.urgent-mail`). Its accent tint is FAINT - 5%, resting and hovered - because
+   the 12% it had sat a step from the selected row's 13%, so an unread mention
+   looked selected (USER 2026-10-31 08:48:40Z mf2fd4eb092b4, "the theme
+   highlighted background i mean" 08:48:56Z ma9c2e2bbee12; "it can still be the
+   theme color, just not as bright so it doesnt look like its selected"
+   08:49:29Z m3403be06a732; replaces the 12% rest / 16% hover of D-169 for
+   mention mail). Still the theme's accent, nothing added to mark the row, and
+   the selected fill below is unchanged. */
 .mailrow.urgent {
   border-left: 4px solid var(--accent); padding-left: 6px;
-  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  background: color-mix(in srgb, var(--accent) 5%, transparent);
 }
 .mailrow.urgent.notice { border-left-style: var(--notice-edge-style); }
-.mailrow.urgent:hover { background: color-mix(in srgb, var(--accent) 16%, var(--panel-2)); }
+.mailrow.urgent:hover { background: color-mix(in srgb, var(--accent) 5%, var(--panel-2)); }
 .mailrow.urgent.on { background: color-mix(in srgb, var(--accent) 21%, var(--bg)); }
 .mailrow.urgent-mail {
   border-left: 4px solid #ff4500; padding-left: 6px;
@@ -10192,9 +10202,11 @@ button.ref-chip.ref-chip.ref-ready:is(.ref-item, .ref-doc, .ref-app, .ref-panel)
   opacity: .72; cursor: not-allowed; text-decoration: none;
 }
 /* A permanent message-level mark, independent of dismissible attention.
-   Never tint the inner paragraph again: two layers made mentions too strong. */
+   Never tint the inner paragraph again: two layers made mentions too strong.
+   The tint is FAINT (5%, was 10%: USER 2026-10-31 08:49:29Z m3403be06a732, "still
+   the theme color, just not as bright so it doesnt look like its selected"). */
 .msg.mention-highlight {
-  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  background: color-mix(in srgb, var(--accent) 5%, transparent);
   box-shadow: inset 2px 0 0 color-mix(in srgb, var(--accent) 75%, transparent);
   border-radius: 5px;
 }
