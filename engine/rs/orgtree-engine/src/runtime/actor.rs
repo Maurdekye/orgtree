@@ -1906,14 +1906,15 @@ impl Actor {
     }
 
     /// A saved effort change (3.x `send_live_effort`; `previous` is the level
-    /// the agent resolved to before the save). A running Claude turn is sent
-    /// `apply_flag_settings {effortLevel}` with the level it resolves to now,
-    /// always explicit (a cleared level is sent what it falls back to): its
-    /// next model call uses it. Everything else takes it from the next turn.
-    /// Either way a process that no longer matches the level is not used for
-    /// another turn: a CLI may acknowledge a level it ignores, and Codex keeps
-    /// the level it started with, so the next turn starts a fresh process with
-    /// the new level (an idle one is replaced right after the reply, as a
+    /// the agent resolved to before the save). A Claude CLI, running or idle,
+    /// is sent `apply_flag_settings {effortLevel}` with the level it resolves
+    /// to now, always explicit (a cleared level is sent what it falls back
+    /// to): its next model call uses it and the CLI is kept, never restarted
+    /// for effort (USER 2026-10-31 18:57:37Z md24d899ff1a4 "changing thinking
+    /// effort on a claude model should not require a rsstart of the cli").
+    /// A CLI that cannot be reached is replaced instead. Everything else
+    /// takes it from the next turn on a fresh process: Codex keeps the level
+    /// it started with (an idle one is replaced right after the reply, as a
     /// reconfiguration is: the Effort handler does it once the saver has its answer).
     async fn effort_saved(&mut self, previous: &str) -> Value {
         let ctx = match self.load_ctx().await {
@@ -1940,32 +1941,47 @@ impl Actor {
             }
             return out;
         }
+        let next = |reason: &str| json!({ "delivery": "next_turn", "effort": level, "reason": reason });
+        let live = catalog::tier(&ctx.tier).map(|t| t.live_effort).unwrap_or(false);
+        if ctx.provider == catalog::CLAUDE && live {
+            let sent = crate::providers::launch_effort(&self.engine, &ctx.tier, &level).0;
+            let running = self.turn.is_some();
+            let exited = match self.proc.as_mut() { Some(Proc::Claude(p)) => !p.alive(), _ => false };
+            let reached = match self.proc.as_ref() {
+                None => Err("no turn is running"),
+                Some(Proc::Claude(_)) if exited => Err("the CLI process has exited"),
+                Some(Proc::Claude(p)) if running => p.set_effort(&sent).then_some(()).ok_or("the running process could not be reached"),
+                Some(Proc::Claude(p)) => match p.apply_effort(&sent).await {
+                    Ok(()) => Ok(()),
+                    Err(e) => {
+                        tracing::info!(agent = %self.name, reason = %format!("{e:#}"), "the idle CLI did not take the effort level: it is replaced");
+                        Err("the idle CLI could not be reached")
+                    }
+                },
+                Some(_) => Err("only Claude turns take an effort change mid-turn"),
+            };
+            return match reached {
+                Ok(()) => {
+                    tracing::info!(agent = %self.name, effort = %level, running, "effort applied to the CLI in place");
+                    self.proc_effort = Some(level.clone());
+                    json!({ "delivery": "sent", "effort": level })
+                }
+                Err(reason) => {
+                    if self.proc.is_some() {
+                        self.reconfigured = true;
+                    }
+                    next(reason)
+                }
+            };
+        }
         if self.proc.is_some() && self.proc_effort.as_deref() != Some(level.as_str()) {
             self.reconfigured = true;
         }
-        let next = |reason: &str| json!({ "delivery": "next_turn", "effort": level, "reason": reason });
-        let live = catalog::tier(&ctx.tier).map(|t| t.live_effort).unwrap_or(false);
-        let out = if ctx.provider != catalog::CLAUDE {
+        if ctx.provider != catalog::CLAUDE {
             next("only Claude turns take an effort change mid-turn")
-        } else if !live {
-            next(&format!("{} has no effort level to change", ctx.tier))
         } else {
-            let running = self.turn.is_some();
-            match self.proc.as_mut() {
-                Some(p @ Proc::Claude(_)) if running => {
-                    if !p.alive() {
-                        next("the CLI process has exited")
-                    } else if p.set_effort(&crate::providers::launch_effort(&self.engine, &ctx.tier, &level).0) {
-                        self.proc_effort = Some(level.clone());
-                        json!({ "delivery": "sent", "effort": level })
-                    } else {
-                        next("the running process could not be reached")
-                    }
-                }
-                _ => next("no turn is running"),
-            }
-        };
-        out
+            next(&format!("{} has no effort level to change", ctx.tier))
+        }
     }
 
     /// Reconfiguration waits for a busy turn, but never for the next mail.

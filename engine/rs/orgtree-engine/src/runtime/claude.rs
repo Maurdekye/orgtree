@@ -329,6 +329,16 @@ impl ClaudeProc {
                             "request": { "subtype": "apply_flag_settings", "settings": { "effortLevel": level } } }))
     }
 
+    /// An idle CLI's next model call uses this effort level, acknowledged:
+    /// the CLI changes it in place, with no restart.
+    pub async fn apply_effort(&self, level: &str) -> Result<()> {
+        let response = self.request(json!({ "subtype": "apply_flag_settings", "settings": { "effortLevel": level } }), Duration::from_secs(5)).await?;
+        if response["subtype"] == "error" {
+            return Err(anyhow!("effort refused: {}", response["error"].as_str().unwrap_or("provider rejected settings")));
+        }
+        Ok(())
+    }
+
     pub async fn mcp_status(&self) -> Option<Value> {
         self.request(json!({ "subtype": "mcp_status" }), Duration::from_secs(10)).await.ok()
     }
