@@ -19,6 +19,8 @@ export const REF_MARK_PATHS = {
   app: 'M4 8h4V4H4zm6 12h4v-4h-4zm-6 0h4v-4H4zm0-6h4v-4H4zm6 0h4v-4h-4zm6-10v4h4V4zm-6 4h4V4h-4zm6 6h4v-4h-4zm0 6h4v-4h-4z',
   // WebAssetOutlined: one window of an app
   panel: 'M19 4H5c-1.11 0-2 .9-2 2v12c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2V6c0-1.1-.89-2-2-2m0 14H5V8h14z',
+  // MailIcon (MailOutlined): a mailbox's rows and the "open" button of a sent mail, now the @mail: link's own mark
+  mail: 'M22 6c0-1.1-.9-2-2-2H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2zm-2 0-8 4.99L4 6zm0 12H4V8l8 5 8-5z',
 } as const
 export type RefMarkKind = keyof typeof REF_MARK_PATHS
 

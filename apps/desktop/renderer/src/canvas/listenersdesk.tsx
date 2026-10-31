@@ -40,7 +40,6 @@ import type { ReactNode, UIEvent } from 'react'
 import type { ToastFn, Watchdog } from '../types'
 import type { CanvasNode, OpFn } from './shared'
 import { AgentLink, nodeTierOf } from './identity'
-import { mailLinkProps } from './mailidentity'
 import { WatchdogRow } from './deskdogs'
 import { WatchdogLink } from './watchdoglink'
 import { ageClockNow, subscribeAgeClock } from './desk'
@@ -49,7 +48,7 @@ import { span, SlotTime } from './slotsdesk'
 import { slotTimeStyle } from './slottime'
 import { HistoryDog } from './historydog'
 import { useLoadWhenSeen } from './loadmore'
-import { resolveRef } from './reflinks'
+import { RefChip, resolveRef } from './reflinks'
 import type { RefRoutes } from './reflinks'
 import { fmtFull } from '../timefmt'
 import { UserMention, isUserName } from './usermention'
@@ -93,11 +92,8 @@ function FireMail({ agent, mail, gone, refs }: { agent: string; mail?: string; g
   const r = refs ? resolveRef(isUserName(agent)
     ? { kind: 'mail', org: refs.world.org, box: 'user', id: mail }
     : { kind: 'mail', org: refs.world.org, box: 'node', node: agent, id: mail }, refs.world) : null
-  if (!gone && r && r.outcome === 'ready' && refs?.onOpen) {
-    return <button type="button" className="listener-mail-link fire-mail" data-mail={mail}
-      {...mailLinkProps({ org: r.ref.org, id: mail, box: r.ref.box!, node: r.ref.node })}
-      onClick={(e) => { e.stopPropagation(); refs.onOpen(r) }}>fire mail</button>
-  }
+  // the @mail: chip (USER 2026-10-31 m4ad918885ce9, mf1a79901405e: every button that opens a mail is the mail link now)
+  if (!gone && r && r.outcome === 'ready' && refs?.onOpen) return <span className="fire-mail" data-mail={mail}><RefChip r={r} onOpen={refs.onOpen} /></span>
   // its words lead the tooltip, since a narrow desk may shorten them (user 2026-10-20 09:00Z)
   return <span className="listener-mail-link fire-mail unavailable" data-mail={mail} aria-disabled="true"
     title={`fire mail · unavailable: ${gone ? `it is no longer in ${agent}'s mailbox` : r ? r.why : 'mail is not opened from here'}`}>fire mail · unavailable</span>

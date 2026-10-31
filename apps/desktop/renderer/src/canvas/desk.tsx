@@ -32,7 +32,8 @@ import { orgNavigationTooltip } from '../shell/orgnavigationbindings'
 import { agentNavProps, agentTooltipProps } from './agentnav'
 import { RetiredBadge } from './retiredbadge'
 import { objectNavProps } from './objectnav'
-import { mailLinkProps, mailTargetIdentity } from './mailidentity'
+import { mailTargetIdentity } from './mailidentity'
+import { MailRefChip } from './mailchip'
 import { dismissUserMention, hasUnseenUserMention, useAgentMentions, useDeskMentionScope, useMentionHighlight, useOrgMentionCandidates, useSeenMentions } from './agentmentions'
 import { useOrgView } from '../attention/mode'
 import { HaltControl, HaltStatus } from './haltcontrol'
@@ -97,7 +98,7 @@ import PushPinIcon from '@mui/icons-material/PushPinOutlined'
 import {
   ArrowDownIcon, ArrowRightIcon, ArrowUpIcon, AttachIcon, AutorenewIcon, CloseIcon, DocIcon, DotIcon,
   DownloadIcon, EditIcon, EyeIcon, FileIcon, FolderIcon, FrozenIcon,
-  DocketIcon, HearingIcon, LayersIcon, LockIcon, MailIcon, NotificationsActiveIcon,
+  DocketIcon, HearingIcon, LayersIcon, LockIcon, NotificationsActiveIcon,
   NotificationsIcon, PlayIcon, PsychologyIcon,
   SettingsIcon, SparkIcon, StopIcon, WarnIcon,
 } from '../icons'
@@ -5291,12 +5292,9 @@ export function ToolChip({ t, slug, nid, onMailLink, onWorkLink, onOpenDoc }: To
         {!t.error && !shellError && t.refs && t.refs.length > 0 && <ToolRefs refs={t.refs} owner={nid} org={slug} onWorkLink={onWorkLink}
           modelChanges={['orgtree_retool', 'orgtree_switch_model'].includes(t.name.split('__').at(-1) ?? '')}
           agent={id => <MailFrom from={id} />} />}
-        {/* mail sends carry the inline "open in mailbox" link (user spec):
-            straight to the exact mail in whichever box holds it */}
-        {t.mail && onMailLink && (
-          <button className="maillink" {...mailLinkProps(mailTargetIdentity(slug, t.mail))}
-            onClick={(e) => { e.stopPropagation(); onMailLink!(t.mail) }}>
-            <MailIcon fontSize="inherit" /> open</button>)}
+        {/* mail sends carry the inline link to the sent mail (user spec): the @mail: chip, straight to the exact mail in
+            whichever box holds it. It replaced the "✉ open" button (USER 2026-10-31 m4ad918885ce9, m53e1fd94c038). */}
+        {t.mail && onMailLink && <MailRefChip mail={mailTargetIdentity(slug, t.mail)} onOpen={() => onMailLink!(t.mail)} />}
         {/* a DOCKET WRITE carries the same affordance (user 2026-09-05): the
             item the write acted on, opened and selected in the docket. `t.work`
             is set from the tool RESULT, so a failed call and the read actions

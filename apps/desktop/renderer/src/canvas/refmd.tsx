@@ -31,7 +31,7 @@ import { createNodeLinkEl } from './identity'
 import { objectNavProps } from './objectnav'
 import { mailLinkProps } from './mailidentity'
 import { useEffect, useRef } from 'react'
-import { projectFormPlain, refChipTitle, resolveRef, refToken, scanInlineMentions } from './reflinks'
+import { isMessageRef, projectFormPlain, refChipTitle, resolveRef, refToken, scanInlineMentions } from './reflinks'
 import type { RefOutcome, RefWorld, ResolvedRef } from './reflinks'
 import { ticketFlare } from './docketstatus'
 import { parseRef, scanRefs, splitRefs } from './workrefs'
@@ -136,7 +136,7 @@ function hubChipEl(doc: Document, token: string): HTMLElement {
 function chipEl(doc: Document, r: ResolvedRef,
   clickable: boolean): HTMLElement {
   const live = r.outcome === 'ready' && clickable && !r.atDestination
-  const cls = `ref-chip ref-${r.ref.kind} ref-${r.outcome}`
+  const cls = `ref-chip ref-${r.ref.kind} ref-${r.outcome}` + (isMessageRef(r) ? ' ref-message' : '')
     + (r.atDestination ? ' ref-here' : '') + (r.flare ? ` ref-flare ${r.flare.cls}` : '')
   if (r.ref.kind === 'agent' && r.outcome === 'ready') {
     const el = createNodeLinkEl(doc, {

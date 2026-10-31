@@ -36,6 +36,7 @@ import { useHistoricalWorkReferences } from './workrefresolve'
 import { openAppRef } from './apprefs'
 import './itemrefs'
 import './docrefs'
+import './mailrefs'
 import { useRefNames } from './refnames'
 import type { RefFlare, RefNameAnswer } from './refnames'
 import { agentReferences } from '../api'
@@ -136,6 +137,10 @@ export interface ResolvedRef {
   flare?: RefFlare
 }
 
+/** A link to one message, not the user's inbox identity (`@user` is a mail ref too and keeps its own look): its chip wears
+ *  `ref-message` as well as `ref-mail`, and is styled like the other object links. */
+export const isMessageRef = (r: Pick<ResolvedRef, 'ref'>): boolean => r.ref.kind === 'mail' && r.ref.id !== '@user'
+
 const KIND_WORD: Record<TypedRef['kind'], string> = {
   item: 'docket item', doc: 'document', agent: 'agent', mail: 'mail', app: 'app', panel: 'panel',
 }
@@ -188,19 +193,26 @@ export function resolveRef(ref: TypedRef, world: RefWorld): ResolvedRef {
           : `no ${kind} ${ref.id} in this org` }
   }
   if (ref.kind === 'mail') {
-    const outcome = world.mail ? world.mail(ref) : 'ready'
+    const reachable = world.mail ? world.mail(ref) : 'ready'
     const where = boxWord(ref)
+    // THE MESSAGE'S OWN TEXT NAMES ITS LINK (USER 2026-10-31 m33189c8d6214: its first 20 or so characters), asked of a box
+    // that can be read and never of `@user`, which is the user's inbox identity and not a message. A message the box does
+    // not hold is `absent` like any other reference to nothing: the chip says so and shows nothing of any mail.
+    const answer = reachable === 'ready' && ref.id !== '@user' ? world.refName?.(ref) : undefined
+    const outcome = answer?.outcome === 'absent' ? 'absent' : reachable
+    const named = answer?.outcome === 'ready' && answer.label ? answer.label : undefined
     // ⚠ `absent` AND `elsewhere` ARE DIFFERENT SENTENCES, and mail is where
     // the difference bites: "this org has no such mailbox" is a fact about the
     // ORG, while "not opened from here" is a fact about the PANEL. A surface
     // that can address every box it knows of still reports the box it has
     // never heard of as absent, and saying "cannot be opened from here" there
     // would send someone looking for a panel that would work.
-    return { ref, token, outcome, label: `mail in ${where}`,
+    return { ref, token, outcome, label: named ?? `mail in ${where}`,
       why: outcome === 'ready' ? `open this mail in ${where}`
         : outcome === 'pending' ? `still finding ${where}`
-          : outcome === 'absent' ? `${where} does not exist in this org`
-            : `${where} cannot be opened from here` }
+          : answer?.outcome === 'absent' ? `no such mail in ${where}`
+            : outcome === 'absent' ? `${where} does not exist in this org`
+              : `${where} cannot be opened from here` }
   }
   const index = ref.kind === 'item' ? world.items
     : ref.kind === 'doc' ? world.docs : world.agents
@@ -633,7 +645,7 @@ export function RefChip({ r, onOpen }: {
     'data-copy-agent-name': r.ref.kind === 'agent' ? r.ref.id : undefined,
     'data-copy-ticket-title': r.copyTitle,
   }
-  const cls = `ref-chip ref-${r.ref.kind} ref-${r.outcome}`
+  const cls = `ref-chip ref-${r.ref.kind} ref-${r.outcome}` + (isMessageRef(r) ? ' ref-message' : '')
     + (r.atDestination ? ' ref-here' : '') + (r.flare ? ` ref-flare ${r.flare.cls}` : '')
   if (r.ref.kind === 'mail' && r.ref.id === '@user' && r.outcome === 'ready') return <UserIdentityLink className={cls} open={onOpen ? () => onOpen(r) : undefined} />
   if (r.ref.kind === 'agent' && r.outcome === 'ready') {

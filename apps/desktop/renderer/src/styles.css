@@ -2945,8 +2945,8 @@ html.mobile .askcard button.ask-fold { min-width: 28px; min-height: 28px; }
    row by up to a pixel; the negative margin takes it back, so the chip changes no line's height (the same -2px as an
    agent chip's). `.ref-chip.ref-chip` outranks the shared reset's `margin: 0`. */
 .ask-fold-line > .ref-chip.ref-chip, .idle-ticket > .ref-chip.ref-chip { margin-block: -2px; }
-.ask-fold-line > .ref-chip.ref-chip.ref-ready:is(.ref-item, .ref-doc, .ref-app, .ref-panel),
-.wrap-object-mentions .ask-fold-line > .ref-chip.ref-chip.ref-ready:is(.ref-item, .ref-doc, .ref-app, .ref-panel) {
+.ask-fold-line > .ref-chip.ref-chip.ref-ready:is(.ref-item, .ref-doc, .ref-app, .ref-panel, .ref-message),
+.wrap-object-mentions .ask-fold-line > .ref-chip.ref-chip.ref-ready:is(.ref-item, .ref-doc, .ref-app, .ref-panel, .ref-message) {
   display: block; flex: 0 1 auto; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
 }
 .ask-fold-line > .ref-chip > .ref-mark { margin-right: 0.3em; }
@@ -6413,7 +6413,7 @@ svg.MuiSvgIcon-root {
    long title broke over several rows (measured: 5 line boxes, a row 78 px taller at 280 px) and pushed the rows below
    it down. Here the chip stays unbroken, so the ellipsis on .tray-sum-text clips the line like any other text, and
    the full text is still the row's tooltip. This selector is the wrap rule's plus .tray-sum, to be the more specific. */
-.wrap-object-mentions :is(.tray-sum, .ask-fold-text) .ref-chip.ref-chip.ref-ready:is(.ref-item, .ref-doc, .ref-app, .ref-panel) {
+.wrap-object-mentions :is(.tray-sum, .ask-fold-text) .ref-chip.ref-chip.ref-ready:is(.ref-item, .ref-doc, .ref-app, .ref-panel, .ref-message) {
   white-space: nowrap; overflow-wrap: normal;
 }
 .tray-sum.stale { opacity: .55; font-style: italic; }
@@ -6670,6 +6670,9 @@ svg.MuiSvgIcon-root {
   font-family: inherit; vertical-align: middle;
 }
 .maillink:hover { color: var(--agent-accent-text, var(--accent)); border-color: color-mix(in srgb, var(--button-accent) 45%, var(--line)); }
+/* the link to the mail a tool call sent is the @mail: chip now (it replaced the "open" button, USER 2026-10-31 m4ad918885ce9), set off
+   from the call's words by the button's own 6px */
+.tline > .ref-chip.ref-chip.ref-message { margin-left: 6px; }
 /* the jumped-to mail flashes so "took me to it" is unmistakable */
 .mailrow.jflash { animation: jflash 1.6s ease-out 1; }
 @keyframes jflash {
@@ -10171,13 +10174,13 @@ button.node-link.node-link:focus-visible {
    theme's accent like that folder. The name reads like an agent's: strong at
    rest, the link colour and an underline only while hovered or focused.
    Baseline-aligned so the name sits on the sentence's line; the mark centres. */
-.ref-chip.ref-chip.ref-ready:is(.ref-item, .ref-doc, .ref-app, .ref-panel),
+.ref-chip.ref-chip.ref-ready:is(.ref-item, .ref-doc, .ref-app, .ref-panel, .ref-message),
 .docket-modal .docket-ref.docket-ref:has(> .ref-mark) {
   display: inline-flex; align-items: baseline; gap: 0.3em;
   vertical-align: baseline; max-width: 100%;
   color: var(--ink-strong); text-decoration: none;
 }
-button.ref-chip.ref-chip.ref-ready:is(.ref-item, .ref-doc, .ref-app, .ref-panel):is(:hover, :focus-visible),
+button.ref-chip.ref-chip.ref-ready:is(.ref-item, .ref-doc, .ref-app, .ref-panel, .ref-message):is(:hover, :focus-visible),
 .docket-modal .docket-ref.docket-ref:has(> .ref-mark):is(:hover, :focus-visible) {
   color: var(--agent-accent-text, var(--accent));
   text-decoration: underline; text-underline-offset: 2px;
@@ -10210,7 +10213,7 @@ button.ref-chip.ref-chip.ref-ready:is(.ref-item, .ref-doc, .ref-app, .ref-panel)
 .ref-flare.doc-updated { --ref-flare-color: color-mix(in srgb, var(--accent) 45%, transparent); }
 /* Opt-in (user 2026-10-27): genuine inline fragments, not a multiline atomic
    button. Natural word/dash breaks win; an unbroken identifier can still fit. */
-.wrap-object-mentions .ref-chip.ref-chip.ref-ready:is(.ref-item, .ref-doc, .ref-app, .ref-panel),
+.wrap-object-mentions .ref-chip.ref-chip.ref-ready:is(.ref-item, .ref-doc, .ref-app, .ref-panel, .ref-message),
 .wrap-object-mentions .docket-modal .docket-ref.docket-ref:has(> .ref-mark) {
   display: inline; white-space: normal; overflow-wrap: anywhere; word-break: normal;
   box-decoration-break: clone; -webkit-box-decoration-break: clone;
@@ -10222,8 +10225,8 @@ button.ref-chip.ref-chip.ref-ready:is(.ref-item, .ref-doc, .ref-app, .ref-panel)
    above, and a contact chip's is in netmentions.css), and in the opt-in wrapping layout, where the link is an inline
    box that margins cannot shorten, `line-height: 0` stops it contributing to the line (its text, underline, outline and
    icon are unaffected: they do not depend on the inline box's line height). */
-.ref-chip.ref-chip.ref-ready:is(.ref-item, .ref-doc, .ref-app, .ref-panel) { margin-block: -2px; }
-.wrap-object-mentions .ref-chip.ref-chip.ref-ready:is(.ref-item, .ref-doc, .ref-app, .ref-panel) { line-height: 0; }
+.ref-chip.ref-chip.ref-ready:is(.ref-item, .ref-doc, .ref-app, .ref-panel, .ref-message) { margin-block: -2px; }
+.wrap-object-mentions .ref-chip.ref-chip.ref-ready:is(.ref-item, .ref-doc, .ref-app, .ref-panel, .ref-message) { line-height: 0; }
 .wrap-object-mentions :is(.ref-chip.ref-chip, .docket-modal .docket-ref.docket-ref)[role="button"] {
   cursor: pointer;
 }

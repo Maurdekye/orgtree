@@ -51,6 +51,9 @@ const KEEP = 512
 const RETRY_MS = 10_000
 
 export const refKey = (kind: RefKind, id: string) => `${kind}:${id}`
+/** What a reader is asked for: the id, and for a mail also its box and node, since a message is read from one mailbox
+ *  (`box/node/id`, the node empty outside a node's box). */
+export const refTarget = (ref: TypedRef): string => ref.kind === 'mail' ? `${ref.box ?? ''}/${ref.node ?? ''}/${ref.id}` : ref.id
 const split = (key: string) => { const at = key.indexOf(':'); return { kind: key.slice(0, at) as RefKind, id: key.slice(at + 1) } }
 
 class RefNames {
@@ -89,7 +92,7 @@ class RefNames {
   describe(org: string, ref: TypedRef): RefNameAnswer | undefined {
     const reader = this.readers.get(ref.kind)
     if (!reader) return undefined
-    const known = this.get(org, ref.kind, ref.id)
+    const known = this.get(org, ref.kind, refTarget(ref))
     if (!known) return { outcome: 'pending' }
     if ('absent' in known) return { outcome: 'absent' }
     return { outcome: 'ready', ...reader.name(ref.kind, known.row, org) }

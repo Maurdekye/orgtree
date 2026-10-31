@@ -35,11 +35,11 @@
 // open mail control where an agent's has the take back (the user acknowledges
 // their own job; nobody takes it from them).
 
-import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
+import { useContext, useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import type { ReactNode, UIEvent } from 'react'
 import { createPortal } from 'react-dom'
 import type { ToastFn, Watchdog } from '../types'
-import { CloseIcon, MailIcon } from '../icons'
+import { CloseIcon } from '../icons'
 import type { CanvasNode, MailRow, OpFn } from './shared'
 import { AgentLink, nodeTierOf } from './identity'
 import { useDogRoute, WatchdogRow } from './deskdogs'
@@ -58,7 +58,8 @@ import { fmtFull } from '../timefmt'
 import { UserMention, isUserName } from './usermention'
 import { resolveRef } from './reflinks'
 import type { RefRoutes } from './reflinks'
-import { mailLinkProps } from './mailidentity'
+import { MailRefChip } from './mailchip'
+import { CurrentOrg } from '../popout'
 
 /** A stretch of time: open (`to` absent) while it is still going on. */
 export interface Stretch { from: string; to?: string }
@@ -203,6 +204,9 @@ export function MailListenersView({ node, state, map, onJump, rows, ack, onOpenM
 }) {
   useSyncExternalStore(subscribeAgeClock, ageClockNow, ageClockNow)
   const route = useDogRoute()
+  // the org a mail link names: the surface's own references, else the org this window is showing
+  const currentOrg = useContext(CurrentOrg)
+  const orgSlug = refs?.world.org ?? currentOrg ?? ''
   const [hist, setHist] = useState<MailHistory | null>(null)
   const [bump, setBump] = useState(0)
   const [loading, setLoading] = useState(false)
@@ -282,11 +286,12 @@ export function MailListenersView({ node, state, map, onJump, rows, ack, onOpenM
   const n = cols.length
   const dogOf = (agent: string) => state.listeners.find((w) => w.owner === agent)
   const agentLink = (id: string) => isUserName(id) ? <UserMention refs={refs} /> : <AgentLink id={id} tier={nodeTierOf(map.get(id))} onFocus={onJump} />
+  // the mail is its @mail: chip (USER 2026-10-31 m4ad918885ce9, mf1a79901405e: every button that opens a mail is the mail link now);
+  // a surface that cannot open it shows the gist as text
   const mailLink = (id: string | null | undefined, text: string | null | undefined, title: string) => id
-    ? <button type="button" className="listener-mail-link" data-mail={id}
-        {...(refs && onOpenMail ? mailLinkProps({ org: refs.world.org, id, box: 'node', node: node.id }) : {})}
-        title={!refs || !onOpenMail ? (text ? `“${text}” — ${title}` : title) : undefined}
-        onClick={() => onOpenMail?.(id)}>{text || id}</button>
+    ? (onOpenMail
+      ? <span className="listener-mail-link" data-mail={id}><MailRefChip mail={{ org: orgSlug, id, box: 'node', node: node.id }} hint={text} onOpen={() => onOpenMail(id)} /></span>
+      : <span className="listener-mail-link" data-mail={id} title={text ? `“${text}” — ${title}` : title}>{text || id}</span>)
     : null
   // the user's own dog has no detail panel or menu to open: its chip only says what it is
   const listenerDog = (w: Watchdog) => <WatchdogLink dog={w} className="listener-dog" onOpen={isUserName(w.owner) ? undefined : route?.open}
@@ -356,11 +361,8 @@ export function MailListenersView({ node, state, map, onJump, rows, ack, onOpenM
                   <td className="listener-dog-cell">{w ? listenerDog(w) : <HistoryDog dog={j.dog} className="listener-dog" />}</td>
                   <td className="slot-action">{isUserName(j.agent)
                     // the user's own job: they acknowledge it from their inbox; nobody takes it back
-                    ? <span className="listener-user-actions"><button type="button" data-action="open-job" disabled={!j.copy}
-                        className="iconbtn listener-action" aria-label="open mail"
-                        {...(j.copy && refs ? mailLinkProps({ org: refs.world.org, id: j.copy, box: 'user' }, 'open mail') : {})}
-                        title="open mail"
-                        onClick={() => j.copy && openJob(j.copy)}><MailIcon fontSize="inherit" /></button>
+                    ? <span className="listener-user-actions">{j.copy
+                        ? <span data-action="open-job"><MailRefChip mail={{ org: orgSlug, id: j.copy, box: 'user' }} onOpen={() => openJob(j.copy!)} /></span> : null}
                         {/* Full batches have no Line row: leave stays on the user's Working rows while joined. */}
                         {myDog && leaveButton()}</span>
                     : <button type="button" className="danger" data-action="take-back"
