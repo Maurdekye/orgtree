@@ -31,7 +31,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { NetHub, NetPeer } from '../types'
 import { HubContactChip } from './agentmentions'
-import { NET_PRESENCE_WORD, netPresence, peerPresence, useNetMentionState, type NetPresence } from './netmentions'
+import { NET_PRESENCE_WORD, PRESENCE_RANK, netPresence, peerPresence, useNetMentionState, type NetPresence } from './netmentions'
 import './connectionlist.css'
 
 /** Rows shown before the list scrolls. */
@@ -66,12 +66,10 @@ const collator = new Intl.Collator('en', { sensitivity: 'base', numeric: true })
  *  chip's hover says the same), else the row's own. */
 export const rowPresence = (p: NetPeer): NetPresence => netPresence('@net:' + p.slug) ?? peerPresence(p)
 
-/** The place of each presence in a list. */
-const PRESENCE_RANK: Record<NetPresence, number> = { online: 0, busy: 1, offline: 2 }
-
-/** Online first, then busy, then offline; within each, the newest mail
- *  first; an address with none goes last, A-Z by the name its chip shows,
- *  then by address, so equal times and names still keep one order. */
+/** Online first, then busy, then Do not disturb, then offline; within each,
+ *  the newest mail first; an address with none goes last, A-Z by the name its
+ *  chip shows, then by address, so equal times and names still keep one
+ *  order. */
 export function sortConnections(rows: readonly NetPeer[], recent: Recency,
   presence: (p: NetPeer) => NetPresence = peerPresence): NetPeer[] {
   return rows.map(p => ({ p, rank: PRESENCE_RANK[presence(p)], at: recent.get(p.slug.toLowerCase()) ?? null, name: connectionName(p) }))
@@ -86,7 +84,8 @@ export function sortConnections(rows: readonly NetPeer[], recent: Recency,
 export const hubDotTitle = (h: NetHub): string => h.connected ? 'Connected' : 'Not connected'
 
 /** The presence dot: its shape and colour carry the state (busy: filled
- *  with the one --busy token), its hover the word. */
+ *  with the one --busy token, Do not disturb with --dnd), its hover the
+ *  word. */
 export function PresenceDot({ state }: { state: NetPresence }) {
   const word = NET_PRESENCE_WORD[state]
   return <span className={'presence-dot ' + state} role="img" aria-label={word} title={word} />

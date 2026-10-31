@@ -89,6 +89,11 @@
      colour is a one-line change. On :root with --warn, so it follows the
      light themes' --warn too. */
   --busy: var(--warn);
+  /* Do not disturb presence (mail hub 2.3.0): an org whose outside mail is
+     set to Do not disturb. The danger red, "a red status icon" (USER
+     2026-10-31 08:51Z md63cf5e0960f); every DND dot reads this one token, as
+     every busy dot reads --busy, so another colour is a one-line change. */
+  --dnd: var(--bad);
   /* The notice flair edge (§9.3 / notice channel): a subtle dashed neutral
      edge that marks passive context (notice mail cards in transcripts, and the
      composer when armed in notice mode) without shouting over active turns. */

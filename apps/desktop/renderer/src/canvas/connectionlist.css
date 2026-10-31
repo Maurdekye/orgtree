@@ -35,4 +35,8 @@
   background: var(--busy);
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--busy) 24%, transparent);
 }
+.presence-dot.dnd {
+  background: var(--dnd);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--dnd) 24%, transparent);
+}
 .presence-dot.offline { border: 2px solid var(--dim); background: transparent; }

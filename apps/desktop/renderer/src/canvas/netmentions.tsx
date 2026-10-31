@@ -64,26 +64,36 @@ export interface NetMention {
   /** the presence a hub lists for it: online on any hub that lists it; null
    *  when no roster lists it */
   online: boolean | null
-  /** online, but busy (mail hub 2.3.0) on every hub that lists it online;
-   *  null when no roster lists it */
+  /** online, but busy (mail hub 2.3.0): the most available presence any hub
+   *  lists for it is busy; null when no roster lists it */
   busy: boolean | null
+  /** Do not disturb (mail hub 2.3.0): the most available presence any hub
+   *  lists for it is DND; null when no roster lists it */
+  dnd: boolean | null
   /** the hub's description of it (its blurb), when it gives one */
   about: string | null
 }
 
-interface RosterEntry { kind: NetKind; name: string | null; picture: string | null; online: boolean; busy: boolean; about: string | null }
+interface RosterEntry { kind: NetKind; name: string | null; picture: string | null; online: boolean; busy: boolean; dnd: boolean; about: string | null }
 
 /** An address's presence as the hubs list it: online, busy (mail hub 2.3.0:
  *  online, but no one can answer now: an org none of whose org-inbox holders
- *  can start a turn, a person away from Hubchat for an hour) or offline. */
-export type NetPresence = 'online' | 'busy' | 'offline'
+ *  can start a turn, a person away from Hubchat for an hour), Do not disturb
+ *  (mail hub 2.3.0: an org whose outside mail is set to it) or offline. */
+export type NetPresence = 'online' | 'busy' | 'dnd' | 'offline'
 
 /** The word a presence goes by, in its dot's hover and the chip's. */
-export const NET_PRESENCE_WORD: Record<NetPresence, string> = { online: 'Online', busy: 'Busy', offline: 'Offline' }
+export const NET_PRESENCE_WORD: Record<NetPresence, string> = { online: 'Online', busy: 'Busy', dnd: 'Do not disturb', offline: 'Offline' }
 
-/** A roster row's own presence. A hub before 2.3.0 sends no busy: online, as before. */
-export const peerPresence = (p: { online?: boolean | null; busy?: boolean | null }): NetPresence =>
-  !p.online ? 'offline' : p.busy ? 'busy' : 'online'
+/** The place of each presence, most available first: in lists, and across
+ *  hubs (the most available presence any hub lists wins). */
+export const PRESENCE_RANK: Record<NetPresence, number> = { online: 0, busy: 1, dnd: 2, offline: 3 }
+
+/** A roster row's own presence: offline wins over Do not disturb, DND over
+ *  busy (USER 2026-10-31 09:03Z m65f544179c74, "Offline for both"). A hub
+ *  before 2.3.0 sends no busy or dnd: online, as before. */
+export const peerPresence = (p: { online?: boolean | null; busy?: boolean | null; dnd?: boolean | null }): NetPresence =>
+  !p.online ? 'offline' : p.dnd ? 'dnd' : p.busy ? 'busy' : 'online'
 
 /** The org whose views are on screen: its roster, own address and own logo. */
 let viewOrg: string | null = null
@@ -113,8 +123,9 @@ const ABOUT_MAX = 200
 
 /** Index roster rows by address. The newest advertised picture wins when
  *  several hubs list the same address; it is online when any of them says so,
- *  busy when every hub that lists it online says busy (one hub's online and
- *  not busy wins), and keeps the first description given. */
+ *  its presence is the most available any of them lists (one hub's online and
+ *  not busy wins over busy, busy over Do not disturb), and it keeps the first
+ *  description given. */
 function indexRoster(peers: Iterable<NetPeer>): Map<string, RosterEntry> {
   const next = new Map<string, RosterEntry>()
   for (const peer of peers) {
@@ -125,14 +136,14 @@ function indexRoster(peers: Iterable<NetPeer>): Map<string, RosterEntry> {
     const about = !text ? null : text.length > ABOUT_MAX ? text.slice(0, ABOUT_MAX - 1).trimEnd() + '…' : text
     const seen = next.get(address)
     const online = !!peer.online || !!seen?.online
-    const free = peerPresence(peer) === 'online' || (!!seen && peerPresence(seen) === 'online')
-    const busy = online && !free
+    const best = seen && PRESENCE_RANK[peerPresence(seen)] < PRESENCE_RANK[peerPresence(peer)] ? peerPresence(seen) : peerPresence(peer)
+    const busy = best === 'busy', dnd = best === 'dnd'
     if (seen && (seen.picture ?? '') >= (picture ?? '')) {
-      next.set(address, { ...seen, online, busy, about: seen.about ?? about })
+      next.set(address, { ...seen, online, busy, dnd, about: seen.about ?? about })
       continue
     }
     next.set(address, { kind: kindOf(peer.kind), name: (peer.org_name || peer.username || '').trim() || null, picture,
-      online, busy, about: about ?? seen?.about ?? null })
+      online, busy, dnd, about: about ?? seen?.about ?? null })
   }
   return next
 }
@@ -181,7 +192,7 @@ function sameRoster(a: Map<string, RosterEntry>, b: Map<string, RosterEntry>): b
   for (const [k, v] of a) {
     const w = b.get(k)
     if (!w || w.kind !== v.kind || w.name !== v.name || w.picture !== v.picture || w.online !== v.online || w.busy !== v.busy
-      || w.about !== v.about) return false
+      || w.dnd !== v.dnd || w.about !== v.about) return false
   }
   return true
 }
@@ -220,7 +231,7 @@ export function netMention(address: string): NetMention {
   const name = row?.name ?? null
   return { address: a, kind, local, name, icon, picture, pictureKey: picture ? have!.want : null,
     avatar, initials: icon === 'letters' ? netInitials(name || splitScheme(a)[1]) : null,
-    online: row ? row.online : null, busy: row ? row.busy : null, about: row?.about ?? null }
+    online: row ? row.online : null, busy: row ? row.busy : null, dnd: row ? row.dnd : null, about: row?.about ?? null }
 }
 
 /** Ask for the picture an address wants, once per revision (a local org's
@@ -267,8 +278,8 @@ const TYPE_WORD: Record<NetKind, string> = {
 }
 
 /** "Online · independent chat": the presence and type of an address a hub
- *  lists (USER m822daec481cc "online status and chat type"; "Busy · org" with
- *  mail hub 2.3.0); null when none lists it. */
+ *  lists (USER m822daec481cc "online status and chat type"; "Busy · org" and
+ *  "Do not disturb · org" with mail hub 2.3.0); null when none lists it. */
 export function netStatusLine(info: NetMention): string | null {
   return info.online === null ? null : `${NET_PRESENCE_WORD[peerPresence(info)]} · ${TYPE_WORD[info.kind]}`
 }
