@@ -2934,8 +2934,12 @@ html.mobile .askcard button.ask-fold { min-width: 28px; min-height: 28px; }
 /* the one line a folded card keeps: the question's first line or its tab
    names first, then any linked ticket chips, cut to the width with an
    ellipsis */
-.ask-fold-line { flex: 1 1 auto; min-width: 0; display: flex; align-items: center; gap: 6px; overflow: hidden; }
+.ask-fold-line { flex: 1 1 auto; min-width: 0; display: flex; align-items: baseline; gap: 6px; overflow: hidden; }
 .ask-fold-line > .ref-chip { display: block; flex: 0 1 auto; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+/* these two rows align a mono ticket chip by baseline with sans words (USER 2026-10-31 m4b300ae4cbd1), which lengthens the
+   row by up to a pixel; the negative margin takes it back, so the chip changes no line's height (the same -2px as an
+   agent chip's). `.ref-chip.ref-chip` outranks the shared reset's `margin: 0`. */
+.ask-fold-line > .ref-chip.ref-chip, .idle-ticket > .ref-chip.ref-chip { margin-block: -2px; }
 .ask-fold-line > .ref-chip.ref-chip.ref-ready:is(.ref-item, .ref-doc, .ref-app, .ref-panel),
 .wrap-object-mentions .ask-fold-line > .ref-chip.ref-chip.ref-ready:is(.ref-item, .ref-doc, .ref-app, .ref-panel) {
   display: block; flex: 0 1 auto; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
@@ -3421,7 +3425,7 @@ button.chip.slot-hold, button.chip.slot-wait { cursor: pointer; font: inherit; f
    link's tooltip names it), who fired an event, a watchdog's name inside
    its chip; the mail tab's gists and ending words below */
 .slots-table .slot-agent { font-weight:600; overflow:hidden; }
-.slots-table .slot-agent .ref-agent { display:block; max-width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.slots-table .slot-agent .ref-agent { display:block; max-width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; margin-block:0; }
 .slots-table .slot-agent .ref-agent > :is(.tier, .project-mark) { margin-right:4px; }
 .slots-table .slot-agent .fired-by { display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .slots-table .listener-dog-cell { font-size:11px; }
@@ -5315,7 +5319,7 @@ main.solo { width: 100%; }
 .docket-modal .docket-mention { display: inline; white-space: nowrap; }
 .docket-modal .docket-mention .tier {
   width: 13px; height: 13px; font-size: 8px; border-radius: 3px;
-  margin-right: 3px; vertical-align: baseline; position: relative; top: 1px;
+  margin-right: 3px; vertical-align: baseline; position: relative; top: -1.7px;
 }
 /* A CANONICAL REFERENCE — `@item:org/slug` and its family. Four outcomes, and
    only one of them is a control.
@@ -8666,17 +8670,17 @@ a.doc-chip, a.doc-badge, a.doc-gallery-row { text-decoration: none; }
    styled with a red hue instead of the grey one ... not the borders"). The
    edge rule itself sits after `.event-notice` below. */
 .event-surface[data-event-variant="context.drive_restart_interrupted"] { --event-color: var(--bad); }
-.event-head { display: flex; flex-wrap: wrap; align-items: center; gap: 5px 8px;
+.event-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 5px 8px;
   padding: 7px 9px; border-bottom: 1px solid var(--line-soft); font-size: 11px; }
 .event-family { color: var(--event-color); font-family: var(--mono);
   border: 1px solid currentColor; border-radius: 3px; padding: 0 4px; }
 .event-head strong { color: var(--ink-strong); }
 .event-head-field { display: inline-flex; align-items: baseline; gap: 3px; }
-.event-actor { color: var(--ink); display: inline-flex; align-items: center; gap: 4px;
+.event-actor { color: var(--ink); display: inline-flex; align-items: baseline; gap: 4px;
   flex: none; white-space: nowrap; }
 .event-actor .cc-name, .event-change-agent .cc-name { flex: none; min-width: 0; white-space: nowrap; }
 .event-actor .tier { flex: none; }
-.event-head .ref-chip.ref-agent { display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; }
+.event-head .ref-chip.ref-agent { display: inline-flex; align-items: baseline; gap: 4px; white-space: nowrap; }
 .event-head .ref-chip.ref-agent .tier { flex: none; }
 .event-head .event-actor::after { content: none; }
 .typed-input { align-self: stretch; min-width: 0; }
@@ -8739,7 +8743,7 @@ a.doc-chip, a.doc-badge, a.doc-gallery-row { text-decoration: none; }
    the ticket's mention link, which wears its status flare (USER 2026-10-27
    md478a732e0c0), then the status it recorded, on one wrapping line */
 .idle-items { list-style: none; margin: 3px 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
-.idle-ticket { display: flex; flex-wrap: wrap; align-items: center; gap: 3px 8px; min-width: 0;
+.idle-ticket { display: flex; flex-wrap: wrap; align-items: baseline; gap: 3px 8px; min-width: 0;
   padding: 3px 8px; border: 1px solid var(--line-soft); border-radius: 5px; font-size: 12px; }
 .idle-ticket > .ref-chip { flex: 0 1 auto; min-width: 0; overflow-wrap: anywhere; }
 .idle-ticket-status { flex: none; font-size: 11px; }
@@ -10089,13 +10093,24 @@ button.mail-tag-link:hover, .settings button.mail-tag-link:hover { background:no
   width: 1em;
   height: 1em;
 }
+/* ⚠ A CHIP'S BASELINE IS ITS NAME'S, NOT ITS BADGE'S (USER 2026-10-31 m4b300ae4cbd1 "agent links are sometimes
+   vertically misaligned with the surrounding text"). An inline-flex box takes its baseline from its FIRST item, which
+   here is the 16px badge: `align-items: center` put the badge's letter, not the name, on the line's baseline, so the
+   name sat 1 to 2 px off the words beside it (a folder badge, whose baseline is the bottom of its icon, off by more).
+   `baseline` makes the name (the one item that does not opt out) the chip's baseline; the badge opts out with
+   `align-self: center` below, so it stays centred on the name's line as before. Same recipe as the ticket/doc chips
+   (`.ref-chip.ref-ready:is(.ref-item, …)`: baseline, with `.ref-mark` centring itself).
+   `margin-block: -2px` keeps the chip from lengthening its line: its mono name has a taller line box than the
+   words around it, which grew a prose line by up to 1.4 px (13px text at line-height 1.5); the negative margin
+   takes that back (measured 0 growth against the same line without the chip). */
 .ref-chip.ref-agent,
 button.ref-chip.ref-agent,
 span.ref-chip.ref-agent,
 .node-link {
-  display: inline-flex; align-items: center; gap: 4px;
+  display: inline-flex; align-items: baseline; gap: 4px;
   vertical-align: baseline;
   font-family: var(--mono);
+  margin-block: -2px;
 }
 /* Agent and project mentions match agent names elsewhere in the app: white
    with no underline at rest, switching to the underlined link style (--agent-accent-text
@@ -10134,6 +10149,14 @@ button.node-link.node-link:focus-visible {
   width: 16px; height: 16px; font-size: 9.5px; border-radius: 3px;
   flex: none; display: inline-flex; align-items: center; justify-content: center; padding: 0; line-height: 1; text-align: center;
   vertical-align: middle; margin: 0; text-decoration: none;
+}
+/* ...and a chip's or an actor's badge centres itself on the name's line without taking part in the baseline, and without
+   adding its 16px to the line: the negative block margins make its layout height 8px, so a chip is as tall as its name,
+   whatever the badge, and the badge overflows evenly (it fits inside any line of 13px or more). */
+.ref-chip .tier, .ref-chip .project-mark,
+.node-link .tier, .node-link .project-mark,
+.event-actor .tier, .event-actor .project-mark {
+  align-self: center; margin-block: -4px;
 }
 /* EVERY MENTION WEARS ITS KIND ON THE LEFT (USER 2026-10-27 m6d0cdc7a2be6
    "style the mention uniquely ... like how agent mentions are styled",
