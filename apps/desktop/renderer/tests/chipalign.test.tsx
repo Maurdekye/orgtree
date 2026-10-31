@@ -92,7 +92,7 @@ test('§3c the ticket chip in those two rows adds nothing to their height', () =
 })
 
 test('§3d a link in running text adds nothing to its line, in both mention layouts', () => {
-  const objects = '.ref-chip.ref-chip.ref-ready:is(.ref-item, .ref-doc, .ref-app, .ref-panel)'
+  const objects = '.ref-chip.ref-chip.ref-ready:is(.ref-item, .ref-doc, .ref-app, .ref-panel, .ref-message)'
   assert.equal(declarationsOf(css(), objects).get('margin-block'), '-2px', 'a ticket, presentation, app or panel link: negative block margins')
   assert.equal(declarationsOf(css(), '.wrap-object-mentions ' + objects).get('line-height'), '0', 'in the wrapping layout the inline box contributes no line height')
   assert.equal(declarations(netCss(), '.ref-chip.ref-chip.ref-hub.net-chip').get('margin-block'), '-2px', 'a contact link: negative block margins')

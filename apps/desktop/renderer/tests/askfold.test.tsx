@@ -259,7 +259,7 @@ test('§4b a resolved mention in a folded question\'s first line opens its desti
   await inAct(() => { missing!.click() })
   assert.equal(folded(el), false, 'clicking an unresolved inert mention still unfolds the card')
   assert.equal(
-    rule('.wrap-object-mentions :is(.tray-sum, .ask-fold-text) .ref-chip.ref-chip.ref-ready:is(.ref-item, .ref-doc, .ref-app, .ref-panel)').get('white-space'),
+    rule('.wrap-object-mentions :is(.tray-sum, .ask-fold-text) .ref-chip.ref-chip.ref-ready:is(.ref-item, .ref-doc, .ref-app, .ref-panel, .ref-message)').get('white-space'),
     'nowrap',
     'wrapped object mentions stay single-line inside .ask-fold-text as in .tray-sum',
   )

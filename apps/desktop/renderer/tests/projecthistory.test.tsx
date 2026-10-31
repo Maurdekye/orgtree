@@ -157,8 +157,8 @@ test('§1 an event: who fired it, how long ago, its message on one line until cl
 test("§1 each listener's fire mail opens in ITS Mail tab; a mail no longer there is unavailable (user 2026-10-20 06:42Z)", async (t) => {
   const { view, opened } = await firedTab(t)
   const [sa, sb] = subRows(fireRow(view.el, 12))
-  const link = sa!.querySelector<HTMLButtonElement>('button.fire-mail')!
-  assert.equal(link.textContent, 'fire mail')
+  const link = sa!.querySelector<HTMLButtonElement>('.fire-mail button.ref-chip.ref-mail.ref-message')!
+  assert.match(link.textContent!, /^mail in/, 'the fire mail is the @mail: chip')
   await inAct(async () => { link.click(); await flush(2) })
   assert.equal(opened.length, 1, 'opened through the surface\'s mail route')
   assert.deepEqual(opened[0]!.ref, { kind: 'mail', org: 'org', box: 'node', node: 'sa', id: 'm-sa' },
@@ -254,7 +254,7 @@ test('§2 ack mode: Working, Line, the Dead Letter Line while a dead-letter list
   const w = cells(work)
   assert.equal(w[2], '1h 0m', 'waited from its arming to the hand-out')
   assert.ok(work.querySelector('.slot-held .slot-time.live'), 'held, counting up')
-  assert.equal(work.querySelector('.listener-mail-link')?.textContent, 'build it', 'a link to the delivered mail')
+  assert.equal(work.querySelector('.listener-mail-link button.ref-chip.ref-mail.ref-message')?.textContent, 'build it', 'a link to the delivered mail')
   assert.equal(work.querySelector('[data-action="take-back"]')?.textContent, 'take back')
   const line = [...view.el.querySelectorAll<HTMLTableRowElement>(`${T} .mail-line tr.listener-row`)]
   assert.deepEqual(line.map((r) => r.querySelector('[data-copy-agent-name]')?.getAttribute('data-copy-agent-name')), ['sb'],
@@ -281,10 +281,10 @@ test('§2 Recently Finished: the job, its ack, the three times, and each ending 
   assert.equal(acked[2], '10m', 'Waited: from its last end to the hand-out')
   assert.equal(acked[3], '30m', 'Held: from the hand-out to the ack')
   assert.match(acked[4]!, /ago$/, 'Acked: how long ago')
-  const ackLink = rows[0]!.querySelector<HTMLButtonElement>('.listener-ack .listener-mail-link')!
+  const ackLink = rows[0]!.querySelector<HTMLButtonElement>('.listener-ack .listener-mail-link button.ref-chip.ref-mail.ref-message')!
   assert.equal(ackLink.textContent, 'tested, all green', 'a link to the ack mail')
   await inAct(async () => { ackLink.click(); await flush(2) })
-  await inAct(async () => { rows[0]!.querySelector<HTMLButtonElement>('.listener-mail .listener-mail-link')!.click(); await flush(2) })
+  await inAct(async () => { rows[0]!.querySelector<HTMLButtonElement>('.listener-mail .listener-mail-link button.ref-chip.ref-mail.ref-message')!.click(); await flush(2) })
   assert.deepEqual(openedMail, ['a4', 'm40'], 'the ack and the job open in the project inbox')
   assert.deepEqual(rows.slice(1).map((r) => cells(r)[6]), ['failed', 'taken back', 'dead letter'], 'the ending in a word where the ack would be')
   assert.match(rows[1]!.querySelector<HTMLElement>('.ending-word')!.title, /sb was halted \(attempt 1 of 3\)/)
@@ -407,7 +407,12 @@ test('§6 a cell that may shorten keeps its whole text in a tooltip: agent names
     assert.ok(agent.title.includes(agent.getAttribute('data-copy-agent-name')!), `the agent link names ${agent.textContent}`)
     const chip = r.querySelector<HTMLElement>('.listener-dog-cell .watchdog-link')
     if (chip) assert.ok(chip.title.includes(`"${chip.querySelector('.watchdog-link-name')!.textContent}"`), 'the chip names its dog')
-    for (const link of r.querySelectorAll<HTMLElement>('.listener-mail-link')) assert.ok(link.title.includes(link.textContent!), 'the gist')
+    for (const link of r.querySelectorAll<HTMLElement>('.listener-mail-link')) {
+      const chip = link.querySelector<HTMLElement>('.ref-chip.ref-mail')
+      // the mail link carries the shared message hover; a gist that cannot be opened keeps its whole text in a tooltip
+      if (chip) assert.equal(chip.getAttribute('data-object-nav'), 'mail', 'the mail link')
+      else assert.ok(link.title.includes(link.textContent!), 'the gist')
+    }
   }
   const words = [...view.el.querySelectorAll<HTMLElement>(`${T} .ending-word`)]
   assert.deepEqual(words.map((w) => w.title.startsWith(`${w.textContent}: `)), [true, true, true], 'the ending word leads its tooltip')

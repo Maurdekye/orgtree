@@ -166,7 +166,7 @@ test('§3 the user\'s rows wear the @user chip; their held job opens its mail, w
   const mine = working.find((r) => r.querySelector('.slot-agent .ref-chip.ref-mail'))!
   assert.equal(mine.querySelector('.slot-agent .ref-chip.ref-mail')!.textContent, '@user')
   assert.ok(!mine.querySelector('[data-action="take-back"]'), 'the user\'s own job is acknowledged, never taken back')
-  const open = mine.querySelector<HTMLButtonElement>('[data-action="open-job"]')!
+  const open = mine.querySelector<HTMLButtonElement>('[data-action="open-job"] button.ref-chip.ref-mail.ref-message')!
   assert.ok(open, 'an open mail control instead')
   await inAct(async () => { open.click() })
   assert.deepEqual(opened, ['user:c1'], 'it opens the user\'s copy of the job in the user\'s inbox, not the project\'s mailbox')
@@ -196,22 +196,20 @@ test('§3 Working actions are compact named icons in one group and keep open/lea
   t.after(() => v.unmount())
   const group = v.el.querySelector('.held-job .listener-user-actions')
   assert.ok(group, 'the two actions share a no-wrap icon group')
-  const open = group.querySelector<HTMLButtonElement>('[data-action="open-job"]')!
+  const open = group.querySelector<HTMLButtonElement>('[data-action="open-job"] button.ref-chip.ref-mail.ref-message')!
   const leave = group.querySelector<HTMLButtonElement>('[data-action="leave-queue"]')!
-  for (const [action, label] of [[open, 'open mail'], [leave, 'leave queue']] as const) {
-    assert.equal(action.getAttribute('aria-label'), label)
-    assert.ok(action.title.includes(label))
-    // Coordinator 2026-10-21 07:22Z: icon action label prefixes shared mail identity.
-    if (action === open) {
-      assert.equal(action.getAttribute('data-object-nav'), 'mail')
-      assert.equal(action.getAttribute('data-object-id'), 'c1')
-      assert.equal(action.getAttribute('data-mail-box'), 'user')
-      assert.equal(action.getAttribute('data-mail-action-label'), label)
-    }
-    assert.ok(action.classList.contains('iconbtn'))
-    assert.ok(action.querySelector('svg'))
-    assert.equal(action.textContent, '')
-  }
+  // the open control is the @mail: chip now (USER 2026-10-31 m4ad918885ce9, mf1a79901405e), with the shared message identity and no icon-button label
+  assert.equal(open.getAttribute('data-object-nav'), 'mail')
+  assert.equal(open.getAttribute('data-object-id'), 'c1')
+  assert.equal(open.getAttribute('data-mail-box'), 'user')
+  assert.equal(open.getAttribute('data-mail-action-label'), null)
+  assert.ok(!group.querySelector('button.iconbtn[aria-label="open mail"]'), 'no icon button for the mail')
+  // leave stays the compact icon action
+  assert.equal(leave.getAttribute('aria-label'), 'leave queue')
+  assert.ok(leave.title.includes('leave queue'))
+  assert.ok(leave.classList.contains('iconbtn'))
+  assert.ok(leave.querySelector('svg'))
+  assert.equal(leave.textContent, '')
   await inAct(async () => { open.click(); leave.click(); await flush(4) })
   assert.deepEqual(opened, ['user:c1'])
   assert.deepEqual(requests.filter((r) => r.op === 'user_queue_leave'), [{ op: 'user_queue_leave', node: 'jobs' }])

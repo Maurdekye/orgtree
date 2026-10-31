@@ -570,7 +570,7 @@ test('§7 Working: a held job\'s marked row, its Held counts up, its wait ended 
   assert.equal(c[2], '1h 0m', 'its wait: armed 07:00, handed its job 08:00')
   assert.equal(row.querySelector('.slot-wait .slot-time')?.classList.contains('live'), false, 'that wait is over')
   assert.ok(row.querySelector('.slot-held .slot-time.live'), 'its work on the job is counting up')
-  const link = row.querySelector<HTMLButtonElement>('.listener-mail-link')!
+  const link = row.querySelector<HTMLButtonElement>('.listener-mail-link button.ref-chip.ref-mail.ref-message')!
   assert.equal(link.textContent, 'build it', "the job's first line")
   await inAct(async () => { link.click(); await flush(6) })
   assert.equal(openFolder(view.el), 'inbox', 'the link opens the inbox folder')

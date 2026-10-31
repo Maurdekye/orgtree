@@ -107,7 +107,7 @@ test('§3 Recently Fired names the user, as a listener reached, as the @user chi
   const v = await mount([agentListener, mine], [])
   t.after(() => v.unmount())
   const fired = v.el.querySelector('.listeners-fired')!
-  const chips = [...fired.querySelectorAll('.ref-chip.ref-mail')].map((c) => c.textContent)
+  const chips = [...fired.querySelectorAll('.ref-chip.ref-mail:not(.ref-message)')].map((c) => c.textContent)
   assert.equal(chips.length, 1, 'the listener reached (user)')
   assert.ok(chips.every((c) => c === '@user'))
 })

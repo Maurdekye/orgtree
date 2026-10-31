@@ -10,17 +10,28 @@ import { useAppFeed } from '../src/appfeed'
 import { HubContactChip, setHubchatInstalled } from '../src/canvas/agentmentions'
 import { AgentName, NodeLink, ProjectLink } from '../src/canvas/identity'
 import { setNetRoster } from '../src/canvas/netmentions'
+import { ToolChip } from '../src/canvas/desk'
 import { RefChip, refToken, resolveRef, type RefWorld } from '../src/canvas/reflinks'
 import { RefMdBody } from '../src/canvas/refmd'
+import { useRefNames } from '../src/canvas/refnames'
 import { SenderChip } from '../src/canvas/senderchip'
 import { buildMentionIndex, WorkRefText, type TypedRef } from '../src/canvas/workrefs'
+import { useMemo } from 'react'
 import type { NetBlock, TreeNode } from '../src/types'
 import { installWrapBackend } from './mentionwrap.fixture'
 import '../src/styles.css'
 import '../src/shell.css'
 
 const backend = installWrapBackend()
-window.fetch = backend.fetcher
+/** the engine's one-message lookup, synthetic: an id starting `gone` is not in the box */
+const MAIL_BODY = 'Please review the attached plan today'
+window.fetch = (async (input, init) => {
+  const hit = /^\/api\/orgs\/chips\/mail\/(?:user|org|node)\/([^/?]+)/.exec(new URL(String(input), 'http://chips.invalid').pathname)
+  if (!hit) return backend.fetcher(input, init)
+  const id = decodeURIComponent(hit[1]!)
+  return new Response(JSON.stringify(id.startsWith('gone') ? { found: false, mail: null }
+    : { found: true, mail: { id, from: 'writer', at: '2026-10-31T08:00:00Z', kind: 'message', body: MAIL_BODY } }), { headers: { 'content-type': 'application/json' } })
+}) as typeof fetch
 window.WebSocket = backend.Socket as unknown as typeof WebSocket
 
 const refs: { kind: string; ref: TypedRef }[] = [
@@ -57,6 +68,12 @@ setHubchatInstalled(true)
 const noop = () => {}
 const nodes = new Map<string, TreeNode>([['dev1', { id: 'dev1', tier: 'opus', state: 'live' } as TreeNode]])
 const index = buildMentionIndex([{ slug: 'docket-copy', title: labels.item!, status: 'in_progress' }], [['dev1', 'opus']])
+/** the world with the app's own name reader for mail (a message's first words), the way a surface builds it */
+function useChipsWorld(): RefWorld {
+  const refName = useRefNames('chips')
+  return useMemo(() => ({ ...world, refName: ref => (ref.kind === 'mail' ? refName(ref) : world.refName!(ref)) }), [refName])
+}
+const mailRef = (id: string, box: 'user' | 'org' | 'node' = 'user'): TypedRef => ({ kind: 'mail', org: 'chips', box, id })
 const NETS = ['net-person:@net:ann.person.aa1111', 'net-org:@net:acme.org.bb2222', 'net-chat:@net:helper.chat.cc3333', 'net-unknown:@net:stranger.dd4444']
 /** the markdown a message carries for each chip kind: the token the app's own renderer turns into the chip */
 const TOKENS: Record<string, string> = {
@@ -71,16 +88,23 @@ const Ctx = ({ ctx, children, className, style }: { ctx: string; children: React
   <div className={className} data-ctx={ctx} style={style}>{children}</div>
 
 function Md({ ctx, token, kind = 'msg assistant', body }: { ctx: string; token: string; kind?: string; body?: string }) {
+  const w = useChipsWorld()
   return <Ctx ctx={ctx} className="desk-body" style={{ marginBottom: 6 }}><div className="msgs" style={{ display: 'block', overflow: 'visible' }}>
-    <div className={kind}><RefMdBody className="md" world={world} onOpen={noop} html={{ __html: body ?? SENTENCE(token) }} /></div>
+    <div className={kind}><RefMdBody className="md" world={w} onOpen={noop} html={{ __html: body ?? SENTENCE(token) }} /></div>
   </div></Ctx>
 }
 
 function Rows() {
+  const w = useChipsWorld()
   return <section className="chip-section" style={{ padding: '8px 12px', width: 640 }}>
     <Md ctx="control" token="the desk" />
     {Object.entries(TOKENS).map(([kind, token]) => <Md key={kind} ctx={'msg-' + kind} token={token} />)}
     {shortRefs.map(ref => <Md key={ref.kind + '-s'} ctx={'msg-' + ref.kind + '-s'} token={refToken(ref)} />)}
+    {/* the @mail: link: alone, beside a ticket and a presentation link in a desk message, for a message that is not there, as the React chip,
+        in a docket description, and on the tool row of a sent mail where an "open" button used to be */}
+    <Md ctx="msg-mail" token={refToken(mailRef('m-plan'))} />
+    <Md ctx="msg-mail-mixed" token="" body={`<p>See ${refToken(shortRefs[0]!)}, ${refToken(shortRefs[1]!)} and ${refToken(mailRef('m-plan'))} together.</p>`} />
+    <Md ctx="msg-mail-gone" token={refToken(mailRef('gone-1'))} />
     <Md ctx="msg-user-agent" kind="msg user" token="@dev1" />
     <Md ctx="msg-mixed" token="@dev1" body={`<p>Ask ${TOKENS.agent} or ${TOKENS.project}, then see ${TOKENS.item} and ${TOKENS.doc}; ${TOKENS['net-person']} replied.</p>`} />
     {/* the mail reading pane's own body */}
@@ -97,6 +121,13 @@ function Rows() {
     {NETS.map(entry => { const kind = entry.slice(0, entry.indexOf(':')), address = entry.slice(entry.indexOf(':') + 1)
       return <Ctx key={kind} ctx={'react-' + kind} style={{ fontSize: 13, lineHeight: 1.45, marginBottom: 6 }}>
         Before <HubContactChip address={address} /> after</Ctx> })}
+    <Ctx ctx="react-mail" style={{ fontSize: 13, lineHeight: 1.45, marginBottom: 6 }}>
+      Before <RefChip r={resolveRef(mailRef('m-plan'), w)} onOpen={noop} /> after</Ctx>
+    <Ctx ctx="docket-mail" className="settings docket-modal" style={{ position: 'static', width: 'auto', maxWidth: 'none', height: 'auto', maxHeight: 'none', minHeight: 0, padding: '4px 12px', marginBottom: 6 }}>
+      <div className="docket-desc"><RefMdBody className="md" world={w} onOpen={noop}
+        html={{ __html: `<p>Blocked by ${refToken(shortRefs[0]!)} until ${refToken(mailRef('m-plan'))} is answered.</p>` }} /></div></Ctx>
+    <Ctx ctx="tool-mail" className="desk-body" style={{ marginBottom: 6 }}><div className="msgs" style={{ display: 'block', overflow: 'visible' }}>
+      <ToolChip t={{ id: 'sent', name: 'orgtree_message', arg: 'dev1', mail: { id: 'm-plan', to: 'user_inbox' } } as never} slug="chips" nid="dev1" onMailLink={noop} /></div></Ctx>
     {/* the docket: a description's mentions (WorkRefText) */}
     <Ctx ctx="docket-agent" className="settings docket-modal" style={{ position: 'static', width: 'auto', maxWidth: 'none', height: 'auto', maxHeight: 'none', minHeight: 0, padding: '4px 12px', marginBottom: 6 }}>
       <p style={{ margin: 0 }}>Hand it to <WorkRefText text="dev1" index={index} onPick={noop} onFocusAgent={noop} /> when done.</p></Ctx>
