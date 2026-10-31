@@ -87,7 +87,7 @@ export function AppInstructionsSetting({ toast }: { toast: ToastFn }) {
         )}
         {managed && (
           <div className="appmd-managed">
-            <div className="dim">Connect your phone added this note; Unlink removes it. Agents receive it first,
+            <div className="appmd-caption">Connect your phone added this note; Unlink removes it. Agents receive it first,
               and only Connect your phone changes it.</div>
             <pre className="appmd-note" aria-label="Connect your phone note">{managed}</pre>
           </div>
