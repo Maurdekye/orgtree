@@ -9,7 +9,7 @@
 // the theme's neutral greys, none no tint), on the chip flare the unread highlights use (refnames.ts RefFlare, `ref-flare` + a class), and
 // there is no dot. The unread highlight is an edge and the run state a background, so the two never share a property.
 //   §1 the chips, in React and Markdown; §2 they follow the org's live apps frame; §3 the Apps list's app and panel rows follow the
-//   same three states; §4 the stylesheet draws a background tint (no dot, no edge) and the unread edge touches no background.
+//   same three states; §4 the stylesheet draws the run state as the unread edge's own rule (the same narrow left edge, USER 2026-10-31 16:25:16Z m4c09dab3ee56 "Left edge like unread" + "Provider colour", which replaced "Tint like unread"), coloured with the provider-tinted --accent for running and a dark grey for dead, with no background and no dot.
 // Each test uses its own org slug: answers are kept per org.
 import { readFileSync } from 'node:fs'
 import path from 'node:path'
@@ -136,16 +136,17 @@ test('§3 the Apps list\'s app rows show the same three states, and follow a pow
   assert.deepEqual(state(), { Notes: 'run-dead', Clock: 'run-dead', Empty: 'none' }, 'powering off the last running panel turns the app dark grey')
 })
 
-test('§4 the stylesheet tints the background (no dot, no edge), dark grey for dead, and the unread edge touches no background', () => {
-  const css = readFileSync(path.join(__SRC_DIR__, 'styles.css'), 'utf8').replace(/\r\n/g, '\n')
+test('§4 the stylesheet draws the run state as the unread edge (one rule), accent for running, dark grey for dead, no background', () => {
+  const css = readFileSync(path.join(__SRC_DIR__, 'styles.css'), 'utf8')
   const body = (selector: string) => { const at = css.indexOf(selector + ' {'); return at < 0 ? '' : css.slice(at, css.indexOf('}', at)) }
   assert.doesNotMatch(css, /\.ref-flare[^{]*\.run-(on|dead)[^{]*::before/, 'no dot before the chip')
-  assert.match(body('.ref-chip.ref-flare.run-on'), /background:\s*color-mix\(in srgb, var\(--accent\) \d+%, transparent\)/, 'running: an accent tint')
-  assert.match(body('.ref-chip.ref-flare.run-dead'), /background:\s*color-mix\(in srgb, var\(--dim\) \d+%, transparent\)/, 'dead: a tint of the theme\'s dim grey')
-  assert.doesNotMatch(body('.ref-chip.ref-flare.run-on') + body('.ref-chip.ref-flare.run-dead'), /box-shadow/, 'a run state draws no edge')
-  const edge = body(':is(.ref-chip.ref-chip, .docket-modal .docket-ref.docket-ref).ref-flare:not(.run-on, .run-dead)')
-  assert.ok(edge, 'the unread/status edge rule skips the run states')
-  assert.doesNotMatch(edge, /background/, 'and sets no background, so the two cannot overlap')
+  const edge = body(':is(.ref-chip.ref-chip, .docket-modal .docket-ref.docket-ref).ref-flare')
+  assert.match(edge, /box-shadow:\s*inset 3px 0 0 var\(--ref-flare-color/, 'the one edge rule (the unread edge) draws it')
+  assert.doesNotMatch(css, /:not\(\.run-on, \.run-dead\)/, 'the edge rule no longer skips the run states: they reuse it')
+  assert.match(body('.ref-flare.run-on'), /--ref-flare-color:\s*var\(--accent\)/, 'running: the provider-tinted accent')
+  assert.match(body('.ref-flare.run-dead'), /--ref-flare-color:\s*color-mix\(in srgb, var\(--dim\) \d+%, black\)/, 'dead: a dark grey of the theme')
+  assert.doesNotMatch(body('.ref-flare.run-on') + body('.ref-flare.run-dead'), /background|box-shadow|padding/, 'a run state sets only its edge colour: no fill, no second edge, no own padding')
+  assert.match(css, /\.ref-flare:is\(\.doc-new, \.mail-new\)\s*\{\s*--ref-flare-color:\s*var\(--org-accent\)/, 'unread keeps the theme colour')
   const apps = readFileSync(path.join(__SRC_DIR__, 'canvas', 'apps', 'apps.css'), 'utf8').replace(/\r\n/g, '\n')
   assert.doesNotMatch(apps, /\.custom-app-state\.run-/, 'the app row has no dot any more')
   assert.match(apps, /\.custom-apps-menu-app\.run-on[^{]*\{[^}]*background:\s*color-mix\(in srgb,\s*var\(--accent\)/, 'the app row is tinted like the chip')
