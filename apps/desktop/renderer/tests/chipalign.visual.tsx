@@ -16,7 +16,7 @@ import { RefMdBody } from '../src/canvas/refmd'
 import { useRefNames } from '../src/canvas/refnames'
 import { SenderChip } from '../src/canvas/senderchip'
 import { buildMentionIndex, WorkRefText, type TypedRef } from '../src/canvas/workrefs'
-import { useMemo } from 'react'
+import { useMemo, useSyncExternalStore } from 'react'
 import type { NetBlock, TreeNode } from '../src/types'
 import { installWrapBackend } from './mentionwrap.fixture'
 import '../src/styles.css'
@@ -41,7 +41,14 @@ const refs: { kind: string; ref: TypedRef }[] = [
   { kind: 'panel', ref: { kind: 'panel', org: 'chips', id: 'one' } },
 ]
 const labels: Record<string, string> = { item: 'Double-clicking a docket item', doc: 'Release notes', app: 'Caption board', panel: 'Panel 1',
-  'item-s': 'Fix the bug', 'doc-s': 'Notes', 'app-s': 'Board', 'doc-n': 'Notes' }
+  'item-s': 'Fix the bug', 'doc-s': 'Notes', 'app-s': 'Board', 'doc-n': 'Notes',
+  'app-r': 'Board', 'app-d': 'Clock', 'app-n': 'Empty', 'panel-r': 'Board · Panel 1', 'panel-d': 'Clock · Panel 1' }
+/** the run states (USER 2026-10-31 m8d5facfeae29, m9a790bb7a155, m16901ed8c657): an app with a running panel (until the page stops its last one), a panel that runs,
+ *  an app and a panel that are off (dark grey), an app with no panels (nothing) */
+const run = { on: true, subs: new Set<() => void>() }
+const useRun = () => useSyncExternalStore(f => { run.subs.add(f); return () => { run.subs.delete(f) } }, () => run.on)
+const runFlare = (id: string, on: boolean) => id === 'app-r' ? (on ? { cls: 'run-on', tip: 'Running' } : { cls: 'run-dead', tip: 'Off' })
+  : id === 'panel-r' ? { cls: 'run-on', tip: 'Running · visible' } : id === 'app-d' || id === 'panel-d' ? { cls: 'run-dead', tip: 'Off' } : undefined
 /** the same kinds with labels short enough that the sentence keeps the control's two lines (a row is measured against the control only when the line counts match) */
 const shortRefs: TypedRef[] = [{ kind: 'item', org: 'chips', id: 'item-s' }, { kind: 'doc', org: 'chips', id: 'doc-s' }, { kind: 'app', org: 'chips', id: 'app-s' }]
 const world: RefWorld = {
@@ -50,7 +57,7 @@ const world: RefWorld = {
   agents: new Map([['dev1', 'dev1'], ['crew', 'crew']]),
   tierOf: id => (id === 'crew' ? 'project' : 'opus'),
   // an unread presentation (doc-n) wears its flare, so a message link's can be compared with it
-  refName: ref => ({ outcome: 'ready', label: labels[ref.id.endsWith('-s') || ref.id === 'doc-n' ? ref.id : ref.kind] ?? ref.id,
+  refName: ref => ({ outcome: 'ready', label: labels[ref.id.endsWith('-s') || ref.id === 'doc-n' || /^(app|panel)-[rdn]$/.test(ref.id) ? ref.id : ref.kind] ?? ref.id,
     flare: ref.kind === 'item' ? { cls: 'status-in_progress', tip: 'In progress' } : ref.id === 'doc-n' ? { cls: 'doc-new', tip: 'Unread' } : undefined }),
 }
 
@@ -71,8 +78,13 @@ const nodes = new Map<string, TreeNode>([['dev1', { id: 'dev1', tier: 'opus', st
 const index = buildMentionIndex([{ slug: 'docket-copy', title: labels.item!, status: 'in_progress' }], [['dev1', 'opus']])
 /** the world with the app's own name reader for mail (a message's first words), the way a surface builds it */
 function useChipsWorld(): RefWorld {
-  const refName = useRefNames('chips')
-  return useMemo(() => ({ ...world, refName: ref => (ref.kind === 'mail' ? refName(ref) : world.refName!(ref)) }), [refName])
+  const refName = useRefNames('chips'), on = useRun()
+  return useMemo(() => ({ ...world, refName: ref => {
+    if (ref.kind === 'mail') return refName(ref)
+    const answer = world.refName!(ref)
+    const flare = ref.kind === 'app' || ref.kind === 'panel' ? runFlare(ref.id, on) : undefined
+    return flare ? { ...answer, flare } : answer
+  } }), [refName, on])
 }
 const mailRef = (id: string, box: 'user' | 'org' | 'node' = 'user'): TypedRef => ({ kind: 'mail', org: 'chips', box, id })
 const NETS = ['net-person:@net:ann.person.aa1111', 'net-org:@net:acme.org.bb2222', 'net-chat:@net:helper.chat.cc3333', 'net-unknown:@net:stranger.dd4444']
@@ -109,6 +121,9 @@ function Rows() {
     {/* a message the user has not read (USER 2026-10-31 m5345a1e44ad1): alone, beside an unread presentation link, as the React chip, and on the tool row */}
     <Md ctx="msg-mail-unread" token={refToken(mailRef('unread-1'))} />
     <Md ctx="msg-mail-unread-mixed" token="" body={`<p>See ${refToken({ kind: 'doc', org: 'chips', id: 'doc-n' })} and ${refToken(mailRef('unread-1'))} together.</p>`} />
+    {/* an app or a panel that runs, one that is off (dark grey), an app with no panels (nothing): the page can stop the running app's last panel */}
+    {['app-r', 'app-d', 'app-n'].map(id => <Md key={id} ctx={'msg-' + id.replace('-r', '-run').replace('-d', '-dead').replace('-n', '-none')} token={refToken({ kind: 'app', org: 'chips', id })} />)}
+    {['panel-r', 'panel-d'].map(id => <Md key={id} ctx={'msg-' + id.replace('-r', '-run').replace('-d', '-dead')} token={refToken({ kind: 'panel', org: 'chips', id })} />)}
     <Md ctx="msg-user-agent" kind="msg user" token="@dev1" />
     <Md ctx="msg-mixed" token="@dev1" body={`<p>Ask ${TOKENS.agent} or ${TOKENS.project}, then see ${TOKENS.item} and ${TOKENS.doc}; ${TOKENS['net-person']} replied.</p>`} />
     {/* the mail reading pane's own body */}
@@ -170,5 +185,5 @@ function Rows() {
 function Feed() { useAppFeed(); return null }
 function Fixture() { return <div id="stage"><Feed /><Rows /></div> }
 
-Object.assign(window, { chipFixture: { wrap: (on: boolean) => backend.emit(on) } })
+Object.assign(window, { chipFixture: { wrap: (on: boolean) => backend.emit(on), run: (on: boolean) => { run.on = on; run.subs.forEach(f => f()) } } })
 createRoot(document.getElementById('root')!).render(<Fixture />)

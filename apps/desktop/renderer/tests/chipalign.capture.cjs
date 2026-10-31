@@ -143,6 +143,11 @@ const INSTALL = `(() => {
     unreadMsg: chipIn('msg-mail-unread', '.ref-chip.ref-mail'), unreadReact: chipIn('react-mail-unread', '.ref-chip.ref-mail'), unreadTool: chipIn('tool-mail-unread', '.ref-chip.ref-mail'),
     unreadMixedMail: chipIn('msg-mail-unread-mixed', '.ref-chip.ref-mail'), unreadMixedDoc: chipIn('msg-mail-unread-mixed', '.ref-chip.ref-doc'),
     toolMail: chipIn('tool-mail', '.ref-chip.ref-mail'), toolOpenButtons: (document.querySelector('[data-ctx="tool-mail"]') || document.body).querySelectorAll('.maillink').length })
+  // the run state of an app or panel link (USER 2026-10-31 m8d5facfeae29, m9a790bb7a155, m16901ed8c657): its flare classes, the dot drawn before its mark, any edge
+  const dot = e => { const b = getComputedStyle(e, '::before'); return { content: b.content, width: b.width, height: b.height, radius: b.borderTopLeftRadius, background: b.backgroundColor } }
+  const runChip = ctx => { const row = document.querySelector('[data-ctx="' + ctx + '"]'), e = row && row.querySelector('.ref-chip.ref-app, .ref-chip.ref-panel')
+    return e ? { text: e.textContent, classes: String(e.className), title: e.title, boxShadow: getComputedStyle(e).boxShadow, dot: dot(e) } : null }
+  window.__runFacts = () => ({ appRun: runChip('msg-app-run'), appDead: runChip('msg-app-dead'), appNone: runChip('msg-app-none'), panelRun: runChip('msg-panel-run'), panelDead: runChip('msg-panel-dead') })
   window.__chipMeasureAll = (sel) => [...document.querySelectorAll(sel)].map(el => ({ ctx: el.dataset.ctx || el.className.split(' ')[0], ...window.__chipMeasure(el) }))
 })()`
 
@@ -165,7 +170,7 @@ app.whenReady().then(async () => {
       const img = (await wc.capturePage()).crop({ x: r.x, y: r.y, width: r.w, height: Math.min(r.h, 1500 - r.y) })
       fs.writeFileSync(path.join(out, 'png', name + '.png'), img.resize({ width: r.w * grow, quality: 'best' }).toPNG())
     }
-    const all = [], mailFacts = {}
+    const all = [], mailFacts = {}, runFacts = {}
     const loadPage = (html, name) => guard.load(html, 'probe.js', name)
 
     // 1. the chips fixture, in both mention layouts
@@ -181,6 +186,12 @@ app.whenReady().then(async () => {
       mailFacts[mode] = await js('window.__mailFacts()')
       for (const r of rows) all.push({ page: 'chips', mode, ...r })
       for (const r of rows) await crop(`${mode}-${r.ctx}`, `[data-ctx="${r.ctx}"]`)
+      // the running app's last panel stops: its link goes from running to dark grey
+      runFacts[mode] = { before: await js('window.__runFacts()') }
+      await js('window.chipFixture.run(false)'); await paint()
+      runFacts[mode].after = await js('window.__runFacts()')
+      await crop(`${mode}-msg-app-run-after`, '[data-ctx="msg-app-run"]')
+      await js('window.chipFixture.run(true)'); await paint()
     }
 
     // 2. the org inbox: the Sent line and the received mail's delivered-to line
@@ -199,7 +210,8 @@ app.whenReady().then(async () => {
       'msg-mixed', 'mail-body-agent', 'react-item', 'react-doc', 'react-app', 'react-panel', 'react-agent', 'react-project', 'react-net-person', 'react-net-org',
       'react-net-chat', 'react-net-unknown', 'docket-agent', 'docket-item', 'event-head', 'event-actor-name', 'docket-actor', 'mailrow-from', 'mailrow-hub',
       'ask-fold-item', 'idle-ticket', 'tool-refs', 'answered-qtext', 'tray-sum-agent', 'msg-item-s', 'msg-doc-s', 'msg-app-s', 'react-control', 'msg-mail', 'msg-mail-mixed', 'msg-mail-gone', 'react-mail', 'docket-mail', 'tool-mail',
-      'msg-mail-unread', 'msg-mail-unread-mixed', 'react-mail-unread', 'tool-mail-unread']
+      'msg-mail-unread', 'msg-mail-unread-mixed', 'react-mail-unread', 'tool-mail-unread',
+      'msg-app-run', 'msg-app-dead', 'msg-app-none', 'msg-panel-run', 'msg-panel-dead']
     const missing = []
     for (const mode of ['flex', 'inline']) for (const name of REQUIRED) if (!all.some(r => r.page === 'chips' && r.mode === mode && r.ctx === name)) missing.push(`chips/${mode}/${name}`)
     for (const name of ['inbox-sent', 'inbox-some']) if (!all.some(r => r.page === 'inbox' && r.ctx === name)) missing.push('inbox/' + name)
@@ -250,6 +262,27 @@ app.whenReady().then(async () => {
       if (f.msgMail && (/ref-flare/.test(f.msgMail.classes) || f.msgMail.look.boxShadow !== 'none')) mailProblems.push(at('a message the user has read must wear no flare: ' + f.msgMail.classes + ' ' + f.msgMail.look.boxShadow))
       if (f.toolOpenButtons !== 0) mailProblems.push(at(`${f.toolOpenButtons} "open" button(s) remain on the sent mail's tool row`))
     }
+    // THE RUN STATE: a running app or panel link wears the Apps list's accent dot, an app or panel that is off a dark grey one, an app with no panels nothing; none of them the unread edge
+    const runProblems = []
+    // computed colours arrive as rgb()/rgba() or as CSS Color 4 `color(srgb r g b)` (channels 0 to 1, as color-mix() computes)
+    const grey = s => { const m = /^rgba?\((\d+), (\d+), (\d+)/.exec(s || ''), n = /^color\(srgb ([\d.]+) ([\d.]+) ([\d.]+)/.exec(s || ''), c = m ? [+m[1], +m[2], +m[3]] : n ? [+n[1] * 255, +n[2] * 255, +n[3] * 255] : null; return !!c && Math.max(...c) - Math.min(...c) <= 14 }
+    for (const mode of ['flex', 'inline']) {
+      const f = runFacts[mode], at = what => `${mode}: ${what}`
+      const dotted = (name, chip, cls) => {
+        if (!chip) { runProblems.push(at(name + ' is not an app or panel link')); return }
+        if (!new RegExp('ref-flare').test(chip.classes) || !new RegExp(cls).test(chip.classes)) runProblems.push(at(`${name} wears no ${cls} state: ${chip.classes}`))
+        if (chip.dot.content === 'none' || chip.dot.width !== '8px' || chip.dot.height !== '8px' || chip.dot.radius === '0px') runProblems.push(at(`${name} draws no dot: ${JSON.stringify(chip.dot)}`))
+        if (chip.boxShadow !== 'none') runProblems.push(at(`${name} draws the unread edge: ${chip.boxShadow}`))
+      }
+      dotted('running app (before)', f.before.appRun, 'run-on'); dotted('running panel', f.before.panelRun, 'run-on')
+      dotted('dead app', f.before.appDead, 'run-dead'); dotted('dead panel', f.before.panelDead, 'run-dead'); dotted('app after its last panel stopped', f.after.appRun, 'run-dead')
+      if (f.before.appRun && f.after.appRun && f.before.appRun.dot.background === f.after.appRun.dot.background) runProblems.push(at('stopping the last panel did not change the app link\'s dot'))
+      if (f.after.appRun && !grey(f.after.appRun.dot.background)) runProblems.push(at('a dead link\'s dot is not grey: ' + f.after.appRun.dot.background))
+      if (f.before.appDead && f.after.appRun && f.before.appDead.dot.background !== f.after.appRun.dot.background) runProblems.push(at('a dead app and an app whose last panel stopped differ'))
+      if (f.before.appRun && f.before.panelRun && f.before.appRun.dot.background !== f.before.panelRun.dot.background) runProblems.push(at('a running app and a running panel differ'))
+      if (!f.before.appNone || /ref-flare|run-/.test(f.before.appNone.classes) || (f.before.appNone.dot.content !== 'none' && f.before.appNone.dot.content !== 'normal')) runProblems.push(at('an app with no panels must wear nothing: ' + JSON.stringify(f.before.appNone)))
+    }
+    for (const problem of runProblems) mailProblems.push('run state: ' + problem)
     const failing = r => r.spread > 0.5 || r.markOff > 1 || r.markOffX > 2 || r.grew > 0.5 * Math.max(1, r.lineCount) || r.vsControl > 0.1 || r.marks.some(m => m.error)
     const isControl = r => r.ctx === 'control' || r.ctx === 'react-control'
     const bad = all.filter(r => !isControl(r) && failing(r))
