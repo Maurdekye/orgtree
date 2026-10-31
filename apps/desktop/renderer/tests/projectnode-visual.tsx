@@ -74,6 +74,9 @@
 //             lead's team reader (beside its own reader) and a document of
 //             dev1's (the team reader shows it), docket
 //             several-instances-of-the-same-modal-team-slots-i;
+//   settingsave — the REAL agent settings dialog (NodeConfig) on a page whose save POST the capture delays: one Save
+//             closes it, and while it is in flight the button says Saving... (docket
+//             agent-settings-save-after-an-effort-change-needs);
 //   mentionrows — mail that mentions the user beside a plain row and a selected
 //             row (inbox rows, the Attention mention row, transcript messages);
 //             &theme=light|solarized|obsidian draws another theme
@@ -686,6 +689,23 @@ function MentionRows() {
     </div>
   </main>
 }
+// ?scene=settingsave - the agent settings dialog; closing it swaps in a marker, and window.__ss counts the closes
+function SettingsSave() {
+  const [open, setOpen] = useState(true)
+  const n = { id: 'agent', title: 'agent', state: 'live', tier: 'haiku', model_id: 'haiku', parent: '@user', children: [], seat: 1, grant: 10, free: 10,
+    scope: { permission_mode: 'acceptEdits', add_dirs: [{ path: 'C:/work', mode: 'rw' }],
+      tools: { bash: true, web: true, edit: true, subagents: true, mcp: [] }, org_visibility: 'team', effort: 'medium' },
+    charter: 'the role', team_charter: '', turns: [], audiences_held: [] } as unknown as CanvasNode
+  const t = { slug: 'org', dirs: [], tiers: { haiku: 1, sonnet: 2, opus: 5 }, max_top_grant: 100, default_effort: '', effort_default: 'high',
+    cascade_hire: true } as unknown as TreePayload
+  return <main style={{ position: 'relative', width: 1000, minHeight: 700, background: 'var(--bg)', padding: 12 }}>
+    {open
+      ? <div id="ss-dialog" style={{ width: 760 }}><NodeConfig node={n} map={new Map([[n.id, n]])} tree={t} slug="org"
+        op={() => Promise.resolve({} as OpResult)} toast={noop}
+        close={() => { const w = window as unknown as { __ss?: { closes: number } }; (w.__ss ??= { closes: 0 }).closes++; setOpen(false) }} /></div>
+      : <h3 id="ss-closed" className="dim">Agent settings closed</h3>}
+  </main>
+}
 function Presented() {
   const nd = { ...card, documents: [{ id: 'd1', title: 'Website plan', at: new Date(Date.now() - 180_000).toISOString() }],
     documents_count: 1, children: [{ ...(card.children ?? [])[0]!, documents: [{ id: 'd2', title: 'Dev notes',
@@ -827,6 +847,7 @@ const rows: Record<string, unknown[]> = {
 createRoot(document.getElementById('root')!).render(scene === 'cards' ? <Cards /> : scene === 'jumps' ? <Jumps />
   : scene === 'presented' ? <Presented />
   : scene === 'mentionrows' ? <MentionRows />
+  : scene === 'settingsave' ? <SettingsSave />
   : scene === 'desc' ? <Desc />
   : scene === 'modal' ? <ProjectDeskModal node={card} slug="org" tree={tree([])} map={new Map([[card.id, card]])}
     op={() => Promise.resolve({} as OpResult)} toast={noop} refs={{ world: { org: 'org' }, onOpen: noop } as never} close={noop} />

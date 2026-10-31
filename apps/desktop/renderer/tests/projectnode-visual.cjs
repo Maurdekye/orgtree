@@ -134,6 +134,67 @@ module.exports = async (page) => {
   // color-mix() is resolved the way the app paints it) is measured against the page: the mention row must still be tinted
   // (>= 3 RGB levels) and clearly lighter than the selected row's fill (under half). MENTION_FILL_BEFORE=1 records the
   // numbers without failing, for the before/after pair (docket mail-that-mentions-the-user-remove-the-blue-back)
+  // PROJECTNODE_VISUAL_ONLY=settings-save: the real agent settings dialog. The save POST is delayed 1500 ms by a fetch wrapper (a
+  // busy engine); the effort is stepped up with the arrow key, Save is pressed ONCE: while the save is in flight the button must
+  // read Saving... and be disabled, a second press must send nothing, and when the answer lands the dialog closes exactly once
+  // (docket agent-settings-save-after-an-effort-change-needs, USER 2026-10-31 10:21:55Z m081c587978bf)
+  if (only === 'settings-save') {
+    await page.goto('/?scene=settingsave')
+    await page.waitFor('[role="tab"]', { timeout: 15000 })
+    await page.eval(() => [...document.querySelectorAll('[role="tab"]')].find((t) => t.textContent.trim() === 'Model').click())
+    await page.waitFor('.effort-bar-track', { timeout: 15000 })
+    await page.eval(() => {
+      window.__posts = []
+      const real = window.fetch.bind(window)
+      window.fetch = (url, init) => {
+        if (/\/(scope|gesture)$/.test(String(url))) {
+          window.__posts.push(String(url))
+          return new Promise((resolve) => setTimeout(() => resolve(new Response(JSON.stringify(String(url).endsWith('/gesture') ? { results: [{ scope: {}, warnings: [] }] } : { scope: {}, warnings: [] }),
+            { status: 200, headers: { 'Content-Type': 'application/json', 'X-Orgtree-Instance': 'inst-0' } })), 1500))
+        }
+        return real(url, init)
+      }
+    })
+    await settle()
+    details.effortBefore = await page.eval(() => {
+      const t = document.querySelector('.effort-bar-track')
+      t.focus(); t.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true, cancelable: true }))
+      return t.getAttribute('aria-valuetext')
+    })
+    await settle()
+    details.effortAfter = await page.eval(() => document.querySelector('.effort-bar-track').getAttribute('aria-valuetext'))
+    // the effort bar and the idle Save must be in the first frame together
+    await page.eval(() => [...document.querySelectorAll('button.primary')].find((x) => /^Sav/.test(x.textContent.trim()))?.scrollIntoView({ block: 'center' }))
+    await settle()
+    screenshots.push(await page.screenshot(`${prefix}-settings-1-effort-changed-1000x700`))
+    details.idle = await page.eval(() => {
+      const b = [...document.querySelectorAll('button.primary')].find((x) => /^Sav/.test(x.textContent.trim()))
+      return { text: b.textContent.trim(), disabled: b.disabled }
+    })
+    await page.eval(() => [...document.querySelectorAll('button.primary')].find((x) => /^Sav/.test(x.textContent.trim())).click())
+    await new Promise((r) => setTimeout(r, 400))
+    await page.eval(() => [...document.querySelectorAll('button.primary')].find((x) => /^Sav/.test(x.textContent.trim()))?.scrollIntoView({ block: 'center' }))
+    details.inFlight = await page.eval(() => {
+      const b = [...document.querySelectorAll('button.primary')].find((x) => /^Sav/.test(x.textContent.trim()))
+      b?.click()
+      return { text: b?.textContent.trim() ?? null, disabled: b?.disabled ?? null, posts: window.__posts.length, closes: window.__ss?.closes ?? 0,
+        dialogOpen: !!document.querySelector('.effort-bar-track') }
+    })
+    screenshots.push(await page.screenshot(`${prefix}-settings-2-saving-1000x700`))
+    await page.waitFor('#ss-closed', { timeout: 15000 })
+    await settle()
+    details.closed = await page.eval(() => ({ posts: window.__posts.length, closes: window.__ss?.closes ?? 0, dialogOpen: !!document.querySelector('.effort-bar-track') }))
+    screenshots.push(await page.screenshot(`${prefix}-settings-3-closed-1000x700`))
+    const fails = []
+    if (details.effortBefore === details.effortAfter) fails.push('the effort did not change: ' + details.effortBefore)
+    if (details.idle.text !== 'Save' || details.idle.disabled) fails.push('idle Save: ' + JSON.stringify(details.idle))
+    if (details.inFlight.text !== 'Saving...' || !details.inFlight.disabled) fails.push('in flight: ' + JSON.stringify(details.inFlight))
+    if (details.inFlight.posts !== 1 || details.inFlight.closes !== 0 || !details.inFlight.dialogOpen) fails.push('in flight counters: ' + JSON.stringify(details.inFlight))
+    if (details.closed.posts !== 1 || details.closed.closes !== 1 || details.closed.dialogOpen) fails.push('after the answer: ' + JSON.stringify(details.closed))
+    details.failures = fails
+    if (fails.length && !process.env.SETTINGS_SAVE_BEFORE) throw new Error(fails.join('; '))
+    return { details, screenshots }
+  }
   if (only === 'mention-fill') {
     details.themes = {}
     for (const theme of ['', '&theme=light', '&theme=solarized']) {
