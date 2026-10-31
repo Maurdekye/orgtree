@@ -1646,7 +1646,13 @@ impl Actor {
             }
             AgentMsg::Effort(previous, reply) => {
                 let r = boxed(|| self.effort_saved(&previous)).await;
-                let _ = reply.send(r);
+                // the saver waits on this reply (the settings Save closes on it): answer FIRST, then replace the idle
+                // CLI that no longer matches the level (close + re-warm, seconds), so a Save is never held for it
+                let id = self.id;
+                answer_then(reply, r, async {
+                    tracing::info!(agent = id, "effort saved: replacing a CLI that no longer matches, after the reply");
+                    boxed(|| self.replace_idle_process()).await;
+                }).await;
                 boxed(|| self.update_forecast()).await;
                 self.publish();
             }
@@ -1841,7 +1847,8 @@ impl Actor {
     /// Either way a process that no longer matches the level is not used for
     /// another turn: a CLI may acknowledge a level it ignores, and Codex keeps
     /// the level it started with, so the next turn starts a fresh process with
-    /// the new level (an idle one is replaced now, as a reconfiguration is).
+    /// the new level (an idle one is replaced right after the reply, as a
+    /// reconfiguration is: the Effort handler does it once the saver has its answer).
     async fn effort_saved(&mut self, previous: &str) -> Value {
         let ctx = match self.load_ctx().await {
             Ok(ctx) => ctx,
@@ -1892,7 +1899,6 @@ impl Actor {
                 _ => next("no turn is running"),
             }
         };
-        self.replace_idle_process().await;
         out
     }
 
@@ -9946,6 +9952,62 @@ mod incomplete_response_tests {
         assert_eq!(t.thinking,"Earlier thought stays separate");
         assert_eq!(row["incomplete_key"],super::super::incomplete_response::key("claude","synthetic-stop"));
         t.draft.clear();assert!(t.incomplete_response("now").is_none());
+    }
+}
+
+/// Answer a waiting caller, THEN run the slow follow-up. The caller's reply is a oneshot, so it is delivered
+/// before `after` is polled even once; a failure in `after` is the caller's to log and cannot reach the reply.
+#[nolog]
+async fn answer_then<T>(reply: tokio::sync::oneshot::Sender<T>, value: T, after: impl std::future::Future<Output = ()>) {
+    let _ = reply.send(value);
+    after.await;
+}
+
+#[cfg(test)]
+mod answer_then_tests {
+    use super::answer_then;
+    use std::time::Duration;
+    use tokio::sync::oneshot;
+
+    /// The settings Save closes on the Effort reply: it must arrive while the idle-CLI replacement is still running.
+    #[tokio::test]
+    async fn the_reply_arrives_while_the_follow_up_is_still_running() {
+        let (reply, answer) = oneshot::channel::<&str>();
+        let (open, gate) = oneshot::channel::<()>();
+        let (started_tx, started) = oneshot::channel::<()>();
+        let follow_up = tokio::spawn(answer_then(reply, "saved", async move {
+            let _ = started_tx.send(());
+            let _ = gate.await; // the replacement: closed until the test opens it
+        }));
+        let got = tokio::time::timeout(Duration::from_secs(5), answer).await.expect("the reply must not wait for the follow-up");
+        assert_eq!(got.unwrap(), "saved");
+        started.await.unwrap();
+        assert!(!follow_up.is_finished(), "positive control: the follow-up is still running when the reply is in hand");
+        open.send(()).unwrap();
+        follow_up.await.unwrap();
+    }
+
+    /// CONTROL: the old order (follow-up first, reply after) holds the reply back, so the test above can fail.
+    #[tokio::test]
+    async fn control_replying_after_the_follow_up_holds_the_reply_back() {
+        let (reply, answer) = oneshot::channel::<&str>();
+        let (open, gate) = oneshot::channel::<()>();
+        let old = tokio::spawn(async move {
+            let _ = gate.await; // the replacement first, as before
+            let _ = reply.send("saved");
+        });
+        assert!(tokio::time::timeout(Duration::from_millis(150), answer).await.is_err(), "the old order really blocks the reply");
+        open.send(()).unwrap();
+        old.await.unwrap();
+    }
+
+    /// A panic in the follow-up stays the follow-up's: the reply was already delivered and the panic surfaces on the task.
+    #[tokio::test]
+    async fn a_panicking_follow_up_still_leaves_the_reply_delivered_and_the_panic_visible() {
+        let (reply, answer) = oneshot::channel::<u8>();
+        let task = tokio::spawn(answer_then(reply, 7, async { panic!("replacement failed") }));
+        assert_eq!(answer.await.unwrap(), 7);
+        assert!(task.await.unwrap_err().is_panic(), "the panic is not swallowed");
     }
 }
 
