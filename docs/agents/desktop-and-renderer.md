@@ -686,6 +686,16 @@ takes no second press, in agent and project settings alike, and closes once
 when the answer lands. `tests/settingssave.test.tsx`, capture
 `PROJECTNODE_VISUAL_ONLY=settings-save`.
 
+Reopened on alpha.3 (USER 2026-10-31 13:56:17Z m255f3b2a0bc6: Save stayed on
+`Saving...` for several dozen seconds after effort changes). The engine log
+showed the Effort reply itself takes 15 ms to 1.2 s, but the agent's actor
+handles ONE message at a time and a CLI replacement (`replace_idle_process`:
+close about 1 s, warm 7-12 s) holds its queue, so each later Save waited behind
+every earlier replacement (`deliver_effort` waited up to 30 s). `deliver_effort`
+now stops waiting after 2 s (`EFFORT_REPLY_WITHIN`, `await_effort_reply` in
+`runtime/mod.rs`) and answers `next_turn`; the message stays queued and the
+level is applied when the actor reaches it, so the durable outcome is unchanged.
+
 ## Effort bar release (2026-10-23)
 
 Clear the pre-drag hover preview when committing a pointer release. Otherwise

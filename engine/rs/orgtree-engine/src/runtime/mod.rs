@@ -395,9 +395,51 @@ pub async fn deliver_effort(engine: &Arc<Engine>, agent_id: i64, previous: &str,
     if !h.send(AgentMsg::Effort(previous.to_string(), tx)) {
         return next("no turn is running");
     }
-    match tokio::time::timeout(std::time::Duration::from_secs(30), rx).await {
+    await_effort_reply(rx, EFFORT_REPLY_WITHIN, || next("the agent is busy; the level applies as soon as it is free")).await
+}
+
+/// How long a settings Save waits for the actor's Effort reply. The actor handles one message at a time and a CLI
+/// replacement or warm-up (7-12 s measured on 4.5.3-alpha.3) holds the queue, so the Save would sit behind every
+/// earlier one. The message stays queued and the level is applied when the actor reaches it; the Save only stops waiting.
+const EFFORT_REPLY_WITHIN: std::time::Duration = std::time::Duration::from_secs(2);
+
+#[nolog]
+async fn await_effort_reply(rx: oneshot::Receiver<Value>, limit: std::time::Duration, late: impl FnOnce() -> Value) -> Value {
+    match tokio::time::timeout(limit, rx).await {
         Ok(Ok(v)) => v,
-        _ => next("the agent did not answer in time"),
+        _ => late(),
+    }
+}
+
+#[cfg(test)]
+mod effort_reply_tests {
+    use super::*;
+    use std::time::{Duration, Instant};
+
+    /// A stalled actor (the queue held by a CLI replacement) must not hold the Save: the late answer comes at the limit.
+    #[tokio::test]
+    async fn a_stalled_actor_does_not_hold_the_reply_past_the_limit() {
+        let (tx, rx) = oneshot::channel::<Value>();
+        let t = Instant::now();
+        let v = await_effort_reply(rx, Duration::from_millis(150), || json!({ "delivery": "next_turn" })).await;
+        assert_eq!(v["delivery"], "next_turn");
+        assert!(t.elapsed() < Duration::from_secs(2), "took {:?}", t.elapsed());
+        drop(tx);
+    }
+
+    /// An actor that answers in time keeps its own answer.
+    #[tokio::test]
+    async fn a_prompt_answer_is_passed_through() {
+        let (tx, rx) = oneshot::channel::<Value>();
+        tx.send(json!({ "delivery": "sent" })).unwrap();
+        let v = await_effort_reply(rx, Duration::from_secs(5), || json!({ "delivery": "next_turn" })).await;
+        assert_eq!(v["delivery"], "sent");
+    }
+
+    /// The Save's limit is short: well under the 30 s the call waited before.
+    #[test]
+    fn the_limit_is_short() {
+        assert!(EFFORT_REPLY_WITHIN <= Duration::from_secs(3));
     }
 }
 
