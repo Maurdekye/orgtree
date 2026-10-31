@@ -694,6 +694,53 @@ pub fn has_marker(text: &str) -> bool {
     text.contains(BLOCK_START) || text.contains(BLOCK_END)
 }
 
+/// What the one-time move of org.md phone notes does (`migrate`; coordinator
+/// rulings 2-4, 2026-10-31 mdd81da812d3b).
+#[derive(Debug, Default, PartialEq)]
+pub struct Moves {
+    /// the app-wide block's next text, when it gains the linked address's note
+    pub app: Option<String>,
+    /// (org index, next org.md) for each org whose note for that address moves
+    pub orgs: Vec<(usize, String)>,
+    /// orgs that keep a note for another address: left org-scoped and logged
+    pub stale: Vec<usize>,
+    /// orgs with a broken note (a start without its end): left as they are
+    pub malformed: Vec<usize>,
+}
+
+/// The address a whole marked note names, as `with_block` writes it.
+#[logged]
+pub fn note_address(note: &str) -> Option<&str> {
+    // RED STUB: replaced in the authority commit
+    let _ = note;
+    None
+}
+
+/// `md` without the marked notes naming `address`; other notes stay.
+#[logged]
+pub fn without_address(md: &str, address: &str) -> Result<String, String> {
+    // RED STUB: replaced in the authority commit
+    let _ = address;
+    Ok(md.to_string())
+}
+
+/// Plan the move: only the note naming the linked address moves (once, even
+/// when several orgs hold it); a link record without any note moves nothing.
+#[logged]
+pub fn plan_moves(app: &str, orgs: &[String], linked: Option<&str>) -> Moves {
+    // RED STUB: replaced in the authority commit
+    let _ = (app, orgs, linked);
+    Moves::default()
+}
+
+/// A template's org.md without any Connect your phone note, and the warning
+/// saying one was left out (a phone link never travels in a template).
+#[logged]
+pub fn template_org_md(md: Option<String>) -> (Option<String>, Option<String>) {
+    // RED STUB: replaced in the authority commit
+    (md, None)
+}
+
 /// org.md's revision: the charter editor sends back the one it loaded, and a
 /// save over a newer org.md (the trust note came or went) is refused.
 #[nolog]
@@ -1290,5 +1337,80 @@ mod tests {
         assert_eq!(orgmd_rev(b"abc"), orgmd_rev(b"abc"));
         assert_ne!(orgmd_rev(b"abc"), orgmd_rev(b"abd"));
         assert_ne!(orgmd_rev(b""), orgmd_rev(b"\n"));
+    }
+}
+
+#[cfg(test)]
+mod authority_tests {
+    //! The phone note in the instructions for all orgs (USER 2026-10-31
+    //! m4322b3a92f0c "Yes, all orgs"; coordinator rulings 2-4 mdd81da812d3b).
+    use super::*;
+
+    const ALEX: &str = "alex.123456";
+    const BEA: &str = "bea.654321";
+
+    #[test]
+    fn a_note_names_its_address() {
+        let note = &notes(&with_block("", ALEX).unwrap())[0];
+        assert_eq!(note_address(note), Some(ALEX));
+        assert_eq!(note_address(&format!("{BLOCK_START}\nhand-written text\n{BLOCK_END}\n")), None);
+    }
+
+    #[test]
+    fn only_the_linked_address_s_note_leaves_an_org_md() {
+        let both = format!("{}\nmore\n{}", with_block("A rules\n", BEA).unwrap(), with_block("", ALEX).unwrap());
+        let left = without_address(&both, ALEX).unwrap();
+        assert!(!left.contains(ALEX) && left.contains(BEA) && left.contains("A rules") && left.contains("more"));
+        assert_eq!(without_address(&with_block("A rules\n", ALEX).unwrap(), ALEX).unwrap(), "A rules\n");
+        assert!(without_address(&format!("{BLOCK_START}\n@net:{ALEX} is"), ALEX).is_err(), "a broken note is refused");
+    }
+
+    #[test]
+    fn the_linked_note_moves_app_wide_once_and_stale_notes_stay_in_their_org() {
+        let orgs = vec![with_block("A rules\n", ALEX).unwrap(), "B rules\n".to_string(),
+            with_block("C rules\n", BEA).unwrap(), with_block("", ALEX).unwrap()];
+        let m = plan_moves("Shared.\n", &orgs, Some(ALEX));
+        assert_eq!(m.app.as_deref(), Some(with_block("Shared.\n", ALEX).unwrap().as_str()), "one note, on top");
+        assert_eq!(m.orgs, vec![(0, "A rules\n".to_string()), (3, String::new())]);
+        assert_eq!(m.stale, vec![2], "another address's note stays org-scoped");
+        assert!(m.malformed.is_empty());
+        // the block already carries the note: it is not added twice
+        let again = plan_moves(&with_block("Shared.\n", ALEX).unwrap(), &orgs, Some(ALEX));
+        assert_eq!((again.app, again.orgs.len()), (None, 2));
+    }
+
+    #[test]
+    fn a_finished_move_plans_nothing_more() {
+        let orgs = vec![with_block("A rules\n", ALEX).unwrap()];
+        let m = plan_moves("", &orgs, Some(ALEX));
+        let next: Vec<String> = m.orgs.iter().map(|(_, t)| t.clone()).collect();
+        assert_eq!(plan_moves(m.app.as_deref().unwrap(), &next, Some(ALEX)), Moves::default());
+    }
+
+    #[test]
+    fn no_note_or_no_link_moves_nothing() {
+        // the link record alone resurrects nothing (ruling 3)
+        assert_eq!(plan_moves("", &["A rules\n".to_string()], Some(ALEX)), Moves::default());
+        let orgs = vec![with_block("A rules\n", ALEX).unwrap()];
+        let m = plan_moves("", &orgs, None);
+        assert_eq!((m.app, m.orgs.len(), m.stale), (None, 0, vec![0]));
+    }
+
+    #[test]
+    fn a_broken_note_is_left_where_it_is() {
+        let orgs = vec![format!("{BLOCK_START}\n@net:{ALEX} is the user's account and carries their authority.\n")];
+        let m = plan_moves("", &orgs, Some(ALEX));
+        assert_eq!((m.app, m.orgs.len(), m.malformed), (None, 0, vec![0]));
+    }
+
+    #[test]
+    fn a_template_never_carries_a_phone_note() {
+        let (md, warning) = template_org_md(Some(with_block("Team rules\n", ALEX).unwrap()));
+        assert_eq!(md.as_deref(), Some("Team rules\n"));
+        assert!(warning.is_some_and(|w| w.contains("Connect your phone")));
+        assert_eq!(template_org_md(Some("Team rules\n".into())), (Some("Team rules\n".into()), None));
+        let (md, warning) = template_org_md(Some(format!("{BLOCK_START}\n@net:{ALEX} is")));
+        assert!(md.is_none() && warning.is_some(), "a broken note drops the whole org.md");
+        assert_eq!(template_org_md(None), (None, None));
     }
 }

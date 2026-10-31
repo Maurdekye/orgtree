@@ -241,6 +241,38 @@ mod tests {
         assert_eq!((empty["content"].as_str(), empty["managed"].is_null()), (Some(""), true));
     }
 
+    /// Only the desktop's editor and Connect your phone write the block: no
+    /// agent tool, template/import path or other module may (coordinator
+    /// 2026-10-31 m97d32790f2a8 point 1). It has no file, so no path an agent
+    /// holds can write it either.
+    #[test]
+    fn only_the_editor_and_connect_your_phone_write_the_block() {
+        fn walk(dir: &std::path::Path, out: &mut Vec<std::path::PathBuf>) {
+            for entry in std::fs::read_dir(dir).unwrap() {
+                let path = entry.unwrap().path();
+                if path.is_dir() { walk(&path, out) } else if path.extension().is_some_and(|e| e == "rs") { out.push(path) }
+            }
+        }
+        let src = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+        let mut files = Vec::new();
+        walk(&src, &mut files);
+        let mut writers = Vec::new();
+        for file in &files {
+            let rel = file.strip_prefix(&src).unwrap().to_string_lossy().replace('\\', "/");
+            if rel == "app_instructions.rs" { continue }
+            let text = std::fs::read_to_string(file).unwrap();
+            if text.contains("app_instructions.update(") || text.contains("app_instructions.publish(") {
+                writers.push(rel.clone());
+            }
+            if rel.starts_with("tools/") || rel.contains("template") || rel.starts_with("import") {
+                assert!(!text.contains("app_instructions"), "{rel}: agent tools and imports never touch the block");
+            }
+        }
+        writers.sort();
+        assert_eq!(writers, ["http/settings.rs", "phone.rs"]);
+        assert!(files.len() > 100, "the audit read the whole crate");
+    }
+
     #[test]
     fn a_later_write_is_never_replaced_by_an_earlier_one() {
         let store = AppInstructions::new(Doc::default());

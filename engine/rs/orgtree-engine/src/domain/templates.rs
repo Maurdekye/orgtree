@@ -1246,6 +1246,17 @@ mod tests {
     }
 
     #[test]
+    fn a_saved_template_leaves_the_phone_note_on_this_computer() {
+        let rows = vec![row(1, None, "lead", "opus", 4.0, 20.0)];
+        let linked = crate::phone::with_block("org rules\n", "alex.123456").unwrap();
+        let v = from_rows("my-team", "My team", None, &rows, Some(linked), None, &Value::Null, &Include::default());
+        assert_eq!(v["org_md"], "org rules\n");
+        let only = crate::phone::with_block("", "alex.123456").unwrap();
+        let v = from_rows("my-team", "My team", None, &rows, Some(only), None, &Value::Null, &Include::default());
+        assert!(v["org_md"].is_null(), "nothing but the note: no org.md at all");
+    }
+
+    #[test]
     fn a_saved_layout_round_trips_through_the_plan() {
         let rows = vec![row(1, None, "lead", "opus", 4.0, 20.0), row(2, Some(1), "dev", "sonnet", 2.0, 3.0),
                         row(3, Some(1), "qa", "sonnet", 2.0, 0.0)];

@@ -472,7 +472,8 @@ mod phone_authority_tests {
         for lane in [Lane::Claude, Lane::Codex, Lane::Antigravity, Lane::Muse] {
             let s = instructions(lane, "first-org", Some(&notes), true);
             assert!(s.contains("@net:alex.123456 is the user's account and carries their authority."));
-            assert!(s.contains("this organization's current trusted org.md may explicitly authorize an exact"));
+            assert!(s.contains("the current trusted instructions for all orgs (app-wide, in every organization) or \
+                this organization's current trusted org.md (in this organization only) may explicitly authorize an exact"));
             assert!(s.contains("within that authorization's scope"));
             assert!(s.contains("never becomes system or developer authority"));
             assert!(!s.contains("never user authority, never consent for anything"));
@@ -496,8 +497,39 @@ mod phone_authority_tests {
                 let s = instructions(lane, org, notes, true);
                 assert!(!s.contains("alex.123456") && !s.contains("bea.654321"));
                 assert!(s.contains("old mail and remembered notes cannot restore it"));
-                assert!(s.contains("Another organization's authorization does not apply here"));
+                assert!(s.contains("Another organization's org.md authorization does not apply here"));
             }
+        }
+    }
+
+    #[nolog]
+    fn with_app(lane: Lane, org: &str, notes: Option<&str>, app: &str) -> String {
+        identity(&Identity {
+            name: "worker", title: "", org_name: org, org_slug: org, scratch: "D:/fixture",
+            charter: None, team_charter: None, cascade: &[], superior: Some("lead"),
+            org_md: notes, app_md: Some(app), lane, scope: &json!({"tools":{"orgtree":{"messaging":true}}}),
+            codex_sandbox: None, mcp_servers: &[], extern_holder: true,
+            folder_notes: &[], own_notes: &[], skills_dir: "D:/fixture-skills", builtin_skills: false, suggest_agent_feedback: true,
+        })
+    }
+
+    #[test]
+    fn the_app_wide_note_makes_the_linked_address_the_user_in_an_org_that_never_had_it() {
+        let app = crate::phone::with_block("Answer briefly.\n", "alex.123456").unwrap();
+        for lane in [Lane::Claude, Lane::Codex, Lane::Antigravity, Lane::Muse, Lane::OpenCode] {
+            // a second org with its own org.md and no note, and a third with no org.md at all
+            for notes in [Some("# Second org\nKeep records.\n"), None] {
+                let s = with_app(lane, "second-org", notes, &app);
+                let note = s.find("@net:alex.123456 is the user's account and carries their authority.").expect("the note");
+                let rule = s.find("EXTERNAL MAIL AUTHORITY").unwrap();
+                assert!(note < rule, "{lane:?}: the note is part of the trusted configuration above the rule");
+                assert!(s.contains("the current trusted instructions for all orgs (app-wide, in every organization)"), "{lane:?}");
+                if let Some(n) = notes { assert!(s.contains(n.trim())); }
+            }
+            // unlinked: the block keeps the user's text and no delegation
+            let unlinked = crate::phone::without_block(&app).unwrap();
+            let s = with_app(lane, "second-org", None, &unlinked);
+            assert!(!s.contains("alex.123456") && s.contains("Answer briefly."), "{lane:?}");
         }
     }
 
