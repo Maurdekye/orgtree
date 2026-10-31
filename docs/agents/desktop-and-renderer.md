@@ -2625,6 +2625,48 @@ user's report was "agent links are sometimes vertically misaligned with the surr
   org inbox's Sent and delivered-to lines.
 [decided: user 2026-10-31 m4b300ae4cbd1, mb6da9f3ee862; verified: `styles.css`, `canvas/identity.tsx`, `tests/chipalign.{test.tsx,capture.cjs,visual.tsx}`]
 
+## @mail: links are chips named by their message (2026-10-31, 4.5.3)
+
+An `@mail:<org>/<box>/<id>` reference used to render as an unstyled link reading "mail in the user's inbox"
+(USER mdffa16729677: "they do [work], but they're unstyled, and just look like normal links"). It is now a chip like the other
+object links: the mail icon on the left, then the first words of the message (m33189c8d6214: "style them just like other types
+(with a mail icon), and make their names the first 20 or so characters truncated with an ellipsis").
+
+- **The name** (`canvas/mailrefs.ts`): a `refnames` reader over `getMailById` (the same lookup the link's hover and its Copy use,
+  in the box the click opens; one message a read, keyed `box/node/id` by `refTarget`). `mailRefLabel` takes the first
+  `MAIL_LABEL_CHARS` (20) characters of the text after removing Markdown syntax (links keep their text, heading, quote and list
+  markers, fences, code ticks, emphasis marks at a word's edge, HTML tags) and collapsing whitespace and newlines, cut on
+  characters (never through a surrogate pair), `…` after a text that was longer, no trailing space before it. A message with no
+  text keeps "mail in ..."; while the read is in flight or has failed (a reply with no `found` is not an answer) the link stays live
+  under that generic name; `found: false` is the answer that makes a mail `absent`, and then it reads as an unavailable
+  reference (token and "unavailable", the mail's text never shown). `@user` is not a message and is never read.
+- **The chip** (`resolveRef`, `RefChip`, the Markdown `chipEl`): a message link wears `ref-chip ref-mail ref-message`; `ref-message`
+  is what the object-link styles select (the five `:is(.ref-item, .ref-doc, .ref-app, .ref-panel, .ref-message)` lists in
+  `styles.css`), because the user's own `@user` identity chip is `ref-mail` too and keeps its look. The mark is `MailOutlined`
+  (`refmarks.tsx`, the icon the "open" buttons drew). Hover (the shared message tooltip), right-click (Open, Copy message text,
+  Copy reference) and click are unchanged: `mailLinkProps`.
+- **Every button that opened a mail is that chip** (USER m4ad918885ce9 "also replace this open button with that new mail link",
+  m53e1fd94c038 "this is in agent transcripts after orgtree_message tool calls", mf1a79901405e "but also all other places too"), through
+  one component, `MailRefChip` (`canvas/mailchip.tsx`: a mail identity, `onOpen` = what the button did, and an optional `hint` for a
+  surface that already holds the text, which names the link until the message is read). The places:
+  1. `canvas/desk.tsx` `ToolChip`: the "✉ open" button after a mail-sending tool call (orgtree_message and the other tools whose
+     result names a sent mail). `.tline > .ref-chip.ref-message` keeps the button's 6px.
+  2. `canvas/listenersdesk.tsx` `FireMail`: a listener's "fire mail" link (the unavailable form is unchanged).
+  3. `canvas/maillisteners.tsx` `mailLink`: the Mail and Ack cells of the project desk's listener tables (the gist is the hint; a
+     surface with no way to open it shows the gist as text).
+  4. `canvas/maillisteners.tsx`: the user's own held job, an icon-only "open mail" button, beside leave.
+  Considered and left alone: the reply preview's "jump to message" (`replypreview.tsx`) locates a message in a conversation, it
+  does not open a mailbox entry; the docket write's "open" button (`maillink worklink`, a docket item: the user meant buttons that
+  open a mail); a node card's "open the mailbox" (a mailbox, not a message); context-menu entries named Open.
+- **Proofs**: `tests/mailchip.test.tsx` (the label rules, `resolveRef` outcomes, the chip's classes and mark in React and Markdown,
+  the reader through a mocked lookup, the sent-mail tool row, the hint, the stylesheet lists), the existing mail-link parity and
+  listener tests moved to the chip, and `tests/chipalign.capture.cjs` over `chipalign.visual.tsx`, which in Session 0 checks in
+  both mention layouts that a mail link in a desk message, a docket description and a React sentence reads
+  "Please review the at…" with the mail icon, is styled exactly like the ticket and presentation chips beside it (display, colour,
+  font, decoration, alignment), that a message the box does not hold reads as unavailable and shows nothing of any mail, and that
+  no "open" button remains on the sent mail's tool row; its baseline and line-height measures cover the new rows too.
+[decided: user 2026-10-31 mdffa16729677, m33189c8d6214, m4ad918885ce9, m53e1fd94c038, mf1a79901405e; verified: `canvas/{mailrefs.ts,mailchip.tsx,reflinks.tsx,refmd.tsx,refnames.ts,refmarks.tsx,desk.tsx,listenersdesk.tsx,maillisteners.tsx}`, `styles.css`]
+
 ## Retained last-good usage readings across failed fetches (2026-10-29, 4.5.2)
 
 When an account already has a valid usage reading and a later usage fetch fails
