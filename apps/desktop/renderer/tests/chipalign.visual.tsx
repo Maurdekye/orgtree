@@ -23,14 +23,14 @@ import '../src/styles.css'
 import '../src/shell.css'
 
 const backend = installWrapBackend()
-/** the engine's one-message lookup, synthetic: an id starting `gone` is not in the box */
+/** the engine's one-message lookup, synthetic: an id starting `gone` is not in the box, one starting `unread` is pending in the user's inbox */
 const MAIL_BODY = 'Please review the attached plan today'
 window.fetch = (async (input, init) => {
   const hit = /^\/api\/orgs\/chips\/mail\/(?:user|org|node)\/([^/?]+)/.exec(new URL(String(input), 'http://chips.invalid').pathname)
   if (!hit) return backend.fetcher(input, init)
   const id = decodeURIComponent(hit[1]!)
   return new Response(JSON.stringify(id.startsWith('gone') ? { found: false, mail: null }
-    : { found: true, mail: { id, from: 'writer', at: '2026-10-31T08:00:00Z', kind: 'message', body: MAIL_BODY } }), { headers: { 'content-type': 'application/json' } })
+    : { found: true, mail: { id, from: 'writer', at: '2026-10-31T08:00:00Z', kind: 'message', body: MAIL_BODY, unread: id.startsWith('unread') } }), { headers: { 'content-type': 'application/json' } })
 }) as typeof fetch
 window.WebSocket = backend.Socket as unknown as typeof WebSocket
 
@@ -41,16 +41,17 @@ const refs: { kind: string; ref: TypedRef }[] = [
   { kind: 'panel', ref: { kind: 'panel', org: 'chips', id: 'one' } },
 ]
 const labels: Record<string, string> = { item: 'Double-clicking a docket item', doc: 'Release notes', app: 'Caption board', panel: 'Panel 1',
-  'item-s': 'Fix the bug', 'doc-s': 'Notes', 'app-s': 'Board' }
+  'item-s': 'Fix the bug', 'doc-s': 'Notes', 'app-s': 'Board', 'doc-n': 'Notes' }
 /** the same kinds with labels short enough that the sentence keeps the control's two lines (a row is measured against the control only when the line counts match) */
 const shortRefs: TypedRef[] = [{ kind: 'item', org: 'chips', id: 'item-s' }, { kind: 'doc', org: 'chips', id: 'doc-s' }, { kind: 'app', org: 'chips', id: 'app-s' }]
 const world: RefWorld = {
   org: 'chips',
-  items: new Map([['docket-copy', labels.item!], ['item-s', labels['item-s']!]]), docs: new Map([['notes', labels.doc!], ['doc-s', labels['doc-s']!]]),
+  items: new Map([['docket-copy', labels.item!], ['item-s', labels['item-s']!]]), docs: new Map([['notes', labels.doc!], ['doc-s', labels['doc-s']!], ['doc-n', labels['doc-n']!]]),
   agents: new Map([['dev1', 'dev1'], ['crew', 'crew']]),
   tierOf: id => (id === 'crew' ? 'project' : 'opus'),
-  refName: ref => ({ outcome: 'ready', label: labels[ref.id.endsWith('-s') ? ref.id : ref.kind] ?? ref.id,
-    flare: ref.kind === 'item' ? { cls: 'status-in_progress', tip: 'In progress' } : undefined }),
+  // an unread presentation (doc-n) wears its flare, so a message link's can be compared with it
+  refName: ref => ({ outcome: 'ready', label: labels[ref.id.endsWith('-s') || ref.id === 'doc-n' ? ref.id : ref.kind] ?? ref.id,
+    flare: ref.kind === 'item' ? { cls: 'status-in_progress', tip: 'In progress' } : ref.id === 'doc-n' ? { cls: 'doc-new', tip: 'Unread' } : undefined }),
 }
 
 const net: NetBlock = {
@@ -105,6 +106,9 @@ function Rows() {
     <Md ctx="msg-mail" token={refToken(mailRef('m-plan'))} />
     <Md ctx="msg-mail-mixed" token="" body={`<p>See ${refToken(shortRefs[0]!)}, ${refToken(shortRefs[1]!)} and ${refToken(mailRef('m-plan'))} together.</p>`} />
     <Md ctx="msg-mail-gone" token={refToken(mailRef('gone-1'))} />
+    {/* a message the user has not read (USER 2026-10-31 m5345a1e44ad1): alone, beside an unread presentation link, as the React chip, and on the tool row */}
+    <Md ctx="msg-mail-unread" token={refToken(mailRef('unread-1'))} />
+    <Md ctx="msg-mail-unread-mixed" token="" body={`<p>See ${refToken({ kind: 'doc', org: 'chips', id: 'doc-n' })} and ${refToken(mailRef('unread-1'))} together.</p>`} />
     <Md ctx="msg-user-agent" kind="msg user" token="@dev1" />
     <Md ctx="msg-mixed" token="@dev1" body={`<p>Ask ${TOKENS.agent} or ${TOKENS.project}, then see ${TOKENS.item} and ${TOKENS.doc}; ${TOKENS['net-person']} replied.</p>`} />
     {/* the mail reading pane's own body */}
@@ -123,11 +127,15 @@ function Rows() {
         Before <HubContactChip address={address} /> after</Ctx> })}
     <Ctx ctx="react-mail" style={{ fontSize: 13, lineHeight: 1.45, marginBottom: 6 }}>
       Before <RefChip r={resolveRef(mailRef('m-plan'), w)} onOpen={noop} /> after</Ctx>
+    <Ctx ctx="react-mail-unread" style={{ fontSize: 13, lineHeight: 1.45, marginBottom: 6 }}>
+      Before <RefChip r={resolveRef(mailRef('unread-1'), w)} onOpen={noop} /> after</Ctx>
     <Ctx ctx="docket-mail" className="settings docket-modal" style={{ position: 'static', width: 'auto', maxWidth: 'none', height: 'auto', maxHeight: 'none', minHeight: 0, padding: '4px 12px', marginBottom: 6 }}>
       <div className="docket-desc"><RefMdBody className="md" world={w} onOpen={noop}
         html={{ __html: `<p>Blocked by ${refToken(shortRefs[0]!)} until ${refToken(mailRef('m-plan'))} is answered.</p>` }} /></div></Ctx>
     <Ctx ctx="tool-mail" className="desk-body" style={{ marginBottom: 6 }}><div className="msgs" style={{ display: 'block', overflow: 'visible' }}>
       <ToolChip t={{ id: 'sent', name: 'orgtree_message', arg: 'dev1', mail: { id: 'm-plan', to: 'user_inbox' } } as never} slug="chips" nid="dev1" onMailLink={noop} /></div></Ctx>
+    <Ctx ctx="tool-mail-unread" className="desk-body" style={{ marginBottom: 6 }}><div className="msgs" style={{ display: 'block', overflow: 'visible' }}>
+      <ToolChip t={{ id: 'sent-unread', name: 'orgtree_message', arg: 'user', mail: { id: 'unread-1', to: 'user_inbox' } } as never} slug="chips" nid="dev1" onMailLink={noop} /></div></Ctx>
     {/* the docket: a description's mentions (WorkRefText) */}
     <Ctx ctx="docket-agent" className="settings docket-modal" style={{ position: 'static', width: 'auto', maxWidth: 'none', height: 'auto', maxHeight: 'none', minHeight: 0, padding: '4px 12px', marginBottom: 6 }}>
       <p style={{ margin: 0 }}>Hand it to <WorkRefText text="dev1" index={index} onPick={noop} onFocusAgent={noop} /> when done.</p></Ctx>
