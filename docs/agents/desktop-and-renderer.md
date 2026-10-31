@@ -2571,6 +2571,47 @@ button resets cannot override it):
 [decided: user 2026-10-29 md447762e475e, mb6da9f3ee862; verified: `styles.css`, `canvas/{identity,cards,deskmodel,OrgCanvas,accounts,modals,orgpicture}.tsx`, `canvas/orglogo.css`, `tests/letterchip-centring.test.tsx`]
 
 
+## Inline link chips share their name's baseline (2026-10-31, 4.5.3)
+
+An inline link chip (an agent or project link, a network contact, a ticket, presentation, app or panel link) lines up
+with the words around it: the NAME sits on the text's baseline, and the chip adds nothing to the line's height. The
+user's report was "agent links are sometimes vertically misaligned with the surrounding text in places"
+(m4b300ae4cbd1), with the org inbox's Sent line (`@agent as @org -> @recipient`) and a chat message as examples.
+
+- **Cause, measured** (`tests/chipalign.capture.cjs`, Session 0): an agent or project chip is an inline-flex box
+  (`.ref-chip.ref-agent`, `.node-link`: a 16px badge, then the name). A flex box takes its baseline from its first
+  item, which is the badge, and `align-items: center` left it there. So the badge's letter, not the name, sat on the
+  line's baseline, and the name sat 0.4 to 2.2 px away from the words beside it. At the base: the Sent line 1.09 px,
+  a project chip in a message 1.78 px, an event head 1.34 px, a folded ask 1.31 px, an idle ticket 1.03 px, and the
+  docket's mention badge 2 px below its name's lowercase centre.
+- **The rule**: `.ref-chip.ref-agent`, `.node-link` are `align-items: baseline`, so the name (the one item that does not
+  opt out) is the chip's baseline. The badge (`.tier`, `.project-mark`) opts out with `align-self: center` and carries
+  `margin-block: -4px`, so it centres on the name's line without taking part in the baseline and without adding its
+  16px to the line (a chip is as tall as its name; the badge overflows evenly, and fits inside any line of 13px or
+  more). Same recipe as the ticket/presentation/app/panel chips, whose `.ref-mark` centres itself. The chip itself
+  carries `margin-block: -2px` (the clipped table form, `.slots-table .slot-agent .ref-agent`, keeps 0): its mono name's
+  line box is taller than the words' and used to grow a line of 13px text at line-height 1.5 by 1.4 px, and now grows
+  it by 0 (measured against the same line without the chip, `tests/chipalign.capture.cjs` and `chipicons.capture.cjs`).
+- **Rows that hold a chip beside words align by baseline**, as `.mailer-head` always did: centring boxes of a mono chip
+  and sans words aligns the boxes, not their text. `.event-head`, `.event-actor`, `.ask-fold-line` and `.idle-ticket`
+  changed from `center` to `baseline`. A new row that puts a chip next to text must do the same, and a new chip that
+  is a flex box must keep its baseline on its name.
+- **Left as they were**: network contact chips and the ticket/presentation chips already measured 0; `.tool-refs`
+  (0.39 px) and the mail row's contact chip (0.34 px) are inside the 0.5 px tolerance. Baseline alignment lets a row
+  that mixes a mono ticket chip with sans words grow by up to a pixel (the folded ask +0.63, the idle ticket +1), so
+  the ticket chip in those two rows (`.ask-fold-line > .ref-chip`, `.idle-ticket > .ref-chip`) carries the same
+  `margin-block: -2px` and the rows keep their old height. Ticket, presentation, app, panel and contact chips in
+  running prose add 0.36 px beside it, as at the base, and were not touched.
+- **The docket mention** (`.docket-modal .docket-mention .tier`): `top: 1px` became `top: -1.7px`, moving the badge
+  from 2 px below its name's lowercase centre to 0.7 px.
+- **Proofs**: `tests/chipalign.test.tsx` pins the stylesheet (jsdom has no layout), and `tests/chipalign.capture.cjs`
+  over `tests/chipalign.visual.tsx` and `tests/orginbox-delivered.visual.tsx` measures, in Electron in Session 0, the
+  baseline of every text run on every line (at most 0.5 px apart), each badge against its label's line centre (1 px)
+  and lowercase centre (2 px), and each row against a run at the base (0.5 px a line, and no taller than the same message without the chip), in both mention layouts, over
+  chat prose, a mail body, the docket, an event head, a mail row, an ask fold, an idle ticket, a tool row, and the
+  org inbox's Sent and delivered-to lines.
+[decided: user 2026-10-31 m4b300ae4cbd1, mb6da9f3ee862; verified: `styles.css`, `canvas/identity.tsx`, `tests/chipalign.{test.tsx,capture.cjs,visual.tsx}`]
+
 ## Retained last-good usage readings across failed fetches (2026-10-29, 4.5.2)
 
 When an account already has a valid usage reading and a later usage fetch fails
