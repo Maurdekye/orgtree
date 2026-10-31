@@ -5,6 +5,7 @@
 // object mentions" setting (inline fragments instead of inline-flex buttons) and measures each icon against its
 // label. Browser-only fixture data: no engine, bridge or live org.
 import { createRoot } from 'react-dom/client'
+import { useAppFeed } from '../src/appfeed'
 import { HubContactChip, setHubchatInstalled } from '../src/canvas/agentmentions'
 import { NodeLink, ProjectLink } from '../src/canvas/identity'
 import { setNetRoster } from '../src/canvas/netmentions'
@@ -73,8 +74,10 @@ function Rows({ size }: { size: number }) {
   </section>
 }
 
+/** the shell keeps the app feed open in the real app (mentions no longer open it themselves, 4.5.0 release gate); the "wrap object mentions" value reaches the page through it */
+function Feed() { useAppFeed(); return null }
 function Fixture() {
-  return <div id="stage"><Rows size={13} /><Rows size={22} /></div>
+  return <div id="stage"><Feed /><Rows size={13} /><Rows size={22} /></div>
 }
 
 Object.assign(window, { chipFixture: { wrap: (on: boolean) => backend.emit(on) } })

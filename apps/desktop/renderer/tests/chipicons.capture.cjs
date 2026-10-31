@@ -10,8 +10,10 @@
 // it was there by more than half a pixel: the fix must not change the line height around a link.
 //
 // Session 0, hidden off-screen window, muted, clipboard stubbed and denied, only file: data: blob: requests, no
-// OS input. Writes only under <outDir>/<label>/.
-const { app, BrowserWindow, session, clipboard } = require('electron')
+// OS input. Writes only under <outDir>/<label>/. The page loads inert and the isolation guard (chipcapture-guard.cjs: every
+// process in Session 0, mute, permission handlers, main-world clipboard guard probed) passes before the fixture script is injected.
+const { app } = require('electron')
+const { createGuard } = require('./chipcapture-guard.cjs')
 const fs = require('node:fs'), path = require('node:path'), assert = require('node:assert/strict')
 const { execFileSync } = require('node:child_process')
 const [outArg, repoArg, depsArg, label = 'run', baselineArg] = process.argv.slice(2)
@@ -21,9 +23,6 @@ assert.equal(sid(process.pid), 0, 'Session 0 required before creating a window')
 fs.mkdirSync(out, { recursive: true })
 app.setPath('userData', path.join(out, 'profile-' + process.pid)); app.setPath('sessionData', path.join(out, 'session-' + process.pid))
 app.disableHardwareAcceleration(); app.commandLine.appendSwitch('mute-audio')
-let clipboardCalls = 0
-for (const k of Object.keys(clipboard)) if (typeof clipboard[k] === 'function') clipboard[k] = () => { clipboardCalls++; return k === 'availableFormats' ? [] : k === 'has' ? false : '' }
-const within = async (p, ms, what) => { let t; try { return await Promise.race([p, new Promise((_r, j) => { t = setTimeout(() => j(Error('Deadline: ' + what)), ms) })]) } finally { clearTimeout(t) } }
 
 async function bundle() {
   const esbuild = require(path.join(deps, 'esbuild'))
@@ -35,7 +34,7 @@ async function bundle() {
       define: { 'process.env.NODE_ENV': '"production"', __SRC_DIR__: '""' },
     })
   } finally { await esbuild.stop() }
-  fs.writeFileSync(path.join(out, 'index.html'), '<!doctype html><html lang="en"><meta charset="utf-8"><link rel="stylesheet" href="probe.css"><body style="margin:0"><div id="root"></div><script src="probe.js"></script></html>')
+  fs.writeFileSync(path.join(out, 'index.html'), '<!doctype html><html lang="en"><meta charset="utf-8"><link rel="stylesheet" href="probe.css"><body style="margin:0"><div id="root"></div></html>')
 }
 
 const MEASURE = `(() => {
@@ -78,19 +77,13 @@ app.whenReady().then(async () => {
   const errors = []
   try {
     await bundle()
-    const ses = session.fromPartition('chip-icons-' + process.pid)
-    ses.setPermissionCheckHandler(() => false); ses.setPermissionRequestHandler((_w, _p, done) => done(false))
-    ses.webRequest.onBeforeRequest((d, done) => done({ cancel: !/^(file:|data:|blob:|about:)/.test(d.url) }))
-    const win = new BrowserWindow({ width: 1024, height: 768, show: false, frame: false,
-      webPreferences: { session: ses, offscreen: true, backgroundThrottling: false, nodeIntegration: false, sandbox: true, contextIsolation: true } })
-    const wc = win.webContents
-    wc.setAudioMuted(true); wc.setWindowOpenHandler(() => ({ action: 'deny' }))
-    for (const k of ['copy', 'cut', 'paste', 'pasteAndMatchStyle']) wc[k] = () => { throw Error('Clipboard denied') }
+    // the guarded window (chipcapture-guard.cjs): every process in Session 0, muted, the page's clipboard guard probed before the fixture script
+    const guard = createGuard({ electron: require('electron'), out, width: 1024, height: 768, partition: 'chip-icons' })
+    const { wc, js } = guard
     wc.on('console-message', (_e, level, message) => { if (level >= 2) errors.push(message) })
-    const js = s => wc.executeJavaScript(s)
     const wait = s => js(`new Promise((resolve, reject) => { const end = Date.now() + 8000; (function check() { if (${s}) return resolve(); if (Date.now() > end) return reject(Error('Wait: ' + ${JSON.stringify(s)})); setTimeout(check, 25) })() })`)
     const paint = () => js('new Promise(r => requestAnimationFrame(() => requestAnimationFrame(() => setTimeout(r, 120))))')
-    await within(win.loadFile(path.join(out, 'index.html')), 15000, 'load')
+    await guard.load(path.join(out, 'index.html'), 'probe.js', 'chipicons')
     await wait("document.querySelectorAll('[data-chip-row]').length >= 30"); await paint()
 
     const all = []
@@ -119,14 +112,17 @@ app.whenReady().then(async () => {
     const base = baselineArg ? new Map(JSON.parse(fs.readFileSync(path.resolve(baselineArg), 'utf8')).rows.map(r => [`${r.mode}/${r.size}/${r.row}`, r.lineDelta])) : null
     for (const r of all) { const was = base && base.get(`${r.mode}/${r.size}/${r.row}`); r.lineGrew = was === undefined || was === null ? 0 : +(r.lineDelta - was).toFixed(2) }
     const bad = all.filter(r => r.error || Math.abs(r.off) > 1 || r.lineGrew > 0.5)
+    const receipt = await guard.finish()
     const result = { label, status: bad.length ? 'FAIL' : 'PASS', measured: all.length, failing: bad.length, sessionId: sid(process.pid),
-      rendererSessionId: sid(wc.getOSProcessId()), muted: wc.isAudioMuted(), clipboardCalls, errors, rows: all }
+      rendererSessionId: sid(wc.getOSProcessId()), muted: wc.isAudioMuted(), clipboardCalls: guard.clipboardCalls(), guard: receipt, errors, rows: all }
     fs.writeFileSync(path.join(out, 'results.json'), JSON.stringify(result, null, 2))
     fs.writeFileSync(path.join(out, 'all.png'), (await wc.capturePage()).toPNG())
     const line = r => `${r.mode.padEnd(6)} ${String(r.size).padStart(2)}px ${r.row.padEnd(14)} ${r.error ? 'ERROR ' + r.error : `off ${String(r.off).padStart(6)} px  line ${String(r.lineDelta).padStart(6)} px (${r.lineGrew >= 0 ? '+' : ''}${r.lineGrew})  icon ${r.markHeight.toFixed(1)}h label ${r.labelHeight.toFixed(1)}h  ${r.tag}/${r.display}`}`
     console.log(all.map(line).join('\n'))
     console.log(`${result.status}: ${all.length} measured, ${bad.length} failing (icon centre more than 1 px off its label, or a line taller than at the baseline by more than 0.5 px)`)
-    assert.equal(clipboardCalls, 0)
+    assert.equal(result.clipboardCalls, 0)
+    assert.equal(result.rendererSessionId, 0)
+    assert.equal(result.muted, true)
     app.exit(bad.length ? 1 : 0)
   } catch (e) { console.error(e); try { fs.writeFileSync(path.join(out, 'failure.json'), JSON.stringify({ error: String(e), errors }, null, 2)) } catch {} app.exit(2) }
 }).catch(e => { console.error(e); app.exit(2) })
