@@ -10207,7 +10207,7 @@ button.ref-chip.ref-chip.ref-ready:is(.ref-item, .ref-doc, .ref-app, .ref-panel,
    message the user has not read wears the unread accent too (USER 2026-10-31
    m5345a1e44ad1 "mail has an unread highlight like presentations do").
    The words are the link's tooltip; a read presentation or message has none. */
-:is(.ref-chip.ref-chip, .docket-modal .docket-ref.docket-ref).ref-flare:not(.run-on, .run-dead) {
+:is(.ref-chip.ref-chip, .docket-modal .docket-ref.docket-ref).ref-flare {
   padding-left: 5px;
   box-shadow: inset 3px 0 0 var(--ref-flare-color, var(--docket-status-color, transparent));
 }
@@ -10218,12 +10218,13 @@ button.ref-chip.ref-chip.ref-ready:is(.ref-item, .ref-doc, .ref-app, .ref-panel,
 .ref-flare.doc-updated { --ref-flare-color: color-mix(in srgb, var(--org-accent) 45%, transparent); }
 /* AN APP OR PANEL LINK'S RUN STATE (USER 2026-10-31 m8d5facfeae29 "panels that are running (or apps with any panels running) should
    have a highlight", m9a790bb7a155 "if an app has a panel but its dead then the highligth should be dark grey", m16901ed8c657 "if an
-   app has no panels then it should not have a highlight", m29a112a68005 "Tint like unread"): the same chip flare, drawn as a tinted
-   background where the unread/status edge above is a left edge, so the two can never overlap. Running is a tint of the accent, dead
-   (an app with panels none of which runs, a panel that is off) a tint of the theme's dim grey, none (an app with no panels) no tint.
-   The Apps list's app and panel rows wear the same two tints (apps.css). */
-.ref-chip.ref-flare.run-on { background: color-mix(in srgb, var(--accent) 24%, transparent); border-radius: 4px; padding-inline: 4px; }
-.ref-chip.ref-flare.run-dead { background: color-mix(in srgb, var(--dim) 32%, transparent); border-radius: 4px; padding-inline: 4px; }
+   app has no panels then it should not have a highlight", m4c09dab3ee56 "Left edge like unread" + "Provider colour", which replaced the
+   dot and then "Tint like unread"): the SAME narrow left edge as the unread highlight above (that rule draws it; these only set its
+   colour). Running is --accent, which a provider-coloured desk re-points at its provider (the unread edge stays the theme's
+   --org-accent), dead (an app with panels none of which runs, a panel that is off) a dark grey of the theme, none (an app with no
+   panels) no flare at all. The Apps list's rows keep their tints (apps.css). */
+.ref-flare.run-on { --ref-flare-color: var(--accent); }
+.ref-flare.run-dead { --ref-flare-color: color-mix(in srgb, var(--dim) 55%, black); }
 /* Opt-in (user 2026-10-27): genuine inline fragments, not a multiline atomic
    button. Natural word/dash breaks win; an unbroken identifier can still fit. */
 .wrap-object-mentions .ref-chip.ref-chip.ref-ready:is(.ref-item, .ref-doc, .ref-app, .ref-panel, .ref-message),
