@@ -151,6 +151,9 @@ pub enum AgentMsg {
     /// warming: start the CLI ahead of the next turn (quietly; replies
     /// whether a CLI is running afterwards)
     Warm(oneshot::Sender<bool>),
+    /// a CLI launched off the loop (`Actor::launch_idle`) is ready or failed:
+    /// its result waits in the launch's own channel, under this sequence
+    Launched(u64),
     /// a sign-in helper started hosting: an idle CLI parked in Session 0
     /// moves there (`rehost_all`); replies whether it moved. The place it
     /// holds among the moves allowed at once is freed when the move is done.
@@ -196,6 +199,7 @@ impl std::fmt::Debug for AgentMsg {
             Self::CloseIdle => "CloseIdle",
             Self::ToolCard(..) => "ToolCard",
             Self::Warm(..) => "Warm",
+            Self::Launched(..) => "Launched",
             Self::Rehost(..) => "Rehost",
         };
         f.debug_tuple(kind).finish_non_exhaustive()

@@ -238,6 +238,42 @@ struct Plan {
     rules_len: usize,
 }
 
+/// What a CLI was launched for. A turn takes a CLI launched off the loop
+/// only for the same settings, so it never runs with an old effort or scope.
+#[derive(Clone, PartialEq)]
+struct LaunchKey {
+    print: Fingerprint,
+    want: Option<u32>,
+    effort: String,
+    session: Option<String>,
+    provider: String,
+    tier: String,
+}
+
+/// What installing a started Claude CLI needs from its launch (`install_claude`).
+struct Fit {
+    session: Option<String>,
+    provider: String,
+    generation: i32,
+    resume: Option<String>,
+    effort: Option<String>,
+    print: Fingerprint,
+    notes: String,
+    external: Vec<String>,
+}
+
+type Launched = Result<(ClaudeProc, crate::providers::skills::retention::Lease)>;
+
+/// A Claude CLI starting off the actor's loop after a settings change
+/// (`launch_idle`): not this agent's until it is installed.
+struct Launch {
+    seq: u64,
+    process: uuid::Uuid,
+    key: LaunchKey,
+    fit: Fit,
+    rx: tokio::sync::oneshot::Receiver<Launched>,
+}
+
 /// A plan as the log shows it: granted MCP servers by name only (their
 /// configuration can hold environment, headers and arguments that are
 /// credentials), never their values.
@@ -1007,6 +1043,13 @@ struct Actor {
     loading: Option<String>,
     /// the task that waits for the slot and loads the model first, while one may be loading
     warm_task: Option<tokio::task::AbortHandle>,
+    /// a replacement CLI starting off the loop (`launch_idle`), not yet this agent's
+    launch: Option<Launch>,
+    launch_seq: u64,
+    /// the launching CLI's lines, hooks and exit, held until it is installed or dropped
+    launch_held: Vec<Envelope>,
+    /// held messages handed back: the loop takes them before its mailbox
+    replay: std::collections::VecDeque<Envelope>,
     /// Bounded diagnostic IDs only; the durable mailbox owns the messages.
     followup_mail: Vec<String>,
     turn: Option<Turn>,
@@ -1167,6 +1210,10 @@ impl Actor {
             waiting_since: None,
             loading: None,
             warm_task: None,
+            launch: None,
+            launch_seq: 0,
+            launch_held: Vec::new(),
+            replay: std::collections::VecDeque::new(),
             followup_mail: Vec::new(),
             turn: None,
             last_interrupt: Value::Null,
@@ -1223,9 +1270,20 @@ impl Actor {
         self.publish();
         loop {
             let deadline = self.next_deadline();
-            tokio::select! {
-                msg = rx.recv() => {
+            let next = match self.replay.pop_front() {
+                Some(env) => Some(Some(env)),
+                None => tokio::select! {
+                    msg = rx.recv() => Some(msg),
+                    _ = sleep_until(deadline) => None,
+                },
+            };
+            match next {
+                Some(msg) => {
                     let Some(env) = msg else { break };
+                    if self.holds(&env) {
+                        self.launch_held.push(env);
+                        continue;
+                    }
                     let res = match env.msg {
                         // a keepalive's CLI is not the agent's: its lines end the keepalive
                         AgentMsg::Claude(process, v) if self.keepalive.as_ref().map(|k| k.process) == Some(process) => {
@@ -1271,7 +1329,7 @@ impl Actor {
                         self.publish();
                     }
                 }
-                _ = sleep_until(deadline) => {
+                None => {
                     let span = crate::trace::request(&self.client);
                     if let Err(e) = tracing::Instrument::instrument(boxed(|| self.on_timer()), span).await {
                         tracing::warn!(agent = %self.name, error = %format!("{e:#}"), "agent timer error");
@@ -1290,6 +1348,7 @@ impl Actor {
             }
         }
         rx.close();
+        self.drop_launch();
         boxed(|| self.close_proc()).await;
         if !self.stopping {
             self.publish_idle();
@@ -1658,6 +1717,7 @@ impl Actor {
                 boxed(|| self.update_forecast()).await;
                 self.publish();
             }
+            AgentMsg::Launched(seq) => boxed(|| self.on_launched(seq)).await?,
             AgentMsg::Process { action, reply } => {
                 boxed(|| self.cancel_keepalive()).await;
                 let r = boxed(|| self.process_control(&action)).await;
@@ -1769,6 +1829,10 @@ impl Actor {
     /// would run it (`start_ahead`), so the warming that follows an engine's
     /// restart starts no CLI in Session 0 while the helper is on its way back.
     async fn warm(&mut self) -> bool {
+        if self.launch.is_some() {
+            // a replacement is starting off the loop (`launch_idle`)
+            return true;
+        }
         if self.proc.is_some() || self.turn.is_some() || self.stopping {
             return self.proc.is_some();
         }
@@ -1906,8 +1970,20 @@ impl Actor {
 
     /// Reconfiguration waits for a busy turn, but never for the next mail.
     /// A local CLI replacement does not erase a provider cache receipt.
+    /// The replacement starts off the loop (`launch_idle`), so the agent's
+    /// mail, turns and controls never wait for it.
     async fn replace_idle_process(&mut self) {
-        if !self.reconfigured || self.proc.is_none() || self.turn.is_some() || self.stopping {
+        if self.turn.is_some() || self.stopping {
+            return;
+        }
+        if self.launch.is_some() {
+            // a change while the replacement starts: a launch for other
+            // settings gives way to one for these
+            self.launch_idle().await;
+            self.publish();
+            return;
+        }
+        if !self.reconfigured || self.proc.is_none() {
             return;
         }
         self.keep_until = None;
@@ -1915,7 +1991,224 @@ impl Actor {
         self.reconfigured = false;
         self.publish();
         if super::warming_allowed(&self.engine) && super::memory_for_warming() {
-            self.warm().await;
+            self.launch_idle().await;
+            self.publish();
+        }
+    }
+
+    fn launch_key(ctx: &Ctx, plan: &Plan, want: Option<u32>) -> LaunchKey {
+        LaunchKey {
+            print: plan.print.clone(),
+            want,
+            effort: ctx.effort.clone(),
+            session: ctx.session_id.clone(),
+            provider: ctx.provider.clone(),
+            tier: ctx.tier.clone(),
+        }
+    }
+
+    /// Whether this agent's CLI is Claude Code (where `ensure_proc` ends).
+    fn claude_lane(ctx: &Ctx, route: Option<&OrRoute>) -> bool {
+        ctx.harness.as_deref() != Some("opencode")
+            && ctx.provider != catalog::OPENAI
+            && !route.map(|r| r.codex).unwrap_or(false)
+            && ctx.provider != catalog::GOOGLE
+            && ctx.provider != catalog::MUSE
+            && (ctx.provider == catalog::CLAUDE || route.is_some())
+    }
+
+    /// Warm the replacement CLI off the loop (user 2026-10-31 m405acb968af7,
+    /// "Yes, in 4.5.3"): the launch is planned here; its slow part (the
+    /// skills snapshot and its lease, the process and its handshake) runs in
+    /// a task, and the agent keeps taking mail, turns and controls meanwhile.
+    /// A launch under way for other settings is dropped for this one. Claude
+    /// Code only: another CLI starts cold at the next turn, with the new
+    /// settings. Replies whether a launch is under way.
+    async fn launch_idle(&mut self) -> bool {
+        match self.start_launch().await {
+            Ok(started) => started,
+            Err(e) => {
+                self.drop_launch();
+                tracing::info!(agent = %self.name, reason = %format!("{e:#}"), "not warmed");
+                false
+            }
+        }
+    }
+
+    async fn start_launch(&mut self) -> Result<bool> {
+        if self.proc.is_some() || self.turn.is_some() || self.stopping {
+            return Ok(false);
+        }
+        let ctx = self.load_ctx().await?;
+        if ctx.state != "live" || ctx.halted || ctx.frozen || ctx.killswitch {
+            self.drop_launch();
+            return Ok(false);
+        }
+        self.session_settle(&ctx.session_pref, Settling::Warm).await;
+        if self.engine.shutdown.is_cancelled() {
+            return Err(anyhow!("the engine is stopping"));
+        }
+        let route = if ctx.provider == catalog::OPENROUTER {
+            Some(self.openrouter_route(&ctx).await?)
+        } else if ctx.provider == catalog::LANGSERVER {
+            Some(self.langserver_route(&ctx).await?)
+        } else {
+            None
+        };
+        self.account_gate(&ctx, route.as_ref())?;
+        if !Self::claude_lane(&ctx, route.as_ref()) {
+            self.drop_launch();
+            return Ok(false);
+        }
+        if route.is_none() && !self.engine.settings.provider_enabled(catalog::CLAUDE) {
+            return Err(anyhow!("Claude is turned off in App settings"));
+        }
+        let plan = self.plan(&ctx);
+        // the next turn's on-demand pick (`use`) stays that turn's to take
+        let pick = self.use_session;
+        let want = self.want_hosted(&ctx);
+        self.use_session = pick;
+        let key = Self::launch_key(&ctx, &plan, want);
+        if self.launch.as_ref().is_some_and(|l| l.key == key) {
+            return Ok(true);
+        }
+        self.drop_launch();
+        self.reconfigured = false;
+        self.convo.set_skill_registry(&plan.skills, &self.engine.cfg.data_root);
+        let mut paths = skill_folders(&ctx);
+        let (mut spec, _) = self.claude_spec(&ctx, route.as_ref(), &plan, false).await?;
+        spec.host = want;
+        let fit = Fit {
+            session: ctx.session_id.clone(),
+            provider: ctx.provider.clone(),
+            generation: ctx.generation,
+            resume: spec.resume.clone(),
+            effort: spec.effort.clone(),
+            print: plan.print.clone(),
+            notes: plan.notes.clone(),
+            external: plan.external.clone(),
+        };
+        let caller = Caller { org_id: self.org_id, org_slug: ctx.org_slug.clone(), agent_id: self.id, name: ctx.name.clone() };
+        self.launch_seq += 1;
+        let (seq, process) = (self.launch_seq, uuid::Uuid::new_v4());
+        let (done, rx) = tokio::sync::oneshot::channel::<Launched>();
+        let (engine, tx, skills, data) = (self.engine.clone(), self.tx.clone(), plan.skills.clone(), self.engine.cfg.data_root.clone());
+        let (previous, generation) = (ctx.session_id.clone(), ctx.generation);
+        tracing::info!(agent = %self.name, seq, %process, "launching the replacement CLI off the loop");
+        tokio::spawn(tracing::Instrument::instrument(async move {
+            let result: Launched = async {
+                let snapshot = tokio::task::spawn_blocking(move || skills.materialize(&data)).await??;
+                paths.push(snapshot);
+                let lease = crate::providers::skills::retention::hold(&engine, paths, previous, generation).await?;
+                let proc = ClaudeProc::spawn_as(engine.clone(), spec, caller, tx.clone(), process).await?;
+                Ok((proc, lease))
+            }
+            .await;
+            // nobody takes it any more (a newer launch, a stop): it closes here
+            if let Err(Ok((mut proc, _))) = done.send(result) {
+                proc.close().await;
+            }
+            let _ = tx.post(AgentMsg::Launched(seq));
+        }, tracing::Span::current()));
+        self.launch = Some(Launch { seq, process, key, fit, rx });
+        Ok(true)
+    }
+
+    /// Drop a launch nobody will take (other settings, a stop): a CLI it
+    /// already started closes gracefully off the loop, one still starting
+    /// closes in its own task; the lines it sent go back to the loop, where
+    /// they belong to no process of this agent.
+    fn drop_launch(&mut self) {
+        if let Some(mut l) = self.launch.take() {
+            l.rx.close();
+            if let Ok(Ok((mut proc, _))) = l.rx.try_recv() {
+                tokio::spawn(async move { proc.close().await });
+            }
+        }
+        self.replay.extend(self.launch_held.drain(..));
+    }
+
+    /// The launched CLI, if it was launched for `key`: the admitted turn
+    /// waits for it here, which is never later than starting one now would
+    /// be. None: start one now (a launch for other settings is dropped).
+    async fn take_launch(&mut self, key: &LaunchKey) -> Option<(Fit, ClaudeProc, crate::providers::skills::retention::Lease)> {
+        if !self.launch.as_ref().is_some_and(|l| &l.key == key) {
+            self.drop_launch();
+            return None;
+        }
+        let Launch { fit, rx, .. } = self.launch.take()?;
+        match rx.await {
+            Ok(Ok((proc, lease))) => Some((fit, proc, lease)),
+            Ok(Err(e)) => {
+                tracing::info!(agent = %self.name, reason = %format!("{e:#}"), "the launched CLI did not start: starting one now");
+                self.replay.extend(self.launch_held.drain(..));
+                None
+            }
+            Err(_) => {
+                self.replay.extend(self.launch_held.drain(..));
+                None
+            }
+        }
+    }
+
+    /// A launch's task is done. Idle, with the settings it was launched for:
+    /// the CLI is installed and parked. Settings changed meanwhile: it closes
+    /// and a launch for the new ones starts. Taken by a turn, or dropped:
+    /// nothing to do.
+    async fn on_launched(&mut self, seq: u64) -> Result<()> {
+        if self.launch.as_ref().map(|l| l.seq) != Some(seq) {
+            return Ok(());
+        }
+        if self.proc.is_some() || self.turn.is_some() || self.stopping {
+            self.drop_launch();
+            self.publish();
+            return Ok(());
+        }
+        let ctx = match self.load_ctx().await {
+            Ok(ctx) => ctx,
+            Err(e) => {
+                self.drop_launch();
+                self.publish();
+                return Err(e);
+            }
+        };
+        let plan = self.plan(&ctx);
+        let bypass = ctx.effective["permission_mode"].as_str() == Some("bypassPermissions");
+        let want = crate::runtime::session_host::wanted(&self.engine, bypass, &ctx.session_pref, self.use_session);
+        let key = Self::launch_key(&ctx, &plan, want);
+        if self.launch.as_ref().is_some_and(|l| l.key != key) {
+            tracing::info!(agent = %self.name, seq, "the settings changed while the CLI started: launching again");
+            self.drop_launch();
+            self.launch_idle().await;
+            self.publish();
+            return Ok(());
+        }
+        let Some(Launch { fit, mut rx, .. }) = self.launch.take() else { return Ok(()) };
+        match rx.try_recv() {
+            Ok(Ok((proc, lease))) => {
+                self.install_claude(fit, proc, lease).await?;
+                self.park();
+            }
+            Ok(Err(e)) => {
+                tracing::info!(agent = %self.name, reason = %format!("{e:#}"), "not warmed");
+                self.replay.extend(self.launch_held.drain(..));
+            }
+            Err(_) => self.replay.extend(self.launch_held.drain(..)),
+        }
+        self.publish();
+        Ok(())
+    }
+
+    /// The launching CLI's lines, hooks and exit wait until it is this
+    /// agent's (or dropped), in the order they came.
+    fn holds(&self, env: &Envelope) -> bool {
+        let Some(l) = self.launch.as_ref() else { return false };
+        match &env.msg {
+            AgentMsg::Claude(p, _)
+            | AgentMsg::Hook { process: p, .. }
+            | AgentMsg::ProcExited { process: p, .. }
+            | AgentMsg::InterruptBoundary { process: p, .. } => *p == l.process,
+            _ => false,
         }
     }
 
@@ -1927,6 +2220,7 @@ impl Actor {
                                "error": "a turn is running; interrupt it first" });
             }
             self.keep_until = None;
+            self.drop_launch();
             self.close_proc().await;
             return json!({ "ok": true, "action": "stop", "already": !had, "paused": false, "proc_warm": false,
                            "proc_live": false, "killed": had });
@@ -3158,18 +3452,37 @@ impl Actor {
         }
         boxed(|| self.close_proc()).await;
         self.reconfigured = false;
+        // a CLI launched off the loop for these settings: this turn takes it
+        if let Some((fit, proc, lease)) = self.take_launch(&Self::launch_key(ctx, &plan, want)).await {
+            return self.install_claude(fit, proc, lease).await;
+        }
         let skill_use = self.skill_use(ctx, &plan).await?;
         let (mut spec, _) = self.claude_spec(ctx, route.as_ref(), &plan, false).await?;
         spec.host = want;
-        let resume = spec.resume.clone();
-        let effort = spec.effort.clone();
+        let fit = Fit {
+            session: ctx.session_id.clone(),
+            provider: ctx.provider.clone(),
+            generation: ctx.generation,
+            resume: spec.resume.clone(),
+            effort: spec.effort.clone(),
+            print: plan.print,
+            notes: plan.notes,
+            external: plan.external,
+        };
         let caller = Caller { org_id: self.org_id, org_slug: ctx.org_slug.clone(), agent_id: self.id, name: ctx.name.clone() };
         let proc = boxed(|| ClaudeProc::spawn(self.engine.clone(), spec, caller, self.tx.clone())).await?;
+        self.install_claude(fit, proc, skill_use).await
+    }
+
+    /// A started Claude CLI becomes this agent's: its session is recorded,
+    /// its skills held, its launch remembered; lines it sent while it was
+    /// launched off the loop are handed back first.
+    async fn install_claude(&mut self, fit: Fit, proc: ClaudeProc, skill_use: crate::providers::skills::retention::Lease) -> Result<()> {
         let session_id = proc.session_id.clone();
-        if ctx.session_id.is_some() && resume.as_deref() != Some(session_id.as_str()) {
+        if fit.session.is_some() && fit.resume.as_deref() != Some(session_id.as_str()) {
             self.flag_handoff("its previous session could not be resumed").await;
         }
-        if resume.as_deref() != Some(session_id.as_str()) {
+        if fit.resume.as_deref() != Some(session_id.as_str()) {
             // a new session: its cost counter starts at zero
             self.cost_seen = 0.0;
             let client = self.engine.db.get().await?;
@@ -3177,13 +3490,13 @@ impl Actor {
                 .execute(
                     "UPDATE ot.agents SET session_id = $2, provider = $3,
                             extra = jsonb_set(extra, '{cost_seen}', '0'::jsonb) WHERE id = $1",
-                    &[&self.id, &session_id, &ctx.provider],
+                    &[&self.id, &session_id, &fit.provider],
                 )
                 .await?;
             client
                 .execute(
                     "INSERT INTO ot.agent_sessions (agent_id, generation, provider, session_id) VALUES ($1, $2, $3, $4)",
-                    &[&self.id, &ctx.generation, &ctx.provider, &session_id],
+                    &[&self.id, &fit.generation, &fit.provider, &session_id],
                 )
                 .await?;
         }
@@ -3192,19 +3505,20 @@ impl Actor {
         self.proc_skills = Some(skill_use);
         crate::providers::skills::retention::schedule(&self.engine);
         self.proc = Some(Proc::Claude(proc));
-        self.proc_print = Some(plan.print);
-        self.proc_notes = Some(plan.notes);
-        self.proc_effort = effort;
-        self.provider = ctx.provider.clone();
+        self.proc_print = Some(fit.print);
+        self.proc_notes = Some(fit.notes);
+        self.proc_effort = fit.effort;
+        self.provider = fit.provider;
+        self.replay.extend(self.launch_held.drain(..));
         self.mcp = McpState { last_turn_count: self.mcp.last_turn_count, ..McpState::default() };
-        if !plan.external.is_empty() {
+        if !fit.external.is_empty() {
             self.mcp.waiting = true;
             self.mcp.state = Some("connecting".into());
-            self.mcp.reason = Some(format!("connecting to {}", plan.external.join(", ")));
+            self.mcp.reason = Some(format!("connecting to {}", fit.external.join(", ")));
         }
         self.publish();
-        if !plan.external.is_empty() && self.engine.settings.wait_for_mcp_tools() {
-            self.wait_for_mcp(&plan.external).await;
+        if !fit.external.is_empty() && self.engine.settings.wait_for_mcp_tools() {
+            self.wait_for_mcp(&fit.external).await;
         }
         Ok(())
     }
@@ -4486,6 +4800,7 @@ impl Actor {
     }
 
     async fn kill_proc(&mut self) {
+        self.drop_launch();
         if let Some(t)=self.turn.as_mut() {t.shell_output.clear();}
         self.engine.credential_bridge.revoke(self.id);
         self.unpark();

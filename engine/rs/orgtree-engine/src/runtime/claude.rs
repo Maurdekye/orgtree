@@ -196,12 +196,25 @@ impl ClaudeProc {
         caller: Caller,
         actor: AgentTx,
     ) -> Result<ClaudeProc> {
+        Self::spawn_as(engine, spec, caller, actor, uuid::Uuid::new_v4()).await
+    }
+
+    /// `spawn` under a process id chosen by the caller: an actor that
+    /// launches off its loop knows which process's lines to hold until the
+    /// CLI is its own (`Actor::launch_idle`).
+    #[nolog]
+    pub async fn spawn_as(
+        engine: Arc<Engine>,
+        spec: SpawnSpec,
+        caller: Caller,
+        actor: AgentTx,
+        process: uuid::Uuid,
+    ) -> Result<ClaudeProc> {
         let session_id = spec.resume.clone().unwrap_or_else(|| spec.new_session.clone());
         let (started, hosted) = session_host::spawn(&engine, spec.host, false, caller.agent_id, "Claude", |_| Ok(command(&spec)))
             .await
             .with_context(|| format!("could not start {}", spec.exe.display()))?;
         let session_host::Started { io, launched, job, pid } = started;
-        let process = uuid::Uuid::new_v4();
         tracing::info!(agent = caller.agent_id, pid, %process, provider = "Claude", hosted, "CLI started");
         let session_host::Io { mut stdin, stdout, stderr } = io;
         let child = launched;
