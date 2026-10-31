@@ -48,6 +48,10 @@
   padding: 0 .45em 0 .2em; border-radius: .45em;
   background: var(--net-bg); color: var(--ink-strong); text-decoration: none;
 }
+/* a contact link in running text adds nothing to its line, like the other chips (styles.css: "A LINK IN RUNNING TEXT"); in the
+   org inbox's address lines (`.mailer-head`), where the chips are the tallest things on their rows, it keeps its height */
+.ref-chip.ref-chip.ref-hub.net-chip { margin-block: -2px; }
+.mailer-head .ref-chip.ref-chip.ref-hub.net-chip { margin-block: 0; }
 .ref-chip.ref-chip.ref-hub.net-org { --net-bg: var(--net-org-bg); --net-fg: var(--net-org); }
 .ref-chip.ref-chip.ref-hub.net-chat { --net-bg: var(--net-chat-bg); --net-fg: var(--net-chat); }
 .ref-chip.ref-chip.ref-hub.net-person { --net-bg: var(--net-person-bg); --net-fg: var(--net-person); border-radius: 999px; padding-left: .15em; }
