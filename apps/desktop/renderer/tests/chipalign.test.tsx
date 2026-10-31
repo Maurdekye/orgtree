@@ -36,6 +36,25 @@ function declarations(css: string, selector: string): Map<string, string> {
 }
 
 const css = () => readFileSync(path.join(__SRC_DIR__, 'styles.css'), 'utf8')
+const netCss = () => readFileSync(path.join(__SRC_DIR__, 'canvas', 'netmentions.css'), 'utf8')
+
+/** the declarations of every rule whose selector text is exactly `selector` (a selector with a comma inside :is() cannot be matched by `declarations`) */
+function declarationsOf(sheet: string, selector: string): Map<string, string> {
+  const style = document.createElement('style'); style.textContent = sheet; document.head.appendChild(style)
+  const out = new Map<string, string>()
+  try {
+    const visit = (rules: CSSRuleList) => {
+      for (const rule of Array.from(rules)) {
+        const r = rule as CSSStyleRule & { cssRules?: CSSRuleList }
+        if (r.selectorText && r.selectorText.replace(/\s+/g, ' ').trim() === selector)
+          for (let i = 0; i < r.style.length; i++) out.set(r.style[i]!, r.style.getPropertyValue(r.style[i]!))
+        else if (r.cssRules && !r.selectorText) visit(r.cssRules)
+      }
+    }
+    visit((style.sheet as CSSStyleSheet).cssRules)
+  } finally { style.remove() }
+  return out
+}
 
 test('§1 an agent or project chip takes its baseline from its name, not its badge', () => {
   const sheet = css()
@@ -70,6 +89,14 @@ test('§3b a table cell that draws the chip as a block keeps its own height', ()
 test('§3c the ticket chip in those two rows adds nothing to their height', () => {
   for (const sel of ['.ask-fold-line > .ref-chip.ref-chip', '.idle-ticket > .ref-chip.ref-chip'])
     assert.equal(declarations(css(), sel).get('margin-block'), '-2px', `${sel}: negative block margins, since baseline alignment alone grows the row by up to a pixel`)
+})
+
+test('§3d a link in running text adds nothing to its line, in both mention layouts', () => {
+  const objects = '.ref-chip.ref-chip.ref-ready:is(.ref-item, .ref-doc, .ref-app, .ref-panel)'
+  assert.equal(declarationsOf(css(), objects).get('margin-block'), '-2px', 'a ticket, presentation, app or panel link: negative block margins')
+  assert.equal(declarationsOf(css(), '.wrap-object-mentions ' + objects).get('line-height'), '0', 'in the wrapping layout the inline box contributes no line height')
+  assert.equal(declarations(netCss(), '.ref-chip.ref-chip.ref-hub.net-chip').get('margin-block'), '-2px', 'a contact link: negative block margins')
+  assert.match(declarations(netCss(), '.mailer-head .ref-chip.ref-chip.ref-hub.net-chip').get('margin-block') ?? '', /^0(px)?$/, "the org inbox's address lines keep their height")
 })
 
 test('§4 the docket mention\'s badge sits on its name\'s line, not 2 px below it', () => {

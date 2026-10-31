@@ -7,7 +7,8 @@
 //             box (the measure chipicons.capture.cjs holds to 1 px); markOffX is the same against the centre of the label's
 //             lowercase letters (the baseline less half the x-height), which must stay within 2 px.
 //   grew    — how much taller the row is than at the baseline run (a chip must not change its line's height): 0.5 px a
-//             line at most; and a chat row with as many lines as the chip-less control row is no taller than it by 0.5 px.
+//             line at most; and a chat row, or a React sentence, with as many lines as its chip-less control is no taller than it
+//             by 0.1 px (a chip adds nothing to its line).
 // and writes zoomed crops of every row. Surfaces: chipalign.visual.tsx (chat prose, mail body, docket, event head,
 // mail row, tray) in both mention layouts, and orginbox-delivered.visual.tsx (the org inbox's Sent line "@agent as
 // @org -> @recipient" and the received mail's delivered-to line: the user's first screenshot).
@@ -184,11 +185,11 @@ app.whenReady().then(async () => {
     const REQUIRED = ['control', 'msg-agent', 'msg-project', 'msg-item', 'msg-doc', 'msg-app', 'msg-panel', 'msg-net-person', 'msg-net-org', 'msg-user-agent',
       'msg-mixed', 'mail-body-agent', 'react-item', 'react-doc', 'react-app', 'react-panel', 'react-agent', 'react-project', 'react-net-person', 'react-net-org',
       'react-net-chat', 'react-net-unknown', 'docket-agent', 'docket-item', 'event-head', 'event-actor-name', 'docket-actor', 'mailrow-from', 'mailrow-hub',
-      'ask-fold-item', 'idle-ticket', 'tool-refs', 'answered-qtext', 'tray-sum-agent']
+      'ask-fold-item', 'idle-ticket', 'tool-refs', 'answered-qtext', 'tray-sum-agent', 'msg-item-s', 'msg-doc-s', 'msg-app-s', 'react-control']
     const missing = []
     for (const mode of ['flex', 'inline']) for (const name of REQUIRED) if (!all.some(r => r.page === 'chips' && r.mode === mode && r.ctx === name)) missing.push(`chips/${mode}/${name}`)
     for (const name of ['inbox-sent', 'inbox-some']) if (!all.some(r => r.page === 'inbox' && r.ctx === name)) missing.push('inbox/' + name)
-    const unmeasured = all.filter(r => r.ctx !== 'control' && (!r.lines || !r.lines.length || !r.marks || !r.marks.length
+    const unmeasured = all.filter(r => r.ctx !== 'control' && r.ctx !== 'react-control' && (!r.lines || !r.lines.length || !r.marks || !r.marks.length
       || ![r.height, r.spread, r.markOff, r.markOffX].every(Number.isFinite))).map(r => `${r.page}/${r.mode}/${r.ctx}`)
     assert.deepEqual(missing, [], 'required rows were not measured')
     assert.deepEqual(unmeasured, [], 'rows with no text run, no badge or a non-finite number')
@@ -197,19 +198,22 @@ app.whenReady().then(async () => {
     const base = baselineArg ? new Map(JSON.parse(fs.readFileSync(path.resolve(baselineArg), 'utf8')).rows.map(r => [key(r), r.height])) : null
     for (const r of all) { const was = base && base.get(key(r)); r.grew = was === undefined || was === null ? 0 : +(r.height - was).toFixed(2) }
     const ctl = Object.fromEntries(all.filter(r => r.ctx === 'control').map(r => [r.mode, r.height]))
+    const rctl = Object.fromEntries(all.filter(r => r.ctx === 'react-control').map(r => [r.mode, r.height]))
     const ctlLines = Object.fromEntries(all.filter(r => r.ctx === 'control').map(r => [r.mode, r.lineCount]))
+    for (const r of all) if (r.ctx.startsWith('react-') && r.ctx !== 'react-control' && rctl[r.mode] !== undefined) r.vsControl = +(r.height - rctl[r.mode]).toFixed(2)
     // (a user message sits in a padded bubble the control is not in: it is measured against the baseline run only)
     for (const r of all) if (r.ctx.startsWith('msg-') && r.ctx !== 'msg-user-agent' && ctl[r.mode] !== undefined && r.lineCount === ctlLines[r.mode]) r.vsControl = +(r.height - ctl[r.mode]).toFixed(2)
-    const failing = r => r.spread > 0.5 || r.markOff > 1 || r.markOffX > 2 || r.grew > 0.5 * Math.max(1, r.lineCount) || r.vsControl > 0.5 || r.marks.some(m => m.error)
-    const bad = all.filter(r => r.ctx !== 'control' && failing(r))
+    const failing = r => r.spread > 0.5 || r.markOff > 1 || r.markOffX > 2 || r.grew > 0.5 * Math.max(1, r.lineCount) || r.vsControl > 0.1 || r.marks.some(m => m.error)
+    const isControl = r => r.ctx === 'control' || r.ctx === 'react-control'
+    const bad = all.filter(r => !isControl(r) && failing(r))
     const receipt = await guard.finish()
     assert.equal(receipt.pages.length, 2, 'both pages must have been attested before their scripts')
     const result = { label, status: bad.length ? 'FAIL' : 'PASS', measured: all.length, failing: bad.length, sessionId: sid(process.pid),
       rendererSessionId: sid(wc.getOSProcessId()), muted: wc.isAudioMuted(), clipboardCalls: guard.clipboardCalls(), guard: receipt, extraCss: Boolean(extraCss), errors, rows: all }
     fs.writeFileSync(path.join(out, 'results.json'), JSON.stringify(result, null, 2))
-    const line = r => `${(r.page + '/' + r.mode).padEnd(12)} ${r.ctx.padEnd(18)} spread ${String(r.spread).padStart(5)}  markOff ${String(r.markOff).padStart(5)}/${String(r.markOffX).padStart(4)}  h ${String(r.height).padStart(5)} (grew ${r.grew >= 0 ? '+' : ''}${r.grew}${r.vsControl !== undefined ? ', vs control ' + r.vsControl : ''})${r.ctx !== 'control' && failing(r) ? '  <-- FAIL' : ''}`
+    const line = r => `${(r.page + '/' + r.mode).padEnd(12)} ${r.ctx.padEnd(18)} spread ${String(r.spread).padStart(5)}  markOff ${String(r.markOff).padStart(5)}/${String(r.markOffX).padStart(4)}  h ${String(r.height).padStart(5)} (grew ${r.grew >= 0 ? '+' : ''}${r.grew}${r.vsControl !== undefined ? ', vs control ' + r.vsControl : ''})${!isControl(r) && failing(r) ? '  <-- FAIL' : ''}`
     console.log(all.map(line).join('\n'))
-    console.log(`${result.status}: ${all.length} measured, ${bad.length} failing (a line whose text runs differ in baseline by more than 0.5 px, a badge more than 1 px off its label's line centre or 2 px off its lowercase centre, or a row taller than at the baseline by more than 0.5 px a line, or than the same message without the chip)`)
+    console.log(`${result.status}: ${all.length} measured, ${bad.length} failing (a line whose text runs differ in baseline by more than 0.5 px, a badge more than 1 px off its label's line centre or 2 px off its lowercase centre, or a row taller than at the baseline by more than 0.5 px a line, or than the same message without the chip by more than 0.1 px)`)
     assert.equal(result.clipboardCalls, 0)
     assert.equal(result.rendererSessionId, 0)
     assert.equal(result.muted, true)

@@ -29,13 +29,16 @@ const refs: { kind: string; ref: TypedRef }[] = [
   { kind: 'app', ref: { kind: 'app', org: 'chips', id: 'board' } },
   { kind: 'panel', ref: { kind: 'panel', org: 'chips', id: 'one' } },
 ]
-const labels: Record<string, string> = { item: 'Double-clicking a docket item', doc: 'Release notes', app: 'Caption board', panel: 'Panel 1' }
+const labels: Record<string, string> = { item: 'Double-clicking a docket item', doc: 'Release notes', app: 'Caption board', panel: 'Panel 1',
+  'item-s': 'Fix the bug', 'doc-s': 'Notes', 'app-s': 'Board' }
+/** the same kinds with labels short enough that the sentence keeps the control's two lines (a row is measured against the control only when the line counts match) */
+const shortRefs: TypedRef[] = [{ kind: 'item', org: 'chips', id: 'item-s' }, { kind: 'doc', org: 'chips', id: 'doc-s' }, { kind: 'app', org: 'chips', id: 'app-s' }]
 const world: RefWorld = {
   org: 'chips',
-  items: new Map([['docket-copy', labels.item!]]), docs: new Map([['notes', labels.doc!]]),
+  items: new Map([['docket-copy', labels.item!], ['item-s', labels['item-s']!]]), docs: new Map([['notes', labels.doc!], ['doc-s', labels['doc-s']!]]),
   agents: new Map([['dev1', 'dev1'], ['crew', 'crew']]),
   tierOf: id => (id === 'crew' ? 'project' : 'opus'),
-  refName: ref => ({ outcome: 'ready', label: labels[ref.kind] ?? ref.id,
+  refName: ref => ({ outcome: 'ready', label: labels[ref.id.endsWith('-s') ? ref.id : ref.kind] ?? ref.id,
     flare: ref.kind === 'item' ? { cls: 'status-in_progress', tip: 'In progress' } : undefined }),
 }
 
@@ -77,12 +80,14 @@ function Rows() {
   return <section className="chip-section" style={{ padding: '8px 12px', width: 640 }}>
     <Md ctx="control" token="the desk" />
     {Object.entries(TOKENS).map(([kind, token]) => <Md key={kind} ctx={'msg-' + kind} token={token} />)}
+    {shortRefs.map(ref => <Md key={ref.kind + '-s'} ctx={'msg-' + ref.kind + '-s'} token={refToken(ref)} />)}
     <Md ctx="msg-user-agent" kind="msg user" token="@dev1" />
     <Md ctx="msg-mixed" token="@dev1" body={`<p>Ask ${TOKENS.agent} or ${TOKENS.project}, then see ${TOKENS.item} and ${TOKENS.doc}; ${TOKENS['net-person']} replied.</p>`} />
     {/* the mail reading pane's own body */}
     <Ctx ctx="mail-body-agent" className="mailer-body" style={{ marginBottom: 6 }}>
       <RefMdBody className="md" world={world} onOpen={noop} html={{ __html: SENTENCE('@dev1') }} /></Ctx>
-    {/* the React chips, each in its own sentence */}
+    {/* the React chips, each in its own sentence; `react-control` is the same sentence with no chip */}
+    <Ctx ctx="react-control" style={{ fontSize: 13, lineHeight: 1.45, marginBottom: 6 }}>Before <b>plain</b> after</Ctx>
     {refs.map(({ kind, ref }) => <Ctx key={kind} ctx={'react-' + kind} style={{ fontSize: 13, lineHeight: 1.45, marginBottom: 6 }}>
       Before <RefChip r={resolveRef(ref, world)} onOpen={noop} /> after</Ctx>)}
     <Ctx ctx="react-agent" style={{ fontSize: 13, lineHeight: 1.45, marginBottom: 6 }}>
