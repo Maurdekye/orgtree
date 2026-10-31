@@ -58,6 +58,13 @@ fn the_addresses_read_are_distinct_named_and_capped() {
 
 #[test]
 #[nolog]
+fn a_hub_row_carries_busy_and_do_not_disturb() {
+    let raw = json!({ "slug": "acme.o.5e1f00", "org_name": "Acme Labs", "online": true, "busy": true, "dnd": true, "kind": "org" });
+    assert_eq!(connection_row(&raw).unwrap(), raw, "Mail hub 2.3.0's presence reaches the Mail hub connections list");
+}
+
+#[test]
+#[nolog]
 fn a_hub_row_carries_only_the_roster_fields() {
     let raw = json!({ "slug": "chat.x1", "org_name": "", "username": "orgtree-rustengine", "blurb": "independent Claude Code chat",
         "online": false, "last_seen": "2026-10-29T10:00:00Z", "kind": "chat", "queued": 3, "picture": null,

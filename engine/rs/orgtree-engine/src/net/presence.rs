@@ -23,6 +23,8 @@ pub(crate) const REFRESH: Duration = Duration::from_secs(5 * 60);
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) struct Said {
     pub(crate) busy: bool,
+    /// its outside mail set to Do not disturb (a part of busy)
+    pub(crate) dnd: bool,
     pub(crate) at: Instant,
     /// the hub answered 404: older than Mail hub 2.3.0
     pub(crate) unsupported: bool,
@@ -46,7 +48,7 @@ impl State {
 /// Whether to tell the hub now: never told on this connection, changed, or
 /// told `REFRESH` ago; never a hub older than busy.
 #[nolog]
-pub(crate) fn due(last: Option<Said>, busy: bool, now: Instant) -> bool {
+pub(crate) fn due(last: Option<Said>, busy: bool, _dnd: bool, now: Instant) -> bool {
     match last {
         None => true,
         Some(s) if s.unsupported => false,
@@ -54,14 +56,22 @@ pub(crate) fn due(last: Option<Said>, busy: bool, now: Instant) -> bool {
     }
 }
 
-/// Whether the org is busy now (its settings say whether several may hold
-/// its org inbox).
+/// What an org says to its hubs, from its settings and whether its org-inbox
+/// holders are busy (`orginbox::busy`): (busy, dnd).
+#[nolog]
+pub(crate) fn presence_of(_settings: &Value, holders_busy: bool) -> (bool, bool) {
+    (holders_busy, false)
+}
+
+/// Whether the org is busy now, and whether its outside mail is set to Do not
+/// disturb (its settings also say whether several may hold its org inbox).
 #[logged]
-async fn org_busy(engine: &Engine, org_id: i64) -> anyhow::Result<bool> {
+async fn org_presence(engine: &Engine, org_id: i64) -> anyhow::Result<(bool, bool)> {
     let client = engine.db.get().await?;
     let raw: Value = client.query_one("SELECT settings FROM ot.orgs WHERE id = $1", &[&org_id]).await?.get(0);
     let multi = crate::feed::groups::effective_settings(&raw, &engine.settings.defaults())["org_inbox_multi_holder"].as_bool().unwrap_or(false);
-    crate::domain::orginbox::busy(&**client, org_id, multi).await
+    let holders_busy = crate::domain::orginbox::busy(&**client, org_id, multi).await?;
+    Ok(presence_of(&raw, holders_busy))
 }
 
 /// Tell each connected hub of each org whether the org is busy, when due.
@@ -73,7 +83,7 @@ pub(super) async fn declare(engine: &Engine, parts: &[Part]) {
         if hubs.is_empty() {
             continue;
         }
-        let busy = match org_busy(engine, p.org_id).await {
+        let (busy, dnd) = match org_presence(engine, p.org_id).await {
             Ok(b) => b,
             Err(e) => {
                 tracing::warn!(org = %p.slug, error = %format!("{e:#}"), "could not tell whether the org is busy");
@@ -83,7 +93,7 @@ pub(super) async fn declare(engine: &Engine, parts: &[Part]) {
         for (hid, addr) in hubs {
             let key = (p.org_id, hid.clone());
             let now = Instant::now();
-            if !due(engine.net.presence.said.pin().get(&key).copied(), busy, now) {
+            if !due(engine.net.presence.said.pin().get(&key).copied(), busy, dnd, now) {
                 continue;
             }
             let res = request(
@@ -97,11 +107,11 @@ pub(super) async fn declare(engine: &Engine, parts: &[Part]) {
             .await;
             match res {
                 Ok(r) if r.status().is_success() => {
-                    engine.net.presence.said.pin().insert(key, Said { busy, at: now, unsupported: false });
+                    engine.net.presence.said.pin().insert(key, Said { busy, dnd, at: now, unsupported: false });
                 }
                 // a hub older than 2.3.0: no such route; its addresses show online, as before
                 Ok(r) if r.status() == reqwest::StatusCode::NOT_FOUND => {
-                    engine.net.presence.said.pin().insert(key, Said { busy, at: now, unsupported: true });
+                    engine.net.presence.said.pin().insert(key, Said { busy, dnd, at: now, unsupported: true });
                 }
                 Ok(r) => tracing::warn!(org = %p.slug, hub = %hid, status = r.status().as_u16(), "the hub refused the org's busy"),
                 Err(e) => tracing::debug!(org = %p.slug, hub = %hid, error = %format!("{e:#}"), "could not tell the hub whether the org is busy"),
