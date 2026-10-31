@@ -1266,10 +1266,11 @@ pub async fn unlink(engine: &Arc<Engine>) -> Result<Value, crate::http::error::A
             .and_then(|id| engine.orgs.by_id(id))
             .map(|o| o.slug.clone())
             .or_else(|| link["org"].as_str().map(str::to_string));
-        set_app_note(engine, None).await.map_err(|e| ApiError::conflict(format!("{e:#}")))?;
+        // every org.md first: a broken note there refuses before the delegation ends
         for o in engine.orgs.all() {
             write_note(engine, o.id, &o.slug, None).await.map_err(|e| ApiError::conflict(format!("{e:#}")))?;
         }
+        set_app_note(engine, None).await.map_err(|e| ApiError::conflict(format!("{e:#}")))?;
         update_settings(engine, |v| {
             if let Some(m) = v.as_object_mut() {
                 m.remove("link");
