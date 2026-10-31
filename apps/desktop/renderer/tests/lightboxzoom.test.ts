@@ -128,3 +128,12 @@ test('the overlay takes the touches and the controls sit above a zoomed picture 
   assert.match(rule('.lb-bar'), /z-index:\s*2/)
   void flush
 })
+
+test('the picture cannot be dragged natively: that steals the mouse pan', () => {
+  const k = open()
+  try {
+    assert.equal(k.img.draggable, false)
+    const start = k.fire('dragstart', k.img)
+    assert.equal(start.defaultPrevented, true, 'the native drag is cancelled')
+  } finally { closeLightbox(k.doc) }
+})

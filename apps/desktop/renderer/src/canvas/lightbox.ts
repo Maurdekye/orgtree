@@ -18,6 +18,9 @@ export function openLightbox(src: string, opts: { name?: string; download?: stri
   ov.className = 'lb-overlay'
   const img = ownerDocument.createElement('img')
   img.className = 'lb-img'
+  // no native image drag: it steals the mouse pan (dragstart -> pointercancel) and ghosts the picture
+  img.draggable = false
+  img.addEventListener('dragstart', (e) => e.preventDefault())
   img.src = src
   if (opts.name) img.alt = opts.name
   // the backdrop closes; the picture itself doesn't (mis-click near the edge)
