@@ -543,9 +543,19 @@ global Agents list. See [Team tab](team-tab.md).
 assistant transcript messages containing a standalone `@user` retain a highlight
 from their own text, including after attention dismissal and transcript reload.
 Dismissal continues to clear badges/counts/attention rows. Shared desk, pop-out,
-pinned and Msg renderers use exactly one whole-message layer, with a 10% accent
+pinned and Msg renderers use exactly one whole-message layer, with a 5% accent
 background and 75% accent inset edge in both light and dark themes. No darker
-inner paragraph box. Attention selection retains jump navigation only.
+inner paragraph box. Attention selection retains jump navigation only. **Faint
+tint, user 2026-10-31 08:48:40Z mf2fd4eb092b4, 08:48:56Z ma9c2e2bbee12, 08:49:29Z
+m3403be06a732** ("change the blue background from mention mail, it's distracting
+and makes it look like it's selected when it isnt"; "the theme highlighted
+background i mean"; "it can still be the theme color, just not as bright so it
+doesnt look like its selected"): this replaces the layer's first 10% background.
+The same ruling fades the inbox's mention mail row (`.mailrow.urgent`, mail the
+engine marks `mailbox_attention`) from the 12% rest / 16% hover of D-169 to 5% /
+5%, under half the plain selected fill (13%). The tint stays the theme accent,
+no badge or bar is added, the selected fills and genuinely urgent mail
+(`.urgent-mail`, orange) are unchanged. `tests/mentionfaint.test.tsx`.
 
 
 **EPIC pointer stability, user 2026-10-18 07:49Z:** watchdog chips must remain

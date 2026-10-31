@@ -304,6 +304,15 @@ Original section: AGENTS.md — working on Orgtree. Source lines 1327–1333.
   `canvas/desk.tsx`, `styles.css`, `tests/user-mention-highlight.test.tsx`]
 <!-- /preserved:e-a50407a75a21655d -->
 
+Superseded in part (user 2026-10-31 08:49:29Z m3403be06a732, "it can still be the
+theme color, just not as bright so it doesnt look like its selected"): the
+message layer's fill is 5% accent, not the 10% recorded above, and the inbox's
+mention mail row (`.mailrow.urgent`, mail the engine marks `mailbox_attention`)
+fades from 12% to 5% at rest and on hover. The 75% inset edge, the selected
+fills and urgent mail (`.urgent-mail`) are unchanged; no marker was added.
+Pinned by `tests/mentionfaint.test.tsx` and `tests/user-mention-highlight.test.tsx`;
+the ruling is recorded in DECISIONS "Permanent user-mention highlight".
+
 <a id="e-315f95088080e970"></a>
 
 ## Agent, project and hub contact mentions (4.4.0): typing @ in Quick chat, the
