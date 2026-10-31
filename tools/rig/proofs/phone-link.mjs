@@ -197,12 +197,14 @@ export default async function (rig) {
   const sent = await send(alex, `Hi! This is Hubchat on my phone.\n\nSetup code: ${lower}\n`)
   const linked = await answers(alex, `Setup code: ${minted.code} linked`)
   p.check('the first message with the code: the org answers "Setup code: X linked" (final line)', sent.status === 200
+    && linked.body.startsWith('Linked: Orgtree now knows this address is you. Agents in all your organizations treat your messages as the user\'s.')
     && linked.body.trimEnd().split('\n').pop() === `Setup code: ${minted.code} linked` && linked.from === orgAddress, linked.body)
   const rec = settingsFile().link
   p.check('the link record: org, address, the person\'s name, via the code', rec?.org === org && rec.address === alex.slug && rec.name === 'Alex Rivera' && rec.via === 'code', rec)
-  const md = orgmd()
-  p.check('the trust note is at the very top of org.md, marked, and the charter follows unchanged', md === '<!-- added by Connect your phone; Unlink removes it -->\n'
-    + `@net:${alex.slug} is the user's account and carries their authority.\n<!-- end of the Connect your phone note -->\n\n` + original, md)
+  // the note lives in the instructions for all orgs (USER 2026-10-31 m4322b3a92f0c "Yes, all orgs")
+  const app = await rig.api('GET', '/api/app-settings/instructions')
+  p.check('the trust note is in the instructions for all orgs, marked, and org.md is unchanged', app.managed === '<!-- added by Connect your phone; Unlink removes it -->\n'
+    + `@net:${alex.slug} is the user's account and carries their authority.\n<!-- end of the Connect your phone note -->\n` && orgmd() === original, { app, md: orgmd() })
   const inbound = await rig.waitFor(() => rig.one(`SELECT body FROM ot.org_inbox WHERE org_id = (SELECT id FROM ot.orgs WHERE slug = '${q(org)}') AND dir = 'in' AND body LIKE 'Hi! This is Hubchat%'`),
     { what: 'the first message in the org inbox' })
   p.check('the first message still reaches the org (its agents read it)', !!inbound)
@@ -218,7 +220,9 @@ export default async function (rig) {
     && !s.org.persons.some(x => x.address === alex.slug) && !r.ok && /already linked/.test(r.e), { link: s.link, r })
 
   s = await rig.api('POST', '/api/desktop/phone/unlink')
-  p.check('Unlink: the note leaves org.md byte for byte, the record is cleared', orgmd() === original && !settingsFile().link && s.link === null)
+  const unlinkedApp = await rig.api('GET', '/api/app-settings/instructions')
+  p.check('Unlink: the note leaves the instructions for all orgs, org.md stays byte for byte, the record is cleared',
+    unlinkedApp.managed === null && orgmd() === original && !settingsFile().link && s.link === null, unlinkedApp)
   s = await orgState()
   p.check('L2: the person is still on the hub, so the panel can ask "Is this you?"', s.org.persons.some(x => x.address === alex.slug && x.name === 'Alex Rivera'), s.org.persons)
   r = await tryApi('POST', '/api/desktop/phone/link', { org, address: 'nobody.000000' })

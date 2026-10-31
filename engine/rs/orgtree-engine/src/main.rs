@@ -288,6 +288,11 @@ async fn run_with_cluster(
     #[cfg(unix)]
     bridge::clear_stale(&engine.cfg.data_root);
     orgs::load_all(&engine).await?;
+    // before any turn can start (the scheduler starts below): org.md phone
+    // notes move into the instructions for all orgs, once
+    if let Err(e) = phone::migrate(&engine).await {
+        tracing::warn!(error = %format!("{e:#}"), "the Connect your phone note could not be moved yet; the next start tries again");
+    }
     appfeed::start(&engine, app_inbox);
     // orgs a first-start import could not copy: one line each in the org list
     import_failures::publish(&engine).await;

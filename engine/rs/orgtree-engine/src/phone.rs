@@ -645,22 +645,33 @@ pub fn with_block(md: &str, address: &str) -> Result<String, String> {
 /// refused (Err) rather than guessed at: the user removes it by hand.
 #[logged]
 pub fn without_block(md: &str) -> Result<String, String> {
+    without_notes(md, |_| true)
+}
+
+/// `md` without the marked notes `remove` picks; the others stay as they are.
+#[nolog] // the callers log
+fn without_notes(md: &str, remove: impl Fn(&str) -> bool) -> Result<String, String> {
     let mut out = String::with_capacity(md.len());
     let mut at = 0;
-    while let Some(rel) = md[at..].find(BLOCK_START) {
-        let start = at + rel;
+    let mut scan = 0;
+    while let Some(rel) = md[scan..].find(BLOCK_START) {
+        let start = scan + rel;
         let Some(rel_end) = md[start..].find(BLOCK_END) else {
             return Err("org.md has the start of the Connect your phone note but not its end. Remove the note by hand in Org settings › Charter.".into());
         };
         let mut end = start + rel_end + BLOCK_END.len();
         let eol = |i: usize| if md[i..].starts_with("\r\n") { 2 } else if md[i..].starts_with('\n') { 1 } else { 0 };
         end += eol(end);
+        let note = &md[start..end];
         // at the top it was followed by one blank line of ours
         if start == 0 {
             end += eol(end);
         }
-        out.push_str(&md[at..start]);
-        at = end;
+        if remove(note) {
+            out.push_str(&md[at..start]);
+            at = end;
+        }
+        scan = end;
     }
     out.push_str(&md[at..]);
     Ok(out)
@@ -711,34 +722,141 @@ pub struct Moves {
 /// The address a whole marked note names, as `with_block` writes it.
 #[logged]
 pub fn note_address(note: &str) -> Option<&str> {
-    // RED STUB: replaced in the authority commit
-    let _ = note;
-    None
+    let body = note.strip_prefix(BLOCK_START)?.trim_start_matches(['\r', '\n']);
+    let line = body.lines().next()?;
+    let address = line.strip_prefix("@net:")?.strip_suffix(" is the user's account and carries their authority.")?;
+    plain_address(address).then_some(address)
 }
 
 /// `md` without the marked notes naming `address`; other notes stay.
 #[logged]
 pub fn without_address(md: &str, address: &str) -> Result<String, String> {
-    // RED STUB: replaced in the authority commit
-    let _ = address;
-    Ok(md.to_string())
+    without_notes(md, |note| note_address(note) == Some(address))
 }
 
 /// Plan the move: only the note naming the linked address moves (once, even
 /// when several orgs hold it); a link record without any note moves nothing.
 #[logged]
 pub fn plan_moves(app: &str, orgs: &[String], linked: Option<&str>) -> Moves {
-    // RED STUB: replaced in the authority commit
-    let _ = (app, orgs, linked);
-    Moves::default()
+    let mut moves = Moves::default();
+    for (i, md) in orgs.iter().enumerate() {
+        if without_block(md).is_err() {
+            moves.malformed.push(i);
+            continue;
+        }
+        let found = notes(md);
+        let mine = |n: &String| linked.is_some_and(|a| note_address(n) == Some(a));
+        if let (Some(a), true) = (linked, found.iter().any(mine)) {
+            if let Ok(next) = without_address(md, a) {
+                moves.orgs.push((i, next));
+            }
+        }
+        if found.iter().any(|n| !mine(n)) {
+            moves.stale.push(i);
+        }
+    }
+    if let Some(a) = linked.filter(|_| !moves.orgs.is_empty()) {
+        if !notes(app).iter().any(|n| note_address(n) == Some(a)) {
+            moves.app = with_block(app, a).ok();
+        }
+    }
+    moves
 }
 
 /// A template's org.md without any Connect your phone note, and the warning
 /// saying one was left out (a phone link never travels in a template).
 #[logged]
 pub fn template_org_md(md: Option<String>) -> (Option<String>, Option<String>) {
-    // RED STUB: replaced in the authority commit
-    (md, None)
+    match md {
+        Some(m) if m.contains(BLOCK_START) => match without_block(&m) {
+            Ok(rest) => (Some(rest).filter(|r| !r.trim().is_empty()), Some(
+                "The template's org.md carried a Connect your phone note. It was left out: a phone link only comes \
+                 from Connect your phone on this computer.".into())),
+            Err(_) => (None, Some(
+                "The template's org.md has a broken Connect your phone note, so its whole org.md was left out.".into())),
+        },
+        other => (other, None),
+    }
+}
+
+/// Write (Some) or remove (None) the note in the instructions for all orgs;
+/// every agent's CLI restarts before its next turn when it changed.
+#[logged]
+async fn set_app_note(engine: &Engine, address: Option<&str>) -> anyhow::Result<()> {
+    let (_, changed) = engine
+        .app_instructions
+        .update(&engine.db, |doc| {
+            let text = match address {
+                Some(a) => with_block(&doc.text, a)?,
+                None => without_block(&doc.text)?,
+            };
+            Ok((crate::app_instructions::Doc { text, ..doc.clone() }, ()))
+        })
+        .await?
+        .map_err(|e| anyhow::anyhow!("the instructions for all orgs: {e}"))?;
+    if changed {
+        crate::http::settings::reconfigure_all(engine).await?;
+    }
+    Ok(())
+}
+
+/// The one-time move of org.md phone notes into the instructions for all
+/// orgs, at engine start before any turn (rulings 2-4, 2026-10-31): the
+/// block gains the note first, then each org.md loses it, then the done flag
+/// is set, so the delegation never lapses. A crash in between finishes at
+/// the next start without a duplicate. Only the note naming phone.json's
+/// linked address moves; other notes stay org-scoped, broken ones stay put.
+#[logged]
+pub async fn migrate(engine: &Arc<Engine>) -> anyhow::Result<()> {
+    if engine.app_instructions.get().phone_notes_moved {
+        return Ok(());
+    }
+    let linked = settings(engine)["link"]["address"].as_str().map(str::to_string);
+    let orgs = engine.orgs.all();
+    let mut texts = Vec::with_capacity(orgs.len());
+    for o in &orgs {
+        texts.push(match std::fs::read(engine.cfg.workspace_dir(&o.slug).join("org.md")) {
+            Ok(b) => String::from_utf8_lossy(&b).into_owned(),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => String::new(),
+            // read again at the next start rather than lose a note
+            Err(e) => anyhow::bail!("{}: org.md could not be read: {e}", o.slug),
+        });
+    }
+    let moves = plan_moves(&engine.app_instructions.get().text, &texts, linked.as_deref());
+    if let Some(a) = linked.as_deref().filter(|_| !moves.orgs.is_empty()) {
+        engine
+            .app_instructions
+            .update(&engine.db, |doc| {
+                let text = if notes(&doc.text).iter().any(|n| note_address(n) == Some(a)) { doc.text.clone() } else { with_block(&doc.text, a)? };
+                Ok((crate::app_instructions::Doc { text, ..doc.clone() }, ()))
+            })
+            .await?
+            .map_err(|e| anyhow::anyhow!("the instructions for all orgs: {e}"))?;
+        for (i, _) in &moves.orgs {
+            let o = &orgs[*i];
+            let lock = orgmd_lock(engine, o.id);
+            let _one = lock.lock().await;
+            let path = engine.cfg.workspace_dir(&o.slug).join("org.md");
+            let md = String::from_utf8_lossy(&std::fs::read(&path)?).into_owned();
+            let next = without_address(&md, a).map_err(|e| anyhow::anyhow!("{}: {e}", o.slug))?;
+            if next != md {
+                replace_file(&path, next.as_bytes())?;
+            }
+            tracing::info!(org = %o.slug, "the Connect your phone note moved to the instructions for all orgs");
+        }
+    }
+    for i in &moves.stale {
+        tracing::warn!(org = %orgs[*i].slug, "org.md keeps a Connect your phone note for an address that is not the linked phone; it stays org-scoped, and Unlink removes it");
+    }
+    for i in &moves.malformed {
+        tracing::warn!(org = %orgs[*i].slug, "org.md has a broken Connect your phone note; it was left where it is");
+    }
+    engine
+        .app_instructions
+        .update(&engine.db, |doc| Ok((crate::app_instructions::Doc { phone_notes_moved: true, ..doc.clone() }, ())))
+        .await?
+        .map_err(|e| anyhow::anyhow!("the instructions for all orgs: {e}"))?;
+    Ok(())
 }
 
 /// org.md's revision: the charter editor sends back the one it loaded, and a
@@ -775,7 +893,8 @@ pub fn replace_file(path: &std::path::Path, next: &[u8]) -> std::io::Result<()> 
 
 /// Write (Some) or remove (None) the trust note in an org's org.md, under
 /// its org.md lock; its agents' CLIs restart before their next turn, as
-/// after any charter edit.
+/// after any charter edit. Since the note lives in the instructions for all
+/// orgs, only removals come here (link and Unlink clear old copies).
 #[logged]
 async fn write_note(engine: &Engine, org_id: i64, slug: &str, address: Option<&str>) -> anyhow::Result<()> {
     let lock = orgmd_lock(engine, org_id);
@@ -985,10 +1104,12 @@ async fn is_person(engine: &Engine, org_id: i64, address: &str) -> bool {
     roster.iter().any(|r| r["slug"].as_str() == Some(address) && r["kind"] == "person")
 }
 
-/// Record the link and write the trust note, under the phone's link lock.
-/// phone.json is written first and put back if the note cannot be; only
-/// then are other orgs' notes removed (one that cannot be is logged, and
-/// Unlink reports it).
+/// Record the link and write the trust note into the instructions for all
+/// orgs, under the phone's link lock: one link carries the user's authority
+/// in every org (USER 2026-10-31 m4322b3a92f0c "Yes, all orgs"). phone.json
+/// is written first and put back if the note cannot be; only then does
+/// every org.md lose its notes (one that cannot is logged, and Unlink
+/// reports it).
 #[logged]
 async fn link(engine: &Arc<Engine>, org_id: i64, slug: &str, address: &str, via: &str) -> anyhow::Result<Value> {
     if !plain_address(address) {
@@ -1002,15 +1123,13 @@ async fn link(engine: &Arc<Engine>, org_id: i64, slug: &str, address: &str, via:
     let previous = settings(engine)["link"].clone();
     let record = json!({ "org": slug, "org_id": org_id, "address": address, "name": name, "at": crate::util::now_iso(), "via": via });
     update_settings(engine, |v| v["link"] = record.clone())?;
-    if let Err(e) = write_note(engine, org_id, slug, Some(address)).await {
+    if let Err(e) = set_app_note(engine, Some(address)).await {
         let _ = update_settings(engine, |v| v["link"] = previous.clone());
         return Err(e);
     }
     for o in engine.orgs.all() {
-        if o.id != org_id {
-            if let Err(e) = write_note(engine, o.id, &o.slug, None).await {
-                tracing::warn!(org = %o.slug, error = %format!("{e:#}"), "an earlier phone note could not be removed");
-            }
+        if let Err(e) = write_note(engine, o.id, &o.slug, None).await {
+            tracing::warn!(org = %o.slug, error = %format!("{e:#}"), "an earlier phone note could not be removed from org.md");
         }
     }
     // a link ends every setup code
@@ -1095,11 +1214,10 @@ pub async fn on_inbound(engine: &Arc<Engine>, org_id: i64, from: &str, body: &st
     } else {
         Outcome::Expired
     };
-    let org_name = engine.orgs.by_id(org_id).map(|o| o.name.load_full().to_string()).unwrap_or_default();
     let reply = match outcome {
         Outcome::Link(slug) => match link(engine, org_id, &slug, from, "code").await {
             Ok(_) => format!(
-                "Linked: {org_name} now knows this address is you. Its agents treat your messages here as the user's.\n\nSetup code: {code} linked"
+                "Linked: Orgtree now knows this address is you. Agents in all your organizations treat your messages as the user's.\n\nSetup code: {code} linked"
             ),
             Err(e) => {
                 tracing::warn!(error = %format!("{e:#}"), "the phone link could not be written");
@@ -1133,9 +1251,10 @@ pub async fn link_known(engine: &Arc<Engine>, org_slug: &str, address: &str) -> 
     Ok(state(engine, Some(&org.slug)).await)
 }
 
-/// Undo / Unlink: every trust note leaves every org.md (a note can outlive
-/// its record), then the record is cleared. A note that cannot be removed
-/// is reported and the record kept.
+/// Undo / Unlink: the trust note leaves the instructions for all orgs and
+/// every org.md (a note can outlive its record, or wait there unmoved), then
+/// the record is cleared. A note that cannot be removed is reported and the
+/// record kept.
 #[nolog]
 pub async fn unlink(engine: &Arc<Engine>) -> Result<Value, crate::http::error::ApiError> {
     use crate::http::error::ApiError;
@@ -1147,6 +1266,7 @@ pub async fn unlink(engine: &Arc<Engine>) -> Result<Value, crate::http::error::A
             .and_then(|id| engine.orgs.by_id(id))
             .map(|o| o.slug.clone())
             .or_else(|| link["org"].as_str().map(str::to_string));
+        set_app_note(engine, None).await.map_err(|e| ApiError::conflict(format!("{e:#}")))?;
         for o in engine.orgs.all() {
             write_note(engine, o.id, &o.slug, None).await.map_err(|e| ApiError::conflict(format!("{e:#}")))?;
         }

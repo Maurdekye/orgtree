@@ -95,9 +95,13 @@ impl TryFrom<Wire> for Template {
                 pending[begin..].reverse();
             }
         }
-        Ok(Template { id:w.id, name:w.name, description:w.description, org_md:w.org_md, agents,
+        // a phone link never travels: an imported org.md loses any Connect your phone note (ruling 4, 2026-10-31)
+        let (org_md, dropped) = crate::phone::template_org_md(w.org_md);
+        let mut warnings = w.warnings;
+        warnings.extend(dropped);
+        Ok(Template { id:w.id, name:w.name, description:w.description, org_md, agents,
             shared_agents_md:w.shared_agents_md, quick_chat:w.quick_chat, settings:w.settings,
-            watchdogs:w.watchdogs, audiences:w.audiences, warnings:w.warnings, apps:w.apps })
+            watchdogs:w.watchdogs, audiences:w.audiences, warnings, apps:w.apps })
     }
 }
 

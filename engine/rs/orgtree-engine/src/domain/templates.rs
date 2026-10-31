@@ -996,7 +996,11 @@ pub fn from_rows(
         t["description"] = json!(d);
     }
     if inc.org_md {
-        if let Some(md) = org_md.filter(|m| !m.trim().is_empty()) { t["org_md"] = json!(md); }
+        if let Some(md) = org_md.filter(|m| !m.trim().is_empty()) {
+            // a phone link never travels: its note stays on this computer (ruling 4, 2026-10-31)
+            let md = crate::phone::without_block(&md)?;
+            if !md.trim().is_empty() { t["org_md"] = json!(md); }
+        }
     }
     // a superior the saved layout does not hold is saved as top level
     if let Some(mut q) = quick.filter(|_| inc.quick_chat).and_then(|q| quick_chat(q).ok()) {
