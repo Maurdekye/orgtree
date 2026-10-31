@@ -2697,7 +2697,17 @@ export function OrgCanvas({ tree, op, slug, toast, mailEvt, onInbox, onDocket, o
     // from the stale camera instead of the eye
     viewRef.current = v0
     setView(v0)
-    const raf = requestAnimationFrame(() => { animateTo(dest, 1700); camIntent.current = intent })
+    const raf = requestAnimationFrame(() => {
+      animateTo(dest, 1700); camIntent.current = intent
+      // USER 2026-10-31 mde9aed4fbe59: the follow effect drops a change while no intent is set, and none is until this frame. A pinned
+      // window that registered in between (the modal windows register in an effect of the mount commit, the window itself may also
+      // have been sized since) is therefore not in `dest`, and nothing would refit once the glide lands. Re-aim the same glide at the
+      // fit of NOW; an unchanged geometry yields the same camera and changes nothing.
+      const fresh = intent.kind === 'org' ? fitView() : null
+      if (fresh && (Math.abs(fresh.x - dest.x) > 0.5 || Math.abs(fresh.y - dest.y) > 0.5 || Math.abs(fresh.z - dest.z) > 0.001)) {
+        animateTo(fresh, 1700); camIntent.current = intent
+      }
+    })
     return () => cancelAnimationFrame(raf)
   }, [tree.slug])   // eslint-disable-line react-hooks/exhaustive-deps
 
