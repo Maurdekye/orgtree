@@ -76,16 +76,19 @@ test('the desktop guards: clipboard permissions denied, clipboard APIs stubbed, 
   assert.deepEqual(listeners, [], 'no copy/cut/paste listener')
   assert.equal(ctx.window.__rigClipboardGuard?.installed, true)
 
-  // the driver's keys: Ctrl/Meta+C/X/V and Shift/Ctrl+Insert would reach the OS clipboard
+  // the driver's keys: Ctrl/Meta+C/X/V, Shift/Ctrl+Insert and Shift+Delete (cut on Windows; rig-sol-b
+  // medd1d79b7a89) would reach the OS clipboard
   const CTRL = 2, META = 4, SHIFT = 8
-  for (const [key, modifiers] of [['c', CTRL], ['x', CTRL], ['v', CTRL], ['C', META], ['Insert', CTRL], ['Insert', SHIFT]]) {
+  for (const [key, modifiers] of [['c', CTRL], ['x', CTRL], ['v', CTRL], ['C', META], ['Insert', CTRL], ['Insert', SHIFT], ['Delete', SHIFT], ['Delete', SHIFT | CTRL]]) {
     assert.equal(g.refusedKey({ key, modifiers }), true, `${key} ${modifiers}`)
   }
-  for (const [key, modifiers] of [['c', 0], ['a', CTRL], ['Enter', CTRL], ['v', SHIFT]]) {
+  for (const [key, modifiers] of [['c', 0], ['a', CTRL], ['Enter', CTRL], ['v', SHIFT], ['Delete', 0], ['Delete', CTRL]]) {
     assert.equal(g.refusedKey({ key, modifiers }), false, `${key} ${modifiers}`)
   }
   assert.equal(g.refusedCdp('Input.dispatchKeyEvent', { type: 'keyDown', key: 'v', modifiers: CTRL }), true)
   assert.equal(g.refusedCdp('Input.dispatchKeyEvent', { type: 'keyDown', key: 'v', modifiers: 0 }), false)
+  assert.equal(g.refusedCdp('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Delete', code: 'Delete', modifiers: SHIFT }), true)
+  assert.equal(g.refusedCdp('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Delete', code: 'Delete', modifiers: 0 }), false)
   assert.equal(g.refusedCdp('Browser.grantPermissions', { permissions: ['clipboardReadWrite'] }), true)
   assert.equal(g.refusedCdp('Browser.setPermission', { permission: { name: 'clipboard-read' }, setting: 'granted' }), true)
   assert.equal(g.refusedCdp('Page.captureScreenshot', {}), false)

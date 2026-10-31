@@ -19,14 +19,16 @@ function allowPermission(permission) {
 const CTRL_OR_META = 2 | 4
 const SHIFT = 8
 
-/** A key the driver must not send: Ctrl/Meta+C/X/V and Ctrl/Shift+Insert
- * reach the OS clipboard through the editor's own commands. */
+/** A key the driver must not send: Ctrl/Meta+C/X/V, Ctrl/Shift+Insert and
+ * Shift+Delete (cut on Windows) reach the OS clipboard through the editor's
+ * own commands. */
 function refusedKey({ key, code, modifiers = 0 } = {}) {
   const k = String(key ?? '').toLowerCase()
   const c = String(code ?? '')
   const letter = /^[cxv]$/.test(k) || /^Key[CXV]$/.test(c)
   const insert = k === 'insert' || c === 'Insert'
-  return ((modifiers & CTRL_OR_META) !== 0 && (letter || insert)) || ((modifiers & SHIFT) !== 0 && insert)
+  const del = k === 'delete' || c === 'Delete'
+  return ((modifiers & CTRL_OR_META) !== 0 && (letter || insert)) || ((modifiers & SHIFT) !== 0 && (insert || del))
 }
 
 /** A raw CDP call a page script must not make: a clipboard key, or a

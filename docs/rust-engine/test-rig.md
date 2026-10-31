@@ -744,7 +744,7 @@ with `--mute-audio` and the window is muted; clipboard permission requests and c
 an in-memory `navigator.clipboard` and a no-op `execCommand` copy/cut/paste are registered at
 document start (after a first `about:blank`, with Page enabled: sent to the blank initial document,
 CDP hangs offscreen Electron 44); there is no application menu; and the driver refuses
-Ctrl/Meta+C/X/V, Ctrl/Shift+Insert and CDP clipboard grants with an error. `result.json` carries
+Ctrl/Meta+C/X/V, Ctrl/Shift+Insert, Shift+Delete (cut on Windows) and CDP clipboard grants with an error. `result.json` carries
 `guards` and `runDesktop` adds `session` (the rig's and Electron's Windows SessionId). It does not
 change where the window runs: launch from a Session 0 turn. `proofs/desk-guard.mjs --ui auto`
 checks all of it from the page.

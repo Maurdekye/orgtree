@@ -14,7 +14,7 @@
 // and check is denied, an in-memory navigator.clipboard and a no-op
 // execCommand copy/cut/paste run at document start, there is no application
 // menu (no copy/paste accelerators), and the driver refuses copy/paste keys
-// and clipboard CDP grants. result.json records the guards.
+// (Shift+Delete too) and clipboard CDP grants. result.json records the guards.
 //
 // Not covered: the desktop main process (tray, pop-outs, native menus,
 // window controls), native <select> popups and OS drag and drop (Chromium
