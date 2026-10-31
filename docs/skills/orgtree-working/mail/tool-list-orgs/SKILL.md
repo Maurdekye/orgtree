@@ -24,7 +24,7 @@ The tool takes no parameters, filters, pagination or action.
 The result contains a combined `orgs` array and the compatible `remote` array of cached peers:
 
 - Local active organizations have `slug`, display `name`, explicit `address: "@org:<slug>"`, `you` for the caller's organization, and `transports`.
-- Hub peers have full `@net:` slug/address, name, `online`, `busy` (online, but no one can answer now; mail hub 2.3.0), `last_seen`, `kind` (for example org/person), blurb, and hubs with address/name/version. Missing reported hub version is `unknown`.
+- Hub peers have full `@net:` slug/address, name, `online`, `busy` (online, but no one can answer now; mail hub 2.3.0), `dnd` (an org whose outside mail is set to Do not disturb; also busy), `last_seen`, `kind` (for example org/person), blurb, and hubs with address/name/version. Missing reported hub version is `unknown`.
 - `transports` is `["org"]`, `["net"]`, or `["org","net"]` when that local network identity is also in the cached roster. Local and network identities can both appear in the combined data; shared labels do not imply one canonical permission or delivery route.
 
 Hub addresses deduplicate across cached rosters and retain the hubs that know them. Local rows are active organizations sorted by slug. No identity secret/full net configuration is returned. There is no supplied count limit or cursor; do not invent either.

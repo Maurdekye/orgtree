@@ -430,7 +430,7 @@ placement settings and bounded failure. See [rig seed timing](docs/rust-engine/t
   leaves the slug alone. See [ticket identity hover](docs/agents/desktop-and-renderer.md#ticket-identity-hover).
   [decided: user 2026-10-21 17:38:28Z; verified: `canvas/objecttooltip.ts`]
 - An org inbox row's `delivered_to` records who got its copies, written at delivery, never recomputed [decided: user 2026-10-29]; it stays inside the org: no hub payload, receipt, ack or reply quote carries it [decided: user 2026-10-30]. [doc](docs/agents/mail-and-hub.md)
-- An org shows busy on its hubs while no org-inbox holder can run (`orginbox::busy`: holders only, or the killswitch); a person's hour is the hub's. One `--busy` token colours every busy dot. [busy presence](docs/agents/mail-and-hub.md#busy-presence-2026-10-31) [decided: user 2026-10-30 23:03-23:19Z]
+- An org is busy on its hubs while no org-inbox holder can run (`orginbox::busy`), DND while its org-inbox mode is dnd; a person's hour is the hub's. One `--busy`/`--dnd` token each; offline > DND > busy. [busy presence](docs/agents/mail-and-hub.md#busy-presence-2026-10-31) [decided: user 2026-10-30 23:03Z-10-31 09:03Z]
 - Follow the [Windows machine-traps page](docs/skills/orgtree-working/workspace/machine-traps/SKILL.md) before shell/file edits: preserve UTF-8/CRLF, write escape-heavy scripts as files, do not treat JSON quoting as shell escaping, and verify resolved paths/activity before authorized cleanup. [decided: user/coordinator 2026-10-16]
 
 ## Find the detailed rule

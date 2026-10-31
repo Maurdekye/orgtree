@@ -752,3 +752,12 @@ but give it a longer timeout, say an hour" (23:06Z mac1516a71553); "Yes, widen t
 - Tests: `domain/orginbox_busy_tests.rs` (ignored fixture: `ORGTREE_BUSY_TEST_URL` to an isolated
   `busy_presence_fixture` database, `-- --ignored --test-threads=1 domain::orginbox::busy_tests`),
   `net/presence_tests.rs`, renderer `tests/busypresence.test.tsx`; the hub's `tests/busy.rs` (`--features test-clock`).
+- Do not disturb (2026-10-31): "when an org's outside operations are set to do not disturb, it should show a red status
+  icon in hubchat / elsewhere" (user 08:51Z md63cf5e0960f); offline wins over it, "Offline for both" (09:03Z
+  m65f544179c74). The setting is the 4.4.2 Org Do not disturb mode (`orginbox::mode` "dnd"); a closed inbox keeps
+  today's presence (coordinator 09:00Z). `net/presence.rs` `presence_of` sends `dnd` beside `busy` and busy with it, so
+  a hub or client that knows busy only shows the org busy; a change in DND alone is said at once (`due`). Roster rows
+  and sync answers carry `dnd` (a DND address is in `busy` too); `ROW_FIELDS` and `remote_peers` pass it on. The
+  desktop shows offline > DND > busy > online, the dot filled through one `--dnd` token (`var(--bad)`). Tests:
+  `net/presence_tests.rs` (`presence_of`, `due`), `net/recent_tests.rs`, renderer `tests/dndpresence.test.tsx`; the
+  hub's `tests/busy.rs` `an_org_is_dnd_while_it_says_so`.

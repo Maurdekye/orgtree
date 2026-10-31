@@ -2396,8 +2396,13 @@ be communicated more clearly", m0537fdb73608).
   `Offline`; busy (mail hub 2.3.0, 2026-10-31) is the same dot filled with the
   one `--busy` token (`var(--warn)`, the caution amber: "Amber (existing
   caution colour)", user 2026-10-30 23:19Z mfb051a00d947) and the word `Busy`,
-  sorted between online and offline; across hubs one hub's online and not busy
-  wins (`netmentions.tsx` `peerPresence`/`netPresence`). The mailbox's network
+  sorted between online and offline; Do not disturb (an org whose outside mail
+  is set to it) is the same dot filled with the one `--dnd` token (`var(--bad)`,
+  the danger red: "a red status icon", user 2026-10-31 08:51Z md63cf5e0960f)
+  and the words `Do not disturb`, sorted after busy. Offline wins over DND and
+  DND over busy ("Offline for both", 09:03Z m65f544179c74); across hubs the
+  most available presence wins (`netmentions.tsx` `PRESENCE_RANK`,
+  `peerPresence`/`netPresence`). The mailbox's network
   tab wears the same dot. A hub's own status
   dot keeps green or grey beside its status words and gained a hover
   (`Connected` / `Not connected`).
