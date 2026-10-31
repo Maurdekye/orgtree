@@ -10221,8 +10221,11 @@ button.ref-chip.ref-chip.ref-ready:is(.ref-item, .ref-doc, .ref-app, .ref-panel,
   padding-left: 5px;
   box-shadow: inset 3px 0 0 var(--ref-flare-color, var(--docket-status-color, transparent));
 }
-.ref-flare:is(.doc-new, .mail-new) { --ref-flare-color: var(--accent); }
-.ref-flare.doc-updated { --ref-flare-color: color-mix(in srgb, var(--accent) 45%, transparent); }
+/* the unread edge is the CHOSEN THEME colour (USER 2026-10-31 mb8978d259c97 "the unread highlight (on presentations and mail) should
+   follow the chosen theme color"): --org-accent, which the theme sets and a desk or tray row never re-points, where --accent becomes
+   the provider's colour inside those in provider-colour mode */
+.ref-flare:is(.doc-new, .mail-new) { --ref-flare-color: var(--org-accent); }
+.ref-flare.doc-updated { --ref-flare-color: color-mix(in srgb, var(--org-accent) 45%, transparent); }
 /* AN APP OR PANEL LINK'S RUN STATE (USER 2026-10-31 m8d5facfeae29 "panels that are running (or apps with any panels running) should
    have a highlight", m9a790bb7a155 "if an app has a panel but its dead then the highligth should be dark grey", m16901ed8c657 "if an
    app has no panels then it should not have a highlight", m29a112a68005 "Tint like unread"): the same chip flare, drawn as a tinted

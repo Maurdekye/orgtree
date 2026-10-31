@@ -2676,7 +2676,7 @@ object links: the mail icon on the left, then the first words of the message (m3
   highlight like presentations do"). The user box's by-id lookup already answers `unread` (the row is still `pending`), so the name
   reader (`mailrefs.ts` `mailFlare`) returns the same `RefFlare` shape `docrefs.ts` does: the words `DOC_UNREAD_WORDS.new` ("Unread")
   and the class `mail-new`, which `styles.css` gives the presentation's `doc-new` colour in one rule (`.ref-flare:is(.doc-new,
-  .mail-new)`, the accent edge; mail has no "modified" state). `resolveRef` carries it on the chip, `refChipTitle` and the
+  .mail-new)`, the edge in the chosen theme colour, `--org-accent` rather than `--accent`, which a desk or tray row re-points at its provider's colour: USER 2026-10-31 mb8978d259c97 "the unread highlight (on presentations and mail) should follow the chosen theme color"; mail has no "modified" state). `resolveRef` carries it on the chip, `refChipTitle` and the
   Markdown chip lead the static title with it, and the hover (`objecttooltip.ts`, `mailTitle`'s `state`) leads with it from its
   fresh read, so the sent-mail tool rows, the listener tables, Markdown and React links all show it. Only the user's inbox keeps
   per-message read state: a node's or the org inbox's message, a read one and `@user` never flare. It clears under the presentation's
