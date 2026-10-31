@@ -2532,14 +2532,12 @@ export interface OrgMdPayload {
 
 // GET /api/app-settings/instructions: the instructions for all orgs
 export interface AppInstructionsPayload {
-  /** the user's own text, what the editor edits */
+  /** the whole block, the Connect your phone note included: what the editor edits */
   content: string
-  /** the Connect your phone note, shown read-only; null while no phone is linked */
-  managed: string | null
-  /** the whole block's revision (the note included): sent back on save */
+  /** the whole block's revision: sent back on save */
   rev?: string
   chars?: number
-  /** characters agents receive, the note included */
+  /** characters agents receive */
   prompt_chars?: number
   read_truncated?: boolean
   edit_max?: number

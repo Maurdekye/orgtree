@@ -3,8 +3,8 @@
 // in every org receives, right before its own org's org.md. It keeps the org
 // charter's editor pattern (Org settings > Basic > Org charter): explicit Save
 // with the loaded revision, the same load guards and delivery warning. The
-// Connect your phone note shows read-only above the text: Connect your phone
-// and Unlink manage it, and a save never carries it.
+// Connect your phone note is ordinary text here, as in org.md (USER
+// 2026-10-31 13:59:20Z md088b15466fa): Connect puts it on top, Unlink takes it out.
 import { useEffect, useRef, useState } from 'react'
 import { getAppInstructions, putAppInstructions } from '../api'
 import type { AppInstructionsPayload, ToastFn } from '../types'
@@ -67,10 +67,7 @@ export function AppInstructionsSetting({ toast }: { toast: ToastFn }) {
       setBusy(false)
     }
   }
-  const managed = meta?.managed ?? null
-  // what agents receive: the note, then the text (engine app_instructions::join)
-  const delivered = text == null ? 0
-    : (managed ? unicodeLength(managed) + (text ? 1 : 0) : 0) + unicodeLength(text)
+  const delivered = text == null ? 0 : unicodeLength(text)
   const max = meta?.prompt_max
   return (
     <SetGroup title="Instructions for all orgs">
@@ -85,21 +82,14 @@ export function AppInstructionsSetting({ toast }: { toast: ToastFn }) {
             <button type="button" onClick={() => setRetry(n => n + 1)}>Retry</button>
           </div>
         )}
-        {managed && (
-          <div className="appmd-managed">
-            <div className="appmd-caption">Connect your phone added this note; Unlink removes it. Agents receive it first,
-              and only Connect your phone changes it.</div>
-            <pre className="appmd-note" aria-label="Connect your phone note">{managed}</pre>
-          </div>
-        )}
         <textarea className="orgmd-editor" value={text ?? ''} aria-label="Instructions for all orgs"
           disabled={text == null} onChange={e => setText(e.target.value)} />
-        {load === 'ready' && text === '' && !managed && (
+        {load === 'ready' && text === '' && (
           <div className="orgmd-status">No instructions for all orgs are configured.</div>
         )}
         {text != null && max != null && delivered > max && (
           <div className="orgmd-warn" role="alert">
-            ⚠ {formatCount(delivered)} characters{managed ? ' with the Connect your phone note' : ''} — only the
+            ⚠ {formatCount(delivered)} characters — only the
             first {formatCount(max)} characters reach an agent. The last {formatCount(delivered - max)}
             {' '}{delivered - max === 1 ? 'character is' : 'characters are'} delivered to NO agent in any org.
             {' '}The text saves whole; the delivery is what is cut.

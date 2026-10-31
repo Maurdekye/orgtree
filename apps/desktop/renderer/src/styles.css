@@ -8082,16 +8082,6 @@ label.set-row { cursor: pointer; }
 @media (max-height: 560px) {
   .settings textarea.orgmd-editor { height: 9rem; max-height: 42vh; }
 }
-/* the instructions for all orgs: the Connect your phone note, read-only above
-   the editable text (coordinator ruling 8, 2026-10-31) */
-.appmd-managed { margin: 6px 0; }
-/* the caption reads as a hint, the size of the group's own hint */
-.appmd-caption { font-size: 11px; line-height: 1.45; color: var(--dim); }
-.appmd-note {
-  margin: 4px 0 0; padding: 6px 8px; border-radius: 4px;
-  border: 1px solid var(--line); background: var(--panel-2); color: var(--dim);
-  font-size: 11px; line-height: 1.45; white-space: pre-wrap; overflow-wrap: anywhere;
-}
 /* org.md length warnings — the file saves whole but is DELIVERED cut, and the
    operator is the only person who can shorten it, so it is said here */
 .orgmd-warn {
