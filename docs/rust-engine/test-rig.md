@@ -99,6 +99,7 @@ the run.
 | `conversation-recall.mjs` | conversation recall (decision 55; `--hub <orgtree-mailhub.exe>` adds the `@net:` part): alice's mail with carol in order both ways with boss's mixed in, 20 a page with a cursor bound to her and the start said plainly, a limit-5 walk losing nothing, carol's mirror view, a reply linked to what it answers; the caps (limit 1000 gives 100, 500-character previews marked cut with the whole length, a page stopping at 16,000 characters with the cursor for the rest, `fetch` of sent and received mail whole); the user's mail with an attachment named; `@org:` and `@net:` mail of the org-inbox holders on both sides, a bare org name; refusals (another agent's cursor, unknown peer, herself, extra arguments) and nobody else's mail; 114 waiting notices: a real message still starts its turn with the 64 oldest and the leftovers ride the next (decision 56); the fresh-session note after a cheap compact names her correspondents newest first |
 | `org-inbox.mjs` | mail between two orgs on one machine (`@org:`) and the org-inbox holders (P14, P15, P28): only a top-level agent or a holder writes outside; an org with no holder grants its first live top-level agent; single-holder grants revoke the previous holder; multi-holder off is refused while several hold it; a retired holder is replaced |
 | `org-inbox-unavailable.mjs` | outside mail when the org-inbox holder cannot run (decision 59): a halted holder's `@org:` and `@net:` mail goes to the first top-level agent who can run, whose turn takes it, while the holder keeps the audience and gets no copy, and the sender is told who got it; the same for a holder frozen by a usage limit; with the first top-level agent halted too, the next one gets it; in multi-holder mode the holder who can run gets it and the frozen one no copy; with the holders retired, the inbox goes to the first top-level agent who can run; when nobody can run, the mail waits with the holder, the user is told, and it is read once an agent is unhalted |
+| `desk-guard.mjs` | with `--ui`, the desk harness's guards as the page sees them: started muted, window muted, no application menu, clipboard-read/-write denied, the clipboard stub at document start (a write reads back from it), `execCommand` copy/paste refused, Ctrl+V/Ctrl+C and a CDP clipboard grant refused, a plain key still sent, Electron in Session 0; without `--ui` it fails asking for one |
 | `agent-typing.mjs` | typing in Hubchat ([agent-typing.md](agent-typing.md)), on a hosted hub with the `typing` feature: the flat and split message shapes and a split notice are sent, a mixed call and an unknown metadata key refused; a haiku agent streaming `orgtree_message` sends a typing heartbeat about every 500 ms, never a second apart, to a registered person whose sync sends back its `typing_seq`, from the moment `metadata` is whole until the call's block ends, and none after its message; a body written first sends none and still sends the message; a block that never becomes a call stops at its end, seconds before the turn's; a quick call sends none |
 | `hubchat-reply.mjs` | a person on the mail hub is answered with `orgtree_message` to their `@net:` address (decision 63): a new top-level hire's instructions say so in the org-inbox passage, even when that person is the user; a new report with no outside audience has no org-inbox passage; a message from `@net:peer.rig` reaches the inbox holder's turn with the reminder line naming that address; the user's own mail has none |
 | `audiences.mjs` | who an agent may write to (superior, reports, peers; a distant superior's message grants a reply audience) and `orgtree_audience` request, grant, revoke and deny between agents, and an audience with the user |
@@ -730,10 +731,23 @@ confirm it), `desktop/explore.cjs` (screenshot plus a card summary), `desktop/wa
 `desktop/frozen-card.cjs` (a frozen agent's card and desk), `desktop/org-list.cjs` (the org list on
 `/`; pass `org: ''`).
 
-The renderer bundle defaults to this worktree's `dist/renderer`, else the installed app's `ui`;
-`node tools/rig/build-ui.mjs [--dev]` builds this worktree's renderer into the rig home for
-`up --ui <dir>` or `ORGTREE_RIG_UI=<dir>` (which also covers the runs a script starts; `--dev`:
-unminified React with source maps, so a crash names its component).
+A run is headless unless a renderer bundle is asked for: `up`/`run --ui <dir>`,
+`--ui auto` (this worktree's `dist/renderer`, else the installed app's `ui`, else an integration
+checkout's), or `ORGTREE_RIG_UI=<dir>` (which also covers the runs a script starts); `--no-ui`
+wins over both. `runDesktop` refuses a run without a bundle before it starts anything, so a desk
+branch never runs by accident. `node tools/rig/build-ui.mjs [--dev]` builds this worktree's
+renderer into the rig home (`--dev`: unminified React with source maps, so a crash names its
+component).
+
+The harness is always silent and off the real clipboard (`desktop/guards.cjs`): Chromium starts
+with `--mute-audio` and the window is muted; clipboard permission requests and checks are denied;
+an in-memory `navigator.clipboard` and a no-op `execCommand` copy/cut/paste are registered at
+document start (after a first `about:blank`, with Page enabled: sent to the blank initial document,
+CDP hangs offscreen Electron 44); there is no application menu; and the driver refuses
+Ctrl/Meta+C/X/V, Ctrl/Shift+Insert and CDP clipboard grants with an error. `result.json` carries
+`guards` and `runDesktop` adds `session` (the rig's and Electron's Windows SessionId). It does not
+change where the window runs: launch from a Session 0 turn. `proofs/desk-guard.mjs --ui auto`
+checks all of it from the page.
 
 What it cannot test, and does not pretend to: the desktop main process (tray, pop-out windows,
 native menus, window controls, notifications, the preload bridge: the renderer runs as it does in

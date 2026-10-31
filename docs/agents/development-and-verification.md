@@ -52,6 +52,27 @@ run on the isolated route, report it as unverified and ask the coordinator.
 See the [full isolation procedure](../skills/orgtree-working/runtime/session-0-ui-testing/SKILL.md).
 [decided: coordinator 2026-10-24, test-window isolation]
 
+**The rig is headless unless a renderer is asked for (2026-10-31).** Before,
+a `rig.mjs run` without `--ui` picked this worktree's, the installed app's or an
+integration checkout's renderer bundle by itself, so a proof's desk branch
+(`if (rig.run.ui)`, or an unconditional `runDesktop`) opened the stock
+harness, unmuted and on the real clipboard, in a run that looked headless.
+Now a bundle comes only from `--ui <dir>`, `--ui auto` (the old discovery) or
+`ORGTREE_RIG_UI`; `--no-ui` wins; `runDesktop` refuses a run without one
+before anything starts. The stock harness (`tools/rig/desktop/main.cjs` with
+`desktop/guards.cjs`) is always muted (`--mute-audio`, `setAudioMuted`),
+denies clipboard permissions, stubs `navigator.clipboard` and
+`execCommand` copy/cut/paste at document start, has no application menu,
+refuses Ctrl/Meta+C/X/V, Ctrl/Shift+Insert and CDP clipboard grants, and
+records the guards and the rig's and Electron's SessionId in `result.json`.
+It still does not move a window into Session 0: launch from a Session 0 turn.
+Never add a copy/cut/paste listener that prevents default: Chromium writes a
+prevented copy event's empty data to the system clipboard. A proof that drives
+the desk now needs `--ui`; without it, an unconditional `runDesktop` fails
+with that message. `tools/rig/proofs/desk-guard.mjs --ui auto` checks it all.
+[decided: coordinator 2026-10-31, docket rig-proofs-never-open-an-unguarded-desk-window-b;
+verified: `tools/rig/lib.mjs`, `tools/rig/desktop/guards.cjs`, `tools/rig/tests/desk-guard.test.mjs`]
+
 ## GL/SVG parity cameras
 
 The GL wire parity fixture compares two separate canvas mounts. Restore the
