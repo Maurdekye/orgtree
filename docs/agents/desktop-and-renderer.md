@@ -266,6 +266,21 @@ capture `PROJECTNODE_VISUAL_ONLY=resolution-frame` in
 `tests/projectnode-visual.cjs`, `RESOLUTION_FRAME_BEFORE=1` records the broken
 base]
 
+Reopened on alpha.3 (USER 2026-10-31 16:25Z, screenshot m13268c3067f5: the
+"1 queued / undelivered" row of a submitted multi-question ask read "@user
+[message] Unsupported message format", a blink). Cause: the queued entry added
+`work_item` to each answered question when the ask's tabs belong to docket
+items, but the event schema is closed (`additionalProperties: false` on
+`BatchQ` / `AnsweredQ`), so `decodeEventRow` found the queued event invalid and
+`EventCard` drew its fallback until the server row arrived. The server's
+answered questions never carry `work_item`; the inbox row finds the item on the
+ask itself (`answeredAsk` reads `ask.questions` / `tabs`). `batchSections` and
+`askAnswer` no longer set it. GOTCHA: a queued entry (`queuedAnswerRow`) is an
+event, so whatever its builders add must validate against
+`generated/events.schema.json`; test it by mounting the desk and asserting no
+`.event-unsupported` in the `.pendrow` (`tests/resolutionfirstframe.test.tsx`
+§9, §10: tabs that are docket items).
+
 ## Request cards fold (2026-10-29, 4.5.2)
 
 USER mece9d7b275c2: "add collapsible request cards". Every card `AskCard`
