@@ -2393,7 +2393,12 @@ be communicated more clearly", m0537fdb73608).
   ring for offline both places", m019c9500d23a; it replaced a red `--bad`
   ring). They differ in shape as well as colour; a filled grey bullet is
   neither. Its hover and accessible name are `Online` or
-  `Offline`. The mailbox's network tab wears the same dot. A hub's own status
+  `Offline`; busy (mail hub 2.3.0, 2026-10-31) is the same dot filled with the
+  one `--busy` token (`var(--warn)`, the caution amber: "Amber (existing
+  caution colour)", user 2026-10-30 23:19Z mfb051a00d947) and the word `Busy`,
+  sorted between online and offline; across hubs one hub's online and not busy
+  wins (`netmentions.tsx` `peerPresence`/`netPresence`). The mailbox's network
+  tab wears the same dot. A hub's own status
   dot keeps green or grey beside its status words and gained a hover
   (`Connected` / `Not connected`).
 - **Order** ("sorted online first then offline below, and also within those

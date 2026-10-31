@@ -727,3 +727,28 @@ Original section: Shared skills and installed plugin imports (2026-10-15). Sourc
   [decided: user/coordinator 2026-10-19; verified: runtime/elicitation.rs,
   runtime/codex.rs, http/asks.rs, canvas/elicitation.tsx]
 <!-- /preserved:e-2df3546f707ac625 -->
+
+## Busy presence (2026-10-31)
+
+An address online can be busy (Mail hub 2.3.0): online, but no one can answer it now. Busy is a part of online, so a
+client that doesn't know it shows the address online. The user: "if an org has no outbox audience holders, or all
+audience holders are frozen / halted / retired, or otherwise indisposed and unable to start a turn, the org appears as
+"busy" with an orange marker, instead of online" (2026-10-30 23:03Z ma662ce2d2385); for people "use a similar metric
+but give it a longer timeout, say an hour" (23:06Z mac1516a71553); "Yes, widen to Mail hub 2.3.0" and "Amber
+(existing caution colour)" (23:19Z mfb051a00d947).
+
+- The org: `orginbox::busy` is true while none of the org-inbox holders can run: no live holder (`live_holders`),
+  every one halted or frozen (`runnable`: any freeze), or the org killswitch latched. Holders only, as the user worded
+  it: `route_tx` still hands outside mail to a runnable top-level agent when no holder can run (coordinator 2026-10-30
+  23:18Z). The network pass (`net/presence.rs`, every 3 s) sends `POST /api/presence {busy}` to each connected hub when
+  it changes, the first time on a connection (the hub keeps it in memory only, so a connection that went down says it
+  again), and every 5 minutes; a 404 (a hub before 2.3.0) is not asked again until the connection comes back.
+- People: the hub owns the rule (`BUSY_AFTER`, one hour, in the hub's `presence.rs`). A person is busy once none of
+  their devices has been in use (`POST /api/devices/active`, which Hubchat sends while it is in front and touched in
+  the last 150 s) for an hour, and online again as soon as one is.
+- Display: roster rows carry `busy`; `net/recent.rs` `ROW_FIELDS`, the phone panel's people and `remote_peers`
+  (orgtree_list_orgs) pass it on. `PresenceDot` and the chip hover read `netPresence` (online | busy | offline); the
+  dot is in the [desktop notes](desktop-and-renderer.md).
+- Tests: `domain/orginbox_busy_tests.rs` (ignored fixture: `ORGTREE_BUSY_TEST_URL` to an isolated
+  `busy_presence_fixture` database, `-- --ignored --test-threads=1 domain::orginbox::busy_tests`),
+  `net/presence_tests.rs`, renderer `tests/busypresence.test.tsx`; the hub's `tests/busy.rs` (`--features test-clock`).

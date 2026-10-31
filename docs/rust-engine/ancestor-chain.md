@@ -44,3 +44,9 @@ presenter/project-present and human gallery page helpers, including root folder
 clamps, no-user-audience membership, refusal outside the caller's project,
 retained renamed presenters, page size/continuation and malformed-cycle controls.
 User choice: m23e9823f7a3e, 2026-10-23, D2/D3 "change the app"; release 4.4.4.
+
+Moved here from AGENTS.md on 2026-10-31 (its room went to busy presence), verbatim:
+Ancestor scope/funding/presenter reads traverse the complete chain and refuse
+cycles. Scope/funding retain root-first row-lock order; presenter reads share the
+ordered scope helper. No org-wide lock is added. [verified:
+`domain/{ops,projects,docs}.rs`;2026-10-23]

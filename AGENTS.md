@@ -430,6 +430,7 @@ placement settings and bounded failure. See [rig seed timing](docs/rust-engine/t
   leaves the slug alone. See [ticket identity hover](docs/agents/desktop-and-renderer.md#ticket-identity-hover).
   [decided: user 2026-10-21 17:38:28Z; verified: `canvas/objecttooltip.ts`]
 - An org inbox row's `delivered_to` records who got its copies, written at delivery, never recomputed [decided: user 2026-10-29]; it stays inside the org: no hub payload, receipt, ack or reply quote carries it [decided: user 2026-10-30]. [doc](docs/agents/mail-and-hub.md)
+- An org shows busy on its hubs while no org-inbox holder can run (`orginbox::busy`: holders only, or the killswitch); a person's hour is the hub's. One `--busy` token colours every busy dot. [busy presence](docs/agents/mail-and-hub.md#busy-presence-2026-10-31) [decided: user 2026-10-30 23:03-23:19Z]
 - Follow the [Windows machine-traps page](docs/skills/orgtree-working/workspace/machine-traps/SKILL.md) before shell/file edits: preserve UTF-8/CRLF, write escape-heavy scripts as files, do not treat JSON quoting as shell escaping, and verify resolved paths/activity before authorized cleanup. [decided: user/coordinator 2026-10-16]
 
 ## Find the detailed rule
@@ -497,8 +498,6 @@ Compatibility links to the original section records:
 <a id="where-the-detail-lives"></a>[where-the-detail-lives](docs/agents/legacy-and-superseded.md#e-8d3b3b0a9bb77e9d)<br>
 <a id="mcp-imports-from-installed-harnesses-2026-10-15"></a>[mcp-imports-from-installed-harnesses-2026-10-15](docs/agents/instructions-and-skills.md#e-696c902e76e39caa)<br>
 <a id="shared-skills-and-installed-plugin-imports-2026-10-15"></a>[shared-skills-and-installed-plugin-imports-2026-10-15](docs/agents/instructions-and-skills.md#e-87e9373ea83fb86f)
-
-- Ancestor scope/funding/presenter reads traverse the complete chain and refuse cycles. Scope/funding retain root-first row-lock order; presenter reads share the ordered scope helper. No org-wide lock is added. See [ancestor-chain.md](docs/rust-engine/ancestor-chain.md). [verified: `domain/{ops,projects,docs}.rs`;2026-10-23]
 
 - Organization templates retain nested-v1 files with no node/depth ceiling and a 16 MiB file bound. Raw tree indexing, flat ownership and iterative export/plan avoid recursive Clone/Drop. Save reads all live nodes by keyset paging and keeps project queue/event policy, per-agent speed and explicit OpenRouter pins. See [template-portability.md](docs/rust-engine/template-portability.md). [decided: user 2026-10-22; verified: `domain/template_wire.rs`, `domain/templates.rs`, `http/templates.rs`]
 
