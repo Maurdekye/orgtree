@@ -2714,16 +2714,19 @@ engine did not send: an older engine). A panel or app that is not there stays an
   highlights use, class `run-on` or `run-dead`, tip `Running` / `Running · visible` / `Running · hidden` / `Off`. It re-reads on
   `custom_apps_changed` like the names do, so a link follows panels starting and stopping. An app link's hover leads with the state
   (`refChipTitle`); a panel link's hover already is the state word.
-- **Look** (`styles.css`): the dot the Apps list draws for a panel's power state, in front of the link's mark, never the unread/status
-  edge (`.ref-flare:not(.run-on, .run-dead)` keeps the edge off): running the accent, dead `color-mix(var(--dim) 55%, black)`, a
-  dark grey of the theme. In the wrapping layout the dot is an inline-block that adds nothing to the line.
-- **The Apps list** (`apps/ui.tsx`): each app row draws the same dot (`.custom-app-state.run-on|run-dead`, apps.css) from the app's
-  loaded panels, none when it has none; a panel row keeps its own existing light (filled running visible, ring running hidden, hollow
-  grey off). The list pages its panels, so an app's dead/none state there is read from the panels loaded (running ones always are).
-- **Proofs**: `tests/apprunning.test.tsx` (chips in React and Markdown, live frame, app rows, stylesheet) and the chipalign capture,
-  which in Session 0 checks in both mention layouts the dot's computed size, shape and colour, a running app going dark grey when its
-  last panel stops, a dead link grey, an app with no panels bare, and no unread edge on any of them.
-[decided: user 2026-10-31 m8d5facfeae29, m9a790bb7a155, m16901ed8c657; verified: `canvas/{apprefs.ts,reflinks.tsx,refmd.tsx}`, `canvas/apps/{links.ts,ui.tsx,apps.css}`, `styles.css`, `domain/apps/storage.rs`]
+- **Look** (`styles.css`, USER m29a112a68005 "Tint like unread", which replaced a first version drawn as a dot): a tinted chip
+  background on the same flare. Running is `color-mix(var(--accent) 24%, transparent)`, dead `color-mix(var(--dim) 32%, transparent)`
+  (a dark grey tint from the theme's neutral grey), none no tint. The unread/status edge is a left `box-shadow` and the run tint a
+  `background`, and the edge rule skips the run classes (`.ref-flare:not(.run-on, .run-dead)`), so the two cannot overlap on one
+  chip (the types do not share states anyway). There is no dot.
+- **The Apps list** (`apps/ui.tsx`, `apps.css`): the app row and each panel row wear the same two tints (`run-on` / `run-dead` on
+  `.custom-apps-menu-app` and `.custom-apps-saved-row`) from the panels loaded: an app with no panels is untinted. A panel row keeps its
+  own light (filled running visible, ring running hidden, hollow grey off). The list pages its panels, so an app's dead/none state
+  there is read from the panels loaded (running ones always are).
+- **Proofs**: `tests/apprunning.test.tsx` (chips in React and Markdown, live frame, app and panel rows, the stylesheet's tints, no dot,
+  the edge setting no background) and the chipalign capture, which in Session 0 checks in both mention layouts the computed background
+  of each state (accent tint, grey tint, none), a running app going grey when its last panel stops, no dot and no unread edge.
+[decided: user 2026-10-31 m8d5facfeae29, m9a790bb7a155, m16901ed8c657, m29a112a68005; verified: `canvas/{apprefs.ts,reflinks.tsx,refmd.tsx}`, `canvas/apps/{links.ts,ui.tsx,apps.css}`, `styles.css`, `domain/apps/storage.rs`]
 
 ## Retained last-good usage readings across failed fetches (2026-10-29, 4.5.2)
 
