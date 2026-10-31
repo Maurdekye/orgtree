@@ -2844,3 +2844,18 @@ m80d7d5efcb47, m775004ca72eb; docket
   (`apps/desktop/renderer/tests/usageretained.visual.tsx`,
   `tools/rig/desktop/usage-retained-visual.cjs`).
 [decided: user 2026-10-29 m80d7d5efcb47, m775004ca72eb; verified: `engine/rs/orgtree-engine/src/{usage,openrouter}.rs`, `apps/desktop/renderer/src/{App,accountusage}.tsx`, `apps/desktop/renderer/src/canvas/{accounts,openrouterkeys}.tsx`, `tests/usagerefresh.test.tsx`]
+
+## The opening fit counts a pinned window that registers before its first frame (2026-10-31, 4.5.3)
+
+USER 2026-10-31 19:00:15Z mde9aed4fbe59 "opening an org window after starting zooms out to fit the org. it dowsnt respect pinned window
+obstruftiom, and doesnt follow the changing space as pinned windows are resized". The fit already aims at the largest pin-free
+rectangle (`regionOf`, w14aace89) for every fit and focus command, the manual Fit whole org (button and Shift+Alt+Space) included, and a
+whole-org intent already follows pins, the viewport and the tree while no one has touched the camera (`camIntent`, the follow effect in
+`OrgCanvas.tsx`). The gap was the opening itself: the opening effect sets no intent until the first frame of its glide, and the follow
+effect drops a change while none is set, so a pinned window that registered before that frame (the modal windows register in an effect of
+the mount commit; the window may also have been sized since) never reached the glide's target. The frame now compares the fit of that
+moment with the one the glide was aimed at and re-aims the same glide when they differ. Panning, zooming, wheel or a focus still release the
+follow, as before. Not changed: a pinned (non-modal) window's resize reaches the fit when its rect is committed on release, not per frame
+(the 2026-09-05 rule that the camera does not chase a window mid-drag); modal windows publish live rects and are followed as they move.
+Proof: `tests/fitview.test.tsx`, the pin registering before any timer runs.
+[decided: user 2026-10-31 mde9aed4fbe59; verified: `canvas/OrgCanvas.tsx`, `canvas/pins.tsx`, `canvas/pinspace.ts`]
