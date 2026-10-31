@@ -3,8 +3,11 @@
 //   m405acb968af7 "Yes, in 4.5.3"). Fake CLIs, warming on, and a CLI made
 //   slow to start (`initialize-delay-ms` in the fake CLI's folder: 10 s, the
 //   8-12 s the alpha.3 logs measured for a real replacement).
-//   1. ada (opus) is idle with a parked CLI; her effort is saved to high,
-//      which replaces it; mail sent 1.5 s into the warm-up starts her turn at
+//   1. ada (opus) is idle with a parked CLI; her effort is saved to high
+//      together with a new charter (an effort-only change is applied in
+//      place and restarts nothing: docket
+//      effort-change-on-a-claude-seat-applies-without-r; the charter needs
+//      a new CLI), which replaces it; mail sent 1.5 s into the warm-up starts her turn at
 //      once (it waited for the whole warm-up before), on the one CLI launched
 //      for high; a second mail sent during the warm-up is delivered too, in
 //      order.
@@ -42,7 +45,9 @@ export default async function (rig) {
   const log = () => rig.fakeLog('ada')
   const starts = () => log().filter(l => l.kind === 'start')
   const turnPids = () => log().filter(l => l.kind === 'turn').map(l => l.pid)
-  const scope = effort => rig.api('POST', `/api/orgs/${rig.org}/nodes/ada/scope`, { effort })
+  // effort with a charter edit: a change that still needs a new CLI
+  let edits = 0
+  const scope = effort => rig.api('POST', `/api/orgs/${rig.org}/nodes/ada/scope`, { effort, charter: `Warm-up subject, edit ${++edits}.` })
   const alive = pid => { try { process.kill(pid, 0); return true } catch { return false } }
   const delay = path.join(rig.fakeDir, 'initialize-delay-ms')
   // mail at `sentAt` started the turn after `before` turns: how long it waited

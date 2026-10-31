@@ -138,6 +138,9 @@ struct Cli {
     /// {task, tool, miss}; `miss` ones are not taken by the turn running when
     /// they ended (its last model step had begun)
     bg_pending: Mutex<Vec<Value>>,
+    /// the effort level the model is called with: `--effort`, then each
+    /// `apply_flag_settings {effortLevel}`, as the real CLI changes it in place
+    effort: Mutex<Option<String>>,
 }
 
 impl Cli {
@@ -783,7 +786,8 @@ fn run_turn(cli: &Arc<Cli>, prompt: &str, tools: &[String], native: &[String], f
     set_turn_running(cli, true);
     take_bg(cli, "into the client's turn", true);
     let (script, steps) = pick(cli, prompt);
-    cli.log("turn", json!({ "script": script, "prompt": prompt, "steps": steps.len() }));
+    let effort = cli.effort.lock().unwrap().clone();
+    cli.log("turn", json!({ "script": script, "prompt": prompt, "steps": steps.len(), "effort": effort }));
     transcript(cli, "user", prompt);
     let mut tool_names: Vec<Value> = native.iter().map(|t| json!(t)).collect();
     tool_names.extend(tools.iter().map(|t| json!(format!("mcp__orgtree__{t}"))));
@@ -949,6 +953,12 @@ fn reader(cli: Arc<Cli>, tx: mpsc::Sender<Msg>) {
                         cli.interrupted.store(true, Ordering::SeqCst);
                         cli.respond(&id, json!({}));
                     }
+                    Some("apply_flag_settings") => {
+                        if let Some(level) = req["settings"]["effortLevel"].as_str() {
+                            *cli.effort.lock().unwrap() = Some(level.to_string());
+                        }
+                        cli.respond(&id, json!({}));
+                    }
                     Some("mcp_status") => {
                         cli.respond(&id, json!({ "mcpServers": [{ "name": "orgtree", "status": "connected" }] }));
                     }
@@ -998,6 +1008,7 @@ fn claude(raw: &[String]) -> i32 {
         turn_running: AtomicBool::new(false),
         bg_live: Mutex::new(Vec::new()),
         bg_pending: Mutex::new(Vec::new()),
+        effort: Mutex::new(args.effort.clone()),
     });
     // the CLI's own tools, as its init event lists them
     let native: Vec<String> = ["Task", "Bash", "PowerShell", "Glob", "Grep", "Read", "Edit", "Write", "TodoWrite"]

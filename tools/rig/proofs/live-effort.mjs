@@ -9,15 +9,18 @@
 //     the user's settings route to low answers {sent, low} and sends low;
 //     a clear back to the org default (medium) sends medium, never "";
 //     medium set on her answers {unchanged} and sends nothing.
-//   Her next turn starts a fresh CLI with --effort medium on her session. A
-//   change while she is idle answers {next_turn, "no turn is running"} and
-//   her next turn starts with it.
+//   Her next turn runs on the same CLI, at medium: a Claude CLI changes its
+//   effort in place, so an effort change never restarts it (user 2026-10-31
+//   18:57:37Z md24d899ff1a4, docket
+//   effort-change-on-a-claude-seat-applies-without-r). A change while she is
+//   idle is sent to her parked CLI too ({sent}), and her next turn runs on
+//   it at the new level (the fake CLI logs the level each turn is called at).
 //   lu (luna, Codex): a change answers {next_turn, "only Claude turns ..."};
 //   its next turn/start carries the new effort, after a change while its
 //   app-server was parked and after a retool mid-turn (whose card shows the
 //   next level while the turn runs).
-//   An effort-only retool restarts nobody else: kid (ada's report) keeps its
-//   parked CLI.
+//   An effort-only retool restarts nobody: ada and kid (her report) keep
+//   their parked CLIs.
 //   With --ui, the desk as the user sees it: after boss's retool mid-turn the
 //   desk shows no next-turn effort card, and the composer's effort bar set
 //   low with the toast "sent to the running agent".
@@ -64,6 +67,7 @@ export default async function (rig) {
   const starts = name => log(name).filter(l => l.kind === 'start')
   const sends = name => log(name).filter(l => l.kind === 'recv' && l.line?.type === 'control_request'
     && l.line?.request?.subtype === 'apply_flag_settings')
+  const turnsLogged = name => log(name).filter(l => l.kind === 'turn')
   const turnStarts = name => log(name).filter(l => l.kind === 'recv' && l.line?.method === 'turn/start')
   const scope = (name, effort) => rig.api('POST', `/api/orgs/${rig.org}/nodes/${name}/scope`, { effort })
   const retool = async (name, effort) => {
@@ -117,20 +121,26 @@ export default async function (rig) {
   await rig.userMail('ada', 'Next turn, please.')
   await rig.waitTurns('ada', adaTurns + 2)
   const st = starts('ada').slice(adaStarts)
-  p.check('her next turn starts a fresh CLI with --effort medium on her session',
-    st.length === 1 && st[0].effort === 'medium' && st[0].pid !== turn.pid && st[0].resumed === true && st[0].session === session,
-    st.map(s => ({ pid: s.pid, effort: s.effort, resumed: s.resumed, session: s.session, was: session })))
+  const t1 = turnsLogged('ada').at(-1)
+  p.check('her next turn runs on the same CLI (no new start), at medium',
+    st.length === 0 && t1?.pid === turn.pid && t1?.effort === 'medium',
+    { started: st.map(s => ({ pid: s.pid, effort: s.effort })), turn: { pid: t1?.pid, effort: t1?.effort }, was: turn.pid, session })
 
   // ---- ada idle
   const idleStarts = starts('ada').length
+  const idleSent = sends('ada').length
   const r5 = await scope('ada', 'xhigh')
-  p.check('a change while she is idle answers {next_turn, xhigh, "no turn is running"}',
-    delivered(r5, 'next_turn', 'xhigh', 'no turn is running'), r5.effort_delivery)
+  p.check('a change while she is idle answers {sent, xhigh}', delivered(r5, 'sent', 'xhigh'), r5.effort_delivery)
+  const s5 = sends('ada').slice(idleSent)
+  p.check('...and her parked CLI was sent apply_flag_settings {effortLevel: xhigh}',
+    s5.length === 1 && s5[0].line.request.settings?.effortLevel === 'xhigh' && s5[0].pid === turn.pid, s5.map(l => ({ pid: l.pid, req: l.line.request })))
   await rig.userMail('ada', 'After the idle change.')
   await rig.waitTurns('ada', adaTurns + 3)
   const st2 = starts('ada').slice(idleStarts)
-  p.check('her next turn runs on a CLI started with --effort xhigh (a process at another level is not reused)',
-    st2.length === 1 && st2[0].effort === 'xhigh', st2.map(s => ({ pid: s.pid, effort: s.effort })))
+  const t2 = turnsLogged('ada').at(-1)
+  p.check('her next turn runs on the same parked CLI (no new start), at xhigh',
+    st2.length === 0 && t2?.pid === turn.pid && t2?.effort === 'xhigh',
+    { started: st2.map(s => ({ pid: s.pid, effort: s.effort })), turn: { pid: t2?.pid, effort: t2?.effort } })
 
   // ---- lu (Codex): parked app-server, then mid-turn
   const luTurns = rig.turns('lu').length
@@ -159,11 +169,18 @@ export default async function (rig) {
   await rig.userMail('kid', 'A turn on your parked CLI.')
   await rig.waitTurns('kid', kidTurns + 1)
   p.check('control: kid\'s second turn ran on its parked CLI', starts('kid').length === kidStarts, starts('kid').map(s => s.pid))
+  const adaParked = starts('ada').length
+  const adaDone = rig.turns('ada').length
   const r8 = await retool('ada', 'high')
-  p.check('boss retools ada\'s effort while she is idle: {next_turn, high}', delivered(r8, 'next_turn', 'high', 'no turn is running'), r8)
+  p.check('boss retools ada\'s effort while she is idle: {sent, high}', delivered(r8, 'sent', 'high'), r8)
   await rig.userMail('kid', 'After your superior\'s effort changed.')
   await rig.waitTurns('kid', kidTurns + 2)
   p.check('...and kid\'s next turn still runs on its parked CLI', starts('kid').length === kidStarts, starts('kid').map(s => s.pid))
+  await rig.userMail('ada', 'After the retool.')
+  await rig.waitTurns('ada', adaDone + 1)
+  const t8 = turnsLogged('ada').at(-1)
+  p.check('...and ada\'s next turn runs on her parked CLI, at high', starts('ada').length === adaParked && t8?.pid === turn.pid && t8?.effort === 'high',
+    { started: starts('ada').slice(adaParked).map(s => ({ pid: s.pid, effort: s.effort })), turn: { pid: t8?.pid, effort: t8?.effort } })
 
   // ---- the desk, as the user sees it
   if (rig.run.ui) {
