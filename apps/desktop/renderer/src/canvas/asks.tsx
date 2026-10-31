@@ -657,20 +657,17 @@ function askAnswer(ask: AskInfo, qs: AskQuestion[], body: { selected?: (string |
   const label = (q: AskQuestion | undefined) => (q?.header ? String(q.header) : null)
   const clean = (v: string | string[]) => (Array.isArray(v) ? v : [v])
     .map(x => String(x).trim()).filter(Boolean)
-  const item = (q: AskQuestion | undefined, i: number) =>
-    tabWorkItem(ask, q, i, qs.length)
   if (body.dismiss) {
     return { questions: qs.map((q, i) => ({ label: label(q), question: String(q.question ?? ''),
-      selected: [], ...offered(q), ...(item(q, i) ? { work_item: item(q, i) } : {}) })), text: null, dismissed: true, single: qs.length <= 1 }
+      selected: [], ...offered(q) })), text: null, dismissed: true, single: qs.length <= 1 }
   }
   if (qs.length > 1) {
     return { questions: qs.map((q, i) => ({ label: label(q), question: String(q.question ?? ''),
-      selected: clean(body.selected?.[i] ?? ''), ...offered(q), ...(item(q, i) ? { work_item: item(q, i) } : {}) })),
+      selected: clean(body.selected?.[i] ?? ''), ...offered(q) })),
       text: body.text?.trim() || null, dismissed: false, single: false }
   }
-  const w0 = item(qs[0], 0)
   return { questions: [{ label: label(qs[0]), question: String(ask.question ?? qs[0]?.question ?? ''),
-    selected: clean((body.selected ?? []) as string[]), ...offered(qs[0]), ...(w0 ? { work_item: w0 } : {}) }],
+    selected: clean((body.selected ?? []) as string[]), ...offered(qs[0]) }],
     text: body.text?.trim() || null, dismissed: false, single: true }
 }
 
@@ -689,10 +686,10 @@ function batchSections(ask: AskInfo, tabs: AskTab[], answers: (string | string[]
       const v = answers[i] ?? null
       const parts = v == null ? [] : (Array.isArray(v) ? v : [v])
         .map(x => String(x).trim()).filter(Boolean)
-      const work_item = t.work_item ?? (qTabs.length === 1 ? ask.work_items?.[0] : undefined)
+      // no work_item: the event schema is closed (additionalProperties false), and a queued entry that
+      // carries one decodes as "Unsupported message format". The inbox row finds the item on the ask.
       return { label: t.header ? String(t.header) : null, question: String(t.question ?? ''),
-        answer: parts.length ? parts.join(' · ') : null, selected: parts, ...offered(t),
-        ...(work_item ? { work_item } : {}) }
+        answer: parts.length ? parts.join(' · ') : null, selected: parts, ...offered(t) }
     }) })
   }
   const ct = tabs.find(t => t.kind === 'credits')

@@ -365,3 +365,53 @@ domTest('§8 two-tab batch, the inbox row of a just-submitted card: the answered
     assert.match(body(queuedEl), /<strong>scope<\/strong>/, 'the second question is Markdown in the queued inbox row')
     assert.equal(body(queuedEl), body(resolvedEl), 'the queued inbox row is the resolved row, markup for markup')
   })
+
+// -- the queued row of an ask whose tabs belong to docket items: "Unsupported message format"
+// (USER 2026-10-31 16:25Z m13268c3067f5, screenshot: the "1 queued / undelivered" row of a submitted
+// multi-question ask read "@user [message] Unsupported message format") --
+const twoItemTabs = (nid: string): AskInfo => ({
+  ...twoTabs(nid),
+  work_items: ['item-a', 'item-b'],
+  tabs: [
+    { kind: 'question', header: 'Go', question: Q, options: OPTS, work_item: 'item-a' },
+    { kind: 'question', header: 'Scope', question: Q2, work_item: 'item-b' },
+  ],
+} as AskInfo)
+
+domTest('§9 two-tab batch whose tabs are docket items: the queued row is the resolution card, not "Unsupported message format"',
+  async ({ ND, s, mount }) => {
+    await refreshConvo(SL, ND)
+    const el = await mount(deskEl(node(ND, twoItemTabs(ND))))
+    await flush()
+    await click(option(el, 'yes'))
+    await click([...el.querySelectorAll('.ask-tabbtn')][1])
+    const box = el.querySelector('.askcard .ask-free-response-input') as HTMLTextAreaElement | null
+    assert.ok(box, 'fixture: the second tab is a free-text question')
+    await inAct(async () => {
+      const win = box.ownerDocument.defaultView as unknown as { HTMLTextAreaElement: typeof HTMLTextAreaElement }
+      Object.getOwnPropertyDescriptor(win.HTMLTextAreaElement.prototype, 'value')!.set!.call(box, TYPED)
+      box.dispatchEvent(new Event('input', { bubbles: true }))
+    })
+    await click(el.querySelector('.askcard .ask-submit'))
+    await flush()
+    const rows = [...el.querySelectorAll('.pendrow')]
+    assert.equal(rows.length, 1, 'exactly one queued row')
+    assert.equal(rows[0]!.querySelector('.event-unsupported'), null, 'the queued row is a supported event')
+    assert.ok(rows[0]!.querySelector('.answered-card'), 'the queued row draws the answered card')
+    assert.ok(rows[0]!.querySelector('.event-surface[data-event-variant="answer.batch"]'), 'as the answer.batch card the server row is')
+  })
+
+domTest('§10 single-question ask on a docket item: the queued row is a supported answer.ask event',
+  async ({ ND, mount }) => {
+    await refreshConvo(SL, ND)
+    const ask = { ...singleAsk(ND), work_items: ['item-a'] } as AskInfo
+    const el = await mount(deskEl(node(ND, ask)))
+    await flush()
+    await click(option(el, 'no'))
+    await click(el.querySelector('.askcard .ask-submit'))
+    await flush()
+    const rows = [...el.querySelectorAll('.pendrow')]
+    assert.equal(rows.length, 1, 'exactly one queued row')
+    assert.equal(rows[0]!.querySelector('.event-unsupported'), null, 'the queued row is a supported event')
+    assert.ok(rows[0]!.querySelector('.answered-card'), 'the queued row draws the answered card')
+  })
