@@ -3,7 +3,9 @@
 //
 //   node tools/rig/rig.mjs build              debug engine + fake CLI into $CARGO_TARGET_DIR (caller holds the build-slot permit)
 //   node tools/rig/rig.mjs up [--fixture basic|<file>|none] [--name n] [--ttl min] [--max min]
-//                                             [--ui dir] [--engine exe] [--legacy dir] [--initdb] [--hub [exe]] [--fsync]
+//                                             [--ui dir|auto] [--no-ui] [--engine exe] [--legacy dir] [--initdb] [--hub [exe]] [--fsync]
+//                                             a run is headless unless --ui (or ORGTREE_RIG_UI) names a renderer bundle;
+//                                             --ui auto picks one as before; --no-ui wins over both
 //                                             [--real-muse <muse-bin-*.exe>]   the real Muse Code for the Muse lane
 //                                             [--quiet-log]   the engine without verbose call logging (ORGTREE_LOG_VERBOSE=0)
 //   node tools/rig/rig.mjs status|down [--run id] [--keep]     down --run also removes a half-made run folder
@@ -51,7 +53,7 @@ async function up(flags) {
   // a later run tidies what earlier ones left (stopped or orphaned runs; never a live one)
   await cleanup().catch(e => console.error('cleanup before up failed:', e.message))
   const rig = await startRun({ name: flags.name, ttlMin: flags.ttl && Number(flags.ttl), maxMin: flags.max && Number(flags.max),
-    ui: flags.ui, engine: flags.engine, legacy: flags.legacy && path.resolve(flags.legacy), initdb: !!flags.initdb, prepare: flags.prepare,
+    ui: flags['no-ui'] ? false : flags.ui, engine: flags.engine, legacy: flags.legacy && path.resolve(flags.legacy), initdb: !!flags.initdb, prepare: flags.prepare,
     recover: !!flags.recover, reminders: flags.reminders && (flags.reminders === true ? true : Number(flags.reminders)),
     reminderPauseMs: flags.reminderPauseMs && Number(flags.reminderPauseMs), hub: flags.hub, hubMaxBytes: flags.hubMaxBytes && Number(flags.hubMaxBytes),
     realCli: !!flags['real-cli'], bootIsolated: !!flags['boot-isolated'],

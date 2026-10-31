@@ -302,12 +302,27 @@ export function pgTemplate(home, bin) {
   return path.join(dir, 'cluster')
 }
 
-/** The renderer bundle the scratch engine serves. */
+/** The renderer bundle the scratch engine serves, or null: a run is headless
+ * unless a bundle is asked for (docket
+ * rig-proofs-never-open-an-unguarded-desk-window-b). `explicit` is `--ui`: a
+ * dir, `true`/'auto' (the old discovery: this worktree's dist/renderer, the
+ * installed app's ui, the integration checkouts'), or `false` (`--no-ui`,
+ * which also overrides ORGTREE_RIG_UI). Without it ORGTREE_RIG_UI is the
+ * request. A named dir without index.html is an error, never a fallback. */
 export function uiDir(explicit) {
-  const main = mainRepo()
-  const candidates = [explicit, process.env.ORGTREE_RIG_UI, path.join(REPO, 'dist', 'renderer'), 'C:\\Program Files\\Orgtree\\resources\\ui',
-    ...integrationCheckouts(main).map(d => path.join(d, 'dist', 'renderer'))]
-  return candidates.filter(Boolean).find(d => fs.existsSync(path.join(d, 'index.html'))) || null
+  if (explicit === false) return null
+  const want = explicit ?? (process.env.ORGTREE_RIG_UI || undefined)
+  if (want === undefined || want === null || want === '') return null
+  if (want === true || want === 'auto') {
+    const main = mainRepo()
+    const candidates = [path.join(REPO, 'dist', 'renderer'), 'C:\\Program Files\\Orgtree\\resources\\ui',
+      ...integrationCheckouts(main).map(d => path.join(d, 'dist', 'renderer'))]
+    const found = candidates.find(d => fs.existsSync(path.join(d, 'index.html')))
+    if (!found) throw new Error('--ui auto: no renderer bundle found (build one with `node tools/rig/build-ui.mjs`)')
+    return found
+  }
+  if (!fs.existsSync(path.join(String(want), 'index.html'))) throw new Error(`no renderer bundle at ${want} (no index.html)`)
+  return String(want)
 }
 
 /** Electron, run where it is installed (never linked or copied). */

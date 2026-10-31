@@ -72,7 +72,8 @@ test('the desktop guards: clipboard permissions denied, clipboard APIs stubbed, 
   assert.equal(vm.runInContext('document.execCommand("copy")', ctx), false)
   assert.equal(vm.runInContext('document.execCommand("paste")', ctx), false)
   assert.deepEqual(real, [], 'nothing reached the real clipboard')
-  for (const type of ['copy', 'cut', 'paste']) assert.ok(listeners.some(l => l.type === type && l.capture === true), `a capturing ${type} guard`)
+  // a prevented copy event writes its empty data to the system clipboard (Chromium), so the stub adds no listener
+  assert.deepEqual(listeners, [], 'no copy/cut/paste listener')
   assert.equal(ctx.window.__rigClipboardGuard?.installed, true)
 
   // the driver's keys: Ctrl/Meta+C/X/V and Shift/Ctrl+Insert would reach the OS clipboard

@@ -9,14 +9,22 @@
 // electron.exe exit before the script runs): RIG_DESKTOP_URL, _TOKEN, _ORG,
 // _SCRIPT, _OUT, _PROFILE, _PRESET (short|tall|wide|WxH), _TIMEOUT_MS.
 //
+// Always silent and off the real clipboard (guards.cjs): Chromium starts with
+// --mute-audio and the window is muted, every clipboard permission request
+// and check is denied, an in-memory navigator.clipboard and a no-op
+// execCommand copy/cut/paste run at document start, there is no application
+// menu (no copy/paste accelerators), and the driver refuses copy/paste keys
+// and clipboard CDP grants. result.json records the guards.
+//
 // Not covered: the desktop main process (tray, pop-outs, native menus,
 // window controls), native <select> popups and OS drag and drop (Chromium
 // draws those outside the page), and real Windows DPI (the window runs at
 // device scale factor 1).
 'use strict'
-const { app, BrowserWindow, session } = require('electron')
+const { app, BrowserWindow, Menu, session } = require('electron')
 const fs = require('node:fs')
 const path = require('node:path')
+const guards = require('./guards.cjs')
 
 const E = process.env
 const OUT = E.RIG_DESKTOP_OUT
@@ -30,6 +38,7 @@ const sizeOf = p => PRESETS[p] ?? (/^\d+x\d+$/.test(p ?? '') ? p.split('x').map(
 log('main start', process.versions.electron)
 app.disableHardwareAcceleration()
 app.commandLine.appendSwitch('force-device-scale-factor', '1')
+app.commandLine.appendSwitch(guards.MUTE_SWITCH)
 for (const k of ['userData', 'sessionData', 'cache', 'crashDumps', 'logs']) {
   try { app.setPath(k, path.join(E.RIG_DESKTOP_PROFILE, k)) } catch (e) { log('setPath', k, e.message) }
 }
@@ -52,7 +61,10 @@ function driver(win) {
   wc.on('paint', (_e, _dirty, image) => { frame = image })
   wc.on('console-message', (_e, level, message) => { if (level >= 2) consoleErrors.push(String(message).slice(0, 500)) })
   wc.on('render-process-gone', (_e, d) => log('RENDERER GONE', JSON.stringify(d)))
-  const cdp = (method, params = {}) => dbg.sendCommand(method, params)
+  const cdp = (method, params = {}) => {
+    if (guards.refusedCdp(method, params)) return Promise.reject(new Error(`refused: ${method} would reach the real clipboard`))
+    return dbg.sendCommand(method, params)
+  }
   const evaluate = async (fn, ...args) => wc.executeJavaScript(`(${fn.toString()})(...${JSON.stringify(args)})`, true)
 
   // Find one visible element: a CSS selector, {text} (innermost visible element
@@ -138,6 +150,7 @@ function driver(win) {
     rightClick(target, opts = {}) { return page.click(target, { ...opts, button: 'right' }) },
     async press(name, { modifiers = 0 } = {}) {
       const k = KEYS[name] ?? { code: `Key${name.toUpperCase()}`, key: name, vk: name.toUpperCase().charCodeAt(0), text: name }
+      if (guards.refusedKey({ key: k.key, code: k.code, modifiers })) throw new Error(`refused: ${name} with modifiers ${modifiers} would reach the real clipboard`)
       await cdp('Input.dispatchKeyEvent', { type: k.text ? 'keyDown' : 'rawKeyDown', key: k.key, code: k.code, windowsVirtualKeyCode: k.vk, nativeVirtualKeyCode: k.vk, text: k.text, unmodifiedText: k.text, modifiers })
       await cdp('Input.dispatchKeyEvent', { type: 'keyUp', key: k.key, code: k.code, windowsVirtualKeyCode: k.vk, nativeVirtualKeyCode: k.vk, modifiers })
       await sleep(120)
@@ -183,7 +196,10 @@ function driver(win) {
 }
 
 app.whenReady().then(async () => {
+  Menu.setApplicationMenu(null)
   const ses = session.defaultSession
+  ses.setPermissionRequestHandler((_wc, permission, cb) => cb(guards.allowPermission(permission)))
+  ses.setPermissionCheckHandler((_wc, permission) => guards.allowPermission(permission))
   // the desktop's own rule (main/windows.ts + policy.ts): sign requests to
   // the engine origin only, strip the header everywhere else
   ses.webRequest.onBeforeSendHeaders((d, cb) => {
@@ -199,10 +215,13 @@ app.whenReady().then(async () => {
   const win = new BrowserWindow({ width: w, height: h, useContentSize: true, show: false, paintWhenInitiallyHidden: true, enableLargerThanScreen: true,
     webPreferences: { offscreen: true, backgroundThrottling: false, contextIsolation: true, sandbox: true } })
   win.webContents.setFrameRate(30)
+  win.webContents.setAudioMuted(true)
   const page = driver(win)
   log('window made')
   win.webContents.debugger.attach('1.3')
   log('debugger attached')
+  await win.webContents.debugger.sendCommand('Page.addScriptToEvaluateOnNewDocument', { source: guards.CLIPBOARD_STUB })
+  log('clipboard stub set')
   const result = { ok: false, preset: E.RIG_DESKTOP_PRESET || 'short', size: [w, h], contentSize: win.getContentSize(),
     display: require('electron').screen.getPrimaryDisplay().size }
   const deadline = setTimeout(() => {
@@ -213,12 +232,16 @@ app.whenReady().then(async () => {
     clearTimeout(deadline)
     result.shots = page.shots
     result.consoleErrors = page.consoleErrors
+    result.guards = { ...result.guards, muted: win.webContents.isAudioMuted(), muteSwitch: app.commandLine.hasSwitch(guards.MUTE_SWITCH),
+      clipboardPermissions: 'denied', applicationMenu: Menu.getApplicationMenu() === null ? 'none' : 'set' }
     fs.writeFileSync(path.join(OUT, 'result.json'), JSON.stringify(result, null, 2))
     log('done ok=' + result.ok)
     app.exit(0)
   }
   try {
     await page.goto(E.RIG_DESKTOP_ORG ? `/o/${E.RIG_DESKTOP_ORG}` : '/')
+    result.guards = { clipboardStub: await page.eval(() => window.__rigClipboardGuard?.installed === true) }
+    if (!result.guards.clipboardStub) throw new Error('the clipboard stub did not run at document start')
     // after the first navigation: an override sent to the blank initial
     // document crashes offscreen Electron 44 (measured)
     await page.resize(E.RIG_DESKTOP_PRESET || 'short')
