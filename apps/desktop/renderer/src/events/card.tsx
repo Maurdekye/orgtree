@@ -222,8 +222,8 @@ export function EventCard({ row, profile, org, preview = false, actor, part, hea
   const objectDetails = objectValue?.kind === 'record'
     ? { ...objectValue, fields: objectValue.fields.filter(f => f.key !== 'kind') } : null
   const bodyContent = <div className="event-body">
-    {event.variant === 'answer.ask' && <AnsweredAsk event={event} {...content} />}
-    {askQuestions.length > 0 && <AnsweredCard questions={askQuestions} dismissed={false} {...content} />}
+    {event.variant === 'answer.ask' && <AnsweredAsk event={event} foldKey={keys} {...content} />}
+    {askQuestions.length > 0 && <AnsweredCard questions={askQuestions} dismissed={false} foldKey={keys} {...content} />}
     {event.variant === 'answer.batch' && <ResolvedSections event={event} {...content} />}
     {dogFire && <FireBody event={dogFire} fields={fireFields} {...content} profile={profile} org={org} actor={actor} />}
     {idleDocket && <IdleDocketCards event={idleDocket} org={org} world={content.world} onOpen={content.onOpen} />}

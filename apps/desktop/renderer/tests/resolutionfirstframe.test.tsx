@@ -111,12 +111,14 @@ const option = (el: HTMLElement, label: string) =>
   [...el.querySelectorAll('.ask-row')].find(b => b.querySelector('.ask-option-label')?.textContent === label)
 
 /** the resolved card the queued row draws, as markup */
+/** the markup, without React's generated ids (the fold wrapper's aria id differs per mount) */
+const plain = (html: string) => html.replace(/:r[0-9a-z]+:/g, ':id:')
 const queuedCard = (el: HTMLElement): string => {
   const rows = [...el.querySelectorAll('.pendrow')]
   assert.equal(rows.length, 1, 'exactly one queued row')
   const card = rows[0]!.querySelector('.answered-card')
   assert.ok(card, 'the queued row draws the answered card')
-  return card.outerHTML
+  return plain(card.outerHTML)
 }
 
 /** submit what the open card offers, then hand the answer over to the
@@ -135,7 +137,7 @@ async function deliveredCard(el: HTMLElement, s: FakeServer, nid: string, row: P
   })
   const card = el.querySelector(`.typed-input .turn-mail[data-mail-id="${MAIL}"] .answered-card`)
   assert.ok(card, 'the delivered transcript row draws the answered card')
-  return card.outerHTML
+  return plain(card.outerHTML)
 }
 
 domTest('§1 batch card, one pick: the queued entry is the option list with the pick marked, as the server row draws it',
@@ -267,7 +269,7 @@ domTest('§6 two-tab batch with Markdown question text: the queued entry draws e
     await flush()
     const rows = [...el.querySelectorAll('.pendrow')]
     assert.equal(rows.length, 1, 'exactly one queued row')
-    const queuedAll = [...rows[0]!.querySelectorAll('.answered-card')].map(c => c.outerHTML)
+    const queuedAll = [...rows[0]!.querySelectorAll('.answered-card')].map(c => plain(c.outerHTML))
     assert.ok(queuedAll.length >= 1, 'the queued row draws the answered card')
     assert.match(queuedAll.join(''), /<strong>bold<\/strong>/, 'the first question is rendered as Markdown')
     assert.match(queuedAll.join(''), /<strong>scope<\/strong>/, 'the second question is rendered as Markdown')
@@ -282,7 +284,7 @@ domTest('§6 two-tab batch with Markdown question text: the queued entry draws e
       await refreshConvo(SL, ND, { force: true })
       await flush()
     })
-    const delivered = [...el.querySelectorAll(`.typed-input .turn-mail[data-mail-id="${MAIL}"] .answered-card`)].map(c => c.outerHTML)
+    const delivered = [...el.querySelectorAll(`.typed-input .turn-mail[data-mail-id="${MAIL}"] .answered-card`)].map(c => plain(c.outerHTML))
     assert.deepEqual(queuedAll, delivered, 'the queued cards are the delivered cards, markup for markup')
   })
 

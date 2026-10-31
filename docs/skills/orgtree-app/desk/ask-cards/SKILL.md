@@ -32,7 +32,7 @@ A correlated MCP request appears in the ordinary question-card frame as MCP perm
 
 Submission can optimistically hide the open card and queue its answer representation; a failure restores applicable drafts with its error. Changed question definitions invalidate incompatible old selections rather than pairing an old draft with new text. Do not infer server acceptance merely because the card disappeared locally.
 
-Resolved cards distinguish answered, denied, dismissed, withdrawn, superseded, moot and interrupted records where present. A historical closed card is not an unanswered live request. A ticket's manual-attention flag is another mechanism; see [docket screens](../docket-screens/SKILL.md).
+Resolved cards distinguish answered, denied, dismissed, withdrawn, superseded, moot and interrupted records where present. A historical closed card is not an unanswered live request. A ticket's manual-attention flag is another mechanism; see [docket screens](../docket-screens/SKILL.md). A resolved card ("Request resolved" or "Question answered", in the conversation, the inbox and Attention) folds a long question the way a long message folds: after five lines the text fades and a "click to expand · N lines" control opens it, once per question in a batch. The options and the picks stay visible under the folded text; a short question shows no control.
 
 For agent-side question and credit-request parameters see `orgtree-tool-ask` and `orgtree-tool-request-credits` (orgtree-working › user). The card's UI does not authorize an agent to invent an answer.
 

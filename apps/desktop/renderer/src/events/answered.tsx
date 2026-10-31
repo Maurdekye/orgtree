@@ -4,11 +4,14 @@ import { RefMdBody } from '../canvas/refmd'
 import { RefChip, resolveRef } from '../canvas/reflinks'
 import type { RefWorld, ResolvedRef } from '../canvas/reflinks'
 import { inlineMd, md, singleParagraph } from '../canvas/shared'
+import { ReceivedMailBody } from '../canvas/mailpreview'
 
 /** The showing surface's reference wiring, as an event card's content has it.
  *  The card draws a question's text and option descriptions as the open card
  *  does (USER 2026-10-28 m5952056229d3: Markdown, LaTeX and mention links). */
-interface QuestionRefs { world?: RefWorld | null; org?: string; onOpen?: (r: ResolvedRef) => void; imgBase?: string }
+interface QuestionRefs { world?: RefWorld | null; org?: string; onOpen?: (r: ResolvedRef) => void; imgBase?: string
+  /** the card's fold keys (its mail's, as `mailFoldKeys` names them): each question's text folds under `key#qN` */
+  foldKey?: string | readonly string[] }
 
 /** One question as the mini card draws it: every option the card offered with
  *  the chosen ones marked, or the typed answer when it offered none. */
@@ -36,19 +39,24 @@ export function miniFromBatch(q: BatchQ & { work_item?: string | null }): MiniQu
 /** A question's text beside its label chip, rendered as the open card renders
  *  it. One paragraph stays in the line, so a plain question keeps its look;
  *  block structure (a heading, a list, display math) gets its own box. */
-function QuestionText({ text, label, workItem, refs }: {
-  text: string; label?: string | null; workItem?: string | null; refs: QuestionRefs
+function QuestionText({ text, label, workItem, refs, foldKey }: {
+  text: string; label?: string | null; workItem?: string | null; refs: QuestionRefs; foldKey?: readonly string[]
 }) {
   const html = md(text, refs.imgBase).__html
   const inline = singleParagraph(html)
   const chipWorld = refs.world ?? (refs.org ? { org: refs.org } : undefined)
-  return <div className="answered-qtext">{label && <span className="answered-chip">{label}</span>}
+  // a long question folds as a long message does (USER 2026-10-31 17:38:47Z m6ec872350d64): the same
+  // ReceivedMailBody (five lines, the fade, "click to expand", the shared fold state). Only the question's text
+  // folds; the options and the picks below it stay visible. A short question draws the same inline flow as before.
+  // (ReceivedMailBody measures its ONE child, so the chips and the text share a wrapper; it is a block with the same inline flow)
+  return <div className="answered-qtext"><ReceivedMailBody foldKey={foldKey}><div>
+    {label && <span className="answered-chip">{label}</span>}
     {workItem && chipWorld && <RefChip r={resolveRef({ kind: 'item', org: chipWorld.org, id: workItem }, chipWorld)} onOpen={refs.onOpen} />}
     <RefMdBody el={inline === null ? 'div' : 'span'} className="answered-qbody md"
-      html={{ __html: inline ?? html }} world={refs.world} onOpen={refs.onOpen} /></div>
+      html={{ __html: inline ?? html }} world={refs.world} onOpen={refs.onOpen} /></div></ReceivedMailBody></div>
 }
 
-function Question({ q, dismissed, refs }: { q: MiniQuestion; dismissed: boolean; refs: QuestionRefs }) {
+function Question({ q, dismissed, refs, foldKey }: { q: MiniQuestion; dismissed: boolean; refs: QuestionRefs; foldKey?: readonly string[] }) {
   const known = new Set(q.options.map(o => o.label))
   // a pick that is not one of the offered options (typed "other") still shows as chosen
   const extra = q.selected.filter(s => !known.has(s))
@@ -63,7 +71,7 @@ function Question({ q, dismissed, refs }: { q: MiniQuestion; dismissed: boolean;
     </li>
   const skipped = !dismissed && q.selected.length === 0 && q.typed === null
   return <div className="answered-q" data-multi={q.multi ? 'true' : 'false'}>
-    <QuestionText text={q.question} label={q.label} workItem={q.work_item} refs={refs} />
+    <QuestionText text={q.question} label={q.label} workItem={q.work_item} refs={refs} foldKey={foldKey} />
     {(q.options.length > 0 || extra.length > 0) && <ul className="answered-opts">
       {q.options.map(o => row(o.label, o.description, q.selected.includes(o.label)))}
       {extra.map(s => row(s, undefined, true))}
@@ -73,13 +81,15 @@ function Question({ q, dismissed, refs }: { q: MiniQuestion; dismissed: boolean;
   </div>
 }
 
-export function AnsweredCard({ questions, dismissed, note, ...refs }: {
+export function AnsweredCard({ questions, dismissed, note, foldKey, ...refs }: {
   questions: MiniQuestion[]; dismissed: boolean; note?: string | null } & QuestionRefs) {
+  const keys = typeof foldKey === 'string' ? [foldKey] : foldKey
   const n = questions.length
   const head = (dismissed ? 'Dismissed' : 'Answered') + ' · ' + n + ' question' + (n === 1 ? '' : 's')
   return <details className="answered-card" open={n <= 2} data-dismissed={dismissed ? 'true' : 'false'}>
     <summary>{head}</summary>
-    {questions.map((q, i) => <Question key={i} q={q} dismissed={dismissed} refs={refs} />)}
+    {questions.map((q, i) => <Question key={i} q={q} dismissed={dismissed} refs={refs}
+      foldKey={keys?.length ? keys.filter(Boolean).map(k => k + '#q' + i) : undefined} />)}
     {note && <div className="answered-note"><span className="dim">Note: </span>{note}</div>}
   </details>
 }

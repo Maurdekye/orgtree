@@ -731,6 +731,25 @@ the original once. The close button and the caption sit above a zoomed picture
 `tests/lightboxzoom.test.ts`; jsdom only, the real window's behaviour is the
 integrator's capture]
 
+## Resolved cards fold long question text (2026-10-31, 4.5.3)
+
+USER m007f4c4e2843 "collapse request resolved cards with long bodies in the
+same way messages are collapsed" (correction m6ec872350d64: messages, not
+question cards). `events/answered.tsx` `QuestionText` wraps each question's
+chips and text in the ONE `ReceivedMailBody` a long message uses
+(`canvas/mailpreview.tsx`: five rendered lines, the fade, "click to expand ·
+N lines", fold state in the desk's `FoldStore` under the mail's keys +
+`#q<i>`), so every surface that draws `AnsweredCard` folds alike: the
+conversation row (`events/card.tsx` passes its `mailFoldKeys`), the queued
+entry, and the inbox / Attention row (`NulledAsk`, key `ask:<org>:<id>`).
+Only the question text folds; the option list and the picks below it never do.
+GOTCHAS: `ReceivedMailBody` measures its first child only, so the chips and
+the text share one wrapper div; its aria id is a React `useId`, so tests that
+compare queued and delivered markup normalise `:r..:` ids
+(`tests/resolutionfirstframe.test.tsx` `plain`). [verified: `answered.tsx`,
+`card.tsx`, `asks.tsx`; `tests/resolvedfold.test.tsx` (jsdom layout stub, the
+same as `pendexpand.test.tsx`)]
+
 ## Effort bar release (2026-10-23)
 
 Clear the pre-drag hover preview when committing a pointer release. Otherwise

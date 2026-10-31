@@ -1065,6 +1065,7 @@ function NulledAsk({ ask, credit, slug, refs }: {
         {!credit && !scope && (() => {
           const m = miniFromAskInfo(ask)
           return <AnsweredCard questions={m.questions} dismissed={ask.status === 'dismissed'} note={m.note}
+            foldKey={'ask:' + slug + ':' + ask.id}
             org={slug} world={refs?.world} onOpen={refs?.onOpen} imgBase={fileBase(slug, ask.node)} />
         })()}
         {interrupted && (
