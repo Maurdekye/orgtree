@@ -226,3 +226,142 @@ domTest('§5 the inbox row of a just-submitted card (answeredAsk) lists the opti
     assert.deepEqual(mini[0]!.selected, ['yes', 'no'], 'both picks are the chosen options')
     assert.equal(mini[0]!.typed, null, 'not a bare typed line')
   })
+
+// -- the multi-tab ask (USER 2026-10-31 14:12:01Z m3d59a64516f5: "resolved request submitted
+// messages appear unformatted briefly still", after answering two-tab asks with Markdown in
+// the question text) --
+const Q2 = 'Which **scope**? See `docs/x.md`'
+const TYPED = 'the _second_ one, `now`'
+const twoTabs = (nid: string): AskInfo => ({
+  id: 'ask-1', node: nid, kind: 'batch', status: 'open', at: '2026-09-10T13:00:00Z', revs: {},
+  tabs: [
+    { kind: 'question', header: 'Go', question: Q, options: OPTS },
+    { kind: 'question', header: 'Scope', question: Q2 },
+  ],
+} as AskInfo)
+const twoTabRow = (nid: string): PendingMail => ({
+  id: MAIL, from: '@user', kind: 'message', body: 'Request resolved', at: '2026-09-10T13:01:00Z',
+  ev: { v: 1, variant: 'answer.batch', actor: { kind: 'user', id: '@user' }, engine_authored: false,
+    object: { kind: 'batch', org: SL, id: 'ask-1', node: nid },
+    sections: [{ kind: 'ask', ask_id: 'ask-1', questions: [
+      { label: 'Go', question: Q, answer: 'yes', selected: ['yes'], options: OPTS, multi: false },
+      { label: 'Scope', question: Q2, answer: TYPED, selected: [TYPED] },
+    ] }] },
+} as unknown as PendingMail)
+
+domTest('§6 two-tab batch with Markdown question text: the queued entry draws every question card as the server row does',
+  async ({ ND, s, mount }) => {
+    await refreshConvo(SL, ND)
+    const el = await mount(deskEl(node(ND, twoTabs(ND))))
+    await flush()
+    await click(option(el, 'yes'))
+    await click([...el.querySelectorAll('.ask-tabbtn')][1])
+    const box = el.querySelector('.askcard .ask-free-response-input') as HTMLTextAreaElement | null
+    assert.ok(box, 'fixture: the second tab is a free-text question')
+    await inAct(async () => {
+      const win = box.ownerDocument.defaultView as unknown as { HTMLTextAreaElement: typeof HTMLTextAreaElement }
+      Object.getOwnPropertyDescriptor(win.HTMLTextAreaElement.prototype, 'value')!.set!.call(box, TYPED)
+      box.dispatchEvent(new Event('input', { bubbles: true }))
+    })
+    await click(el.querySelector('.askcard .ask-submit'))
+    await flush()
+    const rows = [...el.querySelectorAll('.pendrow')]
+    assert.equal(rows.length, 1, 'exactly one queued row')
+    const queuedAll = [...rows[0]!.querySelectorAll('.answered-card')].map(c => c.outerHTML)
+    assert.ok(queuedAll.length >= 1, 'the queued row draws the answered card')
+    assert.match(queuedAll.join(''), /<strong>bold<\/strong>/, 'the first question is rendered as Markdown')
+    assert.match(queuedAll.join(''), /<strong>scope<\/strong>/, 'the second question is rendered as Markdown')
+    await inAct(async () => {
+      s.pending_mail.push(twoTabRow(ND))
+      await refreshConvo(SL, ND, { force: true })
+      await flush()
+    })
+    await inAct(async () => {
+      s.pending_mail.length = 0
+      s.messages.push(settledMsg(twoTabRow(ND)) as never)
+      await refreshConvo(SL, ND, { force: true })
+      await flush()
+    })
+    const delivered = [...el.querySelectorAll(`.typed-input .turn-mail[data-mail-id="${MAIL}"] .answered-card`)].map(c => c.outerHTML)
+    assert.deepEqual(queuedAll, delivered, 'the queued cards are the delivered cards, markup for markup')
+  })
+
+// -- every frame between the submit and the delivered row (USER 2026-10-31 14:12:01Z): no
+// frame may show the Markdown source of the question or the typed answer as text --
+const rawMarkdown = (el: HTMLElement): string[] => {
+  const t = el.textContent ?? ''
+  return ['**scope**', '**bold**', '`docs/x.md`'].filter(s => t.includes(s))
+}
+
+domTest('§7 two-tab batch: no frame from the submit to the delivered row shows raw Markdown',
+  async ({ ND, s, mount }) => {
+    await refreshConvo(SL, ND)
+    const el = await mount(deskEl(node(ND, twoTabs(ND))))
+    await flush()
+    await click(option(el, 'yes'))
+    await click([...el.querySelectorAll('.ask-tabbtn')][1])
+    const box = el.querySelector('.askcard .ask-free-response-input') as HTMLTextAreaElement | null
+    assert.ok(box, 'fixture: the second tab is a free-text question')
+    await inAct(async () => {
+      const win = box.ownerDocument.defaultView as unknown as { HTMLTextAreaElement: typeof HTMLTextAreaElement }
+      Object.getOwnPropertyDescriptor(win.HTMLTextAreaElement.prototype, 'value')!.set!.call(box, TYPED)
+      box.dispatchEvent(new Event('input', { bubbles: true }))
+    })
+    const frames: { at: string; raw: string[] }[] = []
+    const win = el.ownerDocument.defaultView as unknown as { MutationObserver: typeof MutationObserver }
+    let stage = 'submit'
+    const seen = new win.MutationObserver(() => {
+      const raw = rawMarkdown(el)
+      if (raw.length) frames.push({ at: stage, raw })
+    })
+    seen.observe(el, { subtree: true, childList: true, characterData: true, attributes: true })
+    await click(el.querySelector('.askcard .ask-submit'))
+    await flush()
+    stage = 'pending'
+    await inAct(async () => {
+      s.pending_mail.push(twoTabRow(ND))
+      await refreshConvo(SL, ND, { force: true })
+      await flush()
+    })
+    stage = 'settled'
+    await inAct(async () => {
+      s.pending_mail.length = 0
+      s.messages.push(settledMsg(twoTabRow(ND)) as never)
+      await refreshConvo(SL, ND, { force: true })
+      await flush()
+    })
+    seen.disconnect()
+    assert.deepEqual(frames, [], 'no frame shows the Markdown source as text')
+  })
+
+domTest('§8 two-tab batch, the inbox row of a just-submitted card: the answered card is formatted and equals the resolved ask\'s',
+  async ({ ND, mount }) => {
+    const ask = twoTabs(ND)
+    const el = await mount(<AskCard ask={ask} slug={SL} toast={noop} />)
+    await flush()
+    await click(option(el, 'yes'))
+    await click([...el.querySelectorAll('.ask-tabbtn')][1])
+    const box = el.querySelector('.askcard .ask-free-response-input') as HTMLTextAreaElement | null
+    assert.ok(box, 'fixture: the second tab is a free-text question')
+    await inAct(async () => {
+      const win = box.ownerDocument.defaultView as unknown as { HTMLTextAreaElement: typeof HTMLTextAreaElement }
+      Object.getOwnPropertyDescriptor(win.HTMLTextAreaElement.prototype, 'value')!.set!.call(box, TYPED)
+      box.dispatchEvent(new Event('input', { bubbles: true }))
+    })
+    await click(el.querySelector('.askcard .ask-submit'))
+    await flush()
+    const done = answeredAsk(SL, ask)
+    assert.ok(done, 'the submit is in flight')
+    // the tree's own resolved row for the same submit (ledger.node_ask on a resolved batch)
+    const resolved = { ...ask, status: 'answered', kind: 'question', questions: [
+      { header: 'Go', question: Q, options: OPTS, answer: 'yes' },
+      { header: 'Scope', question: Q2, answer: TYPED },
+    ] } as unknown as AskInfo
+    const queuedEl = await mount(<AskCard ask={done} slug={SL} toast={noop} />)
+    const resolvedEl = await mount(<AskCard ask={resolved} slug={SL} toast={noop} />)
+    await flush()
+    const body = (e: HTMLElement) => (e.querySelector('.ask-fold-body, .askcard')?.outerHTML ?? '').replace(/:r[0-9a-z]+:/g, ':id:')
+    assert.match(body(queuedEl), /<strong>bold<\/strong>/, 'the first question is Markdown in the queued inbox row')
+    assert.match(body(queuedEl), /<strong>scope<\/strong>/, 'the second question is Markdown in the queued inbox row')
+    assert.equal(body(queuedEl), body(resolvedEl), 'the queued inbox row is the resolved row, markup for markup')
+  })
