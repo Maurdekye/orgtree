@@ -2530,6 +2530,22 @@ export interface OrgMdPayload {
   prompt_max?: number
 }
 
+// GET /api/app-settings/instructions: the instructions for all orgs
+export interface AppInstructionsPayload {
+  /** the user's own text, what the editor edits */
+  content: string
+  /** the Connect your phone note, shown read-only; null while no phone is linked */
+  managed: string | null
+  /** the whole block's revision (the note included): sent back on save */
+  rev?: string
+  chars?: number
+  /** characters agents receive, the note included */
+  prompt_chars?: number
+  read_truncated?: boolean
+  edit_max?: number
+  prompt_max?: number
+}
+
 // GET /api/orgs/{slug}/audiences
 export interface AudiencesPayload {
   audiences: AudienceGrant[]

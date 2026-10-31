@@ -24,7 +24,7 @@ import type {
   InboxPayload, MailEntry,
   LangServer, LangServerDoc, LangServerProbe, LangServerRepriced,
   HarnessesDoc, McpServersPayload, NodeHarness, OpenRouterDoc, OpenRouterModelsPage, OpenRouterSort,
-  OpRequest, OpResult, OrgListEntry, OrgMdPayload,
+  OpRequest, OpResult, OrgListEntry, OrgMdPayload, AppInstructionsPayload,
   OrgInboxEntry, OrgNetReveal, NetRecent, HubConnections, ProvidersPayload, ReorderRequest,
   RuntimeSettingsPayload,
   ScopeRequest,
@@ -1018,6 +1018,20 @@ export const putOrgMd = (
   prompt_max?: number; prompt_truncated?: boolean; warnings?: string[]
 }> =>
   req(`/api/orgs/${slug}/orgmd`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ content, base_rev: baseRev }),
+  })
+// the instructions for all orgs (App settings > Runtime)
+export const getAppInstructions = (): Promise<AppInstructionsPayload> =>
+  req('/api/app-settings/instructions')
+export const putAppInstructions = (
+  content: string, baseRev?: string,
+): Promise<{
+  chars?: number; rev?: string; prompt_max?: number; prompt_chars?: number
+  prompt_truncated?: boolean; warnings?: string[]
+}> =>
+  req('/api/app-settings/instructions', {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ content, base_rev: baseRev }),

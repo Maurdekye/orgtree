@@ -11,6 +11,7 @@ import { TurnLimitsSetting } from './turnlimitssetting'
 import { CharterDocumentsSetting, CharterTemplateDirsSetting } from './chartersettings'
 import { TemplateDocumentsSetting } from './templates'
 import { MailHubSettings } from './hosthub'
+import { AppInstructionsSetting } from './appinstructions'
 import { useEffect, useRef, useState } from 'react'
 import { useAppValue } from '../appfeed'
 import { composerKeyHint, type EnterKeyBehavior } from '../composerkeys'
@@ -948,6 +949,9 @@ export function AccountsPanel({ toast, close, initialTab, target }: {
             + 'Agents always bubble their cost, up to their own allocation.'} />
       </SetGroup>
       <ShowLegacyModelsToggle />
+      {/* app-wide prompt text sits with the other app-wide prompt setting,
+          right above it (coordinator ruling 7, 2026-10-31) */}
+      <AppInstructionsSetting toast={toast} />
       <SetGroup title="Orgtree feedback">
         <SetToggle label="Suggest agents to give feedback to Orgtree"
           checked={runtime?.suggest_agent_feedback_enabled !== false}
