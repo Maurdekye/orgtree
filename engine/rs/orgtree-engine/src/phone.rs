@@ -1500,6 +1500,23 @@ mod authority_tests {
         assert_eq!((again.app, again.orgs.len()), (None, 2));
     }
 
+    /// The one-time move takes only the note out of an org.md: the text
+    /// above and below it stays byte for byte (alpha.3's first start left
+    /// four org.md files empty because each held only the note).
+    #[test]
+    fn the_move_keeps_an_org_md_s_other_text_byte_for_byte() {
+        let note = with_block("", ALEX).unwrap();
+        for (before, after) in [("# Org\nAbove the note.\n", "\nBelow it.\n"), ("Above\r\n", "Below\r\nno newline"), ("", "\n\nOnly below.\n")] {
+            let md = format!("{before}{note}{after}");
+            let m = plan_moves("", &[md.clone()], Some(ALEX));
+            let left = &m.orgs[0].1;
+            assert_eq!(left, &format!("{before}{}", if before.is_empty() { after.strip_prefix('\n').unwrap() } else { after }), "{md:?}");
+        }
+        // a note naming another address, the user's text and the note all stay
+        let other = format!("Rules.\n{}", with_block("", BEA).unwrap());
+        assert!(plan_moves("", &[other.clone()], Some(ALEX)).orgs.is_empty());
+    }
+
     #[test]
     fn a_finished_move_plans_nothing_more() {
         let orgs = vec![with_block("A rules\n", ALEX).unwrap()];

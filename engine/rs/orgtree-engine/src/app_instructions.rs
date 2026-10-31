@@ -182,31 +182,16 @@ mod tests {
 
     const NOTE: &str = "<!-- added by Connect your phone; Unlink removes it -->\n@net:alex.123456 is the user's account and carries their authority.\n<!-- end of the Connect your phone note -->\n";
 
+    /// The note is ordinary text in the block (USER 2026-10-31 13:59:20Z
+    /// md088b15466fa "this should be part of the editable charter, just like
+    /// the org.md prompt"): a save may carry it, edit it or drop it.
     #[test]
-    fn split_takes_the_phone_note_off_the_top_and_join_puts_it_back() {
-        let user = "# For every org\nKeep records.\n";
-        let whole = crate::phone::with_block(user, "alex.123456").unwrap();
-        let (managed, rest) = split(&whole);
-        assert_eq!(managed.as_deref(), Some(NOTE));
-        assert_eq!(rest, user);
-        assert_eq!(join(managed.as_deref(), &rest), whole);
-        let only = crate::phone::with_block("", "alex.123456").unwrap();
-        assert_eq!(split(&only), (Some(NOTE.to_string()), String::new()));
-        assert_eq!(join(Some(NOTE), ""), only);
-        assert_eq!(split(user), (None, user.to_string()));
-        assert_eq!(join(None, user), user);
-        assert_eq!(split(""), (None, String::new()));
-    }
-
-    #[test]
-    fn a_save_that_carries_the_note_markers_is_refused() {
-        for text in [NOTE, "before\n<!-- added by Connect your phone; Unlink removes it -->\n",
-            "x <!-- end of the Connect your phone note --> y"] {
-            let refusal = check(text).expect_err("markers in the user's text");
-            assert!(refusal.contains("Connect your phone"), "{refusal}");
+    fn a_save_may_carry_edit_or_drop_the_note() {
+        let edited = NOTE.replace("alex.123456", "bea.654321");
+        for text in [NOTE, &format!("# For every org\n{NOTE}Keep records.\n"), &edited,
+            "before\n<!-- added by Connect your phone; Unlink removes it -->\n", "x <!-- end of the Connect your phone note --> y", ""] {
+            assert!(check(text).is_ok(), "{text:?}");
         }
-        assert!(check("Plain instructions that mention Connect your phone in prose.").is_ok());
-        assert!(check("").is_ok());
     }
 
     #[test]
@@ -226,19 +211,20 @@ mod tests {
         assert_eq!(rev(&linked), rev(&linked.clone()));
     }
 
+    /// The editor loads the whole block, note included, as the charter editor
+    /// loads the whole org.md.
     #[test]
-    fn the_payload_shows_the_note_apart_from_the_editable_text() {
+    fn the_editor_loads_the_whole_block_the_note_included() {
         let doc = Doc { text: crate::phone::with_block("Keep records.\n", "alex.123456").unwrap(), ..Doc::default() };
         let v = payload(&doc);
-        assert_eq!(v["content"], "Keep records.\n");
-        assert_eq!(v["managed"], NOTE);
-        assert_eq!(v["chars"], 14);
+        assert_eq!(v["content"], doc.text.as_str());
+        assert!(v.get("managed").is_none(), "no read-only part: {v}");
+        assert_eq!(v["chars"], doc.text.chars().count());
         assert_eq!(v["prompt_chars"], doc.text.trim().chars().count());
         assert_eq!((v["edit_max"].as_u64(), v["prompt_max"].as_u64()), (Some(200_000), Some(16_000)));
         assert_eq!(v["rev"], rev(&doc.text));
         assert_eq!(v["read_truncated"], false);
-        let empty = payload(&Doc::default());
-        assert_eq!((empty["content"].as_str(), empty["managed"].is_null()), (Some(""), true));
+        assert_eq!(payload(&Doc::default())["content"], "");
     }
 
     /// Only the desktop's editor and Connect your phone write the block: no

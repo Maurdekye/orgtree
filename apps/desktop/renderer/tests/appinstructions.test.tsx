@@ -1,7 +1,7 @@
 // App settings > Runtime > Instructions for all orgs (USER 2026-10-31
 // m187a259a848d; coordinator rulings mdd81da812d3b 7-9): the org charter's
-// editor pattern, above the feedback group, with the Connect your phone note
-// shown read-only outside the editable text.
+// editor pattern, above the feedback group. The Connect your phone note is
+// ordinary editable text in the block (USER 2026-10-31 13:59:20Z md088b15466fa).
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { flush, inAct, mountView } from './harness'
@@ -12,7 +12,7 @@ const NOTE = '<!-- added by Connect your phone; Unlink removes it -->\n'
   + '<!-- end of the Connect your phone note -->\n'
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status })
 
-interface Doc { content: string; managed: string | null; rev: string }
+interface Doc { content: string; rev: string }
 function service(initial: Doc, opts: { failFirstLoad?: boolean; conflict?: boolean } = {}) {
   let doc = { ...initial }
   const writes: { content: string; base_rev?: string }[] = []
@@ -29,7 +29,7 @@ function service(initial: Doc, opts: { failFirstLoad?: boolean; conflict?: boole
       }
       loads += 1
       if (opts.failFirstLoad && loads === 1) return json({ detail: 'Synthetic load failure' }, 500)
-      return json({ content: doc.content, managed: doc.managed, chars: [...doc.content].length, read_truncated: false,
+      return json({ content: doc.content, chars: [...doc.content].length, read_truncated: false,
         edit_max: 200000, prompt_max: 16000, rev: doc.rev })
     }
     if (path === '/api/app-settings/runtime') return json({ warming_enabled: true, working_checkups_enabled: true, suggest_agent_feedback_enabled: true })
@@ -60,7 +60,7 @@ async function type(area: HTMLTextAreaElement, value: string) {
 }
 
 test('the group sits in Runtime right above the feedback group, which stays last', async () => {
-  service({ content: '', managed: null, rev: 'rev-1' })
+  service({ content: '', rev: 'rev-1' })
   const view = await mount()
   try {
     const panel = view.el.querySelector<HTMLElement>('#app-settings-panel-runtime') ?? view.el.querySelector<HTMLElement>('[role="tabpanel"]:not([hidden])')!
@@ -78,7 +78,7 @@ test('the group sits in Runtime right above the feedback group, which stays last
 })
 
 test('it loads the text, keeps Save off until an edit, and saves with the loaded revision', async () => {
-  const svc = service({ content: 'Keep records.\n', managed: null, rev: 'rev-1' })
+  const svc = service({ content: 'Keep records.\n', rev: 'rev-1' })
   const view = await mount()
   try {
     const g = group(view.el)!
@@ -98,7 +98,7 @@ test('it loads the text, keeps Save off until an edit, and saves with the loaded
 })
 
 test('a save refused because the block changed meanwhile shows why and keeps the text', async () => {
-  service({ content: 'Keep records.\n', managed: null, rev: 'rev-1' }, { conflict: true })
+  service({ content: 'Keep records.\n', rev: 'rev-1' }, { conflict: true })
   const view = await mount()
   try {
     const g = group(view.el)!
@@ -109,27 +109,25 @@ test('a save refused because the block changed meanwhile shows why and keeps the
   } finally { await view.unmount() }
 })
 
-test('the Connect your phone note shows read-only above the editor and never in its text', async () => {
-  const svc = service({ content: 'Keep records.\n', managed: NOTE, rev: 'rev-1' })
+test('the Connect your phone note is ordinary text in the editor, saved like the rest', async () => {
+  const svc = service({ content: NOTE + '\nKeep records.\n', rev: 'rev-1' })
   const view = await mount()
   try {
     const g = group(view.el)!
-    const note = g.querySelector<HTMLElement>('[aria-label="Connect your phone note"]')
-    assert.ok(note, 'the note is shown')
-    assert.equal(note!.textContent, NOTE)
-    assert.equal(note!.closest('textarea'), null)
-    assert.ok(note!.compareDocumentPosition(editor(g)) & window.Node.DOCUMENT_POSITION_FOLLOWING, 'above the editor')
-    assert.match(g.textContent ?? '', /Connect your phone added this note; Unlink removes it/)
-    assert.equal(editor(g).value, 'Keep records.\n', 'the editable text is the user\'s own')
-    assert.doesNotMatch(g.textContent ?? '', /No instructions for all orgs are configured/)
+    assert.equal(g.querySelector('[aria-label="Connect your phone note"]'), null, 'no read-only copy')
+    assert.doesNotMatch(g.textContent ?? '', /Connect your phone added this note/)
+    assert.equal(editor(g).value, NOTE + '\nKeep records.\n', 'the editor holds the whole block')
+    await type(editor(g), NOTE + '\nKeep records.\nMore.\n')
+    await inAct(async () => { save(g).click(); await flush(20) })
     await type(editor(g), 'Keep records.\nMore.\n')
     await inAct(async () => { save(g).click(); await flush(20) })
-    assert.deepEqual(svc.writes.map(w => w.content), ['Keep records.\nMore.\n'], 'the note is never sent back')
+    assert.deepEqual(svc.writes.map(w => w.content), [NOTE + '\nKeep records.\nMore.\n', 'Keep records.\nMore.\n'],
+      'a save carries the note, and one without it removes it')
   } finally { await view.unmount() }
 })
 
 test('a failed load leaves the editor disabled with Retry, and Retry loads it', async () => {
-  const svc = service({ content: 'Keep records.\n', managed: null, rev: 'rev-1' }, { failFirstLoad: true })
+  const svc = service({ content: 'Keep records.\n', rev: 'rev-1' }, { failFirstLoad: true })
   const view = await mount()
   try {
     const g = group(view.el)!
@@ -144,15 +142,15 @@ test('a failed load leaves the editor disabled with Retry, and Retry loads it', 
   } finally { await view.unmount() }
 })
 
-test('the delivery warning counts the note with the text, as agents receive both', async () => {
-  service({ content: '', managed: NOTE, rev: 'rev-1' })
+test('the delivery warning counts the whole text, the note included', async () => {
+  service({ content: NOTE, rev: 'rev-1' })
   const view = await mount()
   try {
     const g = group(view.el)!
-    const room = 16000 - [...NOTE].length - 1
-    await type(editor(g), 'x'.repeat(room))
+    const room = 16000 - [...NOTE].length
+    await type(editor(g), NOTE + 'x'.repeat(room))
     assert.equal(g.querySelector('.orgmd-warn'), null, 'exactly at the limit: no warning')
-    await type(editor(g), 'x'.repeat(room + 1))
+    await type(editor(g), NOTE + 'x'.repeat(room + 1))
     assert.match(g.querySelector('.orgmd-warn')?.textContent ?? '', /only the first 16,000 characters reach an agent/)
   } finally { await view.unmount() }
 })
