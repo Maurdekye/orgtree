@@ -761,3 +761,9 @@ but give it a longer timeout, say an hour" (23:06Z mac1516a71553); "Yes, widen t
   desktop shows offline > DND > busy > online, the dot filled through one `--dnd` token (`var(--bad)`). Tests:
   `net/presence_tests.rs` (`presence_of`, `due`), `net/recent_tests.rs`, renderer `tests/dndpresence.test.tsx`; the
   hub's `tests/busy.rs` `an_org_is_dnd_while_it_says_so`.
+- A person's status (2026-10-31): "users on hubchat should be able to manually set their status" (user 08:52Z
+  m6b28c323a7cd). Hubchat's picker sends Automatic, Online, Busy or Do not disturb to the hub (`POST /api/status`, hub
+  schema 11 in `identities.status`, kept until changed; offline still wins, 09:03Z). Orgtree changes nothing: a
+  person's choice reaches it as any address's `online`, `busy` and `dnd`, so Connections, chips and hovers show a
+  person on Do not disturb with the same red dot. Schema 11 is one-way: an Orgtree whose hub lacks it refuses a hub
+  database already migrated (restore the backup). The hub's test: `tests/busy.rs` `a_person_chooses_their_status`.
