@@ -569,19 +569,19 @@ pub async fn put_orgmd(State(e): State<Arc<Engine>>, Path(slug): Path<String>, J
 
 // ------------------------------------------------------------ instructions for all orgs
 
-/// `GET /api/app-settings/instructions`: the user's text, the Connect your
-/// phone note apart from it, and the caps (`app_instructions.rs`).
+/// `GET /api/app-settings/instructions`: the whole block, the Connect your
+/// phone note included, and the caps (`app_instructions.rs`).
 #[logged]
 pub async fn get_app_instructions(State(e): State<Arc<Engine>>) -> ApiResult<Json<Value>> {
     Ok(Json(crate::app_instructions::payload(&e.app_instructions.get())))
 }
 
-/// `PUT`: the user's text, never the note (its markers are refused); the
-/// current note stays on top. As for org.md, a save over a newer block is
-/// refused, and every live agent restarts its CLI before its next turn.
+/// `PUT`: the whole block, stored as sent, the note too (an edited or
+/// removed note is the user's own text). As for org.md, a save over a newer
+/// block is refused, and every live agent restarts its CLI before its next turn.
 #[logged]
 pub async fn put_app_instructions(State(e): State<Arc<Engine>>, Json(b): Json<OrgMdBody>) -> ApiResult<Json<Value>> {
-    use crate::app_instructions::{check, join, rev, split, Doc, PROMPT_MAX};
+    use crate::app_instructions::{check, rev, Doc, PROMPT_MAX};
     check(&b.content).map_err(ApiError::bad_request)?;
     let (content, base) = (b.content.clone(), b.base_rev.clone());
     let (text, changed) = e
@@ -592,8 +592,7 @@ pub async fn put_app_instructions(State(e): State<Arc<Engine>>, Json(b): Json<Or
                             or removed its note). Reload them and make your edit again."
                     .to_string());
             }
-            let (managed, _) = split(&doc.text);
-            let next = Doc { text: join(managed.as_deref(), &content), ..doc.clone() };
+            let next = Doc { text: content.clone(), ..doc.clone() };
             let text = next.text.clone();
             Ok((next, text))
         })

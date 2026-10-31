@@ -793,7 +793,9 @@ async fn set_app_note(engine: &Engine, address: Option<&str>) -> anyhow::Result<
             Ok((crate::app_instructions::Doc { text, ..doc.clone() }, ()))
         })
         .await?
-        .map_err(|e| anyhow::anyhow!("the instructions for all orgs: {e}"))?;
+        // without_block's refusal names org.md's editor: this one is App settings
+        .map_err(|_| anyhow::anyhow!("The instructions for all orgs have the start of the Connect your phone note but not \
+            its end. Remove the note by hand in App settings › Runtime › Instructions for all orgs."))?;
     if changed {
         crate::http::settings::reconfigure_all(engine).await?;
     }

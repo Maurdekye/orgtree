@@ -27,8 +27,9 @@ pub const SOURCE: &str = "Instructions for all orgs (App settings > Runtime)";
 /// The stored row. No Debug or Serialize: it holds private instruction text.
 #[derive(Clone, Default, PartialEq)]
 pub struct Doc {
-    /// the whole block as agents receive it: the Connect your phone note
-    /// first while a phone is linked, then the user's own text
+    /// the whole block as agents receive it and the editor edits it; Connect
+    /// your phone puts its note on top and Unlink takes it out, but the note
+    /// is ordinary text (USER 2026-10-31 13:59:20Z md088b15466fa)
     pub text: String,
     /// the one-time move of org.md phone notes has run (`phone::migrate`)
     pub phone_notes_moved: bool,
@@ -120,41 +121,12 @@ fn stored(doc: &Doc) -> Value {
     json!({ "text": doc.text, "phone_notes_moved": doc.phone_notes_moved, "seq": doc.seq })
 }
 
-/// (the Connect your phone note at the top, the user's own text)
+/// What the editor may save: anything within the limit, the note included,
+/// as for org.md.
 #[nolog]
-pub fn split(text: &str) -> (Option<String>, String) {
-    let notes = crate::phone::notes(text);
-    if notes.is_empty() {
-        return (None, text.to_string());
-    }
-    match crate::phone::without_block(text) {
-        Ok(user) => (Some(notes.concat()), user),
-        // a start marker without its end: nothing is taken apart
-        Err(_) => (None, text.to_string()),
-    }
-}
-
-/// The block from the note (if any) and the user's text, laid out the way
-/// `phone::with_block` lays out a note over a charter.
-#[nolog]
-pub fn join(managed: Option<&str>, user: &str) -> String {
-    match managed.filter(|m| !m.is_empty()) {
-        None => user.to_string(),
-        Some(note) if user.is_empty() => note.to_string(),
-        Some(note) => format!("{note}\n{user}"),
-    }
-}
-
-/// What the editor may save: within the limit, and never the note's markers.
-#[nolog]
-pub fn check(user: &str) -> std::result::Result<(), String> {
-    if user.chars().count() > EDIT_MAX {
+pub fn check(text: &str) -> std::result::Result<(), String> {
+    if text.chars().count() > EDIT_MAX {
         return Err(format!("The instructions for all orgs are limited to {EDIT_MAX} characters"));
-    }
-    if crate::phone::has_marker(user) {
-        return Err("Your text contains the markers of the Connect your phone note. Connect your phone manages that \
-                    note and Unlink removes it: take the markers out of your text and save again."
-            .into());
     }
     Ok(())
 }
@@ -168,9 +140,8 @@ pub fn rev(text: &str) -> String {
 /// `GET /api/app-settings/instructions`.
 #[nolog]
 pub fn payload(doc: &Doc) -> Value {
-    let (managed, content) = split(&doc.text);
     json!({
-        "content": content, "managed": managed, "chars": content.chars().count(),
+        "content": doc.text, "chars": doc.text.chars().count(),
         "prompt_chars": doc.text.trim().chars().count(), "read_truncated": false,
         "edit_max": EDIT_MAX, "prompt_max": PROMPT_MAX, "rev": rev(&doc.text),
     })
