@@ -144,6 +144,14 @@ The MENTIONS rule also names @app:<org>/<slug> and @panel:<org>/<slug>
 [decided: user 2026-10-27 m449dc0a35cbe, m37fe645819cf; verified:
 `engine/rs/orgtree-engine/src/runtime/identity.rs`]
 
+The MENTIONS rule ends with a sentence naming `@mail:<org>/<box>/<id>` (the id of a mail the agent sent or received, and its
+mailbox: user, org or node/<agent>), so agents write links to messages that render as mail chips. It is one more
+unconditional sentence (+139 bytes in both approved examples) and changes every agent's prompt prefix once, at its first
+start on the build that ships it. See
+[instruction wording](../skills/INSTRUCTIONS-TRIM.md#18-mail-mentions-2026-10-31).
+[decided: user 2026-10-31 mc8c2830e7a03; verified:
+`engine/rs/orgtree-engine/src/runtime/identity.rs`, `engine/rs/orgtree-engine/testdata/standing-compression/seat-A.txt`]
+
 These attributed records were moved from the root guide at `22daffd`; they retain the original substance, dates, verification limits and replacements. They are source evidence, not a declaration that every historical state is current. Read the signed decisions/current source before changing behavior. Inline source paths remain relative to the repository root; Markdown links were rebased. Add current detailed guidance here; preserve replaced records in history and update the coverage destination when moving one.
 
 <a id="e-de4e633eb38398d7"></a>

@@ -529,3 +529,23 @@ The identity budget already counts MENTIONS by its length; no other allowance
 moves. 4.5.0 changes this line once more than its apps sentence did, so an agent
 upgrading from 4.4.x meets one changed prefix at its first start on the new
 build; between 4.5.0 alphas it is one more change. No cache hit is promised.
+
+## 18. Mail mentions (2026-10-31)
+
+USER 2026-10-31 mc8c2830e7a03 ("and inform agents that they can write mail links"), with the mail link itself restyled as a chip
+named by its message (m33189c8d6214): the MENTIONS rule, unconditional on every lane and profile, ends with one more
+sentence: "Point at a mail with @mail:<org>/<box>/<id>: <id> is the id of a mail you sent or received, <box> its mailbox (user,
+org or node/<agent>)." It names no tool; the id is the one on any message an agent sent (an orgtree_message result names it)
+or received, and the three boxes are the token's own (`@mail:acme/user/<id>`, `@mail:acme/org/<id>`,
+`@mail:acme/node/<agent>/<id>`). The mail-basics page gives the same rule with an example. No tool description lists the
+reference forms, so none changed. The legacy test normalizes the new MENTIONS text like the earlier replacements, the exact-wording
+test expects it, and both approved seat fixtures carry it.
+
+| Synthetic compressed example | Before | After | Change |
+| --- | ---: | ---: | ---: |
+| Seat A | 10,600 B | 10,739 B | +139 B |
+| Seat B | 10,612 B | 10,751 B | +139 B |
+
+The identity budget already counts MENTIONS by its length; no other allowance moves. This changes every agent's prompt prefix once,
+at its first start on the build that ships it (accepted in the user's ruling: every agent's cache restarts once after the 4.5.3
+upgrade). No cache hit is promised.

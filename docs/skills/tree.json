@@ -1309,7 +1309,7 @@
     "reply_to/replies threading",
     "mail delivered mid-task and its marker",
     "never wait for replies inside a turn",
-    "MENTIONS: agent, project and docket item mentions in all reader-facing text; no code spans; @user attention-only",
+    "MENTIONS: agent, project and docket item mentions in all reader-facing text; no code spans; @mail:<org>/<box>/<id> message links; @user attention-only",
     "user-mention mail shares urgent attention without urgency; one needs-attention entry cleared by read"
    ],
    "sources": [
