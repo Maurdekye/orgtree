@@ -765,5 +765,14 @@ but give it a longer timeout, say an hour" (23:06Z mac1516a71553); "Yes, widen t
   m6b28c323a7cd). Hubchat's picker sends Automatic, Online, Busy or Do not disturb to the hub (`POST /api/status`, hub
   schema 11 in `identities.status`, kept until changed; offline still wins, 09:03Z). Orgtree changes nothing: a
   person's choice reaches it as any address's `online`, `busy` and `dnd`, so Connections, chips and hovers show a
-  person on Do not disturb with the same red dot. Schema 11 is one-way: an Orgtree whose hub lacks it refuses a hub
-  database already migrated (restore the backup). The hub's test: `tests/busy.rs` `a_person_chooses_their_status`.
+  person on Do not disturb with the same red dot. The hub's test: `tests/busy.rs` `a_person_chooses_their_status`.
+- Invisible (2026-10-31): "add invisible as a selectable status in hubchat" (user 14:13Z mda6f7df3301d; people only,
+  14:14Z mfe3fc4e32aa4). A person on Invisible stays connected but the hub tells everyone else exactly what it tells
+  of a person really offline: out of `online`, `busy` and `dnd`, roster rows offline, `last_seen` held at the moment
+  they chose it (hub schema 12, `identities.status_since`). Orgtree changes nothing and can't tell either: Connections,
+  chips, mention menus and hovers show them offline. The hub's tests: `tests/busy.rs`
+  `an_invisible_person_shows_offline_to_everyone_else` and the leak test `nobody_can_tell_invisible_from_offline`
+  (a person and an org read the same bytes about an Invisible person as about one really offline).
+- Hub schemas 11 and 12 are one-way: once a hub database has them, an Orgtree whose bundled hub lacks schema 12
+  refuses it ("newer than this hub understands"; restore the backup taken before the upgrade). Schema 12 replaced
+  11 as the step to name in release notes (coordinator 2026-10-31).
