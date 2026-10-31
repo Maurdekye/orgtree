@@ -3,6 +3,7 @@
 // their own org.md, an edit reaching the next turn, and the one-time move of
 // the Connect your phone note out of org.md at engine start (USER 2026-10-31
 // m187a259a848d, m8a14bc89054c, m4322b3a92f0c; coordinator mdd81da812d3b).
+// The note is ordinary editable text in the block (USER 13:59:20Z md088b15466fa).
 // Synthetic rig only: fake CLIs, a scratch cluster, no live data or hub.
 import { SEED_SETTLE_TIMEOUT } from '../seed-settle.mjs'
 import fs from 'node:fs'
@@ -28,15 +29,17 @@ export default async function (rig) {
 
   // ---- storage through the editor's endpoints
   let g = await get()
-  p.check('an empty block at first, with org.md\'s limits', g.content === '' && g.managed === null && g.edit_max === 200000 && g.prompt_max === 16000, g)
+  p.check('an empty block at first, with org.md\'s limits', g.content === '' && !('managed' in g) && g.edit_max === 200000 && g.prompt_max === 16000, g)
   let r = await put('APPWIDE_SENTINEL_v1\n', g.rev)
   p.check('a save stores the text in ot.kv, not a file', r.ok && stored()?.text === 'APPWIDE_SENTINEL_v1\n'
     && !fs.readdirSync(rig.data).some(f => /instruction/i.test(f)), { r, stored: stored() })
   r = await put('stale edit\n', g.rev)
   p.check('a save over a newer block is refused and changes nothing', !r.ok && /changed since you opened them/.test(r.e)
     && stored()?.text === 'APPWIDE_SENTINEL_v1\n', r)
-  r = await put(`mine\n${START}\n`, (await get()).rev)
-  p.check('a save carrying the note\'s markers is refused', !r.ok && /markers/.test(r.e) && stored()?.text === 'APPWIDE_SENTINEL_v1\n', r)
+  r = await put(`mine\n${note('bea.654321')}`, (await get()).rev)
+  p.check('a save carrying a marked note is stored as sent, like any text', r.ok && stored()?.text === `mine\n${note('bea.654321')}`
+    && (await get()).content === `mine\n${note('bea.654321')}`, r)
+  r = await put('APPWIDE_SENTINEL_v1\n', (await get()).rev)
 
   // ---- two orgs, each with its own org.md
   const B = (await rig.api('POST', '/api/orgs', { name: 'Rig App Second', dirs: [], ...(rig.hubUrl ? {} : { net_autoconnect: false }) })).slug
@@ -86,8 +89,8 @@ export default async function (rig) {
   rig.exec(`UPDATE ot.kv SET value = jsonb_set(value, '{phone_notes_moved}', 'false') WHERE key = 'app_instructions'`)
   await rig.restart()
   g = await get()
-  p.check('after the upgrade start the linked note sits on top of the block, the text kept', g.managed === note('alex.123456')
-    && g.content === 'APPWIDE_SENTINEL_v2\n' && stored()?.phone_notes_moved === true, g)
+  p.check('after the upgrade start the linked note sits on top of the block, the text kept, all of it in the editor',
+    g.content === `${note('alex.123456')}\nAPPWIDE_SENTINEL_v2\n` && stored()?.phone_notes_moved === true, g)
   p.check('it left that org.md, whose own text stays', orgmd(rig.org) === 'FIRST_ORG_NOTES\n', orgmd(rig.org))
   p.check('another address\'s note stays org-scoped in its org.md', orgmd(B) === `${note('bea.654321')}\nSECOND_ORG_NOTES\n`)
   await turn(B, 'appwb', 'After the move.')
@@ -99,10 +102,14 @@ export default async function (rig) {
   await rig.restart()
   p.check('a later start moves nothing again', JSON.stringify(stored()) === before && orgmd(rig.org) === 'FIRST_ORG_NOTES\n')
 
+  // ---- the user edits the note in the editor; Unlink still takes the marked note out
+  r = await put(g.content.replace('alex.123456', 'alex.999999'), g.rev)
+  p.check('a save may edit the note in place', r.ok && (await get()).content === `${note('alex.999999')}\nAPPWIDE_SENTINEL_v2\n`, r)
+
   // ---- Unlink removes the note from the block and every org.md
   const unlinked = await rig.api('POST', '/api/desktop/phone/unlink').catch(e => ({ error: String(e) }))
   g = await get()
-  p.check('Unlink: no note in the block, none left in any org.md, the record cleared', g.managed === null && g.content === 'APPWIDE_SENTINEL_v2\n'
+  p.check('Unlink: no note in the block (the edited one too), none left in any org.md, the record cleared', g.content === 'APPWIDE_SENTINEL_v2\n'
     && !orgmd(B).includes(START) && orgmd(B).includes('SECOND_ORG_NOTES') && !JSON.parse(fs.readFileSync(phoneFile, 'utf8')).link, { unlinked, g })
   p.keep(rig, { agents: ['appwa', 'appwb'] })
   return p.summary()

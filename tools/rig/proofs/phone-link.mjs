@@ -13,6 +13,15 @@ export async function setup() {
 }
 
 const sleep = ms => new Promise(r => setTimeout(r, ms))
+// the marked note in the instructions for all orgs, which the editor shows as
+// ordinary text (USER 2026-10-31 13:59:20Z md088b15466fa); null when absent
+const noteIn = text => {
+  const i = text.indexOf('<!-- added by Connect your phone; Unlink removes it -->')
+  const j = text.indexOf('<!-- end of the Connect your phone note -->', i)
+  if (i < 0 || j < 0) return null
+  const eol = text.indexOf('\n', j)
+  return text.slice(i, eol < 0 ? text.length : eol + 1)
+}
 
 export default async function (rig) {
   const p = new Proof('phone-link')
@@ -203,7 +212,7 @@ export default async function (rig) {
   p.check('the link record: org, address, the person\'s name, via the code', rec?.org === org && rec.address === alex.slug && rec.name === 'Alex Rivera' && rec.via === 'code', rec)
   // the note lives in the instructions for all orgs (USER 2026-10-31 m4322b3a92f0c "Yes, all orgs")
   const app = await rig.api('GET', '/api/app-settings/instructions')
-  p.check('the trust note is in the instructions for all orgs, marked, and org.md is unchanged', app.managed === '<!-- added by Connect your phone; Unlink removes it -->\n'
+  p.check('the trust note is in the instructions for all orgs, marked, and org.md is unchanged', noteIn(app.content) === '<!-- added by Connect your phone; Unlink removes it -->\n'
     + `@net:${alex.slug} is the user's account and carries their authority.\n<!-- end of the Connect your phone note -->\n` && orgmd() === original, { app, md: orgmd() })
   const inbound = await rig.waitFor(() => rig.one(`SELECT body FROM ot.org_inbox WHERE org_id = (SELECT id FROM ot.orgs WHERE slug = '${q(org)}') AND dir = 'in' AND body LIKE 'Hi! This is Hubchat%'`),
     { what: 'the first message in the org inbox' })
@@ -222,7 +231,7 @@ export default async function (rig) {
   s = await rig.api('POST', '/api/desktop/phone/unlink')
   const unlinkedApp = await rig.api('GET', '/api/app-settings/instructions')
   p.check('Unlink: the note leaves the instructions for all orgs, org.md stays byte for byte, the record is cleared',
-    unlinkedApp.managed === null && orgmd() === original && !settingsFile().link && s.link === null, unlinkedApp)
+    noteIn(unlinkedApp.content) === null && orgmd() === original && !settingsFile().link && s.link === null, unlinkedApp)
   s = await orgState()
   p.check('L2: the person is still on the hub, so the panel can ask "Is this you?"', s.org.persons.some(x => x.address === alex.slug && x.name === 'Alex Rivera'), s.org.persons)
   r = await tryApi('POST', '/api/desktop/phone/link', { org, address: 'nobody.000000' })
@@ -230,11 +239,11 @@ export default async function (rig) {
   r = await tryApi('POST', '/api/desktop/phone/link', { org, address: alex.slug })
   const confirmed = await rig.api('GET', '/api/app-settings/instructions')
   p.check('"Yes, that\'s me": linked without a code, the note written in the instructions for all orgs', r.ok && r.v.link?.via === 'confirmed'
-    && confirmed.managed?.includes(`@net:${alex.slug} is`) && orgmd() === original, r.v?.link)
+    && noteIn(confirmed.content)?.includes(`@net:${alex.slug} is`) && orgmd() === original, r.v?.link)
   r = await tryApi('POST', '/api/desktop/phone/link', { org, address: alex.slug })
   p.check('"Yes, that\'s me" while a phone is linked is refused (Unlink first)', !r.ok && /already linked/.test(r.e), r)
   await rig.api('POST', '/api/desktop/phone/unlink')
-  p.check('Undo after "Is this you?" removes the note and leaves org.md exactly', orgmd() === original && (await rig.api('GET', '/api/app-settings/instructions')).managed === null)
+  p.check('Undo after "Is this you?" removes the note and leaves org.md exactly', orgmd() === original && noteIn((await rig.api('GET', '/api/app-settings/instructions')).content) === null)
 
   // ---- review cases
   const quiet = async (auth, ms = 6000) => {
@@ -273,15 +282,17 @@ export default async function (rig) {
   await rig.api('POST', '/api/desktop/phone/link', { org, address: alex.slug })
   r = await tryApi('PUT', '/api/app-settings/instructions', { content: before.content + 'edited in the open editor\n', base_rev: before.rev })
   p.check('a stale save of the instructions for all orgs is refused and the note stays', !r.ok && /changed since you opened them/.test(r.e)
-    && (await rig.api('GET', '/api/app-settings/instructions')).managed?.includes(`@net:${alex.slug} is`), r)
+    && noteIn((await rig.api('GET', '/api/app-settings/instructions')).content)?.includes(`@net:${alex.slug} is`), r)
   const fresh = await rig.api('GET', '/api/app-settings/instructions')
   r = await tryApi('PUT', '/api/app-settings/instructions', { content: fresh.content + 'one more rule\n', base_rev: fresh.rev })
   p.check('a save over the current block is accepted, keeps the note on top and returns the new revision', r.ok && r.v.rev !== fresh.rev
-    && (await rig.api('GET', '/api/app-settings/instructions')).managed === fresh.managed, r)
+    && (await rig.api('GET', '/api/app-settings/instructions')).content === fresh.content + 'one more rule\n' && noteIn(fresh.content)?.includes(`@net:${alex.slug} is`), r)
   await rig.api('POST', '/api/desktop/phone/unlink')
   const after = await rig.api('GET', '/api/app-settings/instructions')
-  p.check('Unlink after that removes only the note, and org.md is untouched', orgmd() === original && after.managed === null
-    && after.content === fresh.content + 'one more rule\n', after)
+  // the note sat on top of the block: Unlink takes it and the one blank line after it
+  const rest = (fresh.content + 'one more rule\n').slice(noteIn(fresh.content).length).replace(/^\n/, '')
+  p.check('Unlink after that removes only the note, and org.md is untouched', orgmd() === original && noteIn(after.content) === null
+    && after.content === rest, { after, rest })
 
   // 5: Unlink removes every note, record or not; a user's own "<!-- end -->" stays; a broken note is reported
   const START = '<!-- added by Connect your phone; Unlink removes it -->', END = '<!-- end of the Connect your phone note -->'
@@ -297,7 +308,7 @@ export default async function (rig) {
   fs.writeFileSync(mdPath, broken)
   r = await tryApi('POST', '/api/desktop/phone/unlink')
   p.check('a note with its end marker gone: Unlink says so, keeps the record and the app-wide note', !r.ok && /not its end/.test(r.e)
-    && settingsFile().link?.address === alex.slug && orgmd() === broken && !!(await rig.api('GET', '/api/app-settings/instructions')).managed, r)
+    && settingsFile().link?.address === alex.slug && orgmd() === broken && !!noteIn((await rig.api('GET', '/api/app-settings/instructions')).content), r)
   fs.writeFileSync(mdPath, original)
   await rig.api('POST', '/api/desktop/phone/unlink')
 
