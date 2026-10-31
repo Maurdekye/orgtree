@@ -2605,8 +2605,16 @@ user's report was "agent links are sometimes vertically misaligned with the surr
   (0.39 px) and the mail row's contact chip (0.34 px) are inside the 0.5 px tolerance. Baseline alignment lets a row
   that mixes a mono ticket chip with sans words grow by up to a pixel (the folded ask +0.63, the idle ticket +1), so
   the ticket chip in those two rows (`.ask-fold-line > .ref-chip`, `.idle-ticket > .ref-chip`) carries the same
-  `margin-block: -2px` and the rows keep their old height. Ticket, presentation, app, panel and contact chips in
-  running prose add 0.36 px beside it, as at the base, and were not touched.
+  `margin-block: -2px` and the rows keep their old height.
+- **Every chip type in running text adds 0 to its line** (coordinator 2026-10-31 me75e3b6b3db0, after the alignment
+  fix left ticket, presentation, app, panel and contact chips lengthening a line by 0.36 to 0.49 px, measured against
+  the same sentence with no chip): `.ref-chip.ref-ready:is(.ref-item, .ref-doc, .ref-app, .ref-panel)` and the contact
+  chip (`netmentions.css`) carry `margin-block: -2px`, and in the opt-in wrapping layout, where the link is an inline
+  box that margins cannot shorten, the object chips carry `line-height: 0` (their text, underline, outline and icon do
+  not depend on it). The org inbox's address lines (`.mailer-head`) are flex rows in which the chips are the tallest
+  items, so a contact chip there keeps `margin-block: 0` and the delivered-to line keeps its 94.1 px. A new kind of
+  chip follows the same rule: its sentence is no taller than the same sentence without it
+  (`chipalign.capture.cjs`, 0.1 px).
 - **The docket mention** (`.docket-modal .docket-mention .tier`): `top: 1px` became `top: -1.7px`, moving the badge
   from 2 px below its name's lowercase centre to 0.7 px.
 - **Proofs**: `tests/chipalign.test.tsx` pins the stylesheet (jsdom has no layout), and `tests/chipalign.capture.cjs`
