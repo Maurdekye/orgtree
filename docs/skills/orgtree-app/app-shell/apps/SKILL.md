@@ -76,7 +76,7 @@ while the panel floats centred and Close otherwise, over the line "the panel kee
 running". Each saved-panel row
 shows its state on its light: filled for running and visible, an accent ring for
 running hidden, a hollow grey ring for off; the tooltip says Running · visible,
-Running · hidden or Off. Running rows show their CPU, sampled every 3 seconds while
+Running · hidden or Off. Each app row shows its own light too: an accent dot when at least one of its panels runs, a dark grey one when it has panels and none runs, no dot when it has no panels; an `@app:` link wears the same dot, and an `@panel:` link wears the dot of its panel's state, so a running or powered-off panel or app can be told apart in a message. Running rows show their CPU, sampled every 3 seconds while
 Apps is open (100% = one core; "shared" marks a figure for the whole renderer
 process), and a Power off button. Right-click a row for Start running (stopped
 rows; runs it without opening its window) or Power off (running rows). Right-click an app or a panel row, or an `@app:`/`@panel:` chip, for **Copy mention**, which copies its `@app:<org>/<slug>` or `@panel:<org>/<slug>` mention. Opening a stopped panel starts it. Stop all powers off every app panel;

@@ -2699,6 +2699,32 @@ object links: the mail icon on the left, then the first words of the message (m3
   padding as the presentation chip beside them while a read message wears none.
 [decided: user 2026-10-31 mdffa16729677, m33189c8d6214, m4ad918885ce9, m53e1fd94c038, mf1a79901405e, m5345a1e44ad1; verified: `canvas/{mailrefs.ts,mailchip.tsx,reflinks.tsx,refmd.tsx,refnames.ts,refmarks.tsx,desk.tsx,listenersdesk.tsx,maillisteners.tsx,objecttooltip.ts,mailtitle.ts}`, `mailread.ts`, `App.tsx`, `styles.css`]
 
+## @app:/@panel: links and app rows show running, dead or no state (2026-10-31, 4.5.3)
+
+USER m8d5facfeae29 "also panels that are running (or apps with any panels running) should have a highlight on them", m9a790bb7a155
+"if an app has a panel but its dead then the highligth should be dark grey", m16901ed8c657 "and if an app has no panels then it should not
+have a highlight". Three states: **running** (a panel that runs, visible or hidden; an app with at least one running panel),
+**dead** (a panel that exists but is off; an app that has panels and none runs), **none** (an app with no panels, or whose counts the
+engine did not send: an older engine). A panel or app that is not there stays an unresolved reference.
+
+- **Data**: the engine's Apps `refs` read (`domain/apps/storage.rs` `Request::Refs`) now answers each app with `panels` and `running`
+  counts beside `recent`; a panel row already had `open`/`running`. The SQL was run against a disposable PostgreSQL with the real
+  migrations (an app with a running and an off panel, an app with an off panel, an app with none).
+- **Mechanism** (`canvas/apprefs.ts`, `apps/links.ts` `appRunState`/`panelRunState`): the reader returns the same `RefFlare` the unread
+  highlights use, class `run-on` or `run-dead`, tip `Running` / `Running · visible` / `Running · hidden` / `Off`. It re-reads on
+  `custom_apps_changed` like the names do, so a link follows panels starting and stopping. An app link's hover leads with the state
+  (`refChipTitle`); a panel link's hover already is the state word.
+- **Look** (`styles.css`): the dot the Apps list draws for a panel's power state, in front of the link's mark, never the unread/status
+  edge (`.ref-flare:not(.run-on, .run-dead)` keeps the edge off): running the accent, dead `color-mix(var(--dim) 55%, black)`, a
+  dark grey of the theme. In the wrapping layout the dot is an inline-block that adds nothing to the line.
+- **The Apps list** (`apps/ui.tsx`): each app row draws the same dot (`.custom-app-state.run-on|run-dead`, apps.css) from the app's
+  loaded panels, none when it has none; a panel row keeps its own existing light (filled running visible, ring running hidden, hollow
+  grey off). The list pages its panels, so an app's dead/none state there is read from the panels loaded (running ones always are).
+- **Proofs**: `tests/apprunning.test.tsx` (chips in React and Markdown, live frame, app rows, stylesheet) and the chipalign capture,
+  which in Session 0 checks in both mention layouts the dot's computed size, shape and colour, a running app going dark grey when its
+  last panel stops, a dead link grey, an app with no panels bare, and no unread edge on any of them.
+[decided: user 2026-10-31 m8d5facfeae29, m9a790bb7a155, m16901ed8c657; verified: `canvas/{apprefs.ts,reflinks.tsx,refmd.tsx}`, `canvas/apps/{links.ts,ui.tsx,apps.css}`, `styles.css`, `domain/apps/storage.rs`]
+
 ## Retained last-good usage readings across failed fetches (2026-10-29, 4.5.2)
 
 When an account already has a valid usage reading and a later usage fetch fails
