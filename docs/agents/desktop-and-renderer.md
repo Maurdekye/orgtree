@@ -711,6 +711,26 @@ now stops waiting after 2 s (`EFFORT_REPLY_WITHIN`, `await_effort_reply` in
 `runtime/mod.rs`) and answers `next_turn`; the message stays queued and the
 level is applied when the actor reaches it, so the durable outcome is unchanged.
 
+## The lightbox zooms only the picture (2026-10-31, 4.5.3)
+
+USER mae5103702a59 ("Yes, in 4.5.3", after Hubchat's viewer left its whole
+app zoomed in: md50218422de7). `canvas/lightbox.ts` (the one DOM overlay every
+surface opens: chat thumbnails, mail attachments, documents, the Files tab,
+the gallery) gets Hubchat's gestures and limits: pinch, one-finger pan while
+zoomed, double click fit <-> 2.5x, ctrl+wheel (the browser's page zoom is
+stopped with `preventDefault`), 1x..6x, the picture never leaves its box.
+`canvas/pinchmath.ts` is a COPY of Hubchat's `src/components/pinchmath.ts` at
+639cdeb (separate repos): keep every constant and formula identical and change
+both. The overlay takes the touches (`touch-action: none`), the picture moves
+by a CSS transform, and the end of a gesture is not the tap that closes. No
+pointer capture (it retargets the click that ends a tap, so the picture's
+double click never arrives). `resetPageZoom` pins the viewport meta to scale 1
+for two frames on open and on close and restores it, nested calls restoring
+the original once. The close button and the caption sit above a zoomed picture
+(`z-index: 2`). [verified: `lightbox.ts`, `pinchmath.ts`, `styles.css` .lb-*;
+`tests/lightboxzoom.test.ts`; jsdom only, the real window's behaviour is the
+integrator's capture]
+
 ## Effort bar release (2026-10-23)
 
 Clear the pre-drag hover preview when committing a pointer release. Otherwise

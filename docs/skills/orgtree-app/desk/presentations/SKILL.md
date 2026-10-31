@@ -100,5 +100,12 @@ snapshot, including from a desk in a separate window. Downloads are limited to
 in that window. Escape closes the image viewer and leaves the desk open; the
 Close button and backdrop also close the viewer.
 
+The image viewer zooms only the picture, the same way Hubchat's does: pinch with
+two fingers or hold Ctrl and use the mouse wheel to zoom (up to 6x), drag to
+move a zoomed picture, and double-click to toggle between fit and 2.5x. Letting
+go after a pinch or a drag does not close the viewer. Closing it by the close
+button, Escape or the backdrop always leaves the app at its normal size, and the
+close button and filename stay visible over a zoomed picture.
+
 The image viewer's download link uses the same authenticated download path,
 256 MiB limit and visible failure handling, including in a separate window.

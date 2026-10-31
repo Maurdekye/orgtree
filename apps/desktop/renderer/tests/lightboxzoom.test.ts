@@ -26,10 +26,10 @@ function open() {
   const P = win.HTMLElement.prototype as unknown as Record<string, unknown>
   let captured = 0
   P.setPointerCapture = () => { captured += 1 }
-  Object.defineProperty(P, 'offsetWidth', { configurable: true, get() { return (this as HTMLElement).tagName === 'IMG' ? 300 : 0 } })
-  Object.defineProperty(P, 'offsetHeight', { configurable: true, get() { return (this as HTMLElement).tagName === 'IMG' ? 200 : 0 } })
-  P.getBoundingClientRect = function () {
-    return (this as HTMLElement).tagName === 'IMG'
+  Object.defineProperty(P, 'offsetWidth', { configurable: true, get(this: HTMLElement) { return this.tagName === 'IMG' ? 300 : 0 } })
+  Object.defineProperty(P, 'offsetHeight', { configurable: true, get(this: HTMLElement) { return this.tagName === 'IMG' ? 200 : 0 } })
+  P.getBoundingClientRect = function (this: HTMLElement) {
+    return this.tagName === 'IMG'
       ? { left: 100, top: 100, width: 300, height: 200, right: 400, bottom: 300, x: 100, y: 100 }
       : { left: 0, top: 0, width: 0, height: 0, right: 0, bottom: 0, x: 0, y: 0 }
   }

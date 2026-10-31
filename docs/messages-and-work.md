@@ -346,5 +346,12 @@ Presentation replies retain their direct/project broadcast destination. Docket r
 
 If a selected desk reply fails after you have started a new draft, the new draft stays intact. The failed message retains its original text, attachments and selected passages; use its **Restore** control to recover that submission. Source parts over 1 MiB refuse before DOM mapping; use a smaller retained field or JSON scalar.
 
+The image viewer zooms only the picture, the same way Hubchat's does: pinch with
+two fingers or hold Ctrl and use the mouse wheel to zoom (up to 6x), drag to
+move a zoomed picture, and double-click to toggle between fit and 2.5x. Letting
+go after a pinch or a drag does not close the viewer. Closing it by the close
+button, Escape or the backdrop always leaves the app at its normal size, and the
+close button and filename stay visible over a zoomed picture.
+
 The image viewer's download link uses the same authenticated download path,
 256 MiB limit and visible failure handling, including in a separate window.

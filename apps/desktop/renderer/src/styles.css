@@ -7022,21 +7022,24 @@ a.attach-chip:hover { border-color: color-mix(in srgb, var(--accent) 45%, var(--
 .lb-overlay {
   position: fixed; inset: 0; z-index: 95;
   background: rgba(0, 0, 0, .84); cursor: zoom-out;
+  touch-action: none; overflow: hidden; /* pinch/pan move the picture, never the page (as Hubchat's viewer) */
   display: flex; flex-direction: column; align-items: center;
   justify-content: center; gap: 10px; padding: 24px;
 }
 .lb-img {
   max-width: 94vw; max-height: 86vh; object-fit: contain; cursor: default;
   border-radius: 4px; box-shadow: 0 8px 40px rgba(0, 0, 0, .6);
+  touch-action: none; user-select: none; transform-origin: center;
 }
 .lb-bar {
   display: flex; align-items: center; gap: 14px; cursor: default;
   color: #ddd; font-size: 12.5px; max-width: 94vw;
+  position: relative; z-index: 2; text-shadow: 0 0 4px #000, 0 0 2px #000; /* above a zoomed picture */
 }
 .lb-bar .lb-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .lb-bar .lb-dl { color: #9ecbff; }
 .lb-x {
-  position: absolute; top: 14px; right: 18px;
+  position: absolute; top: 14px; right: 18px; z-index: 2;
   background: none; border: none; color: #ddd; font-size: 20px;
   cursor: pointer; padding: 4px 8px; font-family: inherit;
 }

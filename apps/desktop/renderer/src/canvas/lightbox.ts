@@ -1,5 +1,6 @@
 import { downloadFile } from './filedownload'
 import { initiatingDocument } from '../windowlife'
+import { HOME, panView, pinchView, resetPageZoom, toggleZoom, wheelView, type Pt, type View } from './pinchmath'
 // canvas/lightbox.ts — the full-size image viewer (user spec 2026-08-25:
 // images flow both ways — agents present them, users attach them — and every
 // inline rendering needs a "view it properly" step that isn't a download).
@@ -22,6 +23,7 @@ export function openLightbox(src: string, opts: { name?: string; download?: stri
   // the backdrop closes; the picture itself doesn't (mis-click near the edge)
   img.addEventListener('click', (e) => e.stopPropagation())
   ov.appendChild(img)
+  const zoom = attachZoom(ov, img, ownerDocument)
   const bar = ownerDocument.createElement('div')
   bar.className = 'lb-bar'
   bar.addEventListener('click', (e) => e.stopPropagation())
@@ -58,15 +60,20 @@ export function openLightbox(src: string, opts: { name?: string; download?: stri
   x.addEventListener('click', () => closeLightbox(ownerDocument))
   ov.appendChild(x)
   ov.appendChild(bar)
-  ov.addEventListener('click', () => closeLightbox(ownerDocument))
+  // the end of a pinch or a drag is not the tap that closes the viewer
+  ov.addEventListener('click', () => { if (zoom.moved()) zoom.settle(); else closeLightbox(ownerDocument) })
   ownerDocument.body.appendChild(ov)
+  resetPageZoom(ownerDocument)
   // Capture before a detached surface's keyboard bubbling boundary.
   ownerDocument.addEventListener('keydown', onKey, true)
 }
 
 export function closeLightbox(ownerDocument: Document = initiatingDocument()): void {
-  ownerDocument.querySelector('.lb-overlay')?.remove()
+  const open = ownerDocument.querySelector('.lb-overlay')
+  open?.remove()
   ownerDocument.removeEventListener('keydown', onKey, true)
+  // closing always leaves the page at 1:1, whatever scaled it (Hubchat's bug: the app stayed zoomed)
+  if (open) resetPageZoom(ownerDocument)
 }
 
 const onKey = (e: KeyboardEvent) => {
@@ -115,3 +122,57 @@ export function openLightboxIfEligibleImage(e: { target: EventTarget | null; def
 if (typeof document !== 'undefined') document.addEventListener('click', (e) => {
   openLightboxIfEligibleImage(e)
 }, true)
+
+/** Pinch, drag, double click and ctrl+wheel move only the picture (a CSS transform); the overlay takes the touches
+ *  (touch-action: none) so the page is never scaled under a gesture. The same gestures, limits and math as Hubchat's
+ *  image viewer (./pinchmath is a copy of its pinchmath.ts). No pointer capture: it would retarget the click that ends
+ *  a tap to the overlay, so the picture's own double click would never arrive. */
+function attachZoom(ov: HTMLElement, img: HTMLImageElement, doc: Document): { moved: () => boolean; settle: () => void } {
+  let view: View = HOME
+  let moved = false
+  const fingers = new Map<number, Pt>()
+  let gesture: { view: View; a: Pt; b: Pt } | { view: View; at: Pt } | null = null
+  const put = (v: View) => { view = v; img.style.transform = `translate(${v.x}px, ${v.y}px) scale(${v.scale})` }
+  const size = () => ({ w: img.offsetWidth, h: img.offsetHeight })
+  // the picture's unscaled centre on screen: its box centre less the current pan
+  const centre = (): Pt => {
+    const r = img.getBoundingClientRect()
+    return { x: r.left + r.width / 2 - view.x, y: r.top + r.height / 2 - view.y }
+  }
+  const from = (p: Pt): Pt => { const c = centre(); return { x: p.x - c.x, y: p.y - c.y } }
+  const begin = () => {
+    const pts = [...fingers.values()]
+    gesture = pts.length >= 2 ? { view, a: pts[0]!, b: pts[1]! } : pts.length === 1 ? { view, at: pts[0]! } : null
+  }
+  ov.addEventListener('pointerdown', (e) => {
+    if ((e.target as Element).closest('.lb-x, .lb-bar')) return
+    fingers.set(e.pointerId, { x: e.clientX, y: e.clientY })
+    moved = false
+    begin()
+  })
+  ov.addEventListener('pointermove', (e) => {
+    if (!fingers.has(e.pointerId) || !gesture) return
+    fingers.set(e.pointerId, { x: e.clientX, y: e.clientY })
+    const pts = [...fingers.values()]
+    const g = gesture
+    if ('a' in g && pts.length >= 2) {
+      put(pinchView(g.view, from(g.a), from(g.b), from(pts[0]!), from(pts[1]!), size()))
+      moved = true
+    } else if ('at' in g && pts.length === 1) {
+      const dx = pts[0]!.x - g.at.x, dy = pts[0]!.y - g.at.y
+      if (Math.abs(dx) + Math.abs(dy) > 4) moved = true
+      if (g.view.scale > 1) put(panView(g.view, dx, dy, size()))
+    }
+  })
+  const up = (e: PointerEvent) => { fingers.delete(e.pointerId); begin() }
+  ov.addEventListener('pointerup', up)
+  ov.addEventListener('pointercancel', up)
+  // ctrl+wheel (a trackpad pinch) is the browser's page zoom unless it is stopped here
+  ov.addEventListener('wheel', (e) => {
+    if (!e.ctrlKey) return
+    e.preventDefault()
+    put(wheelView(view, e.deltaY, from({ x: e.clientX, y: e.clientY }), size()))
+  }, { passive: false })
+  img.addEventListener('dblclick', (e) => put(toggleZoom(view, from({ x: e.clientX, y: e.clientY }), size())))
+  return { moved: () => moved, settle: () => { moved = false } }
+}
