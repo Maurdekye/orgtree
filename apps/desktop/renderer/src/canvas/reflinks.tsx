@@ -188,6 +188,7 @@ export function resolveRef(ref: TypedRef, world: RefWorld): ResolvedRef {
   if (ref.kind === 'app' || ref.kind === 'panel') {
     const answer = world.refName?.(ref) ?? { outcome: 'ready' as const }
     return { ref, token, outcome: answer.outcome, label: answer.label ?? ref.id,
+      ...(answer.outcome === 'ready' && answer.flare ? { flare: answer.flare } : {}),
       why: answer.outcome === 'ready' ? answer.title ?? `open the ${kind} ${ref.id}`
         : answer.outcome === 'pending' ? `still loading this org's apps`
           : `no ${kind} ${ref.id} in this org` }
@@ -705,7 +706,7 @@ export function RefChip({ r, onOpen }: {
 export function refChipTitle(r: ResolvedRef): string | undefined {
   if (r.ref.kind === 'item') return r.flare ? `${r.flare.tip} · ${r.ref.id}` : r.ref.id
   // a message's hover is read fresh on hover (objecttooltip.ts); until then its words, led by an unread flare's
-  if (r.ref.kind === 'mail') return r.flare ? `${r.flare.tip} · ${r.why}` : r.why
+  if (r.ref.kind === 'mail' || r.ref.kind === 'app') return r.flare ? `${r.flare.tip} · ${r.why}` : r.why
   if (r.ref.kind !== 'doc') return r.why
   return r.flare ? `${r.flare.tip} · ${r.label}` : r.label
 }

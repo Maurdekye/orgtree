@@ -14,6 +14,14 @@ type PanelRun=Pick<CustomPanel,'open'|'running'>
 export function panelRunState(p:PanelRun):{cls:string;word:string}{
   return isRunning(p)?(p.open?{cls:'open',word:'Running · visible'}:{cls:'running',word:'Running · hidden'}):{cls:'',word:'Off'}
 }
+/** An app's run state, for its link and its Apps row (USER 2026-10-31 m8d5facfeae29 "apps with any panels running should have a
+ *  highlight", m9a790bb7a155 "if an app has a panel but its dead then the highligth should be dark grey", m16901ed8c657 "if an app has
+ *  no panels then it should not have a highlight"): running when one of its panels runs, dead when it has panels and none runs, none
+ *  with no panels (or when the count is not known). */
+export function appRunState(panels:number|undefined,running:number|undefined):{cls:'run-on'|'run-dead';word:string}|null{
+  if(panels===undefined||running===undefined||panels<=0)return null
+  return running>0?{cls:'run-on',word:'Running'}:{cls:'run-dead',word:'Off'}
+}
 /** An app link's hover text: the panel a click opens, or the one it creates. */
 export const appLinkTitle=(name:string,recent:string|null|undefined):string=>recent?`Open ${recent}`:`Create a panel for ${name}`
 /** A panel link's hover text is its run state; its label is on the link. */

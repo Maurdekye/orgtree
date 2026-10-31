@@ -9,14 +9,15 @@
 import { customAppsRequest } from '../api'
 import { onAppsInvalidated } from './apps/store'
 import { openAppPanel } from './apps/ui'
-import { appLinkTitle, panelLinkTitle } from './apps/links'
+import { appLinkTitle, appRunState, panelLinkTitle, panelRunState } from './apps/links'
 import { refKey, refNames } from './refnames'
 import type { TypedRef } from './workrefs'
 
 /** `asked` is the id the mention was written with: the slug, or the old
  *  generic id an app or panel had before slugs (engine migration 0075). `id` is
  *  its slug now. */
-export interface AppRefRow { asked?: string; id: string; name: string; recent?: string | null }
+/** `panels` and `running`: how many panels the app has and how many of them run (an older engine sends neither: no state) */
+export interface AppRefRow { asked?: string; id: string; name: string; recent?: string | null; panels?: number; running?: number }
 export interface PanelRefRow { asked?: string; id: string; app: string; app_name: string; label: string; open: boolean; running?: boolean }
 
 refNames.register({
@@ -37,12 +38,14 @@ refNames.register({
   name(kind, row) {
     if (kind === 'app') {
       const app = row as AppRefRow
-      return { label: app.name, title: appLinkTitle(app.name, app.recent) }
+      const run = appRunState(app.panels, app.running)
+      return { label: app.name, title: appLinkTitle(app.name, app.recent), ...(run ? { flare: { cls: run.cls, tip: run.word } } : {}) }
     }
     // a panel's own label is "Panel N" by default (user 2026-10-26), which
     // would not say which app it belongs to
     const panel = row as PanelRefRow
-    return { label: `${panel.app_name} · ${panel.label}`, title: panelLinkTitle(panel) }
+    const run = panelRunState(panel)
+    return { label: `${panel.app_name} · ${panel.label}`, title: panelLinkTitle(panel), flare: { cls: run.cls ? 'run-on' : 'run-dead', tip: run.word } }
   },
 })
 onAppsInvalidated((org) => refNames.invalidate(org, ['app', 'panel']))

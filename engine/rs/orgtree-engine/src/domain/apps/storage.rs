@@ -249,12 +249,13 @@ pub(crate) async fn run_locked(engine:&Arc<Engine>,org:&Arc<OrgHandle>,caller:Op
         Request::AppGet{app:id}=>app(&tx,org.id,&id,true,false).await?,
         // Mention chips show what an Apps menu row shows: an app's name and its
         // most recently used copy (the copy an app row click opens), a panel's
-        // label, app and run state. Never HTML, state or permissions. A missing
+        // label, app and run state, and an app's panel and running-panel counts (its
+        // link's run state: running, dead or none). Never HTML, state or permissions. A missing
         // ID is left out, which is how a chip learns its target is gone.
         // `asked` is the id as asked: a mention written with an app's or
         // panel's old generic id (before migration 0075) finds its row by it.
         Request::Refs{apps,panels}=>{
-            let apps=tx.query("SELECT jsonb_build_object('asked',r.ref,'id',a.id,'name',a.name,'recent',(SELECT p.label FROM ot.custom_panels p WHERE p.org_id=a.org_id AND p.app_id=a.id ORDER BY p.used_at DESC,p.id DESC LIMIT 1)) FROM unnest($2::text[]) WITH ORDINALITY AS r(ref,n) JOIN ot.custom_apps a ON a.org_id=$1 AND a.id=ot.custom_app_ref($1,r.ref) ORDER BY r.n",&[&org.id,&apps]).await?;
+            let apps=tx.query("SELECT jsonb_build_object('asked',r.ref,'id',a.id,'name',a.name,'recent',(SELECT p.label FROM ot.custom_panels p WHERE p.org_id=a.org_id AND p.app_id=a.id ORDER BY p.used_at DESC,p.id DESC LIMIT 1),'panels',(SELECT count(*) FROM ot.custom_panels p WHERE p.org_id=a.org_id AND p.app_id=a.id),'running',(SELECT count(*) FROM ot.custom_panels p WHERE p.org_id=a.org_id AND p.app_id=a.id AND p.is_running)) FROM unnest($2::text[]) WITH ORDINALITY AS r(ref,n) JOIN ot.custom_apps a ON a.org_id=$1 AND a.id=ot.custom_app_ref($1,r.ref) ORDER BY r.n",&[&org.id,&apps]).await?;
             let panels=tx.query("SELECT jsonb_build_object('asked',r.ref,'id',p.id,'app',p.app_id,'app_name',a.name,'label',p.label,'open',p.is_open,'running',p.is_running) FROM unnest($2::text[]) WITH ORDINALITY AS r(ref,n) JOIN ot.custom_panels p ON p.org_id=$1 AND p.id=ot.custom_panel_ref($1,r.ref) JOIN ot.custom_apps a ON a.org_id=p.org_id AND a.id=p.app_id ORDER BY r.n",&[&org.id,&panels]).await?;
             json!({"apps":apps.iter().map(|r|r.get::<_,Value>(0)).collect::<Vec<_>>(),"panels":panels.iter().map(|r|r.get::<_,Value>(0)).collect::<Vec<_>>()})
         }

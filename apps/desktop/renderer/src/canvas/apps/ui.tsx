@@ -17,7 +17,7 @@ import {AppSettings,PanelSettings} from './settings'
 import {AppsRefRoutes} from './events'
 import {AppDialog as Dialog} from './dialog'
 import {PANEL_MIN,appPlacement,windowRect} from './placement'
-import {appLinkTitle,appLinkMenu,manageAppLink,panelLinkMenu,panelRunState} from './links'
+import {appLinkTitle,appLinkMenu,appRunState,manageAppLink,panelLinkMenu,panelRunState} from './links'
 import type {AppSettingsRequest} from './links'
 import {pinSnapOn,useEsc} from '../shared'
 import {APP_BUNDLE_MAX,AppImport,parseAppBundle} from './portable'
@@ -124,7 +124,7 @@ function AppsMenu({slug,current,manage,managePanel,importApp,toast}:{slug:string
     {data.error&&<p role="alert">{data.error} <button type="button" onClick={()=>void loadAppsMenu(slug)}>Retry</button></p>}
     {!data.apps.length&&!data.loading&&!data.error&&data.loaded&&<p className="dim">No apps yet. Ask an agent to make an app for you, and it will appear here.</p>}
     {data.apps.map(app=>{const rows=listed(app),recent=mostRecent(rows);return <section key={app.id} className="custom-apps-menu-group">
-      <div className="custom-apps-menu-app" data-new-app={app.is_new?app.id:undefined} onContextMenu={e=>rowMenu.open(e,()=>appLinkMenu(slug,app.id,current.anchor,toast))} onClick={()=>show(recent?{panel:recent.id}:{app:app.id})}><button type="button" className="custom-apps-open" title={appLinkTitle(app.name,recent?.label)}><AppsIcon/><span><b>{app.name}</b><small>{app.description}</small></span></button>
+      <div className="custom-apps-menu-app" data-new-app={app.is_new?app.id:undefined} onContextMenu={e=>rowMenu.open(e,()=>appLinkMenu(slug,app.id,current.anchor,toast))} onClick={()=>show(recent?{panel:recent.id}:{app:app.id})}><button type="button" className="custom-apps-open" title={appLinkTitle(app.name,recent?.label)}>{(run=>run&&<span className={'custom-app-dot custom-app-state '+run.cls} title={run.word} aria-hidden="true"/>)(appRunState(rows.length,rows.filter(isRunning).length))}<AppsIcon/><span><b>{app.name}</b><small>{app.description}</small></span></button>
         {(app.is_new||seenHere.has(app.id))&&<b className="custom-app-new-label">New</b>}
         <button type="button" className="custom-apps-add" title="New panel" aria-label={`New panel for ${app.name}`} onClick={e=>{e.stopPropagation();void open({action:'panel_open',app:app.id,new:true})}}><AddIcon/></button>
         <button type="button" className="custom-apps-app-gear" title={`App settings: ${app.name}`} aria-label={`Settings for ${app.name}`} onClick={e=>{e.stopPropagation();setMenu(null);manage(app)}}><SettingsIcon/></button></div>
