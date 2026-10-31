@@ -52,9 +52,9 @@ const editor = (g: HTMLElement) => g.querySelector<HTMLTextAreaElement>('textare
 const save = (g: HTMLElement) => g.querySelector<HTMLButtonElement>('button[aria-label="Save instructions for all orgs"]')!
 async function type(area: HTMLTextAreaElement, value: string) {
   await inAct(async () => {
-    const set = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!
+    const set = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value')!.set!
     set.call(area, value)
-    area.dispatchEvent(new Event('input', { bubbles: true }))
+    area.dispatchEvent(new window.Event('input', { bubbles: true }))
     await flush(5)
   })
 }
@@ -118,7 +118,7 @@ test('the Connect your phone note shows read-only above the editor and never in 
     assert.ok(note, 'the note is shown')
     assert.equal(note!.textContent, NOTE)
     assert.equal(note!.closest('textarea'), null)
-    assert.ok(note!.compareDocumentPosition(editor(g)) & Node.DOCUMENT_POSITION_FOLLOWING, 'above the editor')
+    assert.ok(note!.compareDocumentPosition(editor(g)) & window.Node.DOCUMENT_POSITION_FOLLOWING, 'above the editor')
     assert.match(g.textContent ?? '', /Connect your phone added this note; Unlink removes it/)
     assert.equal(editor(g).value, 'Keep records.\n', 'the editable text is the user\'s own')
     assert.doesNotMatch(g.textContent ?? '', /No instructions for all orgs are configured/)
