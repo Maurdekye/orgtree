@@ -261,7 +261,9 @@ mod tests {
             let rel = file.strip_prefix(&src).unwrap().to_string_lossy().replace('\\', "/");
             if rel == "app_instructions.rs" { continue }
             let text = std::fs::read_to_string(file).unwrap();
-            if text.contains("app_instructions.update(") || text.contains("app_instructions.publish(") {
+            // a call may wrap across lines, one method per line
+            let flat: String = text.split_whitespace().collect();
+            if flat.contains(".app_instructions.update(") || flat.contains(".app_instructions.publish(") {
                 writers.push(rel.clone());
             }
             if rel.starts_with("tools/") || rel.contains("template") || rel.starts_with("import") {

@@ -1546,6 +1546,9 @@ mod trim_tests {
     /// Each mqtt or websocket fire is 131-136 bytes shorter for it, and each
     /// external mail 89.
     const EXTERNAL_TAGS: usize = 110;
+    /// Naming both trusted sources, the instructions for all orgs and this
+    /// org's org.md (USER 2026-10-31 m4322b3a92f0c "Yes, all orgs").
+    const APP_WIDE_AUTHORITY_GROWTH: usize = 88;
     // User 2026-10-20: next-turn changes via queued restart, fixed UTF-8 budget.
     const QUEUED_RESTART_GROWTH: usize = 245;
     /// The old OpenCode-only queue/status sentence was 157 bytes. Its new
@@ -1568,7 +1571,7 @@ mod trim_tests {
         assert_eq!(HIERARCHICAL_MEMORY_POINTER.len(), HIERARCHICAL_MEMORY_POINTER_GROWTH);
         assert_eq!(QUEUED_RESTART.len(), QUEUED_RESTART_GROWTH);
         assert_eq!(TRIM_QUEUED_RESTART.len(), 193);
-        assert!(EXTERNAL_AUTHORITY.len() <= 913 + EXTERNAL_TAGS, "the passage outgrew its approved allowance: {}", EXTERNAL_AUTHORITY.len());
+        assert!(EXTERNAL_AUTHORITY.len() <= 913 + EXTERNAL_TAGS + APP_WIDE_AUTHORITY_GROWTH, "the passage outgrew its approved allowance: {}", EXTERNAL_AUTHORITY.len());
         assert!(OPENCODE_MAIL_DELIVERY.len() + TRIM_AUTHENTIC_CHANNEL.len() <= 157 + OPENCODE_HOOK_MAIL);
         for lane in [Lane::Claude, Lane::Codex, Lane::Antigravity, Lane::Muse, Lane::OpenCode] {
             for top in [false, true] {
@@ -1579,7 +1582,7 @@ mod trim_tests {
                 // EXTERNAL tags, the unconditional concurrency pointer and
                 // OpenCode's hook-mail contract each retain their bounded allowance.
                 let hook_mail = if lane == Lane::OpenCode { OPENCODE_HOOK_MAIL } else { 0 };
-                assert!(trimmed.len() < 10_000 + MENTIONS.len() + 4 + EXTERNAL_TAGS + CONCURRENCY_POINTER_GROWTH + QUEUED_RESTART_GROWTH + HIERARCHICAL_MEMORY_POINTER_GROWTH + hook_mail, "{lane:?} top={top}: {} bytes", trimmed.len());
+                assert!(trimmed.len() < 10_000 + MENTIONS.len() + 4 + EXTERNAL_TAGS + APP_WIDE_AUTHORITY_GROWTH + CONCURRENCY_POINTER_GROWTH + QUEUED_RESTART_GROWTH + HIERARCHICAL_MEMORY_POINTER_GROWTH + hook_mail, "{lane:?} top={top}: {} bytes", trimmed.len());
                 assert!(trimmed.len() * 2 < full.len(), "{lane:?} top={top}: {} vs {}", trimmed.len(), full.len());
             }
         }
