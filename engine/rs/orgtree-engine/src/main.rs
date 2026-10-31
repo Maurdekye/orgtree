@@ -15,6 +15,7 @@ extern crate orgtree_logged;
 
 mod account_marks;
 mod accounts;
+mod app_instructions;
 mod appfeed;
 mod bridge;
 mod changelog;

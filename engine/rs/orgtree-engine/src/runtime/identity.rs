@@ -13,6 +13,9 @@ use serde_json::Value;
 #[cfg(test)]
 #[path = "identity/compression_tests.rs"]
 mod compression_tests;
+#[cfg(test)]
+#[path = "identity/app_tests.rs"]
+mod app_tests;
 
 /// Which CLI the agent runs: decides tool naming, the sandbox text and
 /// which standing-note files the CLI reads itself.
@@ -43,6 +46,9 @@ pub struct Identity<'a> {
     /// the superior's name; None for a top-level agent (answers to the user)
     pub superior: Option<&'a str>,
     pub org_md: Option<&'a str>,
+    /// the instructions for all orgs (App settings > Runtime), the same in
+    /// every org; `app_instructions.rs`
+    pub app_md: Option<&'a str>,
     pub lane: Lane,
     /// the effective scope (permission_mode, add_dirs, tools)
     pub scope: &'a Value,
@@ -549,7 +555,7 @@ mod group_tests {
         identity(&Identity {
             name: "worker", title: "", org_name: "Proof", org_slug: "proof", scratch: "D:/proof",
             charter, team_charter: Some("Keep the user's words."), cascade: &[],
-            superior: if top { None } else { Some("coordinator") }, org_md: None, lane, scope,
+            superior: if top { None } else { Some("coordinator") }, org_md: None, app_md: None, lane, scope,
             codex_sandbox: None, mcp_servers: &[], extern_holder: true, folder_notes: &[],
             own_notes: &[], skills_dir: "D:/skills", builtin_skills: false, suggest_agent_feedback: true,
         })
@@ -1380,7 +1386,7 @@ mod trim_tests {
         identity(&Identity {
             name: "worker", title: "", org_name: "Proof", org_slug: "proof", scratch: "D:/proof",
             charter: None, team_charter: None, cascade: &[],
-            superior: if top { None } else { Some("coordinator") }, org_md: None, lane, scope: &scope,
+            superior: if top { None } else { Some("coordinator") }, org_md: None, app_md: None, lane, scope: &scope,
             codex_sandbox: None, mcp_servers: &[], extern_holder: true, folder_notes: &[],
             own_notes: &[], skills_dir: "C:/Users/someone/.claude/skills", builtin_skills, suggest_agent_feedback: true,
         })
@@ -1403,7 +1409,7 @@ mod trim_tests {
                             let i = Identity {
                                 name: "worker", title: "", org_name: "Proof", org_slug: "proof", scratch: "D:/proof",
                                 charter: None, team_charter: None, cascade: &[],
-                                superior: if top { None } else { Some("lead") }, org_md: None, lane, scope,
+                                superior: if top { None } else { Some("lead") }, org_md: None, app_md: None, lane, scope,
                                 codex_sandbox: None, mcp_servers: &[], extern_holder: false,
                                 folder_notes: &[], own_notes: &[], skills_dir: "D:/skills", builtin_skills,
                                 suggest_agent_feedback,
@@ -1427,7 +1433,7 @@ mod trim_tests {
                     let mut i = Identity {
                         name: "worker", title: "", org_name: "Proof", org_slug: "proof", scratch: "D:/proof",
                         charter: None, team_charter: None, cascade: &[],
-                        superior: if top { None } else { Some("lead") }, org_md: None, lane, scope: &scope,
+                        superior: if top { None } else { Some("lead") }, org_md: None, app_md: None, lane, scope: &scope,
                         codex_sandbox: None, mcp_servers: &[], extern_holder: false,
                         folder_notes: &[], own_notes: &[], skills_dir: "D:/skills", builtin_skills,
                         suggest_agent_feedback: true,

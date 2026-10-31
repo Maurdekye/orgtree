@@ -2404,6 +2404,7 @@ impl Actor {
             cascade: &ctx.cascade,
             superior: ctx.superior.as_deref(),
             org_md: ctx.org_md.as_deref(),
+            app_md: None,
             lane,
             scope: &ctx.effective,
             codex_sandbox: if lane == prompt::Lane::Codex { Some(sandbox) } else { None },

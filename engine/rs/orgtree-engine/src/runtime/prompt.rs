@@ -459,7 +459,7 @@ mod phone_authority_tests {
         identity(&Identity {
             name: "worker", title: "", org_name: org, org_slug: org, scratch: "D:/fixture",
             charter: None, team_charter: None, cascade: &[], superior: Some("lead"),
-            org_md: notes, lane, scope: &json!({"tools":{"orgtree":{"messaging":messaging}}}),
+            org_md: notes, app_md: None, lane, scope: &json!({"tools":{"orgtree":{"messaging":messaging}}}),
             codex_sandbox: None, mcp_servers: &[], extern_holder: messaging,
             folder_notes: &[], own_notes: &[], skills_dir: "D:/fixture-skills", builtin_skills: false, suggest_agent_feedback: true,
         })
