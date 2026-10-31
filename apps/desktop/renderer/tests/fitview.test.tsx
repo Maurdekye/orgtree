@@ -90,3 +90,23 @@ test('opening fit follows restored pin geometry but preserves a manually chosen 
     assert.equal(v.el.querySelector<HTMLElement>('.space')!.style.transform, chosen, 'manual camera is not refitted when a pin closes')
   } finally { await v.unmount(); removePinSurface(key); window.HTMLElement.prototype.getBoundingClientRect = original; resetConvos(); realClock() }
 })
+
+// USER 2026-10-31 19:00:15Z mde9aed4fbe59 "opening an org window after starting zooms out to fit the org. it dowsnt respect pinned window
+// obstruftiom, and doesnt follow the changing space as pinned windows are resized": a pinned window that registers while the opening glide
+// is still waiting for its first frame (the modal windows register in an effect of the mount commit) was missed: the opening effect had
+// set no follow intent yet, so the follow effect dropped the change, and the glide landed on a fit that ignored the window. Here the
+// pin registers BEFORE any timer runs, which is exactly that window.
+test('a pin that registers before the first frame of the opening glide is part of the opening fit', async () => {
+  localStorage.clear(); resetConvos(); useFakeClock(); installFetch(new FakeServer())
+  const original = window.HTMLElement.prototype.getBoundingClientRect
+  window.HTMLElement.prototype.getBoundingClientRect = function () { return this.classList.contains('viewport') ? rect : original.call(this) }
+  const key = pinSurfaceKey('fit-fixture', 'docket', true)
+  const v = await mountView(<OrgCanvas tree={fixture(true)} slug="fit-fixture" op={async () => ({})} toast={() => {}} mailEvt={null} />, el => el)
+  try {
+    await inAct(() => updatePinSurface(key, 'fit-fixture', {x: 750, y: 0, w: 598, h: 775}, true))
+    await advance(3000)
+    const cards = positions(v.el)
+    assert.equal(cards.length, 5)
+    for (const card of cards) assert.ok(card.left >= 0 && card.right <= 750 && card.top >= 0 && card.bottom <= rect.height, JSON.stringify(card))
+  } finally { await v.unmount(); removePinSurface(key); window.HTMLElement.prototype.getBoundingClientRect = original; resetConvos(); realClock() }
+})
