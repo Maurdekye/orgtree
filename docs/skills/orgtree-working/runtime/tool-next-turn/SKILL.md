@@ -24,7 +24,9 @@ auth details. Compatibility never promises a provider hit.
 
 `instruction_files` lists the actual launch inventory: native instructions,
 mirrored personal globals, own scratch AGENTS.md/CLAUDE.md, granted-folder
-notes, org.md, all held team AGENTS.md files and the org's shared AGENTS.md.
+notes, the instructions for all orgs (source `app_instructions`, always
+listed, with a label instead of a file path), org.md, all held team AGENTS.md
+files and the org's shared AGENTS.md.
 Only files that participate in startup instructions count; ordinary scratch
 files do not. Rows name `path`, `source`, `status` and `effective_at`.
 

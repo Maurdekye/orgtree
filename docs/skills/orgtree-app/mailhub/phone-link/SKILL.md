@@ -24,17 +24,17 @@ When Hubchat already runs on this PC, use the QR button at the bottom of its
 chat list. On the phone choose **I already use Hubchat > Scan the QR code from
 your other device**, then scan that code. For another PC the corresponding
 existing-identity choice is **Link through a hub**. Confirming **Is this you?**
-authorizes that actual identity for the selected org; it is not a new phone
+authorizes that actual identity in every org; it is not a new phone
 account. Desktop Hubchat-link availability is checked independently of this
 panel. Verified 2026-10-21: `canvas/phonelink.tsx`, `canvas/agentmentions.tsx`.
 
 ## Link, more devices and Unlink
 
-The PC keeps one phone-link record at a time in `<data>/phone.json`. Linking writes a marked note at the top of the selected org's `org.md`, naming the exact `@net:` address. The authority meaning belongs to `orgtree-external-mail` (orgtree-working › mail). That org's agents are reconfigured before their next turn; this does not rewrite instructions already in flight.
+The PC keeps one phone-link record at a time in `<data>/phone.json`. Linking writes a marked note at the top of the **instructions for all orgs** (App settings > Runtime), naming the exact `@net:` address, so the link holds in every org, not only the one the panel was opened from. The authority meaning belongs to `orgtree-external-mail` (orgtree-working › mail). Every org's agents are reconfigured before their next turn; this does not rewrite instructions already in flight. After a link the panel says "The instructions for all orgs now say this address is you and carries your authority." The note shows read-only in that editor.
 
 To add another device for the same identity, use Hubchat's **Settings > Devices > Link a device** on the existing device and the matching existing-identity flow on the new one. A new phone link requires **Unlink** first.
 
-**Undo** after a new link and **Unlink** remove the generated authority notes from org charters and clear the saved link. If a note cannot be removed, the error is reported and the link record is kept. Do not describe Unlink as disabling the relay, deleting Hubchat's identity, deleting mail, or disconnecting all devices; these are separate operations. A malformed marked note can require human repair in the charter.
+**Undo** after a new link and **Unlink** remove the generated authority note from the instructions for all orgs and any older copy from org charters, then clear the saved link. A note left in an org.md from before 4.5.3 moved to the instructions for all orgs once, at the first start of 4.5.3; a downgrade needs a new link. If a note cannot be removed, the error is reported and the link record is kept. Do not describe Unlink as disabling the relay, deleting Hubchat's identity, deleting mail, or disconnecting all devices; these are separate operations. A malformed marked note can require human repair in the charter.
 
 ## Availability
 

@@ -39,6 +39,10 @@ Working checkups and idle-docket reminders are independent mechanisms. An ordina
 
 These switches change scheduling/runtime policy, not the already-sent instruction prefix. Explain any later process launch or actual wake separately; no toggle guarantees a provider cache hit.
 
+## Instructions for all orgs
+
+Right above Orgtree feedback, **Instructions for all orgs** edits one Markdown block every agent in every organization receives on every provider, just before its own org's org.md. It keeps the org charter's editor: explicit **Save** with the revision it loaded (a save over a newer block is refused), Retry after a failed load, and the same limits (16,000 characters delivered, 200,000 editable). Saving restarts every agent's session, and with it its cached prefix, at its next turn. While a phone is linked, the Connect your phone note shows read-only above the text; only Connect your phone and Unlink change it, and a save never carries it. Agents read it in their instructions and never edit it. Details: `orgtree-org-charter-md` (orgtree-app › org-settings), `orgtree-phone-link` (orgtree-app › mailhub).
+
 ## Orgtree feedback
 
 The last Runtime control, **Suggest agents to give feedback to Orgtree**, defaults On and saves immediately via `suggest_agent_feedback_enabled` in the Runtime API. It encourages agents with a usable GitHub account to report bugs or issues you or they find to github.com/Maurdekye/orgtree under that account. They show you a complete redacted draft and wait for explicit OK before posting. Off omits the instruction pointer; reporting is up to the user. Applies from agents' next turn, with an instruction-prefix change and possible CLI replacement. The complete procedure and storage home are `orgtree-feedback` (orgtree-working > workspace).

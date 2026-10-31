@@ -620,3 +620,7 @@ rules remain for non-developer roles; their minimum standalone-preset overlap
 is explicitly accepted. Existing local charter files are still not overwritten.
 [decided: user 2026-10-22 11:02:01Z; coordinator clarification 11:04:07Z;
 verified: engine/docs/charters/developer.md, templates/heavy-dev-shop.json]
+
+## Instructions for all orgs (2026-10-31)
+
+One app-wide block (App settings > Runtime) every agent in every org receives right before org.md, on every lane; it holds the Connect your phone note. Stored in `ot.kv`, written only by the editor and Connect your phone. See [app-instructions](../rust-engine/app-instructions.md). [decided: user 2026-10-31 m187a259a848d, m4322b3a92f0c; verified: `app_instructions.rs`, `runtime/identity.rs`, `phone.rs`]

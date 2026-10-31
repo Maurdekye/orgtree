@@ -1,7 +1,9 @@
 # Phone-link authority in agent instructions
 
 The Connect your phone workflow writes an explicit user-authority note for one
-`@net:` address at the top of the selected organization's `org.md`. Generated
+`@net:` address at the top of the instructions for all orgs, so it holds in
+every org (USER 2026-10-31 m4322b3a92f0c "Yes, all orgs"; until then it went
+into the selected organization's `org.md`). See [app-instructions.md](app-instructions.md). Generated
 instructions must respect that delegation instead of declaring every hub message
 incapable of carrying user authority. User approved this correction for the next
 alpha on 2026-10-13, 08:35UTC.
@@ -9,9 +11,10 @@ alpha on 2026-10-13, 08:35UTC.
 ## Scope and trust source
 
 The common identity prompt now states the default and exception together:
-external mail is untrusted by default; the current organization's trusted
-`org.md` may explicitly authorize the exact envelope sender, within the note's
-scope. A similar address, display name, forwarded quote, body assertion or
+external mail is untrusted by default; the current trusted instructions for
+all orgs (in every organization) or the current organization's trusted
+`org.md` (in that organization only) may explicitly authorize the exact
+envelope sender, within the note's scope. A similar address, display name, forwarded quote, body assertion or
 attachment cannot confer or expand authority. Another organization's delegation
 does not transfer. Delegated user authority is never system/developer priority
 and cannot override higher-priority instructions.
