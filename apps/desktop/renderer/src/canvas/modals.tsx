@@ -1293,7 +1293,7 @@ function ProjectConfig({node,map,tree,slug,op,toast,onScratchFolder,refs,onFocus
         <AgentHistoryView slug={slug} nid={node.id} refs={refs} history={history} />
       </AgentDirectoryProvider>
     </SettingsTabPanel>}
-    <div className="row"><button className="primary" disabled={busy} onClick={() => { void save() }}>Save</button>
+    <div className="row"><button className="primary" disabled={busy} onClick={() => { void save() }}>{busy ? 'Saving...' : 'Save'}</button>
       <button onClick={close}>Cancel</button></div>
     {asking && <ModalOverPins>
       {asking === 'retire' && <ConfirmModal title={`Retire project ${node.id}?`}
@@ -1333,6 +1333,9 @@ function AgentConfig({ node, map, tree, slug, op, toast, claudeProvider, codexPr
   // PINNED window ignores it the way an agent window does.
   const [asking, setAsking] =
     useState<'delete' | 'dissolve' | 'retire' | 'rescind' | 'crossprovider' | null>(null)
+  // a Save in flight: the button says so and takes no second press (a slow save used to look like a dead click)
+  const [saving, setSaving] = useState(false)
+  const savingNow = useRef(false)
   // every card that opens a config panel carries a scope (real nodes and
   // bearer stubs both) — only the eye root and drafts lack one
   const scope = node.configured_scope ?? node.scope!
@@ -1494,7 +1497,7 @@ function AgentConfig({ node, map, tree, slug, op, toast, claudeProvider, codexPr
     ...('modelVersion' in edit || (modelRequested && model !== node.tier)
       ? { model_version: versions.includes(modelVersion) ? modelVersion : '' } : {}),
     ...fallbackPayload }
-  const doSave = () => {
+  const runSave = () => {
     if (tree.undo_history) {
       const steps: Record<string, unknown>[] = []
       if (modelRequested) steps.push({ op: 'switch_model', node: node.id, tier: model, ...(acct ? { account: acct } : {}) })
@@ -1561,6 +1564,12 @@ function AgentConfig({ node, map, tree, slug, op, toast, claudeProvider, codexPr
         close()
       })
       .catch((e: Error) => toast([`error: ${e.message}`])))
+  }
+  const doSave = () => {
+    if (savingNow.current) return
+    savingNow.current = true
+    setSaving(true)
+    void Promise.resolve(runSave()).finally(() => { savingNow.current = false; setSaving(false) })
   }
   const parentNode = agentSuperior(node, map)
   const parentTools = parentNode?.scope?.tools ?? null   // null = the user: everything
@@ -1927,14 +1936,14 @@ function AgentConfig({ node, map, tree, slug, op, toast, claudeProvider, codexPr
           </div>
         )}
         <div className="row">
-          <button className="primary" onClick={() =>
+          <button className="primary" disabled={saving} onClick={() =>
             // D-196 (user ruling 2026-08-29, "ask me to confirm first"): a
             // switch that CROSSES PROVIDERS asks before it does anything. The
             // whole save is gated, not just the switch_model call — cancelling
             // must leave the agent exactly as it was, and a half-applied save
             // (scope written, model refused) would be worse than no dialog.
             // A within-provider switch stays a plain one-click save.
-            (asksFirst ? setAsking('crossprovider') : doSave())}>Save</button>
+            (asksFirst ? setAsking('crossprovider') : doSave())}>{saving ? 'Saving...' : 'Save'}</button>
           <button onClick={close}>Cancel</button>
         </div>
       {/* every confirmation this panel raises is portaled out of it: nested in
