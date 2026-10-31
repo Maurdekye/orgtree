@@ -672,6 +672,20 @@ This is a display correction; move/reorder tool authority is unchanged.
 [decided: user 2026-10-23; verified: `canvas/{moveghost,OrgCanvas}.tsx`,
 `tests/{pendingmove,hiddenretiredbunch}.test.tsx`]
 
+## One press of Save closes the settings (2026-10-31, 4.5.3)
+
+USER 2026-10-31 10:21:55Z m081c587978bf: after changing only the effort, the
+agent settings needed a second Save to close. Cause (engine): the scope save
+was answered only after the engine had replaced the agent's idle CLI (close and
+re-warm, seconds) to match the new level; the second press sent an unchanged
+effort, which answers at once. The Effort message now REPLIES FIRST and the
+replacement runs after it (`runtime/actor.rs` `answer_then`; the
+`effort_delivery` answer is unchanged; it was not checked whether this is new in
+4.5.3). The panel's part: a Save in flight reads `Saving...`, is disabled and
+takes no second press, in agent and project settings alike, and closes once
+when the answer lands. `tests/settingssave.test.tsx`, capture
+`PROJECTNODE_VISUAL_ONLY=settings-save`.
+
 ## Effort bar release (2026-10-23)
 
 Clear the pre-drag hover preview when committing a pointer release. Otherwise
