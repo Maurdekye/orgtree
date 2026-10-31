@@ -30,7 +30,7 @@ panel. Verified 2026-10-21: `canvas/phonelink.tsx`, `canvas/agentmentions.tsx`.
 
 ## Link, more devices and Unlink
 
-The PC keeps one phone-link record at a time in `<data>/phone.json`. Linking writes a marked note at the top of the **instructions for all orgs** (App settings > Runtime), naming the exact `@net:` address, so the link holds in every org, not only the one the panel was opened from. The authority meaning belongs to `orgtree-external-mail` (orgtree-working › mail). Every org's agents are reconfigured before their next turn; this does not rewrite instructions already in flight. After a link the panel says "The instructions for all orgs now say this address is you and carries your authority." The note shows read-only in that editor.
+The PC keeps one phone-link record at a time in `<data>/phone.json`. Linking writes a marked note at the top of the **instructions for all orgs** (App settings > Runtime), naming the exact `@net:` address, so the link holds in every org, not only the one the panel was opened from. The authority meaning belongs to `orgtree-external-mail` (orgtree-working › mail). Every org's agents are reconfigured before their next turn; this does not rewrite instructions already in flight. After a link the panel says "The instructions for all orgs now say this address is you and carries your authority." The note is ordinary text in that editor, as in an org charter.
 
 To add another device for the same identity, use Hubchat's **Settings > Devices > Link a device** on the existing device and the matching existing-identity flow on the new one. A new phone link requires **Unlink** first.
 

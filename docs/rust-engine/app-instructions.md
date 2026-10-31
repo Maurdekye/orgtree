@@ -24,13 +24,11 @@ below. Docket `app-wide-instructions-one-instructions-for-all-o`.
   audits the crate's sources for any other writer and checks that agent
   tools, templates and importers never name it.
 - `GET/PUT /api/app-settings/instructions` mirror org.md's editor endpoints:
-  the GET returns the user's text as `content` and the Connect your phone
-  note apart as `managed` (null while no phone is linked), with `rev`,
-  `chars`, `prompt_chars`, `edit_max` 200,000 and `prompt_max` 16,000. A PUT
-  carries only the user's text and the loaded `base_rev`; a stale revision
-  is refused (409), text with the note's markers is refused (400), and the
-  current note stays on top. A change sends `Reconfigured` to every live
-  agent of every org.
+  the GET returns the whole block as `content`, the Connect your phone note
+  included, with `rev`, `chars`, `prompt_chars`, `edit_max` 200,000 and
+  `prompt_max` 16,000. A PUT carries the whole block and the loaded
+  `base_rev`, and is stored as sent; a stale revision is refused (409). A
+  change sends `Reconfigured` to every live agent of every org.
 
 ## In the prompt
 
@@ -54,7 +52,13 @@ always present, so clearing the text reads as a change.
   instructions for all orgs (every org) and this org's current org.md (this
   org only). Exact envelope sender, the note's scope, ending by Unlink or
   removal, and never system or developer authority are unchanged.
-- The editor shows the note read-only above the text.
+- The note is ordinary editable text in the block, as in org.md (USER
+  2026-10-31 13:59:20Z md088b15466fa, "this should be part of the editable
+  charter, just like the org.md prompt"). Link puts it on top, replacing
+  every marked note; Unlink removes every marked note; a save may keep,
+  edit or drop it. The one-time move matches only the exact note
+  (`note_address`). A start marker without its end makes Link and Unlink
+  refuse, naming App settings, until the user repairs it.
 - Templates never carry it: export drops it from `org_md`, and import drops
   it with a template warning.
 
@@ -67,6 +71,11 @@ org.md loses it, then the flag is set, so the delegation never lapses. A crash
 in between finishes at the next start without a duplicate. Notes for other
 addresses stay org-scoped and are logged; broken notes (a start marker
 without its end) stay put; a link record without any note moves nothing.
+Only the note leaves an org.md: text above and below it stays byte for byte
+(`the_move_keeps_an_org_md_s_other_text_byte_for_byte`). An org.md that held
+only the note is left empty, as on alpha.3's first start, where all four
+orgs' org.md were exactly the note (measured from the engine's logged
+`org_charter` arguments).
 
 Limits: after a downgrade to 4.5.2 or earlier the old org.md notes are gone,
 so the user relinks (ruling 5; also for the 4.5.3 release notes). Hand-written
