@@ -129,6 +129,59 @@ module.exports = async (page) => {
     if (fails.length && !process.env.RESOLUTION_FRAME_BEFORE) throw new Error(fails.join('; '))
     return { details, screenshots }
   }
+  // PROJECTNODE_VISUAL_ONLY=mention-fill: mail that mentions the user beside a plain row and a selected row, in three themes
+  // (default, light, solarized). Each row's EFFECTIVE background (its colour composited over the page, through a canvas, so
+  // color-mix() is resolved the way the app paints it) is measured against the page: the mention row must still be tinted
+  // (>= 3 RGB levels) and clearly lighter than the selected row's fill (under half). MENTION_FILL_BEFORE=1 records the
+  // numbers without failing, for the before/after pair (docket mail-that-mentions-the-user-remove-the-blue-back)
+  if (only === 'mention-fill') {
+    details.themes = {}
+    for (const theme of ['', '&theme=light', '&theme=solarized']) {
+      const name = theme ? theme.slice(7) : 'dark'
+      await page.goto('/?scene=mentionrows' + theme)
+      await page.waitFor('#mr-inbox .mailrow', { timeout: 15000 })
+      await settle()
+      details.themes[name] = await page.eval(() => {
+        const pageBg = getComputedStyle(document.querySelector('main')).backgroundColor
+        const px = (...layers) => {
+          const g = document.createElement('canvas').getContext('2d', { willReadFrequently: true })
+          g.canvas.width = g.canvas.height = 1
+          for (const col of layers) {
+            g.fillStyle = '#ff00ff'; g.fillStyle = col
+            if (g.fillStyle === '#ff00ff' && col !== '#ff00ff') throw new Error('unparseable colour ' + col)
+            g.fillRect(0, 0, 1, 1)
+          }
+          return [...g.getImageData(0, 0, 1, 1).data].slice(0, 3)
+        }
+        const base = px(pageBg)
+        const dist = (sel) => {
+          const el = document.querySelector(sel + ' .mailrow') ?? document.querySelector(sel)
+          const bg = getComputedStyle(el).backgroundColor
+          const rgb = px(pageBg, bg)
+          return { rgb, d: Math.round(Math.hypot(...rgb.map((v, i) => v - base[i])) * 10) / 10, bg }
+        }
+        return { page: base, plain: dist('#mr-plain'), mention: dist('#mr-mention'), selected: dist('#mr-selected'),
+          selectedMention: dist('#mr-selected-mention'), urgent: dist('#mr-urgent'), attn: dist('#mr-attn-plain'),
+          attnSelected: dist('#mr-attn-selected'), msgPlain: dist('#mr-msg-plain .msg'), msgMention: dist('#mr-msg-mention .msg'),
+          mentionClasses: document.querySelector('#mr-mention .mailrow').className }
+      })
+      screenshots.push(await page.screenshot(`${prefix}-mention-${name}-1000x700`))
+    }
+    const fails = []
+    for (const [name, t] of Object.entries(details.themes)) {
+      if (t.plain.d !== 0) fails.push(`${name}: the plain row is not untinted (${t.plain.d})`)
+      if (!(t.selected.d > 0)) fails.push(`${name}: the selected row is not filled`)
+      if (!(t.mention.d >= 3)) fails.push(`${name}: the mention row is no longer tinted (${t.mention.d})`)
+      if (!(t.mention.d * 2 < t.selected.d)) fails.push(`${name}: the mention row (${t.mention.d}) is not clearly lighter than the selected row (${t.selected.d})`)
+      if (!(t.attn.d * 2 < t.attnSelected.d)) fails.push(`${name}: the Attention mention row (${t.attn.d}) is not clearly lighter than its selected row (${t.attnSelected.d})`)
+      if (!(t.msgMention.d >= 3 && t.msgMention.d * 2 < t.selected.d)) fails.push(`${name}: the mention message (${t.msgMention.d}) is not faint but visible`)
+      if (t.msgPlain.d !== 0) fails.push(`${name}: the plain message is tinted`)
+      if (!(t.urgent.d > 0)) fails.push(`${name}: the urgent row lost its tint`)
+    }
+    details.failures = fails
+    if (fails.length && !process.env.MENTION_FILL_BEFORE) throw new Error(fails.join('; '))
+    return { details, screenshots }
+  }
   // PROJECTNODE_VISUAL_ONLY=history-keep: the project desk's message box (deskinbox scene, project relay). A draft is typed,
   // Up walks into the sent-message history (the draft is set aside and the box says so), the desk is re-opened (page
   // reload = the composer unmounts) and Down brings the draft back with its caret

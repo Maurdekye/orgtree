@@ -74,6 +74,10 @@
 //             lead's team reader (beside its own reader) and a document of
 //             dev1's (the team reader shows it), docket
 //             several-instances-of-the-same-modal-team-slots-i;
+//   mentionrows — mail that mentions the user beside a plain row and a selected
+//             row (inbox rows, the Attention mention row, transcript messages);
+//             &theme=light|solarized|obsidian draws another theme
+//             (docket mail-that-mentions-the-user-remove-the-blue-back);
 //   jumpscroll — a desk on the canvas with many jump cards (user 2026-10-20
 //             09:41Z-09:50Z): stack16-agent-a under &up=N nested projects
 //             under boss, with &down=N reports named and badged like the
@@ -86,7 +90,7 @@ import { ProjectSquare } from '../src/canvas/projectcard'
 import { ProjectListenersModal } from '../src/canvas/listenerspanel'
 import { SpawnChips } from '../src/canvas/cards'
 import { OrgCanvas } from '../src/canvas/OrgCanvas'
-import { DeskChat, PendingMailRow } from '../src/canvas/desk'
+import { DeskChat, Msg, PendingMailRow } from '../src/canvas/desk'
 import { AskCard } from '../src/canvas/asks'
 import { MailMessage } from '../src/events/segments'
 import { AnsweredCard, miniFromAskInfo } from '../src/events/answered'
@@ -101,12 +105,13 @@ import { ProjectDesk, ProjectDeskModal } from '../src/canvas/projectdesk'
 import { NodeConfig } from '../src/canvas/modals'
 import { AgentDeskPanel } from '../src/attention/AgentDeskPanel'
 import { setAttentionLayout } from '../src/attention/mode'
-import { InboxView } from '../src/canvas/mail'
+import { InboxView, MailRowView } from '../src/canvas/mail'
+import { MentionRowView } from '../src/attention/mentionrow'
 import { AgentSurfaceRoutesProvider, PanelCorner } from '../src/canvas/panelcorner'
 import { WatchdogSatellite } from '../src/canvas/watchdogchip'
 import { WatchdogLink } from '../src/canvas/watchdoglink'
 import type { CanvasNode, OpRequest, OpResult } from '../src/canvas/shared'
-import type { AskInfo, PendingMail, TreePayload } from '../src/types'
+import type { AskInfo, ChatMessage, PendingMail, TreePayload } from '../src/types'
 
 const noop = () => {}
 const answer = (body: unknown, status = 200) =>
@@ -651,6 +656,36 @@ function Desc() {
   )
 }
 
+// ?scene=mentionrows - mail that mentions the user (docket mail-that-mentions-the-user-remove-the-blue-back, USER 2026-10-31
+// 08:48:40Z mf2fd4eb092b4, 08:49:29Z m3403be06a732). Inbox rows through the real MailRowView: a plain one, one that mentions
+// the user (mailbox_attention mail), a SELECTED plain one, a selected mention and a genuinely urgent one; then the Attention
+// list mention row, unselected and selected; then two transcript messages through the real Msg.
+const mrRow = (id: string, extra: Record<string, unknown>, selected = false) => <div id={id}>
+  <MailRowView m={{ id, from: 'lead', kind: 'message', at: '2026-10-31T08:00:00Z', ...extra } as never} view={null} selected={selected}
+    party="lead" onClick={noop} /></div>
+const mrMsg = (text: string) => ({ role: 'assistant', text, tools: [] } as unknown as ChatMessage)
+function MentionRows() {
+  const head = (t: string) => <h4 className="dim" style={{ margin: '10px 0 3px', fontWeight: 500 }}>{t}</h4>
+  const att = (id: string, selected: boolean) => <div id={id}><MentionRowView mention={{ id: '1:0', blurb: 'Release is ready, @user, please look when you can.',
+    at: '2026-10-31T08:00:00Z' }} party="worker-a" selected={selected} onClick={noop} /></div>
+  return <main style={{ width: 960, padding: 12, background: 'var(--bg)' }}>
+    {head('inbox: plain, mentions you, selected plain, selected mention, urgent')}
+    <div id="mr-inbox" style={{ width: 420, border: '1px solid var(--line)' }}>
+      {mrRow('mr-plain', { body: 'Release update: build 4.5.3 is green.' })}
+      {mrRow('mr-mention', { body: 'Release is ready, @user, please look when you can.', mailbox_attention: true })}
+      {mrRow('mr-selected', { body: 'Notes from the standup are attached.' }, true)}
+      {mrRow('mr-selected-mention', { body: 'Release is ready, @user, one more thing.', mailbox_attention: true }, true)}
+      {mrRow('mr-urgent', { body: 'The build is down.', urgent: true, urgent_reason: 'blocks every merge' })}
+    </div>
+    {head('Attention: a mention row, then selected')}
+    <div id="mr-attn" style={{ width: 420, border: '1px solid var(--line)' }}>{att('mr-attn-plain', false)}{att('mr-attn-selected', true)}</div>
+    {head('transcript: a plain reply, then one that mentions you')}
+    <div id="mr-msgs" style={{ width: 640 }}>
+      <div id="mr-msg-plain"><Msg m={mrMsg('The tests pass on the new base.')} slug="org" nid="lead" /></div>
+      <div id="mr-msg-mention"><Msg m={mrMsg('The tests pass. @user, the release is ready for your look.')} slug="org" nid="lead" /></div>
+    </div>
+  </main>
+}
 function Presented() {
   const nd = { ...card, documents: [{ id: 'd1', title: 'Website plan', at: new Date(Date.now() - 180_000).toISOString() }],
     documents_count: 1, children: [{ ...(card.children ?? [])[0]!, documents: [{ id: 'd2', title: 'Dev notes',
@@ -732,7 +767,12 @@ function CardFix() {
     </main>
   )
 }
-if (new URLSearchParams(location.search).get('theme') === 'light') document.documentElement.classList.add('contrast-light')
+{
+  const theme = new URLSearchParams(location.search).get('theme')
+  if (theme === 'light') document.documentElement.classList.add('contrast-light')
+  if (theme === 'solarized') document.documentElement.classList.add('contrast-solarized-light')
+  if (theme === 'obsidian') document.documentElement.classList.add('contrast-obsidian-black')
+}
 const fqDog = (id: string, owner: string, state: string) => ({ id, owner, name: id, kind: 'fair_queue', target: 'site',
   interval_s: 5, state, at: new Date().toISOString(), fired: 0, once: false })
 /** unwired: project site's listeners, its event listeners on or (&off=1) switched off */
@@ -786,6 +826,7 @@ const rows: Record<string, unknown[]> = {
 }
 createRoot(document.getElementById('root')!).render(scene === 'cards' ? <Cards /> : scene === 'jumps' ? <Jumps />
   : scene === 'presented' ? <Presented />
+  : scene === 'mentionrows' ? <MentionRows />
   : scene === 'desc' ? <Desc />
   : scene === 'modal' ? <ProjectDeskModal node={card} slug="org" tree={tree([])} map={new Map([[card.id, card]])}
     op={() => Promise.resolve({} as OpResult)} toast={noop} refs={{ world: { org: 'org' }, onOpen: noop } as never} close={noop} />
