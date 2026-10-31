@@ -36,7 +36,9 @@ export default async function (rig) {
   p.check('execCommand copy and paste do nothing', v.execCopy === false && v.execPaste === false, v)
   p.check('the driver refuses Ctrl+V, Ctrl+C and a CDP clipboard grant', v.pasteKeyRefused && v.copyKeyRefused && v.grantRefused, v)
   p.check('...and still sends a plain key', v.plainKeyAllowed === true, v)
-  p.check('Electron ran in Session 0', r.session?.electron === 0, r.session)
+  p.check('Electron ran in Session 0, and the receipt names the Electron and rig PIDs',
+    r.session?.electron === 0 && Number.isInteger(r.session?.electronPid) && r.session.electronPid > 0
+      && Number.isInteger(r.session?.rigPid) && r.session.rigPid > 0, r.session)
   p.file('desk-result.json', r)
   return p.summary()
 }

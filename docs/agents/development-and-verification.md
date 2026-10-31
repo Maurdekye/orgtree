@@ -64,7 +64,7 @@ before anything starts. The stock harness (`tools/rig/desktop/main.cjs` with
 denies clipboard permissions, stubs `navigator.clipboard` and
 `execCommand` copy/cut/paste at document start, has no application menu,
 refuses Ctrl/Meta+C/X/V, Ctrl/Shift+Insert, Shift+Delete and CDP clipboard grants, and
-records the guards and the rig's and Electron's SessionId in `result.json`.
+records the guards and the rig's and Electron's PID and SessionId in its result.
 It still does not move a window into Session 0: launch from a Session 0 turn.
 Never add a copy/cut/paste listener that prevents default: Chromium writes a
 prevented copy event's empty data to the system clipboard. A proof that drives

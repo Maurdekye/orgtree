@@ -39,8 +39,9 @@ export async function runDesktop(rig, script, { preset = 'short', out, timeout =
   const child = spawn(electronExe(electron), [path.join(RIG_DIR, 'desktop', 'main.cjs')], { env, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] })
   const pidFile = path.join(rig.dir, 'electron.pid')
   fs.writeFileSync(pidFile, String(child.pid))
-  // where the window lives: team rule, Session 0 (or a private desktop) only
-  const session = { rig: sessionOf(process.pid), electron: sessionOf(child.pid) }
+  // where the window lives (team rule: Session 0 or a private desktop only):
+  // the receipt names each process and its measured SessionId
+  const session = { rig: sessionOf(process.pid), rigPid: process.pid, electron: sessionOf(child.pid), electronPid: child.pid }
   let stderr = ''
   child.stdout.on('data', d => { stderr += d })
   child.stderr.on('data', d => { stderr += d })
