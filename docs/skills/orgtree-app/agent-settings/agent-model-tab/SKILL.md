@@ -88,7 +88,7 @@ Hovering over the effort bar previews a level's label without changing the
 setting. Clicking or dragging commits on release; the hover preview clears then
 so the label returns to the chosen or inherited level.
 
-After a saved effective effort change, supported running Claude turns can receive the new level through the control channel. Other cases report next-turn delivery; Muse takes the new level on its next turn. A `sent` result means the request reached the CLI, not proof the model applied it. An unchanged effective level sends nothing.
+After a saved effective effort change, a supported Claude CLI receives the new level through the control channel, whether a turn is running or the CLI is idle (an idle CLI must acknowledge it), and is kept: an effort-only change does not restart a Claude CLI. A Claude CLI that has exited or does not answer is replaced and the next turn starts with the new level. Other harnesses report next-turn delivery; Muse takes the new level on its next turn. A `sent` result means the request reached the CLI, not proof the model applied it. An unchanged effective level sends nothing.
 
 The full form is a structural save and can replace processes, so it does not promise the narrower behavior of an effort-only action; see [the form's save behavior](../agent-config/SKILL.md). An effort-only control change by itself does not invalidate an unchanged prompt prefix.
 

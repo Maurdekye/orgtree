@@ -43,7 +43,7 @@ Effective permission and visibility remain bounded by the ancestor chain. A fold
 
 ## Application and examples
 
-An effort-only call does not restart the whole subtree: the runtime reports effort delivery to the target (Claude can accept a live change, other harnesses use the next turn). In-flight calls can retain old effort. Muse effort is checked on the login the next turn will use, including an account queued earlier or supplied now. Other scope/instruction changes reconfigure affected launches; no mid-turn prefix rewrite is promised.
+An effort-only call does not restart the whole subtree: the runtime reports effort delivery to the target (a Claude CLI, running or idle, accepts the change in place and is not restarted; other harnesses use the next turn). In-flight calls can retain old effort. Muse effort is checked on the login the next turn will use, including an account queued earlier or supplied now. Other scope/instruction changes reconfigure affected launches; no mid-turn prefix rewrite is promised.
 
 ```json
 {"node":"draft-checker","tools":{"web":false}}

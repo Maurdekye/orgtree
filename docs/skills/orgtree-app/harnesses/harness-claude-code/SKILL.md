@@ -76,7 +76,7 @@ Headless approvals and tool capability checks remain distinct from account/model
 
 ## Models and effort
 
-Claude tiers include Fable, Opus, Sonnet and Haiku; the effective offer and version pin determine the selected model. Claude effort vocabulary is `low`, `medium`, `high`, `xhigh`, `max`; unsupported saved values clamp at launch while the stored value remains unchanged. Eligible Claude seats can receive `apply_flag_settings` for the next model call mid-turn; acknowledgement is not proof of model compliance. Other routes/model catalogs have their own limits.
+Claude tiers include Fable, Opus, Sonnet and Haiku; the effective offer and version pin determine the selected model. Claude effort vocabulary is `low`, `medium`, `high`, `xhigh`, `max`; unsupported saved values clamp at launch while the stored value remains unchanged. Eligible Claude seats receive `apply_flag_settings` for the next model call, mid-turn or while the CLI is idle; the CLI is kept, so an effort-only change never restarts it (one that has exited or does not answer is replaced). Acknowledgement is not proof of model compliance. Other routes/model catalogs have their own limits.
 
 ## Gotchas and workarounds
 
