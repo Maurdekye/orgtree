@@ -220,8 +220,6 @@ app.whenReady().then(async () => {
   log('window made')
   win.webContents.debugger.attach('1.3')
   log('debugger attached')
-  await win.webContents.debugger.sendCommand('Page.addScriptToEvaluateOnNewDocument', { source: guards.CLIPBOARD_STUB })
-  log('clipboard stub set')
   const result = { ok: false, preset: E.RIG_DESKTOP_PRESET || 'short', size: [w, h], contentSize: win.getContentSize(),
     display: require('electron').screen.getPrimaryDisplay().size }
   const deadline = setTimeout(() => {
@@ -239,6 +237,15 @@ app.whenReady().then(async () => {
     app.exit(0)
   }
   try {
+    // the stub must run before the app's own scripts, on every document. CDP
+    // sent to the blank initial document hangs offscreen Electron 44
+    // (measured), so a first navigation to about:blank makes one, then the
+    // stub is registered before the app is loaded
+    await win.loadURL('about:blank')
+    await Promise.race([win.webContents.debugger.sendCommand('Page.enable')
+      .then(() => win.webContents.debugger.sendCommand('Page.addScriptToEvaluateOnNewDocument', { source: guards.CLIPBOARD_STUB })),
+      sleep(10000).then(() => { throw new Error('the clipboard stub could not be registered (CDP did not answer in 10 s)') })])
+    log('clipboard stub set')
     await page.goto(E.RIG_DESKTOP_ORG ? `/o/${E.RIG_DESKTOP_ORG}` : '/')
     result.guards = { clipboardStub: await page.eval(() => window.__rigClipboardGuard?.installed === true) }
     if (!result.guards.clipboardStub) throw new Error('the clipboard stub did not run at document start')
