@@ -143,10 +143,10 @@ const INSTALL = `(() => {
     unreadMsg: chipIn('msg-mail-unread', '.ref-chip.ref-mail'), unreadReact: chipIn('react-mail-unread', '.ref-chip.ref-mail'), unreadTool: chipIn('tool-mail-unread', '.ref-chip.ref-mail'),
     unreadMixedMail: chipIn('msg-mail-unread-mixed', '.ref-chip.ref-mail'), unreadMixedDoc: chipIn('msg-mail-unread-mixed', '.ref-chip.ref-doc'),
     toolMail: chipIn('tool-mail', '.ref-chip.ref-mail'), toolOpenButtons: (document.querySelector('[data-ctx="tool-mail"]') || document.body).querySelectorAll('.maillink').length })
-  // the run state of an app or panel link (USER 2026-10-31 m8d5facfeae29, m9a790bb7a155, m16901ed8c657): its flare classes, the dot drawn before its mark, any edge
+  // the run state of an app or panel link (USER 2026-10-31 m8d5facfeae29, m9a790bb7a155, m16901ed8c657, m29a112a68005): its flare classes, its background tint, any dot or edge
   const dot = e => { const b = getComputedStyle(e, '::before'); return { content: b.content, width: b.width, height: b.height, radius: b.borderTopLeftRadius, background: b.backgroundColor } }
   const runChip = ctx => { const row = document.querySelector('[data-ctx="' + ctx + '"]'), e = row && row.querySelector('.ref-chip.ref-app, .ref-chip.ref-panel')
-    return e ? { text: e.textContent, classes: String(e.className), title: e.title, boxShadow: getComputedStyle(e).boxShadow, dot: dot(e) } : null }
+    return e ? { text: e.textContent, classes: String(e.className), title: e.title, boxShadow: getComputedStyle(e).boxShadow, background: getComputedStyle(e).backgroundColor, dot: dot(e) } : null }
   window.__runFacts = () => ({ appRun: runChip('msg-app-run'), appDead: runChip('msg-app-dead'), appNone: runChip('msg-app-none'), panelRun: runChip('msg-panel-run'), panelDead: runChip('msg-panel-dead') })
   window.__chipMeasureAll = (sel) => [...document.querySelectorAll(sel)].map(el => ({ ctx: el.dataset.ctx || el.className.split(' ')[0], ...window.__chipMeasure(el) }))
 })()`
@@ -262,25 +262,32 @@ app.whenReady().then(async () => {
       if (f.msgMail && (/ref-flare/.test(f.msgMail.classes) || f.msgMail.look.boxShadow !== 'none')) mailProblems.push(at('a message the user has read must wear no flare: ' + f.msgMail.classes + ' ' + f.msgMail.look.boxShadow))
       if (f.toolOpenButtons !== 0) mailProblems.push(at(`${f.toolOpenButtons} "open" button(s) remain on the sent mail's tool row`))
     }
-    // THE RUN STATE: a running app or panel link wears the Apps list's accent dot, an app or panel that is off a dark grey one, an app with no panels nothing; none of them the unread edge
+    // THE RUN STATE (USER 2026-10-31 m29a112a68005 "Tint like unread"): a running app or panel link has a tinted background in the accent, an app or panel that is off a dark grey tint, an app with no panels none; no dot and no unread edge on any of them
     const runProblems = []
-    // computed colours arrive as rgb()/rgba() or as CSS Color 4 `color(srgb r g b)` (channels 0 to 1, as color-mix() computes)
-    const grey = s => { const m = /^rgba?\((\d+), (\d+), (\d+)/.exec(s || ''), n = /^color\(srgb ([\d.]+) ([\d.]+) ([\d.]+)/.exec(s || ''), c = m ? [+m[1], +m[2], +m[3]] : n ? [+n[1] * 255, +n[2] * 255, +n[3] * 255] : null; return !!c && Math.max(...c) - Math.min(...c) <= 14 }
+    // computed colours arrive as rgb()/rgba() or as CSS Color 4 `color(srgb r g b / a)` (channels 0 to 1, as color-mix() computes)
+    const parse = s => { const m = /^rgba?\((\d+), (\d+), (\d+)(?:, ([\d.]+))?/.exec(s || ''), n = /^color\(srgb ([\d.]+) ([\d.]+) ([\d.]+)(?: \/ ([\d.]+%?))?/.exec(s || '')
+      const a = v => v === undefined ? 1 : String(v).endsWith('%') ? parseFloat(v) / 100 : +v
+      return m ? { c: [+m[1], +m[2], +m[3]], a: a(m[4]) } : n ? { c: [+n[1] * 255, +n[2] * 255, +n[3] * 255], a: a(n[4]) } : null }
+    const grey = s => { const p = parse(s); return !!p && Math.max(...p.c) - Math.min(...p.c) <= 14 }
+    const warm = s => { const p = parse(s); return !!p && p.c[0] - p.c[2] >= 40 }
+    const tinted = s => { const p = parse(s); return !!p && p.a >= 0.08 }
     for (const mode of ['flex', 'inline']) {
       const f = runFacts[mode], at = what => `${mode}: ${what}`
-      const dotted = (name, chip, cls) => {
+      const tint = (name, chip, cls) => {
         if (!chip) { runProblems.push(at(name + ' is not an app or panel link')); return }
-        if (!new RegExp('ref-flare').test(chip.classes) || !new RegExp(cls).test(chip.classes)) runProblems.push(at(`${name} wears no ${cls} state: ${chip.classes}`))
-        if (chip.dot.content === 'none' || chip.dot.width !== '8px' || chip.dot.height !== '8px' || chip.dot.radius === '0px') runProblems.push(at(`${name} draws no dot: ${JSON.stringify(chip.dot)}`))
+        if (!/ref-flare/.test(chip.classes) || !new RegExp(cls).test(chip.classes)) runProblems.push(at(`${name} wears no ${cls} state: ${chip.classes}`))
+        if (!tinted(chip.background)) runProblems.push(at(`${name} has no tinted background: ${chip.background}`))
+        else if (cls === 'run-on' ? !warm(chip.background) : !grey(chip.background)) runProblems.push(at(`${name} tint is not ${cls === 'run-on' ? 'the accent' : 'grey'}: ${chip.background}`))
+        if (chip.dot.content !== 'none' && chip.dot.content !== 'normal') runProblems.push(at(`${name} still draws a dot: ${JSON.stringify(chip.dot)}`))
         if (chip.boxShadow !== 'none') runProblems.push(at(`${name} draws the unread edge: ${chip.boxShadow}`))
       }
-      dotted('running app (before)', f.before.appRun, 'run-on'); dotted('running panel', f.before.panelRun, 'run-on')
-      dotted('dead app', f.before.appDead, 'run-dead'); dotted('dead panel', f.before.panelDead, 'run-dead'); dotted('app after its last panel stopped', f.after.appRun, 'run-dead')
-      if (f.before.appRun && f.after.appRun && f.before.appRun.dot.background === f.after.appRun.dot.background) runProblems.push(at('stopping the last panel did not change the app link\'s dot'))
-      if (f.after.appRun && !grey(f.after.appRun.dot.background)) runProblems.push(at('a dead link\'s dot is not grey: ' + f.after.appRun.dot.background))
-      if (f.before.appDead && f.after.appRun && f.before.appDead.dot.background !== f.after.appRun.dot.background) runProblems.push(at('a dead app and an app whose last panel stopped differ'))
-      if (f.before.appRun && f.before.panelRun && f.before.appRun.dot.background !== f.before.panelRun.dot.background) runProblems.push(at('a running app and a running panel differ'))
-      if (!f.before.appNone || /ref-flare|run-/.test(f.before.appNone.classes) || (f.before.appNone.dot.content !== 'none' && f.before.appNone.dot.content !== 'normal')) runProblems.push(at('an app with no panels must wear nothing: ' + JSON.stringify(f.before.appNone)))
+      tint('running app (before)', f.before.appRun, 'run-on'); tint('running panel', f.before.panelRun, 'run-on')
+      tint('dead app', f.before.appDead, 'run-dead'); tint('dead panel', f.before.panelDead, 'run-dead'); tint('app after its last panel stopped', f.after.appRun, 'run-dead')
+      if (f.before.appRun && f.after.appRun && f.before.appRun.background === f.after.appRun.background) runProblems.push(at('stopping the last panel did not change the app link\'s tint'))
+      if (f.before.appDead && f.after.appRun && f.before.appDead.background !== f.after.appRun.background) runProblems.push(at('a dead app and an app whose last panel stopped differ'))
+      if (f.before.appRun && f.before.panelRun && f.before.appRun.background !== f.before.panelRun.background) runProblems.push(at('a running app and a running panel differ'))
+      const none = f.before.appNone
+      if (!none || /ref-flare|run-/.test(none.classes) || tinted(none.background) || (none.dot.content !== 'none' && none.dot.content !== 'normal')) runProblems.push(at('an app with no panels must wear nothing: ' + JSON.stringify(none)))
     }
     for (const problem of runProblems) mailProblems.push('run state: ' + problem)
     const failing = r => r.spread > 0.5 || r.markOff > 1 || r.markOffX > 2 || r.grew > 0.5 * Math.max(1, r.lineCount) || r.vsControl > 0.1 || r.marks.some(m => m.error)

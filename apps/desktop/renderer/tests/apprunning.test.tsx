@@ -5,10 +5,11 @@
 //   running  an @panel: chip whose panel runs (visible or hidden); an @app: chip, or app row, with at least one running panel;
 //   dead     a panel that exists but is not running; an app that has panels, none of them running (dark grey);
 //   none     an app with no panels at all; a panel or app that is not there stays an unresolved reference.
-// It is built on the chip flare the unread highlights use (refnames.ts RefFlare, `ref-flare` + a class) and drawn as the dot
-// the Apps list already uses for a panel's power state, so it can never be mistaken for the unread edge.
-//   §1 the chips, in React and Markdown; §2 they follow the org's live apps frame; §3 the Apps list's app rows follow the
-//   same three states; §4 the stylesheet draws a dot (not the edge), dark grey for dead, and leaves the unread edge alone.
+// USER 2026-10-31 12:50:40Z m29a112a68005 "Tint like unread": it is drawn as a tinted background (running the accent, dead a dark grey of
+// the theme's neutral greys, none no tint), on the chip flare the unread highlights use (refnames.ts RefFlare, `ref-flare` + a class), and
+// there is no dot. The unread highlight is an edge and the run state a background, so the two never share a property.
+//   §1 the chips, in React and Markdown; §2 they follow the org's live apps frame; §3 the Apps list's app and panel rows follow the
+//   same three states; §4 the stylesheet draws a background tint (no dot, no edge) and the unread edge touches no background.
 // Each test uses its own org slug: answers are kept per org.
 import { readFileSync } from 'node:fs'
 import path from 'node:path'
@@ -123,21 +124,32 @@ test('§3 the Apps list\'s app rows show the same three states, and follow a pow
   await inAct(tick)
   await inAct(async () => { view.el.querySelector<HTMLButtonElement>('.apps-button')!.click(); await tick() })
   const state = () => Object.fromEntries([...document.querySelectorAll<HTMLElement>('.custom-apps-menu-group')].map(g => [g.querySelector('.custom-apps-open b')!.textContent,
-    [...(g.querySelector('.custom-apps-menu-app .custom-app-state')?.classList ?? [])].filter(k => k === 'run-on' || k === 'run-dead').join('') || 'none']))
+    [...(g.querySelector('.custom-apps-menu-app')?.classList ?? [])].filter(k => k === 'run-on' || k === 'run-dead').join('') || 'none']))
+  const panelRows = () => Object.fromEntries([...document.querySelectorAll<HTMLElement>('.custom-apps-saved-row')].map(r => [r.textContent!.trim().slice(0, 7) + '/' + r.closest('.custom-apps-menu-group')!.querySelector('.custom-apps-open b')!.textContent,
+    [...r.classList].filter(k => k === 'run-on' || k === 'run-dead').join('') || 'none']))
+  assert.equal(document.querySelector('.custom-app-state.run-on, .custom-app-state.run-dead, .custom-apps-menu .custom-app-dot.run-on'), null, 'no dot')
   assert.deepEqual(state(), { Notes: 'run-on', Clock: 'run-dead', Empty: 'none' })
+  assert.deepEqual(panelRows(), { 'Panel 1/Notes': 'run-dead', 'Panel 2/Notes': 'run-on', 'Panel 1/Clock': 'run-dead' }, 'the panel rows follow their own run state')
   await inAct(async () => { document.querySelector<HTMLButtonElement>('[aria-label="Power off Panel 2"]')!.click(); await tick() })
   assert.equal(e.panels[1]!.running, false)
   await inAct(async () => { customAppsFeed(slug, { type: 'custom_apps_changed' }); await tick() })
   assert.deepEqual(state(), { Notes: 'run-dead', Clock: 'run-dead', Empty: 'none' }, 'powering off the last running panel turns the app dark grey')
 })
 
-test('§4 the stylesheet draws the state as the Apps list\'s dot, dark grey for dead, and leaves the unread edge to unread links', () => {
+test('§4 the stylesheet tints the background (no dot, no edge), dark grey for dead, and the unread edge touches no background', () => {
   const css = readFileSync(path.join(__SRC_DIR__, 'styles.css'), 'utf8').replace(/\r\n/g, '\n')
-  assert.match(css, /\.ref-chip\.ref-flare:is\(\.run-on, \.run-dead\)::before\s*\{[^}]*border-radius:\s*50%/, 'a dot before the chip\'s mark')
-  assert.match(css, /\.ref-flare\.run-dead[^{]*\{[^}]*background:[^;}]*--dim/, 'dead is a grey of the theme')
-  assert.match(css, /\.ref-flare\.run-on[^{]*\{[^}]*background:\s*var\(--accent\)/, 'running is the Apps list\'s accent dot')
-  assert.match(css, /\.ref-flare:not\(\.run-on, \.run-dead\)/, 'the unread/status edge is not drawn for a run state')
-  const apps = readFileSync(path.join(__SRC_DIR__, 'canvas', 'apps', 'apps.css'), 'utf8')
-  assert.match(apps, /\.custom-app-state\.run-on/, 'the app row\'s dot')
-  assert.match(apps, /\.custom-app-state\.run-dead/)
+  const body = (selector: string) => { const at = css.indexOf(selector + ' {'); return at < 0 ? '' : css.slice(at, css.indexOf('}', at)) }
+  assert.doesNotMatch(css, /\.ref-flare[^{]*\.run-(on|dead)[^{]*::before/, 'no dot before the chip')
+  assert.match(body('.ref-chip.ref-flare.run-on'), /background:\s*color-mix\(in srgb, var\(--accent\) \d+%, transparent\)/, 'running: an accent tint')
+  assert.match(body('.ref-chip.ref-flare.run-dead'), /background:\s*color-mix\(in srgb, var\(--dim\) \d+%, transparent\)/, 'dead: a tint of the theme\'s dim grey')
+  assert.doesNotMatch(body('.ref-chip.ref-flare.run-on') + body('.ref-chip.ref-flare.run-dead'), /box-shadow/, 'a run state draws no edge')
+  const edge = body(':is(.ref-chip.ref-chip, .docket-modal .docket-ref.docket-ref).ref-flare:not(.run-on, .run-dead)')
+  assert.ok(edge, 'the unread/status edge rule skips the run states')
+  assert.doesNotMatch(edge, /background/, 'and sets no background, so the two cannot overlap')
+  const apps = readFileSync(path.join(__SRC_DIR__, 'canvas', 'apps', 'apps.css'), 'utf8').replace(/\r\n/g, '\n')
+  assert.doesNotMatch(apps, /\.custom-app-state\.run-/, 'the app row has no dot any more')
+  assert.match(apps, /\.custom-apps-menu-app\.run-on[^{]*\{[^}]*background:\s*color-mix\(in srgb,\s*var\(--accent\)/, 'the app row is tinted like the chip')
+  assert.match(apps, /\.custom-apps-menu-app\.run-dead[^{]*\{[^}]*background:\s*color-mix\(in srgb,\s*var\(--dim\)/)
+  assert.match(apps, /\.custom-apps-saved-row\.run-on[^{]*\{[^}]*background:\s*color-mix\(in srgb,\s*var\(--accent\)/, 'and so is a panel row')
+  assert.match(apps, /\.custom-apps-saved-row\.run-dead[^{]*\{[^}]*background:\s*color-mix\(in srgb,\s*var\(--dim\)/)
 })
