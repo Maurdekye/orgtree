@@ -4576,7 +4576,7 @@ function DeskChatInner({ node: baseNode, map, op, slug, toast, onLineage: lineag
         recalled from history - this message was never sent
       </div>}
       {hist.stashed && <div className="dim composer-history-note" role="status">
-        your unsent message is kept - Esc or Down brings it back
+        press down / esc to return to your draft
       </div>}
       {/* staged attachments ride the NEXT message as mail attachments */}
       {attached.length > 0 && (

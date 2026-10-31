@@ -165,7 +165,7 @@ module.exports = async (page) => {
       value: document.querySelector(sel).value,
       note: document.querySelector('.composer-history-note')?.textContent ?? null,
     }), box)
-    if (details.recalled.value !== sent || !/unsent message is kept/.test(details.recalled.note ?? '')) throw new Error('Up did not recall with the note: ' + JSON.stringify(details.recalled))
+    if (details.recalled.value !== sent || !/^press down \/ esc to return to your draft$/.test(details.recalled.note ?? '')) throw new Error('Up did not recall with the note: ' + JSON.stringify(details.recalled))
     screenshots.push(await page.screenshot(`${prefix}-history-keep-2-recalled-1000x700`))
     // leave and come back: the composer is a new instance, the stash is in storage
     await page.goto(scene)
@@ -175,7 +175,7 @@ module.exports = async (page) => {
       value: document.querySelector(sel).value,
       note: document.querySelector('.composer-history-note')?.textContent ?? null,
     }), box)
-    if (details.reopened.value !== sent || !/unsent message is kept/.test(details.reopened.note ?? '')) throw new Error('the walk did not survive re-opening: ' + JSON.stringify(details.reopened))
+    if (details.reopened.value !== sent || !/^press down \/ esc to return to your draft$/.test(details.reopened.note ?? '')) throw new Error('the walk did not survive re-opening: ' + JSON.stringify(details.reopened))
     await page.eval((sel) => {
       const el = document.querySelector(sel)
       el.focus()
@@ -244,7 +244,7 @@ module.exports = async (page) => {
     if (details.up.bottomRow.taken || details.up.middleRow.taken) throw new Error('Up from a lower row was taken by history: ' + JSON.stringify(details.up))
     if (details.up.bottomRow.value !== para || details.up.middleRow.note) throw new Error('the draft changed or history was entered: ' + JSON.stringify(details.up))
     details.top = await press('ArrowUp', 3)
-    if (!details.top.taken || details.top.value !== sent || !/unsent message is kept/.test(details.top.note ?? '')) throw new Error('Up from the top row did not enter history: ' + JSON.stringify(details.top))
+    if (!details.top.taken || details.top.value !== sent || !/^press down \/ esc to return to your draft$/.test(details.top.note ?? '')) throw new Error('Up from the top row did not enter history: ' + JSON.stringify(details.top))
     await settle()
     details.recalledRows = await rowsOf()
     if (details.recalledRows.rows < 3) throw new Error('the recalled message does not wrap over three rows: ' + JSON.stringify(details.recalledRows))

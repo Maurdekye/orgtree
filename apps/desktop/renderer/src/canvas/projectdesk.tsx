@@ -500,7 +500,7 @@ function ProjectComposer({ node, slug, tree, map, toast, members, recipients, ba
         presentationTitle={r.docId ? docTitle(r.docId) : undefined} />)}</ReplyPreviewDisclosure>
     {replies.length > 1 && <button className="link" onClick={() => onReplies([])}>Cancel all replies</button>}
     {hist.stashed && <div className="dim composer-history-note" role="status">
-      your unsent message is kept - Esc or Down brings it back
+      press down / esc to return to your draft
     </div>}
     {/* staged attachments, an image as its thumbnail, as on the agent desk (G9) */}
     {attached.length > 0 && <div className="attach-row">

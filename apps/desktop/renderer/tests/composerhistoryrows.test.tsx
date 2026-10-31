@@ -157,7 +157,7 @@ for (const c of [agentDesk, projectDesk]) {
     const top = await press(v.box(), 'ArrowUp', 5)
     assert.equal(top.defaultPrevented, true, 'row 1: history\'s')
     assert.equal(v.box().value, 'sent before')
-    assert.match(note(v.el) ?? '', /unsent message is kept/)
+    assert.match(note(v.el) ?? '', /^press down \/ esc to return to your draft$/)
 
     await press(v.box(), 'ArrowDown', v.box().value.length)
     assert.equal(v.box().value, LONG, 'Down gives the draft back')

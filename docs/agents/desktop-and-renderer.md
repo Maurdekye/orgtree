@@ -169,8 +169,8 @@ Audit findings from the ranked UX symmetry list (`_teams/601/release-review-450/
   (Up on the first line, nothing selected) sets a non-empty draft aside, text
   and caret, in a persisted per-agent stash (`composerhistory.writeStash`, key
   `orgtree-composer-stash-<[org,id]>`, no generation, like the history). Down
-  past the newest entry or Escape restores it exactly and the box says "your
-  unsent message is kept" while it is set aside; closing and re-opening the
+  past the newest entry or Escape restores it exactly and the box says
+  "press down / esc to return to your draft" while it is set aside; closing and re-opening the
   desk resumes the walk (the draft key holds what was on screen, the stash
   the draft), and the stash moves with a rename and goes into the history as
   an undelivered entry for a removed node. An edit to a recalled entry is

@@ -137,7 +137,7 @@ for (const c of [agentDesk, projectDesk]) {
     const up = await press(v.box(), 'ArrowUp', 7)
     assert.equal(up.defaultPrevented, true, 'history took the key')
     assert.equal(v.box().value, 'the newest sent')
-    assert.match(note(v.el) ?? '', /unsent message is kept/, 'the box says the draft is safe and how to get it back')
+    assert.match(note(v.el) ?? '', /^press down \/ esc to return to your draft$/, 'the box says the draft is safe and how to get it back')
 
     await press(v.box(), 'ArrowDown', v.box().value.length)
     assert.equal(v.box().value, draft, 'the draft is back')
@@ -180,7 +180,7 @@ for (const c of [agentDesk, projectDesk]) {
     await first.unmount()
     const second = await mount()
     assert.equal(second.box().value, 'the newest sent', 'the box shows what was on screen when it left')
-    assert.match(note(second.el) ?? '', /unsent message is kept/, 'and still knows a draft is set aside')
+    assert.match(note(second.el) ?? '', /^press down \/ esc to return to your draft$/, 'and still knows a draft is set aside')
 
     await press(second.box(), 'ArrowDown', second.box().value.length)
     assert.equal(second.box().value, 'the thing I was actually writing', 'Down brings the draft back after the round trip')
