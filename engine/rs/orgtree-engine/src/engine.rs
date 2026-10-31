@@ -34,6 +34,8 @@ pub struct Engine {
     pub app: crate::appfeed::AppFeed,
     pub sched: crate::runtime::sched::Scheduler,
     pub settings: crate::settings::AppSettings,
+    /// the instructions for all orgs (App settings > Runtime)
+    pub app_instructions: crate::app_instructions::AppInstructions,
     pub accounts: crate::accounts::Accounts,
     pub providers: crate::providers::Providers,
     pub hub: crate::mailhub::MailHub,
@@ -91,6 +93,7 @@ impl Engine {
             app: crate::appfeed::AppFeed::new().0,
             sched: crate::runtime::sched::Scheduler::new(1).0,
             settings: crate::settings::AppSettings::new(serde_json::json!({})),
+            app_instructions: Default::default(),
             accounts: Default::default(),
             providers: Default::default(),
             hub: Default::default(),

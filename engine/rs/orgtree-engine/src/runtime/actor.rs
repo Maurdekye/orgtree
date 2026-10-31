@@ -132,6 +132,8 @@ struct Ctx {
     /// holds the org-inbox audience
     extern_holder: bool,
     org_md: Option<String>,
+    /// the instructions for all orgs, as published now (nonblank only)
+    app_md: Option<String>,
     /// the org's shared notes folder (`Config::org_notes_dir`) and its
     /// AGENTS.md as read now; a CLI is given the text when it starts
     org_notes_dir: PathBuf,
@@ -2232,6 +2234,7 @@ impl Actor {
             .map(PathBuf::from)
             .unwrap_or_else(|| self.engine.cfg.scratch_root(&slug).join(&name));
         let org_md = std::fs::read_to_string(self.engine.cfg.workspace_dir(&slug).join("org.md")).ok();
+        let app_md = Some(self.engine.app_instructions.get().text.clone()).filter(|t| !t.trim().is_empty());
         // every agent of the org holds its shared notes folder, without a stored grant
         let org_notes_dir = self.engine.cfg.org_notes_dir(&slug);
         let eff = scope::with_org_notes(&eff, &org_notes_dir.to_string_lossy());
@@ -2298,6 +2301,7 @@ impl Actor {
             org_slug: slug,
             killswitch: r.get(18),
             org_md,
+            app_md,
             org_notes_dir,
             org_notes,
             team_notes,
@@ -2404,7 +2408,7 @@ impl Actor {
             cascade: &ctx.cascade,
             superior: ctx.superior.as_deref(),
             org_md: ctx.org_md.as_deref(),
-            app_md: None,
+            app_md: ctx.app_md.as_deref(),
             lane,
             scope: &ctx.effective,
             codex_sandbox: if lane == prompt::Lane::Codex { Some(sandbox) } else { None },
@@ -2457,6 +2461,9 @@ impl Actor {
         if let Some(text) = &ctx.org_md {
             instructions.text(&self.engine.cfg.workspace_dir(&ctx.org_slug).join("org.md"), "org_notes", text);
         }
+        // no file to look for: always listed, so clearing the block reads as a change
+        instructions.text(std::path::Path::new(crate::app_instructions::SOURCE), "app_instructions",
+            ctx.app_md.as_deref().unwrap_or(""));
         if let Some(text) = &ctx.org_notes {
             instructions.text(&ctx.org_notes_dir.join(crate::config::ORG_NOTES_FILE), "shared_scratch", text);
         }

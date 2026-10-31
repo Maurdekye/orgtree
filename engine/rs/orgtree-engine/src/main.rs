@@ -226,13 +226,13 @@ async fn run_with_cluster(
     // before any watchdog starts, so an imported passive dog never wakes its owner
     import_dogmemo::run_once(&cfg, cluster, &pool).await;
 
-    let settings_doc = {
+    let (settings_doc, app_doc) = {
         let client = pool.get().await?;
-        settings::AppSettings::load(&client).await?
+        (settings::AppSettings::load(&client).await?, app_instructions::AppInstructions::load(&client).await?)
     };
-    Ok::<_, anyhow::Error>((pool, settings_doc))
+    Ok::<_, anyhow::Error>((pool, settings_doc, app_doc))
     };
-    let (pool, settings_doc) = tokio::select! {
+    let (pool, settings_doc, app_doc) = tokio::select! {
         biased;
         _ = startup.cancelled.cancelled() => anyhow::bail!("core process exited before readiness"),
         result = preparation => result?,
@@ -267,6 +267,7 @@ async fn run_with_cluster(
         app,
         sched,
         settings,
+        app_instructions: app_instructions::AppInstructions::new(app_doc),
         accounts: accounts::Accounts::default(),
         providers: providers::Providers::default(),
         hub: mailhub::MailHub::default(),

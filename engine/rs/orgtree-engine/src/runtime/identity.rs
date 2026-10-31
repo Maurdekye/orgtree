@@ -146,6 +146,7 @@ pub fn identity_parts(i: &Identity) -> (String, String) {
             s.push_str(&format!("Standing charter from {who}: {}\n", tc.trim()));
         }
     }
+    s.push_str(&app_charter(i.app_md));
     s.push_str(&org_charter(i.org_md));
     if trim { s.push_str(TRIM_SKILLS_POINTER); }
     s.push_str(CONCURRENCY_PRIMITIVES_POINTER);
@@ -746,6 +747,23 @@ mod group_tests {
         assert!(s.contains(&format!("TRUNCATED: the file is {} chars and only the first {OWN_NOTES_MAX}", OWN_NOTES_MAX + 5)));
         assert!(s.ends_with(&format!("]\n{}\n[END ORG SHARED NOTES]", "x".repeat(OWN_NOTES_MAX))));
     }
+}
+
+/// The instructions for all orgs (`app_instructions.rs`): the same block in
+/// every org, right before org.md, with org.md's cap.
+#[logged]
+fn app_charter(app_md: Option<&str>) -> String {
+    let Some(m) = app_md.map(str::trim).filter(|m| !m.is_empty()) else { return String::new() };
+    let cap = crate::app_instructions::PROMPT_MAX;
+    let mut s = String::from("\n## Instructions for all orgs (app-wide)\n\n");
+    if m.chars().count() > cap {
+        s.extend(m.chars().take(cap));
+        s.push_str("\n… (the instructions for all orgs continue; ask your superior for the rest)");
+    } else {
+        s.push_str(m);
+    }
+    s.push('\n');
+    s
 }
 
 /// org.md, the organization's standing instructions, as 4.0 delivers it.

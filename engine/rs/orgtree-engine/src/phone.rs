@@ -666,6 +666,34 @@ pub fn without_block(md: &str) -> Result<String, String> {
     Ok(out)
 }
 
+/// Every whole marked note in `md`, in order, each from its start marker
+/// through the end of its end marker's line. A start without an end is left
+/// out (`without_block` refuses such a text).
+#[logged]
+pub fn notes(md: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut at = 0;
+    while let Some(rel) = md[at..].find(BLOCK_START) {
+        let start = at + rel;
+        let Some(rel_end) = md[start..].find(BLOCK_END) else { break };
+        let mut end = start + rel_end + BLOCK_END.len();
+        if md[end..].starts_with("\r\n") {
+            end += 2;
+        } else if md[end..].starts_with('\n') {
+            end += 1;
+        }
+        out.push(md[start..end].to_string());
+        at = end;
+    }
+    out
+}
+
+/// Does `text` carry either marker of the note?
+#[logged]
+pub fn has_marker(text: &str) -> bool {
+    text.contains(BLOCK_START) || text.contains(BLOCK_END)
+}
+
 /// org.md's revision: the charter editor sends back the one it loaded, and a
 /// save over a newer org.md (the trust note came or went) is refused.
 #[nolog]

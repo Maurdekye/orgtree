@@ -261,6 +261,15 @@ pub async fn reconfigure_org(engine: &Engine, org_id: i64) -> anyhow::Result<()>
     Ok(())
 }
 
+/// Every live agent of every org: the instructions for all orgs changed.
+#[logged]
+pub async fn reconfigure_all(engine: &Engine) -> anyhow::Result<()> {
+    for o in engine.orgs.all() {
+        reconfigure_org(engine, o.id).await?;
+    }
+    Ok(())
+}
+
 #[logged]
 pub async fn save_org(State(e): State<Arc<Engine>>, Path(slug): Path<String>, Json(b): Json<Map<String, Value>>) -> ApiResult<Json<Value>> {
     let o = org(&e, &slug)?;
@@ -556,6 +565,52 @@ pub async fn put_orgmd(State(e): State<Arc<Engine>>, Path(slug): Path<String>, J
     reconfigure_org(&e, o.id).await?;
     Ok(Json(json!({ "path": path.to_string_lossy(), "bytes": b.content.len(), "chars": chars, "rev": rev,
                     "prompt_max": ORGMD_PROMPT_MAX, "prompt_truncated": chars > ORGMD_PROMPT_MAX, "warnings": warnings })))
+}
+
+// ------------------------------------------------------------ instructions for all orgs
+
+/// `GET /api/app-settings/instructions`: the user's text, the Connect your
+/// phone note apart from it, and the caps (`app_instructions.rs`).
+#[logged]
+pub async fn get_app_instructions(State(e): State<Arc<Engine>>) -> ApiResult<Json<Value>> {
+    Ok(Json(crate::app_instructions::payload(&e.app_instructions.get())))
+}
+
+/// `PUT`: the user's text, never the note (its markers are refused); the
+/// current note stays on top. As for org.md, a save over a newer block is
+/// refused, and every live agent restarts its CLI before its next turn.
+#[logged]
+pub async fn put_app_instructions(State(e): State<Arc<Engine>>, Json(b): Json<OrgMdBody>) -> ApiResult<Json<Value>> {
+    use crate::app_instructions::{check, join, rev, split, Doc, PROMPT_MAX};
+    check(&b.content).map_err(ApiError::bad_request)?;
+    let (content, base) = (b.content.clone(), b.base_rev.clone());
+    let (text, changed) = e
+        .app_instructions
+        .update(&e.db, move |doc| {
+            if base.as_deref().is_some_and(|base| rev(&doc.text) != base) {
+                return Err("The instructions for all orgs changed since you opened them (Connect your phone added \
+                            or removed its note). Reload them and make your edit again."
+                    .to_string());
+            }
+            let (managed, _) = split(&doc.text);
+            let next = Doc { text: join(managed.as_deref(), &content), ..doc.clone() };
+            let text = next.text.clone();
+            Ok((next, text))
+        })
+        .await
+        .map_err(|x| ApiError::internal(format!("the instructions for all orgs could not be saved: {x:#}")))?
+        .map_err(ApiError::conflict)?;
+    if changed {
+        // every agent's system prompt changed: running CLIs restart before their next turn
+        reconfigure_all(&e).await?;
+    }
+    let delivered = text.trim().chars().count();
+    let mut warnings = Vec::new();
+    if delivered > PROMPT_MAX {
+        warnings.push(format!("only the first {PROMPT_MAX} characters reach agents' instructions"));
+    }
+    Ok(Json(json!({ "chars": b.content.chars().count(), "rev": rev(&text), "prompt_max": PROMPT_MAX,
+                    "prompt_chars": delivered, "prompt_truncated": delivered > PROMPT_MAX, "warnings": warnings })))
 }
 
 // ------------------------------------------------------------ runtime settings

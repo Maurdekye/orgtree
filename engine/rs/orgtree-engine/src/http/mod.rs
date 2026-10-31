@@ -136,6 +136,7 @@ pub fn router(engine: Arc<Engine>) -> Router {
         .route("/api/orgs/{slug}/orgmd", get(settings::get_orgmd).put(settings::put_orgmd))
         .route("/api/defaults", get(settings::get_defaults).post(settings::save_defaults))
         .route("/api/app-settings/runtime", get(settings::get_runtime).put(settings::put_runtime))
+        .route("/api/app-settings/instructions", get(settings::get_app_instructions).put(settings::put_app_instructions))
         .route(
             "/api/app-settings/charter-template-dirs",
             get(settings::get_template_dirs).put(settings::put_template_dirs),

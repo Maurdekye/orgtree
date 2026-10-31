@@ -12,6 +12,7 @@
 
 use std::sync::Arc;
 
+use anyhow::Result;
 use arc_swap::ArcSwap;
 use serde_json::{json, Value};
 
@@ -55,49 +56,124 @@ impl AppInstructions {
     /// Publish a committed row unless a newer one is already published.
     #[nolog]
     pub fn publish(&self, doc: Doc) {
-        // RED STUB: replaced in the engine commit
-        self.snapshot.store(Arc::new(doc));
+        let doc = Arc::new(doc);
+        self.snapshot.rcu(|current| if current.seq > doc.seq { current.clone() } else { doc.clone() });
     }
+
+    /// The stored row; no row yet is an empty block.
+    #[nolog]
+    pub async fn load(client: &tokio_postgres::Client) -> Result<Doc> {
+        let row = client.query_opt("SELECT value FROM ot.kv WHERE key = $1", &[&KEY]).await?;
+        Ok(row.map(|r| parse(&r.get::<_, Value>(0))).unwrap_or_default())
+    }
+
+    /// Change the row under its own lock. `change` sees the stored row and
+    /// returns the next one and a result, or a refusal that writes nothing;
+    /// an unchanged row is not written. The new row is published after the
+    /// commit. Returns the result and whether the row changed.
+    #[nolog]
+    pub async fn update<T>(
+        &self,
+        pool: &deadpool_postgres::Pool,
+        change: impl FnOnce(&Doc) -> std::result::Result<(Doc, T), String>,
+    ) -> Result<std::result::Result<(T, bool), String>> {
+        let mut client = pool.get().await?;
+        let tx = client.transaction().await?;
+        tx.execute("INSERT INTO ot.kv (key, value) VALUES ($1, '{}'::jsonb) ON CONFLICT (key) DO NOTHING", &[&KEY])
+            .await?;
+        let row = tx.query_one("SELECT value FROM ot.kv WHERE key = $1 FOR UPDATE", &[&KEY]).await?;
+        let current = parse(&row.get::<_, Value>(0));
+        let (mut next, out) = match change(&current) {
+            Ok(v) => v,
+            Err(refusal) => return Ok(Err(refusal)),
+        };
+        if next.text == current.text && next.phone_notes_moved == current.phone_notes_moved {
+            tx.commit().await?;
+            return Ok(Ok((out, false)));
+        }
+        next.seq = current.seq + 1;
+        tx.execute("UPDATE ot.kv SET value = $2, updated_at = now() WHERE key = $1", &[&KEY, &stored(&next)])
+            .await?;
+        tx.commit().await?;
+        self.publish(next);
+        Ok(Ok((out, true)))
+    }
+}
+
+impl Default for AppInstructions {
+    fn default() -> Self {
+        Self::new(Doc::default())
+    }
+}
+
+#[nolog]
+fn parse(v: &Value) -> Doc {
+    Doc {
+        text: v["text"].as_str().unwrap_or_default().to_string(),
+        phone_notes_moved: v["phone_notes_moved"].as_bool().unwrap_or(false),
+        seq: v["seq"].as_i64().unwrap_or(0),
+    }
+}
+
+#[nolog]
+fn stored(doc: &Doc) -> Value {
+    json!({ "text": doc.text, "phone_notes_moved": doc.phone_notes_moved, "seq": doc.seq })
 }
 
 /// (the Connect your phone note at the top, the user's own text)
 #[nolog]
 pub fn split(text: &str) -> (Option<String>, String) {
-    // RED STUB: replaced in the engine commit
-    (None, text.to_string())
+    let notes = crate::phone::notes(text);
+    if notes.is_empty() {
+        return (None, text.to_string());
+    }
+    match crate::phone::without_block(text) {
+        Ok(user) => (Some(notes.concat()), user),
+        // a start marker without its end: nothing is taken apart
+        Err(_) => (None, text.to_string()),
+    }
 }
 
 /// The block from the note (if any) and the user's text, laid out the way
 /// `phone::with_block` lays out a note over a charter.
 #[nolog]
 pub fn join(managed: Option<&str>, user: &str) -> String {
-    // RED STUB: replaced in the engine commit
-    let _ = managed;
-    user.to_string()
+    match managed.filter(|m| !m.is_empty()) {
+        None => user.to_string(),
+        Some(note) if user.is_empty() => note.to_string(),
+        Some(note) => format!("{note}\n{user}"),
+    }
 }
 
 /// What the editor may save: within the limit, and never the note's markers.
 #[nolog]
 pub fn check(user: &str) -> std::result::Result<(), String> {
-    // RED STUB: replaced in the engine commit
-    let _ = user;
+    if user.chars().count() > EDIT_MAX {
+        return Err(format!("The instructions for all orgs are limited to {EDIT_MAX} characters"));
+    }
+    if crate::phone::has_marker(user) {
+        return Err("Your text contains the markers of the Connect your phone note. Connect your phone manages that \
+                    note and Unlink removes it: take the markers out of your text and save again."
+            .into());
+    }
     Ok(())
 }
 
 /// The editor's revision of the whole block, the note included.
 #[nolog]
 pub fn rev(text: &str) -> String {
-    // RED STUB: replaced in the engine commit
-    let _ = text;
-    String::new()
+    crate::phone::orgmd_rev(text.as_bytes())
 }
 
 /// `GET /api/app-settings/instructions`.
 #[nolog]
 pub fn payload(doc: &Doc) -> Value {
-    // RED STUB: replaced in the engine commit
-    let _ = doc;
-    json!({})
+    let (managed, content) = split(&doc.text);
+    json!({
+        "content": content, "managed": managed, "chars": content.chars().count(),
+        "prompt_chars": doc.text.trim().chars().count(), "read_truncated": false,
+        "edit_max": EDIT_MAX, "prompt_max": PROMPT_MAX, "rev": rev(&doc.text),
+    })
 }
 
 #[cfg(test)]
