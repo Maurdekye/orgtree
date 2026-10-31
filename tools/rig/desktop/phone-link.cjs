@@ -83,7 +83,7 @@ module.exports = async (page, { org, args }) => {
   await call('POST', '/api/send', { id: `ph-${crypto.randomBytes(6).toString('hex')}`, to: orgAddress, from: alex.slug,
     body: `Hi! This is Hubchat on my phone.\n\nSetup code: ${code}`, kind: 'message', sent_at: new Date().toISOString(), attachments: [] })
   await waitText('.phone-panel', 'Linked: Alex Rivera', 60000)
-  await waitText('.phone-panel', 'charter now says this address is you and carries your authority.')
+  await waitText('.phone-panel', 'The instructions for all orgs now say this address is you and carries your authority.')
   await page.screenshot('08-linked')
   await page.click({ selector: '.phone-panel button', text: 'Done' })
   await page.waitFor('.phone-panel', { gone: true })

@@ -293,7 +293,6 @@ export function PhonePanel({ org: opened, onClose }: { org: string | null; onClo
   const newCode = () => act(async () => { await post('/api/desktop/phone/code', { org }); await reload() })
   const signIn = () => act(async () => { const r = await post<{ url: string }>('/api/desktop/phone/tailscale-login'); openExternal(r.url) })
 
-  const orgName = state?.org?.name ?? org ?? 'This organization'
   const lead = wifi
     ? 'Message your agents from Hubchat on your Android phone. Your phone reaches this PC over your home Wi-Fi.'
     : 'Message your agents from Hubchat on your Android phone, from anywhere. Your phone reaches this PC through Tailscale, a free private network.'
@@ -338,7 +337,7 @@ export function PhonePanel({ org: opened, onClose }: { org: string | null; onClo
   let right: React.ReactNode = null
   const persons = (state?.org?.persons ?? []).filter(p => !notYou.includes(p.address))
   if (state) {
-    if (justLinked && state.link) right = <div className="phone-linked">✓ <b>Linked: {state.link.name}</b> ({state.link.address}). <b>{orgName}</b>’s charter now says this address is you and carries your authority.
+    if (justLinked && state.link) right = <div className="phone-linked">✓ <b>Linked: {state.link.name}</b> ({state.link.address}). The instructions for all orgs now say this address is you and carries your authority.
       <div className="phone-acts"><button type="button" className="linkish" disabled={busy} onClick={unlink}>Undo</button>
         <button type="button" className="primary" onClick={onClose}>Done</button></div></div>
     else if (state.link) right = <>
