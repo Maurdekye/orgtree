@@ -785,7 +785,9 @@ but give it a longer timeout, say an hour" (23:06Z mac1516a71553); "Yes, widen t
   (the hub's `translate::keeps_mentions`). A person's `language` is on their roster entry: an agent's FROM line for
   a person's mail reads `(outside party · see EXTERNAL · language: he)` (`envelope::outside_party`, from
   `net::peer_language`; nothing when they chose none, never the hub default), and the network hover has
-  "Language: <its own name>" (`netmentions.tsx`), as Hubchat's Contact info Language row.
+  "Language: <its own name>" (`netmentions.tsx`), as Hubchat's Contact info Language row. A roster can come from
+  someone else's hub, so both take only a BCP 47-shaped tag (`mailhub::valid_language`, `languages.ts`
+  `isLanguageTag`, the hub's own rule); anything else counts as no language (review 2026-11-01).
 - Hub schemas 11, 12 and 13 are one-way: once a hub database has them, an Orgtree whose bundled hub lacks the newest
   refuses it ("newer than this hub understands"; restore the backup taken before the upgrade). Schema 13 (Mail hub
   2.4.0) replaced 12 as the step to name in release notes.
