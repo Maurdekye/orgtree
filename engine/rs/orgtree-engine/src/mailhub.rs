@@ -643,3 +643,36 @@ pub async fn configure(engine: &Arc<Engine>, raw: &Value) -> Result<Value, Strin
     }
     Ok(hosting(engine).await)
 }
+
+#[cfg(test)]
+mod translation_tests {
+    use super::*;
+
+    #[test]
+    fn hosting_keeps_the_translation_settings() {
+        let t = json!({ "enabled": true, "default_language": "he", "model": "claude-haiku-5-5", "monthly_limit_usd": 2.5 });
+        let v = validate(&json!({ "version": 2, "translation": t })).unwrap();
+        assert_eq!(v["translation"], t);
+        // none saved: off, English, Claude Haiku 5.5, $5 a month
+        let d = validate(&json!({ "version": 2 })).unwrap();
+        assert_eq!(d["translation"], json!({ "enabled": false, "default_language": "en", "model": "claude-haiku-5-5", "monthly_limit_usd": 5.0 }));
+        assert_eq!(default_config()["translation"], d["translation"]);
+    }
+
+    #[test]
+    fn hosting_refuses_translation_settings_the_hub_would_not_take() {
+        for bad in [
+            json!("on"),
+            json!({ "enabled": "yes" }),
+            json!({ "default_language": "english" }),
+            json!({ "default_language": "he_IL" }),
+            json!({ "monthly_limit_usd": -1 }),
+            json!({ "monthly_limit_usd": 100001 }),
+            json!({ "monthly_limit_usd": "5" }),
+            json!({ "model": "" }),
+            json!({ "model": "claude haiku" }),
+        ] {
+            assert!(validate(&json!({ "version": 2, "translation": bad })).is_err(), "{bad}");
+        }
+    }
+}

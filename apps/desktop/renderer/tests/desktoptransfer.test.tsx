@@ -131,7 +131,8 @@ test('mail hosting speaks the hub\'s own model, warns on exposure, and retains e
     await click(v.el, 'Save hosting settings')
     assert.deepEqual(writes[0], { version: 2, port: 7380, bind: '0.0.0.0',
       name: 'office desk', retention_days: 45, public_listener: false,
-      max_attachment_bytes: 1073741824 })
+      max_attachment_bytes: 1073741824,
+      translation: { enabled: false, default_language: 'en', model: 'claude-haiku-5-5', monthly_limit_usd: 5 } })
     assert.match(v.el.textContent!, /Running at http:\/\/127\.0\.0\.1:7380/)
     assert.equal(localStorage.length, 0)
     fail = true
@@ -140,5 +141,85 @@ test('mail hosting speaks the hub\'s own model, warns on exposure, and retains e
     assert.match(v.el.querySelector('[role="alert"]')!.textContent!, /409|Port already in use/)
     assert.equal(v.el.querySelector<HTMLInputElement>('[aria-label="Mail hub port"]')!.value, '9000',
       'a refused save preserves the entered value for correction')
+  } finally { await v.unmount(); globalThis.fetch = original }
+})
+
+// Mail hub 2.4.0 translation (docket mail-hub-hubchat-automatic-translation-between-u,
+// USER 2026-11-01 12:15Z answers + 12:16Z "Build it"): the Hosting tab's
+// Translation group sends its settings with the others, and the API key alone
+// through its own route; the key never comes back.
+test('mail hosting turns translation on, keeps the key write-only, and says what this month cost', async () => {
+  localStorage.clear()
+  const original = globalThis.fetch
+  const writes: { url: string; body: any }[] = []
+  let doc: any = { version: 2, port: 7370, bind: '127.0.0.1', name: '', retention_days: null,
+    org_retention_days: 45, public_listener: false, public_listener_port: 7371, max_attachment_bytes: 1073741824,
+    translation: { enabled: false, default_language: 'en', model: 'claude-haiku-5-5', monthly_limit_usd: 5 },
+    translation_key_set: false,
+    status: { running: true, healthy: true, address: 'http://127.0.0.1:7370', exposed: false, hub_version: '2.4.0', orgs: 2, queued: 0,
+      translation: { enabled: false, state: 'off', month: '2026-11', spent_usd: 0, messages: 0, limit_usd: 5 } } }
+  globalThis.fetch = async (url, init) => {
+    const u = String(url)
+    if (u === '/api/desktop/hub/connections') return new Response(JSON.stringify({ running: true, connections: [], recent: {} }))
+    if (init?.method === 'PUT') {
+      const body = JSON.parse(String(init.body)); writes.push({ url: u, body })
+      if (u === '/api/desktop/hub/translation-key') doc = { ...doc, translation_key_set: !!body.key }
+      else { assert.equal(u, '/api/desktop/hub'); doc = { ...doc, ...body } }
+    } else assert.equal(u, '/api/desktop/hub')
+    return new Response(JSON.stringify(doc))
+  }
+  const v = await mountView(<HostHub />, el => el)
+  const q = <T extends Element>(s: string) => v.el.querySelector<T>(s)!
+  try {
+    await inAct(async () => { await flush(8) })
+    const group = [...v.el.querySelectorAll('.set-group')].find(g => g.querySelector('.set-group-head')?.textContent === 'Translation')
+    assert.ok(group, 'a Translation group')
+    const toggle = q<HTMLInputElement>('[aria-label="Translate messages between people"]')
+    assert.equal(toggle.checked, false)
+    assert.match(group.textContent!, /Message text leaves this computer/, 'it says where the text goes')
+    assert.equal(q<HTMLSelectElement>('[aria-label="Default language"]').value, 'en')
+    assert.ok([...q<HTMLSelectElement>('[aria-label="Default language"]').options].some(o => o.value === 'he' && o.textContent === 'עברית'),
+      'languages are named in their own language')
+    assert.equal(q<HTMLInputElement>('[aria-label="Translation model"]').value, 'claude-haiku-5-5')
+    assert.equal(q<HTMLInputElement>('[aria-label="Monthly translation limit (USD)"]').value, '5')
+    const key = q<HTMLInputElement>('[aria-label="Anthropic API key"]')
+    assert.equal(key.type, 'password')
+    assert.equal(key.placeholder, 'None')
+    // on without a key: it says what is missing
+    await inAct(async () => { toggle.click(); await flush(2) })
+    assert.match(group.textContent!, /Add an Anthropic API key to start translating/)
+    await inAct(() => {
+      const lang = q<HTMLSelectElement>('[aria-label="Default language"]')
+      lang.value = 'he'; lang.dispatchEvent(new Event('change', { bubbles: true }))
+    })
+    await type(q<HTMLInputElement>('[aria-label="Monthly translation limit (USD)"]'), '2.5')
+    await type(key, 'sk-test-not-real')
+    await click(v.el, 'Save hosting settings')
+    assert.equal(writes.length, 2, 'the settings, then the key')
+    assert.equal(writes[0].url, '/api/desktop/hub')
+    assert.deepEqual(writes[0].body.translation, { enabled: true, default_language: 'he', model: 'claude-haiku-5-5', monthly_limit_usd: 2.5 })
+    assert.doesNotMatch(JSON.stringify(writes[0].body), /sk-test/, 'the key never goes with the other settings')
+    assert.deepEqual(writes[1], { url: '/api/desktop/hub/translation-key', body: { key: 'sk-test-not-real' } })
+    assert.equal(q<HTMLInputElement>('[aria-label="Anthropic API key"]').value, '', 'the field empties once the key is stored')
+    assert.equal(q<HTMLInputElement>('[aria-label="Anthropic API key"]').placeholder, 'Stored')
+    assert.match(group.textContent!, /A key is stored \(never shown\)/)
+    assert.doesNotMatch(group.textContent!, /Add an Anthropic API key/)
+    // the month's spend, from the hub's own count; near the limit it warns
+    doc = { ...doc, status: { ...doc.status, translation: { enabled: true, state: 'ok', month: '2026-11', spent_usd: 2.1, messages: 7012, limit_usd: 2.5 } } }
+    await inAct(async () => { q<HTMLButtonElement>('[aria-label="Refresh hub status"]').click(); await flush(8) })
+    assert.match(group.textContent!, /\$2\.10 of \$2\.50 this month · 7,012 messages translated/)
+    assert.match(group.textContent!, /84% of its limit/)
+    doc = { ...doc, status: { ...doc.status, translation: { enabled: true, state: 'ok', month: '2026-11', spent_usd: 2.5, messages: 7100, limit_usd: 2.5 } } }
+    await inAct(async () => { q<HTMLButtonElement>('[aria-label="Refresh hub status"]').click(); await flush(8) })
+    assert.match(group.textContent!, /limit is reached: mail is delivered untranslated/)
+    doc = { ...doc, status: { ...doc.status, translation: { enabled: true, state: 'key_refused', month: '2026-11', spent_usd: 0.5, messages: 10, limit_usd: 2.5 } } }
+    await inAct(async () => { q<HTMLButtonElement>('[aria-label="Refresh hub status"]').click(); await flush(8) })
+    assert.match(group.textContent!, /Anthropic refused the API key/)
+    // Forget it: an empty key through the same route
+    await inAct(async () => { q<HTMLInputElement>('[aria-label="Forget the Anthropic API key"]').click(); await flush(2) })
+    await click(v.el, 'Save hosting settings')
+    assert.deepEqual(writes[writes.length - 1], { url: '/api/desktop/hub/translation-key', body: { key: '' } })
+    assert.equal(q<HTMLInputElement>('[aria-label="Anthropic API key"]').placeholder, 'None')
+    assert.equal(localStorage.length, 0)
   } finally { await v.unmount(); globalThis.fetch = original }
 })
