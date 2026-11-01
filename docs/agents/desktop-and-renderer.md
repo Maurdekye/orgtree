@@ -2859,3 +2859,15 @@ follow, as before. Not changed: a pinned (non-modal) window's resize reaches the
 (the 2026-09-05 rule that the camera does not chase a window mid-drag); modal windows publish live rects and are followed as they move.
 Proof: `tests/fitview.test.tsx`, the pin registering before any timer runs.
 [decided: user 2026-10-31 mde9aed4fbe59; verified: `canvas/OrgCanvas.tsx`, `canvas/pins.tsx`, `canvas/pinspace.ts`]
+
+## Agent mail links flare unread; unread urgent mail wears the urgent colour (2026-11-01, 4.5.3)
+
+USER 2026-11-01 mc13db4358667 "only uswr mail gets the highlight. can agent mail get it too? it has read / unread states" and
+m49a258f12e57 "also urgent unread mail gets a highlight with the urgent color". The node box's by-id lookup
+(`http/mailbox.rs` `mail_by_id`) now answers `unread` from the recipient's row (`pending`/`delivering`, the inbox's unread states;
+a sender's view of a message it sent answers for that recipient). Each recipient has its own row, so a message with several
+recipients has one chip target per row. `mailFlare` flares it as for user mail; an unread message with `urgent` gets the extra class
+`mail-urgent`, which `styles.css` draws in `#ff4500` (the urgent mail row's literal; there is no token), after the unread rule. Read
+urgent mail has no edge. Live: `mailTreeChanged` (called where the tree is set in `App.tsx`) reads the unread node-box links again when
+the tree's per-agent `mail_pending` counts change. The org inbox's mail never flares. Proof: `tests/mailagentunread.test.tsx` (the
+engine change itself has no jsdom proof).
