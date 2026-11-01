@@ -28,7 +28,7 @@ for (const surface of ['modal','desk'] as const) {
     assert.equal(rows.length,4)
     assert.equal(rows.some(r=>!!r.querySelector('.l2 button,.l2 a,[data-agent-nav]')),false,'list identities must not navigate')
     const project=rows[1]!
-    assert.equal(project.querySelector('.doc-row-attribution')?.textContent,'by test-proj-worker-c')
+    assert.equal(project.querySelector('.doc-row-attribution')?.textContent,'presented by test-proj-worker-c')
     assert.equal(project.querySelector('.doc-row-owner')?.textContent,'test-project')
     assert.equal(!!project.querySelector('.project-mark'),true)
     const long=rows[2]!.querySelector<HTMLElement>('.doc-row-attribution')!
