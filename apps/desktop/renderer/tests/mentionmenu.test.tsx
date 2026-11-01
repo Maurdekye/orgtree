@@ -16,9 +16,10 @@ import test from 'node:test'
 import type { TestContext } from 'node:test'
 import assert from 'node:assert/strict'
 import { useRef, useState } from 'react'
-import { useAgentMentions } from '../src/canvas/agentmentions'
+import { setKnownOrgs, useAgentMentions } from '../src/canvas/agentmentions'
 import type { MentionCandidate } from '../src/canvas/agentmentions'
 import { resetMentionSearchForTests } from '../src/canvas/mentionsearch'
+import { resetNetMentions, setNetRoster } from '../src/canvas/netmentions'
 
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } })
 
@@ -149,8 +150,38 @@ test('§3 a kind prefix lists only that kind, all of it; text after the colon fi
   assert.equal(box.value, 'see @weekly-bot ', 'an agent is completed as the plain @name')
   await typeInto(box, 'see @project:')
   assert.deepEqual(ranked(), ['@launch'], '@project: lists projects only')
-  await typeInto(box, 'see @net:')
+  await typeInto(box, 'see @zzz:')
   assert.equal(document.querySelector('.agent-mentions'), null, 'another @word: form opens no list')
+})
+
+test('§5 outside addresses are mentionable: @ lists them with the other kinds, @net: / @org: list only that kind, and picking inserts the address', async t => {
+  engine(t, () => {})
+  setKnownOrgs(['local-org'])
+  setNetRoster('acme', { slug: 'home.000001', picture_revision: null, hubs: [{ id: 'local', address: 'http://127.0.0.1:7370', enabled: true,
+    connected: true, queued: 0, roster: [
+      { slug: 'alice.77ded7', username: 'Alice', online: true, kind: 'person' },
+      { slug: 'acme.12ab34', org_name: 'Acme Labs', online: false, kind: 'org' },
+    ] }] } as never)
+  t.after(() => { resetNetMentions(); setKnownOrgs([]) })
+  const box = await mount(t, 'acme', [agent('boss', '2026-10-27T10:20:00Z')])
+  const kindsShown = () => rows().map(r => r.getAttribute('title')?.slice(0, 4) ?? 'agent')
+  await typeInto(box, '@')
+  assert.equal(ranked()[0], '@boss')
+  assert.equal(rows().filter(r => r.classList.contains('mention-net')).length, 2, '@ mixes the @net: contacts in with the other kinds')
+  assert.equal(rows().filter(r => r.classList.contains('mention-org')).length, 1, 'and the local org')
+  await typeInto(box, 'see @net:')
+  assert.deepEqual(new Set(kindsShown()), new Set(['@net']), '@net: lists only @net: addresses')
+  assert.equal(rows().length, 2)
+  await typeInto(box, 'see @net:ali')
+  assert.deepEqual(ranked(), ['Alice (@net:alice.77ded7)'], 'further characters filter by name and address')
+  await typeInto(box, 'see @net:labs')
+  assert.deepEqual(ranked(), ['Acme Labs (@net:acme.12ab34)'], 'the display name matches too')
+  await press(box, 'Tab')
+  assert.equal(box.value, 'see @net:acme.12ab34 ', 'picking inserts the canonical address')
+  await typeInto(box, 'see @org:')
+  assert.deepEqual(ranked(), ['@org:local-org'], '@org: lists only orgs')
+  await press(box, 'Tab')
+  assert.equal(box.value, 'see @org:local-org ')
 })
 
 test('§4 "all" is read a page at a time as the list is read: the end of what is drawn asks for the next page', async t => {

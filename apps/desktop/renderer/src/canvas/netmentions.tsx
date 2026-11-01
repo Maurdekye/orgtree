@@ -182,6 +182,16 @@ export function netPresence(address: string): NetPresence | null {
   return row ? peerPresence(row) : null
 }
 
+/** Every `@net:` address the hubs list, for the mention list: the on-screen org's rosters first, then
+ *  this computer's hub for any the rosters don't list. `slug` is the address without its scheme. */
+export function netRosterEntries(): Array<{ slug: string; name: string | null }> {
+  const out = new Map<string, string | null>()
+  for (const src of [roster, localHub]) {
+    for (const [address, row] of src) if (!out.has(address)) out.set(address, row.name)
+  }
+  return [...out].map(([address, name]) => ({ slug: address.slice('@net:'.length), name }))
+}
+
 /** The on-screen org's own address (`@net:<slug>`), or null before its network block arrives or when it has none. */
 export function orgNetAddress(): string | null {
   return ownAddress

@@ -10077,7 +10077,7 @@ button.mail-tag-link:hover, .settings button.mail-tag-link:hover { background:no
   color: var(--ink-strong);
 }
 .agent-mention-item .tier, .agent-mention-item .project-mark, .agent-mention-item .mention-ticket-mark,
-.agent-mention-item .mention-presentation-mark, .agent-mention-item .mention-app-mark, .agent-mention-item .mention-panel-mark {
+.agent-mention-item .mention-presentation-mark, .agent-mention-item .mention-app-mark, .agent-mention-item .mention-panel-mark, .agent-mention-item .mention-net-mark {
   width: 16px; height: 16px; font-size: 9.5px; border-radius: 3px; flex: none;
   display: inline-flex; align-items: center; justify-content: center; padding: 0; line-height: 1; text-align: center;
 }

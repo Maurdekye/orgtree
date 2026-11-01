@@ -16,12 +16,12 @@ import { loadMoreMentions, SEARCH_KINDS, useMentionSearch } from './mentionsearc
 import type { SearchKind } from './mentionsearch'
 import { RefMark } from './refmarks'
 import type { MentionRow } from '../api'
-import { NetMark, NetName, ensureNetPicture, hubAddressTitle, netChipClass, netChipLabel, netMention, orgNetAddress, splitScheme, useNetMentionState } from './netmentions'
+import { NetMark, NetName, ensureNetPicture, netRosterEntries, hubAddressTitle, netChipClass, netChipLabel, netMention, orgNetAddress, splitScheme, useNetMentionState } from './netmentions'
 
 export interface MentionCandidate {
   id: string
   tier: string
-  kind: 'agent' | 'project' | 'ticket' | 'presentation' | 'app' | 'panel'
+  kind: 'agent' | 'project' | 'ticket' | 'presentation' | 'app' | 'panel' | 'net' | 'org'
   /** a ticket's, presentation's, app's or panel's org: completing it inserts its reference */
   org?: string
   /** the name shown and matched as well as the id: a ticket's or
@@ -39,6 +39,7 @@ export function mentionText(c: MentionCandidate): string {
   if (c.kind === 'ticket' && c.org) return refToken({ kind: 'item', org: c.org, id: c.id })
   if (c.kind === 'presentation' && c.org) return refToken({ kind: 'doc', org: c.org, id: c.id })
   if ((c.kind === 'app' || c.kind === 'panel') && c.org) return refToken({ kind: c.kind, org: c.org, id: c.id })
+  if (c.kind === 'net' || c.kind === 'org') return `@${c.kind}:${c.id}`
   return `@${c.id}`
 }
 
@@ -58,6 +59,9 @@ export const MENTION_PREFIXES: Readonly<Record<string, { kind: MentionCandidate[
   doc: { kind: 'presentation', search: 'doc' },
   app: { kind: 'app', search: 'app' },
   panel: { kind: 'panel', search: 'panel' },
+  // outside addresses come from the window's own hub rosters and known orgs (netCandidates), not the engine's read
+  net: { kind: 'net' },
+  org: { kind: 'org' },
 }
 /** each kind's own reference, as a transcript names it (extractMentionRecency) */
 const OWN_TOKEN: Partial<Record<MentionCandidate['kind'], string>> = { ticket: 'item', presentation: 'doc', app: 'app', panel: 'panel' }
@@ -68,7 +72,15 @@ function rowCandidate(r: MentionRow, org: string): MentionCandidate {
   return { id: r.id, kind, tier: kind, org, title: r.label, at: Date.parse(r.at) || 0 }
 }
 
-type NodeActivity = { created?: string; last_status?: { at?: unknown } | null; inflight_at?: string | null; turns?: readonly { at: string }[] }
+/** The outside addresses the window knows, as list entries: the hubs' `@net:` rosters (with their names) and the
+ *  orgs on this PC (`@org:<slug>`, the ones their chips open). Listing one only references it; nothing is sent. */
+function netCandidates(): MentionCandidate[] {
+  const out: MentionCandidate[] = netRosterEntries().map(e => ({ id: e.slug, kind: 'net', tier: 'net', title: e.name ? `${e.name} (@net:${e.slug})` : `@net:${e.slug}` }))
+  for (const slug of knownOrgSlugs) out.push({ id: slug, kind: 'org', tier: 'org', title: `@org:${slug}` })
+  return out
+}
+
+type NodeActivity ={ created?: string; last_status?: { at?: unknown } | null; inflight_at?: string | null; turns?: readonly { at: string }[] }
 /** When a node last worked, as far as the window knows: its newest turn,
  *  status report or turn in flight, else its creation (ms; 0 when unknown). */
 export function nodeActivity(n: NodeActivity): number {
@@ -462,10 +474,14 @@ export function useAgentMentions({
   }, [prefix])
   const searchText = canShow && activeQuery && org ? activeQuery.query : null
   const found = useMentionSearch(org, searchKinds, searchText)
+  const netTick = useNetMentionState()
   const offered = useMemo(() => {
+    const outside = canShow && (!prefix || prefix === 'net' || prefix === 'org') ? netCandidates().filter(c => !prefix || c.kind === prefix) : []
     const local = prefix ? candidates.filter(c => c.kind === prefix) : candidates
-    return found.rows.length && org ? [...local, ...found.rows.map(r => rowCandidate(r, org))] : local
-  }, [candidates, found.rows, prefix, org])
+    const all = outside.length ? [...local, ...outside] : local
+    return found.rows.length && org ? [...all, ...found.rows.map(r => rowCandidate(r, org))] : all
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- netTick: the rosters changed
+  }, [candidates, found.rows, prefix, org, canShow, netTick])
   useEffect(() => {
     if (dismissedKey && dismissedKey !== queryKey) setDismissedKey(null)
   }, [queryKey, dismissedKey])
@@ -721,7 +737,7 @@ export function useAgentMentions({
               // an app or panel with the reference it inserts
               {...(c.kind === 'ticket' ? { ...objectTooltipProps('ticket', c.id, c.org), 'aria-label': `ticket ${c.title || c.id}` }
                 : c.kind === 'presentation' ? { ...objectTooltipProps('document', c.id, c.org), 'aria-label': `presentation ${c.title || c.id}` }
-                  : c.kind === 'app' || c.kind === 'panel' ? { title: mentionText(c), 'aria-label': `${c.kind} ${c.title || c.id}` } : {})}
+                  : c.kind === 'app' || c.kind === 'panel' || c.kind === 'net' || c.kind === 'org' ? { title: mentionText(c), 'aria-label': `${c.kind} ${c.title || c.id}` } : {})}
               onMouseDown={e => {
                 e.preventDefault()
                 e.stopPropagation()
@@ -732,6 +748,8 @@ export function useAgentMentions({
                 ? <span className="mention-ticket-mark" aria-hidden="true"><DocketIcon fontSize="inherit" /></span>
                 : c.kind === 'presentation'
                   ? <span className="mention-presentation-mark" aria-hidden="true"><DocIcon fontSize="inherit" /></span>
+                  : c.kind === 'net' || c.kind === 'org'
+                    ? <span className="mention-net-mark" aria-hidden="true"><NetMark info={netMention(mentionText(c))} /></span>
                   : c.kind === 'app' || c.kind === 'panel'
                     ? <span className={`mention-${c.kind}-mark`} aria-hidden="true"><RefMark kind={c.kind} /></span>
                     : <TierChip tier={c.kind === 'project' ? 'project' : c.tier} />}
