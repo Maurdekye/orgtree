@@ -37,7 +37,14 @@ test('Mail hub settings are compact and contain no authentication controls', asy
     await inAct(async () => { await flush(8) })
     const tab = [...view.el.querySelectorAll<HTMLButtonElement>('[role="tab"]')].find(b => b.textContent?.trim() === 'Mail hub')!
     await inAct(async () => { tab.click(); await flush(8) })
-    const text = view.el.querySelector('.host-hub')!.textContent!
+    // the Translation group's Anthropic API key (Mail hub 2.4.0) is the
+    // translation provider's key, not a way into the hub: the retired words
+    // are checked everywhere else
+    const surface = view.el.querySelector('.host-hub')!.cloneNode(true) as HTMLElement
+    const translation = [...surface.querySelectorAll('.set-group')].filter(g => g.querySelector('.set-group-head')?.textContent === 'Translation')
+    assert.equal(translation.length, 1)
+    translation.forEach(g => g.remove())
+    const text = surface.textContent!
     assert.match(text, /Mail hub.*Running/s)
     for (const retired of ['credential', 'invitation', 'allowed to connect', 'revoke access', 'token', 'key']) {
       assert.doesNotMatch(text.toLowerCase(), new RegExp(retired), `${retired} is not in the compact surface`)
