@@ -6,7 +6,7 @@ Up: [orgtree-providers](../SKILL.md)
 
 # Usage and Usage history
 
-Usage is the current account snapshot; Usage history is the recorded timeline. Open them from the Orgtree menu. An org window defaults to its allowed accounts, with the other accounts behind “Show all accounts”; opening from Home is app-wide. That UI choice does not widen agent-tool account access or change recording.
+Usage is the current account snapshot; Usage history is the recorded timeline. Open them from the Orgtree menu. An org window shows its allowed active accounts; opening from Home is app-wide. Already-open Usage and Usage history panels, including pinned and popped-out copies, update when account choices change. Turning an account back on restores it without reopening the panel. That UI choice does not widen agent-tool account access or change recording.
 
 ## Usage cards
 

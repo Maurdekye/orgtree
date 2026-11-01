@@ -68,7 +68,7 @@ The persistent taskbar attention dot is separate from banner preferences. On Win
 
 ## Read current usage
 
-Open **Usage** from the application menu or press F2. From an organization, it initially shows that org's allowed accounts; **Show all accounts** widens the human view. From Home it is app-wide.
+Open **Usage** from the application menu or press F2. From an organization, it shows that org's allowed active accounts. From Home it is app-wide. Open Usage and Usage history panels update when accounts are turned off or on, including pinned and popped-out copies; you do not need to reopen them.
 
 Read the observation date, freshness and error alongside each bar:
 
