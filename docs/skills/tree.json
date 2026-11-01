@@ -7223,6 +7223,26 @@
     {
      "file": "apps/desktop/renderer/src/canvas/hosthub.tsx",
      "label": "Days to keep mail"
+    },
+    {
+     "file": "apps/desktop/renderer/src/canvas/hosthub.tsx",
+     "label": "Translate messages between people"
+    },
+    {
+     "file": "apps/desktop/renderer/src/canvas/hosthub.tsx",
+     "label": "Default language"
+    },
+    {
+     "file": "apps/desktop/renderer/src/canvas/hosthub.tsx",
+     "label": "Anthropic API key"
+    },
+    {
+     "file": "apps/desktop/renderer/src/canvas/hosthub.tsx",
+     "label": "Model"
+    },
+    {
+     "file": "apps/desktop/renderer/src/canvas/hosthub.tsx",
+     "label": "Monthly limit (USD)"
     }
    ],
    "key_sources": [
