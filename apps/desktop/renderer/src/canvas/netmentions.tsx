@@ -38,7 +38,7 @@ import { getMentionPicture } from '../api'
 import type { NetBlock, NetPeer } from '../types'
 import { isHubchatInstalled, resolveHubAddressAction } from './agentmentions'
 import './netmentions.css'
-import { languageName } from './languages'
+import { isLanguageTag, languageName } from './languages'
 
 export type NetKind = 'org' | 'person' | 'chat' | 'unknown'
 export type NetIcon = 'picture' | 'letters' | 'terminal' | 'dot' | 'globe'
@@ -141,8 +141,9 @@ function indexRoster(peers: Iterable<NetPeer>): Map<string, RosterEntry> {
     const online = !!peer.online || !!seen?.online
     const best = seen && PRESENCE_RANK[peerPresence(seen)] < PRESENCE_RANK[peerPresence(peer)] ? peerPresence(seen) : peerPresence(peer)
     const busy = best === 'busy', dnd = best === 'dnd'
-    // a person's language: the first hub that lists one
-    const language = kindOf(peer.kind) === 'person' && typeof peer.language === 'string' && peer.language ? peer.language : null
+    // a person's language: the first hub that lists a well-formed one (a
+    // roster can come from someone else's hub)
+    const language = kindOf(peer.kind) === 'person' && isLanguageTag(peer.language) ? peer.language : null
     if (seen && (seen.picture ?? '') >= (picture ?? '')) {
       next.set(address, { ...seen, online, busy, dnd, about: seen.about ?? about, language: seen.language ?? language })
       continue

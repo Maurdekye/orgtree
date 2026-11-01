@@ -209,8 +209,9 @@ fn default_translation() -> Value {
 }
 
 /// A BCP 47-shaped tag, as the hub takes it (`translate::valid_language`):
-/// a 2-3 letter language, then subtags of 2-8 letters or digits.
-fn valid_language(tag: &str) -> bool {
+/// a 2-3 letter language, then subtags of 2-8 letters or digits. Also the
+/// filter on a person's language from any hub's roster (`net::language_in`).
+pub(crate) fn valid_language(tag: &str) -> bool {
     let mut parts = tag.split('-');
     let first = parts.next().unwrap_or("");
     tag.len() <= 35

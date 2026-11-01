@@ -1267,13 +1267,16 @@ fn local_hub_down(engine: &Engine, org_id: i64, hubs: &Value) -> bool {
 
 /// The language a person on a roster reads in (Mail hub 2.4.0 puts it on a
 /// person's roster entry), from the first roster that lists them with one.
-/// None for an org or chat address, or a person who chose none.
+/// None for an org or chat address, or a person who chose none. A roster can
+/// come from someone else's hub, so only a BCP 47-shaped tag counts (the
+/// hub's own rule); anything else is no language (it reaches an agent's FROM
+/// line and the hover).
 #[nolog]
 pub fn language_in<'a>(rosters: impl IntoIterator<Item = &'a [Value]>, slug: &str) -> Option<String> {
     rosters.into_iter().find_map(|roster| {
         roster.iter().find_map(|r| {
             (r["slug"].as_str() == Some(slug) && r["kind"].as_str() == Some("person"))
-                .then(|| r["language"].as_str().filter(|l| !l.is_empty()).map(str::to_string))
+                .then(|| r["language"].as_str().filter(|l| crate::mailhub::valid_language(l)).map(str::to_string))
                 .flatten()
         })
     })
