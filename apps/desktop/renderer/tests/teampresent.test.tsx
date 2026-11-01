@@ -120,7 +120,7 @@ test('§3 a project’s row names the project, with the agent that presented it 
   assert.deepEqual(rows.map((r) => r.getAttribute('data-copy-agent-name')), ['website', 'dev5'],
     'the project, and an agent’s own card under the agent')
   assert.ok(rows[0]!.querySelector('.project-mark'), 'the project’s folder mark')
-  assert.equal(rows[0]!.querySelector('.doc-row-attribution')?.textContent, 'by boss')
+  assert.equal(rows[0]!.querySelector('.doc-row-attribution')?.textContent, 'presented by boss')
   assert.equal(rows[1]!.querySelector('.doc-row-attribution') === null, true, 'no extra attribution for an agent’s own card')
 })
 
@@ -142,7 +142,7 @@ test('§3d the viewer’s header names the project and says who presented it (us
   assert.match(meta!.textContent ?? '', /^website/, 'the project first')
   const by = view.el.querySelector('.doc-pane-head .doc-presented-by')
   assert.ok(by, 'the presented-by footer is rendered')
-  assert.match(by!.textContent ?? '', /^this presentation was presented by /)
+  assert.match(by!.textContent ?? '', /^presented by /)
   assert.ok(by!.querySelector('.tier.t-opus'), 'the presenting agent’s model badge is rendered')
   assert.equal(by!.querySelector('button.cc-name-jump')?.textContent, 'boss')
   await inAct(() => { by!.querySelector<HTMLButtonElement>('button.cc-name-jump')!.click() })
