@@ -38,6 +38,7 @@ import { getMentionPicture } from '../api'
 import type { NetBlock, NetPeer } from '../types'
 import { isHubchatInstalled, resolveHubAddressAction } from './agentmentions'
 import './netmentions.css'
+import { languageName } from './languages'
 
 export type NetKind = 'org' | 'person' | 'chat' | 'unknown'
 export type NetIcon = 'picture' | 'letters' | 'terminal' | 'dot' | 'globe'
@@ -72,9 +73,11 @@ export interface NetMention {
   dnd: boolean | null
   /** the hub's description of it (its blurb), when it gives one */
   about: string | null
+  /** mail hub 2.4.0: the language a person reads in, when they chose one */
+  language: string | null
 }
 
-interface RosterEntry { kind: NetKind; name: string | null; picture: string | null; online: boolean; busy: boolean; dnd: boolean; about: string | null }
+interface RosterEntry { kind: NetKind; name: string | null; picture: string | null; online: boolean; busy: boolean; dnd: boolean; about: string | null; language: string | null }
 
 /** An address's presence as the hubs list it: online, busy (mail hub 2.3.0:
  *  online, but no one can answer now: an org none of whose org-inbox holders
@@ -138,12 +141,14 @@ function indexRoster(peers: Iterable<NetPeer>): Map<string, RosterEntry> {
     const online = !!peer.online || !!seen?.online
     const best = seen && PRESENCE_RANK[peerPresence(seen)] < PRESENCE_RANK[peerPresence(peer)] ? peerPresence(seen) : peerPresence(peer)
     const busy = best === 'busy', dnd = best === 'dnd'
+    // a person's language: the first hub that lists one
+    const language = kindOf(peer.kind) === 'person' && typeof peer.language === 'string' && peer.language ? peer.language : null
     if (seen && (seen.picture ?? '') >= (picture ?? '')) {
-      next.set(address, { ...seen, online, busy, dnd, about: seen.about ?? about })
+      next.set(address, { ...seen, online, busy, dnd, about: seen.about ?? about, language: seen.language ?? language })
       continue
     }
     next.set(address, { kind: kindOf(peer.kind), name: (peer.org_name || peer.username || '').trim() || null, picture,
-      online, busy, dnd, about: about ?? seen?.about ?? null })
+      online, busy, dnd, about: about ?? seen?.about ?? null, language: seen?.language ?? language })
   }
   return next
 }
@@ -241,7 +246,8 @@ export function netMention(address: string): NetMention {
   const name = row?.name ?? null
   return { address: a, kind, local, name, icon, picture, pictureKey: picture ? have!.want : null,
     avatar, initials: icon === 'letters' ? netInitials(name || splitScheme(a)[1]) : null,
-    online: row ? row.online : null, busy: row ? row.busy : null, dnd: row ? row.dnd : null, about: row?.about ?? null }
+    online: row ? row.online : null, busy: row ? row.busy : null, dnd: row ? row.dnd : null, about: row?.about ?? null,
+    language: row?.language ?? null }
 }
 
 /** Ask for the picture an address wants, once per revision (a local org's
@@ -305,7 +311,9 @@ export function hubAddressTitle(address: string): string {
   if (info.local) return action
   const name = shownName(info)
   const status = netStatusLine(info)
-  if (status) return [status, name, info.about, name ? info.address : null, action].filter(Boolean).join('\n')
+  // a person's language, in its own name, as Hubchat's Contact info shows it
+  const language = info.language ? `Language: ${languageName(info.language)}` : null
+  if (status) return [status, name, info.about, language, name ? info.address : null, action].filter(Boolean).join('\n')
   return name ? `${netKindLabel(info)}: ${name}\n${info.address}\n${action}` : `${netKindLabel(info)}\n${action}`
 }
 

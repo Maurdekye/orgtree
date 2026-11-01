@@ -201,10 +201,11 @@ fn default_config() -> Value {
             "translation": default_translation() })
 }
 
-/// Off, English for senders who set no language, Claude Haiku 5.5, $5 a month.
+/// Off, English for senders who set no language, Claude Haiku 5.5, $5 a
+/// month, and agents' mail untranslated (user 2026-11-01 16:12Z).
 fn default_translation() -> Value {
     json!({ "enabled": false, "default_language": "en", "model": TRANSLATE_DEFAULT_MODEL,
-            "monthly_limit_usd": TRANSLATE_DEFAULT_LIMIT_USD })
+            "monthly_limit_usd": TRANSLATE_DEFAULT_LIMIT_USD, "translate_agents": false })
 }
 
 /// A BCP 47-shaped tag, as the hub takes it (`translate::valid_language`):
@@ -219,8 +220,9 @@ fn valid_language(tag: &str) -> bool {
 }
 
 /// The hub's translation settings (its runtime file's `translation`): on or
-/// off, the language taken for senders who set none, the model and the
-/// month's limit in US dollars. The key is not here: it has its own file.
+/// off, the language taken for senders who set none, the model, the month's
+/// limit in US dollars and whether agents' mail is translated too (Mail hub
+/// 2.4.0 `translate_agents`). The key is not here: it has its own file.
 fn validate_translation(raw: Option<&Value>) -> Result<Value, String> {
     let t = match raw {
         None | Some(Value::Null) => return Ok(default_translation()),
@@ -254,7 +256,12 @@ fn validate_translation(raw: Option<&Value>) -> Result<Value, String> {
             .filter(|x| x.is_finite() && (0.0..=TRANSLATE_LIMIT_MAX_USD).contains(x))
             .ok_or("translation.monthly_limit_usd must be a number of US dollars from 0 to 100000")?,
     };
-    Ok(json!({ "enabled": enabled, "default_language": language, "model": model, "monthly_limit_usd": limit }))
+    let agents = match t.get("translate_agents") {
+        None => false,
+        Some(v) => v.as_bool().ok_or("translation.translate_agents must be a boolean")?,
+    };
+    Ok(json!({ "enabled": enabled, "default_language": language, "model": model, "monthly_limit_usd": limit,
+               "translate_agents": agents }))
 }
 
 /// The hosting settings on the hub's own model: port, bind, name, retention.

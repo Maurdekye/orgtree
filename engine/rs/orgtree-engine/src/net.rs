@@ -1269,8 +1269,22 @@ fn local_hub_down(engine: &Engine, org_id: i64, hubs: &Value) -> bool {
 /// person's roster entry), from the first roster that lists them with one.
 /// None for an org or chat address, or a person who chose none.
 #[nolog]
-pub fn language_in<'a>(_rosters: impl IntoIterator<Item = &'a [Value]>, _slug: &str) -> Option<String> {
-    None
+pub fn language_in<'a>(rosters: impl IntoIterator<Item = &'a [Value]>, slug: &str) -> Option<String> {
+    rosters.into_iter().find_map(|roster| {
+        roster.iter().find_map(|r| {
+            (r["slug"].as_str() == Some(slug) && r["kind"].as_str() == Some("person"))
+                .then(|| r["language"].as_str().filter(|l| !l.is_empty()).map(str::to_string))
+                .flatten()
+        })
+    })
+}
+
+/// The language a network person reads in, from the rosters this PC holds.
+#[nolog]
+pub fn peer_language(engine: &Engine, slug: &str) -> Option<String> {
+    let rosters = engine.net.rosters.pin();
+    let lists: Vec<Arc<Vec<Value>>> = rosters.iter().map(|(_, r)| r.clone()).collect();
+    language_in(lists.iter().map(|r| r.as_slice()), slug)
 }
 
 /// Is `peer` on a roster this org can reach? The cache answers first; a

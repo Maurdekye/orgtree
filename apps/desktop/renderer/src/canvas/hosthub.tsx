@@ -38,13 +38,16 @@ export interface HubTranslation {
   default_language: string
   model: string
   monthly_limit_usd: number
+  /** agents' and organizations' mail to people is translated too (off by default) */
+  translate_agents: boolean
 }
-const TRANSLATION_DEFAULT: HubTranslation = { enabled: false, default_language: 'en', model: 'claude-haiku-5-5', monthly_limit_usd: 5 }
+const TRANSLATION_DEFAULT: HubTranslation = { enabled: false, default_language: 'en', model: 'claude-haiku-5-5', monthly_limit_usd: 5, translate_agents: false }
 const readTranslation = (t: any): HubTranslation => t && typeof t === 'object'
   ? { enabled: t.enabled === true,
       default_language: typeof t.default_language === 'string' && t.default_language ? t.default_language : 'en',
       model: typeof t.model === 'string' && t.model ? t.model : TRANSLATION_DEFAULT.model,
-      monthly_limit_usd: typeof t.monthly_limit_usd === 'number' ? t.monthly_limit_usd : TRANSLATION_DEFAULT.monthly_limit_usd }
+      monthly_limit_usd: typeof t.monthly_limit_usd === 'number' ? t.monthly_limit_usd : TRANSLATION_DEFAULT.monthly_limit_usd,
+      translate_agents: t.translate_agents === true }
   : { ...TRANSLATION_DEFAULT }
 /** The hub's own count, from its /healthz (main port only). */
 export interface HubTranslationStatus {
@@ -301,7 +304,9 @@ function TranslationGroup({ config, setConfig, running, keyDraft, setKeyDraft, f
   return <SetGroup title="Translation">
     <SetToggle label="Translate messages between people" checked={t.enabled} onChange={enabled => edit({ enabled })}
       hint="Mail between people on this hub who read in different languages is translated for its reader by Anthropic's Claude, after it is delivered. Message text leaves this computer to be translated. Agents and organizations always get the original. Changes here apply without restarting the hub." />
-    <SetRow label="Default language" hint="Taken as the language of agents, organizations and people who haven't chosen one.">
+    <SetToggle label="Translate messages from agents" checked={t.translate_agents} onChange={translate_agents => edit({ translate_agents })}
+      hint="Agents write to people in their language themselves, so their messages and organizations' are delivered as written. Turn this on to translate them for people too." />
+    <SetRow label="Default language" hint="Taken as the language of people who haven't chosen one, and of agents when their messages are translated.">
       <select aria-label="Default language" value={t.default_language} onChange={e => edit({ default_language: e.target.value })}>
         {!known && <option value={t.default_language}>{languageName(t.default_language)}</option>}
         {LANGUAGES.map(([tag, name]) => <option key={tag} value={tag}>{name}</option>)}

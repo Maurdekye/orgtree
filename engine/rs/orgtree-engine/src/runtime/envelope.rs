@@ -546,6 +546,12 @@ pub async fn commit(engine: &Engine, agent_id: i64, record: &Value) -> Result<()
 #[logged]
 pub async fn relationships(engine: &Engine, agent_id: i64, senders: &[String]) -> Result<HashMap<String, String>> {
     let mut out = HashMap::new();
+    // a network person: the language they read in, from the hubs' rosters
+    for s in senders {
+        if let Some(l) = s.strip_prefix("@net:").and_then(|slug| crate::net::peer_language(engine, slug)) {
+            out.insert(s.clone(), outside_party(Some(&l)));
+        }
+    }
     let agents: Vec<String> = senders.iter().filter(|s| !s.starts_with('@')).cloned().collect();
     if agents.is_empty() {
         return Ok(out);
@@ -601,8 +607,11 @@ pub async fn relationships(engine: &Engine, agent_id: i64, senders: &[String]) -
 /// its rule, and (user 2026-11-01 16:13Z) the language a person reads in,
 /// when they chose one, so an agent can write to them in it.
 #[nolog]
-fn outside_party(_language: Option<&str>) -> String {
-    "outside party · see EXTERNAL".into()
+fn outside_party(language: Option<&str>) -> String {
+    match language {
+        Some(l) => format!("outside party · see EXTERNAL · language: {l}"),
+        None => "outside party · see EXTERNAL".into(),
+    }
 }
 
 #[nolog]
@@ -614,7 +623,7 @@ fn relationship(m: &Mail, rels: &HashMap<String, String>) -> String {
         // a short tag names the standing passage that holds the rule (user
         // 2026-10-20 09:21Z); no bare "untrusted": the user's own phone,
         // authorized in org.md, writes from an @net: address too
-        s if s.starts_with("@org:") || s.starts_with("@net:") => "outside party · see EXTERNAL".into(),
+        s if s.starts_with("@org:") || s.starts_with("@net:") => rels.get(s).cloned().unwrap_or_else(|| outside_party(None)),
         s => rels.get(s).cloned().unwrap_or_else(|| if m.kind == "watchdog" { "your watchdog".into() } else { "an agent".into() }),
     }
 }

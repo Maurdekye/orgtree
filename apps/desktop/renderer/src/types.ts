@@ -286,6 +286,8 @@ export interface NetPeer {
   dnd?: boolean
   last_seen?: string | null
   kind?: 'org' | 'chat' | 'person'  // FR-06: independent chats are clients too; person: a Hubchat user (mail hub v2)
+  /** mail hub 2.4.0: the language a person reads in (a BCP 47 tag), when they chose one */
+  language?: string | null
   /** mail hub 2.2: the identity's picture metadata (no bytes; a removal has
    *  no sha256) and the owner token pictures are bound to */
   picture?: { revision: string; sha256: string | null; width: number; height: number; bytes: number } | null
