@@ -128,5 +128,5 @@ export function useOrgLaneFilter(org: string | null | undefined) {
     if (!enabled) globallyOff.add(`${provider}/primary`)
   }
   return { used: (lane: string): boolean => !globallyOff.has(lane)
-    && !(observed?.org === org && observed.off.has(lane)) }
+    && !(observed && observed.org === org && observed.off.has(lane)) }
 }

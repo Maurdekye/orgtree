@@ -2338,6 +2338,8 @@ export interface AccountRegistryRow {
   origin_org?: string
   registered_from?: string
   ambient?: boolean
+  /** App-wide active switch; older registry payloads omit it. */
+  enabled?: boolean
   standing: AccountStanding
   bound: { org: string; node: string; state: string }[]
 }
