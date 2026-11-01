@@ -103,6 +103,28 @@ pub async fn hub_connections(State(e): State<Arc<Engine>>) -> Json<Value> {
     Json(crate::net::recent::hub_connections(&e).await)
 }
 
+/// The Anthropic API key for the bundled hub's translation (Mail hub 2.4.0).
+#[derive(serde::Deserialize)]
+pub struct TranslateKeyBody {
+    #[serde(default)]
+    key: Option<String>,
+}
+
+impl std::fmt::Debug for TranslateKeyBody {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("TranslateKeyBody { key: ***** }")
+    }
+}
+
+/// `PUT /api/desktop/hub/translation-key {key}` (the body is a secret: not
+/// logged): the key the bundled hub translates with; an empty or missing key
+/// forgets it. The hub reads it at each call: no restart. Answers the
+/// hosting settings, which say only whether a key is stored.
+pub async fn hub_translation_key(State(e): State<Arc<Engine>>, Json(b): Json<TranslateKeyBody>) -> ApiResult<Json<Value>> {
+    crate::mailhub::store_translate_key(&e, b.key.as_deref()).map_err(crate::http::error::ApiError::unprocessable)?;
+    Ok(Json(crate::mailhub::hosting(&e).await))
+}
+
 /// `PUT /api/desktop/hub`: new hosting settings (the hub restarts on them).
 #[logged]
 pub async fn hub_put(State(e): State<Arc<Engine>>, Json(b): Json<Value>) -> crate::http::error::ApiResult<Json<Value>> {

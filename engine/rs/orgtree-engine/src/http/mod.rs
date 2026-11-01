@@ -60,6 +60,7 @@ pub fn router(engine: Arc<Engine>) -> Router {
         .route("/api/desktop/shutdown", post(desktop::shutdown))
         .route("/api/desktop/hub", get(desktop::hub_get).put(desktop::hub_put))
         .route("/api/desktop/hub/connections", get(desktop::hub_connections))
+        .route("/api/desktop/hub/translation-key", axum::routing::put(desktop::hub_translation_key))
         .route("/api/desktop/phone", get(desktop::phone_get))
         .route("/api/desktop/phone/card", get(desktop::phone_card))
         .route("/api/desktop/phone/access", post(desktop::phone_access))

@@ -25,6 +25,12 @@ use crate::engine::Engine;
 
 pub const DEFAULT_PORT: u16 = 7370;
 pub const DEFAULT_ATTACHMENT_MAX: u64 = 1024 * 1024 * 1024;
+/// Mail hub 2.4.0 translation (docket mail-hub-hubchat-automatic-translation-between-u):
+/// the hub's own defaults, and the most a month may be allowed to cost.
+pub const TRANSLATE_DEFAULT_MODEL: &str = "claude-haiku-5-5";
+const TRANSLATE_DEFAULT_LIMIT_USD: f64 = 5.0;
+const TRANSLATE_LIMIT_MAX_USD: f64 = 100_000.0;
+const TRANSLATE_KEY_MAX: usize = 512;
 /// the hub's relay-only public listener (its default `HUB_PUBLIC_PORT`)
 pub const PUBLIC_LISTENER_PORT: u16 = 7371;
 /// who may reach the relay-only door (`public_scope`)
@@ -191,7 +197,64 @@ async fn ensure_database(cluster: &crate::pg::Cluster) -> anyhow::Result<HubDb> 
 
 fn default_config() -> Value {
     json!({ "version": 2, "port": DEFAULT_PORT, "bind": "127.0.0.1", "name": "", "retention_days": null,
-            "org_retention_days": 45, "public_listener": false, "public_scope": "all", "max_attachment_bytes": DEFAULT_ATTACHMENT_MAX })
+            "org_retention_days": 45, "public_listener": false, "public_scope": "all", "max_attachment_bytes": DEFAULT_ATTACHMENT_MAX,
+            "translation": default_translation() })
+}
+
+/// Off, English for senders who set no language, Claude Haiku 5.5, $5 a month.
+fn default_translation() -> Value {
+    json!({ "enabled": false, "default_language": "en", "model": TRANSLATE_DEFAULT_MODEL,
+            "monthly_limit_usd": TRANSLATE_DEFAULT_LIMIT_USD })
+}
+
+/// A BCP 47-shaped tag, as the hub takes it (`translate::valid_language`):
+/// a 2-3 letter language, then subtags of 2-8 letters or digits.
+fn valid_language(tag: &str) -> bool {
+    let mut parts = tag.split('-');
+    let first = parts.next().unwrap_or("");
+    tag.len() <= 35
+        && (2..=3).contains(&first.len())
+        && first.bytes().all(|b| b.is_ascii_alphabetic())
+        && parts.all(|p| (2..=8).contains(&p.len()) && p.bytes().all(|b| b.is_ascii_alphanumeric()))
+}
+
+/// The hub's translation settings (its runtime file's `translation`): on or
+/// off, the language taken for senders who set none, the model and the
+/// month's limit in US dollars. The key is not here: it has its own file.
+fn validate_translation(raw: Option<&Value>) -> Result<Value, String> {
+    let t = match raw {
+        None | Some(Value::Null) => return Ok(default_translation()),
+        Some(Value::Object(t)) => t,
+        Some(_) => return Err("translation must be an object".into()),
+    };
+    let enabled = match t.get("enabled") {
+        None => false,
+        Some(v) => v.as_bool().ok_or("translation.enabled must be a boolean")?,
+    };
+    let language = match t.get("default_language") {
+        None => "en".to_string(),
+        Some(v) => v
+            .as_str()
+            .filter(|l| valid_language(l))
+            .ok_or("translation.default_language must be a language tag such as en or he")?
+            .to_string(),
+    };
+    let model = match t.get("model") {
+        None => TRANSLATE_DEFAULT_MODEL.to_string(),
+        Some(v) => v
+            .as_str()
+            .filter(|m| !m.is_empty() && m.len() <= 100 && m.bytes().all(|b| b.is_ascii_graphic()))
+            .ok_or("translation.model must be a model id such as claude-haiku-5-5")?
+            .to_string(),
+    };
+    let limit = match t.get("monthly_limit_usd") {
+        None => TRANSLATE_DEFAULT_LIMIT_USD,
+        Some(v) => v
+            .as_f64()
+            .filter(|x| x.is_finite() && (0.0..=TRANSLATE_LIMIT_MAX_USD).contains(x))
+            .ok_or("translation.monthly_limit_usd must be a number of US dollars from 0 to 100000")?,
+    };
+    Ok(json!({ "enabled": enabled, "default_language": language, "model": model, "monthly_limit_usd": limit }))
 }
 
 /// The hosting settings on the hub's own model: port, bind, name, retention.
@@ -240,9 +303,10 @@ pub fn validate(raw: &Value) -> Result<Value, String> {
         Some(v) => v.as_u64().filter(|n| *n > 0 && *n <= 9_007_199_254_740_991)
             .ok_or("max_attachment_bytes must be a positive safe integer number of bytes")?,
     };
+    let translation = validate_translation(o.get("translation"))?;
     let mut out = json!({ "version": 2, "port": port, "bind": bind, "name": name, "retention_days": retention,
                           "org_retention_days": org_retention, "public_listener": public, "public_scope": scope,
-                          "max_attachment_bytes": attachment_max });
+                          "max_attachment_bytes": attachment_max, "translation": translation });
     if let Some(m) = o.get("migrated").filter(|m| m.is_object()) {
         out["migrated"] = m.clone();
     }
@@ -306,13 +370,61 @@ fn save_config(engine: &Engine, config: &Value) -> std::io::Result<()> {
     std::fs::rename(&tmp, &path)
 }
 
+/// What the running hub reads at each use (`HUB_RUNTIME_CONFIG_FILE`), so
+/// a change to it needs no restart: the attachment limit and (Mail hub
+/// 2.4.0) the translation settings.
+fn runtime_settings(config: &Value) -> Value {
+    json!({ "max_attachment_bytes": config["max_attachment_bytes"], "translation": config["translation"] })
+}
+
 /// Shared with the child through a path, never a remotely writable admin route.
 #[logged]
-fn save_upload_limit(engine: &Engine, config: &Value) -> std::io::Result<()> {
+fn save_runtime_file(engine: &Engine, config: &Value) -> std::io::Result<()> {
     let path = engine.cfg.path("mailhub-upload-limit.json");
     let tmp = path.with_extension("tmp");
-    std::fs::write(&tmp, json!({"max_attachment_bytes":config["max_attachment_bytes"]}).to_string())?;
+    std::fs::write(&tmp, runtime_settings(config).to_string())?;
     std::fs::rename(tmp, path)
+}
+
+/// The Anthropic API key the hub translates with (Mail hub 2.4.0): the first
+/// line of a file in this data root's `secrets` folder, handed to the hub
+/// as `HUB_TRANSLATE_KEY_FILE` and read by it at each call. Never shown,
+/// never logged: nothing that takes or returns the key is `#[logged]`.
+pub fn translate_key_path(engine: &Engine) -> PathBuf {
+    engine.cfg.path("secrets").join("mailhub-translate.key")
+}
+
+/// Whether a key is stored (all a window is ever told).
+fn translate_key_set(path: &Path) -> bool {
+    std::fs::read_to_string(path).map(|t| !t.trim().is_empty()).unwrap_or(false)
+}
+
+/// Store `key` (one line of printable characters), or forget it (empty or
+/// none). Written beside and renamed over, so the hub never reads half a key.
+fn write_translate_key(path: &Path, key: Option<&str>) -> Result<(), String> {
+    match key.map(str::trim).filter(|k| !k.is_empty()) {
+        Some(k) => {
+            if k.len() > TRANSLATE_KEY_MAX || !k.bytes().all(|b| b.is_ascii_graphic()) {
+                return Err("the API key must be one line of printable characters".into());
+            }
+            if let Some(dir) = path.parent() {
+                std::fs::create_dir_all(dir).map_err(|e| format!("could not store the API key: {e}"))?;
+            }
+            let tmp = path.with_extension("tmp");
+            std::fs::write(&tmp, format!("{k}\n")).map_err(|e| format!("could not store the API key: {e}"))?;
+            std::fs::rename(&tmp, path).map_err(|e| format!("could not store the API key: {e}"))
+        }
+        None => match std::fs::remove_file(path) {
+            Err(e) if e.kind() != std::io::ErrorKind::NotFound => Err(format!("could not forget the API key: {e}")),
+            _ => Ok(()),
+        },
+    }
+}
+
+/// `PUT /api/desktop/hub/translation-key`: store or forget the key. The hub
+/// reads it at each call, so this needs no restart. Not logged.
+pub fn store_translate_key(engine: &Engine, key: Option<&str>) -> Result<(), String> {
+    write_translate_key(&translate_key_path(engine), key)
 }
 
 /// The hub's binary: `ORGTREE_HUB_BIN`, beside the engine in a package
@@ -367,8 +479,8 @@ async fn start_now(engine: &Arc<Engine>) {
         hub.set(|s| s.error = Some("the mail hub is not hosted while the engine runs in safe start".into()));
         return;
     }
-    if let Err(e) = save_upload_limit(engine, &cfg) {
-        hub.set(|s| s.error = Some(format!("could not save the hub upload limit: {e}")));
+    if let Err(e) = save_runtime_file(engine, &cfg) {
+        hub.set(|s| s.error = Some(format!("could not save the hub's runtime settings: {e}")));
         return;
     }
     let bin = match hub_binary() {
@@ -410,6 +522,8 @@ async fn start_now(engine: &Arc<Engine>) {
         .env("HUB_NAME", cfg["name"].as_str().unwrap_or(""))
         .env("HUB_MAX_FILE_BYTES", cfg["max_attachment_bytes"].to_string())
         .env("HUB_RUNTIME_CONFIG_FILE", engine.cfg.path("mailhub-upload-limit.json"))
+        // Mail hub 2.4.0: where its translation key is (read at each call; absent: no translation)
+        .env("HUB_TRANSLATE_KEY_FILE", translate_key_path(engine))
         .env("HUB_DATABASE_URL", &db.url)
         .env("HUB_DATABASE_PASSWORD", &db.password)
         .env("HUB_DB_POOL", HUB_DB_POOL)
@@ -570,11 +684,14 @@ pub async fn hosting(engine: &Arc<Engine>) -> Value {
         "version": 2, "port": port, "bind": cfg["bind"], "name": cfg["name"], "retention_days": cfg["retention_days"],
         "org_retention_days": cfg["org_retention_days"], "public_listener": cfg["public_listener"],
         "public_scope": cfg["public_scope"], "max_attachment_bytes": cfg["max_attachment_bytes"],
+        "translation": cfg["translation"], "translation_key_set": translate_key_set(&translate_key_path(engine)),
         "public_listener_port": PUBLIC_LISTENER_PORT,
         "status": {
             "running": st.running, "healthy": health.is_some(), "address": address,
             "exposed": cfg["bind"] == json!("0.0.0.0"),
             "hub_name": h["name"], "hub_version": h["version"], "orgs": h["orgs"], "queued": h["queued"],
+            // Mail hub 2.4.0's own count: state (ok, no_key, key_refused, off) and this month's spend
+            "translation": h["translation"],
             "door": st.door, "door_waiting": st.door_waiting,
         },
     });
@@ -616,12 +733,15 @@ pub async fn configure(engine: &Arc<Engine>, raw: &Value) -> Result<Value, Strin
     let config = validate(&Value::Object(merged))?;
     let mut before = previous.as_object().cloned().unwrap_or_default();
     let mut after = config.as_object().cloned().unwrap_or_default();
-    before.remove("max_attachment_bytes");
-    after.remove("max_attachment_bytes");
+    // what the running hub reads at each use applies without a restart
+    for live in ["max_attachment_bytes", "translation"] {
+        before.remove(live);
+        after.remove(live);
+    }
     if before == after {
-        save_upload_limit(engine, &config).map_err(|e| format!("could not apply the hub upload limit: {e}"))?;
+        save_runtime_file(engine, &config).map_err(|e| format!("could not apply the hub's runtime settings: {e}"))?;
         if let Err(e) = save_config(engine, &config) {
-            let _ = save_upload_limit(engine, &previous);
+            let _ = save_runtime_file(engine, &previous);
             return Err(format!("could not save the hub settings: {e}"));
         }
         engine.hub.config.store(Arc::new(config));
@@ -674,5 +794,31 @@ mod translation_tests {
         ] {
             assert!(validate(&json!({ "version": 2, "translation": bad })).is_err(), "{bad}");
         }
+    }
+
+    #[test]
+    fn the_hubs_runtime_file_carries_translation() {
+        let v = validate(&json!({ "version": 2, "max_attachment_bytes": 1024, "translation": { "enabled": true } })).unwrap();
+        assert_eq!(
+            runtime_settings(&v),
+            json!({ "max_attachment_bytes": 1024,
+                    "translation": { "enabled": true, "default_language": "en", "model": "claude-haiku-5-5", "monthly_limit_usd": 5.0 } })
+        );
+    }
+
+    #[test]
+    fn the_key_is_stored_whole_and_forgotten() {
+        let dir = std::env::temp_dir().join(format!("ot-translate-key-{}", uuid::Uuid::new_v4().simple()));
+        let path = dir.join("secrets").join("mailhub-translate.key");
+        assert!(!translate_key_set(&path));
+        write_translate_key(&path, Some("  sk-test-not-real  ")).unwrap();
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "sk-test-not-real\n");
+        assert!(translate_key_set(&path));
+        assert!(write_translate_key(&path, Some("two words")).is_err());
+        assert!(translate_key_set(&path), "a refused key leaves the stored one");
+        write_translate_key(&path, Some("")).unwrap();
+        assert!(!translate_key_set(&path));
+        write_translate_key(&path, None).unwrap();
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }
