@@ -2,7 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { createPortal } from 'react-dom'
 import type { ReactNode, RefObject } from 'react'
 import type { TreeNode, TreePayload, UserMentionInfo } from '../types'
-import { markMentionSeen, req } from '../api'
+import { getNetRecent, markMentionSeen, req } from '../api'
 import { TierChip } from './identity'
 import { stripMarkdownCode } from './shared'
 import { useContextMenu, copyToClipboard } from './contextmenu'
@@ -64,7 +64,7 @@ export const MENTION_PREFIXES: Readonly<Record<string, { kind: MentionCandidate[
   org: { kind: 'org' },
 }
 /** each kind's own reference, as a transcript names it (extractMentionRecency) */
-const OWN_TOKEN: Partial<Record<MentionCandidate['kind'], string>> = { ticket: 'item', presentation: 'doc', app: 'app', panel: 'panel' }
+const OWN_TOKEN: Partial<Record<MentionCandidate['kind'], string>> = { ticket: 'item', presentation: 'doc', app: 'app', panel: 'panel', net: 'net', org: 'org' }
 
 /** An engine row as a list entry. */
 function rowCandidate(r: MentionRow, org: string): MentionCandidate {
@@ -74,9 +74,13 @@ function rowCandidate(r: MentionRow, org: string): MentionCandidate {
 
 /** The outside addresses the window knows, as list entries: the hubs' `@net:` rosters (with their names) and the
  *  orgs on this PC (`@org:<slug>`, the ones their chips open). Listing one only references it; nothing is sent. */
-function netCandidates(): MentionCandidate[] {
-  const out: MentionCandidate[] = netRosterEntries().map(e => ({ id: e.slug, kind: 'net', tier: 'net', title: e.name ? `${e.name} (@net:${e.slug})` : `@net:${e.slug}` }))
-  for (const slug of knownOrgSlugs) out.push({ id: slug, kind: 'org', tier: 'org', title: `@org:${slug}` })
+function netCandidates(mentioned: ReadonlyMap<string, number>, mail: ReadonlyMap<string, number>): MentionCandidate[] {
+  // recency (USER 2026-11-01 m6a66447606a0): the latest of the newest mail sent to or received from it
+  // (net/recent, @net: only) and its newest mention in mail (the engine's mention times)
+  const at = (kind: 'net' | 'org', slug: string) => Math.max(mentioned.get(`${kind}:${slug}`) ?? 0, kind === 'net' ? mail.get(slug) ?? 0 : 0)
+  const out: MentionCandidate[] = netRosterEntries().map(e => ({ id: e.slug, kind: 'net', tier: 'net', at: at('net', e.slug),
+    title: e.name ? `${e.name} (@net:${e.slug})` : `@net:${e.slug}` }))
+  for (const slug of knownOrgSlugs) out.push({ id: slug, kind: 'org', tier: 'org', at: at('org', slug), title: `@org:${slug}` })
   return out
 }
 
@@ -470,18 +474,30 @@ export function useAgentMentions({
   const searchKinds = useMemo<readonly SearchKind[] | null>(() => {
     if (!prefix) return SEARCH_KINDS
     const search = Object.values(MENTION_PREFIXES).find(p => p.kind === prefix)?.search
+    // @net: / @org: are the window's own, but the engine's first page carries their mention times: ask it for the least
+    if (prefix === 'net' || prefix === 'org') return ['app']
     return search ? [search] : null
   }, [prefix])
   const searchText = canShow && activeQuery && org ? activeQuery.query : null
   const found = useMentionSearch(org, searchKinds, searchText)
   const netTick = useNetMentionState()
+  const outsidePrefix = prefix === 'net' || prefix === 'org'
+  // the newest mail sent to or received from each @net: address, read when the list opens
+  const [mail, setMail] = useState<ReadonlyMap<string, number>>(new Map())
+  useEffect(() => {
+    if (!canShow || !org) return
+    let alive = true
+    getNetRecent(org).then(r => { if (alive) setMail(new Map(Object.entries(r?.recent ?? {}).map(([slug, at]) => [slug.toLowerCase(), Date.parse(at) || 0]))) }, () => { /* keep what is known */ })
+    return () => { alive = false }
+  }, [canShow, org, activeQuery?.start])
   const offered = useMemo(() => {
-    const outside = canShow && (!prefix || prefix === 'net' || prefix === 'org') ? netCandidates().filter(c => !prefix || c.kind === prefix) : []
+    const outside = canShow && (!prefix || outsidePrefix) ? netCandidates(found.outside, mail).filter(c => !prefix || c.kind === prefix) : []
     const local = prefix ? candidates.filter(c => c.kind === prefix) : candidates
     const all = outside.length ? [...local, ...outside] : local
-    return found.rows.length && org ? [...all, ...found.rows.map(r => rowCandidate(r, org))] : all
+    // under @net: / @org: the engine's rows were asked for their times only
+    return found.rows.length && org && !outsidePrefix ? [...all, ...found.rows.map(r => rowCandidate(r, org))] : all
     // eslint-disable-next-line react-hooks/exhaustive-deps -- netTick: the rosters changed
-  }, [candidates, found.rows, prefix, org, canShow, netTick])
+  }, [candidates, found.rows, found.outside, mail, prefix, outsidePrefix, org, canShow, netTick])
   useEffect(() => {
     if (dismissedKey && dismissedKey !== queryKey) setDismissedKey(null)
   }, [queryKey, dismissedKey])
@@ -510,7 +526,7 @@ export function useAgentMentions({
   const shown = sessionKey && shownState.key === sessionKey ? shownState.count : MENU_STEP
   // drawn bottom-up (the best match last, next to the box), the oldest first
   const matches = useMemo(() => ranked.slice(0, shown).reverse(), [ranked, shown])
-  const more = ranked.length > shown || found.more
+  const more = ranked.length > shown || (found.more && !outsidePrefix)
   const capturePrependAnchor = useCallback(() => {
     if (prependAnchorRef.current) return
     const el = menuRef.current
@@ -527,7 +543,7 @@ export function useAgentMentions({
     capturePrependAnchor()
     const nextCount = shown + MENU_STEP
     setShownState({ key: sessionKey, count: nextCount })
-    if (found.more && org && searchKinds && searchText !== null && ranked.length <= nextCount) loadMoreMentions(org, searchKinds, searchText)
+    if (found.more && !outsidePrefix && org && searchKinds && searchText !== null && ranked.length <= nextCount) loadMoreMentions(org, searchKinds, searchText)
   }, [more, sessionKey, capturePrependAnchor, found.more, org, searchKinds, searchText, ranked.length, shown])
   if (!matches.length) {
     recencySessionRef.current = null
@@ -630,7 +646,7 @@ export function useAgentMentions({
           pendingAsyncKeyMoveRef.current = { key: sessionKey, targetRank: shown }
           setSelection({ key: sessionKey, index: 0, targetRank: shown })
         }
-        if (found.more && org && searchKinds && searchText !== null && ranked.length <= nextCount) {
+        if (found.more && !outsidePrefix && org && searchKinds && searchText !== null && ranked.length <= nextCount) {
           loadMoreMentions(org, searchKinds, searchText)
         }
       }

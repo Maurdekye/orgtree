@@ -30,6 +30,8 @@ const OVERLAP: i64 = 200;
 const BODY_MAX: i32 = 65536;
 /// Node mention times a first page carries.
 const NODES_MAX: i64 = 200;
+/// Outside-address mention times a first page carries.
+const OUTSIDE_MAX: i64 = 500;
 
 /// What one mail body mentions in its own org, as (kind, key): typed tokens of
 /// that org (`@item:`, `@doc:`, `@app:`, `@panel:`, `@agent:`, `@project:`) and
@@ -51,6 +53,18 @@ pub fn scan(body: &str, org: &str) -> Vec<(&'static str, String)> {
         while j < b.len() && (word(b[j])) { j += 1; }
         if j == i { continue; }
         let head = &body[i..j];
+        if j < b.len() && b[j] == b':' && matches!(head.to_ascii_lowercase().as_str(), "net" | "org") {
+            // an outside address, whole: `@net:<hub slug>` (letters, digits, `-` `_` `.`) or `@org:<slug>`;
+            // it belongs to no org, so every org that mails it learns it
+            let kind = if head.eq_ignore_ascii_case("net") { "net" } else { "org" };
+            let start = j + 1;
+            let mut end = start;
+            while end < b.len() && (b[end].is_ascii_alphanumeric() || b"-_.".contains(&b[end])) { end += 1; }
+            while end > start && b[end - 1] == b'.' { end -= 1; }
+            if end > start && end - start <= 200 { out.push((kind, body[start..end].to_ascii_lowercase())); }
+            i = end.max(j);
+            continue;
+        }
         if j < b.len() && b[j] == b':' {
             let kind = match head.to_ascii_lowercase().as_str() {
                 "item" => "item", "doc" => "doc", "app" => "app", "panel" => "panel", "agent" | "project" => "node",
@@ -216,6 +230,12 @@ pub async fn page(client: &Client, org: i64, ask: &Ask) -> Result<Value> {
         let nodes = client.query("SELECT key, at FROM ot.mention_recency WHERE org_id = $1 AND kind = 'node' ORDER BY at DESC, key LIMIT $2",
             &[&org, &NODES_MAX]).await?;
         out["nodes"] = json!(nodes.iter().map(|r| json!({ "name": r.get::<_, String>(0), "at": crate::util::iso(r.get::<_, DateTime<Utc>>(1)) })).collect::<Vec<_>>());
+        // outside addresses (`@net:` contacts, `@org:` orgs) mentioned in mail: their newest mention, bare slug
+        // (the window adds the newest mail exchanged with each, net/recent)
+        let outside = client.query("SELECT kind, key, at FROM ot.mention_recency WHERE org_id = $1 AND kind IN ('net','org') ORDER BY at DESC, key LIMIT $2",
+            &[&org, &OUTSIDE_MAX]).await?;
+        out["outside"] = json!(outside.iter().map(|r| json!({ "kind": r.get::<_, String>(0), "key": r.get::<_, String>(1),
+            "at": crate::util::iso(r.get::<_, DateTime<Utc>>(2)) })).collect::<Vec<_>>());
     }
     Ok(out)
 }
@@ -239,6 +259,9 @@ mod tests {
         assert_eq!(scan("@note:acme/x", "acme"), vec![]);
         assert_eq!(scan("@a.b", "acme"), vec![]);
         assert_eq!(scan("end @ali.", "acme"), vec![("node", "ali".to_string())]);
+        // outside addresses are read whole, in any org; a closing dot is not part of one
+        assert_eq!(scan("Ask @net:Alice.77ded7. Cc @org:other-org, not x@net:y", "acme"),
+            vec![("net", "alice.77ded7".to_string()), ("org", "other-org".to_string())]);
     }
 
     #[test]

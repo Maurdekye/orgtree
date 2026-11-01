@@ -37,11 +37,13 @@ export interface SearchAnswer {
   more: boolean
   /** node name -> newest mention in mail (ms), from the first page */
   nodes: ReadonlyMap<string, number>
+  /** `net:<slug>` / `org:<slug>` -> newest mention in mail (ms), from the first page */
+  outside: ReadonlyMap<string, number>
 }
 type Held = SearchAnswer & { at: number; next: string | null }
 type Job = { key: string; kinds: readonly SearchKind[]; text: string; after: string | null }
 
-const EMPTY: SearchAnswer = { rows: [], more: false, nodes: new Map() }
+const EMPTY: SearchAnswer = { rows: [], more: false, nodes: new Map(), outside: new Map() }
 const answers = new Map<string, Map<string, Held>>()
 const running = new Map<string, Job>()
 const waiting = new Map<string, Job>()
@@ -58,8 +60,9 @@ function store(org: string, job: Job, page: MentionPage): void {
   const continued = !!job.after && !!prior && prior.next === job.after
   const rows = continued ? [...prior!.rows, ...page.items] : page.items
   const nodes = page.nodes ? new Map(page.nodes.map(n => [n.name, Date.parse(n.at) || 0])) : prior?.nodes ?? new Map<string, number>()
+  const outside = page.outside ? new Map(page.outside.map(o => [`${o.kind}:${o.key}`, Date.parse(o.at) || 0])) : prior?.outside ?? new Map<string, number>()
   byKey.delete(job.key)
-  byKey.set(job.key, { rows, nodes, next: page.next_cursor, more: !!page.next_cursor, at: continued ? prior!.at : Date.now() })
+  byKey.set(job.key, { rows, nodes, outside, next: page.next_cursor, more: !!page.next_cursor, at: continued ? prior!.at : Date.now() })
   while (byKey.size > PER_ORG) byKey.delete(byKey.keys().next().value!)
   for (const fn of listeners) fn()
 }
@@ -111,7 +114,7 @@ function answerFor(org: string, kinds: readonly SearchKind[], text: string): Sea
     const q = key.slice(prefix.length)
     if (q.length > length && text.startsWith(q)) { best = answer; length = q.length }
   }
-  return best ? { rows: best.rows, nodes: best.nodes, more: false } : EMPTY
+  return best ? { rows: best.rows, nodes: best.nodes, outside: best.outside, more: false } : EMPTY
 }
 
 /** What the engine offers while `text` (after `@` and any kind prefix) is

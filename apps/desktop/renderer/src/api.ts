@@ -830,6 +830,8 @@ export interface MentionPage {
   next_cursor: string | null
   /** a first page only: the newest mention time of each node name mentioned */
   nodes?: { name: string; at: string }[]
+  /** a first page only: the newest mention time of each `@net:` / `@org:` address mentioned (bare slug) */
+  outside?: { kind: 'net' | 'org'; key: string; at: string }[]
 }
 /** The engine's ranked, paged read for the @ list: live things only, newest
  *  first, every typed word in the name or id. */
