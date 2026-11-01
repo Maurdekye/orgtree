@@ -99,18 +99,18 @@ function RowIdentity({ r, tierOf }: { r: DocRow; tierOf?: (id: string) => string
         nameClass="doc-row-owner" />
     </span>
     {viaProject(r) && <span className="doc-row-attribution dim"
-      title={`Presented by ${r.presented_by}`}>by {r.presented_by}</span>}
+      title={`Presented by ${r.presented_by}`}>presented by {r.presented_by}</span>}
   </>
 }
 
 /** "presented by <agent>" under a project's card; nothing for an agent's own */
-function PresentedBy({ r, onFocus, sentence = false, tierOf }: {
-  r: DocRow; onFocus?: (id: string) => void; sentence?: boolean; tierOf?: (id: string) => string | null | undefined
+function PresentedBy({ r, onFocus, tierOf }: {
+  r: DocRow; onFocus?: (id: string) => void; tierOf?: (id: string) => string | null | undefined
 }) {
   if (!viaProject(r)) return null
   const id = r.presented_by!
   return <span className="doc-presented-by dim">
-    {sentence ? 'this presentation was presented by ' : 'presented by '}
+    {'presented by '}
     <span className="event-actor"><AgentName id={id}
       tier={r.presenter_tier ?? tierOf?.(id)}
       onFocus={onFocus ? (who) => onFocus(who) : undefined} /></span>
@@ -660,7 +660,7 @@ function DocPane({ slug, row, toast, onDismissed, close, onFocusAgent, onReply,
             <span className="dim">{PANE_STATE_WHY[row.node_state]}</span>}
           <span className="dim">{fmtFull(row.at)}</span>
         </div>
-        {row.node && <PresentedBy r={row} sentence tierOf={tierOf} onFocus={onFocusAgent && ((id) => { close(); onFocusAgent(id) })} />}
+        {row.node && <PresentedBy r={row} tierOf={tierOf} onFocus={onFocusAgent && ((id) => { close(); onFocusAgent(id) })} />}
         <div className="doc-pane-title-row">
           <ReplySelectionSurface source={{org:slug,target:{kind:'document',org:slug,id:row.id},part:{part:'document.title'},text:row.title,format:'plain'}}><b>{row.title || '(untitled)'}</b></ReplySelectionSurface>
           {!row.evicted && <DocumentDownload slug={slug} id={row.id} title={row.title} format={row.format} />}
