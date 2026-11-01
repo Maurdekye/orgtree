@@ -8,7 +8,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { getOrgAccounts, saveSettings } from './api'
 import { useAppValue } from './appfeed'
-import type { OrgAccountLane } from './types'
+import { onLiveBump } from './livebus'
+import { useOrgRecordCursor } from './recordsession'
+import type { AccountRegistryPayload, OrgAccountLane, ProvidersPayload } from './types'
 import { SetToggle } from './canvas/settingskit'
 
 type ToastFn = (lines: string[]) => void
@@ -21,6 +23,8 @@ const PROVIDERS: [string, string][] = [
 
 export function OrgAccountsTab({ slug, toast }: { slug: string; toast: ToastFn }) {
   const providers = useAppValue('providers')
+  const accounts = useAppValue('accounts')
+  const cursor = useOrgRecordCursor(slug)
   const [lanes, setLanes] = useState<OrgAccountLane[] | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
@@ -38,7 +42,8 @@ export function OrgAccountsTab({ slug, toast }: { slug: string; toast: ToastFn }
     setLanes(null); setError(null); setBusy(false)
     return () => { ++generation.current; saving.current = false }
   }, [slug])
-  useEffect(() => { void load() }, [load, providers])
+  useEffect(() => { void load() }, [load, providers, accounts, cursor])
+  useEffect(() => onLiveBump(() => { void load() }), [load])
 
   const set = (id: string, allowed: boolean) => {
     if (!lanes || saving.current) return
@@ -98,14 +103,30 @@ export function OrgAccountsTab({ slug, toast }: { slug: string; toast: ToastFn }
  *  accounts: no toggle, no greyed rows (user ruling 2026-10-10 14:56Z). Home
  *  (no org) shows every account. Lanes are the board's names. */
 export function useOrgLaneFilter(org: string | null | undefined) {
-  const [off, setOff] = useState<Set<string> | null>(null)
+  const providers = useAppValue<ProvidersPayload>('providers')
+  const accounts = useAppValue<AccountRegistryPayload>('accounts')
+  const cursor = useOrgRecordCursor(org ?? '')
+  const [observed, setObserved] = useState<{ org: string; off: Set<string> } | null>(null)
   useEffect(() => {
-    if (!org) { setOff(null); return }
-    let live = true
-    getOrgAccounts(org)
-      .then((r) => { if (live) setOff(new Set(r.accounts.filter((l) => !l.allowed).map((l) => l.id))) })
-      .catch(() => { if (live) setOff(null) })
-    return () => { live = false }
-  }, [org])
-  return { used: (lane: string): boolean => !off?.has(lane) }
+    if (!org) return
+    let live = true, request = 0
+    const load = () => {
+      const current = ++request
+      void getOrgAccounts(org).then(r => {
+        if (!live || current !== request || (r.org && r.org !== org) || !Array.isArray(r.accounts)) return
+        setObserved({ org, off: new Set(r.accounts.filter(l => !l.allowed || l.enabled === false).map(l => l.id)) })
+      }).catch(() => { /* retain this org's last observed filter on a transient failure */ })
+    }
+    load()
+    const off = onLiveBump(load)
+    return () => { live = false; off() }
+  }, [org, providers, accounts, cursor])
+  // App-wide switches also apply at Home, where there is no org allowlist.
+  // Ambient rows follow their provider's native switch, just like Accounts.
+  const globallyOff = new Set((accounts?.accounts ?? []).filter(r => !r.ambient && r.enabled === false).map(r => r.id))
+  for (const [provider, enabled] of Object.entries(providers?.subscription_inference ?? {})) {
+    if (!enabled) globallyOff.add(`${provider}/primary`)
+  }
+  return { used: (lane: string): boolean => !globallyOff.has(lane)
+    && !(observed?.org === org && observed.off.has(lane)) }
 }
