@@ -64,6 +64,7 @@ Host v2 the way v1 is hosted, on the engine's own cluster:
    | `HUB_DATABASE_URL` | `postgres://orgtree_mailhub@127.0.0.1:<cluster port>/orgtree_mailhub` |
    | `HUB_DATABASE_PASSWORD` | the role's password — environment only, never argv, never logged |
    | `HUB_DB_POOL` | `8` (the cluster runs with `max_connections=200`; the engine's pool keeps the rest) |
+   | `HUB_TRANSLATE_KEY_FILE` | Mail hub 2.4.0: `<data>/secrets/mailhub-translate.key`, the Anthropic API key (first line) the hub translates with; written only by the unlogged `PUT /api/desktop/hub/translation-key`, read by the hub at each call, absent until a key is saved |
 
    `PYTHONPATH` goes away. Job object, log file (`mailhub/hub.log`, rotated
    at 5 MB), health wait, restart-on-settings and the error texts stay as they

@@ -5,7 +5,10 @@ The standalone hub defaults to 1 GiB (1,073,741,824 bytes), configurable with
 contract. The hosted hub gets `HUB_RUNTIME_CONFIG_FILE`: a small local JSON file
 whose value overrides the startup default. Orgtree saves that file atomically
 when only the maximum changes; it does not restart the hub. An upload snapshots
-its limit at the start, so changes affect subsequent uploads.
+its limit at the start, so changes affect subsequent uploads. Since Mail hub
+2.4.0 the same file also carries `translation` (on/off, default language,
+model, monthly limit), read by the hub at each use, so a translation-only save
+does not restart it either.
 
 App settings → Mail hub exposes the value in MiB. Orgtree checks the selected
 target hub before copying an agent's attachment, staging a user's file, queuing

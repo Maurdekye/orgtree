@@ -19,6 +19,11 @@ Hosting belongs to the installation: one computer hosts at most one bundled hub.
 | Listen on | Default **This computer only** (`127.0.0.1`); **This computer and the local network** uses `0.0.0.0`. This is the main operator interface, distinct from the relay-only door. |
 | Keep mail | Default **Until it is deleted** (`retention_days: null`). A limited number of days enables **Days to keep mail**, 1–36500. The form starts that choice at 30 days when no saved duration exists. |
 | Also serve a relay-only door | Default off (`public_listener: false`), normally port 7371. Carries authenticated client traffic without the full operator mail page. Phone setup can restrict its scope to Tailscale or the home network. |
+| Translate messages between people | Default off. When on, mail between people on this hub who read in different languages (each picks theirs in Hubchat) is translated for its reader by Anthropic's Claude after it is delivered. **Message text leaves the computer.** Agents and organizations always get the original. Stored as `translation.enabled`. |
+| Default language | Default English (`en`). The language taken for agents, organizations and people who haven't chosen one. A reader whose language is the same gets no translation of their mail. |
+| Model | Default `claude-haiku-5-5`. |
+| Monthly limit (USD) | Default 5, from 0 to 100000. Past it, mail is delivered untranslated (its readers are told why) until the month ends (UTC) or the limit is raised. |
+| Anthropic API key | Write-only: saved through its own route, never shown again; the field says whether a key is stored, and **Forget it** removes it. Without a key nothing is translated. |
 
 The limited-retention UI warns that old mail and attachments are deleted hourly, read or not. Keeping indefinitely means until the owners delete it; it is not a backup policy. A stored `org_retention_days` compatibility value is not an active idle-address expiry control: the current host launch does not pass it to the hub.
 
@@ -30,11 +35,11 @@ The relay's phone scope is managed by [phone setup](../phone-link/SKILL.md). The
 
 ## Save, status and errors
 
-Form edits wait for **Save hosting settings**. A maximum-upload-limit-only save writes the runtime limit file and applies to new uploads without restarting the hub. Other hosting changes stop and start the hub; a start error normally restores the previous configuration and attempts the previous hub again. This is a hub restart, not an engine restart. Treat any error or stopped/starting status as unresolved, even if an earlier save succeeded.
+Form edits wait for **Save hosting settings**. A save that changes only the maximum upload limit or the Translation settings writes the hub's runtime file and applies without restarting the hub (the key, too, is read by the hub at each use). Other hosting changes stop and start the hub; a start error normally restores the previous configuration and attempts the previous hub again. This is a hub restart, not an engine restart. Treat any error or stopped/starting status as unresolved, even if an earlier save succeeded.
 
 Turning off a previously enabled relay also asks the desktop to remove its phone firewall rule, with an administrator prompt where needed. If removal is declined the rule can remain, while the door is off. **Refresh hub status** reloads saved configuration and status, so it can replace an unsaved form draft.
 
-Status distinguishes running/healthy, starting and stopped, and shows address, hub version, registered clients and queued count where available. Startup errors and settings carried over from an earlier version appear separately; the earlier hubs' mail-migration reports are no longer shown (their files and the old store are kept). The operator-page link appears when healthy. A displayed version or queue count is not proof a particular recipient read a message.
+Status distinguishes running/healthy, starting and stopped, and shows address, hub version, registered clients and queued count where available. With translation on, the Translation group shows this month's spend and messages translated from the hub's own count, warns at 80% of the limit and when it is reached, asks for a key when none is stored, and says when Anthropic refused the key. Startup errors and settings carried over from an earlier version appear separately; the earlier hubs' mail-migration reports are no longer shown (their files and the old store are kept). The operator-page link appears when healthy. A displayed version or queue count is not proof a particular recipient read a message.
 
 ## Connections on this hub
 

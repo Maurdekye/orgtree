@@ -773,6 +773,13 @@ but give it a longer timeout, say an hour" (23:06Z mac1516a71553); "Yes, widen t
   chips, mention menus and hovers show them offline. The hub's tests: `tests/busy.rs`
   `an_invisible_person_shows_offline_to_everyone_else` and the leak test `nobody_can_tell_invisible_from_offline`
   (a person and an org read the same bytes about an Invisible person as about one really offline).
-- Hub schemas 11 and 12 are one-way: once a hub database has them, an Orgtree whose bundled hub lacks schema 12
-  refuses it ("newer than this hub understands"; restore the backup taken before the upgrade). Schema 12 replaced
-  11 as the step to name in release notes (coordinator 2026-10-31).
+- Translation between people (Mail hub 2.4.0, 2026-11-01; docket mail-hub-hubchat-automatic-translation-between-u,
+  user 12:15Z answers and 12:16Z "Build it"): a person reads in a language (Hubchat), and the hub translates mail to
+  them from another language after delivering it, for them only (hub schema 13). Orgtree owns the bundled hub's
+  settings: App settings > Mail hub > Hosting > Translation writes `translation` into the runtime file (no restart)
+  and the API key, through the unlogged `PUT /api/desktop/hub/translation-key`, into the file passed as
+  `HUB_TRANSLATE_KEY_FILE`; windows are told only `translation_key_set`. Never put the key in the hosting PUT (that
+  handler is `#[logged]`). Orgtree's own views of mail are unchanged: agents and orgs always get the original.
+- Hub schemas 11, 12 and 13 are one-way: once a hub database has them, an Orgtree whose bundled hub lacks the newest
+  refuses it ("newer than this hub understands"; restore the backup taken before the upgrade). Schema 13 (Mail hub
+  2.4.0) replaced 12 as the step to name in release notes.
