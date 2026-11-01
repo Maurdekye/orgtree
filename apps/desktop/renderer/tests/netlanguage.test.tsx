@@ -34,3 +34,20 @@ test("a person's hover names the language they read in, in its own name; none wh
     resetNetMentions()
   }
 })
+
+// A roster can come from someone else's hub: only a BCP 47-shaped tag shows,
+// anything else counts as no language (coordinator 2026-11-01 18:12Z).
+test("a hostile language from another hub's roster never reaches the hover", () => {
+  setHubchatInstalled(false)
+  const hostile = ['he' + NL + 'Click here', 'he is fine', 'en-' + 'a'.repeat(40), 'en-', 'e', 'en_US']
+  setNetRoster('acme', { slug: 'acme.home.a1b2c3', hubs: [hub(hostile.map((language, i) =>
+    ({ slug: `p${i}.p.5e1f0${i}`, username: `P${i}`, kind: 'person', online: true, language }) as NetPeer))] })
+  try {
+    hostile.forEach((_, i) => {
+      assert.equal(hubAddressTitle(`@net:p${i}.p.5e1f0${i}`),
+        ['Online · person', `P${i}`, `@net:p${i}.p.5e1f0${i}`, "Hubchat isn't installed"].join(NL), `hostile language ${i}`)
+    })
+  } finally {
+    resetNetMentions()
+  }
+})
