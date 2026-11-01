@@ -2523,8 +2523,11 @@ verified: `canvas/{connectionlist,connections,hosthub,netmentions,mail}.tsx`,
 
 The composer's @ list offers agents, projects, tickets, presentations, apps and
 panels, newest first by the latest of mentioned, operated on and presented, and
-a kind prefix (`@agent:` `@project:` `@item:` `@doc:` `@app:` `@panel:`) lists
-all of one kind. Tickets, presentations, apps and panels come from one bounded
+a kind prefix (`@agent:` `@project:` `@item:` `@doc:` `@app:` `@panel:` `@net:` `@org:`) lists
+all of one kind. `@net:` and `@org:` entries are not engine rows: the window builds
+them from the hub rosters (`netRosterEntries`, netmentions.tsx) and the known local
+orgs (`setKnownOrgs`); they carry no time (name order after timed rows) and the
+transcript recency does not cover them. Tickets, presentations, apps and panels come from one bounded
 engine read, `GET /api/orgs/{slug}/mention-candidates?kinds&q&after&limit`
 (`domain/mention_candidates.rs`, `http/mention_candidates.rs`): ranked, keyset
 paged by `[at_ms, lower(label), kind, id]`, at most 50 rows. `at_ms` is in
