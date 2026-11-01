@@ -1688,6 +1688,46 @@ mod mail_shape_tests {
         let quiet = json!({ "orgtree": { "messaging": false } });
         assert_eq!(scoped_as(&quiet, MailShape::Flat), scoped(&quiet));
     }
+
+    /// Batch queue submission (user 2026-10-28 m2af169f65d89, authorized
+    /// 2026-11-01 m81708aedacc4): orgtree_message gains the batch fields in
+    /// metadata on both shapes and body becomes handler-required (a batch
+    /// source replaces it, as orgtree_present's path replaces its body);
+    /// the notice card gains none of it.
+    #[test]
+    fn batch_fields_are_on_the_message_card_only() {
+        for shape in [MailShape::Split, MailShape::Flat] {
+            let [m, n] = mail_tools(shape);
+            let meta_props = |c: &Value| -> serde_json::Map<String, Value> {
+                if shape == MailShape::Split {
+                    c["inputSchema"]["properties"]["metadata"]["properties"].as_object().unwrap().clone()
+                } else {
+                    c["inputSchema"]["properties"].as_object().unwrap().clone()
+                }
+            };
+            let mp = meta_props(&m);
+            for f in ["jobs", "rows"] {
+                assert_eq!(mp[f]["type"], json!("array"), "{shape:?} {f}");
+                assert_eq!(mp[f]["maxItems"], json!(1000), "{shape:?} {f}");
+            }
+            assert_eq!(mp["jobs_file"]["type"], json!("string"), "{shape:?}");
+            assert_eq!(mp["batch_key"]["type"], json!("string"), "{shape:?}");
+            assert_eq!(mp["batch_key"]["maxLength"], json!(128), "{shape:?}");
+            // body stays a property but leaves `required`: the handler
+            // refuses an ordinary send without one, a batch sends many
+            let top = m["inputSchema"]["properties"].as_object().unwrap();
+            assert!(top.contains_key("body"), "{shape:?}");
+            let want: &[&str] = if shape == MailShape::Split { &["metadata"] } else { &["to"] };
+            assert_eq!(m["inputSchema"]["required"], json!(want), "{shape:?}");
+            assert!(m["description"].as_str().unwrap().contains("many jobs to one project"), "{shape:?}: {}", m["description"]);
+            let np = meta_props(&n);
+            for f in ["jobs", "rows", "jobs_file", "batch_key"] {
+                assert!(!np.contains_key(f), "{shape:?} notice must not carry {f}");
+            }
+            let nwant: &[&str] = if shape == MailShape::Split { &["metadata", "body"] } else { &["to", "body"] };
+            assert_eq!(n["inputSchema"]["required"], json!(nwant), "{shape:?}");
+        }
+    }
 }
 
 #[cfg(test)]

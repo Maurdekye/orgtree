@@ -894,6 +894,38 @@ mod tests {
     }
 
     #[test]
+    fn batch_metadata_survives_split_and_flat_shapes() {
+        let split=flat_args(&json!({"metadata":{"to":"queue-proj","jobs":["job one","job two"],"batch_key":"rr-4.5.5"},"body":""})).unwrap();
+        assert_eq!(split["jobs"],json!(["job one","job two"]));
+        assert_eq!(split["batch_key"],json!("rr-4.5.5"));
+        let split=flat_args(&json!({"metadata":{"to":"queue-proj","rows":[{"sha":"abc"}],"jobs_file":"manifest.csv"},"body":"Review {sha}"})).unwrap();
+        assert_eq!(split["rows"],json!([{"sha":"abc"}]));
+        assert_eq!(split["jobs_file"],json!("manifest.csv"));
+        assert_eq!(split["body"],json!("Review {sha}"));
+        let flat=flat_args(&json!({"to":"queue-proj","jobs":["job one"],"body":""})).unwrap();
+        assert_eq!(flat["jobs"],json!(["job one"]));
+    }
+
+    #[test]
+    fn batch_fields_beside_metadata_are_refused_not_dropped() {
+        for f in ["jobs","rows","jobs_file","batch_key"] {
+            let mut call=json!({"metadata":{"to":"queue-proj"},"body":""});
+            call[f]=if matches!(f,"jobs"|"rows") {json!([])} else {json!("x")};
+            let err=flat_args(&call).unwrap_err().to_string();
+            assert!(err.contains(&format!("put {f} inside metadata")),"{f}: {err}");
+        }
+    }
+
+    #[test]
+    fn batch_calls_never_advertise_typing() {
+        for meta in [json!({"to":"@net:peer.id","jobs":["a"]}),json!({"to":"@net:peer.id","rows":[{}]}),
+                     json!({"to":"@net:peer.id","jobs_file":"m.json"}),json!({"to":"@net:peer.id","batch_key":"k"})] {
+            assert!(typing_peers(&meta).is_none(),"{meta}");
+        }
+        assert!(typing_peers(&json!({"to":"@net:peer.id"})).is_some());
+    }
+
+    #[test]
     fn one_time_durable_marker_is_in_message_and_notice_headers() {
         for notice in [false,true] {
             for one_time in [false,true] {
