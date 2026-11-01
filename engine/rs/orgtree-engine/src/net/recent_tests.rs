@@ -86,6 +86,13 @@ fn the_migration_only_adds_the_probe_index() {
         "each pair is the index's own probe: equal org and peer, newest time");
 }
 
+#[test]
+#[nolog]
+fn the_orgs_probe_is_the_same_index_probe_on_the_org_peer() {
+    assert!(NEWEST_ORG_SQL.contains("i.org_id = $1 AND i.peer = '@org:' || p.slug") && NEWEST_ORG_SQL.contains("ORDER BY i.at DESC LIMIT 1"),
+        "each org is the index's own probe: equal org and '@org:<slug>' peer, newest time");
+}
+
 #[tokio::test]
 #[nolog]
 async fn a_hub_that_is_not_running_lists_nothing() {
