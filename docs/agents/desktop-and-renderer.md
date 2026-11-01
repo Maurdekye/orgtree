@@ -2742,8 +2742,9 @@ object links: the mail icon on the left, then the first words of the message (m3
   and the class `mail-new`, which `styles.css` gives the presentation's `doc-new` colour in one rule (`.ref-flare:is(.doc-new,
   .mail-new)`, the edge in the provider-tinted `--accent` (a desk or tray row re-points it at its provider's colour, elsewhere it is the theme colour), the run edge's own colour: USER 2026-10-31 mdc9a9dbe34c7 "running and unread should always be provider color", which replaced an `--org-accent` (chosen theme colour) version, mb8978d259c97; mail has no "modified" state). `resolveRef` carries it on the chip, `refChipTitle` and the
   Markdown chip lead the static title with it, and the hover (`objecttooltip.ts`, `mailTitle`'s `state`) leads with it from its
-  fresh read, so the sent-mail tool rows, the listener tables, Markdown and React links all show it. Only the user's inbox keeps
-  per-message read state: a node's or the org inbox's message, a read one and `@user` never flare. It clears under the presentation's
+  fresh read, so the sent-mail tool rows, the listener tables, Markdown and React links all show it. The user's inbox and an
+  agent's mailbox keep per-message read state (an agent's, since 2026-11-01: see the agent-mail section at the end of this file); the
+  org inbox's message, a read one and `@user` never flare. It clears under the presentation's
   rule, when the message is read: a read made in this window (`mailread.ts` `markReadNow`) re-decides every link at once through
   `subscribeLocalReads` -> `refNames.touch()` with no read, an accepted save is recorded on the kept answer (`onReadSaved` ->
   `refNames.amend`) so the link stays read when the store forgets the read, and a refused save puts the flare back. A read made
