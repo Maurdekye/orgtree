@@ -2526,8 +2526,13 @@ panels, newest first by the latest of mentioned, operated on and presented, and
 a kind prefix (`@agent:` `@project:` `@item:` `@doc:` `@app:` `@panel:` `@net:` `@org:`) lists
 all of one kind. `@net:` and `@org:` entries are not engine rows: the window builds
 them from the hub rosters (`netRosterEntries`, netmentions.tsx) and the known local
-orgs (`setKnownOrgs`); they carry no time (name order after timed rows) and the
-transcript recency does not cover them. Tickets, presentations, apps and panels come from one bounded
+orgs (`setKnownOrgs`). Their recency (USER 2026-11-01 m6a66447606a0) is the latest
+of the newest mention in mail (`ot.mention_recency` kinds `net`/`org`, migration
+0080; the first page's `outside` list) and, for `@net:`, the newest mail exchanged
+with it (`GET net/recent`, org_inbox_peer_at). `@org:` has no mail source: mentions
+only. The open conversation's recency does not cover them. Under `@net:`/`@org:`
+the window asks the engine for `app` rows only to get the first page's times and
+drops those rows. Tickets, presentations, apps and panels come from one bounded
 engine read, `GET /api/orgs/{slug}/mention-candidates?kinds&q&after&limit`
 (`domain/mention_candidates.rs`, `http/mention_candidates.rs`): ranked, keyset
 paged by `[at_ms, lower(label), kind, id]`, at most 50 rows. `at_ms` is in

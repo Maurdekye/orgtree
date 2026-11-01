@@ -209,7 +209,7 @@ test('§4 "all" is read a page at a time as the list is read: the end of what is
 })
 
 test('§6 outside addresses rank by recency: the latest of mail sent/received and mention in mail, among the other kinds', async t => {
-  const { asked } = engine(t, () => {}, [], [{ kind: 'net', key: 'acme.12ab34', at: '2026-10-27T11:00:00Z' }, { kind: 'org', key: 'local-org', at: '2026-10-27T10:30:00Z' }],
+  engine(t, () => {}, [], [{ kind: 'net', key: 'acme.12ab34', at: '2026-10-27T11:00:00Z' }, { kind: 'org', key: 'local-org', at: '2026-10-27T10:30:00Z' }],
     { 'alice.77ded7': '2026-10-27T10:25:00Z', 'acme.12ab34': '2026-10-27T09:00:00Z' })
   setKnownOrgs(['local-org'])
   setNetRoster('acme', { slug: 'home.000001', picture_revision: null, hubs: [{ id: 'local', address: 'http://127.0.0.1:7370', enabled: true,
@@ -224,5 +224,4 @@ test('§6 outside addresses rank by recency: the latest of mail sent/received an
     'acme mentioned 11:00 (later than its 09:00 mail), the org mentioned 10:30, alice mailed 10:25, boss worked 10:20')
   await typeInto(box, 'see @net:')
   assert.deepEqual(ranked(), ['Acme Labs (@net:acme.12ab34)', 'Alice (@net:alice.77ded7)'], '@net: keeps the same order')
-  assert.ok(asked.every(q => q.get('kinds') !== 'item,doc,app,panel' || true))
 })
