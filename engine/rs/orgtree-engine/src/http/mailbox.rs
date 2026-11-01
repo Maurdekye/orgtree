@@ -207,6 +207,9 @@ pub async fn mail_by_id(
                     let m: Value = r.get(0);
                     let mut entry = compute::mail_entry(&m);
                     entry["to"] = m["recipient_name"].clone();
+                    // an agent-addressed message reads or not by the recipient's row (the unread states the inbox counts); a
+                    // sender's view of what it sent answers for that recipient (USER 2026-11-01 mc13db4358667)
+                    entry["unread"] = json!(matches!(m["state"].as_str(), Some("pending" | "delivering")));
                     entry
                 })
         }

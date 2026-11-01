@@ -13,8 +13,12 @@
 // the same way, when the message is read. A read made here (mailread.ts) is decided again at once from this window's own read
 // state and recorded on the kept answer when the save is accepted, so the link never flashes back to unread; a read made
 // elsewhere (another window, "mark all read") reaches the links when the inbox's unread list no longer holds the message
-// (`mailInboxRead`), which reads just those links again. Only the user's inbox keeps per-message read state, so a node's or the
-// org inbox's message never flares.
+// (`mailInboxRead`), which reads just those links again. AN AGENT'S MESSAGE FLARES TOO (USER 2026-11-01 mc13db4358667 "only user
+// mail gets the highlight. can agent mail get it too? it has read / unread states"): the node box's lookup says `unread` by the
+// recipient's own row (the unread states the inbox counts), the same for the sender's view of what it sent, and the links on
+// screen read it again when the tree's pending-mail counts change (`mailTreeChanged`). The org inbox's message never flares. AN
+// UNREAD URGENT MESSAGE'S EDGE IS THE URGENT COLOUR (USER 2026-11-01 m49a258f12e57 "urgent unread mail gets a highlight with the
+// urgent color"), user and agent mail alike: the class `mail-urgent` beside `mail-new`.
 
 import { getMailById } from '../api'
 import { onReadSaved, readLocally, subscribeLocalReads } from '../mailread'
@@ -44,8 +48,9 @@ export function mailRefLabel(body: unknown): string | null {
 
 /** An unread message's flare: the presentation's words, its own class (styles.css gives `mail-new` and `doc-new` one colour).
  *  None once the user read it, here or elsewhere. */
-export function mailFlare(org: string, mail: Pick<MailEntry, 'id' | 'unread'>): RefFlare | undefined {
-  return mail.unread === true && !readLocally(org, mail.id) ? { cls: 'mail-new', tip: DOC_UNREAD_WORDS.new } : undefined
+export function mailFlare(org: string, mail: Pick<MailEntry, 'id' | 'unread' | 'urgent'>): RefFlare | undefined {
+  if (mail.unread !== true || readLocally(org, mail.id)) return undefined
+  return mail.urgent === true ? { cls: 'mail-new mail-urgent', tip: `Urgent · ${DOC_UNREAD_WORDS.new}` } : { cls: 'mail-new', tip: DOC_UNREAD_WORDS.new }
 }
 
 const split = (target: string) => {
@@ -86,4 +91,19 @@ onReadSaved((org, id) => refNames.amend(org, 'mail', refTarget({ kind: 'mail', o
 export function mailInboxRead(org: string, unreadIds: Iterable<string>): void {
   const pending = new Set(unreadIds)
   refNames.invalidate(org, ['mail'], (target, row) => (row as MailEntry).unread === true && !pending.has(split(target).id))
+}
+
+let lastPending = ''
+/** The tree's per-agent pending-mail counts: when they changed, the links to an agent's unread message are read again (an
+ *  agent read it, or a new one arrived). Cheap: nothing is read unless the counts moved and such a link is on screen. */
+export function mailTreeChanged(org: string, roots: readonly { id?: string; mail_pending?: number; children?: readonly unknown[] }[]): void {
+  const parts: string[] = []
+  const walk = (ns: readonly { id?: string; mail_pending?: number; children?: readonly unknown[] }[]) => {
+    for (const n of ns) { parts.push(`${n.id ?? ''}:${n.mail_pending ?? 0}`); if (n.children?.length) walk(n.children as typeof ns) }
+  }
+  walk(roots)
+  const sig = org + '|' + parts.join(',')
+  if (sig === lastPending) return
+  lastPending = sig
+  refNames.invalidate(org, ['mail'], (target, row) => (row as MailEntry).unread === true && split(target).box === 'node')
 }

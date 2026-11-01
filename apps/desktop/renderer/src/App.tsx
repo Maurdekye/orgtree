@@ -153,7 +153,7 @@ import type { DeskDogs } from './canvas/watchdogroute'
 import { customAppsFeed, invalidateCustomApps } from './canvas/apps/store'
 import { docketFeed } from './canvas/itemrefs'
 import { documentsFeed } from './canvas/docrefs'
-import { mailInboxRead } from './canvas/mailrefs'
+import { mailInboxRead, mailTreeChanged } from './canvas/mailrefs'
 import { requestPanelSample } from './canvas/apps/runtime'
 import { closeIfCentred, isModalPinned, PinFrame, raisePinnedModal, readModalOpen, toggleOrRaiseModal, usePersistedModalOpen, useScopedOpen } from './canvas/modalpin'
 import { HireDefaultsTab, orgDefaultTools, orgDirHoldings } from './canvas/modals'
@@ -1084,6 +1084,7 @@ export default function App() {
         const shown = applyPrimedAsks(want, t, readStartedAt)
         setTree(shown)
         publishEpicTree(shown)
+        mailTreeChanged(want, shown.roots)
         // point 31: forget submitted cards this tree has caught up with
         settleFromTree(want, shown)
         // and mail reads it counts (a read saved before this read began)
@@ -1114,6 +1115,7 @@ export default function App() {
         const visible = applyPrimedAsks(slug, shown, readStartedAt)
         setTree(visible)
         publishEpicTree(visible)
+        mailTreeChanged(slug, visible.roots)
         settleFromTree(slug, visible)
         if (readStartedAt) settleReadsFromTree(slug, readStartedAt)
         setTreeRead({ at: Date.now(), error: null })
