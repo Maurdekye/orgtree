@@ -7230,6 +7230,10 @@
     },
     {
      "file": "apps/desktop/renderer/src/canvas/hosthub.tsx",
+     "label": "Translate messages from agents"
+    },
+    {
+     "file": "apps/desktop/renderer/src/canvas/hosthub.tsx",
      "label": "Default language"
     },
     {

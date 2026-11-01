@@ -780,6 +780,12 @@ but give it a longer timeout, say an hour" (23:06Z mac1516a71553); "Yes, widen t
   and the API key, through the unlogged `PUT /api/desktop/hub/translation-key`, into the file passed as
   `HUB_TRANSLATE_KEY_FILE`; windows are told only `translation_key_set`. Never put the key in the hosting PUT (that
   handler is `#[logged]`). Orgtree's own views of mail are unchanged: agents and orgs always get the original.
+  User 2026-11-01 16:12Z-16:21Z: only person-to-person mail is translated unless `translation.translate_agents`
+  (Hosting > "Translate messages from agents", off by default); a translation that changed a mention is not shown
+  (the hub's `translate::keeps_mentions`). A person's `language` is on their roster entry: an agent's FROM line for
+  a person's mail reads `(outside party · see EXTERNAL · language: he)` (`envelope::outside_party`, from
+  `net::peer_language`; nothing when they chose none, never the hub default), and the network hover has
+  "Language: <its own name>" (`netmentions.tsx`), as Hubchat's Contact info Language row.
 - Hub schemas 11, 12 and 13 are one-way: once a hub database has them, an Orgtree whose bundled hub lacks the newest
   refuses it ("newer than this hub understands"; restore the backup taken before the upgrade). Schema 13 (Mail hub
   2.4.0) replaced 12 as the step to name in release notes.
