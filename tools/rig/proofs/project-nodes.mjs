@@ -419,6 +419,45 @@ export default async function (rig) {
   p.check('locate finds it in the renamed agent\'s gallery', !!sketchId && locatedRenamed.located === sketchId
     && (locatedRenamed.documents ?? []).some(d => d.id === sketchId), { located: locatedRenamed.located })
 
+  // ------------------------------------------------------------ a project's theme colour and icon
+  // USER 2026-10-28 10:27:49Z m1c0bc6c121e9: the user sets them in the
+  // project's settings (the set_theme op); no agent tool this round, so
+  // configure refuses the keys. They ride the tree record and the settings
+  // read; unset reads back as null (the folder in the default colour).
+  const themeTree = async name => {
+    const t = await rig.api('GET', `/api/orgs/${rig.org}/records`)
+    return (t.records ?? []).find(r => r.entity === 'agent' && r.body?.id === name)?.body
+  }
+  const themed = await opTry({ op: 'set_theme', node: 'website', theme_color: '#E11D48', theme_icon: 'rocket' })
+  const webAfter = node('website')
+  const settings = await opTry({ op: 'project_settings', node: 'website' })
+  const webRec2 = await themeTree('website')
+  p.check('the user sets a theme colour and icon; both are saved with the project and read back normalised',
+    themed.ok && themed.v?.theme_color === '#e11d48' && themed.v?.theme_icon === 'rocket'
+    && webAfter?.scope?.theme_color === '#e11d48' && webAfter?.scope?.theme_icon === 'rocket'
+    && settings.ok && settings.v?.settings?.theme_color === '#e11d48' && settings.v?.settings?.theme_icon === 'rocket'
+    && webRec2?.theme_color === '#e11d48' && webRec2?.theme_icon === 'rocket',
+    { said: themed.ok ? themed.v : themed.error, settings: settings.ok ? settings.v?.settings : settings.error, tree: { c: webRec2?.theme_color, i: webRec2?.theme_icon } })
+  const badColour = await opTry({ op: 'set_theme', node: 'website', theme_color: 'rose' })
+  const badIcon = await opTry({ op: 'set_theme', node: 'website', theme_icon: 'Rocket Ship' })
+  const onAgent = await opTry({ op: 'set_theme', node: 'dev1', theme_icon: 'rocket' })
+  const viaConfigure = await opTry({ op: 'configure_project', node: 'website', settings: { theme_icon: 'star' } })
+  p.check('a malformed colour or icon is refused, an agent has no theme, and configure does not take the keys',
+    !badColour.ok && !badIcon.ok && !onAgent.ok && !viaConfigure.ok && node('website')?.scope?.theme_icon === 'rocket',
+    { badColour: badColour.ok || badColour.error, badIcon: badIcon.ok || badIcon.error, onAgent: onAgent.ok || onAgent.error, viaConfigure: viaConfigure.ok || viaConfigure.error })
+  const colourOnly = await opTry({ op: 'set_theme', node: 'website', theme_color: '#22c4bd' })
+  p.check('setting one half leaves the other alone', colourOnly.ok && colourOnly.v?.theme_icon === 'rocket' && node('website')?.scope?.theme_color === '#22c4bd',
+    colourOnly.ok ? colourOnly.v : colourOnly.error)
+  const cleared = await opTry({ op: 'set_theme', node: 'website', theme_color: null, theme_icon: null })
+  const settings2 = await opTry({ op: 'project_settings', node: 'website' })
+  const webRec3 = await themeTree('website')
+  p.check('clearing both reads back as no theme, on the settings read and the tree alike',
+    cleared.ok && cleared.v?.theme_color === null && cleared.v?.theme_icon === null
+    && settings2.ok && settings2.v?.settings?.theme_color === null && settings2.v?.settings?.theme_icon === null
+    && (webRec3?.theme_color ?? null) === null && (webRec3?.theme_icon ?? null) === null
+    && node('website')?.scope?.theme_color === undefined,
+    { said: cleared.ok ? cleared.v : cleared.error, settings: settings2.ok ? settings2.v?.settings : settings2.error })
+
   p.file('mail.json', rig.sql(`SELECT uid, sender, recipient_name, state, notice, extra FROM ot.mail ORDER BY id`))
   p.file('tree.json', rig.sql(`SELECT id, name, kind, parent_id, state, seat, grant_credits FROM ot.agents ORDER BY id`))
   p.keep(rig, { agents: ['dev1', 'dev2', 'boss'], grep: /project|fair_queue|dispatch/i })

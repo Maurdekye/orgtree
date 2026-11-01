@@ -37,6 +37,8 @@ mod credit_settlement;
 mod credit_scale_tests;
 #[cfg(test)]
 mod broadcast_tests;
+#[cfg(test)]
+mod theme_tests;
 
 /// Physical ancestry only: root-first rows and locks, never the reporting superior.
 #[logged]

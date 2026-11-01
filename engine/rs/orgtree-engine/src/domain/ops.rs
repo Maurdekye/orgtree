@@ -3593,6 +3593,17 @@ mod project_settings_tests {
         assert_eq!(ops.last().unwrap(),&json!({"op":"rename","node":"alpha","name":"beta"}),"the rename stays last");
     }
     #[test]
+    fn the_theme_is_not_a_configure_setting() {
+        // USER 2026-10-28 m1c0bc6c121e9, liaison spec: the theme colour and
+        // icon are set by the user in the project's settings (the set_theme
+        // op), with no agent tool this round — so configure refuses them as
+        // unknown, like any other key it does not own.
+        for patch in [json!({"theme_color":"#e11d48"}), json!({"theme_icon":"rocket"}),
+            json!({"theme_color":null}), json!({"slots":1,"theme_icon":"rocket"})] {
+            assert!(project_setting_ops("alpha",&patch).is_err(),"accepted {patch}");
+        }
+    }
+    #[test]
     fn partial_patch_never_resets_untouched_values() {
         assert_eq!(project_setting_ops("alpha",&json!({"slots":1})).unwrap(),vec![json!({"op":"set_slots","node":"alpha","capacity":1})]);
         assert_eq!(project_setting_ops("alpha",&json!({"description":""})).unwrap(),vec![json!({"op":"set_description","node":"alpha","description":""})]);
