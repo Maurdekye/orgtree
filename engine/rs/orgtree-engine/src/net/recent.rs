@@ -47,6 +47,14 @@ pub(crate) const NEWEST_SQL: &str = "SELECT o.id, p.slug, x.at
                            WHERE i.org_id = o.id AND i.peer = '@net:' || p.slug
                            ORDER BY i.at DESC LIMIT 1) x";
 
+/// The same probe for the orgs on this machine: mail between this org and each
+/// `@org:<slug>` (orginbox.rs records both ends with that peer).
+pub(crate) const NEWEST_ORG_SQL: &str = "SELECT x.at, p.slug
+       FROM unnest($2::text[]) AS p(slug)
+      CROSS JOIN LATERAL (SELECT i.at FROM ot.org_inbox i
+                           WHERE i.org_id = $1 AND i.peer = '@org:' || p.slug
+                           ORDER BY i.at DESC LIMIT 1) x";
+
 /// The newest mail between each org in `orgs` and each address in `slugs`
 /// (bare hub slugs), either direction: one row per pair that has any.
 #[logged]
@@ -114,7 +122,16 @@ pub async fn org_recent(engine: &Engine, org_id: i64) -> Result<Value> {
     let rosters = block["hubs"].as_array().into_iter().flatten().flat_map(|h| h["roster"].as_array().into_iter().flatten());
     let slugs = distinct_slugs(rosters, MAX_ADDRESSES);
     let rows = newest_mail(&client, &[org_id], &slugs).await?;
-    Ok(json!({ "recent": recent_json(&newest_by_address(&rows, &HashMap::new())) }))
+    // the other orgs on this machine, for the @ menu's `@org:` entries (USER 2026-11-01 m6a66447606a0)
+    let org_slugs: Vec<String> = client.query("SELECT slug FROM ot.orgs ORDER BY slug LIMIT $1", &[&(MAX_ADDRESSES as i64)]).await?
+        .iter().map(|r| r.get(0)).collect();
+    let mut orgs: HashMap<String, DateTime<Utc>> = HashMap::new();
+    if !org_slugs.is_empty() {
+        for r in client.query(NEWEST_ORG_SQL, &[&org_id, &org_slugs]).await? {
+            orgs.insert(r.get::<_, String>(1).to_lowercase(), r.get(0));
+        }
+    }
+    Ok(json!({ "recent": recent_json(&newest_by_address(&rows, &HashMap::new())), "orgs": recent_json(&orgs) }))
 }
 
 /// The hub's operator view: every registered address with its presence.

@@ -324,7 +324,7 @@ export interface NetBlock {
 /** GET /api/orgs/{slug}/net/recent: the newest mail this org exchanged with
  *  each address its hubs list, either way (bare slug → ISO time); an address
  *  with none is left out. The Connections lists sort on it. */
-export interface NetRecent { recent: Record<string, string> }
+export interface NetRecent { recent: Record<string, string>; /** the same for `@org:<slug>` (the orgs on this machine) */ orgs?: Record<string, string> }
 /** GET /api/desktop/hub/connections: every address registered on this
  *  computer's hub, from its read-only operator view (presence included), and
  *  the newest mail an org here that uses the hub exchanged with each. */

@@ -2529,8 +2529,8 @@ them from the hub rosters (`netRosterEntries`, netmentions.tsx) and the known lo
 orgs (`setKnownOrgs`). Their recency (USER 2026-11-01 m6a66447606a0) is the latest
 of the newest mention in mail (`ot.mention_recency` kinds `net`/`org`, migration
 0080; the first page's `outside` list) and, for `@net:`, the newest mail exchanged
-with it (`GET net/recent`, org_inbox_peer_at). `@org:` has no mail source: mentions
-only. The open conversation's recency does not cover them. Under `@net:`/`@org:`
+with it, and for `@org:` the newest mail exchanged with that org (`GET net/recent`,
+`recent` and `orgs`; org_inbox_peer_at, peer `@org:<slug>`). The open conversation's recency does not cover them. Under `@net:`/`@org:`
 the window asks the engine for `app` rows only to get the first page's times and
 drops those rows. Tickets, presentations, apps and panels come from one bounded
 engine read, `GET /api/orgs/{slug}/mention-candidates?kinds&q&after&limit`

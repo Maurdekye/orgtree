@@ -25,7 +25,7 @@ const json = (body: unknown, status = 200) => new Response(JSON.stringify(body),
 
 /** The engine's read through the shared fake; every request is kept. */
 function engine(t: TestContext, setup: (s: FakeServer) => void, nodes: { name: string; at: string }[] = [],
-  outside: { kind: 'net' | 'org'; key: string; at: string }[] = [], recent: Record<string, string> = {}) {
+  outside: { kind: 'net' | 'org'; key: string; at: string }[] = [], recent: { recent?: Record<string, string>; orgs?: Record<string, string> } = {}) {
   resetMentionSearchForTests()
   const server = new FakeServer()
   setup(server)
@@ -33,7 +33,7 @@ function engine(t: TestContext, setup: (s: FakeServer) => void, nodes: { name: s
   const original = globalThis.fetch
   globalThis.fetch = (async (raw: RequestInfo | URL) => {
     const url = new URL(String(raw), 'http://local')
-    if (url.pathname.endsWith('/net/recent')) return json({ recent })
+    if (url.pathname.endsWith('/net/recent')) return json({ recent: recent.recent ?? {}, orgs: recent.orgs ?? {} })
     if (!url.pathname.endsWith('/mention-candidates')) return json({})
     asked.push(url.searchParams)
     const page = server.mentionCandidates(url) as { nodes?: unknown }
@@ -208,9 +208,9 @@ test('§4 "all" is read a page at a time as the list is read: the end of what is
   assert.equal(document.querySelector('.agent-mention-more'), null, 'nothing more to read: no marker')
 })
 
-test('§6 outside addresses rank by recency: the latest of mail sent/received and mention in mail, among the other kinds', async t => {
+test('§6 outside addresses (contacts and orgs) rank by recency: the latest of mail sent/received and mention in mail, among the other kinds', async t => {
   engine(t, () => {}, [], [{ kind: 'net', key: 'acme.12ab34', at: '2026-10-27T11:00:00Z' }, { kind: 'org', key: 'local-org', at: '2026-10-27T10:30:00Z' }],
-    { 'alice.77ded7': '2026-10-27T10:25:00Z', 'acme.12ab34': '2026-10-27T09:00:00Z' })
+    { recent: { 'alice.77ded7': '2026-10-27T10:25:00Z', 'acme.12ab34': '2026-10-27T09:00:00Z' }, orgs: { 'local-org': '2026-10-27T10:45:00Z' } })
   setKnownOrgs(['local-org'])
   setNetRoster('acme', { slug: 'home.000001', picture_revision: null, hubs: [{ id: 'local', address: 'http://127.0.0.1:7370', enabled: true,
     connected: true, queued: 0, roster: [
@@ -221,7 +221,7 @@ test('§6 outside addresses rank by recency: the latest of mail sent/received an
   const box = await mount(t, 'acme', [agent('boss', '2026-10-27T10:20:00Z')])
   await typeInto(box, '@')
   assert.deepEqual(ranked(), ['Acme Labs (@net:acme.12ab34)', '@org:local-org', 'Alice (@net:alice.77ded7)', '@boss'],
-    'acme mentioned 11:00 (later than its 09:00 mail), the org mentioned 10:30, alice mailed 10:25, boss worked 10:20')
+    'acme mentioned 11:00 (later than its 09:00 mail), the org mailed 10:45 (later than its 10:30 mention), alice mailed 10:25, boss worked 10:20')
   await typeInto(box, 'see @net:')
   assert.deepEqual(ranked(), ['Acme Labs (@net:acme.12ab34)', 'Alice (@net:alice.77ded7)'], '@net: keeps the same order')
 })

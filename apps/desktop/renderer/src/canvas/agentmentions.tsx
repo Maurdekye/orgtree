@@ -76,8 +76,8 @@ function rowCandidate(r: MentionRow, org: string): MentionCandidate {
  *  orgs on this PC (`@org:<slug>`, the ones their chips open). Listing one only references it; nothing is sent. */
 function netCandidates(mentioned: ReadonlyMap<string, number>, mail: ReadonlyMap<string, number>): MentionCandidate[] {
   // recency (USER 2026-11-01 m6a66447606a0): the latest of the newest mail sent to or received from it
-  // (net/recent, @net: only) and its newest mention in mail (the engine's mention times)
-  const at = (kind: 'net' | 'org', slug: string) => Math.max(mentioned.get(`${kind}:${slug}`) ?? 0, kind === 'net' ? mail.get(slug) ?? 0 : 0)
+  // (net/recent: contacts and orgs) and its newest mention in mail (the engine's mention times)
+  const at = (kind: 'net' | 'org', slug: string) => Math.max(mentioned.get(`${kind}:${slug}`) ?? 0, mail.get(`${kind}:${slug}`) ?? 0)
   const out: MentionCandidate[] = netRosterEntries().map(e => ({ id: e.slug, kind: 'net', tier: 'net', at: at('net', e.slug),
     title: e.name ? `${e.name} (@net:${e.slug})` : `@net:${e.slug}` }))
   for (const slug of knownOrgSlugs) out.push({ id: slug, kind: 'org', tier: 'org', at: at('org', slug), title: `@org:${slug}` })
@@ -487,7 +487,8 @@ export function useAgentMentions({
   useEffect(() => {
     if (!canShow || !org) return
     let alive = true
-    getNetRecent(org).then(r => { if (alive) setMail(new Map(Object.entries(r?.recent ?? {}).map(([slug, at]) => [slug.toLowerCase(), Date.parse(at) || 0]))) }, () => { /* keep what is known */ })
+    getNetRecent(org).then(r => { if (alive) setMail(new Map([...Object.entries(r?.recent ?? {}).map(([slug, at]) => [`net:${slug.toLowerCase()}`, Date.parse(at) || 0] as const),
+      ...Object.entries(r?.orgs ?? {}).map(([slug, at]) => [`org:${slug.toLowerCase()}`, Date.parse(at) || 0] as const)])) }, () => { /* keep what is known */ })
     return () => { alive = false }
   }, [canShow, org, activeQuery?.start])
   const offered = useMemo(() => {
