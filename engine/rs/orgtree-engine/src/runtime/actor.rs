@@ -262,7 +262,11 @@ struct Fit {
     external: Vec<String>,
 }
 
-type Launched = Result<(ClaudeProc, crate::providers::skills::retention::Lease)>;
+type Launched = Result<(Fit, ClaudeProc, crate::providers::skills::retention::Lease)>;
+
+/// The previous CLI closing off the loop (`detach_proc`): a CLI started for
+/// the same agent waits for it, so two of its CLIs never share the session.
+type Closing = futures::future::Shared<futures::future::BoxFuture<'static, ()>>;
 
 /// A Claude CLI starting off the actor's loop after a settings change
 /// (`launch_idle`): not this agent's until it is installed.
@@ -270,7 +274,6 @@ struct Launch {
     seq: u64,
     process: uuid::Uuid,
     key: LaunchKey,
-    fit: Fit,
     rx: tokio::sync::oneshot::Receiver<Launched>,
 }
 
@@ -986,6 +989,156 @@ fn shared_startup_digest(startup_digest: &str, skills: &crate::providers::skills
     hash(&format!("{}|skills:{}", startup_digest, skills.digest))
 }
 
+
+/// The Claude CLI's launch (`Actor::claude_spec`), free of the actor so a
+/// replacement's runs off the loop (`start_launch`).
+#[logged]
+async fn claude_spec_for(engine: &Arc<Engine>, id: i64, org_id: i64, ctx: &Ctx, route: Option<&OrRoute>, plan: &Plan, keepalive: bool) -> Result<(SpawnSpec, Option<String>)> {
+    plan.skills.materialize(&engine.cfg.path(""))?;
+    let view = engine.accounts.view();
+    // an OpenRouter seat bills the stored key: no account, no subscription
+    let account = if route.is_some() { None } else { ctx.account.as_deref().and_then(|a| view.get(a).cloned()) };
+    let apikey = account.as_ref().map(|a| a.is_apikey()).unwrap_or(false);
+    // discovery runs in the background after start; do not race it
+    let exe = match engine.providers.claude_path() {
+        Some(p) => p,
+        None => tokio::task::spawn_blocking(crate::providers::locate_claude)
+            .await
+            .ok()
+            .flatten()
+            .map(|(p, _)| p)
+            .ok_or_else(|| anyhow!("Claude Code is not installed on this machine"))?,
+    };
+    std::fs::create_dir_all(&ctx.scratch)?;
+    let (identity_file, settings_file, mcp_file) =
+        claude::write_launch_files(&ctx.scratch, &plan.identity, &{
+            let mut settings = plan.settings.clone();
+            if ctx.provider == catalog::CLAUDE && crate::providers::fast_mode::claude_model(&ctx.model) {
+                settings["fastMode"] = json!(ctx.effective["fast_mode"].as_bool().unwrap_or(false));
+            }
+            settings
+        }, &plan.mcp)?;
+    // Essential-traffic mode (decision 53): agents share the user's global
+    // CLI, so none of them checks for or applies an update mid-run. It also
+    // turns off the CLI's server-side feature flags. Those are read from the
+    // account's cache instead, the flags the user's own CLI runs with.
+    let mut env: Vec<(String, String)> = vec![
+        ("CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC".into(), "1".into()),
+        ("CLAUDE_CODE_GB_DISK_CACHE_WHEN_TELEMETRY_OFF".into(), "1".into()),
+        ("ORGTREE_AGENT".into(), ctx.name.clone()),
+        // 3.x's name for it: hooks and tools that run inside a CLI tell an
+        // orgtree agent by it (the mail hub's SessionStart hook stands down)
+        ("ORGTREE_NODE".into(), ctx.name.clone()),
+        ("ORGTREE_ORG".into(), ctx.org_slug.clone()),
+        // the org's compaction threshold (Org settings › Basic)
+        ("CLAUDE_AUTOCOMPACT_PCT_OVERRIDE".into(), format!("{}", (ctx.compact_at * 100.0).round() as i64)),
+    ];
+    // The identity promises Bash and PowerShell with the terminal switch
+    // on. With the feature flags off, the CLI offers PowerShell beside Git
+    // Bash only when asked. A keepalive asks too: its tool list must match.
+    if ctx.effective["tools"].get("bash").and_then(Value::as_bool).unwrap_or(true) {
+        env.push(("CLAUDE_CODE_USE_POWERSHELL_TOOL".into(), "1".into()));
+    }
+    // a keepalive runs no tool, so it needs no git/GitHub credentials
+    if !keepalive {
+        env.extend(engine.credential_bridge.environment(engine,id,org_id,ctx.generation));
+    }
+    let mut env_remove: Vec<String> = vec![
+        "ORGTREE_V2_TOKEN".into(),
+        "ORGTREE_DATA".into(),
+        "ELECTRON_RUN_AS_NODE".into(),
+        "ANTHROPIC_API_KEY".into(),
+        "ANTHROPIC_AUTH_TOKEN".into(),
+        "ANTHROPIC_BASE_URL".into(),
+        "CLAUDE_CONFIG_DIR".into(),
+        "CLAUDECODE".into(),
+        "CLAUDE_CODE_ENTRYPOINT".into(),
+    ];
+    let local = route.and_then(|r| r.local.as_ref());
+    let config_dir = if let Some(_l) = local {
+        // its own config folder: no saved login to send to the server, and
+        // no user settings whose `env` block would override this launch's
+        let dir = engine.cfg.path("profiles").join(LANGSERVER_CLAUDE_CONFIG);
+        std::fs::create_dir_all(&dir)?;
+        Some(dir.to_string_lossy().to_string())
+    } else if route.is_some() {
+        None
+    } else {
+        ctx.account.as_deref().and_then(|acc| view.get(acc).filter(|a| !a.is_apikey()).and_then(|a| a.config_dir.clone()))
+    };
+    if let Some(l) = local {
+        env.extend(crate::langserver::claude_env(l));
+        env_remove.extend(crate::langserver::CLAUDE_ENV_REMOVE.iter().map(|v| v.to_string()));
+    } else if let Some(r) = &route {
+        // OpenRouter's Claude Code recipe: the Anthropic-compatible base, the key
+        // as the auth token, ANTHROPIC_API_KEY empty (a set key wins over the
+        // token), and every model the CLI could reach for pinned to the hired one
+        env.push(("ANTHROPIC_BASE_URL".into(), crate::openrouter::ANTHROPIC_BASE.into()));
+        env.push(("ANTHROPIC_AUTH_TOKEN".into(), r.key.clone()));
+        env.push(("ANTHROPIC_API_KEY".into(), String::new()));
+        for var in [
+            "ANTHROPIC_DEFAULT_FABLE_MODEL",
+            "ANTHROPIC_DEFAULT_OPUS_MODEL",
+            "ANTHROPIC_DEFAULT_SONNET_MODEL",
+            "ANTHROPIC_DEFAULT_HAIKU_MODEL",
+            "CLAUDE_CODE_SUBAGENT_MODEL",
+        ] {
+            env.push((var.into(), ctx.model.clone()));
+        }
+    }
+    if apikey {
+        let key = ctx.api_key.clone().ok_or_else(|| anyhow!("the API-key account has no key stored"))?;
+        if key.starts_with("sk-ant-oat") {
+            env.push(("CLAUDE_CODE_OAUTH_TOKEN".into(), key));
+        } else {
+            env.push(("ANTHROPIC_API_KEY".into(), key));
+            env_remove.retain(|k| k != "ANTHROPIC_API_KEY");
+        }
+    }
+    if let Some(dir) = &config_dir {
+        env.push(("CLAUDE_CONFIG_DIR".into(), dir.clone()));
+        env_remove.retain(|k| k != "CLAUDE_CONFIG_DIR");
+    }
+    // resume the session where this CLI will look for it
+    let mut resume = ctx
+        .session_id
+        .clone()
+        .filter(|_| ctx.session_provider.as_deref().map(|p| p == ctx.provider).unwrap_or(true));
+    if let Some(sid) = resume.clone() {
+        let others: Vec<String> = view.all().into_iter().filter_map(|a| a.config_dir.clone()).collect();
+        if !claude::ensure_session(&ctx.scratch, &sid, config_dir.as_deref(), &others) {
+            tracing::warn!(agent = %ctx.name, session = %sid, "session transcript not found; starting a new session");
+            resume = None;
+        }
+    }
+    // Launch-time effort applies to every Claude harness tier, including
+    // Haiku and OpenRouter; live_effort only controls mid-turn changes.
+    // Claude Code's own name for the saved level (`launch_effort`: a level
+    // another harness names maps to the nearest one Claude Code takes)
+    let effort = Some(crate::providers::launch_effort(&engine, &ctx.tier, &ctx.effort).0).filter(|e| !e.is_empty());
+    let spec = SpawnSpec {
+        exe,
+        cwd: ctx.scratch.clone(),
+        model: ctx.model.clone(),
+        permission_mode: ctx.effective["permission_mode"].as_str().unwrap_or("acceptEdits").to_string(),
+        effort: effort.clone(),
+        identity_file,
+        settings_file,
+        mcp_file,
+        disallowed: plan.disallowed.clone(),
+        allowed: plan.allowed.clone(),
+        add_dirs: plan.add_dirs.iter().filter(|d| std::path::Path::new(d).exists()).cloned().collect(),
+        resume: resume.clone(),
+        new_session: uuid::Uuid::new_v4().to_string(),
+        env,
+        env_remove,
+        keepalive,
+        // a cache read stays here; ensure_proc places the agent's own CLI
+        host: None,
+    };
+    Ok((spec, config_dir))
+}
+
 #[nolog]
 fn skill_folders(ctx: &Ctx) -> Vec<PathBuf> {
     let mut folders = vec![ctx.scratch.clone()];
@@ -1048,6 +1201,8 @@ struct Actor {
     launch_seq: u64,
     /// the launching CLI's lines, hooks and exit, held until it is installed or dropped
     launch_held: Vec<Envelope>,
+    /// the replaced CLI, closing off the loop (`detach_proc`)
+    closing: Option<Closing>,
     /// held messages handed back: the loop takes them before its mailbox
     replay: std::collections::VecDeque<Envelope>,
     /// Bounded diagnostic IDs only; the durable mailbox owns the messages.
@@ -1211,6 +1366,7 @@ impl Actor {
             loading: None,
             warm_task: None,
             launch: None,
+            closing: None,
             launch_seq: 0,
             launch_held: Vec::new(),
             replay: std::collections::VecDeque::new(),
@@ -1343,11 +1499,24 @@ impl Actor {
             if self.stopping {
                 break;
             }
-            if self.dormant() && self.idle_since.elapsed() > ACTOR_IDLE_EXIT {
+            // never with work queued: a closed queue drops what it holds
+            if self.dormant() && self.idle_since.elapsed() > ACTOR_IDLE_EXIT && self.replay.is_empty() && rx.is_empty() {
                 break;
             }
         }
         rx.close();
+        if !self.stopping {
+            // a message sent just before the close goes to the agent's next
+            // actor (`actor` starts one for a closed queue), not nowhere
+            let late: Vec<Envelope> = std::iter::from_fn(|| rx.try_recv().ok()).collect();
+            if !late.is_empty() {
+                tracing::info!(agent = %self.name, count = late.len(), "actor idle exit: queued messages go to the next actor");
+                let next = super::actor(&self.engine, self.org_id, self.id);
+                for env in late {
+                    let _ = next.tx.send(env);
+                }
+            }
+        }
         self.drop_launch();
         boxed(|| self.close_proc()).await;
         if !self.stopping {
@@ -1357,7 +1526,10 @@ impl Actor {
 
     #[nolog]
     fn dormant(&self) -> bool {
+        // a replacement CLI starting off the loop is this actor's to install
+        // (alpha.4: the idle exit right after a reconfigure cancelled it)
         self.turn.is_none() && self.proc.is_none() && self.slot.is_none() && self.waiting_since.is_none() && self.keepalive.is_none()
+            && self.launch.is_none()
             && self.admit_retry.is_none()
     }
 
@@ -2003,7 +2175,8 @@ impl Actor {
             return;
         }
         self.keep_until = None;
-        self.close_proc().await;
+        // the old CLI closes off the loop; the replacement starts after it
+        self.detach_proc().await;
         self.reconfigured = false;
         self.publish();
         if super::warming_allowed(&self.engine) && super::memory_for_warming() {
@@ -2092,41 +2265,49 @@ impl Actor {
         self.reconfigured = false;
         self.convo.set_skill_registry(&plan.skills, &self.engine.cfg.data_root);
         let mut paths = skill_folders(&ctx);
-        let (mut spec, _) = self.claude_spec(&ctx, route.as_ref(), &plan, false).await?;
-        spec.host = want;
-        let fit = Fit {
-            session: ctx.session_id.clone(),
-            provider: ctx.provider.clone(),
-            generation: ctx.generation,
-            resume: spec.resume.clone(),
-            effort: spec.effort.clone(),
-            print: plan.print.clone(),
-            notes: plan.notes.clone(),
-            external: plan.external.clone(),
-        };
         let caller = Caller { org_id: self.org_id, org_slug: ctx.org_slug.clone(), agent_id: self.id, name: ctx.name.clone() };
         self.launch_seq += 1;
         let (seq, process) = (self.launch_seq, uuid::Uuid::new_v4());
         let (done, rx) = tokio::sync::oneshot::channel::<Launched>();
         let (engine, tx, skills, data) = (self.engine.clone(), self.tx.clone(), plan.skills.clone(), self.engine.cfg.data_root.clone());
         let (previous, generation) = (ctx.session_id.clone(), ctx.generation);
+        let (id, org_id, closing) = (self.id, self.org_id, self.closing.clone());
         tracing::info!(agent = %self.name, seq, %process, "launching the replacement CLI off the loop");
+        // everything slow runs in the task (alpha.4 measured the loop held
+        // 1.5-2.1 s by the old CLI's close and claude_spec): the old CLI's
+        // close first, then the spec (its session check reads what that CLI
+        // wrote), the skills snapshot and its lease, the process and its handshake
         tokio::spawn(tracing::Instrument::instrument(async move {
             let result: Launched = async {
+                if let Some(c) = closing {
+                    c.await;
+                }
+                let (mut spec, _) = claude_spec_for(&engine, id, org_id, &ctx, route.as_ref(), &plan, false).await?;
+                spec.host = want;
+                let fit = Fit {
+                    session: ctx.session_id.clone(),
+                    provider: ctx.provider.clone(),
+                    generation: ctx.generation,
+                    resume: spec.resume.clone(),
+                    effort: spec.effort.clone(),
+                    print: plan.print,
+                    notes: plan.notes,
+                    external: plan.external,
+                };
                 let snapshot = tokio::task::spawn_blocking(move || skills.materialize(&data)).await??;
                 paths.push(snapshot);
                 let lease = crate::providers::skills::retention::hold(&engine, paths, previous, generation).await?;
                 let proc = ClaudeProc::spawn_as(engine.clone(), spec, caller, tx.clone(), process).await?;
-                Ok((proc, lease))
+                Ok((fit, proc, lease))
             }
             .await;
             // nobody takes it any more (a newer launch, a stop): it closes here
-            if let Err(Ok((mut proc, _))) = done.send(result) {
+            if let Err(Ok((_, mut proc, _))) = done.send(result) {
                 proc.close().await;
             }
             let _ = tx.post(AgentMsg::Launched(seq));
         }, tracing::Span::current()));
-        self.launch = Some(Launch { seq, process, key, fit, rx });
+        self.launch = Some(Launch { seq, process, key, rx });
         Ok(true)
     }
 
@@ -2137,7 +2318,7 @@ impl Actor {
     fn drop_launch(&mut self) {
         if let Some(mut l) = self.launch.take() {
             l.rx.close();
-            if let Ok(Ok((mut proc, _))) = l.rx.try_recv() {
+            if let Ok(Ok((_, mut proc, _))) = l.rx.try_recv() {
                 tokio::spawn(async move { proc.close().await });
             }
         }
@@ -2152,9 +2333,9 @@ impl Actor {
             self.drop_launch();
             return None;
         }
-        let Launch { fit, rx, .. } = self.launch.take()?;
+        let Launch { rx, .. } = self.launch.take()?;
         match rx.await {
-            Ok(Ok((proc, lease))) => Some((fit, proc, lease)),
+            Ok(Ok((fit, proc, lease))) => Some((fit, proc, lease)),
             Ok(Err(e)) => {
                 tracing::info!(agent = %self.name, reason = %format!("{e:#}"), "the launched CLI did not start: starting one now");
                 self.replay.extend(self.launch_held.drain(..));
@@ -2199,9 +2380,9 @@ impl Actor {
             self.publish();
             return Ok(());
         }
-        let Some(Launch { fit, mut rx, .. }) = self.launch.take() else { return Ok(()) };
+        let Some(Launch { mut rx, .. }) = self.launch.take() else { return Ok(()) };
         match rx.try_recv() {
-            Ok(Ok((proc, lease))) => {
+            Ok(Ok((fit, proc, lease))) => {
                 self.install_claude(fit, proc, lease).await?;
                 self.park();
             }
@@ -3279,149 +3460,11 @@ impl Actor {
     /// disposable prompt-cache read (`SpawnSpec::keepalive`). Also returns the
     /// config folder the CLI keeps its sessions under (None: the default).
     async fn claude_spec(&self, ctx: &Ctx, route: Option<&OrRoute>, plan: &Plan, keepalive: bool) -> Result<(SpawnSpec, Option<String>)> {
-        plan.skills.materialize(&self.engine.cfg.path(""))?;
-        let view = self.engine.accounts.view();
-        // an OpenRouter seat bills the stored key: no account, no subscription
-        let account = if route.is_some() { None } else { ctx.account.as_deref().and_then(|a| view.get(a).cloned()) };
-        let apikey = account.as_ref().map(|a| a.is_apikey()).unwrap_or(false);
-        // discovery runs in the background after start; do not race it
-        let exe = match self.engine.providers.claude_path() {
-            Some(p) => p,
-            None => tokio::task::spawn_blocking(crate::providers::locate_claude)
-                .await
-                .ok()
-                .flatten()
-                .map(|(p, _)| p)
-                .ok_or_else(|| anyhow!("Claude Code is not installed on this machine"))?,
-        };
-        std::fs::create_dir_all(&ctx.scratch)?;
-        let (identity_file, settings_file, mcp_file) =
-            claude::write_launch_files(&ctx.scratch, &plan.identity, &{
-                let mut settings = plan.settings.clone();
-                if ctx.provider == catalog::CLAUDE && crate::providers::fast_mode::claude_model(&ctx.model) {
-                    settings["fastMode"] = json!(ctx.effective["fast_mode"].as_bool().unwrap_or(false));
-                }
-                settings
-            }, &plan.mcp)?;
-        // Essential-traffic mode (decision 53): agents share the user's global
-        // CLI, so none of them checks for or applies an update mid-run. It also
-        // turns off the CLI's server-side feature flags. Those are read from the
-        // account's cache instead, the flags the user's own CLI runs with.
-        let mut env: Vec<(String, String)> = vec![
-            ("CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC".into(), "1".into()),
-            ("CLAUDE_CODE_GB_DISK_CACHE_WHEN_TELEMETRY_OFF".into(), "1".into()),
-            ("ORGTREE_AGENT".into(), ctx.name.clone()),
-            // 3.x's name for it: hooks and tools that run inside a CLI tell an
-            // orgtree agent by it (the mail hub's SessionStart hook stands down)
-            ("ORGTREE_NODE".into(), ctx.name.clone()),
-            ("ORGTREE_ORG".into(), ctx.org_slug.clone()),
-            // the org's compaction threshold (Org settings › Basic)
-            ("CLAUDE_AUTOCOMPACT_PCT_OVERRIDE".into(), format!("{}", (ctx.compact_at * 100.0).round() as i64)),
-        ];
-        // The identity promises Bash and PowerShell with the terminal switch
-        // on. With the feature flags off, the CLI offers PowerShell beside Git
-        // Bash only when asked. A keepalive asks too: its tool list must match.
-        if ctx.effective["tools"].get("bash").and_then(Value::as_bool).unwrap_or(true) {
-            env.push(("CLAUDE_CODE_USE_POWERSHELL_TOOL".into(), "1".into()));
+        // a CLI replaced off the loop finishes closing before another starts
+        if let Some(c) = self.closing.clone() {
+            c.await;
         }
-        // a keepalive runs no tool, so it needs no git/GitHub credentials
-        if !keepalive {
-            env.extend(self.engine.credential_bridge.environment(&self.engine,self.id,self.org_id,ctx.generation));
-        }
-        let mut env_remove: Vec<String> = vec![
-            "ORGTREE_V2_TOKEN".into(),
-            "ORGTREE_DATA".into(),
-            "ELECTRON_RUN_AS_NODE".into(),
-            "ANTHROPIC_API_KEY".into(),
-            "ANTHROPIC_AUTH_TOKEN".into(),
-            "ANTHROPIC_BASE_URL".into(),
-            "CLAUDE_CONFIG_DIR".into(),
-            "CLAUDECODE".into(),
-            "CLAUDE_CODE_ENTRYPOINT".into(),
-        ];
-        let local = route.and_then(|r| r.local.as_ref());
-        let config_dir = if let Some(_l) = local {
-            // its own config folder: no saved login to send to the server, and
-            // no user settings whose `env` block would override this launch's
-            let dir = self.engine.cfg.path("profiles").join(LANGSERVER_CLAUDE_CONFIG);
-            std::fs::create_dir_all(&dir)?;
-            Some(dir.to_string_lossy().to_string())
-        } else if route.is_some() {
-            None
-        } else {
-            self.config_dir_of(ctx.account.as_deref())
-        };
-        if let Some(l) = local {
-            env.extend(crate::langserver::claude_env(l));
-            env_remove.extend(crate::langserver::CLAUDE_ENV_REMOVE.iter().map(|v| v.to_string()));
-        } else if let Some(r) = &route {
-            // OpenRouter's Claude Code recipe: the Anthropic-compatible base, the key
-            // as the auth token, ANTHROPIC_API_KEY empty (a set key wins over the
-            // token), and every model the CLI could reach for pinned to the hired one
-            env.push(("ANTHROPIC_BASE_URL".into(), crate::openrouter::ANTHROPIC_BASE.into()));
-            env.push(("ANTHROPIC_AUTH_TOKEN".into(), r.key.clone()));
-            env.push(("ANTHROPIC_API_KEY".into(), String::new()));
-            for var in [
-                "ANTHROPIC_DEFAULT_FABLE_MODEL",
-                "ANTHROPIC_DEFAULT_OPUS_MODEL",
-                "ANTHROPIC_DEFAULT_SONNET_MODEL",
-                "ANTHROPIC_DEFAULT_HAIKU_MODEL",
-                "CLAUDE_CODE_SUBAGENT_MODEL",
-            ] {
-                env.push((var.into(), ctx.model.clone()));
-            }
-        }
-        if apikey {
-            let key = ctx.api_key.clone().ok_or_else(|| anyhow!("the API-key account has no key stored"))?;
-            if key.starts_with("sk-ant-oat") {
-                env.push(("CLAUDE_CODE_OAUTH_TOKEN".into(), key));
-            } else {
-                env.push(("ANTHROPIC_API_KEY".into(), key));
-                env_remove.retain(|k| k != "ANTHROPIC_API_KEY");
-            }
-        }
-        if let Some(dir) = &config_dir {
-            env.push(("CLAUDE_CONFIG_DIR".into(), dir.clone()));
-            env_remove.retain(|k| k != "CLAUDE_CONFIG_DIR");
-        }
-        // resume the session where this CLI will look for it
-        let mut resume = ctx
-            .session_id
-            .clone()
-            .filter(|_| ctx.session_provider.as_deref().map(|p| p == ctx.provider).unwrap_or(true));
-        if let Some(sid) = resume.clone() {
-            let others: Vec<String> = view.all().into_iter().filter_map(|a| a.config_dir.clone()).collect();
-            if !claude::ensure_session(&ctx.scratch, &sid, config_dir.as_deref(), &others) {
-                tracing::warn!(agent = %ctx.name, session = %sid, "session transcript not found; starting a new session");
-                resume = None;
-            }
-        }
-        // Launch-time effort applies to every Claude harness tier, including
-        // Haiku and OpenRouter; live_effort only controls mid-turn changes.
-        // Claude Code's own name for the saved level (`launch_effort`: a level
-        // another harness names maps to the nearest one Claude Code takes)
-        let effort = Some(crate::providers::launch_effort(&self.engine, &ctx.tier, &ctx.effort).0).filter(|e| !e.is_empty());
-        let spec = SpawnSpec {
-            exe,
-            cwd: ctx.scratch.clone(),
-            model: ctx.model.clone(),
-            permission_mode: ctx.effective["permission_mode"].as_str().unwrap_or("acceptEdits").to_string(),
-            effort: effort.clone(),
-            identity_file,
-            settings_file,
-            mcp_file,
-            disallowed: plan.disallowed.clone(),
-            allowed: plan.allowed.clone(),
-            add_dirs: plan.add_dirs.iter().filter(|d| std::path::Path::new(d).exists()).cloned().collect(),
-            resume: resume.clone(),
-            new_session: uuid::Uuid::new_v4().to_string(),
-            env,
-            env_remove,
-            keepalive,
-            // a cache read stays here; ensure_proc places the agent's own CLI
-            host: None,
-        };
-        Ok((spec, config_dir))
+        claude_spec_for(&self.engine, self.id, self.org_id, ctx, route, plan, keepalive).await
     }
 
     async fn ensure_proc(&mut self, ctx: &Ctx) -> Result<()> {
@@ -4796,14 +4839,40 @@ impl Actor {
     }
 
     async fn close_proc(&mut self) {
+        self.close_proc_as(false).await
+    }
+
+    /// `close_proc`, but an idle Claude CLI being replaced closes off the
+    /// loop (alpha.4 measured 151-570 ms on it): it is no longer this
+    /// agent's at once, and the next Claude CLI's spec waits for it
+    /// (`closing`). Other CLIs close here, as before.
+    async fn detach_proc(&mut self) {
+        self.close_proc_as(true).await
+    }
+
+    async fn close_proc_as(&mut self, detach: bool) {
         self.engine.credential_bridge.revoke(self.id);
         self.unpark();
-        if let Some(mut p) = self.proc.take() {
-            let opencode=p.is_acp();
-            p.close().await;
-            if opencode && self.settle_opencode_mail().await.is_err() {
-                tracing::warn!(agent=self.id,"OpenCode mail recovery pending; custody retained");
+        match self.proc.take() {
+            Some(Proc::Claude(mut p)) if detach => {
+                let before = self.closing.take();
+                let done: Closing = futures::FutureExt::shared(futures::FutureExt::boxed(async move {
+                    if let Some(c) = before {
+                        c.await;
+                    }
+                    p.close().await;
+                }));
+                tokio::spawn(done.clone());
+                self.closing = Some(done);
             }
+            Some(mut p) => {
+                let opencode=p.is_acp();
+                p.close().await;
+                if opencode && self.settle_opencode_mail().await.is_err() {
+                    tracing::warn!(agent=self.id,"OpenCode mail recovery pending; custody retained");
+                }
+            }
+            None => {}
         }
         self.proc_skills = None;
         self.proc_print = None;
