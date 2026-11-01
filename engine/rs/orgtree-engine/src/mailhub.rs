@@ -770,12 +770,13 @@ mod translation_tests {
 
     #[test]
     fn hosting_keeps_the_translation_settings() {
-        let t = json!({ "enabled": true, "default_language": "he", "model": "claude-haiku-5-5", "monthly_limit_usd": 2.5 });
+        let t = json!({ "enabled": true, "default_language": "he", "model": "claude-haiku-5-5", "monthly_limit_usd": 2.5, "translate_agents": true });
         let v = validate(&json!({ "version": 2, "translation": t })).unwrap();
         assert_eq!(v["translation"], t);
         // none saved: off, English, Claude Haiku 5.5, $5 a month
         let d = validate(&json!({ "version": 2 })).unwrap();
-        assert_eq!(d["translation"], json!({ "enabled": false, "default_language": "en", "model": "claude-haiku-5-5", "monthly_limit_usd": 5.0 }));
+        // and agents' mail untranslated (user 2026-11-01 16:12Z)
+        assert_eq!(d["translation"], json!({ "enabled": false, "default_language": "en", "model": "claude-haiku-5-5", "monthly_limit_usd": 5.0, "translate_agents": false }));
         assert_eq!(default_config()["translation"], d["translation"]);
     }
 
@@ -791,6 +792,7 @@ mod translation_tests {
             json!({ "monthly_limit_usd": "5" }),
             json!({ "model": "" }),
             json!({ "model": "claude haiku" }),
+            json!({ "translate_agents": "yes" }),
         ] {
             assert!(validate(&json!({ "version": 2, "translation": bad })).is_err(), "{bad}");
         }
@@ -802,7 +804,8 @@ mod translation_tests {
         assert_eq!(
             runtime_settings(&v),
             json!({ "max_attachment_bytes": 1024,
-                    "translation": { "enabled": true, "default_language": "en", "model": "claude-haiku-5-5", "monthly_limit_usd": 5.0 } })
+                    "translation": { "enabled": true, "default_language": "en", "model": "claude-haiku-5-5", "monthly_limit_usd": 5.0,
+                                     "translate_agents": false } })
         );
     }
 

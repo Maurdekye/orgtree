@@ -597,6 +597,14 @@ pub async fn relationships(engine: &Engine, agent_id: i64, senders: &[String]) -
     Ok(out)
 }
 
+/// How an outside party's mail is tagged: the standing passage that holds
+/// its rule, and (user 2026-11-01 16:13Z) the language a person reads in,
+/// when they chose one, so an agent can write to them in it.
+#[nolog]
+fn outside_party(_language: Option<&str>) -> String {
+    "outside party · see EXTERNAL".into()
+}
+
 #[nolog]
 fn relationship(m: &Mail, rels: &HashMap<String, String>) -> String {
     match m.sender.as_str() {
@@ -795,5 +803,32 @@ mod frozen_tag_tests {
         let t = frozen_tag(true);
         assert!(t.starts_with("frozen") && t.contains("rate-limited") && t.contains("retrying"), "{t}");
         assert!(!t.contains("usage"), "{t}");
+    }
+}
+
+#[cfg(test)]
+mod outside_language_tests {
+    use super::*;
+    use serde_json::json;
+
+    /// A person's mail tells an agent the language they read in (user
+    /// 2026-11-01 16:13Z); nothing when they chose none (never the hub's
+    /// default, which is only a guess) or for an org.
+    #[test]
+    fn a_persons_mail_names_the_language_they_read_in() {
+        assert_eq!(outside_party(Some("he")), "outside party · see EXTERNAL · language: he");
+        assert_eq!(outside_party(Some("pt-BR")), "outside party · see EXTERNAL · language: pt-BR");
+        assert_eq!(outside_party(None), "outside party · see EXTERNAL");
+        let one = vec![
+            json!({ "slug": "dana.he.77aa01", "kind": "person", "language": "he" }),
+            json!({ "slug": "acme.o.5e1f00", "kind": "org", "language": "fr" }),
+            json!({ "slug": "pia.p.5e1f02", "kind": "person" }),
+        ];
+        let two = vec![json!({ "slug": "pia.p.5e1f02", "kind": "person", "language": "de" })];
+        let rosters = [one.as_slice(), two.as_slice()];
+        assert_eq!(crate::net::language_in(rosters, "dana.he.77aa01").as_deref(), Some("he"));
+        assert_eq!(crate::net::language_in(rosters, "acme.o.5e1f00"), None, "an org reads no language");
+        assert_eq!(crate::net::language_in(rosters, "pia.p.5e1f02").as_deref(), Some("de"), "the hub that lists one");
+        assert_eq!(crate::net::language_in(rosters, "nobody.x.000000"), None);
     }
 }

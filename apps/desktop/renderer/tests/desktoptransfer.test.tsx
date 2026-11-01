@@ -132,7 +132,7 @@ test('mail hosting speaks the hub\'s own model, warns on exposure, and retains e
     assert.deepEqual(writes[0], { version: 2, port: 7380, bind: '0.0.0.0',
       name: 'office desk', retention_days: 45, public_listener: false,
       max_attachment_bytes: 1073741824,
-      translation: { enabled: false, default_language: 'en', model: 'claude-haiku-5-5', monthly_limit_usd: 5 } })
+      translation: { enabled: false, default_language: 'en', model: 'claude-haiku-5-5', monthly_limit_usd: 5, translate_agents: false } })
     assert.match(v.el.textContent!, /Running at http:\/\/127\.0\.0\.1:7380/)
     assert.equal(localStorage.length, 0)
     fail = true
@@ -182,6 +182,13 @@ test('mail hosting turns translation on, keeps the key write-only, and says what
       'languages are named in their own language')
     assert.equal(q<HTMLInputElement>('[aria-label="Translation model"]').value, 'claude-haiku-5-5')
     assert.equal(q<HTMLInputElement>('[aria-label="Monthly translation limit (USD)"]').value, '5')
+    // only people's mail by default; the owner may add agents' (user 2026-11-01 16:12Z)
+    const agents = q<HTMLInputElement>('[aria-label="Translate messages from agents"]')
+    assert.ok(agents, 'a Translate messages from agents switch')
+    assert.equal(agents.checked, false, 'off by default')
+    assert.match(group.textContent!, /Agents write to people in their language themselves/)
+    assert.match(group.textContent!, /people who haven't chosen one, and of agents when their messages are translated/,
+      'the default language says whom it is taken for')
     const key = q<HTMLInputElement>('[aria-label="Anthropic API key"]')
     assert.equal(key.type, 'password')
     assert.equal(key.placeholder, 'None')
@@ -193,11 +200,12 @@ test('mail hosting turns translation on, keeps the key write-only, and says what
       lang.value = 'he'; lang.dispatchEvent(new Event('change', { bubbles: true }))
     })
     await type(q<HTMLInputElement>('[aria-label="Monthly translation limit (USD)"]'), '2.5')
+    await inAct(async () => { q<HTMLInputElement>('[aria-label="Translate messages from agents"]').click(); await flush(2) })
     await type(key, 'sk-test-not-real')
     await click(v.el, 'Save hosting settings')
     assert.equal(writes.length, 2, 'the settings, then the key')
     assert.equal(writes[0].url, '/api/desktop/hub')
-    assert.deepEqual(writes[0].body.translation, { enabled: true, default_language: 'he', model: 'claude-haiku-5-5', monthly_limit_usd: 2.5 })
+    assert.deepEqual(writes[0].body.translation, { enabled: true, default_language: 'he', model: 'claude-haiku-5-5', monthly_limit_usd: 2.5, translate_agents: true })
     assert.doesNotMatch(JSON.stringify(writes[0].body), /sk-test/, 'the key never goes with the other settings')
     assert.deepEqual(writes[1], { url: '/api/desktop/hub/translation-key', body: { key: 'sk-test-not-real' } })
     assert.equal(q<HTMLInputElement>('[aria-label="Anthropic API key"]').value, '', 'the field empties once the key is stored')

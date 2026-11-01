@@ -1265,6 +1265,14 @@ fn local_hub_down(engine: &Engine, org_id: i64, hubs: &Value) -> bool {
     uses_local && !connected && engine.hub.address.load().is_none()
 }
 
+/// The language a person on a roster reads in (Mail hub 2.4.0 puts it on a
+/// person's roster entry), from the first roster that lists them with one.
+/// None for an org or chat address, or a person who chose none.
+#[nolog]
+pub fn language_in<'a>(_rosters: impl IntoIterator<Item = &'a [Value]>, _slug: &str) -> Option<String> {
+    None
+}
+
 /// Is `peer` on a roster this org can reach? The cache answers first; a
 /// miss asks each of the org's hubs once.
 #[logged]
