@@ -5,7 +5,9 @@ import type { FoldInfo } from './subtreefold'
 // canvas/projectcard.tsx — the canvas card of a PROJECT NODE
 // (docs/rust-engine/PROJECT-NODES.md; user 2026-10-16): a node that stands
 // for one project and is not an agent. It runs no turns and holds no
-// credits, so it has no model, credit bar or turn state. Zoomed out it is a
+// credits, so it has no model, credit bar or turn state. Its mark is the
+// folder, or the icon and theme colour its settings chose (projecttheme.tsx;
+// USER 2026-10-28 m1c0bc6c121e9). Zoomed out it is a
 // large folder; at middle zoom it shows its name, the activity chip (active /
 // hired agents under it) and its documents (not its description: user
 // 2026-10-18 08:50Z), with its shortcuts (docket, mailbox, presented, team,

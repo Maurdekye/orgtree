@@ -16,6 +16,10 @@ The desk's common tabs are Summary, Mail, Docket, Presented and, while it has li
 
 Slots appears when capacity is positive, events while **Project events** is on, and Dead letters while open dead-letter jobs exist. A project's desk can be pinned or popped out like an agent desk, retaining its own selected tab and mail folder. The same views are one click from the canvas: on the project's near-zoom card, the slots badge opens Slots, a listeners badge opens events, and the queue badge opens the project mailbox at its listeners folder while a mail listener is armed (its inbox when none is), as the desk's queue card does.
 
+## Give a project its own icon and colour
+
+Open the project's settings and use **Icon** and **Theme colour**. Search the built-in icons and pick one, then pick a preset colour or your own. The icon replaces the folder everywhere the project shows one: zoomed out on the canvas, in the corner of its card and its desk, and next to its @project link. The colour tints that icon only. Pick the folder and **Default** colour to go back. A new project has no theme until you set one; agents cannot set it for you.
+
 ## Choose mailbox delivery or broadcast
 
 The project composer sends to the **project mailbox** by default. It does not automatically send the same message to every member. A mail-queue listener must take the job. If none is attached, the warning explains that messages may not be read. With the app's listener-wake setting on, the first such mail asks one direct agent member to arm a listener; mail still waits until a listener actually does so.

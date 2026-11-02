@@ -265,6 +265,13 @@ Agents outside that line cannot reach it. With reach an agent may:
 Policy controls have narrower authority (user 2026-10-19): only the user and
 agents above the project may change its settings, Summary, name or order, or
 purge waiting mail. Members can read settings and use the operational features.
+The theme colour and icon (USER 2026-10-28 m1c0bc6c121e9) are narrower still:
+the user alone sets them, in Project settings, through the `set_theme` op
+(`authorize_project_policy` as the user). They live in the project's scope as
+`theme_color` / `theme_icon` (no schema change), ride the tree record for
+`kind=project`, and read back on `project_settings`; `configure` and creation
+settings refuse the keys, so no agent tool sets them. The desktop draws the
+chosen icon in that colour at the one project mark every surface shares.
 
 **Creating one**: `create_project` (agents: `orgtree_project`). The parent defaults to the
 caller; agents must give `index`; only the user creates at the top level; an agent creates one

@@ -8,7 +8,7 @@ Up: [orgtree-team](../SKILL.md)
 
 For the project folder and inherited `AGENTS.md` notes, see [orgtree-shared-folders](../../workspace/shared-folders/SKILL.md), the hierarchical shared memory reference.
 
-A **project node** stands for one project in the tree and is not an agent. It runs no turns, acts for nobody and costs nothing. It sits in the tree like any node: agents and other projects hang under it (projects nest), it can be moved, renamed, reordered, retired and restored. The canvas draws it as a dashed card with a folder mark, and the user creates one with the hire strips' project token (a square in the card's theme colours) (`orgtree-draft-hires`, orgtree-app › canvas). `orgtree_chart` and `orgtree_state_inspect` mark it `project`.
+A **project node** stands for one project in the tree and is not an agent. It runs no turns, acts for nobody and costs nothing. It sits in the tree like any node: agents and other projects hang under it (projects nest), it can be moved, renamed, reordered, retired and restored. The canvas draws it as a dashed card with a folder mark — or the custom icon and theme colour the user picked for it (Appearance, below) — and the user creates one with the hire strips' project token (a square in the card's theme colours) (`orgtree-draft-hires`, orgtree-app › canvas). `orgtree_chart` and `orgtree_state_inspect` mark it `project`.
 
 For the project desk, tabs, worker and event history, slots and remembered navigation, open `orgtree-project-desk` (orgtree-app › desk).
 
@@ -53,6 +53,12 @@ For worked mutex/semaphore, lease recovery, load-balancer/FIFO, signal/latch, re
 - One slot works like a shared lock (mutex); several slots work like a counting semaphore. 0 = no concurrency slots.
 
 These describe cooperative patterns: slot holders agree to claim and release permits; the engine does not enforce a limit on the work itself. FIFO describes job handout order, not completion order across listeners. Retry/dead-letter behavior follows the acknowledgement settings below.
+
+## Appearance: theme colour and icon
+
+The user can give a project a **theme colour** and an **icon** in Project settings (a searchable picker over the app's built-in icons, preset colours plus a custom colour field). The icon replaces the folder mark everywhere the one project mark is drawn — the mini node, the corner of the normal node, the desk head and its title bar, jump chips, and beside its name in @project links and mentions, markdown included — and the colour tints that icon only, never a border or header. Unset (or a value nothing accepts) draws the folder in the surface's default colour. Both are saved with the project and ride its tree record as `theme_color` / `theme_icon`.
+
+Agents cannot set them: there is no agent tool for the theme this round. `orgtree_project action=settings` reads them back as `settings.theme_color` / `settings.theme_icon` (null when unset); `configure` and creation `settings` refuse the keys as unknown.
 
 ## The mailbox and the fair queue
 
@@ -166,7 +172,7 @@ The project desk's message box sends the user's mail to the project's own mailbo
 
 ## Complete project tool control
 
-orgtree_project settings/configure reads and patches every Project settings field (name, description (Summary), peer_mail, mail_queue, exclude_sender, ack_timeout, max_attempts, ack_reminders, turn_end_reminder, event_listeners and slots, the concurrency slot count). Changes are atomic and omitted fields retain their current values. Any ancestor agent has full concurrency slot administration: settings count, force release and removal from the line; below-project members may claim/release their own lease and read state. See orgtree-tool-project for fields, purge_waiting, one-call broadcast with per-recipient normal authority, bounded presentation list/read, and the existing lifecycle/audience/mail tools. Permanent deletion remains user-only; desktop navigation is outside agent state tools. New actions/kinds require a fresh CLI after an update, since running clients retain startup schemas.
+orgtree_project settings/configure reads and patches every Project settings field (name, description (Summary), peer_mail, mail_queue, exclude_sender, ack_timeout, max_attempts, ack_reminders, turn_end_reminder, event_listeners and slots, the concurrency slot count). Changes are atomic and omitted fields retain their current values. Any ancestor agent has full concurrency slot administration: settings count, force release and removal from the line; below-project members may claim/release their own lease and read state. See orgtree-tool-project for fields, purge_waiting, one-call broadcast with per-recipient normal authority, bounded presentation list/read, and the existing lifecycle/audience/mail tools. Permanent deletion remains user-only; desktop navigation is outside agent state tools. The theme colour and icon are the one Project settings pair outside this control: the settings read returns them, but only the user sets them, in the desktop panel (Appearance above). New actions/kinds require a fresh CLI after an update, since running clients retain startup schemas.
 
 ## See also
 

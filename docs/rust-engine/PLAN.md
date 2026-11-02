@@ -285,6 +285,16 @@ still resume, so the agents themselves remember).
 
 ## 10. User-facing differences — complete ledger
 
+Custom project themes and icons (USER 2026-10-28 m1c0bc6c121e9, 4.5.5): in a
+project's settings the user picks an icon from the app's built-in set through
+a searchable picker and a theme colour from presets or a custom field. The
+icon replaces the folder mark on the mini and norm nodes, the desk head and
+title bar, and beside @project links (markdown DOM chips included), drawn in
+that colour; nothing else is tinted, and unset keeps the folder in the
+default colour. User-only this round: the `set_theme` op serves the settings
+panel, the settings read returns `theme_color`/`theme_icon`, and no agent
+tool sets them. See [project nodes](PROJECT-NODES.md).
+
 Object-mention wrapping (USER2026-10-27): Display > Text > Wrap object mentions
 opts into links continuing inline across lines. Default off retains existing
 unbroken controls. Existing user `orgtree_settings` runtime scope exposes
