@@ -1539,6 +1539,19 @@ button.badge.subtree-fold.attention {
    hides, and it keeps the floating plate's size. */
 .sq.project.mini:not(:hover):not(:focus-within):not(:focus-visible) .sq-far-tier .project-mark { visibility: hidden; }
 .sq.project.mini .sq-far-scaler .project-mark { font-size: 16px; }
+/* the project theme picker (canvas/projecttheme.tsx, in Project settings):
+   a searchable grid over the built-in icons, then preset swatches and the
+   custom colour field, wearing the settings surfaces' own lines and inputs */
+.project-icon-picker { display: flex; flex-direction: column; gap: 6px; }
+.project-icon-grid { display: flex; flex-wrap: wrap; gap: 4px; max-height: 132px; overflow-y: auto; }
+.project-icon-pick { display: inline-flex; align-items: center; justify-content: center; width: 30px; height: 30px;
+  font-size: 18px; border: 1px solid var(--line); border-radius: 6px; background: var(--input); color: inherit; cursor: pointer; }
+.project-icon-pick.on { border-color: var(--accent); outline: 1px solid var(--accent); }
+.project-colour-row { display: inline-flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.project-swatch { width: 22px; height: 22px; border-radius: 50%; border: 1px solid var(--line); cursor: pointer; padding: 0; }
+.project-swatch.default { background: linear-gradient(to top right, transparent 44%, var(--bad) 46%, var(--bad) 54%, transparent 56%), var(--panel-2); }
+.project-swatch.on { outline: 2px solid var(--accent); outline-offset: 1px; }
+.project-colour-value { font-size: 12px; color: var(--dim); }
 .new-project .field { display: flex; flex-direction: column; gap: 4px; margin: 8px 0; }
 .new-project .field input, .new-project .field textarea { width: 100%; box-sizing: border-box; }
 .sq-title { display: flex; align-items: center; gap: 4px; min-width: 0; min-height: 19px; }

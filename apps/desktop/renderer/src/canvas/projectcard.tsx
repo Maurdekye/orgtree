@@ -22,7 +22,9 @@ import { useEffect, useRef, useState } from 'react'
 import { audienceAction } from '../api'
 import { createPortal } from 'react-dom'
 import type { ToastFn, TreePayload } from '../types'
-import { AutorenewIcon, DocIcon, DocketIcon, FolderIcon, ListenersIcon, MailIcon, TeamIcon, ViewListIcon } from '../icons'
+import { AutorenewIcon, DocIcon, DocketIcon, ListenersIcon, MailIcon, TeamIcon, ViewListIcon } from '../icons'
+import { projectThemeFromNode } from '../projecttheme'
+import { ProjectIconGlyph, ProjectMark } from './projecttheme'
 import { NODE_H, NODE_W, useAgentShortcuts, USER, Z_MAX } from './shared'
 import { SpawnChips } from './cards'
 import type { CanvasNode, HireProviders, OpFn, Pt } from './shared'
@@ -161,7 +163,8 @@ export function ProjectSquare({ node, pos, lod, focused, pinnedFocus, pinned, on
   // an agent card carries its own: hidden while the plate shows, it is the CSS
   // hover/focus reveal wherever the plate does not apply (USER 2026-10-26 "Never
   // hide on hover").
-  const farIcon = <span className="project-mark"><FolderIcon fontSize="inherit" /></span>
+  const theme = projectThemeFromNode(node)
+  const farIcon = <ProjectMark theme={theme} />
   // A portaled menu can disappear without pointerleave/blur. Reconcile the
   // card's real hover/focus, as agent cards do, so its label cannot get stuck.
   const menuWasOpen = useRef(false)
@@ -243,11 +246,12 @@ export function ProjectSquare({ node, pos, lod, focused, pinnedFocus, pinned, on
       onContextMenu={(e) => menu.open(e, menuEntries)}>
       {lod === 'mini' ? (<>
         {/* folded with a hidden member mid-turn, the centred glyph is the
-            agent mini node's Active spinner, not the folder — the far-tier
-            name group below keeps the folder mark (subtree fold rollup) */}
-        <span className="project-mini" {...agentTooltipProps(node.id)}>{fold?.collapsed && fold.working
-          ? <AutorenewIcon className="sq-far-icon active cc-spin" titleAccess="Active" />
-          : <FolderIcon fontSize="inherit" />}</span>
+            agent mini node's Active spinner (it wins over the theme); otherwise
+            the project's themed icon, or the folder when unset — the far-tier
+            name group below keeps the mark (subtree fold rollup) */}
+        {fold?.collapsed && fold.working
+          ? <span className="project-mini" {...agentTooltipProps(node.id)}><AutorenewIcon className="sq-far-icon active cc-spin" titleAccess="Active" /></span>
+          : <span className="project-mini" style={theme?.color ? { color: theme.color } : undefined} {...agentTooltipProps(node.id)}><ProjectIconGlyph theme={theme} /></span>}
         {fold && onToggleFold && <FoldBadge mini id={node.id} fold={fold} onToggle={onToggleFold} />}
         {farEligible && <span className="sq-far-tier" aria-hidden="true"><span className="sq-far-scaler">
           {farIcon}<span className="sq-far-name">{node.id}</span>
@@ -256,8 +260,8 @@ export function ProjectSquare({ node, pos, lod, focused, pinnedFocus, pinned, on
         <CardFace fit={!deskOpen && !pinnedFocus}>
           <div className="sq-head project-head">
             <div className="sq-title">
-              <span className="project-mark" {...agentTooltipProps(node.id, true)}>
-                <FolderIcon fontSize="inherit" />
+              <span className="project-mark" style={theme?.color ? { color: theme.color } : undefined} {...agentTooltipProps(node.id, true)}>
+                <ProjectIconGlyph theme={theme} />
               </span>
               <CardName text={node.id} hovered={nameHover && !deskOpen && !pinnedFocus} {...agentTooltipProps(node.id)} />
             </div>

@@ -18,7 +18,8 @@
 
 import { createContext, useContext } from 'react'
 import type { MouseEvent as ReactMouseEvent, ReactNode } from 'react'
-import { FolderIcon } from '../icons'
+import { projectIconSvg, projectThemeOf } from '../projecttheme'
+import { ProjectIconGlyph, useProjectTheme } from './projecttheme'
 import { AGENT_NAV_ATTR, AGENT_TOOLTIP_ATTR, AGENT_TOOLTIP_NAME_FIRST_ATTR,
   agentNavProps, agentTooltipProps } from './agentnav'
 import { nodeMenuAction, nodeMenuEntry, ticketOwnerAction } from './objectactions'
@@ -41,12 +42,13 @@ export function nodeTierOf(
  *  each agent entry, show its model icon card"); gallery re-exports it so
  *  existing importers are untouched. */
 export function TierChip({ tier, agentName }: { tier?: string | null; agentName?: string }) {
+  const theme = useProjectTheme(tier === 'project' ? agentName : null)
   if (!tier) return null
   if (tier === 'project') {
     return (
       <span data-copy-agent-name={agentName} {...agentTooltipProps(agentName, true)}
-        className="project-mark" title={agentName ? undefined : 'Project'}>
-        <FolderIcon fontSize="inherit" fill="currentColor" />
+        className="project-mark" style={theme?.color ? { color: theme.color } : undefined} title={agentName ? undefined : 'Project'}>
+        <ProjectIconGlyph theme={theme} />
       </span>
     )
   }
@@ -68,6 +70,8 @@ export function createTierChipEl(
   if (tier === 'project') {
     const span = doc.createElement('span')
     span.className = 'project-mark'
+    const theme = projectThemeOf(agentName)
+    if (theme?.color) span.style.color = theme.color
     if (agentName) {
       span.setAttribute('data-copy-agent-name', agentName)
       span.setAttribute(AGENT_TOOLTIP_ATTR, agentName)
@@ -83,9 +87,8 @@ export function createTierChipEl(
     svg.setAttribute('fill', 'currentColor')
     svg.setAttribute('width', '1em')
     svg.setAttribute('height', '1em')
-    const path = doc.createElementNS('http://www.w3.org/2000/svg', 'path')
-    path.setAttribute('d', 'M20 6h-8l-2-2H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2m0 12H4V8h16z')
-    svg.appendChild(path)
+    svg.innerHTML = projectIconSvg(theme)
+    // the icon's generated inner markup (projecticonpaths.ts); the folder when unset
     span.appendChild(svg)
     return span
   }

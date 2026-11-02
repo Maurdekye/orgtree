@@ -1133,6 +1133,9 @@ export interface CanvasNode {
   peer_mail?: boolean
   /** 'project' for a project node (TreeNode's) */
   kind?: 'project'
+  /** TreeNode's theme fields, carried through by the spread in withDraftTree */
+  theme_color?: string | null
+  theme_icon?: string | null
   hidden_retired_children?: number
   lineage_loaded?: boolean
   lineage_revision?: string

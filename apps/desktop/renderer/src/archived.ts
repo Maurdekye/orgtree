@@ -29,6 +29,7 @@
  *  caring whether the seat is live, and they must keep working untouched.
  */
 import type { TreeNode, TreePayload } from './types'
+import { noteProjectThemes } from './projecttheme'
 
 /** The shape these helpers actually need. Deliberately structural rather than
  *  `TreeNode`: the canvas passes `CanvasNode`, which also covers drafts and
@@ -49,6 +50,9 @@ export interface Summarisable {
 export const isSummary = (n: Summarisable): boolean => n.detail === false
 
 export function hydrateTree(tree: TreePayload): TreePayload {
+  // every tree goes through here, in every window: the one place the
+  // by-name project themes (projecttheme.ts) stay current
+  noteProjectThemes(tree)
   if (tree.watchdog_project_links?.length) {
     const dogs=new Map((tree.watchdogs??[]).map(w=>[w.id,w]))
     for(const dog of tree.watchdog_project_links) if(!dogs.has(dog.id))dogs.set(dog.id,dog)

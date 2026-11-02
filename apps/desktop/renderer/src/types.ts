@@ -469,6 +469,10 @@ export interface TreeNode {
   /** 'project' for a project node (docs/rust-engine/PROJECT-NODES.md): it
    *  runs no turns, holds no credits and has no desk; absent on an agent */
   kind?: 'project'
+  /** a project's theme colour and icon (USER 2026-10-28 m1c0bc6c121e9);
+   *  null/absent = the folder icon in the default colour */
+  theme_color?: string | null
+  theme_icon?: string | null
   title: string
   tier: string
   model_id: string
@@ -2573,6 +2577,9 @@ export interface OpRequest {
   user_position?: import('./hireposition').NewHirePosition
   /** create_project: policy applied atomically with creation. */
   settings?: Partial<ProjectPolicySettings>
+  /** set_theme: a project's theme colour / icon; null clears either */
+  theme_color?: string | null
+  theme_icon?: string | null
   peer_mail?: boolean
   op: string
   /** Batch halt/unhalt: validated together before parallel actor control. */

@@ -66,6 +66,8 @@ import type { RefRoutes } from './reflinks'
 import { useRecordHistory } from '../recordpanelhooks'
 import { slotCount } from './slots'
 import { ProjectPolicyFields } from './projectpolicy'
+import { projectThemeFromNode } from '../projecttheme'
+import { ProjectMark, ProjectThemeFields } from './projecttheme'
 import type { ProjectPolicySettings } from '../types'
 import { eventListenersOn } from './listeners'
 import { getRetiredPage, useRetiredPages } from './retiredpages'
@@ -1213,6 +1215,15 @@ function ProjectConfig({node,map,tree,slug,op,toast,onScratchFolder,refs,onFocus
   // the project's event listeners (user 2026-10-20 10:50Z): off by default;
   // agents only ever switch them on, by registering a listener
   const savedListeners = eventListenersOn(node)
+  // its theme colour and icon (USER 2026-10-28 m1c0bc6c121e9): undefined
+  // edit buffers, like the rest, so an untouched save never re-sends them
+  const savedTheme = projectThemeFromNode(node)
+  const savedThemeColor = savedTheme?.color ?? null
+  const savedThemeIcon = savedTheme?.icon ?? null
+  const [themeColorEdit, setThemeColorEdit] = useState<string | null | undefined>()
+  const [themeIconEdit, setThemeIconEdit] = useState<string | null | undefined>()
+  const themeColor = themeColorEdit === undefined ? savedThemeColor : themeColorEdit
+  const themeIcon = themeIconEdit === undefined ? savedThemeIcon : themeIconEdit
   const [listenersEdit, setListenersEdit] = useState<boolean | undefined>()
   const listenersOn = listenersEdit ?? savedListeners
   const mode = modeEdit ?? savedMode
@@ -1239,13 +1250,17 @@ function ProjectConfig({node,map,tree,slug,op,toast,onScratchFolder,refs,onFocus
           ...(turnEnd !== savedTurnEnd ? { turn_end_reminder: turnEnd } : {}) })
       if (slots !== savedSlots) await op({ op: 'set_slots', node: node.id, capacity: slots })
       if (listenersOn !== savedListeners) await op({ op: 'set_event_listeners', node: node.id, enabled: listenersOn })
+      if (themeColor !== savedThemeColor || themeIcon !== savedThemeIcon)
+        await op({ op: 'set_theme', node: node.id,
+          ...(themeColor !== savedThemeColor ? { theme_color: themeColor } : {}),
+          ...(themeIcon !== savedThemeIcon ? { theme_icon: themeIcon } : {}) })
       close()
     } catch (e) { toast([`error: ${(e as Error).message}`]) } finally { setBusy(false) }
   }
   return <PinFrame kind={instanceKind('node-config', node.id)} restore={{agent:node.id,generation:node.generation}}
     title={`${node.id}: project settings`} panel="settings cfg" close={close}>
     <h3 className="agent-settings-header" data-copy-agent-name={node.id}>
-      <span className="agent-config-title"><FolderIcon fontSize="inherit" /> {node.id}: project settings</span>
+      <span className="agent-config-title"><ProjectMark theme={{ color: themeColor ?? undefined, icon: themeIcon ?? undefined }} /> {node.id}: project settings</span>
       {(live || node.state === 'archived') && onScratchFolder && <span className="agent-settings-header-actions">
         <button type="button" onClick={onScratchFolder}>Open project folder</button>
       </span>}
@@ -1274,6 +1289,8 @@ function ProjectConfig({node,map,tree,slug,op,toast,onScratchFolder,refs,onFocus
       <SetBlock label="Summary" hint="The standing charter of every agent under this project, nested projects included; it reaches a running agent at its next start.">
         <textarea rows={10} className="charterbox" aria-label="Project Summary" value={description}
           onChange={(e) => setDescription(e.target.value)} /></SetBlock>
+      <ProjectThemeFields icon={themeIcon} color={themeColor} busy={busy}
+        onIcon={setThemeIconEdit} onColor={setThemeColorEdit} />
       <ProjectPolicyFields value={{ peer_mail: on, mail_queue: mode, exclude_sender: exclude, slots, event_listeners: listenersOn,
         turn_end_reminder: turnEnd, ack_timeout: timeout, max_attempts: attempts, ack_reminders: reminders }}
         busy={busy} onChange={patch => {
