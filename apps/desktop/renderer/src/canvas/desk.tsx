@@ -5492,6 +5492,10 @@ function ThoughtLine({ text, secs, sealed, foldKey, tokens, unreported = false }
   )
 }
 
+const STATE_LABELS: Record<string, string> = {
+  active: 'Active', idle: 'Idle', blocked: 'Blocked', halted: 'Halted', frozen: 'Frozen',
+}
+
 // №5: the compaction boundary carries its summary behind a click — never a
 // 20 KB bubble in the user's voice
 function SysLine({ m }: { m: ChatMessage }) {
@@ -5505,10 +5509,15 @@ function SysLine({ m }: { m: ChatMessage }) {
       </div>
     )
   }
+  // a state-history row's hover names when its state began, the way every
+  // other age on the desk is named (`sinceTitle`/`ageTitle`)
+  const stateLabel = m.kind === 'state' && typeof m.state === 'string' ? STATE_LABELS[m.state] : undefined
   return (
     <div className={'msg sys' + (m.summary ? ' click' : '')}
       onClick={m.summary ? toggleOpen : undefined}
-      title={m.summary ? (open ? 'collapse' : 'read the compaction summary') : undefined}>
+      title={m.summary ? (open ? 'collapse' : 'read the compaction summary')
+        : stateLabel ? sinceTitle(m.ts, stateLabel + ' since') : undefined}
+      aria-label={!m.summary && stateLabel ? sinceTitle(m.ts, stateLabel + ' since') : undefined}>
       {m.compact_state
         ? <CompactingLine text={m.text} state={m.compact_state} startedAt={m.compact_started_at} endedAt={m.compact_ended_at} />
         : m.text}{m.summary && !open ? ' · summary ▶' : ''}

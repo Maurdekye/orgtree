@@ -1251,6 +1251,12 @@ export interface ChatMessage {
    *  (`compact_started_at`), then done/failed with `compact_ended_at`, or
    *  interrupted with none. Rows of older engines carry none of these. */
   compact_state?: 'running' | 'done' | 'failed' | 'interrupted'
+  /** a state-history row (`kind: 'state'`): the state just entered, the
+   *  one it ended and how long that one lasted; `ts` is the new state's
+   *  start. Rows of older engines carry none of these. */
+  state?: string
+  prev_state?: string
+  prev_secs?: number
   compact_started_at?: string
   compact_ended_at?: string
   /** pre-slice ordinal — the UI's stable row key (supervisor.py:2963) */
