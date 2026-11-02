@@ -2915,3 +2915,21 @@ draft card inside the pruned subtree. The desk-open card and the mobile map loca
 the overview forms, as the retired token does), while the prune and the rollup classes still apply in both. Proof:
 `tests/subtreefold.test.tsx` (prune, summaries, bearer exclusion, reflow in both layouts, the per-org set).
 [decided: user 2026-10-28 mde8be641d7b3, liaison spec 2026-11-01; verified: `canvas/{subtreefold,foldbadge}.ts(x)`, `canvas/{cards,projectcard,OrgCanvas,moveghost}.tsx`, `styles.css`]
+
+## Attract mode: idle input, "new", and the routes it reuses (2026-11-02, 4.5.5)
+
+USER 2026-11-02 m79cb0cf57f61 + mc8e118c58de9; gap-fills @coordinator-opus m082646bad468 (for the user to confirm).
+App menu › Modes › Attract mode is a native boolean preference (`attractMode`, shaped like `epicMode`), one for the
+whole app. Each organization window runs its own cycle (`attract/attract.ts` `useAttractCycle`, mounted by OrgCanvas
+through `attract/canvas.ts`). It starts after more than 5 minutes with no input in that window, and any input stops it,
+leaving the screen as it is. Every target goes through a route that already exists: go-to-agent, Fit, the inbox and
+docket jumps (App's `onAttractPanel`, which closes only a panel attract itself opened), and the reader opening. Mail
+is read through `markReadNow`, presentations through the reader's own `markDocViewed`. "New" for agents and tickets
+means changed since the window's last input and not yet shown in this run; it is kept in window memory only. Desks
+that are pinned or popped out (`deskhosts.deskOpenElsewhere`) are never focused.
+- **Pointer moves at an unmoved cursor are not input.** Chromium sends a `mousemove` at a stationary cursor when the
+  content under it changes, and every camera glide changes it. An idle detector that treats each `pointermove` as
+  input stops itself on its own first move. `onInput` counts a pointermove only when `screenX/screenY` changed.
+  Proof: `tests/attract.test.tsx` §6.
+- The presentation scroll finds its pane through `.mailer-read[data-reading=<doc id>]` (gallery.tsx). Cancelling it
+  must still settle its length promise, or the cycle's `show` waits forever (§8 caught this).
