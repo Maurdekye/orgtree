@@ -147,7 +147,7 @@ test('streamer cover and banner buttons use theme button colours instead of inhe
         const rule = rules.find(rule => 'selectorText' in rule && (rule as CSSStyleRule).selectorText === '[data-streamer-ui] button') as CSSStyleRule | undefined
         assert.ok(rule && button.matches(rule.selectorText), 'both controls have a dedicated theme rule')
         const css = rule.style
-        assert.equal(css.getPropertyValue('-webkit-text-fill-color'), 'currentColor', `${theme}: ${button.textContent} uses its own colour`)
+        assert.equal(css.getPropertyValue('-webkit-text-fill-color').toLowerCase(), 'currentcolor', `${theme}: ${button.textContent} uses its own colour`)
         assert.equal(css.color, 'var(--ink)', `${theme}: standard ink token`)
         assert.equal(css.backgroundColor, 'var(--input)', `${theme}: standard button surface token`)
       }
