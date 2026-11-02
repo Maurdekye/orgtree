@@ -12,7 +12,7 @@
 // trees' themes by name: `hydrateTree` (archived.ts) notes every tree that
 // arrives, in every window, and the mark subscribes. A name the store has
 // never seen draws as the folder, which is also the unset answer.
-import type { TreeNode, TreePayload } from './types'
+import type { TreePayload } from './types'
 import { PROJECT_ICON_SVG } from './projecticonpaths'
 
 export interface ProjectTheme {
@@ -122,7 +122,15 @@ export const projectIconId = (theme?: ProjectTheme | null): string =>
 export const projectIconSvg = (theme?: ProjectTheme | null): string =>
   PROJECT_ICON_SVG[projectIconId(theme)] ?? PROJECT_ICON_SVG['folder']!
 
-type ThemedNode = Pick<TreeNode, 'id' | 'kind' | 'theme_color' | 'theme_icon' | 'configured_scope'> &
+/** Structural on purpose, as archived.ts's Summarisable: the canvas passes
+ *  CanvasNode, the tree walk TreeNode, and only these fields are read. */
+type ThemedNode = {
+  id: string
+  kind?: string | null
+  theme_color?: unknown
+  theme_icon?: unknown
+  configured_scope?: unknown
+} &
   { children?: ThemedNode[] }
 
 /** A node's own theme, from its tree fields (older payloads may carry them
