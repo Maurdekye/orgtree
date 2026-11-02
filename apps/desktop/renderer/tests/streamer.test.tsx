@@ -112,3 +112,40 @@ test('unknown readiness or unavailable masking fails closed; native picker value
     assert.equal(doc.querySelector('input')!.disabled, false)
   } finally { boundary.dispose(); dom.window.close() }
 })
+
+test('streamer suppresses and restores autocomplete for all editable form controls', async () => {
+  const { dom, doc } = fixture(), boundary = installStreamerBoundary(doc)
+  doc.body.innerHTML = '<input autocomplete="email"><textarea autocomplete="on">original</textarea><select autocomplete="on"><option>original</option></select>'
+  const controls = [...doc.querySelectorAll('input,textarea,select')]
+  const before = controls.map(el => el.getAttribute('autocomplete'))
+  try {
+    boundary.update(true)
+    for (const el of controls) assert.equal(el.getAttribute('autocomplete'), 'off', el.tagName)
+    const late = doc.createElement('textarea'); late.setAttribute('autocomplete', 'on'); doc.body.appendChild(late)
+    await flush()
+    assert.equal(late.getAttribute('autocomplete'), 'off', 'new editors are protected')
+    boundary.update(false)
+    assert.deepEqual(controls.map(el => el.getAttribute('autocomplete')), before)
+    assert.equal(late.getAttribute('autocomplete'), 'on')
+    assert.equal(doc.querySelector('textarea')!.value, 'original')
+  } finally { boundary.dispose(); dom.window.close() }
+})
+
+test('streamer cover and banner buttons use theme button colours instead of inherited white fill', () => {
+  for (const theme of ['contrast-dark', 'contrast-light']) {
+    const { dom, doc } = fixture(), boundary = installStreamerBoundary(doc, () => {})
+    doc.documentElement.classList.add(theme)
+    doc.body.innerHTML = '<iframe></iframe>'
+    try {
+      boundary.update(true)
+      const buttons = [...doc.querySelectorAll<HTMLButtonElement>('[data-streamer-ui] button')]
+      assert.equal(buttons.length, 2)
+      for (const button of buttons) {
+        const css = dom.window.getComputedStyle(button)
+        assert.equal(css.getPropertyValue('-webkit-text-fill-color'), 'currentColor', `${theme}: ${button.textContent} uses its own colour`)
+        assert.equal(css.color, 'var(--ink)', `${theme}: standard ink token`)
+        assert.equal(css.backgroundColor, 'var(--input)', `${theme}: standard button surface token`)
+      }
+    } finally { boundary.dispose(); dom.window.close() }
+  }
+})
