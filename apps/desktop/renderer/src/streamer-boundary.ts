@@ -1,3 +1,5 @@
+import { sensitiveSpans, STREAMER_HIDDEN } from '../../../../packages/contracts/streamer'
+
 export interface StreamerBoundary {
   update(on: boolean, known?: readonly string[], ready?: boolean): void
   dispose(): void
@@ -17,15 +19,17 @@ html.streamer-covered body>*:not([data-streamer-ui]){visibility:hidden!important
 [data-streamer-cover]{position:fixed;z-index:2147483646;display:flex;align-items:center;justify-content:center;gap:8px;overflow:hidden;border:1px solid #888}
 [data-streamer-banner]{position:fixed;z-index:2147483647;right:8px;bottom:8px;padding:7px 10px;border:1px solid #888;border-radius:4px}
 `
-type HighlightWindow = Window & { Highlight?: new (...ranges: Range[]) => unknown; CSS?: { highlights?: { set(k: string, v: unknown): void; delete(k: string): void } } }
-export function installStreamerBoundary(doc: Document): StreamerBoundary {
+type HighlightWindow = Window & Pick<typeof globalThis, 'MutationObserver'> & { Highlight?: new (...ranges: Range[]) => unknown; CSS?: { highlights?: { set(k: string, v: unknown): void; delete(k: string): void } } }
+export function installStreamerBoundary(doc: Document, turnOff?: () => void): StreamerBoundary {
   const win = doc.defaultView as HighlightWindow | null
   if (!win) return { update() {}, dispose() {} }
   const style = doc.createElement('style'); style.dataset.streamerStyle = ''; style.textContent = STYLE; doc.head.appendChild(style)
-  let active = false, known: readonly string[] = [], ready = true, originalTitle = doc.title, ownTitle = false, frame = 0
+  let active = false, known: readonly string[] = [], ready = true, originalTitle = doc.title, frame = 0
   const covered = new Map<Element, HTMLElement>(), revealed = new Set<Element>()
   const attributes = new Map<Element, Map<string, string>>()
   const banner = doc.createElement('div'); banner.dataset.streamerUi = ''; banner.dataset.streamerBanner = ''; banner.setAttribute('role', 'status')
+  const bannerLabel = doc.createElement('span'); banner.appendChild(bannerLabel)
+  if (turnOff) { const off = doc.createElement('button'); off.type = 'button'; off.textContent = 'Turn off'; off.onclick = turnOff; banner.appendChild(off) }
   function position() {
     for (const [el, cover] of covered) {
       const r = el.getBoundingClientRect()
@@ -42,7 +46,7 @@ export function installStreamerBoundary(doc: Document): StreamerBoundary {
     revealed.clear()
     for (const [el, attrs] of attributes) for (const [key, value] of attrs) if (el.getAttribute(key) === STREAMER_HIDDEN) el.setAttribute(key, value)
     attributes.clear(); banner.remove()
-    if (doc.title === 'Orgtree — Streamer mode') { ownTitle = true; doc.title = originalTitle }
+    if (doc.title === 'Orgtree — Streamer mode') doc.title = originalTitle
     if (frame) win?.cancelAnimationFrame(frame)
     frame = 0
   }
@@ -51,9 +55,9 @@ export function installStreamerBoundary(doc: Document): StreamerBoundary {
     doc.documentElement.classList.add('streamer-on')
     const supported = !!win?.Highlight && !!win.CSS?.highlights
     doc.documentElement.classList.toggle('streamer-covered', !supported || !ready)
-    banner.textContent = supported && ready ? 'Streamer mode' : 'Streamer mode — content hidden until protection is ready'
+    bannerLabel.textContent = supported && ready ? 'Streamer mode' : 'Streamer mode — content hidden until protection is ready'
     if (!banner.isConnected) doc.body.appendChild(banner)
-    if (doc.title !== 'Orgtree — Streamer mode') { originalTitle = doc.title; ownTitle = true; doc.title = 'Orgtree — Streamer mode' }
+    if (doc.title !== 'Orgtree — Streamer mode') { originalTitle = doc.title; doc.title = 'Orgtree — Streamer mode' }
     for (const el of doc.querySelectorAll('[title],[alt],[aria-label]')) {
       if (el.closest('[data-streamer-ui]')) continue
       for (const key of ['title', 'alt', 'aria-label']) {
@@ -105,5 +109,4 @@ export function installStreamerBoundary(doc: Document): StreamerBoundary {
     dispose() { active = false; observer.disconnect(); restore(); style.remove() },
   }
 }
-import { sensitiveSpans, STREAMER_HIDDEN } from '../../../../packages/contracts/streamer'
 

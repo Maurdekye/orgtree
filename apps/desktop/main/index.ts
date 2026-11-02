@@ -3,7 +3,10 @@ import { installShiftAltSpace } from './shift-alt-space'
 import { CoreLifecycle } from './core-lifecycle'
 import { recordCoreControlFailure } from './core-exit-log'
 import { agentScratchAgentsFileExists, openAgentScratchAgentsFile, openAgentScratchFolder } from './scratch-folder'
-import { app, BrowserWindow, crashReporter, dialog, ipcMain, Menu, nativeImage, Notification, powerMonitor, screen, session, shell, Tray } from 'electron'
+import { app, BrowserWindow, crashReporter, dialog as rawDialog, ipcMain, Menu as rawMenu, nativeImage, Notification, powerMonitor, screen, session, shell, Tray } from 'electron'
+import { nativeStreamerOn, protectNativeDialogs, protectNativeMenus, protectNativeTitle, setNativeStreamer, trackStreamerNotice } from './streamer-native'
+import { nativeScreenText } from '../../../packages/contracts/streamer'
+const dialog = protectNativeDialogs(rawDialog), Menu = protectNativeMenus(rawMenu)
 import path from 'node:path'
 import os from 'node:os'
 import fs from 'node:fs'
@@ -212,7 +215,7 @@ else {
     cancelId: 1,
     noLink: true,
   }
-  let trayMenu: Menu | undefined
+  let trayMenu: rawMenu | undefined
   let trayMenuOpen = false
   let quitting = false, quitComplete = false, downloaded = false, updateApplying = false
   /** The discard confirmation has been answered for this shutdown, or a
@@ -375,6 +378,7 @@ else {
   // Explorer's taskbar group reads shell properties separately from WM_SETICON.
   // Use a real unpacked file and explicit relaunch identity for every window.
   app.on('browser-window-created', (_event, window) => {
+    protectNativeTitle(window)
     installShiftAltSpace(window)
     // Development has a real source-tree .ico and its own AppUserModelID too;
     // leaving it to Electron's default identity makes Windows show the generic
@@ -434,7 +438,7 @@ else {
     if (process.platform === 'win32') configureTaskbar(window, process.execPath, file, identity.appUserModelId, identity.displayName)
   }
   const notifications = new NativeNotifications(
-    data => new Notification({ title: data.title, body: data.body }),
+    data => trackStreamerNotice(new Notification({ title: nativeScreenText(data.title, nativeStreamerOn()), body: nativeScreenText(data.body, nativeStreamerOn()) })),
     // ⚠ TARGETED, NOT BROADCAST. A notification belongs to one organization,
     // so its reveal goes to that organization's own window and nowhere else -
     // a window bound to a different organization must never be handed another
@@ -709,7 +713,7 @@ else {
     // Renderer theme resolution is authoritative; discard the previous
     // ephemeral value so a newly explicit choice is reflected immediately.
     effectiveTheme = undefined
-    const next = preferences.set(patch); loginPreference(); rebuildTray()
+    const next = preferences.set(patch); setNativeStreamer(next.streamerMode === true); loginPreference(); rebuildTray()
     notifications.configure(next)
     broadcastAll({ type: 'preferences', data: next }); return next
   }
@@ -1904,6 +1908,7 @@ else {
   })
   app.whenReady().then(async () => {
     preferences = new Preferences(path.join(app.getPath('userData'), 'desktop-settings.json'))
+    setNativeStreamer(preferences.get().streamerMode === true)
     loginPreference()
     void reconcileRunOnStartup()
     tray = new Tray(runtimeIcon())
@@ -2687,7 +2692,7 @@ else {
           reload: () => { if (!window.isDestroyed()) window.webContents.reload() },
           // Out of band deliberately: the surface that would normally tell the
           // user something happened is the renderer, and the renderer just died.
-          announce: (title, body) => { try { if (Notification.isSupported()) new Notification({ title, body }).show() } catch { /* a missed toast must not break the recovery */ } },
+          announce: (title, body) => { try { if (Notification.isSupported()) trackStreamerNotice(new Notification({ title: nativeScreenText(title, nativeStreamerOn()), body: nativeScreenText(body, nativeStreamerOn()) })).show() } catch { /* a missed toast must not break the recovery */ } },
           giveUp: detail => { void dialog.showMessageBox({ type: 'error', message: 'The Orgtree window stopped responding.',
             detail: `Orgtree reloaded the window automatically but it keeps failing (${detail}).`
               + '\n\nThe engine is still running. Restart Orgtree to restore the interface.'

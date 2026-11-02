@@ -19,6 +19,7 @@ import { startFrameThemeSync } from './frametheme'
 import { startAgentColorSync } from './agentcolors'
 import { startEpicSync } from './epic/sync'
 import { startHeldEvents } from './events/heldbus'
+import { startStreamerMode } from './streamer'
 
 // ⚠ FIRST, AND BEFORE EVERY OTHER `onEvent` SUBSCRIPTION IN THIS DOCUMENT.
 // The preload sends `desktop:events-listening` from inside `onEvent`, so
@@ -29,6 +30,7 @@ import { startHeldEvents } from './events/heldbus'
 // and correctly, to a document whose consumers for them are React effects that
 // have not run yet. This keeps them instead. See events/heldbus.ts.
 startHeldEvents()
+startStreamerMode()
 
 startThemeSync()
 startContrastSync()

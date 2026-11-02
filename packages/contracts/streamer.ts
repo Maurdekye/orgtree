@@ -5,15 +5,16 @@ export const STREAMER_HIDDEN = 'Hidden in Streamer mode'
 // identifiers are hidden in full. Values never leave the presentation process.
 const patterns = [
   /-----BEGIN [\w ]*PRIVATE KEY-----[\s\S]*?(?:-----END [\w ]*PRIVATE KEY-----|$)/g,
-  /\b(?:password|passwd|secret|token|api[_ -]?key|authorization|credential)\s*[:=]\s*[^\r\n]+/gi,
-  /[\w.!#$%&'*+/=?^`{|}~-]+@[\w.-]+\.[\p{L}]{2,}/gu,
+  /\b(?:password|passwd|secret|token|api[_ -]?key|authorization|credential)["']?\s*[:=]\s*[^\r\n]+/gi,
+  /\bBearer\s+[^\s<>]+/gi,
+  /[\p{L}\p{N}.!#$%&'*+/=?^`{|}~-]+@[\p{L}\p{N}.-]+\.[\p{L}]{2,}/gu,
   /@net:[^\s<>"']+/gi,
   /\b[a-z]:[\\/][^\r\n<>"']+/gi,
   /(?:\\\\[^\s\\]+\\|(?:~|\.{1,2})?\/)[\w.@~+ -]+(?:[\\/][^\s<>"']*)+/g,
   /\b(?:https?|wss?|ftp):\/\/[^\s<>"']+/gi,
   /\b(?:\d{1,3}\.){3}\d{1,3}(?::\d+)?\b/g,
-  /(?:\b[\da-f]{1,4}:){2,}[\da-f:]+(?:%[\w.-]+)?/gi,
-  /\+?\d[\d ().-]{6,}\d/g,
+  /(?<![\w])(?:[\da-f]{0,4}:){2,}[\da-f]{0,4}(?:%[\w.-]+)?(?![\w])/gi,
+  /\+?\p{Nd}[\p{Nd} ().-]{6,}\p{Nd}/gu,
   /\b(?:sk[-_]|gh[pousr]_|github_pat_|xox[baprs]-|AKIA)[\w-]+/g,
   /\b[A-Za-z0-9_+/=-]{20,}\b/g,
 ]

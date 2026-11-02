@@ -16,6 +16,7 @@ import { ForegroundTreeReader } from './foregroundtree'
 import { AgentReferences } from './agentrefs'
 import { TreeViewReader } from './treeview'
 import { epic } from './epic/tap'
+import { rememberScreenValues } from './streamer-known'
 import type { TreeSelection } from './treeview'
 import type {
   AudiencesPayload, CharterTemplateDirsPayload, ChartersPayload, ChatPayload, DefaultsPayload,
@@ -214,7 +215,7 @@ export const req = <T,>(path: string, init?: RequestInit,
     // json(), so this cannot quote it — it names the status and the content
     // type instead, which is what tells an operator "the backend answered,
     // and it answered with something that is not our protocol".
-    return (r.json() as Promise<T>).catch((e: unknown) => {
+    return (r.json() as Promise<T>).then(rememberScreenValues).catch((e: unknown) => {
       if (isRequestCancelled(e)) throw e
       throw new Error(
         `${r.status}: the backend's reply was not JSON `

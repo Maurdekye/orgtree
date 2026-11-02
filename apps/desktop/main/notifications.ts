@@ -62,6 +62,7 @@ interface NativeAlert {
 }
 interface PendingAlert { notice: NativeAlert; data: DesktopNotification; delivered: boolean; cancel(): void }
 export class NativeNotifications {
+  private streamerMode = false
   private gate = new NotificationGate()
   private active: Set<string> | null = null
   private shown = new Map<string, PendingAlert>()
@@ -69,8 +70,10 @@ export class NativeNotifications {
     private open: (data: DesktopNotification) => void,
     private focused: () => boolean = () => false) {}
 
-  configure(prefs: NotificationPreferences) {
-    for (const [key, pending] of this.shown) if (!notificationEnabled(pending.data.kind, prefs)) {
+  configure(prefs: NotificationPreferences & { streamerMode?: boolean }) {
+    const turningOn = prefs.streamerMode === true && !this.streamerMode
+    this.streamerMode = prefs.streamerMode === true
+    for (const [key, pending] of this.shown) if (turningOn || !notificationEnabled(pending.data.kind, prefs)) {
       this.shown.delete(key)
       pending.cancel()
       if (!pending.delivered) this.gate.forget(key)

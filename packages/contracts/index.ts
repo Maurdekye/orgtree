@@ -18,6 +18,8 @@ import type { NotificationPreferences } from './notifications'
 import type { CanvasBackgroundPreference } from './canvas-background'
 
 export interface DesktopPreferences extends NotificationPreferences {
+  /** Screen-only privacy; absent means off. */
+  streamerMode?: boolean
   visualTheme: VisualTheme
   contrastTheme: ContrastTheme
   agentColorSource: AgentColorSource

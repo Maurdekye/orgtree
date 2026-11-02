@@ -15,6 +15,7 @@ import { isMobile } from './mobile'
 import { initiatingDocument, keepWorking, noteActionDocument, openSurfaces, pendingRestart, registerWindow, reloadWindows, returnWindows, subscribeWindows, windowRevision } from './windowlife'
 import type { BorrowedSurface } from './windowlife'
 import { followRainbowWindow } from './rainbow'
+import { protectStreamerDocument } from './streamer'
 
 /** One gesture's client box and its actual window; never persisted. */
 export interface SurfaceOrigin {
@@ -594,6 +595,7 @@ export function MovableSurface({ kind, title, org = null, editable = true, child
       d.open()
       d.write('<!doctype html><html><head><meta charset="utf-8"></head><body></body></html>')
       d.close()
+      cleanups.current.push(protectStreamerDocument(d))
       const onGone = () => {
         if (epoch.current !== transaction) return
         // A window lost during setup is still the established failed-open

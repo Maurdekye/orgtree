@@ -34,7 +34,9 @@
 // against the real thing (tests/electron.probe.ts, `npm run test:electron`),
 // where Paste is shown to put actual characters into an actual field.
 
-import { Menu, type BrowserWindow, type MenuItemConstructorOptions } from 'electron'
+import { Menu as rawMenu, type BrowserWindow, type MenuItemConstructorOptions } from 'electron'
+import { protectNativeMenus } from './streamer-native'
+const Menu = protectNativeMenus(rawMenu)
 
 /** The slice of Electron's `context-menu` params the rules below read. */
 export interface EditMenuParams {
