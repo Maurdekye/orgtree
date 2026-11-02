@@ -11,6 +11,7 @@ const samples = [
   ['IPv6', '2001:db8::1234'], ['account', 'Private Account'], ['hub address', '@net:private-reader.abc123'],
   ['phone', '+1 (415) 555-0123'], ['URL token', 'https://example.test/path?token=short-secret'],
   ['uncertain token', 'abCD0123456789efGH0123456789'],
+  ['short path', '/tmp'], ['UNC share', '\\\\private-server\\share'], ['local phone', '5550123'], ['IPv6 loopback', '::1'],
 ] as const
 const known = ['Private Account']
 test('every sensitive category is hidden, safe prose remains, and the source is unchanged', () => {
@@ -21,9 +22,9 @@ test('every sensitive category is hidden, safe prose remains, and the source is 
     assert.equal(text, `Before ${value} after`)
   }
   assert.equal(redactScreenText('Ready to review the draft.', known), 'Ready to review the draft.')
-  const input = { accounts: [{ id: 'private-account', name: 'Private Account', label: 'Personal login', credential: { path: '/home/reader/.config' } }], settings: { token: 'tiny-token' } }
+  const input = { accounts: [{ id: 'private-account', name: 'Private Account', label: 'Personal login', identity:{login:'private-login'}, credential: { path: '/home/reader/.config' } }], settings: { token: 'tiny-token', api_key:'small-key' } }
   const before = JSON.stringify(input), values = knownScreenValues(input)
-  for (const value of ['private-account', 'Private Account', 'Personal login', '/home/reader/.config', 'tiny-token']) assert.ok(values.includes(value), value)
+  for (const value of ['private-account', 'Private Account', 'Personal login', '/home/reader/.config', 'tiny-token', 'small-key', 'private-login']) assert.ok(values.includes(value), value)
   assert.equal(JSON.stringify(input), before)
   assert.equal(nativeScreenText('reader@example.test', true), 'Hidden in Streamer mode')
   assert.equal(nativeScreenText('reader@example.test', false), 'reader@example.test')

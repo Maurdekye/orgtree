@@ -9,12 +9,13 @@ const patterns = [
   /\bBearer\s+[^\s<>]+/gi,
   /[\p{L}\p{N}.!#$%&'*+/=?^`{|}~-]+@[\p{L}\p{N}.-]+\.[\p{L}]{2,}/gu,
   /@net:[^\s<>"']+/gi,
-  /\b[a-z]:[\\/][^\r\n<>"']+/gi,
-  /(?:\\\\[^\s\\]+\\|(?:~|\.{1,2})?\/)[\w.@~+ -]+(?:[\\/][^\s<>"']*)+/g,
+  /\b[a-z]:[\\/][^\r\n<>"']*/gi,
+  /\\\\[^\s\\]+\\[^\r\n<>"']*/g,
+  /(?:~|\.{1,2})?\/[\w.@~+ -]+(?:[\\/][^\s<>"']*)*/g,
   /\b(?:https?|wss?|ftp):\/\/[^\s<>"']+/gi,
   /\b(?:\d{1,3}\.){3}\d{1,3}(?::\d+)?\b/g,
   /(?<![\w])(?:[\da-f]{0,4}:){2,}[\da-f]{0,4}(?:%[\w.-]+)?(?![\w])/gi,
-  /\+?\p{Nd}[\p{Nd} ().-]{6,}\p{Nd}/gu,
+  /\+?\p{Nd}[\p{Nd} ().-]{5,}\p{Nd}/gu,
   /\b(?:sk[-_]|gh[pousr]_|github_pat_|xox[baprs]-|AKIA)[\w-]+/g,
   /\b[A-Za-z0-9_+/=-]{20,}\b/g,
 ]
@@ -57,7 +58,7 @@ export function knownScreenValues(value: unknown): string[] {
     if (Array.isArray(v)) { for (const child of v) visit(child, sensitive, account, depth + 1); return }
     for (const [key, child] of Object.entries(v)) {
       const identity = account || /account|identity|credential/i.test(key)
-      visit(child, sensitive || /email|secret|token|password|phone|address|username|path|config_dir/i.test(key)
+      visit(child, sensitive || /email|secret|token|password|phone|address|username|path|config_dir|authorization|identity|(?:^|_)key(?:$|_)/i.test(key)
         || (identity && /^(name|label|id|primary)$/i.test(key)), identity, depth + 1)
     }
   }
