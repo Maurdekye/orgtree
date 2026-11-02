@@ -18,6 +18,9 @@ html.streamer-on *::before,html.streamer-on *::after{content:none!important}
 html.streamer-on :is(${OPAQUE}):not([data-streamer-revealed]){visibility:hidden!important}
 html.streamer-covered body>*:not([data-streamer-ui]){visibility:hidden!important}
 [data-streamer-ui]{font:13px system-ui!important;color:#fff!important;-webkit-text-fill-color:#fff!important;background:#292929!important;text-shadow:none!important;box-sizing:border-box!important}
+[data-streamer-ui] button{color:var(--ink)!important;-webkit-text-fill-color:currentColor!important;background:var(--input)!important;border:1px solid var(--line)!important;border-radius:4px;cursor:pointer}
+[data-streamer-ui] button:hover{border-color:var(--button-accent)!important}
+[data-streamer-ui] button:focus-visible{outline:2px solid var(--button-accent);outline-offset:2px}
 [data-streamer-cover]{position:fixed;z-index:2147483646;display:flex;align-items:center;justify-content:center;gap:8px;overflow:hidden;border:1px solid #888}
 [data-streamer-banner]{position:fixed;z-index:2147483647;right:8px;bottom:8px;padding:7px 10px;border:1px solid #888;border-radius:4px}
 `
@@ -79,7 +82,7 @@ export function installStreamerBoundary(doc: Document, turnOff?: () => void): St
     bannerLabel.textContent = supported && ready ? 'Streamer mode' : 'Streamer mode — content hidden until protection is ready'
     if (!banner.isConnected) doc.body.appendChild(banner)
     if (doc.title !== 'Orgtree — Streamer mode') { originalTitle = doc.title; doc.title = 'Orgtree — Streamer mode' }
-    for (const el of doc.querySelectorAll('input')) {
+    for (const el of doc.querySelectorAll('input,textarea,select')) {
       const value = el.getAttribute('autocomplete')
       if (value !== 'off') { autocomplete.set(el, value); el.setAttribute('autocomplete', 'off') }
     }
