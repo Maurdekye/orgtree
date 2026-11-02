@@ -235,7 +235,7 @@ const KINDS: &[&str] = &["message", "question"];
 /// and still the flat shape (`tools::mailtools::flat_args`).
 const META_FIRST: &str = "Write this FIRST, before body: who the message is for and how it is sent";
 const BODY_LAST: &str = "Write this LAST, after metadata: the message text";
-const MESSAGE_DESC: &str = "Send mail to superior, descendants, peers or audience grantors; user requires top-level/user audience, outside @org/@net requires org-inbox audience. Peers share a physical parent; OFF or other parents need audiences. Up to 10 recipients; inspect each outcome. Wakes unless notice=true. Replies arrive in later turns; never wait for them. Attachments to local agents are shared as authorized path references; user/@net receive uploaded copies; @org attachments unsupported. Reply references are filtered per conversation.";
+const MESSAGE_DESC: &str = "Send mail to superior, descendants, peers or audience grantors; user requires top-level/user audience, outside @org/@net requires org-inbox audience. Peers share a physical parent; OFF or other parents need audiences. Up to 10 recipients; inspect each outcome. Wakes unless notice=true. Replies arrive in later turns; never wait for them. Attachments to local agents are shared as authorized path references; user/@net receive uploaded copies; @org attachments unsupported. Reply references are filtered per conversation. Batch: jobs, rows or jobs_file sends many jobs to one project's queue in one call, each its own mail; rows fill body as a {key} template; batch_key makes a lost-response retry safe. No batch source: body required.";
 const MESSAGE_ORDER: &str = "Always write metadata (`to` and the other fields saying how it is sent) before body: metadata first, \
      body last.";
 const NOTICE_DESC: &str = "Store passive mail for the recipient's next turn; wakes nobody. Accepts to, one_time and body; use orgtree_message notice=true for attachments, kind or replies.";
@@ -378,6 +378,14 @@ fn message_meta() -> Value {
                      "description": "kind question to @net: addresses only: 2-10 preset answers (one line each, up to 100 characters). Hubchat shows them as buttons under the question; the answer comes back as mail with \"Answer: <option>\". The person can also reply in their own words, or skip (a reply with no text). Their first answer or skip is final: to ask again, send a new question" },
         "multiple": { "type": "boolean", "description": "with options: they may pick more than one" },
         "tags": { "type":"array", "maxItems":8, "items":{"type":"string","minLength":1,"maxLength":32}, "description":"Optional custom tags, only on mail to the user; up to 8, case-insensitive. Example: alpha build." },
+        "jobs": { "type": "array", "maxItems": 1000, "items": { "type": "string" },
+                  "description": "Batch only: up to 1000 job bodies queued on one project's mail queue, each as its own mail; body must be empty. Give exactly one of jobs, rows, jobs_file." },
+        "rows": { "type": "array", "maxItems": 1000, "items": { "type": "object" },
+                  "description": "Batch only: up to 1000 rows; body is the job template with {key} placeholders filled from each row ({index} and {total} included, {key:03} zero-pads, {{ and }} are literal braces). Give exactly one of jobs, rows, jobs_file." },
+        "jobs_file": { "type": "string",
+                       "description": "Batch only: a manifest in your folders, relative to your working folder or absolute: a .json array of job strings or row objects, .jsonl one per line, .csv with a header row (needs the body template), or any other text file with one job per line; at most 8 MiB. Give exactly one of jobs, rows, jobs_file." },
+        "batch_key": { "type": "string", "maxLength": 128,
+                       "description": "Batch only: reuse the same key for the same batch after a lost response and already-queued jobs are reported, not resent; a new batch needs a new key" },
     });
     props["reply_to"] = json!({
         "anyOf": reply_target_schema()["anyOf"].clone(),
@@ -402,7 +410,10 @@ fn mail_tools(shape: MailShape) -> [Value; 2] {
                     "metadata": { "type": "object", "description": META_FIRST, "required": ["to"], "properties": message_meta() },
                     "body": { "type": "string", "description": BODY_LAST },
                 }),
-                &["metadata", "body"],
+                // body is handler-required, not schema-required: a batch
+                // source in metadata replaces it (rows still fill it as
+                // their template), as orgtree_present's path replaces its body
+                &["metadata"],
             ),
             tool(
                 "orgtree_send_notice",
@@ -425,7 +436,7 @@ fn mail_tools(shape: MailShape) -> [Value; 2] {
                 props.extend(meta.into_iter().filter(|(k, _)| k != "to"));
             }
             [
-                tool("orgtree_message", MESSAGE_DESC, Value::Object(props), &["to", "body"]),
+                tool("orgtree_message", MESSAGE_DESC, Value::Object(props), &["to"]),
                 tool("orgtree_send_notice", NOTICE_DESC, json!({ "to": TO.clone(), "body": { "type": "string" }, "one_time": one_time_schema() }), &["to", "body"]),
             ]
         }
@@ -1627,12 +1638,15 @@ mod mail_shape_tests {
                              "description": "kind question to @net: addresses only: 2-10 preset answers (one line each, up to 100 characters). Hubchat shows them as buttons under the question; the answer comes back as mail with \"Answer: <option>\". The person can also reply in their own words, or skip (a reply with no text). Their first answer or skip is final: to ask again, send a new question" },
                 "multiple": { "type": "boolean", "description": "with options: they may pick more than one" },
                 "tags": { "type":"array", "maxItems":8, "items":{"type":"string","minLength":1,"maxLength":32}, "description":"Optional custom tags, only on mail to the user; up to 8, case-insensitive. Example: alpha build." },
-            }, "required": ["to", "body"] },
+            }, "required": ["to"] },
             "_meta": { "anthropic/alwaysLoad": true },
         });
         let meta = message_meta();
         message["inputSchema"]["properties"]["reply_to"] = meta["reply_to"].clone();
         message["inputSchema"]["properties"]["replies"] = meta["replies"].clone();
+        for f in ["jobs", "rows", "jobs_file", "batch_key"] {
+            message["inputSchema"]["properties"][f] = meta[f].clone();
+        }
         let notice = json!({
             "name": "orgtree_send_notice",
             "description": format!("{NOTICE_DESC}\nGuide: orgtree-tool-send-notice."),
@@ -1655,7 +1669,10 @@ mod mail_shape_tests {
             let fp = flat["inputSchema"]["properties"].as_object().unwrap();
             let sp = split["inputSchema"]["properties"].as_object().unwrap();
             assert_eq!(sp.keys().collect::<Vec<_>>(), ["metadata", "body"]);
-            assert_eq!(split["inputSchema"]["required"], json!(["metadata", "body"]));
+            // the message card's body is handler-required (a batch source
+            // replaces it); the notice card still requires its body
+            let want_required: &[&str] = if flat["name"] == "orgtree_message" { &["metadata"] } else { &["metadata", "body"] };
+            assert_eq!(split["inputSchema"]["required"], json!(want_required));
             let meta = sp["metadata"]["properties"].as_object().unwrap();
             let flat_meta: Vec<(&String, &Value)> = fp.iter().filter(|(k, _)| *k != "body").collect();
             assert_eq!(meta.iter().collect::<Vec<_>>(), flat_meta);
@@ -1956,6 +1973,25 @@ mod builder_stack_tests {
         assert!(message["description"].as_str().unwrap().contains(old));
         message["description"]=serde_json::json!(message["description"].as_str().unwrap()
             .replace(old,"Peers share a physical parent; OFF or other parents need audiences."));
+        // Batch queue submission (user 2026-10-28 m2af169f65d89, authorized
+        // 2026-11-01 m81708aedacc4): the Batch sentence, the four batch
+        // fields after tags, and body leaving the message card's required
+        // (handler-required; a batch source replaces it). Notice unchanged.
+        let message=expected.as_array_mut().unwrap().iter_mut().find(|c|c["name"]=="orgtree_message").unwrap();
+        let got=actual.iter().find(|c|c["name"]=="orgtree_message").unwrap();
+        let old="per conversation. Always write metadata";
+        assert!(message["description"].as_str().unwrap().contains(old));
+        message["description"]=serde_json::json!(message["description"].as_str().unwrap()
+            .replace(old,"per conversation. Batch: jobs, rows or jobs_file sends many jobs to one project's queue in one call, each its own mail; rows fill body as a {key} template; batch_key makes a lost-response retry safe. No batch source: body required. Always write metadata"));
+        let want_props=message["inputSchema"]["properties"]["metadata"]["properties"].as_object().unwrap().clone();
+        let got_props=got["inputSchema"]["properties"]["metadata"]["properties"].as_object().unwrap();
+        let mut ordered=serde_json::Map::new();
+        for k in got_props.keys() {
+            let v=if ["jobs","rows","jobs_file","batch_key"].contains(&k.as_str()) { got_props[k].clone() } else { want_props.get(k).cloned().expect("captured message field") };
+            ordered.insert(k.clone(),v);
+        }
+        message["inputSchema"]["properties"]["metadata"]["properties"]=serde_json::Value::Object(ordered);
+        message["inputSchema"]["required"]=got["inputSchema"]["required"].clone();
         // Approved description-only trim; compare schemas and order unchanged.
         for (name, description) in [
             ("orgtree_work", "Docket by slug; read Guide first. Objective: problem/solution then scope. Updates claim ownership unless owner=current holder; supply lists or revision-checked keep/append. Add participants before assignment/review. Blocked/dropped need reasons. Review=agents; ask(work_item)=user questions. Delete permanent/restricted; prefer archive/drop.\nGuide: orgtree-tool-work."),

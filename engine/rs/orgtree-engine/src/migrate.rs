@@ -88,6 +88,7 @@ const MIGRATIONS: &[(&str, &str)] = &[
     ("0078_org_inbox_peer_recency", include_str!("../migrations/0078_org_inbox_peer_recency.sql")),
     ("0079_org_inbox_delivered_to", include_str!("../migrations/0079_org_inbox_delivered_to.sql")),
     ("0080_mention_recency_outside", include_str!("../migrations/0080_mention_recency_outside.sql")),
+    ("0081_batch_client_op", include_str!("../migrations/0081_batch_client_op.sql")),
 ];
 
 #[cfg(test)]
@@ -162,6 +163,12 @@ mod numbered_keys_tests {
                      "kind='message'", "'event.fired'", "'panel.started'", "'panel.stopped'"] {
             assert!(sql.contains(part), "the panel history migration does not carry {part}");
         }
+    }
+    #[test]
+    fn batch_client_op_migration_is_registered() {
+        let (_, sql) = super::MIGRATIONS.iter().find(|(n, _)| *n == "0081_batch_client_op").expect("registered");
+        assert!(sql.contains("CREATE INDEX mail_batch_client_op ON ot.mail (org_id, sender_agent_id, client_op)"));
+        assert!(sql.contains("WHERE client_op IS NOT NULL"));
     }
     #[test]
     fn openrouter_numbered_keys_migration_is_registered_guarded_and_complete() {

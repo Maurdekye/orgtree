@@ -46,25 +46,29 @@ pub async fn scratch_of(engine: &Engine, client: &tokio_postgres::Client, caller
 const MAX_RECIPIENTS: usize = 10;
 
 /// What a send carries to every recipient alike.
-struct Letter {
-    tags: Vec<String>,
-    me: super::Me,
-    body: String,
-    kind: String,
-    notice: bool,
-    one_time: bool,
-    urgent_reason: Option<String>,
-    attachments: Vec<Value>,
-    reply: Option<Value>,
-    replies: Vec<Value>,
+pub(super) struct Letter {
+    pub(super) tags: Vec<String>,
+    pub(super) me: super::Me,
+    pub(super) body: String,
+    pub(super) kind: String,
+    pub(super) notice: bool,
+    pub(super) one_time: bool,
+    pub(super) urgent_reason: Option<String>,
+    pub(super) attachments: Vec<Value>,
+    pub(super) reply: Option<Value>,
+    pub(super) replies: Vec<Value>,
+    /// Batch jobs only: the derived idempotency stamp (mailbatch::client_op).
+    pub(super) client_op: Option<String>,
 }
 
 /// One recipient's delivery.
-struct Delivered {
-    transfer_ids: Vec<String>,
-    text: String,
-    uid: String,
-    box_name: String,
+pub(super) struct Delivered {
+    pub(super) transfer_ids: Vec<String>,
+    pub(super) text: String,
+    pub(super) uid: String,
+    pub(super) box_name: String,
+    /// The domain's delivery note, unadorned (a batch reports it once).
+    pub(super) delivery: String,
 }
 
 /// `to` is one recipient or a list; a list sends the same message to each,
@@ -106,6 +110,18 @@ async fn message_impl(engine:&Arc<Engine>,caller:&Caller,args:&Value,force_notic
         Some(k) => k,
         None => crate::refuse!(BadRequest, "kind must be one of {}", KINDS.join(", ")),
     };
+    // a batch (jobs / rows / jobs_file) queues many jobs on one project's
+    // mail queue; mailbatch owns its fields, limits and per-row results
+    if super::mailbatch::is_batch(args) {
+        if force_notice {
+            crate::refuse!(BadRequest, "batch submission goes through orgtree_message: orgtree_send_notice stores one notice at a time");
+        }
+        if broadcast {
+            crate::refuse!(BadRequest, "a project broadcast cannot carry a batch");
+        }
+        let batch_notice = args["notice"].as_bool().unwrap_or(false);
+        return super::mailbatch::submit(engine, me, &to, single, args, kind, batch_notice, one_time, tags).await;
+    }
     // a question to a Hubchat address may carry preset answers: a numbered
     // list in the body, which the hub payload turns into the buttons Hubchat
     // shows (net_cards; the user's design 2026-10-11)
@@ -144,6 +160,7 @@ async fn message_impl(engine:&Arc<Engine>,caller:&Caller,args:&Value,force_notic
         tags, me, body, kind: kind.to_string(), urgent_reason, attachments, reply: None, replies: Vec::new(),
         notice: force_notice || args["notice"].as_bool().unwrap_or(false),
         one_time,
+        client_op: None,
     };
     let reply_to = args.get("reply_to").filter(|v| !v.is_null());
     let replies = args.get("replies").filter(|v| !v.is_null());
@@ -226,7 +243,8 @@ fn list_notes(letter: &Letter, list: &[String]) -> Vec<String> {
 }
 
 /// What a message tool's `metadata` may hold: every argument but `body`.
-const META_KEYS: &[&str] = &["to", "kind", "notice", "one_time", "attachments", "urgent", "urgent_reason", "reply_to", "replies", "options", "multiple", "tags"];
+/// The last four turn a send into a batch (mailbatch::BATCH_KEYS).
+const META_KEYS: &[&str] = &["to", "kind", "notice", "one_time", "attachments", "urgent", "urgent_reason", "reply_to", "replies", "options", "multiple", "tags", "jobs", "rows", "jobs_file", "batch_key"];
 
 #[logged]
 fn one_time_arg(args: &Value) -> Result<bool> {
@@ -278,6 +296,9 @@ pub(crate) fn flat_args(args: &Value) -> Result<Value> {
 pub(crate) fn typing_peers(meta: &Value) -> Option<Vec<String>> {
     let obj = meta.as_object()?;
     if one_time_arg(meta).ok()? { return None; }
+    // a batch goes to one project queue, never a Hubchat peer: its send
+    // would refuse, so it must not advertise typing either
+    if super::mailbatch::is_batch(meta) { return None; }
     if !crate::domain::mail_tags::normalize(obj.get("tags")).ok()?.is_empty() { return None; }
     if obj.keys().any(|k| !META_KEYS.contains(&k.as_str())) {
         return None;
@@ -430,15 +451,17 @@ fn local_attachment_reference(path: &Path) -> String {
 
 /// Send the letter to one recipient. `single` keeps the one-recipient
 /// behaviour exactly (its reply_to resolved after the attachment checks);
-/// in a list the shared reply quote rides only where it belongs.
+/// in a list the shared reply quote rides only where it belongs. A batch
+/// sends each job through here too, one ordinary mail per job.
 #[logged]
-async fn send_one(engine: &Arc<Engine>, letter: &Letter, to: &str, single: bool, reply_to: Option<&str>) -> Result<Delivered> {
+pub(super) async fn send_one(engine: &Arc<Engine>, letter: &Letter, to: &str, single: bool, reply_to: Option<&str>) -> Result<Delivered> {
     crate::domain::mail_tags::recipient(to,&letter.tags)?;
     if single && letter.replies.iter().any(|q| !plural_quote_belongs(q,to)) {
         crate::refuse!(BadRequest,"the replies targets are outside your conversation with {to}; nothing was sent");
     }
     let me = &letter.me;
     let mut out = Outgoing::new(From::Agent { id: me.id, name: me.name.clone(), generation: me.generation }, to, &letter.body);
+    out.client_op = letter.client_op.clone();
     out.tags = letter.tags.clone();
     out.kind = letter.kind.clone();
     out.notice = letter.notice;
@@ -494,6 +517,7 @@ async fn send_one(engine: &Arc<Engine>, letter: &Letter, to: &str, single: bool,
     let local_reply = out.reply_to.as_ref().is_some_and(|q| q.get("net_id").is_none());
     let sent = mail::send(engine, me.org_id, out).await?;
     let box_name = if to_user { "user_inbox".to_string() } else { sent.to.clone() };
+    let delivery = sent.delivery.clone();
     let verb = if sent.to.starts_with("@net:") { "Queued" } else { "Sent" };
     let mut text = if single {
         format!("{verb} to {} (id {}). {}", sent.to, sent.uid, sent.delivery)
@@ -509,7 +533,7 @@ async fn send_one(engine: &Arc<Engine>, letter: &Letter, to: &str, single: bool,
     if !sent.transfer_ids.is_empty() {
         text.push_str(&format!(" Transfer IDs: {}. Use orgtree_transfers action=get id=<id> for progress or action=list for all your transfers.", sent.transfer_ids.join(", ")));
     }
-    Ok(Delivered { transfer_ids: sent.transfer_ids, text, uid: sent.uid, box_name })
+    Ok(Delivered { transfer_ids: sent.transfer_ids, text, uid: sent.uid, box_name, delivery })
 }
 
 #[logged]

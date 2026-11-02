@@ -7,6 +7,7 @@ pub(crate) mod compaction;
 pub mod defs;
 pub mod usermcp;
 mod mailtools;
+mod mailbatch;
 mod project_inbox;
 mod org_inbox;
 pub(crate) use project_inbox::VISIBLE_SQL as PROJECT_MAIL_VISIBLE_SQL;
