@@ -30,6 +30,20 @@ import type { OrgListEntry } from '../types'
 
 export interface OrgtreeMenuActions { openOrganizations: () => void }
 
+/** One app-wide on/off mode in the menu's Modes group. The group holds
+ *  sibling toggles that share one shape (USER 2026-10-29 mb6da9f3ee862,
+ *  maximal symmetry): Streamer mode first, then Attract mode (USER
+ *  2026-11-02 mc8e118c58de9 "1 app menu toggle"). Each is a
+ *  `menuitemcheckbox` whose value column reads On or Off; activating it
+ *  toggles the mode and closes the menu like every other entry. */
+export interface ShellMenuMode {
+  /** stable id, also the row's `data-mode` */
+  id: string
+  label: string
+  on: boolean
+  onToggle: () => void
+}
+
 export interface OrgtreeMenuProps {
   /** every organization, in the list's existing order */
   orgs: OrgListEntry[]
@@ -49,6 +63,8 @@ export interface OrgtreeMenuProps {
   /** the Changelog, directly below Usage history (user 2026-10-24 22:13:55Z) */
   onChangelog?: () => void
   onAppSettings: () => void
+  /** the Modes group, below Changelog; absent or empty draws no group */
+  modes?: ShellMenuMode[]
   /** Main shell's keyboard route uses the existing submenu/open helpers. */
   shortcutRef?: RefObject<OrgtreeMenuActions | null>
   /** told whenever the organization list inside the menu opens or closes.
@@ -68,7 +84,7 @@ function focusItem(panel: HTMLElement | null, from: Element | null,
   move: 'next' | 'prev' | 'first' | 'last'): void {
   if (!panel) return
   const items = [...panel.querySelectorAll<HTMLElement>(
-    '[role="menuitem"]:not([aria-disabled="true"])')]
+    '[role="menuitem"]:not([aria-disabled="true"]), [role="menuitemcheckbox"]:not([aria-disabled="true"])')]
   if (!items.length) return
   if (move === 'first') { items[0]!.focus(); return }
   if (move === 'last') { items.at(-1)!.focus(); return }
@@ -85,7 +101,7 @@ interface SubPos { left: number; top: number; flip: boolean }
 
 export function OrgtreeMenu(props: OrgtreeMenuProps) {
   const { orgs, freshness, ageMs, error, currentOrg, isOpenElsewhere,
-    onOpenOrg, onNewWindow, onCreateOrg, onUsage, onUsageHistory, onChangelog, onAppSettings } = props
+    onOpenOrg, onNewWindow, onCreateOrg, onUsage, onUsageHistory, onChangelog, onAppSettings, modes } = props
   const [open, setOpen] = useState(false)
   // THE ORGANIZATION LIST IS A SUBMENU (user 2026-09-29, image-21: "this open
   // organization should open a submenu to the right side, not expand a new
@@ -273,7 +289,7 @@ export function OrgtreeMenu(props: OrgtreeMenuProps) {
         <div ref={panel} id={id} className="shell-menu-panel" role="menu"
           aria-label="Orgtree menu"
           onKeyDown={(e) => {
-            const from = (e.target as Element).closest('[role="menuitem"]')
+            const from = (e.target as Element).closest('[role="menuitem"], [role="menuitemcheckbox"]')
             if (e.key === 'ArrowDown') { e.preventDefault(); focusItem(panel.current, from, 'next') }
             else if (e.key === 'ArrowUp') { e.preventDefault(); focusItem(panel.current, from, 'prev') }
             else if (e.key === 'Home') { e.preventDefault(); focusItem(panel.current, null, 'first') }
@@ -335,6 +351,18 @@ export function OrgtreeMenu(props: OrgtreeMenuProps) {
               <span className="shell-menu-label">Changelog…</span>
             </button>
           )}
+          {!!modes?.length && <>
+            <div className="shell-menu-sep" role="separator" />
+            <div className="shell-menu-group">Modes</div>
+            {modes.map((m) => (
+              <button key={m.id} type="button" role="menuitemcheckbox" aria-checked={m.on}
+                className="shell-menu-item shell-menu-mode" data-mode={m.id}
+                onClick={() => run(m.onToggle)}>
+                <span className="shell-menu-label">{m.label}</span>
+                <span className="shell-menu-value dim">{m.on ? 'On' : 'Off'}</span>
+              </button>
+            ))}
+          </>}
           {/* NO "About Orgtree" ENTRY (user 2026-09-29): it only opened App
               settings, which the entry above already does. The running
               version is shown without any click instead — in an organization
