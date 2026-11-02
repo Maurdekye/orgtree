@@ -22,7 +22,7 @@ import { useEffect, useRef, useState } from 'react'
 import { audienceAction } from '../api'
 import { createPortal } from 'react-dom'
 import type { ToastFn, TreePayload } from '../types'
-import { DocIcon, DocketIcon, FolderIcon, ListenersIcon, MailIcon, TeamIcon, ViewListIcon } from '../icons'
+import { AutorenewIcon, DocIcon, DocketIcon, FolderIcon, ListenersIcon, MailIcon, TeamIcon, ViewListIcon } from '../icons'
 import { NODE_H, NODE_W, useAgentShortcuts, USER, Z_MAX } from './shared'
 import { SpawnChips } from './cards'
 import type { CanvasNode, HireProviders, OpFn, Pt } from './shared'
@@ -242,7 +242,12 @@ export function ProjectSquare({ node, pos, lod, focused, pinnedFocus, pinned, on
       }}
       onContextMenu={(e) => menu.open(e, menuEntries)}>
       {lod === 'mini' ? (<>
-        <span className="project-mini" {...agentTooltipProps(node.id)}><FolderIcon fontSize="inherit" /></span>
+        {/* folded with a hidden member mid-turn, the centred glyph is the
+            agent mini node's Active spinner, not the folder — the far-tier
+            name group below keeps the folder mark (subtree fold rollup) */}
+        <span className="project-mini" {...agentTooltipProps(node.id)}>{fold?.collapsed && fold.working
+          ? <AutorenewIcon className="sq-far-icon active cc-spin" titleAccess="Active" />
+          : <FolderIcon fontSize="inherit" />}</span>
         {fold && onToggleFold && <FoldBadge mini id={node.id} fold={fold} onToggle={onToggleFold} />}
         {farEligible && <span className="sq-far-tier" aria-hidden="true"><span className="sq-far-scaler">
           {farIcon}<span className="sq-far-name">{node.id}</span>

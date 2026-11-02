@@ -1464,6 +1464,14 @@ button.badge.subtree-fold.attention {
    layout, drags and drops treat it like any node. */
 .sq.project { border-style: dashed; border-top-width: 1px; background: color-mix(in srgb, var(--panel) 88%, var(--accent) 12%); }
 .sq.project.norm { border-color: color-mix(in srgb, var(--accent) 45%, var(--line)); }
+/* a folded project summarising hidden members (subtree fold) wears the
+   agent card's own busy and asking borders: equal specificity with the
+   norm border above and later in the sheet, so the state wins exactly
+   while it is worn — without these, .sq.project.norm silently outranked
+   .sq.busy/.sq.asking and a working hidden member was invisible
+   (Session 0 capture, 2026-11-02) */
+.sq.project.busy { border-color: color-mix(in srgb, var(--accent) 55%, transparent); }
+.sq.project.asking { border-color: color-mix(in srgb, var(--accent) 80%, var(--line)); }
 .sq.project .project-mark { flex: none; display: inline-flex; color: var(--accent); font-size: 15px; }
 .sq.project .project-meta { gap: 4px; }
 .sq.project .project-actions { opacity: 1; }
