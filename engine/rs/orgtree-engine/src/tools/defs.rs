@@ -235,7 +235,7 @@ const KINDS: &[&str] = &["message", "question"];
 /// and still the flat shape (`tools::mailtools::flat_args`).
 const META_FIRST: &str = "Write this FIRST, before body: who the message is for and how it is sent";
 const BODY_LAST: &str = "Write this LAST, after metadata: the message text";
-const MESSAGE_DESC: &str = "Send mail to superior, descendants, peers or audience grantors; user requires top-level/user audience, outside @org/@net requires org-inbox audience. Peers share a physical parent; OFF or other parents need audiences. Up to 10 recipients; inspect each outcome. Wakes unless notice=true. Replies arrive in later turns; never wait for them. Attachments to local agents are shared as authorized path references; user/@net receive uploaded copies; @org attachments unsupported. Reply references are filtered per conversation. Batch: jobs, rows or jobs_file sends many jobs to one project's queue in one call, each its own mail; rows fill body as a {key} template; batch_key makes a lost-response retry safe. No batch source: body required.";
+const MESSAGE_DESC: &str = "Send mail to superior, descendants, peers or audience grantors; user requires top-level/user audience, outside @org/@net requires org-inbox audience. Peers share a physical parent; OFF or other parents need audiences. Up to 10 recipients; inspect each outcome. Wakes unless notice=true. Replies arrive in later turns; never wait for them. Attachments to local agents are shared as authorized path references; user/@net receive uploaded copies; @org attachments unsupported. Reply references are filtered per conversation.";
 const MESSAGE_ORDER: &str = "Always write metadata (`to` and the other fields saying how it is sent) before body: metadata first, \
      body last.";
 const NOTICE_DESC: &str = "Store passive mail for the recipient's next turn; wakes nobody. Accepts to, one_time and body; use orgtree_message notice=true for attachments, kind or replies.";
@@ -1736,7 +1736,9 @@ mod mail_shape_tests {
             assert!(top.contains_key("body"), "{shape:?}");
             let want: &[&str] = if shape == MailShape::Split { &["metadata"] } else { &["to"] };
             assert_eq!(m["inputSchema"]["required"], json!(want), "{shape:?}");
-            assert!(m["description"].as_str().unwrap().contains("many jobs to one project"), "{shape:?}: {}", m["description"]);
+            // the card description stays untouched (the startup description total sits
+            // at its 12000-byte cap); the batch fields describe themselves
+            assert!(mp["jobs"]["description"].as_str().unwrap().contains("one project"), "{shape:?}");
             let np = meta_props(&n);
             for f in ["jobs", "rows", "jobs_file", "batch_key"] {
                 assert!(!np.contains_key(f), "{shape:?} notice must not carry {f}");
@@ -1974,15 +1976,11 @@ mod builder_stack_tests {
         message["description"]=serde_json::json!(message["description"].as_str().unwrap()
             .replace(old,"Peers share a physical parent; OFF or other parents need audiences."));
         // Batch queue submission (user 2026-10-28 m2af169f65d89, authorized
-        // 2026-11-01 m81708aedacc4): the Batch sentence, the four batch
+        // 2026-11-01 m81708aedacc4): the four batch
         // fields after tags, and body leaving the message card's required
         // (handler-required; a batch source replaces it). Notice unchanged.
         let message=expected.as_array_mut().unwrap().iter_mut().find(|c|c["name"]=="orgtree_message").unwrap();
         let got=actual.iter().find(|c|c["name"]=="orgtree_message").unwrap();
-        let old="per conversation. Always write metadata";
-        assert!(message["description"].as_str().unwrap().contains(old));
-        message["description"]=serde_json::json!(message["description"].as_str().unwrap()
-            .replace(old,"per conversation. Batch: jobs, rows or jobs_file sends many jobs to one project's queue in one call, each its own mail; rows fill body as a {key} template; batch_key makes a lost-response retry safe. No batch source: body required. Always write metadata"));
         let want_props=message["inputSchema"]["properties"]["metadata"]["properties"].as_object().unwrap().clone();
         let got_props=got["inputSchema"]["properties"]["metadata"]["properties"].as_object().unwrap();
         let mut ordered=serde_json::Map::new();
