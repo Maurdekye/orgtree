@@ -31,6 +31,7 @@ At ordinary overview zoom, a card has identity, state and shortcut rows. Its tie
 | Effort badge | An agent-specific effort override; it can appear even when equal to the org default. |
 | Watchdog count/one-shot mark | Attached watchers; the satellite/detail controls are separate from agents. |
 | Stack/layers count | More agents share this visible stack; use [piles](../piles/SKILL.md) to choose its front. |
+| Fold chevron (`▾`, or `▸ N hidden` while folded) | This agent or project has members under it; the chevron folds or unfolds its whole subtree on the canvas. While folded it carries the hidden count and summarises the hidden members: working while any is mid-turn, attention-marked while any has an open question or an unseen mention. See [folding a subtree](#folding-a-subtree). |
 
 State badges are information. Clicking the serving-account, next-turn, effort, fast-mode, frozen, halted, DND or Session 0 marker selects/focuses the agent exactly like clicking the card body. They do not open account settings or consume the card's pointer gesture. Dedicated settings, halt/unhalt and unstick controls remain separate on the opened desk or context menu.
 
@@ -84,6 +85,12 @@ use a folder mark and have no model/account tooltip.
 At overview zoom, the complete face of an agent or project card shrinks uniformly when needed to fit its fixed bounds. Text, badges and icons shrink together; the card does not expand or cut off its lower controls. This does not change an opened desk or far-zoom locator.
 
 A retired-count badge on an agent or project card opens the shared retired list. Its own right-click menu offers Open retired list rather than the containing agent/project menu. The same badge is available among a desk's report jump controls when retired reports are hidden. Selecting an entry reveals/navigates to that retained identity; it does not restore or rehire it. See [piles](../piles/SKILL.md).
+
+## Folding a subtree
+
+Every agent or project with members under it carries a fold chevron: a badge (`▾`) in the card's badge row at overview zoom and a corner chip on the far-zoom locator, in both chart layouts. Pressing it folds the whole subtree away — the members leave the canvas and the layout closes the gap — and pressing it again (`▸ N hidden`) brings them back. A fold inside a fold stays folded when the outer one opens. Folding is display state only: nobody is retired, moved or stopped, and the choice is saved per organization across restarts.
+
+A folded node still speaks for its hidden members. The chevron shows how many are hidden. While any hidden member is mid-turn the card wears the busy ring (and the far-zoom Active icon); while any hidden member has an open question or an unseen mention for the user, the card wears the same attention glow as its own open question — folding a branch never hides that someone under it needs you, and nothing unfolds by itself. Jumping explicitly to a hidden member (a link, a search result, Focus) unfolds the folds over it and lands on its card. A knowledge bearer floating beside its successor is never folded away. Folding is refused while a hire draft is open inside the subtree; finish or cancel the draft first. The opened desk itself has no chevron — fold from the overview card.
 
 ## See also
 

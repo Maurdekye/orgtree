@@ -2894,3 +2894,24 @@ recipients has one chip target per row. `mailFlare` flares it as for user mail; 
 urgent mail has no edge. Live: `mailTreeChanged` (called where the tree is set in `App.tsx`) reads the unread node-box links again when
 the tree's per-agent `mail_pending` counts change. The org inbox's mail never flares. Proof: `tests/mailagentunread.test.tsx` (the
 engine change itself has no jsdom proof).
+
+## Subtree fold is a second display prune, chained after hide-retired (2026-11-01)
+
+USER 2026-10-28 mde8be641d7b3 asked for expand/collapse of an agent's or project's subtree on the canvas; the liaison spec
+(2026-11-01, @item:orgtree/expand-collapse-an-agent-s-or-project-s-subtree-o) fixed the shape: a chevron on every agent or
+project that has members in the row layout and on the norm and mini nodes, a hidden-member count on the collapsed node, the
+existing status styling summarising hidden members (working while any is mid-turn, the attention aura while any has an open
+question or needs attention), nothing auto-expands on attention, the folded state saved per org across restarts, and the
+layout reflowing to close the gap. `canvas/subtreefold.ts` `pruneCollapsedView` mirrors `pruneRetiredView`: OrgCanvas chains
+retired prune then collapsed prune over the layout tree only, folded members join the existing `hidden` map (member → the
+collapsed node standing for it) so render, wires, focus, keyboard navigation and sparks treat them exactly like piled-away
+members, and `layout()` reflows in both chart layouts. A knowledge bearer is never claimed by the fold (the hide-retired
+rule). The set persists per org in localStorage (`orgtree-collapsed-<slug>`, beside the camera and pile fronts); it is pure
+reader display state with no engine field and no agent-tool surface. The rollup reads the card's own signals — `busy` class,
+`asking` aura, the mini node's Active far icon — through the same submitted-ask and unseen-mention suppression as the card
+itself. An explicit `centerOn` jump to a folded-away member unfolds its collapsed ancestors (the hide-retired reveal
+precedent); attention alone never does. Folding over an open hire draft is refused with a toast rather than stranding the
+draft card inside the pruned subtree. The desk-open card and the mobile map locator carry no chevron (the control lives on
+the overview forms, as the retired token does), while the prune and the rollup classes still apply in both. Proof:
+`tests/subtreefold.test.tsx` (prune, summaries, bearer exclusion, reflow in both layouts, the per-org set).
+[decided: user 2026-10-28 mde8be641d7b3, liaison spec 2026-11-01; verified: `canvas/{subtreefold,foldbadge}.ts(x)`, `canvas/{cards,projectcard,OrgCanvas,moveghost}.tsx`, `styles.css`]

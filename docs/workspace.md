@@ -32,6 +32,8 @@ The list's **Active** filter means currently mid-turn, not merely reporting “w
 
 The full tree preserves deeply nested project chains. Bunching or folding changes the display, rather than cutting off the reporting chain or the agents below it. In a Team tab, the badge counts immediate physical children, including projects, while the list covers descendants.
 
+To fold a busy branch away yourself, use the chevron on any agent or project that has members under it — in its badge row at normal zoom, or the small chip in its corner at far zoom. The whole subtree leaves the canvas and the layout closes up; press the chevron again to bring it back. While folded, the card shows how many members are hidden, looks busy while any of them is mid-turn, and glows for attention while any of them has an open question or an unseen mention for you — folding never hides that someone below needs you, and nothing unfolds by itself. Following a link or search result to a hidden agent unfolds the branch over it and takes you there. Your folds are remembered per organization, and they change nothing about the team itself: nobody is retired, moved or stopped.
+
 ## Move around
 
 Drag empty canvas space to pan, and use the wheel over the canvas to zoom. Middle-drag also pans when you begin over a card or desk. The wheel inside a scrollable desk or list scrolls that surface instead. Pinned windows keep their screen position while the canvas moves.

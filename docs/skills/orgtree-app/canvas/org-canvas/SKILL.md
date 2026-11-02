@@ -18,6 +18,8 @@ The bottom-left HUD offers switchboard, full view, zoom in and zoom out. Off-scr
 
 Consecutive project chains can appear as compact [project bunches](../piles/SKILL.md#project-bunches). Their grouping changes layout, not membership, audiences or which agent supervises work.
 
+A busy branch can also be folded away by hand: the chevron on any agent or project with members collapses its whole subtree off the canvas and the layout closes the gap, in the row and circular layouts alike. The folded node keeps a hidden-member count and summarises their working and attention state; the choice is saved per organization. See [folding a subtree](../agent-card/SKILL.md#folding-a-subtree).
+
 The initial/full tree read preserves the complete project chain instead of
 silently cutting off deeper descendants. Bunch grouping is a display choice,
 not a depth limit on that read.
