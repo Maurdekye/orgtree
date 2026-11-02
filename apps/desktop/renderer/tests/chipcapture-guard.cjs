@@ -74,6 +74,23 @@ function createGuard({ electron, out, width = 1100, height = 1500, partition = '
   const nativeDenied = ['copy', 'cut', 'paste', 'pasteAndMatchStyle'].every(k => { try { wc[k](); return false } catch { return true } })
   const js = s => wc.executeJavaScript(s)
   const within = async (p, ms, what) => { let t; try { return await Promise.race([p, new Promise((_r, j) => { t = setTimeout(() => j(Error('Deadline: ' + what)), ms) })]) } finally { clearTimeout(t) } }
+  // A CDP command (Emulation.setDeviceMetricsOverride above all) sent to this offscreen window before it has loaded any page
+  // kills Electron 44 outright: crashpad "not connected", exit 4294930435 (0xFFFF7003), no fixture and no receipt (measured
+  // 2026-11-02; every capture that emulated before its first load died this way). So the window loads about:blank at once,
+  // and every debugger command waits for the first finished load: this one, or a capture's own page if it supersedes it.
+  const firstLoad = new Promise(resolve => wc.once('did-finish-load', resolve))
+  win.loadURL('about:blank').catch(() => { /* superseded by the capture's own page: firstLoad waits for that one */ })
+  const sendCommand = wc.debugger.sendCommand.bind(wc.debugger)
+  wc.debugger.sendCommand = async (method, params, sessionId) => {
+    await within(firstLoad, 15000, 'the capture window\'s first page load, before CDP ' + method)
+    return sendCommand(method, params, sessionId)
+  }
+  /** attach the debugger (once) and override the device metrics, after the window's first page load */
+  async function emulate({ width: w = width, height: h = height, deviceScaleFactor = 1, mobile = false } = {}) {
+    await within(firstLoad, 15000, 'the capture window\'s first page load, before emulation')
+    if (!wc.debugger.isAttached()) wc.debugger.attach('1.3')
+    await wc.debugger.sendCommand('Emulation.setDeviceMetricsOverride', { width: w, height: h, deviceScaleFactor, mobile })
+  }
   const pages = []
 
   /** phases A, B and C against the committed (inert) page; throws on the first failure, before anything of the fixture runs */
@@ -149,7 +166,7 @@ function createGuard({ electron, out, width = 1100, height = 1500, partition = '
       mainClipboard: { stubbed: main.stubbed.length, calls: main.calls.length } }
   }
 
-  return { ses, win, wc, js, within, load, attest, finish, clipboardCalls: () => main.calls.length, problems }
+  return { ses, win, wc, js, within, load, attest, finish, emulate, firstLoad, clipboardCalls: () => main.calls.length, problems }
 }
 
 module.exports = { createGuard, measureProcesses }
