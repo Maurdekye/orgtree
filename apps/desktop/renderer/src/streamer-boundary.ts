@@ -144,4 +144,3 @@ export function installStreamerBoundary(doc: Document, turnOff?: () => void): St
     dispose() { active = false; observer.disconnect(); restore(); style.remove() },
   }
 }
-
