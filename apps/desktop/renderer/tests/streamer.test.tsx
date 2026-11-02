@@ -53,9 +53,12 @@ test('one boundary masks each category on canvas, desk, transcript, panel, popou
       for (const [kind, value] of samples) assert.ok(ranges.some(r => r.toString().includes(value)), `${surface}: ${kind}`)
       assert.equal(root.textContent, original, 'original DOM selection/copy text is intact')
       assert.equal(input.value, 'original-editor-secret')
+      assert.equal(input.getAttribute('autocomplete'), 'off')
+      assert.equal(input.disabled, false, 'privacy does not disable editors')
       assert.equal(link.getAttribute('href'), 'https://example.test/?token=original-token')
       boundary.update(false)
       assert.equal(registry.has('streamer-sensitive'), false)
+      assert.equal(input.getAttribute('autocomplete'), null)
       assert.equal(root.textContent, original)
     } finally { boundary.dispose(); dom.window.close() }
   }

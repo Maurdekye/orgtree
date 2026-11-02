@@ -53,7 +53,10 @@ is conservatively masked, while its actions remain available.
 values, links and copied/clipboard data are unchanged. Copy can therefore contain
 the original sensitive value. **Native OS file/open/save dialogs and browser file
 inputs are explicitly excluded** and remain usable; their filenames and paths can
-be visible. Content deliberately revealed by dismissing an opaque cover is visible.
+be visible. Open native select, date and color popups are also excluded; their
+closed-state values remain masked and controls stay usable. Inputs have browser
+autocomplete/autofill turned off while the mode is active, with previous attributes
+restored on disable. Content deliberately revealed by dismissing an opaque cover is visible.
 If identity loading or the browser's masking support is unavailable, content stays
 covered; the visible indicator offers Turn off. Pattern matching is conservative,
 but cannot identify an arbitrary unlabelled short secret as secret text.

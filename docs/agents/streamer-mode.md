@@ -39,7 +39,10 @@ dismissal is the user's m84e04d547421 ruling.
 ## Explicit limits
 
 Native OS file/open/save dialogs, including browser file inputs, are excluded and
-are not blocked. Clipboard, links, submissions, stored data and agent context
+are not blocked. Open select/date/color native popups are also excluded (coordinator
+2026-11-02 md635a536434b); closed values stay masked and editors remain usable.
+Input autocomplete attributes become off while active and are restored afterward.
+Clipboard, links, submissions, stored data and agent context
 retain originals. Opaque surfaces explicitly revealed by the user can show any
 content. Recognition uses known structured identifiers plus conservative patterns;
 an arbitrary unlabelled short string cannot be classified as a secret by syntax.

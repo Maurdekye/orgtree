@@ -11,6 +11,8 @@ html.streamer-on ::selection{color:transparent!important;text-shadow:none!import
 html.streamer-on input:not([type=file]):not([type=button]):not([type=submit]):not([type=checkbox]):not([type=radio]),
 html.streamer-on textarea,html.streamer-on select,html.streamer-on [contenteditable=true]{color:transparent!important;text-shadow:none!important;-webkit-text-fill-color:transparent!important}
 html.streamer-on input::placeholder,html.streamer-on textarea::placeholder{color:transparent!important}
+html.streamer-on input::-webkit-datetime-edit{color:transparent!important}
+html.streamer-on input[type=color]::-webkit-color-swatch{background:#686868!important}
 html.streamer-on *{background-image:none!important}
 html.streamer-on *::before,html.streamer-on *::after{content:none!important}
 html.streamer-on :is(${OPAQUE}):not([data-streamer-revealed]){visibility:hidden!important}
@@ -27,6 +29,7 @@ export function installStreamerBoundary(doc: Document, turnOff?: () => void): St
   let active = false, known: readonly string[] = [], ready = true, originalTitle = doc.title, frame = 0
   const covered = new Map<Element, HTMLElement>(), revealed = new Set<Element>()
   const attributes = new Map<Element, Map<string, string>>()
+  const autocomplete = new Map<Element, string | null>()
   const banner = doc.createElement('div'); banner.dataset.streamerUi = ''; banner.dataset.streamerBanner = ''; banner.setAttribute('role', 'status')
   const bannerLabel = doc.createElement('span'); banner.appendChild(bannerLabel)
   if (turnOff) { const off = doc.createElement('button'); off.type = 'button'; off.textContent = 'Turn off'; off.onclick = turnOff; banner.appendChild(off) }
@@ -46,6 +49,10 @@ export function installStreamerBoundary(doc: Document, turnOff?: () => void): St
     revealed.clear()
     for (const [el, attrs] of attributes) for (const [key, value] of attrs) if (el.getAttribute(key) === STREAMER_HIDDEN) el.setAttribute(key, value)
     attributes.clear(); banner.remove()
+    for (const [el, value] of autocomplete) if (el.getAttribute('autocomplete') === 'off') {
+      if (value === null) el.removeAttribute('autocomplete'); else el.setAttribute('autocomplete', value)
+    }
+    autocomplete.clear()
     if (doc.title === 'Orgtree — Streamer mode') doc.title = originalTitle
     if (frame) win?.cancelAnimationFrame(frame)
     frame = 0
@@ -58,6 +65,10 @@ export function installStreamerBoundary(doc: Document, turnOff?: () => void): St
     bannerLabel.textContent = supported && ready ? 'Streamer mode' : 'Streamer mode — content hidden until protection is ready'
     if (!banner.isConnected) doc.body.appendChild(banner)
     if (doc.title !== 'Orgtree — Streamer mode') { originalTitle = doc.title; doc.title = 'Orgtree — Streamer mode' }
+    for (const el of doc.querySelectorAll('input')) {
+      const value = el.getAttribute('autocomplete')
+      if (value !== 'off') { autocomplete.set(el, value); el.setAttribute('autocomplete', 'off') }
+    }
     for (const el of doc.querySelectorAll('[title],[alt],[aria-label]')) {
       if (el.closest('[data-streamer-ui]')) continue
       for (const key of ['title', 'alt', 'aria-label']) {
@@ -109,7 +120,7 @@ export function installStreamerBoundary(doc: Document, turnOff?: () => void): St
     if (records.every(r => (r.target.nodeType === 1 ? r.target as Element : r.target.parentElement)?.closest('[data-streamer-ui]'))) return
     scan()
   })
-  observer.observe(doc.documentElement, { subtree: true, childList: true, characterData: true, attributes: true, attributeFilter: ['title', 'alt', 'aria-label'] })
+  observer.observe(doc.documentElement, { subtree: true, childList: true, characterData: true, attributes: true, attributeFilter: ['title', 'alt', 'aria-label', 'autocomplete'] })
   return {
     update(on, values = [], hydrated = true) { if (!on) { active = false; restore(); return } active = true; known = values; ready = hydrated; scan() },
     dispose() { active = false; observer.disconnect(); restore(); style.remove() },
