@@ -12,6 +12,23 @@ module.exports = async (page) => {
   const details = {}
   // PROJECTNODE_VISUAL_ONLY=slots: only the project-slots scenes (one quick capture)
   const only = process.env.PROJECTNODE_VISUAL_ONLY
+  // PROJECTNODE_VISUAL_ONLY=themecards: a themed project's mark on its cards
+  // and its settings picker (USER 2026-10-28 m1c0bc6c121e9)
+  if (only === 'themecards') {
+    await page.goto('/?scene=themecards')
+    await page.waitFor('.sq.project', { timeout: 15000 })
+    await settle()
+    details.theme = await page.eval(() => ({
+      marks: [...document.querySelectorAll('.sq.project .project-mini, .sq.project .project-mark')]
+        .map(e => ({ color: getComputedStyle(e).color, d: e.querySelector('path')?.getAttribute('d')?.slice(0, 12) })),
+    }))
+    screenshots.push(await page.screenshot(`${prefix}-themecards-1000x700`))
+    await page.goto('/?scene=themesettings')
+    await page.waitFor('.project-icon-grid', { timeout: 15000 })
+    await settle()
+    screenshots.push(await page.screenshot(`${prefix}-themesettings-1000x700`))
+    return { details, screenshots }
+  }
   if (only === 'multi-slots') {
     await page.goto('/?scene=multi-slots')
     await page.waitFor('.project-slots-card', { timeout: 15000 })

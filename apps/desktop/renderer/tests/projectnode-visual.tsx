@@ -3,6 +3,9 @@
 //   cards   — the project card at far and middle zoom beside the project hire
 //             token (no left stripe, a large folder, the activity chip, the
 //             token in the card's theme colours);
+//   themecards — a themed project (rocket in rose) beside an unthemed one, at
+//             far and middle zoom; themesettings
+//             its Project settings with the icon picker (USER 2026-10-28);
 //   row-end — the REAL canvas: boss with a1, a2 and a project at the row's end
 //             (no neighbour segment reaches the project);
 //   between — the REAL canvas: a1, a project, a2 (one line runs past it);
@@ -183,6 +186,26 @@ const projectNode = (id: string, parent: string, children: unknown[] = []) =>
 const card = {
   ...projectNode('website', 'boss', [agent('dev1', 'website', { busy: true }), agent('dev2', 'website')]),
 } as unknown as CanvasNode
+
+/** ?scene=themecards: the themed mark (a rocket in rose) against the folder */
+const themedCard = { ...card, id: 'launchpad', theme_color: '#e11d48', theme_icon: 'rocket' } as unknown as CanvasNode
+function ThemeCards() {
+  const sq = (nd: CanvasNode, lod: 'mini' | 'norm', x: number, y: number) =>
+    <ProjectSquare node={nd} pos={{ x, y }} lod={lod}
+      dragging={false} isDrop={false} op={() => Promise.resolve({} as OpResult)} slug="org" toast={noop}
+      zoom={lod === 'mini' ? 0.4 : 1.2} hire={{}} seats={{}} onHire={noop} onNewProject={noop} onInbox={noop}
+      onDragStart={noop} onDragMove={noop} onDragEnd={noop} onDragCancel={noop} />
+  return (
+    <main style={{ position: 'relative', width: 1000, height: 700, background: 'var(--bg)' }}>
+      <div style={{ position: 'absolute', left: 60, top: 80, transform: 'scale(2.4)', transformOrigin: '0 0' }}>
+        {sq(themedCard, 'mini', 0, 0)}
+        {sq(themedCard, 'norm', 170, 0)}
+        {sq(card, 'mini', 0, 140)}
+        {sq(card, 'norm', 170, 140)}
+      </div>
+    </main>
+  )
+}
 
 function Cards() {
   const sq = (lod: 'mini' | 'norm', x: number) => <ProjectSquare node={card} pos={{ x, y: 0 }} lod={lod}
@@ -863,6 +886,9 @@ createRoot(document.getElementById('root')!).render(scene === 'cards' ? <Cards /
         </div>
       </AgentSurfaceRoutesProvider>
     </main>)
+  : scene === 'themecards' ? <ThemeCards />
+  : scene === 'themesettings' ? <NodeConfig node={themedCard} map={new Map([[themedCard.id, themedCard]])} tree={tree([])} slug="org"
+    op={() => Promise.resolve({} as OpResult)} toast={noop} close={noop} onScratchFolder={noop} />
   : scene === 'activity' ? <Activity />
   : scene === 'headercontrols' ? <HeaderControls user={new URLSearchParams(location.search).get('user') === '1'} />
   : scene === 'hclmodal' ? <ListenersWindow />
