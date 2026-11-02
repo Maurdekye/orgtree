@@ -1,3 +1,29 @@
+**Batch queue submission, USER 2026-10-28 m2af169f65d89 (backlogged 2026-10-28 ma1178b464925), authorized USER 2026-11-01 m81708aedacc4:**
+"also need a tool for batch-submitting a large quantity of mail to the queue, so
+the coordinator doesnt have to manually compose a message for every single one".
+It is a mode on `orgtree_message`, not a new tool: exactly one source per call -
+`jobs` bodies, `rows` rendered into `body` as a `{key}` template (`{index}`/
+`{total}` injected, `:0W` zero-padding, brace escapes) or a `jobs_file` manifest
+(JSON array, JSONL/NDJSON, CSV-with-header or one job per line, UTF-8, at most
+8 MiB, under attachment folder authority). At most 1,000 jobs, each nonblank and
+at most 256 KiB, at most 8 MiB rendered total; every row renders and is bounded
+before any send, and each job goes through the single-send project path, so
+reach/audience checks, FIFO dispatch and ACKs are exactly a single send's.
+`to` names one live project; attachments, replies, Hubchat options, urgency and
+tags refuse with a batch; `kind`, `notice` and `one_time` keep their meaning.
+The result reports every row queued (id), already queued (id) or rejected
+(reason); a recipient-level refusal stops the batch and reports the rest.
+`batch_key` (at most 128 characters) derives each job's `client_op` so a
+sequential retry after a lost response reports already-queued jobs with their
+original ids (migration 0081 adds a partial index on
+`(org_id, sender_agent_id, client_op)` so that lookup never scans sent history);
+concurrent duplicate calls with one key can still race. CSV is the RFC 4180
+subset (quoted fields, doubled quotes). On the message card `body` becomes
+handler-required, as `orgtree_present`'s path replaces its body; ordinary sends
+without one still refuse, and the notice card and standalone user MCP refuse the
+fields. See [the message guide](../skills/orgtree-working/mail/tool-message/SKILL.md#batch-queue-submission)
+and `tools/mailbatch.rs`.
+
 **Fire event data template, USER 2026-10-27 m7d208a00e16a, md8a919fdb119 (4.5.0):**
 "this textbox should have a template of the structure of the data the event
 expects", choosing "Last fire only". The Fire event editor offers the selected

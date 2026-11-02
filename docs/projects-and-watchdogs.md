@@ -32,7 +32,7 @@ Project audiences and direct-member inheritance are covered in [Collaboration](c
 
 ## Run a work queue
 
-For repeated similar jobs, ask workers above/below the project to arm **fair-queue listeners** through their watchdog tools. Post one job per mail with the megaphone off. The engine hands each message to one eligible listener and keeps its original sender, files and identity.
+For repeated similar jobs, ask workers above/below the project to arm **fair-queue listeners** through their watchdog tools. Post one job per mail with the megaphone off. The engine hands each message to one eligible listener and keeps its original sender, files and identity. To post a long list at once, an agent can batch-submit through the message tool: a list of job bodies, a template with rows, or a manifest file queues up to 1,000 jobs in order in one call, each still an ordinary job mail for the same listeners, with any rejected row reported back by number and reason. Repeating a named batch after a lost answer reports the jobs already queued instead of posting them again.
 
 Choose **Project settings > Mail queue**:
 

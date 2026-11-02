@@ -56,6 +56,37 @@ allowed files are listed there, a hub file is a named failure), the payload's
 keys, the receipt and ack bodies and the quote columns. [verified:
 `domain/orginbox.rs`, `net.rs`]
 
+## Batch queue submission (2026-11-01)
+
+`orgtree_message` accepts exactly one batch source, in metadata on both the
+split and flat shapes: `jobs` (job-body strings; `body` must be empty), `rows`
+(rendered into `body` as a `{key}` template with injected `{index}`/`{total}`,
+`:0W` zero-padding and `{{`/`}}` escapes), or `jobs_file` (a UTF-8 manifest
+under the caller's readable folders: `.json` array, `.jsonl`/`.ndjson`,
+`.csv` with a header row, otherwise one job per line; at most 8 MiB). `to`
+names exactly one live project; a batch never advertises typing. Limits: at
+most 1,000 jobs, each rendered body nonblank and at most 256 KiB, at most
+8 MiB rendered total; a malformed template, an invalid manifest or an
+over-cap batch refuses the whole call before any send, while a bad row is a
+rejected row. Every job is sent in order through `mailtools::send_one`, so
+project reach/audience checks, fair-queue dispatch and ACK are exactly a
+single send's; attachments, replies, Hubchat options, urgency and tags
+refuse, while `kind`, `notice` and `one_time` keep their meaning. The result
+text and card report every row as queued (id), already queued (id) or
+rejected (reason); a recipient-level refusal stops the batch; nothing queued
+at all refuses. `batch_key` (at most 128 characters) stamps a derived
+`client_op` per job so a sequential retry after a lost response reports
+already-queued jobs instead of resending; concurrent duplicate calls can
+still race. Migration 0081 adds a partial index on
+`(org_id, sender_agent_id, client_op)` for that lookup. On the message card
+`body` is handler-required (a batch source replaces it; ordinary sends
+without one still refuse); the notice card and the standalone user MCP are
+unchanged. See the
+[message guide](../skills/orgtree-working/mail/tool-message/SKILL.md#batch-queue-submission).
+[decided: user 2026-10-28 m2af169f65d89; authorized 2026-11-01 m81708aedacc4;
+verified: `tools/mailbatch.rs`, `tools/mailtools.rs`, `tools/defs.rs`,
+`migrations/0081_batch_client_op.sql`]
+
 ## One-time agent mail (2026-10-24, 4.4.5)
 
 `orgtree_message` and `orgtree_send_notice` accept optional `one_time:false`.

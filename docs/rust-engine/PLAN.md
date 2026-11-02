@@ -295,6 +295,28 @@ default colour. User-only this round: the `set_theme` op serves the settings
 panel, the settings read returns `theme_color`/`theme_icon`, and no agent
 tool sets them. See [project nodes](PROJECT-NODES.md).
 
+Batch queue submission (USER 2026-10-28 m2af169f65d89, authorized 2026-11-01
+m81708aedacc4): `orgtree_message` queues many jobs on one live project's mail
+queue in one call from exactly one source - `jobs` (job-body strings), `rows`
+(filled into `body` as a `{key}` template, with `{index}`/`{total}`, `:0W`
+zero-padding and brace escapes), or `jobs_file` (a UTF-8 manifest under
+attachment folder authority: JSON array, JSONL/NDJSON, CSV with header, or one
+job per line; at most 8 MiB). At most 1,000 jobs, each nonblank and at most
+256 KiB, at most 8 MiB rendered total; all rendering precedes sending, so a
+malformed template or oversize batch refuses whole. Each job is an ordinary
+project mail through the single-send path: same per-job reach/audience checks,
+round-robin/ACK dispatch and ACKs; `kind`, `notice` and `one_time` keep their
+meaning, while attachments, replies, Hubchat options, urgency and tags refuse.
+The result reports every row as queued (id), already queued (id) or rejected
+(reason); a recipient-level refusal stops the batch, and nothing queued refuses
+the call. `batch_key` stamps each job with a derived `client_op` (migration
+0081 adds the partial index for the lookup) so a sequential retry after a lost
+response reports already-queued jobs instead of resending; concurrent duplicate
+calls can still race. On the message card `body` is handler-required rather
+than schema-required - a batch source replaces it, ordinary sends without one
+still refuse; the notice card and the standalone user MCP are unchanged. See
+[the message guide](../skills/orgtree-working/mail/tool-message/SKILL.md#batch-queue-submission).
+
 Object-mention wrapping (USER2026-10-27): Display > Text > Wrap object mentions
 opts into links continuing inline across lines. Default off retains existing
 unbroken controls. Existing user `orgtree_settings` runtime scope exposes

@@ -18,7 +18,7 @@ Use the schema exposed by your harness. Claude Code, Codex and Muse use `{metada
 | Parameter | Meaning, default and limit |
 | --- | --- |
 | `metadata` | Required object on the split schema, containing `to` and any options below. Never mix a metadata field at the top level with this object. |
-| `body` | Required text on both schemas. A blank body is refused unless attachments are present. |
+| `body` | The message text. A batch source (`jobs`, `rows` or `jobs_file`) replaces it, and with `rows` it is the jobs' template; with no batch source, an ordinary send still requires it and a blank body is refused unless attachments are present. |
 | `to` | Required recipient string or array of up to ten distinct recipients. Agent name, `user`, `@org:<slug>`, or `@net:<address>`. Duplicate list entries collapse; empty entries are ignored, but an empty result refuses. |
 | `tags` | Optional list of up to eight custom tags, each 1-32 characters after trimming. Only user-bound mail accepts nonempty tags; matching/deduplication ignore case. See User-mail tags below. |
 | `kind` | `message` by default, `question`, or `request`. A request is displayed as a request and otherwise behaves like a message. `notice` is not a kind. |
@@ -31,6 +31,10 @@ Use the schema exposed by your harness. Claude Code, Codex and Muse use `{metada
 | `replies` | Optional ordered list of one to fifty mail IDs or typed targets in the same forms as `reply_to`. Duplicates collapse; IDs are bounded and control-free. `reply_to`, if also given, must match the first target. The engine resolves typed identities and filters each recipient's context to their conversation. |
 | `options` | Optional Hubchat preset answers for `question` to `@net:` destinations only. Two to ten distinct trimmed strings, case-insensitive uniqueness, each one nonblank line of at most one hundred characters with no control characters. |
 | `multiple` | False by default. With options, true permits several selections. True without options refuses. |
+| `jobs` | Batch only: 1 to 1,000 job-body strings queued on one project's mail queue, each as its own mail. `body` must be empty. Give exactly one of `jobs`, `rows`, `jobs_file`. See Batch queue submission. |
+| `rows` | Batch only: 1 to 1,000 row objects; `body` is the job template, its `{key}` placeholders filled from each row (`{index}` and `{total}` are included, `{key:03}` zero-pads, `{{` and `}}` are literal braces). Give exactly one of `jobs`, `rows`, `jobs_file`. |
+| `jobs_file` | Batch only: a manifest path in your readable folders (the same folder authority as an attachment path), relative to your working folder or absolute: a `.json` array of job strings or row objects, `.jsonl`/`.ndjson` with one per line, `.csv` with a header row for the body template, or any other text file with one job per line. UTF-8, at most 8 MiB. Give exactly one of `jobs`, `rows`, `jobs_file`. |
+| `batch_key` | Batch only: at most 128 characters, no control characters. Reuse the same key for the same batch after a lost response and already-queued jobs are reported with their original ids instead of being resent; a new batch needs a new key. |
 
 Split example, sending ordinary mail to a reachable same-org agent:
 
@@ -64,6 +68,18 @@ A recipient list makes independent deliveries. Inspect every result: some can be
 Mail to an archived recipient waits for rehire; nothing schedules that rehire. Mail to a halted agent waits for unhalt. A frozen agent can remain unable to run even though its mailbox holds the mail. An unrecoverable session refuses delivery. Read the result's explanation before treating a handoff as actionable.
 
 Mail to a [project](../../team/projects/SKILL.md) waits in its mailbox until a fair-queue listener takes it: an agent's `fair_queue` watchdog or the user's own queue registration. If the project's inbox has no listener at all, the mail is still queued, but that recipient's result starts with a warning: the mail may not be read by anyone or delivered anywhere until one attaches. The warning names the watchdog call that attaches one and `orgtree_inbox project=<name>`, which reads the waiting mail. A paused listener counts as attached; the result then says the mail waits for it to resume. The user's registration also counts, so a user-only queue does not produce the no-listener warning. Project inspection never claims a queued job; ACK-mode completion remains a separate operation.
+
+## Batch queue submission
+
+Give exactly one batch source (`jobs`, `rows` or `jobs_file`) and the call queues many jobs on one project's mail queue. `to` names exactly one live project in this organization; an agent, `user`, an outside address or a retired project refuses. Reach and audience checks run per job exactly as for a single send to that project, and every job is an ordinary project mail in submission order: same round-robin or ACK dispatch, same listeners, no listener change. `kind`, `notice` and `one_time` keep their ordinary meaning for every job. Attachments, `reply_to`/`replies`, `options`, `urgent` and `tags` refuse with a batch source; an ack is a reply to one handed job, so send it as an ordinary message. Batch fields belong to `orgtree_message` only; `orgtree_send_notice` does not take them. A batch never advertises typing.
+
+With `rows`, `body` is the template. A placeholder key is 1-64 letters, digits, `_`, `-` or `.`; the only format is `:0W` zero-padding with W a digit 1-9, as in `{index:03}`. Row values must be strings, numbers or booleans, at most 64 keys per row. `{index}` is the 1-based row number and `{total}` the row count; a row's own `index` or `total` value wins. A template with no placeholder, an unclosed `{` or a lone `}` refuses the whole call before anything is sent. With `jobs` (or a jobs manifest) `body` must be empty: each job is its own body.
+
+In a manifest, the first usable entry settles the batch's one kind: job strings or row objects; entries of the other kind are rejected rows. Blank lines are skipped in `.jsonl` and lines manifests, and row numbers keep their source position (a lines manifest keeps its line numbers, so a job after blank lines keeps its line's number). A `.csv` manifest's first record names the template keys (each nonempty, no duplicates); quoted fields and doubled quotes follow the RFC 4180 subset, and a record whose field count differs from the header is a rejected row. A manifest that is not valid JSON, or a `.json` that is not an array, refuses the whole call; a bad `.jsonl` line is a rejected row naming its line.
+
+Limits: at most 1,000 jobs, each rendered job nonblank and at most 256 KiB, at most 8 MiB of rendered job bodies in one batch. Every row is rendered and bounded before anything is sent. The result reports every row in order: queued with its mail id, already queued with its original id, or rejected with its reason. The answer text spells out the first 20 rejected rows; the result card lists every row, and its `mails` are the queued and already-queued mails in row order. A refusal about one job rejects only its row; a refusal about the recipient or the engine stops the batch and reports the remaining rows as rejected rather than trying each one. If no row is queued or already queued, the call refuses with the same report.
+
+`batch_key` makes a retry after a lost response safe. The key is scoped to you and to that project: the same key on another queue is another batch. Row numbers identify jobs under the key, so retry with the same rows in the same order: jobs the earlier call already queued are reported as already queued, not resent, and the rest queue normally. Retry sequentially; two duplicate calls running at the same time with the same key can still both queue.
 
 ## User-mail tags
 
