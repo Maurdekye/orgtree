@@ -10199,6 +10199,11 @@ button.ref-chip.ref-chip.ref-ready:is(.ref-item, .ref-doc, .ref-app, .ref-panel,
   vertical-align: -0.265em;
 }
 .ref-mark svg { width: 1em; height: 1em; }
+/* Transcript object icons share the desk's provider accent, including project folders.
+   Keep the org accent outside the transcript and semantic status/identity colours separate.
+   USER 2026-11-02 m8501093faf7d; the organization-colour preference still owns --accent. */
+.desk-body .msgs .ref-mark,
+.desk-body .msgs .project-mark { color: var(--accent); }
 /* A LINK'S STATE FLARE (USER 2026-10-27 m43beb8089dd4 "add a flare with the
    ticket's status as a color, similar to ticket links"; m919f12828686 "unread
    or modified presentation links should be highlighted in a similar manner as

@@ -2869,6 +2869,20 @@ follow, as before. Not changed: a pinned (non-modal) window's resize reaches the
 Proof: `tests/fitview.test.tsx`, the pin registering before any timer runs.
 [decided: user 2026-10-31 mde9aed4fbe59; verified: `canvas/OrgCanvas.tsx`, `canvas/pins.tsx`, `canvas/pinspace.ts`]
 
+## Transcript reference icons follow the desk provider (2026-11-02, 4.5.5)
+
+Inside `.desk-body .msgs`, the shared mail, ticket, presentation, app and panel
+reference marks and project-folder marks use the desk's existing `--accent`.
+This replaces their direct organization-accent colour in transcript prose,
+tool/message cards and reminders. OpenAI desks use Codex teal and Claude desks
+use terracotta; the explicit organization-colour preference still applies.
+Status colours, reminder-family colours and model-tier badges remain independent.
+Outside the transcript (inbox, docket, gallery, headers and other link surfaces),
+the shared marks retain their existing organization accent.
+Proof: `tests/agentcolors.test.tsx`, OpenAI and Claude controls with all mark kinds,
+theme/preference changes and outside-transcript/semantic-colour controls.
+[decided: user 2026-11-02 m8501093faf7d; verified: `styles.css`, `canvas/{desk,refmarks,identity}.tsx`]
+
 ## Agent mail links flare unread; unread urgent mail wears the urgent colour (2026-11-01, 4.5.3)
 
 USER 2026-11-01 mc13db4358667 "only uswr mail gets the highlight. can agent mail get it too? it has read / unread states" and
