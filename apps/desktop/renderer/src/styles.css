@@ -9027,7 +9027,7 @@ html.mobile .popout-button { display: none; }
 .reply-preview > .dim { display: block; margin-bottom: 5px; font-size: 11px; }
 .reply-preview-jump {
   display: inline-flex; align-items: center; gap: 3px; flex: none;
-  min-height: 0; margin: 0; padding: 0;
+  min-height: 0; margin: 0; padding: 2px 4px;
   border: 0; border-radius: 3px; background: transparent;
   color: var(--accent, #8d9ed9); font: inherit; font-size: 11px;
   line-height: 1.3; text-align: left; text-decoration: underline;
@@ -9051,7 +9051,7 @@ html.mobile .popout-button { display: none; }
 .reply-preview[role="link"] { cursor:pointer; }
 .reply-preview[role="link"]:hover { background:color-mix(in srgb,var(--accent) 5%,var(--bg)); }
 .reply-preview[role="link"]:focus-visible { outline:2px solid var(--button-accent); outline-offset:2px; }
-.reply-preview-head > .reply-presentation-link { display:inline-flex; min-width:0; max-width:100%; flex:0 1 auto; font-size:11px; line-height:1.3; padding:0; min-height:0; border:0; background:transparent; box-sizing:border-box; }
+.reply-preview-head > .reply-presentation-link { display:inline-flex; min-width:0; max-width:100%; flex:0 1 auto; font-size:11px; line-height:1.3; padding:2px 4px; min-height:0; border:0; background:transparent; box-sizing:border-box; }
 .reply-presentation-link > span { display:block; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 /* a loaded source event shows whole, inside the quote, in a bounded region
    that scrolls (it is focusable for that); its own card chrome is dropped so
