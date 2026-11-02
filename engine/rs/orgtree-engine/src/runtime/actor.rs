@@ -29,6 +29,7 @@ use crate::runtime::convo::{self, ConvoWriter};
 use crate::runtime::prompt::{self, Mail};
 use crate::runtime::sched::Slot;
 use crate::runtime::startup;
+use super::state_history::{self, AgentState};
 use super::token_counts::{self, Harness, Sample};
 use crate::runtime::{freeze, keepalive, recovery, tasks, AgentHandle, AgentMsg, AgentTx, Caller, Envelope, Post};
 use crate::util::{boxed, gist, iso, now_iso};
@@ -1210,6 +1211,8 @@ struct Actor {
     turn: Option<Turn>,
     last_interrupt: Value,
     convo: ConvoWriter,
+    /// the agent state last recorded in this agent's history, and when it began
+    state_hist: state_history::Tracker,
     init: Value,
     last_error: Option<String>,
     idle_since: Instant,
@@ -1325,12 +1328,39 @@ struct Startup {
     row: tokio_postgres::Row,
 }
 
+/// The instant each durable fact says its state began (a freeze record
+/// without an `at`, and an idle that did not end a turn, have none).
+struct StateStamps {
+    halt_at: Option<DateTime<Utc>>,
+    frozen_at: Option<DateTime<Utc>>,
+    blocked_at: Option<DateTime<Utc>>,
+    inflight_at: Option<DateTime<Utc>>,
+}
+
+#[logged]
+impl StateStamps {
+    #[nolog]
+    fn for_state(&self, state: AgentState) -> Option<DateTime<Utc>> {
+        match state {
+            AgentState::Halted => self.halt_at,
+            AgentState::Frozen => self.frozen_at,
+            AgentState::Blocked => self.blocked_at,
+            AgentState::Active => self.inflight_at,
+            AgentState::Idle => None,
+        }
+    }
+}
+
+const STATE_FACTS_SQL: &str =
+    "SELECT state, kind, halt, frozen, limit_locked, inflight_at, last_status FROM ot.agents WHERE id = $1";
+
 #[logged]
 impl Actor {
     async fn new(engine: Arc<Engine>, handle: Arc<AgentHandle>, startup: Startup) -> Result<Actor> {
         let Startup { connection: client, row } = startup;
         let org = engine.orgs.by_id(handle.org_id).ok_or_else(|| anyhow!("organization not open"))?;
         let convo = ConvoWriter::load(&client, handle.id).await?;
+        let state_hist = Self::state_seed(&client, handle.id).await;
         drop(client);
         let tier: String = row.get(2);
         let name: String = row.get(0);
@@ -1374,6 +1404,7 @@ impl Actor {
             turn: None,
             last_interrupt: Value::Null,
             convo,
+            state_hist,
             init: Value::Null,
             last_error: None,
             idle_since: Instant::now(),
@@ -1421,9 +1452,102 @@ impl Actor {
         })
     }
 
+    /// The facts a state-history reading is taken from, and their stamps.
+    #[nolog]
+    fn state_facts(row: &tokio_postgres::Row, turn_running: bool) -> (state_history::Facts, StateStamps) {
+        let halt: Option<Value> = row.get(2);
+        let frozen: Option<Value> = row.get(3);
+        let inflight_at: Option<DateTime<Utc>> = row.get(5);
+        let last_status: Option<Value> = row.get(6);
+        let stamp = |v: &Option<Value>| v.as_ref().and_then(|v| v["at"].as_str()).and_then(crate::util::parse_ts);
+        let stamps = StateStamps {
+            halt_at: stamp(&halt),
+            frozen_at: stamp(&frozen),
+            blocked_at: stamp(&last_status),
+            inflight_at,
+        };
+        let facts = state_history::Facts {
+            live: row.get::<_, String>(0) == "live" && row.get::<_, String>(1) == "agent",
+            halted: halt.is_some(),
+            frozen,
+            limit_locked: row.get(4),
+            active: turn_running || inflight_at.is_some(),
+            reported: last_status.as_ref().and_then(|v| v["status"].as_str().map(str::to_string)),
+        };
+        (facts, stamps)
+    }
+
+    /// Where recording resumes from when an actor starts: the newest state
+    /// row when the history has one; on an agent with none (it predates
+    /// state history), the durable facts' own state and stamp, so the
+    /// first row it ever gets still ends a span of about the right length.
+    /// A failed read starts from nothing rather than blocking the actor.
+    async fn state_seed(client: &tokio_postgres::Client, agent_id: i64) -> state_history::Tracker {
+        if let Ok(Some(row)) = client.query_opt(
+            "SELECT body->>'state', body->>'ts' FROM ot.convo WHERE agent_id = $1 AND body->>'kind' = 'state' ORDER BY seq DESC LIMIT 1",
+            &[&agent_id]).await {
+            if let Some(state) = row.get::<_, Option<String>>(0).and_then(|s| AgentState::parse(&s)) {
+                return state_history::Tracker::seeded(state,
+                    row.get::<_, Option<String>>(1).and_then(|t| crate::util::parse_ts(&t)));
+            }
+        }
+        let Ok(Some(row)) = client.query_opt(STATE_FACTS_SQL, &[&agent_id]).await else {
+            return state_history::Tracker::default();
+        };
+        let (facts, stamps) = Self::state_facts(&row, false);
+        let Some(cur) = state_history::effective(&facts) else {
+            return state_history::Tracker::default();
+        };
+        let since = match cur {
+            AgentState::Idle => client.query_opt(
+                "SELECT max(ended_at) FROM ot.turns WHERE agent_id = $1", &[&agent_id]).await
+                .ok().flatten().and_then(|r| r.get::<_, Option<DateTime<Utc>>>(0)),
+            other => stamps.for_state(other),
+        };
+        state_history::Tracker::seeded(cur, since)
+    }
+
+    /// Record this agent's state change in its history, if the effective
+    /// state changed. `at` is when the change happened; None reconciles
+    /// against the facts' own stamps (an actor starting again). The actor
+    /// is the only writer of the row, so changes made outside it arrive
+    /// as `AgentMsg::StateNote` and land here. A failure is logged and the
+    /// recorded state stays behind, so a later note still writes the row.
+    async fn note_state(&mut self, at: Option<DateTime<Utc>>) {
+        if let Err(e) = self.note_state_inner(at).await {
+            tracing::warn!(agent = %self.name, error = %format!("{e:#}"), "the state change could not be recorded in the agent's history");
+        }
+    }
+
+    async fn note_state_inner(&mut self, at: Option<DateTime<Utc>>) -> Result<()> {
+        let client = self.engine.db.get().await?;
+        let Some(row) = client.query_opt(STATE_FACTS_SQL, &[&self.id]).await? else { return Ok(()) };
+        let (facts, stamps) = Self::state_facts(&row, self.turn.is_some());
+        let Some(next) = state_history::effective(&facts) else { return Ok(()) };
+        if self.state_hist.state == Some(next) {
+            return Ok(());
+        }
+        // rows stay in time order: a stamp older than the recorded state's
+        // own start (a fact that changed again before its note was read)
+        // begins the new state no earlier than that start
+        let at = at.or_else(|| stamps.for_state(next)).unwrap_or_else(Utc::now);
+        let at = match self.state_hist.since {
+            Some(since) if at < since => since,
+            _ => at,
+        };
+        let mut tracker = self.state_hist.clone();
+        let Some(t) = tracker.transition(next, at) else { return Ok(()) };
+        self.convo.append(&client, state_history::row(&t)).await?;
+        self.state_hist = tracker;
+        self.changed(vec![Change::History(self.id)]);
+        Ok(())
+    }
+
     async fn run(mut self, mut rx: mpsc::UnboundedReceiver<Envelope>) {
         boxed(|| self.update_forecast()).await;
         self.publish();
+        // a state change nobody could record while no actor ran is caught here
+        self.note_state(None).await;
         loop {
             let deadline = self.next_deadline();
             let next = match self.replay.pop_front() {
@@ -1843,6 +1967,9 @@ impl Actor {
                 };
                 let _ = reply.send(r);
             }
+            AgentMsg::StateNote(at) => {
+                self.note_state(Some(at)).await;
+            }
             AgentMsg::Halt(reply) => {
                 boxed(|| self.cancel_keepalive()).await;
                 let r = boxed(|| self.halt()).await?;
@@ -1854,6 +1981,7 @@ impl Actor {
                     .execute("UPDATE ot.agents SET halt = NULL, row_version = row_version + 1 WHERE id = $1", &[&self.id])
                     .await?;
                 drop(client);
+                self.note_state(Some(Utc::now())).await;
                 self.changed(vec![Change::Agent(self.id)]);
                 crate::runtime::watchdogs::events::emit(&self.engine,crate::runtime::watchdogs::events::event("agent.unhalted",crate::runtime::watchdogs::events::Scope::Agent(self.org_id,self.id),json!({"agent_id":self.id})));
                 let _ = reply.send(json!({ "unhalted": true, "status": "idle" }));
@@ -5290,6 +5418,7 @@ impl Actor {
         if let Err(error) = self.save_next_turn_baseline().await {
             tracing::warn!(agent=self.id, %error, "next-turn launch baseline could not be recorded");
         }
+        self.note_state(Some(admitted_at)).await;
         let client = self.engine.db.get().await?;
         client.execute("UPDATE ot.turns SET sent_at = now() WHERE id = $1", &[&turn_id]).await?;
         let mut row = mail_row(&raw, None);
@@ -8665,6 +8794,7 @@ impl Actor {
             let _ = self.convo.append(&client, row).await;
         }
         drop(client);
+        self.note_state(Some(Utc::now())).await;
         if let Some(run) = fresh {
             if let Err(e) = self.fresh_after_full(run).await {
                 tracing::warn!(agent = %self.name, error = %format!("{e:#}"), "no fresh session after the context filled");
@@ -8941,6 +9071,7 @@ impl Actor {
             )
             .await?;
         drop(client);
+        self.note_state(Some(Utc::now())).await;
         self.activity = None;
         self.publish();
         self.changed(vec![
@@ -9021,6 +9152,7 @@ impl Actor {
         turn.activity = true;
         turn.serving_tier = ctx.tier.clone();
         self.begin_turn(turn);
+        self.note_state(Some(admitted_at)).await;
         self.activity = Some((if compact { "compacting" } else { "thinking" }.into(), None));
         if !compact {
             let client = self.engine.db.get().await?;

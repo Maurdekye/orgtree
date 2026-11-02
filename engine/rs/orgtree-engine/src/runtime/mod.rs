@@ -105,6 +105,10 @@ pub enum AgentMsg {
     InterruptBoundary { process: uuid::Uuid, reply: oneshot::Sender<Value> },
     Halt(oneshot::Sender<Value>),
     Unhalt(oneshot::Sender<Value>),
+    /// a durable state fact changed outside the actor (a status report, a
+    /// freeze set or released): re-derive the effective state at this
+    /// instant and record the change in the agent's history
+    StateNote(chrono::DateTime<chrono::Utc>),
     /// a slash command typed on the desk (`/compact`, ...), sent to the CLI as is
     Command(String, oneshot::Sender<Value>),
     /// Native compact requested by an agent, with authority rechecked at admission.
@@ -179,6 +183,7 @@ impl std::fmt::Debug for AgentMsg {
             Self::InterruptBoundary { .. } => "InterruptBoundary",
             Self::Halt(..) => "Halt",
             Self::Unhalt(..) => "Unhalt",
+            Self::StateNote(..) => "StateNote",
             Self::Command(..) => "Command",
             Self::CompactFromAgent { .. } => "CompactFromAgent",
             Self::Effort(..) => "Effort",
@@ -363,6 +368,15 @@ pub fn actor(engine: &Arc<Engine>, org_id: i64, agent_id: i64) -> Arc<AgentHandl
 #[logged]
 pub fn wake(engine: &Arc<Engine>, org_id: i64, agent_id: i64) {
     actor(engine, org_id, agent_id).send(AgentMsg::Wake);
+}
+
+/// Tell an agent's actor that a state fact it does not own changed at
+/// `at`, so its state history records the transition. The actor remains
+/// the only writer of its conversation rows; a note that changes nothing
+/// records nothing.
+#[logged]
+pub fn state_note(engine: &Arc<Engine>, org_id: i64, agent_id: i64, at: chrono::DateTime<chrono::Utc>) {
+    actor(engine, org_id, agent_id).send(AgentMsg::StateNote(at));
 }
 
 /// A queued switch or account: the agent applies it at once unless it is

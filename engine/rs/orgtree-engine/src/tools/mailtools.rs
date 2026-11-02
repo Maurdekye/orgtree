@@ -565,7 +565,8 @@ pub async fn status(engine: &Arc<Engine>, caller: &Caller, args: &Value) -> Resu
     drop(client);
     if let Some(on)=dnd { crate::domain::dnd::set(engine,me.org_id,me.id,on,false).await?; }
     let client = engine.db.get().await?;
-    let rec = json!({ "status": state, "summary": summary, "at": iso(chrono::Utc::now()) });
+    let reported_at = chrono::Utc::now();
+    let rec = json!({ "status": state, "summary": summary, "at": iso(reported_at) });
     client
         .execute(
             "UPDATE ot.agents SET prev_status = last_status, last_status = $2, row_version = row_version + 1 WHERE id = $1",
@@ -590,6 +591,8 @@ pub async fn status(engine: &Arc<Engine>, caller: &Caller, args: &Value) -> Resu
     let top_level = superior.is_none();
     drop(client);
     changes::notify_id(engine, me.org_id, vec![Change::Agent(me.id), Change::Events, Change::History(me.id)]);
+    // a blocked report (or one clearing it) is a state change in the agent's history
+    crate::runtime::state_note(engine, me.org_id, me.id, reported_at);
     let mut told = String::new();
     if status == "done" || status == "blocked" {
         if let Some(sup) = superior {

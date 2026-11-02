@@ -205,6 +205,9 @@ pub async fn thaw_matching(engine: &Arc<Engine>, org_id: i64, agent_id: i64, exp
     ).await?;
     drop(client);
     let Some(row) = row else { return Ok(false) };
+    // leaving the frozen state is a state change in the agent's history,
+    // noted before anything can wake it into its next state
+    crate::runtime::state_note(engine, org_id, agent_id, Utc::now());
     let old: Value = row.get::<_, Option<Value>>(0).unwrap_or(Value::Null);
     // a connection retry (parity P34) is neither a limit reset nor an unstick
     let retry = expected.is_some() && old["connection"].as_bool().unwrap_or(false) && !old["limit"].as_bool().unwrap_or(false);
@@ -575,6 +578,9 @@ pub async fn continue_on(engine: &Arc<Engine>, org_id: i64, agent_id: i64, accou
     let wake_uid = continuation::queue_wake(&tx, org_id, agent_id, &name, &wake_text).await?;
     tx.commit().await?;
     drop(client);
+    if was_frozen {
+        crate::runtime::state_note(engine, org_id, agent_id, Utc::now());
+    }
     if let Some(h) = engine.agents.get(agent_id) {
         h.send(AgentMsg::Reconfigured);
     }

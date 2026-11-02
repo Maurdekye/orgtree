@@ -27,18 +27,37 @@ impl AgentState {
     /// the stored word (`state` / `prev_state` in the row)
     #[nolog]
     pub fn as_str(self) -> &'static str {
-        todo!()
+        match self {
+            AgentState::Active => "active",
+            AgentState::Idle => "idle",
+            AgentState::Blocked => "blocked",
+            AgentState::Halted => "halted",
+            AgentState::Frozen => "frozen",
+        }
     }
 
     /// the word the row opens with
     #[nolog]
     pub fn label(self) -> &'static str {
-        todo!()
+        match self {
+            AgentState::Active => "Active",
+            AgentState::Idle => "Idle",
+            AgentState::Blocked => "Blocked",
+            AgentState::Halted => "Halted",
+            AgentState::Frozen => "Frozen",
+        }
     }
 
     #[nolog]
     pub fn parse(s: &str) -> Option<Self> {
-        todo!()
+        match s {
+            "active" => Some(AgentState::Active),
+            "idle" => Some(AgentState::Idle),
+            "blocked" => Some(AgentState::Blocked),
+            "halted" => Some(AgentState::Halted),
+            "frozen" => Some(AgentState::Frozen),
+            _ => None,
+        }
     }
 }
 
@@ -63,14 +82,40 @@ pub struct Facts {
 /// and a limit-locked agent is frozen with or without a record.
 #[logged]
 pub fn is_frozen(rec: Option<&Value>, limit_locked: bool) -> bool {
-    todo!()
+    if limit_locked {
+        return true;
+    }
+    let Some(rec) = rec.filter(|r| !r.is_null()) else { return false };
+    let limit = rec["limit"].as_bool().unwrap_or(false);
+    if rec["connection"].as_bool().unwrap_or(false) && !limit {
+        return false;
+    }
+    if rec["cause"].as_str() == Some("rate_limit") && !limit {
+        return false;
+    }
+    true
 }
 
 /// The one effective state of an agent, by the desk badges' precedence.
 /// A non-live agent has no state to record.
 #[logged]
 pub fn effective(facts: &Facts) -> Option<AgentState> {
-    todo!()
+    if !facts.live {
+        return None;
+    }
+    if facts.halted {
+        return Some(AgentState::Halted);
+    }
+    if is_frozen(facts.frozen.as_ref(), facts.limit_locked) {
+        return Some(AgentState::Frozen);
+    }
+    if facts.active {
+        return Some(AgentState::Active);
+    }
+    if facts.reported.as_deref() == Some("blocked") {
+        return Some(AgentState::Blocked);
+    }
+    Some(AgentState::Idle)
 }
 
 /// One recorded change: entering `state` at `at`, ending `prev`.
@@ -95,7 +140,7 @@ pub struct Tracker {
 impl Tracker {
     #[nolog]
     pub fn seeded(state: AgentState, since: Option<DateTime<Utc>>) -> Self {
-        todo!()
+        Tracker { state: Some(state), since }
     }
 
     /// Record `next` beginning at `at`; returns the transition to write,
@@ -104,7 +149,18 @@ impl Tracker {
     /// rather than recording a negative span.
     #[nolog]
     pub fn transition(&mut self, next: AgentState, at: DateTime<Utc>) -> Option<Transition> {
-        todo!()
+        if self.state == Some(next) {
+            return None;
+        }
+        let t = Transition {
+            state: next,
+            prev: self.state,
+            prev_secs: self.state.zip(self.since).map(|(_, since)| (at - since).num_seconds().max(0)),
+            at,
+        };
+        self.state = Some(next);
+        self.since = Some(at);
+        Some(t)
     }
 }
 
@@ -113,21 +169,47 @@ impl Tracker {
 /// the badges above it never disagree about the words for a span.
 #[logged]
 pub fn fmt_duration(secs: i64) -> String {
-    todo!()
+    let s = secs.max(0) as f64;
+    let n = |v: f64, unit: &str| format!("{}{unit}", v.round() as i64);
+    if s < 90.0 {
+        return n(s, "s");
+    }
+    if s < 90.0 * 60.0 {
+        return n(s / 60.0, "m");
+    }
+    if s < 36.0 * 3600.0 {
+        return n(s / 3600.0, "h");
+    }
+    let days = s / 86400.0;
+    if days < 14.0 {
+        return n(days, "d");
+    }
+    if days < 56.0 {
+        return n(days / 7.0, "w");
+    }
+    let months = days / 30.4375;
+    if months < 18.0 { n(months, "mo") } else { n(days / 365.25, "y") }
 }
 
 /// The row's one line: the new state, then what it ended and for how
 /// long, when that is known. "Idle · was active 12m".
 #[logged]
 pub fn line(t: &Transition) -> String {
-    todo!()
+    match (t.prev, t.prev_secs) {
+        (Some(prev), Some(secs)) => format!("{} · was {} {}", t.state.label(), prev.as_str(), fmt_duration(secs)),
+        (Some(prev), None) => format!("{} · was {}", t.state.label(), prev.as_str()),
+        (None, _) => t.state.label().to_string(),
+    }
 }
 
 /// The conversation row for one transition, in the existing transcript
 /// system-row shape the desk renders as a compact line.
 #[logged]
 pub fn row(t: &Transition) -> Value {
-    todo!()
+    json!({ "role": "system", "kind": "state", "ts": crate::util::iso(t.at),
+            "state": t.state.as_str(), "prev_state": t.prev.map(AgentState::as_str),
+            "prev_secs": t.prev_secs, "text": line(t),
+            "tokens": crate::runtime::token_counts::not_counted(crate::runtime::token_counts::NOT_SENT) })
 }
 
 #[cfg(test)]
@@ -258,7 +340,7 @@ mod tests {
         assert_eq!(r["prev_state"], "active");
         assert_eq!(r["prev_secs"], 720);
         assert_eq!(r["text"], "Idle · was active 12m");
-        assert_eq!(r["ts"], "2026-11-01T10:12:00Z");
+        assert_eq!(r["ts"], "2026-11-01T10:12:00.000Z");
         assert!(r["tokens"].is_object(), "rows carry the not-counted token marker: {r}");
     }
 
