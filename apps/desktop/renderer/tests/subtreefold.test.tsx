@@ -21,6 +21,14 @@ import {
   pruneCollapsedView, parseCollapsedSubtrees, collapsedSubtreesKey,
   getCollapsedSubtrees, toggleCollapsedSubtree, expandCollapsedSubtrees,
 } from '../src/canvas/subtreefold'
+import type { FoldInfo } from '../src/canvas/subtreefold'
+import { readFileSync } from 'node:fs'
+import { join as joinPath } from 'node:path'
+import { mountView } from './harness'
+import { ProjectSquare } from '../src/canvas/projectcard'
+import type { OpResult } from '../src/canvas/shared'
+
+declare const __SRC_DIR__: string
 
 const patch = (n: CanvasNode, p: Partial<CanvasNode>): CanvasNode =>
   Object.assign(n as unknown as Record<string, unknown>, p) as unknown as CanvasNode
@@ -173,4 +181,51 @@ test('toggling and expanding update the org\'s set; other orgs are independent',
   expandCollapsedSubtrees(slug, ['lead', 'never-folded'])
   assert.equal(getCollapsedSubtrees(slug).size, 0,
     'expanding removes exactly the named folds')
+})
+
+// ------------------------------------------------- the project card's rollup
+// The 2026-11-02 Session 0 capture bounce: a folded PROJECT with a hidden
+// member mid-turn was invisible in both forms — .sq.project.norm outranks
+// .sq.busy in the cascade, and the mini node drew its folder regardless.
+// The DOM half is asserted here; the cascade half can only be read off the
+// stylesheet (jsdom applies no real cascade), as orginboxplace reads it.
+const noopFn = () => {}
+const hireOffer = { enabled: true, installed: true, reason: null }
+const FOLDED_WORKING: FoldInfo = { collapsed: true, count: 4, working: true, attention: false }
+const FOLDED_IDLE: FoldInfo = { collapsed: true, count: 4, working: false, attention: false }
+const projectSquare = (lod: 'norm' | 'mini', fold: FoldInfo) => {
+  const node = patch(project('proj-x', [agent('kid')]) as unknown as CanvasNode,
+    { busy: false, occupancy: 0, context_window: 1000 })
+  return mountView(<ProjectSquare node={node} pos={{ x: 0, y: 0 }} lod={lod}
+    dragging={false} isDrop={false} op={() => Promise.resolve({} as OpResult)}
+    slug="fold-test" toast={noopFn} zoom={2} tree={bunchTree([project('proj-x')])}
+    hire={{ claudeHire: hireOffer }} seats={{ sol: 1 }} fold={fold} onToggleFold={noopFn}
+    onHire={noopFn} onInbox={noopFn} onNewProject={noopFn}
+    onDragStart={noopFn} onDragMove={noopFn} onDragEnd={noopFn} onDragCancel={noopFn} />, (el) => el)
+}
+const hasActiveSpinner = (el: HTMLElement): boolean => {
+  const icon = el.querySelector('.sq-far-icon.active')
+  return !!icon && icon.querySelector('title')?.textContent === 'Active'
+}
+
+test('a folded project at far zoom shows Active while a hidden member works, its folder while none does', async (t) => {
+  const working = await projectSquare('mini', FOLDED_WORKING)
+  t.after(() => working.unmount())
+  assert.equal(hasActiveSpinner(working.el), true,
+    'the mini project wears the agent mini node\'s Active spinner, not only its folder')
+  assert.equal(working.el.querySelector('.sq.project')?.classList.contains('busy'), true)
+  const idle = await projectSquare('mini', FOLDED_IDLE)
+  t.after(() => idle.unmount())
+  assert.equal(hasActiveSpinner(idle.el), false)
+  assert.ok(idle.el.querySelector('.project-mini svg'), 'idle keeps the folder')
+})
+
+test('the busy border outranks the project norm border in the stylesheet', () => {
+  const css = readFileSync(joinPath(__SRC_DIR__, 'styles.css'), 'utf8')
+  const norm = css.indexOf('.sq.project.norm {')
+  const busy = css.indexOf('.sq.project.busy {')
+  assert.ok(norm >= 0 && busy > norm,
+    'a .sq.project.busy rule follows .sq.project.norm, so equal specificity resolves to busy')
+  assert.match(css.slice(busy, busy + 120), /border-color:\s*color-mix\(in srgb, var\(--accent\) 55%/,
+    'and it is the same busy border an agent card wears')
 })
