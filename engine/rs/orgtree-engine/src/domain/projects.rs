@@ -94,7 +94,38 @@ pub fn ack_mode(scope: &Value) -> bool {
     scope.get("mail_queue").and_then(Value::as_str) == Some(MODE_ACK)
 }
 
-/// Does the project keep a sender's own mail from being handed back to it
+/// The project's theme colour and icon live in its scope like its other
+/// settings (no schema change).
+/// A theme colour is `#` and six hex digits (USER 2026-10-28 m1c0bc6c121e9).
+#[nolog]
+pub fn valid_theme_color(v: &str) -> bool {
+    v.len() == 7 && v.starts_with('#') && v[1..].bytes().all(|b| b.is_ascii_hexdigit())
+}
+
+/// A theme icon names one of the desktop's built-in icons by slug: lowercase
+/// letters, digits and single inner hyphens, at most 40 chars. The desktop
+/// owns the set; an id it does not know draws as the folder.
+#[nolog]
+pub fn valid_theme_icon(v: &str) -> bool {
+    !v.is_empty() && v.len() <= 40 && !v.starts_with('-') && !v.ends_with('-')
+        && v.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
+}
+
+/// The project's theme colour (`scope.theme_color`), normalised to lowercase;
+/// anything stored that would not be accepted today reads as no colour.
+#[nolog]
+pub fn theme_color(scope: &Value) -> Option<String> {
+    scope.get("theme_color").and_then(Value::as_str).filter(|v| valid_theme_color(v)).map(str::to_lowercase)
+}
+
+/// The project's theme icon (`scope.theme_icon`); invalid stored values read
+/// as no icon, i.e. the folder.
+#[nolog]
+pub fn theme_icon(scope: &Value) -> Option<String> {
+    scope.get("theme_icon").and_then(Value::as_str).filter(|v| valid_theme_icon(v)).map(str::to_string)
+}
+
+/// Does the project keep its own mail from being handed back to its sender
 /// (its `scope.mail_queue_exclude_sender`; off by default, user 08:08Z)?
 #[nolog]
 pub fn exclude_sender(scope: &Value) -> bool {

@@ -222,6 +222,11 @@ pub fn agent_body(raw: &Value, effective: &Value, parent_key: Option<i64>, ctx: 
         // its Recently Fired re-reads when the newest kept fire changes (its
         // Listeners tab follows `configured_scope.event_listeners`)
         o.insert("last_fire".into(), raw["x_last_fire"].as_i64().map(|n| json!(n)).unwrap_or(Value::Null));
+        // its theme colour and icon (USER 2026-10-28 m1c0bc6c121e9): the
+        // project mark wears them on every surface; null = the folder in
+        // the default colour
+        o.insert("theme_color".into(), super::projects::theme_color(&configured).map(|v| json!(v)).unwrap_or(Value::Null));
+        o.insert("theme_icon".into(), super::projects::theme_icon(&configured).map(|v| json!(v)).unwrap_or(Value::Null));
     }
     o.insert("limit_locked".into(), json!(raw["limit_locked"].as_bool().unwrap_or(false)));
     let resumable = state == "live" && !frozen.is_null() && !halted;

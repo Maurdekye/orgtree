@@ -879,6 +879,7 @@ pub(crate) async fn run_in_tx_without_audience_notices(engine: &Arc<Engine>, org
         "dead_letter_drop" => boxed(|| dead_letter_drop(org, &tx, actor, req, fx)).await?,
         "set_slots" => boxed(|| set_slots(org, &tx, actor, req, fx)).await?,
         "set_event_listeners" => boxed(|| set_event_listeners(org, &tx, actor, req, fx)).await?,
+        "set_theme" => boxed(|| set_theme(org, &tx, actor, req, fx)).await?,
         "project_settings" => boxed(|| project_settings(org, &tx, actor, req)).await?,
         "configure_project" => boxed(|| configure_project(org, &tx, actor, req, fx)).await?,
         "project_presentations" => boxed(|| project_presentations(org, &tx, actor, req)).await?,
@@ -2515,6 +2516,7 @@ async fn project_settings(org: &Arc<OrgHandle>, tx: &Transaction<'_>, actor: &Ac
         "exclude_sender":super::projects::exclude_sender(&n.scope),"ack_timeout":super::projects::ack_timeout(&n.scope),
         "max_attempts":super::projects::max_attempts(&n.scope),"ack_reminders":super::projects::ack_reminders(&n.scope),
         "turn_end_reminder":super::projects::turn_end_reminder(&n.scope),"slots":super::slots::capacity(&n.scope),
+        "theme_color":super::projects::theme_color(&n.scope),"theme_icon":super::projects::theme_icon(&n.scope),
         "event_listeners":super::listeners::enabled(&n.scope)
     }}))
 }
@@ -2635,6 +2637,52 @@ async fn project_presentations(org:&Arc<OrgHandle>,tx:&Transaction<'_>,actor:&Ac
         Ok(d)
     }).collect::<Result<_>>()?;
     Ok(json!({"project":n.name,"documents":docs,"offset":offset,"next_offset":if rows.len()==limit as usize {Some(offset+limit)} else {None}}))
+}
+
+/// Set a project's theme colour and icon (USER 2026-10-28 10:27:49Z
+/// m1c0bc6c121e9): the user sets them in the project's settings, with no
+/// agent tool this round (liaison spec), so this op is the settings panel's
+/// own. Either half may be given alone; null clears it back to the folder
+/// icon in the default colour. Both live in the project's scope.
+#[logged]
+async fn set_theme(org: &Arc<OrgHandle>, tx: &Transaction<'_>, actor: &Actor, req: &Value, fx: &mut Effects) -> Result<Value> {
+    let n = node_by_name(tx, org.id, str_arg(req, "node").unwrap_or("")).await?;
+    if !n.project() {
+        refuse!(BadRequest, "{} is an agent: only a project has a theme colour and icon", n.name);
+    }
+    authorize_project_policy(tx, actor, &n, "set its theme").await?;
+    let colour = match req.get("theme_color") {
+        None => None,
+        Some(Value::Null) => Some(None),
+        Some(v) => match v.as_str().filter(|s| super::projects::valid_theme_color(s)) {
+            Some(s) => Some(Some(s.to_lowercase())),
+            None => refuse!(BadRequest, "theme_color is a colour like #e11d48, or null for the default colour"),
+        },
+    };
+    let icon = match req.get("theme_icon") {
+        None => None,
+        Some(Value::Null) => Some(None),
+        Some(v) => match v.as_str().filter(|s| super::projects::valid_theme_icon(s)) {
+            Some(s) => Some(Some(s.to_string())),
+            None => refuse!(BadRequest, "theme_icon is a built-in icon name like rocket, or null for the folder icon"),
+        },
+    };
+    if colour.is_none() && icon.is_none() {
+        refuse!(BadRequest, "set_theme needs theme_color or theme_icon (null clears either)");
+    }
+    let before: Value = tx.query_one("SELECT scope FROM ot.agents WHERE id = $1 FOR UPDATE", &[&n.id]).await?.get(0);
+    let mut next = if before.is_object() { before } else { json!({}) };
+    if let Some(c) = &colour {
+        match c { Some(v) => next["theme_color"] = json!(v), None => { next.as_object_mut().unwrap().remove("theme_color"); } }
+    }
+    if let Some(i) = &icon {
+        match i { Some(v) => next["theme_icon"] = json!(v), None => { next.as_object_mut().unwrap().remove("theme_icon"); } }
+    }
+    tx.execute("UPDATE ot.agents SET scope = $2, row_version = row_version + 1 WHERE id = $1", &[&n.id, &next]).await?;
+    event(tx, org.id, "set_theme", actor, Some(n.id),
+        json!({ "node": n.name, "theme_color": super::projects::theme_color(&next), "theme_icon": super::projects::theme_icon(&next) }), fx).await?;
+    fx.agents.insert(n.id);
+    Ok(json!({ "node": n.name, "theme_color": super::projects::theme_color(&next), "theme_icon": super::projects::theme_icon(&next) }))
 }
 
 /// Set a project's slot count (domain/slots.rs; user 2026-10-18 08:42Z: a
