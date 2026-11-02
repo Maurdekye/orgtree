@@ -50,6 +50,10 @@ export function recordedMailReply(row: ReplyRow, org: string) {
     : event?.variant === 'reply.docket' ? 'work_item' : '')
   return {
     ref,
+    /** the reply is a typed event whose own card header already draws `ref`
+     *  as its object chip (events/card.tsx ObjectLabel): the quote does not
+     *  draw it a second time (USER 2026-11-02 m0a48d522be9c restyle) */
+    linked: Boolean(linked),
     id,
     kind,
     body: text(snapshot?.body),
@@ -182,7 +186,7 @@ export function MailReplyPreview({ row, org, world, onOpen, replyAvailable, onLo
     action={<>
     <ReplyIcon fontSize="inherit" aria-hidden="true" />
     <span>In reply to{reply.from ? ` ${reply.from}` : ''}{reply.at ? ` · ${fmtFull(reply.at)}` : ''}</span>
-    {target && <RefChip r={target} onOpen={onOpen} />}
+    {target && !reply.linked && <RefChip r={target} onOpen={onOpen} />}
   </>}>
     <blockquote>{reply.gist || 'Reply to a message that is no longer available.'}</blockquote>
   </ReplyPreviewFrame>
@@ -199,7 +203,7 @@ function PresentationReply({reply,target,world,onOpen}:{reply:NonNullable<Return
     unavailable={!title.ready?title.why:!activate?'Original unavailable here; quoted context is retained.':undefined} action={<>
       <ReplyIcon fontSize="inherit" aria-hidden="true"/>
       <span>In reply to{reply.from?` ${reply.from}`:''}{reply.at?` · ${fmtFull(reply.at)}`:''}</span>
-      {activate?<button type="button" {...objectNavProps('document', target.ref.id, target.ref.org)} className="reply-preview-jump reply-presentation-link" title={title.why}
+      {reply.linked?null:activate?<button type="button" {...objectNavProps('document', target.ref.id, target.ref.org)} className="reply-preview-jump reply-presentation-link" title={title.why}
         onClick={e=>{e.stopPropagation();activate()}}><span>{title.label}</span></button>
         :<span className="reply-presentation-link" title={title.why}>{title.label}</span>}
     </>}>

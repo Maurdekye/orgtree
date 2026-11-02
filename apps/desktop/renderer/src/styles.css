@@ -8996,11 +8996,38 @@ html.mobile .popout-button { display: none; }
    the tier choice and its gating stay in SpawnChips */
 .sq.hire-reveal > .hsof:not(.side) { opacity: 1; pointer-events: auto; }
 
-.reply-preview { border-left: 3px solid var(--accent, #8d9ed9); margin: 6px 8px; padding: 6px 10px; background: #8090b015; font-size: 12px; }
-.reply-preview-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+/* REPLY BLOCKS (USER 2026-11-02 m0a48d522be9c "restyle all reply blocks,
+   they look ugly compared to the rest of the app and other messsge blcoks.
+   particulsrly the inside where the inline reply is housed"). Every reply and
+   inline quote renders through ReplyPreviewFrame (canvas/replypreview.tsx):
+   desk transcript, mail reader, composer drafts, selection replies. It is a
+   NESTED MESSAGE BLOCK in the event card's own language (.event-surface /
+   .event-head / .event-body below the typed families): the same 1px soft
+   border, 5px radius and page background; a left-aligned, wrapping 11px head
+   row over a soft rule; body text at the body's inset. Its left edge is the
+   app's QUOTE edge (.md blockquote: neutral --line), never --accent, which is
+   orange in the Claude theme and clashed with the card's family edge. The
+   quoted text is clamped to three lines instead of scrolling inside the
+   block; the whole block opens the original. */
+.reply-preview {
+  display: block; width: auto; min-width: 0; max-width: 100%; box-sizing: border-box;
+  margin: 6px 0; padding: 0 0 1px;
+  border: 1px solid var(--line-soft); border-left: 3px solid var(--line); border-radius: 5px;
+  background: var(--bg); font-size: 12px; overflow-wrap: anywhere;
+}
+.reply-preview-head {
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-start; gap: 3px 8px;
+  min-width: 0; padding: 5px 9px; border-bottom: 1px solid var(--line-soft);
+  font-size: 11px; color: var(--dim);
+}
+.reply-preview-head > svg { flex: none; }
+/* the composer's remove control is the one thing at the far end */
+.reply-preview-head > button[aria-label="Remove reply"] { margin-left: auto; }
+.reply-preview > :not(.reply-preview-head) { margin-left: 9px; margin-right: 9px; }
+.reply-preview > .dim { display: block; margin-bottom: 5px; font-size: 11px; }
 .reply-preview-jump {
   display: inline-flex; align-items: center; gap: 3px; flex: none;
-  min-height: 0; margin: 0; padding: 2px 4px;
+  min-height: 0; margin: 0; padding: 0;
   border: 0; border-radius: 3px; background: transparent;
   color: var(--accent, #8d9ed9); font: inherit; font-size: 11px;
   line-height: 1.3; text-align: left; text-decoration: underline;
@@ -9016,28 +9043,37 @@ html.mobile .popout-button { display: none; }
   cursor: default; text-decoration-style: dotted;
 }
 .reply-preview-jump-icon { font-size: 14px !important; }
-.reply-preview blockquote { margin: 5px 0; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 100px; overflow: auto; }
-/* Reply context shares the composer annotation shape in every location.
-   Its actions still depend on whether the user is composing or reading. */
-.reply-preview { margin: 6px 0; display: block; width: auto; border-right: 0; }
-.reply-preview blockquote { max-height: 2.8em; }
-.reply-preview { min-width: 0; max-width: 100%; box-sizing: border-box; }
+.reply-preview blockquote {
+  margin-top: 5px; margin-bottom: 5px; padding: 0; color: var(--ink);
+  white-space: pre-wrap; overflow-wrap: anywhere;
+  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; line-clamp: 3; overflow: hidden;
+}
 .reply-preview[role="link"] { cursor:pointer; }
-.reply-preview[role="link"]:hover { background:color-mix(in srgb,var(--accent) 7%,var(--panel)); }
+.reply-preview[role="link"]:hover { background:color-mix(in srgb,var(--accent) 5%,var(--bg)); }
 .reply-preview[role="link"]:focus-visible { outline:2px solid var(--button-accent); outline-offset:2px; }
-.reply-preview-head > .reply-presentation-link { display:inline-flex; min-width:0; max-width:55%; flex:0 1 auto; margin-left:auto; font-size:11px; line-height:1.3; padding:2px 4px; min-height:0; border:0; background:transparent; box-sizing:border-box; }
+.reply-preview-head > .reply-presentation-link { display:inline-flex; min-width:0; max-width:100%; flex:0 1 auto; font-size:11px; line-height:1.3; padding:0; min-height:0; border:0; background:transparent; box-sizing:border-box; }
 .reply-presentation-link > span { display:block; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-.reply-preview-content { max-height: 10rem; overflow: auto; overflow-wrap: anywhere; margin-top: 5px; overscroll-behavior: contain; }
+/* a loaded source event shows whole, inside the quote, in a bounded region
+   that scrolls (it is focusable for that); its own card chrome is dropped so
+   the quote is the only frame */
+.reply-preview-content { max-height: 10rem; overflow: auto; overflow-wrap: anywhere; margin-top: 5px; margin-bottom: 5px; overscroll-behavior: contain; scrollbar-width: thin; }
 .reply-preview-content:focus-visible { outline: 1px solid var(--accent); outline-offset: -1px; }
 .reply-source-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; color: var(--dim); }
 .reply-source-meta time { margin-left: auto; font-size: 11px; }
 .reply-preview-content .turn-mail-batch, .reply-preview-content .turn-mail { margin: 0; }
-.reply-preview-content .msg, .reply-preview-content .event-card { margin: 3px 0; padding: 4px 6px; font-size: inherit; }
+.reply-preview-content .msg, .reply-preview-content .event-card { margin: 3px 0; padding: 4px 0; font-size: inherit;
+  border: 0; border-radius: 0; background: transparent; }
+/* ⚠ !important ON PURPOSE: the urgent-mail and notice edges above reach up
+   to five classes, and inside a quote they drew a second coloured edge beside
+   the quote's own. The quote edge is the only edge in here. */
+.reply-preview-content :is(.msg, .event-card, .event-surface, .turn-mail) { border-left: 0 !important; padding-left: 0 !important; }
+.reply-preview-content .event-head { padding: 0 0 3px; border-bottom: 0; }
+.reply-preview-content .event-body { padding: 0; }
 .reply-preview-content pre { max-width: 100%; white-space: pre-wrap; overflow-wrap: anywhere; margin: 5px 0; }
 .reply-preview-content img { max-width: 100%; max-height: 7rem; object-fit: contain; }
 .reply-preview-content .md > :first-child { margin-top: 3px; }
 .reply-preview-content .md > :last-child { margin-bottom: 3px; }
-.reply-preview-content blockquote { max-height: none; white-space: normal; }
+.reply-preview-content blockquote { display: block; -webkit-line-clamp: none; line-clamp: none; overflow: visible; white-space: normal; }
 .reply-source-plan { margin: 4px 0; padding-left: 20px; }
 .reply-event { display: contents; }
 
